@@ -23,9 +23,9 @@ means. Skip them unless you are implementing or verifying an encoding.
 ## Implementation admission ledger
 
 This ledger is the greppable index of what the contract below has actually reached. It grants no permission by
-itself: what is `IMPLEMENTATION_ADMITTED` at this cut is exactly the one live fact channel `B8` names, because
-the three production-write slices `B7` named have been built and proven, and widening the admitted set requires
-changing this document first under the Architecture authority rule in `AGENTS.md`. A merged crate, a named type, a
+itself: what is `IMPLEMENTATION_ADMITTED` is whatever the Status column below says is, and nothing more, so this
+sentence names no slice and does not go stale when one moves. Widening that set requires changing this document
+first under the Architecture authority rule in `AGENTS.md`. A merged crate, a named type, a
 green job, or a row here is not implementation authority, never proves a production consumer, and never authorizes
 a production effect, a deployment cutover, or real trading.
 
@@ -93,32 +93,39 @@ never runs in CI.
   test fixture, and the PIT request's `instrument_master_digest` is now the Owner's own resolution rather than a
   caller's claim. What remains is not a writer but a run: no deployment has used them, which is the operational
   gap `B6` already names.
-- **`B8` no live fact reaches Runtime.** Every retrieval seam this Owner has is as-of: a Data Client answers one
-  frozen scope at one decision cut, and nothing streams. A Strategy Instance consuming the handoff named under
-  Output handoffs therefore has no input at all, and neither Paper nor Live can begin. Cleared by the first live
-  channel, admitted as a bounded slice below.
+- **`B8` no live fact reaches Runtime.** The headline is unchanged because it is still true, and what changed is
+  the clearing condition this entry used to name. It said the first live channel would clear it. The first live
+  channel now exists: it streams for one bounded scope, with its durable head and its Owner-issued subscription
+  proven by the ordered chain, and every other retrieval seam here is still as-of. That did not clear this entry,
+  because producing a fact and delivering it to a consumer are different things, and the slice admitting the
+  channel excluded the consumer half in its own words: no Runtime custody. Nothing in Runtime consumes the intake,
+  so a Strategy Instance still has no live input and neither Paper nor Live can begin. What clears this entry is a
+  Runtime-side consumer and a read surface on this side for it to consume, and this Owner has
+  neither built the second nor admitted it: no outward function serves a live fact, and the twelve
+  this Owner does expose name `rd_owner` inside their own bodies, so a grant to another caller yields
+  empty results rather than refusal.
 
 ### Per-slice ledger
 
-| Slice                                                     | Status                                            | Implementation                                                                                                                                                                                                                           | Blocker    |
-| --------------------------------------------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| PIT Market Snapshot authority and custody                 | `CURRENT / PARTIAL`                               | `crates/data/src/owner/pit_snapshot.rs`, `pit_snapshot/authority.rs`, `owner/postgres.rs` `pit_*` relations                                                                                                                              | `B1`       |
-| Source Binding and Owner‑local clock head                 | `CURRENT / PARTIAL`                               | `crates/data/src/owner/source_binding.rs`, `owner/postgres.rs`                                                                                                                                                                           | `B1`       |
-| `ResearchPitTerminal` output handoff to R&D               | `CURRENT / PARTIAL`                               | `crates/data/src/owner/research_pit_terminal.rs`                                                                                                                                                                                         | `B3`       |
-| Deployment Store Admission private seam                   | `CURRENT / PARTIAL`                               | `crates/data/src/owner/store_admission`                                                                                                                                                                                                  | `B3`       |
-| R0 observation evidence and reference‑fact catalog        | `CURRENT / PARTIAL`, including the R0 write       | `owner/reference_fact_coordinates`, `owner/reference_fact_catalog.rs`                                                                                                                                                                    | `B5`, `B7` |
-| Calendar, Time Zone and Session native authorities        | `CURRENT / PARTIAL`                               | `owner/calendar`, `owner/time_zone`, `owner/session`                                                                                                                                                                                     | `B5`       |
-| Market Semantics Owner contract                           | `CURRENT / PARTIAL`, including the fact intake    | `owner/market_semantics`                                                                                                                                                                                                                 | `B5`, `B7` |
-| Correction Policy private Replay projection               | `CURRENT / PARTIAL`                               | `owner/correction_policy_projection`                                                                                                                                                                                                     | `B5`       |
-| Corporate Action Instrument Master sub‑authority          | `CURRENT / PARTIAL`                               | `owner/corporate_action`                                                                                                                                                                                                                 | `B5`       |
-| Universe Selection Record                                 | `CURRENT / PARTIAL`                               | `owner/universe_selection.rs` with durable custody and in‑transaction rule evaluation in `owner/postgres/universe_selection.rs` (`universe_selection_records_v1`, receipts, outbox, historical‑membership frontier/facts/heads/manifest) | `B1`       |
-| Replay Market Facts V2 foundation                         | `CURRENT / PARTIAL`                               | `owner/replay_market_facts_v2`                                                                                                                                                                                                           | `B4`       |
-| Instrument Master V1 and V2 with economic terms           | `CURRENT / PARTIAL`, including the V1 intake      | `owner/instrument_master.rs`, `owner/instrument_master_v2*.rs`, `owner/instrument_economic_terms*_v1.rs`                                                                                                                                 | `B4`, `B7` |
-| Strategy input‑role binding and a Design's PIT coordinate | `CURRENT / PARTIAL`                               | `owner/postgres/strategy_input_binding_registry.rs`                                                                                                                                                                                      | `B2`, `B4` |
-| EVENT and BAR Owner custody                               | `CURRENT / PARTIAL`                               | `owner/sample_fact.rs`, `owner/sample_projection*.rs`, `owner/bar_schedule.rs`                                                                                                                                                           | `B4`       |
-| Shared Time clock‑head handoff                            | `TARGET`                                          | `owner/shared_time_evidence.rs`                                                                                                                                                                                                          | `B3`       |
-| Vendor Data Clients                                       | `CURRENT / PARTIAL`                               | `crates/adapters/databento/src/pit_observation_source_v1.rs` and `crates/adapters/binance/src/pit_observation_source_v1.rs`, both live‑verified                                                                                          | `B6`       |
-| Live market fact channel to Runtime                       | `TARGET`, first channel `IMPLEMENTATION_ADMITTED` | none yet; this row names the slice, not a file                                                                                                                                                                                           | `B8`       |
+| Slice                                                     | Status                                         | Implementation                                                                                                                                                                                                                           | Blocker    |
+| --------------------------------------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| PIT Market Snapshot authority and custody                 | `CURRENT / PARTIAL`                            | `crates/data/src/owner/pit_snapshot.rs`, `pit_snapshot/authority.rs`, `owner/postgres.rs` `pit_*` relations                                                                                                                              | `B1`       |
+| Source Binding and Owner‑local clock head                 | `CURRENT / PARTIAL`                            | `crates/data/src/owner/source_binding.rs`, `owner/postgres.rs`                                                                                                                                                                           | `B1`       |
+| `ResearchPitTerminal` output handoff to R&D               | `CURRENT / PARTIAL`                            | `crates/data/src/owner/research_pit_terminal.rs`                                                                                                                                                                                         | `B3`       |
+| Deployment Store Admission private seam                   | `CURRENT / PARTIAL`                            | `crates/data/src/owner/store_admission`                                                                                                                                                                                                  | `B3`       |
+| R0 observation evidence and reference‑fact catalog        | `CURRENT / PARTIAL`, including the R0 write    | `owner/reference_fact_coordinates`, `owner/reference_fact_catalog.rs`                                                                                                                                                                    | `B5`, `B7` |
+| Calendar, Time Zone and Session native authorities        | `CURRENT / PARTIAL`                            | `owner/calendar`, `owner/time_zone`, `owner/session`                                                                                                                                                                                     | `B5`       |
+| Market Semantics Owner contract                           | `CURRENT / PARTIAL`, including the fact intake | `owner/market_semantics`                                                                                                                                                                                                                 | `B5`, `B7` |
+| Correction Policy private Replay projection               | `CURRENT / PARTIAL`                            | `owner/correction_policy_projection`                                                                                                                                                                                                     | `B5`       |
+| Corporate Action Instrument Master sub‑authority          | `CURRENT / PARTIAL`                            | `owner/corporate_action`                                                                                                                                                                                                                 | `B5`       |
+| Universe Selection Record                                 | `CURRENT / PARTIAL`                            | `owner/universe_selection.rs` with durable custody and in‑transaction rule evaluation in `owner/postgres/universe_selection.rs` (`universe_selection_records_v1`, receipts, outbox, historical‑membership frontier/facts/heads/manifest) | `B1`       |
+| Replay Market Facts V2 foundation                         | `CURRENT / PARTIAL`                            | `owner/replay_market_facts_v2`                                                                                                                                                                                                           | `B4`       |
+| Instrument Master V1 and V2 with economic terms           | `CURRENT / PARTIAL`, including the V1 intake   | `owner/instrument_master.rs`, `owner/instrument_master_v2*.rs`, `owner/instrument_economic_terms*_v1.rs`                                                                                                                                 | `B4`, `B7` |
+| Strategy input‑role binding and a Design's PIT coordinate | `CURRENT / PARTIAL`                            | `owner/postgres/strategy_input_binding_registry.rs`                                                                                                                                                                                      | `B2`, `B4` |
+| EVENT and BAR Owner custody                               | `CURRENT / PARTIAL`                            | `owner/sample_fact.rs`, `owner/sample_projection*.rs`, `owner/bar_schedule.rs`                                                                                                                                                           | `B4`       |
+| Shared Time clock‑head handoff                            | `TARGET`                                       | `owner/shared_time_evidence.rs`                                                                                                                                                                                                          | `B3`       |
+| Vendor Data Clients                                       | `CURRENT / PARTIAL`                            | `crates/adapters/databento/src/pit_observation_source_v1.rs` and `crates/adapters/binance/src/pit_observation_source_v1.rs`, both live‑verified                                                                                          | `B6`       |
+| Live market fact channel to Runtime                       | `CURRENT / PARTIAL`, one channel               | `owner/live_market_fact_v1.rs`, `owner/live_market_stream_v1.rs`, `owner/postgres/live_market_stream_v1.rs`, `crates/adapters/bybit/src/live_market_fact_source_v1.rs`                                                                   | `B8`       |
 
 ## Authoritative facts owned
 
@@ -842,6 +849,16 @@ product consumption of it.
 role/mapping paths with the existing Owner-sealed resolution. R&D declares research scope and the Strategy
 compiler consumes that resolution, but neither may query Instrument Master storage directly, maintain a
 symbol-to-instrument or venue mapping, or synthesize a resolution.
+
+Admitting that consumption is a change to this Owner's sealed read contract, not an access-control change.
+The resolution Backtest would consume already exists, so the obstacle is not a missing function. Every
+function in this Owner's outward read schema binds its permitted caller inside the sealed function itself,
+not only through schema and execute privileges, and it is the sealed body that decides. A privilege grant
+alone therefore opens nothing. A caller that holds the privilege but is not the bound caller receives an
+empty result rather than a permission error, so at the call site an unauthorized reader and an absent fact
+are indistinguishable, and a consumer whose contract treats a missing receipt as evidence will record a
+data gap where the truth is a closed door. Any proposal to admit a second consuming Owner is sized by that
+contract change and must state which caller binding it rewrites.
 
 **CURRENT / PARTIAL, production Instrument Master V1 intake:** one Owner-sealed admission port and one route,
 `POST /v1/market-data/instrument-master-facts`, through which Operations submits `InstrumentMasterFactProposalV1`
@@ -1678,11 +1695,14 @@ instrument-class rejection.
 - To [Scanner](./scanner/): the exact PIT Market Snapshot requested by published activation conditions.
 - To [Runtime](./runtime/): live market streams and instrument updates carrying the same Market Semantics
   Compatibility identity consumed by the generation's Strategy Artifact and historical evidence.
-  **IMPLEMENTATION_ADMITTED, one live fact channel:** the additive `LiveMarketFactV1` a Strategy Instance consumes,
+  **CURRENT / PARTIAL, one live fact channel, built and proven:** the additive `LiveMarketFactV1` a Strategy Instance consumes,
   its Owner-sealed intake, and exactly one Data Client behind it, the venue's public WebSocket. The vendor side
   states only what a venue can know, as the PIT observation seam already requires; the Owner stamps the admitted
-  Source Binding identity and lineage, the binding's Market Semantics Compatibility identity, and the fact's own
-  time coordinates and sequence, refuses an instrument outside the subscription the Owner issued, and keeps a
+  Source Binding identity and lineage, the binding's Market Semantics Compatibility identity, and the one time
+  coordinate that is its own, the retrieval instant, together with the sequence. The venue states the
+  event-effective and provider-available instants from its own clock, and the Owner reads its retrieval instant
+  from the host process clock rather than from its sealed head, so no ordering across those clocks is provable and
+  none is asserted. The Owner refuses an instrument outside the subscription it issued, and keeps a
   durable head so a restart hands over from where it stopped rather than replaying. Nothing else is admitted here:
   no second channel, no instrument-update stream, no Runtime custody, no order path.
   **NOT_ADMITTED:** a live channel establishes no Runtime readiness, Paper, Live, real trading or other production

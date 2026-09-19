@@ -1,8 +1,7 @@
 # Python API
 
-Auto-generated from the latest source using [Sphinx](https://www.sphinx-doc.org/en/master/).
+Auto-generated from the current source using [Sphinx](https://www.sphinx-doc.org/en/master/).
 
-- **Latest**: Built from the `develop` branch (latest stable release).
-- **Nightly**: Built from the `nightly` branch (bleeding-edge features in development).
-
-Select the version from the **Versions** drop-down menu (top left).
+Build it with `make docs-python`, which runs `sphinx-build` over this directory and writes the
+site to `api_reference/`. No workflow publishes it, so this site has no hosted version and no
+version selector.
