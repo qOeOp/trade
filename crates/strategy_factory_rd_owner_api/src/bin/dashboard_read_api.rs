@@ -48,7 +48,6 @@ use vibe_strategy_factory::{
     },
 };
 
-#[cfg(feature = "dashboard-composer-readback")]
 use vibe_strategy_factory::source_research_composer_postgres_v2::PostgresDevelopComposerReadbackOwnerV2;
 
 #[derive(Clone)]
@@ -440,7 +439,6 @@ fn router(state: ApiState) -> Router {
         .with_state(state)
 }
 
-#[cfg(feature = "dashboard-composer-readback")]
 async fn composer_readback(
     owner_database_url: &str,
 ) -> Option<Arc<dyn DevelopComposerReadbackOwnerPortV2>> {
@@ -451,14 +449,6 @@ async fn composer_readback(
             None
         }
     }
-}
-
-#[cfg(not(feature = "dashboard-composer-readback"))]
-async fn composer_readback(
-    _owner_database_url: &str,
-) -> Option<Arc<dyn DevelopComposerReadbackOwnerPortV2>> {
-    tracing::warn!("Develop Composer Dashboard readback capability unavailable");
-    None
 }
 
 async fn source_intake_readback(

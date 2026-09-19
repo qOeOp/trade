@@ -47,9 +47,20 @@
 ## 实现状态台账
 
 本台账只记录仓库在本截面实际到达的状态。它沿用 [Market Data](./market-data/) 台账的状态词汇，并以
-`CURRENT_PARTIAL` 表示已合并但不可触达的形态；台账本身不授予任何许可：本文档没有任何切片是
-`IMPLEMENTATION_ADMITTED`，扩大准入集必须先修改本文档。
+`CURRENT_PARTIAL` 表示已合并但不可触达的形态；台账本身不授予任何许可。下文标为 `IMPLEMENTATION_ADMITTED`
+的那一行是仅有的已准入切片，于 2026-09-19 作为有界、可单独评审的工作准入，其验收是它的有序链路条目在 Linux
+上通过，以及不依赖 testkit 或 acceptance feature 的生产路径；其余各行不授予任何东西，扩大准入集必须先修改
+本文档。
 
+- **TARGET / IMPLEMENTATION_ADMITTED - Risk Owner 的容量输入读端口：** 已准入切片是一个
+  `risk_owner`/`risk_writer` 角色对，覆盖 `risk_private` 与 `risk_api` 两个 schema；以及一个只读的 Risk
+  custody，它在自己的事务内通过该 Owner 的 `portfolio_api` 读函数重读 Portfolio 自己的 `BOUND` Capacity
+  Scope 与当前 Capacity View，并把读到的内容连同读取时所处的证据截面一并封存。它不做任何 Risk 决策 不提交
+  Reservation 不写 fence 也不消费 Trade Intent，因为这四者的输入都没有生产者。三项前置不在本 Owner 手上：
+  那两个读函数随 Portfolio 的 Capacity Scope custody 切片一同到来，目前尚不在仓库里；角色对与其 schema
+  属于 `product/rd-workbench/postgres-init/` 下的共享面变更；以及那两个读函数到来时，Portfolio 必须把它们
+  的执行权授予 `risk_writer`。准入是建造并验证这一条读取的许可，它不授权任何 Risk 决策 任何生产效果 或真实
+  交易。
 - **TARGET - Risk Engine：** `crates/risk/src/engine/mod.rs` 里继承的 `RiskEngine` 执行交易前订单校验、`TradingState`
   的 halt 与 reduce 切换、名义额与速率限制，以及 `crates/risk/src/sizing.rs` 的仓位规模计算；它是 capability adoption
   点名的迁移来源。它不返回终态 Risk Decision，不绑定 policy 截面、Portfolio 截面或 Authorization Lineage，只被
@@ -111,6 +122,10 @@
   QUALIFIED_ECONOMIC_BOUND_EXCEEDED > AGGREGATE_CAPACITY_EXHAUSTED`，与证据或请求到达顺序无关。
   Governance policy 违反 Qualification 经济边界违反与聚合资金池耗尽保持可同时存在的不同原因，
   不能共用一个不透明 limit 类别。
+
+Risk 的沉默从不等同批准。消费者只能在收到一个终态之后推进 - 一次拒绝 一个已批准的 Risk Decision，或一次
+消费前的 `WITHDRAWN` - 而超时是未决，既不是拒绝也不是批准。消费者绝不把 `ADMITTED_ONCE` 读作效果已经发生的
+证据，因为它只陈述该次准入相对 fence 激活的定序结果；也绝不把没有 fence 读作不存在 fence 的证据。
 
 ## 拒绝和禁止事项
 
