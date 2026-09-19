@@ -631,6 +631,15 @@ purge 与 embargo 派生规则、TrialFamily-aware multiplicity policy、attempt
 - 向 [Runtime](./runtime/) 只在已提交 `REPAIR_INPUTS_RUNTIME_KERNEL` 决定后创建一个关联
   `native-repair-request`；只有 Runtime 能针对该准确 kernel attempt 返回 `REPAIRED` `UNAVAILABLE`
   或 `OUTCOME_UNKNOWN`。
+- 向 [Strategy Governance](./strategy-governance/) 交付 Owner admission 在一次生命周期决定之前重读的那份封存
+  Build Receipt，按该回执被封存时的准确 Artifact 身份与摘要解析，携带它绑定的 intent TrialFamily 代码字节与
+  依赖集合。R&D 只陈述自己构建了什么，不陈述该 Artifact 是否可以运行：一份 Build Receipt 绝不是一次激活，绝不是
+  一次 qualification，绝不是一次资金决定，也绝不是任何生命周期状态已达成的证据。在那个准确身份与摘要下解析不到的
+  回执是缺失而不是陈旧，而缺失的回执不准入任何生命周期转换，也不准入一个更保守的转换。
+- 向 [Portfolio](./portfolio/) 交付一次退化归因所点名的那份冻结 Research Intent，按准确的 intent 身份与摘要解析，
+  携带该 intent 冻结的预测与证伪条件，以及它们被冻结时所处的截面。R&D 只供给冻结的预测；它不观察已实现的绩效，
+  不归因，也不测量偏离。一份 Research Intent 绝不是一个绩效主张，绝不是一个容量陈述，其本身也绝不是某个机制已经
+  退化的证据 - 偏离及其被保留的替代解释属于 Portfolio，两个 Owner 都不得推导对方那一半。
 - 探索结束后只向 [Qualification](./qualification/) 交付拥有终态 `SELECTED_FOR_QUALIFICATION`
   Research Selection Disposition 的冻结 Candidate。交接交叉绑定准确 Intent 证伪条件与停止规则 完整预注册
   不可变穷尽 TrialFamily Census Frontier 探索请求结果前沿 完整跨 TrialFamily 语义前驱前沿 来源反馈前沿

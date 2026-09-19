@@ -137,27 +137,8 @@ executable path, and SHA-256 before it releases the database capability and exec
   TrialFamily Census Frontier with consumed budget through the Candidate cut, plus one exact preregistered
   protected decision-policy identity and version and one frozen Protected Robustness Plan.
 - Product Edge submits one stable review request binding the originating Research request, Candidate, canonical typed meaning, and origin-to-current protected-feedback observation frontiers.
-- [Backtest](./backtest/) returns the requested protected Run Result and consumed-input receipt; every consumed
-  execution-defining field must exactly equal its request counterpart. The Result carries the protected economic
-  measurement, which repeats the metric identity and digest, the unit and the scale of the frozen
-  `ProtectedEconomicPolicyBundleV1` this Owner sealed with the request set; a measurement that does not repeat
-  them exactly is not a measurement of the sealed policy and closes the attempt.
-- Operator Authorization is the upstream of the deployment-authorized terminal. What
-  it must issue, and why this handoff is TARGET, is stated once under Eligibility terminal status and is not
-  repeated here.
+- [Backtest](./backtest/) returns the requested protected Run Result and consumed-input receipt; every consumed execution-defining field must exactly equal its request counterpart.
 - Committed evidence changes may trigger re-evaluation; wake-up channels never replace owner fact reads.
-
-Implementation status of these handoffs, which is a record and not contract. Only the Product Edge handoff has a
-production caller: `resolve_or_create_for_basis` and `admit_in_transaction` are called from production code in
-vibe-strategy-factory, and `admit_historical_projection_in_transaction` from its R&D custody path. The R&D
-Candidate handoff has none: every call of `submit_candidate_intake_v1` outside this Owner is in one sealed
-acceptance test module. Backtest cannot perform its half of the economic measurement in production, because it
-has no admitted read of the frozen metric reference: not of the R&D plan, whose only sealed read returns native
-replay source storage, and not of `qualification_protected_economic_policy_bundles_v1`, whose grant is revoked.
-The ordered gate reaches the measurement only because the gate step reads the Candidate under this Owner's own
-role, which is fixture discovery, not a path Backtest has. Closing that gap needs a handoff of the frozen metric,
-unit and scale that Backtest may actually read - inside the request set seal, or as a sealed `qualification_api`
-read - and it is a cross-Owner contract change, not a proof.
 
 ## Output handoffs
 
