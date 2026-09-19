@@ -1,4 +1,6 @@
-# 策略
+# 策略（引擎层）
+
+本页记载既有引擎。凡与 `docs/architecture/strategy-factory.md` 所载目标产品架构不一致处，以该文档为准。
 
 策略继承 `Strategy` 类，并实现自身逻辑所需的方法。
 

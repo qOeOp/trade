@@ -1,4 +1,7 @@
-# Fill Prices and Matching
+# Fill Prices and Matching (engine)
+
+This page documents the existing engine. Where it differs from the Owner contract in
+`docs/owners/backtest.md`, the Owner contract is authoritative.
 
 The backtest matching engine treats recorded order book and trade data as immutable. Simulated fills
 do not edit the historical book. This preserves the replayed market while requiring explicit
