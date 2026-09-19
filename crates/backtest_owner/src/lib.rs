@@ -28,6 +28,7 @@ pub mod native_replay;
 pub mod native_replay_evidence_custody;
 pub mod outcome_evidence;
 pub mod postgres;
+pub mod protected_economic_measurement;
 mod protected_replay;
 mod protected_replay_postgres;
 pub mod result_projection;

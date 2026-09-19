@@ -29,6 +29,12 @@ This guide distinguishes four kinds of guidance:
 - **Examples** show one sound implementation without making it mandatory.
 - **Exceptions** are valid when venue semantics or protocol boundaries require them.
 
+This guide covers adapter implementation. It does not set admission or ownership policy. Where an
+adapter question turns on which component may invoke a venue, or which component owns an order, the
+Execution Owner contract at `docs/owners/execution.md` governs. That contract marks the venue
+execution clients under `crates/adapters` as `TARGET`, and records that no command is validated
+against a Risk permit or fence today.
+
 ## Structure of an adapter
 
 The Rust crate is the source of truth for protocol behavior. An adapter commonly separates these
@@ -530,9 +536,9 @@ Route execution updates according to order ownership, independent of the dispatc
   execution engine can reconcile or create the external order.
 
 Do not invent strategy or client identity for an untracked order. Preserve available venue
-identity in the report and let the engine apply
-[external order ownership](../concepts/execution.md#external-order-creation). The adapter may use
-any state structure that proves this routing decision.
+identity in the report and let the engine apply external order ownership. Which component owns an
+order is not the adapter's call: the Execution Owner contract at `docs/owners/execution.md`
+governs it. The adapter may use any state structure that proves this routing decision.
 
 #### Event ordering and deduplication
 

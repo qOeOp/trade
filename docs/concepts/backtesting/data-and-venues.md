@@ -1,4 +1,7 @@
-# Backtest Data and Venues
+# Backtest Data and Venues (engine)
+
+This page documents the existing engine. Where it differs from the Owner contract in
+`docs/owners/backtest.md`, the Owner contract is authoritative.
 
 ## Data
 

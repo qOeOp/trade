@@ -1,5 +1,14 @@
 # Tutorials
 
+:::note[Layer]
+These walkthroughs drive the inherited engine's Python API. They run, and they are the fastest way
+to watch the engine work end to end.
+
+They are not the workflow the platform admits. A strategy that reaches production is a Design that
+R&D's Develop capability lowers and compiles, not a subclass written by hand. See
+`docs/owners/rd.md` and `docs/architecture/strategy-factory.md`.
+:::
+
 Step-by-step walkthroughs demonstrating specific features and workflows.
 
 :::info
