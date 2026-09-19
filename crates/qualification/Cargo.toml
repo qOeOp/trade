@@ -34,7 +34,9 @@ vibe-data = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true }
 # The ordered PostgreSQL gate drives the protected-evaluation terminal with the Market Data
-# sealed-acceptance Shared Time chain; production code never enables this feature.
+# sealed-acceptance Shared Time chain. This crate takes the feature only for its tests. The feature
+# itself is not test-only: the deployed Dashboard read API enables it through
+# `dashboard-composer-readback`, which is deliberate and documented in vibe-strategy-factory.
 vibe-data = { workspace = true, features = [
   "sealed-strategy-input-acceptance",
 ] }
