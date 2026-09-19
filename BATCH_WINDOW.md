@@ -71,6 +71,28 @@ The two questions are different and both are needed:
 force-pushed - ruleset 19718837 carries `non_fast_forward`), so for a pull
 request that already has a green, only the first question adds anything.
 
+## Three arguments for acting, one for waiting, and the one wins
+
+The review session's position on their six documentation pull requests, kept here
+because it is the shortest complete statement of why this file exists:
+
+> I have evidence I just verified, a measured zero overlap with everything in
+> flight, and an action costing 24 jobs. All three say act now. The only thing
+> saying wait is that the tree will move once more. Waiting wins, because none of
+> the first three guarantee that the tree that was proven equals the tree that
+> will be merged.
+
+Zero overlap is an argument about CONTENT. Every incident this repository has had
+this week was not a content conflict - not the silent revert in #679, not the
+evidence round thrown away earlier, not the greens taken against a superseded
+base. Each was the same thing: the tree that was proven was not the tree that
+would be merged. Content arguments are blind to that by construction, because
+they ask whether changes collide, and the harm comes from proving the wrong tree.
+
+A required check's green is evidence bound to a tree, exactly like a chain round
+is. The difference is that nobody builds it by hand, so nobody remembers it has
+a base.
+
 ## Path routing exists; it is just not the `paths:` key
 
 Two of us got this wrong in the same hour, so it is worth writing down.
