@@ -46,6 +46,9 @@ readonly owner_crates=(
   crates/operator_authorization
   crates/backtest_owner
   crates/qualification
+  crates/execution_owner
+  crates/portfolio_owner
+  crates/strategy_governance
 )
 
 # Proofs no chain selects, each with the reason it stays out. Adding a name here is a decision that
