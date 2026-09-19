@@ -95,6 +95,9 @@ readonly rd_owner_postgres_tests=(
   'vibe-operator-authorization|vibe_operator_authorization|postgres::tests::shared_resolver_blocks_revoke_update_lock'
   'vibe-operator-authorization|vibe_operator_authorization|postgres::tests::select_only_consumer_resolve_serializes_with_revoke'
   'vibe-product-edge|vibe_product_edge|postgres::tests::lifecycle_request_admission_is_typed_effect_free_and_replay_exact'
+  'vibe-execution-owner|vibe_execution_owner|adapter_binding_postgres::tests::postgres_binding_custody_is_atomic_replay_safe_and_tamper_closed'
+  'vibe-portfolio-owner|vibe_portfolio_owner|capacity_scope_postgres::tests::postgres_capacity_scope_registry_is_append_only_and_seals_one_bound_scope'
+  'vibe-strategy-governance|vibe_strategy_governance|registry_postgres::postgres_proof::postgres_execution_scope_binds_only_what_both_source_owners_confirm'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
@@ -106,6 +109,9 @@ readonly nextest_graph_args=(
   --package vibe-backtest-owner
   --package vibe-data
   --package vibe-qualification
+  --package vibe-execution-owner
+  --package vibe-portfolio-owner
+  --package vibe-strategy-governance
   --lib
   --tests
 )
@@ -121,8 +127,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 78 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all seventy-eight ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 81 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all eighty-one ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -195,11 +201,11 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[74]}" != *'|postgres::tests::shared_resolver_blocks_revoke_update_lock' ]] ||
     [[ "${rd_owner_postgres_tests[75]}" != *'|postgres::tests::select_only_consumer_resolve_serializes_with_revoke' ]] ||
     [[ "${rd_owner_postgres_tests[76]}" != *'|postgres::tests::lifecycle_request_admission_is_typed_effect_free_and_replay_exact' ]] ||
-    [[ "${rd_owner_postgres_tests[77]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[80]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
-  if [[ "${nextest_graph_args[*]}" != '--locked --package vibe-strategy-factory --package vibe-strategy-factory-rd-owner-api --package vibe-product-edge --package vibe-operator-authorization --package vibe-backtest-owner --package vibe-data --package vibe-qualification --lib --tests' ]] ||
+  if [[ "${nextest_graph_args[*]}" != '--locked --package vibe-strategy-factory --package vibe-strategy-factory-rd-owner-api --package vibe-product-edge --package vibe-operator-authorization --package vibe-backtest-owner --package vibe-data --package vibe-qualification --package vibe-execution-owner --package vibe-portfolio-owner --package vibe-strategy-governance --lib --tests' ]] ||
     [[ "$nextest_archive_features" != 'vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance' ]] ||
     [[ "$schema_materialization_features" != "${nextest_archive_features},vibe-strategy-factory-rd-owner-api/sealed-develop-composer-acceptance" ]] ||
     [[ "${nextest_execution_args[*]}" != '--fail-fast --run-ignored ignored-only' ]]; then
@@ -299,8 +305,8 @@ for line in array_body.splitlines():
     if len(fields) != 3 or any(not field for field in fields):
         raise SystemExit("ERROR: ordered PostgreSQL test literal must contain three fields.")
     entries.append(tuple(fields))
-if len(entries) != 78:
-    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain seventy-eight entries.")
+if len(entries) != 81:
+    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain eighty-one entries.")
 if sum(test_name == poison_test for _, _, test_name in entries) != 1:
     raise SystemExit(
         "ERROR: recovery-sidecar poison test must occur exactly once as a parsed test name."
