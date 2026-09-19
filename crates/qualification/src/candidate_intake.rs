@@ -304,6 +304,10 @@ pub(crate) struct StoredCandidateV1 {
 }
 
 impl StoredCandidateV1 {
+    pub(crate) fn candidate_identity(&self) -> &str {
+        &self.candidate_identity
+    }
+
     pub(crate) fn protected_feedback_frontier(&self) -> &str {
         &self.protected_feedback_frontier
     }

@@ -26,11 +26,20 @@ pub enum ProtectedAttemptDispositionStatusV1 {
     AssessmentInvalid,
 }
 
+/// How a closed protected attempt leaves the holdout it reserved.
+///
+/// One variant, because `HOLDOUT_TREATMENT_RULE_V1` is the only rule that
+/// produces a closure and it always consumes. A `Released` variant shipped with
+/// this type in #534 and never had a producer: the contract gives no path that
+/// closes an attempt while returning its holdout, and an attempt rejected
+/// before reservation closes nothing at all. An unreachable variant here is
+/// worse than an absent one, because it reads as a terminal that some proof
+/// ought to reach. A later policy version that can release holdout adds it back
+/// together with the rule that chooses it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum HoldoutClosureDispositionV1 {
     Consumed,
-    Released,
 }
 
 /// Qualification-owned sealed commit. Callers can serialize the verified
