@@ -9,7 +9,7 @@ is commentary.
     evidence_tree: 721afd0dc2ac4846c918f7e1af968b95e3896040
     base_main:    0e23622ce
     members:      642 653 659 666 677 679
-    deferred:     645 681 663 682 683
+    deferred:     645 681 663 682 683 668 669 671 672 673 676
     opened_at:    2026-09-19T04:53:59Z
 
 ## What closed means
