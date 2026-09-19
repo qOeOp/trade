@@ -7810,6 +7810,26 @@ mod postgres_tests {
                     Some(std::borrow::Cow::Borrowed("42501"))
                 );
             }
+            // Append-only means the fact cannot be removed either, not just that it
+            // cannot be edited. This Owner is granted SELECT and INSERT on
+            // `qualification_eligibility_facts_v1` and nothing else, so the delete is
+            // refused for want of the privilege rather than by a rule that a later
+            // migration could drop.
+            //
+            // The statement literal has to sit inside this call. The chain's
+            // destructive-SQL guard strips `assert_statement_is_refused(...)` and judges
+            // what is left, so hoisting the string to a binding would keep the literal,
+            // lose the marker, and be refused by the guard - deliberately, because a
+            // guard should fail loudly rather than pass a file that merely contains one
+            // sanctioned call somewhere else.
+            vibe_testkit::postgres::assert_statement_is_refused(
+                &owner.pool,
+                &format!(
+                    "DELETE FROM public.qualification_eligibility_facts_v1 WHERE eligibility_identity='{eligibility_identity}'"
+                ),
+                "42501",
+            )
+            .await;
         }
         let error = sqlx::query(
             "UPDATE public.qualification_protected_robustness_assessments_v1 SET assessment_json=assessment_json WHERE assessment_identity=$1",
