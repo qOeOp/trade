@@ -69,6 +69,10 @@ grants nothing, and widening the admitted set requires changing this document fi
   `GovernanceCore`, whose `resolve_frontier` resolves one complete conflict frontier under the canonical precedence,
   writes the write-once `LifecycleRequestReceipt` as `ACCEPTED` or `REJECTED_NO_WRITE`, detects alias retry, replay
   divergence, and semantic mutation, and serves a `GovernanceDecisionView` and current lifecycle receipt readback.
+  A missing or invalid Eligibility is the one refusal that produces no receipt at all: it fails the whole frontier
+  as `DecisionEvidenceUnavailable` before any receipt is written, where a missing artifact, capacity, or adapter
+  binding each reject with one. That asymmetry is deliberate and pinned by the unit suite, so while Qualification
+  has no producer the write-once receipt is a fact that is never written rather than one written as a rejection.
   The model carries the seven lifecycle actions, `PAPER` and `LIVE`, both authorization modes, eligibility and
   application status. Those are consumer-side shapes only: repository-wide, `EligibilityState::Expired` and
   `EligibilityState::Revoked` have no producer at all, every `UntrustedEligibilityReadback` is built inside this
@@ -84,7 +88,9 @@ grants nothing, and widening the admitted set requires changing this document fi
   `governance_writer`. Before it writes, the custody rereads Portfolio's own `BOUND` Capacity Scope and Execution's
   own current `ADMITTED` PAPER adapter binding through those Owners' read-only APIs inside the writing transaction,
   and it refuses unless the two agree on account and prebinding and the caller's expectations match what each Owner
-  said. Its `governance_api` readback exposes the bound meaning, the scope carries no validity window of its own, and
+  said. Agreeing on the prebinding means Portfolio's registry names the exact adapter binding fact Execution
+  admitted, so every new Execution binding generation requires a new Portfolio registry cut before a scope can be
+  created against it; an older cut is refused as a conflicting prebinding rather than accepted as a narrower one. Its `governance_api` readback exposes the bound meaning, the scope carries no validity window of its own, and
   a replay keeps the creation time while refreshing freshness from the two current source facts. No production caller
   reaches it: Product Edge has no lifecycle request intake. Still admitted and still absent: the Governed Strategy
   Entry, lifecycle requests, and receipts, because the architecture binds an entry to an exact Eligibility Fact,
