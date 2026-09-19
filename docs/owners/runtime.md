@@ -43,9 +43,25 @@ above.
 
 This ledger records only what the repository has reached at this cut. It uses the status vocabulary of the
 [Market Data](./market-data/) ledger, with `CURRENT_PARTIAL` as the merged-but-unreachable form, and grants no
-permission by itself: no slice of this document is `IMPLEMENTATION_ADMITTED`, and widening the admitted set
-requires changing this document first.
+permission by itself. The one row marked `IMPLEMENTATION_ADMITTED` below is the only admitted slice, admitted on
+2026-09-19 as bounded, separately reviewable work whose acceptance is its ordered-chain entries passing on Linux
+and a production path that depends on no testkit or acceptance feature; every other row grants nothing, and
+widening the admitted set requires changing this document first.
 
+- **TARGET / IMPLEMENTATION_ADMITTED - Runtime Owner live market fact read port:** the admitted slice is one
+  Runtime role pair over its own private and API schemas, and one read-only Runtime custody that consumes the live
+  market fact channel `crates/data/src/owner/live_market_fact_v1.rs` already produces, and seals what it read
+  together with the evidence cut it read it at. It starts no Strategy Instance, emits no Trade Intent, persists no
+  checkpoint, and publishes no readiness: `RuntimeFoundation`'s only status stays `NotReady`. Three prerequisites
+  sit outside this Owner, and the first is larger than Risk's: the live market fact lands in
+  `market_data_private`, which is revoked from `PUBLIC`, and Market Data exposes no read function for it in any
+  API schema, so a read path must be built before there is anything to grant. Market Data has done this shape
+  before - `market_data_rd_api` carries eight functions granted to `rd_owner` - so the precedent exists and the
+  live channel is what has not been given one. The role pair and its schemas are then a shared-surface change
+  under `product/rd-workbench/postgres-init/`, and once the read path exists Market Data must grant the Runtime
+  role execute on it.
+  Admission is permission to build and verify this one read. It authorizes no Runtime effect, no Paper or Live
+  adapter binding, and no real trading.
 - **CURRENT_PARTIAL - fail-closed foundation:** `crates/runtime/src/lib.rs` exposes `RuntimeFoundation`, whose only
   status is `NotReady`, the four exact revalidation dependencies (a Governance authorized-generation-decision read
   port, canonical Runtime custody, an Artifact compatibility recovery read port, and the Execution recovery-frontier
