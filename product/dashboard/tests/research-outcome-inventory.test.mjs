@@ -150,7 +150,9 @@ test("outcome inventory preserves truncation and serializes its point reads", as
   // These reads are deliberately serialized. They share an Owner adapter's connection pool with
   // the directory and question reads the same page composes, and measured against a real Owner any
   // parallelism here took those with it: the page reported its source unavailable and rendered
-  // nothing while every row answered in tens of milliseconds when asked alone.
+  // nothing while every row answered in tens of milliseconds when asked alone. The cost of
+  // serializing is that a page of twenty candidates fills over about a second rather than a few
+  // hundred milliseconds, which is what the parallel version bought.
   assert.equal(maximum, 1);
 });
 

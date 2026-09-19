@@ -19,8 +19,14 @@
 // One. The adapter behind these point reads also answers the page's directory and question reads,
 // and a page composes all of them at once: measured against a real Owner, a fan-out of two still
 // took every single read with it, and the surface reported its sources unavailable while every row
-// it held was fine. One row at a time costs about a second for a page's worth of candidates and
-// cannot starve the reads it shares an adapter with.
+// it held was fine.
+//
+// What serializing costs, so the trade is visible from here: a point read answers in roughly 30 to
+// 70 ms against a local Owner, and a page of this size asks for about twenty of them, so its rows
+// arrive over something near a second instead of in a few hundred milliseconds. Parallelism was
+// worth having for exactly that second; it is not worth having at the price of the page reporting
+// its sources unavailable. Anyone restoring it needs the point reads to stop sharing a pool with
+// the reads that must answer alongside them.
 //
 // This is a bound, not the shape. A view whose Owner reads grow with its row count needs a bounded
 // Owner read; see the Dashboard guide's Recent outcomes section.
