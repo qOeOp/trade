@@ -1,13 +1,34 @@
-# batch window: OPEN
+# batch window: CLOSED
 
 Owner: Lane 0 (platform). Machine-readable fields below are the contract.
 
-    state:        open
-    main:         41b6df61557ff997e38b59fb7c647f641482f1f8
-    main_tree:    (see note)
-    last_batch:   642 653 659 666 677 679, then 685 (recovery)
-    last_run:     35422504127
-    opened_at:    2026-09-19T05:34:07Z
+    state:         closed
+    base_main:     41b6df61557ff997e38b59fb7c647f641482f1f8
+    members:       680 684 688
+    evidence_sha:  43482ed5f
+    evidence_tree: fde5697e74b9e0af64e6e8452bdd910ff5d8cd87
+    chains_run:    35427329533      (owner-chains, test-chain/platform)
+    full_run:      35427331514      (build, test-ci)
+    test_ci_pin:   519e151aa        (test-ci's head when assembly started)
+    deferred:      every open PR not in members
+    opened_at:     first batch assembled under the full-evidence procedure
+
+## This is the first batch with full evidence
+
+Previous batches proved only the two Owner chains. This one is pushed to
+`test-ci` as well, so `build` runs in full on the assembled tree - clippy, rust
+tests, doctests and the docs gates included. Both rounds are on the same commit,
+`43482ed5f`, which is checkable: the two runs' head SHAs must match, and they do.
+
+`test_ci_pin` records where `test-ci` stood when assembly began. Before the
+evidence is used, that value is checked again. If `test-ci` moved, the run
+belongs to someone else and the batch is rebuilt rather than cited - this is the
+same move as checking that main's tree equals the proven tree, with the channel
+as the object.
+
+All three members are documentation-only, which is deliberate: the cheapest
+possible trial of a procedure that has never run. If the procedure is wrong, it
+is better to find out on three .md files.
 
 ## What landed, and what was verified before it did
 
