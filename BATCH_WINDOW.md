@@ -27,13 +27,16 @@ does.
 
 ## What the window does NOT constrain
 
-Closed constrains exactly one thing: merging to main. Work that cannot change the
-tree the members produce when merged is unaffected. So these stay open:
+Closed constrains two things: merging to main, and pushing `test-chain/*`.
+Everything else that cannot change the tree the members produce is unaffected.
+So these stay open:
 
-    rebasing your own branch                    fine
+    rebasing your own branch                    fine, UNLESS it is a member
+                                                (a rebase force-pushes, which
+                                                 moves the head and voids the round)
     force-pushing your own branch               fine, UNLESS it is a member
     opening PRs, pushing new commits, review    fine
-    ordinary PR CI on your own branch           fine
+    ordinary PR CI on your own branch           allowed, but NOT free - see below
 
 ### Do NOT take chain evidence while closed - corrected
 
@@ -55,6 +58,19 @@ evidence AND delays the unfreeze for everyone.
 So: while closed, do not push `test-chain/*`. Take evidence after the batch lands
 and main is settled - then your merge tree is built on the main that will still
 be there.
+
+### draft->ready is allowed, and costs more than the thing above
+
+Measured on a real PR build: 26 jobs created, 4 skipped, 22 actually run. An
+owner-chains round is 2 jobs. So one draft->ready costs about eleven times a
+chain round in jobs, and it competes with the gating round for the same runners.
+
+This is NOT forbidden, because `quality` is a required check and a PR that is
+never toggled stays BLOCKED forever - banning it would mean no non-member PR
+could reach a mergeable state at all.
+
+So it is a priced choice, not a free one: if your toggle can wait for the window
+to open, let it wait. If it cannot, toggle and know what it costs.
 
 ### The exception, which is not obvious
 
