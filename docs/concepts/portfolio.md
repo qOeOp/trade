@@ -1,4 +1,7 @@
-# Portfolio
+# Portfolio (engine)
+
+This page documents the existing engine. Where it differs from the Owner contract in
+`docs/owners/portfolio.md`, the Owner contract is authoritative.
 
 The Portfolio is the central hub for managing and tracking all positions across active strategies for the trading node or backtest.
 It consolidates position data from multiple instruments, providing a unified view of your holdings, risk exposure, and overall performance.
