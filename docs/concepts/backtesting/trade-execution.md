@@ -1,4 +1,7 @@
-# Trade-Based Execution
+# Trade-Based Execution (engine)
+
+This page documents the existing engine. Where it differs from the Owner contract in
+`docs/owners/backtest.md`, the Owner contract is authoritative.
 
 Trade ticks trigger matching by default when a venue has `trade_execution=True`. A trade provides
 evidence that liquidity traded at its price, so it can fill resting orders on the passive side.
