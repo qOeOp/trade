@@ -544,16 +544,13 @@ pub async fn assert_statement_is_refused(
     let outcome = sqlx::query(sqlx::AssertSqlSafe(statement.to_owned()))
         .execute(&mut *transaction)
         .await;
-    let refused = match outcome {
-        Ok(_) => {
-            // Roll back before failing, so a regressed privilege still leaves no trace.
-            let _ = transaction.rollback().await;
-            panic!(
-                "statement was NOT refused, so this proves nothing: {statement}\n\
-                 the transaction was rolled back, so nothing was written"
-            );
-        }
-        Err(e) => e,
+    let Err(refused) = outcome else {
+        // Roll back before failing, so a regressed privilege still leaves no trace.
+        let _ = transaction.rollback().await;
+        panic!(
+            "statement was NOT refused, so this proves nothing: {statement}\n\
+             the transaction was rolled back, so nothing was written"
+        );
     };
     let _ = transaction.rollback().await;
     let observed = refused
