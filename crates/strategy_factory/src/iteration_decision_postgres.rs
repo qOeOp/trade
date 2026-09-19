@@ -2773,7 +2773,8 @@ mod postgres_acceptance_tests {
             valid_from_epoch_ms: now.saturating_sub(1_000),
             valid_through_epoch_ms: valid_through,
             authorization: authorization.locator(),
-            manifests: manifests.to_vec(),
+            manifests: vibe_product_edge::AgentOperationManifestSetV1::new(manifests.clone())
+                .unwrap(),
         })
         .await
         .expect("Product Edge genesis");
@@ -3362,7 +3363,7 @@ mod postgres_acceptance_tests {
             rd_pool,
             first_action.request().action_request_identity(),
             first.decision().decision_identity(),
-            &replay,
+            replay,
             market_data_evidence.source(),
             market_data_evidence.shared_time(),
         )
@@ -3372,7 +3373,7 @@ mod postgres_acceptance_tests {
             rd_pool,
             first_action.request().action_request_identity(),
             first.decision().decision_identity(),
-            &replay,
+            replay,
             market_data_evidence.source(),
             market_data_evidence.shared_time(),
         )
@@ -3386,7 +3387,7 @@ mod postgres_acceptance_tests {
             rd_pool,
             first_action.request().action_request_identity(),
             first.decision().decision_identity(),
-            &replay,
+            replay,
             market_data_evidence.source(),
             market_data_evidence.shared_time(),
         )
@@ -3444,7 +3445,7 @@ mod postgres_acceptance_tests {
             rd_pool,
             first_action.request().action_request_identity(),
             "rd-iteration-decision-v1-mismatch",
-            &replay,
+            replay,
             market_data_evidence.source(),
             market_data_evidence.shared_time(),
         )
@@ -3454,7 +3455,7 @@ mod postgres_acceptance_tests {
             rd_pool,
             "rd-repair-action-request-v1-mismatch",
             first.decision().decision_identity(),
-            &replay,
+            replay,
             market_data_evidence.source(),
             market_data_evidence.shared_time(),
         )
@@ -4668,7 +4669,7 @@ mod postgres_acceptance_tests {
         ))
         .await;
         let qualification = PostgresQualificationOwnerV1::connect(
-            &database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+            database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
         )
         .await
         .expect("Qualification Owner projection custody");
@@ -4925,14 +4926,14 @@ mod postgres_acceptance_tests {
         );
         let mut tamper_transaction = rd_pool.begin().await.expect("tamper transaction");
         sqlx::query("UPDATE rd_iteration_positive_assessments_v1 SET assessment_storage_bytes=assessment_storage_bytes || decode('00','hex') WHERE result_identity=$1")
-            .bind(&result_identity)
+            .bind(result_identity)
             .execute(&mut *tamper_transaction)
             .await
             .expect("temporary assessment tamper");
         assert!(
             Box::pin(load_ready_for_selection_by_result_in_transaction(
                 &mut tamper_transaction,
-                &result_identity,
+                result_identity,
                 None,
             ))
             .await
@@ -4945,14 +4946,14 @@ mod postgres_acceptance_tests {
         let mut selection_tamper_transaction =
             rd_pool.begin().await.expect("Selection tamper transaction");
         sqlx::query("UPDATE rd_research_selections_v1 SET selection_storage_bytes=selection_storage_bytes || decode('00','hex') WHERE result_identity=$1")
-            .bind(&result_identity)
+            .bind(result_identity)
             .execute(&mut *selection_tamper_transaction)
             .await
             .expect("temporary Selection tamper");
         assert!(
             Box::pin(load_ready_for_selection_by_result_in_transaction(
                 &mut selection_tamper_transaction,
-                &result_identity,
+                result_identity,
                 None,
             ))
             .await

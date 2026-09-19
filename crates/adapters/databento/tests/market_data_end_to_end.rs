@@ -12,6 +12,10 @@
 use std::{path::PathBuf, sync::Arc};
 
 use vibe_data::owner::{
+    instrument_master_admission_v1::{
+        InstrumentDecimalSubmissionV1, InstrumentMasterFactSubmissionV1,
+        InstrumentVenueSourceMappingSubmissionV1, instrument_master_admission_from_environment_v1,
+    },
     pit_market_snapshot_intake_v1::{
         MarketDataDecisionCutV1, PitMarketSnapshotDispositionV1,
         pit_market_snapshot_intake_from_environment_v1,
@@ -91,7 +95,22 @@ async fn market_data_answers_one_frozen_request_from_live_vendor_data() {
         semantics_identity = terminal.market_semantics_identity();
     }
 
-    // 2. Operations admits the membership behind one eligible frontier.
+    // 2. Operations admits the instrument's master fact under the Owner's clock head. Without
+    //    it the intake has no resolution to stamp and refuses the request outright.
+    let instruments = instrument_master_admission_from_environment_v1()
+        .await
+        .expect("the configured Market Data store opens");
+    let instrument = instruments
+        .admit_fact(probe_instrument_submission(
+            semantics_identity,
+            proposal.source_frontier.digest,
+            proposal.correction_frontier.digest,
+        ))
+        .await
+        .expect("the probe instrument is admitted");
+    assert_eq!(instrument.canonical_identity(), PIT_PROBE_INSTRUMENT);
+
+    // 3. Operations admits the membership behind one eligible frontier.
     let universe = universe_selection_admission_from_environment_v1()
         .await
         .expect("the configured Market Data store opens");
@@ -116,7 +135,7 @@ async fn market_data_answers_one_frozen_request_from_live_vendor_data() {
         .await
         .expect("a complete frontier is admitted whole");
 
-    // 3. The Owner evaluates the requester's rule. The requester never states members.
+    // 4. The Owner evaluates the requester's rule. The requester never states members.
     let selection = universe
         .evaluate(UntrustedUniverseSelectionRequestV1::new(
             digest(0x12),
@@ -139,7 +158,7 @@ async fn market_data_answers_one_frozen_request_from_live_vendor_data() {
         "the Owner selected exactly the admitted member"
     );
 
-    // 4. The intake binds the real Data Client.
+    // 5. The intake binds the real Data Client.
     let client = DatabentoHistoricalClient::new(
         Credential::new(api_key),
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("publishers.json"),
@@ -154,7 +173,7 @@ async fn market_data_answers_one_frozen_request_from_live_vendor_data() {
         .await
         .expect("the configured Market Data store opens");
 
-    // 5. R&D reads the Owner's cut and freezes a request against it.
+    // 6. R&D reads the Owner's cut and freezes a request against it.
     let cut = intake
         .current_decision_cut()
         .await
@@ -187,6 +206,60 @@ async fn market_data_answers_one_frozen_request_from_live_vendor_data() {
         terminal.snapshot_identity(),
         terminal.disposition()
     );
+}
+
+/// The probe instrument as Operations would describe it: an open interval that began long before
+/// the probe window, observed before the Owner's decision cut.
+///
+/// It states the admitted binding's own Market Semantics Compatibility identity and frontiers,
+/// which is what lets one registry key later cover the instrument, the snapshot and the binding.
+fn probe_instrument_submission(
+    market_semantics_identity: BindingDigest,
+    source_frontier: BindingDigest,
+    correction_frontier: BindingDigest,
+) -> InstrumentMasterFactSubmissionV1 {
+    let observed = i128::from(EFFECTIVE_NS) - 1;
+    InstrumentMasterFactSubmissionV1 {
+        canonical_identity: PIT_PROBE_INSTRUMENT.to_string(),
+        predecessor_fact_digest: None,
+        mappings: vec![InstrumentVenueSourceMappingSubmissionV1 {
+            venue_identity: "XNAS".into(),
+            source_identity: "DATABENTO".into(),
+            source_instrument: PIT_PROBE_INSTRUMENT.as_bytes().to_vec(),
+        }],
+        instrument_class: "EQUITY".into(),
+        base_currency: Some("USD".into()),
+        quote_currency: None,
+        settlement_currency: Some("USD".into()),
+        margin_currency: None,
+        price_increment: InstrumentDecimalSubmissionV1 {
+            mantissa: 1,
+            scale: 2,
+        },
+        quantity_increment: InstrumentDecimalSubmissionV1 {
+            mantissa: 1,
+            scale: 0,
+        },
+        contract_multiplier: InstrumentDecimalSubmissionV1 {
+            mantissa: 1,
+            scale: 0,
+        },
+        calendar_identity: "XNYS-CALENDAR-V1".into(),
+        session_identity: "XNYS-REGULAR-V1".into(),
+        time_zone_identity: "America/New_York".into(),
+        lifecycle_frontier: digest(0x31),
+        corporate_action_frontier: digest(0x32),
+        historical_membership_frontier: digest(0x11),
+        market_semantics_identity,
+        source_frontier,
+        correction_frontier,
+        effective_from: 1,
+        effective_until: None,
+        provider_available: observed,
+        retrieval: observed,
+        correction_publication: observed,
+        owner_observation: observed,
+    }
 }
 
 fn universe_locator(

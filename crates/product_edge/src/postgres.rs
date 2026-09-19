@@ -31,25 +31,29 @@ use vibe_rd_source_intake_invocation_custody::{
 };
 
 use crate::{
+    ARTIFACT_BUILD_OPERATION_SCHEMA_V1, ARTIFACT_BUILD_OPERATION_V1,
     ARTIFACT_BUILD_REQUIRED_EFFECTS_V1, AgentOperationManifestProposalV1,
-    DownstreamAdmissionModeV1, PORTFOLIO_READ_ONLY_EFFECT_POLICY_V1,
-    PORTFOLIO_READ_POLICY_OPERATION_SCHEMA_V1, PORTFOLIO_READ_POLICY_OPERATION_V1,
-    PORTFOLIO_READ_POLICY_SCHEMA_V1, PORTFOLIO_READ_POLICY_TARGET_OWNER_V1,
-    PRODUCT_EDGE_ADMISSION_EVENT_STREAM_V1, PRODUCT_EDGE_SCHEMA_V1, PortfolioReadPolicyCustodyV1,
-    PortfolioReadPolicyPayloadV1, PortfolioReadPolicyRequestV1, PortfolioReadPolicyResolutionV1,
+    AgentOperationManifestSetV1, DownstreamAdmissionModeV1, LIFECYCLE_ACTIONS_V1,
+    LIFECYCLE_REQUEST_OPERATION_SCHEMA_V1, LIFECYCLE_REQUEST_TARGET_OWNER_V1,
+    PORTFOLIO_READ_ONLY_EFFECT_POLICY_V1, PORTFOLIO_READ_POLICY_OPERATION_SCHEMA_V1,
+    PORTFOLIO_READ_POLICY_OPERATION_V1, PORTFOLIO_READ_POLICY_SCHEMA_V1,
+    PORTFOLIO_READ_POLICY_TARGET_OWNER_V1, PRODUCT_EDGE_ADMISSION_EVENT_STREAM_V1,
+    PRODUCT_EDGE_SCHEMA_V1, PortfolioReadPolicyCustodyV1, PortfolioReadPolicyPayloadV1,
+    PortfolioReadPolicyRequestV1, PortfolioReadPolicyResolutionV1,
     PortfolioReadPolicyUnavailableReasonV1, PortfolioSourceOwnerResolveResultV1,
     ProductEdgeAdmissionEventCursorV1, ProductEdgeAdmissionEventLocatorV1,
     ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionObservationV1,
     ProductEdgeAdmissionReadbackV1, ProductEdgeAdmissionReceiptV1, ProductEdgeAdmissionRequestV1,
-    ProductEdgeAuthorizationTrustV1, ProductEdgeBootstrapProposalV1,
+    ProductEdgeAdmissionRouteV1, ProductEdgeAuthorizationTrustV1, ProductEdgeBootstrapProposalV1,
     ProductEdgeBootstrapReadbackV1, ProductEdgeCurrentPolicyEvidenceV1, ProductEdgeError,
     ProductEdgeExpiredManifestRecoveryProposalV1, ProductEdgeInvocationClaimDispositionV1,
     ProductEdgeInvocationClaimReadbackV1, ProductEdgeInvocationClaimRequestV1,
     ProductEdgeInvocationStartDispositionV1, ProductEdgeInvocationStartReadbackV1,
     ProductEdgeSourceInvocationClaimRequestV1, ProductEdgeSourceInvocationStartRequestV1,
-    ProductEdgeSuccessorProposalV1, SOURCE_INTAKE_OPERATION_SCHEMA_V1, SOURCE_INTAKE_OPERATION_V1,
-    SOURCE_INTAKE_REQUIRED_EFFECTS_V1, SOURCE_INTAKE_TARGET_OWNER_V1, canonical_digest, identity,
-    is_sha256_digest,
+    ProductEdgeSubjectKindV1 as Subject, ProductEdgeSuccessorProposalV1,
+    ProductEdgeUnavailableReasonV1 as Reason, SOURCE_INTAKE_OPERATION_SCHEMA_V1,
+    SOURCE_INTAKE_OPERATION_V1, SOURCE_INTAKE_REQUIRED_EFFECTS_V1, SOURCE_INTAKE_TARGET_OWNER_V1,
+    canonical_digest, identity, is_sha256_digest,
 };
 
 const MANIFEST_EVENT: &str = "PRODUCT_EDGE_OPERATION_MANIFEST_APPROVED_V1";
@@ -60,8 +64,6 @@ const INVOCATION_ADMISSION_EVENT: &str = "PRODUCT_EDGE_PROVIDER_INVOCATION_ADMIT
 const INVOCATION_CLAIM_EVENT: &str = "PRODUCT_EDGE_PROVIDER_INVOCATION_CLAIMED_V1";
 const INVOCATION_CLAIM_STATE_EVENT: &str = "PRODUCT_EDGE_PROVIDER_INVOCATION_CLAIM_STATE_V1";
 const INVOCATION_STARTED_EVENT: &str = "PRODUCT_EDGE_PROVIDER_INVOCATION_STARTED_V1";
-const ARTIFACT_BUILD_OPERATION_V1: &str = "artifact_build.submit_or_resolve.v1";
-const ARTIFACT_BUILD_SCHEMA_V1: &str = "rd-artifact-build-request-v1";
 const ARTIFACT_PROVIDER_EFFECT_V1: &str = "R_AND_D_PROVIDER_INVOCATION_V1";
 const SOURCE_PROVIDER_EFFECT_V1: &str = "R_AND_D_SOURCE_PROVIDER_INVOCATION_V1";
 const MAX_ADMISSION_EVENT_PAGE_V1: u32 = 100;
@@ -124,6 +126,33 @@ const ADDED_MANIFEST_PROHIBITED_FLOOR_V1: [&str; 3] = [
     "REAL_TRADING_V1",
 ];
 
+fn unavailable(reason: Reason) -> ProductEdgeError {
+    ProductEdgeError::unavailable(reason)
+}
+
+fn unavailable_for(reason: Reason, kind: Subject, identity: &str) -> ProductEdgeError {
+    ProductEdgeError::unavailable_for(reason, kind, identity)
+}
+
+/// Why the admission's original authorization, read at the current cut, no
+/// longer authorizes a first mutation: either it is not current any more or
+/// its meaning drifted from what the admission sealed.
+fn original_refusal(
+    evidence: &UntrustedCanonicalAuthorizationEvidenceV1,
+    read_cut_epoch_ms: u64,
+) -> ProductEdgeError {
+    let reason = if evidence.is_current_at(read_cut_epoch_ms) {
+        Reason::AuthorizationMismatch
+    } else {
+        Reason::AuthorizationNotCurrent
+    };
+    unavailable_for(
+        reason,
+        Subject::Authorization,
+        &evidence.locator().authorization_identity,
+    )
+}
+
 fn has_exact_artifact_build_effects(requested_effects: &[String]) -> bool {
     requested_effects
         .iter()
@@ -175,6 +204,7 @@ use custody_types::*;
 
 #[derive(Debug)]
 struct VerifiedDeploymentHistoryV1 {
+    deployment_identity: String,
     bindings: Vec<StoredBindingV1>,
     pending_supersession: Option<StoredSupersessionV1>,
 }
@@ -182,20 +212,36 @@ struct VerifiedDeploymentHistoryV1 {
 impl VerifiedDeploymentHistoryV1 {
     fn current(&self) -> Result<&StoredBindingV1, ProductEdgeError> {
         if self.pending_supersession.is_some() {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::SupersessionPending,
+                Subject::Deployment,
+                &self.deployment_identity,
+            ));
         }
-        self.bindings.last().ok_or(ProductEdgeError::Unavailable)
+        self.bindings.last().ok_or_else(|| {
+            unavailable_for(
+                Reason::Missing,
+                Subject::Deployment,
+                &self.deployment_identity,
+            )
+        })
     }
 
     fn head(&self) -> Result<&StoredBindingV1, ProductEdgeError> {
-        self.bindings.last().ok_or(ProductEdgeError::Unavailable)
+        self.bindings.last().ok_or_else(|| {
+            unavailable_for(
+                Reason::Missing,
+                Subject::Deployment,
+                &self.deployment_identity,
+            )
+        })
     }
 
     fn find(&self, binding_identity: &str) -> Result<&StoredBindingV1, ProductEdgeError> {
         self.bindings
             .iter()
             .find(|binding| binding.binding_identity == binding_identity)
-            .ok_or(ProductEdgeError::Unavailable)
+            .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Binding, binding_identity))
     }
 }
 
@@ -205,16 +251,30 @@ fn first_mutation_policy_binding<'a>(
     current_has_pending_supersession: bool,
 ) -> Result<&'a StoredBindingV1, ProductEdgeError> {
     if current_has_pending_supersession {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::SupersessionPending,
+            Subject::Binding,
+            &admission.binding_identity,
+        ));
     }
     let admitted_index = bindings
         .iter()
         .position(|binding| binding.binding_identity == admission.binding_identity)
-        .ok_or(ProductEdgeError::Unavailable)?;
+        .ok_or_else(|| {
+            unavailable_for(
+                Reason::Missing,
+                Subject::Binding,
+                &admission.binding_identity,
+            )
+        })?;
     let admitted = &bindings[admitted_index];
 
     if admission.binding_identity != admission.history_head_identity {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::LineageBroken,
+            Subject::Admission,
+            &admission.admission_identity,
+        ));
     }
     policy_equivalent_chain_head(admitted, &bindings[admitted_index + 1..])
 }
@@ -224,15 +284,22 @@ fn policy_equivalent_chain_head<'a>(
     successors: &'a [StoredBindingV1],
 ) -> Result<&'a StoredBindingV1, ProductEdgeError> {
     if successors.len() > 1 {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::LineageBroken,
+            Subject::Binding,
+            &admitted.binding_identity,
+        ));
     }
 
     let mut predecessor = admitted;
     for successor in successors {
-        let expected_generation = predecessor
-            .generation
-            .checked_add(1)
-            .ok_or(ProductEdgeError::Unavailable)?;
+        let expected_generation = predecessor.generation.checked_add(1).ok_or_else(|| {
+            unavailable_for(
+                Reason::LineageBroken,
+                Subject::Binding,
+                &predecessor.binding_identity,
+            )
+        })?;
 
         if successor.deployment_identity != admitted.deployment_identity
             || successor.predecessor_binding_identity.as_deref()
@@ -245,7 +312,11 @@ fn policy_equivalent_chain_head<'a>(
             || successor.audit_policy_version != admitted.audit_policy_version
             || successor.manifest_identities != admitted.manifest_identities
         {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::PolicyMismatch,
+                Subject::Binding,
+                &successor.binding_identity,
+            ));
         }
         predecessor = successor;
     }
@@ -319,7 +390,11 @@ impl LockedAuthorizationPlanV1 {
             return Ok(readback);
         }
         let AuthorizationSelectionV1::Historical(frontier_identity) = &requirement.selection else {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::Missing,
+                Subject::Authorization,
+                &requirement.authorization_identity,
+            ));
         };
         let current = AuthorizationRequirementV1 {
             authorization_identity: requirement.authorization_identity.clone(),
@@ -329,7 +404,7 @@ impl LockedAuthorizationPlanV1 {
         self.evidence
             .get(&current)
             .filter(|readback| readback.frontier().frontier_identity() == frontier_identity)
-            .ok_or(ProductEdgeError::Unavailable)
+            .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Frontier, frontier_identity))
     }
 }
 
@@ -385,7 +460,11 @@ async fn hint_admission(
         .map_err(storage)?;
 
     if rows.len() > 1 {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::Ambiguous,
+            Subject::Request,
+            request_identity,
+        ));
     }
     rows.first()
         .map(|row| decode_admission_row(row).map(|(stored, _)| stored))
@@ -468,22 +547,34 @@ fn verify_admission_storage(
     digest: Option<String>,
     mirror: Option<serde_json::Value>,
 ) -> Result<(), ProductEdgeError> {
+    let admission_identity = readback.locator.admission_identity.clone();
+
     match (bytes, digest, mirror) {
         (None, None, None) => Ok(()),
         (Some(bytes), Some(digest), Some(mirror)) if !bytes.is_empty() => {
             if storage_digest(ADMISSION_STORAGE_DOMAIN_V1, &bytes) != digest
-                || serde_json::from_slice::<serde_json::Value>(&bytes)
-                    .map_err(|_| ProductEdgeError::Unavailable)?
-                    != mirror
-                || serde_json::to_vec(readback).map_err(|_| ProductEdgeError::Unavailable)? != bytes
+                || serde_json::from_slice::<serde_json::Value>(&bytes).map_err(|_| {
+                    unavailable_for(Reason::Malformed, Subject::Admission, &admission_identity)
+                })? != mirror
+                || serde_json::to_vec(readback).map_err(|_| {
+                    unavailable_for(Reason::Malformed, Subject::Admission, &admission_identity)
+                })? != bytes
             {
-                return Err(ProductEdgeError::Unavailable);
+                return Err(unavailable_for(
+                    Reason::CustodyDrift,
+                    Subject::Admission,
+                    &admission_identity,
+                ));
             }
             readback.canonical_storage_bytes = bytes;
             readback.canonical_storage_digest = digest;
             Ok(())
         }
-        _ => Err(ProductEdgeError::Unavailable),
+        _ => Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Admission,
+            &admission_identity,
+        )),
     }
 }
 
@@ -492,15 +583,15 @@ fn decode_json_bytea(value: Option<String>) -> Result<Option<Vec<u8>>, ProductEd
         .map(|value| {
             let hex = value
                 .strip_prefix("\\x")
-                .ok_or(ProductEdgeError::Unavailable)?;
+                .ok_or_else(|| unavailable(Reason::Malformed))?;
             if hex.len() % 2 != 0 {
-                return Err(ProductEdgeError::Unavailable);
+                return Err(unavailable(Reason::Malformed));
             }
             (0..hex.len())
                 .step_by(2)
                 .map(|index| {
                     u8::from_str_radix(&hex[index..index + 2], 16)
-                        .map_err(|_| ProductEdgeError::Unavailable)
+                        .map_err(|_| unavailable(Reason::Malformed))
                 })
                 .collect()
         })
@@ -624,7 +715,11 @@ fn decode_locked_binding(
         || from_i64(row.committed_at_epoch_ms)? != stored.committed_at_epoch_ms
         || receipt != binding_receipt(&stored)
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Binding,
+            &row.binding_identity,
+        ));
     }
     Ok((stored, receipt))
 }
@@ -648,7 +743,11 @@ fn decode_locked_admission(
         || stored.request.semantic_digest()? != stored.request_semantic_digest
         || admission_digest(&stored)? != stored.admission_digest
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Admission,
+            &row.admission_identity,
+        ));
     }
     Ok((stored, receipt))
 }
@@ -670,7 +769,11 @@ fn decode_locked_manifest(
         || from_i64(row.committed_at_epoch_ms)? != stored.committed_at_epoch_ms
         || receipt != manifest_receipt(&stored)
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Manifest,
+            &row.manifest_identity,
+        ));
     }
     Ok((stored, receipt))
 }
@@ -700,7 +803,15 @@ fn verify_locked_outbox<T: Serialize>(
         .collect::<Vec<_>>();
 
     if matches.len() != 1 {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            if matches.is_empty() {
+                Reason::Missing
+            } else {
+                Reason::Ambiguous
+            },
+            Subject::Outbox,
+            aggregate,
+        ));
     }
     let row = matches[0];
     let record: StoredOutboxV1 = from_json(row.payload_json.clone())?;
@@ -717,7 +828,11 @@ fn verify_locked_outbox<T: Serialize>(
                 committed_at_epoch_ms: committed_at,
             })
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Outbox,
+            aggregate,
+        ));
     }
     Ok(())
 }
@@ -729,18 +844,29 @@ fn verify_locked_downstream_envelope(
 ) -> Result<ProductEdgeAdmissionReadbackV1, ProductEdgeError> {
     let envelope: LockedDownstreamAdmissionEnvelopeV1 = from_json(value)?;
     if envelope.hinted_admission != envelope.admission {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::HintMismatch,
+            Subject::Admission,
+            &envelope.admission.admission_identity,
+        ));
     }
     let (stored_admission, admission_receipt_value) = decode_locked_admission(&envelope.admission)?;
     if stored_admission.request.request_identity != locator.request_identity
         || stored_admission.admission_identity != locator.admission_identity
         || stored_admission.admission_digest != locator.admission_digest
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::RequestMismatch,
+            Subject::Admission,
+            &locator.admission_identity,
+        ));
     }
 
     let mut authorization_sources = BTreeMap::new();
+
     for source in envelope.authorizations {
+        let authorization_identity = source.authorization_identity.clone();
+
         if authorization_sources
             .insert(
                 (
@@ -751,7 +877,11 @@ fn verify_locked_downstream_envelope(
             )
             .is_some()
         {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::Ambiguous,
+                Subject::Authorization,
+                &authorization_identity,
+            ));
         }
     }
 
@@ -767,11 +897,16 @@ fn verify_locked_downstream_envelope(
             manifest.committed_at_epoch_ms,
         )?;
 
+        let manifest_identity = manifest.manifest_identity.clone();
         if manifests
-            .insert(manifest.manifest_identity.clone(), manifest)
+            .insert(manifest_identity.clone(), manifest)
             .is_some()
         {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::Ambiguous,
+                Subject::Manifest,
+                &manifest_identity,
+            ));
         }
     }
 
@@ -783,7 +918,13 @@ fn verify_locked_downstream_envelope(
         let expected_generation = u64::try_from(index)
             .map_err(storage)?
             .checked_add(1)
-            .ok_or(ProductEdgeError::Unavailable)?;
+            .ok_or_else(|| {
+                unavailable_for(
+                    Reason::LineageBroken,
+                    Subject::Binding,
+                    &binding.binding_identity,
+                )
+            })?;
 
         if binding.deployment_identity != stored_admission.deployment_identity
             || binding.generation != expected_generation
@@ -795,12 +936,15 @@ fn verify_locked_downstream_envelope(
                 .last()
                 .is_some_and(|prior| binding.committed_at_epoch_ms < prior.committed_at_epoch_ms)
         {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::LineageBroken,
+                Subject::Binding,
+                &binding.binding_identity,
+            ));
         }
-        let hint = envelope
-            .hinted_binding_locators
-            .get(index)
-            .ok_or(ProductEdgeError::Unavailable)?;
+        let hint = envelope.hinted_binding_locators.get(index).ok_or_else(|| {
+            unavailable_for(Reason::Missing, Subject::Binding, &binding.binding_identity)
+        })?;
 
         if hint.binding_identity != binding.binding_identity
             || hint.generation != to_i64(binding.generation)?
@@ -809,7 +953,11 @@ fn verify_locked_downstream_envelope(
             || hint.authorization_frontier_identity != binding.authorization_frontier_identity
             || hint.binding_digest != binding.binding_digest
         {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::HintMismatch,
+                Subject::Binding,
+                &binding.binding_identity,
+            ));
         }
 
         let mapped = envelope
@@ -819,18 +967,26 @@ fn verify_locked_downstream_envelope(
             .collect::<Vec<_>>();
 
         if mapped.len() != binding.manifest_identities.len() {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CustodyDrift,
+                Subject::Binding,
+                &binding.binding_identity,
+            ));
         }
         let mut manifest_bindings = Vec::with_capacity(mapped.len());
         for (mapped, identity) in mapped.iter().zip(&binding.manifest_identities) {
             let manifest = manifests
                 .get(identity)
-                .ok_or(ProductEdgeError::Unavailable)?;
+                .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Manifest, identity))?;
 
             if mapped.manifest_identity != *identity
                 || mapped.manifest_digest != manifest.manifest_digest
             {
-                return Err(ProductEdgeError::Unavailable);
+                return Err(unavailable_for(
+                    Reason::CustodyDrift,
+                    Subject::Manifest,
+                    identity,
+                ));
             }
             manifest_bindings.push(OperationManifestBindingV1 {
                 manifest_identity: manifest.manifest_identity.clone(),
@@ -842,7 +998,13 @@ fn verify_locked_downstream_envelope(
                 binding.authorization.authorization_identity.clone(),
                 binding.authorization.issuance_receipt_identity.clone(),
             ))
-            .ok_or(ProductEdgeError::Unavailable)?;
+            .ok_or_else(|| {
+                unavailable_for(
+                    Reason::Missing,
+                    Subject::Authorization,
+                    &binding.authorization.authorization_identity,
+                )
+            })?;
         let authorization = parse_untrusted_authorization_envelope_v1(
             source.clone(),
             &binding.authorization,
@@ -859,7 +1021,11 @@ fn verify_locked_downstream_envelope(
             || binding.valid_from_epoch_ms < authorization.not_before_epoch_ms()
             || binding.valid_through_epoch_ms > authorization.valid_through_epoch_ms()
         {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::AuthorizationMismatch,
+                Subject::Binding,
+                &binding.binding_identity,
+            ));
         }
         verify_locked_outbox(
             &envelope.outboxes,
@@ -883,7 +1049,11 @@ fn verify_locked_downstream_envelope(
                 .collect::<std::collections::BTreeSet<_>>()
                 .len()
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Deployment,
+            &stored_admission.deployment_identity,
+        ));
     }
 
     let mut supersessions = BTreeMap::new();
@@ -899,7 +1069,11 @@ fn verify_locked_downstream_envelope(
                 .insert(stored.binding_identity.clone(), stored)
                 .is_some()
         {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CustodyDrift,
+                Subject::Supersession,
+                &row.binding_identity,
+            ));
         }
     }
 
@@ -908,7 +1082,13 @@ fn verify_locked_downstream_envelope(
 
         if index + 1 < bindings.len() {
             let successor = &bindings[index + 1];
-            let supersession = supersession.ok_or(ProductEdgeError::Unavailable)?;
+            let supersession = supersession.ok_or_else(|| {
+                unavailable_for(
+                    Reason::Missing,
+                    Subject::Supersession,
+                    &binding.binding_identity,
+                )
+            })?;
             let manifests = successor
                 .manifest_identities
                 .iter()
@@ -916,7 +1096,9 @@ fn verify_locked_downstream_envelope(
                     manifests
                         .get(identity)
                         .map(|manifest| manifest.proposal.clone())
-                        .ok_or(ProductEdgeError::Unavailable)
+                        .ok_or_else(|| {
+                            unavailable_for(Reason::Missing, Subject::Manifest, identity)
+                        })
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             let expected_proposal = ProductEdgeSuccessorProposalV1 {
@@ -932,7 +1114,7 @@ fn verify_locked_downstream_envelope(
                 valid_from_epoch_ms: successor.valid_from_epoch_ms,
                 valid_through_epoch_ms: successor.valid_through_epoch_ms,
                 authorization: successor.authorization.clone(),
-                manifests,
+                manifests: AgentOperationManifestSetV1::new(manifests)?,
             };
 
             let expected_digest = if let Some(epoch) = &successor.recovery_epoch {
@@ -948,7 +1130,11 @@ fn verify_locked_downstream_envelope(
             if supersession.successor_binding_identity != successor.binding_identity
                 || supersession.successor_proposal_digest != expected_digest
             {
-                return Err(ProductEdgeError::Unavailable);
+                return Err(unavailable_for(
+                    Reason::LineageBroken,
+                    Subject::Supersession,
+                    &binding.binding_identity,
+                ));
             }
         }
 
@@ -964,21 +1150,44 @@ fn verify_locked_downstream_envelope(
         }
     }
 
-    let head = envelope.head.ok_or(ProductEdgeError::Unavailable)?;
-    let current = bindings.last().ok_or(ProductEdgeError::Unavailable)?;
+    let head = envelope.head.ok_or_else(|| {
+        unavailable_for(
+            Reason::Missing,
+            Subject::Deployment,
+            &stored_admission.deployment_identity,
+        )
+    })?;
+    let current = bindings.last().ok_or_else(|| {
+        unavailable_for(
+            Reason::Missing,
+            Subject::Deployment,
+            &stored_admission.deployment_identity,
+        )
+    })?;
+
     if head.deployment_identity != current.deployment_identity
         || head.binding_identity != current.binding_identity
         || head.generation != to_i64(current.generation)?
         || head.binding_digest != current.binding_digest
         || from_i64(head.committed_at_epoch_ms)? != current.committed_at_epoch_ms
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::HeadMismatch,
+            Subject::Deployment,
+            &head.deployment_identity,
+        ));
     }
 
     let binding = bindings
         .iter()
         .find(|binding| binding.binding_identity == stored_admission.binding_identity)
-        .ok_or(ProductEdgeError::Unavailable)?;
+        .ok_or_else(|| {
+            unavailable_for(
+                Reason::Missing,
+                Subject::Binding,
+                &stored_admission.binding_identity,
+            )
+        })?;
 
     let policy_binding = match mode {
         DownstreamAdmissionModeV1::FirstMutation { .. } => first_mutation_policy_binding(
@@ -990,7 +1199,13 @@ fn verify_locked_downstream_envelope(
     };
     let manifest = manifests
         .get(&stored_admission.manifest_identity)
-        .ok_or(ProductEdgeError::Unavailable)?;
+        .ok_or_else(|| {
+            unavailable_for(
+                Reason::Missing,
+                Subject::Manifest,
+                &stored_admission.manifest_identity,
+            )
+        })?;
 
     if binding.generation != stored_admission.binding_generation
         || binding.binding_identity != stored_admission.history_head_identity
@@ -1010,7 +1225,11 @@ fn verify_locked_downstream_envelope(
         || manifest.proposal.operation_schema != stored_admission.request.operation_schema
         || manifest.proposal.target_owner != stored_admission.request.target_owner
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::LineageBroken,
+            Subject::Admission,
+            &stored_admission.admission_identity,
+        ));
     }
 
     let source = authorization_sources
@@ -1024,7 +1243,13 @@ fn verify_locked_downstream_envelope(
                 .issuance_receipt_identity
                 .clone(),
         ))
-        .ok_or(ProductEdgeError::Unavailable)?;
+        .ok_or_else(|| {
+            unavailable_for(
+                Reason::Missing,
+                Subject::Authorization,
+                &stored_admission.authorization.authorization_identity,
+            )
+        })?;
     let authorization_mode = AuthorizationReadModeV1::Historical {
         frontier_identity: stored_admission.authorization_frontier_identity.clone(),
     };
@@ -1046,7 +1271,11 @@ fn verify_locked_downstream_envelope(
                 && entry.manifest_digest == stored_admission.manifest_digest
         })
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::AuthorizationMismatch,
+            Subject::Admission,
+            &stored_admission.admission_identity,
+        ));
     }
     let original_current_authorization_evidence =
         if let DownstreamAdmissionModeV1::FirstMutation { read_cut_epoch_ms } = mode {
@@ -1063,83 +1292,94 @@ fn verify_locked_downstream_envelope(
                 || current_original.request_proof_digest()
                     != stored_admission.request.request_proof_digest
             {
-                return Err(ProductEdgeError::Unavailable);
+                return Err(original_refusal(&current_original, read_cut_epoch_ms));
             }
             Some(current_original)
         } else {
             None
         };
-    let current_policy_evidence =
-        if let DownstreamAdmissionModeV1::FirstMutation { read_cut_epoch_ms } = mode {
-            let current_source = authorization_sources
-                .get(&(
-                    policy_binding.authorization.authorization_identity.clone(),
-                    policy_binding
-                        .authorization
-                        .issuance_receipt_identity
-                        .clone(),
-                ))
-                .ok_or(ProductEdgeError::Unavailable)?;
-            let current_authorization = parse_untrusted_authorization_envelope_v1(
-                current_source.clone(),
-                &policy_binding.authorization,
-                AuthorizationReadModeV1::CurrentAtLock,
-            )
-            .map_err(authority)?;
-            let current_manifest_bindings = policy_binding
-                .manifest_identities
-                .iter()
-                .map(|identity| {
-                    manifests
-                        .get(identity)
-                        .map(|manifest| OperationManifestBindingV1 {
-                            manifest_identity: manifest.manifest_identity.clone(),
-                            manifest_digest: manifest.manifest_digest.clone(),
-                        })
-                        .ok_or(ProductEdgeError::Unavailable)
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-
-            if current_authorization.frontier().frontier_identity()
-                != policy_binding.authorization_frontier_identity
-                || current_authorization.scope().principal != policy_binding.effective_principal
-                || current_authorization.scope().permissions != policy_binding.authorized_scope
-                || original_current_authorization_evidence
-                    .as_ref()
-                    .is_none_or(|original| {
-                        original.scope() != current_authorization.scope()
-                            || original.request_proof_digest()
-                                != current_authorization.request_proof_digest()
-                            || original.operation_manifests()
-                                != current_authorization.operation_manifests()
-                    })
-                || current_authorization.operation_manifests()
-                    != current_manifest_bindings.as_slice()
-                || !authority_windows_are_current_at(
-                    read_cut_epoch_ms,
-                    policy_binding.valid_from_epoch_ms,
-                    policy_binding.valid_through_epoch_ms,
-                    manifest.proposal.effective_from_epoch_ms,
-                    manifest.proposal.valid_through_epoch_ms,
-                    current_authorization.is_current_at(read_cut_epoch_ms),
+    let current_policy_evidence = if let DownstreamAdmissionModeV1::FirstMutation {
+        read_cut_epoch_ms,
+    } = mode
+    {
+        let current_source = authorization_sources
+            .get(&(
+                policy_binding.authorization.authorization_identity.clone(),
+                policy_binding
+                    .authorization
+                    .issuance_receipt_identity
+                    .clone(),
+            ))
+            .ok_or_else(|| {
+                unavailable_for(
+                    Reason::Missing,
+                    Subject::Authorization,
+                    &policy_binding.authorization.authorization_identity,
                 )
-            {
-                return Err(ProductEdgeError::Unavailable);
-            }
-            Some(ProductEdgeCurrentPolicyEvidenceV1 {
-                binding_identity: policy_binding.binding_identity.clone(),
-                binding_generation: policy_binding.generation,
-                authorization: current_authorization,
-                manifest_identity: manifest.manifest_identity.clone(),
-                manifest_digest: manifest.manifest_digest.clone(),
-                binding_valid_from_epoch_ms: policy_binding.valid_from_epoch_ms,
-                binding_valid_through_epoch_ms: policy_binding.valid_through_epoch_ms,
-                manifest_effective_from_epoch_ms: manifest.proposal.effective_from_epoch_ms,
-                manifest_valid_through_epoch_ms: manifest.proposal.valid_through_epoch_ms,
+            })?;
+        let current_authorization = parse_untrusted_authorization_envelope_v1(
+            current_source.clone(),
+            &policy_binding.authorization,
+            AuthorizationReadModeV1::CurrentAtLock,
+        )
+        .map_err(authority)?;
+        let current_manifest_bindings = policy_binding
+            .manifest_identities
+            .iter()
+            .map(|identity| {
+                manifests
+                    .get(identity)
+                    .map(|manifest| OperationManifestBindingV1 {
+                        manifest_identity: manifest.manifest_identity.clone(),
+                        manifest_digest: manifest.manifest_digest.clone(),
+                    })
+                    .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Manifest, identity))
             })
-        } else {
-            None
-        };
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if current_authorization.frontier().frontier_identity()
+            != policy_binding.authorization_frontier_identity
+            || current_authorization.scope().principal != policy_binding.effective_principal
+            || current_authorization.scope().permissions != policy_binding.authorized_scope
+            || original_current_authorization_evidence
+                .as_ref()
+                .is_none_or(|original| {
+                    original.scope() != current_authorization.scope()
+                        || original.request_proof_digest()
+                            != current_authorization.request_proof_digest()
+                        || original.operation_manifests()
+                            != current_authorization.operation_manifests()
+                })
+            || current_authorization.operation_manifests() != current_manifest_bindings.as_slice()
+            || !authority_windows_are_current_at(
+                read_cut_epoch_ms,
+                policy_binding.valid_from_epoch_ms,
+                policy_binding.valid_through_epoch_ms,
+                manifest.proposal.effective_from_epoch_ms,
+                manifest.proposal.valid_through_epoch_ms,
+                current_authorization.is_current_at(read_cut_epoch_ms),
+            )
+        {
+            return Err(unavailable_for(
+                Reason::AuthorizationMismatch,
+                Subject::Binding,
+                &policy_binding.binding_identity,
+            ));
+        }
+        Some(ProductEdgeCurrentPolicyEvidenceV1 {
+            binding_identity: policy_binding.binding_identity.clone(),
+            binding_generation: policy_binding.generation,
+            authorization: current_authorization,
+            manifest_identity: manifest.manifest_identity.clone(),
+            manifest_digest: manifest.manifest_digest.clone(),
+            binding_valid_from_epoch_ms: policy_binding.valid_from_epoch_ms,
+            binding_valid_through_epoch_ms: policy_binding.valid_through_epoch_ms,
+            manifest_effective_from_epoch_ms: manifest.proposal.effective_from_epoch_ms,
+            manifest_valid_through_epoch_ms: manifest.proposal.valid_through_epoch_ms,
+        })
+    } else {
+        None
+    };
     verify_locked_outbox(
         &envelope.outboxes,
         &admission_receipt_value.receipt_identity,
@@ -1172,7 +1412,11 @@ fn verify_locked_downstream_envelope(
                 .collect::<std::collections::BTreeSet<_>>()
                 .len()
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Admission,
+            &stored_admission.admission_identity,
+        ));
     }
 
     let mut readback = ProductEdgeAdmissionReadbackV1 {
@@ -1246,16 +1490,23 @@ pub struct ProductEdgePostgresAdmissionReadPortV1 {
 impl ProductEdgePostgresAdmissionReadPortV1 {
     pub async fn connect(database_url: &str) -> Result<Self, ProductEdgeError> {
         let pool = PgPool::connect(database_url).await.map_err(storage)?;
+        // A role the topology does not admit fails here with a privilege error;
+        // the read port reports that as the same fail-closed refusal it always
+        // did, only now named, and keeps the stream verifier's own reason.
+        let topology_not_admitted = |error: ProductEdgeError| match error {
+            ProductEdgeError::Unavailable(_) => error,
+            _ => unavailable(Reason::TopologyNotAdmitted),
+        };
         let mut transaction = begin_repeatable_read(&pool)
             .await
-            .map_err(|_| ProductEdgeError::Unavailable)?;
+            .map_err(topology_not_admitted)?;
         verify_admission_event_stream(&mut transaction)
             .await
-            .map_err(|_| ProductEdgeError::Unavailable)?;
+            .map_err(topology_not_admitted)?;
         transaction
             .commit()
             .await
-            .map_err(|_| ProductEdgeError::Unavailable)?;
+            .map_err(|_| unavailable(Reason::TopologyNotAdmitted))?;
         Ok(Self { pool })
     }
 
@@ -1315,7 +1566,11 @@ impl ProductEdgePostgresAdmissionPointReadPortV1 {
         .await?;
 
         if result.request().request_proof_digest != request_proof_digest {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::RequestMismatch,
+                Subject::Request,
+                request_identity,
+            ));
         }
         transaction.commit().await.map_err(storage)?;
         Ok(Some(result))
@@ -1332,7 +1587,7 @@ async fn verify_expired_manifest_recovery_schema(
         .unwrap_or(false);
 
     if !verified {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable(Reason::TopologyNotAdmitted));
     }
     Ok(())
 }
@@ -1441,7 +1696,7 @@ impl ProductEdgePostgresOwnerV1 {
         .map_err(storage)?;
 
         if !admitted {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable(Reason::TopologyNotAdmitted));
         }
         Ok(Self {
             pool,
@@ -1618,30 +1873,37 @@ impl ProductEdgePostgresOwnerV1 {
         ))?;
 
         if !authorization.is_current_at(committed_at) {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::AuthorizationNotCurrent,
+                Subject::Authorization,
+                &proposal.authorization.authorization_identity,
+            ));
         }
         self.verify_authorization_trust(authorization)?;
         if authorization.scope().principal != proposal.effective_principal {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::AuthorizationMismatch,
+                Subject::Authorization,
+                &proposal.authorization.authorization_identity,
+            ));
         }
-        let manifest_bindings = proposal
-            .manifests
-            .iter()
-            .map(|manifest| {
-                Ok(OperationManifestBindingV1 {
-                    manifest_identity: manifest.manifest_identity()?,
-                    manifest_digest: manifest.manifest_digest()?,
-                })
-            })
-            .collect::<Result<Vec<_>, ProductEdgeError>>()?;
+        let manifest_bindings = proposal.manifests.bindings()?;
         if authorization.operation_manifests() != manifest_bindings.as_slice() {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::AuthorizationMismatch,
+                Subject::Authorization,
+                &proposal.authorization.authorization_identity,
+            ));
         }
 
         if proposal.valid_from_epoch_ms < authorization.not_before_epoch_ms()
             || proposal.valid_through_epoch_ms > authorization.valid_through_epoch_ms()
         {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::WindowNotCurrent,
+                Subject::Binding,
+                &proposal.binding_identity,
+            ));
         }
 
         let mut manifest_identities = Vec::with_capacity(proposal.manifests.len());
@@ -1735,7 +1997,7 @@ impl ProductEdgePostgresOwnerV1 {
             {
                 Ok(Some(readback)) => return Ok(readback),
                 Ok(None) => break,
-                Err(ProductEdgeError::Unavailable) if attempt == 0 => {}
+                Err(ProductEdgeError::Unavailable(_)) if attempt == 0 => {}
                 Err(e) => return Err(e),
             }
         }
@@ -1749,11 +2011,15 @@ impl ProductEdgePostgresOwnerV1 {
                 .activate_successor_phase_two(&proposal, &proposal_digest, None)
                 .await
             {
-                Err(ProductEdgeError::Unavailable) if attempt == 0 => {}
+                Err(ProductEdgeError::Unavailable(_)) if attempt == 0 => {}
                 result => return result,
             }
         }
-        Err(ProductEdgeError::Unavailable)
+        Err(unavailable_for(
+            Reason::HintMismatch,
+            Subject::Binding,
+            &proposal.binding_identity,
+        ))
     }
 
     pub async fn recover_expired_manifests(
@@ -1774,7 +2040,7 @@ impl ProductEdgePostgresOwnerV1 {
             {
                 Ok(Some(readback)) => return Ok(readback),
                 Ok(None) => break,
-                Err(ProductEdgeError::Unavailable) if attempt == 0 => {}
+                Err(ProductEdgeError::Unavailable(_)) if attempt == 0 => {}
                 Err(e) => return Err(e),
             }
         }
@@ -1788,11 +2054,15 @@ impl ProductEdgePostgresOwnerV1 {
                 )
                 .await
             {
-                Err(ProductEdgeError::Unavailable) if attempt == 0 => {}
+                Err(ProductEdgeError::Unavailable(_)) if attempt == 0 => {}
                 result => return result,
             }
         }
-        Err(ProductEdgeError::Unavailable)
+        Err(unavailable_for(
+            Reason::HintMismatch,
+            Subject::Binding,
+            &proposal.binding_identity,
+        ))
     }
 
     async fn activate_successor_phase_two(
@@ -1842,12 +2112,22 @@ impl ProductEdgePostgresOwnerV1 {
             &authorization_plan,
         )
         .await?
-        .ok_or(ProductEdgeError::Unavailable)?;
+        .ok_or_else(|| {
+            unavailable_for(
+                Reason::Missing,
+                Subject::Deployment,
+                &self.deployment_identity,
+            )
+        })?;
         let current = history.head()?.clone();
         require_successor_head(&current, proposal)?;
-        let fence = history
-            .pending_supersession
-            .ok_or(ProductEdgeError::Unavailable)?;
+        let fence = history.pending_supersession.ok_or_else(|| {
+            unavailable_for(
+                Reason::Missing,
+                Subject::Supersession,
+                &current.binding_identity,
+            )
+        })?;
 
         if fence.binding_identity != current.binding_identity
             || fence.successor_binding_identity != proposal.binding_identity
@@ -1878,11 +2158,7 @@ impl ProductEdgePostgresOwnerV1 {
             }
             identities
         } else {
-            proposal
-                .manifests
-                .iter()
-                .map(AgentOperationManifestProposalV1::manifest_identity)
-                .collect::<Result<Vec<_>, _>>()?
+            proposal.manifests.identities()?
         };
         let mut successor = StoredBindingV1 {
             schema_version: PRODUCT_EDGE_SCHEMA_V1,
@@ -1919,7 +2195,7 @@ impl ProductEdgePostgresOwnerV1 {
         for manifest in &successor.manifest_identities {
             let stored_manifest = load_manifest_by_identity(&mut transaction, manifest, false)
                 .await?
-                .ok_or(ProductEdgeError::Unavailable)?;
+                .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Manifest, manifest))?;
             sqlx::query("INSERT INTO product_edge_binding_manifests_v1 (binding_identity, manifest_identity, manifest_digest) VALUES ($1,$2,$3)")
                 .bind(&successor.binding_identity).bind(&stored_manifest.manifest_identity).bind(&stored_manifest.manifest_digest)
                 .execute(&mut *transaction).await.map_err(storage)?;
@@ -1962,7 +2238,11 @@ impl ProductEdgePostgresOwnerV1 {
             .bind(to_i64(current.generation)?).execute(&mut *transaction).await.map_err(storage)?;
 
         if updated.rows_affected() != 1 {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CompareAndSwapLost,
+                Subject::Deployment,
+                &self.deployment_identity,
+            ));
         }
         let mut expected_bindings = hinted_bindings.clone();
         expected_bindings.push(successor.clone());
@@ -1974,9 +2254,20 @@ impl ProductEdgePostgresOwnerV1 {
             &authorization_plan,
         )
         .await?
-        .ok_or(ProductEdgeError::Unavailable)?;
+        .ok_or_else(|| {
+            unavailable_for(
+                Reason::Missing,
+                Subject::Deployment,
+                &self.deployment_identity,
+            )
+        })?;
+
         if verified.pending_supersession.is_some() || verified.current()? != &successor {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CustodyDrift,
+                Subject::Binding,
+                &successor.binding_identity,
+            ));
         }
         let readback = load_bootstrap_readback(
             &mut transaction,
@@ -2039,7 +2330,13 @@ impl ProductEdgePostgresOwnerV1 {
             &authorization_plan,
         )
         .await?
-        .ok_or(ProductEdgeError::Unavailable)?;
+        .ok_or_else(|| {
+            unavailable_for(
+                Reason::Missing,
+                Subject::Deployment,
+                &self.deployment_identity,
+            )
+        })?;
         let current = history.head()?.clone();
         require_successor_head(&current, proposal)?;
         if let Some(existing_fence) = history.pending_supersession {
@@ -2091,24 +2388,37 @@ impl ProductEdgePostgresOwnerV1 {
                 &authorization_plan,
             )
             .await?
-            .ok_or(ProductEdgeError::Unavailable)?;
+            .ok_or_else(|| {
+                unavailable_for(
+                    Reason::Missing,
+                    Subject::Deployment,
+                    &self.deployment_identity,
+                )
+            })?;
+
             if fenced.pending_supersession.as_ref() != Some(&fence) {
-                return Err(ProductEdgeError::Unavailable);
+                return Err(unavailable_for(
+                    Reason::CustodyDrift,
+                    Subject::Supersession,
+                    &current.binding_identity,
+                ));
             }
         }
         transaction.commit().await.map_err(storage)?;
         Ok(None)
     }
 
+    /// Admits an operation that carries no payload Product Edge must read.
+    ///
+    /// The artifact-build and Source Intake operations are refused here as
+    /// invalid proposals: their typed entries below are the only admission
+    /// contract for them, and this entry never reads the payload those
+    /// contracts bind. See [`ProductEdgeAdmissionRouteV1`].
     pub async fn admit_request(
         &self,
         request: ProductEdgeAdmissionRequestV1,
     ) -> Result<ProductEdgeAdmissionReadbackV1, ProductEdgeError> {
-        if request.operation == ARTIFACT_BUILD_OPERATION_V1
-            || request.operation == SOURCE_INTAKE_OPERATION_V1
-        {
-            return Err(ProductEdgeError::Unavailable);
-        }
+        request.require_admission_route(ProductEdgeAdmissionRouteV1::Generic)?;
         Box::pin(self.admit_request_inner(request, None)).await
     }
 
@@ -2116,15 +2426,24 @@ impl ProductEdgePostgresOwnerV1 {
         &self,
         request: ProductEdgeAdmissionRequestV1,
     ) -> Result<ProductEdgeAdmissionReadbackV1, ProductEdgeError> {
-        if request.operation != ARTIFACT_BUILD_OPERATION_V1
-            || request.operation_schema != ARTIFACT_BUILD_SCHEMA_V1
+        request.require_admission_route(ProductEdgeAdmissionRouteV1::ArtifactBuild)?;
+        if request.operation_schema != ARTIFACT_BUILD_OPERATION_SCHEMA_V1
             || !has_exact_artifact_build_effects(&request.requested_effects)
         {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::RequestMismatch,
+                Subject::Request,
+                &request.request_identity,
+            ));
         }
         let payload: ArtifactBuildAdmissionPayloadV1 =
-            serde_json::from_value(request.typed_payload.clone())
-                .map_err(|_| ProductEdgeError::Unavailable)?;
+            serde_json::from_value(request.typed_payload.clone()).map_err(|_| {
+                unavailable_for(
+                    Reason::Malformed,
+                    Subject::Request,
+                    &request.request_identity,
+                )
+            })?;
 
         if payload.build_request_identity != request.request_identity
             || payload.build_request_identity.trim().is_empty()
@@ -2132,7 +2451,11 @@ impl ProductEdgePostgresOwnerV1 {
             || payload.intent_identity.trim().is_empty()
             || !crate::is_product_edge_gateway_v1(&payload.channel)
         {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::RequestMismatch,
+                Subject::Request,
+                &request.request_identity,
+            ));
         }
         Box::pin(self.admit_request_inner(request, Some(payload.intent_identity))).await
     }
@@ -2141,23 +2464,94 @@ impl ProductEdgePostgresOwnerV1 {
         &self,
         request: ProductEdgeAdmissionRequestV1,
     ) -> Result<ProductEdgeAdmissionReadbackV1, ProductEdgeError> {
-        if request.operation != SOURCE_INTAKE_OPERATION_V1
-            || request.operation_schema != SOURCE_INTAKE_OPERATION_SCHEMA_V1
+        request.require_admission_route(ProductEdgeAdmissionRouteV1::SourceIntake)?;
+        if request.operation_schema != SOURCE_INTAKE_OPERATION_SCHEMA_V1
             || request.target_owner != SOURCE_INTAKE_TARGET_OWNER_V1
             || !has_exact_source_intake_effects(&request.requested_effects)
         {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::RequestMismatch,
+                Subject::Request,
+                &request.request_identity,
+            ));
         }
         let payload: SourceIntakeAdmissionPayloadV1 =
-            serde_json::from_value(request.typed_payload.clone())
-                .map_err(|_| ProductEdgeError::Unavailable)?;
+            serde_json::from_value(request.typed_payload.clone()).map_err(|_| {
+                unavailable_for(
+                    Reason::Malformed,
+                    Subject::Request,
+                    &request.request_identity,
+                )
+            })?;
 
         if payload.request_identity != request.request_identity
             || !crate::is_product_edge_gateway_v1(&payload.gateway)
             || !valid_source_doi(&payload.normalized_doi)
             || !valid_source_interpretation(&payload.interpretation)
         {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::RequestMismatch,
+                Subject::Request,
+                &request.request_identity,
+            ));
+        }
+        Box::pin(self.admit_request_inner(request, None)).await
+    }
+
+    /// Admits one Strategy Governance lifecycle request.
+    ///
+    /// The admission seals the Autonomous Policy Authorization an unattended
+    /// decision will be verified against, together with the coordinates
+    /// Strategy Governance compares that authorization to. It carries no
+    /// effect: a lifecycle request that asks for one is refused here, so
+    /// "this entry grants nothing" is a property the admission proves rather
+    /// than a promise the prose makes. Nothing downstream consumes the
+    /// admission until Strategy Governance owns its request custody.
+    pub async fn admit_lifecycle_request(
+        &self,
+        request: ProductEdgeAdmissionRequestV1,
+    ) -> Result<ProductEdgeAdmissionReadbackV1, ProductEdgeError> {
+        request.require_admission_route(ProductEdgeAdmissionRouteV1::LifecycleRequest)?;
+
+        if request.operation_schema != LIFECYCLE_REQUEST_OPERATION_SCHEMA_V1
+            || request.target_owner != LIFECYCLE_REQUEST_TARGET_OWNER_V1
+            || !request.requested_effects.is_empty()
+        {
+            return Err(unavailable_for(
+                Reason::RequestMismatch,
+                Subject::Request,
+                &request.request_identity,
+            ));
+        }
+        let payload: LifecycleRequestAdmissionPayloadV1 =
+            serde_json::from_value(request.typed_payload.clone()).map_err(|_| {
+                unavailable_for(
+                    Reason::Malformed,
+                    Subject::Request,
+                    &request.request_identity,
+                )
+            })?;
+
+        if payload.request_identity != request.request_identity
+            || !crate::is_product_edge_gateway_v1(&payload.gateway)
+            || payload.request_scope_identity.trim().is_empty()
+            || payload.autonomous_policy.grant_identity.trim().is_empty()
+            || payload
+                .autonomous_policy
+                .issuance_receipt_identity
+                .trim()
+                .is_empty()
+            || !LIFECYCLE_ACTIONS_V1.contains(&payload.lifecycle_action.as_str())
+            || payload.account_identity.trim().is_empty()
+            || !matches!(payload.execution_mode.as_str(), "PAPER" | "LIVE")
+            || payload.strategy_generation_identity.trim().is_empty()
+            || payload.execution_scope_identity.trim().is_empty()
+        {
+            return Err(unavailable_for(
+                Reason::RequestMismatch,
+                Subject::Request,
+                &request.request_identity,
+            ));
         }
         Box::pin(self.admit_request_inner(request, None)).await
     }
@@ -2190,9 +2584,13 @@ impl ProductEdgePostgresOwnerV1 {
                 &existing.authorization_frontier_identity,
             ));
         } else {
-            let current = hinted_bindings
-                .last()
-                .ok_or(ProductEdgeError::Unavailable)?;
+            let current = hinted_bindings.last().ok_or_else(|| {
+                unavailable_for(
+                    Reason::Missing,
+                    Subject::Deployment,
+                    &self.deployment_identity,
+                )
+            })?;
             requirements.push(AuthorizationRequirementV1::current(&current.authorization));
 
             if let Some(current_research) = &current_research {
@@ -2201,7 +2599,13 @@ impl ProductEdgePostgresOwnerV1 {
                     &current_research.evidence.source_admission.request_identity,
                 )
                 .await?
-                .ok_or(ProductEdgeError::Unavailable)?;
+                .ok_or_else(|| {
+                    unavailable_for(
+                        Reason::Missing,
+                        Subject::Request,
+                        &current_research.evidence.source_admission.request_identity,
+                    )
+                })?;
 
                 if source_hint.admission_identity
                     != current_research
@@ -2211,7 +2615,14 @@ impl ProductEdgePostgresOwnerV1 {
                     || source_hint.admission_digest
                         != current_research.evidence.source_admission.admission_digest
                 {
-                    return Err(ProductEdgeError::Unavailable);
+                    return Err(unavailable_for(
+                        Reason::DownstreamCustodyMismatch,
+                        Subject::Admission,
+                        &current_research
+                            .evidence
+                            .source_admission
+                            .admission_identity,
+                    ));
                 }
                 requirements.push(AuthorizationRequirementV1::current(
                     &source_hint.authorization,
@@ -2234,7 +2645,11 @@ impl ProductEdgePostgresOwnerV1 {
             load_admission_row(&mut transaction, &request.request_identity, true).await?
         {
             if hinted_admission.as_ref() != Some(&existing) {
-                return Err(ProductEdgeError::Unavailable);
+                return Err(unavailable_for(
+                    Reason::HintMismatch,
+                    Subject::Request,
+                    &request.request_identity,
+                ));
             }
 
             if existing.request_semantic_digest != request_semantic_digest
@@ -2255,7 +2670,11 @@ impl ProductEdgePostgresOwnerV1 {
         }
 
         if hinted_admission.is_some() {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::HintMismatch,
+                Subject::Request,
+                &request.request_identity,
+            ));
         }
         let read_cut = now_ms()?;
         let binding = load_current_binding(
@@ -2269,9 +2688,17 @@ impl ProductEdgePostgresOwnerV1 {
         let manifest = load_manifest_for_operation(&mut transaction, &binding, &request).await?;
         if read_cut < manifest.proposal.effective_from_epoch_ms
             || read_cut >= manifest.proposal.valid_through_epoch_ms
-            || !binding
-                .manifest_identities
-                .contains(&manifest.manifest_identity)
+        {
+            return Err(unavailable_for(
+                Reason::WindowNotCurrent,
+                Subject::Manifest,
+                &manifest.manifest_identity,
+            ));
+        }
+
+        if !binding
+            .manifest_identities
+            .contains(&manifest.manifest_identity)
             || request
                 .requested_effects
                 .iter()
@@ -2281,12 +2708,20 @@ impl ProductEdgePostgresOwnerV1 {
                 .iter()
                 .any(|effect| manifest.proposal.prohibited_effects.contains(effect))
         {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::ManifestMismatch,
+                Subject::Manifest,
+                &manifest.manifest_identity,
+            ));
         }
         let authorization =
             authorization_plan.get(&AuthorizationRequirementV1::current(&binding.authorization))?;
         if !authorization.is_current_at(read_cut) {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::AuthorizationNotCurrent,
+                Subject::Authorization,
+                &binding.authorization.authorization_identity,
+            ));
         }
         self.verify_authorization_trust(authorization)?;
         if authorization.scope().principal != binding.effective_principal
@@ -2297,7 +2732,11 @@ impl ProductEdgePostgresOwnerV1 {
                     && entry.manifest_digest == manifest.manifest_digest
             })
         {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::AuthorizationMismatch,
+                Subject::Authorization,
+                &binding.authorization.authorization_identity,
+            ));
         }
         let locked_research = if let (Some(intent_identity), Some(peeked)) = (
             artifact_intent_identity.as_deref(),
@@ -2309,12 +2748,22 @@ impl ProductEdgePostgresOwnerV1 {
                 false,
             )
             .await?
-            .ok_or(ProductEdgeError::Unavailable)?;
+            .ok_or_else(|| {
+                unavailable_for(
+                    Reason::Missing,
+                    Subject::Request,
+                    &peeked.evidence.source_admission.request_identity,
+                )
+            })?;
 
             if source.admission_identity != peeked.evidence.source_admission.admission_identity
                 || source.admission_digest != peeked.evidence.source_admission.admission_digest
             {
-                return Err(ProductEdgeError::Unavailable);
+                return Err(unavailable_for(
+                    Reason::DownstreamCustodyMismatch,
+                    Subject::Admission,
+                    &peeked.evidence.source_admission.admission_identity,
+                ));
             }
             Some((
                 lock_current_research_for_artifact(&mut transaction, intent_identity, peeked)
@@ -2336,7 +2785,11 @@ impl ProductEdgePostgresOwnerV1 {
             manifest.proposal.valid_through_epoch_ms,
             authorization.is_current_at(final_cut),
         ) {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::WindowNotCurrent,
+                Subject::Binding,
+                &binding.binding_identity,
+            ));
         }
 
         if let Some((locked, source)) = &locked_research {
@@ -2363,7 +2816,11 @@ impl ProductEdgePostgresOwnerV1 {
                     != authorization.request_proof_digest()
                 || source_authorization.operation_manifests() != authorization.operation_manifests()
             {
-                return Err(ProductEdgeError::Unavailable);
+                return Err(unavailable_for(
+                    Reason::DownstreamCustodyMismatch,
+                    Subject::ResearchIntent,
+                    &evidence.intent_identity,
+                ));
             }
         }
         let admission_identity = identity(
@@ -2435,13 +2892,25 @@ impl ProductEdgePostgresOwnerV1 {
             &authorization_plan,
         )
         .await?;
-        let canonical_storage_bytes =
-            serde_json::to_vec(&result).map_err(|_| ProductEdgeError::Unavailable)?;
+        let canonical_storage_bytes = serde_json::to_vec(&result).map_err(|_| {
+            unavailable_for(
+                Reason::Malformed,
+                Subject::Admission,
+                &result.locator.admission_identity,
+            )
+        })?;
         let canonical_storage_digest =
             storage_digest(ADMISSION_STORAGE_DOMAIN_V1, &canonical_storage_bytes);
-        let canonical_storage_json =
-            serde_json::from_slice::<serde_json::Value>(&canonical_storage_bytes)
-                .map_err(|_| ProductEdgeError::Unavailable)?;
+        let canonical_storage_json = serde_json::from_slice::<serde_json::Value>(
+            &canonical_storage_bytes,
+        )
+        .map_err(|_| {
+            unavailable_for(
+                Reason::Malformed,
+                Subject::Admission,
+                &result.locator.admission_identity,
+            )
+        })?;
         let persisted = sqlx::query("UPDATE product_edge_request_admissions_v1 SET canonical_storage_bytes=$1, canonical_storage_digest=$2, canonical_storage_json=$3 WHERE request_identity=$4 AND canonical_storage_bytes IS NULL AND canonical_storage_digest IS NULL AND canonical_storage_json IS NULL")
             .bind(&canonical_storage_bytes)
             .bind(&canonical_storage_digest)
@@ -2452,7 +2921,11 @@ impl ProductEdgePostgresOwnerV1 {
             .map_err(storage)?;
 
         if persisted.rows_affected() != 1 {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CompareAndSwapLost,
+                Subject::Request,
+                &stored_request_identity,
+            ));
         }
         let storage_row = sqlx::query("SELECT canonical_storage_bytes,canonical_storage_digest,canonical_storage_json FROM product_edge_request_admissions_v1 WHERE request_identity=$1 FOR SHARE")
             .bind(&stored_request_identity)
@@ -2498,7 +2971,11 @@ impl ProductEdgePostgresOwnerV1 {
         .await?;
 
         if result.request().request_proof_digest != request_proof_digest {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::RequestMismatch,
+                Subject::Request,
+                request_identity,
+            ));
         }
         transaction.commit().await.map_err(storage)?;
         Ok(Some(result))
@@ -2544,7 +3021,14 @@ impl ProductEdgePostgresOwnerV1 {
             let existing =
                 load_invocation_claim(&mut transaction, &request.admission.admission_identity)
                     .await?
-                    .ok_or(ProductEdgeError::Unavailable)?;
+                    .ok_or_else(|| {
+                        unavailable_for(
+                            Reason::Missing,
+                            Subject::Admission,
+                            &request.admission.admission_identity,
+                        )
+                    })?;
+
             if existing.attempt_identity != request.attempt_identity {
                 return Err(ProductEdgeError::ConflictingReplay);
             }
@@ -2557,7 +3041,9 @@ impl ProductEdgePostgresOwnerV1 {
             .await?;
             load_invocation_state(&mut transaction, &existing.claim_identity)
                 .await?
-                .ok_or(ProductEdgeError::Unavailable)?;
+                .ok_or_else(|| {
+                    unavailable_for(Reason::Missing, Subject::Claim, &existing.claim_identity)
+                })?;
             let readback = resolve_invocation_claim_readback(
                 &mut transaction,
                 &request.admission.admission_identity,
@@ -2570,36 +3056,66 @@ impl ProductEdgePostgresOwnerV1 {
         let hinted_admission =
             hint_admission(&mut transaction, &request.admission.request_identity)
                 .await?
-                .ok_or(ProductEdgeError::Unavailable)?;
+                .ok_or_else(|| {
+                    unavailable_for(
+                        Reason::Missing,
+                        Subject::Request,
+                        &request.admission.request_identity,
+                    )
+                })?;
 
         if hinted_admission.admission_identity != request.admission.admission_identity
             || hinted_admission.admission_digest != request.admission.admission_digest
             || hinted_admission.request.operation != ARTIFACT_BUILD_OPERATION_V1
         {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::RequestMismatch,
+                Subject::Admission,
+                &request.admission.admission_identity,
+            ));
         }
         let research_custody = hinted_admission
             .current_research_custody
             .clone()
-            .ok_or(ProductEdgeError::Unavailable)?;
+            .ok_or_else(|| {
+                unavailable_for(
+                    Reason::DownstreamCustodyMismatch,
+                    Subject::Admission,
+                    &request.admission.admission_identity,
+                )
+            })?;
         let research_evidence = research_custody.evidence;
         let source_hint = hint_admission(
             &mut transaction,
             &research_evidence.source_admission.request_identity,
         )
         .await?
-        .ok_or(ProductEdgeError::Unavailable)?;
+        .ok_or_else(|| {
+            unavailable_for(
+                Reason::Missing,
+                Subject::Request,
+                &research_evidence.source_admission.request_identity,
+            )
+        })?;
 
         if source_hint.admission_identity != research_evidence.source_admission.admission_identity
             || source_hint.admission_digest != research_evidence.source_admission.admission_digest
         {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::DownstreamCustodyMismatch,
+                Subject::Admission,
+                &research_evidence.source_admission.admission_identity,
+            ));
         }
         let hinted_bindings =
             hint_deployment_bindings(&mut transaction, &self.deployment_identity).await?;
-        let current_binding = hinted_bindings
-            .last()
-            .ok_or(ProductEdgeError::Unavailable)?;
+        let current_binding = hinted_bindings.last().ok_or_else(|| {
+            unavailable_for(
+                Reason::Missing,
+                Subject::Deployment,
+                &self.deployment_identity,
+            )
+        })?;
         let prelock_plan = lock_authorization_plan(
             &mut transaction,
             vec![
@@ -2626,17 +3142,29 @@ impl ProductEdgePostgresOwnerV1 {
         for request_identity in request_locks {
             let locked = load_admission_row(&mut transaction, request_identity, false)
                 .await?
-                .ok_or(ProductEdgeError::Unavailable)?;
+                .ok_or_else(|| {
+                    unavailable_for(Reason::Missing, Subject::Request, request_identity)
+                })?;
 
             if request_identity == research_evidence.source_admission.request_identity {
                 source = Some(locked);
             } else if locked.admission_identity != request.admission.admission_identity
                 || locked.admission_digest != request.admission.admission_digest
             {
-                return Err(ProductEdgeError::Unavailable);
+                return Err(unavailable_for(
+                    Reason::RequestMismatch,
+                    Subject::Admission,
+                    &request.admission.admission_identity,
+                ));
             }
         }
-        let source = source.ok_or(ProductEdgeError::Unavailable)?;
+        let source = source.ok_or_else(|| {
+            unavailable_for(
+                Reason::Missing,
+                Subject::Request,
+                &research_evidence.source_admission.request_identity,
+            )
+        })?;
         let read_cut = now_ms()?;
         let admission = resolve_admission_for_downstream_in_transaction(
             &mut transaction,
@@ -2651,7 +3179,11 @@ impl ProductEdgePostgresOwnerV1 {
             .await?
             .is_some()
         {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::HintMismatch,
+                Subject::Admission,
+                &request.admission.admission_identity,
+            ));
         }
         // All OA and Product Edge locks/rereads precede this final R&D Owner
         // lock. No OA/PE acquisition is permitted between this call and the
@@ -2667,16 +3199,27 @@ impl ProductEdgePostgresOwnerV1 {
         .await?;
 
         if !has_exact_artifact_build_effects(&admission.request().requested_effects) {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::RequestMismatch,
+                Subject::Admission,
+                &request.admission.admission_identity,
+            ));
         }
         let write_cut = now_ms()?;
         if !admission.authorizes_first_mutation_at(write_cut) {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::PolicyNotCurrent,
+                Subject::Admission,
+                &request.admission.admission_identity,
+            ));
         }
-        let current_policy = admission
-            .current_policy_evidence
-            .as_ref()
-            .ok_or(ProductEdgeError::Unavailable)?;
+        let current_policy = admission.current_policy_evidence.as_ref().ok_or_else(|| {
+            unavailable_for(
+                Reason::PolicyNotCurrent,
+                Subject::Admission,
+                &request.admission.admission_identity,
+            )
+        })?;
         let source_authorization =
             prelock_plan.get(&AuthorizationRequirementV1::current(&source.authorization))?;
         let same_or_immediate = current_policy.binding_generation == source.binding_generation
@@ -2700,7 +3243,11 @@ impl ProductEdgePostgresOwnerV1 {
             || source_authorization.operation_manifests()
                 != current_policy.authorization.operation_manifests()
         {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::DownstreamCustodyMismatch,
+                Subject::ResearchIntent,
+                &research_evidence.intent_identity,
+            ));
         }
         let invocation_admission_receipt_identity = identity(
             "product-edge-provider-invocation-admission-receipt-v1",
@@ -2842,7 +3389,9 @@ impl ProductEdgePostgresOwnerV1 {
         .await?;
         let verified = load_invocation_claim(&mut transaction, &stored.admission_identity)
             .await?
-            .ok_or(ProductEdgeError::Unavailable)?;
+            .ok_or_else(|| {
+                unavailable_for(Reason::CustodyDrift, Subject::Claim, &stored.claim_identity)
+            })?;
         verify_invocation_admission_lineage(
             &mut transaction,
             &admission,
@@ -2852,7 +3401,13 @@ impl ProductEdgePostgresOwnerV1 {
         .await?;
         load_invocation_state(&mut transaction, &verified.claim_identity)
             .await?
-            .ok_or(ProductEdgeError::Unavailable)?;
+            .ok_or_else(|| {
+                unavailable_for(
+                    Reason::CustodyDrift,
+                    Subject::Claim,
+                    &verified.claim_identity,
+                )
+            })?;
         let readback = resolve_invocation_claim_readback(
             &mut transaction,
             &verified.admission_identity,
@@ -2896,8 +3451,13 @@ impl ProductEdgePostgresOwnerV1 {
         )
         .await?;
         let payload: SourceIntakeAdmissionPayloadV1 =
-            serde_json::from_value(admission.request().typed_payload.clone())
-                .map_err(|_| ProductEdgeError::Unavailable)?;
+            serde_json::from_value(admission.request().typed_payload.clone()).map_err(|_| {
+                unavailable_for(
+                    Reason::Malformed,
+                    Subject::Request,
+                    &request.admission.request_identity,
+                )
+            })?;
 
         if admission.request().operation != SOURCE_INTAKE_OPERATION_V1
             || admission.request().operation_schema != SOURCE_INTAKE_OPERATION_SCHEMA_V1
@@ -2907,7 +3467,11 @@ impl ProductEdgePostgresOwnerV1 {
             || !valid_source_doi(&payload.normalized_doi)
             || !valid_source_interpretation(&payload.interpretation)
         {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::RequestMismatch,
+                Subject::Request,
+                &request.admission.request_identity,
+            ));
         }
         // Product Edge locks and verifies its complete admission first. The
         // final cross-owner lock is the exact R&D binding that this claim uses.
@@ -2926,14 +3490,25 @@ impl ProductEdgePostgresOwnerV1 {
             || binding.operation_manifest_digest() != admission.manifest_digest()
             || binding.normalized_doi() != payload.normalized_doi
         {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::DownstreamCustodyMismatch,
+                Subject::Request,
+                &request.admission.request_identity,
+            ));
         }
 
         if existing_hint {
             let existing =
                 load_invocation_claim(&mut transaction, &request.admission.admission_identity)
                     .await?
-                    .ok_or(ProductEdgeError::Unavailable)?;
+                    .ok_or_else(|| {
+                        unavailable_for(
+                            Reason::Missing,
+                            Subject::Admission,
+                            &request.admission.admission_identity,
+                        )
+                    })?;
+
             if existing.attempt_identity != request.attempt_identity {
                 return Err(ProductEdgeError::ConflictingReplay);
             }
@@ -2946,7 +3521,9 @@ impl ProductEdgePostgresOwnerV1 {
             .await?;
             load_invocation_state(&mut transaction, &existing.claim_identity)
                 .await?
-                .ok_or(ProductEdgeError::Unavailable)?;
+                .ok_or_else(|| {
+                    unavailable_for(Reason::Missing, Subject::Claim, &existing.claim_identity)
+                })?;
             let readback = resolve_invocation_claim_readback(
                 &mut transaction,
                 &request.admission.admission_identity,
@@ -2959,7 +3536,11 @@ impl ProductEdgePostgresOwnerV1 {
 
         let write_cut = now_ms()?;
         if !admission.authorizes_first_mutation_at(write_cut) {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::PolicyNotCurrent,
+                Subject::Admission,
+                &request.admission.admission_identity,
+            ));
         }
         let readback =
             commit_source_invocation_claim(&mut transaction, &admission, &request, write_cut)
@@ -2993,13 +3574,22 @@ impl ProductEdgePostgresOwnerV1 {
         .await
         .map_err(storage)?;
         let hinted_state: StoredInvocationStateV1 =
-            from_json(hinted_state_json.ok_or(ProductEdgeError::Unavailable)?)?;
+            from_json(hinted_state_json.ok_or_else(|| {
+                unavailable_for(Reason::Missing, Subject::Admission, &admission_identity)
+            })?)?;
+
         if invocation_state_digest(&hinted_state)? != hinted_state.state_digest {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CustodyDrift,
+                Subject::Claim,
+                &hinted_state.claim_identity,
+            ));
         }
         let claim = load_invocation_claim(&mut transaction, &admission_identity)
             .await?
-            .ok_or(ProductEdgeError::Unavailable)?;
+            .ok_or_else(|| {
+                unavailable_for(Reason::Missing, Subject::Admission, &admission_identity)
+            })?;
 
         if claim.claim_identity != request.claim_identity
             || claim.attempt_identity != request.attempt_identity
@@ -3009,7 +3599,9 @@ impl ProductEdgePostgresOwnerV1 {
         let admission_receipt =
             load_invocation_admission_receipt(&mut transaction, &claim.claim_identity)
                 .await?
-                .ok_or(ProductEdgeError::Unavailable)?;
+                .ok_or_else(|| {
+                    unavailable_for(Reason::Missing, Subject::Claim, &claim.claim_identity)
+                })?;
         let receipt = load_invocation_admission_for_locator(
             &mut transaction,
             &ProductEdgeAdmissionLocatorV1 {
@@ -3023,13 +3615,24 @@ impl ProductEdgePostgresOwnerV1 {
         .await?;
 
         if receipt.request_identity != request.request_identity {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::RequestMismatch,
+                Subject::Request,
+                &request.request_identity,
+            ));
         }
         let state = load_invocation_state(&mut transaction, &claim.claim_identity)
             .await?
-            .ok_or(ProductEdgeError::Unavailable)?;
+            .ok_or_else(|| {
+                unavailable_for(Reason::Missing, Subject::Claim, &claim.claim_identity)
+            })?;
+
         if state != hinted_state {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::HintMismatch,
+                Subject::Claim,
+                &claim.claim_identity,
+            ));
         }
         // All Product Edge claim and state locks precede the final R&D Owner
         // reservation lock, matching the claim path's PE -> R&D order.
@@ -3078,7 +3681,11 @@ impl ProductEdgePostgresOwnerV1 {
             .execute(&mut *transaction).await.map_err(storage)?;
 
         if updated.rows_affected() != 1 {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CompareAndSwapLost,
+                Subject::Claim,
+                &started.claim_identity,
+            ));
         }
         insert_outbox(
             &mut transaction,
@@ -3091,9 +3698,16 @@ impl ProductEdgePostgresOwnerV1 {
         .await?;
         let verified = load_invocation_state(&mut transaction, &started.claim_identity)
             .await?
-            .ok_or(ProductEdgeError::Unavailable)?;
+            .ok_or_else(|| {
+                unavailable_for(Reason::Missing, Subject::Claim, &started.claim_identity)
+            })?;
+
         if verified != started {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CustodyDrift,
+                Subject::Claim,
+                &started.claim_identity,
+            ));
         }
         let readback = resolve_invocation_start_readback(
             &mut transaction,
@@ -3117,13 +3731,22 @@ impl ProductEdgePostgresOwnerV1 {
             .await
             .map_err(storage)?;
         let hinted_state: StoredInvocationStateV1 =
-            from_json(hinted_state_json.ok_or(ProductEdgeError::Unavailable)?)?;
+            from_json(hinted_state_json.ok_or_else(|| {
+                unavailable_for(Reason::Missing, Subject::Admission, &admission_identity)
+            })?)?;
+
         if invocation_state_digest(&hinted_state)? != hinted_state.state_digest {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CustodyDrift,
+                Subject::Claim,
+                &hinted_state.claim_identity,
+            ));
         }
         let claim = load_invocation_claim(&mut transaction, &admission_identity)
             .await?
-            .ok_or(ProductEdgeError::Unavailable)?;
+            .ok_or_else(|| {
+                unavailable_for(Reason::Missing, Subject::Admission, &admission_identity)
+            })?;
 
         if claim.claim_identity != reservation.claim_identity()
             || claim.claim_digest != reservation.claim_digest()
@@ -3133,9 +3756,16 @@ impl ProductEdgePostgresOwnerV1 {
         }
         let state = load_invocation_state(&mut transaction, &claim.claim_identity)
             .await?
-            .ok_or(ProductEdgeError::Unavailable)?;
+            .ok_or_else(|| {
+                unavailable_for(Reason::Missing, Subject::Claim, &claim.claim_identity)
+            })?;
+
         if state != hinted_state {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::HintMismatch,
+                Subject::Claim,
+                &claim.claim_identity,
+            ));
         }
         let claim_custody = resolve_invocation_claim_readback(
             &mut transaction,
@@ -3175,7 +3805,11 @@ impl ProductEdgePostgresOwnerV1 {
             .execute(&mut *transaction).await.map_err(storage)?;
 
         if updated.rows_affected() != 1 {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CompareAndSwapLost,
+                Subject::Claim,
+                &started.claim_identity,
+            ));
         }
         insert_outbox(
             &mut transaction,
@@ -3188,9 +3822,16 @@ impl ProductEdgePostgresOwnerV1 {
         .await?;
         let verified = load_invocation_state(&mut transaction, &started.claim_identity)
             .await?
-            .ok_or(ProductEdgeError::Unavailable)?;
+            .ok_or_else(|| {
+                unavailable_for(Reason::Missing, Subject::Claim, &started.claim_identity)
+            })?;
+
         if verified != started {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CustodyDrift,
+                Subject::Claim,
+                &started.claim_identity,
+            ));
         }
         let readback = resolve_invocation_start_readback(
             &mut transaction,
@@ -3227,7 +3868,9 @@ impl ProductEdgePostgresOwnerV1 {
         .await?;
         load_invocation_state(&mut transaction, &claim.claim_identity)
             .await?
-            .ok_or(ProductEdgeError::Unavailable)?;
+            .ok_or_else(|| {
+                unavailable_for(Reason::Missing, Subject::Claim, &claim.claim_identity)
+            })?;
         let readback = resolve_invocation_claim_readback(
             &mut transaction,
             &admission.admission_identity,
@@ -3251,7 +3894,7 @@ impl ProductEdgePostgresOwnerV1 {
         let mut transaction = begin_read_committed(&self.pool).await?;
         let admission = load_admission_row(&mut transaction, request_identity, false)
             .await?
-            .ok_or(ProductEdgeError::Unavailable)?;
+            .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Request, request_identity))?;
         let locator = ProductEdgeAdmissionLocatorV1 {
             request_identity: admission.request.request_identity.clone(),
             admission_identity: admission.admission_identity.clone(),
@@ -3276,7 +3919,9 @@ impl ProductEdgePostgresOwnerV1 {
         .await?;
         load_invocation_state(&mut transaction, &claim.claim_identity)
             .await?
-            .ok_or(ProductEdgeError::Unavailable)?;
+            .ok_or_else(|| {
+                unavailable_for(Reason::Missing, Subject::Claim, &claim.claim_identity)
+            })?;
         let readback = resolve_invocation_claim_readback(
             &mut transaction,
             &locator.admission_identity,
@@ -3295,7 +3940,11 @@ impl ProductEdgePostgresOwnerV1 {
             || authorization.issuer_key_version() != self.authorization_trust.issuer_key_version
             || authorization.scope().audience != self.authorization_trust.audience
         {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::TrustMismatch,
+                Subject::Authorization,
+                authorization.issuance_receipt().authorization_identity(),
+            ));
         }
         Ok(())
     }
@@ -3318,24 +3967,22 @@ impl ProductEdgePostgresOwnerV1 {
                 && proposal.capability_policy_version != predecessor.capability_policy_version
             || proposal.audit_policy_version != predecessor.audit_policy_version
         {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::PolicyMismatch,
+                Subject::Binding,
+                &proposal.binding_identity,
+            ));
         }
-        let manifest_bindings = proposal
-            .manifests
-            .iter()
-            .map(|manifest| {
-                require_manifest_covers_binding(
-                    manifest,
-                    proposal.valid_from_epoch_ms,
-                    proposal.valid_through_epoch_ms,
-                    read_cut,
-                )?;
-                Ok(OperationManifestBindingV1 {
-                    manifest_identity: manifest.manifest_identity()?,
-                    manifest_digest: manifest.manifest_digest()?,
-                })
-            })
-            .collect::<Result<Vec<_>, ProductEdgeError>>()?;
+
+        for manifest in &proposal.manifests {
+            require_manifest_covers_binding(
+                manifest,
+                proposal.valid_from_epoch_ms,
+                proposal.valid_through_epoch_ms,
+                read_cut,
+            )?;
+        }
+        let manifest_bindings = proposal.manifests.bindings()?;
 
         if let Some(epoch) = recovery_epoch {
             let predecessor_authorization =
@@ -3349,7 +3996,11 @@ impl ProductEdgePostgresOwnerV1 {
                 || proposal.valid_from_epoch_ms
                     != predecessor_authorization.valid_through_epoch_ms()
             {
-                return Err(ProductEdgeError::Unavailable);
+                return Err(unavailable_for(
+                    Reason::PolicyMismatch,
+                    Subject::Binding,
+                    &proposal.binding_identity,
+                ));
             }
             verify_recovery_manifest_delta(transaction, predecessor, proposal, epoch).await?;
         } else {
@@ -3360,7 +4011,11 @@ impl ProductEdgePostgresOwnerV1 {
                         .map(|manifest| manifest.manifest_identity.clone())
                         .collect::<Vec<_>>()
             {
-                return Err(ProductEdgeError::Unavailable);
+                return Err(unavailable_for(
+                    Reason::PolicyMismatch,
+                    Subject::Binding,
+                    &proposal.binding_identity,
+                ));
             }
 
             for (proposal_manifest, manifest_binding) in
@@ -3372,12 +4027,22 @@ impl ProductEdgePostgresOwnerV1 {
                     false,
                 )
                 .await?
-                .ok_or(ProductEdgeError::Unavailable)?;
+                .ok_or_else(|| {
+                    unavailable_for(
+                        Reason::Missing,
+                        Subject::Manifest,
+                        &manifest_binding.manifest_identity,
+                    )
+                })?;
 
                 if stored.proposal != *proposal_manifest
                     || stored.manifest_digest != manifest_binding.manifest_digest
                 {
-                    return Err(ProductEdgeError::Unavailable);
+                    return Err(unavailable_for(
+                        Reason::ManifestMismatch,
+                        Subject::Manifest,
+                        &manifest_binding.manifest_identity,
+                    ));
                 }
             }
         }
@@ -3386,7 +4051,11 @@ impl ProductEdgePostgresOwnerV1 {
         ))?;
 
         if !authorization.is_current_at(read_cut) {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::AuthorizationNotCurrent,
+                Subject::Authorization,
+                &proposal.authorization.authorization_identity,
+            ));
         }
         self.verify_authorization_trust(authorization)?;
         if authorization.scope().principal != predecessor.effective_principal
@@ -3396,7 +4065,11 @@ impl ProductEdgePostgresOwnerV1 {
             || proposal.valid_from_epoch_ms < authorization.not_before_epoch_ms()
             || proposal.valid_through_epoch_ms > authorization.valid_through_epoch_ms()
         {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::AuthorizationMismatch,
+                Subject::Authorization,
+                &proposal.authorization.authorization_identity,
+            ));
         }
         Ok(authorization.clone())
     }
@@ -3424,7 +4097,11 @@ async fn verify_recovery_manifest_delta(
     if proposal.valid_from_epoch_ms != predecessor.valid_through_epoch_ms
         || epoch.predecessor_operation_manifests().len() != predecessor.manifest_identities.len()
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::PolicyMismatch,
+            Subject::RecoveryEpoch,
+            &epoch.recovery_epoch_identity,
+        ));
     }
     let mut predecessor_bindings = Vec::with_capacity(predecessor.manifest_identities.len());
     let mut old_by_key = BTreeMap::new();
@@ -3432,23 +4109,32 @@ async fn verify_recovery_manifest_delta(
     for identity in &predecessor.manifest_identities {
         let stored = load_manifest_by_identity(transaction, identity, false)
             .await?
-            .ok_or(ProductEdgeError::Unavailable)?;
+            .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Manifest, identity))?;
         predecessor_bindings.push(OperationManifestBindingV1 {
             manifest_identity: stored.manifest_identity.clone(),
             manifest_digest: stored.manifest_digest.clone(),
         });
 
+        let operation = stored.proposal.operation.clone();
         if old_by_key
             .insert(stored.proposal.semantic_key(), stored)
             .is_some()
         {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::Ambiguous,
+                Subject::Operation,
+                &operation,
+            ));
         }
     }
     predecessor_bindings
         .sort_by(|left, right| left.manifest_identity.cmp(&right.manifest_identity));
     if predecessor_bindings != epoch.predecessor_operation_manifests() {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::PolicyMismatch,
+            Subject::RecoveryEpoch,
+            &epoch.recovery_epoch_identity,
+        ));
     }
     let mut new_by_key = BTreeMap::new();
 
@@ -3459,7 +4145,11 @@ async fn verify_recovery_manifest_delta(
                 .insert(manifest.semantic_key(), manifest)
                 .is_some()
         {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::PolicyMismatch,
+                Subject::Operation,
+                &manifest.operation,
+            ));
         }
     }
     let transition_old_keys = epoch
@@ -3485,19 +4175,13 @@ async fn verify_recovery_manifest_delta(
 
     if old_by_key.keys().ne(transition_old_keys)
         || new_by_key.keys().ne(transition_new_keys)
-        || epoch.successor_operation_manifests()
-            != proposal
-                .manifests
-                .iter()
-                .map(|manifest| {
-                    Ok(OperationManifestBindingV1 {
-                        manifest_identity: manifest.manifest_identity()?,
-                        manifest_digest: manifest.manifest_digest()?,
-                    })
-                })
-                .collect::<Result<Vec<_>, ProductEdgeError>>()?
+        || epoch.successor_operation_manifests() != proposal.manifests.bindings()?
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::PolicyMismatch,
+            Subject::RecoveryEpoch,
+            &epoch.recovery_epoch_identity,
+        ));
     }
 
     for transition in &epoch.manifest_transitions {
@@ -3507,47 +4191,58 @@ async fn verify_recovery_manifest_delta(
                 predecessor_manifest,
                 successor_manifest,
             } => {
-                let old = old_by_key
-                    .get(semantic_key)
-                    .ok_or(ProductEdgeError::Unavailable)?;
-                let new = new_by_key
-                    .get(semantic_key)
-                    .ok_or(ProductEdgeError::Unavailable)?;
+                let old = old_by_key.get(semantic_key).ok_or_else(|| {
+                    unavailable_for(Reason::Missing, Subject::Operation, &semantic_key.operation)
+                })?;
+                let new = new_by_key.get(semantic_key).ok_or_else(|| {
+                    unavailable_for(Reason::Missing, Subject::Operation, &semantic_key.operation)
+                })?;
 
-                if manifest_binding(old)? != *predecessor_manifest
-                    || manifest_binding_from_proposal(new)? != *successor_manifest
+                if old.proposal.binding()? != *predecessor_manifest
+                    || new.binding()? != *successor_manifest
                     || !retained_manifest_is_non_widening(
                         &old.proposal,
                         new,
                         proposal.valid_from_epoch_ms,
                     )
                 {
-                    return Err(ProductEdgeError::Unavailable);
+                    return Err(unavailable_for(
+                        Reason::PolicyMismatch,
+                        Subject::Operation,
+                        &semantic_key.operation,
+                    ));
                 }
             }
             ExpiredManifestRecoveryTransitionV1::Added {
                 semantic_key,
                 successor_manifest,
             } => {
-                let new = new_by_key
-                    .get(semantic_key)
-                    .ok_or(ProductEdgeError::Unavailable)?;
+                let new = new_by_key.get(semantic_key).ok_or_else(|| {
+                    unavailable_for(Reason::Missing, Subject::Operation, &semantic_key.operation)
+                })?;
 
-                if manifest_binding_from_proposal(new)? != *successor_manifest
-                    || !added_manifest_is_bounded(new)
-                {
-                    return Err(ProductEdgeError::Unavailable);
+                if new.binding()? != *successor_manifest || !added_manifest_is_bounded(new) {
+                    return Err(unavailable_for(
+                        Reason::PolicyMismatch,
+                        Subject::Operation,
+                        &semantic_key.operation,
+                    ));
                 }
             }
             ExpiredManifestRecoveryTransitionV1::Removed {
                 semantic_key,
                 predecessor_manifest,
             } => {
-                let old = old_by_key
-                    .get(semantic_key)
-                    .ok_or(ProductEdgeError::Unavailable)?;
-                if manifest_binding(old)? != *predecessor_manifest {
-                    return Err(ProductEdgeError::Unavailable);
+                let old = old_by_key.get(semantic_key).ok_or_else(|| {
+                    unavailable_for(Reason::Missing, Subject::Operation, &semantic_key.operation)
+                })?;
+
+                if old.proposal.binding()? != *predecessor_manifest {
+                    return Err(unavailable_for(
+                        Reason::PolicyMismatch,
+                        Subject::Operation,
+                        &semantic_key.operation,
+                    ));
                 }
             }
         }
@@ -3555,27 +4250,13 @@ async fn verify_recovery_manifest_delta(
 
     if !recovery_capability_policy_is_valid(&predecessor.capability_policy_version, proposal, epoch)
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::PolicyMismatch,
+            Subject::RecoveryEpoch,
+            &epoch.recovery_epoch_identity,
+        ));
     }
     Ok(())
-}
-
-fn manifest_binding(
-    stored: &StoredManifestV1,
-) -> Result<OperationManifestBindingV1, ProductEdgeError> {
-    Ok(OperationManifestBindingV1 {
-        manifest_identity: stored.proposal.manifest_identity()?,
-        manifest_digest: stored.proposal.manifest_digest()?,
-    })
-}
-
-fn manifest_binding_from_proposal(
-    proposal: &AgentOperationManifestProposalV1,
-) -> Result<OperationManifestBindingV1, ProductEdgeError> {
-    Ok(OperationManifestBindingV1 {
-        manifest_identity: proposal.manifest_identity()?,
-        manifest_digest: proposal.manifest_digest()?,
-    })
 }
 
 fn added_manifest_is_bounded(manifest: &AgentOperationManifestProposalV1) -> bool {
@@ -3646,7 +4327,11 @@ async fn require_exact_recovery_sidecar(
     match expected_epoch {
         None if rows.is_empty() => Ok(()),
         None => Err(ProductEdgeError::ConflictingReplay),
-        Some(_) if rows.len() != 1 => Err(ProductEdgeError::Unavailable),
+        Some(_) if rows.len() != 1 => Err(unavailable_for(
+            Reason::Ambiguous,
+            Subject::Binding,
+            &binding.binding_identity,
+        )),
         Some(epoch) => {
             let row = &rows[0];
             let stored: StoredExpiredManifestRecoveryV1 =
@@ -3677,7 +4362,11 @@ async fn require_exact_recovery_sidecar(
                 || from_i64(row.try_get("committed_at_epoch_ms").map_err(storage)?)?
                     != stored.committed_at_epoch_ms
             {
-                return Err(ProductEdgeError::Unavailable);
+                return Err(unavailable_for(
+                    Reason::CustodyDrift,
+                    Subject::RecoveryEpoch,
+                    &epoch.recovery_epoch_identity,
+                ));
             }
             Ok(())
         }
@@ -3694,12 +4383,19 @@ async fn commit_source_invocation_claim(
         .await?
         .is_some()
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::HintMismatch,
+            Subject::Admission,
+            &request.admission.admission_identity,
+        ));
     }
-    let current_policy = admission
-        .current_policy_evidence
-        .as_ref()
-        .ok_or(ProductEdgeError::Unavailable)?;
+    let current_policy = admission.current_policy_evidence.as_ref().ok_or_else(|| {
+        unavailable_for(
+            Reason::PolicyNotCurrent,
+            Subject::Admission,
+            &request.admission.admission_identity,
+        )
+    })?;
     let receipt_identity = identity(
         "product-edge-provider-invocation-admission-receipt-v1",
         &[
@@ -3839,7 +4535,9 @@ async fn commit_source_invocation_claim(
     .await?;
     let verified = load_invocation_claim(transaction, &claim.admission_identity)
         .await?
-        .ok_or(ProductEdgeError::Unavailable)?;
+        .ok_or_else(|| {
+            unavailable_for(Reason::CustodyDrift, Subject::Claim, &claim.claim_identity)
+        })?;
     verify_invocation_admission_lineage(
         transaction,
         admission,
@@ -3849,7 +4547,13 @@ async fn commit_source_invocation_claim(
     .await?;
     load_invocation_state(transaction, &verified.claim_identity)
         .await?
-        .ok_or(ProductEdgeError::Unavailable)?;
+        .ok_or_else(|| {
+            unavailable_for(
+                Reason::CustodyDrift,
+                Subject::Claim,
+                &verified.claim_identity,
+            )
+        })?;
     resolve_invocation_claim_readback(
         transaction,
         &verified.admission_identity,
@@ -3882,7 +4586,11 @@ fn require_manifest_covers_binding(
         || binding_valid_from < manifest.effective_from_epoch_ms
         || binding_valid_through > manifest.valid_through_epoch_ms
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::WindowNotCurrent,
+            Subject::Operation,
+            &manifest.operation,
+        ));
     }
     Ok(())
 }
@@ -3901,7 +4609,13 @@ pub async fn resolve_admission_for_downstream_in_transaction(
             .await
             .map_err(storage)?;
     verify_locked_downstream_envelope(
-        envelope.ok_or(ProductEdgeError::Unavailable)?,
+        envelope.ok_or_else(|| {
+            unavailable_for(
+                Reason::Missing,
+                Subject::Admission,
+                &locator.admission_identity,
+            )
+        })?,
         locator,
         mode,
     )
@@ -3926,7 +4640,13 @@ pub async fn resolve_historical_admission_snapshot_for_downstream_in_transaction
     .await
     .map_err(storage)?;
     verify_locked_downstream_envelope(
-        envelope.ok_or(ProductEdgeError::Unavailable)?,
+        envelope.ok_or_else(|| {
+            unavailable_for(
+                Reason::Missing,
+                Subject::Admission,
+                &locator.admission_identity,
+            )
+        })?,
         locator,
         DownstreamAdmissionModeV1::Historical,
     )
@@ -4141,16 +4861,23 @@ async fn verify_admission(
     hinted_bindings: &[StoredBindingV1],
     authorization_plan: &LockedAuthorizationPlanV1,
 ) -> Result<ProductEdgeAdmissionReadbackV1, ProductEdgeError> {
-    stored
-        .request
-        .validate()
-        .map_err(|_| ProductEdgeError::Unavailable)?;
+    stored.request.validate().map_err(|_| {
+        unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Admission,
+            &stored.admission_identity,
+        )
+    })?;
 
     if stored.schema_version != PRODUCT_EDGE_SCHEMA_V1
         || stored.request.semantic_digest()? != stored.request_semantic_digest
         || admission_digest(&stored)? != stored.admission_digest
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Admission,
+            &stored.admission_identity,
+        ));
     }
     let receipt = admission_receipt(&stored);
     verify_outbox(
@@ -4170,7 +4897,13 @@ async fn verify_admission(
         authorization_plan,
     )
     .await?
-    .ok_or(ProductEdgeError::Unavailable)?;
+    .ok_or_else(|| {
+        unavailable_for(
+            Reason::Missing,
+            Subject::Deployment,
+            &stored.deployment_identity,
+        )
+    })?;
     let binding = history.find(&stored.binding_identity)?;
     let policy_binding = match mode {
         DownstreamAdmissionModeV1::FirstMutation { .. } => first_mutation_policy_binding(
@@ -4182,7 +4915,13 @@ async fn verify_admission(
     };
     let manifest = load_manifest_by_identity(transaction, &stored.manifest_identity, false)
         .await?
-        .ok_or(ProductEdgeError::Unavailable)?;
+        .ok_or_else(|| {
+            unavailable_for(
+                Reason::Missing,
+                Subject::Manifest,
+                &stored.manifest_identity,
+            )
+        })?;
 
     if binding.deployment_identity != stored.deployment_identity
         || binding.generation != stored.binding_generation
@@ -4202,7 +4941,11 @@ async fn verify_admission(
         || manifest.proposal.operation_schema != stored.request.operation_schema
         || manifest.proposal.target_owner != stored.request.target_owner
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::LineageBroken,
+            Subject::Admission,
+            &stored.admission_identity,
+        ));
     }
     let authorization_requirement = AuthorizationRequirementV1::historical(
         &stored.authorization,
@@ -4219,7 +4962,11 @@ async fn verify_admission(
                 && entry.manifest_digest == stored.manifest_digest
         })
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::AuthorizationMismatch,
+            Subject::Admission,
+            &stored.admission_identity,
+        ));
     }
     let current_policy_evidence =
         if let DownstreamAdmissionModeV1::FirstMutation { read_cut_epoch_ms } = mode {
@@ -4231,7 +4978,7 @@ async fn verify_admission(
             for identity in &policy_binding.manifest_identities {
                 let current_manifest = load_manifest_by_identity(transaction, identity, false)
                     .await?
-                    .ok_or(ProductEdgeError::Unavailable)?;
+                    .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Manifest, identity))?;
                 current_manifest_bindings.push(OperationManifestBindingV1 {
                     manifest_identity: current_manifest.manifest_identity,
                     manifest_digest: current_manifest.manifest_digest,
@@ -4253,7 +5000,11 @@ async fn verify_admission(
                     current_authorization.is_current_at(read_cut_epoch_ms),
                 )
             {
-                return Err(ProductEdgeError::Unavailable);
+                return Err(unavailable_for(
+                    Reason::AuthorizationMismatch,
+                    Subject::Binding,
+                    &policy_binding.binding_identity,
+                ));
             }
             Some(ProductEdgeCurrentPolicyEvidenceV1 {
                 binding_identity: policy_binding.binding_identity.clone(),
@@ -4381,18 +5132,34 @@ async fn verify_deployment_history(
         .map_err(storage)?;
 
     if binding_rows.len() != hinted_bindings.len() {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::HintMismatch,
+            Subject::Deployment,
+            deployment_identity,
+        ));
     }
 
     if binding_rows.is_empty() {
         if head_rows.is_empty() {
             return Ok(None);
         }
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::HeadMismatch,
+            Subject::Deployment,
+            deployment_identity,
+        ));
     }
 
     if head_rows.len() != 1 {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            if head_rows.is_empty() {
+                Reason::Missing
+            } else {
+                Reason::Ambiguous
+            },
+            Subject::Deployment,
+            deployment_identity,
+        ));
     }
 
     let mut bindings = Vec::with_capacity(binding_rows.len());
@@ -4402,14 +5169,24 @@ async fn verify_deployment_history(
         let binding_identity: String = row.try_get("binding_identity").map_err(storage)?;
         let binding = load_binding_by_identity(transaction, &binding_identity, false)
             .await?
-            .ok_or(ProductEdgeError::Unavailable)?;
+            .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Binding, &binding_identity))?;
         if hinted_bindings.get(index) != Some(&binding) {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::HintMismatch,
+                Subject::Binding,
+                &binding_identity,
+            ));
         }
         let expected_generation = u64::try_from(index)
             .map_err(storage)?
             .checked_add(1)
-            .ok_or(ProductEdgeError::Unavailable)?;
+            .ok_or_else(|| {
+                unavailable_for(
+                    Reason::LineageBroken,
+                    Subject::Binding,
+                    &binding.binding_identity,
+                )
+            })?;
         let expected_predecessor = bindings
             .last()
             .map(|binding: &StoredBindingV1| binding.binding_identity.as_str());
@@ -4421,14 +5198,20 @@ async fn verify_deployment_history(
                 binding.committed_at_epoch_ms < predecessor.committed_at_epoch_ms
             })
         {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::LineageBroken,
+                Subject::Binding,
+                &binding.binding_identity,
+            ));
         }
 
         let mut manifest_bindings = Vec::with_capacity(binding.manifest_identities.len());
         for manifest_identity in &binding.manifest_identities {
             let manifest = load_manifest_by_identity(transaction, manifest_identity, false)
                 .await?
-                .ok_or(ProductEdgeError::Unavailable)?;
+                .ok_or_else(|| {
+                    unavailable_for(Reason::Missing, Subject::Manifest, manifest_identity)
+                })?;
             verify_outbox_kinds(transaction, manifest_identity, &[MANIFEST_EVENT]).await?;
             manifest_bindings.push(OperationManifestBindingV1 {
                 manifest_identity: manifest.manifest_identity,
@@ -4454,7 +5237,11 @@ async fn verify_deployment_history(
                             != Some(manifest.manifest_digest.as_str())
                 })
         {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CustodyDrift,
+                Subject::Binding,
+                &binding.binding_identity,
+            ));
         }
 
         if binding.manifest_identities.is_empty()
@@ -4463,7 +5250,11 @@ async fn verify_deployment_history(
                 .windows(2)
                 .any(|pair| pair[0] >= pair[1])
         {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CustodyDrift,
+                Subject::Binding,
+                &binding.binding_identity,
+            ));
         }
         let authorization = authorization_plan.get(&AuthorizationRequirementV1::historical(
             &binding.authorization,
@@ -4477,12 +5268,20 @@ async fn verify_deployment_history(
             || binding.valid_from_epoch_ms < authorization.not_before_epoch_ms()
             || binding.valid_through_epoch_ms > authorization.valid_through_epoch_ms()
         {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::AuthorizationMismatch,
+                Subject::Binding,
+                &binding.binding_identity,
+            ));
         }
 
         if binding.predecessor_binding_identity.is_none() {
             if binding.recovery_epoch.is_some() {
-                return Err(ProductEdgeError::Unavailable);
+                return Err(unavailable_for(
+                    Reason::LineageBroken,
+                    Subject::Binding,
+                    &binding.binding_identity,
+                ));
             }
         } else {
             let proposal_digest = successor_proposal_digest(transaction, &binding).await?;
@@ -4511,19 +5310,31 @@ async fn verify_deployment_history(
                     .await?;
             }
         } else {
-            let supersession = supersession.ok_or(ProductEdgeError::Unavailable)?;
+            let supersession = supersession.ok_or_else(|| {
+                unavailable_for(
+                    Reason::Missing,
+                    Subject::Supersession,
+                    &binding.binding_identity,
+                )
+            })?;
             let expected_successor: String = binding_rows[index + 1]
                 .try_get("binding_identity")
                 .map_err(storage)?;
             let successor = load_binding_by_identity(transaction, &expected_successor, false)
                 .await?
-                .ok_or(ProductEdgeError::Unavailable)?;
+                .ok_or_else(|| {
+                    unavailable_for(Reason::Missing, Subject::Binding, &expected_successor)
+                })?;
 
             if supersession.successor_binding_identity != expected_successor
                 || supersession.successor_proposal_digest
                     != successor_proposal_digest(transaction, &successor).await?
             {
-                return Err(ProductEdgeError::Unavailable);
+                return Err(unavailable_for(
+                    Reason::LineageBroken,
+                    Subject::Supersession,
+                    &binding.binding_identity,
+                ));
             }
             verify_outbox_kinds(
                 transaction,
@@ -4535,7 +5346,9 @@ async fn verify_deployment_history(
         bindings.push(binding);
     }
 
-    let current = bindings.last().ok_or(ProductEdgeError::Unavailable)?;
+    let current = bindings.last().ok_or_else(|| {
+        unavailable_for(Reason::Missing, Subject::Deployment, deployment_identity)
+    })?;
     let head = &head_rows[0];
     if head
         .try_get::<String, _>("deployment_identity")
@@ -4553,9 +5366,14 @@ async fn verify_deployment_history(
         || from_i64(head.try_get("committed_at_epoch_ms").map_err(storage)?)?
             != current.committed_at_epoch_ms
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::HeadMismatch,
+            Subject::Deployment,
+            deployment_identity,
+        ));
     }
     Ok(Some(VerifiedDeploymentHistoryV1 {
+        deployment_identity: deployment_identity.to_string(),
         bindings,
         pending_supersession,
     }))
@@ -4568,13 +5386,19 @@ async fn successor_proposal_digest(
     let predecessor = binding
         .predecessor_binding_identity
         .clone()
-        .ok_or(ProductEdgeError::Unavailable)?;
+        .ok_or_else(|| {
+            unavailable_for(
+                Reason::LineageBroken,
+                Subject::Binding,
+                &binding.binding_identity,
+            )
+        })?;
     let mut manifests = Vec::with_capacity(binding.manifest_identities.len());
     for identity in &binding.manifest_identities {
         manifests.push(
             load_manifest_by_identity(transaction, identity, false)
                 .await?
-                .ok_or(ProductEdgeError::Unavailable)?
+                .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Manifest, identity))?
                 .proposal,
         );
     }
@@ -4591,7 +5415,7 @@ async fn successor_proposal_digest(
         valid_from_epoch_ms: binding.valid_from_epoch_ms,
         valid_through_epoch_ms: binding.valid_through_epoch_ms,
         authorization: binding.authorization.clone(),
-        manifests,
+        manifests: AgentOperationManifestSetV1::new(manifests)?,
     };
 
     if let Some(epoch) = &binding.recovery_epoch {
@@ -4616,7 +5440,11 @@ async fn load_supersession(
         .map_err(storage)?;
 
     if rows.len() > 1 {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::Ambiguous,
+            Subject::Supersession,
+            binding_identity,
+        ));
     }
     let Some(row) = rows.first() else {
         return Ok(None);
@@ -4651,7 +5479,11 @@ async fn load_supersession(
         || from_i64(row.try_get("committed_at_epoch_ms").map_err(storage)?)?
             != stored.committed_at_epoch_ms
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Supersession,
+            binding_identity,
+        ));
     }
     verify_outbox(
         transaction,
@@ -4680,9 +5512,20 @@ async fn load_bootstrap_readback(
         authorization_plan,
     )
     .await?
-    .ok_or(ProductEdgeError::Unavailable)?;
+    .ok_or_else(|| {
+        unavailable_for(
+            Reason::Missing,
+            Subject::Deployment,
+            &binding.deployment_identity,
+        )
+    })?;
+
     if history.find(&binding.binding_identity)? != binding {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::HintMismatch,
+            Subject::Binding,
+            &binding.binding_identity,
+        ));
     }
     let authorization = authorization_plan
         .get(&AuthorizationRequirementV1::historical(
@@ -4716,10 +5559,14 @@ async fn load_current_binding(
         authorization_plan,
     )
     .await?
-    .ok_or(ProductEdgeError::Unavailable)?;
+    .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Deployment, deployment))?;
     let binding = history.current()?.clone();
     if read_cut < binding.valid_from_epoch_ms || read_cut >= binding.valid_through_epoch_ms {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::WindowNotCurrent,
+            Subject::Binding,
+            &binding.binding_identity,
+        ));
     }
     Ok(binding)
 }
@@ -4741,7 +5588,7 @@ async fn load_binding_by_identity(
         .map_err(storage)?;
 
     if rows.len() > 1 {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(Reason::Ambiguous, Subject::Binding, value));
     }
     let Some(row) = rows.first() else {
         return Ok(None);
@@ -4800,7 +5647,11 @@ fn decode_binding_row(
             != stored.committed_at_epoch_ms
         || receipt != binding_receipt(&stored)
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Binding,
+            &stored.binding_identity,
+        ));
     }
     Ok((stored, receipt))
 }
@@ -4815,7 +5666,9 @@ async fn load_manifest_for_operation(
     for manifest_identity in &binding.manifest_identities {
         let manifest = load_manifest_by_identity(transaction, manifest_identity, false)
             .await?
-            .ok_or(ProductEdgeError::Unavailable)?;
+            .ok_or_else(|| {
+                unavailable_for(Reason::Missing, Subject::Manifest, manifest_identity)
+            })?;
 
         if manifest.proposal.operation == request.operation
             && manifest.proposal.operation_schema == request.operation_schema
@@ -4828,7 +5681,15 @@ async fn load_manifest_for_operation(
     if matches.len() == 1 {
         Ok(matches.pop().expect("one manifest match"))
     } else {
-        Err(ProductEdgeError::Unavailable)
+        Err(unavailable_for(
+            if matches.is_empty() {
+                Reason::Missing
+            } else {
+                Reason::Ambiguous
+            },
+            Subject::Operation,
+            &request.operation,
+        ))
     }
 }
 
@@ -4849,7 +5710,7 @@ async fn load_manifest_by_identity(
         .map_err(storage)?;
 
     if rows.len() > 1 {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(Reason::Ambiguous, Subject::Manifest, value));
     }
     let Some(row) = rows.first() else {
         return Ok(None);
@@ -4880,7 +5741,11 @@ async fn load_manifest_by_identity(
             != stored.committed_at_epoch_ms
         || receipt != manifest_receipt(&stored)
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Manifest,
+            &stored.manifest_identity,
+        ));
     }
     verify_outbox(
         transaction,
@@ -4911,7 +5776,7 @@ async fn load_admission_row(
         .map_err(storage)?;
 
     if rows.len() > 1 {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(Reason::Ambiguous, Subject::Request, value));
     }
     let Some(row) = rows.first() else {
         return Ok(None);
@@ -4933,7 +5798,11 @@ async fn load_admission_row_by_identity(
     .map_err(storage)?;
 
     if rows.len() > 1 {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::Ambiguous,
+            Subject::Admission,
+            admission_identity,
+        ));
     }
     rows.first().map(decode_admission_row).transpose()
 }
@@ -4945,16 +5814,23 @@ fn decode_admission_row(
     let receipt: StoredAdmissionReceiptV1 =
         from_json(row.try_get("receipt_json").map_err(storage)?)?;
 
-    stored
-        .request
-        .validate()
-        .map_err(|_| ProductEdgeError::Unavailable)?;
+    stored.request.validate().map_err(|_| {
+        unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Admission,
+            &stored.admission_identity,
+        )
+    })?;
 
     if stored.schema_version != PRODUCT_EDGE_SCHEMA_V1
         || stored.request.semantic_digest()? != stored.request_semantic_digest
         || admission_digest(&stored)? != stored.admission_digest
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Admission,
+            &stored.admission_identity,
+        ));
     }
 
     if row
@@ -4997,7 +5873,11 @@ fn decode_admission_row(
             != stored.committed_at_epoch_ms
         || receipt != admission_receipt(&stored)
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Admission,
+            &stored.admission_identity,
+        ));
     }
     Ok((stored, receipt))
 }
@@ -5063,11 +5943,7 @@ fn binding_matches_proposal(
     stored: &StoredBindingV1,
     proposal: &ProductEdgeBootstrapProposalV1,
 ) -> Result<bool, ProductEdgeError> {
-    let manifest_identities = proposal
-        .manifests
-        .iter()
-        .map(AgentOperationManifestProposalV1::manifest_identity)
-        .collect::<Result<Vec<_>, _>>()?;
+    let manifest_identities = proposal.manifests.identities()?;
     Ok(stored.deployment_identity == proposal.deployment_identity
         && stored.binding_identity == proposal.binding_identity
         && stored.generation == proposal.generation
@@ -5086,11 +5962,7 @@ fn binding_matches_successor(
     stored: &StoredBindingV1,
     proposal: &ProductEdgeSuccessorProposalV1,
 ) -> Result<bool, ProductEdgeError> {
-    let manifest_identities = proposal
-        .manifests
-        .iter()
-        .map(AgentOperationManifestProposalV1::manifest_identity)
-        .collect::<Result<Vec<_>, _>>()?;
+    let manifest_identities = proposal.manifests.identities()?;
     Ok(stored.deployment_identity == proposal.deployment_identity
         && stored.binding_identity == proposal.binding_identity
         && stored.generation == proposal.generation
@@ -5157,9 +6029,14 @@ async fn peek_current_research_for_artifact(
             .fetch_one(&mut **transaction)
             .await
             .map_err(storage)?;
-    let value = value.ok_or(ProductEdgeError::Unavailable)?;
+    let value = value.ok_or_else(|| {
+        unavailable_for(Reason::Missing, Subject::ResearchIntent, intent_identity)
+    })?;
     let envelope: PeekCurrentResearchEnvelopeV1 =
-        serde_json::from_value(value.clone()).map_err(|_| ProductEdgeError::Unavailable)?;
+        serde_json::from_value(value.clone()).map_err(|_| {
+            unavailable_for(Reason::Malformed, Subject::ResearchIntent, intent_identity)
+        })?;
+
     if serde_json::to_value(&envelope.evidence).map_err(storage)? != value["evidence"]
         || envelope.evidence.schema_version != 1
         || envelope.evidence.intent_identity != intent_identity
@@ -5167,7 +6044,11 @@ async fn peek_current_research_for_artifact(
         || envelope.evidence_digest
             != current_research_artifact_evidence_digest(&envelope.evidence)?
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::DownstreamCustodyMismatch,
+            Subject::ResearchIntent,
+            intent_identity,
+        ));
     }
     Ok(envelope)
 }
@@ -5186,15 +6067,22 @@ async fn lock_current_research_for_artifact(
             .fetch_one(&mut **transaction)
             .await
             .map_err(storage)?;
-    let value = value.ok_or(ProductEdgeError::Unavailable)?;
-    let locked: LockedCurrentResearchEnvelopeV1 =
-        serde_json::from_value(value).map_err(|_| ProductEdgeError::Unavailable)?;
+    let value = value.ok_or_else(|| {
+        unavailable_for(Reason::Missing, Subject::ResearchIntent, intent_identity)
+    })?;
+    let locked: LockedCurrentResearchEnvelopeV1 = serde_json::from_value(value).map_err(|_| {
+        unavailable_for(Reason::Malformed, Subject::ResearchIntent, intent_identity)
+    })?;
 
     if locked.evidence != peeked.evidence
         || locked.evidence_digest != peeked.evidence_digest
         || locked.evidence_digest != current_research_artifact_evidence_digest(&locked.evidence)?
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::DownstreamCustodyMismatch,
+            Subject::ResearchIntent,
+            intent_identity,
+        ));
     }
     Ok(locked)
 }
@@ -5224,7 +6112,7 @@ async fn insert_admission_outbox<T: Serialize>(
     .fetch_optional(&mut **transaction)
     .await
     .map_err(storage)?
-    .ok_or(ProductEdgeError::Unavailable)?;
+    .ok_or_else(|| unavailable_for(Reason::Missing, Subject::EventStream, PRODUCT_EDGE_ADMISSION_EVENT_STREAM_V1))?;
     let event_identity = insert_outbox_record(
         transaction,
         seed,
@@ -5245,7 +6133,7 @@ async fn insert_admission_outbox<T: Serialize>(
             .fetch_optional(&mut **transaction)
             .await
             .map_err(storage)?
-            .ok_or(ProductEdgeError::Unavailable)?,
+            .ok_or_else(|| unavailable_for(Reason::Missing, Subject::OwnerSequence, &(owner_sequence - 1).to_string()))?,
         )
     };
     sqlx::query(
@@ -5369,7 +6257,15 @@ async fn verify_outbox_with_lock<T: Serialize>(
         .collect();
 
     if matches.len() != 1 {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            if matches.is_empty() {
+                Reason::Missing
+            } else {
+                Reason::Ambiguous
+            },
+            Subject::Outbox,
+            aggregate,
+        ));
     }
     let row = matches[0];
     let record: StoredOutboxV1 = from_json(row.try_get("payload_json").map_err(storage)?)?;
@@ -5398,7 +6294,11 @@ async fn verify_outbox_with_lock<T: Serialize>(
             != payload_digest
         || from_i64(row.try_get("committed_at_epoch_ms").map_err(storage)?)? != committed_at
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Outbox,
+            aggregate,
+        ));
     }
     Ok(())
 }
@@ -5426,7 +6326,11 @@ async fn verify_outbox_kinds(
             .map(|kind| (*kind).to_string())
             .collect::<Vec<_>>()
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Outbox,
+            aggregate_identity,
+        ));
     }
     Ok(())
 }
@@ -5442,7 +6346,13 @@ async fn verify_admission_event_stream(
     .fetch_optional(&mut **transaction)
     .await
     .map_err(storage)?;
-    let row = row.ok_or(ProductEdgeError::Unavailable)?;
+    let row = row.ok_or_else(|| {
+        unavailable_for(
+            Reason::Missing,
+            Subject::EventStream,
+            PRODUCT_EDGE_ADMISSION_EVENT_STREAM_V1,
+        )
+    })?;
     let last = from_i64(row.last_owner_sequence)?;
     let count = from_i64(row.event_count)?;
     let admission_count = from_i64(row.admission_count)?;
@@ -5459,7 +6369,11 @@ async fn verify_admission_event_stream(
         || (last == 0 && (count != 0 || minimum.is_some() || maximum.is_some()))
         || (last > 0 && (count != last || minimum != Some(1) || maximum != Some(last)))
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::EventStream,
+            PRODUCT_EDGE_ADMISSION_EVENT_STREAM_V1,
+        ));
     }
     Ok(last)
 }
@@ -5492,19 +6406,33 @@ async fn follow_admission_events_after(
         || (cursor.owner_sequence() == 0 && !cursor_has_no_anchor)
         || (cursor.owner_sequence() > 0 && !cursor_has_complete_anchor)
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CursorMismatch,
+            Subject::EventStream,
+            cursor.stream_identity(),
+        ));
     }
     let mut transaction = begin_repeatable_read(pool).await?;
     let last_owner_sequence = verify_admission_event_stream(&mut transaction).await?;
     if cursor.owner_sequence() > last_owner_sequence {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CursorMismatch,
+            Subject::OwnerSequence,
+            &cursor.owner_sequence().to_string(),
+        ));
     }
 
     if cursor.owner_sequence() > 0 {
         let anchor =
             load_admission_event_locator_by_sequence(&mut transaction, cursor.owner_sequence())
                 .await?
-                .ok_or(ProductEdgeError::Unavailable)?;
+                .ok_or_else(|| {
+                    unavailable_for(
+                        Reason::Missing,
+                        Subject::OwnerSequence,
+                        &cursor.owner_sequence().to_string(),
+                    )
+                })?;
         let observation =
             resolve_admission_observation_in_transaction(&mut transaction, &anchor).await?;
         if cursor.event_identity() != Some(anchor.event_identity())
@@ -5513,7 +6441,11 @@ async fn follow_admission_events_after(
             || cursor.observation_identity() != Some(observation.observation_identity())
             || cursor.observation_digest() != Some(observation.observation_digest())
         {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CursorMismatch,
+                Subject::OwnerSequence,
+                &cursor.owner_sequence().to_string(),
+            ));
         }
     }
 
@@ -5532,7 +6464,11 @@ async fn follow_admission_events_after(
     for row in rows {
         let locator = admission_event_locator_from_row(&mut transaction, &row).await?;
         if locator.owner_sequence() <= previous_sequence {
-            return Err(ProductEdgeError::Unavailable);
+            return Err(unavailable_for(
+                Reason::CustodyDrift,
+                Subject::OwnerSequence,
+                &locator.owner_sequence().to_string(),
+            ));
         }
         resolve_admission_observation_in_transaction(&mut transaction, &locator).await?;
         previous_sequence = locator.owner_sequence();
@@ -5568,7 +6504,11 @@ async fn load_admission_event_locator_by_sequence(
     .map_err(storage)?;
 
     if rows.len() > 1 {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::Ambiguous,
+            Subject::OwnerSequence,
+            &owner_sequence.to_string(),
+        ));
     }
 
     match rows.first() {
@@ -5588,9 +6528,13 @@ async fn admission_event_locator_from_row(
     let fact_identity: String = row.try_get("aggregate_identity").map_err(storage)?;
     let (admission, _) = load_admission_row_by_identity(transaction, &fact_identity)
         .await?
-        .ok_or(ProductEdgeError::Unavailable)?;
+        .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Admission, &fact_identity))?;
     if owner_sequence == 0 || admission.admission_identity != fact_identity {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Event,
+            &event_identity,
+        ));
     }
     Ok(ProductEdgeAdmissionEventLocatorV1::from_owner_fact(
         owner_sequence,
@@ -5610,11 +6554,17 @@ async fn resolve_admission_observation_in_transaction(
         || locator.fact_identity().trim().is_empty()
         || !is_sha256_digest(locator.fact_digest())
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CursorMismatch,
+            Subject::Event,
+            locator.event_identity(),
+        ));
     }
     let (admission, receipt) = load_admission_row_by_identity(transaction, locator.fact_identity())
         .await?
-        .ok_or(ProductEdgeError::Unavailable)?;
+        .ok_or_else(|| {
+            unavailable_for(Reason::Missing, Subject::Admission, locator.fact_identity())
+        })?;
 
     if admission.admission_identity != locator.fact_identity()
         || admission.admission_digest != locator.fact_digest()
@@ -5622,7 +6572,11 @@ async fn resolve_admission_observation_in_transaction(
         || receipt.admission_digest != locator.fact_digest()
         || receipt.committed_at_epoch_ms != admission.committed_at_epoch_ms
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Admission,
+            locator.fact_identity(),
+        ));
     }
     let rows = sqlx::query(
         "SELECT event.owner_sequence, outbox.event_identity, outbox.aggregate_identity, outbox.event_kind, outbox.payload_digest, outbox.payload_json, outbox.committed_at_epoch_ms FROM product_edge_admission_events_v1 AS event JOIN product_edge_owner_outbox_v1 AS outbox ON outbox.event_identity = event.event_identity WHERE outbox.event_identity = $1",
@@ -5633,7 +6587,15 @@ async fn resolve_admission_observation_in_transaction(
     .map_err(storage)?;
 
     if rows.len() != 1 {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            if rows.is_empty() {
+                Reason::Missing
+            } else {
+                Reason::Ambiguous
+            },
+            Subject::Event,
+            locator.event_identity(),
+        ));
     }
     let row = &rows[0];
     let owner_sequence: i64 = row.try_get("owner_sequence").map_err(storage)?;
@@ -5647,7 +6609,11 @@ async fn resolve_admission_observation_in_transaction(
         || from_i64(row.try_get("committed_at_epoch_ms").map_err(storage)?)?
             != admission.committed_at_epoch_ms
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
+            Subject::Event,
+            locator.event_identity(),
+        ));
     }
     verify_outbox_read_only(
         transaction,
@@ -5707,13 +6673,13 @@ fn json<T: Serialize>(value: &T) -> Result<serde_json::Value, ProductEdgeError> 
 fn from_json<T: for<'de> Deserialize<'de>>(
     value: serde_json::Value,
 ) -> Result<T, ProductEdgeError> {
-    serde_json::from_value(value).map_err(|_| ProductEdgeError::Unavailable)
+    serde_json::from_value(value).map_err(|_| unavailable(Reason::Malformed))
 }
 fn to_i64(value: u64) -> Result<i64, ProductEdgeError> {
     i64::try_from(value).map_err(|e| ProductEdgeError::Storage(e.to_string()))
 }
 fn from_i64(value: i64) -> Result<u64, ProductEdgeError> {
-    u64::try_from(value).map_err(|_| ProductEdgeError::Unavailable)
+    u64::try_from(value).map_err(|_| unavailable(Reason::Malformed))
 }
 async fn begin_read_committed(
     pool: &PgPool,
@@ -5743,7 +6709,7 @@ fn invocation_reservation_error(
 ) -> ProductEdgeError {
     match error {
         vibe_rd_artifact_invocation_custody::ArtifactInvocationCustodyError::Unavailable => {
-            ProductEdgeError::Unavailable
+            unavailable(Reason::ArtifactInvocationCustody)
         }
         vibe_rd_artifact_invocation_custody::ArtifactInvocationCustodyError::Storage(message) => {
             ProductEdgeError::Storage(message)
@@ -5755,7 +6721,7 @@ fn source_invocation_custody_error(
 ) -> ProductEdgeError {
     match error {
         vibe_rd_source_intake_invocation_custody::SourceInvocationCustodyError::Unavailable => {
-            ProductEdgeError::Unavailable
+            unavailable(Reason::SourceInvocationCustody)
         }
         vibe_rd_source_intake_invocation_custody::SourceInvocationCustodyError::Storage(
             message,
@@ -5765,8 +6731,12 @@ fn source_invocation_custody_error(
 fn authority(error: OperatorAuthorizationError) -> ProductEdgeError {
     match error {
         OperatorAuthorizationError::ConflictingReplay => ProductEdgeError::ConflictingReplay,
-        OperatorAuthorizationError::InvalidProposal(_)
-        | OperatorAuthorizationError::Unavailable => ProductEdgeError::Unavailable,
+        OperatorAuthorizationError::InvalidProposal(what) => {
+            unavailable(Reason::OperatorAuthorizationProposal(what))
+        }
+        OperatorAuthorizationError::Unavailable(inner) => {
+            unavailable(Reason::OperatorAuthorization(inner))
+        }
         OperatorAuthorizationError::Storage(message) => ProductEdgeError::Storage(message),
     }
 }
@@ -5779,9 +6749,12 @@ mod tests {
     };
 
     use super::*;
+    use crate::{LIFECYCLE_REQUEST_OPERATION_V1, PRODUCT_EDGE_GATEWAY_V1};
     use rstest::rstest;
     use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
     use vibe_operator_authorization::{
+        AutonomousPolicyAuthorizationContentV1, AutonomousPolicyAuthorizationIssuanceProposalV1,
+        AutonomousPolicyV1, CapitalPolicyBindingV1, ExecutionModeV1,
         ExpiredManifestRecoveryEpochV1, ExpiredManifestRecoveryTransitionV1,
         OperationManifestBindingV1, OperatorAuthorizationExpiredManifestRecoveryProposalV1,
         OperatorAuthorizationIssuanceProposalV1, OperatorAuthorizationIssuerPostgresV1,
@@ -5790,7 +6763,7 @@ mod tests {
         PORTFOLIO_VIEW_PERMISSION_V1, PortfolioResourceGrantContentV1,
         PortfolioResourceGrantIssuanceProposalV1, PortfolioResourceGrantRevocationProposalV1,
         PortfolioResourceGrantSuccessorProposalV1, PortfolioResourceModeV1, PortfolioResourceV1,
-        ProductEdgeManifestBindingV1,
+        ProductEdgeManifestBindingV1, STRATEGY_GOVERNANCE_AUDIENCE_V1,
     };
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
@@ -5910,7 +6883,7 @@ mod tests {
                 test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
             )
             .await,
-            Err(OperatorAuthorizationError::Unavailable)
+            Err(OperatorAuthorizationError::Unavailable(_))
         ));
         assert!(matches!(
             ProductEdgePostgresOwnerV1::connect_for_expired_manifest_recovery(
@@ -5919,7 +6892,7 @@ mod tests {
                 trust,
             )
             .await,
-            Err(ProductEdgeError::Unavailable)
+            Err(ProductEdgeError::Unavailable(_))
         ));
         assert_eq!(
             catalog_fingerprint(
@@ -5986,20 +6959,20 @@ mod tests {
         };
         assert!(matches!(
             require_manifest_covers_binding(&manifest, 100, 200, 99),
-            Err(ProductEdgeError::Unavailable)
+            Err(ProductEdgeError::Unavailable(_))
         ));
         assert!(require_manifest_covers_binding(&manifest, 100, 200, 100).is_ok());
         assert!(matches!(
             require_manifest_covers_binding(&manifest, 100, 200, 200),
-            Err(ProductEdgeError::Unavailable)
+            Err(ProductEdgeError::Unavailable(_))
         ));
         assert!(matches!(
             require_manifest_covers_binding(&manifest, 99, 200, 100),
-            Err(ProductEdgeError::Unavailable)
+            Err(ProductEdgeError::Unavailable(_))
         ));
         assert!(matches!(
             require_manifest_covers_binding(&manifest, 100, 201, 100),
-            Err(ProductEdgeError::Unavailable)
+            Err(ProductEdgeError::Unavailable(_))
         ));
     }
 
@@ -6090,7 +7063,7 @@ mod tests {
                 authorization_identity: "authorization-2".into(),
                 issuance_receipt_identity: "receipt-2".into(),
             },
-            manifests: vec![retained_new, added],
+            manifests: AgentOperationManifestSetV1::new(vec![retained_new, added]).unwrap(),
         };
         assert!(recovery_capability_policy_is_valid(
             "policy-v1",
@@ -6098,7 +7071,10 @@ mod tests {
             &epoch
         ));
         let mut mismatched = proposal;
-        mismatched.manifests[0].capability_policy_digest = "other-policy".into();
+        let mut drifted = mismatched.manifests[0].clone();
+        drifted.capability_policy_digest = "other-policy".into();
+        let retained = mismatched.manifests[1].clone();
+        mismatched.manifests = AgentOperationManifestSetV1::new(vec![drifted, retained]).unwrap();
         assert!(!recovery_capability_policy_is_valid(
             "policy-v1",
             &mismatched,
@@ -6250,7 +7226,7 @@ mod tests {
         let third = policy_binding(3, Some("binding-2"));
         assert!(matches!(
             policy_equivalent_chain_head(&admitted, &[second.clone(), third.clone()]),
-            Err(ProductEdgeError::Unavailable)
+            Err(ProductEdgeError::Unavailable(_))
         ));
         assert_eq!(
             policy_equivalent_chain_head(&admitted, std::slice::from_ref(&second))
@@ -6263,14 +7239,14 @@ mod tests {
         broken.predecessor_binding_identity = Some("binding-1".to_string());
         assert!(matches!(
             policy_equivalent_chain_head(&admitted, &[second.clone(), broken]),
-            Err(ProductEdgeError::Unavailable)
+            Err(ProductEdgeError::Unavailable(_))
         ));
 
         let mut drifted = third;
         drifted.authorized_scope.push("research:other".to_string());
         assert!(matches!(
             policy_equivalent_chain_head(&admitted, &[second, drifted]),
-            Err(ProductEdgeError::Unavailable)
+            Err(ProductEdgeError::Unavailable(_))
         ));
     }
 
@@ -6364,6 +7340,30 @@ mod tests {
         .await
         .unwrap();
         canonical_digest("product-edge.test-authority-table-fingerprint.v1", &value).unwrap()
+    }
+
+    /// A refusal is only useful if it says what was wrong and about what.
+    fn refused_as(
+        result: Result<ProductEdgeAdmissionReadbackV1, ProductEdgeError>,
+        reason: &Reason,
+        identity: &str,
+        label: &str,
+    ) {
+        match result {
+            Err(ProductEdgeError::Unavailable(refusal)) => {
+                assert_eq!(refusal.reason(), reason, "wrong reason for {label}");
+                let subject = refusal
+                    .subject()
+                    .unwrap_or_else(|| panic!("{label} refused without naming an identity"));
+                assert_eq!(
+                    subject.kind(),
+                    Subject::Request,
+                    "wrong subject for {label}"
+                );
+                assert_eq!(subject.identity(), identity, "wrong identity for {label}");
+            }
+            other => panic!("{label} was not refused as unavailable: {other:?}"),
+        }
     }
 
     async fn product_edge_table_fingerprint(pool: &PgPool) -> String {
@@ -6567,7 +7567,7 @@ mod tests {
                 valid_from_epoch_ms: now.saturating_sub(1_000),
                 valid_through_epoch_ms: now.saturating_add(3_600_000),
                 authorization: authorization.locator(),
-                manifests: vec![manifest],
+                manifests: AgentOperationManifestSetV1::new(vec![manifest]).unwrap(),
             })
             .await
             .unwrap();
@@ -7013,8 +8013,9 @@ mod tests {
             vec![first_manifest_binding.clone(), removed_manifest_binding];
         first_manifest_bindings
             .sort_by(|left, right| left.manifest_identity.cmp(&right.manifest_identity));
-        let mut first_manifests = vec![first_manifest.clone(), removed_manifest];
-        first_manifests.sort_by_key(|manifest| manifest.manifest_identity().unwrap());
+        let first_manifests =
+            AgentOperationManifestSetV1::new(vec![first_manifest.clone(), removed_manifest])
+                .unwrap();
         let first_authorization = issuer
             .issue_genesis(OperatorAuthorizationIssuanceProposalV1 {
                 authorization_identity: format!("recovery-authorization-1-{suffix}"),
@@ -7092,8 +8093,8 @@ mod tests {
         let mut successor_manifest_bindings = vec![second_manifest_binding, added_manifest_binding];
         successor_manifest_bindings
             .sort_by(|left, right| left.manifest_identity.cmp(&right.manifest_identity));
-        let mut successor_manifests = vec![second_manifest, added_manifest];
-        successor_manifests.sort_by_key(|manifest| manifest.manifest_identity().unwrap());
+        let successor_manifests =
+            AgentOperationManifestSetV1::new(vec![second_manifest, added_manifest]).unwrap();
 
         let recovery_authorization = OperatorAuthorizationExpiredManifestRecoveryProposalV1 {
             recovery_epoch: epoch.clone(),
@@ -7167,7 +8168,7 @@ mod tests {
         };
         assert!(matches!(
             owner.admit_request(expired_request).await,
-            Err(ProductEdgeError::Unavailable)
+            Err(ProductEdgeError::Unavailable(_))
         ));
         let recovery = ProductEdgeExpiredManifestRecoveryProposalV1 {
             recovery_epoch: epoch,
@@ -7325,6 +8326,333 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires the disposable canonical OA/PE PostgreSQL topology"]
+    async fn lifecycle_request_admission_is_typed_effect_free_and_replay_exact() {
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let mutation = test_database.mutation();
+        let now = now_ms().unwrap();
+        let suffix = unique_suffix();
+        let governance_effect = "STRATEGY_GOVERNANCE_LIFECYCLE_DECISION_V1".to_string();
+        let manifest = AgentOperationManifestProposalV1 {
+            operation: LIFECYCLE_REQUEST_OPERATION_V1.to_string(),
+            operation_schema: LIFECYCLE_REQUEST_OPERATION_SCHEMA_V1.to_string(),
+            target_owner: LIFECYCLE_REQUEST_TARGET_OWNER_V1.to_string(),
+            allowed_effects: vec![governance_effect.clone()],
+            prohibited_effects: vec!["REAL_TRADING_V1".to_string()],
+            capability_policy_digest: format!("sha256:{}", "a".repeat(64)),
+            effective_from_epoch_ms: now.saturating_sub(1_000),
+            valid_through_epoch_ms: now.saturating_add(3_600_000),
+        };
+        let issuer = OperatorAuthorizationIssuerPostgresV1::connect(
+            test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+        )
+        .await
+        .unwrap();
+        let authorization = issuer
+            .issue_genesis(OperatorAuthorizationIssuanceProposalV1 {
+                authorization_identity: format!("lifecycle-authorization-{suffix}"),
+                issuer_identity: "operator-authorization-issuer-test-v1".to_string(),
+                issuer_key_version: "test-key-v1".to_string(),
+                scope: OperatorAuthorizationScopeV1 {
+                    principal: format!("governance-admin-{suffix}"),
+                    audience: LIFECYCLE_REQUEST_TARGET_OWNER_V1.to_string(),
+                    permissions: vec!["governance:lifecycle-request".to_string()],
+                },
+                request_proof_digest: "sha256:test-proof".to_string(),
+                operation_manifests: vec![manifest.binding().unwrap()],
+                not_before_epoch_ms: now.saturating_sub(1_000),
+                valid_through_epoch_ms: now.saturating_add(3_600_000),
+                expected_revocation_head: "EMPTY".to_string(),
+            })
+            .await
+            .unwrap();
+
+        // The authorization the unattended decision will be verified against.
+        // Product Edge only seals its locator; it never resolves or mints it.
+        let policy_content = AutonomousPolicyAuthorizationContentV1 {
+            issuer_identity: "operator-authorization-issuer-test-v1".to_string(),
+            issuer_key_version: "test-key-v1".to_string(),
+            policy: AutonomousPolicyV1 {
+                policy_identity: format!("policy-{suffix}"),
+                policy_version: "1".to_string(),
+            },
+            scope: OperatorAuthorizationScopeV1 {
+                principal: format!("governance-admin-{suffix}"),
+                audience: STRATEGY_GOVERNANCE_AUDIENCE_V1.to_string(),
+                permissions: vec!["governance:unattended".to_string()],
+            },
+            request_scope_identity: format!("request-scope-{suffix}"),
+            account_identity: format!("account-{suffix}"),
+            execution_mode: ExecutionModeV1::Paper,
+            strategy_generation_identity: format!("generation-{suffix}"),
+            execution_scope_identity: format!("sha256:{}", "e".repeat(64)),
+            permitted_actions: vec!["INITIAL_ACTIVATION".to_string()],
+            permitted_intent_classes: vec!["ADD_RISK".to_string()],
+            capital_policy: CapitalPolicyBindingV1 {
+                envelope_identity: format!("envelope-{suffix}"),
+                envelope_version: "1".to_string(),
+                envelope_digest: format!("sha256:{}", "c".repeat(64)),
+            },
+            operation_manifest: manifest.binding().unwrap(),
+            effective_at_epoch_ms: now.saturating_sub(1_000),
+            valid_through_epoch_ms: now.saturating_add(3_600_000),
+        };
+        let policy = issuer
+            .issue_autonomous_policy_authorization_genesis(
+                AutonomousPolicyAuthorizationIssuanceProposalV1 {
+                    grant_identity: policy_content.grant_identity().unwrap(),
+                    content: policy_content.clone(),
+                    expected_revocation_frontier_identity: "EMPTY".to_string(),
+                },
+            )
+            .await
+            .unwrap();
+        let policy_locator = policy.locator();
+
+        let deployment = format!("product-edge-lifecycle-deployment-{suffix}");
+        let binding_identity = format!("product-edge-lifecycle-binding-{suffix}");
+        let owner = ProductEdgePostgresOwnerV1::connect(
+            test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+            &deployment,
+            ProductEdgeAuthorizationTrustV1 {
+                issuer_identity: "operator-authorization-issuer-test-v1".to_string(),
+                issuer_key_version: "test-key-v1".to_string(),
+                audience: LIFECYCLE_REQUEST_TARGET_OWNER_V1.to_string(),
+            },
+        )
+        .await
+        .unwrap();
+        let pe_pool = mutation.pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner);
+        owner
+            .bootstrap_genesis(ProductEdgeBootstrapProposalV1 {
+                deployment_identity: deployment.clone(),
+                binding_identity: binding_identity.clone(),
+                expected_history_head: "EMPTY".to_string(),
+                generation: 1,
+                effective_principal: format!("governance-admin-{suffix}"),
+                scope_policy_version: "scope-v1".to_string(),
+                capability_policy_version: "capability-v1".to_string(),
+                audit_policy_version: "audit-v1".to_string(),
+                valid_from_epoch_ms: now.saturating_sub(1_000),
+                valid_through_epoch_ms: now.saturating_add(3_600_000),
+                authorization: authorization.locator(),
+                manifests: AgentOperationManifestSetV1::new(vec![manifest.clone()]).unwrap(),
+            })
+            .await
+            .unwrap();
+
+        let request_identity = format!("lifecycle-request-{suffix}");
+        let payload = serde_json::json!({
+            "request_identity": request_identity,
+            "gateway": PRODUCT_EDGE_GATEWAY_V1,
+            "request_scope_identity": policy_content.request_scope_identity,
+            "autonomous_policy": {
+                "grant_identity": policy_locator.grant_identity,
+                "issuance_receipt_identity": policy_locator.issuance_receipt_identity,
+            },
+            "lifecycle_action": "INITIAL_ACTIVATION",
+            "account_identity": policy_content.account_identity,
+            "execution_mode": "PAPER",
+            "strategy_generation_identity": policy_content.strategy_generation_identity,
+            "execution_scope_identity": policy_content.execution_scope_identity,
+        });
+        let request = ProductEdgeAdmissionRequestV1 {
+            request_identity: request_identity.clone(),
+            typed_payload: payload.clone(),
+            operation: LIFECYCLE_REQUEST_OPERATION_V1.to_string(),
+            operation_schema: LIFECYCLE_REQUEST_OPERATION_SCHEMA_V1.to_string(),
+            target_owner: LIFECYCLE_REQUEST_TARGET_OWNER_V1.to_string(),
+            requested_effects: vec![],
+            request_proof_digest: "sha256:test-proof".to_string(),
+            audit_correlation: format!("test:{suffix}"),
+        };
+
+        // Every refusal below must leave the Owner's tables exactly as it
+        // found them, so the whole block is fenced by one fingerprint.
+        let before_refusals = product_edge_table_fingerprint(pe_pool).await;
+
+        // The manifest allows this effect. The entry refuses it anyway: a
+        // lifecycle request admits authority, never an effect.
+        let mut with_effect = request.clone();
+        with_effect.requested_effects = vec![governance_effect.clone()];
+        refused_as(
+            owner.admit_lifecycle_request(with_effect).await,
+            &Reason::RequestMismatch,
+            &request_identity,
+            "a lifecycle request that asks for an effect the manifest allows",
+        );
+
+        let mut wrong_schema = request.clone();
+        wrong_schema.operation_schema.push_str("-v2");
+        refused_as(
+            owner.admit_lifecycle_request(wrong_schema).await,
+            &Reason::RequestMismatch,
+            &request_identity,
+            "a foreign operation schema",
+        );
+
+        let mut wrong_owner = request.clone();
+        wrong_owner.target_owner = "R_AND_D".to_string();
+        refused_as(
+            owner.admit_lifecycle_request(wrong_owner).await,
+            &Reason::RequestMismatch,
+            &request_identity,
+            "a foreign target Owner",
+        );
+
+        // A lifecycle request may not enter through any other typed entry,
+        // and no other operation may enter through this one.
+        assert!(matches!(
+            owner.admit_request(request.clone()).await,
+            Err(ProductEdgeError::InvalidProposal("admission entry"))
+        ));
+        assert!(matches!(
+            owner.admit_artifact_build_request(request.clone()).await,
+            Err(ProductEdgeError::InvalidProposal("admission entry"))
+        ));
+        let mut foreign_operation = request.clone();
+        foreign_operation.operation = "research.generic.submit.v1".to_string();
+        assert!(matches!(
+            owner.admit_lifecycle_request(foreign_operation).await,
+            Err(ProductEdgeError::InvalidProposal("admission entry"))
+        ));
+
+        for (label, reason, mutate) in [
+            (
+                "request identity",
+                Reason::RequestMismatch,
+                serde_json::json!({"request_identity": format!("{request_identity}-other")}),
+            ),
+            (
+                "gateway",
+                Reason::RequestMismatch,
+                serde_json::json!({"gateway": "FORGED_SHELL"}),
+            ),
+            (
+                "request scope",
+                Reason::RequestMismatch,
+                serde_json::json!({"request_scope_identity": ""}),
+            ),
+            (
+                "lifecycle action",
+                Reason::RequestMismatch,
+                serde_json::json!({"lifecycle_action": "SELF_GRANTED"}),
+            ),
+            (
+                "execution mode",
+                Reason::RequestMismatch,
+                serde_json::json!({"execution_mode": "REAL"}),
+            ),
+            (
+                "grant identity",
+                Reason::RequestMismatch,
+                serde_json::json!({"autonomous_policy": {"grant_identity": "", "issuance_receipt_identity": policy_locator.issuance_receipt_identity}}),
+            ),
+            (
+                "receipt identity",
+                Reason::RequestMismatch,
+                serde_json::json!({"autonomous_policy": {"grant_identity": policy_locator.grant_identity, "issuance_receipt_identity": ""}}),
+            ),
+            (
+                "unknown field",
+                Reason::Malformed,
+                serde_json::json!({"unattended_override": true}),
+            ),
+        ] {
+            let mut changed = request.clone();
+            for (key, value) in mutate.as_object().unwrap() {
+                changed.typed_payload[key] = value.clone();
+            }
+            refused_as(
+                owner.admit_lifecycle_request(changed).await,
+                &reason,
+                &request_identity,
+                label,
+            );
+        }
+        assert_eq!(
+            product_edge_table_fingerprint(pe_pool).await,
+            before_refusals,
+            "a refused lifecycle request must write nothing"
+        );
+
+        let admission = owner
+            .admit_lifecycle_request(request.clone())
+            .await
+            .unwrap();
+        assert_eq!(
+            owner
+                .admit_lifecycle_request(request.clone())
+                .await
+                .unwrap(),
+            admission,
+            "replaying the same meaning must join the original admission"
+        );
+        assert!(admission.request().requested_effects.is_empty());
+        let after_replay = product_edge_table_fingerprint(pe_pool).await;
+        assert_eq!(
+            owner
+                .admit_lifecycle_request(request.clone())
+                .await
+                .unwrap(),
+            admission
+        );
+        assert_eq!(product_edge_table_fingerprint(pe_pool).await, after_replay);
+
+        let admitted_events: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM product_edge_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2",
+        )
+        .bind(admission.locator().admission_identity.as_str())
+        .bind(ADMISSION_EVENT)
+        .fetch_one(pe_pool)
+        .await
+        .unwrap();
+        assert_eq!(admitted_events, 1, "semantic replay joins one event");
+
+        // The sealed bytes, not the caller's copy, carry the authorization
+        // the decision will be verified against.
+        let sealed: serde_json::Value =
+            serde_json::from_slice(admission.canonical_storage_bytes()).unwrap();
+        assert_eq!(
+            sealed["request"]["typed_payload"]["autonomous_policy"]["grant_identity"],
+            serde_json::json!(policy_locator.grant_identity)
+        );
+        assert_eq!(
+            sealed["request"]["typed_payload"]["autonomous_policy"]["issuance_receipt_identity"],
+            serde_json::json!(policy_locator.issuance_receipt_identity)
+        );
+        assert_eq!(
+            sealed["request"]["requested_effects"],
+            serde_json::json!([]),
+            "the sealed admission must carry no effect"
+        );
+        let resolved = owner
+            .resolve_admission(&request_identity, &request.request_proof_digest)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(resolved.locator(), admission.locator());
+        assert_eq!(
+            resolved.canonical_storage_digest(),
+            admission.canonical_storage_digest()
+        );
+
+        // Same identity, changed meaning: conflict, and nothing is rewritten.
+        let before_conflict = product_edge_table_fingerprint(pe_pool).await;
+        let mut changed_meaning = request.clone();
+        changed_meaning.typed_payload["lifecycle_action"] = serde_json::json!("RETIREMENT");
+        assert!(matches!(
+            owner.admit_lifecycle_request(changed_meaning).await,
+            Err(ProductEdgeError::ConflictingReplay)
+        ));
+        assert_eq!(
+            product_edge_table_fingerprint(pe_pool).await,
+            before_conflict,
+            "a conflicting lifecycle request must not rewrite the admission"
+        );
+    }
+
+    #[tokio::test]
     #[ignore = "requires the disposable canonical OA/PE/R&D/Qualification PostgreSQL topology"]
     async fn genesis_admission_claim_cutover_and_revocation_are_canonical() {
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
@@ -7385,7 +8713,7 @@ mod tests {
         let read_database_url = test_database.database_url(CanonicalOwnerTestRoleV1::BacktestOwner);
         assert!(matches!(
             ProductEdgePostgresAdmissionReadPortV1::connect(read_database_url).await,
-            Err(ProductEdgeError::Unavailable)
+            Err(ProductEdgeError::Unavailable(_))
         ));
         sqlx::query(
             "GRANT SELECT ON TABLE product_edge_request_admissions_v1, product_edge_owner_outbox_v1, product_edge_admission_event_stream_v1, product_edge_admission_events_v1 TO backtest_owner",
@@ -7434,7 +8762,7 @@ mod tests {
             valid_from_epoch_ms: now.saturating_sub(1_000),
             valid_through_epoch_ms: now.saturating_add(3_600_000),
             authorization: authorization.locator(),
-            manifests: vec![manifest.clone()],
+            manifests: AgentOperationManifestSetV1::new(vec![manifest.clone()]).unwrap(),
         };
         let genesis = owner.bootstrap_genesis(bootstrap.clone()).await.unwrap();
         assert_eq!(owner.bootstrap_genesis(bootstrap).await.unwrap(), genesis);
@@ -7461,7 +8789,7 @@ mod tests {
         wrong_proof.request_proof_digest = "sha256:wrong-proof".to_string();
         assert!(matches!(
             owner.admit_request(wrong_proof).await,
-            Err(ProductEdgeError::Unavailable)
+            Err(ProductEdgeError::Unavailable(_))
         ));
         let mut wrong_manifest = request.clone();
         wrong_manifest.request_identity.push_str("-wrong-manifest");
@@ -7470,7 +8798,7 @@ mod tests {
         wrong_manifest.operation.push_str(".forged");
         assert!(matches!(
             owner.admit_request(wrong_manifest).await,
-            Err(ProductEdgeError::Unavailable)
+            Err(ProductEdgeError::Unavailable(_))
         ));
         let mut wrong_effect = request.clone();
         wrong_effect.request_identity.push_str("-wrong-effect");
@@ -7481,7 +8809,7 @@ mod tests {
             .push("UNAUTHORIZED_EFFECT_V1".to_string());
         assert!(matches!(
             owner.admit_request(wrong_effect).await,
-            Err(ProductEdgeError::Unavailable)
+            Err(ProductEdgeError::Unavailable(_))
         ));
         let invalid_counts_after: (i64, i64) = sqlx::query_as(
             "SELECT (SELECT COUNT(*) FROM product_edge_request_admissions_v1), (SELECT COUNT(*) FROM product_edge_owner_outbox_v1)",
@@ -7594,7 +8922,7 @@ mod tests {
         .unwrap();
         assert!(matches!(
             verify_admission_event_stream(&mut wrong_historical_mapping).await,
-            Err(ProductEdgeError::Unavailable)
+            Err(ProductEdgeError::Unavailable(_))
         ));
         wrong_historical_mapping.rollback().await.unwrap();
         sqlx::query("DELETE FROM product_edge_admission_events_v1 WHERE event_identity = $1")
@@ -7675,7 +9003,7 @@ mod tests {
             admission_reader
                 .resolve_admission_observation(&missing_event)
                 .await,
-            Err(ProductEdgeError::Unavailable)
+            Err(ProductEdgeError::Unavailable(_))
         ));
         let mut wrong_sequence = serde_json::to_value(&first_wake).unwrap();
         wrong_sequence["owner_sequence"] = serde_json::json!(second_wake.owner_sequence());
@@ -7685,7 +9013,7 @@ mod tests {
             admission_reader
                 .resolve_admission_observation(&wrong_sequence)
                 .await,
-            Err(ProductEdgeError::Unavailable)
+            Err(ProductEdgeError::Unavailable(_))
         ));
         let mut wrong_digest = serde_json::to_value(&first_wake).unwrap();
         let mut forged_digest = first_wake.fact_digest().to_string();
@@ -7697,7 +9025,7 @@ mod tests {
             admission_reader
                 .resolve_admission_observation(&wrong_digest)
                 .await,
-            Err(ProductEdgeError::Unavailable)
+            Err(ProductEdgeError::Unavailable(_))
         ));
         let mut stale_cursor = serde_json::to_value(second_observation.next_cursor()).unwrap();
         stale_cursor["owner_sequence"] =
@@ -7708,7 +9036,7 @@ mod tests {
             admission_reader
                 .follow_admission_events_after(&stale_cursor, 1)
                 .await,
-            Err(ProductEdgeError::Unavailable)
+            Err(ProductEdgeError::Unavailable(_))
         ));
         let mut skipped_cursor = serde_json::to_value(first_observation.next_cursor()).unwrap();
         skipped_cursor["owner_sequence"] = serde_json::json!(second_wake.owner_sequence());
@@ -7718,7 +9046,7 @@ mod tests {
             admission_reader
                 .follow_admission_events_after(&skipped_cursor, 1)
                 .await,
-            Err(ProductEdgeError::Unavailable)
+            Err(ProductEdgeError::Unavailable(_))
         ));
         assert_eq!(frontier_before_failure, first_observation.next_cursor());
 
@@ -7847,7 +9175,7 @@ mod tests {
             admission_reader
                 .resolve_admission_observation(&first_wake)
                 .await,
-            Err(ProductEdgeError::Unavailable)
+            Err(ProductEdgeError::Unavailable(_))
         ));
         assert_eq!(frontier_before_failure, first_observation.next_cursor());
         sqlx::query(
@@ -7869,11 +9197,11 @@ mod tests {
             owner
                 .resolve_admission(&request_identity, "sha256:test-proof")
                 .await,
-            Err(ProductEdgeError::Unavailable)
+            Err(ProductEdgeError::Unavailable(_))
         ));
         assert!(matches!(
             owner.resolve_admission_observation(&first_wake).await,
-            Err(ProductEdgeError::Unavailable)
+            Err(ProductEdgeError::Unavailable(_))
         ));
         sqlx::query("UPDATE product_edge_request_admissions_v1 SET admission_digest=$1 WHERE request_identity=$2")
             .bind(&original_admission_digest).bind(&request_identity).execute(pe_pool).await.unwrap();
@@ -7925,7 +9253,7 @@ mod tests {
             valid_from_epoch_ms: now.saturating_sub(500),
             valid_through_epoch_ms: now.saturating_add(3_600_000),
             authorization: authorization.locator(),
-            manifests: vec![manifest.clone()],
+            manifests: AgentOperationManifestSetV1::new(vec![manifest.clone()]).unwrap(),
         };
         let supersessions_before: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM product_edge_deployment_supersessions_v1")
@@ -7936,7 +9264,7 @@ mod tests {
         drifted.effective_principal.push_str("-forged");
         assert!(matches!(
             owner.activate_successor(drifted).await,
-            Err(ProductEdgeError::Unavailable)
+            Err(ProductEdgeError::Unavailable(_))
         ));
         assert_eq!(
             sqlx::query_scalar::<_, i64>(
@@ -8003,7 +9331,7 @@ mod tests {
                     audit_correlation: format!("test-fenced:{suffix}"),
                 })
                 .await,
-            Err(ProductEdgeError::Unavailable)
+            Err(ProductEdgeError::Unavailable(_))
         ));
         let fenced_counts_after: (i64, i64) = sqlx::query_as(
             "SELECT (SELECT COUNT(*) FROM product_edge_request_admissions_v1), (SELECT COUNT(*) FROM product_edge_owner_outbox_v1)",
@@ -8031,7 +9359,7 @@ mod tests {
             owner
                 .resolve_admission(&request_identity, "sha256:test-proof")
                 .await,
-            Err(ProductEdgeError::Unavailable)
+            Err(ProductEdgeError::Unavailable(_))
         ));
         sqlx::query("UPDATE product_edge_deployment_heads_v1 SET binding_digest=$1 WHERE deployment_identity=$2")
             .bind(&original_head_digest).bind(owner.deployment_identity.as_str())
@@ -8046,7 +9374,7 @@ mod tests {
             owner
                 .resolve_admission(&request_identity, "sha256:test-proof")
                 .await,
-            Err(ProductEdgeError::Unavailable)
+            Err(ProductEdgeError::Unavailable(_))
         ));
         sqlx::query("UPDATE product_edge_deployment_supersessions_v1 SET supersession_json=$1 WHERE binding_identity=$2")
             .bind(&original_supersession_json).bind(&first_binding).execute(pe_pool).await.unwrap();
@@ -8061,7 +9389,7 @@ mod tests {
             owner
                 .resolve_admission(&request_identity, "sha256:test-proof")
                 .await,
-            Err(ProductEdgeError::Unavailable)
+            Err(ProductEdgeError::Unavailable(_))
         ));
         sqlx::query("UPDATE product_edge_operation_manifests_v1 SET manifest_digest=$1 WHERE manifest_identity=$2")
             .bind(&original_manifest_digest).bind(&manifest_identity).execute(pe_pool).await.unwrap();
@@ -8170,7 +9498,7 @@ mod tests {
                     audit_correlation: format!("test-revoked:{suffix}"),
                 })
                 .await,
-            Err(ProductEdgeError::Unavailable)
+            Err(ProductEdgeError::Unavailable(_))
         ));
         let counts_after: (i64, i64) = sqlx::query_as(
             "SELECT (SELECT COUNT(*) FROM product_edge_request_admissions_v1), (SELECT COUNT(*) FROM product_edge_owner_outbox_v1)",
@@ -8190,7 +9518,7 @@ mod tests {
                 },
             )
             .await,
-            Err(ProductEdgeError::Unavailable)
+            Err(ProductEdgeError::Unavailable(_))
         ));
         revoked_cut.rollback().await.unwrap();
         assert_eq!(

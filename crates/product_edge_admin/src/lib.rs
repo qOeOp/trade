@@ -6,7 +6,7 @@ use vibe_operator_authorization::{
     OperatorAuthorizationReadbackV1,
 };
 use vibe_product_edge::{
-    AgentOperationManifestProposalV1, ProductEdgeAuthorizationTrustV1,
+    AgentOperationManifestSetV1, ProductEdgeAuthorizationTrustV1,
     ProductEdgeExpiredManifestRecoveryProposalV1, ProductEdgePostgresOwnerV1,
     ProductEdgeSuccessorProposalV1,
 };
@@ -52,7 +52,7 @@ pub struct ProductEdgeRecoverySuccessorTemplateV1 {
     pub audit_policy_version: String,
     pub valid_from_epoch_ms: u64,
     pub valid_through_epoch_ms: u64,
-    pub manifests: Vec<AgentOperationManifestProposalV1>,
+    pub manifests: AgentOperationManifestSetV1,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -355,6 +355,7 @@ mod tests {
         ExpiredManifestRecoveryTransitionV1, ManifestSemanticKeyV1, OperationManifestBindingV1,
         OperatorAuthorizationIssuanceProposalV1, OperatorAuthorizationScopeV1,
     };
+    use vibe_product_edge::AgentOperationManifestProposalV1;
 
     fn manifest_binding(
         manifest: &AgentOperationManifestProposalV1,
@@ -443,7 +444,7 @@ mod tests {
                     audit_policy_version: "audit-policy-v1".to_string(),
                     valid_from_epoch_ms: 20,
                     valid_through_epoch_ms: 30,
-                    manifests: vec![new],
+                    manifests: AgentOperationManifestSetV1::new(vec![new]).unwrap(),
                 },
             },
         }
@@ -510,7 +511,10 @@ mod tests {
         assert!(mismatched_epoch.validate(&runtime()).is_err());
 
         let mut mismatched_manifest = config();
-        mismatched_manifest.product_edge.successor.manifests[0].operation = "other".to_string();
+        let mut other = mismatched_manifest.product_edge.successor.manifests[0].clone();
+        other.operation = "other".to_string();
+        mismatched_manifest.product_edge.successor.manifests =
+            AgentOperationManifestSetV1::new(vec![other]).unwrap();
         assert!(mismatched_manifest.validate(&runtime()).is_err());
 
         let mut mismatched_runtime = runtime();

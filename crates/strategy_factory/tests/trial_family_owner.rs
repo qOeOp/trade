@@ -2047,7 +2047,8 @@ impl TestProductEdge {
                 valid_from_epoch_ms,
                 valid_through_epoch_ms,
                 authorization: authorization_locator.clone(),
-                manifests: manifests.clone(),
+                manifests: vibe_product_edge::AgentOperationManifestSetV1::new(manifests.clone())
+                    .unwrap(),
             })
             .await
             .unwrap();
@@ -2084,7 +2085,10 @@ impl TestProductEdge {
                 valid_from_epoch_ms: self.valid_from_epoch_ms,
                 valid_through_epoch_ms: self.valid_through_epoch_ms,
                 authorization: self.authorization.clone(),
-                manifests: self.manifests.clone(),
+                manifests: vibe_product_edge::AgentOperationManifestSetV1::new(
+                    self.manifests.clone(),
+                )
+                .unwrap(),
             })
             .await
             .unwrap();

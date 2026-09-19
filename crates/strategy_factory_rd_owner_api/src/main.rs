@@ -33,6 +33,12 @@ use vibe_data::owner::{
     research_pit_terminal_resolver_from_store_admission_lookup,
 };
 use vibe_data::owner::{
+    instrument_master_admission_v1::{
+        InstrumentMasterAdmissionV1, instrument_master_admission_from_environment_v1,
+    },
+    market_semantics_admission_v1::{
+        MarketSemanticsAdmissionV1, market_semantics_admission_from_environment_v1,
+    },
     pit_market_snapshot_intake_v1::{
         PitMarketSnapshotIntakeV1, pit_market_snapshot_intake_from_environment_v1,
     },
@@ -341,6 +347,10 @@ async fn main() -> anyhow::Result<()> {
     let market_data_universe_selection = bootstrap_market_data_universe_selection().await?;
     let market_data_strategy_input_bindings =
         bootstrap_market_data_strategy_input_bindings().await?;
+    let market_data_instrument_master_admission =
+        bootstrap_market_data_instrument_master_admission().await?;
+    let market_data_market_semantics_admission =
+        bootstrap_market_data_market_semantics_admission().await?;
     #[cfg(feature = "sealed-develop-composer-acceptance")]
     let native_replay_scheduling =
         native_replay_scheduling_resolver_v1_from_store_admission_environment().await?;
@@ -673,6 +683,8 @@ async fn main() -> anyhow::Result<()> {
             market_data_source_binding_admission,
             market_data_universe_selection,
             market_data_strategy_input_bindings,
+            market_data_instrument_master_admission,
+            market_data_market_semantics_admission,
             token_digest,
         ));
     #[cfg(feature = "sealed-develop-composer-acceptance")]
@@ -812,6 +824,28 @@ async fn bootstrap_market_data_strategy_input_bindings()
     }
     Ok(Some(
         strategy_input_binding_admission_from_environment_v1().await?,
+    ))
+}
+
+/// Composes the Market Data Market Semantics admission when its store is configured.
+async fn bootstrap_market_data_market_semantics_admission()
+-> anyhow::Result<Option<Arc<dyn MarketSemanticsAdmissionV1>>> {
+    if env::var("MARKET_DATA_OWNER_DATABASE_URL").is_err() {
+        return Ok(None);
+    }
+    Ok(Some(
+        market_semantics_admission_from_environment_v1().await?,
+    ))
+}
+
+/// Composes the Market Data Instrument Master V1 admission when its store is configured.
+async fn bootstrap_market_data_instrument_master_admission()
+-> anyhow::Result<Option<Arc<dyn InstrumentMasterAdmissionV1>>> {
+    if env::var("MARKET_DATA_OWNER_DATABASE_URL").is_err() {
+        return Ok(None);
+    }
+    Ok(Some(
+        instrument_master_admission_from_environment_v1().await?,
     ))
 }
 
@@ -1883,7 +1917,11 @@ async fn start_provider_invocation(
         Ok(Some(claim)) => claim,
         Ok(None) => {
             return artifact_product_edge_error(
-                &ProductEdgeError::Unavailable,
+                &ProductEdgeError::unavailable_for(
+                    vibe_product_edge::ProductEdgeUnavailableReasonV1::Missing,
+                    vibe_product_edge::ProductEdgeSubjectKindV1::Request,
+                    &build_request_identity,
+                ),
                 &build_request_identity,
                 &attempt_identity,
             );
@@ -2339,7 +2377,11 @@ where
         ) => {}
         Ok(ArtifactRequestIdentityPreflightV1::LegacyTerminalQuarantined) | Err(_) => {
             return Err((
-                ProductEdgeError::Unavailable,
+                ProductEdgeError::unavailable_for(
+                    vibe_product_edge::ProductEdgeUnavailableReasonV1::DownstreamCustodyMismatch,
+                    vibe_product_edge::ProductEdgeSubjectKindV1::Request,
+                    build_request_identity,
+                ),
                 build_request_identity.to_string(),
                 attempt_identity.to_string(),
             ));
@@ -2645,7 +2687,7 @@ fn product_edge_error(error: &ProductEdgeError, request_identity: &str, v2: bool
     let status = match error {
         ProductEdgeError::ConflictingReplay => StatusCode::CONFLICT,
         ProductEdgeError::InvalidProposal(_) => StatusCode::BAD_REQUEST,
-        ProductEdgeError::Unavailable | ProductEdgeError::Storage(_) => {
+        ProductEdgeError::Unavailable(_) | ProductEdgeError::Storage(_) => {
             StatusCode::SERVICE_UNAVAILABLE
         }
     };
@@ -2673,7 +2715,7 @@ fn artifact_product_edge_error(
             "PRODUCT_EDGE_REQUEST_REJECTED",
             ArtifactBuildResultV1::submitted_or_unknown(build_request_identity, attempt_identity),
         ),
-        ProductEdgeError::Unavailable | ProductEdgeError::Storage(_) => (
+        ProductEdgeError::Unavailable(_) | ProductEdgeError::Storage(_) => (
             StatusCode::SERVICE_UNAVAILABLE,
             "OWNER_OUTCOME_UNKNOWN",
             ArtifactBuildResultV1::submitted_or_unknown(build_request_identity, attempt_identity),
@@ -2997,7 +3039,7 @@ mod tests {
                 valid_from_epoch_ms: now.saturating_sub(1_000),
                 valid_through_epoch_ms: now.saturating_add(3_600_000),
                 authorization: authorization.locator(),
-                manifests,
+                manifests: vibe_product_edge::AgentOperationManifestSetV1::new(manifests).unwrap(),
             })
             .await
             .unwrap();
@@ -4277,8 +4319,13 @@ mod tests {
 
     #[tokio::test]
     async fn product_edge_unavailable_projects_same_attempt_resolution() {
-        let response =
-            artifact_product_edge_error(&ProductEdgeError::Unavailable, "build-1", "attempt-1");
+        let response = artifact_product_edge_error(
+            &ProductEdgeError::unavailable(
+                vibe_product_edge::ProductEdgeUnavailableReasonV1::Missing,
+            ),
+            "build-1",
+            "attempt-1",
+        );
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(
             response.headers().get("x-rd-rejection-code").unwrap(),
@@ -4406,7 +4453,10 @@ mod tests {
         )
         .await;
 
-        assert!(matches!(result, Err((ProductEdgeError::Unavailable, _, _))));
+        assert!(matches!(
+            result,
+            Err((ProductEdgeError::Unavailable(_), _, _))
+        ));
         assert_eq!(concrete.preflight_calls.load(Ordering::SeqCst), 1);
         assert_eq!(product_edge_admission_calls.load(Ordering::SeqCst), 0);
     }

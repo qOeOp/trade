@@ -5347,6 +5347,9 @@ pub(crate) mod tests {
             bounded_feature_program_six_role_bar_fixture_v1::{
                 six_role_bar_bounded_feature_design_v1, six_role_bar_bounded_feature_meaning_v1,
             },
+            develop_composer_postgres_v2::{
+                DevelopComposerSealedReadLocatorV2, DevelopComposerSealedReadPortV2,
+            },
             program_host_v2::{
                 BAR_HOUR_CLOSE, BAR_MINUTE_CLOSE, BAR_MINUTE_HIGH, BAR_MINUTE_LOW, BAR_MINUTE_OPEN,
                 BAR_SESSION_DAY_CLOSE,
@@ -5618,6 +5621,56 @@ pub(crate) mod tests {
             .await
             .expect("the replay transaction completes");
         assert_eq!(replay, response);
+
+        // The same production composition now serves the sealed read port, so a consumer reads
+        // the committed operation back against the Owner's own current custody rather than
+        // against an acceptance fixture. Nothing here enables a feature: this is the default
+        // build of the production Composer. A readback that resolves at all is the custody
+        // proof, because the port resolves the current Research and binding custody inside its
+        // own read transaction and refuses the record when either no longer matches.
+        let read_locator = DevelopComposerSealedReadLocatorV2::from_accepted_response(&response)
+            .expect("a successful production Composer operation projects its read locator");
+        let readback = Box::pin(composer.read_accepted(&read_locator))
+            .await
+            .expect("the production read port resolves the operation it just committed");
+
+        // Only assert on what the store supplied. The readback echoes the locator it was given,
+        // so comparing against that would hold even if no record had been read at all.
+        assert!(
+            !readback.module_bytes_digests().is_empty(),
+            "the readback carries the module digests the run committed"
+        );
+        assert!(
+            !readback.build_receipt_identities().is_empty(),
+            "the readback carries the build receipts the run committed"
+        );
+        assert!(
+            !readback.artifact_package_bytes().is_empty(),
+            "the readback carries the Artifact package the run committed"
+        );
+        assert!(
+            !readback.design_bytes().is_empty(),
+            "the readback carries the Design the run compiled"
+        );
+
+        // Two negative controls, one per key the read locator is matched on. Without them the
+        // assertions above would pass for any record the store happens to hold.
+        let mut forged_artifact = read_locator.clone();
+        forged_artifact.artifact_identity = BindingDigest::from_untrusted_bytes([0_u8; 32]);
+        assert!(
+            Box::pin(composer.read_accepted(&forged_artifact))
+                .await
+                .is_err(),
+            "a locator naming a different Artifact resolves nothing"
+        );
+        let mut forged_plan = read_locator.clone();
+        forged_plan.canonical_plan_digest = BindingDigest::from_untrusted_bytes([0_u8; 32]);
+        assert!(
+            Box::pin(composer.read_accepted(&forged_plan))
+                .await
+                .is_err(),
+            "a locator naming a different canonical plan resolves nothing"
+        );
     }
 
     fn expected_digest_text(digest: BindingDigest) -> String {
@@ -5819,7 +5872,7 @@ pub(crate) mod tests {
             valid_from_epoch_ms: now.saturating_sub(1_000),
             valid_through_epoch_ms: now.saturating_add(3_600_000),
             authorization: authorization.locator(),
-            manifests: vec![manifest],
+            manifests: vibe_product_edge::AgentOperationManifestSetV1::new(vec![manifest]).unwrap(),
         })
         .await
         .unwrap();

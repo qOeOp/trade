@@ -573,7 +573,7 @@ pub async fn register_owner_bar_joined_cut_declarations_from_role_intent_v1(
     }
     let design = AuthenticatedDesignIdentityV1::from_role_intent(intent);
 
-    for request in &basis.binding_requests {
+    for (ordinal, request) in basis.binding_requests.iter().enumerate() {
         let mut transaction = basis
             .owner
             .pool
@@ -590,13 +590,15 @@ pub async fn register_owner_bar_joined_cut_declarations_from_role_intent_v1(
         .await
         .map_err(|e| map_registry_completion_error(&e))?;
 
-        if declaration.binding()
-            != &basis.input_bindings[basis
-                .binding_requests
-                .iter()
-                .position(|candidate| candidate == request)
-                .expect("the request came from this basis")]
-        {
+        // The basis pairs its requests and its bindings by position. Reading the pair by ordinal
+        // says that directly, and a basis whose two sequences disagree in length is reported as a
+        // readback that does not verify rather than ending the process.
+        let expected = basis
+            .input_bindings
+            .get(ordinal)
+            .ok_or(BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryReadback)?;
+
+        if declaration.binding() != expected {
             return Err(BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryReadback);
         }
         transaction

@@ -352,7 +352,7 @@ grep -Fq 'RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURIT
 grep -Fq 'SET search_path = pg_catalog' "$package_dir/../../crates/strategy_factory/src/product_edge_postgres.rs"
 grep -Fq 'GRANT EXECUTE ON FUNCTION rd_owner_api.lock_current_research_for_artifact_v1(text,text,text) TO product_edge_owner' "$package_dir/../../crates/strategy_factory/src/product_edge_postgres.rs"
 grep -Fq '.admit_artifact_build_request(' "$package_dir/../../crates/strategy_factory_rd_owner_api/src/main.rs"
-grep -Fq 'if request.operation == ARTIFACT_BUILD_OPERATION_V1' "$package_dir/../../crates/product_edge/src/postgres.rs"
+grep -Fq '|| hinted_admission.request.operation != ARTIFACT_BUILD_OPERATION_V1' "$package_dir/../../crates/product_edge/src/postgres.rs"
 if grep -Fq 'ProductEdgeCurrentOwnerEvidence' "$package_dir/../../crates/product_edge/src/lib.rs" ||
   grep -Eq 'valid_through_epoch_ms:[[:space:]]*number|fresh:[[:space:]]*boolean|evidence_digest:[[:space:]]*string' \
     "$package_dir/../rd-owner-client/artifact_build_v1.ts"; then

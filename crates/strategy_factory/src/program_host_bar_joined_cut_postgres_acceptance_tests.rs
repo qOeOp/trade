@@ -209,7 +209,7 @@ fn forge_observation_census_pit_coordinates(
     storage[record_range.start + 98..record_range.start + 130]
         .copy_from_slice(&forged_pit_fact_digest);
     let census_identity =
-        observation_census_digest(OBSERVATION_CENSUS_DOMAIN, &storage[record_range.clone()]);
+        observation_census_digest(OBSERVATION_CENSUS_DOMAIN, &storage[record_range]);
     storage[receipt_range.start + 66..receipt_range.start + 98].copy_from_slice(&census_identity);
     let receipt_identity = observation_census_digest(
         OBSERVATION_CENSUS_RECEIPT_DOMAIN,
@@ -270,7 +270,7 @@ fn forge_observation_census_trigger_semantics(
     storage[record_range.start + 162..record_range.start + 170]
         .copy_from_slice(&trigger.to_be_bytes());
     let census_identity =
-        observation_census_digest(OBSERVATION_CENSUS_DOMAIN, &storage[record_range.clone()]);
+        observation_census_digest(OBSERVATION_CENSUS_DOMAIN, &storage[record_range]);
     storage[receipt_range.start + 34..receipt_range.start + 66]
         .copy_from_slice(&request_meaning_digest);
     storage[receipt_range.start + 66..receipt_range.start + 98].copy_from_slice(&census_identity);
@@ -341,7 +341,7 @@ fn forge_observation_census_design_identity(
     storage[record_range.start + 34..record_range.start + 66]
         .copy_from_slice(&request_meaning_digest);
     let census_identity =
-        observation_census_digest(OBSERVATION_CENSUS_DOMAIN, &storage[record_range.clone()]);
+        observation_census_digest(OBSERVATION_CENSUS_DOMAIN, &storage[record_range]);
     storage[receipt_range.start + 34..receipt_range.start + 66]
         .copy_from_slice(&request_meaning_digest);
     storage[receipt_range.start + 66..receipt_range.start + 98].copy_from_slice(&census_identity);
@@ -430,7 +430,7 @@ fn forge_observation_census_join_staleness(
     storage[record_range.start + 130..record_range.start + 162]
         .copy_from_slice(&forged_join_identity);
     let census_identity =
-        observation_census_digest(OBSERVATION_CENSUS_DOMAIN, &storage[record_range.clone()]);
+        observation_census_digest(OBSERVATION_CENSUS_DOMAIN, &storage[record_range]);
     storage[receipt_range.start + 34..receipt_range.start + 66]
         .copy_from_slice(&request_meaning_digest);
     storage[receipt_range.start + 66..receipt_range.start + 98].copy_from_slice(&census_identity);

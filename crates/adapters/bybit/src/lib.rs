@@ -43,6 +43,7 @@ pub mod data;
 pub mod execution;
 pub mod factories;
 pub mod http;
+pub mod live_market_fact_source_v1;
 pub(crate) mod repay;
 pub mod websocket;
 

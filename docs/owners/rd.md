@@ -11,11 +11,15 @@ Unify Research and Develop under one business-fact Owner. The Research capabilit
 - Frozen mechanism, data scope, exact cost, slippage, and capacity-model identities, capacity assumptions,
   permanent TrialFamily identity, budget, falsifier, and stop rule.
 - Frozen information-value policy: the declared ordinal uncertainty-reduction ranking rule and its version, the
-  deterministic tie-break key, and the stop threshold every candidate is compared against. The Research proposal
-  declares them and the Intent freezes them before any result is observed. R&D never computes an information-value
-  score: it admits the declared rank, then proves the census complete, every member admissible and comparably
-  scored, the rationale present, and the winner unique. A missing, post-result, mutated, or unversioned policy
-  admits no successor experiment and no `STOP_LOW_INFORMATION_VALUE`.
+  deterministic tie-break key, and the stop threshold every candidate is compared against. This Owner fixes and
+  versions them; no proposer, caller or configuration selects them. A TrialFamily seals them into its
+  decision-policy binding when it forms, which is before any attempt of that family runs, and every decision reads
+  them from the frozen binding of the family its candidate belongs to. A decision can therefore prove which rule it
+  was compared under, and seeing a result cannot change that rule: a different rule is a different family, whose
+  decisions cite only its own. R&D never computes an information-value score: it admits the declared rank, then
+  proves the census complete, every member admissible and comparably scored, the rationale present, and the winner
+  unique. A missing, post-result, mutated, or unversioned policy admits no successor experiment and no
+  `STOP_LOW_INFORMATION_VALUE`.
 - Write-once Independence Basis Receipt, committed before protected feedback and bound to the effective principal,
   Research request scope, untrusted user rationale digest, R&D-owned independence disposition, and immutable basis identity and digest.
 - Adaptive research lineage resolved only from locked R&D history as `GENESIS_EMPTY`, `COMPLETE_FRONTIER`, or
@@ -702,6 +706,18 @@ Decision, Selection, and Candidate. Changing one creates a successor lineage rat
 - To [Runtime](./runtime/): only a committed `REPAIR_INPUTS_RUNTIME_KERNEL` decision may create one correlated
   `native-repair-request`; Runtime alone returns `REPAIRED`, `UNAVAILABLE`, or `OUTCOME_UNKNOWN` for that exact
   kernel attempt.
+- To [Strategy Governance](./strategy-governance/): the sealed Build Receipt an Owner admission rereads before a
+  lifecycle decision, resolved at the exact Artifact identity and digest the receipt was sealed under, carrying the
+  intent, TrialFamily, code bytes and dependency set it binds. R&D states what it built and nothing about whether
+  that Artifact may run: a Build Receipt is never an activation, never a qualification, never a capital decision,
+  and never evidence that any lifecycle state was reached. A receipt that cannot be resolved at that exact identity
+  and digest is absent, not stale, and an absent receipt admits no lifecycle transition rather than a cautious one.
+- To [Portfolio](./portfolio/): the frozen Research Intent a degradation attribution names, resolved at the exact
+  intent identity and digest, carrying the prediction and falsifier that intent froze and the cut they were frozen
+  at. R&D supplies the frozen prediction only; it observes no realized performance, attributes no cause, and
+  measures no deviation. A Research Intent is never a performance claim, never a capacity statement, and never by
+  itself evidence that a mechanism degraded - the deviation and its preserved alternatives are Portfolio's, and
+  neither Owner may derive the other's half.
 - To [Qualification](./qualification/): only a R&D-owned frozen Candidate with a terminal
   `SELECTED_FOR_QUALIFICATION` Research Selection Disposition. The handoff cross-binds the exact Intent falsifier
   and stop rule, complete preregistration, immutable exhaustive TrialFamily Census Frontier, exploratory
@@ -722,6 +738,17 @@ Decision, Selection, and Candidate. Changing one creates a successor lineage rat
   `ARTIFACT_AVAILABLE`, `EXPLORATION_ACTIVE`, or `SELECTION_TERMINAL`. It may summarize R&D-owned source,
   intent, artifact, exploratory, and decision facts but never protected Qualification detail. A terminal stop is
   shown only from the Iteration Decision. Selection appears only when the selected-only disposition exists.
+
+**CURRENT_PARTIAL - bounded verified-outcome reads.** The R&D Owner answers two authenticated zero-effect reads
+over one historical custody cut it resolves itself: the verified Research outcome list and the verified Build
+outcome list. Each answers newest first, carries at most the rows the caller asked for and never more than the
+bound this Owner owns, and echoes both the custody cut it resolved against and whether it truncated. A Research row
+carries the request identity, the committed time, the resolution and the question binding; a Build row carries the
+build request identity, the attempt identity, the committed time and the disposition. The caller names neither the
+cut nor a row beyond its bound, so a consumer cannot state a coordinate this Owner did not resolve. The two lists
+are independent: one answering unavailable or at a different cut withdraws only its own rows and counts. Neither
+read admits a Plan, Artifact, receipt bytes, source text, or any mutation, and neither is a Selection, Candidate or
+Qualification fact.
 
 ## Rejections and prohibitions
 

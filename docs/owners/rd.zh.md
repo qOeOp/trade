@@ -10,9 +10,12 @@
   许可依据，以及形成假设时采用的有界解释身份与摘要。
 - 冻结的机制 数据范围 准确成本 滑点与容量模型身份 容量假设 永久 TrialFamily 身份 预算 证伪条件和停止规则。
 - 冻结的信息价值策略：声明的序数不确定性削减排序规则及其版本、确定性 tie-break key，以及每个候选据以比较的停止
-  阈值。由 Research 提案声明，并在观察到任何结果之前由 Intent 冻结。R&D 从不计算信息价值分数：它接纳被声明的
-  排名，然后证明 census 完整、每个成员可准入且被可比地评分、理由齐备、胜出者唯一。策略缺失 事后补写 被改动或
-  无版本时，不准入任何后继实验，也不准入 `STOP_LOW_INFORMATION_VALUE`。
+  阈值。由本 Owner 固定并带版本，任何提案方 调用方或配置都不能选择它们。TrialFamily 在成型时把它们封入自己的
+  decision-policy binding，而成型早于该 family 的任何 attempt；每次决策都从候选所属 family 的冻结 binding 读取。
+  因此一次决策能够证明自己是在哪条规则下比较的，而看到结果也改变不了那条规则：换一条规则就是另一个 family，
+  它的决策只引用它自己的。R&D 从不计算信息价值分数：它接纳被声明的排名，然后证明 census 完整、每个成员可准入
+  且被可比地评分、理由齐备、胜出者唯一。策略缺失 事后补写 被改动或无版本时，不准入任何后继实验，也不准入
+  `STOP_LOW_INFORMATION_VALUE`。
 - 只写一次的 Independence Basis Receipt，必须在保护反馈之前提交，并绑定有效 principal Research request scope
   不受信用户理由摘要 R&D 拥有的独立性 disposition，以及不可变 basis identity 与 digest。
 - 只能从锁定 R&D 历史解析为 `GENESIS_EMPTY` `COMPLETE_FRONTIER` 或 `UNAVAILABLE` 的自适应研究血缘，
@@ -628,6 +631,15 @@ purge 与 embargo 派生规则、TrialFamily-aware multiplicity policy、attempt
 - 向 [Runtime](./runtime/) 只在已提交 `REPAIR_INPUTS_RUNTIME_KERNEL` 决定后创建一个关联
   `native-repair-request`；只有 Runtime 能针对该准确 kernel attempt 返回 `REPAIRED` `UNAVAILABLE`
   或 `OUTCOME_UNKNOWN`。
+- 向 [Strategy Governance](./strategy-governance/) 交付 Owner admission 在一次生命周期决定之前重读的那份封存
+  Build Receipt，按该回执被封存时的准确 Artifact 身份与摘要解析，携带它绑定的 intent TrialFamily 代码字节与
+  依赖集合。R&D 只陈述自己构建了什么，不陈述该 Artifact 是否可以运行：一份 Build Receipt 绝不是一次激活，绝不是
+  一次 qualification，绝不是一次资金决定，也绝不是任何生命周期状态已达成的证据。在那个准确身份与摘要下解析不到的
+  回执是缺失而不是陈旧，而缺失的回执不准入任何生命周期转换，也不准入一个更保守的转换。
+- 向 [Portfolio](./portfolio/) 交付一次退化归因所点名的那份冻结 Research Intent，按准确的 intent 身份与摘要解析，
+  携带该 intent 冻结的预测与证伪条件，以及它们被冻结时所处的截面。R&D 只供给冻结的预测；它不观察已实现的绩效，
+  不归因，也不测量偏离。一份 Research Intent 绝不是一个绩效主张，绝不是一个容量陈述，其本身也绝不是某个机制已经
+  退化的证据 - 偏离及其被保留的替代解释属于 Portfolio，两个 Owner 都不得推导对方那一半。
 - 探索结束后只向 [Qualification](./qualification/) 交付拥有终态 `SELECTED_FOR_QUALIFICATION`
   Research Selection Disposition 的冻结 Candidate。交接交叉绑定准确 Intent 证伪条件与停止规则 完整预注册
   不可变穷尽 TrialFamily Census Frontier 探索请求结果前沿 完整跨 TrialFamily 语义前驱前沿 来源反馈前沿
@@ -644,6 +656,15 @@ purge 与 embargo 派生规则、TrialFamily-aware multiplicity policy、attempt
   `EXPLORATION_ACTIVE` 或 `SELECTION_TERMINAL`。它可以汇总 R&D 拥有的来源 意图 工件 探索和
   决定事实，但不包含保护 Qualification 细节。终态停止只能来自 Iteration Decision，只有存在仅选择
   disposition 时视图才显示 Selection。
+
+**CURRENT_PARTIAL - 有界的已验证 outcome 读面。** R&D Owner 回答两个经认证的 zero-effect read，它们都基于
+这个 Owner 自己解析出的同一个 historical custody cut：verified Research outcome 清单与 verified Build
+outcome 清单。两者都按最新在前回答，至多返回调用方请求的行数、且绝不超过这个 Owner 自己拥有的上限，并同时
+回显它解析所依据的 custody cut 与是否发生截断。Research 行携带 request 身份 提交时间 resolution 与
+question 绑定；Build 行携带 build request 身份 attempt 身份 提交时间与 disposition。调用方既不指名 cut
+也不指名超出上限的行，因此消费方无法声称一个这个 Owner 没有解析过的坐标。两个清单相互独立：其中一个回答
+unavailable 或位于不同 cut 时，只撤回它自己的行与计数。两个读都不接纳 Plan Artifact 收据字节 源码文本或
+任何 mutation，也都不是 Selection Candidate 或 Qualification 事实。
 
 ## 拒绝和禁止事项
 

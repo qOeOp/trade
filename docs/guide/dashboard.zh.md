@@ -297,8 +297,11 @@ plan digest 与 design digest。非 success terminal 的 `Artifact` 改为在存
 reason，并且绝不保留之前 success 的字段。group title surface 比 body 略亮，label/value 左对齐，长 identity
 保持可选择，separator 克制且不形成连通网格。header/body 色差遵循标准 card system。
 
-经认证的 Owner GET `/v2/develop-composer/runs/{request_identity}/readback` 把现有 sealed same-identity
-resolution 暴露为 zero-effect read。它不接收 request body，返回既有 strict
+经认证的 Owner GET `/v2/develop-composer/runs/{request_identity}/readback` 以 zero-effect read 在 Owner 自己的
+Strategy Input custody 上解析同一身份：它经由该次运行自己绑定的 Market Data locked facade 复验已存储的正向 Composer
+记录，因此在生产中提交的一次运行就能在生产中读回。该解析为 `IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`：在那次改动落地之前，
+路由背后的适配器仍从 sealed acceptance frame 解析绑定并带着该 acceptance feature，所以今天一个不带该 feature 的部署
+根本不提供读回。它不接收 request body，返回既有 strict
 `DevelopComposerOperationResponseV2`；Dashboard BFF 绑定 path identity，并只投影上述字段。`SUCCESS` 必须同时
 带 operation receipt 与完整四字段 Artifact projection；其他 disposition 必须不带 receipt 或 Artifact
 projection。未知 key、identity drift、互相矛盾的 disposition field、非法 digest、超限 response、缺失
@@ -2169,15 +2172,19 @@ scroll owner，并且没有 dialog、drawer、Resolve、retry、dismiss、clipbo
 dispatch 或 effect routing change。
 
 当前准入的 Recent `/dashboard/recent` 回答"最近记录了什么已验证 outcome"，而不引入新的 outcome
-Owner。`RecentOwnerOutcomes` 复用 R&D directory 已消费的 historical-custody、research-question、
-research-outcome 与 artifact-review projection，只接纳 `outcome_ready` Research 和 `reviewable` Build，
-再按 Owner recorded time 合并。正文复用共享 `DataWorkspaceTable` 与 controlled 同页原位展开；筛选只改变
-Research/Build 可见 cut，不改变 URL。Research 行打开 canonical Research record，Build 行打开 canonical
-historical Build result。request、attempt、observation time、completeness 与 identity 只进入
-`PanelFrameInfo` 或展开行，不成为主表列。这四个 source 是独立 Owner read：malformed 或 identity mismatch
-的 Research source 只撤回 Research row/count，Build source 同理；缺失显示 unavailable 而不是零，只有两类
-source 都绑定时才显示 total。Loading 在本轮 read 完成前撤回旧的正向 row。页面只有一个 page scroll owner，
-没有 dialog、drawer、嵌套纵向 table scroller、Owner mutation 或 effect action。
+Owner。`RecentOwnerOutcomes` 消费两个有界 Owner read：verified Research outcome 清单与 verified Build
+outcome 清单，每一行的 outcome state 都已由 Owner 解析完成。页面发出的 read 次数不随它列出的行数增长：
+workspace 至多请求它要显示的行数，Owner 把它夹到自己拥有的上限，被 Owner 截短的清单必须自己声明截断，
+而不是报成全部的计数。两个 read 都不指名 custody cut：由各自 Owner 从自己的托管解析出 cut 并回显，因此
+workspace 无法声称一个 Owner 没有解析过的坐标，回显 cut 不同的行也绝不合并。只接纳 `outcome_ready`
+Research 和 `reviewable` Build，再按 Owner recorded time 合并。正文复用共享 `DataWorkspaceTable` 与
+controlled 同页原位展开；筛选只改变 Research/Build 可见 cut，不改变 URL。Research 行打开 canonical
+Research record，Build 行打开 canonical historical Build result。request、attempt、observation time、
+completeness 与 identity 只进入 `PanelFrameInfo` 或展开行，不成为主表列。这两个 read 保持独立：malformed、
+identity mismatch、unavailable 或 cut 不同的 Research 回答只撤回 Research row/count，Build 同理；缺失显示
+unavailable 而不是零，只有两类 source 都绑定时才显示 total。Loading 在本轮 read 完成前撤回旧的正向 row。
+页面只有一个 page scroll owner，没有 dialog、drawer、嵌套纵向 table scroller、Owner mutation 或 effect
+action。
 
 当前准入的 Evidence `/dashboard/evidence` 回答"Dashboard 哪些区域现在有可读数据，哪些覆盖仍不完整"。
 它复用 Status 已读取的 historical-custody、research-outcome、artifact-review 与精确未筛选 RunStore，

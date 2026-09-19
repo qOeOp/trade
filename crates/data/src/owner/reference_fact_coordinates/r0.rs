@@ -3,6 +3,8 @@
 //! R0 does not own business meaning or a clock. It seals the exact native Source Binding, PIT,
 //! observation-batch, and Shared Time evidence used by a reference-fact decision.
 
+use std::fmt::Display;
+
 use super::super::source_binding::BindingDigest;
 
 pub(crate) type R0IdentityV1 = BindingDigest;
@@ -29,6 +31,24 @@ pub(crate) enum ReferenceFactR0ErrorV1 {
     StoreUnavailable,
     StoreUntrusted,
     CapacityExceeded,
+}
+
+impl Display for ReferenceFactR0ErrorV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let text = match self {
+            Self::InvalidRequest => "the R0 request is malformed",
+            Self::CodecMismatch => "the R0 bytes do not decode canonically",
+            Self::DigestMismatch => "the R0 digest does not match its bytes",
+            Self::EvidenceUnavailable => "the PIT, Source Binding or clock evidence is unavailable",
+            Self::EvidenceMismatch => "the request disagrees with the persisted evidence",
+            Self::RequestConflict => "the request identity is stored with another meaning",
+            Self::UnknownIdentity => "no R0 record is stored under that locator",
+            Self::StoreUnavailable => "the R0 store is unavailable",
+            Self::StoreUntrusted => "the stored R0 custody does not verify",
+            Self::CapacityExceeded => "the R0 request exceeds the codec capacity",
+        };
+        formatter.write_str(text)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
