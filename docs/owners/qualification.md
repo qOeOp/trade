@@ -80,6 +80,40 @@ terminal as a blocker on them was a misreading of the dependency rather than a p
   conditions, revocation history, and the bounded economic-capacity contract Governance and Risk must enforce.
   It owns revocation as an Eligibility transition without taking over Runtime recovery.
 
+## Implementation status ledger
+
+This ledger records only what the repository has reached at this cut. It uses the status vocabulary of the
+[Market Data](./market-data/) ledger, with `CURRENT_PARTIAL` as the merged-but-unreachable form, and grants no
+permission by itself. No row here is `IMPLEMENTATION_ADMITTED`: this Owner has no admitted slice, and widening
+that requires changing this document first. Where a fact already has a section of its own, the row points at it
+rather than repeating it, so there is one place to keep in step.
+
+- **CURRENT_PARTIAL - Candidate Intake:** `submit_candidate_intake_v1` in `crates/qualification/src/postgres.rs`
+  writes the receipt under a Candidate advisory lock and returns a typed conflict for a second review request of
+  an already-intaken Candidate. It has no production caller: every call outside this Owner is in the
+  `sealed-develop-composer-acceptance` test module of `crates/strategy_factory/src/iteration_decision_postgres.rs`.
+- **CURRENT_PARTIAL - Protected Evaluation:** every protected terminal is driven end to end by the ordered
+  PostgreSQL gate and by nothing else. The entries, the sealed evidence that admits each terminal, and the two
+  behaviours the gate cannot reach are recorded under `Eligibility terminal status` above.
+- **CURRENT_PARTIAL - Pre-Research protected-feedback resolution:** this is the one capability with production
+  callers. `resolve_or_create_for_basis` and `admit_in_transaction` are called from
+  `crates/strategy_factory/src/product_edge_postgres.rs`, and `admit_historical_projection_in_transaction` from
+  `crates/strategy_factory/src/rd_owner_postgres_custody.rs`, all outside any test module. Its readback proof is
+  an ordered-chain entry; the response-cut rollback has none, for the reason recorded above.
+- **TARGET - Eligibility State:** the module owns `INELIGIBLE`, `QUALIFIED`, `EXPIRED`, and `REVOKED`, and only
+  the first two have any implementation. `EligibilityState::Expired` and `::Revoked` in
+  `crates/strategy_governance/src/model.rs` have no producer anywhere, `QualificationPublicStatusV1` carries five
+  variants and neither of those two, no relation named for expiry or revocation exists among this Owner's
+  `qualification_*_v1` tables, and no successor chain prevents predecessor revival. The consumer type exists in
+  Governance and every `UntrustedEligibilityReadback` is constructed in that crate's own tests, so the shape of a
+  read port is present while nothing on either side has written such a fact.
+- **TARGET - the deployment-authorized terminal:** `DEPLOYMENT_STORE_ADMISSION_MODE` stays `disabled`, and what
+  it waits for is recorded under `Eligibility terminal status` above.
+- **CURRENT, and permanently unprovable - Incident-specific Owner reconstruction:** the machinery is merged -
+  `crates/qualification/src/recovery.rs`, exported as `run_owner_recovery_cli` and shipped as the
+  `qualification-owner-recovery` binary behind the `owner-recovery` feature - and its only proof can never pass.
+  The measurement is recorded under `Incident-specific Owner reconstruction` below.
+
 ## Pre-Research protected-feedback resolution
 
 Qualification accepts no caller assertion of genesis, emptiness, or current feedback. It directly resolves the
