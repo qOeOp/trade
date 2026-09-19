@@ -155,12 +155,19 @@ acceptance test module. Backtest cannot perform its half of the economic measure
 has no admitted read of the frozen metric reference: not of the R&D plan, whose only sealed read returns native
 replay source storage, and not of `qualification_protected_economic_policy_bundles_v1`, whose grant is revoked.
 The ordered gate reaches the measurement only because the gate step reads the Candidate under this Owner's own
-role, which is fixture discovery, not a path Backtest has. Closing that gap needs a handoff of the frozen metric,
-unit and scale that Backtest may actually read - inside the request set seal, or as a sealed `qualification_api`
-read - and it is a cross-Owner contract change, not a proof.
+role, which is fixture discovery, not a path Backtest has. Closing that gap needs a handoff of the frozen metric and
+coverage-policy references, with the unit and the scale, that Backtest may actually read - inside the request set
+seal, or as a sealed `qualification_api` read - and it is a cross-Owner contract change, not a proof.
 
 ## Output handoffs
 
+- To [Backtest](./backtest/): one frozen Protected Replay Request, created only after the write-once
+  request-correlated `ADMITTED` receipt and the holdout reservation, with every execution-defining identity and
+  the exact Candidate/Intake protected policy pair fixed. Each request addresses one declared Protected Robustness
+  Plan cell or the exact frozen bounded matrix, so no cell may be chosen after a result is observed. The request
+  set seals the frozen `ProtectedEconomicPolicyBundleV1` whose measurement the returned Result must repeat
+  exactly. A request this Owner did not create is not a protected request, and a Backtest admission rejection
+  closes it as a request-bound `RUN_REJECTED` Protected Run Result rather than leaving it open.
 - To [Strategy Governance](./strategy-governance/): categorical Eligibility State facts, including revocation,
   with exact Candidate and fact versions, economic-condition version, evaluated cost/capacity-model version,
   qualified capacity ceiling, effective time, and non-dereferenceable committed evidence references only.
