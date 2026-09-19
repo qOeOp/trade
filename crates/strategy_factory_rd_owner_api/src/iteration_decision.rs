@@ -1185,7 +1185,7 @@ async fn compose_successor_research_intent(
                 &request_identity,
             );
         }
-        Err(ProductEdgeError::Unavailable | ProductEdgeError::Storage(_)) => {
+        Err(ProductEdgeError::Unavailable(_) | ProductEdgeError::Storage(_)) => {
             return successor_intent_rejection(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "PRODUCT_EDGE_SUCCESSOR_ADMISSION_UNAVAILABLE",

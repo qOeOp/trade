@@ -71,9 +71,9 @@ The maturity boundary is explicit:
   acceptance corpus exercises the real Market Data Owner issuance path, exact Plan compilation, one guest call,
   member-causal targets, atomic malformed-output rejection, replay, and restore. This is bounded crate-local
   acceptance evidence only. The local bounded-plugin producer admits an exact, fail-closed macOS arm64 host profile.
-  Linux ARM64 is **REVALIDATION REQUIRED**: the implementation now freezes the currently observed canonical
-  `wasm32v1-none` sysroot digest, but it does not become CURRENT/PARTIAL again until the main-bound hosted native A0
-  gate succeeds for that digest. The previous evidence boundary was the exact
+  Linux ARM64 and x86_64 are **REVALIDATION REQUIRED**: the implementation now freezes the currently observed
+  canonical `wasm32v1-none` sysroot digest, but neither becomes CURRENT/PARTIAL until a main-bound hosted native
+  gate succeeds for that digest on that host. The previous evidence boundary was the exact
   workflow [`strategy-factory-linux-a0`](https://github.com/qOeOp/trade/blob/9e5149d4293a800be3a35e6b747a9f3dba304e1f/.github/workflows/strategy-factory-linux-a0.yml),
   `workflow_dispatch` [run 33250411708](https://github.com/qOeOp/trade/actions/runs/33250411708) at head
   `9e5149d4293a800be3a35e6b747a9f3dba304e1f`, and job
@@ -632,13 +632,22 @@ with the complete ordered 28-component observation package. R&D source records p
 Replay-authority bytes; accepted Composer custody provides Design, Plan and Artifact bytes; the independently
 reproduced durable binding provides the remaining resolved-input evidence. The existing Backtest preparation Owner
 accepts this sealed resolver directly and still performs its own request, component and execution-locator
-reconciliation before entering ProgramHost. With sealed Develop composition enabled, the authenticated R&D API
-registers `POST /v2/exploratory-replays`; the body contains only the exact sealed request locator and attempt
-identity. Startup exposes the execution capability only when `BACKTEST_OWNER_DATABASE_URL` admits the canonical
-Backtest Owner principal and the Market Data scheduling capability is present. The handler returns only the exact
-persisted canonical Result bytes after the coordinator acknowledges the Result, all 28 evidence envelopes and the
-semantic trace; an unacknowledged submission remains unavailable. This does not yet claim disposable PostgreSQL
-acceptance, a deployed or running service, production invocation, Paper/Live execution, or trading.
+reconciliation before entering ProgramHost.
+
+**IMPLEMENTATION_ADMITTED / NOT_CUT_OVER, production Native Replay entry:** the authenticated R&D API's
+`POST /v2/exploratory-replays` is admitted as a production route; its body carries only the exact sealed request
+locator and attempt identity. It is not cut over. The handler, the execution service it calls and the router
+registration are still compiled only under the sealed Develop composition feature, so no deployed image serves this
+route today, and no request has ever reached it outside acceptance. Cutover requires the production Composer sealed
+read port that the execution service takes as an input: a `DevelopComposerFinalEvidencePortV2` implementation that
+locks and rereads evidence for an arbitrary locator inside the caller's transaction, and a
+`PostgresDevelopComposerSealedReadPortV2` the R&D composition root can construct. Until both exist the feature gate
+is what stands between this route and production, and removing it alone would not compile. After cutover, startup
+still exposes the execution capability only when `BACKTEST_OWNER_DATABASE_URL` admits the canonical Backtest Owner
+principal and the Market Data scheduling capability is present. The handler returns only the exact persisted
+canonical Result bytes after the coordinator acknowledges the Result, all 28 evidence envelopes and the semantic
+trace; an unacknowledged submission remains unavailable. This admission grants no disposable PostgreSQL acceptance,
+deployed or running service, production invocation, Paper/Live execution, or trading.
 
 **TARGET / NOT_ADMITTED, Owner-sealed two-frame Native Replay V2:** the existing
 `NativeReplayExecutionInputBindingV1`, its single universe frame, native scheduling receipt,

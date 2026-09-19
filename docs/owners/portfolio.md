@@ -6,6 +6,14 @@ Project current account, position, exposure, performance, and capacity facts fro
 
 ## Authoritative facts owned
 
+- Versioned measurement methodology: the definitions Portfolio applies to turn committed Execution facts and
+  Market Data valuation facts into every projection it owns. One version fixes the reporting currency and the FX
+  conversion point, the position and PnL basis, the return and drawdown definitions, the stability measure, the
+  capital-at-risk basis, and the candidate-neutral pool methodology and its assumptions. Portfolio owns it;
+  Market Data owns the valuation facts and their own versions, and no consumer may substitute a methodology.
+  Changing any definition creates a successor version and never rewrites a committed receipt. Every receipt binds
+  the exact version it used, and receipts under different methodology versions are not comparable and cannot be
+  spliced into one evidence cut.
 - Account State: balances, positions, margin, equity, realized and unrealized PnL, bound to one Execution Scope and account namespace.
 - Exposure by account, asset, strategy, direction, currency, and relevant risk dimension.
 - Performance Receipt by strategy generation and governed time window, bound to its exact Execution Scope, Execution and account fact cut, valuation and methodology versions, capital at risk, and freshness.
@@ -81,28 +89,38 @@ permission by itself. The rows marked `IMPLEMENTATION_ADMITTED` below are the on
 entries passing on Linux, and a production path that depends on no testkit or acceptance feature; every other row
 grants nothing, and widening the admitted set requires changing this document first.
 
-- **CURRENT_PARTIAL / IMPLEMENTATION_ADMITTED - Capacity Scope contract:** `crates/portfolio/src/owner/capacity_scope.rs` declares its maturity
-  as `Discovery`. The public `resolve_capacity_scope` accepts an untrusted request and returns a structured
-  unavailable readback, while the sealed `BoundCapacityScopeReadback` can be minted only by a private
-  complete-registry path that has no production resolver. `crates/portfolio/tests/capacity_scope_contract.rs`
-  proves the fail-closed shape. Admitted slice: the private complete-registry resolver over PostgreSQL custody that
-  alone seals `BoundCapacityScopeReadback` for one account, one `PAPER` mode, and one economic pool, plus the `BOUND`
-  readback handed to Strategy Governance.
-- **CURRENT_PARTIAL - Portfolio View R0 contract:** `crates/portfolio/src/owner/portfolio_view.rs` owns the request
+- **CURRENT_PARTIAL / IMPLEMENTATION_ADMITTED - Capacity Scope contract:**
+  `crates/portfolio_owner/src/capacity_scope.rs` owns the untrusted request vocabulary, the complete-registry
+  resolution rule, and the sealed `BoundCapacityScopeReadback` that only that rule can mint; the public
+  `resolve_capacity_scope` stays the fail-closed `Discovery` boundary.
+  `crates/portfolio_owner/src/capacity_scope_postgres.rs` is the production Owner store: PostgreSQL custody under
+  `portfolio_private` holding the append-only registry of complete membership censuses, its head, the sealed
+  readbacks, and the read-only `portfolio_api` function Strategy Governance resolves a `BOUND` scope through. A cut
+  is immutable once committed and recommitting the same census joins the current head. Its `#[ignore]` proof runs
+  against the canonical Owner PostgreSQL topology. No deployed binary composes it yet, so it holds no production
+  composition root or reachable consumer.
+- **CURRENT_PARTIAL - Portfolio View R0 contract:** `crates/portfolio_owner/src/portfolio_view.rs` owns the request
   fingerprint, replay classification, per-source-Owner dependency kinds, and the fail-closed `resolve_portfolio_view`
   that returns an `UnavailablePortfolioView`; no positive source resolver exists.
-  `crates/portfolio/tests/portfolio_view_contract.rs` proves it. The `portfolio:view` resource grant in
+  `crates/portfolio_owner/tests/portfolio_view_contract.rs` proves it. The `portfolio:view` resource grant in
   `crates/operator_authorization` resolves through the Operator Authorization Issuer PostgreSQL custody, but no
   Product Edge route serves a Portfolio View.
 - **TARGET - Account State, Exposure, Performance Receipt, and Exposure Receipt:** the inherited `Portfolio` in
   `crates/portfolio/src/portfolio.rs` and `crates/portfolio/src/manager.rs` computes positions, balances, margin,
   and PnL from engine cache events for the inherited kernel, Backtest, and live-node compositions; it is the
   adoption source and binds no Execution Scope, receipt, valuation version, or freshness.
-- **TARGET / IMPLEMENTATION_ADMITTED - Capacity View and Portfolio Risk Evidence Bundle:** no gross-ceiling projection
-  or coherent source cut exists, so Risk has no Capacity View or bundle to consume. Admitted slice: one `PAPER`
-  Capacity View per `BOUND` Capacity Scope whose gross ceiling derives from the Execution-committed opening account
-  fact cut and one Market Data valuation cut under one declared pool methodology version; the Portfolio Risk
-  Evidence Bundle stays `TARGET`.
+- **CURRENT_PARTIAL / IMPLEMENTATION_ADMITTED - Capacity View:** `crates/portfolio_owner/src/capacity_view.rs` owns
+  the sealed view and the one methodology this slice admits, `paper-collateral-gross-ceiling.v1`: for a simulated
+  `PAPER` pool denominated in the same currency as the account's collateral, the gross ceiling is that collateral
+  and no liquidity constraint compresses it. Valuation is the identity map because the two currencies are the same,
+  and the view binds an explicit identity for that declared absence of a liquidity input rather than an empty field.
+  A pool in any other currency fails closed until a Market Data valuation fact exists. The ceiling comes from
+  Execution's own committed opening account fact, read inside the commit transaction through the Execution Owner's
+  read-only API, never from a caller assertion. `crates/portfolio_owner/src/capacity_scope_postgres.rs` stores the
+  views and exposes the `portfolio_api` function Strategy Governance rereads the current ceiling through. Portfolio
+  subtracts no Reservation liability and computes no remaining headroom here.
+- **TARGET - Portfolio Risk Evidence Bundle:** no coherent source cut of projected exposure, open orders, account
+  state, and incorporated settlement lineages exists, so Risk has no bundle to combine with its liabilities.
 - **TARGET - Portfolio Lifecycle Evidence Receipt, Portfolio Interaction Receipt, and degradation attribution:** no
   type or custody exists.
 - **TARGET - handoffs and persistence:** no port to Governance, Risk, Scanner, Execution, or Product Edge and no

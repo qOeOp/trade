@@ -21,8 +21,9 @@ sealed-source-intake-composer-acceptance = [
   "sealed-develop-composer-acceptance",
 ]
 # The disposable A2 tamper probe is the only non-test consumer of the test harness.
-# It carries `dep:vibe-testkit` alone so that enabling the Composer acceptance surface,
-# which `dashboard-composer-readback` does for a deployed image, links no harness.
+# It carries `dep:vibe-testkit` alone so that enabling the Composer acceptance surface
+# links no harness. No deployed image enables that surface: the Dashboard Composer
+# readback resolves against the Owner's own custody and needs no acceptance feature.
 sealed-source-intake-composer-tamper-probe = [
   "sealed-source-intake-composer-acceptance",
   "dep:vibe-testkit",
@@ -56,6 +57,7 @@ tar = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+tracing = { workspace = true }
 vibe-analysis = { workspace = true }
 vibe-backtest = { workspace = true, features = ["streaming"] }
 vibe-backtest-owner-contracts = { workspace = true }
@@ -87,6 +89,7 @@ wasmparser = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
+tracing-subscriber = { workspace = true }
 vibe-operator-authorization = { workspace = true }
 vibe-portfolio = { workspace = true }
 vibe-testkit = { workspace = true, features = ["postgres"] }

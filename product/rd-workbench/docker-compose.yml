@@ -16,6 +16,9 @@ services:
       - QUALIFICATION_OWNER_DB_PASSWORD
       - PRODUCT_EDGE_DB_PASSWORD
       - BACKTEST_OWNER_DB_PASSWORD
+      - EXECUTION_WRITER_DB_PASSWORD
+      - PORTFOLIO_WRITER_DB_PASSWORD
+      - GOVERNANCE_WRITER_DB_PASSWORD
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./postgres-init/00-create-rd-owner.sh:/docker-entrypoint-initdb.d/00-create-rd-owner.sh:ro
@@ -144,6 +147,9 @@ services:
         ${QUALIFICATION_OWNER_DB_PASSWORD:?set QUALIFICATION_OWNER_DB_PASSWORD}
       PRODUCT_EDGE_DB_PASSWORD: ${PRODUCT_EDGE_DB_PASSWORD:?set PRODUCT_EDGE_DB_PASSWORD}
       BACKTEST_OWNER_DB_PASSWORD: ${BACKTEST_OWNER_DB_PASSWORD:?set BACKTEST_OWNER_DB_PASSWORD}
+      EXECUTION_WRITER_DB_PASSWORD: ${EXECUTION_WRITER_DB_PASSWORD:?set EXECUTION_WRITER_DB_PASSWORD}
+      PORTFOLIO_WRITER_DB_PASSWORD: ${PORTFOLIO_WRITER_DB_PASSWORD:?set PORTFOLIO_WRITER_DB_PASSWORD}
+      GOVERNANCE_WRITER_DB_PASSWORD: ${GOVERNANCE_WRITER_DB_PASSWORD:?set GOVERNANCE_WRITER_DB_PASSWORD}
     entrypoint: ["/bin/sh", "/opt/trade/10-migrate-authority-custody.sh"]
     volumes:
       - ./postgres-init/10-migrate-authority-custody.sh:/opt/trade/10-migrate-authority-custody.sh:ro
@@ -163,15 +169,18 @@ services:
     environment:
       REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL: >-
         ${REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL:?set REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL}
-      REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST_PATH: >-
-        /run/secrets/replay-policy-catalog-bootstrap-request.json
+      REPLAY_POLICY_CATALOG_BOOTSTRAP_CREATE_COMMAND_PATH: >-
+        /run/secrets/replay-policy-catalog-bootstrap-create-command.json
+      REPLAY_POLICY_CATALOG_BOOTSTRAP_ADVANCE_COMMAND_PATH: >-
+        /run/secrets/replay-policy-catalog-bootstrap-advance-command.json
       REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY: >-
         ${REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY:?set REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY}
       REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY_PATH: >-
         /run/secrets/replay-policy-catalog-trusted-verifier-public-key.hex
     volumes:
       # yamllint disable rule:line-length
-      - ${REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST:?set REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST}:/run/secrets/replay-policy-catalog-bootstrap-request.json:ro
+      - ${REPLAY_POLICY_CATALOG_BOOTSTRAP_CREATE_COMMAND:?set REPLAY_POLICY_CATALOG_BOOTSTRAP_CREATE_COMMAND}:/run/secrets/replay-policy-catalog-bootstrap-create-command.json:ro
+      - ${REPLAY_POLICY_CATALOG_BOOTSTRAP_ADVANCE_COMMAND:?set REPLAY_POLICY_CATALOG_BOOTSTRAP_ADVANCE_COMMAND}:/run/secrets/replay-policy-catalog-bootstrap-advance-command.json:ro
       - ${REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY:?set REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY}:/run/secrets/replay-policy-catalog-trusted-verifier-public-key.hex:ro
       # yamllint enable rule:line-length
     depends_on:
@@ -191,15 +200,15 @@ services:
     entrypoint: ["/usr/local/bin/replay-policy-catalog-owner-readback"]
     environment:
       RD_OWNER_DATABASE_URL: ${RD_OWNER_DATABASE_URL:?set RD_OWNER_DATABASE_URL}
-      REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST_PATH: >-
-        /run/secrets/replay-policy-catalog-bootstrap-request.json
+      REPLAY_POLICY_CATALOG_BOOTSTRAP_CREATE_COMMAND_PATH: >-
+        /run/secrets/replay-policy-catalog-bootstrap-create-command.json
       REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY: >-
         ${REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY:?set REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY}
       REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY_PATH: >-
         /run/secrets/replay-policy-catalog-trusted-verifier-public-key.hex
     volumes:
       # yamllint disable rule:line-length
-      - ${REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST:?set REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST}:/run/secrets/replay-policy-catalog-bootstrap-request.json:ro
+      - ${REPLAY_POLICY_CATALOG_BOOTSTRAP_CREATE_COMMAND:?set REPLAY_POLICY_CATALOG_BOOTSTRAP_CREATE_COMMAND}:/run/secrets/replay-policy-catalog-bootstrap-create-command.json:ro
       - ${REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY:?set REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY}:/run/secrets/replay-policy-catalog-trusted-verifier-public-key.hex:ro
       # yamllint enable rule:line-length
     depends_on:

@@ -537,6 +537,9 @@ async fn transaction_bound_read_uses_the_borrowed_backend_locks_and_writes_nothi
     .await
     .expect("sealed Composer owner");
 
+    // The store is shared with the ordered entries before this one; a read that writes
+    // nothing leaves every custody count as it found it, whatever it found.
+    let before_missing = custody_counts(topology_admin_pool).await;
     let mut transaction = rd_pool.begin().await.expect("caller transaction");
     let backend_before: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
         .fetch_one(&mut *transaction)
@@ -563,7 +566,7 @@ async fn transaction_bound_read_uses_the_borrowed_backend_locks_and_writes_nothi
         .expect("caller backend after missing read");
     assert_eq!(backend_after, backend_before);
     transaction.rollback().await.expect("missing-read rollback");
-    assert_eq!(custody_counts(topology_admin_pool).await, [0; 12]);
+    assert_eq!(custody_counts(topology_admin_pool).await, before_missing);
 
     let run = owner.run().await.expect("sealed Composer RUN");
     let locator = DevelopComposerSealedReadLocatorV2::from_accepted_response(&run)
@@ -581,12 +584,22 @@ async fn transaction_bound_read_uses_the_borrowed_backend_locks_and_writes_nothi
     assert!(!readback.design_bytes().is_empty());
     assert!(!readback.plan_bytes().is_empty());
     assert!(!readback.artifact_package_bytes().is_empty());
+    // The readback must run on the borrowed backend, inside its transaction: the pid and the
+    // transaction-scoped write statistics mean nothing elsewhere. The caller is rd_owner, which
+    // past the cutover holds no USAGE on composer_private, so the relation is resolved through
+    // the catalog rather than a regclass cast that needs it.
     let (backend_after, has_table_lock, wrote_rows): (i32, bool, bool) = sqlx::query_as(
         "SELECT pg_backend_pid(), EXISTS (
            SELECT 1
              FROM pg_catalog.pg_locks
             WHERE pid=pg_backend_pid()
-              AND relation='composer_private.rd_develop_operations_v2'::regclass
+              AND relation=(
+                SELECT class.oid
+                  FROM pg_catalog.pg_class class
+                  JOIN pg_catalog.pg_namespace namespace ON namespace.oid=class.relnamespace
+                 WHERE namespace.nspname='composer_private'
+                   AND class.relname='rd_develop_operations_v2'
+              )
               AND mode='ShareLock'
               AND granted
          ), EXISTS (
@@ -639,6 +652,16 @@ async fn transaction_bound_read_rejects_wrong_owner_acl_and_stale_custody() {
         .await
         .expect("restore public ACL");
 
+    let mut transaction = rd_pool.begin().await.expect("begin restored-ACL read");
+    owner
+        .read_accepted_in_transaction(&mut transaction, &locator)
+        .await
+        .expect("positive read after the public ACL is restored");
+    transaction
+        .rollback()
+        .await
+        .expect("rollback restored-ACL read");
+
     sqlx::query(
         "GRANT EXECUTE ON FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(text) TO PUBLIC",
     )
@@ -667,16 +690,42 @@ async fn transaction_bound_read_rejects_wrong_owner_acl_and_stale_custody() {
     .await
     .expect("restore routine metadata");
 
-    sqlx::query("ALTER TABLE composer_private.rd_develop_operations_v2 OWNER TO replay_policy_catalog_owner")
-        .execute(topology_admin_pool)
+    // Past the cutover no foreign role holds CREATE on composer_private, and PostgreSQL gives a
+    // relation only to a role that does: the wrong owner cannot be injected at all. The read
+    // never sees a wrong owner because the store refuses to make one.
+    let refused = sqlx::query(
+        "ALTER TABLE composer_private.rd_develop_operations_v2 OWNER TO replay_policy_catalog_owner",
+    )
+    .execute(topology_admin_pool)
+    .await;
+    assert!(matches!(
+        refused,
+        Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("42501")
+    ));
+    let table_owner: String = sqlx::query_scalar(
+        "SELECT pg_catalog.pg_get_userbyid(relowner) FROM pg_catalog.pg_class class JOIN pg_catalog.pg_namespace namespace ON namespace.oid=class.relnamespace WHERE namespace.nspname='composer_private' AND class.relname='rd_develop_operations_v2'",
+    )
+    .fetch_one(topology_admin_pool)
+    .await
+    .expect("Composer table owner");
+    assert_eq!(table_owner, "composer_owner");
+    let mut transaction = rd_pool.begin().await.expect("caller transaction");
+    owner
+        .read_accepted_in_transaction(&mut transaction, &locator)
         .await
-        .expect("inject wrong Composer owner");
-    assert_transactional_read_unavailable(&owner, rd_pool, &locator).await;
-    sqlx::query("ALTER TABLE composer_private.rd_develop_operations_v2 OWNER TO composer_owner")
-        .execute(topology_admin_pool)
+        .expect("read stays positive under the owner the store keeps");
+    transaction
+        .rollback()
         .await
-        .expect("restore Composer table owner");
+        .expect("positive read rollback");
 
+    let original_research_request_identity: Vec<u8> = sqlx::query_scalar(
+        "SELECT research_request_identity FROM composer_private.rd_develop_operations_v2 WHERE request_identity=$1",
+    )
+    .bind(&locator.request_identity)
+    .fetch_one(topology_admin_pool)
+    .await
+    .expect("stored Research binding");
     sqlx::query(
         "UPDATE composer_private.rd_develop_operations_v2
             SET research_request_identity=$1
@@ -692,6 +741,27 @@ async fn transaction_bound_read_rejects_wrong_owner_acl_and_stale_custody() {
     .await
     .expect("inject stale Research binding");
     assert_transactional_read_unavailable(&owner, rd_pool, &locator).await;
+    assert_eq!(custody_counts(topology_admin_pool).await, before);
+
+    // The store is shared with every later sealed read; the binding goes back exactly, and the
+    // read that was refused is positive again.
+    sqlx::query(
+        "UPDATE composer_private.rd_develop_operations_v2 SET research_request_identity=$1 WHERE request_identity=$2",
+    )
+    .bind(&original_research_request_identity)
+    .bind(&locator.request_identity)
+    .execute(topology_admin_pool)
+    .await
+    .expect("restore Research binding");
+    let mut transaction = rd_pool.begin().await.expect("caller transaction");
+    owner
+        .read_accepted_in_transaction(&mut transaction, &locator)
+        .await
+        .expect("restored binding reads back positive");
+    transaction
+        .rollback()
+        .await
+        .expect("restored read rollback");
     assert_eq!(custody_counts(topology_admin_pool).await, before);
 }
 

@@ -2593,10 +2593,10 @@ async fn prepare_replay_fixture(validity_ms: u64) -> ReplayFixture {
         let catalog_admin_pool = PgPool::connect(&catalog_admin_url)
             .await
             .expect("Catalog admin test connection");
-        let catalog_v3 = ensure_replay_policy_catalog_fixture_v3(&catalog_admin_pool)
+
+        ensure_replay_policy_catalog_fixture_v3(&catalog_admin_pool)
             .await
-            .expect("signed sealed-acceptance Replay Policy Catalog V3 genesis");
-        catalog_v3
+            .expect("signed sealed-acceptance Replay Policy Catalog V3 genesis")
     };
     #[cfg(feature = "sealed-develop-composer-acceptance")]
     let replay_policy = catalog_v3
@@ -3229,7 +3229,7 @@ impl TestProductEdge {
                 valid_from_epoch_ms: now - 1_000,
                 valid_through_epoch_ms: valid_through,
                 authorization: authorization.locator(),
-                manifests,
+                manifests: vibe_product_edge::AgentOperationManifestSetV1::new(manifests).unwrap(),
             })
             .await
             .unwrap();

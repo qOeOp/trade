@@ -328,6 +328,13 @@ async fn durable_owner_is_atomic_restart_exact_and_fail_closed() {
     .await
     .expect("restore disposable Design bytes");
 
+    let original_request_digest: Vec<u8> = sqlx::query_scalar(
+        "SELECT request_digest FROM composer_private.rd_develop_operations_v2 WHERE request_identity=$1",
+    )
+    .bind(SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2)
+    .fetch_one(pool)
+    .await
+    .expect("stored request digest");
     sqlx::query(
         "UPDATE composer_private.rd_develop_operations_v2
             SET request_digest=decode(repeat('ff', 32), 'hex')
@@ -344,6 +351,28 @@ async fn durable_owner_is_atomic_restart_exact_and_fail_closed() {
     );
     assert!(conflict.receipt_identity.is_none());
     assert!(conflict.artifact.is_none());
+    assert_owner_row_counts(pool, 1).await;
+
+    // The sealed request identity is one fixed value shared by every sealed run, and the
+    // ordered chain shares one store: left bound to conflicting meaning, it would turn every
+    // later sealed run into this conflict. Restore the meaning and prove the exact replay.
+    sqlx::query(
+        "UPDATE composer_private.rd_develop_operations_v2 SET request_digest=$2 WHERE request_identity=$1",
+    )
+    .bind(SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2)
+    .bind(&original_request_digest)
+    .execute(pool)
+    .await
+    .expect("restore disposable request identity meaning");
+    let restored = restarted_owner
+        .run()
+        .await
+        .expect("restored identity replays");
+    assert_ne!(
+        restored.disposition,
+        DevelopComposerOperationDispositionV2::Conflict
+    );
+    assert!(restored.receipt_identity.is_some());
     assert_owner_row_counts(pool, 1).await;
 }
 

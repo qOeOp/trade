@@ -110,7 +110,11 @@ async fn publish_market_data_read_port(
     let mut transaction = pool.begin().await.map_err(unavailable)?;
 
     for statement in [
-        "CREATE SCHEMA IF NOT EXISTS rd_owner_api",
+        // `CREATE SCHEMA IF NOT EXISTS` checks database `CREATE` before it checks existence, so it
+        // fails for an Owner that holds no database-level `CREATE` even when the schema is already
+        // provisioned. The authority migration owns this schema under the deployed custody
+        // topology, so ask about existence first and create only what is genuinely missing.
+        "DO $rd_owner_api_schema$ BEGIN IF pg_catalog.to_regnamespace('rd_owner_api') IS NULL THEN EXECUTE 'CREATE SCHEMA rd_owner_api'; END IF; END $rd_owner_api_schema$",
         "REVOKE ALL ON SCHEMA rd_owner_api FROM PUBLIC",
         "GRANT USAGE ON SCHEMA rd_owner_api TO market_data_owner",
     ] {
@@ -500,7 +504,7 @@ pub(crate) async fn compose_with_sealed_owner_evidence_for_test_v1(
     source: vibe_data::owner::native_replay_scheduling_v1::MarketDataRepairSourceV1,
     shared_time: ClockHeadHandoff,
 ) -> Result<MarketDataRepairRequestReadbackV1, MarketDataRepairPostgresErrorV1> {
-    store_with_sealed_owner_evidence_for_test_v1(
+    Box::pin(store_with_sealed_owner_evidence_for_test_v1(
         pool,
         action_request_identity,
         decision_identity,
@@ -508,7 +512,7 @@ pub(crate) async fn compose_with_sealed_owner_evidence_for_test_v1(
         source,
         shared_time,
         false,
-    )
+    ))
     .await?
     .ok_or_else(|| unavailable("Market Data repair request commit is missing"))
 }
@@ -522,7 +526,7 @@ pub(crate) async fn resolve_with_sealed_owner_evidence_for_test_v1(
     source: vibe_data::owner::native_replay_scheduling_v1::MarketDataRepairSourceV1,
     shared_time: ClockHeadHandoff,
 ) -> Result<Option<MarketDataRepairRequestReadbackV1>, MarketDataRepairPostgresErrorV1> {
-    store_with_sealed_owner_evidence_for_test_v1(
+    Box::pin(store_with_sealed_owner_evidence_for_test_v1(
         pool,
         action_request_identity,
         decision_identity,
@@ -530,7 +534,7 @@ pub(crate) async fn resolve_with_sealed_owner_evidence_for_test_v1(
         source,
         shared_time,
         true,
-    )
+    ))
     .await
 }
 

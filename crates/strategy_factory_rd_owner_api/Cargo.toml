@@ -28,14 +28,12 @@ sealed-source-intake-composer-acceptance = [
 sealed-develop-composer-acceptance = [
   "vibe-strategy-factory/sealed-develop-composer-acceptance",
 ]
-dashboard-composer-readback = [
-  "vibe-strategy-factory/sealed-source-intake-composer-acceptance",
-]
 
 [dependencies]
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true }
+ed25519-dalek = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
@@ -80,6 +78,12 @@ test = false
 [[bin]]
 name = "replay-policy-catalog-owner-readback"
 path = "src/bin/replay_policy_catalog_owner_readback.rs"
+doc = false
+test = false
+
+[[bin]]
+name = "replay-policy-catalog-command-seal"
+path = "src/bin/replay_policy_catalog_command_seal.rs"
 doc = false
 test = false
 

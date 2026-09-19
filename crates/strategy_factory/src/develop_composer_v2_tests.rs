@@ -26,7 +26,8 @@ use super::{
 
 #[cfg(any(
     all(target_os = "macos", target_arch = "aarch64"),
-    all(target_os = "linux", target_arch = "aarch64")
+    all(target_os = "linux", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64")
 ))]
 use strategy_factory_program_sdk::lifecycle_v1::{
     EnvelopePayloadV1, EventOrderKeyV1, LifecycleEnvelopeV1, LifecycleKind,
@@ -34,7 +35,8 @@ use strategy_factory_program_sdk::lifecycle_v1::{
 
 #[cfg(any(
     all(target_os = "macos", target_arch = "aarch64"),
-    all(target_os = "linux", target_arch = "aarch64")
+    all(target_os = "linux", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64")
 ))]
 use super::{
     artifact_v2::StrategyArtifactV2,
@@ -54,7 +56,8 @@ use super::{
 
 #[cfg(any(
     all(target_os = "macos", target_arch = "aarch64"),
-    all(target_os = "linux", target_arch = "aarch64")
+    all(target_os = "linux", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64")
 ))]
 use super::develop_plugin_build_v2::{
     DevelopPluginBuildProducerV2, DevelopPluginBuildResultV2, UntrustedDevelopPluginCapsuleV2,
@@ -64,7 +67,8 @@ use super::develop_plugin_build_v2::{
 #[rstest]
 #[cfg(any(
     all(target_os = "macos", target_arch = "aarch64"),
-    all(target_os = "linux", target_arch = "aarch64")
+    all(target_os = "linux", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64")
 ))]
 fn real_local_plugin_builder_supplies_composer_and_program_host() {
     let (mut proposal, mut evidence) = fixture();
@@ -82,7 +86,8 @@ fn real_local_plugin_builder_supplies_composer_and_program_host() {
 #[ignore = "invokes the exact pinned local wasm compiler in two private roots"]
 #[cfg(any(
     all(target_os = "macos", target_arch = "aarch64"),
-    all(target_os = "linux", target_arch = "aarch64")
+    all(target_os = "linux", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64")
 ))]
 fn real_v3_owner_build_reaches_composer_program_host_and_durable_abi3_artifact() {
     let (design, mut bfp_proposal) = bfp_composer_candidate();
@@ -286,7 +291,8 @@ fn abi3_bfp_parameter_inputs_cannot_bypass_market_owner_roles() {
 
 #[cfg(any(
     all(target_os = "macos", target_arch = "aarch64"),
-    all(target_os = "linux", target_arch = "aarch64")
+    all(target_os = "linux", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64")
 ))]
 fn bfp_composer_candidate() -> (
     StrategyDesignV2,
@@ -336,7 +342,8 @@ fn bfp_composer_candidate() -> (
 
 #[cfg(any(
     all(target_os = "macos", target_arch = "aarch64"),
-    all(target_os = "linux", target_arch = "aarch64")
+    all(target_os = "linux", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64")
 ))]
 fn real_v3_plugin_build(
     producer: &mut DevelopPluginBuildProducerV3,
@@ -357,7 +364,8 @@ fn real_v3_plugin_build(
 
 #[cfg(any(
     all(target_os = "macos", target_arch = "aarch64"),
-    all(target_os = "linux", target_arch = "aarch64")
+    all(target_os = "linux", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64")
 ))]
 fn v3_composer_case(
     design: StrategyDesignV2,
@@ -398,7 +406,8 @@ fn v3_composer_case(
 
 #[cfg(any(
     all(target_os = "macos", target_arch = "aarch64"),
-    all(target_os = "linux", target_arch = "aarch64")
+    all(target_os = "linux", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64")
 ))]
 fn real_plugin_build(manifest: &PluginManifestV2) -> VerifiedDevelopPluginBuildReadV2 {
     let capsule = UntrustedDevelopPluginCapsuleV2 {
@@ -761,7 +770,8 @@ fn assert_terminal(result: DevelopComposerResultV2, expected: DevelopComposerTer
 
 #[cfg(any(
     all(target_os = "macos", target_arch = "aarch64"),
-    all(target_os = "linux", target_arch = "aarch64")
+    all(target_os = "linux", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64")
 ))]
 fn into_terminal(result: DevelopComposerResultV2) -> DevelopComposerTerminalV2 {
     match result {

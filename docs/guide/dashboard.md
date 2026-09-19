@@ -351,8 +351,12 @@ when present and never retains fields from an earlier success. Group-title surfa
 body, labels and values are left aligned, long identities remain selectable, and separators are subtle rather
 than a connected grid. The header/body color relationship follows the standard card system.
 
-The authenticated Owner GET `/v2/develop-composer/runs/{request_identity}/readback` performs the existing sealed
-same-identity resolution as a zero-effect read. It accepts no request body and returns the existing strict
+The authenticated Owner GET `/v2/develop-composer/runs/{request_identity}/readback` resolves the same identity
+against the Owner's own Strategy Input custody as a zero-effect read: it revalidates the stored positive Composer
+record through the locked Market Data facade the run itself bound, so a run committed in production reads back in
+production. This resolution is `IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`: the adapter behind the route still
+resolves the bindings from the sealed acceptance frame and carries the acceptance feature until that change lands,
+so today a deployment without the feature serves no readback at all. It accepts no request body and returns the existing strict
 `DevelopComposerOperationResponseV2`; the Dashboard BFF path-binds the identity and filters it to the fields above.
 `SUCCESS` requires an operation receipt plus the complete four-field Artifact projection. Every other disposition
 must carry no receipt or Artifact projection. Unknown keys, identity drift, contradictory disposition fields,
@@ -2355,18 +2359,22 @@ Loading withdraws retained positive rows. The page has one outer vertical scroll
 retry, dismiss, clipboard locator action, Owner mutation, effect dispatch, or effect routing change.
 
 The admitted Recent `/dashboard/recent` workspace answers "what verified outcome was recorded most recently?"
-without introducing another outcome owner. `RecentOwnerOutcomes` reuses the historical-custody, research-question,
-research-outcome, and artifact-review projections already consumed by the R&D directories. It includes only
-`outcome_ready` Research records and `reviewable` Build records, merges them by their Owner-recorded time, and uses
-the shared `DataWorkspaceTable` with controlled same-page inline row expansion. Filters change only the visible
-Research/Build cut and never the URL. A Research row opens the canonical Research record; a Build row opens the
-canonical historical Build result. Request, attempt, observation-time, completeness, and identity details remain
-inside `PanelFrameInfo` or the expanded row, not as primary table columns. The four sources are independent Owner
-reads: a malformed or identity-mismatched Research source withdraws only Research rows/counts, and the equivalent
-Build failure withdraws only Build rows/counts. Missing values render unavailable rather than zero; the total exists
-only when both source families are bound. Loading withdraws every retained positive row until the current reads
-complete. There is one page scroll owner and no dialog, drawer, nested vertical table scroller, Owner mutation, or
-effect action.
+without introducing another outcome owner. `RecentOwnerOutcomes` consumes two bounded Owner reads, the verified
+Research outcome list and the verified Build outcome list, each already resolved to its outcome state. The reads a
+page makes do not grow with the rows it lists: the workspace asks each list for at most the rows it shows, the Owner
+clamps that to the bound it owns, and a list the Owner had to shorten declares its truncation rather than reporting
+a count of everything. Neither read names a custody cut; each Owner resolves the cut from its own custody and echoes
+it, so the workspace cannot state a coordinate the Owner did not resolve, and rows echoed against different cuts are
+never merged. It includes only `outcome_ready` Research records and `reviewable` Build records, merges them by their
+Owner-recorded time, and uses the shared `DataWorkspaceTable` with controlled same-page inline row expansion.
+Filters change only the visible Research/Build cut and never the URL. A Research row opens the canonical Research
+record; a Build row opens the canonical historical Build result. Request, attempt, observation-time, completeness,
+and identity details remain inside `PanelFrameInfo` or the expanded row, not as primary table columns. The two reads
+stay independent: a malformed, identity-mismatched, unavailable, or differently cut Research answer withdraws only
+Research rows/counts, and the equivalent Build failure withdraws only Build rows/counts. Missing values render
+unavailable rather than zero; the total exists only when both source families are bound. Loading withdraws every
+retained positive row until the current reads complete. There is one page scroll owner and no dialog, drawer,
+nested vertical table scroller, Owner mutation, or effect action.
 
 The admitted Evidence `/dashboard/evidence` workspace answers "which Dashboard areas have current readable data,
 and where is coverage still incomplete?" It reuses the same historical-custody, research-outcome,

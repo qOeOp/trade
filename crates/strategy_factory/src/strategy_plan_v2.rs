@@ -931,24 +931,7 @@ pub(crate) fn project_strategy_design_role_set_v1(
         return Err(StrategyDesignRoleSetErrorV1::InvalidProjection);
     }
 
-    let mut roles = plan
-        .input_roles()
-        .iter()
-        .map(|role| StrategyDesignRoleEntryV1 {
-            role_identity: role_identity(role),
-            semantic_id: role.semantic_id.clone(),
-            fact_class: canonical_coordinate(&role.fact_class),
-            instrument: role.instrument.clone(),
-            scope: canonical_coordinate(&role.scope),
-            field_semantic_id: role.field_semantic_id.clone(),
-            channel: role.channel.clone(),
-            timeframe: role.timeframe.clone(),
-            unit: role.unit.clone(),
-            scale: role.scale,
-            value_type: canonical_coordinate(&role.value_type),
-        })
-        .collect::<Vec<_>>();
-    roles.sort_by_key(|role| role.role_identity);
+    let roles = project_design_role_entries_v1(plan.input_roles());
     let by_semantic_id = roles
         .iter()
         .map(|role| (role.semantic_id.as_str(), role.role_identity))
@@ -1791,6 +1774,36 @@ pub(crate) fn prepare_canonical_strategy_design_v2(
         design_identity,
         design_digest,
     })
+}
+
+/// Projects a Design's declared input roles into the shape Market Data consumes.
+///
+/// The role-set receipt a Composer attests and the Design-level intent R&D publishes before any
+/// program exists describe the same roles. They derive them here rather than each mapping the
+/// coordinates again, because two mappings are two chances to disagree about one enum's canonical
+/// form, and a disagreement would be invisible until a digest failed to reproduce.
+pub(crate) fn project_design_role_entries_v1(
+    roles: &[InputRoleV2],
+) -> Vec<StrategyDesignRoleEntryV1> {
+    let mut entries = roles
+        .iter()
+        .map(|role| StrategyDesignRoleEntryV1 {
+            role_identity: role_identity(role),
+            semantic_id: role.semantic_id.clone(),
+            fact_class: canonical_coordinate(&role.fact_class),
+            instrument: role.instrument.clone(),
+            scope: canonical_coordinate(&role.scope),
+            field_semantic_id: role.field_semantic_id.clone(),
+            channel: role.channel.clone(),
+            timeframe: role.timeframe.clone(),
+            unit: role.unit.clone(),
+            scale: role.scale,
+            value_type: canonical_coordinate(&role.value_type),
+        })
+        .collect::<Vec<_>>();
+
+    entries.sort_by_key(|role| role.role_identity);
+    entries
 }
 
 /// Derives the exact typed role identity Market Data seals into its receipt.
