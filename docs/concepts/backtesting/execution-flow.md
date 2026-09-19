@@ -1,4 +1,7 @@
-# Backtest Execution Flow
+# Backtest Execution Flow (engine)
+
+This page documents the existing engine. Where it differs from the Owner contract in
+`docs/owners/backtest.md`, the Owner contract is authoritative.
 
 The backtest loop processes market state before strategy callbacks, then settles commands generated
 at the same timestamp.
