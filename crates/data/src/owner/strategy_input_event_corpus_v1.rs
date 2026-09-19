@@ -870,7 +870,9 @@ pub struct StrategyInputSampleEventResolveErrorV1;
 
 #[cfg(feature = "isolated-event-replay-acceptance")]
 pub(in crate::owner) mod sample_event_resolver_port_v1 {
-    use super::*;
+    use super::{
+        StrategyInputSampleEventReadbackV1, StrategyInputSampleEventResolveErrorV1, async_trait,
+    };
 
     #[async_trait]
     pub(in crate::owner) trait Port: Send + Sync {
@@ -920,6 +922,13 @@ impl StrategyInputSampleEventResolverV1 {
     }
 
     /// Resolves only the EVENT already sealed into this capability.
+    ///
+    /// # Errors
+    ///
+    /// Returns the redacted unavailable value when the Owner store cannot answer for the exact
+    /// EVENT this capability was sealed around. The error carries no event, projection or store
+    /// detail, because a caller that could not name the EVENT must not learn anything about it
+    /// from a failure either.
     pub async fn resolve(
         &self,
     ) -> Result<StrategyInputSampleEventReadbackV1, StrategyInputSampleEventResolveErrorV1> {

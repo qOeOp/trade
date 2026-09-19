@@ -47,6 +47,7 @@ high-precision = ["vibe-model/high-precision"]
 [dependencies]
 vibe-common = { workspace = true, features = ["live"] }
 vibe-core = { workspace = true }
+vibe-data = { workspace = true }
 vibe-live = { workspace = true }
 vibe-model = { workspace = true }
 vibe-network = { workspace = true }

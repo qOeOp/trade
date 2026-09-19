@@ -33,6 +33,12 @@ use vibe_data::owner::{
     research_pit_terminal_resolver_from_store_admission_lookup,
 };
 use vibe_data::owner::{
+    instrument_master_admission_v1::{
+        InstrumentMasterAdmissionV1, instrument_master_admission_from_environment_v1,
+    },
+    market_semantics_admission_v1::{
+        MarketSemanticsAdmissionV1, market_semantics_admission_from_environment_v1,
+    },
     pit_market_snapshot_intake_v1::{
         PitMarketSnapshotIntakeV1, pit_market_snapshot_intake_from_environment_v1,
     },
@@ -341,6 +347,10 @@ async fn main() -> anyhow::Result<()> {
     let market_data_universe_selection = bootstrap_market_data_universe_selection().await?;
     let market_data_strategy_input_bindings =
         bootstrap_market_data_strategy_input_bindings().await?;
+    let market_data_instrument_master_admission =
+        bootstrap_market_data_instrument_master_admission().await?;
+    let market_data_market_semantics_admission =
+        bootstrap_market_data_market_semantics_admission().await?;
     #[cfg(feature = "sealed-develop-composer-acceptance")]
     let native_replay_scheduling =
         native_replay_scheduling_resolver_v1_from_store_admission_environment().await?;
@@ -673,6 +683,8 @@ async fn main() -> anyhow::Result<()> {
             market_data_source_binding_admission,
             market_data_universe_selection,
             market_data_strategy_input_bindings,
+            market_data_instrument_master_admission,
+            market_data_market_semantics_admission,
             token_digest,
         ));
     #[cfg(feature = "sealed-develop-composer-acceptance")]
@@ -812,6 +824,28 @@ async fn bootstrap_market_data_strategy_input_bindings()
     }
     Ok(Some(
         strategy_input_binding_admission_from_environment_v1().await?,
+    ))
+}
+
+/// Composes the Market Data Market Semantics admission when its store is configured.
+async fn bootstrap_market_data_market_semantics_admission()
+-> anyhow::Result<Option<Arc<dyn MarketSemanticsAdmissionV1>>> {
+    if env::var("MARKET_DATA_OWNER_DATABASE_URL").is_err() {
+        return Ok(None);
+    }
+    Ok(Some(
+        market_semantics_admission_from_environment_v1().await?,
+    ))
+}
+
+/// Composes the Market Data Instrument Master V1 admission when its store is configured.
+async fn bootstrap_market_data_instrument_master_admission()
+-> anyhow::Result<Option<Arc<dyn InstrumentMasterAdmissionV1>>> {
+    if env::var("MARKET_DATA_OWNER_DATABASE_URL").is_err() {
+        return Ok(None);
+    }
+    Ok(Some(
+        instrument_master_admission_from_environment_v1().await?,
     ))
 }
 

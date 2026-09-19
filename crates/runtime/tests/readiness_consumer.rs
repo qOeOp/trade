@@ -1,5 +1,5 @@
 use rstest::rstest;
-use vibe_execution::recovery_frontier::{RecoveryFrontierLocator, RecoveryFrontierReadPort};
+use vibe_execution_owner::recovery_frontier::{RecoveryFrontierLocator, RecoveryFrontierReadPort};
 use vibe_runtime::{RuntimeFoundation, RuntimeFoundationStatus, RuntimeRevalidationDependency};
 
 #[rstest]

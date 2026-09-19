@@ -311,7 +311,7 @@ impl AuthenticatedRdReplayRequestV1 {
     #[cfg(feature = "isolated-event-replay-acceptance")]
     fn from_fixed_owner_readback(
         locator: &SealedExploratoryReplayRequestLocatorV2,
-        readback: SealedExploratoryReplayReadbackV2,
+        readback: &SealedExploratoryReplayReadbackV2,
     ) -> Result<Self, StrategyInputEventBindingErrorV1> {
         let request_meaning = readback
             .request()
@@ -693,7 +693,7 @@ impl MarketDataOwnerPostgres {
         validate_rd_request_against_package(&rd_readback, &package)?;
         let window = rd_readback.request().as_dto().window.clone();
         let selected_event_ordinal = terminal_replay_event_ordinal(&package)?;
-        let rd = AuthenticatedRdReplayRequestV1::from_fixed_owner_readback(locator, rd_readback)?;
+        let rd = AuthenticatedRdReplayRequestV1::from_fixed_owner_readback(locator, &rd_readback)?;
         let (_, corpus) = package.into_owner_parts();
         let prepared = StrategyInputEventBindingPreparationV1::from_owner_corpus(
             rd,
@@ -1968,6 +1968,8 @@ mod tests {
     #[cfg(feature = "isolated-event-replay-acceptance")]
     #[rstest::rstest]
     fn fixed_port_rejects_request_a_with_strategy_corpus_b() {
+        use std::fmt::Write as _;
+
         let strategy_a = d(0x11);
         let strategy_b = d(0x22);
         let request_a = format!(
@@ -1975,8 +1977,10 @@ mod tests {
             strategy_a
                 .as_bytes()
                 .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect::<String>()
+                .fold(String::new(), |mut hex, byte| {
+                    write!(hex, "{byte:02x}").expect("writing to a String cannot fail");
+                    hex
+                })
         );
         assert_eq!(strategy_identity_matches(&request_a, strategy_a), Ok(true));
         assert_eq!(strategy_identity_matches(&request_a, strategy_b), Ok(false));

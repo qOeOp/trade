@@ -16,6 +16,7 @@ mod authenticated_design_registration_v1;
 pub mod bar_joined_cut_acceptance_v1;
 mod calendar;
 mod corporate_action;
+mod live_market_stream_v1;
 mod market_semantics;
 mod observation_census;
 mod pit_role_resolution_v1;
@@ -129,6 +130,22 @@ use super::{
             decode_receipt as decode_instrument_receipt, select_facts as select_instrument_facts,
             validate_fact_graph as validate_instrument_fact_graph,
         },
+    },
+    instrument_master_admission_v1::{
+        InstrumentMasterAdmissionErrorV1, InstrumentMasterAdmissionTerminalV1,
+        InstrumentMasterAdmissionV1, InstrumentMasterFactSubmissionV1,
+        sealed::Sealed as InstrumentMasterAdmissionSealed,
+    },
+    live_market_fact_v1::{LiveMarketFactSourceV1, LiveMarketFactV1, LiveMarketSubscriptionV1},
+    live_market_stream_v1::{
+        LiveMarketChannelErrorV1, LiveMarketChannelHeadV1, LiveMarketChannelRequestV1,
+        LiveMarketChannelV1, LiveMarketFactIntakeV1, derive_channel_identity_v1,
+        sealed::Sealed as LiveMarketSealed,
+    },
+    market_semantics_admission_v1::{
+        MarketSemanticsAdmissionErrorV1, MarketSemanticsAdmissionTerminalV1,
+        MarketSemanticsAdmissionV1, MarketSemanticsFactSubmissionV1,
+        sealed::Sealed as MarketSemanticsAdmissionSealed,
     },
     observation_census::{
         ObservationCensusErrorV1, ObservationCensusReadbackV1, ObservationCensusResolverV1,
@@ -736,6 +753,9 @@ impl MarketDataOwnerPostgres {
         sample_projection_v4::install(&mut transaction)
             .await
             .map_err(|_| SourceBindingError::StoreUnavailable)?;
+        live_market_stream_v1::install(&mut transaction)
+            .await
+            .map_err(|_| SourceBindingError::StoreUnavailable)?;
         let history_census_installed: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM market_data_private.owner_migrations_v1 WHERE migration_id=$1)",
         )
@@ -1015,7 +1035,15 @@ impl MarketDataOwnerPostgres {
         }
         let aggregate =
             prepare_initial_aggregate(proposal, canonical_basis, source.commit().fact(), clock)?;
-        Box::pin(persist_pit(transaction, aggregate, None, clock, fault)).await
+        Box::pin(persist_pit(
+            transaction,
+            aggregate,
+            None,
+            clock,
+            fault,
+            PitPersistCompanionV1::None,
+        ))
+        .await
     }
 
     pub(crate) async fn commit_pit_initial_with_observation_batch(
@@ -1077,6 +1105,7 @@ impl MarketDataOwnerPostgres {
             Some(prepared),
             clock,
             fault,
+            PitPersistCompanionV1::None,
         ))
         .await
     }
@@ -1229,6 +1258,16 @@ impl MarketDataOwnerPostgres {
             Err(_) => Vec::new(),
         };
 
+        // The request-supplied instrument master digest is a claim. The Owner replaces it with
+        // the digest of its own resolution cut for the scoped instrument at this decision cut,
+        // then re-seals the request identity over what it will actually commit.
+        let mut request = request;
+        request.instrument_master_digest = Box::pin(
+            self.resolve_instrument_master_digest_for_pit_request_v1(&request, &members, clock),
+        )
+        .await?;
+        seal_request_claims_v1(&mut request);
+
         let time = &request.time_evidence;
         let correction_publication = time
             .correction_publication
@@ -1323,6 +1362,7 @@ impl MarketDataOwnerPostgres {
             Some(prepared),
             clock,
             PostgresCommitFault::None,
+            PitPersistCompanionV1::OwnerR0Record,
         ))
         .await
     }
@@ -1413,6 +1453,7 @@ impl MarketDataOwnerPostgres {
             Some(prepared),
             clock,
             PostgresCommitFault::None,
+            PitPersistCompanionV1::OwnerR0Record,
         ))
         .await
     }
@@ -1470,6 +1511,7 @@ impl MarketDataOwnerPostgres {
             None,
             clock,
             PostgresCommitFault::None,
+            PitPersistCompanionV1::None,
         ))
         .await
     }
@@ -1527,6 +1569,7 @@ impl MarketDataOwnerPostgres {
             Some(prepared),
             clock,
             PostgresCommitFault::None,
+            PitPersistCompanionV1::None,
         ))
         .await
     }
@@ -1890,6 +1933,18 @@ enum PostgresCommitFault {
     AfterPitOutboxBeforeBatch,
     AfterPitBatchBeforeRows,
     ResponseLoss,
+}
+
+/// What the Owner appends beside a PIT snapshot in the same transaction.
+///
+/// Production intake paths append the snapshot's R0 observation-evidence record, so every
+/// `AVAILABLE` snapshot a deployment mints carries the coordinate a Market Semantics fact later
+/// cross-binds. Test and correction paths append nothing: their custody is assembled by the proof
+/// that owns it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PitPersistCompanionV1 {
+    None,
+    OwnerR0Record,
 }
 
 /// Owner-internal, contract-neutral input to the durable sample custody adapter.
@@ -5643,6 +5698,7 @@ async fn persist_pit(
     batch: Option<PreparedPitObservationBatch>,
     clock: &MarketDataClockAdmission,
     fault: PostgresCommitFault,
+    companion: PitPersistCompanionV1,
 ) -> Result<PitSnapshotCommitAggregate, PitSnapshotError> {
     let fact = aggregate.fact();
     lock_digests(
@@ -5723,6 +5779,26 @@ async fn persist_pit(
 
     if let Some(batch) = batch.as_ref() {
         insert_pit_observation_batch(&mut transaction, &aggregate, batch, fault).await?;
+    }
+
+    // The R0 record is derived from rows this transaction just wrote and resolves them back
+    // through the same locked reads a later caller would use, so a snapshot that cannot carry its
+    // own observation evidence never commits at all.
+    if companion == PitPersistCompanionV1::OwnerR0Record
+        && batch.is_some()
+        && aggregate.fact().disposition() == PitSnapshotDisposition::Available
+    {
+        Box::pin(
+            reference_fact_coordinates::append_owner_r0_for_available_pit_v1(
+                &mut transaction,
+                &aggregate,
+            ),
+        )
+        .await
+        .map_err(|e| {
+            super::storage_diagnostic::refused_by_store("pit.persist.owner_r0_record", &e);
+            PitSnapshotError::PersistenceUnavailable
+        })?;
     }
     transaction
         .commit()
@@ -9546,6 +9622,705 @@ pub(super) async fn pit_market_snapshot_intake_from_environment_v1(
 }
 
 /// The durable intake. It retains the Owner and the Data Client and exposes neither.
+const INSTRUMENT_MASTER_PIT_REQUEST_DOMAIN: &[u8] =
+    b"vibe.market-data.instrument-master-pit-request.v1\0";
+
+impl MarketDataOwnerPostgres {
+    /// The locator of the Owner's current clock head, for custody that must bind it exactly.
+    pub(crate) async fn current_clock_head_locator_v1(
+        &self,
+    ) -> Result<UntrustedClockHeadLocator, PitMarketSnapshotIntakeErrorV1> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| PitMarketSnapshotIntakeErrorV1::StoreUnavailable)?;
+        let head = load_current_clock_fact_for_update(&mut transaction)
+            .await
+            .map_err(|_| PitMarketSnapshotIntakeErrorV1::StoreUnavailable)?
+            .ok_or(PitMarketSnapshotIntakeErrorV1::ClockUnavailable)?;
+        transaction
+            .rollback()
+            .await
+            .map_err(|_| PitMarketSnapshotIntakeErrorV1::StoreUnavailable)?;
+        Ok(head.handoff.locator().clone())
+    }
+
+    /// Admits one Instrument Master V1 fact under the Owner's current clock head.
+    ///
+    /// # Errors
+    ///
+    /// A bounded category when nothing was admitted; a replayed submission rejoins its fact.
+    pub(crate) async fn admit_instrument_master_fact_v1(
+        &self,
+        submission: InstrumentMasterFactSubmissionV1,
+    ) -> Result<InstrumentMasterAdmissionTerminalV1, InstrumentMasterAdmissionErrorV1> {
+        let proposal = submission.into_proposal()?;
+        let locator = self
+            .current_clock_head_locator_v1()
+            .await
+            .map_err(|_| InstrumentMasterAdmissionErrorV1::ClockUnavailable)?;
+        let fact = self
+            .append_instrument_master_fact(proposal, &locator)
+            .await?;
+        Ok(InstrumentMasterAdmissionTerminalV1::seal(
+            fact.canonical_identity().to_owned(),
+            fact.digest(),
+            locator.head_identity(),
+        ))
+    }
+
+    /// The digest of the Owner's own Instrument Master resolution for one PIT request.
+    ///
+    /// The request scopes exactly one instrument through its Universe Selection Record. The Owner
+    /// selects the fact effective at the request's event instant and observable at its cut, states
+    /// the request under that fact's own frontiers, resolves the write-once cut, and hands back
+    /// the readback digest a declaration will later compare against. A universe of any other size
+    /// has no single instrument to bind and is refused rather than approximated.
+    async fn resolve_instrument_master_digest_for_pit_request_v1(
+        &self,
+        request: &UntrustedPitSnapshotRequest,
+        members: &[String],
+        clock: &MarketDataClockAdmission,
+    ) -> Result<BindingDigest, PitSnapshotError> {
+        let [member] = members else {
+            return Err(PitSnapshotError::InstrumentMasterUnavailable);
+        };
+        let time = &request.time_evidence;
+        let effective = i128::from(time.event_effective.value);
+        let observation = i128::from(time.observed_at);
+
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+        let head = load_current_clock_fact_for_update(&mut transaction)
+            .await
+            .map_err(|_| PitSnapshotError::PersistenceUnavailable)?
+            .ok_or(PitSnapshotError::TrustedClockMismatch)?;
+        let locator = head.handoff.locator().clone();
+        let selected = async {
+            let (handoff, proof) = current_instrument_clock(&mut transaction, &locator).await?;
+            let projection = instrument_clock_projection(&handoff, proof.as_ref())?;
+            let facts =
+                load_instrument_facts(&mut transaction, std::slice::from_ref(member), false)
+                    .await?;
+            validate_instrument_fact_graph(&facts)?;
+            select_instrument_facts(
+                &facts,
+                std::slice::from_ref(member),
+                effective,
+                observation,
+                clock.decision_cut,
+                &projection,
+            )
+        }
+        .await
+        .map_err(|e| {
+            super::storage_diagnostic::refused_by_store(
+                "pit.request.instrument_master_digest.select",
+                &e,
+            );
+            PitSnapshotError::InstrumentMasterUnavailable
+        })?;
+        transaction
+            .rollback()
+            .await
+            .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+        let [fact] = selected.as_slice() else {
+            return Err(PitSnapshotError::InstrumentMasterUnavailable);
+        };
+
+        let mut identity = Sha256::new();
+        identity.update(INSTRUMENT_MASTER_PIT_REQUEST_DOMAIN);
+        identity.update(request.correlation_identity.as_bytes());
+        identity.update(member.as_bytes());
+        identity.update(effective.to_be_bytes());
+        identity.update(clock.decision_cut.to_be_bytes());
+        let request_identity = BindingDigest::from_untrusted_bytes(identity.finalize().into());
+        let mut meaning = Sha256::new();
+        meaning.update(INSTRUMENT_MASTER_PIT_REQUEST_DOMAIN);
+        meaning.update(request_identity.as_bytes());
+        meaning.update(fact.digest().as_bytes());
+        let request_meaning_digest = BindingDigest::from_untrusted_bytes(meaning.finalize().into());
+
+        let resolution = UntrustedInstrumentMasterRequestV1 {
+            request_identity,
+            request_meaning_digest,
+            consumer_role: super::instrument_master::BACKTEST_OWNER_V1.into(),
+            scope: InstrumentMasterScopeV1::ExactInstrument(member.clone()),
+            effective_instant: effective,
+            owner_observation: observation,
+            decision_cut: clock.decision_cut,
+            clock_head: locator,
+            lifecycle_frontier: fact.proposal.lifecycle_frontier,
+            corporate_action_frontier: fact.proposal.corporate_action_frontier,
+            historical_membership_frontier: fact.proposal.historical_membership_frontier,
+            market_semantics_identity: fact.proposal.market_semantics_identity,
+            source_frontier: fact.proposal.source_frontier,
+            correction_frontier: fact.proposal.correction_frontier,
+            stable_correlation: request.correlation_identity,
+        };
+        let readback = Box::pin(self.resolve_instrument_master(&resolution, None))
+            .await
+            .map_err(|e| {
+                super::storage_diagnostic::refused_by_store(
+                    "pit.request.instrument_master_digest.resolve",
+                    &e,
+                );
+                PitSnapshotError::InstrumentMasterUnavailable
+            })?;
+        Ok(readback.digest())
+    }
+}
+
+const MARKET_SEMANTICS_REQUEST_DOMAIN: &[u8] =
+    b"vibe.market-data.market-semantics-owner-request.v1\0";
+
+impl MarketDataOwnerPostgres {
+    /// Admits one Market Semantics fact for the scope the submitted binding implies.
+    ///
+    /// Every dependency is resolved from this Owner's own custody inside one transaction: the
+    /// snapshot and its verified batch, the admitted Source Binding, the Instrument Master cut the
+    /// snapshot's request already binds, and the R0 record the snapshot's own commit appended. The
+    /// registry entry is registered for the derived key with the submitted value, and the fact is
+    /// appended through the unchanged resolver, which re-derives that key and refuses any drift.
+    ///
+    /// # Errors
+    ///
+    /// A bounded category when nothing was admitted; a replayed submission rejoins its fact.
+    pub(crate) async fn admit_market_semantics_fact_v1(
+        &self,
+        submission: MarketSemanticsFactSubmissionV1,
+    ) -> Result<MarketSemanticsAdmissionTerminalV1, MarketSemanticsAdmissionErrorV1> {
+        // Resolving four readbacks, a registry key and a fact in one frame makes a large future.
+        // Boxing it here keeps every caller's own future small, which is the only place that can
+        // be decided once instead of at each call site.
+        Box::pin(self.admit_market_semantics_fact_inner_v1(submission)).await
+    }
+
+    async fn admit_market_semantics_fact_inner_v1(
+        &self,
+        submission: MarketSemanticsFactSubmissionV1,
+    ) -> Result<MarketSemanticsAdmissionTerminalV1, MarketSemanticsAdmissionErrorV1> {
+        use super::market_semantics::{
+            MarketSemanticsConsumerV1, UntrustedMarketSemanticsProposalV1,
+        };
+
+        let value = submission.value.clone().into_value()?;
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?;
+        let source = load_source_for_update(
+            &mut transaction,
+            submission.source_binding.binding_id,
+            false,
+        )
+        .await
+        .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?
+        .ok_or(MarketSemanticsAdmissionErrorV1::DependencyUnavailable)?;
+
+        if source.commit().receipt().locator() != &submission.source_binding {
+            return Err(MarketSemanticsAdmissionErrorV1::DependencyUnavailable);
+        }
+        let source_readback = SourceBindingOwnerReadback::from_verified(&source);
+
+        if !source_readback.is_admitted() {
+            return Err(MarketSemanticsAdmissionErrorV1::DependencyUnavailable);
+        }
+        let pit = load_pit_for_update(
+            &mut transaction,
+            submission.pit_snapshot.snapshot_identity,
+            false,
+        )
+        .await
+        .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?
+        .ok_or(MarketSemanticsAdmissionErrorV1::DependencyUnavailable)?;
+
+        if pit.receipt().locator() != &submission.pit_snapshot
+            || !super::pit_snapshot::PitSnapshotOwnerReadback::from_verified(&pit).is_available()
+        {
+            return Err(MarketSemanticsAdmissionErrorV1::DependencyUnavailable);
+        }
+        let stored_batch = load_pit_observation_batch_for_update(&mut transaction, &pit)
+            .await
+            .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?
+            .ok_or(MarketSemanticsAdmissionErrorV1::DependencyUnavailable)?;
+        let batch = verify_observation_batch(
+            &pit,
+            stored_batch.source_binding_identity,
+            stored_batch.source_binding_lineage_root,
+            stored_batch.source_binding_lineage_version,
+            stored_batch.digest,
+            &stored_batch.bytes,
+            &stored_batch.rows,
+        )
+        .map_err(|_| MarketSemanticsAdmissionErrorV1::DependencyUnavailable)?;
+
+        // The scope is the binding's own Market Semantics Compatibility identity, which is what
+        // the snapshot was minted against; a submitter naming a scope could state a fact about a
+        // compatibility this binding never claimed.
+        let scope = derive_market_semantics_compatibility_identity_v1(
+            &source.commit().fact().proposal().semantics,
+        );
+
+        if batch.market_semantics_identity() != scope {
+            return Err(MarketSemanticsAdmissionErrorV1::DependencyUnavailable);
+        }
+        let instrument_request_identity = instrument_master_request_identity_for_cut_v1(
+            &mut transaction,
+            batch.instrument_master_digest(),
+        )
+        .await?;
+        let instrument =
+            load_durable_instrument_readback(&mut transaction, instrument_request_identity, false)
+                .await
+                .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?
+                .ok_or(MarketSemanticsAdmissionErrorV1::DependencyUnavailable)?;
+        let r0_request_identity = reference_fact_coordinates::owner_r0_request_identity_v1(
+            pit.fact().snapshot_identity(),
+            pit.fact().digest(),
+        );
+        let r0 = reference_fact_coordinates::load_reference_fact_r0_readback_v1(
+            &mut transaction,
+            r0_request_identity,
+        )
+        .await
+        .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?
+        .ok_or(MarketSemanticsAdmissionErrorV1::DependencyUnavailable)?;
+
+        let key = super::market_semantics::authority::derive_registry_key_v1(
+            scope,
+            &source_readback,
+            &batch,
+            &instrument,
+            &r0,
+        )?;
+        let record = r0.record();
+        let effective_instant = record.effective_from_ns;
+        let entry = super::market_semantics::authority::seal_registry_entry_v1(
+            key,
+            value,
+            source_readback.binding_id(),
+        )?;
+        market_semantics::register_market_semantics_registry_entry_v1(&mut transaction, &entry)
+            .await
+            .map_err(|e| match e {
+                // The registry is write-once per key: that registration inserts on conflict do
+                // nothing and then reads back, so a readback that does not equal what this
+                // submission offered means the key already carries different content. That is the
+                // submitter's conflict, not a store fault.
+                super::market_semantics::MarketSemanticsErrorV1::StoreUntrusted => {
+                    MarketSemanticsAdmissionErrorV1::AdmissionConflict
+                }
+                other => MarketSemanticsAdmissionErrorV1::from(other),
+            })?;
+
+        let mut instrument_locator_bytes = Vec::with_capacity(64);
+        instrument_locator_bytes.extend_from_slice(instrument.request_identity.as_bytes());
+        instrument_locator_bytes.extend_from_slice(instrument.request_meaning_digest.as_bytes());
+        let mut r0_locator_bytes = Vec::with_capacity(64);
+        r0_locator_bytes.extend_from_slice(r0.cut().request_identity.as_bytes());
+        r0_locator_bytes.extend_from_slice(r0.cut().request_meaning_digest.as_bytes());
+        let mut request_identity = Sha256::new();
+        request_identity.update(MARKET_SEMANTICS_REQUEST_DOMAIN);
+        request_identity.update(scope.as_bytes());
+        request_identity.update(pit.fact().snapshot_identity().as_bytes());
+        request_identity.update(entry.identity().as_bytes());
+        let mut proposal = UntrustedMarketSemanticsProposalV1 {
+            request_identity: BindingDigest::from_untrusted_bytes(
+                request_identity.finalize().into(),
+            ),
+            request_meaning_digest: BindingDigest::from_untrusted_bytes([0; 32]),
+            consumer: MarketSemanticsConsumerV1::StrategyInputBindingRegistry,
+            compatibility_scope_identity: scope,
+            predecessor_identity: None,
+            value,
+            effective_from_ns: record.effective_from_ns,
+            effective_until_ns: record.effective_until_ns,
+            effective_instant_ns: effective_instant,
+            owner_observation_ns: record.owner_observation_ns,
+            decision_cut: record.decision_cut,
+            pit_locator_bytes: serde_json::to_vec(pit.receipt().locator())
+                .map_err(|_| MarketSemanticsAdmissionErrorV1::InvalidSubmission)?
+                .into_boxed_slice(),
+            source_binding_locator_bytes: serde_json::to_vec(source.commit().receipt().locator())
+                .map_err(|_| MarketSemanticsAdmissionErrorV1::InvalidSubmission)?
+                .into_boxed_slice(),
+            instrument_master_locator_bytes: instrument_locator_bytes.into_boxed_slice(),
+            r0_locator_bytes: r0_locator_bytes.into_boxed_slice(),
+            stable_correlation: record.stable_correlation,
+        };
+        proposal.request_meaning_digest =
+            super::market_semantics::authority::request_meaning_digest_v1(&proposal)?;
+        let readback = Box::pin(
+            market_semantics::resolve_market_semantics_in_transaction_v1(
+                &mut transaction,
+                &proposal,
+            ),
+        )
+        .await?;
+        let [fact] = readback.facts() else {
+            return Err(MarketSemanticsAdmissionErrorV1::StoreUnavailable);
+        };
+        let terminal = MarketSemanticsAdmissionTerminalV1::seal(
+            scope,
+            fact.identity(),
+            readback.cut().identity(),
+        );
+        transaction
+            .commit()
+            .await
+            .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?;
+        Ok(terminal)
+    }
+}
+
+/// The request identity of the Owner's own Instrument Master resolution behind one cut digest.
+///
+/// A snapshot binds the readback digest its mint resolved. The registry key needs that exact
+/// readback, and the durable receipt is the only thing that maps the digest back to the request
+/// that produced it.
+async fn instrument_master_request_identity_for_cut_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    readback_digest: BindingDigest,
+) -> Result<BindingDigest, MarketSemanticsAdmissionErrorV1> {
+    let rows: Vec<Vec<u8>> = sqlx::query_scalar(
+        "SELECT request_identity FROM market_data_private.instrument_master_receipts_v1 ORDER BY request_identity",
+    )
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?;
+
+    for row in rows {
+        let identity: [u8; 32] = row
+            .as_slice()
+            .try_into()
+            .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?;
+        let identity = BindingDigest::from_untrusted_bytes(identity);
+        let candidate = load_durable_instrument_readback(transaction, identity, false)
+            .await
+            .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?;
+
+        if candidate.is_some_and(|readback| readback.digest() == readback_digest) {
+            return Ok(identity);
+        }
+    }
+    Err(MarketSemanticsAdmissionErrorV1::DependencyUnavailable)
+}
+
+pub(super) async fn market_semantics_admission_from_environment_v1()
+-> Result<std::sync::Arc<dyn MarketSemanticsAdmissionV1>, MarketSemanticsAdmissionErrorV1> {
+    let url =
+        std::env::var(super::instrument_master_v2_postgres::MARKET_DATA_OWNER_DATABASE_URL_ENV)
+            .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?;
+    if url.is_empty() || url.trim() != url {
+        return Err(MarketSemanticsAdmissionErrorV1::StoreUnavailable);
+    }
+    let owner = MarketDataOwnerPostgres::connect(&url).await.map_err(|e| {
+        super::storage_diagnostic::refused_by_store(
+            "market_semantics_admission.environment.connect",
+            &e,
+        );
+        MarketSemanticsAdmissionErrorV1::StoreUnavailable
+    })?;
+    Ok(std::sync::Arc::new(MarketSemanticsAdmissionPostgresV1 {
+        owner,
+    }))
+}
+
+struct MarketSemanticsAdmissionPostgresV1 {
+    owner: MarketDataOwnerPostgres,
+}
+
+impl Debug for MarketSemanticsAdmissionPostgresV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct(stringify!(MarketSemanticsAdmissionPostgresV1))
+            .finish_non_exhaustive()
+    }
+}
+
+impl MarketSemanticsAdmissionSealed for MarketSemanticsAdmissionPostgresV1 {}
+
+#[async_trait::async_trait]
+impl MarketSemanticsAdmissionV1 for MarketSemanticsAdmissionPostgresV1 {
+    async fn admit_fact(
+        &self,
+        submission: MarketSemanticsFactSubmissionV1,
+    ) -> Result<MarketSemanticsAdmissionTerminalV1, MarketSemanticsAdmissionErrorV1> {
+        self.owner.admit_market_semantics_fact_v1(submission).await
+    }
+}
+
+/// Issues the subscription one live channel carries, from the Owner's own Instrument Master.
+///
+/// A caller proposes canonical identities; this decides what the channel actually carries. Each
+/// candidate must have exactly one Instrument Master fact that is effective at `observation_ns`
+/// and observable under the Owner's current clock head, and that fact must state the same Market
+/// Semantics Compatibility identity the binding does. Anything else is refused rather than
+/// carried, which is what makes the later refusal of an out-of-scope venue answer mean something:
+/// the scope is the Owner's, not the caller's.
+async fn issue_live_market_subscription_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    proposed: &[String],
+    channel: crate::owner::strategy_input_binding::StrategyInputChannel,
+    field_semantic: crate::owner::strategy_input_binding::MarketDataFieldSemantic,
+    binding: crate::owner::live_market_fact_v1::LiveMarketBindingV1,
+    observation_ns: u64,
+) -> Result<LiveMarketSubscriptionV1, LiveMarketChannelErrorV1> {
+    let mut members = proposed.to_vec();
+    members.sort_unstable();
+    members.dedup();
+
+    if members.is_empty() || members.iter().any(String::is_empty) {
+        return Err(LiveMarketChannelErrorV1::InvalidRequest);
+    }
+    let observation = i128::from(observation_ns);
+    let head = load_current_clock_fact_for_update(transaction)
+        .await
+        .map_err(|_| LiveMarketChannelErrorV1::StoreUnavailable)?
+        .ok_or(LiveMarketChannelErrorV1::StoreUntrusted)?;
+    let locator = head.handoff.locator().clone();
+    let selected = async {
+        let (handoff, proof) = current_instrument_clock(transaction, &locator).await?;
+        let projection = instrument_clock_projection(&handoff, proof.as_ref())?;
+        let facts = load_instrument_facts(transaction, &members, false).await?;
+        validate_instrument_fact_graph(&facts)?;
+        // A live channel asks about now under the Owner's current head, so the effective instant
+        // and the observation instant are the same one and the cut is the head's own.
+        select_instrument_facts(
+            &facts,
+            &members,
+            observation,
+            observation,
+            projection.decision_cut,
+            &projection,
+        )
+    }
+    .await
+    .map_err(|e| {
+        super::storage_diagnostic::refused_by_store("live_market.subscription.instruments", &e);
+        LiveMarketChannelErrorV1::InstrumentUnavailable
+    })?;
+
+    // A fact under different Market Semantics measures a different thing by the same name, and the
+    // generation's Strategy Artifact was bound to the binding's identity, not to this fact's.
+    if selected
+        .iter()
+        .any(|fact| fact.proposal.market_semantics_identity != binding.market_semantics_identity)
+    {
+        return Err(LiveMarketChannelErrorV1::InstrumentUnavailable);
+    }
+    let instruments = selected
+        .iter()
+        .map(|fact| fact.canonical_identity().to_string())
+        .collect::<Vec<_>>();
+    LiveMarketSubscriptionV1::issue_v1(instruments, channel, field_semantic).map_err(Into::into)
+}
+
+pub(super) async fn live_market_fact_intake_from_environment_v1(
+    source: std::sync::Arc<dyn LiveMarketFactSourceV1>,
+) -> Result<std::sync::Arc<dyn LiveMarketFactIntakeV1>, LiveMarketChannelErrorV1> {
+    let url =
+        std::env::var(super::instrument_master_v2_postgres::MARKET_DATA_OWNER_DATABASE_URL_ENV)
+            .map_err(|_| LiveMarketChannelErrorV1::StoreUnavailable)?;
+    if url.is_empty() || url.trim() != url {
+        return Err(LiveMarketChannelErrorV1::StoreUnavailable);
+    }
+    let owner = MarketDataOwnerPostgres::connect(&url).await.map_err(|e| {
+        super::storage_diagnostic::refused_by_store("live_market_intake.environment.connect", &e);
+        LiveMarketChannelErrorV1::StoreUnavailable
+    })?;
+    Ok(std::sync::Arc::new(LiveMarketFactIntakePostgresV1 {
+        owner: std::sync::Arc::new(owner),
+        source,
+        open_channels: std::sync::Arc::new(
+            std::sync::Mutex::new(std::collections::BTreeSet::new()),
+        ),
+    }))
+}
+
+struct LiveMarketFactIntakePostgresV1 {
+    owner: std::sync::Arc<MarketDataOwnerPostgres>,
+    source: std::sync::Arc<dyn LiveMarketFactSourceV1>,
+    open_channels: OpenLiveChannels,
+}
+
+/// The channel identities this process currently has open.
+///
+/// One channel is one consumer. Two pollers on one head would each take the row lock when their
+/// own venue wait finished, so the venue's order and the Owner's sequence could disagree without
+/// either side being able to tell.
+type OpenLiveChannels = std::sync::Arc<std::sync::Mutex<std::collections::BTreeSet<BindingDigest>>>;
+
+impl Debug for LiveMarketFactIntakePostgresV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct(stringify!(LiveMarketFactIntakePostgresV1))
+            .finish_non_exhaustive()
+    }
+}
+
+impl LiveMarketSealed for LiveMarketFactIntakePostgresV1 {}
+
+#[async_trait::async_trait]
+impl LiveMarketFactIntakeV1 for LiveMarketFactIntakePostgresV1 {
+    async fn open_channel(
+        &self,
+        request: LiveMarketChannelRequestV1,
+    ) -> Result<std::sync::Arc<dyn LiveMarketChannelV1>, LiveMarketChannelErrorV1> {
+        let (binding, subscription) = self
+            .owner
+            .open_live_market_scope_v1(&request, owner_observation_now_ns_v1())
+            .await?;
+        let channel_identity =
+            derive_channel_identity_v1(binding.source_binding_identity, &subscription);
+
+        if !self
+            .open_channels
+            .lock()
+            .map_err(|_| LiveMarketChannelErrorV1::StoreUnavailable)?
+            .insert(channel_identity)
+        {
+            return Err(LiveMarketChannelErrorV1::ChannelBusy);
+        }
+        let channel = LiveMarketChannelPostgresV1 {
+            owner: std::sync::Arc::clone(&self.owner),
+            source: std::sync::Arc::clone(&self.source),
+            open_channels: std::sync::Arc::clone(&self.open_channels),
+            source_binding_identity: binding.source_binding_identity,
+            channel_identity,
+            subscription,
+            request,
+        };
+        // Opening reads the head, so a channel that cannot resume is refused here rather than at
+        // the first fact, when a consumer would already be waiting on it.
+        channel.head().await?;
+        Ok(std::sync::Arc::new(channel))
+    }
+}
+
+struct LiveMarketChannelPostgresV1 {
+    owner: std::sync::Arc<MarketDataOwnerPostgres>,
+    source: std::sync::Arc<dyn LiveMarketFactSourceV1>,
+    open_channels: OpenLiveChannels,
+    request: LiveMarketChannelRequestV1,
+    /// The scope the Data Client was opened against. It tells the client what to answer for; what
+    /// a fact may be sealed under is decided again inside the sealing transaction, so a scope that
+    /// narrowed while the channel waited costs one refused batch rather than one wrong fact.
+    subscription: LiveMarketSubscriptionV1,
+    source_binding_identity: BindingDigest,
+    channel_identity: BindingDigest,
+}
+
+impl Debug for LiveMarketChannelPostgresV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct(stringify!(LiveMarketChannelPostgresV1))
+            .field("channel_identity", &self.channel_identity)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Drop for LiveMarketChannelPostgresV1 {
+    fn drop(&mut self) {
+        if let Ok(mut open) = self.open_channels.lock() {
+            open.remove(&self.channel_identity);
+        }
+    }
+}
+
+impl LiveMarketSealed for LiveMarketChannelPostgresV1 {}
+
+#[async_trait::async_trait]
+impl LiveMarketChannelV1 for LiveMarketChannelPostgresV1 {
+    fn channel_identity(&self) -> BindingDigest {
+        self.channel_identity
+    }
+
+    async fn next_facts(&self) -> Result<Vec<LiveMarketFactV1>, LiveMarketChannelErrorV1> {
+        // The venue wait happens outside any transaction, so an idle market never holds the head
+        // lock. The scope is re-resolved inside the sealing transaction instead.
+        let observations = self.source.next_batch(&self.subscription).await?;
+        self.owner
+            .seal_live_market_batch_v1(
+                &self.request,
+                self.channel_identity,
+                &observations,
+                owner_observation_now_ns_v1(),
+            )
+            .await
+    }
+
+    async fn head(&self) -> Result<LiveMarketChannelHeadV1, LiveMarketChannelErrorV1> {
+        self.owner
+            .live_market_channel_head_v1(self.channel_identity, self.source_binding_identity)
+            .await
+    }
+}
+
+/// This Owner's own observation instant, in nanoseconds since the epoch.
+///
+/// It is the Owner's evidence about itself: when this system received something. A host clock
+/// before the epoch is reported as zero rather than guessed at, which makes every live observation
+/// ambiguous and stops the channel, because a system that cannot say when it received a fact
+/// cannot place that fact in time either.
+fn owner_observation_now_ns_v1() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|elapsed| u64::try_from(elapsed.as_nanos()).ok())
+        .unwrap_or_default()
+}
+
+pub(super) async fn instrument_master_admission_from_environment_v1()
+-> Result<std::sync::Arc<dyn InstrumentMasterAdmissionV1>, InstrumentMasterAdmissionErrorV1> {
+    let url =
+        std::env::var(super::instrument_master_v2_postgres::MARKET_DATA_OWNER_DATABASE_URL_ENV)
+            .map_err(|_| InstrumentMasterAdmissionErrorV1::StoreUnavailable)?;
+    if url.is_empty() || url.trim() != url {
+        return Err(InstrumentMasterAdmissionErrorV1::StoreUnavailable);
+    }
+    let owner = MarketDataOwnerPostgres::connect(&url).await.map_err(|e| {
+        super::storage_diagnostic::refused_by_store(
+            "instrument_master_admission.environment.connect",
+            &e,
+        );
+        InstrumentMasterAdmissionErrorV1::StoreUnavailable
+    })?;
+    Ok(std::sync::Arc::new(InstrumentMasterAdmissionPostgresV1 {
+        owner,
+    }))
+}
+
+struct InstrumentMasterAdmissionPostgresV1 {
+    owner: MarketDataOwnerPostgres,
+}
+
+impl Debug for InstrumentMasterAdmissionPostgresV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct(stringify!(InstrumentMasterAdmissionPostgresV1))
+            .finish_non_exhaustive()
+    }
+}
+
+impl InstrumentMasterAdmissionSealed for InstrumentMasterAdmissionPostgresV1 {}
+
+#[async_trait::async_trait]
+impl InstrumentMasterAdmissionV1 for InstrumentMasterAdmissionPostgresV1 {
+    async fn admit_fact(
+        &self,
+        submission: InstrumentMasterFactSubmissionV1,
+    ) -> Result<InstrumentMasterAdmissionTerminalV1, InstrumentMasterAdmissionErrorV1> {
+        self.owner.admit_instrument_master_fact_v1(submission).await
+    }
+}
+
 struct MarketDataPitIntakePostgresV1 {
     owner: MarketDataOwnerPostgres,
     observations: std::sync::Arc<dyn PitObservationSourceV1>,
@@ -9577,15 +10352,9 @@ impl PitMarketSnapshotIntakeV1 for MarketDataPitIntakePostgresV1 {
         request: UntrustedPitSnapshotRequest,
         universe_selection: UntrustedUniverseSelectionLocatorV1,
     ) -> Result<PitMarketSnapshotTerminalV1, PitMarketSnapshotIntakeErrorV1> {
-        // The request identity is Market Data-derived by definition, so the Owner seals it here
-        // rather than asking a requester to reimplement the canonical encoding. Sealing decides
-        // nothing: the identity is a function of the content the requester already froze, and a
-        // requester that computed it itself gets the same value back.
-        let mut request = request;
-
-        seal_request_claims_v1(&mut request);
-        let request_identity = request.claimed_request_identity;
-        let request_digest = request.claimed_request_digest;
+        // The request identity is Market Data-derived by definition: the Owner seals it over the
+        // content it commits, after it has stamped its own instrument master digest, so the
+        // terminal reports the identity of the request as persisted rather than as submitted.
         let correlation_identity = request.correlation_identity;
         // The decision cut is the Owner's, never the caller's: it comes from the one canonical
         // clock head Market Data persists with its own facts.
@@ -9600,13 +10369,17 @@ impl PitMarketSnapshotIntakeV1 for MarketDataPitIntakePostgresV1 {
             )
             .await?;
         let fact = aggregate.fact();
+        let disposition = public_disposition_v1(fact.disposition());
+        let locator = (disposition == PitMarketSnapshotDispositionV1::Available)
+            .then(|| aggregate.receipt().locator().clone());
         Ok(PitMarketSnapshotTerminalV1::seal(
-            request_identity,
-            request_digest,
+            fact.request_identity(),
+            fact.request_digest(),
             correlation_identity,
             fact.snapshot_identity(),
             fact.digest(),
-            public_disposition_v1(fact.disposition()),
+            disposition,
+            locator,
         ))
     }
 }
@@ -9640,9 +10413,13 @@ fn public_decision_cut_v1(clock: &MarketDataClockAdmission) -> MarketDataDecisio
 }
 
 /// The Owner clock identity every Market Data cut is minted under.
-const OWNER_CLOCK_IDENTITY_V1: &str = "MARKET_DATA_OWNER_V1";
+// The Instrument Master codec binds the clock identity and epoch as exactly 32 bytes each
+// (`docs/owners/market-data.md`, "Canonical identity and codec"), so the Owner's own clock must
+// name itself in that width or no Instrument Master fact can ever be admitted under it.
+const OWNER_CLOCK_IDENTITY_V1: &str = "market-data.owner-clock.v1-00001";
 /// The only epoch this slice mints. An epoch change needs the Epoch Successor Proof, which is TARGET.
-const OWNER_CLOCK_EPOCH_V1: &str = "epoch-1";
+const OWNER_CLOCK_EPOCH_V1: &str = "market-data.owner-epoch.v1-00001";
+const _: () = assert!(OWNER_CLOCK_IDENTITY_V1.len() == 32 && OWNER_CLOCK_EPOCH_V1.len() == 32);
 /// How long one minted cut stays valid.
 const OWNER_CLOCK_VALIDITY_WINDOW_NS: u64 = 3_600_000_000_000;
 /// The fixed uncertainty bound of the Owner clock.
