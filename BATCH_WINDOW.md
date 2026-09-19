@@ -3,10 +3,12 @@
 Owner: Lane 0 (platform).
 
     state:        open
-    main:         b0de5ea48acec4652a7e146dde711e56d1b5965d
-    last_landed:  686 680 684 688
-    landed_by:    not Lane 0 - see below
+    main:         a9a699276
+    main_at_open: b0de5ea48acec4652a7e146dde711e56d1b5965d
+    last_landed:  686 680 684 688 675 663 676
+    landed_by:    various - the window is open, so this is expected
     opened_at:    2026-09-19T07:45Z
+    refreshed_at: 2026-09-19T09:50Z
 
 ## The three members and #686 landed without me, and main is healthy
 
@@ -352,3 +354,53 @@ the newest build on the same SHA (35421039927) is `completed/success` with
 A failing check on the current head does NOT mean the head failed. Attribute it
 to its run first: a conclusion of `cancelled` on the owning run, plus a newer run
 on the same SHA, is the signature of a red that never happened.
+
+## A draft toggle does not refresh the tree CI tests (2026-09-19, measured)
+
+This changes what waiting for a queue slot buys you, so it belongs here rather
+than in one lane's notes.
+
+`build.yml` checks out `refs/pull/N/merge`. That ref is *not* recomputed when
+main moves, and - this is the part that was not known - **it is not recomputed by
+a draft->ready toggle either**. Measured on #681:
+
+    09:26Z   toggled draft->ready
+    09:35Z   the run started; its job log says
+               BASE_SHA: b0de5ea48...        while main was a9a699276
+
+Eleven commits behind. The mechanism is "main as it stood when the head was last
+pushed", and it holds across every open PR:
+
+    #681 #645 #662   head pushed 07:43-07:56Z  ->  base b0de5ea48 (07:37Z tip)
+    #690 #691 #682   head pushed 09:08Z        ->  base 9040557d8 (08:48Z tip)
+    #692             head pushed 08:48Z        ->  base 9040557d8
+
+So a toggle is a re-run, not a re-base. Getting evidence on current main is two
+steps, and the order matters:
+
+    1. merge origin/main into the branch and push   refreshes the merge ref.
+                                                    Costs no queue: build.yml
+                                                    deliberately ignores
+                                                    `synchronize`.
+    2. toggle draft->ready                          takes the build. Costs a slot.
+
+Doing only step 2 gives a green about a tree nobody will merge.
+
+### Two consequences of this that I checked and had to drop
+
+Both looked like harms of a stale base. Neither is one, and saying so here saves
+the next person the same two investigations.
+
+**It does not force a Rust gate onto a docs PR.** #681's plan said `rust=true`
+and its title says `docs(...)`, which looked like other people's crate changes
+leaking in. Its own diff touches a crate file. A type prefix in a title is not
+evidence of what a PR changed.
+
+**It does not misattribute other people's changes to your PR.** `plan.sh:80`
+takes `git merge-base "$base_commit" HEAD`, and HEAD is the merge commit whose
+first parent *is* that base - so the diff is exactly the PR's own changes. A
+stale base is self-consistent: it tests (old main + PR) and diffs (old main ->
+old main + PR).
+
+The one real harm is the one already written above: the tree that was proven is
+not the tree that will be merged.
