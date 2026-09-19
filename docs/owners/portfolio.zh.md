@@ -105,8 +105,13 @@ testkit 或 acceptance feature 的生产路径；其余各行不授予任何东�
   lineage 的一致来源截面，因此 Risk 没有可与自身 liability 合并的 bundle。
 - **TARGET - Portfolio Lifecycle Evidence Receipt、Portfolio Interaction Receipt 与 degradation 归因：** 不存在类型或
   custody。
-- **TARGET - 交接与持久化：** 没有通向 Governance、Risk、Scanner、Execution 或 Product Edge 的 port，也没有任何
-  Portfolio 事实的持久关系。
+- **CURRENT_PARTIAL - 通向 Governance 的读 port：** Owner 自己的迁移
+  `crates/portfolio_owner/src/capacity_scope_postgres.rs` 建出 `portfolio_api.read_bound_capacity_scope_v1` 与
+  `portfolio_api.read_current_capacity_view_v1`，并把两者都授给 `governance_writer`；该 schema 的 `USAGE` 也只授给
+  它，在 `product/rd-workbench/postgres-init/10-migrate-authority-custody.sh` 里。所以第二个消费方需要的是分处两地
+  的两条授权，两者都不是还没写出来的函数。
+- **TARGET - 其余交接与持久化：** 没有通向 Risk、Scanner、Execution 或 Product Edge 的 port；除上述 Capacity Scope
+  注册表与 PAPER Capacity View custody 之外，没有任何 Portfolio 事实的持久关系。
 
 ## 输入交接
 
