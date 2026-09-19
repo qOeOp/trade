@@ -817,10 +817,17 @@ mod tests {
         PostgresReplayResultCommitDispositionV2, PostgresReplayResultOwnerErrorV2,
         PostgresReplayResultOwnerV2, ReplayResultCommitRecoveryV2,
     };
+    use crate::protected_economic_measurement::{
+        ProtectedEconomicMeasurementBindingsV1, derive_protected_economic_measurement_v1,
+    };
     use crate::protected_replay::{
         ProtectedReplayOwnerErrorV1, ProtectedReplayResultDraftV1, ProtectedReplayResultDraftV2,
         commit_protected_owner_result_v1, commit_protected_owner_result_v2, test_observation,
     };
+    use vibe_backtest_owner_contracts::protected_economic_metric::{
+        ProtectedEconomicComputationV1, ProtectedEconomicCoverageRuleV1, ProtectedEconomicMetricV1,
+    };
+    use vibe_backtest_owner_contracts::protected_replay::ProtectedEconomicPolicyReferenceV1;
     use vibe_backtest_owner_contracts::{
         ContentIdentityV2, ProtectedConsumedInputLocatorV1, ProtectedDiagnosticEvidenceV2,
         ProtectedReplayBindingFieldV1, ProtectedReplayRequestDtoV1,
@@ -1209,6 +1216,12 @@ mod tests {
         applicable: bool,
     }
 
+    /// The exact canonical bytes a real BacktestEngine/Sim Exchange round trip produced, shared
+    /// with `tests/protected_economic_measurement.rs` rather than copied, so the gate and that
+    /// proof cannot drift onto different corpora.
+    const CANONICAL_PROTECTED_RESULT: &[u8] =
+        include_bytes!("../tests/data/protected_round_trip_canonical_result_v1.json");
+
     impl ProtectedTerminalLineageV1 {
         const fn carries_measurement(self) -> bool {
             self.applicable && matches!(self.diagnostic, DiagnosticCategoryV2::NoExecutionDefect)
@@ -1230,8 +1243,8 @@ mod tests {
         };
         use vibe_backtest_owner_contracts::{
             ProtectedCellApplicabilityEvidenceV3, ProtectedCellApplicabilityObservationV3,
-            ProtectedEconomicMeasurementV1, ProtectedReplayRequestDtoV2,
-            ProtectedReplayRequestSetLocatorV1, protected_evaluation_time_evidence_digest_v1,
+            ProtectedReplayRequestDtoV2, ProtectedReplayRequestSetLocatorV1,
+            protected_evaluation_time_evidence_digest_v1,
         };
         use vibe_backtest_result_custody::resolve_protected_replay_attempt_frontier_for_qualification_in_transaction;
         use vibe_data::owner::sealed_acceptance::issue_protected_evaluation_shared_time_v1;
@@ -1333,43 +1346,53 @@ mod tests {
                 lineage.review_slug
             );
             let basis = &request.frozen_basis;
-            let mut measurement = ProtectedEconomicMeasurementV1 {
-                schema_version: 1,
-                measurement_identity: "pending-measurement".to_string(),
-                measurement_digest: format!("blake3:{}", "0".repeat(64)),
-                request_identity: request.request_identity.clone(),
-                request_digest: request.request_digest.clone(),
-                attempt_identity: attempt_identity.clone(),
-                protected_plan_identity: basis.protected_plan_identity.clone(),
-                protected_plan_digest: basis.protected_plan_digest.clone(),
-                plan_cell_set_identity: basis.plan_cell_set_identity.clone(),
-                plan_cell_set_digest: basis.plan_cell_set_digest.clone(),
-                plan_cell_identity: basis.plan_cell_identity.clone(),
-                plan_cell_digest: basis.plan_cell_digest.clone(),
-                metric_identity: metric_identity.clone(),
-                metric_digest: metric_digest.clone(),
-                // The unit and scale repeat the gate's frozen economic policy bundle
-                // (`crates/qualification/src/postgres.rs`, `chain_economic_policy`).
-                unit: "basis-points".to_string(),
-                decimal_scale: 4,
-                observed_raw: 300 + i64::from(variant),
-                observed_coverage_bps: 10_000,
-                decisive_evidence: locator_for(
-                    &format!("protected-v3-measurement-{}-{ordinal}", lineage.review_slug),
-                    'e',
-                ),
-                result_time_evidence_digest: result_time_evidence_digest.clone(),
-            };
-            measurement.measurement_digest = measurement
-                .compute_digest()
-                .expect("economic measurement digest");
-            measurement.measurement_identity = format!(
-                "backtest-protected-economic-measurement-v1-{}",
-                measurement
-                    .measurement_digest
-                    .strip_prefix("blake3:")
-                    .expect("blake3 measurement digest")
-            );
+            // #633 sealed this: a measurement is what one run's canonical bytes support, and no
+            // caller can construct or edit it. The bytes are that PR's own fixture - a real
+            // BacktestEngine/Sim Exchange round trip - so the number this entry commits is the one
+            // the run reports (-20 basis points, scale 4), not one chosen to clear a threshold.
+            // The gate's economic floor sits at -100 in `chain_economic_policy`, below the corpus
+            // rather than above it, which is why the economic-pass lineage is honest.
+            let sealed_measurement = derive_protected_economic_measurement_v1(
+                CANONICAL_PROTECTED_RESULT,
+                // Resolve the computation from the plan's own frozen metric reference rather than
+                // naming a catalogue member here. Naming one would make this entry agree with
+                // itself: it would derive under whatever metric the test picked, while
+                // Qualification checks the measurement against the metric the plan froze. Resolving
+                // fails loudly when those differ, which is the only way this entry can notice.
+                ProtectedEconomicComputationV1 {
+                    metric: ProtectedEconomicMetricV1::resolve(
+                        &ProtectedEconomicPolicyReferenceV1 {
+                            identity: metric_identity.clone(),
+                            digest: metric_digest.clone(),
+                        },
+                        "basis-points",
+                        4,
+                    )
+                    .expect("the plan's frozen metric is published by the catalogue"),
+                    coverage_rule: ProtectedEconomicCoverageRuleV1::ObservedWindowSpan,
+                },
+                &ProtectedEconomicMeasurementBindingsV1 {
+                    request_identity: request.request_identity.clone(),
+                    request_digest: request.request_digest.clone(),
+                    attempt_identity: attempt_identity.clone(),
+                    protected_plan_identity: basis.protected_plan_identity.clone(),
+                    protected_plan_digest: basis.protected_plan_digest.clone(),
+                    plan_cell_set_identity: basis.plan_cell_set_identity.clone(),
+                    plan_cell_set_digest: basis.plan_cell_set_digest.clone(),
+                    plan_cell_identity: basis.plan_cell_identity.clone(),
+                    plan_cell_digest: basis.plan_cell_digest.clone(),
+                    result_time_evidence_digest: result_time_evidence_digest.clone(),
+                    evidence_owner: OpaqueIdentityV2::try_from("backtest-owner".to_owned())
+                        .expect("evidence owner identity"),
+                    evidence_reference: OpaqueIdentityV2::try_from(format!(
+                        "backtest-protected-canonical-result-{}-{ordinal}",
+                        lineage.review_slug
+                    ))
+                    .expect("evidence reference identity"),
+                },
+            )
+            .expect("derive the protected economic measurement from the run");
+            let measurement = sealed_measurement.measurement().clone();
             ProtectedReplayResultProposalV3 {
                 attempt_identity: attempt_identity.clone(),
                 observations: basis
@@ -1433,7 +1456,7 @@ mod tests {
                 },
                 protected_economic_measurement: lineage
                     .carries_measurement()
-                    .then_some(measurement),
+                    .then_some(sealed_measurement),
                 time_successor: result_successor.clone(),
             }
         };
