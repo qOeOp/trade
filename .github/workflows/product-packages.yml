@@ -150,10 +150,10 @@ jobs:
           # owner rather than a test detail. Their PostgreSQL bodies run either way, which is the
           # RunStore gateway coverage Operations depends on.
           #
-          # Workers stalled here twice on the runner's own newer browser while passing locally in 24
-          # to 38 s. The difference had two dimensions, browser build and machine; pinning the build
-          # this job installs leaves one, so a stall now says the environment and a pass says the
-          # build.
+          # Workers stalled here twice while passing locally in 24 to 38 s, and the browser build
+          # looked like the difference. It was not: pinning the build changed nothing, and the suite
+          # was missing three Chrome startup flags the ordered chain's own acceptance passes on this
+          # same runner. Its holdback was the environment all along, one line of it.
           DASHBOARD_WORKERS_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_workers
           DASHBOARD_WORKERS_BROWSER_ACCEPTANCE: "1"
           DASHBOARD_WORKERS_ACCEPTANCE_CANDIDATE: ${{ github.sha }}
