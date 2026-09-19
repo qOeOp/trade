@@ -85,8 +85,13 @@ grants nothing, and widening the admitted set requires changing this document fi
   Attempt, and `KNOWN_CLOSED`:** the inherited `crates/execution/src/reconciliation` functions align engine state
   with venue reports and are the adoption source; no drift fact, disposition, case, command, or closure exists.
 - **TARGET - Execution Quality Observation and Effect Closure View:** no type or custody exists.
-- **TARGET - handoffs and persistence:** no port to Runtime, Risk, Portfolio, Governance, or R&D and no durable
-  relation for any Execution fact.
+- **CURRENT_PARTIAL - read ports to Portfolio and Governance:** the Owner's own migration in
+  `crates/execution_owner/src/adapter_binding_postgres.rs` creates `execution_api.read_current_paper_adapter_binding_v1`
+  and `execution_api.read_paper_account_opening_fact_v1`, revokes both from `PUBLIC`, and grants each to exactly the
+  one consumer that reads it: the binding to `governance_writer`, the opening collateral fact to `portfolio_writer`.
+  Both are `SECURITY DEFINER` over `execution_private`, which holds the durable relations behind them.
+- **TARGET - remaining handoffs and persistence:** no port to Runtime, Risk, or R&D, and no durable relation for any
+  Execution fact outside the PAPER adapter binding and opening collateral custody above.
 
 ## Input handoffs
 
