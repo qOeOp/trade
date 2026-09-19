@@ -128,7 +128,7 @@ test("outcome inventory distinguishes ready, awaiting, and unavailable Research 
   }), false);
 });
 
-test("outcome inventory preserves truncation and caps point-read concurrency", async () => {
+test("outcome inventory preserves truncation and serializes its point reads", async () => {
   let active = 0;
   let maximum = 0;
   const source = custody(12, "PARTIAL_TRUNCATED", 20);
@@ -147,7 +147,11 @@ test("outcome inventory preserves truncation and caps point-read concurrency", a
   assert.equal(result.projection.candidateTotal, 20);
   assert.equal(result.projection.scannedCandidateCount, 12);
   assert.equal(result.projection.awaitingOutcomeTotal, 12);
-  assert.ok(maximum > 1 && maximum <= 6);
+  // These reads are deliberately serialized. They share an Owner adapter's connection pool with
+  // the directory and question reads the same page composes, and measured against a real Owner any
+  // parallelism here took those with it: the page reported its source unavailable and rendered
+  // nothing while every row answered in tens of milliseconds when asked alone.
+  assert.equal(maximum, 1);
 });
 
 test("unavailable custody, thrown reads, and malformed browser totals fail closed", async () => {
