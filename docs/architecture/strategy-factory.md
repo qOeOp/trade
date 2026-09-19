@@ -1269,6 +1269,46 @@ so the stream can be read end to end.
 
 Research freezes TrialFamily, its exhaustive Census Frontier, cross-family predecessor frontier, precommitted independence basis, PIT rule, costs, capacity assumptions, budget, falsifier, and stop before submission. Qualification verifies those frontiers, preregistration, exact `READY_FOR_SELECTION` decision and selected-only disposition, owns cumulative holdout reservation and disposition across related TrialFamilies, and requests protected replay. A missing selected-only disposition, falsifier mismatch, missing sibling, renamed trial, budget mismatch, mutable frontier, unresolved ancestry, late independence basis, stale feedback frontier, or post-cut family member closes as `NOT_ADMITTED` before protected replay with no holdout consumption; a terminal Research stop never reaches intake, and a later trial requires a successor Candidate. Protected results may update Eligibility State but must never feed the same research loop.
 
+## Schema freeze condition
+
+Adding a value to a catalog is routine and additive. The catalog entry declares the payload shape, so the schema
+does not widen: a bounded feature node names a primitive semantic ID and the catalog's contract fixes how many
+bindings that primitive takes and of which type.
+
+Adding a field to `StrategyDesignV2`, `ProposalWiringV2`, or `BoundedFeatureProgramMeaningV1`, or a variant to
+`ValueTypeV2`, `LifecycleKindV2`, or `InputFactClassV2`, is not additive. Every such member must be carried by the
+lowerer, the shared lifecycle kernel, the Backtest semantic trace, Runtime, and every golden vector, so a member
+that is cheap to add is expensive to keep.
+
+Such a change is therefore admissible only after proving the capability cannot be expressed as any of:
+
+- a new value in the field-semantic vocabulary;
+- a new primitive catalog entry;
+- a new action catalog entry;
+- a composition of existing nodes.
+
+The action catalog is `TARGET / NOT_ADMITTED`. Until it exists that alternative resolves to unavailable, and the record says so
+rather than treating the absence as a reason to widen the schema.
+
+The change records which alternatives were ruled out and why. That record belongs with the change, not in this
+document: a list of approved exceptions maintained here would decay faster than the rule it qualifies.
+
+A reviewer decides whether the record is sound. An automated check can confirm at most that the record exists and
+names the four alternatives; it cannot judge whether an exclusion holds, so a passing check is never evidence that
+the capability had no catalog expression.
+
+The managed surfaces are `crates/strategy_factory/src/strategy_design_v2.rs`, which defines `StrategyDesignV2`,
+`ProposalWiringV2`, `ValueTypeV2`, `LifecycleKindV2`, and `InputFactClassV2`, and
+`crates/strategy_factory/src/bounded_feature_program_derivation_v1.rs`, which defines
+`BoundedFeatureProgramMeaningV1`.
+
+The rule follows the definition, not the mention. A file that only references a managed type is not a managed
+surface, so a change confined to a fixture, a lowerer, a host, or a storage adapter carries no proof burden even
+though it names those types.
+
+An optional field is not an exemption. It carries the same proof burden as a required one, because every consumer
+must still branch on its absence.
+
 ## Authority boundary
 
 R&D owns Intent, TrialFamily, Artifact, Exploratory Replay Request, and Candidate identity. Develop is an internal R&D capability, not a second Owner. Backtest owns replay results and never chooses the R&D next action. Qualification owns intake status, holdout state, eligibility, and revocation. Strategy Factory owns none of these facts and has no storage authority.

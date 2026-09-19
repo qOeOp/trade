@@ -1,4 +1,7 @@
-# Backtest Accounts and Margin
+# Backtest Accounts and Margin (engine)
+
+This page documents the existing engine. Where it differs from the Owner contract in
+`docs/owners/backtest.md`, the Owner contract is authoritative.
 
 Backtest venues use simulated accounts for balances, margin, and funding settlement. For the full
 account model and margin formulas, see [Accounting](../accounting.md).

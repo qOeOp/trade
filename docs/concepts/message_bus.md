@@ -1,4 +1,7 @@
-# Message Bus
+# Message Bus (engine)
+
+This page documents the existing engine. Where it differs from the target product architecture in
+`docs/architecture/event-rail.md`, that document is authoritative.
 
 The `MessageBus` enables communication between system components through message passing.
 This design creates a loosely coupled architecture where components interact without

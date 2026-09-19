@@ -60,10 +60,11 @@ widening the admitted set requires changing this document first.
   inside its own transaction, re-reads Portfolio's own `BOUND` Capacity Scope and current Capacity View through
   that Owner's `portfolio_api` read functions, and seals what it read together with the evidence cut it read it
   at. It makes no Risk decision, commits no Reservation, writes no fence, and consumes no Trade Intent, because
-  the inputs for all four have no producer. Three prerequisites sit outside this Owner: those two read functions
-  arrive with Portfolio's Capacity Scope custody slice and are not in the repository yet; the role pair and its
-  schemas are a shared-surface change under `product/rd-workbench/postgres-init/`; and when the read functions do
-  arrive, Portfolio must grant `risk_writer` execute on them. Admission is permission to build and verify this
+  the inputs for all four have no producer. Two prerequisites sit outside this Owner: the role pair and its
+  schemas are a shared-surface change under `product/rd-workbench/postgres-init/`, and Portfolio must grant
+  `risk_writer` execute on those two read functions. They were built by
+  `crates/portfolio_owner/src/capacity_scope_postgres.rs`, whose migration grants them, and `USAGE` on their schema,
+  to `governance_writer` alone; a reader can recheck both grants there rather than take this sentence's word for it. Admission is permission to build and verify this
   one read.
   It authorizes no Risk decision, no production effect, and no real trading.
 - **TARGET - Risk Engine:** the inherited `RiskEngine` in `crates/risk/src/engine/mod.rs` performs pre-trade order
@@ -76,8 +77,9 @@ widening the admitted set requires changing this document first.
 - **TARGET - Risk Reservation, Reservation Claim Result, and Adapter Admission Result:** the one-use Reservation
   lifecycle, claim arbitration, and `ADMITTED_ONCE` serialization against fence activation have no implementation;
   nothing in the repository sends or receives a Reservation Claim Request or `ADAPTER_ADMISSION_REQUEST`.
-- **TARGET - Aggregate Commitment Frontier:** no same-scope serialization exists, and its Portfolio-owned Capacity
-  Scope is itself only a Discovery contract in `crates/portfolio`.
+- **TARGET - Aggregate Commitment Frontier:** no same-scope serialization exists. Its Portfolio-owned Capacity
+  Scope now has production custody in `crates/portfolio_owner`, so the missing part here is Risk's own
+  serialization, not the scope it would serialize against.
 - **TARGET - Recovery Fence and Kill Switch:** the inherited `TradingState` `Halted` and `Reducing` states are a
   process-local switch; no fence binds a `RUNTIME_NOT_READY`, `RUNTIME_INCIDENT`, `RECONCILIATION_DRIFT`, or
   `RISK_HARD_STOP` source branch, and no active-fence-set identity or action intersection exists.

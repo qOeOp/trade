@@ -1,4 +1,7 @@
-# Execution Reconciliation
+# Execution Reconciliation (engine)
+
+This page documents the existing engine. Where it differs from the Owner contract in
+`docs/owners/execution.md`, the Owner contract is authoritative.
 
 Execution reconciliation aligns the venue's actual order and position state with the system's
 internal event‑sourced state. Use this guide to understand startup state recovery and the
