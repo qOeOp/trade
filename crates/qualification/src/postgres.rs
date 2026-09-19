@@ -5687,7 +5687,6 @@ fn disposition_status(status: ProtectedAttemptDispositionStatusV1) -> &'static s
 fn closure_status(status: HoldoutClosureDispositionV1) -> &'static str {
     match status {
         HoldoutClosureDispositionV1::Consumed => "CONSUMED",
-        HoldoutClosureDispositionV1::Released => "RELEASED",
     }
 }
 
