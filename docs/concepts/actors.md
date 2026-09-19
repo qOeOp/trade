@@ -1,4 +1,7 @@
-# Actors
+# Actors (engine)
+
+This page documents the existing engine. Where it differs from the Owner contract in
+`docs/owners/runtime.md`, the Owner contract is authoritative.
 
 The `DataActor` class receives data, handles events, and manages state. The `Strategy` class extends it
 with order management capabilities.

@@ -1,4 +1,6 @@
-# Actor
+# Actor（引擎层）
+
+本页记载既有引擎。凡与 `docs/owners/runtime.md` 的 Owner 契约不一致处，以 Owner 契约为准。
 
 `DataActor` 类接收数据、处理事件并管理状态。`Strategy` 类在此基础上增加订单管理能力。
 

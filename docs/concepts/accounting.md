@@ -1,4 +1,7 @@
-# Accounting
+# Accounting (engine)
+
+This page documents the existing engine. Where it differs from the Owner contract in
+`docs/owners/portfolio.md`, the Owner contract is authoritative.
 
 The accounting subsystem tracks balances, margins, and PnL for every account the
 platform interacts with. This guide covers the data model, the query API that
