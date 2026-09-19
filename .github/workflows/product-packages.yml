@@ -143,10 +143,15 @@ jobs:
           DASHBOARD_RUN_LIST_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_runs
           DASHBOARD_SHADOW_RUNTIME_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_shadow_runtime
           DASHBOARD_SHADOW_RUNTIME_TEST_CURSOR_HMAC_KEY: shadow-runtime-disposable-cursor-key-at-least-32-bytes
-          # Workers and service logs drive a browser here. Schedule calendar does not, and is held
-          # back for a reason observed rather than assumed: it leaves an evaluation outstanding past
-          # a 60 s command budget. Its PostgreSQL body runs either way, which is the RunStore
-          # gateway coverage Operations depends on.
+          # All three RunStore browser acceptances drive a browser here. None of them had ever run
+          # anywhere, and each was held back under a reason that measurement later replaced.
+          #
+          # Schedule calendar was recorded as leaving an evaluation outstanding past a 60 s command
+          # budget, which was true and said nothing: the evaluation was waiting for an animation
+          # frame before reading a sticky header's position, and the read does not need one -
+          # assigning scrollTop and asking for a rectangle forces the layout the assertion is about.
+          # Waiting for a frame made the step depend on the page being asked to paint. Without it
+          # the same step passes in about 20 s.
           #
           # Service logs was held back three times over for reasons that measurement replaced, and
           # the sequence is worth keeping. It was first recorded as meeting a cursor continuity
@@ -167,6 +172,9 @@ jobs:
           DASHBOARD_WORKERS_ACCEPTANCE_CANDIDATE: ${{ github.sha }}
           DASHBOARD_WORKERS_BROWSER_EXECUTABLE: ${{ env.DASHBOARD_BROWSER_EXECUTABLE }}
           DASHBOARD_CALENDAR_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_calendar
+          DASHBOARD_CALENDAR_BROWSER_ACCEPTANCE: "1"
+          DASHBOARD_CALENDAR_ACCEPTANCE_CANDIDATE: ${{ github.sha }}
+          DASHBOARD_CALENDAR_BROWSER_EXECUTABLE: ${{ env.DASHBOARD_BROWSER_EXECUTABLE }}
           DASHBOARD_SERVICE_LOGS_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_service_logs
           DASHBOARD_SERVICE_LOGS_BROWSER_ACCEPTANCE: "1"
           DASHBOARD_SERVICE_LOGS_ACCEPTANCE_CANDIDATE: ${{ github.sha }}

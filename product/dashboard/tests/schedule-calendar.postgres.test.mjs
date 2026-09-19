@@ -131,7 +131,12 @@ async function openBrowser(executable) {
       const requestId = ++id;
       const timer = setTimeout(() => {
         pending.delete(requestId);
-        reject(new Error(`calendar browser command timed out: ${method}`));
+        // Naming only the method says a command went unanswered, which is true of every command
+        // this suite sends. Say which one, so a timeout points at a step rather than at CDP.
+        const detail = typeof params.expression === "string"
+          ? `: ${params.expression.replace(/\s+/gu, " ").slice(0, 200)}`
+          : "";
+        reject(new Error(`calendar browser command timed out: ${method}${detail}`));
       }, timeoutMs);
       pending.set(requestId, {
         resolve: (value) => { clearTimeout(timer); resolve(value); },
@@ -772,11 +777,15 @@ test(testName, { skip: !url }, async () => {
         const head = viewport?.querySelector('th');
         if (!viewport || !head) return null;
         viewport.scrollTop = 240;
-        return new Promise((resolve) => requestAnimationFrame(() => resolve({
+        // Read straight back rather than waiting for a frame. Assigning scrollTop and then asking
+        // for a rectangle forces the layout this assertion is about, and a sticky offset is decided
+        // there; waiting for a frame adds a dependency on the page being asked to paint, which this
+        // step hung on for a full command budget and reported as a transport timeout.
+        return {
           scrollTop: viewport.scrollTop,
           viewportTop: viewport.getBoundingClientRect().top,
           headTop: head.getBoundingClientRect().top,
-        })));
+        };
       })()`);
       assert.ok(stickyGeometry.scrollTop >= 200, JSON.stringify(stickyGeometry));
       assert.ok(Math.abs(stickyGeometry.headTop - stickyGeometry.viewportTop) <= 1, JSON.stringify(stickyGeometry));
