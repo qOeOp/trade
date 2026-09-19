@@ -5232,7 +5232,12 @@ mod tests {
         let rollback_future = async move { rollback_owner.revoke(rollback_proposal).await };
 
         let rollback_revoke = tokio::spawn(rollback_future);
-        tokio::task::yield_now().await;
+        wait_for_row_lock(
+            owner.pool(),
+            "operator_authorization_writer",
+            "%operator_authorization_issuances_v1%FOR UPDATE%",
+        )
+        .await;
         assert!(!rollback_revoke.is_finished());
         rollback_holder.rollback().await.unwrap();
         tokio::time::timeout(Duration::from_secs(5), rollback_revoke)

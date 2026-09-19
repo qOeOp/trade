@@ -38,7 +38,7 @@ echo "Checking Rust testing conventions..."
 rust_results=$(mktemp)
 aaa_results=$(mktemp)
 python_results=$(mktemp)
-trap 'rm -f "$rust_results" "$aaa_results" "$python_results"' EXIT
+trap 'rm -f "$rust_results" "$aaa_results" "$python_results" "$scheduler_results"' EXIT
 
 # Search for #[test] attribute in Rust files
 # We want to find standalone #[test], not #[tokio::test] or #[rstest]
@@ -108,6 +108,45 @@ while IFS=: read -r file line_num line_content; do
 done < "$python_results"
 
 ################################################################################
+# Check Rust concurrency proofs for scheduler-dependent assertions
+################################################################################
+
+echo "Checking Rust concurrency proof conventions..."
+
+scheduler_results=$(mktemp)
+for rust_file in $(rg -l 'is_finished\(\)' --glob '*.rs' . 2> /dev/null || true); do
+  awk -v path="$rust_file" '
+    { line[NR] = $0 }
+    /#\[tokio::test/ { paused = ($0 ~ /start_paused/) ? 1 : 0 }
+    /assert!\(![A-Za-z_][A-Za-z0-9_]*\.is_finished\(\)\)/ {
+      if (paused) next
+      observed = 0
+      for (i = NR - 15; i < NR; i++) {
+        if (i < 1) continue
+        if (line[i] ~ /wait_for_[a-z_]*lock|pg_stat_activity|NOWAIT|recv\(\)|_receiver|advance\(/) observed = 1
+      }
+      if (!observed && (line[NR-1] ~ /yield_now\(\)\.await;/ || line[NR-1] ~ /sleep\(.*\)\.await;/)) {
+        sub(/^[ \t]+/, "", $0)
+        printf "%s:%d:%s\n", path, NR, $0
+      }
+    }
+  ' "$rust_file" >> "$scheduler_results"
+done
+
+while IFS=: read -r file line_num line_content; do
+  [[ -z "$file" ]] && continue
+
+  echo -e "${RED}Error:${NC} Found scheduler-dependent concurrency assertion in $file:$line_num"
+  echo "  Found: $line_content"
+  echo "  Reason: after a bare yield or a fixed sleep, whether the other task reached its"
+  echo "          blocking point is the scheduler's choice. A slower machine turns this red"
+  echo "          and a faster one turns it green, so it is not evidence either way"
+  echo "  Use: observe the real condition first, then assert"
+  echo
+  VIOLATIONS=$((VIOLATIONS + 1))
+done < "$scheduler_results"
+
+################################################################################
 # Report results
 ################################################################################
 
@@ -119,11 +158,14 @@ if [ $VIOLATIONS -gt 0 ]; then
   echo "  - #[tokio::test] is acceptable for async tests without parametrization"
   echo "  - Do not use // Arrange / // Act / // Assert comments in Rust tests (Python convention)"
   echo "  - Python: Do not use pytest.raises(BaseException) in python/tests/ to probe PyO3 panic paths"
+  echo "  - Rust: do not assert a task is unfinished after only a yield or a fixed sleep"
   echo
   echo "To fix:"
   echo "  - Replace #[test] with #[rstest] in your test functions"
   echo "  - Remove AAA-style comments or convert them to descriptive comments"
   echo "  - Replace broad BaseException probes with signature checks or subprocess-isolated tests"
+  echo "  - Wait on the condition itself: a lock queue via pg_stat_activity, a NOWAIT probe, a"
+  echo "    channel the test controls, or a paused clock advanced with tokio::time::advance"
   exit 1
 fi
 
