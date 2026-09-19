@@ -154,6 +154,10 @@ provider effect、Paper、Live 或交易权威。
 
 这两条上游契约的准入程度不高于上游自己的记载：对应的 [Market Data](./market-data/) 输出交接把直连
 `BACKTEST_OWNER_V1` Instrument Master 解析标为 **TARGET**，因此此处任何内容都不得读作一条已准入的消费路径。
+探索路径在已部署的产物里同样不可达：`run_exploratory_replay_v2` 在其自身 crate 之外唯一的调用者位于
+`#[cfg(feature = "sealed-develop-composer-acceptance")]` 之下，而 `product/rd-workbench/Dockerfile.owner`
+构建 `strategy-factory-rd-owner-api` 时完全不带任何 feature 开关。这测的是部署产物而不是历史；它没有断言
+该路径是否曾在别的环境里跑过。
 
 ## 输出交接
 

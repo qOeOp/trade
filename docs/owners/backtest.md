@@ -181,7 +181,11 @@ Paper, Live, or trading authority.
 
 These two upstream contracts are no more admitted than the upstream states them to be: the corresponding
 [Market Data](./market-data/) output handoff marks direct `BACKTEST_OWNER_V1` Instrument Master resolution
-**TARGET**, so nothing here may be read as an admitted consumption path.
+**TARGET**, so nothing here may be read as an admitted consumption path. The exploratory path is also
+unreachable in what is deployed: the only caller of `run_exploratory_replay_v2` outside its own crate sits under
+`#[cfg(feature = "sealed-develop-composer-acceptance")]`, and `product/rd-workbench/Dockerfile.owner` builds
+`strategy-factory-rd-owner-api` with no feature flags at all. That measures the deployment artifact and not
+history; it says nothing about whether the path has ever run in some other environment.
 
 ## Output handoffs
 
