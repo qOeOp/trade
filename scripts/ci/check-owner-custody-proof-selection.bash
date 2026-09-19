@@ -22,9 +22,17 @@ fi
 repository_root="$1"
 cd "$repository_root"
 
+# Fail closed. Skipping on a missing dependency made this check silently pass: it
+# printed a WARNING and exited 0, and pre-commit does not echo the output of a hook
+# that passes, so "ran and passed" and "could not run" were byte-identical on CI.
+# The ordered chain script depends on `rg` unconditionally, so today the runner does
+# have ripgrep and this check really runs - but that is a property of the runner
+# image, not of this script, and it must not be the reason the check has teeth.
 if ! command -v rg &> /dev/null; then
-  echo "WARNING: ripgrep not found, skipping owner custody proof selection check"
-  exit 0
+  echo "check-owner-custody-proof-selection: ripgrep (rg) is required but was not found." >&2
+  echo "       This check decides which #[ignore] tests count as Owner custody proofs;" >&2
+  echo "       skipping it would let an unselected proof reach main unreported." >&2
+  exit 1
 fi
 
 # Crates whose `#[ignore]` tests are Owner custody proofs. Adapter, risk, execution and persistence
