@@ -71,6 +71,53 @@ The two questions are different and both are needed:
 force-pushed - ruleset 19718837 carries `non_fast_forward`), so for a pull
 request that already has a green, only the first question adds anything.
 
+## Batch evidence goes to `test-ci`, and why not a dedicated channel
+
+The batch round has been `test-chain/<lane>` until now. That workflow's own header
+says what it covers: "The two isolated PostgreSQL Owner chains, and nothing else."
+So the ASSEMBLED tree has never had clippy, rust tests, doctests or the docs gates
+run on it - those ran only on each member's own binary merge with main, which is a
+different tree from the one all members produce together.
+
+From the next batch, the assembled tree is also pushed to `test-ci`, which
+`build.yml` accepts as a push branch and runs in full. One extra round per BATCH,
+not per member, so the cost stays O(N).
+
+A dedicated `test-batch/**` channel would avoid contention and would be wrong.
+`build.yml` hardcodes `main || test-ci` in seven places, and two of them are not
+cache switches:
+
+    :539  CARGO_CI_PROFILE   main/test-ci -> ci-pr,  anything else -> nextest
+    :545  CARGO_TARGET_DIR   likewise
+
+A new branch falls to the `nextest` profile and a different target directory, so
+the evidence would describe a compilation main does not use. That is the
+profile/target mismatch this repository has already been bitten by. `test-ci` is
+right precisely because it already has profile parity with main, and parity is
+the property batch evidence needs. (The other five references are cache switches;
+missing the cache on a batch branch is desirable anyway - non-main branches should
+not be populating a 10 GB quota.)
+
+### Contention, handled by pinning rather than by discipline
+
+While a batch is being assembled, `test-ci` belongs to Lane 0; other lanes use
+`test-chain/<lane>`, which is two cheap jobs and exists for exactly this. Outside
+assembly `test-ci` is shared as before.
+
+Someone will push it without reading this. That has already happened once with a
+stale copy of this file. So the remedy is not the rule, it is the measurement:
+record `test-ci`'s SHA when assembly starts and check it again before using the
+evidence. If it moved, the run belongs to someone else - rebuild rather than cite
+it. Same move as checking that main's tree equals the proven tree, with the
+channel as the object instead of main.
+
+### Order matters: full evidence first, then exempt members
+
+Members are exempt from 0b because the batch tree carries the evidence. That
+exemption is only sound once the batch tree actually has full evidence. Doing it
+the other way round leaves a window where the batch has chains-only evidence AND
+members are exempt - the thinnest coverage in either scheme.
+
 ## Lane 0 tells each member it is a member - reading this file is not enough
 
 A pull request cannot tell from its own side that it has been added to a batch.
