@@ -1,4 +1,7 @@
-# Backtest APIs and Repeated Runs
+# Backtest APIs and Repeated Runs (engine)
+
+This page documents the existing engine. Where it differs from the Owner contract in
+`docs/owners/backtest.md`, the Owner contract is authoritative.
 
 VibeTrader provides a low-level `BacktestEngine` API for direct control and a high-level
 `BacktestNode` API for catalog-backed, configurable runs.
