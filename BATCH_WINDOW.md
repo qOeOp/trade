@@ -1,12 +1,32 @@
-# batch window: CLOSED - evidence VOID, batch will be rebuilt
+# batch window: VOID - the batch was abandoned before its evidence was used
 
 Owner: Lane 0 (platform).
 
-    state:         closed
-    base_main:     41b6df61557ff997e38b59fb7c647f641482f1f8
-    members:       680 684 688
-    evidence:      NONE - see below. Do not cite 35427329533 or 35427331535.
-    blocked_on:    686   (a clippy error on main fails every full-route build)
+    state:        void
+    voided_at:    2026-09-19T07:34:07Z
+    void_reason:  assembled on a red baseline; evidence cancelled before use
+    members:
+    chains_run:   35427329533 CANCELLED - do not cite
+    full_run:     35427331514 WAS security-audit, not build - do not cite
+    base_main:    41b6df61557ff997e38b59fb7c647f641482f1f8
+    blocked_on:   686
+    reform_after: 686
+
+`state: void` rather than `open`, because "was closed and abandoned" and "never
+opened" are different facts for anyone reading. `members` is empty: those pull
+requests are unfrozen and their lanes may move them.
+
+## Correcting the record twice: the prose, then the fields
+
+The previous revision rewrote the prose to say the evidence did not exist, and
+left the machine-readable fields untouched. Lane 3's scanner parses the fields,
+so it went on reporting `window=closed`, `members=[680,684,688]`, and handing out
+two run ids that are cancelled and mislabelled.
+
+That is the same failure as the one the prose was correcting, one layer in: I
+fixed what I had been reading and not what the readers read. A file with both a
+narrative and a contract has two places to be wrong, and correcting one of them
+feels like correcting the file.
 
 ## The evidence this file previously advertised does not exist
 
