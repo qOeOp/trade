@@ -32,8 +32,13 @@ feels like correcting the file.
 
 An earlier version of this file recorded:
 
-    chains_run:  35427329533   (owner-chains)
-    full_run:    35427331514   (build, test-ci)
+      > chains_run   35427329533   (owner-chains)
+      > full_run     35427331514   (build, test-ci)
+
+    (quoted with `>` and no colon on purpose: a verbatim quote of a field block
+    is indistinguishable from a live field to anything that greps for
+    `^\s*full_run:`. The live values are the ones at the top of this file, and
+    they are the only ones written in field syntax.)
 
 Both entries were wrong, and both errors are mine.
 
