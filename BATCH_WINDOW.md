@@ -71,6 +71,36 @@ The two questions are different and both are needed:
 force-pushed - ruleset 19718837 carries `non_fast_forward`), so for a pull
 request that already has a green, only the first question adds anything.
 
+## Lane 0 tells each member it is a member - reading this file is not enough
+
+A pull request cannot tell from its own side that it has been added to a batch.
+`members` is written here by Lane 0, and a member may well read it only AFTER the
+round has started - at which point it may already have pushed and voided the
+round without ever having been able to know.
+
+So the obligation is on Lane 0, not on the member: **name each member to its lane
+when adding it**, in the same action that writes the list. A member's duty begins
+when it is told, and until then a push is not a mistake.
+
+From that moment the member freezes its head until Lane 0 says merged or void.
+Moving a member's head does what moving main does: the evidence was assembled
+from each member's head as it stood.
+
+## A green's strictness depends on whether it is the only evidence
+
+Sharper formulation, from Lane 4:
+
+> The question is not "should we be strict here". It is "is this green the only
+> evidence there is".
+
+    merged alone, no batch tree    its own green IS the evidence - staleness is fatal
+    merged inside a batch          its green satisfies the ruleset's form; the batch
+                                   tree carries the evidence - staleness is harmless
+
+That is why #685 was held to the strict reading and #645's in-flight round was
+allowed to finish. Same rule, different answers, and the difference is structural
+rather than a judgement call about how much risk to accept.
+
 ## After a merge: a finished green and a running job need opposite actions
 
 Both are invalidated by main moving, but what to do about them differs, and the
