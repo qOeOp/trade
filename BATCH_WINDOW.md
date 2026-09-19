@@ -47,6 +47,31 @@ So a red on a head is worth attributing before acting on it. If the owning run i
 `cancelled` and a newer run exists on the same SHA, nothing failed: someone
 toggled. Diagnosed by Lane 3.
 
+## Path routing exists; it is just not the `paths:` key
+
+Two of us got this wrong in the same hour, so it is worth writing down.
+
+`build.yml` has no `paths:` filter, and that is deliberate: a path filter makes
+the workflow ABSENT for the PRs it excludes, and an absent required check blocks
+forever. Routing happens in `scripts/ci/plan.sh` instead - `is_lightweight_prose`
+at :92, after excluding `config/ schema/ tests/ fixtures/ data/ generated/
+scripts/ .pre-commit-hooks/` so that files which look like prose but are build
+inputs do not qualify. `quality` then runs with `if: always()` and evaluates the
+plan outputs together with each job's result.
+
+So the check genuinely runs and genuinely has nothing to do - the property a stub
+job only pretends to have.
+
+Measured on #679, docs-only, merged:
+
+    26 jobs created, 22 SKIPPED, 4 ran      quality = success
+
+**A cost figure taken from one pull request does not transfer to another.** I
+previously told several lanes that a draft->ready costs 22 running jobs; that was
+measured on a Rust PR and is inverted for a docs PR. Routing by content is the
+whole point of plan.sh, so the job count is a property of the change, not of the
+action.
+
 ## Reading this file correctly
 
     git fetch origin fleet/batch-window && git show FETCH_HEAD:BATCH_WINDOW.md
