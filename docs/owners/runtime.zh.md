@@ -51,8 +51,8 @@ checkpoint 与 readiness 持久化属于 Runtime 内部关注点，不是第二�
   更大：实时行情事实落在 `market_data_private` 里，该 schema 已对 `PUBLIC` 撤权，而 Market Data 没有在任何
   API schema 里为它暴露读函数，所以必须先建出一条读路径，才谈得上授权给谁。Market Data 建过对外读 schema，但那个 schema 不是这条 port 可以照抄的先例：
   `market_data_rd_api` 有十二个函数，八个在 `crates/data/src/owner/postgres/rd_strategy_input_custody.rs`，
-  四个在 `crates/data/src/owner/replay_market_facts_v2/postgres.rs`，**每一个都在自己的 `SECURITY DEFINER`
-  函数体里把 `session_user` 钉死为 `rd_owner`**。函数体没点名的调用者拿到的是空结果而不是权限错误，
+  四个在 `crates/data/src/owner/replay_market_facts_v2/postgres.rs`，每一个都在自己的 `SECURITY DEFINER`
+  函数体里把 `session_user` 钉死为 `rd_owner`。函数体没点名的调用者拿到的是空结果而不是权限错误，
   所以照这个形状建出来的读路径，在授权发下去之后对 Runtime 仍然返回空，而那个失败看起来像事实不存在。
   因此这条 port 需要的是一条"准许谁读由授权决定、而不是由谓词决定"的读路径；这是 Market Data 的契约变更，
   不是本 Owner 在等的一条授权。随后角色对
