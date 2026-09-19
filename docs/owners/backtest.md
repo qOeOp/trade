@@ -133,9 +133,21 @@ Paper, Live, or trading authority.
 
 ## Input handoffs
 
-- [R&D](./rd/) submits one frozen Exploratory Replay Request bound to the exact immutable artifact,
-  requested PIT data scope, replay configuration, and the same cost, slippage, and capacity-model versions frozen
-  by its Research Intent.
+- [R&D](./rd/) submits one frozen Exploratory Replay Request, addressed by an R&D-owned locator carrying the
+  request identity, the canonical request meaning digest, the receipt identity and the seal digest. Backtest
+  re-resolves that locator through the fixed read-only R&D Owner port and verifies the canonical request bytes
+  against the digest before any other field is read; a locator label, a downstream attestation, or a
+  caller-supplied copy of the bytes is not the request. The request fixes the exact immutable Artifact, the
+  requested PIT data scope, the replay configuration, the same cost, slippage and capacity-model versions frozen
+  by its Research Intent, and every other component of the requested meaning that a positive terminal result must
+  reconcile exactly. Backtest may observe `AVAILABLE`, `STALE`, or `UNAVAILABLE` on the R&D side; only
+  `AVAILABLE` admits an attempt, and neither `STALE` nor `UNAVAILABLE` is a rejection of the request, because
+  both say only that this Owner cannot presently supply it. A locator that resolves to nothing, bytes whose
+  digest disagrees, a request whose meaning changed under the same identity, and an R&D port that does not answer
+  all produce no attempt and no result: silence is never `UNAVAILABLE`, and `UNAVAILABLE` is never a terminal
+  replay outcome. Backtest never reconstructs, defaults, or substitutes any requested component, never treats
+  equality between two caller-authored representations as request-result correlation, and never begins an attempt
+  for a request whose canonical bytes it has not itself verified.
 - For an admitted `D1_EXECUTABLE_REPAIR`, R&D submits a distinct `REPAIR_VALIDATION` request bound to the D-only
   repair admission, predecessor and successor Artifacts, defect oracle, complete non-defect regression corpus,
   frozen semantic-equality proof, and deterministic event/signal/intent/order trace comparison. It is never an
@@ -145,12 +157,35 @@ Paper, Live, or trading authority.
   fixed. Each request addresses one declared Protected Robustness Plan cell or the exact frozen bounded matrix;
   Backtest cannot choose cells after observing results. Admission rejection must still commit a request-bound
   `RUN_REJECTED` result.
-- [Market Data](./market-data/) supplies frozen point-in-time data and instrument terms.
+- [Market Data](./market-data/) supplies the frozen point-in-time facts and instrument terms one replay consumes:
+  the PIT Market Snapshot identity and digest, the Universe Selection Record identity and digest, the snapshot and
+  correction rule, the corporate-action and historical-membership cuts, the Market Semantics Compatibility
+  identity, and, per instrument, the sealed fact digest, receipt digest and terms digest together with the venue,
+  quote and settlement currencies, validity window, margin model and fee terms. Backtest consumes these as
+  Owner-sealed receipts; it does not query a store, select a slice, or accept a caller-supplied fixture in their
+  place. A receipt is either sealed and resolvable for the exact request-bound scope or it is not, and there is no
+  partial or provisional form: only a complete set covering every requested instrument and the whole requested
+  scope admits execution, and a set that covers the scope by substituting a neighbouring cut, a later correction
+  frontier, or a different membership does not. An absent receipt, an unresolvable identity, a digest that
+  disagrees, an instrument outside the request-bound universe, a validity window that does not contain the
+  requested cut, or more than one settlement currency where the computation admits one, each fails before
+  `ProgramHost` invocation and produces no positive receipt, because a data gap is a replay-evidence fact and
+  never an economic result. Backtest never infers a missing price, term, or membership, never silently changes
+  costs, never substitutes a different snapshot or simulation version, and never lets telemetry or a projection
+  stand in for a sealed receipt.
 - [R&D](./rd/) may additionally submit one frozen `SIMULATOR` or `BACKTEST_OPERATIONAL`
   `native-repair-request`. `SIMULATOR` targets only Backtest's Sim Exchange surface `sim-exchange`;
   `BACKTEST_OPERATIONAL` targets only Native Replay's `BACKTEST_RUNNER_SERVICE`. Wrong target, category,
   predecessor, proof, old identity, source cut, policy, time, or
   changed meaning creates no Backtest repair attempt or result.
+
+These two upstream contracts are no more admitted than the upstream states them to be: the corresponding
+[Market Data](./market-data/) output handoff marks direct `BACKTEST_OWNER_V1` Instrument Master resolution
+**TARGET**, so nothing here may be read as an admitted consumption path. The exploratory path is also
+unreachable in what is deployed: the only caller of `run_exploratory_replay_v2` outside its own crate sits under
+`#[cfg(feature = "sealed-develop-composer-acceptance")]`, and `product/rd-workbench/Dockerfile.owner` builds
+`strategy-factory-rd-owner-api` with no feature flags at all. That measures the deployment artifact and not
+history; it says nothing about whether the path has ever run in some other environment.
 
 ## Output handoffs
 
