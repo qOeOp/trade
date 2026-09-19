@@ -54,13 +54,13 @@
 
 - **TARGET / IMPLEMENTATION_ADMITTED - Risk Owner 的容量输入读端口：** 已准入切片是一个
   `risk_owner`/`risk_writer` 角色对，覆盖 `risk_private` 与 `risk_api` 两个 schema；以及一个只读的 Risk
-  custody，它在自己的事务内通过 `portfolio_api.read_bound_capacity_scope_v1` 与
-  `portfolio_api.read_current_capacity_view_v1` 重读 Portfolio 自己的 `BOUND` Capacity Scope 与当前
-  Capacity View，并把读到的内容连同读取时所处的证据截面一并封存。它不做任何 Risk 决策 不提交 Reservation
-  不写 fence 也不消费 Trade Intent，因为这四者的输入都没有生产者。两项前置不在本 Owner 手上：角色对与其
-  schema 属于 `product/rd-workbench/postgres-init/` 下的共享面变更，而 Portfolio 必须把那两个函数的执行权
-  授予 `risk_writer`，它们今天只授予了 `governance_writer`。准入是建造并验证这一条读取的许可，它不授权任何
-  Risk 决策 任何生产效果 或真实交易。
+  custody，它在自己的事务内通过该 Owner 的 `portfolio_api` 读函数重读 Portfolio 自己的 `BOUND` Capacity
+  Scope 与当前 Capacity View，并把读到的内容连同读取时所处的证据截面一并封存。它不做任何 Risk 决策 不提交
+  Reservation 不写 fence 也不消费 Trade Intent，因为这四者的输入都没有生产者。三项前置不在本 Owner 手上：
+  那两个读函数随 Portfolio 的 Capacity Scope custody 切片一同到来，目前尚不在仓库里；角色对与其 schema
+  属于 `product/rd-workbench/postgres-init/` 下的共享面变更；以及那两个读函数到来时，Portfolio 必须把它们
+  的执行权授予 `risk_writer`。准入是建造并验证这一条读取的许可，它不授权任何 Risk 决策 任何生产效果 或真实
+  交易。
 - **TARGET - Risk Engine：** `crates/risk/src/engine/mod.rs` 里继承的 `RiskEngine` 执行交易前订单校验、`TradingState`
   的 halt 与 reduce 切换、名义额与速率限制，以及 `crates/risk/src/sizing.rs` 的仓位规模计算；它是 capability adoption
   点名的迁移来源。它不返回终态 Risk Decision，不绑定 policy 截面、Portfolio 截面或 Authorization Lineage，只被

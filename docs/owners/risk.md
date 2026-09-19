@@ -58,12 +58,13 @@ widening the admitted set requires changing this document first.
 - **TARGET / IMPLEMENTATION_ADMITTED - Risk Owner capacity input read port:** the admitted slice is one
   `risk_owner`/`risk_writer` role pair over `risk_private` and `risk_api`, and one read-only Risk custody that,
   inside its own transaction, re-reads Portfolio's own `BOUND` Capacity Scope and current Capacity View through
-  `portfolio_api.read_bound_capacity_scope_v1` and `portfolio_api.read_current_capacity_view_v1`, and seals what
-  it read together with the evidence cut it read it at. It makes no Risk decision, commits no Reservation, writes
-  no fence, and consumes no Trade Intent, because the inputs for all four have no producer. Two prerequisites sit
-  outside this Owner: the role pair and its schemas are a shared-surface change under
-  `product/rd-workbench/postgres-init/`, and Portfolio must grant `risk_writer` execute on those two functions,
-  which today are granted only to `governance_writer`. Admission is permission to build and verify this one read.
+  that Owner's `portfolio_api` read functions, and seals what it read together with the evidence cut it read it
+  at. It makes no Risk decision, commits no Reservation, writes no fence, and consumes no Trade Intent, because
+  the inputs for all four have no producer. Three prerequisites sit outside this Owner: those two read functions
+  arrive with Portfolio's Capacity Scope custody slice and are not in the repository yet; the role pair and its
+  schemas are a shared-surface change under `product/rd-workbench/postgres-init/`; and when the read functions do
+  arrive, Portfolio must grant `risk_writer` execute on them. Admission is permission to build and verify this
+  one read.
   It authorizes no Risk decision, no production effect, and no real trading.
 - **TARGET - Risk Engine:** the inherited `RiskEngine` in `crates/risk/src/engine/mod.rs` performs pre-trade order
   validation, `TradingState` halt and reduce switching, notional and rate limits, and the sizing in
