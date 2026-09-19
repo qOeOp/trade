@@ -2770,7 +2770,8 @@ mod postgres_acceptance_tests {
             valid_from_epoch_ms: now.saturating_sub(1_000),
             valid_through_epoch_ms: valid_through,
             authorization: authorization.locator(),
-            manifests: manifests.to_vec(),
+            manifests: vibe_product_edge::AgentOperationManifestSetV1::new(manifests.to_vec())
+                .unwrap(),
         })
         .await
         .expect("Product Edge genesis");

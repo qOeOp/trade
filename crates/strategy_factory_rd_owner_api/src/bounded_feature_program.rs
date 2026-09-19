@@ -17,12 +17,14 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::json;
+use vibe_data::owner::strategy_design_role_intent_v1::StrategyDesignRoleIntentV1;
 use vibe_strategy_factory::rd_bounded_feature_program_postgres_v1::{
     PostgresResearchBoundedFeatureProgramOwnerV1, ResearchBoundedFeatureProgramDeclarationV1,
     ResearchBoundedFeatureProgramFreezeReceiptV1, ResearchBoundedFeatureProgramFreezeRequestV1,
     ResearchBoundedFeatureProgramLoweringErrorV1, ResearchBoundedFeatureProgramLoweringV1,
     ResearchBoundedFeatureProgramOwnerErrorV1,
 };
+use vibe_strategy_factory::strategy_design_v2::StrategyDesignV2;
 
 use super::{authorized, insert_rejection_code};
 
@@ -47,6 +49,12 @@ trait ResearchBoundedFeatureProgramPort: Send + Sync {
         &self,
         research_request_locator: &str,
     ) -> Result<ResearchBoundedFeatureProgramLoweringV1, ResearchBoundedFeatureProgramLoweringErrorV1>;
+
+    async fn publish_design_role_intent(
+        &self,
+        research_request_locator: &str,
+        design: &StrategyDesignV2,
+    ) -> Result<StrategyDesignRoleIntentV1, ResearchBoundedFeatureProgramOwnerErrorV1>;
 }
 
 #[async_trait::async_trait]
@@ -77,6 +85,14 @@ impl ResearchBoundedFeatureProgramPort for PostgresResearchBoundedFeatureProgram
     {
         Self::lower(self, research_request_locator).await
     }
+
+    async fn publish_design_role_intent(
+        &self,
+        research_request_locator: &str,
+        design: &StrategyDesignV2,
+    ) -> Result<StrategyDesignRoleIntentV1, ResearchBoundedFeatureProgramOwnerErrorV1> {
+        Self::publish_design_role_intent(self, research_request_locator, design).await
+    }
 }
 
 /// Locator-only request. The Owner reads the frozen program it already owns; the caller supplies
@@ -85,6 +101,15 @@ impl ResearchBoundedFeatureProgramPort for PostgresResearchBoundedFeatureProgram
 #[serde(deny_unknown_fields)]
 struct BoundedFeatureProgramLoweringRequestV1 {
     research_request_locator: String,
+}
+
+/// Design and locator. The caller states no identity, digest or role coordinate of its own; all of
+/// them are derived from the Design and the Research custody the locator currently names.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DesignRoleIntentPublicationRequestV1 {
+    research_request_locator: String,
+    design: StrategyDesignV2,
 }
 
 #[derive(Clone)]
@@ -116,6 +141,10 @@ fn bounded_feature_program_router(
         .route(
             "/v1/bounded-feature-programs/lower",
             post(lower_bounded_feature_program),
+        )
+        .route(
+            "/v1/strategy-designs/publish-role-intent",
+            post(publish_design_role_intent),
         )
         .with_state(BoundedFeatureProgramApiState {
             owner,
@@ -184,6 +213,46 @@ async fn declare_bounded_feature_program(
     match state.owner.declare(declaration).await {
         Ok(receipt) => (StatusCode::OK, Json(receipt)).into_response(),
         Err(e) => owner_error(&e, &research_request_locator),
+    }
+}
+
+/// Design-only entry. The Owner states what it knows about a Design, without any program.
+///
+/// This is what a Design's first cycle starts from. Market Data cannot issue binding receipts
+/// without an authenticated statement of the Design's roles, and every other such statement names a
+/// Composer operation over a program whose own identity folds in those receipts. So the caller
+/// sends the Design and the Research locator it belongs to, and the Owner derives the statement
+/// from its own currently accepted custody.
+async fn publish_design_role_intent(
+    State(state): State<BoundedFeatureProgramApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return rejection(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            "unbound",
+        );
+    }
+    let request: DesignRoleIntentPublicationRequestV1 = match serde_json::from_slice(&body) {
+        Ok(request) => request,
+        Err(_) => {
+            return rejection(
+                StatusCode::BAD_REQUEST,
+                "MALFORMED_TYPED_REQUEST",
+                "unbound",
+            );
+        }
+    };
+
+    match state
+        .owner
+        .publish_design_role_intent(&request.research_request_locator, &request.design)
+        .await
+    {
+        Ok(intent) => (StatusCode::OK, Json(intent)).into_response(),
+        Err(e) => owner_error(&e, &request.research_request_locator),
     }
 }
 

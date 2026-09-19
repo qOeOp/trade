@@ -33,6 +33,12 @@ use vibe_data::owner::{
     research_pit_terminal_resolver_from_store_admission_lookup,
 };
 use vibe_data::owner::{
+    instrument_master_admission_v1::{
+        InstrumentMasterAdmissionV1, instrument_master_admission_from_environment_v1,
+    },
+    market_semantics_admission_v1::{
+        MarketSemanticsAdmissionV1, market_semantics_admission_from_environment_v1,
+    },
     pit_market_snapshot_intake_v1::{
         PitMarketSnapshotIntakeV1, pit_market_snapshot_intake_from_environment_v1,
     },
@@ -101,10 +107,7 @@ use vibe_strategy_factory::{
     trial_family::{TrialFamilyDirectResultV1, TrialFamilyError},
 };
 
-#[cfg(feature = "sealed-develop-composer-acceptance")]
 use vibe_strategy_factory::develop_composer_operation_v2::DevelopComposerOperationDispositionV2;
-#[cfg(not(feature = "sealed-develop-composer-acceptance"))]
-use vibe_strategy_factory::develop_composer_operation_v2::DevelopComposerRunRequestV2;
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use vibe_strategy_factory::develop_composer_postgres_v2::DevelopComposerSealedReadLocatorV2;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
@@ -126,6 +129,8 @@ use vibe_strategy_factory::develop_composer_sealed_acceptance_v2::SEALED_DEVELOP
 use vibe_strategy_factory::develop_composer_sealed_acceptance_v2::SealedDevelopComposerAcceptanceV2;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 use vibe_strategy_factory::develop_composer_sealed_acceptance_v2::submitted_or_unknown_response;
+#[cfg(not(feature = "sealed-develop-composer-acceptance"))]
+use vibe_strategy_factory::source_research_composer_postgres_v2::PostgresSourceResearchComposerProductionV2;
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use vibe_strategy_factory::source_research_composer_postgres_v2::{
     SealedPostgresSourceResearchComposerV2, SourceResearchComposerAcceptanceControlV2,
@@ -133,7 +138,14 @@ use vibe_strategy_factory::source_research_composer_postgres_v2::{
     sealed_source_research_composer_a0_execution_count_v2,
 };
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+// The locator is the whole public input on both paths that accept one: the production path,
+// which reads the Design from the request's frozen program, and the sealed acceptance path.
+// The middle configuration - sealed Develop Composer without the source-intake Composer - runs
+// a corpus and takes no locator at all.
+#[cfg(any(
+    not(feature = "sealed-develop-composer-acceptance"),
+    feature = "sealed-source-intake-composer-acceptance"
+))]
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SourceResearchComposerLocatorV2 {
@@ -141,7 +153,10 @@ struct SourceResearchComposerLocatorV2 {
     research_request_locator: String,
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(any(
+    not(feature = "sealed-develop-composer-acceptance"),
+    feature = "sealed-source-intake-composer-acceptance"
+))]
 fn deserialize_research_locator_v2<'de, D>(deserializer: D) -> Result<String, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -218,6 +233,8 @@ struct ApiState {
     develop_composer: Arc<SealedDevelopComposerAcceptanceV2>,
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     develop_composer: Arc<SealedPostgresSourceResearchComposerV2>,
+    #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
+    develop_composer: Arc<PostgresSourceResearchComposerProductionV2>,
     #[cfg(feature = "sealed-develop-composer-acceptance")]
     replay_composition: Option<Arc<ReplayCompositionOwnerV1>>,
 }
@@ -330,6 +347,10 @@ async fn main() -> anyhow::Result<()> {
     let market_data_universe_selection = bootstrap_market_data_universe_selection().await?;
     let market_data_strategy_input_bindings =
         bootstrap_market_data_strategy_input_bindings().await?;
+    let market_data_instrument_master_admission =
+        bootstrap_market_data_instrument_master_admission().await?;
+    let market_data_market_semantics_admission =
+        bootstrap_market_data_market_semantics_admission().await?;
     #[cfg(feature = "sealed-develop-composer-acceptance")]
     let native_replay_scheduling =
         native_replay_scheduling_resolver_v1_from_store_admission_environment().await?;
@@ -342,7 +363,6 @@ async fn main() -> anyhow::Result<()> {
     let instrument_economic_terms =
         Arc::new(instrument_economic_terms_postgres_owner_from_environment_v1().await?);
     let database_url = required_env("RD_OWNER_DATABASE_URL")?;
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
     let composer_writer_database_url = required_env("RD_FACT_WRITER_DATABASE_URL")?;
     let qualification_database_url = required_env("QUALIFICATION_OWNER_DATABASE_URL")?;
     let product_edge_database_url = required_env("PRODUCT_EDGE_DATABASE_URL")?;
@@ -416,6 +436,14 @@ async fn main() -> anyhow::Result<()> {
         )
         .await?,
     );
+    #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
+    let develop_composer = Arc::new(
+        PostgresSourceResearchComposerProductionV2::connect(
+            &database_url,
+            &composer_writer_database_url,
+        )
+        .await?,
+    );
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     let develop_composer_read: Arc<dyn DevelopComposerSealedReadPortV2> = develop_composer.clone();
     #[cfg(feature = "sealed-develop-composer-acceptance")]
@@ -478,6 +506,8 @@ async fn main() -> anyhow::Result<()> {
         #[cfg(feature = "sealed-develop-composer-acceptance")]
         develop_composer_read: Some(develop_composer_read),
         #[cfg(feature = "sealed-develop-composer-acceptance")]
+        develop_composer,
+        #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
         develop_composer,
         #[cfg(feature = "sealed-develop-composer-acceptance")]
         replay_composition: Some(replay_composition),
@@ -653,6 +683,8 @@ async fn main() -> anyhow::Result<()> {
             market_data_source_binding_admission,
             market_data_universe_selection,
             market_data_strategy_input_bindings,
+            market_data_instrument_master_admission,
+            market_data_market_semantics_admission,
             token_digest,
         ));
     #[cfg(feature = "sealed-develop-composer-acceptance")]
@@ -792,6 +824,28 @@ async fn bootstrap_market_data_strategy_input_bindings()
     }
     Ok(Some(
         strategy_input_binding_admission_from_environment_v1().await?,
+    ))
+}
+
+/// Composes the Market Data Market Semantics admission when its store is configured.
+async fn bootstrap_market_data_market_semantics_admission()
+-> anyhow::Result<Option<Arc<dyn MarketSemanticsAdmissionV1>>> {
+    if env::var("MARKET_DATA_OWNER_DATABASE_URL").is_err() {
+        return Ok(None);
+    }
+    Ok(Some(
+        market_semantics_admission_from_environment_v1().await?,
+    ))
+}
+
+/// Composes the Market Data Instrument Master V1 admission when its store is configured.
+async fn bootstrap_market_data_instrument_master_admission()
+-> anyhow::Result<Option<Arc<dyn InstrumentMasterAdmissionV1>>> {
+    if env::var("MARKET_DATA_OWNER_DATABASE_URL").is_err() {
+        return Ok(None);
+    }
+    Ok(Some(
+        instrument_master_admission_from_environment_v1().await?,
     ))
 }
 
@@ -1023,7 +1077,10 @@ async fn run_develop_composer(
 
     #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
     {
-        let request: DevelopComposerRunRequestV2 = match serde_json::from_slice(&body) {
+        // The whole public input is the Research request locator. The Design comes from that
+        // request's frozen Bounded Feature Program, and its Market Data bindings are resolved
+        // inside the Owner transaction, so a caller can supply neither.
+        let request: SourceResearchComposerLocatorV2 = match serde_json::from_slice(&body) {
             Ok(request) => request,
             Err(_) => {
                 return composer_response(
@@ -1032,10 +1089,18 @@ async fn run_develop_composer(
                 );
             }
         };
-        composer_response(
-            StatusCode::SERVICE_UNAVAILABLE,
-            default_unavailable_response(&request.request_identity),
-        )
+
+        match state
+            .develop_composer
+            .run_bounded_feature_program(&request.research_request_locator)
+            .await
+        {
+            Ok(response) => composer_operation_response(response),
+            Err(_) => composer_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                default_unavailable_response(&request.research_request_locator),
+            ),
+        }
     }
 
     #[cfg(all(
@@ -1214,7 +1279,6 @@ async fn read_develop_composer(
     }
 }
 
-#[cfg(feature = "sealed-develop-composer-acceptance")]
 fn composer_operation_response(response: DevelopComposerOperationResponseV2) -> Response {
     let status = match response.disposition {
         DevelopComposerOperationDispositionV2::Success => StatusCode::OK,
@@ -1853,7 +1917,11 @@ async fn start_provider_invocation(
         Ok(Some(claim)) => claim,
         Ok(None) => {
             return artifact_product_edge_error(
-                &ProductEdgeError::Unavailable,
+                &ProductEdgeError::unavailable_for(
+                    vibe_product_edge::ProductEdgeUnavailableReasonV1::Missing,
+                    vibe_product_edge::ProductEdgeSubjectKindV1::Request,
+                    &build_request_identity,
+                ),
                 &build_request_identity,
                 &attempt_identity,
             );
@@ -2309,7 +2377,11 @@ where
         ) => {}
         Ok(ArtifactRequestIdentityPreflightV1::LegacyTerminalQuarantined) | Err(_) => {
             return Err((
-                ProductEdgeError::Unavailable,
+                ProductEdgeError::unavailable_for(
+                    vibe_product_edge::ProductEdgeUnavailableReasonV1::DownstreamCustodyMismatch,
+                    vibe_product_edge::ProductEdgeSubjectKindV1::Request,
+                    build_request_identity,
+                ),
                 build_request_identity.to_string(),
                 attempt_identity.to_string(),
             ));
@@ -2615,7 +2687,7 @@ fn product_edge_error(error: &ProductEdgeError, request_identity: &str, v2: bool
     let status = match error {
         ProductEdgeError::ConflictingReplay => StatusCode::CONFLICT,
         ProductEdgeError::InvalidProposal(_) => StatusCode::BAD_REQUEST,
-        ProductEdgeError::Unavailable | ProductEdgeError::Storage(_) => {
+        ProductEdgeError::Unavailable(_) | ProductEdgeError::Storage(_) => {
             StatusCode::SERVICE_UNAVAILABLE
         }
     };
@@ -2643,7 +2715,7 @@ fn artifact_product_edge_error(
             "PRODUCT_EDGE_REQUEST_REJECTED",
             ArtifactBuildResultV1::submitted_or_unknown(build_request_identity, attempt_identity),
         ),
-        ProductEdgeError::Unavailable | ProductEdgeError::Storage(_) => (
+        ProductEdgeError::Unavailable(_) | ProductEdgeError::Storage(_) => (
             StatusCode::SERVICE_UNAVAILABLE,
             "OWNER_OUTCOME_UNKNOWN",
             ArtifactBuildResultV1::submitted_or_unknown(build_request_identity, attempt_identity),
@@ -2967,7 +3039,7 @@ mod tests {
                 valid_from_epoch_ms: now.saturating_sub(1_000),
                 valid_through_epoch_ms: now.saturating_add(3_600_000),
                 authorization: authorization.locator(),
-                manifests,
+                manifests: vibe_product_edge::AgentOperationManifestSetV1::new(manifests).unwrap(),
             })
             .await
             .unwrap();
@@ -3120,6 +3192,15 @@ mod tests {
             #[cfg(feature = "sealed-source-intake-composer-acceptance")]
             develop_composer: Arc::new(
                 SealedPostgresSourceResearchComposerV2::connect(
+                    test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+                    test_database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+                )
+                .await
+                .unwrap(),
+            ),
+            #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
+            develop_composer: Arc::new(
+                PostgresSourceResearchComposerProductionV2::connect(
                     test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
                     test_database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
                 )
@@ -3406,6 +3487,15 @@ mod tests {
             #[cfg(feature = "sealed-source-intake-composer-acceptance")]
             develop_composer: Arc::new(
                 SealedPostgresSourceResearchComposerV2::connect(
+                    test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+                    test_database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+                )
+                .await
+                .unwrap(),
+            ),
+            #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
+            develop_composer: Arc::new(
+                PostgresSourceResearchComposerProductionV2::connect(
                     test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
                     test_database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
                 )
@@ -3853,6 +3943,26 @@ mod tests {
             product_edge_outbox_before_tampered_retry
         );
         assert_eq!(rd_attempt_after_tampered_retry, tampered_attempt);
+
+        // The ordered chain shares one store: a later entry's directory read verifies every
+        // recent attempt and would rightly refuse this tampered seal. Restore the exact custody
+        // the proof found after its own legitimate retry, and prove the restoration reads back.
+        sqlx::query(
+            "UPDATE rd_artifact_build_attempts_v1 SET attempt_json=$1 WHERE build_request_identity=$2",
+        )
+        .bind(&rd_attempt_after_retry)
+        .bind(&build_request_identity)
+        .execute(rd_owner_pool)
+        .await
+        .unwrap();
+        let rd_attempt_after_restore: serde_json::Value = sqlx::query_scalar(
+            "SELECT attempt_json FROM rd_artifact_build_attempts_v1 WHERE build_request_identity=$1",
+        )
+        .bind(&build_request_identity)
+        .fetch_one(rd_owner_pool)
+        .await
+        .unwrap();
+        assert_eq!(rd_attempt_after_restore, rd_attempt_after_retry);
     }
 
     async fn rd_owned_relation_snapshot(pool: &sqlx::PgPool) -> Vec<(String, serde_json::Value)> {
@@ -4209,8 +4319,13 @@ mod tests {
 
     #[tokio::test]
     async fn product_edge_unavailable_projects_same_attempt_resolution() {
-        let response =
-            artifact_product_edge_error(&ProductEdgeError::Unavailable, "build-1", "attempt-1");
+        let response = artifact_product_edge_error(
+            &ProductEdgeError::unavailable(
+                vibe_product_edge::ProductEdgeUnavailableReasonV1::Missing,
+            ),
+            "build-1",
+            "attempt-1",
+        );
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(
             response.headers().get("x-rd-rejection-code").unwrap(),
@@ -4338,7 +4453,10 @@ mod tests {
         )
         .await;
 
-        assert!(matches!(result, Err((ProductEdgeError::Unavailable, _, _))));
+        assert!(matches!(
+            result,
+            Err((ProductEdgeError::Unavailable(_), _, _))
+        ));
         assert_eq!(concrete.preflight_calls.load(Ordering::SeqCst), 1);
         assert_eq!(product_edge_admission_calls.load(Ordering::SeqCst), 0);
     }

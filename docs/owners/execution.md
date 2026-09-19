@@ -60,14 +60,19 @@ permission by itself. The rows marked `IMPLEMENTATION_ADMITTED` below are the on
 entries passing on Linux, and a production path that depends on no testkit or acceptance feature; every other row
 grants nothing, and widening the admitted set requires changing this document first.
 
-- **CURRENT_PARTIAL / IMPLEMENTATION_ADMITTED - `PAPER` Execution Adapter Binding contract:** `crates/execution/src/adapter_binding.rs` owns the
-  untrusted binding vocabulary, `PAPER` account and effect namespace derivation, the sealed
-  `AdmittedPaperAdapterBinding` readback, and the `PaperAdapterBindingReadPort` that alone can mint it. The positive
-  Owner store is `#[cfg(test)]` only, so production holds no composition root, durable custody, invocation surface,
-  or credential access. Admitted slice: the production Owner store over PostgreSQL custody, admission of one
-  `crates/adapters/sandbox` simulated-adapter binding under one `PAPER` Execution Scope, and the `ADMITTED` readback
-  handed to Strategy Governance. A `LIVE` binding stays **TARGET / NOT_ADMITTED**.
-- **CURRENT_PARTIAL - `PAPER` recovery-frontier read contract:** `crates/execution/src/recovery_frontier.rs` exposes
+- **CURRENT_PARTIAL / IMPLEMENTATION_ADMITTED - `PAPER` Execution Adapter Binding contract:**
+  `crates/execution_owner/src/adapter_binding.rs` owns the untrusted binding vocabulary, `PAPER` account and effect
+  namespace derivation, the single commit and resolution rule, the sealed `AdmittedPaperAdapterBinding` readback,
+  and the `PaperAdapterBindingReadPort` that alone can mint it. `crates/execution_owner/src/adapter_binding_postgres.rs`
+  is the production Owner store: PostgreSQL custody under `execution_private` that applies that rule under one
+  per-node stream lock, records every fact with its outbox row, commits the simulated account's opening collateral
+  fact (`crates/execution_owner/src/paper_account_opening.rs`), and exposes read-only `execution_api` functions to
+  Strategy Governance and Portfolio. Its `#[ignore]` proof runs against the canonical Owner PostgreSQL topology. No
+  deployed binary composes it yet, so it holds no production composition root, invocation surface, or credential
+  access. Admitted slice: admission of one `crates/adapters/sandbox` simulated-adapter binding under one `PAPER`
+  Execution Scope through that store, and the `ADMITTED` readback handed to Strategy Governance. A `LIVE` binding
+  stays **TARGET / NOT_ADMITTED**.
+- **CURRENT_PARTIAL - `PAPER` recovery-frontier read contract:** `crates/execution_owner/src/recovery_frontier.rs` exposes
   the query-only `RecoveryFrontierReadPort` and its sealed `SealedRecoveryFrontier`, consumed by the Runtime
   foundation; no production custody or Runtime application exists behind it.
 - **TARGET - Order Engine, Effect Journal, and permit-bound adapter admission:** the inherited `ExecutionEngine`,

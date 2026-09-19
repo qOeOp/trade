@@ -85,24 +85,47 @@ docker compose \
   --profile authority-admin run --rm authority-custody-migrate
 ```
 
-The default R&D API startup additionally requires a sealed Replay Policy Catalog
-genesis request and independently trusted verifier configuration. Set
+The default R&D API startup additionally requires the sealed Replay Policy Catalog
+create command and independently trusted verifier configuration. Set
 `REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL` to the dedicated Catalog broker connection, set
-`REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST` to the absolute path of the sealed JSON
-request, set `REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY`, and set
+`REPLAY_POLICY_CATALOG_BOOTSTRAP_CREATE_COMMAND` and
+`REPLAY_POLICY_CATALOG_BOOTSTRAP_ADVANCE_COMMAND` to the absolute paths of the two sealed
+JSON commands, set `REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY`, and set
 `REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY` to the absolute path of its
-lowercase-hex public-key file. Keep both files private and outside the repository.
-The verifier key is mounted separately from the request; no Product Edge,
+lowercase-hex public-key file. Keep every file private and outside the repository.
+The verifier key is mounted separately from the commands; no Product Edge,
 Dashboard, deployment, or environment setting can supply or generate policy
 meaning.
 
+An administrator authors each command as JSON in its authoring form - the command identity
+and kind, the administrator and verifier identities, the expected predecessor and head, the
+catalog record identity and version, the Replay execution policy with every identity, version
+and digest spelled out, the economic configuration input and the runner profile input - and
+seals it with the private Ed25519 signing key whose public half is the trusted verifier. The
+sealer refuses to overwrite an existing sealed command, never prints the key, and proves the
+sealed bytes verify before writing them. Run it on the administrator's machine, not in the
+stack:
+
+```bash
+REPLAY_POLICY_CATALOG_COMMAND_AUTHORING_PATH=/absolute/path/to/private-create-command-authoring.json \
+REPLAY_POLICY_CATALOG_SIGNING_KEY_PATH=/absolute/path/to/private-replay-policy-catalog-signing-key.hex \
+REPLAY_POLICY_CATALOG_SEALED_COMMAND_OUTPUT_PATH=/absolute/path/to/private-sealed-replay-policy-catalog-create-command.json \
+  cargo run --locked --release -p vibe-strategy-factory-rd-owner-api --bin replay-policy-catalog-command-seal
+```
+
+Seal the `CREATE` command for catalog version 1 with no expected predecessor or head, then the
+`ADVANCE` command for the same record with the same expectations; the signing key file holds
+the 32-byte seed as 64 lowercase hex characters.
+
 `replay-policy-catalog-bootstrap` is an opt-in `authority-admin` one-shot service. It runs only
-after successful custody migration, calls the Strategy Factory authenticated
-ensure operation, and exits only after canonical Catalog readback. It prints one
-bounded receipt JSON to stdout without the request, signature, key, or database
-credential. A missing, invalid, conflicting, or unreadable input exits nonzero
-and prevents `rd-owner-api` from listening. An administrator may inspect the
-idempotent result before starting the rest of the stack:
+after successful custody migration, applies the sealed create command and then the sealed
+advance command through the authenticated Catalog administration path, and exits only after
+the current head reads back as exactly the record the create command described. It prints one
+bounded receipt JSON to stdout carrying the published digests and nothing that could
+reconstruct a command, signature, key, or database credential. A missing, invalid, conflicting,
+or unreadable input exits nonzero and prevents `rd-owner-api` from listening. Exact replay of
+the same two commands resolves without writing. An administrator may inspect the idempotent
+result before starting the rest of the stack:
 
 ```bash
 docker compose \
@@ -111,6 +134,10 @@ docker compose \
   -f product/rd-workbench/docker-compose.yml \
   --profile authority-admin run --rm replay-policy-catalog-bootstrap
 ```
+
+`replay-policy-catalog-owner-readback` gates every default startup: as `rd_owner`, holding no
+mutation capability, it authenticates the sealed create command and refuses unless the current,
+unrevoked Catalog head is exactly the record that command described.
 
 Then an administrator may explicitly run the one-time bootstrap with the
 private JSON path named by `PRODUCT_EDGE_BOOTSTRAP_CONFIG`. Exact replay joins;

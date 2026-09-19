@@ -856,9 +856,32 @@ pub(crate) mod tests {
         admit()
     }
 
-    /// The exact operation request that reproduces [`admission_fixture`].
-    pub(crate) fn admission_request_fixture() -> IterationResultAdmissionOperationRequestV1 {
-        request()
+    /// The same admission under a distinct locator, for a store that already holds another.
+    ///
+    /// The durable tests share one database, so two of them committing the fixture's own locator
+    /// would collide on a primary key rather than prove anything about custody. The seed changes
+    /// only which iteration the admission is about; every derived identity follows from it.
+    pub(crate) fn seeded_admission_fixture(seed: &str) -> IterationResultAdmissionReadbackV1 {
+        let request = seeded_admission_request_fixture(seed);
+        let mut seeded = input();
+        // The Result, family and proposal set must name one experiment, so every binding moves with
+        // the locator rather than being left behind pointing at the unseeded one.
+        seeded.family.trial_family_identity = request.locator.trial_family_identity.clone();
+        seeded.backtest.result_identity = request.locator.result_identity.clone();
+        issue_iteration_result_admission_v1(&request, seeded, COMMITTED_AT)
+            .expect("complete Owner-locked admission")
+    }
+
+    /// The exact operation request that reproduces [`seeded_admission_fixture`].
+    pub(crate) fn seeded_admission_request_fixture(
+        seed: &str,
+    ) -> IterationResultAdmissionOperationRequestV1 {
+        let mut value = request();
+        value.locator.trial_family_identity = format!("rd-trial-family-1-{seed}");
+        // The stored admission is unique by Result as well as by identity, so a second durable test
+        // committing the same Result would collide on a constraint rather than prove anything.
+        value.locator.result_identity = format!("backtest-result-1-{seed}");
+        value
     }
 
     #[rstest]

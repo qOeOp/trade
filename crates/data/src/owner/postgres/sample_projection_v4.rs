@@ -716,11 +716,6 @@ pub(crate) mod tests {
         },
         sample_projection_v4::VerifiedV3ProjectionSourceV4,
         source_binding::BindingDigest,
-        strategy_input_binding::{
-            MarketDataFieldSemantic, StrategyInputChannel, StrategyInputUnit,
-            UntrustedStrategyInputBindingRequest, UntrustedStrategyInputScope,
-            bind_strategy_input_event_frame, bind_strategy_input_role,
-        },
         strategy_input_joined_cut::{
             StrategyInputJoinRoleClaimV1, UntrustedStrategyInputJoinClaimV1,
             derive_strategy_input_join_identity_v2, issue_strategy_input_joined_cut_v1,
@@ -909,6 +904,13 @@ pub(crate) mod tests {
         }
     }
 
+    /// V4 FRAME custody against a real store: an interrupted commit leaves no row, a lost response
+    /// is retried to byte-identical custody, a restarted Owner resolves the same bytes, a spliced
+    /// receipt is untrusted rather than served, and the reader role reaches nothing.
+    ///
+    /// The joined cut is assembled in memory to prove `prepare_joined_cut_v4` closes over two
+    /// stored V3 projections of two distinct observed facts; its durable custody is proven by the
+    /// full-custody oracles named below, not here.
     #[tokio::test]
     #[ignore = "requires a disposable Market Data PostgreSQL database"]
     async fn postgres_v4_is_atomic_idempotent_exact_and_tamper_closed() {
@@ -918,10 +920,10 @@ pub(crate) mod tests {
         let owner_url = env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL").unwrap();
         let reader_url = env::var("MARKET_DATA_READER_TEST_DATABASE_URL").unwrap();
         let owner = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
-        let fixture = crate::owner::sample_fact::tests::bar_postgres_schedule_fixture_v1();
+        let fixture = crate::owner::sample_fact::tests::bar_postgres_two_role_schedule_fixture_v1();
         let prepared_schedule = crate::owner::bar_schedule::prepare_bar_schedule_commit_v1(
             fixture.schedule_proposal.clone(),
-            &fixture.binding,
+            &fixture.close_binding,
             &fixture.batch,
             &fixture.instrument_master,
         )
@@ -931,12 +933,12 @@ pub(crate) mod tests {
             .await
             .unwrap();
         let timeframe =
-            prepare_bar_timeframe_projection_v1(&fixture.binding, &fixture.batch, &schedule)
+            prepare_bar_timeframe_projection_v1(&fixture.close_binding, &fixture.batch, &schedule)
                 .unwrap();
         let sample = owner
             .commit_prepared_sample_v1(
                 &prepare_sample_commit_v1(
-                    &fixture.binding,
+                    &fixture.close_binding,
                     &fixture.batch,
                     &timeframe,
                     SampleFactHeadsV1 {
@@ -949,9 +951,9 @@ pub(crate) mod tests {
             .await
             .unwrap();
         let prepared_v3 = prepare_strategy_input_sample_projection_bar_v3(
-            &fixture.frame,
+            &fixture.close_frame,
             &[StrategyInputSampleProjectionSourceV3 {
-                binding: &fixture.binding,
+                binding: &fixture.close_binding,
                 timeframe: &timeframe,
                 sample: &sample,
                 schedule: &schedule,
@@ -962,40 +964,11 @@ pub(crate) mod tests {
             .commit_strategy_input_sample_projection_v3(&prepared_v3)
             .await
             .unwrap();
-        let second_request = UntrustedStrategyInputBindingRequest {
-            research_request_identity: d(20),
-            strategy_design_identity: d(21),
-            input_role_identity: d(18),
-            scope: UntrustedStrategyInputScope::ExactInstrument {
-                instrument: "AAPL.XNAS".into(),
-            },
-            field_semantic: MarketDataFieldSemantic::BarClosePrice,
-            channel: StrategyInputChannel::Market,
-            timeframe: "not-a-timeframe-authority".into(),
-            unit: StrategyInputUnit::Price,
-            scale: 2,
-            pit_request_identity: fixture.batch.request_identity(),
-            pit_request_digest: fixture.batch.request_digest(),
-            snapshot_identity: fixture.batch.snapshot_identity(),
-            snapshot_fact_digest: fixture.batch.fact_digest(),
-            observation_batch_digest: fixture.batch.digest(),
-            source_binding_identity: fixture.batch.source_binding_identity(),
-            source_frontier_digest: fixture.batch.source_frontier_digest(),
-            correction_frontier_digest: fixture.batch.correction_frontier_digest(),
-            instrument_master_digest: fixture.batch.instrument_master_digest(),
-            universe_selection_digest: fixture.batch.universe_selection_digest(),
-            market_semantics_identity: fixture.batch.market_semantics_identity(),
-            decision_cut: fixture.batch.time_evidence().decision_cut.value,
-        };
-        let second_binding = bind_strategy_input_role(&second_request, &fixture.batch).unwrap();
-        assert!(
-            second_binding.locator().input_role_identity()
-                < fixture.binding.locator().input_role_identity(),
-            "joined semantic order must differ from canonical role-digest order"
-        );
-        let second_frame =
-            bind_strategy_input_event_frame(std::slice::from_ref(&second_binding), &fixture.batch)
-                .unwrap();
+        // The second role reads the batch's OPEN row. A role that re-read the CLOSE row would
+        // prepare the same sample fact, whose identity covers what was observed and not who
+        // asked, and the Owner would refuse the second commit as an identity conflict.
+        let second_binding = fixture.open_binding;
+        let second_frame = fixture.open_frame;
         let second_timeframe =
             prepare_bar_timeframe_projection_v1(&second_binding, &fixture.batch, &schedule)
                 .unwrap();
@@ -1046,7 +1019,7 @@ pub(crate) mod tests {
             roles: vec![
                 StrategyInputJoinRoleClaimV1 {
                     semantic_id: "first".into(),
-                    input_role_identity: fixture.binding.locator().input_role_identity(),
+                    input_role_identity: fixture.close_binding.locator().input_role_identity(),
                 },
                 StrategyInputJoinRoleClaimV1 {
                     semantic_id: "second".into(),
@@ -1054,29 +1027,18 @@ pub(crate) mod tests {
                 },
             ],
         };
-        let census =
-            seal_strategy_input_join_census_v1(vec![fixture.frame.clone(), second_frame.clone()])
-                .unwrap();
+        let census = seal_strategy_input_join_census_v1(vec![
+            fixture.close_frame.clone(),
+            second_frame.clone(),
+        ])
+        .unwrap();
         let joined = issue_strategy_input_joined_cut_v1(
             &claim,
-            &[fixture.binding.clone(), second_binding.clone()],
+            &[fixture.close_binding.clone(), second_binding.clone()],
             &census,
             second_frame.trigger().lifecycle().logical_time(),
         )
         .unwrap();
-        let shared_fixture = commit_joined_bar_projection_fixture_v4(
-            &owner,
-            &[
-                fixture.schedule_proposal.clone(),
-                fixture.schedule_proposal.clone(),
-            ],
-            &[fixture.binding.clone(), second_binding],
-            &[fixture.frame.clone(), second_frame.clone()],
-            &fixture.batch,
-            &fixture.instrument_master,
-            &joined,
-        )
-        .await;
         let mut transaction = owner.pool.begin().await.unwrap();
         let stored = load_strategy_input_sample_projection_v3(
             &mut transaction,
@@ -1152,11 +1114,17 @@ pub(crate) mod tests {
             joined_prepared.subject_identity(),
             *joined.digest().as_bytes()
         );
-        assert_eq!(
-            shared_fixture.joined.receipt_digest(),
-            joined_prepared.receipt_digest()
-        );
-        let prepared = shared_fixture.frame;
+        // Only the FRAME projection is committed here. A JOINED_CUT commit anchors itself to the
+        // observation census and the binding declarations the Owner holds for that Design, which
+        // this in-memory batch never registered; that custody is proven where it exists, by
+        // `postgres_owner_is_atomic_restart_safe_acl_sealed_and_fail_closed` and by the ordered
+        // chain's replay composition proof.
+        let prepared =
+            crate::owner::sample_projection_v4::prepare_frame_v4(VerifiedV3ProjectionSourceV4 {
+                projection: &stored.decoded,
+                dependencies: &dependencies,
+            })
+            .unwrap();
         let before: (i64, i64, i64, i64) = sqlx::query_as("SELECT (SELECT COUNT(*) FROM market_data_private.strategy_input_sample_projection_receipts_v4),(SELECT COUNT(*) FROM market_data_private.strategy_input_sample_projection_dependencies_v4),(SELECT COUNT(*) FROM market_data_private.strategy_input_sample_projection_readbacks_v4),(SELECT COUNT(*) FROM market_data_private.strategy_input_sample_projection_outbox_v4)")
             .fetch_one(&owner.pool).await.unwrap();
         assert_eq!(

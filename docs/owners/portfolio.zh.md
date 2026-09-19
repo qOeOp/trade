@@ -6,6 +6,11 @@
 
 ## 拥有的权威事实
 
+- 版本化的计量方法学：Portfolio 把已提交 Execution 事实与 Market Data 估值事实变成它所拥有的每项投影时所用的定义。
+  一个版本固定报告币种与 FX 换算点、持仓与损益口径、收益与回撤定义、稳定性度量、风险资金口径，以及与候选无关的
+  pool 方法学及其假设。方法学归 Portfolio 所有；Market Data 拥有估值事实及其自身版本，任何消费者都不得替换方法学。
+  改动任何定义都产生后继版本，绝不改写已提交 receipt。每个 receipt 绑定它实际使用的准确版本；不同方法学版本下的
+  receipt 不可比较，也不能拼接进同一个证据截面。
 - Account State 包含余额 持仓 保证金 权益 已实现和未实现损益，并绑定一个 Execution Scope 和账户命名空间。
 - 按账户 资产 策略 方向 币种和相关风险维度划分的 Exposure。
 - 按策略 generation 和治理窗口生成的 Performance Receipt，绑定准确 Execution Scope、Execution 与账户事实截面 估值与方法版本 实际风险资金和新鲜度。

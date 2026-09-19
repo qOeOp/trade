@@ -219,12 +219,13 @@ pub(crate) async fn commit_composer_v3(
         .await
         .map_err(storage)?;
 
-    if let Some(existing) =
+    if let Some(existing) = Box::pin(
         super::composer_readback_v3::resolve_existing_composer_v3_in_transaction(
             &mut transaction,
             &proposal,
-        )
-        .await?
+        ),
+    )
+    .await?
     {
         let result = existing_to_commit_result(existing);
         transaction.commit().await.map_err(storage)?;
@@ -252,12 +253,13 @@ pub(crate) async fn commit_composer_v3(
         .await
         .map_err(storage)?;
 
-    if let Some(existing) =
+    if let Some(existing) = Box::pin(
         super::composer_readback_v3::resolve_existing_composer_v3_in_transaction(
             &mut transaction,
             &proposal,
-        )
-        .await?
+        ),
+    )
+    .await?
     {
         let result = existing_to_commit_result(existing);
         transaction.commit().await.map_err(storage)?;
@@ -376,9 +378,11 @@ pub(crate) async fn commit_composer_v3(
     persist_research_view_transition_outbox(&mut transaction, &transition).await?;
     // A first write is not deliverable until the very same exact historical read port can
     // reconstruct it. Any missing Owner evidence rolls the entire transaction back.
-    let sealed = super::composer_readback_v3::resolve_existing_composer_v3_in_transaction(
-        &mut transaction,
-        &proposal,
+    let sealed = Box::pin(
+        super::composer_readback_v3::resolve_existing_composer_v3_in_transaction(
+            &mut transaction,
+            &proposal,
+        ),
     )
     .await?
     .ok_or_else(|| unavailable("Composer Replay post-write readback is unavailable"))?;

@@ -19,6 +19,7 @@ use sqlx::{Postgres, Row, Transaction};
 use crate::owner::{
     pit_snapshot::VerifiedPitObservationBatch,
     source_binding::BindingDigest,
+    strategy_design_role_intent_v1::StrategyDesignRoleIntentV1,
     strategy_design_role_set::{StrategyDesignRoleEntryV1, StrategyDesignRoleSetReceiptV1},
     strategy_input_binding::{
         MarketDataFieldSemantic, StrategyInputChannel, StrategyInputUnit,
@@ -148,6 +149,41 @@ pub(super) async fn resolve_role_snapshot_v1(
     })
 }
 
+/// The two Design coordinates every binding request in one registration carries.
+///
+/// Both an attested role set and a published Design role intent state them, and a request that
+/// transposed them would name a Design that does not exist rather than failing to compile, so the
+/// pair travels as one value that only an authenticated shape can construct.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct AuthenticatedDesignIdentityV1 {
+    research_request_identity: BindingDigest,
+    design_identity: BindingDigest,
+}
+
+impl AuthenticatedDesignIdentityV1 {
+    pub(super) const fn from_role_set(receipt: &StrategyDesignRoleSetReceiptV1) -> Self {
+        Self {
+            research_request_identity: receipt.research_request_identity,
+            design_identity: receipt.design_identity,
+        }
+    }
+
+    pub(super) const fn from_role_intent(intent: &StrategyDesignRoleIntentV1) -> Self {
+        Self {
+            research_request_identity: intent.research_request_identity(),
+            design_identity: intent.design_identity(),
+        }
+    }
+
+    pub(super) const fn research_request_identity(self) -> BindingDigest {
+        self.research_request_identity
+    }
+
+    pub(super) const fn design_identity(self) -> BindingDigest {
+        self.design_identity
+    }
+}
+
 /// Composes the V1 binding request a role's declaration is registered under.
 ///
 /// Every Market Data fact in the result is read off the Owner's own verified batch, and every
@@ -155,7 +191,7 @@ pub(super) async fn resolve_role_snapshot_v1(
 /// is what lets `register_strategy_input_binding_declaration_v1` treat the result as a claim it
 /// re-derives rather than as evidence.
 pub(super) fn compose_binding_request_v1(
-    receipt: &StrategyDesignRoleSetReceiptV1,
+    design: AuthenticatedDesignIdentityV1,
     role: &StrategyDesignRoleEntryV1,
     batch: &VerifiedPitObservationBatch,
 ) -> Result<UntrustedStrategyInputBindingRequest, PitRoleResolutionErrorV1> {
@@ -170,8 +206,8 @@ pub(super) fn compose_binding_request_v1(
         return Err(PitRoleResolutionErrorV1::UnitMismatch);
     }
     Ok(UntrustedStrategyInputBindingRequest {
-        research_request_identity: receipt.research_request_identity,
-        strategy_design_identity: receipt.design_identity,
+        research_request_identity: design.research_request_identity,
+        strategy_design_identity: design.design_identity,
         input_role_identity: role.role_identity,
         scope: UntrustedStrategyInputScope::ExactInstrument {
             instrument: role.instrument.clone(),

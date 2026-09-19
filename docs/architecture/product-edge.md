@@ -85,6 +85,15 @@ overlapping schedule delivery is harmless only when the due-slot and Owner idemp
 receipt. Flow error handling may notify and enqueue resolution, but only an Owner receipt closes the business
 operation.
 
+A due slot supplies an identity, never authority. An unattended submission is an ordinary mutating submission and
+binds the same complete Authorization Lineage, including a current non-self-assertable Operator Authorization
+resolved at that run's own cut. The schedule, the due slot, the worker's role, its transport credentials, and its
+environment supply none of those members, so an unattended run that cannot resolve a current Operator
+Authorization fails closed before the first Owner call and creates no admission, run, or provider claim.
+**TARGET / NOT_ADMITTED:** unattended non-trading execution stays closed until an issuance path for that
+authorization is separately specified and admitted; unattended trading additionally requires the Autonomous
+Policy Authorization defined below.
+
 Artifact Formation uses a stable build-request identity and a stable attempt identity in addition to the frozen
 Research Intent identity. Replaying the same semantic tuple joins the same Owner attempt; reusing either identity
 for different semantics is an identity conflict. The exhaustive Owner dispositions are `SUCCESS`,
@@ -451,7 +460,10 @@ subject/effective principal, audience, exact scope, issued and expiry times unde
 frontier, request-proof digest, and content-addressed Agent Operation Manifest. The manifest names the exact
 operation, schema, target Owner, allowed object classes, prohibited writes, and capability-policy digest. The shell
 may select only a manifest member; natural language, local configuration, or possession of a credential cannot
-mint authorization. Secret material remains behind an opaque least-privilege handle and never enters the request.
+mint authorization. The MCP tool registry and the curated operation set are transport surfaces, never authority:
+each member must resolve to a manifest member admitted at the request's own cut, and a registry member with no
+current manifest member fails closed before submission. A registry narrower than the manifest is valid and grants
+nothing; a registry entry wider than the manifest admits no request. Secret material remains behind an opaque least-privilege handle and never enters the request.
 
 Together, the stable request identity, effective principal and scope, admitted `ACTIVE` shell binding and exact
 deployment-history head, Operator Authorization, and Agent Operation Manifest form the request's Authorization

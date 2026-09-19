@@ -11,8 +11,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
-use serde::Deserialize;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{Postgres, Transaction};
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
@@ -26,7 +25,6 @@ use vibe_data::owner::pit_snapshot::sealed_acceptance::{
 };
 use vibe_data::owner::source_binding::BindingDigest;
 use vibe_data::owner::strategy_input_binding::UntrustedStrategyInputCustodyClaimV1;
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use vibe_data::owner::strategy_input_binding::{
     MarketDataFieldSemantic, StrategyInputChannel, StrategyInputUnit,
     UntrustedStrategyInputBindingRequest, UntrustedStrategyInputScope,
@@ -35,26 +33,26 @@ use vibe_data::owner::{
     reread_persisted_strategy_input_custody_for_update_v1,
     resolve_pit_request_for_strategy_design_v1,
 };
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use vibe_indicators_kernel::PrimitiveCatalogV1;
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::develop_composer_operation_v2::{
-    DevelopComposerReadbackOwnerErrorV2, DevelopComposerReadbackOwnerPortV2,
-    DevelopComposerV3BuildRestartPortV2,
+    DevelopComposerA0BuildPortV2, DevelopComposerReadbackOwnerErrorV2,
+    DevelopComposerReadbackOwnerPortV2, request_digest,
 };
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
-use crate::develop_composer_postgres_v2::PostgresDevelopComposerReadStoreV2;
-use crate::develop_composer_postgres_v2::PreparedPostgresDevelopComposerRunV2;
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::develop_composer_postgres_v2::{
     DevelopComposerAcceptanceWriteBoundaryV2, DevelopComposerSealedReadErrorV2,
     DevelopComposerSealedReadLocatorV2, DevelopComposerSealedReadPortV2,
-    PreparedDevelopComposerRunInTransactionV2, SealedDevelopComposerReadbackV2,
-    read_accepted_for_replay_in_transaction, read_accepted_in_transaction,
-    read_accepted_in_transaction_with_v3_restart,
+    PostgresDevelopComposerReadStoreV2, PreparedPostgresDevelopComposerRunV2,
+    SealedDevelopComposerReadbackV2, read_accepted_for_replay_in_transaction,
+    read_accepted_in_transaction, read_accepted_in_transaction_with_v3_restart,
 };
-use crate::develop_plugin_build_v2::DevelopPluginBuildProducerV2;
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use crate::develop_plugin_build_v2::{
+    DevelopPluginBuildProducerV2, DevelopPluginBuildTerminalKindV2,
+    VerifiedDevelopPluginBuildReadV2, source_research_composer_sealed_corpus_verified_build_v2,
+};
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::product_edge::{
     ResearchComposerArtifactViewV3, ResearchExplorationViewV1, ResearchViewV1,
@@ -62,43 +60,40 @@ use crate::product_edge::{
 };
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::rd_owner_postgres_custody::validate_historical_view;
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::{
     bounded_feature_program_lowerer_v1::prepare_frozen_bounded_feature_source_inputs_v1,
+    develop_composer_operation_v2::{
+        DevelopComposerDurableEvidenceLocatorV2, DevelopComposerFinalEvidencePortV2,
+        DevelopComposerLockedEvidenceV2, DevelopComposerOperationResponseV2,
+        DevelopComposerRunRequestV2, DevelopComposerV3BuildRestartPortV2,
+    },
+    develop_composer_postgres_v2::{
+        PostgresDevelopComposerStoreV2, PreparedDevelopComposerRunInTransactionV2,
+    },
+    develop_composer_v2::{CurrentResearchDevelopCustodyV2, DevelopComposerTerminalV2},
     develop_plugin_build_v2::{
-        DevelopPluginBuildTerminalKindV2, UntrustedDevelopPluginCapsuleV2,
-        UntrustedDevelopPluginSourceFileV2, VerifiedDevelopPluginBuildReadV2, bounded_source,
-        source_research_composer_sealed_corpus_verified_build_v2,
+        UntrustedDevelopPluginCapsuleV2, UntrustedDevelopPluginSourceFileV2, bounded_source,
     },
     develop_plugin_build_v2_sandbox::{BUILD_COMMAND, RUSTC_COMMIT, RUSTC_RELEASE, TARGET},
     develop_plugin_build_v3::{
         DevelopPluginBuildProducerV3, DevelopPluginBuildTerminalKindV3,
         DevelopPluginBuildTerminalV3, restart_verified_develop_plugin_build_from_current_inputs_v3,
     },
+    product_edge::FrozenResearchGoalIntent,
+    product_edge_postgres::lock_current_research_artifact_custody_in_transaction,
     rd_bounded_feature_program_v1::{
         FrozenResearchBoundedFeatureProgramV1,
         read_research_bounded_feature_program_in_transaction_v1,
     },
-    strategy_design_v2::*,
-    strategy_plan_v2::{
-        StrategyDesignPreparationV2, prepare_strategy_design_v2, strategy_input_role_identity_v2,
-    },
-};
-use crate::{
-    develop_composer_operation_v2::{
-        DevelopComposerA0BuildPortV2, DevelopComposerDurableEvidenceLocatorV2,
-        DevelopComposerFinalEvidencePortV2, DevelopComposerLockedEvidenceV2,
-        DevelopComposerOperationResponseV2, DevelopComposerRunRequestV2, request_digest,
-    },
-    develop_composer_postgres_v2::PostgresDevelopComposerStoreV2,
-    develop_composer_v2::{CurrentResearchDevelopCustodyV2, DevelopComposerTerminalV2},
-    product_edge::FrozenResearchGoalIntent,
-    product_edge_postgres::lock_current_research_artifact_custody_in_transaction,
     rd_owner_postgres_custody::{
         ResearchCustodyLookupV1, VerifiedResearchCustodyV1,
         admit_all_research_custodies_in_transaction, admit_research_custody_in_transaction,
     },
-    strategy_plan_v2::VerifiedStrategyInputBindingsV2,
+    strategy_design_v2::*,
+    strategy_plan_v2::{
+        StrategyDesignPreparationV2, VerifiedStrategyInputBindingsV2, prepare_strategy_design_v2,
+        strategy_input_role_identity_v2,
+    },
     successor_intent_postgres::{
         lock_by_intent_in_transaction, lock_successor_research_view_in_transaction,
     },
@@ -513,7 +508,6 @@ fn derive_source_research_composer_request_v2(
     })
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 fn source_research_composer_bfp_v3_request_identity(
     research_request_identity: BindingDigest,
 ) -> String {
@@ -525,7 +519,6 @@ fn source_research_composer_bfp_v3_request_identity(
     format!("rd-source-research-composer-bfp-v3-{suffix}")
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 fn derive_source_research_composer_bfp_v3_request(
     research: &CurrentResearchDevelopCustodyV2,
     frozen: &FrozenResearchBoundedFeatureProgramV1,
@@ -576,7 +569,7 @@ fn derive_source_research_composer_bfp_v3_request(
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let mut manifests = design.plugins.iter().cloned().collect::<Vec<_>>();
+    let mut manifests = design.plugins.clone();
     manifests.sort_by(|left, right| left.semantic_id.cmp(&right.semantic_id));
     let plugin_source_capsules = manifests
         .into_iter()
@@ -610,7 +603,6 @@ fn derive_source_research_composer_bfp_v3_request(
     })
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 fn bfp_binding_request(
     input: &InputRoleV2,
     research_request_identity: BindingDigest,
@@ -618,7 +610,7 @@ fn bfp_binding_request(
     seed: u8,
 ) -> Result<UntrustedStrategyInputBindingRequest, DevelopComposerTerminalV2> {
     let field_semantic = MarketDataFieldSemantic::from_identity(&input.field_semantic_id)
-        .ok_or_else(|| market_data_unavailable())?;
+        .ok_or_else(market_data_unavailable)?;
 
     if input.scope != InputScopeV2::ExactInstrument
         || input.instrument.is_empty()
@@ -697,12 +689,10 @@ fn bfp_owner_bindings(
     ))
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 struct FrozenBfpV3Restart<'a> {
     frozen: &'a FrozenResearchBoundedFeatureProgramV1,
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 impl DevelopComposerV3BuildRestartPortV2 for FrozenBfpV3Restart<'_> {
     fn restart(
         &self,
@@ -730,7 +720,6 @@ impl DevelopComposerV3BuildRestartPortV2 for FrozenBfpV3Restart<'_> {
     }
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 fn map_v3_build_terminal(terminal: DevelopPluginBuildTerminalV3) -> DevelopComposerTerminalV2 {
     DevelopComposerTerminalV2 {
         kind: if terminal.kind == DevelopPluginBuildTerminalKindV3::Conflict {
@@ -743,7 +732,6 @@ fn map_v3_build_terminal(terminal: DevelopPluginBuildTerminalV3) -> DevelopCompo
     }
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 fn bfp_restart_unavailable() -> DevelopComposerTerminalV2 {
     DevelopComposerTerminalV2::unavailable(
         "bounded_feature_program.restart",
@@ -877,7 +865,6 @@ fn tamper_source_research_composer_request_v2(
     Ok(())
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 fn source_research_composer_request_identity_v2(
     research_request_identity: BindingDigest,
 ) -> String {
@@ -980,7 +967,6 @@ fn a2_fixed_binding_request(
     }
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 fn a2_digest(seed: u8) -> BindingDigest {
     BindingDigest::from_untrusted_bytes([seed; 32])
 }
@@ -1135,6 +1121,7 @@ fn a2_reaction(kind: LifecycleKindV2, node: &str, state: &str, event: bool) -> R
 /// connection, or transaction and cannot trust a caller-projected binding receipt.
 #[async_trait::async_trait]
 pub(crate) trait SourceResearchComposerBindingOwnerV2: Send + Sync {
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     async fn lock_for_run(
         &self,
         transaction: &mut Transaction<'_, Postgres>,
@@ -1146,6 +1133,17 @@ pub(crate) trait SourceResearchComposerBindingOwnerV2: Send + Sync {
         &self,
         transaction: &mut Transaction<'_, Postgres>,
         locator: &DevelopComposerDurableEvidenceLocatorV2,
+        read_cut_epoch_ms: u64,
+    ) -> Result<VerifiedStrategyInputBindingsV2, DevelopComposerTerminalV2>;
+
+    /// Binds a run whose Design came from the frozen joint Bounded Feature Program.
+    ///
+    /// The frozen pair already carries the admitted Design, so the role set is the Design's own
+    /// rather than a caller's proposal. Which PIT cut answers it stays Market Data's to decide.
+    async fn lock_for_frozen_program(
+        &self,
+        transaction: &mut Transaction<'_, Postgres>,
+        frozen: &FrozenResearchBoundedFeatureProgramV1,
         read_cut_epoch_ms: u64,
     ) -> Result<VerifiedStrategyInputBindingsV2, DevelopComposerTerminalV2>;
 }
@@ -1215,6 +1213,7 @@ impl PostgresSourceResearchComposerBindingOwnerV2 {
 
 #[async_trait::async_trait]
 impl SourceResearchComposerBindingOwnerV2 for PostgresSourceResearchComposerBindingOwnerV2 {
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     async fn lock_for_run(
         &self,
         transaction: &mut Transaction<'_, Postgres>,
@@ -1256,6 +1255,28 @@ impl SourceResearchComposerBindingOwnerV2 for PostgresSourceResearchComposerBind
         )
         .await
     }
+
+    async fn lock_for_frozen_program(
+        &self,
+        transaction: &mut Transaction<'_, Postgres>,
+        frozen: &FrozenResearchBoundedFeatureProgramV1,
+        _read_cut_epoch_ms: u64,
+    ) -> Result<VerifiedStrategyInputBindingsV2, DevelopComposerTerminalV2> {
+        let design: StrategyDesignV2 = serde_json::from_slice(frozen.design_bytes())
+            .map_err(|_| production_market_data_unavailable())?;
+        let declared_roles = design
+            .inputs
+            .iter()
+            .map(strategy_input_role_identity_v2)
+            .collect::<Vec<_>>();
+        Self::read(
+            transaction,
+            frozen.research_request_identity(),
+            frozen.design_identity(),
+            Some(declared_roles),
+        )
+        .await
+    }
 }
 
 fn production_market_data_unavailable() -> DevelopComposerTerminalV2 {
@@ -1265,7 +1286,7 @@ fn production_market_data_unavailable() -> DevelopComposerTerminalV2 {
     )
 }
 
-/// Applies an acceptance tamper to the request. Production has no control to apply.
+/// Applies an acceptance tamper to the request. Only the sealed corpus-backed run carries one.
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 fn apply_composer_run_control_tamper_v2(
     request: &mut DevelopComposerRunRequestV2,
@@ -1277,20 +1298,39 @@ fn apply_composer_run_control_tamper_v2(
     Ok(())
 }
 
+/// Resolve-path tamper selector. Uninhabited in production for the same reason as the run control.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+type ComposerResolveTamperV2 = SourceResearchComposerAcceptanceTamperV2;
 #[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
-const fn apply_composer_run_control_tamper_v2(
-    _request: &mut DevelopComposerRunRequestV2,
-    _control: Option<ComposerRunControlV2>,
-) -> Result<(), DevelopComposerTerminalV2> {
-    Ok(())
+type ComposerResolveTamperV2 = std::convert::Infallible;
+
+/// Rederives the tampered request and reports whether it still matches durable custody.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+fn acceptance_tamper_matches_durable_custody_v2(
+    locked: &DevelopComposerLockedEvidenceV2,
+    selector: ComposerResolveTamperV2,
+    locator: &DevelopComposerDurableEvidenceLocatorV2,
+) -> Result<bool, sqlx::Error> {
+    let mut expected = derive_source_research_composer_request_v2(&locked.research)
+        .map_err(composer_terminal_protocol)?;
+    tamper_source_research_composer_request_v2(&mut expected, selector)
+        .map_err(composer_terminal_protocol)?;
+    Ok(request_digest(&expected) == locator.request_digest)
 }
 
-/// Run control the acceptance composition may pass. It is uninhabited in production, so the
-/// production engine can carry the same parameter without carrying the acceptance behaviour.
+#[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
+const fn acceptance_tamper_matches_durable_custody_v2(
+    _locked: &DevelopComposerLockedEvidenceV2,
+    selector: ComposerResolveTamperV2,
+    _locator: &DevelopComposerDurableEvidenceLocatorV2,
+) -> Result<bool, sqlx::Error> {
+    match selector {}
+}
+
+/// Run control the acceptance composition may pass. The corpus-backed run it steers exists only
+/// under acceptance, so production never carries it.
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 type ComposerRunControlV2 = SourceResearchComposerAcceptanceControlV2;
-#[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
-type ComposerRunControlV2 = std::convert::Infallible;
 
 /// Compile-time-selected A2 Market Data binding Owner.
 ///
@@ -1359,6 +1399,15 @@ impl SourceResearchComposerBindingOwnerV2 for SealedSourceResearchComposerBindin
             &authority,
         ))
     }
+
+    async fn lock_for_frozen_program(
+        &self,
+        _transaction: &mut Transaction<'_, Postgres>,
+        frozen: &FrozenResearchBoundedFeatureProgramV1,
+        _read_cut_epoch_ms: u64,
+    ) -> Result<VerifiedStrategyInputBindingsV2, DevelopComposerTerminalV2> {
+        bfp_owner_bindings(frozen)
+    }
 }
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
@@ -1390,7 +1439,6 @@ fn verify_sealed_a2_market_authority(
     Ok(())
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 fn market_data_unavailable() -> DevelopComposerTerminalV2 {
     DevelopComposerTerminalV2::unavailable(
         "market_data_binding",
@@ -1564,6 +1612,7 @@ where
     }
 
     /// Runs the existing Composer operation from canonical, transaction-locked Owner evidence.
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     pub(crate) async fn run(
         &self,
         builder: &mut impl DevelopComposerA0BuildPortV2,
@@ -1572,23 +1621,21 @@ where
         Box::pin(self.run_with_optional_control(builder, research_request_locator, None)).await
     }
 
-    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     pub(crate) async fn run_bfp_v3(
         &self,
         producer: &mut DevelopPluginBuildProducerV3,
         research_request_locator: &str,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
         let read_cut_epoch_ms = current_read_cut_epoch_ms();
-        let catalog = PrimitiveCatalogV1::verify()
+        PrimitiveCatalogV1::verify()
             .map_err(|_| composer_terminal_protocol(bfp_restart_unavailable()))?;
         let mut owner_transaction = self.store.begin_read_transaction().await?;
-        let research = match self
-            .lock_research_for_locator(
-                &mut owner_transaction,
-                research_request_locator,
-                read_cut_epoch_ms,
-            )
-            .await
+        let research = match Box::pin(self.lock_research_for_locator(
+            &mut owner_transaction,
+            research_request_locator,
+            read_cut_epoch_ms,
+        ))
+        .await
         {
             Ok(research) => research,
             Err(terminal) => {
@@ -1599,11 +1646,11 @@ where
                 ));
             }
         };
-        let frozen = match read_research_bounded_feature_program_in_transaction_v1(
+        let frozen = match Box::pin(read_research_bounded_feature_program_in_transaction_v1(
             &mut owner_transaction,
             research_request_locator,
             read_cut_epoch_ms,
-        )
+        ))
         .await
         {
             Ok(frozen) => frozen,
@@ -1625,7 +1672,11 @@ where
                 ));
             }
         };
-        let bindings = match bfp_owner_bindings(&frozen) {
+        let bindings = match self
+            .binding_owner
+            .lock_for_frozen_program(&mut owner_transaction, &frozen, read_cut_epoch_ms)
+            .await
+        {
             Ok(bindings) => bindings,
             Err(terminal) => {
                 owner_transaction.rollback().await?;
@@ -1652,13 +1703,12 @@ where
         let response = match prepared {
             Ok(PreparedDevelopComposerRunInTransactionV2::Complete(response)) => Ok(*response),
             Ok(PreparedDevelopComposerRunInTransactionV2::Prepared(prepared)) => {
-                let final_research = match self
-                    .lock_research_for_locator(
-                        &mut owner_transaction,
-                        research_request_locator,
-                        read_cut_epoch_ms,
-                    )
-                    .await
+                let final_research = match Box::pin(self.lock_research_for_locator(
+                    &mut owner_transaction,
+                    research_request_locator,
+                    read_cut_epoch_ms,
+                ))
+                .await
                 {
                     Ok(research) => research,
                     Err(terminal) => {
@@ -1666,23 +1716,32 @@ where
                         return Ok(terminal_response_for_request(&request, terminal));
                     }
                 };
-                let final_frozen = match read_research_bounded_feature_program_in_transaction_v1(
-                    &mut owner_transaction,
-                    research_request_locator,
-                    read_cut_epoch_ms,
-                )
-                .await
+                let final_frozen =
+                    match Box::pin(read_research_bounded_feature_program_in_transaction_v1(
+                        &mut owner_transaction,
+                        research_request_locator,
+                        read_cut_epoch_ms,
+                    ))
+                    .await
+                    {
+                        Ok(value) if value == frozen => value,
+                        _ => {
+                            owner_transaction.rollback().await?;
+                            return Ok(terminal_response_for_request(
+                                &request,
+                                bfp_restart_unavailable(),
+                            ));
+                        }
+                    };
+                let final_bindings = match self
+                    .binding_owner
+                    .lock_for_frozen_program(
+                        &mut owner_transaction,
+                        &final_frozen,
+                        read_cut_epoch_ms,
+                    )
+                    .await
                 {
-                    Ok(value) if value == frozen => value,
-                    _ => {
-                        owner_transaction.rollback().await?;
-                        return Ok(terminal_response_for_request(
-                            &request,
-                            bfp_restart_unavailable(),
-                        ));
-                    }
-                };
-                let final_bindings = match bfp_owner_bindings(&final_frozen) {
                     Ok(bindings) => bindings,
                     Err(terminal) => {
                         owner_transaction.rollback().await?;
@@ -1757,20 +1816,7 @@ where
         }
     }
 
-    #[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
-    async fn commit_prepared_run_with_control(
-        &self,
-        transaction: &mut Transaction<'_, Postgres>,
-        request: &DevelopComposerRunRequestV2,
-        prepared: PreparedPostgresDevelopComposerRunV2,
-        final_locked: DevelopComposerLockedEvidenceV2,
-        _control: Option<ComposerRunControlV2>,
-    ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
-        self.store
-            .commit_prepared_run_in_transaction(transaction, request, prepared, final_locked)
-            .await
-    }
-
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     async fn run_with_optional_control(
         &self,
         builder: &mut impl DevelopComposerA0BuildPortV2,
@@ -1779,13 +1825,12 @@ where
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
         let read_cut_epoch_ms = current_read_cut_epoch_ms();
         let mut owner_transaction = self.store.begin_read_transaction().await?;
-        let research = match self
-            .lock_research_for_locator(
-                &mut owner_transaction,
-                research_request_locator,
-                read_cut_epoch_ms,
-            )
-            .await
+        let research = match Box::pin(self.lock_research_for_locator(
+            &mut owner_transaction,
+            research_request_locator,
+            read_cut_epoch_ms,
+        ))
+        .await
         {
             Ok(research) => research,
             Err(terminal) => {
@@ -1883,11 +1928,10 @@ where
         Box::pin(self.resolve_with_acceptance_tamper(request_identity, None)).await
     }
 
-    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     async fn resolve_with_acceptance_tamper(
         &self,
         request_identity: &str,
-        tamper: Option<SourceResearchComposerAcceptanceTamperV2>,
+        tamper: Option<ComposerResolveTamperV2>,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
         let read_cut_epoch_ms = current_read_cut_epoch_ms();
         let Some(locator) = self
@@ -1907,12 +1951,7 @@ where
         .await;
         let locked = match (locked, tamper) {
             (Ok(locked), Some(selector)) => {
-                let mut expected = derive_source_research_composer_request_v2(&locked.research)
-                    .map_err(composer_terminal_protocol)?;
-                tamper_source_research_composer_request_v2(&mut expected, selector)
-                    .map_err(composer_terminal_protocol)?;
-
-                if request_digest(&expected) == locator.request_digest {
+                if acceptance_tamper_matches_durable_custody_v2(&locked, selector, &locator)? {
                     Ok(locked)
                 } else {
                     Err(DevelopComposerTerminalV2::unavailable(
@@ -1925,12 +1964,12 @@ where
         };
         let frozen = match locked.as_ref() {
             Ok(locked) => {
-                matching_current_bfp_v3(
+                Box::pin(matching_current_bfp_v3(
                     &mut owner_transaction,
                     &locked.research,
                     &locator,
                     read_cut_epoch_ms,
-                )
+                ))
                 .await
             }
             Err(_) => None,
@@ -1954,6 +1993,7 @@ where
         response
     }
 
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     async fn lock_run_evidence(
         &self,
         transaction: &mut Transaction<'_, Postgres>,
@@ -1988,10 +2028,10 @@ where
             )
             .await;
         }
-        let custody = admit_research_custody_in_transaction(
+        let custody = Box::pin(admit_research_custody_in_transaction(
             transaction,
             ResearchCustodyLookupV1::RequestV2(research_request_locator),
-        )
+        ))
         .await
         .map_err(|_| research_unavailable())?
         .ok_or_else(research_unavailable)?;
@@ -2027,16 +2067,23 @@ pub(crate) async fn lock_resolve_evidence_with_binding(
     locator: &DevelopComposerDurableEvidenceLocatorV2,
     read_cut_epoch_ms: u64,
 ) -> Result<DevelopComposerLockedEvidenceV2, DevelopComposerTerminalV2> {
-    let research = lock_current_research_for_composer_replay_in_transaction(
+    let research = Box::pin(lock_current_research_for_composer_replay_in_transaction(
         transaction,
         locator,
         read_cut_epoch_ms,
-    )
+    ))
     .await?;
-    let bindings = if let Some(frozen) =
-        matching_current_bfp_v3(transaction, &research, locator, read_cut_epoch_ms).await
+    let bindings = if let Some(frozen) = Box::pin(matching_current_bfp_v3(
+        transaction,
+        &research,
+        locator,
+        read_cut_epoch_ms,
+    ))
+    .await
     {
-        bfp_owner_bindings(&frozen)?
+        binding_owner
+            .lock_for_frozen_program(transaction, &frozen, read_cut_epoch_ms)
+            .await?
     } else {
         binding_owner
             .lock_for_resolve(transaction, locator, read_cut_epoch_ms)
@@ -2099,7 +2146,7 @@ pub(crate) async fn lock_current_research_for_composer_replay_in_transaction(
         }
     }
 
-    let custodies = admit_all_research_custodies_in_transaction(transaction)
+    let custodies = Box::pin(admit_all_research_custodies_in_transaction(transaction))
         .await
         .map_err(|_| research_unavailable())?;
 
@@ -2128,19 +2175,18 @@ pub(crate) async fn lock_current_research_for_composer_replay_in_transaction(
     Ok(research)
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 async fn matching_current_bfp_v3(
     transaction: &mut Transaction<'_, Postgres>,
     research: &CurrentResearchDevelopCustodyV2,
     locator: &DevelopComposerDurableEvidenceLocatorV2,
     read_cut_epoch_ms: u64,
 ) -> Option<FrozenResearchBoundedFeatureProgramV1> {
-    let catalog = PrimitiveCatalogV1::verify().ok()?;
-    let frozen = read_research_bounded_feature_program_in_transaction_v1(
+    PrimitiveCatalogV1::verify().ok()?;
+    let frozen = Box::pin(read_research_bounded_feature_program_in_transaction_v1(
         transaction,
         research.request_locator(),
         read_cut_epoch_ms,
-    )
+    ))
     .await
     .ok()?;
     (frozen.research_request_identity() == locator.research_request_identity
@@ -2229,7 +2275,7 @@ async fn lock_historical_research_for_composer_replay_in_transaction(
         }
     }
 
-    let custodies = admit_all_research_custodies_in_transaction(transaction)
+    let custodies = Box::pin(admit_all_research_custodies_in_transaction(transaction))
         .await
         .map_err(|_| unavailable())?;
 
@@ -2284,7 +2330,7 @@ async fn matching_historical_bfp_v3(
     research: &CurrentResearchDevelopCustodyV2,
     locator: &DevelopComposerDurableEvidenceLocatorV2,
 ) -> Option<FrozenResearchBoundedFeatureProgramV1> {
-    let catalog = PrimitiveCatalogV1::verify().ok()?;
+    PrimitiveCatalogV1::verify().ok()?;
     let frozen = crate::rd_bounded_feature_program_v1::read_research_bounded_feature_program_historical_in_transaction_v1(
         transaction,
         research.request_locator(),
@@ -2313,14 +2359,14 @@ pub(crate) async fn resolve_composer_record_for_historical_replay_in_transaction
 ) -> Result<DevelopComposerOperationResponseV2, DevelopComposerSealedReadErrorV2> {
     let unavailable = || DevelopComposerSealedReadErrorV2::Unavailable;
     let locator = DevelopComposerDurableEvidenceLocatorV2::from_record(record);
-    let research = lock_historical_research_for_composer_replay_in_transaction(
+    let research = Box::pin(lock_historical_research_for_composer_replay_in_transaction(
         transaction,
         &locator,
         pre_transition_view,
         expected_current_view,
         expected_exploration,
         expected_binding,
-    )
+    ))
     .await?;
     let frozen = matching_historical_bfp_v3(transaction, &research, &locator).await;
     let bindings = if let Some(frozen) = frozen.as_ref() {
@@ -2352,6 +2398,7 @@ pub(crate) async fn resolve_composer_record_for_historical_replay_in_transaction
 
 /// Verifies a Replay-bound Composer operation using the current BFP restart when that
 /// Research source exists, otherwise the canonical V2 positive-record verifier.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 pub(crate) async fn resolve_composer_record_for_replay_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     record: &crate::develop_composer_operation_v2::StoredDevelopComposerPositiveV2,
@@ -2478,12 +2525,36 @@ impl PostgresSourceResearchComposerProductionV2 {
     ///
     /// Returns the store error when the R&D transaction cannot be completed. A refused operation
     /// is a terminal disposition in the response, not an error.
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     pub async fn run(
         &self,
         research_request_locator: &str,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
         Box::pin(self.inner.run(
             &mut DevelopPluginBuildProducerV2::default(),
+            research_request_locator,
+        ))
+        .await
+    }
+
+    /// Runs the Composer from the Research request's frozen Bounded Feature Program.
+    ///
+    /// This is the entry that carries declared meaning rather than a fixed corpus: the Design comes
+    /// from the joint freeze a proposer declared and the Owner admitted, and its Market Data
+    /// bindings are resolved from the declarations Market Data owns, on the same R&D transaction
+    /// the freeze is reread in. A Research request with no verifiable joint freeze returns a
+    /// terminal disposition and writes nothing.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store error when the R&D transaction cannot be completed. A refused operation
+    /// is a terminal disposition in the response, not an error.
+    pub async fn run_bounded_feature_program(
+        &self,
+        research_request_locator: &str,
+    ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
+        Box::pin(self.inner.run_bfp_v3(
+            &mut DevelopPluginBuildProducerV3::default(),
             research_request_locator,
         ))
         .await
@@ -2582,13 +2653,11 @@ impl SealedPostgresSourceResearchComposerV2 {
     }
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 #[allow(clippy::needless_pass_by_value)]
 fn composer_terminal_protocol(terminal: DevelopComposerTerminalV2) -> sqlx::Error {
     sqlx::Error::Protocol(format!("{}: {}", terminal.coordinate, terminal.reason))
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 fn terminal_response_for_locator(
     research_request_locator: &str,
     terminal: DevelopComposerTerminalV2,
@@ -2602,7 +2671,6 @@ fn terminal_response_for_locator(
     terminal_response_for_identity(&request_identity, terminal)
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 fn terminal_response_for_request(
     request: &DevelopComposerRunRequestV2,
     terminal: DevelopComposerTerminalV2,
@@ -2610,7 +2678,6 @@ fn terminal_response_for_request(
     terminal_response_for_identity(&request.request_identity, terminal)
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 fn terminal_response_for_identity(
     request_identity: &str,
     terminal: DevelopComposerTerminalV2,

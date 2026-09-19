@@ -6,6 +6,14 @@ Project current account, position, exposure, performance, and capacity facts fro
 
 ## Authoritative facts owned
 
+- Versioned measurement methodology: the definitions Portfolio applies to turn committed Execution facts and
+  Market Data valuation facts into every projection it owns. One version fixes the reporting currency and the FX
+  conversion point, the position and PnL basis, the return and drawdown definitions, the stability measure, the
+  capital-at-risk basis, and the candidate-neutral pool methodology and its assumptions. Portfolio owns it;
+  Market Data owns the valuation facts and their own versions, and no consumer may substitute a methodology.
+  Changing any definition creates a successor version and never rewrites a committed receipt. Every receipt binds
+  the exact version it used, and receipts under different methodology versions are not comparable and cannot be
+  spliced into one evidence cut.
 - Account State: balances, positions, margin, equity, realized and unrealized PnL, bound to one Execution Scope and account namespace.
 - Exposure by account, asset, strategy, direction, currency, and relevant risk dimension.
 - Performance Receipt by strategy generation and governed time window, bound to its exact Execution Scope, Execution and account fact cut, valuation and methodology versions, capital at risk, and freshness.

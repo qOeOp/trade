@@ -56,6 +56,7 @@ tar = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+tracing = { workspace = true }
 vibe-analysis = { workspace = true }
 vibe-backtest = { workspace = true, features = ["streaming"] }
 vibe-backtest-owner-contracts = { workspace = true }
@@ -87,6 +88,7 @@ wasmparser = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
+tracing-subscriber = { workspace = true }
 vibe-operator-authorization = { workspace = true }
 vibe-portfolio = { workspace = true }
 vibe-testkit = { workspace = true, features = ["postgres"] }

@@ -60,6 +60,7 @@ use crate::rd_owner_postgres_custody::{
 };
 use crate::{
     replay_policy_catalog_postgres_v2::resolve_current_v3_for_trial_family_formation,
+    storage_diagnostic,
     trial_family::{
         TrialFamilyDirectResultV1, TrialFamilyError, TrialFamilyIndependenceDispositionV1,
         TrialFamilyPolicyV1,
@@ -370,7 +371,6 @@ fn current_research_artifact_evidence_digest(
     Ok(format!("sha256:{:x}", Sha256::digest(bytes)))
 }
 
-#[cfg(any(test, feature = "sealed-source-intake-composer-acceptance"))]
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct CurrentResearchArtifactReadbackV1 {
     evidence_digest: String,
@@ -379,7 +379,6 @@ struct CurrentResearchArtifactReadbackV1 {
     owner_cut_epoch_ms: Option<u64>,
 }
 
-#[cfg(any(test, feature = "sealed-source-intake-composer-acceptance"))]
 fn decode_current_research_artifact_readback(
     value: &serde_json::Value,
     locked: bool,
@@ -400,7 +399,6 @@ fn decode_current_research_artifact_readback(
 }
 
 /// Keep Source and Artifact evidence locked in the consumer's existing Research transaction.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 pub(crate) async fn lock_current_research_artifact_custody_in_transaction(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     custody: &crate::rd_owner_postgres_custody::VerifiedResearchCustodyV1,
@@ -1117,6 +1115,22 @@ impl PostgresResearchGoalOwnerV1 {
         )
         .await
         .map_err(|e| storage(&e))?;
+        crate::schema_materialization::materialize_public_table(
+            pool,
+            "rd_design_role_intents_v1",
+            "CREATE TABLE IF NOT EXISTS rd_design_role_intents_v1 (
+                design_identity BYTEA PRIMARY KEY,
+                research_request_identity BYTEA NOT NULL,
+                intent_identity BYTEA NOT NULL,
+                research_custody_digest BYTEA NOT NULL,
+                design_digest BYTEA NOT NULL,
+                intent_digest BYTEA NOT NULL UNIQUE,
+                canonical_bytes BYTEA NOT NULL,
+                published_at_epoch_ms BIGINT NOT NULL
+            )",
+        )
+        .await
+        .map_err(|e| storage(&e))?;
 
         for statement in [
             "ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS artifact_evidence_digest TEXT",
@@ -1132,6 +1146,29 @@ impl PostgresResearchGoalOwnerV1 {
             "CREATE UNIQUE INDEX IF NOT EXISTS rd_research_intent_identity_v1 ON rd_research_request_receipts_v1 ((intent_json->>'intent_identity')) WHERE intent_json IS NOT NULL",
             "REVOKE ALL ON SCHEMA rd_owner_api FROM PUBLIC",
             "GRANT USAGE ON SCHEMA rd_owner_api TO product_edge_owner, qualification_writer",
+            "ALTER TABLE public.rd_design_role_intents_v1 OWNER TO rd_owner",
+            "REVOKE ALL ON TABLE public.rd_design_role_intents_v1 FROM PUBLIC, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer",
+            "DROP FUNCTION IF EXISTS rd_owner_api.resolve_design_role_intent_for_market_data_v1(bytea)",
+            // Market Data authenticates a Design by reading what R&D published about it, exactly as
+            // it reads an attestation: through one exact-locator function, never by reaching into
+            // the table. The reader principal is the one admitted, not the Owner principal that
+            // writes the declarations, so no single role can both state a Design's roles and
+            // register against them. The `session_user` test keeps the definer's rights from
+            // reaching anybody else who is later granted EXECUTE by mistake.
+            "CREATE FUNCTION rd_owner_api.resolve_design_role_intent_for_market_data_v1(
+                requested_design_identity bytea
+            ) RETURNS TABLE(intent_digest bytea, canonical_bytes bytea)
+            LANGUAGE sql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
+            SET search_path = pg_catalog
+            AS $function$
+            SELECT intent.intent_digest, intent.canonical_bytes
+            FROM public.rd_design_role_intents_v1 intent
+            WHERE intent.design_identity = requested_design_identity
+            AND session_user = 'market_data_reader'
+            $function$",
+            "ALTER FUNCTION rd_owner_api.resolve_design_role_intent_for_market_data_v1(bytea) OWNER TO rd_owner",
+            "REVOKE ALL ON FUNCTION rd_owner_api.resolve_design_role_intent_for_market_data_v1(bytea) FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, market_data_owner",
+            "GRANT EXECUTE ON FUNCTION rd_owner_api.resolve_design_role_intent_for_market_data_v1(bytea) TO market_data_reader",
             "REVOKE ALL ON TABLE public.rd_research_request_receipts_v1 FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_writer",
         ] {
             sqlx::query(statement)
@@ -3265,7 +3302,13 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             transaction.rollback().await.map_err(|e| storage(&e))?;
             return match e {
                 ResearchGoalOwnerError::ConflictingReplay => Err(e),
-                _ => Ok(unresolved_result_v2(&request_identity)),
+                _ => {
+                    storage_diagnostic::refused_by_store(
+                        "research_goal_owner.submit_v2.source_submission.lock",
+                        &e,
+                    );
+                    Ok(unresolved_result_v2(&request_identity))
+                }
             };
         }
         let existing_row = sqlx::query(
@@ -3291,6 +3334,10 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
                 || i64::try_from(receipt.committed_at_epoch_ms).map_err(json_storage)?
                     != row_committed_at
             {
+                storage_diagnostic::refused_by_store(
+                    "research_goal_owner.submit_v2.receipt_row.readback",
+                    &"stored receipt row disagrees with its receipt JSON, request identity, digest or commit time",
+                );
                 transaction.rollback().await.map_err(|e| storage(&e))?;
                 return Ok(unresolved_result_v2(&request_identity));
             }
@@ -3310,7 +3357,11 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             .await
             {
                 Ok(custody) => custody,
-                Err(_) => {
+                Err(e) => {
+                    storage_diagnostic::refused_by_store(
+                        "research_goal_owner.submit_v2.basis_stage.load",
+                        &e,
+                    );
                     transaction.rollback().await.map_err(|e| storage(&e))?;
                     return Ok(unresolved_result_v2(&request_identity));
                 }
@@ -3351,6 +3402,10 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             )
             .map_or(true, |digest| digest != custody.admission_lineage_digest)
         }) {
+            storage_diagnostic::refused_by_store(
+                "research_goal_owner.submit_v2.basis_stage.admission_lineage",
+                &"admitted basis stage binds a different Product Edge admission lineage than the one resolved now",
+            );
             transaction.rollback().await.map_err(|e| storage(&e))?;
             return Ok(unresolved_result_v2(&request_identity));
         }
@@ -3369,7 +3424,11 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
         .await
         {
             Ok(existing) => existing,
-            Err(_) => {
+            Err(e) => {
+                storage_diagnostic::refused_by_store(
+                    "research_goal_owner.submit_v2.research_custody.admit",
+                    &e,
+                );
                 transaction.rollback().await.map_err(|e| storage(&e))?;
                 return Ok(unresolved_result_v2(&request_identity));
             }
@@ -3408,6 +3467,10 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
                 let (request, rejection_code) = rejected.into_parts();
                 let write_cut = current_epoch_ms()?;
                 if !product_edge_admission.authorizes_first_mutation_at(write_cut) {
+                    storage_diagnostic::refused_by_store(
+                        "research_goal_owner.submit_v2.rejected_commit.first_mutation_authority",
+                        &"Product Edge admission no longer authorizes a first mutation at the rejected-commit write cut",
+                    );
                     transaction.rollback().await.map_err(|e| storage(&e))?;
                     return Ok(unresolved_result_v2(&request_identity));
                 }
@@ -3461,6 +3524,10 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
         } else {
             let basis_cut = current_epoch_ms()?;
             if !product_edge_admission.authorizes_first_mutation_at(basis_cut) {
+                storage_diagnostic::refused_by_store(
+                    "research_goal_owner.submit_v2.basis.first_mutation_authority",
+                    &"Product Edge admission no longer authorizes a first mutation at the basis cut",
+                );
                 transaction.rollback().await.map_err(|e| storage(&e))?;
                 return Ok(unresolved_result_v2(&request_identity));
             }
@@ -3481,7 +3548,11 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
                     transaction.rollback().await.map_err(|e| storage(&e))?;
                     return Err(ResearchGoalOwnerError::ConflictingReplay);
                 }
-                Err(_) => {
+                Err(e) => {
+                    storage_diagnostic::refused_by_store(
+                        "research_goal_owner.submit_v2.basis.load_or_create",
+                        &e,
+                    );
                     transaction.rollback().await.map_err(|e| storage(&e))?;
                     return Ok(unresolved_result_v2(&request_identity));
                 }
@@ -3495,7 +3566,11 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             .await
         {
             Ok(readback) => readback,
-            Err(_) => {
+            Err(e) => {
+                storage_diagnostic::refused_by_store(
+                    "research_goal_owner.submit_v2.protected_feedback.resolve_or_create",
+                    &e,
+                );
                 return Ok(unresolved_result_v2(&request_identity));
             }
         };
@@ -3511,7 +3586,11 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
         .await
         {
             Ok(admission) => admission,
-            Err(_) => {
+            Err(e) => {
+                storage_diagnostic::refused_by_store(
+                    "research_goal_owner.submit_v2.final_admission.resolve",
+                    &e,
+                );
                 transaction.rollback().await.map_err(|e| storage(&e))?;
                 return Ok(unresolved_result_v2(&request_identity));
             }
@@ -3537,7 +3616,11 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
         .await
         {
             Ok(existing) => existing,
-            Err(_) => {
+            Err(e) => {
+                storage_diagnostic::refused_by_store(
+                    "research_goal_owner.submit_v2.research_custody.readmit",
+                    &e,
+                );
                 transaction.rollback().await.map_err(|e| storage(&e))?;
                 return Ok(unresolved_result_v2(&request_identity));
             }
@@ -3560,7 +3643,13 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
                 transaction.rollback().await.map_err(|e| storage(&e))?;
                 return match e {
                     ResearchGoalOwnerError::ConflictingReplay => Err(e),
-                    _ => Ok(unresolved_result_v2(&request_identity)),
+                    _ => {
+                        storage_diagnostic::refused_by_store(
+                            "research_goal_owner.submit_v2.source_submission.relock",
+                            &e,
+                        );
+                        Ok(unresolved_result_v2(&request_identity))
+                    }
                 };
             }
             let return_cut = current_epoch_ms()?;
@@ -3581,7 +3670,19 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
         .await
         {
             Ok(Some(custody)) => custody,
-            _ => {
+            Ok(None) => {
+                storage_diagnostic::refused_by_store(
+                    "research_goal_owner.submit_v2.basis_stage.reload",
+                    &"no basis stage custody for the request after its basis committed",
+                );
+                transaction.rollback().await.map_err(|e| storage(&e))?;
+                return Ok(unresolved_result_v2(&request_identity));
+            }
+            Err(e) => {
+                storage_diagnostic::refused_by_store(
+                    "research_goal_owner.submit_v2.basis_stage.reload",
+                    &e,
+                );
                 transaction.rollback().await.map_err(|e| storage(&e))?;
                 return Ok(unresolved_result_v2(&request_identity));
             }
@@ -3612,19 +3713,31 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
                 &final_admission.immutable_lineage(),
             )?
         {
+            storage_diagnostic::refused_by_store(
+                "research_goal_owner.submit_v2.basis_stage.final_admission_lineage",
+                &"admitted basis stage binds a different Product Edge admission lineage than the final one",
+            );
             transaction.rollback().await.map_err(|e| storage(&e))?;
             return Ok(unresolved_result_v2(&request_identity));
         }
         let admitted_basis = admitted_basis_stage.basis;
 
         if admitted_basis != basis {
+            storage_diagnostic::refused_by_store(
+                "research_goal_owner.submit_v2.basis.readback_mismatch",
+                &"the basis read back under the final lock differs from the basis committed for the request",
+            );
             transaction.rollback().await.map_err(|e| storage(&e))?;
             return Ok(unresolved_result_v2(&request_identity));
         }
         let (lineage_resolution, predecessor_frontier, lineage_digest) =
             match resolve_lineage_in_transaction(&mut transaction, &principal, &scope).await {
                 Ok(lineage) => lineage,
-                Err(_) => {
+                Err(e) => {
+                    storage_diagnostic::refused_by_store(
+                        "research_goal_owner.submit_v2.lineage.resolve",
+                        &e,
+                    );
                     transaction.rollback().await.map_err(|e| storage(&e))?;
                     return Ok(unresolved_result_v2(&request_identity));
                 }
@@ -3634,6 +3747,10 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             || admitted_stored.semantic_predecessor_frontier != predecessor_frontier
             || admitted_stored.lineage_digest != lineage_digest
         {
+            storage_diagnostic::refused_by_store(
+                "research_goal_owner.submit_v2.lineage.stored_mismatch",
+                &"the stored basis lineage disagrees with the lineage resolved under the final lock",
+            );
             transaction.rollback().await.map_err(|e| storage(&e))?;
             return Ok(unresolved_result_v2(&request_identity));
         }
@@ -3645,6 +3762,10 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             .as_deref()
             != Some(basis.basis_identity())
         {
+            storage_diagnostic::refused_by_store(
+                "research_goal_owner.submit_v2.independence_basis_head.mismatch",
+                &"the principal scope head does not name the basis committed for the request",
+            );
             transaction.rollback().await.map_err(|e| storage(&e))?;
             return Ok(unresolved_result_v2(&request_identity));
         }
@@ -3654,17 +3775,29 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             .await
         {
             Ok(feedback) => feedback,
-            Err(_) => {
+            Err(e) => {
+                storage_diagnostic::refused_by_store(
+                    "research_goal_owner.submit_v2.protected_feedback.admit",
+                    &e,
+                );
                 transaction.rollback().await.map_err(|e| storage(&e))?;
                 return Ok(unresolved_result_v2(&request_identity));
             }
         };
         let Some(admitted_feedback) = admitted_feedback else {
+            storage_diagnostic::refused_by_store(
+                "research_goal_owner.submit_v2.protected_feedback.absent",
+                &"Qualification admitted no protected feedback frontier for the basis",
+            );
             transaction.rollback().await.map_err(|e| storage(&e))?;
             return Ok(unresolved_result_v2(&request_identity));
         };
 
         if admitted_feedback != protected_feedback {
+            storage_diagnostic::refused_by_store(
+                "research_goal_owner.submit_v2.protected_feedback.mismatch",
+                &"the protected feedback frontier admitted under the final lock differs from the one resolved before it",
+            );
             transaction.rollback().await.map_err(|e| storage(&e))?;
             return Ok(unresolved_result_v2(&request_identity));
         }
@@ -3674,6 +3807,10 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             .await
             .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
         if refreshed_feedback.as_ref() != Some(&admitted_feedback) {
+            storage_diagnostic::refused_by_store(
+                "research_goal_owner.submit_v2.protected_feedback.refresh_mismatch",
+                &"the protected feedback frontier changed between its admission and the final readback",
+            );
             transaction.rollback().await.map_err(|e| storage(&e))?;
             return Ok(unresolved_result_v2(&request_identity));
         }
@@ -3686,7 +3823,13 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             transaction.rollback().await.map_err(|e| storage(&e))?;
             return match e {
                 ResearchGoalOwnerError::ConflictingReplay => Err(e),
-                _ => Ok(unresolved_result_v2(&request_identity)),
+                _ => {
+                    storage_diagnostic::refused_by_store(
+                        "research_goal_owner.submit_v2.source_submission.final_lock",
+                        &e,
+                    );
+                    Ok(unresolved_result_v2(&request_identity))
+                }
             };
         }
 
@@ -3698,6 +3841,10 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
         if !admitted_feedback.is_current_at(write_cut)
             || !final_admission.authorizes_first_mutation_at(write_cut)
         {
+            storage_diagnostic::refused_by_store(
+                "research_goal_owner.submit_v2.terminal_commit.first_mutation_authority",
+                &"the protected feedback frontier is not current or the Product Edge admission no longer authorizes a first mutation at the terminal write cut",
+            );
             transaction.rollback().await.map_err(|e| storage(&e))?;
             return Ok(unresolved_result_v2(&request_identity));
         }
@@ -3730,7 +3877,11 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
         .await
         {
             Ok(policy) => policy,
-            Err(_) => {
+            Err(e) => {
+                storage_diagnostic::refused_by_store(
+                    "research_goal_owner.submit_v2.replay_policy_catalog_v3.resolve_current",
+                    &e,
+                );
                 transaction.rollback().await.map_err(|e| storage(&e))?;
                 return Ok(unresolved_result_v2(&request_identity));
             }
@@ -4942,6 +5093,77 @@ pub(crate) mod tests {
             owner.pool.clone(),
             std::sync::Arc::new(move || read_cut),
         );
+
+        // The one statement this Owner can make about a Design without a program. It is what opens
+        // a Design's first cycle, so it is proven here against the same accepted custody the freeze
+        // above used, and before any program exists for this Design.
+        let published = composition_root
+            .publish_design_role_intent(&request_identity, &design)
+            .await
+            .expect("R&D publishes what it knows about the Design it admitted");
+        assert_eq!(published.design_identity(), design_identity);
+        assert_eq!(published.design_digest(), design_digest);
+        assert_eq!(
+            published.research_request_identity(),
+            custody.research_request_identity()
+        );
+        assert_eq!(published.intent_identity(), custody.intent_identity());
+        assert_eq!(
+            published.research_custody_digest(),
+            custody.custody_digest()
+        );
+        assert_eq!(
+            published.roles(),
+            crate::strategy_plan_v2::project_design_role_entries_v1(&design.inputs)
+        );
+
+        // Publication is write-once per Design: the second call returns what is stored rather than
+        // what was offered, so a lost acknowledgement is safe to retry.
+        assert_eq!(
+            composition_root
+                .publish_design_role_intent(&request_identity, &design)
+                .await
+                .expect("republishing the same Design returns the stored publication"),
+            published
+        );
+        let published_rows: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM rd_design_role_intents_v1 WHERE design_identity=$1",
+        )
+        .bind(published.design_identity().as_bytes().as_slice())
+        .fetch_one(&owner.pool)
+        .await
+        .unwrap();
+        assert_eq!(published_rows, 1);
+
+        // A Design this Research custody does not back is refused rather than rewritten, because
+        // rewriting it here would publish a statement no custody stands behind.
+        let mut foreign = design.clone();
+        foreign.intent_digest = BindingDigest::from_untrusted_bytes([99; 32]);
+        assert!(matches!(
+            composition_root
+                .publish_design_role_intent(&request_identity, &foreign)
+                .await,
+            Err(crate::rd_bounded_feature_program_postgres_v1::ResearchBoundedFeatureProgramOwnerErrorV1::Design)
+        ));
+
+        // A locator with no currently accepted Research custody publishes nothing at all.
+        assert!(matches!(
+            composition_root
+                .publish_design_role_intent(&format!("{request_identity}-absent"), &design)
+                .await,
+            Err(crate::rd_bounded_feature_program_postgres_v1::ResearchBoundedFeatureProgramOwnerErrorV1::ResearchCustody)
+        ));
+        // Scoped to this Research request: the chain shares one database, and other entries publish
+        // their own Designs into the same table.
+        let stored_publications: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM rd_design_role_intents_v1 WHERE research_request_identity=$1",
+        )
+        .bind(custody.research_request_identity().as_bytes().as_slice())
+        .fetch_one(&owner.pool)
+        .await
+        .unwrap();
+        assert_eq!(stored_publications, 1);
+
         let replayed = composition_root
             .freeze(crate::rd_bounded_feature_program_postgres_v1::ResearchBoundedFeatureProgramFreezeRequestV1 {
                 research_request_locator: request_identity.clone(),
@@ -5064,36 +5286,50 @@ pub(crate) mod tests {
     /// strategy input bindings through its own acceptance basis, and the R&D composition root
     /// resolves them, derives the proposal, freezes it and lowers it inside one transaction. A
     /// program frozen this way is bound to receipts that were proven at the moment it was sealed.
-    ///
-    /// It is deliberately absent from the ordered chain in
-    /// `scripts/ci/test-rd-owner-postgres.bash`, which is the only thing that selects it, so it
-    /// currently runs nowhere. Two of its requirements conflict there, and neither the chain's
-    /// routing nor this test alone can settle it:
-    ///
-    /// - it needs its own database, because `bar_joined_cut_acceptance_v1` and the replay
-    ///   composition fixture behind chain step 6 both state the fixed
-    ///   `market_semantics_identity: digest(84)`, and `resolve_and_bind` refuses unless the market
-    ///   semantics scope resolves to exactly one fact;
-    /// - it needs the shared database's accumulated state, because the chain's dedicated clones are
-    ///   taken from the template before step 4 migrates the shared database, and on a clone this
-    ///   test cannot even open the Product Edge.
-    ///
-    /// Readmitting it means resolving one of the two: making it self-sufficient on a clone, as
-    /// `program_host_bar_joined_cut_postgres_acceptance_tests` is, or giving the acceptance
-    /// fixture a semantics identity derived from the Design rather than a constant.
     #[cfg(feature = "sealed-strategy-input-acceptance")]
     #[rstest::rstest]
     #[ignore = "requires admitted OA/PE/R&D test database URLs"]
     fn declared_bounded_feature_program_assembles_from_owner_custody_and_freezes() {
+        declared_bounded_feature_program_fixture(ComposerRunCoverageV1::BindingsOnly);
+    }
+
+    /// The Composer RUN that a frozen pair authorises, carried all the way to a durable Artifact.
+    ///
+    /// Everything before the run is the same fixture: Market Data issues the six BAR bindings, the
+    /// composition root declares and freezes against them. What this adds is the operation itself,
+    /// which lowers the frozen program, builds it twice in the sandbox to byte-identical Wasm, and
+    /// commits every positive Composer fact in one transaction.
+    ///
+    /// It stays separate from the assembly acceptance because it costs two real compiler
+    /// invocations, and the chain runs it last before the destructive drain: it is the most
+    /// expensive entry and the one with the least history, so a failure here costs the fewest
+    /// verdicts behind it.
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    #[rstest::rstest]
+    #[ignore = "requires admitted database URLs and invokes the pinned local wasm compiler"]
+    fn frozen_program_runs_the_production_composer_to_a_durable_artifact() {
+        declared_bounded_feature_program_fixture(ComposerRunCoverageV1::ThroughComposerRun);
+    }
+
+    /// How far the shared declare/freeze fixture carries one Research request.
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    #[derive(Clone, Copy, Eq, PartialEq)]
+    enum ComposerRunCoverageV1 {
+        BindingsOnly,
+        ThroughComposerRun,
+    }
+
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    fn declared_bounded_feature_program_fixture(coverage: ComposerRunCoverageV1) {
         std::thread::Builder::new()
             .name("bounded-feature-declare-test".into())
             .stack_size(16 * 1024 * 1024)
-            .spawn(|| {
+            .spawn(move || {
                 tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
                     .unwrap()
-                    .block_on(run_declared_bounded_feature_program_assembly());
+                    .block_on(run_declared_bounded_feature_program_assembly(coverage));
             })
             .unwrap()
             .join()
@@ -5101,29 +5337,28 @@ pub(crate) mod tests {
     }
 
     #[cfg(feature = "sealed-strategy-input-acceptance")]
-    async fn run_declared_bounded_feature_program_assembly() {
+    async fn run_declared_bounded_feature_program_assembly(coverage: ComposerRunCoverageV1) {
         use vibe_data::owner::bar_joined_cut_acceptance_v1::{
             UntrustedBarJoinedCutAcceptanceDesignClaimsV1,
-            complete_owner_bar_joined_cut_acceptance_fixture_v1,
-            prepare_owner_bar_joined_cut_acceptance_basis_v1,
+            register_bar_joined_cut_declarations_for_published_design_v1,
         };
 
         use crate::{
             bounded_feature_program_six_role_bar_fixture_v1::{
                 six_role_bar_bounded_feature_design_v1, six_role_bar_bounded_feature_meaning_v1,
             },
-            develop_composer_postgres_v2::{
-                issue_sealed_develop_composer_readback_for_acceptance_v2,
-                issue_strategy_design_role_set_for_acceptance_v1,
-            },
             program_host_v2::{
                 BAR_HOUR_CLOSE, BAR_MINUTE_CLOSE, BAR_MINUTE_HIGH, BAR_MINUTE_LOW, BAR_MINUTE_OPEN,
-                BAR_SESSION_DAY_CLOSE, joined_plan_and_artifact,
+                BAR_SESSION_DAY_CLOSE,
             },
             rd_bounded_feature_program_postgres_v1::{
                 PostgresResearchBoundedFeatureProgramOwnerV1,
                 ResearchBoundedFeatureProgramDeclarationV1,
                 ResearchBoundedFeatureProgramOwnerErrorV1,
+            },
+            source_research_composer_postgres_v2::{
+                PostgresSourceResearchComposerBindingOwnerV2,
+                PostgresSourceResearchComposerProductionV2, SourceResearchComposerBindingOwnerV2,
             },
             strategy_plan_v2::{StrategyDesignPreparationV2, prepare_strategy_design_v2},
         };
@@ -5219,40 +5454,34 @@ pub(crate) mod tests {
                 .map(crate::strategy_plan_v2::strategy_input_role_identity_v2)
                 .expect("the six-role bounded Design carries every fixed BAR role")
         });
-        let basis = Box::pin(prepare_owner_bar_joined_cut_acceptance_basis_v1(
-            &market_data_database_url,
-            UntrustedBarJoinedCutAcceptanceDesignClaimsV1 {
-                research_request_identity: design.research_request_identity,
-                strategy_design_identity: design_identity,
-                input_role_identities,
-            },
-        ))
-        .await
-        .expect("the Market Data Owner prepares the six BAR strategy input bindings");
-
-        // Preparing the basis computes the bindings and writes no registry declaration. Persisting
-        // them is phase two, and without it this Design resolves to no PIT coordinate, so the
-        // assembly below refuses with `MarketDataUnavailable` before reaching any Owner custody.
-        //
-        // Phase two takes the authenticated R&D role set, because the Owner will not register
-        // against an attestation that does not exist. The role set is projected from a sealed
-        // Composer readback of this Design rather than assembled here, so the role semantics it
-        // carries are exactly the ones the basis issued custody for.
-        let (plan, artifact) = joined_plan_and_artifact(design.clone(), basis.input_bindings());
-        let composer = issue_sealed_develop_composer_readback_for_acceptance_v2(&plan, &artifact)
-            .expect("the sealed Composer readback issues for the six-role BAR plan");
-        let role_set = issue_strategy_design_role_set_for_acceptance_v1(&composer)
-            .expect("the Composer readback projects the six-role BAR role set");
-        Box::pin(complete_owner_bar_joined_cut_acceptance_fixture_v1(
-            basis, role_set,
-        ))
-        .await
-        .expect("the Market Data Owner issues the six BAR strategy input bindings");
-
+        let claims = UntrustedBarJoinedCutAcceptanceDesignClaimsV1 {
+            research_request_identity: design.research_request_identity,
+            strategy_design_identity: design_identity,
+            input_role_identities,
+        };
         let composition_root = PostgresResearchBoundedFeatureProgramOwnerV1::with_clock(
             owner.pool.clone(),
             std::sync::Arc::new(move || read_cut),
         );
+
+        // Nothing has attested this Design, and nothing can: the Composer operation that would
+        // attest it runs over a program whose identity folds in the binding receipts the
+        // registration below issues. So R&D publishes what it knows about the Design, and Market
+        // Data binds it to the acceptance corpus this store already carries.
+        let published = composition_root
+            .publish_design_role_intent(&request_identity, &design)
+            .await
+            .expect("R&D publishes what it knows about the Design it admitted");
+        assert_eq!(published.design_identity(), design_identity);
+        Box::pin(
+            register_bar_joined_cut_declarations_for_published_design_v1(
+                &market_data_database_url,
+                &claims,
+                &published,
+            ),
+        )
+        .await
+        .expect("the published Design reaches the Owner's Strategy Input declarations");
         let meaning = six_role_bar_bounded_feature_meaning_v1(&design);
         let declaration = ResearchBoundedFeatureProgramDeclarationV1 {
             research_request_locator: request_identity.clone(),
@@ -5312,6 +5541,83 @@ pub(crate) mod tests {
                 .iter()
                 .any(|file| file.source.contains("strategy_factory_plugin_invoke_v2"))
         );
+
+        // The production Composer binds a run from this freeze and nothing else. Resolving it here
+        // proves the seam a Composer RUN depends on: the Design inside the frozen pair, read back
+        // against the Strategy Input custody Market Data issued above, with no acceptance fixture
+        // and no caller-supplied receipt in the path.
+        let mut binding_transaction = owner.pool.begin().await.unwrap();
+        let frozen = Box::pin(
+            crate::rd_bounded_feature_program_v1::read_research_bounded_feature_program_in_transaction_v1(
+                &mut binding_transaction,
+                &request_identity,
+                read_cut,
+            ),
+        )
+        .await
+        .expect("the frozen pair reads back for the production Composer");
+        let bindings = PostgresSourceResearchComposerBindingOwnerV2
+            .lock_for_frozen_program(&mut binding_transaction, &frozen, read_cut)
+            .await
+            .expect("the production binding Owner resolves the frozen Design against Market Data");
+        binding_transaction.rollback().await.unwrap();
+
+        assert_eq!(
+            bindings.receipt_digests().len(),
+            input_role_identities.len()
+        );
+
+        for role in input_role_identities {
+            assert!(
+                bindings.receipt_digest_for_role(role).is_some(),
+                "every declared BAR role resolves to exactly one Owner receipt"
+            );
+        }
+
+        if coverage == ComposerRunCoverageV1::BindingsOnly {
+            return;
+        }
+
+        // The run takes the locator and nothing else. Everything it compiles comes from the freeze
+        // above and the custody Market Data owns, so a caller can supply no part of the Artifact.
+        crate::develop_composer_postgres_v2::PostgresDevelopComposerStoreV2::materialize_schema(
+            &rd_database_url,
+        )
+        .await
+        .expect("the Composer family materializes for the production store");
+        let composer = PostgresSourceResearchComposerProductionV2::connect(
+            &rd_database_url,
+            test_database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+        )
+        .await
+        .expect("the production Composer opens against its two R&D roles");
+        let response = Box::pin(composer.run_bounded_feature_program(&request_identity))
+            .await
+            .expect("the R&D transaction completes");
+
+        assert_eq!(
+            response.disposition,
+            crate::develop_composer_operation_v2::DevelopComposerOperationDispositionV2::Success,
+            "a frozen pair bound to live Market Data custody composes: {:?} at {:?}",
+            response.reason,
+            response.coordinate
+        );
+        let artifact = response
+            .artifact
+            .as_ref()
+            .expect("a successful Composer operation carries its Artifact");
+        assert_eq!(
+            expected_digest_text(artifact.design_digest),
+            declared.design_digest
+        );
+        assert!(response.receipt_identity.is_some());
+
+        // Replaying the same locator resolves the operation it already committed rather than
+        // building a second Artifact for one frozen meaning.
+        let replay = Box::pin(composer.run_bounded_feature_program(&request_identity))
+            .await
+            .expect("the replay transaction completes");
+        assert_eq!(replay, response);
     }
 
     fn expected_digest_text(digest: BindingDigest) -> String {
@@ -5513,7 +5819,7 @@ pub(crate) mod tests {
             valid_from_epoch_ms: now.saturating_sub(1_000),
             valid_through_epoch_ms: now.saturating_add(3_600_000),
             authorization: authorization.locator(),
-            manifests: vec![manifest],
+            manifests: vibe_product_edge::AgentOperationManifestSetV1::new(vec![manifest]).unwrap(),
         })
         .await
         .unwrap();

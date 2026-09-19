@@ -506,7 +506,7 @@ async fn admit_completion(
         valid_from_epoch_ms: now.saturating_sub(1_000),
         valid_through_epoch_ms: valid_through,
         authorization: authorization.locator(),
-        manifests: vec![manifest],
+        manifests: vibe_product_edge::AgentOperationManifestSetV1::new(vec![manifest]).unwrap(),
     })
     .await
     .expect("Analysis Product Edge genesis");

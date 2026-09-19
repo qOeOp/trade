@@ -33,7 +33,7 @@ pub(super) async fn verify_invocation_admission_lineage(
 ) -> Result<(), ProductEdgeError> {
     let receipt = load_invocation_admission_receipt(transaction, &claim.claim_identity)
         .await?
-        .ok_or(ProductEdgeError::Unavailable)?;
+        .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Claim, &claim.claim_identity))?;
     let historical_authorization = admission.authorization().locator();
     if receipt.request_identity != admission.request().request_identity
         || receipt.admission_identity != admission.locator().admission_identity
@@ -59,7 +59,11 @@ pub(super) async fn verify_invocation_admission_lineage(
         || receipt.receipt_identity != claim.invocation_admission_receipt_identity
         || receipt.receipt_digest != claim.invocation_admission_receipt_digest
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::LineageBroken,
+            Subject::Claim,
+            &claim.claim_identity,
+        ));
     }
     Ok(())
 }
@@ -72,7 +76,7 @@ pub(super) async fn load_invocation_admission_for_locator(
 ) -> Result<StoredInvocationAdmissionReceiptV1, ProductEdgeError> {
     let receipt = load_invocation_admission_receipt(transaction, &claim.claim_identity)
         .await?
-        .ok_or(ProductEdgeError::Unavailable)?;
+        .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Claim, &claim.claim_identity))?;
 
     if receipt.request_identity != locator.request_identity
         || receipt.admission_identity != locator.admission_identity
@@ -83,7 +87,11 @@ pub(super) async fn load_invocation_admission_for_locator(
         || receipt.receipt_digest != claim.invocation_admission_receipt_digest
         || receipt.effect != expected_effect
     {
-        return Err(ProductEdgeError::Unavailable);
+        return Err(unavailable_for(
+            Reason::LineageBroken,
+            Subject::Claim,
+            &claim.claim_identity,
+        ));
     }
     Ok(receipt)
 }
@@ -117,8 +125,8 @@ fn claim_custody_error(
     error: vibe_product_edge_claim_custody::ProductEdgeClaimCustodyError,
 ) -> ProductEdgeError {
     match error {
-        vibe_product_edge_claim_custody::ProductEdgeClaimCustodyError::Unavailable => {
-            ProductEdgeError::Unavailable
+        vibe_product_edge_claim_custody::ProductEdgeClaimCustodyError::Unavailable(inner) => {
+            unavailable(Reason::ClaimCustody(inner))
         }
         vibe_product_edge_claim_custody::ProductEdgeClaimCustodyError::Encoding(message)
         | vibe_product_edge_claim_custody::ProductEdgeClaimCustodyError::Storage(message) => {
@@ -138,7 +146,7 @@ pub(super) async fn resolve_invocation_claim_readback(
     )
     .await
     .map_err(claim_custody_error)?
-    .ok_or(ProductEdgeError::Unavailable)?;
+    .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Admission, admission_identity))?;
     Ok(ProductEdgeInvocationClaimReadbackV1::from_custody(
         custody,
         disposition,
@@ -156,7 +164,7 @@ pub(super) async fn resolve_invocation_start_readback(
     )
     .await
     .map_err(claim_custody_error)?
-    .ok_or(ProductEdgeError::Unavailable)?;
+    .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Admission, admission_identity))?;
     Ok(ProductEdgeInvocationStartReadbackV1::from_custody(
         custody,
         disposition,

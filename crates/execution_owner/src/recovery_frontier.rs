@@ -8,7 +8,7 @@
 //! A caller cannot construct a positive readback:
 //!
 //! ```compile_fail
-//! use vibe_execution::recovery_frontier::SealedRecoveryFrontier;
+//! use vibe_execution_owner::recovery_frontier::SealedRecoveryFrontier;
 //!
 //! let _forged = SealedRecoveryFrontier {};
 //! ```
@@ -17,7 +17,7 @@
 //!
 //! ```compile_fail
 //! use serde::de::DeserializeOwned;
-//! use vibe_execution::recovery_frontier::SealedRecoveryFrontier;
+//! use vibe_execution_owner::recovery_frontier::SealedRecoveryFrontier;
 //!
 //! fn requires_deserialize<T: DeserializeOwned>() {}
 //! requires_deserialize::<SealedRecoveryFrontier>();
@@ -26,7 +26,7 @@
 //! A downstream crate cannot implement the Owner port:
 //!
 //! ```compile_fail
-//! use vibe_execution::recovery_frontier::{
+//! use vibe_execution_owner::recovery_frontier::{
 //!     RecoveryFrontierError, RecoveryFrontierLocator, RecoveryFrontierReadPort,
 //!     SealedRecoveryFrontier,
 //! };
@@ -45,7 +45,7 @@
 //! The capability is query-only; command, retry, and effect methods do not exist:
 //!
 //! ```compile_fail
-//! use vibe_execution::recovery_frontier::RecoveryFrontierReadPort;
+//! use vibe_execution_owner::recovery_frontier::RecoveryFrontierReadPort;
 //!
 //! fn cannot_command(port: &dyn RecoveryFrontierReadPort) {
 //!     port.command_recovery();

@@ -185,7 +185,7 @@ fn product_edge_error(error: &ProductEdgeError, result_identity: &str) -> Respon
         ProductEdgeError::ConflictingReplay => {
             (StatusCode::CONFLICT, "PRODUCT_EDGE_IDENTITY_CONFLICT")
         }
-        ProductEdgeError::Unavailable => (StatusCode::FORBIDDEN, "UNAUTHORIZED_PRODUCT_EDGE"),
+        ProductEdgeError::Unavailable(_) => (StatusCode::FORBIDDEN, "UNAUTHORIZED_PRODUCT_EDGE"),
         ProductEdgeError::Storage(_) => (
             StatusCode::SERVICE_UNAVAILABLE,
             "PRODUCT_EDGE_STORAGE_UNAVAILABLE",
@@ -331,7 +331,9 @@ mod tests {
                 Some(ProductEdgeError::ConflictingReplay) => {
                     Err(ProductEdgeError::ConflictingReplay)
                 }
-                Some(ProductEdgeError::Unavailable) => Err(ProductEdgeError::Unavailable),
+                Some(ProductEdgeError::Unavailable(detail)) => {
+                    Err(ProductEdgeError::Unavailable(detail.clone()))
+                }
                 None => Ok(ProductEdgeAdmissionLocatorV1 {
                     request_identity: request.locator.result_identity.clone(),
                     admission_identity: "iteration-result-admission-1".to_string(),
@@ -436,7 +438,7 @@ mod tests {
 
     #[rstest]
     #[case(
-        ProductEdgeError::Unavailable,
+        ProductEdgeError::unavailable(vibe_product_edge::ProductEdgeUnavailableReasonV1::Missing),
         StatusCode::FORBIDDEN,
         "UNAUTHORIZED_PRODUCT_EDGE"
     )]

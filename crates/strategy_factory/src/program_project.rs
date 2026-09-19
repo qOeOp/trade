@@ -446,6 +446,8 @@ pub(crate) fn seal_project(
     project_manifest: &Path,
     runtime_budget: crate::program_runtime::ProgramRuntimeBudget,
 ) -> anyhow::Result<VerifiedCargoBuild> {
+    const SEAL_DIAGNOSTIC_LINES: usize = 20;
+
     let scratch = tempfile::tempdir()?;
     let script = scratch.path().join("seal-program.sh");
     let dockerfile = scratch.path().join("program-seal.dockerfile");
@@ -453,17 +455,34 @@ pub(crate) fn seal_project(
     fs::write(&script, PROGRAM_SEAL_SCRIPT_BYTES)?;
     fs::write(&dockerfile, PROGRAM_SEAL_DOCKERFILE_BYTES)?;
 
-    let status = Command::new("/bin/bash")
+    // The sealer's own output is the only account of why a seal failed. Discarding it made every
+    // failure here indistinguishable from every other, so a refusal carries a bounded tail of it.
+    let output = Command::new("/bin/bash")
         .arg(&script)
         .arg(project_manifest)
         .arg(&product)
         .arg(&dockerfile)
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
+        .output()
         .context("trusted strategy-program sealer was unavailable")?;
-    anyhow::ensure!(status.success(), "strategy-program project seal failed");
+
+    if !output.status.success() {
+        let mut diagnostic = String::from_utf8_lossy(&output.stderr).into_owned();
+        if diagnostic.trim().is_empty() {
+            diagnostic = String::from_utf8_lossy(&output.stdout).into_owned();
+        }
+        let tail: String = diagnostic
+            .lines()
+            .rev()
+            .take(SEAL_DIAGNOSTIC_LINES)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        anyhow::bail!("strategy-program project seal failed: {tail}");
+    }
 
     load_product(&product, runtime_budget)
 }
