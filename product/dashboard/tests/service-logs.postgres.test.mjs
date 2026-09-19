@@ -18,6 +18,7 @@ import {
 import { PostgresRunStoreV1 } from "../lib/run-store.ts";
 import { parseServiceLogBrowserEnvelopeV1 } from "../lib/service-log-contract.ts";
 import { PostgresServiceLogGatewayV1 } from "../lib/service-log-gateway.ts";
+import { serviceLogSourceLabel } from "../lib/service-log-presentation.ts";
 import { compatibleEnvironmentV1 } from "./compatibility-fixture.mjs";
 
 const url = process.env.DASHBOARD_SERVICE_LOGS_TEST_DATABASE_URL;
@@ -88,13 +89,27 @@ async function waitForHttp(target, child, headers = {}, timeoutMs = 60_000) {
   throw new Error(`service-log preview did not become ready at ${target}`);
 }
 
-async function stopProcess(child) {
+// A browser is a tree, not a process. Chrome's helper processes inherit the stderr pipe this
+// function reads, and they outlive a signal sent only to the process spawned here: the pipe stays
+// open, Node keeps the stream handle referenced, and the test runner never exits. Give the browser
+// its own process group at spawn and address the group. Only a child spawned detached may be
+// signalled this way, so callers opt in.
+async function stopProcess(child, { group = false } = {}) {
   if (!child || child.exitCode !== null) return;
   const exited = once(child, "exit");
-  child.kill("SIGTERM");
+  const signal = (name) => {
+    if (!group) return child.kill(name);
+    try {
+      process.kill(-child.pid, name);
+    } catch {
+      child.kill(name);
+    }
+    return true;
+  };
+  signal("SIGTERM");
   const stopped = await Promise.race([exited.then(() => true), delay(5_000).then(() => false)]);
   if (!stopped && child.exitCode === null) {
-    child.kill("SIGKILL");
+    signal("SIGKILL");
     await exited;
   }
 }
@@ -110,7 +125,7 @@ async function openBrowser(executable) {
     "--disable-background-networking", "--disable-default-apps", "--disable-extensions",
     "--disable-sync", "--metrics-recording-only", "--no-default-browser-check", "--no-first-run",
     "about:blank",
-  ], { stdio: ["ignore", "ignore", "pipe"] });
+  ], { stdio: ["ignore", "ignore", "pipe"], detached: true });
   let browserStderr = "";
   child.stderr?.setEncoding("utf8");
   child.stderr?.on("data", (chunk) => { browserStderr = `${browserStderr}${chunk}`.slice(-4_096); });
@@ -172,7 +187,7 @@ async function openBrowser(executable) {
     });
     return { child, profile, close: () => socket.close(), send };
   } catch (error) {
-    await stopProcess(child);
+    await stopProcess(child, { group: true });
     await rm(profile, { recursive: true, force: true });
     throw error;
   }
@@ -560,12 +575,18 @@ test(testName, { skip: !url }, async () => {
             && document.querySelectorAll('table[aria-label="Service log events"] tbody tr').length > 0
             && (${settledExpression})`);
       } catch (error) {
+        // The wait above is a conjunction and a timeout quotes only its first line, which reads as
+        // though the continuity reason were on the page. Evaluate each part separately so the
+        // failure names the one that is actually unmet.
         const state = await readBrowserValue(browser, `(() => ({
           autoRefresh: [...document.querySelectorAll('button')]
             .map((button) => button.textContent?.trim())
             .find((text) => text?.startsWith('Auto-refresh')),
+          continuityAbsent: !document.body?.innerText.includes('SERVICE_LOG_CURSOR_CONTINUITY_UNAVAILABLE'),
           rows: document.querySelectorAll('table[aria-label="Service log events"] tbody tr').length,
-          body: document.body?.innerText.slice(0, 600) ?? '',
+          settled: (${settledExpression}),
+          unavailableText: (document.body?.innerText.match(/[A-Z_]+_UNAVAILABLE/gu) ?? []).join(','),
+          body: document.body?.innerText.slice(0, 400) ?? '',
         }))()`);
         throw new Error(`${label}: ${error.message}; state: ${JSON.stringify(state)}`, { cause: error });
       }
@@ -579,7 +600,7 @@ test(testName, { skip: !url }, async () => {
     await navigatePage("Next service-log page",
       `document.querySelector('button[aria-label="Previous service-log page"]')?.disabled === false
         && [...document.querySelectorAll('table[aria-label="Service log events"] tbody tr')]
-          .every((row) => row.innerText.includes('run_store'))`);
+          .every((row) => row.innerText.includes(${JSON.stringify(serviceLogSourceLabel("run_store"))}))`);
     await navigatePage("Previous service-log page",
       `document.querySelector('button[aria-label="Previous service-log page"]')?.disabled === false`);
     await clickButton(browser, "Auto-refresh off");
@@ -769,7 +790,7 @@ test(testName, { skip: !url }, async () => {
     assert.match(unavailableSummary, /server\s+-/);
   } finally {
     browser?.close();
-    await stopProcess(browser?.child);
+    await stopProcess(browser?.child, { group: true });
     if (browser?.profile) await rm(browser.profile, { recursive: true, force: true });
     await stopProcess(preview);
     if (logTableRenamed) {

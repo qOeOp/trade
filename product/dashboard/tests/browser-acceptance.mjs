@@ -15,12 +15,26 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
-export async function stopProcess(child, label = "child") {
+// A browser is a tree, not a process. Chrome's helper processes inherit the stderr pipe this module
+// reads, and they outlive a signal sent only to the process spawned here: the pipe stays open, Node
+// keeps the stream handle referenced, and the test runner never exits even after every test has
+// passed. `openBrowser` spawns the browser in its own process group so this can address the group.
+// Only a child spawned detached may be signalled that way, so callers opt in.
+export async function stopProcess(child, label = "child", { group = false } = {}) {
   if (!child || child.exitCode !== null || child.signalCode !== null) return;
   const exited = once(child, "exit");
-  child.kill("SIGTERM");
+  const signal = (name) => {
+    if (!group) return child.kill(name);
+    try {
+      process.kill(-child.pid, name);
+    } catch {
+      child.kill(name);
+    }
+    return true;
+  };
+  signal("SIGTERM");
   if (await Promise.race([exited.then(() => true), delay(5_000).then(() => false)])) return;
-  child.kill("SIGKILL");
+  signal("SIGKILL");
   if (await Promise.race([exited.then(() => true), delay(5_000).then(() => false)])) return;
   child.stderr?.destroy();
   child.stdout?.destroy();
@@ -92,7 +106,7 @@ export async function openBrowser(executable, { label = "browser" } = {}) {
     "--disable-background-networking", "--disable-default-apps", "--disable-extensions",
     "--disable-sync", "--metrics-recording-only", "--no-default-browser-check", "--no-first-run",
     "about:blank",
-  ], { stdio: ["ignore", "ignore", "pipe"] });
+  ], { stdio: ["ignore", "ignore", "pipe"], detached: true });
   let stderrTail = "";
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk) => {
@@ -183,7 +197,7 @@ export async function openBrowser(executable, { label = "browser" } = {}) {
   } catch (error) {
     const cleanupErrors = [];
     try {
-      await stopProcess(child, label);
+      await stopProcess(child, label, { group: true });
     } catch (caught) {
       cleanupErrors.push(caught);
     }
@@ -370,7 +384,8 @@ export async function cleanupBrowserAcceptance(browser, preview) {
     }
   };
   await attempt("close browser websocket", async () => browser?.close());
-  await attempt("stop browser process", async () => stopProcess(browser?.child, browser?.label));
+  await attempt("stop browser process",
+    async () => stopProcess(browser?.child, browser?.label, { group: true }));
   if (browser?.profile) {
     await attempt("remove browser profile", async () => removeBrowserProfile(browser.profile));
   }
