@@ -1733,7 +1733,24 @@ pub(crate) mod tests {
         row
     }
 
+    fn bar_open_row(event_effective: u64, sequence: u64) -> VerifiedPitObservation {
+        let mut row = bar_row(event_effective, sequence);
+        row.symbolic_key = "AAPL.OPEN".into();
+        row.field = "OPEN".into();
+        row.value_mantissa = 12_300;
+        row
+    }
+
     fn batch(row: VerifiedPitObservation, fact: u8) -> VerifiedPitObservationBatch {
+        batch_with_rows(vec![row], fact)
+    }
+
+    /// Rows must already be in canonical `(symbolic_key, member_key)` order: this fixture is not
+    /// verified by the PIT authority, so nothing here re-sorts or rejects them.
+    fn batch_with_rows(rows: Vec<VerifiedPitObservation>, fact: u8) -> VerifiedPitObservationBatch {
+        let row = rows
+            .first()
+            .expect("a fixture batch carries at least one row");
         VerifiedPitObservationBatch {
             request_identity: d(1),
             request_digest: d(2),
@@ -1768,7 +1785,7 @@ pub(crate) mod tests {
                 valid_through: 50,
             },
             digest: d(5 + fact),
-            observations: vec![row].into_boxed_slice(),
+            observations: rows.into_boxed_slice(),
         }
     }
 
@@ -2084,18 +2101,75 @@ pub(crate) mod tests {
             frame,
             batch,
             instrument_master,
-            schedule_proposal: UntrustedBarScheduleProposalV1 {
-                canonical_instrument: "AAPL.XNAS".into(),
-                predecessor_fact_digest: None,
-                effective_from: 1,
-                effective_until: Some(100),
-                kind: BarScheduleKindV1::FixedInterval,
-                step: 5,
-                unit: BarScheduleUnitV1::Minute,
-                anchor_identity: d(70),
-                label: BarScheduleLabelV1::IntervalClose,
-                completion: BarScheduleCompletionV1::CompleteOnly,
-            },
+            schedule_proposal: bar_postgres_schedule_proposal_v1(),
+        }
+    }
+
+    fn bar_postgres_schedule_proposal_v1() -> UntrustedBarScheduleProposalV1 {
+        UntrustedBarScheduleProposalV1 {
+            canonical_instrument: "AAPL.XNAS".into(),
+            predecessor_fact_digest: None,
+            effective_from: 1,
+            effective_until: Some(100),
+            kind: BarScheduleKindV1::FixedInterval,
+            step: 5,
+            unit: BarScheduleUnitV1::Minute,
+            anchor_identity: d(70),
+            label: BarScheduleLabelV1::IntervalClose,
+            completion: BarScheduleCompletionV1::CompleteOnly,
+        }
+    }
+
+    /// Two BAR roles over two observed facts of one batch, for proving a joined V4 projection.
+    ///
+    /// A sample fact's identity covers what was observed, not which role asked, so a second role
+    /// that reads the same CLOSE row would re-commit the same fact and conflict. The OPEN row is a
+    /// second observable fact of the same batch, and the OPEN role identity sorts below the CLOSE
+    /// role's so the joined semantic order differs from canonical role-digest order.
+    pub(crate) struct BarPostgresTwoRoleScheduleFixtureV1 {
+        pub(crate) close_binding: StrategyInputBindingReceipt,
+        pub(crate) close_frame: StrategyInputEventFrameReceipt,
+        pub(crate) open_binding: StrategyInputBindingReceipt,
+        pub(crate) open_frame: StrategyInputEventFrameReceipt,
+        pub(crate) batch: VerifiedPitObservationBatch,
+        pub(crate) instrument_master: InstrumentMasterReadbackV1,
+        pub(crate) schedule_proposal: UntrustedBarScheduleProposalV1,
+    }
+
+    pub(crate) fn bar_postgres_two_role_schedule_fixture_v1() -> BarPostgresTwoRoleScheduleFixtureV1
+    {
+        let batch = batch_with_rows(vec![bar_row(10, 3), bar_open_row(10, 3)], 30);
+        let instrument_master = instrument_master_readback(
+            "AAPL.XNAS",
+            batch.market_semantics_identity(),
+            batch.correction_frontier_digest(),
+        );
+        let close_binding =
+            bind_strategy_input_role(&bar_request(&batch), &batch).expect("sealed CLOSE binding");
+        let close_frame =
+            bind_strategy_input_event_frame(std::slice::from_ref(&close_binding), &batch)
+                .expect("complete CLOSE frame");
+        let mut open_request = bar_request(&batch);
+        open_request.input_role_identity = d(18);
+        open_request.field_semantic = MarketDataFieldSemantic::BarOpenPrice;
+        let open_binding =
+            bind_strategy_input_role(&open_request, &batch).expect("sealed OPEN binding");
+        let open_frame =
+            bind_strategy_input_event_frame(std::slice::from_ref(&open_binding), &batch)
+                .expect("complete OPEN frame");
+        assert!(
+            open_binding.locator().input_role_identity()
+                < close_binding.locator().input_role_identity(),
+            "joined semantic order must differ from canonical role-digest order"
+        );
+        BarPostgresTwoRoleScheduleFixtureV1 {
+            close_binding,
+            close_frame,
+            open_binding,
+            open_frame,
+            batch,
+            instrument_master,
+            schedule_proposal: bar_postgres_schedule_proposal_v1(),
         }
     }
 
