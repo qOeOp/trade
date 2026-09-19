@@ -3,9 +3,9 @@
 Owner: Lane 0 (platform). Machine-readable fields below are the contract.
 
     state:        open
-    main:         f7b3fc60a33e3019ecb1e00dc1d7c25a6d7fcb05
-    main_tree:    721afd0dc2ac4846c918f7e1af968b95e3896040
-    last_batch:   642 653 659 666 677 679
+    main:         41b6df61557ff997e38b59fb7c647f641482f1f8
+    main_tree:    (see note)
+    last_batch:   642 653 659 666 677 679, then 685 (recovery)
     last_run:     35422504127
     opened_at:    2026-09-19T05:34:07Z
 
@@ -46,6 +46,30 @@ all on one commit. Control: #686's head carries exactly one.
 So a red on a head is worth attributing before acting on it. If the owning run is
 `cancelled` and a newer run exists on the same SHA, nothing failed: someone
 toggled. Diagnosed by Lane 3.
+
+## main moved at 41b6df615 - every green and every merge ref is now stale
+
+#685 landed. That means, for EVERY other open pull request:
+
+    its merge ref still carries the previous main
+    any green it already has was taken against the previous main
+
+Neither refreshes on its own. A push recomputes the merge ref (and costs almost
+nothing - build.yml ignores `synchronize`); the green only returns when the
+checks re-run.
+
+This is not a defect, it is what merging means. It is written here because it
+recurs after every single merge and was missed after the last one: six of ten
+open pull requests were sitting on a superseded base.
+
+The two questions are different and both are needed:
+
+    run.pull_requests[0].base.sha   what the EXISTING green tested   <- gates a merge
+    refs/pull/N/merge's first parent  what the NEXT run would test   <- schedules a push
+
+`green-base == main` implies the merge ref is current (main cannot be
+force-pushed - ruleset 19718837 carries `non_fast_forward`), so for a pull
+request that already has a green, only the first question adds anything.
 
 ## Path routing exists; it is just not the `paths:` key
 
