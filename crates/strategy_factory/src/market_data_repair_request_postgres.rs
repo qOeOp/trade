@@ -110,7 +110,11 @@ async fn publish_market_data_read_port(
     let mut transaction = pool.begin().await.map_err(unavailable)?;
 
     for statement in [
-        "CREATE SCHEMA IF NOT EXISTS rd_owner_api",
+        // `CREATE SCHEMA IF NOT EXISTS` checks database `CREATE` before it checks existence, so it
+        // fails for an Owner that holds no database-level `CREATE` even when the schema is already
+        // provisioned. The authority migration owns this schema under the deployed custody
+        // topology, so ask about existence first and create only what is genuinely missing.
+        "DO $rd_owner_api_schema$ BEGIN IF pg_catalog.to_regnamespace('rd_owner_api') IS NULL THEN EXECUTE 'CREATE SCHEMA rd_owner_api'; END IF; END $rd_owner_api_schema$",
         "REVOKE ALL ON SCHEMA rd_owner_api FROM PUBLIC",
         "GRANT USAGE ON SCHEMA rd_owner_api TO market_data_owner",
     ] {
