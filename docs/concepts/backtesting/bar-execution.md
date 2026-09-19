@@ -1,4 +1,7 @@
-# Bar-Based Execution
+# Bar-Based Execution (engine)
+
+This page documents the existing engine. Where it differs from the Owner contract in
+`docs/owners/backtest.md`, the Owner contract is authoritative.
 
 Bar data records the open, high, low, close, and volume for an interval. It does not record when
 each price occurred within that interval or whether the high preceded the low. Bar-based execution

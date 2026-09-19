@@ -1,4 +1,7 @@
-# Strategies
+# Strategies (engine)
+
+This page documents the existing engine. Where it differs from the target product architecture in
+`docs/architecture/strategy-factory.md`, that document is authoritative.
 
 A strategy inherits the `Strategy` class and implements
 the methods its logic requires.
