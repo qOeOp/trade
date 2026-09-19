@@ -263,6 +263,10 @@ export async function waitForBrowserExpression(browser, expression, { timeoutMs 
 export async function waitForBrowserExpressionWithRefresh(browser, expression, {
   attemptTimeoutMs = 25_000, attempts = 3, label, endpoints = [], refreshLabel = "Refresh",
 } = {}) {
+  // A retry loop that never retried reports the same thing as a patient one that did, so the
+  // failure has to say which happened: how many times the surface was actually asked again, and
+  // by which means.
+  const asked = [];
   for (let attempt = 1; ; attempt += 1) {
     try {
       await waitForBrowserExpression(browser, expression, {
@@ -272,18 +276,23 @@ export async function waitForBrowserExpressionWithRefresh(browser, expression, {
       });
       return;
     } catch (error) {
-      if (attempt >= attempts) throw error;
+      if (attempt >= attempts) {
+        throw new Error(`${error.message}; the surface was asked again ${asked.length} time(s)${
+          asked.length ? `: ${asked.join(", ")}` : ""}`, { cause: error });
+      }
       console.error(`[${browser.label}] ${label}: asking the surface to read the Owner again`);
       // The control carries a pending label while it reads, so a click can arrive when there is
       // no button by that name. Wait for it to be idle, and if it never is, reload the route:
       // both are things an operator does, and both re-read every source the surface composes.
-      const clicked = await waitForClickable(browser, refreshLabel, 10_000);
-      if (!clicked) {
-        await browser.send("Page.reload", { ignoreCache: true });
-        await waitForBrowserExpression(browser, "document.readyState === 'complete'", {
-          timeoutMs: 30_000, label: `${label} reload`,
-        });
+      if (await waitForClickable(browser, refreshLabel, 10_000)) {
+        asked.push(`clicked ${refreshLabel}`);
+        continue;
       }
+      await browser.send("Page.reload", { ignoreCache: true });
+      await waitForBrowserExpression(browser, "document.readyState === 'complete'", {
+        timeoutMs: 30_000, label: `${label} reload`,
+      });
+      asked.push("reloaded the route");
     }
   }
 }
