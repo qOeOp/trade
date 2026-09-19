@@ -62,7 +62,9 @@ widening the admitted set requires changing this document first.
   at. It makes no Risk decision, commits no Reservation, writes no fence, and consumes no Trade Intent, because
   the inputs for all four have no producer. Two prerequisites sit outside this Owner: the role pair and its
   schemas are a shared-surface change under `product/rd-workbench/postgres-init/`, and Portfolio must grant
-  `risk_writer` execute on those two read functions, which today it grants only to `governance_writer`. Admission is permission to build and verify this
+  `risk_writer` execute on those two read functions. They were built by
+  `crates/portfolio_owner/src/capacity_scope_postgres.rs`, whose migration grants them, and `USAGE` on their schema,
+  to `governance_writer` alone; a reader can recheck both grants there rather than take this sentence's word for it. Admission is permission to build and verify this
   one read.
   It authorizes no Risk decision, no production effect, and no real trading.
 - **TARGET - Risk Engine:** the inherited `RiskEngine` in `crates/risk/src/engine/mod.rs` performs pre-trade order
