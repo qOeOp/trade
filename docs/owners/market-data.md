@@ -847,6 +847,16 @@ role/mapping paths with the existing Owner-sealed resolution. R&D declares resea
 compiler consumes that resolution, but neither may query Instrument Master storage directly, maintain a
 symbol-to-instrument or venue mapping, or synthesize a resolution.
 
+Admitting that consumption is a change to this Owner's sealed read contract, not an access-control change.
+The resolution Backtest would consume already exists, so the obstacle is not a missing function. Every
+function in this Owner's outward read schema binds its permitted caller inside the sealed function itself,
+not only through schema and execute privileges, and it is the sealed body that decides. A privilege grant
+alone therefore opens nothing. A caller that holds the privilege but is not the bound caller receives an
+empty result rather than a permission error, so at the call site an unauthorized reader and an absent fact
+are indistinguishable, and a consumer whose contract treats a missing receipt as evidence will record a
+data gap where the truth is a closed door. Any proposal to admit a second consuming Owner is sized by that
+contract change and must state which caller binding it rewrites.
+
 **CURRENT / PARTIAL, production Instrument Master V1 intake:** one Owner-sealed admission port and one route,
 `POST /v1/market-data/instrument-master-facts`, through which Operations submits `InstrumentMasterFactProposalV1`
 for the exact `BACKTEST_OWNER_V1` role; the Owner resolves and appends it through the unchanged write-once

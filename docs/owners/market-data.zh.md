@@ -798,6 +798,13 @@ request 提供的 `instrument_master_digest` 并与 Owner-verified batch 比对�
 **TARGET：** Backtest 产品直接消费既有 Owner-sealed resolution，并以它替换旧 digest 与硬编码 R&D role/mapping 路径。R&D 声明研究 scope，Strategy compiler 消费该 resolution，但两者均不得直接
 查询 Instrument Master storage、维护 symbol-to-instrument 或 venue mapping，也不得合成 resolution。
 
+准入该消费是对本 Owner 密封读契约的变更，不是访问控制变更。Backtest 将要消费的那份 resolution 已经存在，
+所以障碍不是缺一个函数。本 Owner 对外读 schema 中的每个函数都在密封函数自身内部绑定其许可调用者，
+而不仅通过 schema 与 execute 权限，作出判定的是密封函数体。因此单独授予权限不打开任何通路。
+持有权限但并非被绑定调用者的一方收到的是空结果而非权限错误，于是在调用点上未授权的读者与缺失的事实
+不可区分，而契约把缺失收据当作证据的消费方会把一扇关着的门记成一处数据缺口。任何准入第二个消费 Owner
+的提案都按该契约变更定级，并须说明它改写的是哪一处调用者绑定。
+
 **CURRENT / PARTIAL，生产 Instrument Master V1 intake：** 一个 Owner-sealed admission port 与一条路由
 `POST /v1/market-data/instrument-master-facts`，Operations 经它为准确的 `BACKTEST_OWNER_V1` role 提交
 `InstrumentMasterFactProposalV1`；Owner 经不变的 write-once fact/cut/receipt/outbox 路径解析并 append，重放的
