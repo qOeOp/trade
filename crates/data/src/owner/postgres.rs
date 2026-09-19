@@ -10175,7 +10175,7 @@ impl LiveMarketFactIntakeV1 for LiveMarketFactIntakePostgresV1 {
     ) -> Result<std::sync::Arc<dyn LiveMarketChannelV1>, LiveMarketChannelErrorV1> {
         let (binding, subscription) = self
             .owner
-            .open_live_market_scope_v1(&request, owner_observation_now_ns_v1())
+            .open_live_market_scope_v1(&request, live_retrieval_now_ns_v1())
             .await?;
         let channel_identity =
             derive_channel_identity_v1(binding.source_binding_identity, &subscription);
@@ -10251,7 +10251,7 @@ impl LiveMarketChannelV1 for LiveMarketChannelPostgresV1 {
                 &self.request,
                 self.channel_identity,
                 &observations,
-                owner_observation_now_ns_v1(),
+                live_retrieval_now_ns_v1(),
             )
             .await
     }
@@ -10263,13 +10263,19 @@ impl LiveMarketChannelV1 for LiveMarketChannelPostgresV1 {
     }
 }
 
-/// This Owner's own observation instant, in nanoseconds since the epoch.
+/// The retrieval instant this Owner stamps on a live fact, in nanoseconds since the epoch.
 ///
-/// It is the Owner's evidence about itself: when this system received something. A host clock
-/// before the epoch is reported as zero rather than guessed at, which makes every live observation
-/// ambiguous and stops the channel, because a system that cannot say when it received a fact
-/// cannot place that fact in time either.
-fn owner_observation_now_ns_v1() -> u64 {
+/// It is the Owner's evidence about itself: when this system received something. It is read from
+/// the host wall clock and not from the Owner's sealed clock head, so it shares a clock with
+/// neither the venue's instants nor any coordinate admitted under that head, and no ordering
+/// between them is provable. The name says `retrieval` because that is the coordinate it fills;
+/// an earlier name said Owner-observation, which is a different coordinate this fact does not
+/// carry, and a document describing this path repeated that mistake.
+///
+/// A host clock before the epoch is reported as zero rather than guessed at, which makes every
+/// live observation ambiguous and stops the channel, because a system that cannot say when it
+/// received a fact cannot place that fact in time either.
+fn live_retrieval_now_ns_v1() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .ok()
