@@ -61,9 +61,15 @@ widening the admitted set requires changing this document first.
   `crates/data/src/owner/replay_market_facts_v2/postgres.rs`, and every one of them pins `session_user` to
   `rd_owner` inside its own `SECURITY DEFINER` body. A caller the body does not name receives an empty result
   rather than a permission error, so a read path built to that shape would return nothing to Runtime after the
-  grant was issued, and the failure would look like an absent fact. This port therefore needs a read path whose
-  permitted callers are the grant, not a predicate; deciding that is Market Data's contract change, not a grant
-  this Owner is waiting on. The role pair and its schemas are then a shared-surface change
+  grant was issued, and the failure would look like an absent fact.
+
+  That predicate is not a defect to be replaced by a grant. Inside a SQL function `session_user` is the only
+  caller identity the database has authenticated; everything else the body can see is an argument, and an argument
+  is whatever the caller says. The mismatch is granularity rather than mechanism. Market Data's own admitted slice
+  refuses an instrument outside the subscription the Owner issued, so its admission unit is narrower than a
+  database role, while a role is the narrowest thing either a predicate or a `GRANT` can name. Both are therefore
+  too coarse for what is admitted, and that is a question about caller identity for Market Data to settle, not a
+  grant this Owner is waiting on. The role pair and its schemas are then a shared-surface change
   under `product/rd-workbench/postgres-init/`, and once the read path exists Market Data must grant the Runtime
   role execute on it.
   Admission is permission to build and verify this one read. It authorizes no Runtime effect, no Paper or Live

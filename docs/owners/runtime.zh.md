@@ -54,8 +54,12 @@ checkpoint 与 readiness 持久化属于 Runtime 内部关注点，不是第二�
   四个在 `crates/data/src/owner/replay_market_facts_v2/postgres.rs`，每一个都在自己的 `SECURITY DEFINER`
   函数体里把 `session_user` 钉死为 `rd_owner`。函数体没点名的调用者拿到的是空结果而不是权限错误，
   所以照这个形状建出来的读路径，在授权发下去之后对 Runtime 仍然返回空，而那个失败看起来像事实不存在。
-  因此这条 port 需要的是一条"准许谁读由授权决定、而不是由谓词决定"的读路径；这是 Market Data 的契约变更，
-  不是本 Owner 在等的一条授权。随后角色对
+
+  那个谓词不是一个该由授权取代的缺陷。在 SQL 函数里，`session_user` 是数据库唯一认证过的调用者身份；
+  函数体能看到的其余一切都是参数，而参数是调用者说的。不匹配的是粒度而不是机制。Market Data 自己那片
+  已准入的切片会拒绝 Owner 所发订阅之外的标的，所以它的准入单位比一个数据库角色更窄，而角色已经是
+  谓词或 `GRANT` 能点名的最窄的东西。两者因此对已准入的内容都太粗，这是一个关于调用者身份的问题，
+  要由 Market Data 裁决，而不是本 Owner 在等的一条授权。随后角色对
   与其 schema 属于 `product/rd-workbench/postgres-init/` 下的共享面变更；读路径建成之后，Market Data 必须把
   它的执行权授予该 Runtime 角色。准入是建造并验证这一条读取的许可，它不授权任何 Runtime 效果 任何 Paper 或 Live adapter binding
   或真实交易。
