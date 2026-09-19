@@ -52,9 +52,14 @@ widening the admitted set requires changing this document first.
   Runtime role pair over its own private and API schemas, and one read-only Runtime custody that consumes the live
   market fact channel `crates/data/src/owner/live_market_fact_v1.rs` already produces, and seals what it read
   together with the evidence cut it read it at. It starts no Strategy Instance, emits no Trade Intent, persists no
-  checkpoint, and publishes no readiness: `RuntimeFoundation`'s only status stays `NotReady`. The same two
-  prerequisites sit outside this Owner: the role pair and its schemas are a shared-surface change under
-  `product/rd-workbench/postgres-init/`, and Market Data must grant that role read access to the channel.
+  checkpoint, and publishes no readiness: `RuntimeFoundation`'s only status stays `NotReady`. Three prerequisites
+  sit outside this Owner, and the first is larger than Risk's: the live market fact lands in
+  `market_data_private`, which is revoked from `PUBLIC`, and Market Data exposes no read function for it in any
+  API schema, so a read path must be built before there is anything to grant. Market Data has done this shape
+  before - `market_data_rd_api` carries eight functions granted to `rd_owner` - so the precedent exists and the
+  live channel is what has not been given one. The role pair and its schemas are then a shared-surface change
+  under `product/rd-workbench/postgres-init/`, and once the read path exists Market Data must grant the Runtime
+  role execute on it.
   Admission is permission to build and verify this one read. It authorizes no Runtime effect, no Paper or Live
   adapter binding, and no real trading.
 - **CURRENT_PARTIAL - fail-closed foundation:** `crates/runtime/src/lib.rs` exposes `RuntimeFoundation`, whose only

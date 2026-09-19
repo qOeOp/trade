@@ -47,9 +47,12 @@ checkpoint 与 readiness 持久化属于 Runtime 内部关注点，不是第二�
   对，覆盖它自己的私有与 API 两个 schema；以及一个只读的 Runtime custody，它消费
   `crates/data/src/owner/live_market_fact_v1.rs` 已经产出的实时行情事实通道，并把读到的内容连同读取时所处的
   证据截面一并封存。它不启动任何 Strategy Instance 不产生 Trade Intent 不持久化 checkpoint 也不发布
-  readiness：`RuntimeFoundation` 的唯一状态仍然是 `NotReady`。同样两项前置不在本 Owner 手上：角色对与其
-  schema 属于 `product/rd-workbench/postgres-init/` 下的共享面变更，而 Market Data 必须把该通道的读取权授予
-  那个角色。准入是建造并验证这一条读取的许可，它不授权任何 Runtime 效果 任何 Paper 或 Live adapter binding
+  readiness：`RuntimeFoundation` 的唯一状态仍然是 `NotReady`。三项前置不在本 Owner 手上，而第一项比 Risk 那条
+  更大：实时行情事实落在 `market_data_private` 里，该 schema 已对 `PUBLIC` 撤权，而 Market Data 没有在任何
+  API schema 里为它暴露读函数，所以必须先建出一条读路径，才谈得上授权给谁。Market Data 做过这个形状 -
+  `market_data_rd_api` 有八个函数授予了 `rd_owner` - 所以先例存在，缺的是实时通道还没有被给一条。随后角色对
+  与其 schema 属于 `product/rd-workbench/postgres-init/` 下的共享面变更；读路径建成之后，Market Data 必须把
+  它的执行权授予该 Runtime 角色。准入是建造并验证这一条读取的许可，它不授权任何 Runtime 效果 任何 Paper 或 Live adapter binding
   或真实交易。
 - **CURRENT_PARTIAL - 失败关闭的 foundation：** `crates/runtime/src/lib.rs` 暴露 `RuntimeFoundation`，其唯一状态是
   `NotReady`，并列出四个准确的重验依赖（Governance authorized-generation-decision read port、canonical Runtime
