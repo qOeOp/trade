@@ -98,12 +98,23 @@ what "merge the members" produces, exactly as moving main does. Members are list
 above. If you need to move a member's head, tell Lane 0 first - the round has to
 be rebuilt, and it is cheaper to know before it finishes than after.
 
-## deferred: PRs that are waiting on purpose
+## deferred: a RULE first, a list second
 
-Listed PRs have chosen to wait for a later window, usually because they touch the
-chain closure and would need re-proving anyway. They are NOT stalled and must not
-be nudged. Without this field a scanner sees only "not in members" and reports
-"needs a toggle" - which means chasing a lane that is correctly waiting.
+**The rule.** While state is closed, every open PR that is not in `members` is
+deferred by default. It cannot merge, it must not be toggled (see below), so
+there is nothing for anyone to chase. A scanner should apply this rule and report
+nothing, rather than consulting the list.
+
+**The list** names PRs whose owners told Lane 0 they are waiting, usually because
+they touch the chain closure and would need re-proving. It is a convenience, not
+the source of truth.
+
+The distinction matters because the list is REPORTED. "Not in the list" means
+only "nobody reported it" - never "should not be deferred". Two PRs were being
+chased every few scans for exactly this reason, and an earlier version of this
+file omitted six more because I built the list from who had spoken to me rather
+than from `gh pr list`. A reported table inherits the gaps of whoever reports;
+a rule does not.
 
 ## Members are being proven, not stalled
 
