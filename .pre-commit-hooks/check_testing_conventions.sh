@@ -117,12 +117,23 @@ scheduler_results=$(mktemp)
 for rust_file in $(rg -l 'is_finished\(\)' --glob '*.rs' . 2> /dev/null || true); do
   awk -v path="$rust_file" '
     { line[NR] = $0 }
-    /#\[tokio::test/ { paused = ($0 ~ /start_paused/) ? 1 : 0 }
+    # Attributes bind to the item that follows them, so collect them and decide
+    # at the fn. Deciding at the attribute would leak one paused-clock test
+    # exemption into every function after it, and the lookback below would leak
+    # that test evidence the same way; both are bounded to the enclosing fn.
+    /^[[:space:]]*#\[/ { attrs = attrs $0; collecting = 1; next }
+    /^[[:space:]]*(pub[[:space:]]+)?(async[[:space:]]+)?fn[[:space:]]/ {
+      paused = (attrs ~ /start_paused/) ? 1 : 0
+      attrs = ""; collecting = 0; fn_start = NR
+    }
+    collecting && $0 !~ /^[[:space:]]*$/ { attrs = ""; collecting = 0 }
     /assert!\(![A-Za-z_][A-Za-z0-9_]*\.is_finished\(\)\)/ {
       if (paused) next
+      from = NR - 15
+      if (from < fn_start) from = fn_start
+      if (from < 1) from = 1
       observed = 0
-      for (i = NR - 15; i < NR; i++) {
-        if (i < 1) continue
+      for (i = from; i < NR; i++) {
         if (line[i] ~ /wait_for_[a-z_]*lock|pg_stat_activity|NOWAIT|recv\(\)|_receiver|advance\(/) observed = 1
       }
       if (!observed && (line[NR-1] ~ /yield_now\(\)\.await;/ || line[NR-1] ~ /sleep\(.*\)\.await;/)) {
