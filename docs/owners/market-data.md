@@ -469,9 +469,15 @@ standalone Owner readback.
 ### Typed fact, time and correction topology
 
 The closed version-1 value is exactly: non-zero normalization identity `[u8; 32]`; price adjustment `u16BE` with
-`1 RAW`, `2 SPLIT_ADJUSTED` or `3 TOTAL_RETURN_ADJUSTED`; timestamp basis `u16BE` with `1 EVENT_EFFECTIVE`,
-`2 INTERVAL_OPEN` or `3 INTERVAL_CLOSE`; non-zero price-unit identity `[u8; 32]`; and non-zero size-unit identity
-`[u8; 32]`. Zero and every unlisted tag are unsupported. Unit identities name Owner-registry meanings; they are
+`1 RAW`, `2 SPLIT_ADJUSTED`, `3 TOTAL_RETURN_ADJUSTED` or `4 UNKNOWN`; timestamp basis `u16BE` with
+`1 EVENT_EFFECTIVE`, `2 INTERVAL_OPEN` or `3 INTERVAL_CLOSE`; non-zero price-unit identity `[u8; 32]`; and non-zero
+size-unit identity `[u8; 32]`. Zero and every unlisted tag are unsupported.
+
+`4 UNKNOWN` is the submitter stating that the source's adjustment rule is not known to it. It is a declaration,
+never a fallback: an adjustment string this Owner does not recognise is an invalid submission and is refused,
+exactly as before. A source whose rule is unknown must say so; it must not be recorded as `RAW` because `RAW` was
+the only available answer. A fact carrying `4 UNKNOWN` has no replay representation and is refused there, because a
+replay compares prices and cannot do so across an undeclared caliber. Unit identities name Owner-registry meanings; they are
 not unit strings, currency defaults, scale guesses or Instrument Master increment fields.
 
 Each immutable fact binds one Owner-registry compatibility-scope identity, an optional exact predecessor, one
