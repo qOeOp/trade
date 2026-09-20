@@ -283,9 +283,30 @@ and restart recovery across processes, which no chain entry observes.
 
 ### CURRENT_PARTIAL - who authors a Strategy Design
 
-R&D does not derive a Design. No rule in this repository turns a hypothesis, mechanism and
-falsification question into input roles and a reaction graph, and none is intended: that translation
-is a judgement, and a judgement an Owner makes is a fact the Owner invented.
+R&D does not derive a Design from research prose. No rule in this repository turns a hypothesis,
+mechanism and falsification question into input roles and a reaction graph, and none is intended:
+that translation is a judgement, and a judgement an Owner makes is a fact the Owner invented.
+
+That prohibition is about inference, not about projection, and the two are separated by what the
+Research Intent already states. A Research Intent carries `data.channels`, and each channel already
+declares its `role`, its `asset_id`, its `timeframe`, whether it is `required`, and its source and
+staleness bound; `data.decision_clock_channel` names which of them advances the decision. Reading
+those out is not a judgement, because nothing is chosen: the instrument and the timeframe of every
+input role are the instrument and the timeframe the Intent named, and an Intent that names none has
+no input roles to project rather than roles this Owner must invent. **The Owner may therefore
+project declared channels into the Design's input roles, one role per declared channel, and must
+still refuse to infer a role the Intent did not declare.** A channel the projection cannot bind to a
+Market Semantics coordinate is a refusal, never a dropped role, and never a role the Owner supplies
+from its own knowledge of the instrument.
+
+The reaction graph is the part that stays a judgement, and it stays with the proposer. A first
+bounded family is admitted for it and nothing wider: **a single declared channel compared against a
+single threshold**, with the decision clock taken from `data.decision_clock_channel`. Every graph
+outside that family - two signals, a conjunction, a state-dependent threshold, a threshold this
+Owner would have to choose - remains a proposer declaration this Owner admits rather than derives.
+The family exists so the first production path can close without the Owner inventing a mechanism; it
+is not a claim that one threshold is a good strategy, and widening it requires changing this
+document first.
 
 A **proposer** declares it instead. The proposer may be a language model, a person or any other
 caller; this contract does not name it and does not change with it. What the contract fixes is the
