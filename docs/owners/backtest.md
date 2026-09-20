@@ -91,6 +91,14 @@ admitted set requires changing this document first.
   all sit inside `#[cfg(test)]` modules, and the step that would seal one into a request set is called from
   the ordered gate's entries and nowhere else, which [Qualification](./qualification/) states for every step of
   that terminal. Backtest can select the computation, and nothing outside the gate produces the selection.
+- **CURRENT_PARTIAL - first evaluable tick of each decision condition:** the derivation exists and no
+  replay produces it. `derive_condition_readiness_census_v1` in
+  `crates/strategy_factory/src/condition_readiness_derivation_v1.rs` reads a frozen program's graph
+  and decision table and returns, per condition, the first tick at which every input in its closure
+  satisfies the availability rule it was frozen under, the rule that fixed it, and the node that
+  imposed it. It reads each rule from the published catalog rather than inferring it from the node's
+  parameters, so a primitive that carries a period without waiting for one is not counted as waiting.
+  Its callers are its own proofs.
 - **TARGET - `REPAIR_VALIDATION` request and result:** no implementation exists. `REPAIR_VALIDATION` and
   `RepairValidation` appear in no file under `crates/` or `product/`.
 - **TARGET - `SIMULATOR` and `BACKTEST_OPERATIONAL` native repair:** no Backtest repair surface exists. The only
