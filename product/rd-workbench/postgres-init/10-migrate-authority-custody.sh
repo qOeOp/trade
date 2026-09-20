@@ -194,6 +194,11 @@ GRANT USAGE ON SCHEMA portfolio_api TO risk_writer;
 GRANT USAGE ON SCHEMA execution_api TO portfolio_writer, governance_writer;
 GRANT USAGE ON SCHEMA portfolio_api TO governance_writer;
 GRANT USAGE ON SCHEMA operator_authorization_api TO product_edge_owner;
+-- Product Edge reads one terminal Scanner receipt and nothing else. The schema grant lands
+-- here because `scanner_api` is created above; the matching `GRANT EXECUTE ON FUNCTION
+-- scanner_api.read_terminal_receipt_v1(bytea)` lands with that function, since an unguarded
+-- grant for a routine that does not exist yet would roll this migration back on every run.
+GRANT USAGE ON SCHEMA scanner_api TO product_edge_owner;
 REVOKE CREATE ON SCHEMA public FROM rd_owner;
 GRANT USAGE ON SCHEMA public TO rd_owner;
 GRANT USAGE, CREATE ON SCHEMA public TO product_edge_owner;
