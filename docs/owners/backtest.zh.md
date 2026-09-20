@@ -78,7 +78,7 @@
   运行冻结的是哪一个观测：`derive_protected_economic_measurement_v1` 从规范 Result 字节计算并封印它，而
   `ResolvedProtectedReplayRequestSetV1::economic_computation` 从请求集所携带的那个 bundle 解析出指标与覆盖
   规则，因此调用方只能选择一个已发布的计算，描述不出任何计算。剩下的缺口在两者的上游。生产代码不构造
-  `ProtectedEconomicPolicyBundleV1`，它的三处构造点全都位于 `#[cfg(test)]` 模块之内；而把它封印进请求集的
+  `ProtectedEconomicPolicyBundleV1`，它的构造点全都位于 `#[cfg(test)]` 模块之内；而把它封印进请求集的
   那一步只被有序门禁自己的条目调用、此外没有调用方，这一点 [Qualification](./qualification/) 已为该终端的
   每一步写明。Backtest 能选出那个计算，而门禁之外没有东西产出那项选择。
 - **TARGET - `REPAIR_VALIDATION` 请求与结果：** 不存在任何实现。`REPAIR_VALIDATION` 与

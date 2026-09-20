@@ -87,8 +87,8 @@ admitted set requires changing this document first.
   `derive_protected_economic_measurement_v1` computes and seals it from canonical Result bytes, and
   `ResolvedProtectedReplayRequestSetV1::economic_computation` resolves the metric and the coverage rule from the
   bundle the request set carries, so a caller selects a published computation and describes none. What remains is
-  upstream of both. No production code constructs a `ProtectedEconomicPolicyBundleV1`, whose three construction
-  sites all sit inside `#[cfg(test)]` modules, and the step that would seal one into a request set is called from
+  upstream of both. No production code constructs a `ProtectedEconomicPolicyBundleV1`, whose construction sites
+  all sit inside `#[cfg(test)]` modules, and the step that would seal one into a request set is called from
   the ordered gate's entries and nowhere else, which [Qualification](./qualification/) states for every step of
   that terminal. Backtest can select the computation, and nothing outside the gate produces the selection.
 - **TARGET - `REPAIR_VALIDATION` request and result:** no implementation exists. `REPAIR_VALIDATION` and
