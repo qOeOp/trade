@@ -49,6 +49,7 @@ readonly owner_crates=(
   crates/execution_owner
   crates/portfolio_owner
   crates/strategy_governance
+  crates/scanner_custody
 )
 
 # Proofs no chain selects, each with the reason it stays out. Adding a name here is a decision that
