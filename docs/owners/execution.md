@@ -91,7 +91,13 @@ grants nothing, and widening the admitted set requires changing this document fi
   from the call site. The resolution never mints a binding, never reaches a venue, and carries no credential: the
   handle stays inside this Owner and is resolved at effect time, as the Strategy Governance ledger records.
   This slice deliberately has no caller. No Order Engine, Effect Journal, or Trade Intent exists, so nothing asks
-  it for a venue yet. It is admitted now because it is the one part of the adapter boundary that depends on
+  it for a venue yet. Whoever wires the first caller should establish a venue-leg control before doing so:
+  nothing on this path has ever reached a venue, so the first attempt would be ambiguous between a fault in this
+  resolution and a venue leg that was never up, and separating those afterwards costs a round that separating them
+  beforehand does not. `crates/adapters/binance` can answer it against a testnet on its own. That control is a
+  diagnostic and not a milestone - the adapter it runs through is inherited, is not admitted, and is wired to
+  nothing in this Owner, so a green there says only that the venue leg is live and says nothing whatever about
+  this resolution or about any path reaching production. It is admitted now because it is the one part of the adapter boundary that depends on
   nothing further upstream - the Execution Scope and the admitted binding it resolves against are both already in
   production custody - and because building the gate before the thing that must pass through it is cheaper than
   retrofitting a gate onto a path that already flows.
