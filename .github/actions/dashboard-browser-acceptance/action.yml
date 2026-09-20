@@ -43,6 +43,15 @@ runs:
     # beats .82, or that the pin has ever prevented anything. A pin whose comment says only what it
     # guarantees reads as load-bearing to the next person and survives on that alone - which is how
     # the pin #720 removed lasted a day after the run that refuted it.
+    #
+    # In particular, the schedule-calendar acceptance is not evidence for this pin, and its history
+    # is the reason to say so explicitly. It was intermittently red on Linux; that red was read as a
+    # channel difference for about an hour, then as a key that never reached the page, and both
+    # readings were written down as fact before the next run refuted them. The cause is a CDP
+    # dispatch detail: `keyDown` carrying `text` leaves Chrome to synthesize the char event that
+    # Blink activates a `<button>` on, and that synthesis is intermittent. Dispatching
+    # `rawKeyDown` -> `char` -> `keyUp` explicitly is deterministic; removing the `char` step
+    # reproduces the failure on a laptop. Nothing in it is about which browser was installed.
     - name: Install sealed Dashboard browser acceptance inputs
       shell: bash
       env:
