@@ -1325,6 +1325,20 @@ mod tests {
             .as_str()
             .expect("frozen plan metric digest")
             .to_string();
+        // The coverage rule is read the same way as the metric and for the same reason. Naming a
+        // catalogue member here would leave one half of the computation frozen by the plan and the
+        // other half chosen by this test, and the asymmetry fails open: Qualification compares
+        // `observed_coverage_bps` against its floor without knowing which rule produced the number,
+        // so a plan that froze a different rule would pass rather than fail.
+        let coverage = &candidate_json["protected_robustness_plan"]["proposal"]["coverage_policy"];
+        let coverage_identity = coverage["identity"]
+            .as_str()
+            .expect("frozen plan coverage policy identity")
+            .to_string();
+        let coverage_digest = coverage["digest"]
+            .as_str()
+            .expect("frozen plan coverage policy digest")
+            .to_string();
 
         let shared_time =
             issue_protected_evaluation_shared_time_v1().expect("sealed acceptance Shared Time");
@@ -1369,7 +1383,13 @@ mod tests {
                         4,
                     )
                     .expect("the plan's frozen metric is published by the catalogue"),
-                    coverage_rule: ProtectedEconomicCoverageRuleV1::ObservedWindowSpan,
+                    coverage_rule: ProtectedEconomicCoverageRuleV1::resolve(
+                        &ProtectedEconomicPolicyReferenceV1 {
+                            identity: coverage_identity.clone(),
+                            digest: coverage_digest.clone(),
+                        },
+                    )
+                    .expect("the plan's frozen coverage rule is published by the catalogue"),
                 },
                 &ProtectedEconomicMeasurementBindingsV1 {
                     request_identity: request.request_identity.clone(),
