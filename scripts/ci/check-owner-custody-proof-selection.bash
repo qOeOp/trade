@@ -163,7 +163,16 @@ for crate in "${owner_crates[@]}"; do
     rg -n -A4 '#\[ignore' "$crate" --type rust 2> /dev/null |
       awk '
         /^--$/ { taken = 0; next }
-        /#\[ignore/ { taken = 0; next }
+        /#\[ignore/ {
+          # Prose that names the attribute is not the attribute. A comment mentioning `#[ignore]`
+          # opens a four-line window like a real one, and the next `fn` in it was reported as an
+          # unselected proof even when that function is not ignored at all. Consuming the window
+          # rather than skipping the line is what suppresses it: skipping would leave the
+          # following `fn` to be taken by the untaken-window rule below, which is the bug.
+          if (substr($0, 1, index($0, "#[ignore") - 1) ~ /\/\//) { taken = 1; next }
+          taken = 0
+          next
+        }
         !taken && /[[:space:]:-]fn [a-z_0-9]+/ {
           match($0, /fn [a-z_0-9]+/)
           print substr($0, RSTART + 3, RLENGTH - 3)

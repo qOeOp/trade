@@ -542,7 +542,7 @@ fn emit_program_source(
     let output_capacity =
         frame_capacity_v3(&manifest.output_ports, manifest.state.max_bytes, true)?;
     let mut source = String::from(
-        "#![allow(dead_code, unused_imports)]\n\nuse core::{convert::TryFrom as _, num::NonZeroU32, sync::atomic::{AtomicU8, Ordering}};\nuse crate::{ComparisonPredicateV1, DecimalScale, FixedBarState, FixedFeatureFailure, FixedI128, FixedRsiState, FixedSampleUpdate, FixedSmoothingKind, FixedSmoothingState, FixedStateFailure, FixedWindowFunction, FixedWindowState, FusedRationalStepV1, MAX_FUSED_PROGRAM_STEPS_V1, ReducedUnitFraction, RoundingMode, SampleClockInputV1, decode_fused_program_v1, evaluate_fused_rational_v1, fixed_range_fraction};\n\n",
+        "#![allow(dead_code, unused_imports)]\n\nuse core::{convert::TryFrom as _, num::NonZeroU32, sync::atomic::{AtomicI32, AtomicU8, Ordering}};\nuse crate::{ComparisonPredicateV1, DecimalScale, FixedBarState, FixedFeatureFailure, FixedI128, FixedRsiState, FixedSampleUpdate, FixedSmoothingKind, FixedSmoothingState, FixedStateFailure, FixedWindowFunction, FixedWindowState, FusedRationalStepV1, MAX_FUSED_PROGRAM_STEPS_V1, ReducedUnitFraction, RoundingMode, SampleClockInputV1, decode_fused_program_v1, evaluate_fused_rational_v1, fixed_range_fraction};\n\n",
     );
     push_byte_constant(&mut source, "PROGRAM_DIGEST", program_digest);
     for (ordinal, (node, symbol)) in program.nodes.iter().zip(lowered_symbols).enumerate() {
@@ -569,11 +569,20 @@ fn emit_program_source(
     emit_output_frame(&mut body, program, manifest, &names)?;
     emit_input_decode(&mut source, program, manifest, &names, &body)?;
     source.push_str(&body);
-    source.push_str("}\n\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]\npub extern \"C\" fn strategy_factory_plugin_input_ptr_v2() -> i32 { INPUT.as_ptr().cast::<u8>() as usize as i32 }\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]\npub extern \"C\" fn strategy_factory_plugin_input_capacity_v2() -> i32 { INPUT_CAPACITY as i32 }\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]\npub extern \"C\" fn strategy_factory_plugin_output_ptr_v2() -> i32 { OUTPUT.as_ptr().cast::<u8>() as usize as i32 }\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]\npub extern \"C\" fn strategy_factory_plugin_output_capacity_v2() -> i32 { OUTPUT_CAPACITY as i32 }\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]\npub extern \"C\" fn strategy_factory_plugin_invoke_v2(input_len: i32) -> i32 {\n    if input_len < 0 { return -2; }\n    match run(input_len as usize) { Ok(len) => i32::try_from(len).unwrap_or(-2), Err(Failure::Numeric) => -1, Err(Failure::Unsupported) => -2 }\n}\n");
+    source.push_str("}\n\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]\npub extern \"C\" fn strategy_factory_plugin_input_ptr_v2() -> i32 { INPUT.as_ptr().cast::<u8>() as usize as i32 }\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]\npub extern \"C\" fn strategy_factory_plugin_input_capacity_v2() -> i32 { INPUT_CAPACITY as i32 }\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]\npub extern \"C\" fn strategy_factory_plugin_output_ptr_v2() -> i32 { OUTPUT.as_ptr().cast::<u8>() as usize as i32 }\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]\npub extern \"C\" fn strategy_factory_plugin_output_capacity_v2() -> i32 { OUTPUT_CAPACITY as i32 }\n#[allow(unsafe_code)]\n#[unsafe(no_mangle)]\npub extern \"C\" fn strategy_factory_plugin_invoke_v2(input_len: i32) -> i32 {\n    if input_len < 0 { return -2; }\n    match run(input_len as usize) { Ok(len) => i32::try_from(len).unwrap_or(-2), Err(Failure::Numeric) => -1, Err(Failure::Unsupported) => -2i32.saturating_sub(SITE.load(Ordering::Relaxed)) }\n}\n");
     Ok(source.into_bytes())
 }
 
 const EXECUTABLE_RUNTIME_SOURCE: &str = r#"
+/// The region of the body that was executing, so that an `Unsupported` failure names where it
+/// arose instead of only that it did.
+///
+/// `run` resets it, every generated region stamps it before running, and 0 means no generated
+/// region had started - the frame decode and its own checks. A single failure code cannot say
+/// whether a program rejected its coordinate bytes or failed to restore a window's state, and a
+/// reader who cannot tell those apart bisects blind: the first use of this lowering spent about ten
+/// compilations doing exactly that and still attributed one failure's symptom to the other.
+static SITE: AtomicI32 = AtomicI32::new(0);
 static INPUT: [AtomicU8; INPUT_CAPACITY] = [const { AtomicU8::new(0) }; INPUT_CAPACITY];
 static OUTPUT: [AtomicU8; OUTPUT_CAPACITY] = [const { AtomicU8::new(0) }; OUTPUT_CAPACITY];
 
@@ -987,6 +996,7 @@ fn emit_input_decode(
     // `reader.state` is called either way: it advances and validates the frame's state entry. Only
     // the name changes, because `pre_empty` is read only where a state cell is restored, and a
     // program with no state cells would carry a binding nothing reads.
+    source.push_str("    SITE.store(0i32, Ordering::Relaxed);\n");
     let pre_empty = if program.state_cells.is_empty() {
         "_pre_empty"
     } else {
@@ -1168,6 +1178,14 @@ fn emit_nodes(
     let catalog =
         PrimitiveCatalogV1::verify().map_err(|_| BoundedFeatureLoweringErrorV1::Catalog)?;
     for (node_index, node) in program.nodes.iter().enumerate() {
+        // Node ordinals start at 1 so that 0 keeps meaning "no generated region had started",
+        // which is what the frame decode's own failures report.
+        writeln!(
+            source,
+            "    SITE.store({}i32, Ordering::Relaxed);",
+            node_index + 1
+        )
+        .unwrap();
         let operation = catalog
             .row(&node.primitive_semantic_id)
             .and_then(|row| row.operation)
@@ -1701,6 +1719,15 @@ fn emit_state_bundle(
     let catalog =
         PrimitiveCatalogV1::verify().map_err(|_| BoundedFeatureLoweringErrorV1::Catalog)?;
     for (index, cell) in program.state_cells.iter().enumerate() {
+        // State cells continue the node ordinals, so one number names one region across the whole
+        // body: writing a cell back is a distinct place from evaluating the node that produced it,
+        // and those are exactly the two a single code could not tell apart.
+        writeln!(
+            source,
+            "    SITE.store({}i32, Ordering::Relaxed);",
+            program.nodes.len() + index + 1
+        )
+        .unwrap();
         let slot = canonical
             .state_layout()
             .slots()
@@ -2960,6 +2987,59 @@ mod tests {
             "a program with no state cells declares post_state mutable"
         );
         assert!(program.contains("let post_state"));
+    }
+
+    /// An `Unsupported` failure names the region it arose in.
+    ///
+    /// The guest has one code for every unsupported condition, so a reader who sees it cannot tell
+    /// a rejected coordinate from a state restore that failed, and bisects blind. `SITE` is
+    /// stamped by each generated region and folded into the returned code, leaving `-2` to mean
+    /// what it means today: a failure before any generated region ran, which is the frame decode
+    /// and its own checks.
+    ///
+    /// This asserts the emitted source rather than a running module. Invoking one needs the wasm
+    /// compiler, which is why the execution tests in this module are `#[ignore]`; what can be
+    /// checked cheaply is that every region is stamped and that the ordinals are dense and
+    /// distinct, since a repeated ordinal would merge two regions back together silently.
+    #[rstest::rstest]
+    fn every_generated_region_stamps_a_distinct_failure_site() {
+        let (design, proposal) = candidate();
+        let node_count = proposal.nodes.len();
+        let region_count = node_count + proposal.state_cells.len();
+        assert!(
+            region_count > 1,
+            "the fixture must have regions to tell apart"
+        );
+
+        let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);
+        let frozen = freeze_research_bounded_feature_program_v1(&custody, &design, proposal)
+            .expect("joint Owner freeze");
+        let lowered =
+            prepare_frozen_bounded_feature_source_inputs_v1(&frozen).expect("source lowering");
+        let (_, program_bytes) = lowered
+            .source_files()
+            .find(|(path, _)| path.ends_with("program.rs"))
+            .expect("lowering emits a program source");
+        let program = std::str::from_utf8(program_bytes).expect("lowered source is UTF-8");
+
+        // 0 is the reset at the top of `run`; 1..=region_count are the regions themselves.
+        for ordinal in 0..=region_count {
+            let stamp = format!("SITE.store({ordinal}i32, Ordering::Relaxed);");
+            assert_eq!(
+                program.matches(&stamp).count(),
+                1,
+                "site {ordinal} is stamped exactly once"
+            );
+        }
+        assert_eq!(
+            program.matches("SITE.store(").count(),
+            region_count + 1,
+            "no region is stamped twice and none is missed"
+        );
+        assert!(
+            program.contains("2i32.saturating_sub(SITE.load(Ordering::Relaxed))"),
+            "the invoke wrapper folds the site into the returned code"
+        );
     }
 
     #[test]
