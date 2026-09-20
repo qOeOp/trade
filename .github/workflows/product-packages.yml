@@ -130,8 +130,14 @@ jobs:
           # and moving only the build. The channel was what remained, and it reproduces both ways.
           #
           # Why it fails on the image's browser is not established. Chrome for Testing omits
-          # first-run machinery, but these suites already pass --no-first-run and
-          # --no-default-browser-check, so that candidate is excluded rather than assumed.
+          # first-run machinery, so that is the obvious candidate - and it is excluded rather than
+          # assumed, because the failing configuration already disables it:
+          #
+          #   "--disable-sync", "--metrics-recording-only", "--no-default-browser-check",
+          #   "--no-first-run",          (schedule-calendar.postgres.test.mjs, the spawn arguments)
+          #
+          # The line is quoted here so the next reader does not have to go and check, and does not
+          # have to take the exclusion on trust either.
           #
           # Service logs was held back three times over for reasons that measurement replaced, and
           # the sequence is worth keeping. It was first recorded as meeting a cursor continuity
