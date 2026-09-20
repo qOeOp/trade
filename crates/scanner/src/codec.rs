@@ -65,6 +65,9 @@ const RECEIPT_DOMAIN: &[u8] = b"VIBE_SCANNER_TERMINAL_RECEIPT_V1";
 const ATTEMPT_DOMAIN: &[u8] = b"VIBE_SCANNER_ATTEMPT_IDENTITY_V1";
 const VERSION: u16 = 1;
 
+// Raising a bound is compatible; lowering one is a breaking change, and asymmetrically so. Bytes
+// already committed under a wider bound stay in custody, so a narrower reader starts refusing
+// receipts that are intact and were lawfully written - the store has not changed, this build has.
 const MAX_RECEIPT_BYTES: usize = 4 * 1024 * 1024;
 const MAX_TEXT_BYTES: usize = 16 * 1024;
 const MAX_ENTRIES: u32 = 65_536;
