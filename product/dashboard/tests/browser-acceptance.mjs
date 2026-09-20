@@ -9,7 +9,8 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, rm } from "node:fs/promises";
+import { appendFile, mkdtemp, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -89,12 +90,28 @@ export async function waitForHttp(url, child, { timeoutMs = 60_000, label = "pre
 export async function startProductionPreview({ dashboardRoot, port, env, label = "preview" }) {
   const nextBin = "node_modules/next/dist/bin/next";
   const previewEnv = { ...process.env, NEXT_TELEMETRY_DISABLED: "1", ...env };
+  // This build is unconditional, so it is never the variable - how long it takes is. A cold one
+  // costs about a hundred seconds more than a warm one, which is enough to push the tightest wait
+  // in this suite past its budget, and the run that pays it looks exactly like the run that does
+  // not. It cannot be read from the log either: the runner suppresses a passing test's output
+  // entirely, so every string this test prints is absent from a green run whether it happened or
+  // not. The step summary is written by the job rather than the test, so it survives that.
+  const distDir = previewEnv.DASHBOARD_DIST_DIR ?? ".next";
+  const cacheWarm = existsSync(join(dashboardRoot, distDir, "cache"));
+  const buildStartedAtEpochMs = Date.now();
   const build = spawn(process.execPath, [nextBin, "build"], {
     cwd: dashboardRoot,
     env: previewEnv,
     stdio: "inherit",
   });
   const [buildExit] = await once(build, "exit");
+  const buildMs = Date.now() - buildStartedAtEpochMs;
+  const evidence = `${label}: next build took ${buildMs}ms with ${
+    cacheWarm ? "a warm" : "no"} ${distDir}/cache`;
+  console.error(evidence);
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    await appendFile(process.env.GITHUB_STEP_SUMMARY, `- ${evidence}\n`).catch(() => {});
+  }
   if (buildExit !== 0) throw new Error(`${label} build exited with ${buildExit}`);
   const preview = spawn(process.execPath, [nextBin, "start", "-H", "127.0.0.1", "-p", String(port)], {
     cwd: dashboardRoot,
