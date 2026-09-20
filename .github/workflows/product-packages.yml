@@ -80,36 +80,24 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up Node.js
-        # https://github.com/actions/setup-node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      # Node, the Dashboard dependencies and the browser, from the one definition the chain uses.
+      #
+      # This job used to install its own Node and then take whatever browser the image provided.
+      # Measurement says the browser channel is not interchangeable: the schedule calendar
+      # acceptance passes on Chrome for Testing at both 144.0.7559.96 and 152.0.7977.83 and fails on
+      # the image's Google Chrome 152.0.7977.82, with platform, date, timezone, viewport and startup
+      # flags all held constant. Two other acceptances pass either way, which is exactly why taking
+      # the image's browser looked safe - the suite that disagreed was switched off.
+      - name: Install the Dashboard browser acceptance inputs
+        uses: ./.github/actions/dashboard-browser-acceptance
         with:
-          node-version: "24"
-          cache: npm
-          cache-dependency-path: product/dashboard/package-lock.json
-
-      - name: Install Dashboard dependencies
-        run: npm ci --prefix product/dashboard
+          acceptance-candidate: ${{ github.sha }}
 
       - name: Run Dashboard tests
         run: npm run test --prefix product/dashboard
 
       - name: Check Dashboard types
         run: npm run typecheck --prefix product/dashboard
-
-      # The browser this runner already has, rather than one this job downloads and pins.
-      #
-      # The pin was taken while these acceptances stalled here, on the theory that the runner's
-      # newer browser was the cause. It was not: the pinned run stalled identically, and what
-      # unblocked them was three Chrome startup flags the suites were missing. The pin was then kept
-      # because nothing had shown the flags alone suffice on an unpinned build, and its comment said
-      # so and named this run as the way to find out. This is that run.
-      - name: Locate the runner's own browser
-        run: |
-          set -euo pipefail
-          browser="$(command -v google-chrome || command -v chromium-browser || command -v chromium)"
-          echo "DASHBOARD_BROWSER_EXECUTABLE=$browser" >> "$GITHUB_ENV"
-          "$browser" --version
 
       - name: Create the Dashboard suite control databases
         working-directory: product/dashboard
@@ -128,20 +116,22 @@ jobs:
           DASHBOARD_RUN_LIST_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_runs
           DASHBOARD_SHADOW_RUNTIME_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_shadow_runtime
           DASHBOARD_SHADOW_RUNTIME_TEST_CURSOR_HMAC_KEY: shadow-runtime-disposable-cursor-key-at-least-32-bytes
-          # Workers and service logs drive a browser here. None of the three had ever run anywhere,
-          # and each was held back under a reason that measurement later replaced.
+          # All three RunStore browser acceptances run here. None of them had ever run anywhere, and
+          # each was held back under a reason that measurement later replaced.
           #
-          # Schedule calendar was recorded as leaving an evaluation outstanding past a 60 s command
-          # budget, which was true and said nothing: the evaluation was waiting for an animation
-          # frame before reading a sticky header's position, and the read does not need one -
-          # assigning scrollTop and asking for a rectangle forces the layout the assertion is about.
-          # Without it the same step passes in about 20 s, three runs out of three, on macOS.
+          # Schedule calendar was the last, and its final reason turned out not to be a defect in it
+          # at all: it needs Chrome for Testing, which this job now installs. The record matters
+          # more than the conclusion, so: one deliberately enabled run produced a dump showing focus
+          # on the right control and that control enabled, which killed the explanation this lane
+          # had carried for hours. Four candidates then went, each for nothing - the date, by
+          # rerunning locally on the runner's own day; the timezone, by rerunning under UTC after
+          # checking the override actually reached the browser; the platform, by installing the
+          # browser the local passes used onto this runner; and the version, by holding the channel
+          # and moving only the build. The channel was what remained, and it reproduces both ways.
           #
-          # It is still held back, now on something this lane has not reproduced. On this runner it
-          # fails one step later: with a calendar trigger focused, enabled and sized, pressing Enter
-          # opens no dialog at all, and the page it captured is an ordinary September month grid.
-          # Its PostgreSQL body runs either way. Putting it in the gate on a local pass is exactly
-          # the mistake the other two were held back for, so it waits for a measurement from here.
+          # Why it fails on the image's browser is not established. Chrome for Testing omits
+          # first-run machinery, but these suites already pass --no-first-run and
+          # --no-default-browser-check, so that candidate is excluded rather than assumed.
           #
           # Service logs was held back three times over for reasons that measurement replaced, and
           # the sequence is worth keeping. It was first recorded as meeting a cursor continuity
@@ -160,12 +150,15 @@ jobs:
           DASHBOARD_WORKERS_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_workers
           DASHBOARD_WORKERS_BROWSER_ACCEPTANCE: "1"
           DASHBOARD_WORKERS_ACCEPTANCE_CANDIDATE: ${{ github.sha }}
-          DASHBOARD_WORKERS_BROWSER_EXECUTABLE: ${{ env.DASHBOARD_BROWSER_EXECUTABLE }}
+          DASHBOARD_WORKERS_BROWSER_EXECUTABLE: ${{ env.DASHBOARD_STRATEGY_VIEWER_BROWSER_EXECUTABLE }}
           DASHBOARD_CALENDAR_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_calendar
+          DASHBOARD_CALENDAR_BROWSER_ACCEPTANCE: "1"
+          DASHBOARD_CALENDAR_ACCEPTANCE_CANDIDATE: ${{ github.sha }}
+          DASHBOARD_CALENDAR_BROWSER_EXECUTABLE: ${{ env.DASHBOARD_STRATEGY_VIEWER_BROWSER_EXECUTABLE }}
           DASHBOARD_SERVICE_LOGS_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_service_logs
           DASHBOARD_SERVICE_LOGS_BROWSER_ACCEPTANCE: "1"
           DASHBOARD_SERVICE_LOGS_ACCEPTANCE_CANDIDATE: ${{ github.sha }}
-          DASHBOARD_SERVICE_LOGS_BROWSER_EXECUTABLE: ${{ env.DASHBOARD_BROWSER_EXECUTABLE }}
+          DASHBOARD_SERVICE_LOGS_BROWSER_EXECUTABLE: ${{ env.DASHBOARD_STRATEGY_VIEWER_BROWSER_EXECUTABLE }}
         # `--test-force-exit` used to be here, covering suites that left a browser or a server
         # running: the runner's cleanup had to terminate them as orphans, and without the flag the
         # test runner never exited. Those suites now put the browser in its own process group and
