@@ -361,6 +361,38 @@ impl CapacityScopePostgresV1 {
             // Strategy Governance rereads the ceiling before it admits an INITIAL_ACTIVATION.
             "GRANT EXECUTE ON FUNCTION portfolio_api.read_bound_capacity_scope_v1(text) TO governance_writer",
             "GRANT EXECUTE ON FUNCTION portfolio_api.read_current_capacity_view_v1(text, bigint) TO governance_writer",
+            // Risk rereads the same two functions for its capacity input read port. These grants
+            // deliberately carry no `to_regrole` guard: if `risk_writer` does not exist the
+            // migration must fail here and roll back, one line from the cause.
+            //
+            // Under the same precondition the two spellings differ completely:
+            //
+            //     unguarded   ERROR:  role "risk_writer" does not exist
+            //     guarded     (no output, success)
+            //
+            // The second line is the hazard. In a terminal, "no output" and "the grant succeeded"
+            // are the same thing. Market Data's external read schema is wrapped that way - both
+            // `SCHEMA_V1` in `crates/data/src/owner/postgres/rd_strategy_input_custody.rs` and
+            // `REPLAY_MARKET_RD_CUT_API_SCHEMA_V1` in
+            // `crates/data/src/owner/replay_market_facts_v2/postgres.rs` put their grants inside
+            // `IF pg_catalog.to_regrole('rd_owner') IS NOT NULL` - and materialize runs before the
+            // role is created, so both blocks no-op in silence. The measured result is schema
+            // `USAGE` present and all twelve function `EXECUTE` bits false, with nothing reporting
+            // an error anywhere.
+            //
+            // `USAGE` survives there only because it has a second, unguarded source: search
+            // `GRANT USAGE ON SCHEMA market_data_rd_api TO rd_owner` in
+            // `product/rd-workbench/postgres-init/10-migrate-authority-custody.sh`. The function
+            // level has no such second source, and `REVOKE ALL ON ALL FUNCTIONS IN SCHEMA
+            // market_data_rd_api` in that same file does not name `rd_owner`, so those twelve bits
+            // were never granted rather than granted and withdrawn.
+            //
+            // A `GRANT` that explodes on a missing role is not fragile. It is the only alarm this
+            // chain has for ordering, and the schema-level grant this pairs with, `GRANT USAGE ON
+            // SCHEMA portfolio_api TO risk_writer`, is unguarded in that same migration for the
+            // same reason.
+            "GRANT EXECUTE ON FUNCTION portfolio_api.read_bound_capacity_scope_v1(text) TO risk_writer",
+            "GRANT EXECUTE ON FUNCTION portfolio_api.read_current_capacity_view_v1(text, bigint) TO risk_writer",
         ] {
             sqlx::query(statement)
                 .execute(&mut *transaction)
