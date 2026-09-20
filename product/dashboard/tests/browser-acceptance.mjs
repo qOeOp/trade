@@ -14,6 +14,7 @@ import { existsSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 
 // A browser is a tree, not a process. Chrome's helper processes inherit the stderr pipe this module
@@ -89,6 +90,9 @@ export async function waitForHttp(url, child, { timeoutMs = 60_000, label = "pre
  */
 export async function startProductionPreview({ dashboardRoot, port, env, label = "preview" }) {
   const nextBin = "node_modules/next/dist/bin/next";
+  // Callers hold this root either way, and spawn accepts both - but the cache probe below joins it,
+  // and join refuses a URL. Normalise here rather than leaving the next caller to find out.
+  const root = typeof dashboardRoot === "string" ? dashboardRoot : fileURLToPath(dashboardRoot);
   const previewEnv = { ...process.env, NEXT_TELEMETRY_DISABLED: "1", ...env };
   // This build is unconditional, so it is never the variable - how long it takes is. A cold one
   // costs about a hundred seconds more than a warm one, which is enough to push the tightest wait
@@ -97,10 +101,10 @@ export async function startProductionPreview({ dashboardRoot, port, env, label =
   // entirely, so every string this test prints is absent from a green run whether it happened or
   // not. The step summary is written by the job rather than the test, so it survives that.
   const distDir = previewEnv.DASHBOARD_DIST_DIR ?? ".next";
-  const cacheWarm = existsSync(join(dashboardRoot, distDir, "cache"));
+  const cacheWarm = existsSync(join(root, distDir, "cache"));
   const buildStartedAtEpochMs = Date.now();
   const build = spawn(process.execPath, [nextBin, "build"], {
-    cwd: dashboardRoot,
+    cwd: root,
     env: previewEnv,
     stdio: "inherit",
   });
@@ -114,7 +118,7 @@ export async function startProductionPreview({ dashboardRoot, port, env, label =
   }
   if (buildExit !== 0) throw new Error(`${label} build exited with ${buildExit}`);
   const preview = spawn(process.execPath, [nextBin, "start", "-H", "127.0.0.1", "-p", String(port)], {
-    cwd: dashboardRoot,
+    cwd: root,
     env: previewEnv,
     stdio: "inherit",
   });
