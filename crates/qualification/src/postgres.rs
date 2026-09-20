@@ -6174,7 +6174,7 @@ mod postgres_tests {
             identity: identity.to_string(),
             digest: digest.to_string(),
         };
-        let mut policy = ProtectedEconomicPolicyBundleV1 {
+        let policy = ProtectedEconomicPolicyBundleV1 {
             schema_version: 1,
             bundle_identity: "pending-policy".to_string(),
             bundle_digest: format!("blake3:{}", "0".repeat(64)),
@@ -6209,15 +6209,9 @@ mod postgres_tests {
             minimum_coverage_bps: 9_500,
             aggregation: ProtectedEconomicAggregationV1::EveryApplicableCell,
         };
-        policy.bundle_digest = policy.compute_digest().expect("economic policy digest");
-        policy.bundle_identity = format!(
-            "qualification-protected-economic-policy-v1-{}",
-            policy
-                .bundle_digest
-                .strip_prefix("blake3:")
-                .expect("blake3 economic policy digest")
-        );
-        policy
+        // The identity rule belongs to the bundle. Spelling it out here meant a drift in the
+        // contract would still produce a corpus policy that looked sealed to every reader.
+        policy.seal().expect("chain economic policy seals")
     }
 
     /// The Candidate lineages the ordered gate's READY entry mints for the protected-evaluation
@@ -7341,16 +7335,7 @@ mod postgres_tests {
 
         let mut changed_policy = policy.clone();
         changed_policy.threshold_raw += 1;
-        changed_policy.bundle_digest = changed_policy
-            .compute_digest()
-            .expect("changed policy digest");
-        changed_policy.bundle_identity = format!(
-            "qualification-protected-economic-policy-v1-{}",
-            changed_policy
-                .bundle_digest
-                .strip_prefix("blake3:")
-                .expect("blake3 changed policy digest")
-        );
+        let changed_policy = changed_policy.seal().expect("changed policy seals");
         assert!(matches!(
             owner
                 .seal_protected_replay_request_set_v1(
