@@ -73,9 +73,23 @@
   Reservation Claim Request 或 `ADAPTER_ADMISSION_REQUEST`。
 - **TARGET - Aggregate Commitment Frontier：** 不存在同 scope 序列化。它依赖的 Portfolio-owned Capacity Scope
   现在在 `crates/portfolio_owner` 里有生产 custody，所以这里缺的是 Risk 自己的序列化，不是它要序列化的那个 scope。
-- **TARGET - Recovery Fence 与 Kill Switch：** 继承的 `TradingState` `Halted` 与 `Reducing` 状态只是进程本地开关；
-  没有任何 fence 绑定 `RUNTIME_NOT_READY`、`RUNTIME_INCIDENT`、`RECONCILIATION_DRIFT` 或 `RISK_HARD_STOP` 来源分支，
-  也不存在 active-fence-set identity 或动作交集。
+- **TARGET / IMPLEMENTATION_ADMITTED - Kill Switch：** 准入的切片是一个带外停机哨兵，以及"对某个 venue 而言
+  交易是否已停"这一次读取。哨兵是一个文件，它的存在就是停机，它的内容只是归因：读者在里面找到的任何东西
+  都不能解除由文件存在所宣告的停机。这次读取在一个穷举集合上失败关闭。文件不存在是唯一不判停的答案。
+  文件存在且可解析、文件存在但读不出、文件存在但解析不了、文件存在但内容不被本 Owner 识别，四者都判停。
+  列表没有点名的状态没有剩余分支，因为剩余分支正是"一个读不懂的哨兵变成一张交易许可"的地方。
+  全局哨兵对每个 venue 都答"已停"，无论各 venue 自己的哨兵怎么说，所以 venue 级哨兵只能增加一次停机，
+  永远不能解除一次停机。
+  这次读取只依赖文件系统：不读数据库、不调网络端点、不问别的 Owner、不依赖任何会推理的东西。一个需要这些
+  才能用的停机开关，恰好在需要它的事故里不可用。继承的 `TradingState` `Halted` 与 `Reducing` 在这里不顶用，
+  因为它们是进程本地的，而进程卡死时进程内的开关和它一起卡死。
+  准入是建造并验证这一次读取的许可。它不授权任何 Risk 决策 任何订单路径 任何生产效果 或真实交易。它不是
+  Recovery Fence：不绑定任何来源分支 不携带 fence epoch 也不与任何动作集合求交。形状取自 Vibe-Trading 的
+  `agent/src/live/halt.py`（MIT），那里哨兵的存在同样就是停机，内容损坏同样判为已触发而不是被忽略。
+- **TARGET - Recovery Fence：** 没有任何 fence 绑定 `RUNTIME_NOT_READY`、`RUNTIME_INCIDENT`、
+  `RECONCILIATION_DRIFT` 或 `RISK_HARD_STOP` 来源分支，也不存在 active-fence-set identity 或动作交集。
+  那四个来源事实都要由今天一个都不产出它们的 Owner 来生产，这就是这一半仍然堵着、而上面的 Kill Switch
+  不依赖任何东西的原因。
 - **TARGET - 交接与持久化：** 没有通向 Runtime、Governance、Portfolio 或 Execution 的 port，也没有任何 Risk 事实的
   持久关系。
 
