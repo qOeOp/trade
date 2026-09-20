@@ -30,6 +30,19 @@ runs:
         cache: npm
         cache-dependency-path: product/dashboard/package-lock.json
 
+    # The version and digest are pinned for reproducibility, not because this build is known good
+    # and a newer one is not. #720 ran the Dashboard acceptances on whatever browser the image
+    # provides - 152.0.7977.82, one patch below this pin - and they passed, which also settled that
+    # the stalls those suites once had were three missing Chrome flags rather than a browser
+    # version. `product-packages.yml` therefore takes the image's browser on purpose. The chain does
+    # not, because it issues an Owner's acceptance: the same tree has to give the same answer on a
+    # later day, so the browser is one of its sealed inputs. Raise the pin when there is a reason
+    # to; do not read it as a quarantine.
+    #
+    # What it does not give you: it is no evidence that this browser is free of defects, that .83
+    # beats .82, or that the pin has ever prevented anything. A pin whose comment says only what it
+    # guarantees reads as load-bearing to the next person and survives on that alone - which is how
+    # the pin #720 removed lasted a day after the run that refuted it.
     - name: Install sealed Dashboard browser acceptance inputs
       shell: bash
       env:
