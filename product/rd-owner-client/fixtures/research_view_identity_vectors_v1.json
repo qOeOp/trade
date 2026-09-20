@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "purpose": "Pins the canonical byte order of the Research View identity so that a change on either side of it fails loudly instead of silently rejecting every view.",
+  "domain": "rd.research-view.identity.v2",
+  "identity_prefix": "rd-research-view-v2",
+  "origin": "product/dashboard/tests/fixtures/research_accepted_v2.json, whose projection_identity the producing Owner assigned",
+  "view": {
+    "schema_version": 1,
+    "projection_identity": "rd-research-view-v2-57bdd6211fb9921cc4731a51c628aa8b103d1a4aa5b5f55c002f98f9ad97ce09",
+    "request_identity": "request-1",
+    "trusted_principal": "principal-1",
+    "authorized_scope": [
+      "research:submit"
+    ],
+    "authorization_policy_cut": "authorization-frontier-1",
+    "source_owner": "R_AND_D",
+    "source_cut": "rd-source-cut-v2-d06b72fe795a6f42e0bb7c65b807679be2d8d3cacf4a19938560bfb6624625b8",
+    "observed_at_epoch_ms": 100,
+    "projection_at_epoch_ms": 100,
+    "valid_through_epoch_ms": 600095,
+    "availability": "AVAILABLE",
+    "phase": "INTENT_FROZEN",
+    "intent_identity": "rd-research-intent-v2-d06b72fe795a6f42e0bb7c65b807679be2d8d3cacf4a19938560bfb6624625b8",
+    "source_frontier": [
+      {
+        "locator": "https://example.test/source",
+        "content_digest": "sha256:source",
+        "observed_at": "2026-08-22T00:00:00Z",
+        "source_cut": "source-cut-1",
+        "license_basis": "test",
+        "interpretation": "test interpretation"
+      }
+    ],
+    "next_legal_action": "WAIT_FOR_R_AND_D_EXECUTION"
+  },
+  "canonical_bytes": "{\"domain\":\"rd.research-view.identity.v2\",\"value\":{\"schema_version\":1,\"request_identity\":\"request-1\",\"trusted_principal\":\"principal-1\",\"authorized_scope\":[\"research:submit\"],\"authorization_policy_cut\":\"authorization-frontier-1\",\"source_owner\":\"R_AND_D\",\"source_cut\":\"rd-source-cut-v2-d06b72fe795a6f42e0bb7c65b807679be2d8d3cacf4a19938560bfb6624625b8\",\"phase\":\"INTENT_FROZEN\",\"intent_identity\":\"rd-research-intent-v2-d06b72fe795a6f42e0bb7c65b807679be2d8d3cacf4a19938560bfb6624625b8\",\"source_frontier\":[{\"locator\":\"https://example.test/source\",\"content_digest\":\"sha256:source\",\"observed_at\":\"2026-08-22T00:00:00Z\",\"source_cut\":\"source-cut-1\",\"license_basis\":\"test\",\"interpretation\":\"test interpretation\"}],\"attempt_identity\":null,\"artifact_identity\":null,\"build_receipt_identity\":null,\"artifact_review_identity\":null}}",
+  "identity": "rd-research-view-v2-57bdd6211fb9921cc4731a51c628aa8b103d1a4aa5b5f55c002f98f9ad97ce09",
+  "order_sensitivity": {
+    "purpose": "Same data, one pair of keys transposed. A vector that only maps an input to an identity proves the mapping exists, not that the order matters.",
+    "transposed_keys": [
+      "request_identity",
+      "trusted_principal"
+    ],
+    "canonical_bytes": "{\"domain\":\"rd.research-view.identity.v2\",\"value\":{\"schema_version\":1,\"trusted_principal\":\"principal-1\",\"request_identity\":\"request-1\",\"authorized_scope\":[\"research:submit\"],\"authorization_policy_cut\":\"authorization-frontier-1\",\"source_owner\":\"R_AND_D\",\"source_cut\":\"rd-source-cut-v2-d06b72fe795a6f42e0bb7c65b807679be2d8d3cacf4a19938560bfb6624625b8\",\"phase\":\"INTENT_FROZEN\",\"intent_identity\":\"rd-research-intent-v2-d06b72fe795a6f42e0bb7c65b807679be2d8d3cacf4a19938560bfb6624625b8\",\"source_frontier\":[{\"locator\":\"https://example.test/source\",\"content_digest\":\"sha256:source\",\"observed_at\":\"2026-08-22T00:00:00Z\",\"source_cut\":\"source-cut-1\",\"license_basis\":\"test\",\"interpretation\":\"test interpretation\"}],\"attempt_identity\":null,\"artifact_identity\":null,\"build_receipt_identity\":null,\"artifact_review_identity\":null}}",
+    "identity": "rd-research-view-v2-602c1a2826bdf993a3db57aece8b38152a9e41d7c3e1f8cce592cae996af72f6"
+  }
+}
