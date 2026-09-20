@@ -61,12 +61,12 @@ echo "Running ${#selected_proofs[@]} toolchain proof(s) against the tools they n
 # Each proof reports, whatever its neighbours did. Stopping at the first failure would hide the rest
 # behind it, and a proof nobody hears from is the thing this script exists to prevent.
 #
-# `--no-tests=fail` is what makes a name in these arrays mean something. The filter is an exact
-# match, so a name with the wrong module path selects nothing, and without this flag nextest exits
-# 0 on an empty selection: a mistyped proof would report success having run no test at all, which
-# is the precise failure this script exists to prevent, reproduced by the script itself. Measured:
-# the wrong path exits 0 and prints `0 tests run` without it, and exits 4 with `error: no tests to
-# run` with it.
+# `--no-tests=fail` states a property rather than inheriting one. The filter is an exact match, so
+# a name with the wrong module path selects nothing, and whether that fails is the `--no-tests`
+# default - which depends on the nextest version and the profile, neither of which this script
+# pins. Measured on 0.9.143 here: an unmatched filter already exits 4 with or without the flag,
+# with or without `--profile ci`, with or without `CI` set. So today the flag changes nothing; it
+# means the behaviour stops depending on a default nobody is watching.
 refused=()
 
 for proof in "${selected_proofs[@]}"; do
