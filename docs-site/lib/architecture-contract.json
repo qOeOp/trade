@@ -2912,6 +2912,20 @@
         "noAuthorityBasis": "Scanner receipts grant no Qualification Governance Runtime provider effect or trading authority"
       },
       {
+        "inventoryId": "scanner-terminal-receipt-custody",
+        "memberPaths": [
+          "crates/scanner_custody"
+        ],
+        "disposition": "OWNER_NATIVE_IMPLEMENTATION",
+        "destinationIds": [
+          "scanner"
+        ],
+        "capabilityPortIds": [],
+        "providerMemberPortEvidence": [],
+        "adoptionRule": "Hold Scanner-owned terminal receipts and issue the read-only Product Edge terminal-read capability only from a Scanner-owned store",
+        "noAuthorityBasis": "The read capability exposes no write operation or store access and cannot make a downstream receipt store a positive-read authority or authorize a provider effect production write or trading"
+      },
+      {
         "inventoryId": "strategy-governance-owner",
         "memberPaths": [
           "crates/strategy_governance"

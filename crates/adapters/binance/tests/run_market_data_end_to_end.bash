@@ -201,7 +201,9 @@ cargo nextest run --manifest-path crates/adapters/binance/Cargo.toml \
   --run-ignored all \
   --no-capture \
   --test-threads 1 \
-  -E 'test(=market_data_answers_one_frozen_request_without_a_credential) + test(=market_data_answers_one_frozen_perpetual_request_without_a_credential)'
+  -E 'test(=market_data_answers_one_frozen_request_without_a_credential)
+    + test(=market_data_answers_one_frozen_perpetual_request_without_a_credential)
+    + test(=market_data_answers_one_frozen_daily_perpetual_request_without_a_credential)'
 test_status=$?
 set -e
 

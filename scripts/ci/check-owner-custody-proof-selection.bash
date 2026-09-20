@@ -49,6 +49,7 @@ readonly owner_crates=(
   crates/execution_owner
   crates/portfolio_owner
   crates/strategy_governance
+  crates/scanner_custody
 )
 
 # Proofs no chain selects, each with the reason it stays out. Adding a name here is a decision that
@@ -83,9 +84,7 @@ readonly -A unselected_reason=(
   ["market_data_answers_one_frozen_request_from_live_vendor_data"]="live vendor probe; needs DATABENTO_API_KEY and MARKET_DATA_OWNER_DATABASE_URL on a store whose market_data_private schema already exists. It passes that way: twelve seconds against real vendor data"
   ["measure_admission_cost_by_program_size"]="regenerates a committed corpus or measures cost; asserts no Owner custody"
   ["official_holdout_integrity_probe_is_deterministic"]="requires the separately custodied official 2024 source bundle; no workflow, Makefile or script provides it"
-  ["postgres_v4_is_atomic_idempotent_exact_and_tamper_closed"]="broken: it commits a second sample for a second role, but the fact identity covers what was observed and not who asked, so the Owner refuses it as IdentityConflict; its batch offers no second observable fact"
   ["postgres_every_transaction_write_boundary_fault_leaves_zero_positive_rows"]="needs sealed-source-intake-composer-acceptance, which the chain cannot simply add: the feature changes what the API materializes, and the chain refuses the result with 'rd_research_view_transitions_v3 has incompatible custody or relation options'. These four need their own provisioning, not a wider union"
-  ["real_v3_owner_build_reaches_composer_program_host_and_durable_abi3_artifact"]="compiled only on aarch64; the job that runs the wasm proofs is x86_64 and the aarch64 jobs build without running tests"
   ["regenerate_sealed_a0_corpus_from_real_producer"]="regenerates a committed corpus or measures cost; asserts no Owner custody"
   ["regenerate_source_research_composer_sealed_a0_corpus_from_real_producer"]="regenerates a committed corpus or measures cost; asserts no Owner custody"
   ["representative_coordinates_share_read_only_catalog_and_reproduce_fresh"]="requires frozen Binance, five-series ALFRED, and scheduled-event evidence; no workflow, Makefile or script provides it"
@@ -123,18 +122,66 @@ if [ -f scripts/ci/test-toolchain-proofs.bash ]; then
     sed "s/'//g;s/.*:://" >> "$selected" || true
 fi
 
+# A path here that no longer exists would narrow what counts as "selected" without saying so.
+# That errs toward noise rather than silence - proofs those scripts select would start looking
+# unselected - but the noise would be blamed on the proofs, not on the renamed script.
 for script in crates/data/tests/run_market_data_owner_postgres.bash \
   scripts/ci/test-qualification-owner-recovery-postgres.bash; do
-  [ -f "$script" ] || continue
+  if [ ! -f "$script" ]; then
+    echo "ERROR: the selection source '$script' does not exist." >&2
+    echo "       Every proof it lists would start reporting as unselected, and the error would" >&2
+    echo "       name those proofs rather than this path. Update the path or drop it here." >&2
+    exit 1
+  fi
   rg -o '^[[:space:]]*[a-z_0-9]+(::[a-z_0-9]+)+[[:space:]]*\\?$' "$script" 2> /dev/null |
     sed 's/[[:space:]]*\\*$//;s/^[[:space:]]*//;s/.*:://' >> "$selected" || true
 done
 sort -u -o "$selected" "$selected"
 
+# An exemption for a proof that IS selected is never consulted: the loop below checks selection
+# first and moves on. So the reason it carries is never read, never re-examined, and stays true or
+# becomes false with nothing to tell them apart. That is the same silence this check exists to
+# refuse, one level in: a reason nobody reads is indistinguishable from no reason at all.
+#
+# `real_v3_owner_build_reaches_composer_program_host_and_durable_abi3_artifact` is the case that
+# prompted this. Its exemption says the proof compiles only on aarch64 while the job running the
+# wasm proofs is x86_64; `scripts/ci/test-toolchain-proofs.bash` lists it in
+# `admitted_host_wasm_proofs`, whose own comment names Linux x86_64 among the admitted hosts. The
+# proof runs. The reason was false and unreachable, and neither fact could surface on its own.
+stale_exemptions=()
+for proof in "${!unselected_reason[@]}"; do
+  if grep -qxF "$proof" "$selected"; then
+    stale_exemptions+=("$proof")
+  fi
+done
+if [ "${#stale_exemptions[@]}" -gt 0 ]; then
+  printf 'ERROR: these proofs carry a reason for staying out of the chains, and are selected anyway:\n' >&2
+  for proof in "${stale_exemptions[@]}"; do
+    printf "       %s\n" "$proof" >&2
+  done
+  printf '       The reason is never read, so it cannot be relied on and cannot be corrected.\n' >&2
+  printf '       Remove the entry; selection is the record that it runs.\n' >&2
+  exit 1
+fi
+
 violations=0
 
+# `owner_crates` is a hand-written list, and a path that does not exist used to be skipped in
+# silence: the crate's proofs were never read, and this check still reported success. A typo, a
+# crate that moved, or a rename therefore removed a whole Owner from the check without any
+# output changing - the same shape this check exists to refuse, one level up.
 for crate in "${owner_crates[@]}"; do
-  [ -d "$crate" ] || continue
+  if [ ! -d "$crate" ]; then
+    echo "ERROR: owner_crates lists '$crate', which does not exist." >&2
+    echo "       Its custody proofs would not be read at all and this check would still pass." >&2
+    echo "       Fix the path, or remove the entry if that Owner is gone." >&2
+    exit 1
+  fi
+  if [ ! -f "$crate/Cargo.toml" ]; then
+    echo "ERROR: owner_crates lists '$crate', which is not a crate root." >&2
+    echo "       Without a Cargo.toml its tests are not a package the chains can select by name." >&2
+    exit 1
+  fi
 
   while read -r proof; do
     [ -n "$proof" ] || continue

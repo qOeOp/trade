@@ -417,6 +417,12 @@ export async function resolveRdFormationCatalogShadowV1({
       return unavailable("OWNER_RESPONSE_UNAVAILABLE", 502, responseObservedAtEpochMs);
     }
     if (response.status >= 500) {
+      // The reason code says the transport failed, never which of its causes did, and the envelope
+      // it travels in has exactly three codes pinned by schema 1 - so the cause cannot be carried
+      // there without changing that contract. Say it to the server log instead, where a failing
+      // acceptance already captures it.
+      console.error(`rd formation catalog: Owner answered ${response.status} after ${
+        responseObservedAtEpochMs - requestStartedAtEpochMs}ms`);
       return unavailable("OWNER_TRANSPORT_UNAVAILABLE", 503, responseObservedAtEpochMs);
     }
     if (!response.ok) return unavailable("OWNER_RESPONSE_UNAVAILABLE", 502, responseObservedAtEpochMs);
@@ -444,7 +450,15 @@ export async function resolveRdFormationCatalogShadowV1({
         projection,
       },
     };
-  } catch {
+  } catch (error) {
+    // A timeout, a refused connection and a malformed response all arrived here as one symptom,
+    // and an acceptance that went red on this could only report that the transport was unavailable.
+    // The budget is named alongside, because the case this hides most often is the read simply
+    // taking longer than its timeout class allows on a loaded runner.
+    const elapsed = now() - requestStartedAtEpochMs;
+    console.error(`rd formation catalog: ${
+      error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+    } after ${elapsed}ms of a ${operation.timeout_class.milliseconds}ms budget`);
     return unavailable("OWNER_TRANSPORT_UNAVAILABLE", 503, now());
   }
 }
