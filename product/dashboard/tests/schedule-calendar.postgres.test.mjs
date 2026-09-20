@@ -667,6 +667,10 @@ test(testName, { skip: !url }, async () => {
           disabled: trigger?.disabled ?? null,
         };
       })()`);
+      // This accepts either shape, so which one runs is decided by where the verified run falls in
+      // its day - not by the assertion. A green run is then silent about which of the two it
+      // covered, and the branch that went red on Linux is the one local data never produces. Say it.
+      console.log(`calendar run origin trigger -> ${calendarRunOrigin.kind}`);
       assert.match(calendarRunOrigin.kind ?? "", /^(?:badge|overflow)$/u,
         "calendar exposes the verified observed-run group");
       assert.equal(calendarRunOrigin.focused, true, JSON.stringify(calendarRunOrigin));
