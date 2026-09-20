@@ -1,0 +1,85 @@
+name: Dashboard browser acceptance inputs
+description: >-
+  Installs the sealed runtime the Dashboard strategy viewer acceptance needs, and exports the three
+  variables that switch it on.
+
+# Entry 28 of the ordered R&D chain drives the Dashboard strategy viewer in a real browser only when
+# all three of these variables are present. Without them it returns in a few milliseconds and reports
+# PASS, so a chain that lacks them says nothing about the browser while looking exactly like one that
+# does. AGENTS.md names `owner-chains` on `test-chain/<lane>` and `build`'s chain jobs as
+# interchangeable evidence, which they can only be if every one of them carries these inputs.
+#
+# This lives in one place because it was copied instead: `rd-owner-postgres.yml` had it, #624 added a
+# second copy to `owner-chains.yml`, and `build.yml` never had one at all - so the two channels the
+# repository calls equivalent disagreed, and the only channel that really ran the acceptance was a
+# third one nothing invokes. Copying it a third time would plant the same divergence again.
+
+inputs:
+  acceptance-candidate:
+    description: The commit the acceptance records as its candidate.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js for Dashboard browser acceptance
+      # https://github.com/actions/setup-node
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: "24"
+        cache: npm
+        cache-dependency-path: product/dashboard/package-lock.json
+
+    # The version and digest are pinned for reproducibility, not because this build is known good
+    # and a newer one is not. #720 ran the Dashboard acceptances on whatever browser the image
+    # provides - 152.0.7977.82, one patch below this pin - and they passed, which also settled that
+    # the stalls those suites once had were three missing Chrome flags rather than a browser
+    # version. `product-packages.yml` therefore takes the image's browser on purpose. The chain does
+    # not, because it issues an Owner's acceptance: the same tree has to give the same answer on a
+    # later day, so the browser is one of its sealed inputs. Raise the pin when there is a reason
+    # to; do not read it as a quarantine.
+    #
+    # What it does not give you: it is no evidence that this browser is free of defects, that .83
+    # beats .82, or that the pin has ever prevented anything. A pin whose comment says only what it
+    # guarantees reads as load-bearing to the next person and survives on that alone - which is how
+    # the pin #720 removed lasted a day after the run that refuted it.
+    - name: Install sealed Dashboard browser acceptance inputs
+      shell: bash
+      env:
+        CHROME_FOR_TESTING_SHA256: ecae8b71d4890cf5f32577ab5ea1b3840c2b5e05f51490b1666674cf1f5b0c37
+        CHROME_FOR_TESTING_URL: >-
+          https://storage.googleapis.com/chrome-for-testing-public/152.0.7977.83/linux64/chrome-linux64.zip
+      run: |
+        set -euo pipefail
+        npm ci --prefix product/dashboard
+        browser_root="${RUNNER_TEMP}/dashboard-strategy-viewer-chrome"
+        mkdir -p "$browser_root"
+        curl --fail --location --retry 3 \
+          --output "$browser_root/chrome-linux64.zip" \
+          "$CHROME_FOR_TESTING_URL"
+        printf '%s  %s\n' \
+          "$CHROME_FOR_TESTING_SHA256" \
+          "$browser_root/chrome-linux64.zip" | sha256sum --check --strict
+        python3 -m zipfile -e \
+          "$browser_root/chrome-linux64.zip" \
+          "$browser_root"
+        chmod 0755 \
+          "$browser_root/chrome-linux64/chrome" \
+          "$browser_root/chrome-linux64/chrome_crashpad_handler"
+        # The acceptance asks this binary for its version before it drives anything, and reports
+        # the spawn failure as a chain failure. Asking here instead means a runtime that cannot
+        # start is named at the step that installed it.
+        "$browser_root/chrome-linux64/chrome" --version
+
+    - name: Enable the sealed Dashboard browser acceptance
+      shell: bash
+      env:
+        ACCEPTANCE_CANDIDATE: ${{ inputs.acceptance-candidate }}
+        BROWSER_EXECUTABLE: ${{ runner.temp }}/dashboard-strategy-viewer-chrome/chrome-linux64/chrome
+      run: |-
+        set -euo pipefail
+        {
+          echo "DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE=1"
+          echo "DASHBOARD_STRATEGY_VIEWER_ACCEPTANCE_CANDIDATE=${ACCEPTANCE_CANDIDATE}"
+          echo "DASHBOARD_STRATEGY_VIEWER_BROWSER_EXECUTABLE=${BROWSER_EXECUTABLE}"
+        } >> "$GITHUB_ENV"
