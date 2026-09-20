@@ -254,7 +254,14 @@ def _validate_stackexchange(body: bytes) -> str:
 MARKET_PROBES = (
     Probe(
         "Binance public instruments",
-        _public_request("https://api.binance.com/api/v3/exchangeInfo?symbol=BTCUSDT"),
+        # Binance's documented public-data host, not the trading host. `api.binance.com`
+        # answers 451 "Service unavailable from a restricted location" to GitHub-hosted
+        # runners, so the probe there could only ever report BLOCKED -- honest, but it
+        # learns nothing about Binance. `data-api.binance.vision` serves the same
+        # `exchangeInfo` and answers 200 from a runner, so this cell produces a real signal.
+        _public_request(
+            "https://data-api.binance.vision/api/v3/exchangeInfo?symbol=BTCUSDT",
+        ),
         _validate_binance,
     ),
     Probe(

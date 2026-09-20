@@ -337,6 +337,18 @@ class SourceCanaryTest(unittest.TestCase):
         assert receipt.status == canary.Status.FAILED
         assert receipt.detail == "HTTP 403"
 
+    def test_binance_probe_avoids_the_host_that_refuses_runners(self) -> None:
+        request, _detail = canary.MARKET_PROBES[0].request({})
+        assert request is not None
+        host = request.full_url.split("/")[2]
+        # `api.binance.com` answers 451 to GitHub-hosted runners, so a probe pointed there
+        # can only ever report BLOCKED. Pin the invariant, not the URL: any host that does
+        # answer is fine, this one provably does not.
+        assert host != "api.binance.com", (
+            f"the Binance probe targets {host}, which refuses GitHub runners with 451; "
+            "use the documented public-data host so the cell can produce a real signal"
+        )
+
     def test_only_failed_receipts_fail_the_run(self) -> None:
         healthy = canary.Receipt("ok", canary.Status.HEALTHY, "")
         tolerated = [
