@@ -393,8 +393,21 @@ pub enum AdapterBindingError {
     LocatorMismatch,
     /// The located fact is no longer the current head.
     NotCurrentHead,
-    /// The current fact is not admitted.
-    NotAdmitted,
+    /// The current fact was replaced by a later admitted binding.
+    ///
+    /// Distinct from [`Self::BindingRevoked`] and [`Self::BindingIncompatible`]: a superseded
+    /// binding was valid and is now behind the head, so the caller's next action is to resolve
+    /// the current locator rather than to obtain a new admission.
+    BindingSuperseded,
+    /// The current fact was withdrawn by this Owner.
+    ///
+    /// The binding is not behind a newer one; it was taken out of use, so resolving a different
+    /// locator will not help.
+    BindingRevoked,
+    /// The current fact was found unusable against its own admission constraints.
+    ///
+    /// Neither replaced nor withdrawn: the binding exists and this Owner will not act under it.
+    BindingIncompatible,
     /// The requested capability set is not satisfied.
     CapabilityMismatch,
     /// The supplied resolution time is outside the fact's admitted interval.
@@ -425,7 +438,9 @@ impl Display for AdapterBindingError {
             Self::FactNotFound => formatter.write_str("binding fact not found"),
             Self::LocatorMismatch => formatter.write_str("binding locator mismatch"),
             Self::NotCurrentHead => formatter.write_str("binding is not the current head"),
-            Self::NotAdmitted => formatter.write_str("binding is not admitted"),
+            Self::BindingSuperseded => formatter.write_str("binding was superseded"),
+            Self::BindingRevoked => formatter.write_str("binding was revoked"),
+            Self::BindingIncompatible => formatter.write_str("binding is incompatible"),
             Self::CapabilityMismatch => formatter.write_str("binding capability mismatch"),
             Self::TimeMismatch => formatter.write_str("binding time evidence mismatch or stale"),
         }
@@ -741,8 +756,18 @@ pub(crate) fn resolve_fact(
         return Err(AdapterBindingError::LocatorMismatch);
     }
 
-    if fact.meaning.state != AdapterBindingState::Admitted {
-        return Err(AdapterBindingError::NotAdmitted);
+    // Each non-admitted state refuses under its own name. Collapsing them into one
+    // `NotAdmitted` cost a caller the one thing the refusal is for: "replaced", "withdrawn" and
+    // "unusable" carry different next actions, and at the call site they were indistinguishable.
+    match fact.meaning.state {
+        AdapterBindingState::Admitted => {}
+        AdapterBindingState::Superseded => {
+            return Err(AdapterBindingError::BindingSuperseded);
+        }
+        AdapterBindingState::Revoked => return Err(AdapterBindingError::BindingRevoked),
+        AdapterBindingState::Incompatible => {
+            return Err(AdapterBindingError::BindingIncompatible);
+        }
     }
 
     if !required
@@ -2100,11 +2125,65 @@ mod tests {
     }
 
     #[rstest]
-    fn every_non_admitted_state_is_negative() {
-        for state in [
-            AdapterBindingState::Superseded,
-            AdapterBindingState::Revoked,
-            AdapterBindingState::Incompatible,
+    fn an_admitted_binding_projects_the_venue_it_carries() {
+        let owner = store();
+        let candidate = draft();
+        let expected_scope = candidate.execution_scope_identity.clone();
+        let expected_endpoint = candidate.simulator_endpoint_identity.clone();
+        let locator = owner.commit(candidate).unwrap().locator;
+        let binding = owner
+            .resolve_admitted_sync(&locator, &capabilities())
+            .unwrap();
+
+        let venue = crate::venue_binding::bind_paper_venue(&binding);
+
+        assert_eq!(venue.execution_scope_identity(), expected_scope);
+        assert_eq!(venue.simulator_endpoint_identity(), expected_endpoint);
+        assert_eq!(venue.account_namespace(), binding.account_namespace());
+        assert_eq!(venue.effect_namespace(), binding.effect_namespace());
+        assert_eq!(venue.capabilities(), binding.capabilities());
+        assert_eq!(venue.reduce_only_policy(), binding.reduce_only_policy());
+        assert_eq!(venue.binding_fact_identity(), locator.fact_identity);
+        assert_eq!(venue.binding_generation(), binding.generation());
+        // The venue names the binding it ran under, so a later reader can ask this Owner which
+        // admission authorised an effect without the effect carrying the admission's contents.
+        assert!(venue.permits(PaperAdapterCapability::SubmitOrder));
+    }
+
+    #[rstest]
+    fn a_scope_with_no_binding_refuses_as_absent() {
+        let owner = store();
+        let committed = draft();
+        let locator = owner.commit(committed).unwrap().locator;
+        let mut unknown = locator.clone();
+        unknown.fact_identity = format!("{}-absent", locator.fact_identity);
+
+        // The fourth refusal: nothing was committed for this coordinate at all. It is distinct
+        // from the three non-admitted states, which each name their own cause above.
+        assert_eq!(
+            owner.resolve_admitted_sync(&unknown, &capabilities()),
+            Err(AdapterBindingError::FactNotFound)
+        );
+    }
+
+    #[rstest]
+    fn every_non_admitted_state_refuses_under_its_own_name() {
+        // One collapsed `NotAdmitted` could not tell a caller whether the binding was replaced,
+        // withdrawn, or found unusable. Those are different situations with different next actions,
+        // and at the call site they were previously indistinguishable.
+        for (state, expected) in [
+            (
+                AdapterBindingState::Superseded,
+                AdapterBindingError::BindingSuperseded,
+            ),
+            (
+                AdapterBindingState::Revoked,
+                AdapterBindingError::BindingRevoked,
+            ),
+            (
+                AdapterBindingState::Incompatible,
+                AdapterBindingError::BindingIncompatible,
+            ),
         ] {
             let owner = store();
             let mut candidate = draft();
@@ -2112,7 +2191,7 @@ mod tests {
             let locator = owner.commit(candidate).unwrap().locator;
             assert_eq!(
                 owner.resolve_admitted_sync(&locator, &capabilities()),
-                Err(AdapterBindingError::NotAdmitted)
+                Err(expected)
             );
         }
     }
