@@ -62,14 +62,16 @@ const CLOCK_EPOCH_V1: &str = "unix-epoch-ms-v1";
 const PROJECTION_VALIDITY_MS: u64 = 600_000;
 const PROJECTED_EVENT_KIND: &str = "QUALIFICATION_PROTECTED_FEEDBACK_PROJECTED_V1";
 
-/// The Owner cut every projection is timed against, and the projection path's only clock read.
-/// Both samples of a create - the write edge that fixes `valid_through` and the response cut that
+/// The Owner's only clock read, shared by the projection path and by incident recovery. Both
+/// samples of a create - the write edge that fixes `valid_through` and the response cut that
 /// validates freshness before commit - come from here, so whoever could displace it would choose
 /// whether the response-cut rollback ever fires. `clock_timestamp` is therefore spelled with its
 /// schema: an unqualified call resolves through `search_path`, and a shadowing function would hand
 /// that choice away. Nothing at runtime would notice the qualification going missing, which is why
-/// `the_owner_clock_is_read_through_its_schema_and_not_through_search_path` pins it.
-const OWNER_CLOCK_EPOCH_MS_SQL: &str =
+/// `the_owner_clock_is_read_through_its_schema_and_not_through_search_path` pins it. Keeping one
+/// constant is what lets that test cover recovery too: `recovery` is behind `owner-recovery`, a
+/// feature no CI invocation enables, so a pin living there would never run.
+pub(crate) const OWNER_CLOCK_EPOCH_MS_SQL: &str =
     "SELECT floor(extract(epoch FROM pg_catalog.clock_timestamp()) * 1000)::BIGINT";
 
 #[derive(Debug, Clone)]
@@ -5990,8 +5992,8 @@ mod postgres_tests {
     /// a function ahead of `pg_catalog` would choose the write edge and the response cut, and with
     /// them whether the freshness rollback ever fires. Comparing the two counts fails on a second,
     /// unqualified call as much as on an edit to this one; pinning the qualified count at one fails
-    /// if the read is dropped. Scope is this constant: `recovery.rs` reads its own clock, on the
-    /// incident path, and is not covered here.
+    /// if the read is dropped. One constant serves both readers, so this covers recovery as well,
+    /// which a test inside the `owner-recovery` feature could not - nothing in CI enables it.
     #[rstest]
     fn the_owner_clock_is_read_through_its_schema_and_not_through_search_path() {
         assert_eq!(
