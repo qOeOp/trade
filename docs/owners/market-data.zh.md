@@ -62,6 +62,14 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   都解析为 `None`，而 `crates/strategy_factory_rd_owner_api/src/main.rs` 把 resolver 留在从不读取的字段
   `_market_data_research_pit` 里。解除条件：`docs/guide/architecture-rules.md` 点名的生产 resolver、signer、
   anti-rollback witness、credential resolver 与直接测量适配器，外加一个真正读取该读口的消费者。
+  读取一份 BAR schedule 有**两套托管策略**，每种构建一套，而本文档此前一套都没描述过。测试构建自行开启
+  `REPEATABLE READ READ ONLY` 事务并自验该 schedule 的历史；生产构建的快照由已准入读口的 evidence 承担，并在返回前
+  重新校验。两者跑的是同一个 `verify_bar_schedule_storage_evidence`。差别是一致性保证从哪里来，不是强弱：测试那条
+  路多一步生产没有的历史校验，生产那条路多一份测试拿不到的准入。
+  值得明说的后果是**生产那套策略没有任何种类的覆盖**。单测跑的是测试构建那个函数体，而 `crates/data/tests` 下没有任何
+  集成测试碰过 BAR schedule。所以 `B3` 挡住的不只是一次部署 - 那道门后的第一段代码从未被执行过。挡住测试够到它的是
+  可见性而不是权限：`Custodian::new` 对 store-admission 模块私有，`AdmittedCapability` 只有一个出口，所以该模块之外
+  的消费方构造不出生产读所需的那个 port。
 - **`B4` 消费者未编入已部署镜像。** `product/rd-workbench/Dockerfile.owner` 以默认 feature 构建
   `strategy-factory-rd-owner-api`，使 `sealed-develop-composer-acceptance` 处于关闭，而 dashboard 读取二进制不触及任何
   Market Data 表面。解除条件：把该消费者移出 acceptance feature。

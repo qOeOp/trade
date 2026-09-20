@@ -72,6 +72,18 @@ never runs in CI.
   field `_market_data_research_pit`. Cleared by the production resolver, signer, anti-rollback witness, credential
   resolver and direct-measurement adapters named in `docs/guide/architecture-rules.md`, plus one consumer that
   reads the port.
+  Reading a BAR schedule has **two custody strategies**, one per build, and this document has until now described
+  neither. A test build opens its own `REPEATABLE READ READ ONLY` transaction and validates the schedule's history
+  itself; a production build takes its snapshot from the admitted port's evidence and revalidates before returning.
+  Both run the same `verify_bar_schedule_storage_evidence`. The difference is where the consistency guarantee comes
+  from, not how strong it is: the test path carries a history check the production path does not, and the production
+  path carries an admission the test path cannot obtain.
+  The consequence worth stating plainly is that **the production strategy has no coverage of any kind**. The unit
+  tests exercise the test-build body, and no integration test under `crates/data/tests` touches a BAR schedule at
+  all. So `B3` does not only gate a deployment - the first code behind that gate has never executed. What stops a
+  test from reaching it is visibility rather than permission: `Custodian::new` is private to the store-admission
+  module and `AdmittedCapability` leaves it by one exit, so no consumer outside that module can construct the port
+  a production read requires.
 - **`B4` consumer not compiled into the deployed image.** `product/rd-workbench/Dockerfile.owner` builds
   `strategy-factory-rd-owner-api` with default features, which leaves `sealed-develop-composer-acceptance` off, and
   the dashboard read binary touches no Market Data surface. Cleared by moving the consumer out of an acceptance
