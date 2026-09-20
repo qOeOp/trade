@@ -482,3 +482,38 @@ Three merges today carried that evidence rather than assuming: #702 (512 crates)
 `test-chain/<lane>` is unaffected by any of this - it is a separate workflow with
 its own concurrency, and it remains a first-class acceptance channel under
 AGENTS.md rather than a substitute for one.
+
+### What the pre-merge check does not cover
+
+It proves the merge tree compiles. It does not prove the semantics survived.
+
+Lane 4's #645 carried two hand-transcribed formulas through a textually clean
+merge and ninety-one passing tests, unchanged and wrong. No gate caught them; a
+person did, by holding both trees in view at once. #633 was the easier variant of
+the same thing - a clean merge that then failed to compile, which the merge-tree
+check does catch.
+
+So the ladder is:
+
+    cannot merge          git reports the conflict
+    merges but breaks     merge-tree compile, and the gate re-run when the
+                          interval touches one
+    merges, compiles,
+    and means something
+    different             nothing automatic - only a reader comparing both sides
+
+The third rung is the reason a fast merge rate costs more than runner time: it is
+also the regime where nobody has the attention to be that reader.
+
+### Why the concurrency key is not the thing to change
+
+Raised twice today and withdrawn twice, so it is worth writing down where the
+answer lives: `build.yml` carries the reasoning immediately above the block, and
+it records the measurement behind it - a per-commit key on `main` was tried, and
+the 41 merges of 2026-09-17 left nine full builds queued against the runner budget
+the next pull request's gate was waiting for.
+
+Two independent routes reached the same conclusion: reading that comment, and
+observing that the identical key produced five completed `main` builds the previous
+day. The second is the stronger of the two - it separates "configuration" from
+"rate" without relying on anyone having documented their intent.
