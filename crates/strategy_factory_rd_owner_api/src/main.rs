@@ -3603,6 +3603,18 @@ mod tests {
             .arg("tests/dashboard-owner-readback.browser.test.mjs")
             .current_dir(&dashboard_root)
             .env("DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE", "1")
+            // The Dashboard declares an eight second budget for an Owner read, and that is a
+            // production promise about eleven operations. It is not a claim this harness can keep:
+            // one runner runs Chrome, the Next server, this crate's two HTTP servers, PostgreSQL
+            // and the Rust test process on two vCPUs, and the budget is an `AbortSignal.timeout`,
+            // so it measures the client process's wall clock rather than the Owner's latency.
+            //
+            // The value is the harness's own `attemptTimeoutMs`, not a new number: the browser step
+            // already gives an attempt twenty-five seconds, so a read that cannot finish inside the
+            // attempt is the attempt's failure to report, and two nested budgets that disagree only
+            // decide which one reports it. This says the acceptance measures the attempt, and says
+            // nothing about how long an Owner read takes.
+            .env("DASHBOARD_OWNER_READ_TIMEOUT_OVERRIDE_MS", "25000")
             .env(
                 "DASHBOARD_STRATEGY_VIEWER_ACCEPTANCE_CANDIDATE",
                 acceptance_candidate,
