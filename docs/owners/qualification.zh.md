@@ -84,14 +84,15 @@ Qualification 的其余部分并不排在它后面：attempt frontier、候选�
   `sealed-develop-composer-acceptance` 测试模块里，该模块位于
   `crates/strategy_factory/src/iteration_decision_postgres.rs`。
 - **CURRENT_PARTIAL - Protected Evaluation：** 每一个保护终端都由有序 PostgreSQL 门禁完整驱动，而且只有它在驱动。
-  各条目、准入每个终端的密封证据、以及门禁到达不了的那两项行为，都记录在上文
-  Eligibility 终端状态 一节。
+  它的各条目与准入每个终端的密封证据，就是 `scripts/ci/test-rd-owner-postgres.bash` 里那个有序数组中属于
+  Qualification 的那些行，而那个数组始终是它们唯一的清单；门禁到达不了的那两项行为，记录在下文
+  有序门禁到达不了的行为 一节。
 - **CURRENT_PARTIAL - Research 前保护反馈解析：** 这是唯一有生产调用者的能力。
   `resolve_or_create_for_basis` 与 `admit_in_transaction` 由
   `crates/strategy_factory/src/product_edge_postgres.rs` 调用，
   `admit_historical_projection_in_transaction` 由
   `crates/strategy_factory/src/rd_owner_postgres_custody.rs` 调用，都不在任何测试模块内。它的读回有一条有序链路
-  条目作为证明；response-cut 回滚没有，原因记录在上文。
+  条目作为证明；response-cut 回滚没有，原因记录在下文 有序门禁到达不了的行为 一节。
 - **TARGET - Eligibility State：** 该模块拥有 `INELIGIBLE` `QUALIFIED` `EXPIRED` 与 `REVOKED`，其中只有前两个有实现。
   `EligibilityState::Expired` 与 `::Revoked`（在 `crates/strategy_governance/src/model.rs`）在全仓没有任何生产者，
   `QualificationPublicStatusV1` 的五个变体里没有这两个，本 Owner 的 `qualification_*_v1` 表里没有任何以到期或撤销
@@ -102,6 +103,19 @@ Qualification 的其余部分并不排在它后面：attempt frontier、候选�
 - **CURRENT，且永久不可证 - 特定事故 Owner 重建：** 机器已合入，即 `crates/qualification/src/recovery.rs`，
   经 `run_owner_recovery_cli` 导出，并以 `qualification-owner-recovery` 二进制交付（在 `owner-recovery` 特性后面），
   而它唯一的证明永远无法通过。实测记录在下文 特定事故 Owner 重建 一节。
+
+## 有序门禁到达不了的行为
+
+本节是实现状态记录，不是契约。下面两项行为都已实现；缺的是证明，而每一处缺失都是实测出来的，不是假定的。
+
+- **首次创建与 `GENESIS_EMPTY`。** 没有任何一个已准入的 R&D 请求能在缺少自己 frontier 的情况下存在：R&D 在形成
+  TrialFamily 策略时，就已经通过 Qualification 的密封准入 API 取得了那份投影，所以门禁手上的每一个 basis 都已经
+  被投影过。一条跳过 Qualification 解析的血缘会立刻失败，这就是该结论的实测方式。
+- **Response-cut 回滚。** 要驱动它就需要一次创建或一次续期，也就需要一个缺席或已过期的当前 frontier。把一份投影的
+  `valid_through_epoch_ms` 变旧，会让它与读回所校验的规范行失去同步，于是以
+  `Qualification admission envelope projection mismatch` 失败，所以本 Owner 恰好禁掉了唯一能强行触发它的途径。
+  那个仅为此存在的测试专用计时钩子已经被删掉，而不是留成死代码；要证明该行为，需要一套能物化全新 Qualification
+  存储的器具。
 
 ## Research 前保护反馈解析
 

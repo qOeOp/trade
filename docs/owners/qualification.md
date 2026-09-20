@@ -93,13 +93,16 @@ rather than repeating it, so there is one place to keep in step.
   an already-intaken Candidate. It has no production caller: every call outside this Owner is in the
   `sealed-develop-composer-acceptance` test module of `crates/strategy_factory/src/iteration_decision_postgres.rs`.
 - **CURRENT_PARTIAL - Protected Evaluation:** every protected terminal is driven end to end by the ordered
-  PostgreSQL gate and by nothing else. The entries, the sealed evidence that admits each terminal, and the two
-  behaviours the gate cannot reach are recorded under Eligibility terminal status above.
+  PostgreSQL gate and by nothing else. Its entries and the sealed evidence that admits each terminal are the
+  Qualification rows of the ordered array in `scripts/ci/test-rd-owner-postgres.bash`, and that array stays
+  their only list; the two behaviours the gate cannot reach are recorded under Behaviours the ordered gate
+  cannot reach below.
 - **CURRENT_PARTIAL - Pre-Research protected-feedback resolution:** this is the one capability with production
   callers. `resolve_or_create_for_basis` and `admit_in_transaction` are called from
   `crates/strategy_factory/src/product_edge_postgres.rs`, and `admit_historical_projection_in_transaction` from
   `crates/strategy_factory/src/rd_owner_postgres_custody.rs`, all outside any test module. Its readback proof is
-  an ordered-chain entry; the response-cut rollback has none, for the reason recorded above.
+  an ordered-chain entry; the response-cut rollback has none, for the reason recorded under Behaviours the
+  ordered gate cannot reach below.
 - **TARGET - Eligibility State:** the module owns `INELIGIBLE`, `QUALIFIED`, `EXPIRED`, and `REVOKED`, and only
   the first two have any implementation. `EligibilityState::Expired` and `::Revoked` in
   `crates/strategy_governance/src/model.rs` have no producer anywhere, `QualificationPublicStatusV1` carries five
@@ -113,6 +116,21 @@ rather than repeating it, so there is one place to keep in step.
   `crates/qualification/src/recovery.rs`, exported as `run_owner_recovery_cli` and shipped as the
   `qualification-owner-recovery` binary behind the `owner-recovery` feature - and its only proof can never pass.
   The measurement is recorded under Incident-specific Owner reconstruction below.
+
+## Behaviours the ordered gate cannot reach
+
+This section is an implementation status record, not contract. Both behaviours below are implemented; what is
+absent is a proof, and each absence was measured rather than assumed.
+
+- **First create and `GENESIS_EMPTY`.** No admitted R&D request can exist without its frontier: R&D obtains the
+  projection through Qualification's sealed admission API while forming the TrialFamily policy, so every basis the
+  gate holds is already projected. A lineage that skips the Qualification resolve fails at once, which is how this
+  was measured.
+- **Response-cut rollback.** Driving it needs a create or a renewal, so it needs a current frontier that is absent
+  or expired. Aging a projection's `valid_through_epoch_ms` desynchronizes it from the canonical row the readback
+  verifies, which fails as `Qualification admission envelope projection mismatch`, so the Owner forbids the only
+  way to force it. The test-only timing hook that existed solely for this was removed rather than left dead, and
+  proving the behaviour needs a harness that can materialize a fresh Qualification store.
 
 ## Pre-Research protected-feedback resolution
 
