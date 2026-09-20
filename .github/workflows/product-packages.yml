@@ -104,18 +104,19 @@ jobs:
       # unblocked them was three Chrome startup flags the suites were missing. The pin was then kept
       # because nothing had shown the flags alone suffice on an unpinned build, and its comment said
       # so and named this run as the way to find out. This is that run.
-      # EXPERIMENT BRANCH - not for merge. Installs the exact browser build every local pass of the
-      # calendar acceptance used (Chrome for Testing 144.0.7559.96, digest already known to this
-      # repository), so that the one variable left between a local pass and a runner failure is the
-      # platform rather than the browser.
-      - name: Install the browser the local passes used
+      # EXPERIMENT BRANCH - not for merge. Second cut. The first installed Chrome for Testing
+      # 144.0.7559.96 on this runner and the calendar acceptance passed, which excluded the platform
+      # and left the browser build. This one holds the channel at Chrome for Testing and moves only
+      # the version to 152.0.7977.83, the build the chain's own action pins, with that action's
+      # digest. Failing here means the version is the variable; passing means the channel is.
+      - name: Install Chrome for Testing 152 to separate channel from version
         run: |
           set -euo pipefail
           root=/tmp/calendar-discriminator
           mkdir -p "$root"
           curl --fail --location --retry 3 --output "$root/chrome-linux64.zip" \
-            "https://storage.googleapis.com/chrome-for-testing-public/144.0.7559.96/linux64/chrome-linux64.zip"
-          printf '%s  %s\n' "ebb811eef0a0206b6f15dbd325840e39331a132399a4e7e0770cbc1624c3bff0" \
+            "https://storage.googleapis.com/chrome-for-testing-public/152.0.7977.83/linux64/chrome-linux64.zip"
+          printf '%s  %s\n' "ecae8b71d4890cf5f32577ab5ea1b3840c2b5e05f51490b1666674cf1f5b0c37" \
             "$root/chrome-linux64.zip" | sha256sum --check --strict
           python3 -m zipfile -e "$root/chrome-linux64.zip" "$root"
           chmod 0755 "$root/chrome-linux64/chrome" "$root/chrome-linux64/chrome_crashpad_handler"
