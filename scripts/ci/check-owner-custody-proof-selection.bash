@@ -46,6 +46,7 @@ readonly owner_crates=(
   crates/operator_authorization
   crates/backtest_owner
   crates/qualification
+  crates/risk_owner
   crates/execution_owner
   crates/portfolio_owner
   crates/strategy_governance

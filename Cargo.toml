@@ -51,6 +51,7 @@ members = [
   "crates/plugin",
   "crates/portfolio",
   "crates/portfolio_owner",
+  "crates/risk_owner",
   "crates/product_edge",
   "crates/product_edge_contracts",
   "crates/product_edge_claim_custody",
