@@ -80,6 +80,62 @@ terminal as a blocker on them was a misreading of the dependency rather than a p
   conditions, revocation history, and the bounded economic-capacity contract Governance and Risk must enforce.
   It owns revocation as an Eligibility transition without taking over Runtime recovery.
 
+## Implementation status ledger
+
+This ledger records only what the repository has reached at this cut. It uses the status vocabulary of the
+[Market Data](./market-data/) ledger, with `CURRENT_PARTIAL` as the merged-but-unreachable form, and grants no
+permission by itself. No row here is `IMPLEMENTATION_ADMITTED`: this Owner has no admitted slice, and widening
+that requires changing this document first. Where a fact already has a section of its own, the row points at it
+rather than repeating it, so there is one place to keep in step.
+
+- **CURRENT_PARTIAL - Candidate Intake:** `submit_candidate_intake_v1` in `crates/qualification/src/postgres.rs`
+  writes the receipt under a Candidate advisory lock and returns a typed conflict for a second review request of
+  an already-intaken Candidate. It has no production caller: every call outside this Owner is in the
+  `sealed-develop-composer-acceptance` test module of `crates/strategy_factory/src/iteration_decision_postgres.rs`.
+- **CURRENT_PARTIAL - Protected Evaluation:** every protected terminal is driven end to end by the ordered
+  PostgreSQL gate and by nothing else. Its entries and the sealed evidence that admits each terminal are the
+  Qualification rows of the ordered array in `scripts/ci/test-rd-owner-postgres.bash`, and that array stays
+  their only list; the two behaviours the gate cannot reach are recorded under Behaviours the ordered gate
+  cannot reach below.
+- **CURRENT_PARTIAL - Pre-Research protected-feedback resolution:** this is the one capability with production
+  callers. `resolve_or_create_for_basis` and `admit_in_transaction` are called from
+  `crates/strategy_factory/src/product_edge_postgres.rs`, and `admit_historical_projection_in_transaction` from
+  `crates/strategy_factory/src/rd_owner_postgres_custody.rs`, all outside any test module. Its readback proof is
+  an ordered-chain entry; the response-cut rollback has none, for the reason recorded under Behaviours the
+  ordered gate cannot reach below.
+- **TARGET - Eligibility State:** the module owns `INELIGIBLE`, `QUALIFIED`, `EXPIRED`, and `REVOKED`, and only
+  the first two have any implementation. `EligibilityState::Expired` and `::Revoked` in
+  `crates/strategy_governance/src/model.rs` have no producer anywhere, `QualificationPublicStatusV1` carries five
+  variants and neither of those two, no relation named for expiry or revocation exists among this Owner's
+  `qualification_*_v1` tables, and no successor chain prevents predecessor revival. The consumer type exists in
+  Governance and every `UntrustedEligibilityReadback` is constructed in that crate's own tests, so the shape of a
+  read port is present while nothing on either side has written such a fact.
+- **TARGET - the deployment-authorized terminal:** `DEPLOYMENT_STORE_ADMISSION_MODE` stays `disabled`, and what
+  it waits for is recorded under Eligibility terminal status above.
+- **CURRENT, and permanently unprovable - Incident-specific Owner reconstruction:** the machinery is merged -
+  `crates/qualification/src/recovery.rs`, exported as `run_owner_recovery_cli` and shipped as the
+  `qualification-owner-recovery` binary behind the `owner-recovery` feature - and its only proof can never pass.
+  The measurement is recorded under Incident-specific Owner reconstruction below.
+- **TARGET - same-universe random control:** the handoff recorded under Failure and recovery below is declared
+  and has neither a producer nor a consumer. Nothing publishes a control-set definition, nothing synthesizes
+  comparison programs from one, and `crates/qualification` has no comparison arm. The order in which it must be
+  built is part of that clause, not a note on it.
+
+## Behaviours the ordered gate cannot reach
+
+This section is an implementation status record, not contract. Both behaviours below are implemented; what is
+absent is a proof, and each absence was measured rather than assumed.
+
+- **First create and `GENESIS_EMPTY`.** No admitted R&D request can exist without its frontier: R&D obtains the
+  projection through Qualification's sealed admission API while forming the TrialFamily policy, so every basis the
+  gate holds is already projected. A lineage that skips the Qualification resolve fails at once, which is how this
+  was measured.
+- **Response-cut rollback.** Driving it needs a create or a renewal, so it needs a current frontier that is absent
+  or expired. Aging a projection's `valid_through_epoch_ms` desynchronizes it from the canonical row the readback
+  verifies, which fails as `Qualification admission envelope projection mismatch`, so the Owner forbids the only
+  way to force it. The test-only timing hook that existed solely for this was removed rather than left dead, and
+  proving the behaviour needs a harness that can materialize a fresh Qualification store.
+
 ## Pre-Research protected-feedback resolution
 
 Qualification accepts no caller assertion of genesis, emptiness, or current feedback. It directly resolves the
@@ -128,6 +184,19 @@ Executable provenance is a separate effect boundary. Qualification records the e
 verifies database semantics; it does not claim that repository code can independently prove its own executable
 bytes. The Hub-owned external effect controller binds the reviewed Origin ancestry, candidate commit/tree,
 executable path, and SHA-256 before it releases the database capability and executes this worker.
+
+This section is an implementation status record, not contract. The contract above is unchanged by it. The bound
+evidence-session resource no longer exists, so this repository can neither execute this reconstruction again nor
+re-prove it. Two measured facts make that permanent rather than temporary. The resource locator is an absolute
+path under one developer home directory and `verify_evidence` rejects every other path, so the proof could only
+ever run on that one machine and never on Linux CI. The same function also pins the SHA-256 of named lines of
+that file, so no substitute file can satisfy it. The file itself is gone from that machine: no Time Machine
+destination is configured, no local snapshot holds it, nothing under the home directory or any mounted volume
+carries that session identifier, and the artifact was never committed. Its proof,
+`isolated_postgres_recovery_is_atomic_fail_closed_and_replay_safe`, therefore cannot pass anywhere. The contract
+above stays as the record of a closed one-incident reconstruction; it does not widen into a general restore path
+because it can no longer be exercised, and nothing here authorizes substituting a fixture for the sealed
+evidence.
 
 ## Input handoffs
 
@@ -211,6 +280,35 @@ regime coverage requires at least two materially distinct regimes including a no
 instrument non-applicability is permitted only for a frozen single-instrument scope; perturbations cover every
 material input class; and every tunable parameter has bounded neighbours or an accepted no-tunable-parameter basis.
 An inadequate or policy-mismatched plan is `NOT_ADMITTED` and never reserves holdout.
+
+The plan also carries a same-universe random control, and this Owner defines it. Same universe means one exact
+`vibe-indicators-kernel` catalogue digest, one input-role set, and one set of graph bounds - three quantities the
+repository already freezes, so the control introduces no new concept. Qualification fixes the seed, the instrument
+universe, the preregistered windows, and the draw size; R&D synthesizes the comparison programs from that
+definition, because it holds the Composer and the lowerer and this Owner holds neither; Backtest replays them and
+returns their series. The division is not a convenience: a control set the evaluated side can influence is not a
+control, so the definition cannot come from that side, while synthesis can, because a seed and a universe leave
+nothing to choose. Adequacy requires the draw size the versioned policy sets together with a preregistered margin
+in the metric's own unit and scale. A plan that omits the control, takes its definition from anywhere but this
+Owner, draws from a different catalogue digest, universe, or window set, or fixes its margin after any result is
+observed is `NOT_ADMITTED` and never reserves holdout.
+
+The control's strength is bounded by that catalogue version, and the bound is stated rather than implied. The
+catalogue carries no square root, variance, correlation, or rank, so volatility-normalized and cross-sectional
+factors are not expressible in the universe: a Candidate that passes this control is shown to be better than a
+sample drawn from one catalogue, not better than every factor. Each primitive family the catalogue gains raises
+that bound.
+
+This answers a question the trial-count corrections on the formation path cannot. Those deflate a selected result
+by the number of trials the searcher reports having run; this compares the Candidate against arbitrary programs
+expressible in the same catalogue over the same data, drawn to a definition the searcher did not write. The first
+stops being a correction when the trial count is understated. The second does not, which is what a protected
+evaluation is for.
+
+The handoff is built in the order definition, synthesis, replay, and the order is a prohibition rather than a
+preference. Neither the synthesis side nor the consuming side is built before Qualification publishes a
+control-set definition, because a consumer built against a definition that does not yet exist cannot be
+falsified. This document already records five steps built ahead of any caller.
 
 For a request-equal `TERMINAL_RESULT`, Qualification first consumes Backtest's complete finite non-empty protected
 `diagnosticCategorySet`, content digest, and per-category decisive evidence. It preserves all independently

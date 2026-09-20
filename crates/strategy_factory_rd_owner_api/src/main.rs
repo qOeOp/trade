@@ -688,12 +688,14 @@ async fn main() -> anyhow::Result<()> {
             token_digest,
         ));
     #[cfg(feature = "sealed-develop-composer-acceptance")]
-    let app = app
-        .merge(exploratory_replay::execution_router(
-            native_replay_execution,
-            token_digest,
-        ))
-        .merge(market_data_repair);
+    let app = app.merge(exploratory_replay::execution_router(
+        native_replay_execution,
+        token_digest,
+    ));
+    // The Market Data repair loop is a separate surface with its own admission; keeping its merge
+    // in its own statement is what lets the Native Replay route lose its gate on its own.
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    let app = app.merge(market_data_repair);
     let address = env_or("RD_OWNER_LISTEN", "0.0.0.0:8080");
     let listener = TcpListener::bind(&address).await?;
     tracing::info!(listen = %address, "R&D Owner API ready");
@@ -3529,9 +3531,10 @@ mod tests {
         let owner_server = tokio::spawn(async move {
             axum::serve(
                 owner_listener,
-                artifact_source_router()
-                    .route("/v1/historical-custodies", get(read_historical_custodies))
-                    .with_state(state),
+                // Historical custody used to be bolted on here, because the read API had no such
+                // route and the write API did. An acceptance that has to reproduce the write API's
+                // shape to pass is not proving the production path; the read API serves it now.
+                artifact_source_router().with_state(state),
             )
             .await
         });

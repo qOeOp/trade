@@ -42,6 +42,10 @@ use vibe_strategy_factory::{
     product_edge_postgres::{
         PostgresExploratoryReplayReadbackOwnerV2, PostgresResearchReadbackOwnerV1,
     },
+    rd_historical_custody::{
+        HistoricalCustodyErrorV1, HistoricalCustodyOwnerPortV1, HistoricalCustodyQuarantineV1,
+    },
+    rd_historical_custody_postgres::PostgresHistoricalCustodyOwnerV1,
     source_intake::{
         PostgresSourceIntakeReadbackOwnerV1, SourceIntakeOwnerErrorV1,
         SourceIntakeReadbackOwnerPort,
@@ -66,6 +70,7 @@ pub struct ApiState {
     pub exploratory_replay_result_readback: Arc<dyn ExploratoryReplayResultReadbackOwnerPortV2>,
     pub exploratory_replay_historical_rejection_readback:
         Arc<dyn ExploratoryReplayHistoricalRejectionOwnerPortV1>,
+    pub historical_custody: Arc<dyn HistoricalCustodyOwnerPortV1>,
     pub token_digest: [u8; 32],
 }
 
@@ -139,6 +144,19 @@ impl ExploratoryReplayResultReadbackOwnerPortV2 for PostgresExploratoryReplayRea
 }
 
 #[derive(Clone)]
+pub struct UnavailableHistoricalCustodyV1;
+
+#[async_trait::async_trait]
+impl HistoricalCustodyOwnerPortV1 for UnavailableHistoricalCustodyV1 {
+    async fn read_historical_custodies(
+        &self,
+    ) -> Result<HistoricalCustodyQuarantineV1, HistoricalCustodyErrorV1> {
+        Err(HistoricalCustodyErrorV1::Storage(
+            "Historical custody Dashboard readback capability unavailable".to_owned(),
+        ))
+    }
+}
+
 pub struct UnavailableArtifactReadbackV1;
 
 fn artifact_unavailable() -> ArtifactBuildError {
@@ -408,6 +426,14 @@ pub async fn compose_state(config: &DashboardReadApiConfigV1) -> anyhow::Result<
             (readback.clone(), readback.clone(), readback)
         }
     };
+    let historical_custody: Arc<dyn HistoricalCustodyOwnerPortV1> =
+        match PostgresHistoricalCustodyOwnerV1::connect_read_only(database_url).await {
+            Ok(readback) => Arc::new(readback),
+            Err(_) => {
+                tracing::warn!("Historical custody Dashboard readback capability unavailable");
+                Arc::new(UnavailableHistoricalCustodyV1)
+            }
+        };
     let source_intake_readback =
         source_intake_readback(database_url, config.source_intake.as_ref()).await;
     let composer_readback = composer_readback(database_url).await;
@@ -425,6 +451,7 @@ pub async fn compose_state(config: &DashboardReadApiConfigV1) -> anyhow::Result<
         exploratory_replay_readback: exploratory_replay,
         exploratory_replay_result_readback: exploratory_replay_result,
         exploratory_replay_historical_rejection_readback: exploratory_replay_historical_rejection,
+        historical_custody,
         token_digest: Sha256::digest(config.token.as_bytes()).into(),
     })
 }
@@ -463,6 +490,7 @@ pub fn router(state: ApiState) -> Router {
             get(read_research_question_directory),
         )
         .route("/v1/formation-catalog", get(read_formation_catalog))
+        .route("/v1/historical-custodies", get(read_historical_custodies))
         .route(
             "/v1/trial-families/{trial_family_identity}/iterations",
             get(read_iteration_timeline),
@@ -723,6 +751,29 @@ pub async fn read_formation_catalog(State(state): State<ApiState>, headers: Head
         Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
         Err(e) => {
             tracing::warn!(%e, "Formation Catalog Dashboard read unavailable");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
+    }
+}
+
+/// Reads the historical custody quarantine through the Dashboard's own read-only port.
+///
+/// The Dashboard's other reads already arrive here. This one used to reach the write API instead,
+/// because it was the only route that did not exist on this side - and the deployed composition
+/// leaves the override that would have pointed it elsewhere empty, so a read-only surface held a
+/// write API credential to answer it.
+pub async fn read_historical_custodies(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
+    match state.historical_custody.read_historical_custodies().await {
+        Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
+        Err(e) => {
+            tracing::warn!(%e, "Historical custody Dashboard read unavailable");
             StatusCode::SERVICE_UNAVAILABLE.into_response()
         }
     }

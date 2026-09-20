@@ -34,8 +34,11 @@ Run a scheduled slow-track match between governed strategies and current market 
 
 This ledger records only what the repository has reached at this cut. It uses the status vocabulary of the
 [Market Data](./market-data/) ledger, with `CURRENT_PARTIAL` as the merged-but-unreachable form, and grants no
-permission by itself: no slice of this document is `IMPLEMENTATION_ADMITTED`, and widening the admitted set
-requires changing this document first.
+permission by itself: what is `IMPLEMENTATION_ADMITTED` at this cut is exactly the terminal-receipt custody
+slice the Product Edge output handoff names, and widening the admitted set requires changing this document first
+under the Architecture authority rule in `AGENTS.md`. A merged crate, a named type, a green job, or a row here is
+not implementation authority, never proves a production consumer, and never authorizes a production effect, a
+deployment cutover, or real trading.
 
 - **CURRENT_PARTIAL - deterministic Scanner core:** `crates/scanner` owns `ScheduleDefinition` with fold, gap, and
   misfire dispositions, due-slot derivation and the stable `AttemptId`, per-strategy `StrategyDisposition`, the
@@ -46,11 +49,13 @@ requires changing this document first.
   the fail-closed shape.
 - **TARGET - production composition:** no scheduler trigger, no production constructor for the sealed source-Owner
   admission, no durable receipt custody behind `TerminalReceiptStore`, and no Product Edge consumer exist; the only
-  external use is a type import in `crates/testkit/tests/f1_current_workspace.rs`.
+  external use is a type import in `crates/testkit/tests/f1_current_workspace.rs`. The durable custody and the
+  Product Edge consumer named in this row are the admitted slice; the scheduler trigger and the sealed-admission
+  constructor are not.
 - **TARGET - Strategy Loader, Market Snapshot, and Capacity View input:** the `StrategyLoader` and `MarketSnapshot`
   ports have no implementation over the governed registry, Market Data PIT facts, or a Portfolio Capacity View.
 - **TARGET - handoffs and persistence:** no terminal receipt reaches Governance or Product Edge, and no Scanner fact
-  is persisted.
+  is persisted. The Product Edge half of this row is admitted; the Governance handoff is not.
 
 ## Input handoffs
 
@@ -114,6 +119,28 @@ admitted.
   displayed as an absent or unknown outcome. Product Edge stores no competing Scanner-owned projection, derives
   no status of its own, and never labels an incomplete `FAILED` set as complete or renders an unresolved
   expected set as an empty one.
+  **IMPLEMENTATION_ADMITTED, terminal receipt custody and its Product Edge readback:** one production
+  implementation behind `TerminalReceiptStore` that durably holds exactly one terminal Scanner Receipt per
+  stable `AttemptId` - the Schedule Definition version, the exact scan-scope identity and version, and the
+  canonical due-slot boundary, which is what ScheduledScanId names throughout this document and the only key
+  the port takes - and one `ProductEdgeTerminalReceiptReader` over it that answers a read with exactly that
+  receipt or with one of the four refusals above, the middle two still distinguished as detected custody faults.
+  The store does not live in `crates/scanner`: that crate declares no runtime dependency at all and both receipt
+  constructors are `pub(crate)`, which `crates/scanner/tests/ui/terminal_receipt_cannot_deserialize.rs` pins as
+  intent rather than omission. The slice therefore also carries the one thing that makes a readback possible from
+  outside: a validating reconstruction entry on `crates/scanner`, which parses canonical bytes and refuses what
+  does not reconstruct, in the shape `parse_untrusted_grant_envelope` already uses in this repository. A
+  `serde::Deserialize` on the receipt, or a database dependency in the domain core, is excluded.
+  The slice is bounded on the code surface: both ends already exist as ports inside `crates/scanner` and
+  neither name is referenced anywhere outside that crate. It is not yet buildable, because the platform
+  surface is empty - this Owner has no database role and no schema on either supply path, and
+  `CanonicalOwnerTestRoleV1` has no Scanner variant, so no chain entry can be written and the chain entry is
+  what this admission's acceptance is. Building the store therefore waits on `scanner_owner` and its schema
+  existing on both the `postgres-init` path and the `scripts/ci/test-rd-owner-postgres.bash` path, and on the
+  testkit role and URL table carrying it. The reconstruction entry does not wait on any of that.
+  **NOT_ADMITTED:** the scheduler trigger, a production constructor for the sealed source-Owner admission, any
+  `StrategyLoader`, `MarketSnapshot` or Capacity View implementation, the Governance receipt handoff, any Scanner
+  fact other than the terminal receipt, and every production effect, deployment cutover and real trade.
 
 ## Rejections and prohibitions
 
@@ -144,6 +171,18 @@ and version, and canonical boundary always resolve to one attempt and one termin
 calendar, time zone, time-zone rules, fold/gap, misfire, or backfill rule creates a successor definition. Missing
 clock continuity, or conflicting or unresolvable scope or slot evidence, creates no attempt; wall-clock retries
 cannot invent a new slot or put a new clock epoch into the stable identity.
+
+**Reading a terminal receipt back is time-independent, and must stay so.** The clock observation admission
+consumed is not part of the receipt, so a readback cannot re-run the admission's clock predicates and must not be
+changed to: a receipt that read one way today and another way tomorrow is no longer a terminal record. What a
+readback re-derives is every check whose two sides the receipt still holds - the source, frontier, scope and
+requirement checks, the cross-cuts, and the due instant, which the retained boundary determines. A field the
+receipt carries whose counterpart it does not, such as each fact's observation instant, is not re-checked, and
+re-deriving a substitute counterpart would make the check depend on what that scan happened to need. A readback
+also reaches one invariant admission cannot: every fact in one receipt shares one due slot, so their clock
+epochs and Time Evidence are all equal. Admitting a
+single fact cannot see a second fact, so nothing on the admission path can check that; only the whole receipt
+coming back can.
 
 ## Decision contract
 

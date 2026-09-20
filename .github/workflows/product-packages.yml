@@ -181,8 +181,17 @@ jobs:
           DASHBOARD_SERVICE_LOGS_BROWSER_ACCEPTANCE: "1"
           DASHBOARD_SERVICE_LOGS_ACCEPTANCE_CANDIDATE: ${{ github.sha }}
           DASHBOARD_SERVICE_LOGS_BROWSER_EXECUTABLE: ${{ env.DASHBOARD_BROWSER_EXECUTABLE }}
+        # `--test-force-exit` used to be here, covering suites that left a browser or a server
+        # running: the runner's cleanup had to terminate them as orphans, and without the flag the
+        # test runner never exited. Those suites now put the browser in its own process group and
+        # signal the group, so the flag should have nothing left to cover.
+        #
+        # A leak of that kind is intermittent, so a green run here does not show the flag is
+        # unnecessary - it shows this run did not leak. What distinguishes the two is whether the
+        # job's cleanup reports "Terminate orphan process" at the end. That line is what exposed the
+        # leak in the first place, and its absence across runs is the evidence for dropping this.
         run: >-
-          node --test --test-concurrency=1 --test-timeout=600000 --test-force-exit
+          node --test --test-concurrency=1 --test-timeout=600000
           tests/run-store.postgres.test.mjs
           tests/run-list-view-gateway.postgres.test.mjs
           tests/shadow-runtime.postgres.test.mjs

@@ -3174,6 +3174,13 @@ fn build_reference_cuts(
                         crate::owner::market_semantics::MarketSemanticsPriceAdjustmentV1::Raw => ReplayPriceAdjustmentV2::Raw,
                         crate::owner::market_semantics::MarketSemanticsPriceAdjustmentV1::SplitAdjusted => ReplayPriceAdjustmentV2::SplitAdjusted,
                         crate::owner::market_semantics::MarketSemanticsPriceAdjustmentV1::TotalReturnAdjusted => ReplayPriceAdjustmentV2::TotalReturnAdjusted,
+                        // A declared-unknown caliber has no V2 representation on purpose. Mapping
+                        // it onto `Raw` would be the assertion the declaration exists to avoid,
+                        // and admitting it to the replay would let prices of unknown caliber be
+                        // compared with prices of known caliber without anything saying so.
+                        crate::owner::market_semantics::MarketSemanticsPriceAdjustmentV1::Unknown => {
+                            return Err(ReplayCompositionBindingErrorV1::PriceAdjustmentUnknown);
+                        }
                     },
                     timestamp_basis: match value.timestamp_basis {
                         crate::owner::market_semantics::MarketSemanticsTimestampBasisV1::EventEffective => ReplayTimestampBasisV2::EventEffective,
@@ -3434,6 +3441,14 @@ fn map_admission_reader_error(
         }
         ReplayCompositionBindingErrorV1::DigestMismatch => {
             StrategyInputBindingAdmissionErrorV1::AuthenticatedDesignUntrusted
+        }
+        // Named rather than left to the catch-all below, whose contract is that everything it
+        // absorbs is a store failure. This one is not: a source declared that it does not know its
+        // own adjustment rule, and the native re-derivation refused on that. Reporting it as
+        // `StoreUnavailable` would send a reader to look at the database for something a source
+        // said about itself.
+        ReplayCompositionBindingErrorV1::PriceAdjustmentUnknown => {
+            StrategyInputBindingAdmissionErrorV1::BindingUnavailable
         }
         _ => StrategyInputBindingAdmissionErrorV1::StoreUnavailable,
     }
