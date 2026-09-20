@@ -128,7 +128,7 @@ jobs:
           DASHBOARD_RUN_LIST_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_runs
           DASHBOARD_SHADOW_RUNTIME_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_shadow_runtime
           DASHBOARD_SHADOW_RUNTIME_TEST_CURSOR_HMAC_KEY: shadow-runtime-disposable-cursor-key-at-least-32-bytes
-          # Workers and service logs drive a browser here. None of the three had ever run anywhere,
+          # All three RunStore browser acceptances drive a browser here. None of the three had ever run anywhere,
           # and each was held back under a reason that measurement later replaced.
           #
           # Schedule calendar was recorded as leaving an evaluation outstanding past a 60 s command
@@ -161,7 +161,17 @@ jobs:
           DASHBOARD_WORKERS_BROWSER_ACCEPTANCE: "1"
           DASHBOARD_WORKERS_ACCEPTANCE_CANDIDATE: ${{ github.sha }}
           DASHBOARD_WORKERS_BROWSER_EXECUTABLE: ${{ env.DASHBOARD_BROWSER_EXECUTABLE }}
+          # Turned on to be measured, not because it is expected to pass. It fails on this runner
+          # while passing locally three runs out of three, and this lane has no reproduction and no
+          # mechanism for that. The widened failure dump merged earlier reports which element the
+          # page actually had focused, whether any dialog exists and what it would be called - and
+          # none of that can ever be read while the acceptance is switched off here. So this run is
+          # for the dump. If it is red, the dump is the deliverable; if it is green, that is a third
+          # measurement of something this lane could not reproduce either way.
           DASHBOARD_CALENDAR_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_calendar
+          DASHBOARD_CALENDAR_BROWSER_ACCEPTANCE: "1"
+          DASHBOARD_CALENDAR_ACCEPTANCE_CANDIDATE: ${{ github.sha }}
+          DASHBOARD_CALENDAR_BROWSER_EXECUTABLE: ${{ env.DASHBOARD_BROWSER_EXECUTABLE }}
           DASHBOARD_SERVICE_LOGS_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_service_logs
           DASHBOARD_SERVICE_LOGS_BROWSER_ACCEPTANCE: "1"
           DASHBOARD_SERVICE_LOGS_ACCEPTANCE_CANDIDATE: ${{ github.sha }}
