@@ -211,6 +211,33 @@ async function readBrowserValue(browser, expression) {
   return result.result?.value;
 }
 
+// Both keyboard paths into the schedule inspection dialog fail the same way - a focused, enabled
+// trigger and no dialog - and that shape has two causes the suite must not report as one: the key
+// never reached the trigger, or the trigger's handler never opened anything. Only the second is a
+// defect in the page. Probing whatever holds focus keeps this honest at either call site, where the
+// trigger is a day's overflow button in one and, depending on where the verified run falls in its
+// day, either that button or an event badge in the other.
+async function pressEnterToOpenDialog(browser, expression) {
+  await dispatchBrowserKey(browser, "Enter");
+  await waitForBrowserExpression(browser, expression).catch(async (timedOut) => {
+    const probe = await readBrowserValue(browser, `(() => {
+      const node = document.activeElement;
+      const described = {
+        tag: node?.tagName ?? null,
+        label: node?.getAttribute?.('aria-label') ?? null,
+        role: node?.getAttribute?.('role') ?? null,
+        tabIndex: node?.tabIndex ?? null,
+        hadFocus: document.hasFocus(),
+      };
+      node?.click?.();
+      return described;
+    })()`).catch(() => null);
+    await delay(500);
+    const openedByClick = await readBrowserValue(browser, expression).catch(() => null);
+    throw new Error(`${timedOut.message}; enter probe: ${JSON.stringify({ ...probe, openedByClick })}`);
+  });
+}
+
 async function dispatchBrowserKey(browser, key) {
   const keys = {
     Enter: { code: "Enter", windowsVirtualKeyCode: 13, text: "\r" },
@@ -563,25 +590,8 @@ test(testName, { skip: !url }, async () => {
         return Boolean(button && document.activeElement === button);
       })()`);
       assert.equal(overflowOpened, true, "dense schedule overflow is keyboard focusable");
-      await dispatchBrowserKey(browser, "Enter");
-      // Enter failing to open the dialog has two causes this suite must not report as one: the key
-      // never reached the button, or the button's handler never opened anything. Only the second is
-      // a defect in the page. The dump alone cannot separate them - it shows a focused, enabled
-      // button either way - so drive the same handler without the key path before failing.
-      await waitForBrowserExpression(browser,
-        "Boolean(document.querySelector('dialog[open][aria-label$=\"UTC\"]'))")
-        .catch(async (timedOut) => {
-          const probe = await readBrowserValue(browser, `(() => {
-            const button = document.querySelector('button[aria-label^="Show "][aria-label*=" more schedule groups on "]');
-            button?.click();
-            return { clicked: Boolean(button), hadFocus: document.hasFocus() };
-          })()`).catch(() => null);
-          await delay(500);
-          const openedByClick = await readBrowserValue(browser,
-            `Boolean(document.querySelector('dialog[open][aria-label$="UTC"]'))`).catch(() => null);
-          throw new Error(`${timedOut.message}; enter probe: ${
-            JSON.stringify({ ...probe, openedByClick })}`);
-        });
+      await pressEnterToOpenDialog(browser,
+        "Boolean(document.querySelector('dialog[open][aria-label$=\"UTC\"]'))");
       const inspection = await readBrowserValue(browser, `(() => {
         const dialog = document.querySelector('dialog[open]');
         return {
@@ -627,8 +637,7 @@ test(testName, { skip: !url }, async () => {
       assert.equal(calendarRunOrigin.focused, true, JSON.stringify(calendarRunOrigin));
       assert.ok(calendarRunOrigin.width > 0 && calendarRunOrigin.height > 0, JSON.stringify(calendarRunOrigin));
       assert.equal(calendarRunOrigin.disabled, false);
-      await dispatchBrowserKey(browser, "Enter");
-      await waitForBrowserExpression(browser,
+      await pressEnterToOpenDialog(browser,
         "Boolean(document.querySelector('dialog[open][aria-label$=\"UTC\"]'))");
       const calendarRunSelected = await readBrowserValue(browser, `(() => {
         const option = document.querySelector('dialog[open] option[data-run-identity="${previewRunIdentity}"]');
