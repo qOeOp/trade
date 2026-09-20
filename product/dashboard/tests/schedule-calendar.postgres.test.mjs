@@ -197,6 +197,7 @@ async function waitForBrowserExpression(browser, expression, timeoutMs = 15_000)
       reasons: [...document.querySelectorAll('details code, .unavailable-state code')]
         .map((code) => code.textContent),
       faults: globalThis.__calendarFaults?.slice(-8) ?? null,
+      dialogHistory: globalThis.__dialogHistory?.slice(-10) ?? null,
       body: document.body?.innerText.slice(0, 1_500) ?? '',
     }))()`,
     returnByValue: true,
@@ -461,6 +462,25 @@ test(testName, { skip: !url }, async () => {
             faults.push("error: " + (event.message ?? event.error) + at(event)));
           addEventListener("unhandledrejection", (event) =>
             faults.push("rejection: " + event.reason));
+          // A dialog that never opened and one that opened and was closed again both read as zero
+          // at the moment a wait gives up. Record the transitions instead of the end state.
+          const dialogHistory = [];
+          globalThis.__dialogHistory = dialogHistory;
+          const watch = () => new MutationObserver((records) => {
+            for (const record of records) {
+              const node = record.target;
+              if (node.tagName !== "DIALOG") continue;
+              dialogHistory.push({
+                atMs: Math.round(performance.now()),
+                open: node.open,
+                label: node.getAttribute("aria-label"),
+              });
+            }
+          }).observe(document.documentElement, {
+            attributes: true, attributeFilter: ["open"], subtree: true,
+          });
+          if (document.documentElement) watch();
+          else addEventListener("DOMContentLoaded", watch);
           const forward = console.error.bind(console);
           console.error = (...args) => {
             faults.push("console: " + args.map((arg) => String(arg?.message ?? arg)).join(" "));
