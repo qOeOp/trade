@@ -10,28 +10,34 @@ This section is an implementation status record, not contract. It grants no perm
 listed here is not authority to build, deploy, or drive a protected evaluation. The contract below is unchanged by
 whether a step has a caller.
 
-**The eligibility terminal has never been driven.** Every step below is implemented and none has a
-caller, so no Protected Replay Request Set, Attempt Frontier, Robustness Assessment or Eligibility
-Fact has ever existed. The ordered PostgreSQL gate reaches only an `ADMITTED` intake and an Origin
-(`schema_version=1`) replay request, and its two closing entries assert that Eligibility is **absent**.
+**The eligibility terminal is driven by the ordered PostgreSQL gate and by nothing else.** Every step
+is called from that gate's own entries, so a Protected Replay Request Set, an Attempt Frontier, a
+Robustness Assessment and an Eligibility Fact all exist in the gate's database. The step list is the
+Qualification and Backtest entries of the ordered array in `scripts/ci/test-rd-owner-postgres.bash`,
+which stays their only list; no step has a caller outside it.
 
-| Step                                            | State     |
-| ----------------------------------------------- | --------- |
-| `submit_protected_replay_request_v2`            | no caller |
-| `seal_protected_replay_request_set_v1`          | no caller |
-| `produce_and_commit_protected_replay_result_v3` | no caller |
-| `close_protected_replay_attempt_frontier_v1`    | no caller |
-| `close_economic_pass_assessment_v1`             | no caller |
+The gate constructs the Shared Time handoff that the first step needs from
+`issue_protected_evaluation_shared_time_v1` in this repository's sealed-acceptance surface, not from
+the deployment resolver. **The deployment resolver is still closed**, for the reason recorded under
+the deployment-authorized terminal below, so driving the terminal in the gate is not evidence that a
+deployment could drive it.
 
-The steps are strictly serial, and the first one is blocked on **a missing Owner input** rather than on a
-missing driver. A V2 request is a V1 proposal plus a `ClockHeadHandoff`, the shared-time resolver is
-built from `DEPLOYMENT_STORE_ADMISSION_MODE`, and the gate does not set it, so the resolver yields
-nothing and no V2 request can be constructed there at all. Set sealing then admits only
-`schema_version=2` members - Origin rows carry a different canonical encoding and would strand the
-frontier - so an Origin-only gate seals an empty set even if it were called.
+Two earlier entries still assert that Eligibility is absent, and they still pass, because the ordered
+gate shares one database that is never reset and they run before the entry that commits the first
+Eligibility Fact. **An absence asserted at entry `n` is an absence at entry `n`, not a property of
+the Owner** - reading those two entries as "Eligibility never exists" is the misreading this
+paragraph used to encode.
 
-Admitting shared-time evidence into the gate environment is therefore the first prerequisite for the
-terminal, before any driver is worth writing.
+The steps are strictly serial. A V2 request is a V1 proposal plus a `ClockHeadHandoff`, and the
+production shared-time resolver is built from `DEPLOYMENT_STORE_ADMISSION_MODE`, which stays
+`disabled`. The gate does not use that resolver and does not need it:
+`issue_protected_evaluation_shared_time_v1` issues the handoff on the sealed-acceptance surface, so a
+V2 request, a non-empty request set, a terminal result, a closed frontier and an assessment are all
+constructed there. Set sealing admits only `schema_version=2` members - Origin rows carry a different
+canonical encoding and would strand the frontier - and the gate supplies `schema_version=2` members.
+
+Admitting shared-time evidence into a **deployment** therefore remains the prerequisite for a
+deployment-driven terminal. It is no longer a prerequisite for driving the terminal at all.
 
 **TARGET - the deployment-authorized terminal, and what it waits for:** this terminal is TARGET, not
 unfinished work. `DEPLOYMENT_STORE_ADMISSION_MODE` stays `disabled` until a deployment authority
@@ -308,7 +314,8 @@ evaluation is for.
 The handoff is built in the order definition, synthesis, replay, and the order is a prohibition rather than a
 preference. Neither the synthesis side nor the consuming side is built before Qualification publishes a
 control-set definition, because a consumer built against a definition that does not yet exist cannot be
-falsified. This document already records five steps built ahead of any caller.
+falsified. This Owner has already done it once: every step of the eligibility terminal was merged
+before anything called it, and stayed that way until the ordered gate's entries were written.
 
 For a request-equal `TERMINAL_RESULT`, Qualification first consumes Backtest's complete finite non-empty protected
 `diagnosticCategorySet`, content digest, and per-category decisive evidence. It preserves all independently
