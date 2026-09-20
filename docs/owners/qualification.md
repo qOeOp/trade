@@ -140,8 +140,13 @@ absent is a proof, and each absence was measured rather than assumed.
   `GENESIS_EMPTY` at sequence zero on the canonical genesis cut with no source frontier, four properties the create
   branch alone writes, and reverting the first of them fails that entry against a gate-populated store. A local run
   of the whole chain leaves twenty projections, every one of that shape and none of them renewed. What stays out of
-  reach is the branch's condition - that a frontier commits only on an empty history - because driving it needs an
-  entry whose own basis has none.
+  reach is the branch's condition. Resolution has three paths, not two: a basis whose own projection is still fresh
+  replays and writes nothing, a basis with no projection under a scope with no frontier takes the genesis arm, and
+  a basis with no projection under a scope that has one takes the `FRONTIER` arm. The gate has taken the genesis
+  arm twenty times and the `FRONTIER` arm never, so nothing has ever produced that resolution, its stored encoding,
+  or a source-frontier identity and digest. Until something does, taking the genesis arm and having no other arm to
+  take are the same observation. Driving the other arm needs a second basis under one principal and scope, and only
+  R&D can write one.
 - **Response-cut rollback.** Driving it needs a create or a renewal, so it needs a current frontier that is absent
   or expired. Aging a projection's `valid_through_epoch_ms` desynchronizes it from the canonical row the readback
   verifies, which fails as `Qualification admission envelope projection mismatch`, so the Owner forbids the only

@@ -119,7 +119,12 @@ Qualification 的其余部分并不排在它后面：attempt frontier、候选�
   `GENESIS_EMPTY`、序号为零、落在规范的 genesis 切上、且没有 source frontier -- 这四项只有创建分支会写，
   把第一项改反，该条目对着门禁填充过的存储就会红。本机跑完整条链路留下二十份投影，每一份都是这个形状，
   一次续期也没有。仍然够不着的是该分支的条件 -- frontier 只在历史为空时才提交 -- 因为驱动它需要一个
-  自己的 basis 没有 frontier 的条目。
+  仍然够不着的是该分支的条件。解析有三条路径而不是两条：本 basis 的投影仍然新鲜时直接重放、什么都不写；
+  本 basis 没有投影且该 scope 没有 frontier 时走 genesis 那一臂；本 basis 没有投影但该 scope 已有 frontier 时
+  走 `FRONTIER` 那一臂。门禁走过 genesis 那一臂二十次，走过 `FRONTIER` 那一臂零次，所以从来没有任何东西产生过
+  那个 resolution、它存下来的编码、或者一份 source frontier 的身份与摘要。在有东西产生它之前，
+  「选了 genesis 那一臂」和「没有别的臂可选」是同一个观察。驱动另一臂需要同一 principal 与 scope 下的第二个
+  basis，而只有 R&D 写得了。
 - **Response-cut 回滚。** 要驱动它就需要一次创建或一次续期，也就需要一个缺席或已过期的当前 frontier。把一份投影的
   `valid_through_epoch_ms` 变旧，会让它与读回所校验的规范行失去同步，于是以
   `Qualification admission envelope projection mismatch` 失败，所以本 Owner 恰好禁掉了唯一能强行触发它的途径。
