@@ -1,13 +1,20 @@
 name: owner-chains
 
-# The two isolated PostgreSQL Owner chains, and nothing else, for a push to a `test-chain/` branch.
+# The two isolated PostgreSQL Owner chains for a push to a `test-chain/` branch, and - for the
+# Market Data lane's own branches only - the one venue leg that needs a reachable exchange.
 #
 # An Owner lane's acceptance is its entries in the ordered chain passing on Linux, and until now the
 # only place to see that was the whole `build` gate - a push to `test-ci` or a Ready pull request -
 # which is about thirty jobs and two hundred runner-minutes, most of them unrelated to the chain, on
 # a repository whose budget is twenty concurrent jobs shared by every lane. This workflow runs the
-# two chain jobs `build` runs, with the same matrix, environment and make targets, and no other
-# job: a lane pays two runner slots for its evidence and leaves the other eighteen alone.
+# two chain jobs `build` runs, with the same matrix, environment and make targets: a lane pays two
+# runner slots for its evidence and leaves the other eighteen alone.
+#
+# `venue-end-to-end` is the exception and is deliberately not in that matrix. It reaches a public
+# exchange, so it can go red for a reason no change in this repository caused - the venue answers a
+# GitHub-hosted runner with HTTP 451 from some of its hosts - and a leg like that does not belong on
+# eight lanes' critical path. It runs only for `test-chain/market-data*`, where it verifies the
+# Owner that owns it, and `build` does not run it at all.
 #
 # One branch per lane, `test-chain/<lane>`, and the branch is that lane's own, so a newer push
 # supersedes the run before it. `test-ci` and `test-rd-owner-postgres` keep their commit-keyed
@@ -105,51 +112,11 @@ jobs:
       # `build`'s chain job runs it that way, so the only Linux evidence for the browser acceptance
       # has been `rd-owner-postgres.yml`. This leg carries the same sealed inputs, byte for byte, so
       # a lane's push exercises the whole entry. The Market Data leg has no browser to drive.
-      - name: Set up Node.js for Dashboard browser acceptance
+      - name: Install the sealed Dashboard browser acceptance inputs
         if: matrix.chain.key == 'rd-owner'
-        # https://github.com/actions/setup-node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: ./.github/actions/dashboard-browser-acceptance
         with:
-          node-version: "24"
-          cache: npm
-          cache-dependency-path: product/dashboard/package-lock.json
-
-      - name: Install sealed Dashboard browser acceptance inputs
-        if: matrix.chain.key == 'rd-owner'
-        env:
-          CHROME_FOR_TESTING_SHA256: ecae8b71d4890cf5f32577ab5ea1b3840c2b5e05f51490b1666674cf1f5b0c37
-          CHROME_FOR_TESTING_URL: >-
-            https://storage.googleapis.com/chrome-for-testing-public/152.0.7977.83/linux64/chrome-linux64.zip
-        run: |
-          set -euo pipefail
-          npm ci --prefix product/dashboard
-          browser_root="${RUNNER_TEMP}/dashboard-strategy-viewer-chrome"
-          mkdir -p "$browser_root"
-          curl --fail --location --retry 3 \
-            --output "$browser_root/chrome-linux64.zip" \
-            "$CHROME_FOR_TESTING_URL"
-          printf '%s  %s\n' \
-            "$CHROME_FOR_TESTING_SHA256" \
-            "$browser_root/chrome-linux64.zip" | sha256sum --check --strict
-          python3 -m zipfile -e \
-            "$browser_root/chrome-linux64.zip" \
-            "$browser_root"
-          chmod 0755 \
-            "$browser_root/chrome-linux64/chrome" \
-            "$browser_root/chrome-linux64/chrome_crashpad_handler"
-
-      - name: Enable the sealed Dashboard browser acceptance
-        if: matrix.chain.key == 'rd-owner'
-        env:
-          ACCEPTANCE_CANDIDATE: ${{ github.sha }}
-          BROWSER_EXECUTABLE: ${{ runner.temp }}/dashboard-strategy-viewer-chrome/chrome-linux64/chrome
-        run: |
-          set -euo pipefail
-          {
-            echo "DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE=1"
-            echo "DASHBOARD_STRATEGY_VIEWER_ACCEPTANCE_CANDIDATE=${ACCEPTANCE_CANDIDATE}"
-            echo "DASHBOARD_STRATEGY_VIEWER_BROWSER_EXECUTABLE=${BROWSER_EXECUTABLE}"
-          } >> "$GITHUB_ENV"
+          acceptance-candidate: ${{ github.sha }}
 
       - name: Report disk space before the chain
         run: bash scripts/ci/report-disk-space.bash "before ${{ matrix.chain.key }}"
@@ -167,3 +134,75 @@ jobs:
       - name: Report disk space after the chain
         if: always()
         run: bash scripts/ci/report-disk-space.bash "after ${{ matrix.chain.key }}"
+
+  # The credential-free end-to-end proof of the Owner's PIT shape, which needs a reachable venue
+  # rather than a database. It is a separate job rather than a third entry in the matrix above for
+  # one reason: `jobs.<id>.if` cannot read the `matrix` context, so a matrix entry would run for
+  # every lane's push and could only be skipped step by step - still taking a runner slot, and
+  # still reporting on branches whose changes cannot affect it.
+  #
+  # It stood without a caller until its Makefile target landed, and without a hosted one after
+  # that, because it reached `ObservationUnavailable` here and nothing in the leg could say why.
+  # The runner now prints a status code per candidate venue host before the proof runs, so a red
+  # names a cause; the client calls the public-data mirror its own binding proposes rather than the
+  # trading API it was defaulting to; and the perpetual's host is substituted, out loud, when the
+  # canonical one answers 451.
+  venue-end-to-end:
+    name: market data end-to-end, no credential (ubuntu-22.04)
+    # This Owner's own branches only. The proof verifies Market Data's PIT path, so another lane's
+    # push cannot make it more or less true - it can only make that lane wait, and inherit a red
+    # from a venue's network policy.
+    if: startsWith(github.ref_name, 'test-chain/market-data')
+    runs-on: ubuntu-22.04
+    env:
+      # The same environment the chain jobs above are given, so this leg and they differ in what
+      # they run and in nothing else.
+      CARGO_CI_PROFILE: nextest
+      CARGO_TARGET_DIR: /home/runner/.cache/cargo-target/rust-tests-linux-x86
+      RUST_BACKTRACE: 1
+      VIBE_TEST_DATA_BASE_URL: ${{ vars.VIBE_TEST_DATA_BASE_URL }}
+    steps:
+      # https://github.com/step-security/harden-runner
+      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: >-
+            ${{ env.AUDIT_PR == 'true' && 'audit'
+            || vars.STEP_SECURITY_EGRESS_POLICY
+            || 'block' }}
+          allowed-endpoints: >-
+            ${{ vars.COMMON_ALLOWED_ENDPOINTS }}
+            ${{ vars.CI_ALLOWED_ENDPOINTS }}
+
+      - name: Checkout repository
+        # https://github.com/actions/checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Verify immutable CI inputs (post-checkout)
+        run: bash scripts/ci/verify-ci-inputs.sh post-checkout
+
+      - name: Common setup
+        uses: ./.github/actions/common-setup
+        with:
+          python-version: "3.13"
+          build-type: "test"
+          free-disk-space: "true"
+          free-disk-space-max-build: "true"
+          minimum-free-space-gb: "110"
+          rust-cache-enabled: "true"
+          rust-cache-key: rust-tests-linux-x86
+          rust-cache-workspaces: . -> target/rust-tests-linux-x86
+          rust-cache-on-failure: "false"
+          rust-cache-save-if: "false"
+          rust-cache-workspace-crates: "true"
+
+      - name: Report disk space before the proof
+        run: bash scripts/ci/report-disk-space.bash "before market-data-e2e"
+
+      - name: Run the credential-free end-to-end proof
+        run: make cargo-test-market-data-end-to-end
+
+      - name: Report disk space after the proof
+        if: always()
+        run: bash scripts/ci/report-disk-space.bash "after market-data-e2e"

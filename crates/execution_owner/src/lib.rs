@@ -13,3 +13,4 @@ pub mod adapter_binding;
 pub mod adapter_binding_postgres;
 pub mod paper_account_opening;
 pub mod recovery_frontier;
+pub mod venue_binding;

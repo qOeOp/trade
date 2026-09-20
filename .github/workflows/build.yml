@@ -406,11 +406,15 @@ jobs:
           workspaces: . -> target/py-stubs
           cache-on-failure: "false"
           cache-workspace-crates: "true"
-          key: >-
-            generated-stubs-dev-py${{ matrix.python-version }}-
-            ${{ hashFiles('.github/workflows/build.yml', 'Cargo.lock',
-            'rust-toolchain.toml', 'Makefile', 'python/generate_stubs.py',
-            'python/pyproject.toml') }}
+          # A literal, for the reason already recorded on `rust tests` below: rust-cache derives
+          # the rest of the key itself, so naming compile inputs here can only lose entries.
+          # This key hashed `build.yml`, `Cargo.lock` and the `Makefile`, three files that change
+          # with almost every CI or dependency edit, and the result is that the entry never came
+          # back. Runs 35413952045 and 35438818832 both logged `No cache found.` here and then
+          # compiled 595 crates into `target/py-stubs` from scratch -- 1460s and 1493s, the
+          # largest single step in the gate. The wheel cache in this same job hashes only
+          # `python/pyproject.toml` and does restore.
+          key: py-stubs
           save-if: ${{ github.event_name == 'push' }}
 
       - name: Check generated file drift
@@ -770,11 +774,28 @@ jobs:
         if: runner.environment == 'github-hosted'
         run: echo "CARGO_BUILD_JOBS=2" >> "$GITHUB_ENV"
 
+      # Entry 28 of the R&D chain drives the Dashboard strategy viewer in a real browser only when
+      # these inputs are present, and reports PASS in a few milliseconds when they are not. Without
+      # this step `build`'s chain job and `owner-chains` were not interchangeable evidence, which is
+      # what AGENTS.md says they are. The Market Data leg has no browser to drive.
+      - name: Install the sealed Dashboard browser acceptance inputs
+        if: matrix.chain.key == 'rd-owner'
+        uses: ./.github/actions/dashboard-browser-acceptance
+        with:
+          acceptance-candidate: ${{ github.sha }}
+
       - name: Report disk space before the chain
         run: bash scripts/ci/report-disk-space.bash "before ${{ matrix.chain.key }}"
 
       - name: Run the isolated PostgreSQL Owner chain
         run: make ${{ matrix.chain.make }}
+
+      - name: Clean Dashboard browser acceptance inputs
+        if: always() && matrix.chain.key == 'rd-owner'
+        run: |
+          find product/dashboard/.next -depth -delete 2>/dev/null || true
+          find product/dashboard/node_modules -depth -delete 2>/dev/null || true
+          find "${RUNNER_TEMP}/dashboard-strategy-viewer-chrome" -depth -delete 2>/dev/null || true
 
       - name: Report disk space after the chain
         if: always()

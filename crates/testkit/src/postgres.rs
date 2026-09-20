@@ -34,7 +34,7 @@ const DEFAULT_DATABASE_NAMES: [&str; 8] = [
     "product_edge",
 ];
 const INSTRUMENT_OWNER_RUNTIME_URL_ENV: &str = "INSTRUMENT_OWNER_DATABASE_URL";
-const CANONICAL_OWNER_TEST_URLS: [(&str, &str); 13] = [
+const CANONICAL_OWNER_TEST_URLS: [(&str, &str); CanonicalOwnerTestRoleV1::COUNT] = [
     (
         "OPERATOR_AUTHORIZATION_TEST_DATABASE_URL",
         "operator_authorization_writer",
@@ -57,6 +57,8 @@ const CANONICAL_OWNER_TEST_URLS: [(&str, &str); 13] = [
     ("EXECUTION_OWNER_TEST_DATABASE_URL", "execution_writer"),
     ("PORTFOLIO_OWNER_TEST_DATABASE_URL", "portfolio_writer"),
     ("GOVERNANCE_OWNER_TEST_DATABASE_URL", "governance_writer"),
+    ("RISK_OWNER_TEST_DATABASE_URL", "risk_writer"),
+    ("SCANNER_OWNER_TEST_DATABASE_URL", "scanner_writer"),
 ];
 
 /// A stable, credential-redacting failure from dedicated test-database admission.
@@ -76,8 +78,17 @@ pub enum DedicatedPostgresTestDatabaseError {
     ExpectedIdentityMismatch,
     /// Cross-owner URLs do not resolve to one physical database.
     CrossOwnerDatabaseMismatch,
-    /// The read-only admission connection failed.
-    ReadOnlyPreflightUnavailable,
+    /// A connection to the dedicated database could not be opened. The payload names
+    /// the role or environment variable whose connection failed, which is usually the
+    /// whole diagnosis: a canonical role that was never granted `CONNECT` on the
+    /// database under test reaches admission as exactly this.
+    ConnectionUnavailable(&'static str),
+    /// The connection opened, but the read-only transaction the preflight runs in
+    /// could not be started, set read-only, or rolled back.
+    ReadOnlyTransactionUnavailable,
+    /// The read-only transaction opened, but the connected identity or its role shape
+    /// could not be read back from the catalogs.
+    IdentityUnreadable,
     /// The marker row could not be read at all: the schema or table is not
     /// granted to the connected role, absent, or otherwise unreadable. This is
     /// distinct from a marker that was read and disagreed.
@@ -114,8 +125,17 @@ impl Display for DedicatedPostgresTestDatabaseError {
             Self::CrossOwnerDatabaseMismatch => {
                 formatter.write_str("cross-owner test URLs do not identify one database")
             }
-            Self::ReadOnlyPreflightUnavailable => {
-                formatter.write_str("dedicated database read-only preflight unavailable")
+            Self::ConnectionUnavailable(name) => {
+                write!(
+                    formatter,
+                    "dedicated database connection unavailable for {name}"
+                )
+            }
+            Self::ReadOnlyTransactionUnavailable => {
+                formatter.write_str("dedicated database read-only transaction unavailable")
+            }
+            Self::IdentityUnreadable => {
+                formatter.write_str("dedicated database connected identity unreadable")
             }
             Self::MarkerUnreadable => {
                 formatter.write_str("dedicated database marker unreadable by the connected role")
@@ -191,6 +211,8 @@ pub enum CanonicalOwnerTestRoleV1 {
     ExecutionWriter,
     PortfolioWriter,
     GovernanceWriter,
+    RiskWriter,
+    ScannerWriter,
 }
 
 impl CanonicalOwnerTestRoleV1 {
@@ -209,14 +231,25 @@ impl CanonicalOwnerTestRoleV1 {
             Self::ExecutionWriter => 10,
             Self::PortfolioWriter => 11,
             Self::GovernanceWriter => 12,
+            Self::RiskWriter => 13,
+            Self::ScannerWriter => 14,
         }
     }
+
+    /// How many canonical roles the disposable topology provisions.
+    ///
+    /// Every fixed-size array below is declared with this rather than a literal. The literal
+    /// appeared in three places, so admitting an Owner meant changing all three, and getting it
+    /// wrong did not say so: the `try_into` in `admit` reports a length mismatch as
+    /// `ExpectedIdentityMismatch`, which names the wrong thing entirely. With one named constant
+    /// the array literal below simply stops compiling until it matches.
+    pub const COUNT: usize = 15;
 }
 
 /// Proof that all canonical Owner roles resolve to one immutable, disposable database.
 pub struct CanonicalOwnerPostgresTestDatabaseV1 {
-    database_urls: [String; 13],
-    pools: [PgPool; 13],
+    database_urls: [String; CanonicalOwnerTestRoleV1::COUNT],
+    pools: [PgPool; CanonicalOwnerTestRoleV1::COUNT],
     marker_identity: String,
     owner_topology_admin_pool: PgPool,
 }
@@ -305,7 +338,7 @@ impl CanonicalOwnerPostgresTestDatabaseV1 {
                 .max_connections(8)
                 .connect(url)
                 .await
-                .map_err(|_| DedicatedPostgresTestDatabaseError::ReadOnlyPreflightUnavailable)?;
+                .map_err(|_| DedicatedPostgresTestDatabaseError::ConnectionUnavailable(role))?;
             verify_marker_read_only(
                 &pool,
                 target,
@@ -370,7 +403,11 @@ async fn admit_owner_topology_admin(
         .max_connections(8)
         .connect(&url)
         .await
-        .map_err(|_| DedicatedPostgresTestDatabaseError::ReadOnlyPreflightUnavailable)?;
+        .map_err(|_| {
+            DedicatedPostgresTestDatabaseError::ConnectionUnavailable(
+                "vibe_test_owner_topology_admin",
+            )
+        })?;
     let role_is_exact: bool = sqlx::query_scalar(
         "SELECT session_user='vibe_test_owner_topology_admin'
            AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole
@@ -387,7 +424,7 @@ async fn admit_owner_topology_admin(
     )
     .fetch_one(&pool)
     .await
-    .map_err(|_| DedicatedPostgresTestDatabaseError::ReadOnlyPreflightUnavailable)?;
+    .map_err(|_| DedicatedPostgresTestDatabaseError::IdentityUnreadable)?;
     if !role_is_exact {
         return Err(DedicatedPostgresTestDatabaseError::ExpectedIdentityMismatch);
     }
@@ -454,7 +491,9 @@ impl DedicatedPostgresTestDatabase {
                 .max_connections(4)
                 .connect(&test_url.value)
                 .await
-                .map_err(|_| DedicatedPostgresTestDatabaseError::ReadOnlyPreflightUnavailable)?;
+                .map_err(|_| {
+                    DedicatedPostgresTestDatabaseError::ConnectionUnavailable(test_url.name)
+                })?;
             verify_marker_read_only(
                 &pool,
                 target,
@@ -745,17 +784,17 @@ async fn verify_marker_read_only(
     let mut transaction = pool
         .begin()
         .await
-        .map_err(|_| DedicatedPostgresTestDatabaseError::ReadOnlyPreflightUnavailable)?;
+        .map_err(|_| DedicatedPostgresTestDatabaseError::ReadOnlyTransactionUnavailable)?;
     sqlx::query("SET TRANSACTION READ ONLY")
         .execute(&mut *transaction)
         .await
-        .map_err(|_| DedicatedPostgresTestDatabaseError::ReadOnlyPreflightUnavailable)?;
+        .map_err(|_| DedicatedPostgresTestDatabaseError::ReadOnlyTransactionUnavailable)?;
     let identity = sqlx::query_as::<_, (String, String)>(
         "SELECT current_database()::text, current_user::text",
     )
     .fetch_one(&mut *transaction)
     .await
-    .map_err(|_| DedicatedPostgresTestDatabaseError::ReadOnlyPreflightUnavailable)?;
+    .map_err(|_| DedicatedPostgresTestDatabaseError::IdentityUnreadable)?;
     if identity.0 != target.database || identity.1 != target.role {
         return Err(DedicatedPostgresTestDatabaseError::ExpectedIdentityMismatch);
     }
@@ -768,7 +807,7 @@ async fn verify_marker_read_only(
     transaction
         .rollback()
         .await
-        .map_err(|_| DedicatedPostgresTestDatabaseError::ReadOnlyPreflightUnavailable)?;
+        .map_err(|_| DedicatedPostgresTestDatabaseError::ReadOnlyTransactionUnavailable)?;
     if rows.len() != 1 {
         return Err(DedicatedPostgresTestDatabaseError::MarkerAbsentForRole);
     }
@@ -853,7 +892,48 @@ mod tests {
             CANONICAL_OWNER_TEST_URLS[CanonicalOwnerTestRoleV1::GovernanceWriter.index()],
             ("GOVERNANCE_OWNER_TEST_DATABASE_URL", "governance_writer")
         );
-        assert_eq!(CANONICAL_OWNER_TEST_URLS.len(), 13);
+    }
+
+    /// A failed connection has to name whose connection failed.
+    ///
+    /// The three connection sites are the only ones that can say which role or environment
+    /// variable was being opened, and that name is usually the whole diagnosis: a canonical role
+    /// that was never granted `CONNECT` on the database under test arrives here and nowhere else.
+    /// Before this payload existed, those three sites shared one nameless variant with the
+    /// transaction and identity sites, so admission failed with a word that fit eight call sites.
+    #[rstest]
+    fn a_failed_connection_names_the_role_it_failed_for() {
+        assert_eq!(
+            DedicatedPostgresTestDatabaseError::ConnectionUnavailable("risk_writer").to_string(),
+            "dedicated database connection unavailable for risk_writer"
+        );
+        assert_ne!(
+            DedicatedPostgresTestDatabaseError::ConnectionUnavailable("risk_writer"),
+            DedicatedPostgresTestDatabaseError::ConnectionUnavailable("scanner_writer")
+        );
+
+        for other in [
+            DedicatedPostgresTestDatabaseError::ReadOnlyTransactionUnavailable,
+            DedicatedPostgresTestDatabaseError::IdentityUnreadable,
+        ] {
+            assert_ne!(
+                DedicatedPostgresTestDatabaseError::ConnectionUnavailable("risk_writer")
+                    .to_string(),
+                other.to_string()
+            );
+        }
+    }
+
+    /// The canonical table's size, stated as a literal on purpose.
+    ///
+    /// `CANONICAL_OWNER_TEST_URLS` is declared `[_; CanonicalOwnerTestRoleV1::COUNT]`, so comparing
+    /// its length against `COUNT` would be true however many entries the table has. The literal is
+    /// the only thing here that a new Owner role has to walk past, and every place that provisions
+    /// the role - the two `postgres-init` scripts and the chain script's marker, clone-database
+    /// `GRANT CONNECT`, and custody role list - has to move with it.
+    #[rstest]
+    fn the_canonical_owner_test_table_has_exactly_the_admitted_number_of_roles() {
+        assert_eq!(CANONICAL_OWNER_TEST_URLS.len(), 15);
     }
 
     #[rstest]

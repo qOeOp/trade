@@ -343,6 +343,61 @@ fn exact_scope_and_nested_fact_cut_receipt_readback_equalities_are_enforced() {
 }
 
 #[rstest]
+fn a_perpetual_described_as_the_venue_describes_it_crosses_the_v2_bridge() {
+    // The fixture above builds its perpetual by overriding an equity's class and currencies and
+    // keeping the equity's increments, calendar, session and time zone. So the projection has only
+    // ever been shown a perpetual with a two-decimal tick, a whole-number step and an exchange
+    // session day - none of which a perpetual has. This states the venue's own terms for
+    // `BTCUSDT-PERP.BINANCE`: `PRICE_FILTER.tickSize` 0.10 and `LOT_SIZE.stepSize` 0.001 from
+    // `fapi.binance.com/fapi/v1/exchangeInfo`, on the continuous clock this venue keeps.
+    let mut proposal = crypto_perpetual_proposal("BTCUSDT-PERP.BINANCE");
+    proposal.mappings = vec![InstrumentVenueSourceMapping {
+        venue_identity: "BINANCE".into(),
+        source_identity: "BINANCE_USDM".into(),
+        source_instrument: b"BTCUSDT".to_vec(),
+    }];
+    proposal.base_currency = Some("BTC".into());
+    proposal.price_increment = InstrumentDecimal {
+        mantissa: 1,
+        scale: 1,
+    };
+    proposal.quantity_increment = InstrumentDecimal {
+        mantissa: 1,
+        scale: 3,
+    };
+    proposal.calendar_identity = "CRYPTO-CONTINUOUS-V1".into();
+    proposal.session_identity = "CRYPTO-CONTINUOUS-V1".into();
+    proposal.time_zone_identity = "Etc/UTC".into();
+
+    let readback = readback_for(proposal);
+    let terms = readback
+        .project_validated_v1_crypto_perpetual_structural_public_terms(
+            "BTCUSDT-PERP.BINANCE",
+            "BINANCE",
+            "BINANCE_USDM",
+        )
+        .expect("a perpetual stated in the venue's own terms projects");
+
+    assert_eq!(terms.raw_symbol(), "BTCUSDT");
+    assert_eq!(terms.base_currency(), "BTC");
+    assert_eq!(terms.quote_currency(), "USDT");
+    assert_eq!(terms.settlement_currency(), "USDT");
+    assert_eq!(
+        terms.margin_currency(),
+        Some("USDT"),
+        "a perpetual is margined, and the projection carries which asset margins it"
+    );
+    assert_eq!(terms.price_increment().scale, 1, "a 0.10 tick, not 0.01");
+    assert_eq!(terms.quantity_increment().scale, 3, "a 0.001 step, not 1");
+    assert_eq!(terms.calendar_identity(), "CRYPTO-CONTINUOUS-V1");
+    assert_eq!(
+        terms.time_zone_identity(),
+        "Etc/UTC",
+        "this venue never closes, so it keeps no exchange session day"
+    );
+}
+
+#[rstest]
 fn v1_public_terms_projection_preserve_exact_mapping_terms_and_owner_evidence() {
     let readback = readback_for(crypto_perpetual_proposal("ETHUSDT-PERP.SIM"));
     let terms = readback
