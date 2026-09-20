@@ -403,6 +403,16 @@ closed typed Market Semantics value。Source Binding 仍只把 free-form normali
 不受信 source claim 携带；Source Binding admission、字符串相等，或 PIT/Instrument Master 携带的 digest
 本身都不能认证 typed Market Semantics。
 
+**一条 fact 的粒度是 Source Binding，不是 instrument，也不是 market。**
+`MarketSemanticsFactSubmissionV1` 恰好携带一个 Source Binding locator、一个 PIT snapshot locator 与
+typed value；它不携带 coordinate，而一次提交据以解析的 compatibility scope 是 Owner 从该 binding 推出的。
+因此一个 binding 陈述一个 price adjustment。一个覆盖多个市场、而各市场复权规则不同的供应商，比如一个市场
+发布复权因子、另一个市场因为供应商根本不发布该市场的因子序列而只能是 raw，只有两种陈述方式：按市场各准入
+一个 Source Binding、各带自己的 fact；或者为其中一个市场声明一条它并不持有的复权规则。
+**后者正是 `UNKNOWN` 要消灭的那类不持有的断言，只是从 value 挪到了 binding 上。**
+本文档今天不要求这种拆分，而要求它会约束所有未来的源，所以这里把它记为一条已知限制，
+而不是由任何单个源的准入顺带决定。
+
 **CURRENT：** Market Data 已有一个独立 `MarketSemanticsFactV1` 权威 foundation。其首个固定消费者是 Strategy Input
 Binding Registry；`ReplayMarketFactsV2` 随后把同一个 Owner readback 作为确定性 projection 消费。不受信
 proposal 只能携带 request identity/meaning、stable correlation、声称的 typed value、声称的 predecessor
