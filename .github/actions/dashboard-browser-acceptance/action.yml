@@ -59,7 +59,7 @@ runs:
       env:
         ACCEPTANCE_CANDIDATE: ${{ inputs.acceptance-candidate }}
         BROWSER_EXECUTABLE: ${{ runner.temp }}/dashboard-strategy-viewer-chrome/chrome-linux64/chrome
-      run: |
+      run: |-
         set -euo pipefail
         {
           echo "DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE=1"
