@@ -10381,13 +10381,16 @@ impl PitMarketSnapshotIntakeV1 for MarketDataPitIntakePostgresV1 {
         let locator = (disposition == PitMarketSnapshotDispositionV1::Available)
             .then(|| aggregate.receipt().locator().clone());
         Ok(PitMarketSnapshotTerminalV1::seal(
-            fact.request_identity(),
-            fact.request_digest(),
-            correlation_identity,
-            fact.snapshot_identity(),
-            fact.digest(),
-            disposition,
-            locator,
+            super::pit_market_snapshot_intake_v1::PitMarketSnapshotTerminalFieldsV1 {
+                request_identity: fact.request_identity(),
+                request_digest: fact.request_digest(),
+                correlation_identity,
+                snapshot_identity: fact.snapshot_identity(),
+                fact_digest: fact.digest(),
+                disposition,
+                locator,
+                instrument_master_digest: fact.request().instrument_master_digest,
+            },
         ))
     }
 }

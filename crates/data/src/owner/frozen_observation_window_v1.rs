@@ -546,13 +546,17 @@ mod tests {
 
             if index < self.answers {
                 Ok(PitMarketSnapshotTerminalV1::seal(
-                    BindingDigest::from_untrusted_bytes([1; 32]),
-                    BindingDigest::from_untrusted_bytes([2; 32]),
-                    BindingDigest::from_untrusted_bytes([3; 32]),
-                    BindingDigest::from_untrusted_bytes([4; 32]),
-                    BindingDigest::from_untrusted_bytes([5; 32]),
-                    super::super::pit_market_snapshot_intake_v1::PitMarketSnapshotDispositionV1::Available,
-                    None,
+                    super::super::pit_market_snapshot_intake_v1::PitMarketSnapshotTerminalFieldsV1 {
+                        request_identity: BindingDigest::from_untrusted_bytes([1; 32]),
+                        request_digest: BindingDigest::from_untrusted_bytes([2; 32]),
+                        correlation_identity: BindingDigest::from_untrusted_bytes([3; 32]),
+                        snapshot_identity: BindingDigest::from_untrusted_bytes([4; 32]),
+                        fact_digest: BindingDigest::from_untrusted_bytes([5; 32]),
+                        disposition:
+                            super::super::pit_market_snapshot_intake_v1::PitMarketSnapshotDispositionV1::Available,
+                        locator: None,
+                        instrument_master_digest: BindingDigest::from_untrusted_bytes([6; 32]),
+                    },
                 ))
             } else {
                 Err(PitMarketSnapshotIntakeErrorV1::StoreUnavailable)
