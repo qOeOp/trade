@@ -291,13 +291,24 @@ That prohibition is about inference, not about projection, and the two are separ
 Research Intent already states. A Research Intent carries `data.channels`, and each channel already
 declares its `role`, its `asset_id`, its `timeframe`, whether it is `required`, and its source and
 staleness bound; `data.decision_clock_channel` names which of them advances the decision. Reading
-those out is not a judgement, because nothing is chosen: the instrument and the timeframe of every
-input role are the instrument and the timeframe the Intent named, and an Intent that names none has
-no input roles to project rather than roles this Owner must invent. **The Owner may therefore
-project declared channels into the Design's input roles, one role per declared channel, and must
-still refuse to infer a role the Intent did not declare.** A channel the projection cannot bind to a
-Market Semantics coordinate is a refusal, never a dropped role, and never a role the Owner supplies
-from its own knowledge of the instrument.
+those out is not a judgement, because nothing is chosen, and the Intent carries no raw material a
+judgement could be made from: across the four `representative_intent_v*.jcs` assets the channel key
+set is exactly `asset_id`, `id`, `max_staleness_ns`, `owner_key`, `required`, `role`, `source` and
+`timeframe`, and `reaction`, `graph`, `threshold`, `rule`, `signal`, `condition`, `operator` and
+`compare` occur zero times in any of them.
+
+**The Owner may therefore project declared channels into the Design's input roles, one role per
+declared channel.** The projection is partial and its boundary is exact. Three `InputRoleV2` fields
+come from the channel and no other source: `instrument` from `asset_id`, `timeframe` from
+`timeframe`, and `channel` from `id`. `semantic_id`, `field_semantic_id`, `fact_class`, `unit`,
+`scale` and `value_type` are **not** in the Intent - a channel's `role` is proposer prose such as
+`broad_usd_proxy_not_ice_dxy`, not a catalog semantic ID - so they stay a proposer declaration the
+Owner admits, and an Intent whose channels cannot be matched to declared ones is refused rather than
+completed from the Owner's own knowledge of the instrument. `max_staleness_ns` and `owner_key` have
+no `InputRoleV2` field at all; they belong to binding custody and are not projected into the Design.
+
+A channel the projection cannot bind to a Market Semantics coordinate is a refusal, never a dropped
+role, and never a role the Owner supplies for itself.
 
 The reaction graph is the part that stays a judgement, and it stays with the proposer. A first
 bounded family is admitted for it and nothing wider: **a single declared channel compared against a
