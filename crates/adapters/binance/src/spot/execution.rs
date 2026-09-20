@@ -3177,8 +3177,7 @@ mod tests {
     #[tokio::test]
     async fn test_ws_setup_wait_reports_a_closed_channel_as_the_end_of_the_step() {
         let notify = std::sync::Arc::new(tokio::sync::Notify::new());
-        let (setup_error_tx, mut setup_error_rx) =
-            tokio::sync::mpsc::unbounded_channel::<String>();
+        let (setup_error_tx, mut setup_error_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
         drop(setup_error_tx);
 
         let started = std::time::Instant::now();
@@ -3207,8 +3206,7 @@ mod tests {
     #[tokio::test]
     async fn test_ws_setup_wait_takes_a_success_that_arrives_first() {
         let notify = std::sync::Arc::new(tokio::sync::Notify::new());
-        let (setup_error_tx, mut setup_error_rx) =
-            tokio::sync::mpsc::unbounded_channel::<String>();
+        let (setup_error_tx, mut setup_error_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
 
         let signal = notify.clone();
         tokio::spawn(async move {
@@ -3233,8 +3231,7 @@ mod tests {
     #[tokio::test]
     async fn test_ws_setup_wait_times_out_while_the_channel_is_still_open() {
         let notify = std::sync::Arc::new(tokio::sync::Notify::new());
-        let (setup_error_tx, mut setup_error_rx) =
-            tokio::sync::mpsc::unbounded_channel::<String>();
+        let (setup_error_tx, mut setup_error_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
 
         let error = wait_for_ws_setup_response(
             Duration::from_millis(50),
