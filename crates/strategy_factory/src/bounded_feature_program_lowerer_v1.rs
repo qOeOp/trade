@@ -153,7 +153,7 @@ const GUEST_KERNEL_SOURCES: [(&str, &[u8]); 8] = [
 
 // This is the exact source list committed by `PrimitiveCatalogV1`. It is hashed for the complete
 // catalog/source binding only. The legacy `lib.rs` is never copied into the guest source set.
-const COMPLETE_KERNEL_SOURCES: [(&str, &[u8]); 21] = [
+const COMPLETE_KERNEL_SOURCES: [(&str, &[u8]); 24] = [
     (
         "Cargo.toml",
         include_bytes!("../../indicators/kernel/Cargo.toml"),
@@ -169,6 +169,10 @@ const COMPLETE_KERNEL_SOURCES: [(&str, &[u8]); 21] = [
     (
         "catalog_rows_v2.rs",
         include_bytes!("../../indicators/kernel/src/catalog_rows_v2.rs"),
+    ),
+    (
+        "catalog_rows_v3.rs",
+        include_bytes!("../../indicators/kernel/src/catalog_rows_v3.rs"),
     ),
     (
         "catalog_version.rs",
@@ -211,6 +215,10 @@ const COMPLETE_KERNEL_SOURCES: [(&str, &[u8]); 21] = [
         include_bytes!("../../indicators/kernel/src/golden_corpus_v2.rs"),
     ),
     (
+        "golden_corpus_v3.rs",
+        include_bytes!("../../indicators/kernel/src/golden_corpus_v3.rs"),
+    ),
+    (
         "golden_execution.rs",
         include_bytes!("../../indicators/kernel/src/golden_execution.rs"),
     ),
@@ -237,6 +245,10 @@ const COMPLETE_KERNEL_SOURCES: [(&str, &[u8]); 21] = [
     (
         "required_golden_ids_v2.rs",
         include_bytes!("../../indicators/kernel/src/required_golden_ids_v2.rs"),
+    ),
+    (
+        "required_golden_ids_v3.rs",
+        include_bytes!("../../indicators/kernel/src/required_golden_ids_v3.rs"),
     ),
 ];
 
@@ -508,6 +520,7 @@ fn lowered_symbol(operation: PrimitiveOperationV1) -> &'static str {
         PrimitiveOperationV1::Mul => "FixedI128::checked_mul",
         PrimitiveOperationV1::Div => "FixedI128::checked_div",
         PrimitiveOperationV1::Rescale => "FixedI128::rescale",
+        PrimitiveOperationV1::Sqrt => "FixedI128::checked_sqrt",
         PrimitiveOperationV1::Compare => "FixedI128::checked_compare",
         PrimitiveOperationV1::Select => "FixedI128::checked_select",
         PrimitiveOperationV1::Body => "FixedOhlc::body",
@@ -1389,6 +1402,17 @@ fn emit_stateless_expression(
             rounding_expr(*rounding)
         ),
         (
+            BoundedFeatureParametersV1::OutputScale {
+                output_scale,
+                rounding,
+            },
+            PrimitiveOperationV1::Sqrt,
+        ) => format!(
+            "Datum::fixed(numeric({}.checked_sqrt(numeric(DecimalScale::new({output_scale}))?, Some({})))?)",
+            fixed("value")?,
+            rounding_expr(*rounding)
+        ),
+        (
             BoundedFeatureParametersV1::ComparisonPredicate { predicate },
             PrimitiveOperationV1::Compare,
         ) => format!(
@@ -2215,6 +2239,14 @@ mod tests {
     fn every_operation_has_concrete_generated_execution_source() {
         use PrimitiveOperationV1 as Op;
 
+        /// Operations this fixture cannot build a node for, each with the reason it cannot.
+        ///
+        /// `FusedRational` declares its arithmetic as two postfix programs rather than as typed
+        /// parameters, and the fixture's parameter builder says so with `unimplemented!`. It is
+        /// listed rather than skipped because a name in this list is a gap someone can find; an
+        /// operation merely absent from the tables below is a gap nobody can.
+        const WITHOUT_A_FIXTURE: [Op; 1] = [Op::FusedRational];
+
         let stateless = [
             (
                 Op::Add,
@@ -2252,6 +2284,13 @@ mod tests {
                 },
             ),
             (
+                Op::Sqrt,
+                BoundedFeatureParametersV1::OutputScale {
+                    output_scale: 2,
+                    rounding: BoundedFeatureRoundingV1::TowardZero,
+                },
+            ),
+            (
                 Op::Compare,
                 BoundedFeatureParametersV1::ComparisonPredicate {
                     predicate: BoundedFeaturePredicateV1::Equal,
@@ -2272,6 +2311,9 @@ mod tests {
                 },
             ),
         ];
+        let stateless_operations: Vec<Op> =
+            stateless.iter().map(|(operation, _)| *operation).collect();
+
         for (operation, parameters) in stateless {
             let node = crate::bounded_feature_program_v1::BoundedFeatureNodeV1 {
                 node_id: "probe".into(),
@@ -2375,6 +2417,29 @@ mod tests {
                 },
             ),
         ];
+        // The two tables are hand-written, so on their own they prove only that the operations
+        // somebody remembered produce source. Comparing them against the catalog is what makes
+        // this test's name true: a new row nobody adds here fails now, rather than shipping with
+        // no coverage of its generated execution source at all.
+        let catalog = PrimitiveCatalogV1::verify().expect("fixed catalog verifies");
+
+        for row in catalog.rows() {
+            let Some(operation) = row.operation else {
+                continue;
+            };
+            let covered = stateless_operations.contains(&operation)
+                || stateful
+                    .iter()
+                    .any(|(candidate, _)| *candidate == operation)
+                || WITHOUT_A_FIXTURE.contains(&operation);
+
+            assert!(
+                covered,
+                "{operation:?} is a catalog operation with no generated-execution-source coverage; \
+                 add it to one of the tables above, or to WITHOUT_A_FIXTURE with the reason"
+            );
+        }
+
         for (operation, parameters) in stateful {
             let (constructor, restore, encode) =
                 state_constructor(operation, &parameters, 2, 2).unwrap();
@@ -2423,7 +2488,7 @@ mod tests {
         match operation {
             // No published catalog version offers it, so this fixture cannot build a node for it.
             Op::FusedRational => unimplemented!("fused rational has no declarable parameters yet"),
-            Op::Add | Op::Sub | Op::Mul | Op::Div | Op::Rescale => {
+            Op::Add | Op::Sub | Op::Mul | Op::Div | Op::Rescale | Op::Sqrt => {
                 BoundedFeatureParametersV1::OutputScale {
                     output_scale: 2,
                     rounding: BoundedFeatureRoundingV1::TowardZero,
@@ -2515,6 +2580,7 @@ mod tests {
             ],
             Op::Fraction => vec![("high", input()), ("low", input())],
             Op::Rescale
+            | Op::Sqrt
             | Op::Ema
             | Op::Wilder
             | Op::Rsi

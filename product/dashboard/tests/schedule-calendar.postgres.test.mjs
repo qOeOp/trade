@@ -10,6 +10,7 @@ import test from "node:test";
 import pg from "pg";
 import { PostgresRunStoreV1 } from "../lib/run-store.ts";
 import { configuredShadowScheduleSetV1 } from "../lib/shadow-scheduler.ts";
+import { startProductionPreview } from "./browser-acceptance.mjs";
 import { parseScheduleEnvelopeV1 } from "../lib/schedule-projection.ts";
 import { scheduleCalendarGroupsV1 } from "../lib/schedule-calendar.ts";
 import { compatibleEnvironmentV1 } from "./compatibility-fixture.mjs";
@@ -197,6 +198,8 @@ async function waitForBrowserExpression(browser, expression, timeoutMs = 15_000)
       reasons: [...document.querySelectorAll('details code, .unavailable-state code')]
         .map((code) => code.textContent),
       faults: globalThis.__calendarFaults?.slice(-8) ?? null,
+      dialogHistory: globalThis.__dialogHistory?.slice(-10) ?? null,
+      dialogClosers: globalThis.__dialogClosers?.slice(-6) ?? null,
       body: document.body?.innerText.slice(0, 1_500) ?? '',
     }))()`,
     returnByValue: true,
@@ -240,6 +243,13 @@ async function pressEnterAndWaitFor(browser, expression, attempts = 3) {
       }
       return true;
     })()`);
+    // Mark the node before pressing it. If the tree remounts between the activation and the check,
+    // React builds a new element and the mark is gone with it - which is the difference between a
+    // handler that never ran and one whose effect was discarded by a remount.
+    await readBrowserValue(browser, `(() => {
+      document.activeElement?.setAttribute?.("data-acceptance-mark", "pressed");
+      return true;
+    })()`);
     await dispatchBrowserKey(browser, "Enter");
     arrivedAt = await readBrowserValue(browser, "globalThis.__enterArrivedAt ?? null");
     activatedAt = await readBrowserValue(browser, "globalThis.__enterActivated ?? null");
@@ -267,8 +277,10 @@ async function pressEnterAndWaitFor(browser, expression, attempts = 3) {
     })()`).catch(() => null);
     await delay(500);
     const openedByClick = await readBrowserValue(browser, expression).catch(() => null);
+    const pressedNodeSurvived = await readBrowserValue(browser,
+      `Boolean(document.querySelector('[data-acceptance-mark="pressed"]'))`).catch(() => null);
     throw new Error(`${timedOut.message}; enter probe: ${
-      JSON.stringify({ ...probe, arrivedAt, activatedAt, openedByClick })}`);
+      JSON.stringify({ ...probe, arrivedAt, activatedAt, pressedNodeSurvived, openedByClick })}`);
   });
 }
 
@@ -379,13 +391,20 @@ test(testName, { skip: !url }, async () => {
         cwd: dashboardRoot, encoding: "utf8",
       }), "");
       const port = 3219;
-      preview = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "-H", "127.0.0.1", "-p", String(port)], {
-        cwd: dashboardRoot, env: {
-          ...process.env,
+      // The production bundle, as the other three RunStore acceptances already use. This suite ran
+      // the dev compiler, which is a different program: development enables React strict mode, whose
+      // double-invoked mount effect reads the Owner twice, and this calendar is keyed on the read
+      // envelope - so development carries a remount source that a deployed image does not have. An
+      // acceptance for a deployed route has to exercise the runtime that gets deployed.
+      preview = await startProductionPreview({
+        dashboardRoot,
+        port,
+        label: "calendar preview",
+        env: {
           ...environment,
           DASHBOARD_LOCAL_OPERATOR_LOGIN_TOKEN: calendarLogin,
           DASHBOARD_SESSION_HMAC_KEY: calendarSessionHmac,
-        }, stdio: "inherit",
+        },
       });
       const origin = `http://127.0.0.1:${port}`;
       const currentSchedulesUrl = `${origin}/operations/schedules/?view=current`;
@@ -452,6 +471,45 @@ test(testName, { skip: !url }, async () => {
             faults.push("error: " + (event.message ?? event.error) + at(event)));
           addEventListener("unhandledrejection", (event) =>
             faults.push("rejection: " + event.reason));
+          // A dialog that never opened and one that opened and was closed again both read as zero
+          // at the moment a wait gives up. Record the transitions instead of the end state.
+          const dialogHistory = [];
+          globalThis.__dialogHistory = dialogHistory;
+          const watch = () => new MutationObserver((records) => {
+            for (const record of records) {
+              const node = record.target;
+              if (node.tagName !== "DIALOG") continue;
+              dialogHistory.push({
+                atMs: Math.round(performance.now()),
+                open: node.open,
+                label: node.getAttribute("aria-label"),
+              });
+            }
+          }).observe(document.documentElement, {
+            attributes: true, attributeFilter: ["open"], subtree: true,
+          });
+          if (document.documentElement) watch();
+          else addEventListener("DOMContentLoaded", watch);
+          // Knowing it closed does not say who closed it, and there are only three ways: the two
+          // close() call sites in the dialog component, and Escape, which does not go through
+          // close() at all. Name the caller rather than leaving a transition unattributed.
+          const closers = [];
+          globalThis.__dialogClosers = closers;
+          const nativeClose = HTMLDialogElement.prototype.close;
+          HTMLDialogElement.prototype.close = function recordedClose(...args) {
+            closers.push({
+              atMs: Math.round(performance.now()),
+              label: this.getAttribute("aria-label"),
+              by: String(new Error().stack || "").split(String.fromCharCode(10)).slice(1, 4)
+                .map((line) => line.trim()).join(" | ").slice(0, 240),
+            });
+            return nativeClose.apply(this, args);
+          };
+          addEventListener("cancel", (event) => closers.push({
+            atMs: Math.round(performance.now()),
+            label: event.target?.getAttribute?.("aria-label") ?? null,
+            by: "escape",
+          }), true);
           const forward = console.error.bind(console);
           console.error = (...args) => {
             faults.push("console: " + args.map((arg) => String(arg?.message ?? arg)).join(" "));
@@ -993,8 +1051,11 @@ test(testName, { skip: !url }, async () => {
       await stopPreview(preview);
     } else if (process.env.DASHBOARD_CALENDAR_PREVIEW === "1") {
       // Inspect the real GET/browser boundary even when the consumer assertion below fails.
-      preview = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "-H", "127.0.0.1", "-p", "3219"], {
-        cwd: dashboardRoot, env: { ...process.env, ...environment }, stdio: "inherit",
+      preview = await startProductionPreview({
+        dashboardRoot,
+        port: 3219,
+        label: "calendar preview",
+        env: environment,
       });
       process.stdout.write("Disposable calendar preview: http://127.0.0.1:3219/operations/schedules/\n");
       await once(preview, "exit");

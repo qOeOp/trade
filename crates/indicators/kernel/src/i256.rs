@@ -149,6 +149,42 @@ impl U256 {
         if borrow { None } else { Some(result) }
     }
 
+    /// Exact integer square root: the largest `root` with `root*root <= self`, and its remainder.
+    ///
+    /// Digit-by-digit over bit pairs, so it uses only shifts, comparisons and subtraction and is
+    /// exact at every step. The remainder is what tells a caller whether the root is exact, which
+    /// is the only thing rounding a square root needs: `sqrt(n)` for integer `n` is never exactly
+    /// a half, so nearest-ties-to-even has no tie to break and differs from toward-zero only by
+    /// rounding a non-zero remainder up.
+    pub(crate) fn isqrt_rem(self) -> (Self, Self) {
+        let mut root = Self::ZERO;
+        let mut remainder = Self::ZERO;
+
+        for pair in (0..128).rev() {
+            remainder = remainder.shl_one().shl_one();
+            if self.bit(pair * 2 + 1) {
+                remainder.0[0] |= 2;
+            }
+
+            if self.bit(pair * 2) {
+                remainder.0[0] |= 1;
+            }
+
+            let mut trial = root.shl_one();
+            trial.0[0] |= 1;
+
+            if let Some(next) = remainder.checked_sub(trial) {
+                remainder = next;
+                root = root.shl_one();
+                root.0[0] |= 1;
+            } else {
+                root = root.shl_one();
+            }
+        }
+
+        (root, remainder)
+    }
+
     pub(crate) fn div_rem(self, divisor: Self) -> (Self, Self) {
         debug_assert!(!divisor.is_zero());
         let mut quotient = Self::ZERO;

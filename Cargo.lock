@@ -11227,6 +11227,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "vibe-risk-owner"
+version = "0.62.0"
+dependencies = [
+ "rstest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "tokio",
+ "vibe-execution-owner",
+ "vibe-portfolio-owner",
+ "vibe-testkit",
+]
+
+[[package]]
 name = "vibe-runtime"
 version = "0.62.0"
 dependencies = [

@@ -480,6 +480,50 @@ custody, deployed Dashboard or product readiness, kernel network confinement, Ba
 Live, production/runtime deployment, provider integration, trading authority, or evidence for arbitrary complex
 strategies. Unpinned hosts remain fail-closed and never substitute a generic toolchain.
 
+### Strategy authoring surface
+
+**TARGET / NOT_ADMITTED - authored strategy shape:** a Bounded Feature Program is written today as a
+node graph. The two programs that exist were produced by hand-written generators, and what those
+generators did is the evidence for what this layer has to be, in place of a designed-from-scratch
+abstraction.
+
+Only two of their abstractions are strategy concepts rather than graph plumbing: `all_of` over a list
+of conditions, which lowers to a nested `Select` chain of `k+1` nodes, and `banded` over a measure and
+an ordered list of threshold-weight pairs, which lowers to nested `Select`. The first was abstracted
+in one generator and hand-expanded again in the second, which is the strongest available evidence that
+it is a real primitive: it was needed twice and rewritten the second time. Both are pure composition
+over the frozen primitive catalog, so a new strategy primitive costs nothing at the catalog level.
+**A third program, deliberately chosen to share no shape with the first two, produced four primitives
+neither of them had, and one of them - `not` - had appeared in all three and been hand-written in all
+three. What is missing is therefore not sample size but a step that lifts what recurs, so this layer
+is specified as open at that point rather than as complete.**
+
+Five of the seven consistency points those generators maintained by hand are derivation rather than
+decision: total state bytes, written in three places and summed from a hand-counted cell count; the
+per-cell byte formula; the eight `bounds` integers, filled with numbers chosen to be large enough; unit
+and scale along the DAG; and constants that exist only to give a port a value of its own unit and scale.
+**A compiler computes each of these from the graph, and none of them is a choice an author makes.**
+
+The part with no abstraction at all is exactly the declaration surface. Port identities derive from role
+identity, and the second generator resolved that by reading a role-to-digest table produced by a separate
+run. **That is the same split the validator reports: of ten rejections taking the first real strategy
+through it, eight were the declaration surface and the graph not having been changed together, and two
+were expressive bounds.** One artifact generating both sides is what makes that class unrepresentable.
+
+This layer is a compiler and not a runtime. It emits the `StrategyDesignV2` and
+`BoundedFeatureProgramProposalV1` pair that `declare` already accepts, and the authored document is
+evaluated only in generating that pair. A unit is a syntactic product rather than an algebra - a
+quotient of two prices carries the unit `PRICE/PRICE` and not a dimensionless one - so a relative
+threshold either has its unit normalised by this layer or leaks that spelling into what an author
+writes. **Derivation never replaces validation: a derived field is
+checked afterwards by the same contract that checks a hand-written one, so a wrong derivation fails
+closed rather than admitting a program the validator would have refused.**
+
+**IMPLEMENTATION_ADMITTED - derivation of what the graph already determines:** one bounded slice,
+computing total and per-cell state bytes, the `bounds` integers, and unit and scale along the DAG from
+the graph, for a proposal that leaves them unstated. It introduces no authoring syntax, no new
+primitive, and no execution path, and the existing validator runs unchanged over its output.
+
 ## Lineage and protected-feedback admission
 
 The user or App supplies only an untrusted independence rationale. R&D derives and persists the disposition,

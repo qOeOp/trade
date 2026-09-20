@@ -163,6 +163,8 @@ pub enum NumericFailure {
     RoundingRequired,
     I256Overflow,
     FinalI128Overflow,
+    /// A square root was asked for a negative radicand.
+    NegativeRadicand,
 }
 
 impl NumericFailure {
@@ -179,6 +181,7 @@ impl NumericFailure {
             Self::RoundingRequired => 4,
             Self::I256Overflow => 5,
             Self::FinalI128Overflow => 6,
+            Self::NegativeRadicand => 7,
         }
     }
 
@@ -198,6 +201,7 @@ impl NumericFailure {
             3 => Ok(Self::DivideByZero),
             4 => Ok(Self::RoundingRequired),
             5 => Ok(Self::I256Overflow),
+            7 => Ok(Self::NegativeRadicand),
             6 => Ok(Self::FinalI128Overflow),
             _ => Err(CanonicalDecodeError::UnknownTag),
         }
@@ -357,6 +361,58 @@ impl FixedI128 {
             exponent,
         )?;
         finish(numerator, denominator, output_scale, rounding)
+    }
+
+    /// Square root at a declared output scale, with exactly one rounding.
+    ///
+    /// `sqrt(a) = sqrt(a.coefficient * 10^(2*output_scale - a.scale)) * 10^-output_scale`, so the
+    /// whole computation is one exact integer square root in I256 coefficient space. The doubled
+    /// output scale must reach the input scale; a narrower output is a separate rescale rather than
+    /// a second rounding hidden inside this one.
+    ///
+    /// A square root of an integer is never exactly a half, so nearest-ties-to-even has no tie to
+    /// break: the two modes differ only in whether a non-zero remainder carries.
+    pub fn checked_sqrt(
+        self,
+        output_scale: DecimalScale,
+        rounding: Option<RoundingMode>,
+    ) -> Result<Self, NumericFailure> {
+        if self.coefficient < 0 {
+            return Err(NumericFailure::NegativeRadicand);
+        }
+        let exponent = i16::from(output_scale.get())
+            .checked_mul(2)
+            .ok_or(NumericFailure::InvalidScale)?
+            .checked_sub(i16::from(self.scale.get()))
+            .ok_or(NumericFailure::InvalidScale)?;
+
+        if exponent < 0 {
+            return Err(NumericFailure::InvalidScale);
+        }
+        let (radicand, _) = apply_decimal_exponent(to_i256(self.coefficient), I256::ONE, exponent)?;
+        let (_, magnitude) = radicand.into_sign_and_abs();
+        let (root, remainder) = magnitude.isqrt_rem();
+        let exact = remainder.is_zero();
+        let carry = match rounding {
+            _ if exact => false,
+            Some(RoundingMode::TowardZero) => false,
+            Some(RoundingMode::NearestTiesToEven) => remainder > root,
+            None => return Err(NumericFailure::RoundingRequired),
+        };
+        let mut coefficient = I256::checked_from_sign_and_abs(Sign::Positive, root)
+            .ok_or(NumericFailure::I256Overflow)?;
+
+        if carry {
+            coefficient = coefficient
+                .checked_add(I256::ONE)
+                .ok_or(NumericFailure::I256Overflow)?;
+        }
+        Self::new(
+            coefficient
+                .to_i128()
+                .ok_or(NumericFailure::FinalI128Overflow)?,
+            output_scale.get(),
+        )
     }
 
     /// Explicitly changes scale and rounds once when digits are discarded.

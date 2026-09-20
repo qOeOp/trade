@@ -3234,6 +3234,20 @@
         "noAuthorityBasis": "The custody carries no account projection capital allocation Risk commitment or remaining headroom and cannot mint a BOUND scope outside its own complete-registry resolution"
       },
       {
+        "inventoryId": "risk-owner",
+        "memberPaths": [
+          "crates/risk_owner"
+        ],
+        "disposition": "OWNER_NATIVE_IMPLEMENTATION",
+        "destinationIds": [
+          "risk"
+        ],
+        "capabilityPortIds": [],
+        "providerMemberPortEvidence": [],
+        "adoptionRule": "Adopt the Risk-owned capacity input read port that rereads Portfolio's BOUND Capacity Scope and current Capacity View through that Owner's own API and seals them with the evidence cut as the native Risk Owner implementation while keeping the engine behind that Owner",
+        "noAuthorityBasis": "The read port makes no Risk Decision commits no Reservation writes no Recovery Fence and consumes no Trade Intent and cannot seal a capacity observation Portfolio does not currently publish"
+      },
+      {
         "inventoryId": "runtime-composition",
         "memberPaths": [
           "crates/system",

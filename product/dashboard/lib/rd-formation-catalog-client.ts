@@ -1,5 +1,6 @@
 import {
   operationByIdV1,
+  ownerReadTimeoutMsV1,
   ownerOperationUrlV1,
   RD_FORMATION_CATALOG_SHADOW_READ_OPERATION,
 } from "./operation-registry.ts";
@@ -403,16 +404,29 @@ export async function resolveRdFormationCatalogShadowV1({
     identities: {},
   }) : null;
   if (!endpoint || !token) return unavailable("OWNER_CONFIGURATION_UNAVAILABLE", 503, now());
+  const budgetMs = ownerReadTimeoutMsV1(operation);
+  if (budgetMs !== operation.timeout_class.milliseconds) {
+    // Never let a relaxed budget pass for the declared one: a run that did not exercise the promise
+    // has to say so, or its green reads as though it had.
+    console.error(`rd formation catalog: reading with an overridden ${budgetMs}ms budget, not the declared ${
+      operation.timeout_class.milliseconds}ms`);
+  }
   const requestStartedAtEpochMs = now();
   try {
     const response = await fetcher(endpoint, {
       method: "GET",
       headers: { authorization: `Bearer ${token}` },
       cache: "no-store",
-      signal: AbortSignal.timeout(operation.timeout_class.milliseconds),
+      signal: AbortSignal.timeout(budgetMs),
     });
     const body = await response.text();
     const responseObservedAtEpochMs = now();
+    // The elapsed time was only ever reported when the read failed, so relaxing the budget would
+    // have removed the sole measurement of it and left a green run looking like a confirmation.
+    // Report it when the read succeeds too, which is also what distinguishes a starved client from
+    // an Owner genuinely near the limit.
+    console.error(`rd formation catalog: Owner answered ${response.status} in ${
+      responseObservedAtEpochMs - requestStartedAtEpochMs}ms of a ${budgetMs}ms budget`);
     if (new TextEncoder().encode(body).byteLength > MAX_OWNER_RESPONSE_BYTES) {
       return unavailable("OWNER_RESPONSE_UNAVAILABLE", 502, responseObservedAtEpochMs);
     }
@@ -433,7 +447,7 @@ export async function resolveRdFormationCatalogShadowV1({
     const projection = parseRdFormationCatalogOwnerV1(raw, {
       requestStartedAtEpochMs: Math.max(
         0,
-        requestStartedAtEpochMs - operation.timeout_class.milliseconds,
+        requestStartedAtEpochMs - budgetMs,
       ),
       responseObservedAtEpochMs,
     });
@@ -458,7 +472,7 @@ export async function resolveRdFormationCatalogShadowV1({
     const elapsed = now() - requestStartedAtEpochMs;
     console.error(`rd formation catalog: ${
       error instanceof Error ? `${error.name}: ${error.message}` : String(error)
-    } after ${elapsed}ms of a ${operation.timeout_class.milliseconds}ms budget`);
+    } after ${elapsed}ms of a ${budgetMs}ms budget`);
     return unavailable("OWNER_TRANSPORT_UNAVAILABLE", 503, now());
   }
 }
