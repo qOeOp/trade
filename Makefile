@@ -799,6 +799,12 @@ cargo-test-market-data-owner-postgres-isolated: check-nextest-installed  #-- Run
 	CARGO_CI_PROFILE="$(CARGO_CI_PROFILE)" \
 	bash crates/data/tests/run_market_data_owner_postgres.bash
 
+.PHONY: cargo-test-market-data-end-to-end
+cargo-test-market-data-end-to-end: check-nextest-installed  #-- Run the credential-free Market Data end-to-end proof
+	NEXTEST_PROFILE="$(NEXTEST_PROFILE)" \
+	CARGO_CI_PROFILE="$(CARGO_CI_PROFILE)" \
+	bash crates/adapters/binance/tests/run_market_data_end_to_end.bash
+
 .PHONY: cargo-test-toolchain-proofs
 cargo-test-toolchain-proofs:  #-- Run the Owner proofs that need a real tool and no database
 	NEXTEST_PROFILE="$(NEXTEST_PROFILE)" \
