@@ -65,10 +65,25 @@ const RECEIPT_DOMAIN: &[u8] = b"VIBE_SCANNER_TERMINAL_RECEIPT_V1";
 const ATTEMPT_DOMAIN: &[u8] = b"VIBE_SCANNER_ATTEMPT_IDENTITY_V1";
 const VERSION: u16 = 1;
 
+/// The canonical custody version this build reconstructs.
+///
+/// A store adapter needs it to say what it supports when it refuses bytes written by a newer
+/// build: [`TerminalReceiptDecodeError::UnsupportedVersion`] names only the version it found, and a
+/// refusal that names one side of a mismatch leaves the reader to guess the other. That refusal is
+/// unreachable while one version exists and becomes reachable during the first rolling upgrade,
+/// where the store is healthy and the process is the stale part.
+pub const SUPPORTED_TERMINAL_RECEIPT_VERSION: u16 = VERSION;
+
 // Raising a bound is compatible; lowering one is a breaking change, and asymmetrically so. Bytes
 // already committed under a wider bound stay in custody, so a narrower reader starts refusing
 // receipts that are intact and were lawfully written - the store has not changed, this build has.
-const MAX_RECEIPT_BYTES: usize = 4 * 1024 * 1024;
+// `the_custody_bound_states_how_many_strategies_one_receipt_holds` turns that into a measurement
+// rather than a request to remember it.
+//
+// `MAX_ENTRIES` is not the operative limit on strategies and should not be read as one: at a
+// measured 3135 bytes for a capacity-bearing disposition, `MAX_RECEIPT_BYTES` stops at roughly
+// 1337 of them, some fifty times sooner. A wider receipt is refused by name rather than truncated.
+pub(crate) const MAX_RECEIPT_BYTES: usize = 4 * 1024 * 1024;
 const MAX_TEXT_BYTES: usize = 16 * 1024;
 const MAX_ENTRIES: u32 = 65_536;
 

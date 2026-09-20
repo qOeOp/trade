@@ -2108,3 +2108,45 @@ fn a_disposition_neither_constructor_can_produce_is_refused_by_the_encoder() {
         "a capacity cut without the market cut it was admitted against describes no admission"
     );
 }
+
+/// Makes the custody bound's capacity a measured number rather than a comment.
+///
+/// Lowering `MAX_RECEIPT_BYTES` is not the inverse of raising it: bytes already committed under a
+/// wider bound stay in custody, so a narrower reader starts refusing receipts that are intact. A
+/// comment asks the next person to remember that; this fails the moment the bound stops holding
+/// the strategy count it is stated to hold.
+#[rstest]
+fn the_custody_bound_states_how_many_strategies_one_receipt_holds() {
+    const SAMPLE: usize = 64;
+    const STATED_STRATEGIES: usize = 1_000;
+
+    let names = (0..SAMPLE)
+        .map(|index| format!("capacity-strategy-{index:04}"))
+        .collect::<Vec<_>>();
+    let evaluations = names
+        .iter()
+        .map(|name| (name.as_str(), Evaluation::NoMatch))
+        .collect::<Vec<_>>();
+    let receipt = terminal_through_product_edge(
+        LoaderResult::Resolved(frontier_with(
+            names.iter().map(|name| binding_with_capacity(name)),
+        )),
+        &evaluations,
+        None,
+    );
+    assert_eq!(receipt.dispositions().len(), SAMPLE);
+    let bytes = encode_terminal_receipt_v1(&receipt).unwrap();
+    let per_strategy = bytes.len() / SAMPLE;
+    let holds = crate::codec::MAX_RECEIPT_BYTES / per_strategy;
+    assert!(
+        holds >= STATED_STRATEGIES,
+        "the custody bound holds {holds} capacity-bearing strategies at {per_strategy} bytes each, \
+         under the {STATED_STRATEGIES} it is stated to carry; a bound that stops holding a lawful \
+         receipt retires receipts that are already committed"
+    );
+    assert_eq!(
+        parse_untrusted_terminal_receipt_v1(&bytes).unwrap(),
+        receipt,
+        "a receipt at this width must still reconstruct"
+    );
+}
