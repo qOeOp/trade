@@ -3,12 +3,12 @@
 Owner: Lane 0 (platform).
 
     state:        open
-    main:         6553c61cd4ac251e25ce2b5c19ff9433df0e96b4
+    main:         b0ca33ba203e661f4e27bffc25ff880ebb208a51
     main_at_open: b0de5ea48acec4652a7e146dde711e56d1b5965d
     last_landed:  686 680 684 688 675 663 676
     landed_by:    various - the window is open, so this is expected
     opened_at:    2026-09-19T07:45Z
-    refreshed_at: 2026-09-20T02:40Z
+    refreshed_at: 2026-09-20T04:20Z
 
 ## The three members and #686 landed without me, and main is healthy
 
@@ -440,3 +440,45 @@ first instalment: of 33 `select!` arms in `crates/**/src/` that bind the whole `
 `recv()`, one collapsed it, twenty have an explicit `None` arm, five use let-else, three are empty,
 and three delegate to a function returning `ControlFlow` (spot-checked: `ControlFlow::Break`).
 Three more sites exist in bybit's tests and are tracked separately; none is on the critical path.
+
+## `build` on main produces nothing while merges are fast, so the pre-merge check is the only gate
+
+Measured 2026-09-20. Eight consecutive runs of `build.yml` on `main` concluded
+`cancelled`, and the one before them was the last to reach a verdict.
+
+    2026-09-19 10:17 / 11:42 / 12:36 / 13:38   success
+    2026-09-19 15:58                           failure   (the binance defect)
+    2026-09-20 03:01 onwards                   cancelled, every one
+
+The concurrency key did not change. `build.yml` groups main runs as `build-main`
+with `cancel-in-progress: true`, which means "always be testing the newest main" -
+correct when a build outruns the merge rate, and silent when it does not:
+
+    merge gaps on main, last eleven   6  2  23  8  31  0  0  1  13  0  2 minutes
+    one full build                    ~60 minutes
+
+So this is a merge-rate observation, not a configuration defect, and it is self
+limiting: stop merging for about an hour and the pending run reaches a verdict.
+
+Do not "fix" it by changing the key. A per-commit key would put roughly twenty
+concurrent main builds of twenty-six jobs each against an account limit of twenty
+jobs, starving every lane. `cancel-in-progress: false` queues them instead, and the
+queue grows without bound at this rate while its answers get older.
+
+### What follows for merging
+
+`cancelled` is not green and not red - it is *not measured*, and in a run list it
+looks almost exactly like *still running*. While main is in this state, nothing
+verifies a tree after it lands, so the pre-merge check is not a formality:
+
+    green base == current main        merge
+    interval is docs-only             merge
+    interval touches a gate file      run that gate on the merge tree
+    otherwise                         compile the merge tree, whole workspace
+
+Three merges today carried that evidence rather than assuming: #702 (512 crates),
+#645 (511), #710 (513, plus the changed gate re-run on the merge tree).
+
+`test-chain/<lane>` is unaffected by any of this - it is a separate workflow with
+its own concurrency, and it remains a first-class acceptance channel under
+AGENTS.md rather than a substitute for one.
