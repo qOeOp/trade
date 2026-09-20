@@ -101,8 +101,13 @@
   把这一点钉成设计意图而非疏漏。因此本切片还包含使"从外部读回"成为可能的那一件事：`crates/scanner` 上一条
   校验式重建入口，它解析规范字节并拒绝重建不出来的东西，形状与本仓库已有的 `parse_untrusted_grant_envelope`
   相同。回执上的 `serde::Deserialize`，以及域核心里的数据库依赖，都被排除在外。
-  这一切片是有界的，因为两端都已经作为 port 存在于 `crates/scanner` 内部，
-  且两个名字在该 crate 之外都没有任何引用，所以它不等待任何尚不存在的缝。
+  这一切片在代码面上是有界的：两端都已经作为 port 存在于 `crates/scanner` 内部，
+  且两个名字在该 crate 之外都没有任何引用。但它今天还建不了，因为平台面是空的：
+  本 Owner 在两条供给路径上都没有数据库角色、没有 schema，`CanonicalOwnerTestRoleV1`
+  也没有 Scanner 变体，所以写不出任何链路条目，而链路条目正是本准入的验收。
+  因此建那个存储要等 `scanner_owner` 与它的 schema 同时存在于 `postgres-init` 那条路径
+  与 `scripts/ci/test-rd-owner-postgres.bash` 那条路径，并等 testkit 的角色表与 URL 表带上它。
+  那条重建入口不等待上述任何一样。
   **NOT_ADMITTED：** 调度器触发、sealed 来源 Owner 准入的生产构造器、任何 `StrategyLoader` `MarketSnapshot`
   或 Capacity View 实现、到 Governance 的回执交接、终态回执以外的任何 Scanner 事实，以及一切生产效应
   部署切换与真实交易。

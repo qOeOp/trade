@@ -131,8 +131,13 @@ admitted.
   outside: a validating reconstruction entry on `crates/scanner`, which parses canonical bytes and refuses what
   does not reconstruct, in the shape `parse_untrusted_grant_envelope` already uses in this repository. A
   `serde::Deserialize` on the receipt, or a database dependency in the domain core, is excluded.
-  The slice is bounded because both ends already exist as ports inside `crates/scanner` and neither name is
-  referenced anywhere outside that crate, so it waits on no seam that does not yet exist.
+  The slice is bounded on the code surface: both ends already exist as ports inside `crates/scanner` and
+  neither name is referenced anywhere outside that crate. It is not yet buildable, because the platform
+  surface is empty - this Owner has no database role and no schema on either supply path, and
+  `CanonicalOwnerTestRoleV1` has no Scanner variant, so no chain entry can be written and the chain entry is
+  what this admission's acceptance is. Building the store therefore waits on `scanner_owner` and its schema
+  existing on both the `postgres-init` path and the `scripts/ci/test-rd-owner-postgres.bash` path, and on the
+  testkit role and URL table carrying it. The reconstruction entry does not wait on any of that.
   **NOT_ADMITTED:** the scheduler trigger, a production constructor for the sealed source-Owner admission, any
   `StrategyLoader`, `MarketSnapshot` or Capacity View implementation, the Governance receipt handoff, any Scanner
   fact other than the terminal receipt, and every production effect, deployment cutover and real trade.
