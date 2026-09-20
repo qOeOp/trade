@@ -240,6 +240,13 @@ async function pressEnterAndWaitFor(browser, expression, attempts = 3) {
       }
       return true;
     })()`);
+    // Mark the node before pressing it. If the tree remounts between the activation and the check,
+    // React builds a new element and the mark is gone with it - which is the difference between a
+    // handler that never ran and one whose effect was discarded by a remount.
+    await readBrowserValue(browser, `(() => {
+      document.activeElement?.setAttribute?.("data-acceptance-mark", "pressed");
+      return true;
+    })()`);
     await dispatchBrowserKey(browser, "Enter");
     arrivedAt = await readBrowserValue(browser, "globalThis.__enterArrivedAt ?? null");
     activatedAt = await readBrowserValue(browser, "globalThis.__enterActivated ?? null");
@@ -267,8 +274,10 @@ async function pressEnterAndWaitFor(browser, expression, attempts = 3) {
     })()`).catch(() => null);
     await delay(500);
     const openedByClick = await readBrowserValue(browser, expression).catch(() => null);
+    const pressedNodeSurvived = await readBrowserValue(browser,
+      `Boolean(document.querySelector('[data-acceptance-mark="pressed"]'))`).catch(() => null);
     throw new Error(`${timedOut.message}; enter probe: ${
-      JSON.stringify({ ...probe, arrivedAt, activatedAt, openedByClick })}`);
+      JSON.stringify({ ...probe, arrivedAt, activatedAt, pressedNodeSurvived, openedByClick })}`);
   });
 }
 
