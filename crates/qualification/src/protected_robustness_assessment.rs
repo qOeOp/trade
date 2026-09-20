@@ -437,7 +437,7 @@ fn form_assessment_v1(
     mode: ProtectedAssessmentModeV1,
 ) -> Result<ProtectedRobustnessAssessmentV1, QualificationOwnerError> {
     request_set.validate().map_err(contract)?;
-    validate_economic_policy_bundle(economic_policy, request_set, source)?;
+    validate_sealed_economic_policy_bundle(economic_policy, request_set, source)?;
     frontier
         .validate_against_request_set(request_set)
         .map_err(contract)?;
@@ -800,15 +800,17 @@ fn assessment_ready_cell(
     }
 }
 
+/// Checks the bundle against the authority it was frozen under.
+///
+/// It no longer compares the bundle with the request set: the set now carries this exact bundle, so
+/// `ProtectedReplayRequestSetSealDtoV1::validate` proves that agreement for every reader, including
+/// Backtest, instead of only for the Owner that formed the set.
 pub(crate) fn validate_economic_policy_bundle(
     policy: &ProtectedEconomicPolicyBundleV1,
-    request_set: &ProtectedReplayRequestSetSealDtoV1,
     source: &ProtectedReplayAuthoritySourceV1,
 ) -> Result<(), QualificationOwnerError> {
     policy.validate().map_err(contract)?;
-    if policy.protected_decision_policy_identity != request_set.protected_decision_policy_identity
-        || policy.protected_decision_policy_version != request_set.protected_decision_policy_version
-        || policy.protected_decision_policy_identity != source.protected_decision_policy_identity
+    if policy.protected_decision_policy_identity != source.protected_decision_policy_identity
         || policy.protected_decision_policy_version != source.protected_decision_policy_version
         || policy.metric.identity != source.metric_policy_identity
         || policy.metric.digest != source.metric_policy_digest
@@ -823,6 +825,26 @@ pub(crate) fn validate_economic_policy_bundle(
     {
         return Err(unavailable(
             "protected economic policy changed its frozen authority",
+        ));
+    }
+    Ok(())
+}
+
+/// Proves the separately stored bundle is the one the request set sealed.
+///
+/// Before the set carried the bundle these two could only be compared on the decision policy they
+/// name, so every other frozen field - the five policy references, the unit and scale, the
+/// comparison, threshold, tolerance, coverage floor and aggregation - went unchecked on readback.
+pub(crate) fn validate_sealed_economic_policy_bundle(
+    policy: &ProtectedEconomicPolicyBundleV1,
+    request_set: &ProtectedReplayRequestSetSealDtoV1,
+    source: &ProtectedReplayAuthoritySourceV1,
+) -> Result<(), QualificationOwnerError> {
+    validate_economic_policy_bundle(policy, source)?;
+
+    if *policy != request_set.protected_economic_policy_bundle {
+        return Err(unavailable(
+            "frozen protected economic policy is not the one the request set sealed",
         ));
     }
     Ok(())
@@ -1512,7 +1534,7 @@ mod tests {
             identity: name.into(),
             digest: format!("sha256:{}", byte.to_string().repeat(64)),
         };
-        let mut policy = ProtectedEconomicPolicyBundleV1 {
+        let policy = ProtectedEconomicPolicyBundleV1 {
             schema_version: 1,
             bundle_identity: "pending-policy".into(),
             bundle_digest: format!("blake3:{}", "0".repeat(64)),
@@ -1531,12 +1553,9 @@ mod tests {
             minimum_coverage_bps: 9_500,
             aggregation: ProtectedEconomicAggregationV1::EveryApplicableCell,
         };
-        policy.bundle_digest = policy.compute_digest().unwrap();
-        policy.bundle_identity = format!(
-            "qualification-protected-economic-policy-v1-{}",
-            policy.bundle_digest.strip_prefix("blake3:").unwrap()
-        );
-        policy
+        // The identity rule belongs to the bundle, not to this fixture. Spelling it out here once
+        // meant a drift in the contract would still produce something that looked sealed.
+        policy.seal().expect("fixture bundle seals")
     }
 
     fn economic_measurement(
