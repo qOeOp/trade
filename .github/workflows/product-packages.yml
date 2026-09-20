@@ -97,12 +97,13 @@ jobs:
       - name: Check Dashboard types
         run: npm run typecheck --prefix product/dashboard
 
-      # The browser, from the one definition the chain uses rather than a second copy of the
-      # install. Measurement says the channel is not interchangeable: the schedule calendar
-      # acceptance passes on Chrome for Testing at both 144.0.7559.96 and 152.0.7977.83 and fails on
-      # the image's Google Chrome 152.0.7977.82, with platform, date, timezone, viewport and startup
-      # flags held constant. Two other acceptances pass either way, which is why taking the image's
-      # browser looked safe - the suite that disagreed was switched off.
+      # The browser, from the one definition the chain uses rather than a second copy of the install.
+      # That is the whole reason; the browser itself is not what the schedule calendar acceptance was
+      # red on. This comment previously said the channel was the cause, on a reading that did not
+      # survive its second run: the same Chrome for Testing 152.0.7977.83 build passed and failed it
+      # on byte-identical sources. The cause was the suite synthesizing Enter as keyDown with text
+      # and leaving Chrome to derive the char event a button activates on, which it intermittently
+      # did not. The suite now sends that event itself.
       #
       # It sits here rather than beside the Node setup for a reason a run found: this action also
       # exports the three variables that switch the chain's own strategy-viewer acceptance on, and
@@ -134,26 +135,29 @@ jobs:
           # All three RunStore browser acceptances run here. None of them had ever run anywhere, and
           # each was held back under a reason that measurement later replaced.
           #
-          # Schedule calendar was the last, and its final reason turned out not to be a defect in it
-          # at all: it needs Chrome for Testing, which this job now installs. The record matters
-          # more than the conclusion, so: one deliberately enabled run produced a dump showing focus
-          # on the right control and that control enabled, which killed the explanation this lane
-          # had carried for hours. Four candidates then went, each for nothing - the date, by
-          # rerunning locally on the runner's own day; the timezone, by rerunning under UTC after
-          # checking the override actually reached the browser; the platform, by installing the
-          # browser the local passes used onto this runner; and the version, by holding the channel
-          # and moving only the build. The channel was what remained, and it reproduces both ways.
+          # Schedule calendar was the last, and it was the suite at fault rather than the page. It
+          # synthesized Enter as a keyDown carrying text, which leaves Chrome to derive the char
+          # event a button activates on - and on this runner Chrome intermittently did not derive
+          # it. The keypress reached the right button and the button never acted. The suite now
+          # sends rawKeyDown, char and keyUp itself, and asserts the control was activated rather
+          # than that the key arrived.
           #
-          # Why it fails on the image's browser is not established. Chrome for Testing omits
-          # first-run machinery, so that is the obvious candidate - and it is excluded rather than
-          # assumed, because the failing configuration already disables it:
+          # The record matters more than the conclusion here, because three readings preceded that
+          # one and two of them were written down as fact. First, focus: a dump showed focus on the
+          # right control and that control enabled, which killed it. Then four candidates went for
+          # nothing - the date, by rerunning on the runner's own day; the timezone, by rerunning
+          # under UTC after checking the override reached the browser; the platform, by installing
+          # the browser the local passes used; and the version, by holding the channel and moving
+          # only the build. The channel was what remained and it was written into this file as the
+          # cause - then the same Chrome for Testing 152.0.7977.83 build passed one run and failed
+          # the next on byte-identical sources, serially, on the same UTC day. Third, undelivered
+          # keys, which the suite's own new instrument refuted by reporting a shape nobody had
+          # proposed: the key arrived, at the right element, and still did not activate it.
           #
-          #   "--disable-sync", "--metrics-recording-only", "--no-default-browser-check",
-          #   "--no-first-run",          (schedule-calendar.postgres.test.mjs, the spawn arguments)
-          #
-          # The line is quoted here so the next reader does not have to go and check, and does not
-          # have to take the exclusion on trust either.
-          #
+          # What ended it was a positive control rather than another run: removing the char event
+          # reproduces the failure deterministically, including on a machine where twenty-eight
+          # consecutive runs had passed. A diagnostic that can report a shape you did not think of
+          # is worth more than one that confirms a candidate you did.
           # Service logs was held back three times over for reasons that measurement replaced, and
           # the sequence is worth keeping. It was first recorded as meeting a cursor continuity
           # failure, which the page never showed: the wait is a conjunction and a timeout quotes
