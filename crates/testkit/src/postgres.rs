@@ -78,7 +78,14 @@ pub enum DedicatedPostgresTestDatabaseError {
     CrossOwnerDatabaseMismatch,
     /// The read-only admission connection failed.
     ReadOnlyPreflightUnavailable,
-    /// The immutable admin marker was absent or did not match.
+    /// The marker row could not be read at all: the schema or table is not
+    /// granted to the connected role, absent, or otherwise unreadable. This is
+    /// distinct from a marker that was read and disagreed.
+    MarkerUnreadable,
+    /// The marker table was readable but holds no row for the connected role,
+    /// or holds more than one.
+    MarkerAbsentForRole,
+    /// The marker was read and its identity, database, or role did not match.
     MarkerMismatch,
     /// The connected role could create or mutate the marker.
     MarkerNotImmutable,
@@ -109,6 +116,12 @@ impl Display for DedicatedPostgresTestDatabaseError {
             }
             Self::ReadOnlyPreflightUnavailable => {
                 formatter.write_str("dedicated database read-only preflight unavailable")
+            }
+            Self::MarkerUnreadable => {
+                formatter.write_str("dedicated database marker unreadable by the connected role")
+            }
+            Self::MarkerAbsentForRole => {
+                formatter.write_str("dedicated database marker has no row for the connected role")
             }
             Self::MarkerMismatch => formatter.write_str("dedicated database marker mismatch"),
             Self::MarkerNotImmutable => {
@@ -497,6 +510,61 @@ impl DedicatedPostgresTestMutation<'_> {
     }
 }
 
+/// Proves a statement is refused, and leaves nothing behind when it is not.
+///
+/// A negative-capability proof deliberately runs WITHOUT a mutation capability: its subject is the
+/// absence of the privilege, so requiring [`DedicatedPostgresTestMutation`] would defeat it. A
+/// dedicated database can grant what the shared Owner topology denies, and then the proof would
+/// assert nothing.
+///
+/// The statement runs inside a transaction this function always rolls back. That is not belt and
+/// braces. The safety of a negative proof must not rest on the failure it asserts actually
+/// happening: if the privilege ever regresses, an unwrapped `DELETE` would really delete rows in
+/// the ordered chain's shared database, which is never reset between entries, so the first visible
+/// failure would be some later entry rather than this one. Rolling back unconditionally turns that
+/// regression from silent corruption into a failing assertion here.
+///
+/// `expected_sqlstate` is matched against the SQLSTATE rather than the message text, because the
+/// message varies with PostgreSQL version and locale while the code does not. Insufficient
+/// privilege is `42501`.
+///
+/// # Panics
+///
+/// Panics if the transaction cannot be opened, if the statement succeeds, or if it fails with a
+/// SQLSTATE other than `expected_sqlstate`.
+pub async fn assert_statement_is_refused(
+    pool: &PgPool,
+    statement: &str,
+    expected_sqlstate: &str,
+) -> String {
+    let mut transaction = pool
+        .begin()
+        .await
+        .expect("negative-capability proof could not open its transaction");
+    let outcome = sqlx::query(sqlx::AssertSqlSafe(statement.to_owned()))
+        .execute(&mut *transaction)
+        .await;
+    let Err(refused) = outcome else {
+        // Roll back before failing, so a regressed privilege still leaves no trace.
+        let _ = transaction.rollback().await;
+        panic!(
+            "statement was NOT refused, so this proves nothing: {statement}\n\
+             the transaction was rolled back, so nothing was written"
+        );
+    };
+    let _ = transaction.rollback().await;
+    let observed = refused
+        .as_database_error()
+        .and_then(sqlx::error::DatabaseError::code)
+        .map(std::borrow::Cow::into_owned)
+        .unwrap_or_default();
+    assert_eq!(
+        observed, expected_sqlstate,
+        "statement was refused with SQLSTATE {observed}, expected {expected_sqlstate}: {statement}"
+    );
+    observed
+}
+
 struct EnvironmentValues {
     test_urls: Vec<TestUrlValue>,
     production_urls: Vec<(&'static str, String)>,
@@ -696,13 +764,13 @@ async fn verify_marker_read_only(
     )
     .fetch_all(&mut *transaction)
     .await
-    .map_err(|_| DedicatedPostgresTestDatabaseError::MarkerMismatch)?;
+    .map_err(|_| DedicatedPostgresTestDatabaseError::MarkerUnreadable)?;
     transaction
         .rollback()
         .await
         .map_err(|_| DedicatedPostgresTestDatabaseError::ReadOnlyPreflightUnavailable)?;
     if rows.len() != 1 {
-        return Err(DedicatedPostgresTestDatabaseError::MarkerMismatch);
+        return Err(DedicatedPostgresTestDatabaseError::MarkerAbsentForRole);
     }
     let row = &rows[0];
     validate_observed_marker(
@@ -913,6 +981,35 @@ mod tests {
             validate_observed_marker(&expected, &missing),
             Err(DedicatedPostgresTestDatabaseError::MarkerMismatch)
         );
+    }
+
+    #[rstest]
+    fn marker_failures_name_their_own_cause() {
+        // These three used to be one variant rendering one sentence, so a role that
+        // could not read the marker table reported that the marker disagreed. A
+        // reader then looks for a wrong value that does not exist. Keep them
+        // distinct in both the variant and the words a human sees.
+        let unreadable = DedicatedPostgresTestDatabaseError::MarkerUnreadable;
+        let absent = DedicatedPostgresTestDatabaseError::MarkerAbsentForRole;
+        let mismatch = DedicatedPostgresTestDatabaseError::MarkerMismatch;
+
+        assert_ne!(unreadable, absent);
+        assert_ne!(absent, mismatch);
+        assert_ne!(unreadable, mismatch);
+
+        let rendered = [
+            unreadable.to_string(),
+            absent.to_string(),
+            mismatch.to_string(),
+        ];
+
+        for (index, left) in rendered.iter().enumerate() {
+            for right in rendered.iter().skip(index + 1) {
+                assert_ne!(left, right, "two marker failures render the same sentence");
+            }
+        }
+        assert!(unreadable.to_string().contains("unreadable"));
+        assert!(absent.to_string().contains("no row"));
     }
 
     #[rstest]

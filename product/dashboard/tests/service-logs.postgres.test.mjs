@@ -18,6 +18,7 @@ import {
 import { PostgresRunStoreV1 } from "../lib/run-store.ts";
 import { parseServiceLogBrowserEnvelopeV1 } from "../lib/service-log-contract.ts";
 import { PostgresServiceLogGatewayV1 } from "../lib/service-log-gateway.ts";
+import { serviceLogSourceLabel } from "../lib/service-log-presentation.ts";
 import { compatibleEnvironmentV1 } from "./compatibility-fixture.mjs";
 
 const url = process.env.DASHBOARD_SERVICE_LOGS_TEST_DATABASE_URL;
@@ -27,8 +28,23 @@ const browserExecutable = process.env.DASHBOARD_SERVICE_LOGS_BROWSER_EXECUTABLE 
 const dashboardRoot = new URL("../", import.meta.url);
 const cursorKey = "service-logs-disposable-cursor-key-that-is-long-enough-v1";
 const serverIdentity = "dashboard-service-log-server-v1";
+const serviceLogsLogin = "service-logs-browser-acceptance-login-token-at-least-32-bytes";
+const serviceLogsSessionHmac = "service-logs-browser-acceptance-session-hmac-key-at-least-32-bytes";
 const workerIdentity = "dashboard-service-log-worker-v1";
 const workerCapability = "service-log-worker-capability-that-is-at-least-thirty-two-bytes";
+
+// A source entry shows its label and carries its identity as the title on its own name.
+function sourceEntrySelector(identity) {
+  return `[aria-label="Service sources"] b[title=${JSON.stringify(identity)}]`;
+}
+
+// The surface shows a source in one of two layouts: as an entry in the sources list, which it only
+// renders when there is more than one, and as the detail card for the selected one. Asking for just
+// the list reads "absent" the moment a filter narrows the page to a single source.
+function sourceShownExpression(identity) {
+  return `(!!document.querySelector(${JSON.stringify(sourceEntrySelector(identity))})
+    || !!document.querySelector(${JSON.stringify(`[aria-label="Service instance ${identity}"]`)}))`;
+}
 const browserVersion = browserAcceptance
   ? execFileSync(browserExecutable, ["--version"], { encoding: "utf8" }).trim()
   : "";
@@ -71,12 +87,12 @@ async function freePort() {
   return port;
 }
 
-async function waitForHttp(target, child, timeoutMs = 60_000) {
+async function waitForHttp(target, child, headers = {}, timeoutMs = 60_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) throw new Error(`service-log preview exited with ${child.exitCode}`);
     try {
-      const response = await fetch(target);
+      const response = await fetch(target, { headers });
       if (response.ok) return response;
     } catch {
       // The bounded local server is still starting.
@@ -86,13 +102,40 @@ async function waitForHttp(target, child, timeoutMs = 60_000) {
   throw new Error(`service-log preview did not become ready at ${target}`);
 }
 
-async function stopProcess(child) {
-  if (!child || child.exitCode !== null) return;
+// A browser is a tree, not a process. Chrome's helper processes inherit the stderr pipe this
+// function reads, and they outlive a signal sent only to the process spawned here: the pipe stays
+// open, Node keeps the stream handle referenced, and the test runner never exits. Give the browser
+// its own process group at spawn and address the group. Only a child spawned detached may be
+// signalled this way, so callers opt in.
+async function stopProcess(child, { group = false } = {}) {
+  // A child that has already exited cannot be signalled, and its process group must not be either:
+  // the group is named by that child's process id, and once the child is gone that id can be
+  // reused, so signalling it risks reaching something unrelated. That is why this returns early
+  // rather than falling through to the group signal below.
+  //
+  // What still has to happen is closing the pipes. A surviving group member inherited the write
+  // ends, and while they are open Node keeps the stream handles referenced and the test runner
+  // stays alive with nothing left to run - which is the failure this whole teardown exists for.
+  // Releasing them costs nothing and does not touch any process id.
+  if (!child || child.exitCode !== null) {
+    child?.stdout?.destroy();
+    child?.stderr?.destroy();
+    return;
+  }
   const exited = once(child, "exit");
-  child.kill("SIGTERM");
+  const signal = (name) => {
+    if (!group) return child.kill(name);
+    try {
+      process.kill(-child.pid, name);
+    } catch {
+      child.kill(name);
+    }
+    return true;
+  };
+  signal("SIGTERM");
   const stopped = await Promise.race([exited.then(() => true), delay(5_000).then(() => false)]);
   if (!stopped && child.exitCode === null) {
-    child.kill("SIGKILL");
+    signal("SIGKILL");
     await exited;
   }
 }
@@ -100,14 +143,23 @@ async function stopProcess(child) {
 async function openBrowser(executable) {
   const profile = await mkdtemp(join(tmpdir(), "dashboard-service-logs-browser-"));
   const child = spawn(executable, [
+    // The same runner runs the ordered chain's browser acceptance to green with these three flags
+    // and stalls these suites without them, on an identical pinned browser build. A container's
+    // /dev/shm is small, and Chrome falls back to it for shared memory unless told otherwise.
     "--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`,
+    "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu",
     "--disable-background-networking", "--disable-default-apps", "--disable-extensions",
     "--disable-sync", "--metrics-recording-only", "--no-default-browser-check", "--no-first-run",
     "about:blank",
-  ], { stdio: "ignore" });
+  ], { stdio: ["ignore", "ignore", "pipe"], detached: true });
+  let browserStderr = "";
+  child.stderr?.setEncoding("utf8");
+  child.stderr?.on("data", (chunk) => { browserStderr = `${browserStderr}${chunk}`.slice(-4_096); });
   try {
     let devTools;
-    const deadline = Date.now() + 15_000;
+    // The browser starts beside a dev server and a database on the same machine, so this is
+    // generous; what matters is that it ends, and that it says what the browser reported.
+    const deadline = Date.now() + 60_000;
     while (Date.now() < deadline) {
       if (child.exitCode !== null) throw new Error(`service-log browser exited with ${child.exitCode}`);
       try {
@@ -117,14 +169,22 @@ async function openBrowser(executable) {
         await delay(100);
       }
     }
-    if (!devTools?.[0]) throw new Error("service-log browser debugging endpoint unavailable");
-    const target = await fetch(`http://127.0.0.1:${devTools[0]}/json/new?about:blank`, { method: "PUT" });
+    if (!devTools?.[0]) throw new Error(`service-log browser debugging endpoint unavailable: ${browserStderr.trim() || "no output"}`);
+    // Bounded: a browser that opened its debugging port but never answers would otherwise leave
+    // this await pending for as long as the runner allows.
+    const target = await fetch(`http://127.0.0.1:${devTools[0]}/json/new?about:blank`, {
+      method: "PUT", signal: AbortSignal.timeout(30_000),
+    });
     assert.equal(target.ok, true);
     const { webSocketDebuggerUrl } = await target.json();
     const socket = new WebSocket(webSocketDebuggerUrl);
     await new Promise((resolve, reject) => {
-      socket.addEventListener("open", resolve, { once: true });
-      socket.addEventListener("error", reject, { once: true });
+      const timer = setTimeout(() => {
+        socket.close();
+        reject(new Error("browser websocket did not open"));
+      }, 30_000);
+      socket.addEventListener("open", () => { clearTimeout(timer); resolve(); }, { once: true });
+      socket.addEventListener("error", (error) => { clearTimeout(timer); reject(error); }, { once: true });
     });
     let id = 0;
     const pending = new Map();
@@ -136,14 +196,24 @@ async function openBrowser(executable) {
       if (message.error) waiter.reject(new Error(message.error.message));
       else waiter.resolve(message.result);
     });
-    const send = (method, params = {}) => new Promise((resolve, reject) => {
+    // Every command carries a deadline. A browser that accepts a command and never answers it -
+    // a renderer that stopped, a socket that died without an event - would otherwise leave this
+    // await pending forever, and the test runner has no timeout of its own to end it.
+    const send = (method, params = {}, timeoutMs = 60_000) => new Promise((resolve, reject) => {
       const requestId = ++id;
-      pending.set(requestId, { resolve, reject });
+      const timer = setTimeout(() => {
+        pending.delete(requestId);
+        reject(new Error(`browser command timed out: ${method}`));
+      }, timeoutMs);
+      pending.set(requestId, {
+        resolve: (value) => { clearTimeout(timer); resolve(value); },
+        reject: (error) => { clearTimeout(timer); reject(error); },
+      });
       socket.send(JSON.stringify({ id: requestId, method, params }));
     });
     return { child, profile, close: () => socket.close(), send };
   } catch (error) {
-    await stopProcess(child);
+    await stopProcess(child, { group: true });
     await rm(profile, { recursive: true, force: true });
     throw error;
   }
@@ -164,7 +234,21 @@ async function waitForBrowserExpression(browser, expression, timeoutMs = 15_000)
     if (await readBrowserValue(browser, expression) === true) return;
     await delay(100);
   }
-  throw new Error(`service-log browser condition timed out: ${expression}`);
+  // A condition that never became true and one the page could never satisfy both end here, and a
+  // bare timeout cannot tell them apart. Carry what the page actually held into the failure.
+  const state = await browser.send("Runtime.evaluate", {
+    expression: `(() => ({
+      url: location.href,
+      readyState: document.readyState,
+      dialogs: document.querySelectorAll('dialog[open]').length,
+      reasons: [...document.querySelectorAll('details code, .unavailable-state code')]
+        .map((code) => code.textContent),
+      body: document.body?.innerText.slice(0, 1_500) ?? '',
+    }))()`,
+    returnByValue: true,
+  }).catch(() => null);
+  throw new Error(`service-log browser condition timed out: ${expression}; page: ${
+    JSON.stringify(state?.result?.value ?? "unreadable")}`);
 }
 
 async function clickButton(browser, label) {
@@ -214,19 +298,29 @@ test(testName, { skip: !url }, async () => {
       SOURCE_INTAKE_SHADOW_READ_OPERATION, fixture.environment, fixture.nowEpochMs,
     );
     assert.ok(binding);
-    await store.registerShadowWorker({
+    // A worker registration carries a 30 s lease, and a claim is refused once it lapses. This
+    // acceptance drives a browser between its claims, so how far it gets depended on how fast the
+    // machine ran: the same suite reached a later step in 28 s and was refused here at 45 s. A real
+    // worker renews its lease while it works, so renew it at each point one is needed rather than
+    // inherit one taken minutes earlier.
+    const registerWorker = async () => store.registerShadowWorker({
       workerIdentity,
       operationIds: [SOURCE_INTAKE_SHADOW_READ_OPERATION],
       workerCapability,
       workerArtifactDigest: fixture.environment.DASHBOARD_SHADOW_WORKER_ARTIFACT_DIGEST,
     });
+    const claimAsWorker = async () => {
+      await registerWorker();
+      return store.claimNextRead({ workerIdentity, workerCapability });
+    };
+    await registerWorker();
 
     const producedRuns = [];
     for (let index = 0; index < 11; index += 1) {
       const queued = await store.enqueueRead(SOURCE_INTAKE_SHADOW_READ_OPERATION, {
         request_identity: `source-request-service-log-${String(index).padStart(2, "0")}`,
       }, binding);
-      const claim = await store.claimNextRead({ workerIdentity, workerCapability });
+      const claim = await claimAsWorker();
       assert.equal(claim?.run.run_identity, queued.run_identity);
       await store.completeClaimedRead({
         runIdentity: queued.run_identity,
@@ -339,7 +433,7 @@ test(testName, { skip: !url }, async () => {
       }, binding));
     }
     for (const queued of paginationRuns) {
-      const claim = await store.claimNextRead({ workerIdentity, workerCapability });
+      const claim = await claimAsWorker();
       assert.equal(claim?.run.run_identity, queued.run_identity);
       await store.completeClaimedRead({
         runIdentity: queued.run_identity,
@@ -364,17 +458,38 @@ test(testName, { skip: !url }, async () => {
       ...fixture.environment,
       DASHBOARD_DATABASE_URL: isolatedUrl.href,
       DASHBOARD_CURSOR_HMAC_KEY: cursorKey,
+      DASHBOARD_DIST_DIR: ".next-test",
       DASHBOARD_SERVER_INSTANCE_IDENTITY: serverIdentity,
     };
     const port = await freePort();
     preview = spawn(process.execPath, [
       "node_modules/next/dist/bin/next", "dev", "-H", "127.0.0.1", "-p", String(port),
-    ], { cwd: dashboardRoot, env: { ...process.env, ...environment }, stdio: "inherit" });
+    ], {
+      cwd: dashboardRoot,
+      env: {
+        ...process.env,
+        ...environment,
+        DASHBOARD_LOCAL_OPERATOR_LOGIN_TOKEN: serviceLogsLogin,
+        DASHBOARD_SESSION_HMAC_KEY: serviceLogsSessionHmac,
+      },
+      stdio: "inherit",
+    });
     const origin = `http://127.0.0.1:${port}`;
-    const pageResponse = await waitForHttp(`${origin}/operations/service-logs/`, preview);
+    // Every Operations surface is behind the local operator session, so the acceptance signs in
+    // the way an operator does and carries the session it was issued.
+    await waitForHttp(`${origin}/api/health/`, preview);
+    const login = await fetch(`${origin}/api/auth/session/`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin },
+      body: JSON.stringify({ credential: serviceLogsLogin }),
+    });
+    assert.equal(login.status, 200);
+    const cookie = (login.headers.get("set-cookie") ?? "").split(";", 1)[0];
+    assert.match(cookie, /^trade_dashboard_session_v1=/u);
+    const pageResponse = await waitForHttp(`${origin}/operations/service-logs/`, preview, { cookie });
     assert.match(await pageResponse.text(), /Service logs/);
 
-    const listResponse = await fetch(`${origin}/api/operations/service-logs/?range=24h&pageSize=20`);
+    const listResponse = await fetch(`${origin}/api/operations/service-logs/?range=24h&pageSize=20`, { headers: { cookie } });
     assert.equal(listResponse.status, 200);
     assert.equal(listResponse.headers.get("cache-control"), "no-store");
     const apiEnvelope = await parseServiceLogBrowserEnvelopeV1(await listResponse.json());
@@ -387,7 +502,7 @@ test(testName, { skip: !url }, async () => {
       instance: apiEnvelope.filter_cut.instance_identity,
       severity: apiEnvelope.filter_cut.severity,
       search: apiEnvelope.filter_cut.search,
-    })}`);
+    })}`, { headers: { cookie } });
     assert.equal(downloadResponse.status, 200);
     assert.equal(downloadResponse.headers.get("x-content-type-options"), "nosniff");
     assert.equal(downloadResponse.headers.get("x-service-log-cut-digest"), apiEnvelope.filter_cut_digest);
@@ -395,6 +510,11 @@ test(testName, { skip: !url }, async () => {
     assert.ok((await downloadResponse.arrayBuffer()).byteLength <= 256 * 1_024);
 
     browser = await openBrowser(browserExecutable);
+    await browser.send("Network.enable");
+    const [cookieName, cookieValue] = cookie.split("=", 2);
+    assert.equal((await browser.send("Network.setCookie", {
+      name: cookieName, value: cookieValue, url: origin, httpOnly: true, sameSite: "Strict",
+    })).success, true);
     await browser.send("Page.enable");
     await browser.send("Emulation.setDeviceMetricsOverride", {
       width: 800,
@@ -404,9 +524,19 @@ test(testName, { skip: !url }, async () => {
     });
     await browser.send("Page.navigate", { url: `${origin}/operations/service-logs/` });
     await waitForBrowserExpression(browser,
-      `document.body?.innerText.includes(${JSON.stringify(workerIdentity)})
-        && document.body?.innerText.includes(${JSON.stringify(serverIdentity)})
-        && document.querySelectorAll('table[aria-label="Service log events"] tbody tr').length > 0`);
+      `document.querySelectorAll('table[aria-label="Service log events"] tbody tr').length > 0`);
+    // Identities appear as compact labels with the exact identity as title evidence, so the
+    // acceptance accepts either and reports what the surface actually named on failure.
+    const namedInstances = await readBrowserValue(browser, `(() => ({
+      text: document.body?.innerText ?? '',
+      titles: [...document.querySelectorAll('[title]')].map((node) => node.getAttribute('title')),
+    }))()`);
+    for (const identity of [workerIdentity, serverIdentity]) {
+      assert.ok(
+        namedInstances.text.includes(identity) || namedInstances.titles.includes(identity),
+        `${identity} is missing: ${JSON.stringify(namedInstances)}`,
+      );
+    }
     const surface = await readBrowserValue(browser, `(() => {
       const frame = document.querySelector('.operations-service-logs-panel');
       const header = frame?.querySelector(':scope > .panel-frame-header');
@@ -475,10 +605,27 @@ test(testName, { skip: !url }, async () => {
         return true;
       })()`);
       assert.equal(changedPage, true, label);
-      await waitForBrowserExpression(browser,
-        `!document.body?.innerText.includes('SERVICE_LOG_CURSOR_CONTINUITY_UNAVAILABLE')
-          && document.querySelectorAll('table[aria-label="Service log events"] tbody tr').length > 0
-          && (${settledExpression})`);
+      try {
+        await waitForBrowserExpression(browser,
+          `!document.body?.innerText.includes('SERVICE_LOG_CURSOR_CONTINUITY_UNAVAILABLE')
+            && document.querySelectorAll('table[aria-label="Service log events"] tbody tr').length > 0
+            && (${settledExpression})`);
+      } catch (error) {
+        // The wait above is a conjunction and a timeout quotes only its first line, which reads as
+        // though the continuity reason were on the page. Evaluate each part separately so the
+        // failure names the one that is actually unmet.
+        const state = await readBrowserValue(browser, `(() => ({
+          autoRefresh: [...document.querySelectorAll('button')]
+            .map((button) => button.textContent?.trim())
+            .find((text) => text?.startsWith('Auto-refresh')),
+          continuityAbsent: !document.body?.innerText.includes('SERVICE_LOG_CURSOR_CONTINUITY_UNAVAILABLE'),
+          rows: document.querySelectorAll('table[aria-label="Service log events"] tbody tr').length,
+          settled: (${settledExpression}),
+          unavailableText: (document.body?.innerText.match(/[A-Z_]+_UNAVAILABLE/gu) ?? []).join(','),
+          body: document.body?.innerText.slice(0, 400) ?? '',
+        }))()`);
+        throw new Error(`${label}: ${error.message}; state: ${JSON.stringify(state)}`, { cause: error });
+      }
     };
     await navigatePage("Next service-log page",
       `document.querySelector('button[aria-label="Previous service-log page"]')?.disabled === false`);
@@ -489,7 +636,7 @@ test(testName, { skip: !url }, async () => {
     await navigatePage("Next service-log page",
       `document.querySelector('button[aria-label="Previous service-log page"]')?.disabled === false
         && [...document.querySelectorAll('table[aria-label="Service log events"] tbody tr')]
-          .every((row) => row.innerText.includes('run_store'))`);
+          .every((row) => row.innerText.includes(${JSON.stringify(serviceLogSourceLabel("run_store"))}))`);
     await navigatePage("Previous service-log page",
       `document.querySelector('button[aria-label="Previous service-log page"]')?.disabled === false`);
     await clickButton(browser, "Auto-refresh off");
@@ -541,7 +688,15 @@ test(testName, { skip: !url }, async () => {
     const tailFollowRun = await store.enqueueRead(SOURCE_INTAKE_SHADOW_READ_OPERATION, {
       request_identity: "source-request-service-log-tail-follow",
     }, binding);
-    const tailFollowClaim = await store.claimNextRead({ workerIdentity, workerCapability });
+    // The surface never writes a run identity as text: the Related cell renders "View run" and
+    // carries the identity in the link it points at. Asserting on body text therefore says nothing
+    // about whether this run is on the page - it is absent before and after, whatever happened -
+    // so ask for the link the surface actually exposes.
+    // Anchored on the whole identity, and a prefix because this app serves trailing-slash URLs.
+    const tailFollowRunOnPage = `!!document.querySelector(${JSON.stringify(
+      `a[href^="/operations/runs/${encodeURIComponent(tailFollowRun.run_identity)}"]`,
+    )})`;
+    const tailFollowClaim = await claimAsWorker();
     assert.equal(tailFollowClaim?.run.run_identity, tailFollowRun.run_identity);
     await store.completeClaimedRead({
       runIdentity: tailFollowRun.run_identity,
@@ -562,7 +717,16 @@ test(testName, { skip: !url }, async () => {
       if (!viewport || !table || !firstRow || !cut || viewport.scrollHeight <= viewport.clientHeight + 320) return null;
       const tableTop = table.getBoundingClientRect().top - viewport.getBoundingClientRect().top + viewport.scrollTop;
       viewport.scrollTop = Math.min(viewport.scrollHeight - viewport.clientHeight, tableTop + 240);
-      return { firstRow: firstRow.innerText, cut: cut.textContent, scrollTop: viewport.scrollTop };
+      // A scroll position only means something beside the box it is measured in: a refresh that
+      // shortens the content clamps scrollTop, and the clamp does not undo itself when the content
+      // comes back. Carry the geometry so a moved viewport says which of the two moved.
+      return {
+        firstRow: firstRow.innerText, cut: cut.textContent, scrollTop: viewport.scrollTop,
+        scrollHeight: viewport.scrollHeight, clientHeight: viewport.clientHeight,
+        rows: document.querySelectorAll('table[aria-label="Service log events"] tbody tr').length,
+        tableTop: Math.round(table.getBoundingClientRect().top - viewport.getBoundingClientRect().top
+          + viewport.scrollTop),
+      };
     })()`);
     assert.ok(offTailState && offTailState.scrollTop > 2);
     assert.equal(await readBrowserValue(browser, `(() => {
@@ -580,15 +744,24 @@ test(testName, { skip: !url }, async () => {
       const firstRow = document.querySelector('table[aria-label="Service log events"] tbody tr');
       const cut = document.querySelector('.bounded-log-viewport-footer .panel-info-popover code');
       return viewport && firstRow && cut
-        ? { firstRow: firstRow.innerText, cut: cut.textContent, scrollTop: viewport.scrollTop }
+        ? {
+          firstRow: firstRow.innerText, cut: cut.textContent, scrollTop: viewport.scrollTop,
+          scrollHeight: viewport.scrollHeight, clientHeight: viewport.clientHeight,
+          rows: document.querySelectorAll('table[aria-label="Service log events"] tbody tr').length,
+          tableTop: (() => {
+            const table = document.querySelector('table[aria-label="Service log events"]');
+            return Math.round(table.getBoundingClientRect().top
+              - viewport.getBoundingClientRect().top + viewport.scrollTop);
+          })(),
+        }
         : null;
     })()`), offTailState);
     assert.equal(await readBrowserValue(browser,
-      `document.body?.innerText.includes(${JSON.stringify(tailFollowRun.run_identity)})`), false);
+      tailFollowRunOnPage), false);
     await delay(10_500);
     assert.equal(await readBrowserValue(browser, `window.__serviceLogFetchGate?.started`), 1);
     assert.equal(await readBrowserValue(browser,
-      `document.body?.innerText.includes(${JSON.stringify(tailFollowRun.run_identity)})`), false);
+      tailFollowRunOnPage), false);
 
     assert.equal(await readBrowserValue(browser, `(() => {
       const gate = window.__serviceLogFetchGate;
@@ -598,13 +771,39 @@ test(testName, { skip: !url }, async () => {
       viewport.scrollTop = 0;
       return viewport.scrollTop === 0;
     })()`), true);
-    await waitForBrowserExpression(browser,
-      `document.body?.innerText.includes(${JSON.stringify(tailFollowRun.run_identity)})`, 15_000);
+    // Following the tail depends on an interval this page owns, so a miss here has to say whether
+    // the interval ran at all, whether it was allowed to replace, and what the surface holds now.
+    try {
+      await waitForBrowserExpression(browser,
+        tailFollowRunOnPage, 15_000);
+    } catch (error) {
+      const state = await readBrowserValue(browser, `(() => {
+        const viewport = document.querySelector('.page-viewport');
+        const firstRow = document.querySelector('table[aria-label="Service log events"] tbody tr');
+        return {
+          gate: window.__serviceLogFetchGate
+            ? { enabled: window.__serviceLogFetchGate.enabled, started: window.__serviceLogFetchGate.started,
+              completed: window.__serviceLogFetchGate.completed }
+            : null,
+          autoRefresh: [...document.querySelectorAll('button')]
+            .map((button) => button.textContent?.trim()).find((text) => text?.startsWith('Auto-refresh')),
+          scrollTop: viewport?.scrollTop ?? null,
+          rows: document.querySelectorAll('table[aria-label="Service log events"] tbody tr').length,
+          firstRow: firstRow?.innerText ?? null,
+        };
+      })()`);
+      throw new Error(`tail follow: ${error.message}; state: ${JSON.stringify(state)}`, { cause: error });
+    }
     await clickButton(browser, "Auto-refresh on");
 
+    // The sources list is labelled "Service sources", and it shows each source's label rather than
+    // its identity; the identity is the title on the entry's own name. Both were asserted the other
+    // way round here, so this step selected nothing and reported it as the surface's fault.
+    // The same identity in the body is only inside an info popover, which `innerText` omits because
+    // it is hidden, so asking the body for it answers "absent" whatever the surface holds.
     const selectedWorker = await readBrowserValue(browser, `(() => {
-      const button = [...document.querySelectorAll('[aria-label="Service instances"] button')]
-        .find((candidate) => candidate.textContent?.includes(${JSON.stringify(workerIdentity)}));
+      const button = [...document.querySelectorAll('[aria-label="Service sources"] button')]
+        .find((candidate) => candidate.querySelector(${JSON.stringify(`b[title=${JSON.stringify(workerIdentity)}]`)}));
       button?.click();
       return Boolean(button);
     })()`);
@@ -613,7 +812,8 @@ test(testName, { skip: !url }, async () => {
       `Boolean(document.querySelector('[aria-label="Service instance ${workerIdentity}"]'))
         && document.querySelectorAll('table[aria-label="Service log events"] tbody tr').length > 0
         && [...document.querySelectorAll('table[aria-label="Service log events"] tbody tr')]
-          .every((row) => row.innerText.includes('shadow_worker') || row.innerText.includes('owner_gateway'))`);
+          .every((row) => row.innerText.includes(${JSON.stringify(serviceLogSourceLabel("shadow_worker"))})
+            || row.innerText.includes(${JSON.stringify(serviceLogSourceLabel("owner_gateway"))}))`);
 
     const filtered = await readBrowserValue(browser, `(() => {
       const group = document.querySelector('[aria-label="Service log filters"]');
@@ -627,8 +827,7 @@ test(testName, { skip: !url }, async () => {
     })()`);
     assert.equal(filtered, true);
     await waitForBrowserExpression(browser,
-      `document.body?.innerText.includes(${JSON.stringify(workerIdentity)})
-        && !document.querySelector('[aria-label="Service instances"]')?.innerText.includes(${JSON.stringify(serverIdentity)})`);
+      `${sourceShownExpression(workerIdentity)} && !${sourceShownExpression(serverIdentity)}`);
 
     await readBrowserValue(browser, `(() => {
       window.__serviceLogDownload = null;
@@ -648,14 +847,14 @@ test(testName, { skip: !url }, async () => {
     assert.deepEqual(await readModelFingerprint(pool), browserReadFingerprint);
     await pool.query("ALTER TABLE dashboard_operation_run_logs_v1 RENAME TO dashboard_operation_run_logs_unavailable_v1");
     logTableRenamed = true;
-    assert.equal((await fetch(`${origin}/api/operations/service-logs/?range=24h&pageSize=20`)).status, 503);
+    assert.equal((await fetch(`${origin}/api/operations/service-logs/?range=24h&pageSize=20`, { headers: { cookie } })).status, 503);
     await clickButton(browser, "Refresh");
     await waitForBrowserExpression(browser,
       `document.body?.innerText.includes('Service logs unavailable')
         && [...document.querySelectorAll('.panel-info-popover code')]
           .some((code) => code.textContent === 'SERVICE_LOG_STORE_UNAVAILABLE')
-        && !document.body?.innerText.includes(${JSON.stringify(workerIdentity)})
-        && !document.body?.innerText.includes(${JSON.stringify(serverIdentity)})
+        && !${sourceShownExpression(workerIdentity)}
+        && !${sourceShownExpression(serverIdentity)}
         && document.querySelectorAll('table[aria-label="Service log events"] tbody tr').length === 0`);
     const unavailableInfo = await readBrowserValue(browser, `(() => {
       const code = [...document.querySelectorAll('.panel-info-popover code')]
@@ -679,7 +878,7 @@ test(testName, { skip: !url }, async () => {
     assert.match(unavailableSummary, /server\s+-/);
   } finally {
     browser?.close();
-    await stopProcess(browser?.child);
+    await stopProcess(browser?.child, { group: true });
     if (browser?.profile) await rm(browser.profile, { recursive: true, force: true });
     await stopProcess(preview);
     if (logTableRenamed) {

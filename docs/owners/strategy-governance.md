@@ -69,19 +69,33 @@ grants nothing, and widening the admitted set requires changing this document fi
   `GovernanceCore`, whose `resolve_frontier` resolves one complete conflict frontier under the canonical precedence,
   writes the write-once `LifecycleRequestReceipt` as `ACCEPTED` or `REJECTED_NO_WRITE`, detects alias retry, replay
   divergence, and semantic mutation, and serves a `GovernanceDecisionView` and current lifecycle receipt readback.
+  A missing or invalid Eligibility is the one refusal that produces no receipt at all: it fails the whole frontier
+  as `DecisionEvidenceUnavailable` before any receipt is written, where a missing artifact, capacity, or adapter
+  binding each reject with one. That asymmetry is deliberate and pinned by the unit suite, so while Qualification
+  has no producer the write-once receipt is a fact that is never written rather than one written as a rejection.
   The model carries the seven lifecycle actions, `PAPER` and `LIVE`, both authorization modes, eligibility and
-  application status. The static slice validates only `INITIAL_ACTIVATION` for `PAPER` under
+  application status. Those are consumer-side shapes only: repository-wide, `EligibilityState::Expired` and
+  `EligibilityState::Revoked` have no producer at all, every `UntrustedEligibilityReadback` is built inside this
+  crate's own tests, and `crates/qualification` carries neither term. A reader should not take the presence of
+  these types as a read port awaiting connection; nothing has ever written one of these facts. The static slice validates only `INITIAL_ACTIVATION` for `PAPER` under
   `UNATTENDED_REQUEST_WITH_POLICY` with a single-contender set; every other action, `LIVE`, `ATTENDED_REQUEST`, and
   condition-dependent activation reject as `ActionNotAdmittedInStaticSlice`, `LiveNotAdmitted`,
   `AttendedNotAdmitted`, or `ConditionalScannerNotAdmitted`. Public construction installs an unavailable Owner
   admission, so every public request fails closed (`crates/strategy_governance/tests/public_fail_closed.rs`), and no
   Runtime receipt resolver can be installed, so application projects `APPLICATION_UNKNOWN`.
-- **TARGET / IMPLEMENTATION_ADMITTED - Strategy Registry and Execution Scope creation:** no durable Governed Strategy Entry exists, and the
-  `BOUND` Capacity Scope and `ADMITTED` Execution Adapter Binding it must bind are themselves Discovery and static
-  contracts in `crates/portfolio` and `crates/execution`. Admitted slice: PostgreSQL custody for the Governed Strategy
-  Entry, Execution Scope, lifecycle requests, and receipts, with the crate-private Owner admission rereading
-  Qualification Eligibility, the Portfolio `BOUND` Capacity Scope, the Execution `ADMITTED` binding, and the R&D build
-  receipt before one `PAPER` `INITIAL_ACTIVATION`.
+- **CURRENT_PARTIAL / IMPLEMENTATION_ADMITTED - Strategy Registry and Execution Scope creation:** the immutable
+  Execution Scope now has production PostgreSQL custody in `crates/strategy_governance`, under `governance_owner` and
+  `governance_writer`. Before it writes, the custody rereads Portfolio's own `BOUND` Capacity Scope and Execution's
+  own current `ADMITTED` PAPER adapter binding through those Owners' read-only APIs inside the writing transaction,
+  and it refuses unless the two agree on account and prebinding and the caller's expectations match what each Owner
+  said. Agreeing on the prebinding means Portfolio's registry names the exact adapter binding fact Execution
+  admitted, so every new Execution binding generation requires a new Portfolio registry cut before a scope can be
+  created against it; an older cut is refused as a conflicting prebinding rather than accepted as a narrower one. Its `governance_api` readback exposes the bound meaning, the scope carries no validity window of its own, and
+  a replay keeps the creation time while refreshing freshness from the two current source facts. No production caller
+  reaches it: Product Edge has no lifecycle request intake. Still admitted and still absent: the Governed Strategy
+  Entry, lifecycle requests, and receipts, because the architecture binds an entry to an exact Eligibility Fact,
+  generation-specific economic-condition versions, and a qualified capacity ceiling, and Qualification and R&D have
+  no production writer for those or for the build receipt.
 - **TARGET - Lifecycle Manager:** no evidence-driven lifecycle state, `DE_RISK_PENDING` succession, retention
   renewal, or adverse-evidence disposition policy exists.
 - **TARGET / IMPLEMENTATION_ADMITTED - Capital Policy and Capital Allocation Disposition:** no `POOL_ROOT` or

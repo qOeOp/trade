@@ -1,4 +1,7 @@
-# Cache
+# Cache (engine)
+
+This page documents the existing engine. Where it differs from the target product architecture in
+`docs/architecture/capability-adoption.md`, that document is authoritative.
 
 The `Cache` is a central in-memory database that stores and manages all trading-related data,
 from market data to order history to custom calculations.

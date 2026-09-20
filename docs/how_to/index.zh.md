@@ -1,5 +1,12 @@
 # 操作指南
 
+:::note[层次]
+这些演练驱动继承引擎的 Python API。它们能跑，也是端到端看懂引擎最快的方式。
+
+它们不是本平台准入的工作流。进入生产的策略是一份 Design，由 R&D 的 Develop 能力降级并编译，
+不是手写的子类。参见 `docs/owners/rd.md` 与 `docs/architecture/strategy-factory.md`。
+:::
+
 这里提供面向常见任务的目标导向操作指南。每篇指南都假定读者已熟悉 Vibe 的基本概念，并聚焦于一个具体结果。
 
 如果刚接触 Vibe，请先阅读[入门](../getting_started/)路径和[教程](../tutorials/)。

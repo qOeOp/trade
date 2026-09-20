@@ -1,4 +1,7 @@
-# Execution
+# Execution (engine)
+
+This page documents the existing engine. Where it differs from the Owner contract in
+`docs/owners/execution.md`, the Owner contract is authoritative.
 
 VibeTrader coordinates order submission, risk checks, venue execution, reconciliation, and
 position updates across multiple strategies and venues. This page explains the components and

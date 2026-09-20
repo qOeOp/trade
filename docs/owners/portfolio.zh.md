@@ -79,28 +79,39 @@ source-frontier 与 Time Evidence common cut 上取得原生来源事实支持�
 2026-09-18 作为有界、可单独评审的工作准入，其验收是一次性 PostgreSQL 证明、有序链路条目在 Linux 上通过，以及不依赖
 testkit 或 acceptance feature 的生产路径；其余各行不授予任何东西，扩大准入集必须先修改本文档。
 
-- **CURRENT_PARTIAL / IMPLEMENTATION_ADMITTED - Capacity Scope 契约：** `crates/portfolio/src/owner/capacity_scope.rs` 把自身成熟度声明为
-  `Discovery`。公开的 `resolve_capacity_scope` 接受不可信请求并返回结构化的不可用回读，而 sealed 的
-  `BoundCapacityScopeReadback` 只能由一条没有生产 resolver 的私有完整注册表路径铸造。
-  `crates/portfolio/tests/capacity_scope_contract.rs` 证明了这一失败关闭形状。已准入切片：基于 PostgreSQL custody 的
-  私有完整注册表 resolver，它独自为一个账户、一个 `PAPER` 模式与一个经济池铸造 `BoundCapacityScopeReadback`，以及交给
-  Strategy Governance 的 `BOUND` 回读。
-- **CURRENT_PARTIAL - Portfolio View R0 契约：** `crates/portfolio/src/owner/portfolio_view.rs` 拥有请求指纹、重放
+- **CURRENT_PARTIAL / IMPLEMENTATION_ADMITTED - Capacity Scope 契约：**
+  `crates/portfolio_owner/src/capacity_scope.rs` 拥有不可信请求词汇、完整注册表解析规则，以及只有该规则能铸造的 sealed
+  `BoundCapacityScopeReadback`；公开的 `resolve_capacity_scope` 仍是失败关闭的 `Discovery` 边界。
+  `crates/portfolio_owner/src/capacity_scope_postgres.rs` 是生产 Owner store：`portfolio_private` 下的 PostgreSQL
+  custody，保存只追加的完整成员普查注册表、其 head、密封回读，以及 Strategy Governance 解析 `BOUND` scope 所经的只读
+  `portfolio_api` 函数。一个 cut 一经提交即不可变，重复提交同一普查只加入当前 head。它的 `#[ignore]` 证明对着 canonical
+  Owner PostgreSQL 拓扑运行。尚无已部署二进制装配它，所以它没有生产装配根或可触达的消费者。
+- **CURRENT_PARTIAL - Portfolio View R0 契约：** `crates/portfolio_owner/src/portfolio_view.rs` 拥有请求指纹、重放
   分类、按来源 Owner 划分的依赖种类，以及返回 `UnavailablePortfolioView` 的失败关闭 `resolve_portfolio_view`；
-  不存在正向来源 resolver。`crates/portfolio/tests/portfolio_view_contract.rs` 证明了它。
+  不存在正向来源 resolver。`crates/portfolio_owner/tests/portfolio_view_contract.rs` 证明了它。
   `crates/operator_authorization` 里的 `portfolio:view` 资源授权经 Operator Authorization Issuer 的 PostgreSQL
   custody 解析，但没有任何 Product Edge 路由提供 Portfolio View。
 - **TARGET - Account State、Exposure、Performance Receipt 与 Exposure Receipt：** `crates/portfolio/src/portfolio.rs`
   与 `crates/portfolio/src/manager.rs` 里继承的 `Portfolio` 为继承的 kernel、Backtest 与 live-node 装配从引擎 cache
   事件计算持仓、余额、保证金与 PnL；它是迁移来源，不绑定 Execution Scope、receipt、估值版本或新鲜度。
-- **TARGET / IMPLEMENTATION_ADMITTED - Capacity View 与 Portfolio Risk Evidence Bundle：** 不存在 gross-ceiling 投影或
-  一致来源截面，因此 Risk 没有可消费的 Capacity View 或 bundle。已准入切片：每个 `BOUND` Capacity Scope 一个 `PAPER`
-  Capacity View，其 gross ceiling 由 Execution 已提交的开仓账户事实截面与一个 Market Data 估值截面在一个声明的资金池
-  方法版本下派生；Portfolio Risk Evidence Bundle 仍为 `TARGET`。
+- **CURRENT_PARTIAL / IMPLEMENTATION_ADMITTED - Capacity View：** `crates/portfolio_owner/src/capacity_view.rs` 拥有
+  密封视图与本切片唯一准入的方法 `paper-collateral-gross-ceiling.v1`：对于与账户抵押品同币种计价的模拟 `PAPER` 资金池，
+  gross ceiling 就是该抵押品，且没有流动性约束压缩它。估值是恒等映射，因为两个币种相同；视图为这一声明的流动性输入
+  缺席绑定一个显式身份，而不是留空字段。任何其他币种的资金池在 Market Data 估值事实出现前失败关闭。上限来自
+  Execution 自己已提交的开仓账户事实，在提交事务内经 Execution Owner 的只读 API 读取，绝不取自调用方声明。
+  `crates/portfolio_owner/src/capacity_scope_postgres.rs` 存放这些视图，并暴露 Strategy Governance 重读当前上限所经的
+  `portfolio_api` 函数。Portfolio 在此不扣除 Reservation liability，也不计算剩余 headroom。
+- **TARGET - Portfolio Risk Evidence Bundle：** 不存在 projected exposure、open order、账户状态与已纳入 settlement
+  lineage 的一致来源截面，因此 Risk 没有可与自身 liability 合并的 bundle。
 - **TARGET - Portfolio Lifecycle Evidence Receipt、Portfolio Interaction Receipt 与 degradation 归因：** 不存在类型或
   custody。
-- **TARGET - 交接与持久化：** 没有通向 Governance、Risk、Scanner、Execution 或 Product Edge 的 port，也没有任何
-  Portfolio 事实的持久关系。
+- **CURRENT_PARTIAL - 通向 Governance 的读 port：** Owner 自己的迁移
+  `crates/portfolio_owner/src/capacity_scope_postgres.rs` 建出 `portfolio_api.read_bound_capacity_scope_v1` 与
+  `portfolio_api.read_current_capacity_view_v1`，并把两者都授给 `governance_writer`；该 schema 的 `USAGE` 也只授给
+  它，在 `product/rd-workbench/postgres-init/10-migrate-authority-custody.sh` 里。所以第二个消费方需要的是分处两地
+  的两条授权，两者都不是还没写出来的函数。
+- **TARGET - 其余交接与持久化：** 没有通向 Risk、Scanner、Execution 或 Product Edge 的 port；除上述 Capacity Scope
+  注册表与 PAPER Capacity View custody 之外，没有任何 Portfolio 事实的持久关系。
 
 ## 输入交接
 

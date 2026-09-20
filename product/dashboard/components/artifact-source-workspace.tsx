@@ -18,6 +18,17 @@ const loadingProjection: StrategyCodeViewerProjection = {
   reason: null,
 };
 
+// A failed read answers with the gateway's own unavailable projection, whose reason already
+// distinguishes an absent attempt (`ARTIFACT_SOURCE_UNAVAILABLE`) from a rejected Owner answer
+// (`OWNER_RESPONSE_UNAVAILABLE`). That projection is kept as it is; only a body that is not such
+// a projection collapses to the generic response reason.
+function gatewayUnavailableProjection(raw: unknown, parsed: StrategyCodeViewerProjection): boolean {
+  return typeof raw === "object" && raw !== null
+    && (raw as { availability?: unknown }).availability === "unavailable"
+    && parsed.availability === "unavailable"
+    && parsed.reason !== null;
+}
+
 export function ArtifactSourceWorkspace({
   buildRequestIdentity,
   attemptIdentity,
@@ -40,9 +51,10 @@ export function ArtifactSourceWorkspace({
         `/api/rd/artifacts/${encodeURIComponent(buildRequestIdentity)}/attempts/${encodeURIComponent(attemptIdentity)}/source/`,
         { method: "GET", cache: "no-store", signal: controller.signal },
       );
-      const parsed = normalizeStrategyCodeViewerProjection(await response.json());
+      const raw: unknown = await response.json();
+      const parsed = normalizeStrategyCodeViewerProjection(raw);
       if (generation.current !== current || controller.signal.aborted) return;
-      setProjection(response.ok
+      setProjection(response.ok || gatewayUnavailableProjection(raw, parsed)
         ? parsed
         : unavailableStrategyCodeViewer("ARTIFACT_SOURCE_RESPONSE_UNAVAILABLE"));
     } catch {

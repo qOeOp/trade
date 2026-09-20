@@ -8,7 +8,7 @@
 
 - 重放身份 确定性时钟 冻结输入 运行与模拟版本和配置摘要。
 - 重放产生的规范订单 成交 持仓 成本和结果。
-- **TARGET：** 完整有序 shared-kernel semantic trace，把 normalized lifecycle event、checkpoint、primitive
+- **CURRENT_PARTIAL：** 完整有序 shared-kernel semantic trace，把 normalized lifecycle event、checkpoint、primitive
   与 plugin result、target/protection transition 和 fill reconciliation 绑定到规范 replay。
 - 探索运行与 Qualification 请求的保护运行之间的完整隔离。
 - Exploratory Run Result 逐项重复实际消费的 Strategy Artifact 请求 PIT 范围 PIT Market Snapshot
@@ -42,6 +42,52 @@
 - **Sim Exchange** - 模拟场所接纳 延迟 成交 手续费和账户效果，不产生外部写入。
 - **Run Result** - 把实际消费的数据 工件 配置 订单 成交 成本和终态结果绑定为规范回执。
 
+## 实现状态台账
+
+本台账只记录仓库在本截面实际到达的状态。它沿用 [Market Data](./market-data/) 台账的状态词汇，并以
+`CURRENT_PARTIAL` 表示已合并但不可触达的形态；台账本身不授予任何许可。下文没有任何一行标为
+`IMPLEMENTATION_ADMITTED`：各行不授予任何东西，扩大准入集必须先修改本文档。
+
+- **CURRENT_PARTIAL - 有序 shared-kernel semantic trace：** 有序词汇与其失败关闭的普查位于
+  `crates/backtest_owner_contracts/src/native_replay_trace.rs`，生产方与 Backtest Owner 双方都在封印 trace
+  字节之前施加该普查，因此跳过 checkpoint、重复一次生命周期或留下未对账原生成交的 trace 是一个 fault，
+  什么都提交不了。只有一条纵向到达它：Sim `EVENT` 消费者是该普查在自身模块之外的唯一调用方，没有第二条
+  纵向产出 trace。
+- **CURRENT_PARTIAL - 持久 Result custody 与 R&D 加锁读：** 有序链路证明了什么见同名小节。
+  `crates/backtest_owner/Cargo.toml` 与 `crates/backtest_result_custody/Cargo.toml` 都没有声明
+  `[features]` 表，因此这条 custody 路径在任何构建里都是同一份代码。
+- **CURRENT_PARTIAL - 向 Product Edge 提供的探索 Run Result 视图：** Dashboard 读 API 通过
+  `resolve_exploratory_replay_result_v2` 解析准确的规范 Result 字节，它位于
+  `crates/strategy_factory_rd_owner_api/src/bin/dashboard_read_api.rs`；`product/rd-workbench/Dockerfile.owner`
+  构建并安装该二进制；有序链路以
+  `replay_result_dashboard_read_api_returns_exact_canonical_bytes` 覆盖这道缝。这是 Backtest 唯一一条在已部署
+  产物里端到端可触达的输出交接。
+- **CURRENT_PARTIAL - 探索重放的生产入口：** 重放本身已实现并已证明，而已部署产物里没有任何东西能进入它。
+  `run_exploratory_replay_v2` 在自身 crate 之外恰有一个调用方，即
+  `crates/strategy_factory_rd_owner_api/src/exploratory_replay.rs`，而该调用方位于
+  `#[cfg(feature = "sealed-develop-composer-acceptance")]` 之下；镜像构建
+  `--bin strategy-factory-rd-owner-api` 时根本不带 `--features` 参数。这量的是部署产物，不是历史。另一条公开
+  提交路径 `commit_exploratory_replay_result_v2` 的调用方只存在于
+  `crates/backtest_owner/src/lib.rs` 的 `#[cfg(test)]` 模块内。
+- **CURRENT_PARTIAL - 保护观测：** Backtest 从它自己执行的那次运行的规范结果派生出观测，却无法得知为那次运行
+  冻结的是哪一个观测。`derive_protected_economic_measurement_v1` 从规范 Result 字节计算并封印它，其全部调用方
+  都在 `crates/backtest_owner/tests/protected_economic_measurement.rs` 内。
+  `ProtectedEconomicComputationV1::resolve` 是把冻结的 Qualification 政策束换成一个指标与一条覆盖规则的唯一
+  函数，它在任何地方都没有调用方；保护请求没有任何字段携带这两个引用之一；而
+  `product/rd-workbench/postgres-init/10-migrate-authority-custody.sh` 对
+  `public.qualification_protected_economic_policy_bundles_v1` 撤销了 `backtest_owner`。这项选择没有生产方。
+- **CURRENT_PARTIAL - 第二份 Run Result 投影：** `project_locked_exploratory_replay_result_v1` 位于
+  `crates/backtest_owner/src/result_projection/mod.rs`，它从规范 Result 字节解码回撤 Sharpe Sortino 已实现
+  PnL 手续费 滑点与收益，并且不出现在任何其他文件里。上面那条 Product Edge 交接以准确规范字节服务同一个
+  消费方。
+- **TARGET - `REPAIR_VALIDATION` 请求与结果：** 不存在任何实现。`REPAIR_VALIDATION` 与
+  `RepairValidation` 不出现在 `crates/` 或 `product/` 下的任何文件里。
+- **TARGET - `SIMULATOR` 与 `BACKTEST_OPERATIONAL` 原生 repair：** 不存在 Backtest 的 repair 面。四个 Backtest
+  crate 里 `repair` 的全部出现都是 `crates/backtest_owner/src/postgres.rs` 里记录 custody 永不被修复的注释；
+  `BACKTEST_RUNNER_SERVICE` 不出现在任何 Rust 文件里，而
+  `product/dashboard/lib/rd-iteration-timeline-client.ts` 已经把它列为合法修复目标。消费侧词汇存在，生产方
+  不存在。
+
 ## 共享策略生命周期契约
 
 Backtest 只消费 [StrategyDesignV2 共享内核路径](../architecture/strategy-factory#strategy-design-v2-shared-lifecycle-kernel)：
@@ -64,41 +110,15 @@ input receipt 与 cut、replay configuration、runtime/kernel/simulator identity
 seed、range、calendar/time-zone 含义和 semantic-trace digest。消费证据缺失或不匹配时不得生成正向
 receipt；两个 caller-authored DTO 相等绝不构成 request-result correlation。
 
-### `ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1` 终态结果路径
+### CURRENT_PARTIAL - 持久 Result custody 与 R&D 锁定读取
 
-**TARGET / ISOLATED_ACCEPTANCE_ONLY：** 这个被显式选择、由 request 驱动的路径，是对应 Market Data 隔离
-profile 唯一获准的动态验收 consumer。Backtest 只接收准确的 R&D Owner-issued 密封 request locator 与 receipt，
-并先通过固定只读 R&D Owner port resolve 其 canonical bytes 与 digest；同时还必须取得 Market Data 为该 request
-密封的只读 `StrategyInputSampleEventResolverV1` capability。它通过 `ProgramHost` 解析准确的
-request-selected Owner `EVENT` input 前，还必须取得新增的版本化 Owner binding receipt；该 receipt 交叉绑定
-sealed request、准确 Market Data projection receipt digest 与 Owner-native event identity。Replay V2 的
-`resolved_owner_inputs` 单独只是通用 content addressing，不能授权或重建这项 binding。
-它使用真实 BacktestEngine 与 Sim Exchange 执行，并只从这些组件的实际
-消费派生 actual-consumption record、完整 diagnosis、semantic trace 与 terminal result。caller 提供的 request、
-digest、DSN、fixture、fixed corpus 或重建 input 均不能替代任何 Owner handoff 或铸造 result。
-获准的 Store Admission receipt 还必须绑定 immutable external acceptance trust bundle，以及彼此独立的 signer、
-witness、credential-resolver 与 direct-measurer identity；由 candidate、caller、consumer 或被测进程派生的
-任何 authority 均不能满足该 prerequisite。
-
-一个 Backtest Owner transaction 必须一起提交准确 request identity/canonical bytes、唯一 attempt、密封 actual-
-consumption/diagnosis record 与 terminal result。逐字节相同 retry 加入同一个 attempt 并返回相同 canonical
-result receipt bytes；同一 identity 下 request、consumption、diagnosis 或 result bytes 任一不同即为 conflict，
-且零写入。process 与 repository restart 后，Owner 必须解析 request locator，并返回逐字节相同的 attempt、
-result receipt 与 actual-consumption readback。不得用 separate pool、in-memory/temp-file writer、caller
-persistence 或 response-loss retry 拆分或重建该原子 custody。
-
-Store Admission head/rotation/ACL/credential/measurement、Owner request、projection/event locator、sealed
-resolver、event 或 readback 任一缺失、过期、已取代、role 错误或不匹配，都必须在 `ProgramHost` invocation 或
-Backtest mutation 前失败，且不产生正向 receipt/result。隔离证明只覆盖该 disposable PostgreSQL topology；
-绝不建立 production readiness、default-product reachability、deployment authority、protected replay
-acceptance、Paper、Live、real trading 或另一项 production write，所有独立 production adapter 均保持
-`UNAVAILABLE`。
-
-### TARGET / NOT_ADMITTED - 持久 Result custody 与 R&D 锁定读取
-
-该 TARGET 把正式探索 Result 交接推进到隔离验收路径之外，但不把任何 runtime 或 PostgreSQL 实现提升为
-CURRENT。Backtest 仍是 Result fact 的唯一权威，拥有私有规范 Result 表及其只追加 outbox，且只有 Backtest
-writer 可以执行 DML。Protected Result custody 继续隔离，不能通过该 R&D seam 读取。
+Backtest Owner 拥有私有规范 Result 表及其只追加 outbox，且只有 Backtest writer 可以执行 DML。固定的
+`SECURITY DEFINER` `owner_api` 锁定读取函数 `resolve_exploratory_replay_result_v2/v3` 已经存在，有序 PostgreSQL
+链路已证明正向锁定 readback、function source 漂移、Owner API 兄弟例程、裸表 ACL 漂移、继承 owner 成员关系与
+owner 属性漂移的拒绝、拓扑围栏序列化、提交中途回滚、restart 逐字节一致 readback，以及 R&D 只读访问
+（`scripts/ci/test-rd-owner-postgres.bash` 中测试名以 `postgres_result_` 开头的那些 `vibe-backtest-owner`
+条目；`postgres_protected_result_` 那条有意不在其中）。Backtest 仍是 Result fact 的唯一权威，
+Protected Result custody 继续隔离，不能通过该 R&D seam 读取。
 
 Backtest Owner 暴露一个固定、使用安全 `search_path` 的 `SECURITY DEFINER` `owner_api` 锁定读取函数。
 其全限定读取在 caller 已开启的 PostgreSQL transaction 内锁定准确 Result、receipt 与 outbox row，并返回
@@ -115,25 +135,48 @@ pool 或 transaction 所得 readback 不能用于 R&D decision。
 owner 错误、function 错误、ACL 不匹配、非规范、digest 不匹配、receipt/outbox 不完整或由独立 transaction
 读取时都为 `UNAVAILABLE`。response loss 后，准确 `RESOLVE` 只能返回同一份既存且逐字节相同的 Backtest
 Result 与 receipt；不能创建首次 custody、重新组合 result，或追加第二份 Result、receipt 或 outbox event。
-只有实现完成，并由真实 disposable PostgreSQL 证明正向 readback、全部零 readback 拒绝、同事务锁定、
-restart 与 response-loss recovery 后才能准入。它不授予 Dashboard 实现、deployment、production write、
-provider effect、Paper、Live 或交易权威。
+已在该 disposable PostgreSQL 证明上准入；它仍不授予 Dashboard 实现、deployment、
+production write、provider effect、Paper、Live 或交易权威。
 
 ## 输入交接
 
-- [R&D](./rd/) 提交一个冻结 Exploratory Replay Request，绑定准确不可变工件 请求 PIT 数据
-  范围 重放配置，以及其 Research Intent 冻结的同一成本 滑点与容量模型版本。
+- [R&D](./rd/) 提交一个冻结 Exploratory Replay Request，由一个 R&D 拥有的定位符寻址，该定位符携带请求身份
+  规范请求含义摘要 回执身份与封存摘要。Backtest 通过固定的只读 R&D Owner 端口重新解析该定位符，并在读取任何
+  其他字段之前先用摘要校验规范请求字节；一个定位符标签 一份下游证言 或调用方自带的字节副本都不是该请求。
+  该请求固定准确不可变 Artifact 请求的 PIT 数据范围 重放配置 其 Research Intent 冻结的同一成本 滑点与容量
+  模型版本，以及一个正向终态结果必须逐项核对的请求含义的其余每个组成部分。Backtest 在 R&D 一侧可能观察到
+  `AVAILABLE` `STALE` 或 `UNAVAILABLE`；只有 `AVAILABLE` 准入一次尝试，而 `STALE` 与 `UNAVAILABLE` 都不是对
+  请求的拒绝，它们只说明该 Owner 当前无法供给。解析不到任何东西的定位符 摘要不符的字节 同一身份下含义已变的
+  请求 以及不作答的 R&D 端口，都不产生尝试也不产生结果：沉默绝不是 `UNAVAILABLE`，而 `UNAVAILABLE` 也绝不是
+  一个终态重放结果。Backtest 绝不重建 缺省或替换任何被请求的组成部分，绝不把两份调用方自撰表示之间的相等
+  当作请求与结果的相关性，也绝不为一份它自己没有校验过规范字节的请求开始尝试。
 - 已接纳 `D1_EXECUTABLE_REPAIR` 时，R&D 提交独立 `REPAIR_VALIDATION` request，绑定 D-only repair
   admission、前驱与后继 Artifact、defect oracle、完整 non-defect regression corpus、冻结语义相等证明
   和确定 event/signal/intent/order trace comparison。它既不是探索请求也不是保护请求。
 - [Qualification](./qualification/) 发送只在 `ADMITTED` intake 和 holdout 预留后创建的保护请求，冻结
   全部执行身份及准确 Candidate/Intake 保护政策 pair。每个请求处理一个已声明 Protected Robustness
   Plan 单元或准确冻结有界矩阵，Backtest 不能在观察结果后挑选单元；接入拒绝仍必须提交绑定同一请求的 `RUN_REJECTED` 结果。
-- [Market Data](./market-data/) 提供冻结 PIT 数据和标的条款。
+- [Market Data](./market-data/) 提供一次重放所消费的冻结 PIT 事实与标的条款：PIT Market Snapshot 身份与摘要
+  Universe Selection Record 身份与摘要 快照与更正规则 公司行动与历史成员截面 Market Semantics Compatibility
+  身份，以及逐标的的密封事实摘要 回执摘要与条款摘要，连同场所 报价与结算币种 有效期窗口 保证金模型与费用
+  条款。Backtest 以 Owner 密封回执的形式消费它们；它不查询存储 不挑选切片 也不接受调用方自带的夹具来顶替。
+  一份回执要么对准确的请求绑定范围是密封且可解析的 要么不是，不存在部分或临时形态：只有覆盖每个被请求标的
+  与整个被请求范围的完整集合才准入执行，而靠替换相邻截面 更晚的更正前沿 或不同成员来覆盖该范围的集合不准入。
+  缺失的回执 解析不了的身份 不符的摘要 请求绑定域之外的标的 不包含所请求截面的有效期窗口，或计算只容许一种
+  结算币种时出现多于一种，每一种都在 `ProgramHost` 调用之前失败且不产生任何正向回执，因为数据缺口是一个重放
+  证据事实，绝不是一个经济结果。Backtest 绝不推断缺失的价格 条款或成员，绝不悄悄改变成本，绝不替换为另一份
+  快照或另一个模拟版本，也绝不让遥测或投影顶替一份密封回执。
 - [R&D](./rd/) 还可提交一个冻结的 `SIMULATOR` 或 `BACKTEST_OPERATIONAL` `native-repair-request`。
   `SIMULATOR` 只能指向 Backtest 的 Sim Exchange 表面 `sim-exchange`；`BACKTEST_OPERATIONAL` 只能指向
   Native Replay 的 `BACKTEST_RUNNER_SERVICE`。目标 类别 前驱 proof 旧 identity source cut policy 时间错误或含义变化都不创建 Backtest repair
   attempt 或 result。
+
+这两条上游契约的准入程度不高于上游自己的记载：对应的 [Market Data](./market-data/) 输出交接把直连
+`BACKTEST_OWNER_V1` Instrument Master 解析标为 **TARGET**，因此此处任何内容都不得读作一条已准入的消费路径。
+探索路径在已部署的产物里同样不可达：`run_exploratory_replay_v2` 在其自身 crate 之外唯一的调用者位于
+`#[cfg(feature = "sealed-develop-composer-acceptance")]` 之下，而 `product/rd-workbench/Dockerfile.owner`
+构建 `strategy-factory-rd-owner-api` 时完全不带任何 feature 开关。这测的是部署产物而不是历史；它没有断言
+该路径是否曾在别的环境里跑过。
 
 ## 输出交接
 

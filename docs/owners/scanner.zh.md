@@ -30,8 +30,10 @@
 ## 实现状态台账
 
 本台账只记录仓库在本截面实际到达的状态。它沿用 [Market Data](./market-data/) 台账的状态词汇，并以
-`CURRENT_PARTIAL` 表示已合并但不可触达的形态；台账本身不授予任何许可：本文档没有任何切片是
-`IMPLEMENTATION_ADMITTED`，扩大准入集必须先修改本文档。
+`CURRENT_PARTIAL` 表示已合并但不可触达的形态；台账本身不授予任何许可：本截面上 `IMPLEMENTATION_ADMITTED`
+的恰好是输出交接中 Product Edge 那条点名的终态回执托管切片，扩大准入集必须先按 `AGENTS.md` 的架构权威规则
+修改本文档。已合并的 crate、已命名的类型、一次绿色作业或本台账的一行都不是实现权威，既不证明存在生产消费者，
+也绝不授权任何生产效应、部署切换或真实交易。
 
 - **CURRENT_PARTIAL - 确定性的 Scanner 核心：** `crates/scanner` 拥有带 fold、gap 与 misfire 处置的 `ScheduleDefinition`、
   due-slot 派生与稳定的 `AttemptId`、逐策略 `StrategyDisposition`、带五种状态与互斥成员分支的终态 `ScannerReceipt`、
@@ -40,24 +42,75 @@
   `crates/scanner/tests/public_owner_admission.rs` 与编译失败测试证明了这一失败关闭形状。
 - **TARGET - 生产装配：** 不存在调度器触发、sealed 来源 Owner 准入的生产构造器、`TerminalReceiptStore` 背后的持久
   回执 custody，以及 Product Edge 消费者；唯一的外部使用是 `crates/testkit/tests/f1_current_workspace.rs` 里的一个
-  类型导入。
+  类型导入。本条点名的持久 custody 与 Product Edge 消费者即已准入的切片；调度器触发与 sealed 准入构造器不是。
 - **TARGET - Strategy Loader、Market Snapshot 与 Capacity View 输入：** `StrategyLoader` 与 `MarketSnapshot` port 没有
   任何基于受治理注册表、Market Data PIT 事实或 Portfolio Capacity View 的实现。
 - **TARGET - 交接与持久化：** 没有任何终态回执到达 Governance 或 Product Edge，也没有任何 Scanner 事实被持久化。
+  本条中 Product Edge 的那一半已准入；到 Governance 的交接没有。
 
 ## 输入交接
 
-- 调度器提供固定周期触发，但没有部署权威。
-- [Strategy Governance](./strategy-governance/) 提供受治理 ArtifactRef 激活条件和生命周期约束。
-- [Market Data](./market-data/) 提供这些条件所需的同一时点市场和标的事实。
-- [Portfolio](./portfolio/) 可以提供有界 Capacity View 作为提案规模提示；只有已发布激活条件明确要求时才是必需输入。
+以下每条契约陈述的是 Scanner 要求什么 拒绝什么，而不是上游返回什么。四条缝在本截面上都不存在，台账中
+关于 `StrategyLoader`、`MarketSnapshot` 与 Capacity View 输入的那条已记；满足一条契约是对未来实现的条件，
+绝不是某条实现已被准入的证据。
+
+- 调度器提供固定周期触发而不提供事实，它没有部署权威。触发不携带任何 Scanner 信任的身份：尝试身份只由
+  Schedule Definition 版本 准确的扫描范围身份与版本 以及规范无歧义的到期槽边界导出。重复 并发 重启或迟到的
+  触发并入同一次尝试与同一份终态回执。缺失触发根本不产生尝试，因为没有尝试的回执等于断言发生过一次扫描。
+  Scanner 绝不让触发创造定义导不出的到期槽，也绝不把触发的时钟纪元纳入稳定身份。
+- [Strategy Governance](./strategy-governance/) 为一个到期槽提供受治理策略前沿：每个成员的准确 ArtifactRef
+  Eligibility 激活条件版本 资金封套版本 声明的数据需求与生效区间，与该到期槽相关联，并携带前沿自身的身份与
+  内容摘要。Scanner 要求的回答只有两种：要么绑定一个它可以据以核算的期望成员集合，要么绑定成员无法解析的
+  权威原因；其余一律拒绝。只有前者准入期望集合，因此也只有前者能到达任何状态的完整回执。后者与缺失回答都
+  在未解析集合分支上把尝试闭合为 `INCOMPLETE_FAILED`。Scanner 绝不从先前前沿 从它碰巧观察到的策略 或从一份
+  部分回答重建成员，也绝不把更小的前沿当作完整的前沿。
+- [Market Data](./market-data/) 为每个策略及其声明的数据需求提供一份密封 PIT 回读，与准确的请求身份和内容
+  摘要相关联，携带该 Owner 已发布的六态判定 `AVAILABLE` `INSUFFICIENT` `STALE` `UNLICENSED` `AMBIGUOUS` 或
+  `UNAVAILABLE`，连同准确的 Universe Selection Record 身份与摘要 Instrument Master 日历 交易时段与时区
+  公司行动与历史成员截面 以及 Market Semantics Compatibility 身份。只有 `AVAILABLE` 能把一个策略带到
+  `MATCHED`。`INSUFFICIENT` 提交该策略的 `INSUFFICIENT_DATA`；其余四态各自提交它的 `INPUT_UNAVAILABLE`，
+  缺失回答同样如此，且都只针对该策略。这些都不是 batch 失败：一个策略缺少输入绝不能压住另一个策略的完整
+  匹配。Scanner 绝不修复语义不匹配 绝不替换为相邻截面 也绝不把一个否定判定读作没有不利数据。
+- [Portfolio](./portfolio/) 只在已发布激活条件要求容量时提供有界 Capacity View。Scanner 绑定候选中立的
+  Capacity Scope 准确的账户事实 估值与流动性截面 资金池方法与假设版本 测量时刻 以及有效期限。只有 Capacity
+  Scope 截面 版本与新鲜度全部与该条件匹配的 `AVAILABLE` 视图才能把该策略带到 `MATCHED`；部分 过期 不可用 跨 scope，或
+  方法 假设 输入截面不匹配的视图提交 `INPUT_UNAVAILABLE`，缺失回答同样如此。条件不要求容量时，视图缺失不是
+  缺陷，也绝不改变任何判定。Scanner 绝不把带策略或带 generation 的 scope 一个 Paper/Live 别名 或一处未解析的
+  共享约束重叠，当作条件所指的候选中立 scope。
 
 ## 输出交接
 
-- 每个定时 ScanId 向 [Strategy Governance](./strategy-governance/) 提交且只提交一个终态 Scanner Receipt。
-- 向 Product Edge 提供每个 ScheduledScanId 的 Scanner-owned 终态回执直接读取。Product Edge 读取准确
-  完成状态 互斥 expected-set 分支 终态原因，且只在 `PROPOSED` 时读取 proposal members；不创建第二
-  Scanner-owned 投影。
+- 每个定时 ScanId 向 [Strategy Governance](./strategy-governance/) 提交且只提交一个终态 Scanner Receipt，
+  绑定稳定的尝试身份，并且只携带 `PROPOSED` `NO_MATCH` `INSUFFICIENT_DATA` `COMPLETED_NO_PROPOSAL` 或
+  `FAILED` 之一。只有 `PROPOSED` 携带 proposal members，而 Governance 只能考虑那些策略条目 ArtifactRef 与
+  条件版本都与其决定对象完全相等的成员。缺失回执保持未知：绝不读作 `NO_MATCH`，绝不读作一次已完成的扫描，
+  在激活依赖条件时也绝不读作可以不凭 Scanner 证据继续的许可。回执是证据，绝不是授权。
+- 向 Product Edge 提供每个 ScheduledScanId 的 Scanner-owned 终态回执直接读取，以该身份为键，返回回执准确的
+  完成状态 它互斥的 expected-set 分支 它的终态原因，以及只在 `PROPOSED` 时才有的 proposal members。一次读取
+  要么返回恰好一个绑定到所请求尝试的终态回执，要么拒绝。以下四种情况分别拒绝：该尝试没有回执；存储返回了
+  绑定到别的尝试的回执；存储自述语义冲突；存储不可用。中间两种是**已检出的托管故障**，绝不得显示成缺失或
+  未知的结果。Product Edge 不创建第二份 Scanner-owned 投影，不派生自己的状态，也绝不把一个不完整的
+  `FAILED` 集合标为完整，或把一个未解析的期望集合渲染成空集。
+  **IMPLEMENTATION_ADMITTED，终态回执托管及其 Product Edge 读回：** 一个位于 `TerminalReceiptStore` 之后的生产
+  实现，为每个稳定的 `AttemptId` 持久保存且只保存一个终态 Scanner Receipt，即 Schedule Definition 版本、
+  准确的扫描范围身份与版本、以及规范的到期槽边界，这正是本文档通篇所称的 ScheduledScanId，也是该 port
+  接受的唯一键；以及其上的一个
+  `ProductEdgeTerminalReceiptReader`，它对一次读取要么返回恰好那一份回执，要么给出上述四种拒绝之一，其中
+  中间两种仍然区分为已检出的托管故障。存储不住在 `crates/scanner` 里：该 crate 一条运行时依赖都没有声明，
+  两个回执构造器都是 `pub(crate)`，而 `crates/scanner/tests/ui/terminal_receipt_cannot_deserialize.rs`
+  把这一点钉成设计意图而非疏漏。因此本切片还包含使"从外部读回"成为可能的那一件事：`crates/scanner` 上一条
+  校验式重建入口，它解析规范字节并拒绝重建不出来的东西，形状与本仓库已有的 `parse_untrusted_grant_envelope`
+  相同。回执上的 `serde::Deserialize`，以及域核心里的数据库依赖，都被排除在外。
+  这一切片在代码面上是有界的：两端都已经作为 port 存在于 `crates/scanner` 内部，
+  且两个名字在该 crate 之外都没有任何引用。但它今天还建不了，因为平台面是空的：
+  本 Owner 在两条供给路径上都没有数据库角色、没有 schema，`CanonicalOwnerTestRoleV1`
+  也没有 Scanner 变体，所以写不出任何链路条目，而链路条目正是本准入的验收。
+  因此建那个存储要等 `scanner_owner` 与它的 schema 同时存在于 `postgres-init` 那条路径
+  与 `scripts/ci/test-rd-owner-postgres.bash` 那条路径，并等 testkit 的角色表与 URL 表带上它。
+  那条重建入口不等待上述任何一样。
+  **NOT_ADMITTED：** 调度器触发、sealed 来源 Owner 准入的生产构造器、任何 `StrategyLoader` `MarketSnapshot`
+  或 Capacity View 实现、到 Governance 的回执交接、终态回执以外的任何 Scanner 事实，以及一切生产效应
+  部署切换与真实交易。
 
 ## 拒绝和禁止事项
 
@@ -84,6 +137,18 @@ batch `FAILED`、完整 `PROPOSED`、完整 `COMPLETED_NO_PROPOSAL`、`INSUFFICI
 解析到同一 attempt 与终态回执。cadence calendar time zone 时区规则 fold/gap misfire 或 backfill rule
 变化时创建后继 definition。clock continuity 缺失，或 scope/slot 证据冲突 无法解析时，不创建 attempt；
 基于墙钟的重试不能发明新 slot，也不能把新 clock epoch 写入稳定身份。
+
+**终态回执的读回是时间无关的，而且必须保持如此。** 准入所消费的那次时钟观测不是回执的一部分，
+所以读回无法重跑准入的时钟谓词，也不得被改成重跑：一份今天这样读、明天那样读的回执，
+已经不是终态记录。读回真正重算的，是那些两侧都仍然由回执持有的检查：source、frontier、scope
+与 requirement 各项检查、六条 market cross-cut 与一条 capacity cross-cut，
+以及由保留下来的 boundary 决定的到期时刻。
+一个回执携带、而它的对侧不携带的字段，比如每条 fact 的观测时刻，不被重查；
+为它导出一个替代的对侧，会让这项检查的强度取决于那次扫描恰好需要什么。
+读回还能够到一条准入够不到的不变量：同一份回执里的每条 fact 共用同一个到期槽，
+因此它们的 clock epoch 与 Time Evidence 必须全体相等。
+准入一条 fact 时看不到第二条 fact，所以准入路径上没有任何东西能查这一条；
+只有整份回执回来之后才查得了。
 
 ## 决策契约
 

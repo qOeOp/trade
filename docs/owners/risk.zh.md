@@ -56,10 +56,11 @@
   `risk_owner`/`risk_writer` 角色对，覆盖 `risk_private` 与 `risk_api` 两个 schema；以及一个只读的 Risk
   custody，它在自己的事务内通过该 Owner 的 `portfolio_api` 读函数重读 Portfolio 自己的 `BOUND` Capacity
   Scope 与当前 Capacity View，并把读到的内容连同读取时所处的证据截面一并封存。它不做任何 Risk 决策 不提交
-  Reservation 不写 fence 也不消费 Trade Intent，因为这四者的输入都没有生产者。三项前置不在本 Owner 手上：
-  那两个读函数随 Portfolio 的 Capacity Scope custody 切片一同到来，目前尚不在仓库里；角色对与其 schema
-  属于 `product/rd-workbench/postgres-init/` 下的共享面变更；以及那两个读函数到来时，Portfolio 必须把它们
-  的执行权授予 `risk_writer`。准入是建造并验证这一条读取的许可，它不授权任何 Risk 决策 任何生产效果 或真实
+  Reservation 不写 fence 也不消费 Trade Intent，因为这四者的输入都没有生产者。两项前置不在本 Owner 手上：
+  角色对与其 schema 属于 `product/rd-workbench/postgres-init/` 下的共享面变更；以及 Portfolio 必须把那两个
+  读函数的执行权授予 `risk_writer`。这两个函数由 `crates/portfolio_owner/src/capacity_scope_postgres.rs` 建出，
+  它的迁移把这两个函数以及该 schema 的 `USAGE` 只授给 `governance_writer`；读者可以直接去那里复核这两条授权，
+  不必采信本句。准入是建造并验证这一条读取的许可，它不授权任何 Risk 决策 任何生产效果 或真实
   交易。
 - **TARGET - Risk Engine：** `crates/risk/src/engine/mod.rs` 里继承的 `RiskEngine` 执行交易前订单校验、`TradingState`
   的 halt 与 reduce 切换、名义额与速率限制，以及 `crates/risk/src/sizing.rs` 的仓位规模计算；它是 capability adoption
@@ -70,11 +71,25 @@
 - **TARGET - Risk Reservation、Reservation Claim Result 与 Adapter Admission Result：** 一次性 Reservation 生命周期、
   claim 仲裁，以及与 fence activation 串行化的 `ADMITTED_ONCE` 都没有实现；仓库里没有任何东西发送或接收
   Reservation Claim Request 或 `ADAPTER_ADMISSION_REQUEST`。
-- **TARGET - Aggregate Commitment Frontier：** 不存在同 scope 序列化，而它依赖的 Portfolio-owned Capacity Scope 本身
-  只是 `crates/portfolio` 里的 Discovery 契约。
-- **TARGET - Recovery Fence 与 Kill Switch：** 继承的 `TradingState` `Halted` 与 `Reducing` 状态只是进程本地开关；
-  没有任何 fence 绑定 `RUNTIME_NOT_READY`、`RUNTIME_INCIDENT`、`RECONCILIATION_DRIFT` 或 `RISK_HARD_STOP` 来源分支，
-  也不存在 active-fence-set identity 或动作交集。
+- **TARGET - Aggregate Commitment Frontier：** 不存在同 scope 序列化。它依赖的 Portfolio-owned Capacity Scope
+  现在在 `crates/portfolio_owner` 里有生产 custody，所以这里缺的是 Risk 自己的序列化，不是它要序列化的那个 scope。
+- **TARGET / IMPLEMENTATION_ADMITTED - Kill Switch：** 准入的切片是一个带外停机哨兵，以及"对某个 venue 而言
+  交易是否已停"这一次读取。哨兵是一个文件，它的存在就是停机，它的内容只是归因：读者在里面找到的任何东西
+  都不能解除由文件存在所宣告的停机。这次读取在一个穷举集合上失败关闭。文件不存在是唯一不判停的答案。
+  文件存在且可解析、文件存在但读不出、文件存在但解析不了、文件存在但内容不被本 Owner 识别，四者都判停。
+  列表没有点名的状态没有剩余分支，因为剩余分支正是"一个读不懂的哨兵变成一张交易许可"的地方。
+  全局哨兵对每个 venue 都答"已停"，无论各 venue 自己的哨兵怎么说，所以 venue 级哨兵只能增加一次停机，
+  永远不能解除一次停机。
+  这次读取只依赖文件系统：不读数据库、不调网络端点、不问别的 Owner、不依赖任何会推理的东西。一个需要这些
+  才能用的停机开关，恰好在需要它的事故里不可用。继承的 `TradingState` `Halted` 与 `Reducing` 在这里不顶用，
+  因为它们是进程本地的，而进程卡死时进程内的开关和它一起卡死。
+  准入是建造并验证这一次读取的许可。它不授权任何 Risk 决策 任何订单路径 任何生产效果 或真实交易。它不是
+  Recovery Fence：不绑定任何来源分支 不携带 fence epoch 也不与任何动作集合求交。形状取自 Vibe-Trading 的
+  `agent/src/live/halt.py`（MIT），那里哨兵的存在同样就是停机，内容损坏同样判为已触发而不是被忽略。
+- **TARGET - Recovery Fence：** 没有任何 fence 绑定 `RUNTIME_NOT_READY`、`RUNTIME_INCIDENT`、
+  `RECONCILIATION_DRIFT` 或 `RISK_HARD_STOP` 来源分支，也不存在 active-fence-set identity 或动作交集。
+  那四个来源事实都要由今天一个都不产出它们的 Owner 来生产，这就是这一半仍然堵着、而上面的 Kill Switch
+  不依赖任何东西的原因。
 - **TARGET - 交接与持久化：** 没有通向 Runtime、Governance、Portfolio 或 Execution 的 port，也没有任何 Risk 事实的
   持久关系。
 

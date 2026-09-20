@@ -323,3 +323,31 @@ test("conflicting duplicate keys and out-of-range Owner u64 values fail closed",
     assert.equal(result.projection.replayBasis, null);
   }
 });
+
+test("gateway reads a sealed schema 3 receipt exactly and rejects a drifted execution-profile seal", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const { parseExploratoryReplayOwnerV2 } = await import("../lib/exploratory-replay-readback-client.ts");
+  // Exact bytes the first-party read API answered for a Replay V2 request the R&D Owner sealed
+  // with the Catalog V3 execution-profile seal (2026-09-18).
+  const sealed = JSON.parse(await readFile(
+    new URL("./fixtures/exploratory_replay_readback_sealed_v3.json", import.meta.url), "utf8",
+  ));
+  const requestIdentity = sealed.projection.request_identity;
+  const meaningDigest = sealed.readback.meaning_digest;
+  const projection = parseExploratoryReplayOwnerV2(structuredClone(sealed), requestIdentity, meaningDigest);
+  assert.ok(projection?.readback);
+  assert.equal(projection.availability, "AVAILABLE");
+  assert.equal(projection.readback.trialFamilyIdentity, sealed.readback.request.trial_family.identity);
+  assert.equal(projection.readback.receiptIdentity, sealed.readback.receipt.receipt_identity);
+  for (const tamper of [
+    (value) => { value.readback.receipt.execution_profile_seal.request.trial_family_identity = "another-family"; },
+    (value) => { value.readback.execution_profile_seal.catalog_v3_binding_digest[0] ^= 1; },
+    (value) => { delete value.readback.execution_profile_seal; },
+    (value) => { delete value.readback.receipt.execution_profile_seal; },
+    (value) => { value.readback.receipt.schema_version = 2; },
+  ]) {
+    const value = structuredClone(sealed);
+    tamper(value);
+    assert.equal(parseExploratoryReplayOwnerV2(value, requestIdentity, meaningDigest), null);
+  }
+});

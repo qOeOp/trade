@@ -1,5 +1,5 @@
 use rstest::rstest;
-use vibe_portfolio::owner::portfolio_view::{
+use vibe_portfolio_owner::portfolio_view::{
     PORTFOLIO_VIEW_SCHEMA_VERSION, PortfolioViewAvailability, PortfolioViewDependencyFailure,
     PortfolioViewDependencyKind, PortfolioViewDisposition, PortfolioViewMode,
     PortfolioViewReplayDisposition, PortfolioViewRequest, PortfolioViewResolution,

@@ -93,7 +93,17 @@ function validResearchView(
     "source_frontier", "next_legal_action",
   ]
   const artifact = ["attempt_identity", "artifact_identity", "build_receipt_identity", "artifact_review_identity"]
-  if (!version(value) || !exactKeys(value, phase === "ARTIFACT_AVAILABLE" ? [...base, ...artifact] : base)) return false
+  // The phase decides the field set rather than permitting extra fields: the producing side refuses
+  // an INTENT_FROZEN view that carries exploration fields as firmly as it refuses an exploration
+  // view that lacks them. Reading "whatever is present" would admit a malformed view as a valid one.
+  const exploration = ["composer_artifact", "exploration"]
+  const keys = phase === "ARTIFACT_AVAILABLE"
+    ? [...base, ...artifact]
+    : phase === "EXPLORATION_ACTIVE" ? [...base, ...exploration] : base
+  // An exploration view is schema 3, and the schema is part of what the phase decides.
+  if (!version(value, phase === "EXPLORATION_ACTIVE" ? 3 : 1) || !exactKeys(value, keys)) return false
+  if (phase === "EXPLORATION_ACTIVE"
+    && !validExplorationView(value.composer_artifact, value.exploration)) return false
   const available = value.availability === "AVAILABLE"
     && value.projection_at_epoch_ms < value.valid_through_epoch_ms
   const stale = allowStale && value.availability === "STALE"
@@ -105,6 +115,51 @@ function validResearchView(
     && epoch(value.valid_through_epoch_ms) && (available || stale) && value.phase === phase
     && Array.isArray(value.source_frontier) && value.source_frontier.every(validSource)
     && (phase !== "ARTIFACT_AVAILABLE" || artifact.every((key) => text(value[key])))
+}
+
+// The two structures a schema 3 view carries, and the three facts they must agree on. The equalities
+// are not redundant checks of one value: they are what makes "these two structures describe the same
+// family and the same census cut" decidable by the reader rather than assumed from their proximity.
+export function validExplorationView(composerArtifact: unknown, exploration: unknown): boolean {
+  if (!object(composerArtifact) || !object(exploration)) return false
+  if (!exactKeys(composerArtifact, [
+    "artifact_locator", "artifact_identity_digest", "composer_request_identity",
+    "composer_operation_receipt_digest", "artifact_family_binding_identity",
+    "artifact_family_binding_digest", "artifact_family_binding_receipt_identity",
+    "trial_family_identity", "census_frontier_identity", "census_frontier_digest",
+  ]) || !exactKeys(exploration, [
+    "trial_family_identity", "census_frontier_identity", "census_frontier_digest",
+    "replay_request_identity", "replay_request_meaning_digest", "replay_request_seal_digest",
+    "replay_receipt_identity",
+  ])) return false
+  const bare = (digest: unknown) => typeof digest === "string" ? digest.slice("sha256:".length) : ""
+  return sha256Digest(composerArtifact.artifact_identity_digest)
+    && composerArtifact.artifact_locator
+      === `rd-strategy-artifact-v2-${bare(composerArtifact.artifact_identity_digest)}`
+    && text(composerArtifact.composer_request_identity)
+    && sha256Digest(composerArtifact.composer_operation_receipt_digest)
+    && sha256Digest(composerArtifact.artifact_family_binding_digest)
+    && composerArtifact.artifact_family_binding_identity
+      === `rd-composer-artifact-family-binding-v3-${bare(composerArtifact.artifact_family_binding_digest)}`
+    && namedSha256(
+      composerArtifact.artifact_family_binding_receipt_identity,
+      "rd-composer-artifact-family-binding-receipt-v3-",
+    )
+    && text(composerArtifact.trial_family_identity)
+    && text(composerArtifact.census_frontier_identity)
+    && sha256Digest(composerArtifact.census_frontier_digest)
+    && composerArtifact.trial_family_identity === exploration.trial_family_identity
+    && composerArtifact.census_frontier_identity === exploration.census_frontier_identity
+    && composerArtifact.census_frontier_digest === exploration.census_frontier_digest
+    && text(exploration.replay_request_identity)
+    && sha256Digest(exploration.replay_request_meaning_digest)
+    && sha256Digest(exploration.replay_request_seal_digest)
+    && namedSha256(exploration.replay_receipt_identity, "rd-exploratory-replay-receipt-v2-")
+}
+
+function namedSha256(value: unknown, prefix: string): boolean {
+  return typeof value === "string" && value.startsWith(prefix)
+    && /^[0-9a-f]{64}$/u.test(value.slice(prefix.length))
 }
 
 async function validBasis(value: unknown, requestIdentity: string): Promise<boolean> {
@@ -236,16 +291,74 @@ function validReplayPolicyBindingV2(value: unknown): value is Json {
     && bytes(value.catalog_record_digest, 32)
 }
 
+// The Catalog V3 seal fixes the same V2 policy record plus the two execution profiles that
+// replay that policy; the Owner copies one seal onto the family root, its receipt and its census
+// frontier at formation, so the three copies must be byte-identical.
+function validReplayExecutionProfileSealsV1(value: unknown): value is Json {
+  return object(value) && exactKeys(value, [
+    "economic_configuration_canonical_bytes", "economic_configuration_digest",
+    "runner_operational_profile_canonical_bytes", "runner_operational_profile_digest",
+    "catalog_record_digest", "binding_digest",
+  ]) && bytes(value.economic_configuration_canonical_bytes)
+    && value.economic_configuration_canonical_bytes.length > 0
+    && value.economic_configuration_canonical_bytes.length <= 65536
+    && bytes(value.runner_operational_profile_canonical_bytes)
+    && value.runner_operational_profile_canonical_bytes.length > 0
+    && value.runner_operational_profile_canonical_bytes.length <= 65536
+    && bytes(value.economic_configuration_digest, 32) && bytes(value.runner_operational_profile_digest, 32)
+    && bytes(value.catalog_record_digest, 32) && bytes(value.binding_digest, 32)
+}
+
+function validReplayPolicyCatalogBindingV3(value: unknown, replayPolicy: unknown): value is Json {
+  return object(value) && exactKeys(value, [
+    "schema_version", "replay_policy_v2", "execution_profiles_v1", "binding_digest",
+  ]) && value.schema_version === 3 && sameReplayPolicyBindingV2(value.replay_policy_v2, replayPolicy)
+    && validReplayExecutionProfileSealsV1(value.execution_profiles_v1)
+    && JSON.stringify(value.execution_profiles_v1.catalog_record_digest)
+      === JSON.stringify((replayPolicy as Json).catalog_record_digest)
+    && bytes(value.binding_digest, 32)
+}
+
+// R&D decision semantics are sealed from the Catalog V3 record, so the decision binding must
+// name exactly the policy record the family replays with.
+function validDecisionPolicyBindingV1(value: unknown, replayPolicy: Json): value is Json {
+  return object(value) && exactKeys(value, [
+    "schema_version", "policy_identity", "policy_version", "policy_digest",
+    "diagnostic_policy_identity", "diagnostic_policy_version", "replay_catalog_record_id",
+    "replay_catalog_version", "replay_catalog_record_digest", "information_value_threshold_identity",
+    "information_value_threshold_digest", "tie_break_policy_identity", "tie_break_policy_digest",
+    "binding_digest",
+  ]) && value.schema_version === 1 && value.policy_identity === "rd.iteration-decision-policy.v1"
+    && integer(value.policy_version) && Number(value.policy_version) > 0 && bytes(value.policy_digest, 32)
+    && text(value.diagnostic_policy_identity) && text(value.diagnostic_policy_version)
+    && value.replay_catalog_record_id === replayPolicy.catalog_record_id
+    && value.replay_catalog_version === replayPolicy.catalog_version
+    && JSON.stringify(value.replay_catalog_record_digest) === JSON.stringify(replayPolicy.catalog_record_digest)
+    && text(value.information_value_threshold_identity) && bytes(value.information_value_threshold_digest, 32)
+    && text(value.tie_break_policy_identity) && bytes(value.tie_break_policy_digest, 32)
+    && bytes(value.binding_digest, 32)
+}
+
+const FAMILY_POLICY_SEALS = ["replay_execution_policy_v2", "replay_policy_catalog_v3", "decision_policy_v1"]
+
+function presentSeals(value: Json, seals: string[]): string[] {
+  return seals.filter((key) => key in value)
+}
+
 function validPolicy(value: unknown, basis?: Json, feedback?: Json): value is Json {
   const keys = [
     "trial_budget", "stop_rule", "pit_rule_identity", "cost_model_identity", "slippage_model_identity",
     "capacity_model_identity", "semantic_predecessor_frontier", "protected_feedback_frontier",
     "independence_disposition", "independence_basis_identity", "frozen_falsifier_binding",
   ]
-  if (!object(value) || !exactKeys(value,
-    "replay_execution_policy_v2" in value ? [...keys, "replay_execution_policy_v2"] : keys)
-    || ("replay_execution_policy_v2" in value
-      && !validReplayPolicyBindingV2(value.replay_execution_policy_v2))
+  if (!object(value) || !exactKeys(value, [...keys, ...presentSeals(value, FAMILY_POLICY_SEALS)])) return false
+  const replayPolicy = value.replay_execution_policy_v2
+  if (("replay_execution_policy_v2" in value && !validReplayPolicyBindingV2(replayPolicy))
+    || ("replay_policy_catalog_v3" in value
+      && (!object(replayPolicy) || !validReplayPolicyCatalogBindingV3(value.replay_policy_catalog_v3, replayPolicy)))
+    || ("decision_policy_v1" in value
+      && (!object(replayPolicy) || !("replay_policy_catalog_v3" in value)
+        || !validDecisionPolicyBindingV1(value.decision_policy_v1, replayPolicy)))
     || !integer(value.trial_budget) || Number(value.trial_budget) === 0
     || ![value.stop_rule, value.pit_rule_identity, value.cost_model_identity, value.slippage_model_identity,
       value.capacity_model_identity, value.protected_feedback_frontier, value.independence_basis_identity,
@@ -285,8 +398,7 @@ function validTrialFamily(
   if (!version(root) || !exactKeys(root, [
     "schema_version", "trial_family_identity", "policy", "policy_digest", "root_digest", "created_at_epoch_ms",
   ]) || !version(rootReceipt) || !exactKeys(rootReceipt,
-    "replay_execution_policy_v2" in rootReceipt
-      ? [...rootReceiptKeys, "replay_execution_policy_v2"] : rootReceiptKeys)
+    [...rootReceiptKeys, ...presentSeals(rootReceipt, FAMILY_POLICY_SEALS.slice(0, 2))])
   || !version(member) || !exactKeys(member, [
     "schema_version", "member_identity", "trial_family_identity", "member_kind", "fact_identity",
     "fact_digest", "ordinal", "member_digest",
@@ -294,8 +406,7 @@ function validTrialFamily(
     "schema_version", "receipt_identity", "trial_family_identity", "member_identity", "member_digest",
     "committed_at_epoch_ms",
   ]) || !version(census) || !exactKeys(census,
-    "replay_execution_policy_v2" in census
-      ? [...censusKeys, "replay_execution_policy_v2"] : censusKeys)) return false
+    [...censusKeys, ...presentSeals(census, FAMILY_POLICY_SEALS.slice(0, 2))])) return false
   const policyValid = validPolicy(root.policy, basis, feedback)
   const replayPolicy = root.policy.replay_execution_policy_v2
   const replayBindingsValid = replayPolicy === undefined
@@ -304,7 +415,12 @@ function validTrialFamily(
     : validReplayPolicyBindingV2(replayPolicy)
       && sameReplayPolicyBindingV2(rootReceipt.replay_execution_policy_v2, replayPolicy)
       && sameReplayPolicyBindingV2(census.replay_execution_policy_v2, replayPolicy)
-  return policyValid && replayBindingsValid
+  const catalog = root.policy.replay_policy_catalog_v3
+  const catalogBindingsValid = catalog === undefined
+    ? rootReceipt.replay_policy_catalog_v3 === undefined && census.replay_policy_catalog_v3 === undefined
+    : JSON.stringify(rootReceipt.replay_policy_catalog_v3) === JSON.stringify(catalog)
+      && JSON.stringify(census.replay_policy_catalog_v3) === JSON.stringify(catalog)
+  return policyValid && replayBindingsValid && catalogBindingsValid
     && text(root.trial_family_identity) && text(root.policy_digest) && text(root.root_digest)
     && epoch(root.created_at_epoch_ms) && text(rootReceipt.receipt_identity)
     && rootReceipt.trial_family_identity === root.trial_family_identity
@@ -371,11 +487,38 @@ export async function deriveResearchConsumerProjectionV1(value: unknown, request
   const researchSuffix = await sha256Text(`v2:${requestIdentity}:${raw.owner_receipt.semantic_digest}`)
   const stale = raw.research_view?.availability === "STALE"
   const artifactAvailable = raw.research_view?.phase === "ARTIFACT_AVAILABLE"
-  const viewPhase = artifactAvailable ? "ARTIFACT_AVAILABLE" : "INTENT_FROZEN"
+  const explorationActive = raw.research_view?.phase === "EXPLORATION_ACTIVE"
+  const viewPhase = artifactAvailable
+    ? "ARTIFACT_AVAILABLE"
+    : explorationActive ? "EXPLORATION_ACTIVE" : "INTENT_FROZEN"
+  // Every phase's cut is derived from something else the view carries, so none of them is a value
+  // this side has to take on trust. An exploration cut names the seal digest of the replay request
+  // the exploration ran, which the view states beside it.
   const sourceCutValid = artifactAvailable
     ? raw.research_view?.source_cut === `rd-artifact-cut-v1-${raw.research_view?.artifact_identity}`
-    : raw.research_view?.source_cut === `rd-source-cut-v2-${researchSuffix}`
-  const viewWindowValid = artifactAvailable
+    : explorationActive
+      ? raw.research_view?.source_cut === `rd-composer-exploration-cut-v3-${
+        String(raw.research_view?.exploration?.replay_request_seal_digest ?? "").slice("sha256:".length)
+      }`
+      : raw.research_view?.source_cut === `rd-source-cut-v2-${researchSuffix}`
+  const viewWindowValid = explorationActive
+    // The producing side binds this window to the INTENT_FROZEN view the exploration grew out of,
+    // which this side is never sent, so the receipt's commit instant stands in for that view's
+    // projection instant.
+    //
+    // What holds that substitution, exactly: on the producing side the two are equal by
+    // construction rather than by assertion - one clock reading fills the receipt's commit instant
+    // and the view's observed and projection instants in the same function. What asserts it is this
+    // projection, a few lines below, for INTENT_FROZEN views. So a drift would be caught, but on
+    // those requests rather than on this one: for an exploration view the substitution rests on an
+    // equality nothing checks here. The failure it would cause is a refusal of a legal view, which
+    // is loud and closed rather than quiet and open, and that is the only reason it is acceptable
+    // to leave standing rather than to pin.
+    ? raw.research_view.projection_at_epoch_ms === raw.research_view.observed_at_epoch_ms
+      && raw.research_view.projection_at_epoch_ms >= raw.owner_receipt.committed_at_epoch_ms
+      && raw.research_view.valid_through_epoch_ms
+        === raw.research_view.projection_at_epoch_ms + 600_000
+    : artifactAvailable
     ? (stale
       ? raw.research_view.projection_at_epoch_ms >= raw.research_view.observed_at_epoch_ms
       : raw.research_view.projection_at_epoch_ms === raw.research_view.observed_at_epoch_ms)
@@ -393,13 +536,20 @@ export async function deriveResearchConsumerProjectionV1(value: unknown, request
   const nextLegalActionValid = stale
     ? raw.research_view?.next_legal_action === "RESOLVE_SAME_REQUEST_IDENTITY"
       && raw.next_legal_action === "RESOLVE_SAME_REQUEST_IDENTITY"
+    : explorationActive
+      ? raw.research_view?.next_legal_action === "VIEW_EXPLORATORY_RUN"
+        && raw.next_legal_action === "VIEW_EXPLORATORY_RUN"
     : artifactAvailable
       ? raw.research_view?.next_legal_action === "REVIEW_ARTIFACT"
         && raw.next_legal_action === "REVIEW_ARTIFACT"
       : raw.research_view?.next_legal_action === "WAIT_FOR_R_AND_D_EXECUTION"
         && raw.next_legal_action === "WAIT_FOR_R_AND_D_EXECUTION"
-  if (!validResearchView(raw.research_view, requestIdentity, intent, viewPhase, true)
-    || raw.research_view.projection_identity !== await canonicalResearchViewIdentityV2(raw.research_view)
+  // An exploration view is available or it is nothing: the producing side admits no stale form of
+  // it, so this side must not accept one either.
+  if (!validResearchView(raw.research_view, requestIdentity, intent, viewPhase, !explorationActive)
+    || raw.research_view.projection_identity !== (explorationActive
+      ? await canonicalResearchViewIdentityV4(raw.research_view)
+      : await canonicalResearchViewIdentityV2(raw.research_view))
     || !sourceCutValid || !viewWindowValid || !nextLegalActionValid
     || raw.research_view.trusted_principal !== raw.independence_basis?.principal
     || JSON.stringify(raw.research_view.authorized_scope) !== JSON.stringify(raw.independence_basis?.request_scope)
@@ -411,7 +561,9 @@ export async function deriveResearchConsumerProjectionV1(value: unknown, request
     || raw.protected_feedback.receipt.committed_at_epoch_ms > raw.owner_receipt.committed_at_epoch_ms
     || raw.protected_feedback.projection_at_epoch_ms > raw.owner_receipt.committed_at_epoch_ms
     || raw.owner_receipt.committed_at_epoch_ms >= raw.protected_feedback.valid_through_epoch_ms
-    || (!artifactAvailable
+    // Only an INTENT_FROZEN window is cut against the feedback's. The later phases carry a window
+    // of their own, measured from when they were projected.
+    || (!artifactAvailable && !explorationActive
       && raw.research_view.valid_through_epoch_ms > raw.protected_feedback.valid_through_epoch_ms)
     || raw.trial_family.root.created_at_epoch_ms !== raw.owner_receipt.committed_at_epoch_ms
     || !await canonicalTrialFamilyV1(
@@ -922,6 +1074,15 @@ function orderedReplayPolicyBindingV2(value: Json): Json {
   }
 }
 
+function sameReplayPolicyCatalogBindingV3(left: unknown, right: unknown): boolean {
+  if (left === undefined || right === undefined) {
+    return left === undefined && right === undefined
+  }
+  return object(left) && object(right)
+    && JSON.stringify(orderedReplayPolicyCatalogBindingV3(left))
+      === JSON.stringify(orderedReplayPolicyCatalogBindingV3(right))
+}
+
 function sameReplayPolicyBindingV2(left: unknown, right: unknown): boolean {
   if (left === undefined || right === undefined) {
     return left === undefined && right === undefined
@@ -945,13 +1106,152 @@ function canonicalTrialFamilyPolicyV1(policy: Json): Json {
     independence_basis_identity: policy.independence_basis_identity,
     frozen_falsifier_binding: policy.frozen_falsifier_binding,
   }
-  return policy.replay_execution_policy_v2 === undefined ? canonical : {
+  return {
     ...canonical,
-    replay_execution_policy_v2: orderedReplayPolicyBindingV2(policy.replay_execution_policy_v2),
+    ...(policy.replay_execution_policy_v2 === undefined ? {} : {
+      replay_execution_policy_v2: orderedReplayPolicyBindingV2(policy.replay_execution_policy_v2),
+    }),
+    ...(policy.replay_policy_catalog_v3 === undefined ? {} : {
+      replay_policy_catalog_v3: orderedReplayPolicyCatalogBindingV3(policy.replay_policy_catalog_v3),
+    }),
+    ...(policy.decision_policy_v1 === undefined ? {} : {
+      decision_policy_v1: orderedDecisionPolicyBindingV1(policy.decision_policy_v1),
+    }),
   }
 }
 
-async function canonicalResearchViewIdentityV2(view: Json): Promise<string> {
+// Serialized field order of the Owner's ReplayPolicyCatalogBindingV3 and its execution-profile
+// seals; the canonical family digests hash this exact order.
+function orderedReplayPolicyCatalogBindingV3(value: Json): Json {
+  const seals = value.execution_profiles_v1 as Json
+  return {
+    schema_version: value.schema_version,
+    replay_policy_v2: orderedReplayPolicyBindingV2(value.replay_policy_v2 as Json),
+    execution_profiles_v1: {
+      economic_configuration_canonical_bytes: seals.economic_configuration_canonical_bytes,
+      economic_configuration_digest: seals.economic_configuration_digest,
+      runner_operational_profile_canonical_bytes: seals.runner_operational_profile_canonical_bytes,
+      runner_operational_profile_digest: seals.runner_operational_profile_digest,
+      catalog_record_digest: seals.catalog_record_digest,
+      binding_digest: seals.binding_digest,
+    },
+    binding_digest: value.binding_digest,
+  }
+}
+
+// Serialized field order of the Owner's IterationDecisionPolicyBindingV1.
+function orderedDecisionPolicyBindingV1(value: Json): Json {
+  return {
+    schema_version: value.schema_version,
+    policy_identity: value.policy_identity,
+    policy_version: value.policy_version,
+    policy_digest: value.policy_digest,
+    diagnostic_policy_identity: value.diagnostic_policy_identity,
+    diagnostic_policy_version: value.diagnostic_policy_version,
+    replay_catalog_record_id: value.replay_catalog_record_id,
+    replay_catalog_version: value.replay_catalog_version,
+    replay_catalog_record_digest: value.replay_catalog_record_digest,
+    information_value_threshold_identity: value.information_value_threshold_identity,
+    information_value_threshold_digest: value.information_value_threshold_digest,
+    tie_break_policy_identity: value.tie_break_policy_identity,
+    tie_break_policy_digest: value.tie_break_policy_digest,
+    binding_digest: value.binding_digest,
+  }
+}
+
+// Recomputes every digest the Owner seals into the Catalog V3 binding: the two execution
+// profiles over their canonical bytes, the profile-seal digest over both, and the V3 binding
+// digest over the V2 record digest plus that seal. The V2 record itself is verified with the
+// family policy by canonicalReplayPolicyBindingV2.
+async function canonicalReplayPolicyCatalogBindingV3(value: Json, replayPolicy: Json): Promise<boolean> {
+  if (!sameReplayPolicyBindingV2(value.replay_policy_v2, replayPolicy)) return false
+  const seals = value.execution_profiles_v1 as Json
+  const encoder = new TextEncoder()
+  const economicBytes = Uint8Array.from(seals.economic_configuration_canonical_bytes as number[])
+  const runnerBytes = Uint8Array.from(seals.runner_operational_profile_canonical_bytes as number[])
+  const recordDigest = Uint8Array.from(replayPolicy.catalog_record_digest as number[])
+  const economicDigest = await sha256Array(concatenateBytes([
+    encoder.encode("strategy-factory.replay-economic-configuration.v1\0"), economicBytes,
+  ]))
+  const runnerDigest = await sha256Array(concatenateBytes([
+    encoder.encode("strategy-factory.replay-runner-operational-profile.v1\0"), runnerBytes,
+  ]))
+  const sealDigest = await sha256Array(concatenateBytes([
+    encoder.encode("rd.replay-execution-profile-catalog-seals.v1\0"), recordDigest,
+    Uint8Array.from(economicDigest), littleEndianLength(economicBytes.length), economicBytes,
+    Uint8Array.from(runnerDigest), littleEndianLength(runnerBytes.length), runnerBytes,
+  ]))
+  const bindingDigest = await sha256Array(concatenateBytes([
+    encoder.encode("rd.replay-policy-catalog-binding.v3\0"), recordDigest, Uint8Array.from(sealDigest),
+  ]))
+  return JSON.stringify(seals.catalog_record_digest) === JSON.stringify(replayPolicy.catalog_record_digest)
+    && JSON.stringify(seals.economic_configuration_digest) === JSON.stringify(economicDigest)
+    && JSON.stringify(seals.runner_operational_profile_digest) === JSON.stringify(runnerDigest)
+    && JSON.stringify(seals.binding_digest) === JSON.stringify(sealDigest)
+    && JSON.stringify(value.binding_digest) === JSON.stringify(bindingDigest)
+}
+
+// SHA-256 of the fixed R&D decision descriptors the Owner seals by identity
+// (`rd.iteration-decision-policy.v1`, `rd.iteration-information-value-threshold.v1`,
+// `rd.iteration-candidate-tie-break.v1`).
+const decisionPolicyDigestV1 = [
+  57, 209, 113, 87, 56, 228, 247, 243, 91, 169, 136, 234, 13, 81, 13, 6,
+  226, 59, 210, 186, 41, 83, 214, 166, 253, 135, 40, 232, 215, 158, 47, 226,
+]
+const informationValueThresholdDigestV1 = [
+  122, 217, 130, 188, 156, 81, 46, 177, 8, 205, 90, 223, 104, 0, 32, 185,
+  3, 232, 83, 110, 37, 190, 105, 143, 202, 107, 76, 21, 106, 49, 202, 5,
+]
+const tieBreakPolicyDigestV1 = [
+  199, 158, 240, 225, 222, 1, 120, 3, 231, 222, 234, 71, 46, 8, 185, 74,
+  112, 243, 63, 231, 95, 115, 33, 136, 210, 143, 13, 20, 98, 172, 211, 252,
+]
+
+function littleEndianU16(value: number): Uint8Array {
+  const bytes = new Uint8Array(2)
+  new DataView(bytes.buffer).setUint16(0, value, true)
+  return bytes
+}
+
+function lengthPrefixedU64(value: Uint8Array): Uint8Array {
+  return concatenateBytes([littleEndianU64(value.length), value])
+}
+
+// Recomputes the decision binding digest exactly as IterationDecisionPolicyBindingV1 seals it and
+// pins the descriptor digests the Owner fixes for policy version 1.
+async function canonicalDecisionPolicyBindingV1(value: Json, replayPolicy: Json): Promise<boolean> {
+  const encoder = new TextEncoder()
+  const digest = await sha256Array(concatenateBytes([
+    encoder.encode("rd.iteration-decision-policy-binding.v1\0"),
+    littleEndianU16(value.schema_version as number),
+    lengthPrefixedU64(encoder.encode(value.policy_identity as string)),
+    littleEndianU64(value.policy_version as number),
+    Uint8Array.from(value.policy_digest as number[]),
+    lengthPrefixedU64(encoder.encode(value.diagnostic_policy_identity as string)),
+    lengthPrefixedU64(encoder.encode(value.diagnostic_policy_version as string)),
+    lengthPrefixedU64(encoder.encode(value.replay_catalog_record_id as string)),
+    littleEndianU64(value.replay_catalog_version as number),
+    Uint8Array.from(value.replay_catalog_record_digest as number[]),
+    lengthPrefixedU64(encoder.encode(value.information_value_threshold_identity as string)),
+    Uint8Array.from(value.information_value_threshold_digest as number[]),
+    lengthPrefixedU64(encoder.encode(value.tie_break_policy_identity as string)),
+    Uint8Array.from(value.tie_break_policy_digest as number[]),
+  ]))
+  return value.policy_version === 1
+    && JSON.stringify(value.policy_digest) === JSON.stringify(decisionPolicyDigestV1)
+    && value.information_value_threshold_identity === "rd.iteration-information-value-threshold.v1"
+    && JSON.stringify(value.information_value_threshold_digest) === JSON.stringify(informationValueThresholdDigestV1)
+    && value.tie_break_policy_identity === "rd.iteration-candidate-tie-break.v1"
+    && JSON.stringify(value.tie_break_policy_digest) === JSON.stringify(tieBreakPolicyDigestV1)
+    && value.replay_catalog_record_id === replayPolicy.catalog_record_id
+    && value.replay_catalog_version === replayPolicy.catalog_version
+    && JSON.stringify(value.replay_catalog_record_digest) === JSON.stringify(replayPolicy.catalog_record_digest)
+    && JSON.stringify(value.binding_digest) === JSON.stringify(digest)
+}
+
+// Exported for the identity vectors alone. The vectors pin this exact computation against the
+// producing side's, so a test that reimplemented it would pin a copy against a copy.
+export async function canonicalResearchViewIdentityV2(view: Json): Promise<string> {
   const digest = await canonicalDigest("rd.research-view.identity.v2", {
     schema_version: view.schema_version,
     request_identity: view.request_identity,
@@ -972,6 +1272,61 @@ async function canonicalResearchViewIdentityV2(view: Json): Promise<string> {
     ? "rd-research-view-terminal-v2"
     : "rd-research-view-v2"
   return canonicalIdentity(prefix, digest)
+}
+
+// The schema 3 identity. Its envelope names the payload `view`, where every other canonical digest
+// in this file names it `value`, so it cannot go through `canonicalDigest` - passing this meaning to
+// that helper yields a well-formed digest of the wrong thing, and neither the types nor the shape
+// checks would notice. The shared vectors carry the identity that mistake produces so the test can
+// assert this does not compute it.
+export async function canonicalResearchViewIdentityV4(view: Json): Promise<string> {
+  const composerArtifact = view.composer_artifact as Json
+  const exploration = view.exploration as Json
+  const bytes = new TextEncoder().encode(JSON.stringify({
+    domain: "rd.research-view.identity.v4",
+    view: {
+      schema_version: view.schema_version,
+      request_identity: view.request_identity,
+      trusted_principal: view.trusted_principal,
+      authorized_scope: view.authorized_scope,
+      authorization_policy_cut: view.authorization_policy_cut,
+      source_owner: view.source_owner,
+      source_cut: view.source_cut,
+      observed_at_epoch_ms: view.observed_at_epoch_ms,
+      projection_at_epoch_ms: view.projection_at_epoch_ms,
+      valid_through_epoch_ms: view.valid_through_epoch_ms,
+      availability: view.availability,
+      phase: view.phase,
+      intent_identity: view.intent_identity,
+      source_frontier: view.source_frontier.map(canonicalResearchSourceV1),
+      composer_artifact: {
+        artifact_locator: composerArtifact.artifact_locator,
+        artifact_identity_digest: composerArtifact.artifact_identity_digest,
+        composer_request_identity: composerArtifact.composer_request_identity,
+        composer_operation_receipt_digest: composerArtifact.composer_operation_receipt_digest,
+        artifact_family_binding_identity: composerArtifact.artifact_family_binding_identity,
+        artifact_family_binding_digest: composerArtifact.artifact_family_binding_digest,
+        artifact_family_binding_receipt_identity:
+          composerArtifact.artifact_family_binding_receipt_identity,
+        trial_family_identity: composerArtifact.trial_family_identity,
+        census_frontier_identity: composerArtifact.census_frontier_identity,
+        census_frontier_digest: composerArtifact.census_frontier_digest,
+      },
+      exploration: {
+        trial_family_identity: exploration.trial_family_identity,
+        census_frontier_identity: exploration.census_frontier_identity,
+        census_frontier_digest: exploration.census_frontier_digest,
+        replay_request_identity: exploration.replay_request_identity,
+        replay_request_meaning_digest: exploration.replay_request_meaning_digest,
+        replay_request_seal_digest: exploration.replay_request_seal_digest,
+        replay_receipt_identity: exploration.replay_receipt_identity,
+      },
+      next_legal_action: view.next_legal_action,
+    },
+  }))
+  const digest = await crypto.subtle.digest("SHA-256", bytes)
+  const hex = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")
+  return `rd-research-view-v4-${hex}`
 }
 
 async function sha256Text(value: string): Promise<string> {
@@ -1146,6 +1501,12 @@ async function canonicalTrialFamilyV1(
   const policy = canonicalTrialFamilyPolicyV1(root.policy)
   const replayPolicy = policy.replay_execution_policy_v2
   if (replayPolicy !== undefined && !await canonicalReplayPolicyBindingV2(replayPolicy, policy)) return null
+  const catalog = policy.replay_policy_catalog_v3
+  if (catalog !== undefined && (replayPolicy === undefined
+    || !await canonicalReplayPolicyCatalogBindingV3(catalog, replayPolicy))) return null
+  const decision = policy.decision_policy_v1
+  if (decision !== undefined && (catalog === undefined
+    || !await canonicalDecisionPolicyBindingV1(decision, replayPolicy as Json))) return null
   const policyDigest = await canonicalDigest("rd.trial-family.policy.v1", policy)
   const familyIdentityDigest = await canonicalDigest("rd.trial-family.identity.v1", {
     intent_identity: intentIdentity,
@@ -1175,6 +1536,7 @@ async function canonicalTrialFamilyV1(
     member_digests: [memberDigest],
     consumed_trial_budget: 1,
     ...(replayPolicy === undefined ? {} : { replay_execution_policy_v2: replayPolicy }),
+    ...(catalog === undefined ? {} : { replay_policy_catalog_v3: catalog }),
   })
   const frontierIdentity = canonicalIdentity("rd-trial-family-frontier-v1", frontierDigest)
   const valid = root.policy_digest === policyDigest
@@ -1185,6 +1547,8 @@ async function canonicalTrialFamilyV1(
     && member.member_digest === memberDigest
     && membership.receipt_identity === canonicalIdentity("rd-trial-family-membership-receipt-v1", memberDigest)
     && sameReplayPolicyBindingV2(frontier.replay_execution_policy_v2, replayPolicy)
+    && sameReplayPolicyCatalogBindingV3(rootReceipt.replay_policy_catalog_v3, catalog)
+    && sameReplayPolicyCatalogBindingV3(frontier.replay_policy_catalog_v3, catalog)
     && frontier.frontier_identity === frontierIdentity && frontier.frontier_digest === frontierDigest
   return valid ? { familyIdentity, frontierIdentity, frontierDigest } : null
 }

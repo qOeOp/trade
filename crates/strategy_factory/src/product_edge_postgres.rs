@@ -72,13 +72,12 @@ use crate::{
 };
 use vibe_data::owner::pit_snapshot::PitSnapshotOwnerReadback;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
+use vibe_data::owner::shared_time_evidence::SharedTimeEvidenceResolver;
 use vibe_data::owner::{
     instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresOwnerV1,
     instrument_master_v2_postgres::InstrumentMasterV2PostgresOwner,
     native_replay_scheduling_v1::NativeReplaySchedulingResolverV1,
-    shared_time_evidence::SharedTimeEvidenceResolver,
 };
-#[cfg(feature = "sealed-develop-composer-acceptance")]
 use vibe_model::identifiers::StrategyId;
 
 use crate::source_intake::{
@@ -171,7 +170,7 @@ async fn verify_research_readback_relation(pool: &PgPool) -> Result<(), Research
              AND relation.relpersistence='p'
              AND pg_catalog.pg_get_userbyid(relation.relowner)='rd_owner'
              AND pg_catalog.has_table_privilege(current_user, relation.oid, 'SELECT')
-             AND (SELECT pg_catalog.count(*)=11
+             AND (SELECT pg_catalog.count(*)=17
                     AND pg_catalog.bool_and(CASE attribute.attname
                       WHEN 'request_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
                       WHEN 'semantic_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
@@ -184,6 +183,12 @@ async fn verify_research_readback_relation(pool: &PgPool) -> Result<(), Research
                       WHEN 'artifact_evidence_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
                       WHEN 'source_ancestry_locator_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
                       WHEN 'source_ancestry_evidence_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'request_storage_bytes' THEN attribute.atttypid='pg_catalog.bytea'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'request_storage_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'receipt_storage_bytes' THEN attribute.atttypid='pg_catalog.bytea'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'receipt_storage_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'intent_storage_bytes' THEN attribute.atttypid='pg_catalog.bytea'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'intent_storage_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
                       ELSE false
                     END)
                     FROM pg_catalog.pg_attribute attribute
@@ -2085,7 +2090,6 @@ impl PostgresResearchGoalOwnerV1 {
     }
 
     /// Resolves every request-bound Owner input and atomically issues the R&D binding.
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
     pub async fn issue_native_replay_execution_input_binding_v1<P, R>(
         &self,
         locator: &ExploratoryReplayRequestLocatorV2,
@@ -2128,7 +2132,6 @@ impl PostgresResearchGoalOwnerV1 {
     }
 
     /// Re-resolves one issued binding into the existing native execution capability.
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
     #[allow(clippy::too_many_arguments)]
     pub async fn resolve_native_replay_execution_bundle_v1<P, R>(
         &self,
