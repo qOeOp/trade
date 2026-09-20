@@ -194,7 +194,7 @@ fn last_closed_bar(
 /// spec shapes, with the older use being the correct one. `1W` would need an anchor stating which
 /// day a week begins on, and nobody has made that decision; a week is expressible without a new
 /// unit as `step = 168, unit = HOUR` once someone does.
-const fn owner_timeframe(interval: &str) -> Option<&'static str> {
+pub(crate) const fn owner_timeframe(interval: &str) -> Option<&'static str> {
     Some(match interval.as_bytes() {
         b"1s" => "1S",
         b"1m" => "1M",
