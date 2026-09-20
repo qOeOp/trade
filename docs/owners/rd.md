@@ -312,28 +312,31 @@ R&D does not derive a Design from research prose. No rule in this repository tur
 mechanism and falsification question into input roles and a reaction graph, and none is intended:
 that translation is a judgement, and a judgement an Owner makes is a fact the Owner invented.
 
-That prohibition is about inference, not about projection, and the two are separated by what the
-Research Intent already states. A Research Intent carries `data.channels`, and each channel already
-declares its `role`, its `asset_id`, its `timeframe`, whether it is `required`, and its source and
-staleness bound; `data.decision_clock_channel` names which of them advances the decision. Reading
-those out is not a judgement, because nothing is chosen, and the Intent carries no raw material a
-judgement could be made from: across the four `representative_intent_v*.jcs` assets the channel key
-set is exactly `asset_id`, `id`, `max_staleness_ns`, `owner_key`, `required`, `role`, `source` and
-`timeframe`, and `reaction`, `graph`, `threshold`, `rule`, `signal`, `condition`, `operator` and
-`compare` occur zero times in any of them.
+**Two different things are called a Research Intent here, and the prohibition stands because the
+Composer path holds the one with nothing to project.**
 
-**The Owner may therefore project declared channels into the Design's input roles, one role per
-declared channel.** The projection is partial and its boundary is exact. Three `InputRoleV2` fields
-come from the channel and no other source: `instrument` from `asset_id`, `timeframe` from
-`timeframe`, and `channel` from `id`. `semantic_id`, `field_semantic_id`, `fact_class`, `unit`,
-`scale` and `value_type` are **not** in the Intent - a channel's `role` is proposer prose such as
-`broad_usd_proxy_not_ice_dxy`, not a catalog semantic ID - so they stay a proposer declaration the
-Owner admits, and an Intent whose channels cannot be matched to declared ones is refused rather than
-completed from the Owner's own knowledge of the instrument. `max_staleness_ns` and `owner_key` have
-no `InputRoleV2` field at all; they belong to binding custody and are not projected into the Design.
+`ResearchIntent` in `crates/strategy_factory/src/research.rs` does carry `data.channels`, each
+declaring its `role`, `asset_id`, `timeframe`, requiredness, source and staleness bound, with
+`data.decision_clock_channel` naming which one advances the decision. Projecting those would choose
+nothing. But that type has exactly one constructor, `frozen_representative()`, which parses a
+compile-time constant and then refuses anything whose SHA-256, identity, revision and schema version
+are not the frozen ones; its only callers are the formation path in `family_adapters.rs`,
+`representative.rs` and `formation_adapters.rs`. The Composer path never holds it.
 
-A channel the projection cannot bind to a Market Semantics coordinate is a refusal, never a dropped
-role, and never a role the Owner supplies for itself.
+What the Composer path holds is `CurrentResearchDevelopCustodyV2`, whose fourteen fields are
+locators, identities and digests plus one `falsifier` string, and behind it the stored
+`intent_json`, which deserializes to `FrozenResearchGoalIntentV2`. That intent's `goal` is a
+`SourcedResearchGoalV2`: `hypothesis`, `mechanism`, `falsification_question`,
+`expected_observation`, `cost_assumption`, `capacity_assumption`, `sources`, and
+`required_data: Vec<String>` whose values are prose such as `PIT bars` and `sealed market bars`.
+**It declares no channel, no instrument, no timeframe and no role.**
+
+So there is nothing to project on the production path, and turning `required_data` prose into input
+roles is exactly the inference the paragraph above forbids. A projection becomes available only when
+the Owner holds channel declarations at the Composer cut - either because the stored intent carries
+them, or because something resolves them from the intent identity, neither of which exists. Until
+then the input roles are a proposer declaration this Owner admits, on the same terms as the reaction
+graph.
 
 The reaction graph is the part that stays a judgement, and it stays with the proposer. A first
 bounded family is admitted for it and nothing wider: **a single declared channel compared against a
