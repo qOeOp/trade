@@ -390,8 +390,17 @@ grep -Fq 'test "$RUST_DOCTESTS_RESULT" = success' "$build_workflow"
 
 generated_block="$(sed -n '/Restore generated stubs Rust cache/,/Upload wheel artifact/p' "$build_workflow")"
 [[ "$generated_block" == *'workspaces: . -> target/py-stubs'* ]]
-# shellcheck disable=SC2016
-[[ "$generated_block" == *'generated-stubs-dev-py${{ matrix.python-version }}'* ]]
+# The key must stay a literal. It used to interpolate the Python version and hash
+# `build.yml`, `Cargo.lock` and the `Makefile`; rust-cache derives those itself, so naming
+# them could only lose entries, and the entry never came back -- runs 35413952045 and
+# 35438818832 both logged `No cache found.` and rebuilt 595 crates. Asserting the literal
+# keeps the entry distinct from the wheel cache in this same job without re-introducing
+# compile inputs.
+[[ "$generated_block" == *'key: py-stubs'* ]]
+if [[ "$generated_block" == *'hashFiles('* ]]; then
+  echo "Generated stubs cache key must not name compile inputs: rust-cache derives them" >&2
+  exit 1
+fi
 [[ "$generated_block" == *"runner.environment == 'github-hosted'"* ]]
 [[ "$generated_block" == *"format('{0}/target/py-stubs', github.workspace)"* ]]
 [[ "$generated_block" == *'make py-stubs'* ]]

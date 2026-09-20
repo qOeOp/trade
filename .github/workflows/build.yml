@@ -406,11 +406,15 @@ jobs:
           workspaces: . -> target/py-stubs
           cache-on-failure: "false"
           cache-workspace-crates: "true"
-          key: >-
-            generated-stubs-dev-py${{ matrix.python-version }}-
-            ${{ hashFiles('.github/workflows/build.yml', 'Cargo.lock',
-            'rust-toolchain.toml', 'Makefile', 'python/generate_stubs.py',
-            'python/pyproject.toml') }}
+          # A literal, for the reason already recorded on `rust tests` below: rust-cache derives
+          # the rest of the key itself, so naming compile inputs here can only lose entries.
+          # This key hashed `build.yml`, `Cargo.lock` and the `Makefile`, three files that change
+          # with almost every CI or dependency edit, and the result is that the entry never came
+          # back. Runs 35413952045 and 35438818832 both logged `No cache found.` here and then
+          # compiled 595 crates into `target/py-stubs` from scratch -- 1460s and 1493s, the
+          # largest single step in the gate. The wheel cache in this same job hashes only
+          # `python/pyproject.toml` and does restore.
+          key: py-stubs
           save-if: ${{ github.event_name == 'push' }}
 
       - name: Check generated file drift
