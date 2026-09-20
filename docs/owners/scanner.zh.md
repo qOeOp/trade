@@ -30,8 +30,10 @@
 ## 实现状态台账
 
 本台账只记录仓库在本截面实际到达的状态。它沿用 [Market Data](./market-data/) 台账的状态词汇，并以
-`CURRENT_PARTIAL` 表示已合并但不可触达的形态；台账本身不授予任何许可：本文档没有任何切片是
-`IMPLEMENTATION_ADMITTED`，扩大准入集必须先修改本文档。
+`CURRENT_PARTIAL` 表示已合并但不可触达的形态；台账本身不授予任何许可：本截面上 `IMPLEMENTATION_ADMITTED`
+的恰好是输出交接中 Product Edge 那条点名的终态回执托管切片，扩大准入集必须先按 `AGENTS.md` 的架构权威规则
+修改本文档。已合并的 crate、已命名的类型、一次绿色作业或本台账的一行都不是实现权威，既不证明存在生产消费者，
+也绝不授权任何生产效应、部署切换或真实交易。
 
 - **CURRENT_PARTIAL - 确定性的 Scanner 核心：** `crates/scanner` 拥有带 fold、gap 与 misfire 处置的 `ScheduleDefinition`、
   due-slot 派生与稳定的 `AttemptId`、逐策略 `StrategyDisposition`、带五种状态与互斥成员分支的终态 `ScannerReceipt`、
@@ -40,10 +42,11 @@
   `crates/scanner/tests/public_owner_admission.rs` 与编译失败测试证明了这一失败关闭形状。
 - **TARGET - 生产装配：** 不存在调度器触发、sealed 来源 Owner 准入的生产构造器、`TerminalReceiptStore` 背后的持久
   回执 custody，以及 Product Edge 消费者；唯一的外部使用是 `crates/testkit/tests/f1_current_workspace.rs` 里的一个
-  类型导入。
+  类型导入。本条点名的持久 custody 与 Product Edge 消费者即已准入的切片；调度器触发与 sealed 准入构造器不是。
 - **TARGET - Strategy Loader、Market Snapshot 与 Capacity View 输入：** `StrategyLoader` 与 `MarketSnapshot` port 没有
   任何基于受治理注册表、Market Data PIT 事实或 Portfolio Capacity View 的实现。
 - **TARGET - 交接与持久化：** 没有任何终态回执到达 Governance 或 Product Edge，也没有任何 Scanner 事实被持久化。
+  本条中 Product Edge 的那一半已准入；到 Governance 的交接没有。
 
 ## 输入交接
 
@@ -88,6 +91,14 @@
   绑定到别的尝试的回执；存储自述语义冲突；存储不可用。中间两种是**已检出的托管故障**，绝不得显示成缺失或
   未知的结果。Product Edge 不创建第二份 Scanner-owned 投影，不派生自己的状态，也绝不把一个不完整的
   `FAILED` 集合标为完整，或把一个未解析的期望集合渲染成空集。
+  **IMPLEMENTATION_ADMITTED，终态回执托管及其 Product Edge 读回：** 一个位于 `TerminalReceiptStore` 之后的生产
+  实现，为每个 ScheduledScanId 持久保存且只保存一个终态 Scanner Receipt；以及其上的一个
+  `ProductEdgeTerminalReceiptReader`，它对一次读取要么返回恰好那一份回执，要么给出上述四种拒绝之一，其中
+  中间两种仍然区分为已检出的托管故障。这一切片是有界的，因为两端都已经作为 port 存在于 `crates/scanner` 内部，
+  且两个名字在该 crate 之外都没有任何引用，所以它不等待任何尚不存在的缝。
+  **NOT_ADMITTED：** 调度器触发、sealed 来源 Owner 准入的生产构造器、任何 `StrategyLoader` `MarketSnapshot`
+  或 Capacity View 实现、到 Governance 的回执交接、终态回执以外的任何 Scanner 事实，以及一切生产效应
+  部署切换与真实交易。
 
 ## 拒绝和禁止事项
 

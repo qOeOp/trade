@@ -34,8 +34,11 @@ Run a scheduled slow-track match between governed strategies and current market 
 
 This ledger records only what the repository has reached at this cut. It uses the status vocabulary of the
 [Market Data](./market-data/) ledger, with `CURRENT_PARTIAL` as the merged-but-unreachable form, and grants no
-permission by itself: no slice of this document is `IMPLEMENTATION_ADMITTED`, and widening the admitted set
-requires changing this document first.
+permission by itself: what is `IMPLEMENTATION_ADMITTED` at this cut is exactly the terminal-receipt custody
+slice the Product Edge output handoff names, and widening the admitted set requires changing this document first
+under the Architecture authority rule in `AGENTS.md`. A merged crate, a named type, a green job, or a row here is
+not implementation authority, never proves a production consumer, and never authorizes a production effect, a
+deployment cutover, or real trading.
 
 - **CURRENT_PARTIAL - deterministic Scanner core:** `crates/scanner` owns `ScheduleDefinition` with fold, gap, and
   misfire dispositions, due-slot derivation and the stable `AttemptId`, per-strategy `StrategyDisposition`, the
@@ -46,11 +49,13 @@ requires changing this document first.
   the fail-closed shape.
 - **TARGET - production composition:** no scheduler trigger, no production constructor for the sealed source-Owner
   admission, no durable receipt custody behind `TerminalReceiptStore`, and no Product Edge consumer exist; the only
-  external use is a type import in `crates/testkit/tests/f1_current_workspace.rs`.
+  external use is a type import in `crates/testkit/tests/f1_current_workspace.rs`. The durable custody and the
+  Product Edge consumer named in this row are the admitted slice; the scheduler trigger and the sealed-admission
+  constructor are not.
 - **TARGET - Strategy Loader, Market Snapshot, and Capacity View input:** the `StrategyLoader` and `MarketSnapshot`
   ports have no implementation over the governed registry, Market Data PIT facts, or a Portfolio Capacity View.
 - **TARGET - handoffs and persistence:** no terminal receipt reaches Governance or Product Edge, and no Scanner fact
-  is persisted.
+  is persisted. The Product Edge half of this row is admitted; the Governance handoff is not.
 
 ## Input handoffs
 
@@ -114,6 +119,15 @@ admitted.
   displayed as an absent or unknown outcome. Product Edge stores no competing Scanner-owned projection, derives
   no status of its own, and never labels an incomplete `FAILED` set as complete or renders an unresolved
   expected set as an empty one.
+  **IMPLEMENTATION_ADMITTED, terminal receipt custody and its Product Edge readback:** one production
+  implementation behind `TerminalReceiptStore` that durably holds exactly one terminal Scanner Receipt per
+  ScheduledScanId, and one `ProductEdgeTerminalReceiptReader` over it that answers a read with exactly that
+  receipt or with one of the four refusals above, the middle two still distinguished as detected custody faults.
+  The slice is bounded because both ends already exist as ports inside `crates/scanner` and neither name is
+  referenced anywhere outside that crate, so it waits on no seam that does not yet exist.
+  **NOT_ADMITTED:** the scheduler trigger, a production constructor for the sealed source-Owner admission, any
+  `StrategyLoader`, `MarketSnapshot` or Capacity View implementation, the Governance receipt handoff, any Scanner
+  fact other than the terminal receipt, and every production effect, deployment cutover and real trade.
 
 ## Rejections and prohibitions
 
