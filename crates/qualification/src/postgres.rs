@@ -7953,10 +7953,10 @@ mod postgres_tests {
 
         // Qualification already holds this basis's projection: R&D obtained it through the sealed
         // admission API while forming the TrialFamily policy. A resolve is therefore an exact
-        // replay that writes nothing. The create and renewal paths are not reachable from the gate
-        // for any basis, because no admitted R&D request can exist without its frontier, and a
-        // projection's stored validity cannot be aged without breaking the canonical row it is
-        // part of; the response-cut rollback stays unproven here by construction.
+        // replay that writes nothing. Neither the create nor the renewal path is reachable from
+        // *this* entry, because this basis already has its frontier, and a projection's stored
+        // validity cannot be aged without breaking the canonical row it is part of; the
+        // response-cut rollback stays unproven here by construction.
         let projection = owner
             .resolve_for_basis(&locator)
             .await
@@ -7964,6 +7964,29 @@ mod postgres_tests {
             .expect("R&D-admitted projection");
         assert_eq!(projection.basis_identity(), locator.basis_identity);
         assert_eq!(projection.principal(), locator.principal);
+        // The create branch did run, earlier in this gate, and this is where its committed shape
+        // is read back. `GENESIS_EMPTY` is written by that branch alone - `resolution_name` maps
+        // exactly two variants - and the branch fixes the rest of the shape with it: sequence
+        // zero, the canonical genesis cut, and no source frontier. Asserting the four together
+        // fails if a renewal ever reaches this lineage, and fails if the genesis constants drift.
+        // What it does not prove is the branch's condition, that a frontier commits only on an
+        // empty history; driving that needs an entry whose own basis has none.
+        assert_eq!(
+            projection.resolution(),
+            ProtectedFeedbackResolutionV1::GenesisEmpty
+        );
+        assert_eq!(projection.source_sequence(), 0);
+        assert_eq!(
+            projection.source_cut(),
+            "qualification-protected-feedback-cut-v1-0"
+        );
+        assert_eq!(
+            (
+                projection.source_frontier_identity(),
+                projection.source_frontier_digest()
+            ),
+            (None, None)
+        );
         assert!(
             verify_projection_freshness(&projection, projection.projection_at_epoch_ms()).is_ok()
         );

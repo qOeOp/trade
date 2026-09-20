@@ -134,8 +134,14 @@ absent is a proof, and each absence was measured rather than assumed.
 
 - **First create and `GENESIS_EMPTY`.** No admitted R&D request can exist without its frontier: R&D obtains the
   projection through Qualification's sealed admission API while forming the TrialFamily policy, so every basis the
-  gate holds is already projected. A lineage that skips the Qualification resolve fails at once, which is how this
-  was measured.
+  gate holds is already projected, and no Qualification entry can itself be the first create. A lineage that skips
+  the Qualification resolve fails at once, which is how that was measured. The branch's committed shape is no
+  longer unproven: the protected-feedback readback entry asserts that the projection it reads back is
+  `GENESIS_EMPTY` at sequence zero on the canonical genesis cut with no source frontier, four properties the create
+  branch alone writes, and reverting the first of them fails that entry against a gate-populated store. A local run
+  of the whole chain leaves twenty projections, every one of that shape and none of them renewed. What stays out of
+  reach is the branch's condition - that a frontier commits only on an empty history - because driving it needs an
+  entry whose own basis has none.
 - **Response-cut rollback.** Driving it needs a create or a renewal, so it needs a current frontier that is absent
   or expired. Aging a projection's `valid_through_epoch_ms` desynchronizes it from the canonical row the readback
   verifies, which fails as `Qualification admission envelope projection mismatch`, so the Owner forbids the only

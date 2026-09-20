@@ -114,7 +114,12 @@ Qualification 的其余部分并不排在它后面：attempt frontier、候选�
 
 - **首次创建与 `GENESIS_EMPTY`。** 没有任何一个已准入的 R&D 请求能在缺少自己 frontier 的情况下存在：R&D 在形成
   TrialFamily 策略时，就已经通过 Qualification 的密封准入 API 取得了那份投影，所以门禁手上的每一个 basis 都已经
-  被投影过。一条跳过 Qualification 解析的血缘会立刻失败，这就是该结论的实测方式。
+  被投影过，也就没有哪个 Qualification 条目自己会是那次首次创建。一条跳过 Qualification 解析的血缘会立刻失败，
+  这就是该结论的实测方式。该分支提交出来的形状不再是无证明的：保护反馈读回那一条现在断言它读回的投影是
+  `GENESIS_EMPTY`、序号为零、落在规范的 genesis 切上、且没有 source frontier -- 这四项只有创建分支会写，
+  把第一项改反，该条目对着门禁填充过的存储就会红。本机跑完整条链路留下二十份投影，每一份都是这个形状，
+  一次续期也没有。仍然够不着的是该分支的条件 -- frontier 只在历史为空时才提交 -- 因为驱动它需要一个
+  自己的 basis 没有 frontier 的条目。
 - **Response-cut 回滚。** 要驱动它就需要一次创建或一次续期，也就需要一个缺席或已过期的当前 frontier。把一份投影的
   `valid_through_epoch_ms` 变旧，会让它与读回所校验的规范行失去同步，于是以
   `Qualification admission envelope projection mismatch` 失败，所以本 Owner 恰好禁掉了唯一能强行触发它的途径。
