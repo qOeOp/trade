@@ -222,27 +222,36 @@ async function readBrowserValue(browser, expression) {
 // key actually arrived at and whether clicking it works.
 async function pressEnterAndWaitFor(browser, expression, attempts = 3) {
   let arrivedAt = null;
-  for (let attempt = 1; attempt <= attempts && !arrivedAt; attempt += 1) {
+  let activatedAt = null;
+  for (let attempt = 1; attempt <= attempts && !activatedAt; attempt += 1) {
     await readBrowserValue(browser, `(() => {
       globalThis.__enterArrivedAt = null;
-      if (!globalThis.__enterWatcher) {
-        globalThis.__enterWatcher = (event) => {
-          if (event.key !== "Enter") return;
-          const node = event.target;
-          globalThis.__enterArrivedAt = (node?.tagName ?? "?")
-            + "[" + (node?.getAttribute?.("aria-label") ?? "") + "]";
-        };
-        document.addEventListener("keydown", globalThis.__enterWatcher, true);
+      globalThis.__enterActivated = null;
+      if (!globalThis.__enterWatchers) {
+        const describe = (node) => (node?.tagName ?? "?")
+          + "[" + (node?.getAttribute?.("aria-label") ?? "") + "]";
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") globalThis.__enterArrivedAt = describe(event.target);
+        }, true);
+        document.addEventListener("click", (event) => {
+          globalThis.__enterActivated = describe(event.target);
+        }, true);
+        globalThis.__enterWatchers = true;
       }
       return true;
     })()`);
     await dispatchBrowserKey(browser, "Enter");
     arrivedAt = await readBrowserValue(browser, "globalThis.__enterArrivedAt ?? null");
+    activatedAt = await readBrowserValue(browser, "globalThis.__enterActivated ?? null");
     // A green run is otherwise silent about whether a retry was needed at all, which is the only
-    // evidence that the undelivered key this guards against still happens.
-    if (arrivedAt && attempt > 1) console.log(`enter delivery took ${attempt} attempts -> ${arrivedAt}`);
+    // evidence that the failure this guards against still happens.
+    if (activatedAt && attempt > 1) console.log(`enter took ${attempt} attempts -> ${activatedAt}`);
   }
   assert.ok(arrivedAt, `the synthesized Enter never reached the page in ${attempts} attempts`);
+  // Arrival is not activation: the observed failure was a keydown that reached the right button and
+  // never acted on it. Only a control that was activated and still did nothing is the page's defect.
+  assert.ok(activatedAt,
+    `the synthesized Enter reached ${arrivedAt} but never activated it in ${attempts} attempts`);
 
   await waitForBrowserExpression(browser, expression).catch(async (timedOut) => {
     const probe = await readBrowserValue(browser, `(() => {
@@ -259,7 +268,7 @@ async function pressEnterAndWaitFor(browser, expression, attempts = 3) {
     await delay(500);
     const openedByClick = await readBrowserValue(browser, expression).catch(() => null);
     throw new Error(`${timedOut.message}; enter probe: ${
-      JSON.stringify({ ...probe, arrivedAt, openedByClick })}`);
+      JSON.stringify({ ...probe, arrivedAt, activatedAt, openedByClick })}`);
   });
 }
 
@@ -270,14 +279,16 @@ async function dispatchBrowserKey(browser, key) {
   };
   const descriptor = keys[key];
   assert.ok(descriptor, `unsupported browser key ${key}`);
-  for (const type of ["keyDown", "keyUp"]) {
+  // A button activates on the char event, not on keydown. Sending keyDown with text leaves Chrome to
+  // synthesize that char, and on Linux it intermittently did not - the keydown arrived at the right
+  // button and the button never acted. Send the three parts rather than rely on the synthesis.
+  const types = descriptor.text ? ["rawKeyDown", "char", "keyUp"] : ["rawKeyDown", "keyUp"];
+  for (const type of types) {
     await browser.send("Input.dispatchKeyEvent", {
       type, key, code: descriptor.code,
       windowsVirtualKeyCode: descriptor.windowsVirtualKeyCode,
       nativeVirtualKeyCode: descriptor.windowsVirtualKeyCode,
-      ...(type === "keyDown" && descriptor.text
-        ? { text: descriptor.text, unmodifiedText: descriptor.text }
-        : {}),
+      ...(type === "char" ? { text: descriptor.text, unmodifiedText: descriptor.text } : {}),
     });
   }
 }
