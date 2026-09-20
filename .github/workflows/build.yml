@@ -783,15 +783,15 @@ jobs:
       - name: Report disk space before the chain
         run: bash scripts/ci/report-disk-space.bash "before ${{ matrix.chain.key }}"
 
+      - name: Run the isolated PostgreSQL Owner chain
+        run: make ${{ matrix.chain.make }}
+
       - name: Clean Dashboard browser acceptance inputs
         if: always() && matrix.chain.key == 'rd-owner'
         run: |
           find product/dashboard/.next -depth -delete 2>/dev/null || true
           find product/dashboard/node_modules -depth -delete 2>/dev/null || true
           find "${RUNNER_TEMP}/dashboard-strategy-viewer-chrome" -depth -delete 2>/dev/null || true
-
-      - name: Run the isolated PostgreSQL Owner chain
-        run: make ${{ matrix.chain.make }}
 
       - name: Report disk space after the chain
         if: always()

@@ -53,6 +53,10 @@ runs:
         chmod 0755 \
           "$browser_root/chrome-linux64/chrome" \
           "$browser_root/chrome-linux64/chrome_crashpad_handler"
+        # The acceptance asks this binary for its version before it drives anything, and reports
+        # the spawn failure as a chain failure. Asking here instead means a runtime that cannot
+        # start is named at the step that installed it.
+        "$browser_root/chrome-linux64/chrome" --version
 
     - name: Enable the sealed Dashboard browser acceptance
       shell: bash
