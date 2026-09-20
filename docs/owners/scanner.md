@@ -125,6 +125,12 @@ admitted.
   canonical due-slot boundary, which is what ScheduledScanId names throughout this document and the only key
   the port takes - and one `ProductEdgeTerminalReceiptReader` over it that answers a read with exactly that
   receipt or with one of the four refusals above, the middle two still distinguished as detected custody faults.
+  The store does not live in `crates/scanner`: that crate declares no runtime dependency at all and both receipt
+  constructors are `pub(crate)`, which `crates/scanner/tests/ui/terminal_receipt_cannot_deserialize.rs` pins as
+  intent rather than omission. The slice therefore also carries the one thing that makes a readback possible from
+  outside: a validating reconstruction entry on `crates/scanner`, which parses canonical bytes and refuses what
+  does not reconstruct, in the shape `parse_untrusted_grant_envelope` already uses in this repository. A
+  `serde::Deserialize` on the receipt, or a database dependency in the domain core, is excluded.
   The slice is bounded because both ends already exist as ports inside `crates/scanner` and neither name is
   referenced anywhere outside that crate, so it waits on no seam that does not yet exist.
   **NOT_ADMITTED:** the scheduler trigger, a production constructor for the sealed source-Owner admission, any

@@ -96,7 +96,12 @@
   准确的扫描范围身份与版本、以及规范的到期槽边界，这正是本文档通篇所称的 ScheduledScanId，也是该 port
   接受的唯一键；以及其上的一个
   `ProductEdgeTerminalReceiptReader`，它对一次读取要么返回恰好那一份回执，要么给出上述四种拒绝之一，其中
-  中间两种仍然区分为已检出的托管故障。这一切片是有界的，因为两端都已经作为 port 存在于 `crates/scanner` 内部，
+  中间两种仍然区分为已检出的托管故障。存储不住在 `crates/scanner` 里：该 crate 一条运行时依赖都没有声明，
+  两个回执构造器都是 `pub(crate)`，而 `crates/scanner/tests/ui/terminal_receipt_cannot_deserialize.rs`
+  把这一点钉成设计意图而非疏漏。因此本切片还包含使"从外部读回"成为可能的那一件事：`crates/scanner` 上一条
+  校验式重建入口，它解析规范字节并拒绝重建不出来的东西，形状与本仓库已有的 `parse_untrusted_grant_envelope`
+  相同。回执上的 `serde::Deserialize`，以及域核心里的数据库依赖，都被排除在外。
+  这一切片是有界的，因为两端都已经作为 port 存在于 `crates/scanner` 内部，
   且两个名字在该 crate 之外都没有任何引用，所以它不等待任何尚不存在的缝。
   **NOT_ADMITTED：** 调度器触发、sealed 来源 Owner 准入的生产构造器、任何 `StrategyLoader` `MarketSnapshot`
   或 Capacity View 实现、到 Governance 的回执交接、终态回执以外的任何 Scanner 事实，以及一切生产效应
