@@ -242,9 +242,37 @@ Composer attestation 注册它们，而铸造该 attestation 的正是一次 Com
 
 ### CURRENT_PARTIAL - Strategy Design 由谁撰写
 
-R&D 不导出 Design。本仓库没有任何规则把 hypothesis、mechanism 与 falsification question
-变成输入角色与 reaction graph，也不打算有：那项转换是一次判断，而 Owner 作出的判断
+R&D 不从研究散文导出 Design。本仓库没有任何规则把 hypothesis、mechanism 与 falsification
+question 变成输入角色与 reaction graph，也不打算有：那项转换是一次判断，而 Owner 作出的判断
 就是 Owner 发明的事实。
+
+这条禁止针对的是推断，不是投影，而分开两者的是 Research Intent 已经陈述了什么。一份
+Research Intent 带 `data.channels`，其中每条 channel 已经声明了自己的 `role`、`asset_id`、
+`timeframe`、是否 `required`，以及来源与陈旧度上界；`data.decision_clock_channel` 点名
+它们当中哪一条推进决策。把这些读出来不是一次判断，因为没有任何东西被选择，而且 Intent 里
+根本没有可供判断的原料：四份 `representative_intent_v*.jcs` 资产里，channel 的键集恰好是
+`asset_id`、`id`、`max_staleness_ns`、`owner_key`、`required`、`role`、`source` 与 `timeframe`，
+而 `reaction`、`graph`、`threshold`、`rule`、`signal`、`condition`、`operator`、`compare`
+在其中任何一份里出现次数都是零。
+
+**因此 Owner 可以把已声明的 channel 投影成 Design 的输入角色，一条 channel 一个角色。**
+这个投影是部分的，而它的边界是精确的。`InputRoleV2` 只有三个字段来自 channel 而不来自别处：
+`instrument` 来自 `asset_id`、`timeframe` 来自 `timeframe`、`channel` 来自 `id`。
+`semantic_id`、`field_semantic_id`、`fact_class`、`unit`、`scale` 与 `value_type` **不在** Intent 里，
+一条 channel 的 `role` 是提案者写的散文，比如 `broad_usd_proxy_not_ice_dxy`，不是目录语义 ID，
+所以它们仍然是提案者的声明、由 Owner 准入；一份 channel 无法与已声明角色对上的 Intent 被拒绝，
+而不是由 Owner 凭自己对该标的的了解补全。`max_staleness_ns` 与 `owner_key` 在 `InputRoleV2` 里
+根本没有对应字段，它们属于绑定托管，不被投影进 Design。
+
+一条投影无法绑定到 Market Semantics 坐标的 channel 是一次拒绝，绝不是被丢弃的角色，
+也绝不是由 Owner 自己补上的角色。
+
+reaction graph 才是仍然属于判断的那一部分，而它仍然归提案者。为它准入第一个有界族，
+不准入更宽的任何东西：**单一已声明 channel 与单一阈值的比较**，决策时钟取自
+`data.decision_clock_channel`。这个族之外的每一种图，两个信号、一个合取、一个依赖状态的
+阈值、一个本 Owner 不得不去选的阈值，都仍然是提案者的声明，本 Owner 准入而不导出。
+这个族的存在是为了让第一条生产路径能在 Owner 不发明任何机制的前提下闭合；它不是在主张
+单阈值是一个好策略，扩大它必须先修改本文档。
 
 改由**提案者**声明。提案者可以是语言模型、人，或任何其他 caller；本契约不指名它，
 也不随它改变。契约钉死的是**输出**：恰好一份规范 `StrategyDesignV2`，在 bounded-plugin

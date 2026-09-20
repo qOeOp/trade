@@ -1625,6 +1625,29 @@ impl ProductEdgePostgresOwnerV1 {
         Ok(owner)
     }
 
+    /// Creates this Owner's relations and their grants once, then disconnects.
+    ///
+    /// The sibling of `OperatorAuthorizationIssuerPostgresV1::materialize_schema`,
+    /// for the same reason: `connect` runs the migration on every call, so the
+    /// two `GRANT EXECUTE` statements it issues are re-issued by whoever
+    /// connects, and a privilege here has no distinguishable author or moment.
+    /// Bootstrapping a deployment binding is not provisioning either.
+    pub async fn materialize_schema(database_url: &str) -> Result<(), ProductEdgeError> {
+        let pool = PgPool::connect(database_url).await.map_err(storage)?;
+        let owner = Self {
+            pool,
+            deployment_identity: String::from("materialize-schema"),
+            authorization_trust: ProductEdgeAuthorizationTrustV1 {
+                issuer_identity: String::from("materialize-schema"),
+                issuer_key_version: String::from("materialize-schema"),
+                audience: String::from("materialize-schema"),
+            },
+        };
+        owner.migrate().await?;
+        owner.pool.close().await;
+        Ok(())
+    }
+
     /// Connects the canonical Owner to an already provisioned topology without running DDL.
     pub async fn connect_existing(
         database_url: &str,

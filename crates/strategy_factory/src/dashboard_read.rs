@@ -423,8 +423,23 @@ impl IterationTimelineOwnerPortV1 for PostgresIterationTimelineOwnerV1 {
                 .map_err(|e| unavailable(e.to_string()))?;
             return Err(DashboardReadErrorV1::NotFound);
         }
+        // A family carries a V2 census only once its first exploration cut committed; a family
+        // formed by Research alone still reads through its V1 formation frontier, and an empty
+        // Decision list for it is the documented `AWAITING_REPLAY_RESULT` answer. The attempt cut
+        // is the evidence of that first exploration: formation already writes the family head, so
+        // a head alone would route every freshly formed family into a census the Owner rejects as
+        // incomplete.
+        let census_v2_present = self.census_v2_available
+            && sqlx::query(
+                "SELECT trial_family_identity FROM rd_trial_family_attempt_cuts_v2 WHERE trial_family_identity=$1 LIMIT 1",
+            )
+            .bind(trial_family_identity)
+            .fetch_optional(&mut *transaction)
+            .await
+            .map_err(|e| unavailable(e.to_string()))?
+            .is_some();
         let (census_frontier_identity, census_frontier_digest, consumed_trial_budget, trial_budget) =
-            if self.census_v2_available {
+            if census_v2_present {
                 let census = crate::trial_family_postgres::load_trial_family_census_v2_by_family_in_transaction(
                 &mut transaction,
                 trial_family_identity,

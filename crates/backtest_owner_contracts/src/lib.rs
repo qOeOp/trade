@@ -5,6 +5,7 @@
 
 pub mod native_replay_trace;
 pub mod outcome_evidence;
+pub mod protected_economic_metric;
 pub mod protected_replay;
 
 pub use outcome_evidence::{

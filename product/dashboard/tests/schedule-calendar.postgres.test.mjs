@@ -44,13 +44,27 @@ async function waitForHttp(url, child, headers = {}, timeoutMs = 60_000) {
   throw new Error(`calendar preview did not become ready at ${url}`);
 }
 
-async function stopPreview(child) {
+// A browser is a tree, not a process. Chrome's helper processes inherit the stderr pipe this
+// function reads, and they outlive a signal sent only to the process spawned here: the pipe stays
+// open, Node keeps the stream handle referenced, and the test runner never exits. Give the browser
+// its own process group at spawn and address the group. Only a child spawned detached may be
+// signalled this way, so callers opt in.
+async function stopPreview(child, { group = false } = {}) {
   if (!child || child.exitCode !== null) return;
   const exited = once(child, "exit");
-  child.kill("SIGTERM");
+  const signal = (name) => {
+    if (!group) return child.kill(name);
+    try {
+      process.kill(-child.pid, name);
+    } catch {
+      child.kill(name);
+    }
+    return true;
+  };
+  signal("SIGTERM");
   const stopped = await Promise.race([exited.then(() => true), delay(5_000).then(() => false)]);
   if (!stopped && child.exitCode === null) {
-    child.kill("SIGKILL");
+    signal("SIGKILL");
     await exited;
   }
 }
@@ -58,14 +72,23 @@ async function stopPreview(child) {
 async function openBrowser(executable) {
   const profile = await mkdtemp(join(tmpdir(), "dashboard-calendar-browser-"));
   const child = spawn(executable, [
+    // The same runner runs the ordered chain's browser acceptance to green with these three flags
+    // and stalls these suites without them, on an identical pinned browser build. A container's
+    // /dev/shm is small, and Chrome falls back to it for shared memory unless told otherwise.
     "--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`,
+    "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu",
     "--disable-background-networking", "--disable-default-apps", "--disable-extensions",
     "--disable-sync", "--metrics-recording-only", "--no-default-browser-check", "--no-first-run",
     "about:blank",
-  ], { stdio: "ignore" });
+  ], { stdio: ["ignore", "ignore", "pipe"], detached: true });
+  let browserStderr = "";
+  child.stderr?.setEncoding("utf8");
+  child.stderr?.on("data", (chunk) => { browserStderr = `${browserStderr}${chunk}`.slice(-4_096); });
   try {
     let devTools;
-    const deadline = Date.now() + 15_000;
+    // The browser starts beside a dev server and a database on the same machine, so this is
+    // generous; what matters is that it ends, and that it says what the browser reported.
+    const deadline = Date.now() + 60_000;
     while (Date.now() < deadline) {
       if (child.exitCode !== null) throw new Error(`calendar browser exited with ${child.exitCode}`);
       try {
@@ -75,14 +98,22 @@ async function openBrowser(executable) {
         await delay(100);
       }
     }
-    if (!devTools?.[0]) throw new Error("calendar browser debugging endpoint unavailable");
-    const target = await fetch(`http://127.0.0.1:${devTools[0]}/json/new?about:blank`, { method: "PUT" });
+    if (!devTools?.[0]) throw new Error(`calendar browser debugging endpoint unavailable: ${browserStderr.trim() || "no output"}`);
+    // Bounded: a browser that opened its debugging port but never answers would otherwise leave
+    // this await pending for as long as the runner allows.
+    const target = await fetch(`http://127.0.0.1:${devTools[0]}/json/new?about:blank`, {
+      method: "PUT", signal: AbortSignal.timeout(30_000),
+    });
     if (!target.ok) throw new Error(`calendar browser target failed with ${target.status}`);
     const { webSocketDebuggerUrl } = await target.json();
     const socket = new WebSocket(webSocketDebuggerUrl);
     await new Promise((resolve, reject) => {
-      socket.addEventListener("open", resolve, { once: true });
-      socket.addEventListener("error", reject, { once: true });
+      const timer = setTimeout(() => {
+        socket.close();
+        reject(new Error("browser websocket did not open"));
+      }, 30_000);
+      socket.addEventListener("open", () => { clearTimeout(timer); resolve(); }, { once: true });
+      socket.addEventListener("error", (error) => { clearTimeout(timer); reject(error); }, { once: true });
     });
     let id = 0;
     const pending = new Map();
@@ -94,11 +125,18 @@ async function openBrowser(executable) {
       if (message.error) reject(new Error(message.error.message));
       else resolve(message.result);
     });
-    const send = (method, params = {}, timeoutMs = 5_000) => new Promise((resolve, reject) => {
+    // A page mid-render can leave a command outstanding for several seconds; a short deadline
+    // turns that into a transport error that hides what the page was doing.
+    const send = (method, params = {}, timeoutMs = 60_000) => new Promise((resolve, reject) => {
       const requestId = ++id;
       const timer = setTimeout(() => {
         pending.delete(requestId);
-        reject(new Error(`calendar browser command timed out: ${method}`));
+        // Naming only the method says a command went unanswered, which is true of every command
+        // this suite sends. Say which one, so a timeout points at a step rather than at CDP.
+        const detail = typeof params.expression === "string"
+          ? `: ${params.expression.replace(/\s+/gu, " ").slice(0, 200)}`
+          : "";
+        reject(new Error(`calendar browser command timed out: ${method}${detail}`));
       }, timeoutMs);
       pending.set(requestId, {
         resolve: (value) => { clearTimeout(timer); resolve(value); },
@@ -108,7 +146,7 @@ async function openBrowser(executable) {
     });
     return { child, profile, close: () => socket.close(), send };
   } catch (error) {
-    await stopPreview(child);
+    await stopPreview(child, { group: true });
     await rm(profile, { recursive: true, force: true });
     throw error;
   }
@@ -122,7 +160,35 @@ async function waitForBrowserExpression(browser, expression, timeoutMs = 15_000)
     if (result.result?.value === true) return;
     await delay(100);
   }
-  throw new Error(`calendar browser condition timed out: ${expression}`);
+  // A condition that never became true and one the page could never satisfy both end here, and a
+  // bare timeout cannot tell them apart. Carry what the page actually held into the failure.
+  const state = await browser.send("Runtime.evaluate", {
+    expression: `(() => ({
+      url: location.href,
+      readyState: document.readyState,
+      // A count of open dialogs says a dialog did not open; it does not say whether one exists,
+      // what it would be called, or what the page had focused when it was asked to open one.
+      dialogs: document.querySelectorAll('dialog[open]').length,
+      dialogLabels: [...document.querySelectorAll('dialog')]
+        .map((node) => ({ label: node.getAttribute('aria-label'), open: node.open })),
+      active: (() => {
+        const node = document.activeElement;
+        if (!node) return null;
+        return {
+          tag: node.tagName,
+          label: node.getAttribute('aria-label'),
+          text: node.textContent?.replace(/\s+/gu, ' ').slice(0, 80) ?? null,
+          disabled: node.disabled ?? null,
+        };
+      })(),
+      reasons: [...document.querySelectorAll('details code, .unavailable-state code')]
+        .map((code) => code.textContent),
+      body: document.body?.innerText.slice(0, 1_500) ?? '',
+    }))()`,
+    returnByValue: true,
+  }).catch(() => null);
+  throw new Error(`calendar browser condition timed out: ${expression}; page: ${
+    JSON.stringify(state?.result?.value ?? "unreadable")}`);
 }
 
 async function readBrowserValue(browser, expression) {
@@ -206,6 +272,7 @@ test(testName, { skip: !url }, async () => {
       DASHBOARD_SHADOW_SCHEDULES_JSON: canonical,
       DASHBOARD_SHADOW_SCHEDULES_DIGEST: `sha256:${createHash("sha256").update(canonical).digest("hex")}`,
       DASHBOARD_DATABASE_URL: isolatedUrl.href,
+      DASHBOARD_DIST_DIR: ".next-test",
       DASHBOARD_CURSOR_HMAC_KEY: "calendar-disposable-only-cursor-key-32-bytes",
     };
     const configured = configuredShadowScheduleSetV1(environment, now);
@@ -724,11 +791,15 @@ test(testName, { skip: !url }, async () => {
         const head = viewport?.querySelector('th');
         if (!viewport || !head) return null;
         viewport.scrollTop = 240;
-        return new Promise((resolve) => requestAnimationFrame(() => resolve({
+        // Read straight back rather than waiting for a frame. Assigning scrollTop and then asking
+        // for a rectangle forces the layout this assertion is about, and a sticky offset is decided
+        // there; waiting for a frame adds a dependency on the page being asked to paint, which this
+        // step hung on for a full command budget and reported as a transport timeout.
+        return {
           scrollTop: viewport.scrollTop,
           viewportTop: viewport.getBoundingClientRect().top,
           headTop: head.getBoundingClientRect().top,
-        })));
+        };
       })()`);
       assert.ok(stickyGeometry.scrollTop >= 200, JSON.stringify(stickyGeometry));
       assert.ok(Math.abs(stickyGeometry.headTop - stickyGeometry.viewportTop) <= 1, JSON.stringify(stickyGeometry));
@@ -863,7 +934,7 @@ test(testName, { skip: !url }, async () => {
     assert.equal(count.rows[0].count, descriptors.length, "missed cadence slots must not create historical runs");
   } finally {
     browser?.close();
-    await stopPreview(browser?.child);
+    await stopPreview(browser?.child, { group: true });
     if (browser?.profile) await rm(browser.profile, { recursive: true, force: true });
     await stopPreview(preview);
     await store.close();

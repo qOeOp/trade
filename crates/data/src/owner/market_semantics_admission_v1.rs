@@ -36,7 +36,8 @@ use super::{
 pub struct MarketSemanticsValueSubmissionV1 {
     /// Owner-registry meaning of the normalisation applied to the feed.
     pub normalization_identity: BindingDigest,
-    /// `RAW`, `SPLIT_ADJUSTED` or `TOTAL_RETURN_ADJUSTED`.
+    /// `RAW`, `SPLIT_ADJUSTED`, `TOTAL_RETURN_ADJUSTED`, or `UNKNOWN` to state that the
+    /// source's rule is not known to the submitter.
     pub price_adjustment: String,
     /// `EVENT_EFFECTIVE`, `INTERVAL_OPEN` or `INTERVAL_CLOSE`.
     pub timestamp_basis: String,
@@ -50,10 +51,16 @@ impl MarketSemanticsValueSubmissionV1 {
     pub(crate) fn into_value(
         self,
     ) -> Result<MarketSemanticsValueV1, MarketSemanticsAdmissionErrorV1> {
+        // `UNKNOWN` is a declaration, and the arm below it is not its catch-all. An unrecognised
+        // value means "I do not understand you"; `UNKNOWN` means "I understand you saying you do
+        // not know." Routing unparsable input to `UNKNOWN` would turn a misspelling such as
+        // `RAWW` into a legal state that consumers accept, trading a refusal that speaks for a
+        // silence, so the refusal arm stays exactly as it was.
         let price_adjustment = match self.price_adjustment.as_str() {
             "RAW" => MarketSemanticsPriceAdjustmentV1::Raw,
             "SPLIT_ADJUSTED" => MarketSemanticsPriceAdjustmentV1::SplitAdjusted,
             "TOTAL_RETURN_ADJUSTED" => MarketSemanticsPriceAdjustmentV1::TotalReturnAdjusted,
+            "UNKNOWN" => MarketSemanticsPriceAdjustmentV1::Unknown,
             _ => return Err(MarketSemanticsAdmissionErrorV1::InvalidSubmission),
         };
         let timestamp_basis = match self.timestamp_basis.as_str() {
@@ -266,5 +273,30 @@ mod tests {
             value("RAW", "LATEST").into_value(),
             Err(MarketSemanticsAdmissionErrorV1::InvalidSubmission)
         );
+    }
+
+    /// A misspelling must stay an invalid submission rather than become a declared unknown.
+    ///
+    /// This is the one defect adding `UNKNOWN` can introduce, so it is the one the proof aims at.
+    /// Routing unparsable input to `UNKNOWN` would be the natural-looking change - the variant
+    /// exists now, so an unrecognised value seems to belong there - and it would convert a
+    /// refusal into a legal state that every consumer accepts. `RAWW` is chosen because it is what
+    /// the new variant would most plausibly absorb: a near miss of a tag that is still valid.
+    #[rstest]
+    fn an_unrecognised_adjustment_is_refused_rather_than_declared_unknown() {
+        assert_eq!(
+            value("UNKNOWN", "EVENT_EFFECTIVE")
+                .into_value()
+                .map(|converted| converted.price_adjustment),
+            Ok(MarketSemanticsPriceAdjustmentV1::Unknown)
+        );
+
+        for misspelling in ["RAWW", "unknown", "UNKNOWN_", "", "UNSPECIFIED"] {
+            assert_eq!(
+                value(misspelling, "EVENT_EFFECTIVE").into_value(),
+                Err(MarketSemanticsAdmissionErrorV1::InvalidSubmission),
+                "{misspelling} must not be absorbed by the UNKNOWN variant"
+            );
+        }
     }
 }

@@ -228,6 +228,7 @@ pub struct BoundCapacityScopeReadback {
     mode: CapacityScopeMode,
     economic_pool_identity: String,
     economic_pool_currency: String,
+    shared_constraint_identities: Vec<String>,
     registry_cut_identity: String,
     source_binding_identity: String,
     adapter_binding_identity: String,
@@ -291,6 +292,15 @@ impl BoundCapacityScopeReadback {
     #[must_use]
     pub fn economic_pool_currency(&self) -> &str {
         &self.economic_pool_currency
+    }
+
+    /// Shared-constraint partition this scope occupies, in the registry's own order.
+    ///
+    /// Strategy Governance must reread this before it creates an Execution Scope: a scope whose
+    /// partition Portfolio did not declare is a conflicting prebinding, not a narrower one.
+    #[must_use]
+    pub fn shared_constraint_identities(&self) -> &[String] {
+        &self.shared_constraint_identities
     }
 
     /// Exact complete Portfolio registry cut.
@@ -480,6 +490,7 @@ pub(crate) fn issue_bound_capacity_scope(
         mode: binding.definition.mode,
         economic_pool_identity: binding.definition.economic_pool_identity.clone(),
         economic_pool_currency: binding.definition.economic_pool_currency.clone(),
+        shared_constraint_identities: binding.definition.shared_constraint_identities.clone(),
         registry_cut_identity: binding.registry_cut_identity,
         source_binding_identity: binding.definition.source_binding_identity.clone(),
         adapter_binding_identity: binding.definition.adapter_binding_identity.clone(),

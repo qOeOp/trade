@@ -9,9 +9,9 @@ import {
   type ResearchReadbackGatewayResultV1,
   type ResearchReadbackOutcomeV1,
 } from "./research-readback-gateway.ts";
+import { withBoundedOwnerFanOutV1 } from "./owner-read-fan-out.ts";
 
 const IDENTITY = /^[A-Za-z0-9._:/-]{1,256}$/u;
-const MAX_CONCURRENCY = 6;
 const PROJECTION_KEYS = [
   "availability",
   "awaitingOutcomeTotal",
@@ -119,24 +119,13 @@ function unavailable(reason: string, status: 502 | 503): ResearchOutcomeInventor
   };
 }
 
+// The per-candidate reads share one budget with every other view's fan-out, so two inventories
+// composed on the same page queue against the Owner read API instead of oversubscribing it.
 async function mapBounded<T, R>(
   values: readonly T[],
   worker: (value: T) => Promise<R>,
 ): Promise<R[]> {
-  const results = new Array<R>(values.length);
-  let nextIndex = 0;
-  const consume = async () => {
-    while (nextIndex < values.length) {
-      const index = nextIndex;
-      nextIndex += 1;
-      results[index] = await worker(values[index]);
-    }
-  };
-  await Promise.all(Array.from(
-    { length: Math.min(MAX_CONCURRENCY, values.length) },
-    () => consume(),
-  ));
-  return results;
+  return Promise.all(values.map((value) => withBoundedOwnerFanOutV1(() => worker(value))));
 }
 
 function projectItem(

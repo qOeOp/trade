@@ -1707,8 +1707,26 @@ mod tests {
         );
     }
 
+    /// This proof cannot pass anywhere, and the reason is not a missing database.
+    ///
+    /// `EVIDENCE_SESSION_RESOURCE` is an absolute path under one developer home
+    /// directory and [`verify_evidence`] rejects every other path, so this proof
+    /// could only ever run on that one machine and never on Linux CI. That file is
+    /// now gone from that machine: no Time Machine destination is configured, no
+    /// local snapshot holds it, nothing under the home directory or any mounted
+    /// volume carries that session identifier, and it was never committed. A
+    /// substitute cannot stand in either, because [`verify_evidence`] also pins the
+    /// SHA-256 of named lines of that exact file.
+    ///
+    /// The ignore reason used to name the two disposable databases, which read as
+    /// "supply these and it runs". Supplying them changes nothing. The Owner
+    /// document records the same fact under "Incident-specific Owner
+    /// reconstruction", and nothing authorizes substituting a fixture for the
+    /// sealed evidence - that would turn a one-incident contract into a mechanism
+    /// that verifies whatever file it is pointed at, proved by hashes derived from
+    /// that same file.
     #[tokio::test]
-    #[ignore = "requires explicit disposable QUALIFICATION_OWNER_RECOVERY_TEST_DATABASE_URL"]
+    #[ignore = "unrunnable: the bound evidence session resource no longer exists and no substitute can satisfy its pinned line hashes"]
     async fn isolated_postgres_recovery_is_atomic_fail_closed_and_replay_safe() {
         let database_url = env::var("QUALIFICATION_OWNER_RECOVERY_TEST_DATABASE_URL")
             .expect("explicit disposable Qualification recovery test database is required");

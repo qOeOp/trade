@@ -56,7 +56,7 @@ export type ResearchDirectoryItemV1 = Readonly<{
   intentIdentity: string | null;
   disposition: "ACCEPTED" | "REJECTED_NO_WRITE";
   availability: "AVAILABLE" | "STALE" | "UNAVAILABLE" | null;
-  phase: "REQUEST_UNRESOLVED" | "INTENT_FROZEN" | "ARTIFACT_AVAILABLE" | null;
+  phase: "REQUEST_UNRESOLVED" | "INTENT_FROZEN" | "ARTIFACT_AVAILABLE" | "EXPLORATION_ACTIVE" | null;
   committedAt: string;
 }>;
 
@@ -186,7 +186,7 @@ function validOwnerItem(
     || (value.intent_identity !== null && !identity(value.intent_identity))
     || (value.disposition !== "ACCEPTED" && value.disposition !== "REJECTED_NO_WRITE")
     || !["AVAILABLE", "STALE", "UNAVAILABLE", null].includes(value.availability as never)
-    || !["REQUEST_UNRESOLVED", "INTENT_FROZEN", "ARTIFACT_AVAILABLE", null]
+    || !["REQUEST_UNRESOLVED", "INTENT_FROZEN", "ARTIFACT_AVAILABLE", "EXPLORATION_ACTIVE", null]
       .includes(value.phase as never)
     || !safeEpoch(value.committed_at_epoch_ms)
     || value.committed_at_epoch_ms > observedAtEpochMs) return false;
@@ -271,7 +271,7 @@ export function parseResearchDirectoryBrowserProjectionV1(
       || (item.intentIdentity !== null && !identity(item.intentIdentity))
       || (item.disposition !== "ACCEPTED" && item.disposition !== "REJECTED_NO_WRITE")
       || !["AVAILABLE", "STALE", "UNAVAILABLE", null].includes(item.availability as never)
-      || !["REQUEST_UNRESOLVED", "INTENT_FROZEN", "ARTIFACT_AVAILABLE", null]
+      || !["REQUEST_UNRESOLVED", "INTENT_FROZEN", "ARTIFACT_AVAILABLE", "EXPLORATION_ACTIVE", null]
         .includes(item.phase as never)
       || !canonicalTime(item.committedAt)
       || Date.parse(item.committedAt) > observedAtEpochMs

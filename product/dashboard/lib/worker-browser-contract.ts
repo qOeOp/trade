@@ -1,13 +1,14 @@
+import { effectDispatchOperationIdsV1 } from "./effect-dispatch-contract.ts";
 import { operationRegistryV1, type RegisteredOperationId } from "./operation-registry.ts";
 import { isRunIdentityV1 } from "./run-contract.ts";
 
 const IDENTITY = /^[A-Za-z0-9._:/-]{1,192}$/;
 const EFFECT_WORKER_IDENTITY = /^dashboard-effect-worker-v1-[0-9a-f]{64}$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
-const effectOperationIds = [
-  "artifact_build.formation_execute.v1",
-  "source_intake.research.submit_or_resolve.v1",
-] as const;
+// An effect worker's operations are the effect dispatch contract's operations. A second list here
+// silently froze at two of them, so a worker bound to the other two read back as an invalid
+// envelope and withdrew the whole worker list.
+const effectOperationIds = effectDispatchOperationIdsV1;
 export type WorkerOperationIdV1 = RegisteredOperationId | typeof effectOperationIds[number];
 const orderedOperationIds: WorkerOperationIdV1[] = [
   ...operationRegistryV1.map(({ operation_id }) => operation_id),

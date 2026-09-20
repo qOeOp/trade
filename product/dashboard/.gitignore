@@ -5,3 +5,4 @@ out/
 tsconfig.tsbuildinfo
 AGENTS.md
 CLAUDE.md
+.next-test/

@@ -109,6 +109,7 @@ vibe-operator-authorization = { path = "crates/operator_authorization", version 
 vibe-persistence = { path = "crates/persistence", version = "0.62.0" }
 vibe-persistence-macros = { path = "crates/persistence/macros", version = "0.62.0" }
 vibe-portfolio = { path = "crates/portfolio", version = "0.62.0" }
+vibe-portfolio-owner = { path = "crates/portfolio_owner", version = "0.62.0" }
 vibe-product-edge = { path = "crates/product_edge", version = "0.62.0" }
 vibe-product-edge-claim-custody = { path = "crates/product_edge_claim_custody", version = "0.62.0" }
 vibe-product-edge-contracts = { path = "crates/product_edge_contracts", version = "0.62.0" }
