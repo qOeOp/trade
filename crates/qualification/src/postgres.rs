@@ -62,6 +62,18 @@ const CLOCK_EPOCH_V1: &str = "unix-epoch-ms-v1";
 const PROJECTION_VALIDITY_MS: u64 = 600_000;
 const PROJECTED_EVENT_KIND: &str = "QUALIFICATION_PROTECTED_FEEDBACK_PROJECTED_V1";
 
+/// The Owner's only clock read, shared by the projection path and by incident recovery. Both
+/// samples of a create - the write edge that fixes `valid_through` and the response cut that
+/// validates freshness before commit - come from here, so whoever could displace it would choose
+/// whether the response-cut rollback ever fires. `clock_timestamp` is therefore spelled with its
+/// schema: an unqualified call resolves through `search_path`, and a shadowing function would hand
+/// that choice away. Nothing at runtime would notice the qualification going missing, which is why
+/// `the_owner_clock_is_read_through_its_schema_and_not_through_search_path` pins it. Keeping one
+/// constant is what lets that test cover recovery too: `recovery` is behind `owner-recovery`, a
+/// feature no CI invocation enables, so a pin living there would never run.
+pub(crate) const OWNER_CLOCK_EPOCH_MS_SQL: &str =
+    "SELECT floor(extract(epoch FROM pg_catalog.clock_timestamp()) * 1000)::BIGINT";
+
 #[derive(Debug, Clone)]
 pub struct PostgresQualificationOwnerV1 {
     pool: PgPool,
@@ -4536,13 +4548,11 @@ async fn verify_admission_envelope_in_transaction(
 async fn owner_clock_epoch_ms_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<u64, QualificationOwnerError> {
-    sqlx::query_scalar::<_, i64>(
-        "SELECT floor(extract(epoch FROM pg_catalog.clock_timestamp()) * 1000)::BIGINT",
-    )
-    .fetch_one(&mut **transaction)
-    .await
-    .map_err(storage)
-    .and_then(|value| u64::try_from(value).map_err(json_storage))
+    sqlx::query_scalar::<_, i64>(OWNER_CLOCK_EPOCH_MS_SQL)
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(storage)
+        .and_then(|value| u64::try_from(value).map_err(json_storage))
 }
 
 async fn admit_projection_row_in_transaction(
@@ -5975,6 +5985,28 @@ mod postgres_tests {
         assert!(
             mutation_deny_clause
                 .contains("'public.qualification_protected_attempt_dispositions_v1'")
+        );
+    }
+
+    /// An unqualified `clock_timestamp()` resolves through `search_path`, so anyone who could place
+    /// a function ahead of `pg_catalog` would choose the write edge and the response cut, and with
+    /// them whether the freshness rollback ever fires. Comparing the two counts fails on a second,
+    /// unqualified call as much as on an edit to this one; pinning the qualified count at one fails
+    /// if the read is dropped. One constant serves both readers, so this covers recovery as well,
+    /// which a test inside the `owner-recovery` feature could not - nothing in CI enables it.
+    #[rstest]
+    fn the_owner_clock_is_read_through_its_schema_and_not_through_search_path() {
+        assert_eq!(
+            OWNER_CLOCK_EPOCH_MS_SQL.matches("clock_timestamp(").count(),
+            OWNER_CLOCK_EPOCH_MS_SQL
+                .matches("pg_catalog.clock_timestamp(")
+                .count(),
+        );
+        assert_eq!(
+            OWNER_CLOCK_EPOCH_MS_SQL
+                .matches("pg_catalog.clock_timestamp(")
+                .count(),
+            1,
         );
     }
 
@@ -7921,10 +7953,10 @@ mod postgres_tests {
 
         // Qualification already holds this basis's projection: R&D obtained it through the sealed
         // admission API while forming the TrialFamily policy. A resolve is therefore an exact
-        // replay that writes nothing. The create and renewal paths are not reachable from the gate
-        // for any basis, because no admitted R&D request can exist without its frontier, and a
-        // projection's stored validity cannot be aged without breaking the canonical row it is
-        // part of; the response-cut rollback stays unproven here by construction.
+        // replay that writes nothing. Neither the create nor the renewal path is reachable from
+        // *this* entry, because this basis already has its frontier, and a projection's stored
+        // validity cannot be aged without breaking the canonical row it is part of; the
+        // response-cut rollback stays unproven here by construction.
         let projection = owner
             .resolve_for_basis(&locator)
             .await
@@ -7932,6 +7964,29 @@ mod postgres_tests {
             .expect("R&D-admitted projection");
         assert_eq!(projection.basis_identity(), locator.basis_identity);
         assert_eq!(projection.principal(), locator.principal);
+        // The create branch did run, earlier in this gate, and this is where its committed shape
+        // is read back. `GENESIS_EMPTY` is written by that branch alone - `resolution_name` maps
+        // exactly two variants - and the branch fixes the rest of the shape with it: sequence
+        // zero, the canonical genesis cut, and no source frontier. Asserting the four together
+        // fails if a renewal ever reaches this lineage, and fails if the genesis constants drift.
+        // What it does not prove is the branch's condition, that a frontier commits only on an
+        // empty history; driving that needs an entry whose own basis has none.
+        assert_eq!(
+            projection.resolution(),
+            ProtectedFeedbackResolutionV1::GenesisEmpty
+        );
+        assert_eq!(projection.source_sequence(), 0);
+        assert_eq!(
+            projection.source_cut(),
+            "qualification-protected-feedback-cut-v1-0"
+        );
+        assert_eq!(
+            (
+                projection.source_frontier_identity(),
+                projection.source_frontier_digest()
+            ),
+            (None, None)
+        );
         assert!(
             verify_projection_freshness(&projection, projection.projection_at_epoch_ms()).is_ok()
         );

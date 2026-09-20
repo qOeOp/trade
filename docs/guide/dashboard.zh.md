@@ -388,6 +388,18 @@ readback 的 request identity、Owner receipt `semantic_digest` 和 `committed_a
 `hypothesis`、`falsification_question` 与 `expected_observation`。任何 mismatch、question unavailable 或 receipt
 字段缺失都会撤回整段问题摘要，不显示可能过期的语义。`Refresh` 同时重读两个 projection；两次读取都不授权写入。
 
+readback 的 phase 是 `EXPLORATION_ACTIVE` 的请求，在任何部署镜像上都渲染为 unavailable，这是一道界而不是缺陷。
+读取方要求一份 schema 3 视图，其 `composer_artifact` 恰好携带十项 Composer 事实：从 artifact locator 与
+identity digest，经 family binding receipt，直到 census frontier digest。只有 composer-backed 的 replay commit
+才产出它们，而那条 route 位于 `sealed-source-intake-composer-acceptance` 之后；没有任何部署镜像启用该特性，
+有序链路也无法加上它。未设门的 v2 replay commit 写出的视图没有 Composer artifact 可供描述，
+因此无论它声明哪个 schema version，都满足不了那个读取方。
+
+这道界在部署镜像里出现一条产出 Composer artifact 的路径时解除，而那正是 Composer readback 今天报为
+unavailable 的同一处缺口。届时 v2 commit 退役或被 composer-backed 路径取代，读取方一行都不用改：
+它的 exact-key 检查已经是终态形状。把它放宽到接受 legacy 视图，等于把缺席的 Composer 编码成在场的 Composer，
+并画出一个读起来像 exploration 正在运行的页面。
+
 Historical-custody Owner projection available 时，route 在 directory 前放置一张共享 compact Bento status card，
 把用户的 R&D workspace 组织成三个细肩分组：`research`、`build`、`families`。当 Research outcome inventory
 完整且 identity set 与页面独立渲染的同一 custody set 精确绑定时，`research` 分开显示 `results ready` 与

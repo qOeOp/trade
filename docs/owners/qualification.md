@@ -134,13 +134,36 @@ absent is a proof, and each absence was measured rather than assumed.
 
 - **First create and `GENESIS_EMPTY`.** No admitted R&D request can exist without its frontier: R&D obtains the
   projection through Qualification's sealed admission API while forming the TrialFamily policy, so every basis the
-  gate holds is already projected. A lineage that skips the Qualification resolve fails at once, which is how this
-  was measured.
+  gate holds is already projected, and no Qualification entry can itself be the first create. A lineage that skips
+  the Qualification resolve fails at once, which is how that was measured. The branch's committed shape is no
+  longer unproven: the protected-feedback readback entry asserts that the projection it reads back is
+  `GENESIS_EMPTY` at sequence zero on the canonical genesis cut with no source frontier, four properties the create
+  branch alone writes, and reverting the first of them fails that entry against a gate-populated store. A local run
+  of the whole chain leaves twenty projections, every one of that shape and none of them renewed. What stays out of
+  reach is the branch's condition. Resolution has three paths, not two: a basis whose own projection is still fresh
+  replays and writes nothing, a basis with no projection under a scope with no frontier takes the genesis arm, and
+  a basis with no projection under a scope that has one takes the `FRONTIER` arm. The gate has taken the genesis
+  arm twenty times and the `FRONTIER` arm never, so nothing has ever produced that resolution, its stored encoding,
+  or a source-frontier identity and digest. Until something does, taking the genesis arm and having no other arm to
+  take are the same observation. Driving the other arm needs a second basis under one principal and scope, and only
+  R&D can write one.
 - **Response-cut rollback.** Driving it needs a create or a renewal, so it needs a current frontier that is absent
   or expired. Aging a projection's `valid_through_epoch_ms` desynchronizes it from the canonical row the readback
   verifies, which fails as `Qualification admission envelope projection mismatch`, so the Owner forbids the only
-  way to force it. The test-only timing hook that existed solely for this was removed rather than left dead, and
-  proving the behaviour needs a harness that can materialize a fresh Qualification store.
+  way to force it. The test-only timing hook that existed solely for this was removed rather than left dead. What
+  is missing is not the precondition. The ordered gate reaches the create branch routinely: a local run of its
+  first fifty-seven entries left seventeen projections behind, every one a `GENESIS_EMPTY` first create for a
+  distinct principal and scope, so an absent frontier is the ordinary case rather than something a harness has to
+  manufacture. What no harness controls is the crossing. The rollback fires only when the response cut leaves the
+  projection's half-open validity window, whose reachable edge is `valid_through`; its other edge is a response
+  cut earlier than the projection, which needs the server clock to step backwards. Both cuts are taken by
+  `owner_clock_epoch_ms_in_transaction`, which reads `pg_catalog.clock_timestamp()` twice inside one transaction;
+  the call is schema-qualified, so no function reachable through `search_path` can displace it, and the ordered
+  gate separately asserts that `qualification_writer` is no superuser and holds `CREATE` on neither `public` nor
+  `rd_owner_api`, so the role cannot install a shadowing clock. The window is the private
+  `PROJECTION_VALIDITY_MS`, ten minutes, with no override. What a harness can still vary is therefore only real
+  elapsed time inside the transaction, at ten minutes per attempt; everything cheaper is a production change, for
+  which this Owner has no admitted slice.
 
 ## Pre-Research protected-feedback resolution
 

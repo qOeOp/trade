@@ -128,6 +128,7 @@ link，不是两种能力。Research 仍是 TrialFamily/Census 唯一 writer，Q
 - `crates/rd_market_data_repair_custody` → **R&D Market Data 修复请求读取托管。** `CURRENT` 通过固定的 Market Data Owner PostgreSQL 读取函数，加锁并验证一个已提交 R&D 请求对应的准确 request、receipt、storage 与 outbox 记录。locator 仅用于查询，readback 为 move-only；该 seam 不获得 repair terminal 或 Market Data 事实权威。
 - `crates/market_data_repair_custody` → **Market Data 修复终态托管。** `CURRENT` 消费一个密封的 R&D request readback 和一个 Owner 密封的 PIT terminal，签发规范的 `AVAILABLE` 或 `UNAVAILABLE` repair terminal。它不产生 provider、transport、persistence、production write 或 trading 效果，也不把 R&D request 权威转移给 Market Data。
 - `crates/rd_exploratory_replay_custody` → **R&D 探索式回放托管。** `CURRENT` 通过固定的 R&D Owner PostgreSQL API 解析密封的 Exploratory Replay V2 读取，并在 canonical 回读前校验完整的 request/receipt/seal/outbox 绑定；恢复查询器仅提供查询，不得构造正向权威。provider execution、production write、产品表面效果、qualification、deployment 与 trading 均保持 `NOT_ADMITTED`。
+- `crates/scanner_custody` → **Scanner 终态回执托管。** `CURRENT` 是 Scanner 自有的终态回执存储，连同 Product Edge 对它持有的只读能力。读端由存储自己签发并藏在一个私有 supertrait 之后，所以任何下游 `TerminalReceiptStore` 都当不成规范的正向读权威，而该读端既不暴露写操作也不暴露存储本身。静态契约没有绑定任何生产实现，所以这是托管加一个读面，不是 Scanner 的部署。
 - `crates/rd_artifact_invocation_custody` → **R&D invocation reservation custody。** `CURRENT` 针对精确 Product Edge custody 密封并解析一个 R&D-owned reservation，不转移任一 Owner 权威。provider 执行与交易仍为 `NOT_ADMITTED`。
 - `crates/strategy_factory_rd_owner_api` → **R&D 与 Product Edge API composition。** `CURRENT` 只组合现有 Owner ports，不拥有事实，也不把 transport、credential、配置或 provider output 变成权威。生产写与交易仍为 `NOT_ADMITTED`。
 

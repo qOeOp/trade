@@ -13,10 +13,10 @@ use crate::{
     ProtectedFeedbackFrontierReadbackV1, ProtectedFeedbackResolutionV1, QualificationOwnerError,
     RdIndependenceBasisLocatorV1,
     postgres::{
-        StoredRdBasisReceiptV1, admit_projection_in_transaction, canonical_digest, decode_exact,
-        form_projection_for_basis, identity, load_rd_basis_in_transaction,
-        lock_principal_scope_in_transaction, principal_scope_key, resolution_name,
-        verify_scope_history_in_transaction,
+        OWNER_CLOCK_EPOCH_MS_SQL, StoredRdBasisReceiptV1, admit_projection_in_transaction,
+        canonical_digest, decode_exact, form_projection_for_basis, identity,
+        load_rd_basis_in_transaction, lock_principal_scope_in_transaction, principal_scope_key,
+        resolution_name, verify_scope_history_in_transaction,
     },
 };
 
@@ -887,13 +887,15 @@ async fn recover_with_expected_target(
         ));
     }
 
-    let recovered_at_epoch_ms = sqlx::query_scalar::<_, i64>(
-        "SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::BIGINT",
-    )
-    .fetch_one(&mut *transaction)
-    .await
-    .map_err(storage)
-    .and_then(|value| u64::try_from(value).map_err(json_error))?;
+    // The same clock read the projection path uses, for the same reason, and pinned by the same
+    // test: this stamp dates the incident reconstruction, and the tool runs against a store that
+    // has just been rebuilt, where the grants that make a shadowing function impossible in the
+    // ordered gate are the least safe thing to assume.
+    let recovered_at_epoch_ms = sqlx::query_scalar::<_, i64>(OWNER_CLOCK_EPOCH_MS_SQL)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(storage)
+        .and_then(|value| u64::try_from(value).map_err(json_error))?;
     let receipt = form_recovery_receipt(
         &target_database_binding,
         &rd_anchor,
