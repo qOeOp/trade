@@ -74,13 +74,13 @@
   `--bin strategy-factory-rd-owner-api` 时根本不带 `--features` 参数。这量的是部署产物，不是历史。另一条公开
   提交路径 `commit_exploratory_replay_result_v2` 的调用方只存在于
   `crates/backtest_owner/src/lib.rs` 的 `#[cfg(test)]` 模块内。
-- **CURRENT_PARTIAL - 保护观测：** Backtest 从它自己执行的那次运行的规范结果派生出观测，却无法得知为那次运行
-  冻结的是哪一个观测。`derive_protected_economic_measurement_v1` 从规范 Result 字节计算并封印它，其全部调用方
-  都在 `crates/backtest_owner/tests/protected_economic_measurement.rs` 内。
-  `ProtectedEconomicComputationV1::resolve` 是把冻结的 Qualification 政策束换成一个指标与一条覆盖规则的唯一
-  函数，它在任何地方都没有调用方；保护请求没有任何字段携带这两个引用之一；而
-  `product/rd-workbench/postgres-init/10-migrate-authority-custody.sh` 对
-  `public.qualification_protected_economic_policy_bundles_v1` 撤销了 `backtest_owner`。这项选择没有生产方。
+- **CURRENT_PARTIAL - 保护观测：** Backtest 从它自己执行的那次运行的规范结果派生出观测，现在也能得知为那次
+  运行冻结的是哪一个观测：`derive_protected_economic_measurement_v1` 从规范 Result 字节计算并封印它，而
+  `ResolvedProtectedReplayRequestSetV1::economic_computation` 从请求集所携带的那个 bundle 解析出指标与覆盖
+  规则，因此调用方只能选择一个已发布的计算，描述不出任何计算。剩下的缺口在两者的上游。生产代码不构造
+  `ProtectedEconomicPolicyBundleV1`，它的构造点全都位于 `#[cfg(test)]` 模块之内；而把它封印进请求集的
+  那一步只被有序门禁自己的条目调用、此外没有调用方，这一点 [Qualification](./qualification/) 已为该终端的
+  每一步写明。Backtest 能选出那个计算，而门禁之外没有东西产出那项选择。
 - **TARGET - `REPAIR_VALIDATION` 请求与结果：** 不存在任何实现。`REPAIR_VALIDATION` 与
   `RepairValidation` 不出现在 `crates/` 或 `product/` 下的任何文件里。
 - **TARGET - `SIMULATOR` 与 `BACKTEST_OPERATIONAL` 原生 repair：** 不存在 Backtest 的 repair 面。四个 Backtest
