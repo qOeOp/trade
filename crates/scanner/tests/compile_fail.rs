@@ -9,4 +9,5 @@ fn external_callers_cannot_construct_terminal_receipts() {
     cases.compile_fail("tests/ui/caller_store_cannot_issue_product_edge_reader.rs");
     cases.compile_fail("tests/ui/caller_store_cannot_claim_read_source.rs");
     cases.compile_fail("tests/ui/terminal_receipt_cannot_deserialize.rs");
+    cases.compile_fail("tests/ui/committed_cuts_cannot_be_rebuilt_outside_the_parser.rs");
 }

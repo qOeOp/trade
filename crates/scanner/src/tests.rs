@@ -1597,3 +1597,514 @@ fn scanner_surface_closes_with_receipt_without_runtime_or_effect_port() {
     assert_eq!(*matcher_calls.lock().unwrap(), 1);
     assert_eq!(*builder_calls.lock().unwrap(), 1);
 }
+
+// ---------------------------------------------------------------------------
+// Canonical terminal-receipt custody
+// ---------------------------------------------------------------------------
+
+/// The richest receipt one strategy can produce: proposed, with a capacity cut.
+///
+/// Byte surgery below counts occurrences, so a single-strategy receipt keeps each landmark
+/// unambiguous while still carrying every kind of field the codec writes.
+fn custody_receipt() -> ScannerReceipt {
+    let strategy = binding_with_capacity("solo");
+    let snapshot = snapshot_readback(&strategy);
+    scan_with_snapshot(strategy, snapshot).0
+}
+
+fn custody_bytes() -> Vec<u8> {
+    encode_terminal_receipt_v1(&custody_receipt()).unwrap()
+}
+
+fn text(value: &str) -> Vec<u8> {
+    let mut encoded = u32::try_from(value.len()).unwrap().to_be_bytes().to_vec();
+    encoded.extend_from_slice(value.as_bytes());
+    encoded
+}
+
+fn occurrences(bytes: &[u8], needle: &[u8]) -> Vec<usize> {
+    (0..=bytes.len().saturating_sub(needle.len()))
+        .filter(|start| &bytes[*start..*start + needle.len()] == needle)
+        .collect()
+}
+
+/// Locates the nth landmark, asserting the count so a missed landmark fails loudly.
+///
+/// A corruption test that silently edited the wrong bytes would still see a refusal and still
+/// pass, which is the shape where a broken measurement reads as evidence.
+fn landmark(bytes: &[u8], needle: &[u8], nth: usize, expected: usize) -> usize {
+    let found = occurrences(bytes, needle);
+    assert_eq!(
+        found.len(),
+        expected,
+        "landmark {needle:?} appeared {} times, not {expected}",
+        found.len()
+    );
+    found[nth]
+}
+
+fn replace_nth(
+    bytes: &[u8],
+    needle: &[u8],
+    replacement: &[u8],
+    nth: usize,
+    expected: usize,
+) -> Vec<u8> {
+    assert_eq!(
+        needle.len(),
+        replacement.len(),
+        "a replacement that changes length would move every later field"
+    );
+    let at = landmark(bytes, needle, nth, expected);
+    let mut damaged = bytes.to_vec();
+    damaged[at..at + needle.len()].copy_from_slice(replacement);
+    damaged
+}
+
+fn overwrite(bytes: &[u8], at: usize, value: u8) -> Vec<u8> {
+    let mut damaged = bytes.to_vec();
+    damaged[at] = value;
+    damaged
+}
+
+#[rstest]
+fn every_terminal_receipt_state_survives_canonical_custody_round_trip() {
+    let operational_failure = BatchOperationalFailure {
+        category: BatchFailureCategory::SharedDependencyOperationalFailure,
+        failure_identity: id("custody-operational-failure"),
+        evidence_source_cut: id("custody-operational-cut"),
+        time_evidence: id("custody-operational-time"),
+    };
+    let mut missing_fact = snapshot_readback(&binding("absent"));
+    missing_fact.market_fact_cut.corporate_action = None;
+
+    let receipts = [
+        (
+            "proposed with negatives",
+            terminal_through_product_edge(
+                LoaderResult::Resolved(frontier(&["matched", "negative", "insufficient"])),
+                &[
+                    ("matched", Evaluation::Matched),
+                    ("negative", Evaluation::NoMatch),
+                    ("insufficient", Evaluation::Insufficient),
+                ],
+                None,
+            ),
+        ),
+        (
+            "no match",
+            terminal_through_product_edge(
+                LoaderResult::Resolved(frontier(&["negative"])),
+                &[("negative", Evaluation::NoMatch)],
+                None,
+            ),
+        ),
+        (
+            "insufficient data",
+            terminal_through_product_edge(
+                LoaderResult::Resolved(frontier(&["insufficient"])),
+                &[("insufficient", Evaluation::Insufficient)],
+                None,
+            ),
+        ),
+        (
+            "completed without proposal",
+            terminal_through_product_edge(
+                LoaderResult::Resolved(frontier(&["condition"])),
+                &[("condition", Evaluation::ConditionFailed)],
+                None,
+            ),
+        ),
+        (
+            "failed on batch operation",
+            terminal_through_product_edge(
+                LoaderResult::Resolved(frontier(&["matched"])),
+                &[("matched", Evaluation::Matched)],
+                Some(operational_failure),
+            ),
+        ),
+        (
+            "failed on unresolved membership",
+            terminal_through_product_edge(
+                LoaderResult::Unresolved(MembershipUnavailable {
+                    disposition: id("custody-membership-unresolved"),
+                    source_cut: id("custody-membership-cut"),
+                    terminal_reason: id("custody-membership-reason"),
+                    observed: vec![ObservedMemberFact::new(
+                        id("observed-member"),
+                        EvidenceSet::singleton(id("observed-member-evidence")),
+                    )],
+                }),
+                &[],
+                None,
+            ),
+        ),
+        ("proposed with a capacity cut", custody_receipt()),
+        (
+            "input unavailable with a named mismatch",
+            scan_with_snapshot(binding("absent"), missing_fact).0,
+        ),
+    ];
+
+    for (state, receipt) in receipts {
+        let bytes = encode_terminal_receipt_v1(&receipt)
+            .unwrap_or_else(|e| panic!("{state} did not encode: {e:?}"));
+        let reconstructed = parse_untrusted_terminal_receipt_v1(&bytes)
+            .unwrap_or_else(|e| panic!("{state} did not reconstruct: {e:?}"));
+        assert_eq!(reconstructed, receipt, "{state} lost meaning in custody");
+        assert_eq!(
+            encode_terminal_receipt_v1(&reconstructed).unwrap(),
+            bytes,
+            "{state} re-encoded to different bytes, so one value has two encodings"
+        );
+    }
+}
+
+#[rstest]
+fn the_attempt_key_separates_boundaries_that_share_a_local_time() {
+    let resolve = |candidate| {
+        schedule()
+            .resolve_due_slot(candidate, Delivery::OnTime, clock(1))
+            .unwrap()
+            .unwrap()
+            .attempt_id
+    };
+    let normal = resolve(DueSlotCandidate::Normal {
+        local: local(11, 1, 1, 30),
+        utc_offset_seconds: -14_400,
+    });
+    let fold = resolve(DueSlotCandidate::Fold {
+        local: local(11, 1, 1, 30),
+        occurrence: FoldOccurrence::Second,
+        utc_offset_seconds: -14_400,
+    });
+    let gap = resolve(DueSlotCandidate::Gap {
+        intended: local(11, 1, 1, 30),
+        shifted_to: local(11, 1, 2, 30),
+        utc_offset_seconds: -14_400,
+    });
+    let keys = [&normal, &fold, &gap]
+        .map(|attempt| encode_attempt_id_v1(attempt).unwrap())
+        .to_vec();
+    assert_eq!(
+        keys.iter().collect::<BTreeSet<_>>().len(),
+        3,
+        "two different attempts share one custody key"
+    );
+    assert_eq!(
+        encode_attempt_id_v1(&normal).unwrap(),
+        encode_attempt_id_v1(&normal.clone()).unwrap()
+    );
+    assert_ne!(
+        keys[0],
+        encode_terminal_receipt_v1(&custody_receipt()).unwrap(),
+        "the key and the receipt must not share a domain tag"
+    );
+}
+
+#[rstest]
+fn framing_damage_refuses_by_name_and_never_as_absence() {
+    let bytes = custody_bytes();
+    let domain = text("VIBE_SCANNER_TERMINAL_RECEIPT_V1");
+
+    assert_eq!(
+        parse_untrusted_terminal_receipt_v1(&replace_nth(
+            &bytes,
+            &domain,
+            &text("VIBE_SCANNER_TERMINAL_RECEIPT_V2"),
+            0,
+            1,
+        )),
+        Err(TerminalReceiptDecodeError::ForeignDomain)
+    );
+    assert_eq!(
+        parse_untrusted_terminal_receipt_v1(
+            &encode_attempt_id_v1(custody_receipt().attempt_id()).unwrap()
+        ),
+        Err(TerminalReceiptDecodeError::ForeignDomain),
+        "the attempt key must not parse as a receipt"
+    );
+    assert_eq!(
+        parse_untrusted_terminal_receipt_v1(&[]),
+        Err(TerminalReceiptDecodeError::ForeignDomain)
+    );
+    let version_at = landmark(&bytes, &domain, 0, 1) + domain.len();
+    assert_eq!(
+        parse_untrusted_terminal_receipt_v1(&overwrite(&bytes, version_at + 1, 2)),
+        Err(TerminalReceiptDecodeError::UnsupportedVersion { found: 2 })
+    );
+    assert!(matches!(
+        parse_untrusted_terminal_receipt_v1(&bytes[..bytes.len() - 1]),
+        Err(TerminalReceiptDecodeError::Truncated { .. })
+    ));
+    let mut extended = bytes;
+    extended.push(0);
+    assert_eq!(
+        parse_untrusted_terminal_receipt_v1(&extended),
+        Err(TerminalReceiptDecodeError::TrailingBytes { unconsumed: 1 }),
+        "a writer that wrote more than this version defines is not a truncation"
+    );
+}
+
+#[rstest]
+fn damaged_text_and_broken_bounds_refuse_by_name() {
+    let bytes = custody_bytes();
+    let zone = text("America/New_York");
+    let mut invalid_utf8 = zone.clone();
+    invalid_utf8[4] = 0xFF;
+    assert_eq!(
+        parse_untrusted_terminal_receipt_v1(&replace_nth(&bytes, &zone, &invalid_utf8, 0, 1)),
+        Err(TerminalReceiptDecodeError::MalformedText {
+            field: "calendar_time_zone"
+        })
+    );
+    let mut oversized = zone.clone();
+    oversized[..4].copy_from_slice(&0x00FF_FFFF_u32.to_be_bytes());
+    assert_eq!(
+        parse_untrusted_terminal_receipt_v1(&replace_nth(&bytes, &zone, &oversized, 0, 1)),
+        Err(TerminalReceiptDecodeError::CapacityExceeded {
+            field: "calendar_time_zone"
+        })
+    );
+}
+
+#[rstest]
+fn unknown_tags_refuse_instead_of_falling_back_to_a_default() {
+    let bytes = custody_bytes();
+    let zone = text("America/New_York");
+    let fold_disposition_at = landmark(&bytes, &zone, 0, 1) + zone.len();
+    assert_eq!(
+        parse_untrusted_terminal_receipt_v1(&overwrite(&bytes, fold_disposition_at, 9)),
+        Err(TerminalReceiptDecodeError::UnknownDiscriminant {
+            field: "fold_disposition",
+            code: 9,
+        })
+    );
+    assert_eq!(
+        parse_untrusted_terminal_receipt_v1(&overwrite(&bytes, fold_disposition_at + 1, 7)),
+        Err(TerminalReceiptDecodeError::UnknownDiscriminant {
+            field: "gap_disposition",
+            code: 7,
+        })
+    );
+    assert_eq!(
+        parse_untrusted_terminal_receipt_v1(&overwrite(&bytes, fold_disposition_at + 2, 4)),
+        Err(TerminalReceiptDecodeError::UnknownDiscriminant {
+            field: "misfire_policy",
+            code: 4,
+        })
+    );
+}
+
+#[rstest]
+fn a_value_with_two_encodings_is_refused_under_the_one_that_is_not_canonical() {
+    let mut multiple_auxiliary = snapshot_readback(&binding("aux"));
+    multiple_auxiliary.market_fact_cut.auxiliary =
+        BTreeSet::from([id("aux-alpha"), id("aux-bravo")]);
+    let receipt = scan_with_snapshot(binding("aux"), multiple_auxiliary).0;
+    let bytes = encode_terminal_receipt_v1(&receipt).unwrap();
+    let alpha = landmark(&bytes, &text("aux-alpha"), 0, 1);
+    let bravo = landmark(&bytes, &text("aux-bravo"), 0, 1);
+    assert_eq!(
+        bravo,
+        alpha + text("aux-alpha").len(),
+        "the set is contiguous"
+    );
+    let mut swapped = bytes.clone();
+    swapped[alpha..bravo].copy_from_slice(&text("aux-bravo"));
+    swapped[bravo..bravo + text("aux-alpha").len()].copy_from_slice(&text("aux-alpha"));
+    assert_eq!(
+        parse_untrusted_terminal_receipt_v1(&swapped),
+        Err(TerminalReceiptDecodeError::NotAscending {
+            field: "market_auxiliary"
+        }),
+        "descending entries decode to the same set, so accepting them gives one value two encodings"
+    );
+    let mut repeated = bytes;
+    repeated[bravo..bravo + text("aux-alpha").len()].copy_from_slice(&text("aux-alpha"));
+    assert_eq!(
+        parse_untrusted_terminal_receipt_v1(&repeated),
+        Err(TerminalReceiptDecodeError::NotAscending {
+            field: "market_auxiliary"
+        }),
+        "a repeat would collapse into the set rather than be noticed"
+    );
+}
+
+#[rstest]
+fn bytes_the_scanner_domain_refuses_do_not_reconstruct_a_receipt() {
+    let bytes = custody_bytes();
+    let zone = text("America/New_York");
+    let mut blank = zone.clone();
+    blank[4..].fill(b' ');
+    assert_eq!(
+        parse_untrusted_terminal_receipt_v1(&replace_nth(&bytes, &zone, &blank, 0, 1)),
+        Err(TerminalReceiptDecodeError::NotReconstructible(
+            DomainError::EmptyIdentity
+        ))
+    );
+    let mut definition = text("daily-scan");
+    definition.extend_from_slice(&3_u64.to_be_bytes());
+    let mut zero_version = text("daily-scan");
+    zero_version.extend_from_slice(&0_u64.to_be_bytes());
+    assert_eq!(
+        parse_untrusted_terminal_receipt_v1(&replace_nth(&bytes, &definition, &zero_version, 0, 2)),
+        Err(TerminalReceiptDecodeError::NotReconstructible(
+            DomainError::ZeroVersion
+        ))
+    );
+    assert_eq!(
+        parse_untrusted_terminal_receipt_v1(&replace_nth(&bytes, &definition, &zero_version, 1, 2)),
+        Err(TerminalReceiptDecodeError::NotReconstructible(
+            DomainError::ZeroVersion
+        )),
+        "the attempt identity and the schedule carry the same definition and both are checked"
+    );
+}
+
+#[rstest]
+fn an_input_check_the_receipt_still_witnesses_refuses_with_the_domain_reason() {
+    let bytes = custody_bytes();
+    let cut = text("market-snapshot-cut");
+    assert_eq!(
+        parse_untrusted_terminal_receipt_v1(&replace_nth(
+            &bytes,
+            &cut,
+            &text("market-snapshot-CUT"),
+            1,
+            7,
+        )),
+        Err(TerminalReceiptDecodeError::AdmissionNotWitnessed(
+            InputMismatch::MarketCrossCut
+        )),
+        "the six cross-cut equalities are both-sides-retained, so custody still checks them"
+    );
+    assert_eq!(
+        parse_untrusted_terminal_receipt_v1(&replace_nth(
+            &bytes,
+            &text("market-data-owner"),
+            &text("market-data-OWNER"),
+            1,
+            8,
+        )),
+        Err(TerminalReceiptDecodeError::AdmissionNotWitnessed(
+            InputMismatch::SourceOwner
+        )),
+        "the policy is retained, so every source check is still recomputable"
+    );
+    let mut regressed = text("market-frontier");
+    regressed.extend_from_slice(&10_u64.to_be_bytes());
+    let mut behind = text("market-frontier");
+    behind.extend_from_slice(&9_u64.to_be_bytes());
+    assert_eq!(
+        parse_untrusted_terminal_receipt_v1(&replace_nth(&bytes, &regressed, &behind, 1, 8)),
+        Err(TerminalReceiptDecodeError::AdmissionNotWitnessed(
+            InputMismatch::FrontierRegressed
+        ))
+    );
+}
+
+#[rstest]
+fn facts_that_disagree_about_the_one_clock_admission_are_refused() {
+    let bytes = custody_bytes();
+    assert_eq!(
+        parse_untrusted_terminal_receipt_v1(&replace_nth(
+            &bytes,
+            &text("clock-cut-1"),
+            &text("clock-cut-2"),
+            3,
+            9,
+        )),
+        Err(TerminalReceiptDecodeError::ClockAdmissionNotSingular {
+            field: "time_evidence"
+        }),
+        "one attempt observed one clock admission, and no single fact check can see that"
+    );
+}
+
+#[rstest]
+fn custody_re_runs_the_due_instant_and_says_what_it_cannot_witness() {
+    let bytes = custody_bytes();
+    let receipt = custody_receipt();
+    let due_at = receipt.attempt_id().due_at();
+
+    // The due instant is a pure function of the retained boundary, so `Expired` survives custody.
+    // Nine facts and the capacity cut carry this instant; the first is the pit snapshot's.
+    let expired_at = landmark(&bytes, &1_787_207_400_i64.to_be_bytes(), 0, 10);
+    let mut expired = bytes.clone();
+    expired[expired_at..expired_at + 8].copy_from_slice(&(due_at.seconds() - 1).to_be_bytes());
+    assert_eq!(
+        parse_untrusted_terminal_receipt_v1(&expired),
+        Err(TerminalReceiptDecodeError::AdmissionNotWitnessed(
+            InputMismatch::Expired
+        )),
+        "a fact that expired before its own attempt was due is refusable without a clock"
+    );
+    // `observed_at` is compared against the slot's `observed_at`, which the receipt does not
+    // retain. Custody therefore accepts bytes that admission would have refused, and this pins
+    // that boundary: re-deriving a "now" here would refuse every receipt whose facts have since
+    // aged, turning a terminal record into one that expires on read.
+    // Nine facts, the capacity cut's measurement time, and its admitted-at instant.
+    let observed_at = landmark(&bytes, &1_787_203_800_i64.to_be_bytes(), 0, 11);
+    let mut future = bytes;
+    future[observed_at..observed_at + 8].copy_from_slice(&i64::MAX.to_be_bytes());
+    let reconstructed = parse_untrusted_terminal_receipt_v1(&future)
+        .expect("custody cannot witness a predicate whose other side it does not retain");
+    assert_ne!(reconstructed, receipt);
+    assert_eq!(reconstructed.attempt_id(), receipt.attempt_id());
+}
+
+#[rstest]
+fn a_capacity_cut_is_never_quietly_dropped_or_quietly_kept() {
+    let bytes = custody_bytes();
+    // The contract is written three times: in the membership's binding, in the disposition's
+    // binding, and as the capacity cut's own requirement. Only the last is preceded by a presence
+    // byte.
+    let present_at = landmark(&bytes, &text("capacity-contract-solo"), 2, 3) - 1;
+    assert_eq!(
+        bytes[present_at], 1,
+        "the capacity presence byte precedes its contract"
+    );
+    assert_eq!(
+        parse_untrusted_terminal_receipt_v1(&overwrite(&bytes, present_at, 0)),
+        Err(TerminalReceiptDecodeError::AdmissionNotWitnessed(
+            InputMismatch::CapacityMissing
+        )),
+        "a binding that requires capacity must not read back as one that never had it"
+    );
+    assert_eq!(
+        parse_untrusted_terminal_receipt_v1(&overwrite(&bytes, present_at, 2)),
+        Err(TerminalReceiptDecodeError::UnknownDiscriminant {
+            field: "capacity_view_cut",
+            code: 2,
+        })
+    );
+}
+
+#[rstest]
+fn a_disposition_neither_constructor_can_produce_is_refused_by_the_encoder() {
+    let receipt = custody_receipt();
+    let disposition = &receipt.dispositions()[&id("solo")];
+    let orphaned = StrategyDisposition::input_unavailable(
+        disposition.binding().clone(),
+        None,
+        disposition.capacity_view_cut().cloned(),
+        disposition.auxiliary().clone(),
+        None,
+    );
+    let receipt = ScannerReceipt::complete(
+        receipt.attempt_id().clone(),
+        receipt.meaning().clone(),
+        [orphaned],
+        None,
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        encode_terminal_receipt_v1(&receipt),
+        Err(TerminalReceiptEncodeError::UnreachableDisposition {
+            strategy: id("solo")
+        }),
+        "a capacity cut without the market cut it was admitted against describes no admission"
+    );
+}
