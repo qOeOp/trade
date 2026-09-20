@@ -283,9 +283,41 @@ and restart recovery across processes, which no chain entry observes.
 
 ### CURRENT_PARTIAL - who authors a Strategy Design
 
-R&D does not derive a Design. No rule in this repository turns a hypothesis, mechanism and
-falsification question into input roles and a reaction graph, and none is intended: that translation
-is a judgement, and a judgement an Owner makes is a fact the Owner invented.
+R&D does not derive a Design from research prose. No rule in this repository turns a hypothesis,
+mechanism and falsification question into input roles and a reaction graph, and none is intended:
+that translation is a judgement, and a judgement an Owner makes is a fact the Owner invented.
+
+That prohibition is about inference, not about projection, and the two are separated by what the
+Research Intent already states. A Research Intent carries `data.channels`, and each channel already
+declares its `role`, its `asset_id`, its `timeframe`, whether it is `required`, and its source and
+staleness bound; `data.decision_clock_channel` names which of them advances the decision. Reading
+those out is not a judgement, because nothing is chosen, and the Intent carries no raw material a
+judgement could be made from: across the four `representative_intent_v*.jcs` assets the channel key
+set is exactly `asset_id`, `id`, `max_staleness_ns`, `owner_key`, `required`, `role`, `source` and
+`timeframe`, and `reaction`, `graph`, `threshold`, `rule`, `signal`, `condition`, `operator` and
+`compare` occur zero times in any of them.
+
+**The Owner may therefore project declared channels into the Design's input roles, one role per
+declared channel.** The projection is partial and its boundary is exact. Three `InputRoleV2` fields
+come from the channel and no other source: `instrument` from `asset_id`, `timeframe` from
+`timeframe`, and `channel` from `id`. `semantic_id`, `field_semantic_id`, `fact_class`, `unit`,
+`scale` and `value_type` are **not** in the Intent - a channel's `role` is proposer prose such as
+`broad_usd_proxy_not_ice_dxy`, not a catalog semantic ID - so they stay a proposer declaration the
+Owner admits, and an Intent whose channels cannot be matched to declared ones is refused rather than
+completed from the Owner's own knowledge of the instrument. `max_staleness_ns` and `owner_key` have
+no `InputRoleV2` field at all; they belong to binding custody and are not projected into the Design.
+
+A channel the projection cannot bind to a Market Semantics coordinate is a refusal, never a dropped
+role, and never a role the Owner supplies for itself.
+
+The reaction graph is the part that stays a judgement, and it stays with the proposer. A first
+bounded family is admitted for it and nothing wider: **a single declared channel compared against a
+single threshold**, with the decision clock taken from `data.decision_clock_channel`. Every graph
+outside that family - two signals, a conjunction, a state-dependent threshold, a threshold this
+Owner would have to choose - remains a proposer declaration this Owner admits rather than derives.
+The family exists so the first production path can close without the Owner inventing a mechanism; it
+is not a claim that one threshold is a good strategy, and widening it requires changing this
+document first.
 
 A **proposer** declares it instead. The proposer may be a language model, a person or any other
 caller; this contract does not name it and does not change with it. What the contract fixes is the
