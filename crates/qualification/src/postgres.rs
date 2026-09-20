@@ -41,6 +41,7 @@ use crate::protected_robustness_assessment::{
     ProtectedAssessmentInvalidCommitV1, ProtectedIneligibleCommitV1, ProtectedQualifiedCommitV1,
     form_all_not_applicable_assessment_v1, form_economic_failure_assessment_v1,
     form_economic_pass_assessment_v1, validate_economic_policy_bundle,
+    validate_sealed_economic_policy_bundle,
 };
 use crate::status_summary::{
     PublicStatusFactInputV1, QualificationPublicStatusV1, decode_public_status_fact_v1,
@@ -1613,8 +1614,9 @@ impl PostgresQualificationOwnerV1 {
             verify_protected_replay_request_commit_v2(&mut transaction, &request, &receipt).await?;
             requests.push((request, receipt));
         }
-        let commit = form_protected_replay_request_set_v1(&intake, &source, &requests)?;
-        validate_economic_policy_bundle(economic_policy, commit.seal(), &source)?;
+        let commit =
+            form_protected_replay_request_set_v1(&intake, &source, &requests, economic_policy)?;
+        validate_economic_policy_bundle(economic_policy, &source)?;
 
         if let Some(row) = sqlx::query(
             "SELECT seal_json,canonical_seal_bytes,storage_digest \
@@ -2722,7 +2724,7 @@ async fn persist_protected_economic_policy_bundle_v1(
     source: &ProtectedReplayAuthoritySourceV1,
     committed_at_epoch_ms: u64,
 ) -> Result<(), QualificationOwnerError> {
-    validate_economic_policy_bundle(policy, request_set.seal(), source)?;
+    validate_economic_policy_bundle(policy, source)?;
     let bytes = policy
         .to_canonical_bytes()
         .map_err(|e| unavailable(e.to_string()))?;
@@ -2893,7 +2895,7 @@ async fn load_protected_economic_policy_bundle_v1(
             "frozen protected economic policy custody outbox changed",
         ));
     }
-    validate_economic_policy_bundle(&policy, request_set, source)?;
+    validate_sealed_economic_policy_bundle(&policy, request_set, source)?;
     Ok(policy)
 }
 
@@ -6172,7 +6174,7 @@ mod postgres_tests {
             identity: identity.to_string(),
             digest: digest.to_string(),
         };
-        let mut policy = ProtectedEconomicPolicyBundleV1 {
+        let policy = ProtectedEconomicPolicyBundleV1 {
             schema_version: 1,
             bundle_identity: "pending-policy".to_string(),
             bundle_digest: format!("blake3:{}", "0".repeat(64)),
@@ -6207,15 +6209,9 @@ mod postgres_tests {
             minimum_coverage_bps: 9_500,
             aggregation: ProtectedEconomicAggregationV1::EveryApplicableCell,
         };
-        policy.bundle_digest = policy.compute_digest().expect("economic policy digest");
-        policy.bundle_identity = format!(
-            "qualification-protected-economic-policy-v1-{}",
-            policy
-                .bundle_digest
-                .strip_prefix("blake3:")
-                .expect("blake3 economic policy digest")
-        );
-        policy
+        // The identity rule belongs to the bundle. Spelling it out here meant a drift in the
+        // contract would still produce a corpus policy that looked sealed to every reader.
+        policy.seal().expect("chain economic policy seals")
     }
 
     /// The Candidate lineages the ordered gate's READY entry mints for the protected-evaluation
@@ -7339,16 +7335,7 @@ mod postgres_tests {
 
         let mut changed_policy = policy.clone();
         changed_policy.threshold_raw += 1;
-        changed_policy.bundle_digest = changed_policy
-            .compute_digest()
-            .expect("changed policy digest");
-        changed_policy.bundle_identity = format!(
-            "qualification-protected-economic-policy-v1-{}",
-            changed_policy
-                .bundle_digest
-                .strip_prefix("blake3:")
-                .expect("blake3 changed policy digest")
-        );
+        let changed_policy = changed_policy.seal().expect("changed policy seals");
         assert!(matches!(
             owner
                 .seal_protected_replay_request_set_v1(
