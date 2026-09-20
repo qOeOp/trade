@@ -453,6 +453,21 @@ item matches the readback's request identity, Owner-receipt `semantic_digest`, a
 mismatch, unavailable question, or missing receipt field withdraws the whole question brief rather than showing
 stale meaning. `Refresh` re-reads both projections; neither read authorizes a write.
 
+A request whose readback carries `EXPLORATION_ACTIVE` renders as unavailable on this route in any
+deployed image, and that is a boundary rather than a defect. The reader requires a schema 3 view whose
+`composer_artifact` carries exactly ten Composer facts, from the artifact locator and identity digest
+through the family binding receipt to the census frontier digest. Only the composer-backed replay
+commit produces them, and its route sits behind `sealed-source-intake-composer-acceptance`, which no
+deployed image enables and the ordered chain cannot add. The ungated v2 replay commit writes a view
+that has no Composer artifact to describe, so it cannot satisfy that reader whatever schema version it
+declares.
+
+This boundary lifts when a deployed image carries a path that produces Composer artifacts, which is
+the same gap the Composer readback reports as unavailable today. At that point the v2 commit retires
+or is replaced by the composer-backed path, and the reader needs no change: its exact-key check is
+already the terminal shape. Relaxing it to accept the legacy view would encode an absent Composer as
+a present one, and draw a page that reads as though exploration were running.
+
 When the historical-custody Owner projection is available, the route places one shared compact Bento status card
 before the directory. It organizes the user's R&D workspace into three thin-shoulder groups: `research`, `build`,
 and `families`. When the Research outcome inventory is complete and identity-bound to that same separately rendered
