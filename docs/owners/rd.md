@@ -103,6 +103,23 @@ requires changing this document first. Every row names the symbol or path that w
   `/v2/exploratory-replay/execution-input-bindings`, `/v3/exploratory-replay-requests/composer-backed`, and the
   four `/_sealed-acceptance/v1/develop-composer/*` routes. An acceptance route is never evidence of a production
   capability, and the sealed features exist to keep that distinction mechanical rather than remembered.
+- **CURRENT - one read-only operation is reachable only through the write API:** the Dashboard's operation
+  registry declares eleven Owner routes, and ten are `GET`. The eleventh,
+  `research_goal.legacy_quarantine_read.v1`, declares `effect_set: []` and resolves to
+  `POST /v1/research-goals/{request_identity}/resolve`, registered in
+  `crates/strategy_factory_rd_owner_api/src/main.rs` and absent from the read API binary. The empty effect set is
+  accurate: the handler ignores its request body, and each of its three paths -
+  `resolve_legacy_quarantined_v1`, `resolve_admission` and `resolve_historical_v1` - only reads, taking
+  `FOR SHARE` rather than `FOR UPDATE` and issuing no `INSERT`, `UPDATE` or `DELETE`. What is wrong is where the
+  operation lives: a consumer that claims only read operations still needs write-API credentials, because one of
+  its reads is a `POST` this Owner exposes nowhere else. Until that route is served from the read API, a
+  read-only consumer holding write-API credentials is this constraint rather than a privilege leak, and
+  narrowing it to the read-API pair would break the operation rather than tighten it. Concretely, the shadow
+  worker service in `product/rd-workbench/docker-compose.yml` needs its write-API pair for exactly this reason:
+  removing it while tidying that file stops the worker at `WORKER_CONFIGURATION_UNAVAILABLE`, and nothing in the
+  file says why the pair is there. A future operation
+  declaring `effect_set: []` over a `POST` needs the question asked again, because an effect set describes the
+  operation while the credential admits the whole route.
 - **CURRENT - the cross-Owner read surface other Owners are granted:** `rd_owner_api` is the only schema in this
   repository that grants execute to more than one consuming Owner role - `product_edge_owner`,
   `qualification_writer`, `backtest_owner`, `market_data_owner` and `market_data_reader`, with `rd_owner` as the
