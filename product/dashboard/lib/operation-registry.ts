@@ -330,6 +330,26 @@ export function operationByIdV1(operationId: RegisteredOperationId): OperationDe
   return operation;
 }
 
+// The declared budget is a promise about a deployed Dashboard reading its Owner. An acceptance
+// runner is not that: one job there runs the browser, the Next server, two Owner APIs, PostgreSQL
+// and the test harness on two shared cores, and the budget is client-side wall time, so a starved
+// event loop spends it without the Owner being slow. Enforcing a latency promise there measures the
+// runner rather than the product.
+//
+// This returns the declared budget unless an override is explicitly set, and never silently: the
+// caller is expected to say when one is in force, so a green run cannot hide that the promise was
+// not the thing exercised.
+export const OWNER_READ_TIMEOUT_OVERRIDE_ENV = "DASHBOARD_OWNER_READ_TIMEOUT_OVERRIDE_MS" as const;
+
+export function ownerReadTimeoutMsV1(operation: OperationDescriptorV1): number {
+  const declared = operation.timeout_class.milliseconds;
+  const raw = process.env[OWNER_READ_TIMEOUT_OVERRIDE_ENV];
+  if (!raw) return declared;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return declared;
+  return parsed;
+}
+
 export function operationManifestV1(operationId: RegisteredOperationId) {
   const operation = operationByIdV1(operationId);
   return {
