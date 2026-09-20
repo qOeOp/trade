@@ -356,8 +356,31 @@ impl CapacityScopePostgresV1 {
                  ORDER BY view_record.measured_at_epoch_ms DESC \
                  LIMIT 1 \
              $$",
+            // The complement of `read_current_capacity_view_v1`'s validity clause, and the only
+            // reason it exists: that function returns NULL both when no view was ever published
+            // for a scope and when the one that was has fallen out of its window. A caller cannot
+            // act on the difference between "wait for Portfolio to publish" and "Portfolio's
+            // publication went stale", so this answers the second question directly.
+            //
+            // It returns a boolean rather than the expired view, because a reader outside this
+            // Owner has no business sealing a view it must not use. The predicate is deliberately
+            // the exact complement on `valid_through_epoch_ms` (`<=` here, `>` there) over the
+            // same `measured_at_epoch_ms` clause, so the two partition rather than overlap: a
+            // scope with only future-measured views is false here and NULL there, which is
+            // "no fact at this coordinate" and not "expired".
+            "CREATE OR REPLACE FUNCTION portfolio_api.capacity_view_expired_at_v1(scope_identity text, at_epoch_ms bigint) \
+             RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER \
+             SET search_path = pg_catalog, portfolio_private AS $$ \
+                SELECT EXISTS ( \
+                  SELECT 1 \
+                    FROM portfolio_private.portfolio_capacity_views_v1 view_record \
+                   WHERE view_record.capacity_scope_identity = capacity_view_expired_at_v1.scope_identity \
+                     AND view_record.measured_at_epoch_ms <= capacity_view_expired_at_v1.at_epoch_ms \
+                     AND view_record.valid_through_epoch_ms <= capacity_view_expired_at_v1.at_epoch_ms) \
+             $$",
             "REVOKE ALL ON FUNCTION portfolio_api.read_bound_capacity_scope_v1(text) FROM PUBLIC",
             "REVOKE ALL ON FUNCTION portfolio_api.read_current_capacity_view_v1(text, bigint) FROM PUBLIC",
+            "REVOKE ALL ON FUNCTION portfolio_api.capacity_view_expired_at_v1(text, bigint) FROM PUBLIC",
             // Strategy Governance rereads the ceiling before it admits an INITIAL_ACTIVATION.
             "GRANT EXECUTE ON FUNCTION portfolio_api.read_bound_capacity_scope_v1(text) TO governance_writer",
             "GRANT EXECUTE ON FUNCTION portfolio_api.read_current_capacity_view_v1(text, bigint) TO governance_writer",
@@ -393,6 +416,11 @@ impl CapacityScopePostgresV1 {
             // same reason.
             "GRANT EXECUTE ON FUNCTION portfolio_api.read_bound_capacity_scope_v1(text) TO risk_writer",
             "GRANT EXECUTE ON FUNCTION portfolio_api.read_current_capacity_view_v1(text, bigint) TO risk_writer",
+            // Risk alone holds this one. Strategy Governance rereads the ceiling to admit an
+            // INITIAL_ACTIVATION and either has a current view or does not; it never needed to
+            // tell a missing publication from a stale one, and granting it a capability it does
+            // not exercise would make this function look like general API surface.
+            "GRANT EXECUTE ON FUNCTION portfolio_api.capacity_view_expired_at_v1(text, bigint) TO risk_writer",
         ] {
             sqlx::query(statement)
                 .execute(&mut *transaction)

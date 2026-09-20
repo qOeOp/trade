@@ -324,18 +324,25 @@ impl RiskCapacityReadPortPostgresV1 {
 
         let Some(view) = view else {
             // The read function filters by the validity window, so a NULL here means either no
-            // view at all or one that has expired. Asking again without the window separates
-            // them; without this second read the two would refuse under one name.
-            let any_view: Option<Value> = sqlx::query_scalar(
-                "SELECT view_record.view_json                    FROM portfolio_private.portfolio_capacity_views_v1 view_record                   WHERE view_record.capacity_scope_identity = $1                   ORDER BY view_record.measured_at_epoch_ms DESC LIMIT 1",
-            )
-            .bind(&scope_identity)
-            .fetch_optional(&mut *transaction)
-            .await
-            .ok()
-            .flatten();
+            // view at all or one that has fallen out of it. Portfolio answers the second question
+            // directly, through its own API: this Owner must not read `portfolio_private`, and an
+            // earlier revision of this branch did exactly that. It could only ever have refused
+            // under one name, because `risk_writer` holds no `USAGE` on that schema and the
+            // failure was being read as "found nothing".
+            let expired: bool =
+                sqlx::query_scalar("SELECT portfolio_api.capacity_view_expired_at_v1($1, $2)")
+                    .bind(&scope_identity)
+                    .bind(
+                        i64::try_from(observed_at)
+                            .map_err(|_| RiskCustodyError::ClockUnavailable)?,
+                    )
+                    .fetch_one(&mut *transaction)
+                    .await
+                    .map_err(storage)?;
+
             transaction.rollback().await.map_err(storage)?;
-            return Ok(CapacityObservation::Refused(if any_view.is_some() {
+
+            return Ok(CapacityObservation::Refused(if expired {
                 CapacityObservationRefusal::FactExpired
             } else {
                 CapacityObservationRefusal::FactUnavailable
