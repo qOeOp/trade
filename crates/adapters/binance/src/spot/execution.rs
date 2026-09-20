@@ -3202,17 +3202,19 @@ mod tests {
         );
     }
 
-    /// A success that arrives before the channel closes still wins.
+    /// A success that arrives while the dispatch task is still alive wins.
+    ///
+    /// The sender is held for the whole call on purpose. Dropping it first makes both arms ready
+    /// at once, and `tokio::select!` picks between ready branches at random - so a test written
+    /// that way asks a question with no defined answer, and fails about half the time. It failed
+    /// five runs in ten before this was understood. That randomness is fine in production: both
+    /// arms ready means the step succeeded just as the task died, and either answer is honest.
     #[tokio::test]
-    async fn test_ws_setup_wait_takes_a_success_that_arrives_first() {
+    async fn test_ws_setup_wait_takes_a_success_from_a_live_task() {
         let notify = std::sync::Arc::new(tokio::sync::Notify::new());
         let (setup_error_tx, mut setup_error_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
 
-        let signal = notify.clone();
-        tokio::spawn(async move {
-            signal.notify_waiters();
-            drop(setup_error_tx);
-        });
+        notify.notify_one();
 
         wait_for_ws_setup_response(
             Duration::from_secs(5),
@@ -3221,7 +3223,9 @@ mod tests {
             "timed out",
         )
         .await
-        .expect("the success notification decides when it arrives first");
+        .expect("a success from a live dispatch task decides the step");
+
+        drop(setup_error_tx);
     }
 
     /// Silence with the channel still open is what the timeout is for.
