@@ -82,15 +82,31 @@ impl RiskOwnerClock for SystemRiskOwnerClock {
 pub enum RiskCustodyError {
     /// The Owner clock produced no valid sample.
     ClockUnavailable,
-    /// Custody is unreachable, not admitted for this role, or structurally wrong.
-    StoreUnavailable,
+    /// The database could not be reached at all.
+    ///
+    /// Distinct from the two below: nothing about this Owner's topology has been examined yet.
+    ConnectionUnavailable,
+    /// The Owner relations could not be materialised.
+    RelationsUnavailable,
+    /// The connected role is not this Owner's admitted writer, or its relations are not shaped
+    /// the way admission requires.
+    ///
+    /// Kept apart from [`Self::RelationsUnavailable`] because the two have different causes and
+    /// different repairs: one is a migration that could not run, the other a migration that ran
+    /// and produced something admission rejects. Collapsing them cost one full ordered-chain
+    /// round to tell apart when this custody was first written.
+    NotAdmitted,
 }
 
 impl Display for RiskCustodyError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
             Self::ClockUnavailable => formatter.write_str("Risk Owner clock unavailable"),
-            Self::StoreUnavailable => formatter.write_str("Risk Owner custody unavailable"),
+            Self::ConnectionUnavailable => formatter.write_str("Risk Owner database unreachable"),
+            Self::RelationsUnavailable => {
+                formatter.write_str("Risk Owner relations could not be materialised")
+            }
+            Self::NotAdmitted => formatter.write_str("Risk Owner custody is not admitted"),
         }
     }
 }
@@ -130,8 +146,10 @@ impl RiskCapacityReadPortPostgresV1 {
     ///
     /// # Errors
     ///
-    /// Returns [`RiskCustodyError::StoreUnavailable`] when the connection fails, the role is not
-    /// the admitted writer, or the relations cannot be created.
+    /// Returns [`RiskCustodyError::ConnectionUnavailable`] when the database cannot be reached,
+    /// [`RiskCustodyError::RelationsUnavailable`] when the relations cannot be materialised, and
+    /// [`RiskCustodyError::NotAdmitted`] when the role or the materialised relations are not what
+    /// admission requires.
     pub async fn connect(
         database_url: &str,
         clock: Arc<dyn RiskOwnerClock>,
@@ -146,8 +164,9 @@ impl RiskCapacityReadPortPostgresV1 {
     ///
     /// # Errors
     ///
-    /// Returns [`RiskCustodyError::StoreUnavailable`] when the role, its membership, or the owned
-    /// relations do not match the canonical Risk topology.
+    /// Returns [`RiskCustodyError::ConnectionUnavailable`] when the database cannot be reached,
+    /// and [`RiskCustodyError::NotAdmitted`] when the role, its membership, or the owned relations
+    /// do not match the canonical Risk topology.
     pub async fn connect_existing(
         database_url: &str,
         clock: Arc<dyn RiskOwnerClock>,
@@ -179,6 +198,38 @@ impl RiskCapacityReadPortPostgresV1 {
     }
 
     async fn migrate(&self) -> Result<(), RiskCustodyError> {
+        let mut transaction = self.pool.begin().await.map_err(relations)?;
+
+        // A relation created by the writer role is owned by the writer role, and admission
+        // requires the Owner role to own it. An earlier revision of this custody omitted this and
+        // left a wrongly-owned relation on the ordered chain's shared database, which never
+        // resets: every later run then failed identically at admission, on this Owner's entry,
+        // with nothing pointing at the run that caused it.
+        //
+        // So the ownership is repaired first, as the writer, which may do it because it is the
+        // relation's current owner and a member of the Owner role. Only then does the session
+        // assume the Owner role, so a relation created here lands owned correctly the first time.
+        sqlx::query(
+            "DO $repair$ BEGIN \
+               IF EXISTS (SELECT 1 \
+                            FROM pg_catalog.pg_class relation \
+                            JOIN pg_catalog.pg_namespace namespace \
+                              ON namespace.oid = relation.relnamespace \
+                           WHERE namespace.nspname = 'risk_private' \
+                             AND relation.relname = 'risk_capacity_observations_v1' \
+                             AND relation.relowner \
+                                 <> pg_catalog.to_regrole('risk_owner')::oid) \
+               THEN ALTER TABLE risk_private.risk_capacity_observations_v1 OWNER TO risk_owner; \
+               END IF; END $repair$",
+        )
+        .execute(&mut *transaction)
+        .await
+        .map_err(relations)?;
+        sqlx::query("SET LOCAL ROLE risk_owner")
+            .execute(&mut *transaction)
+            .await
+            .map_err(relations)?;
+
         for statement in [
             "CREATE TABLE IF NOT EXISTS risk_private.risk_capacity_observations_v1( \
                  observation_identity TEXT PRIMARY KEY, \
@@ -198,11 +249,12 @@ impl RiskCapacityReadPortPostgresV1 {
                  observed_at_epoch_ms BIGINT NOT NULL CHECK (observed_at_epoch_ms > 0))",
         ] {
             sqlx::query(statement)
-                .execute(&self.pool)
+                .execute(&mut *transaction)
                 .await
-                .map_err(storage)?;
+                .map_err(relations)?;
         }
-        Ok(())
+
+        transaction.commit().await.map_err(relations)
     }
 
     /// Rereads Portfolio's `BOUND` Capacity Scope and current Capacity View, and seals what it saw.
@@ -241,7 +293,7 @@ impl RiskCapacityReadPortPostgresV1 {
                     return Ok(CapacityObservation::Refused(if undeployed {
                         CapacityObservationRefusal::UpstreamCustodyNotDeployed
                     } else {
-                        return Err(RiskCustodyError::StoreUnavailable);
+                        return Err(RiskCustodyError::ConnectionUnavailable);
                     }));
                 }
             };
@@ -373,21 +425,29 @@ impl RiskCapacityReadPortPostgresV1 {
         .bind(RISK_WRITER_ROLE)
         .bind(RISK_OWNER_ROLE)
         .bind(RISK_PRIVATE_SCHEMA)
-        .bind(i64::try_from(OWNED_TABLES.len()).map_err(|_| RiskCustodyError::StoreUnavailable)?)
+        .bind(i64::try_from(OWNED_TABLES.len()).map_err(|_| RiskCustodyError::NotAdmitted)?)
         .bind(OWNED_TABLES.to_vec())
         .fetch_one(&self.pool)
         .await
-        .map_err(storage)?;
+        .map_err(admission)?;
 
         if !admitted {
-            return Err(RiskCustodyError::StoreUnavailable);
+            return Err(RiskCustodyError::NotAdmitted);
         }
         Ok(())
     }
 }
 
 fn storage<E>(_error: E) -> RiskCustodyError {
-    RiskCustodyError::StoreUnavailable
+    RiskCustodyError::ConnectionUnavailable
+}
+
+fn relations<E>(_error: E) -> RiskCustodyError {
+    RiskCustodyError::RelationsUnavailable
+}
+
+fn admission<E>(_error: E) -> RiskCustodyError {
+    RiskCustodyError::NotAdmitted
 }
 
 fn observation_identity(observation: &SealedCapacityObservationV1) -> String {
