@@ -62,6 +62,16 @@ const CLOCK_EPOCH_V1: &str = "unix-epoch-ms-v1";
 const PROJECTION_VALIDITY_MS: u64 = 600_000;
 const PROJECTED_EVENT_KIND: &str = "QUALIFICATION_PROTECTED_FEEDBACK_PROJECTED_V1";
 
+/// The Owner cut every projection is timed against, and the projection path's only clock read.
+/// Both samples of a create - the write edge that fixes `valid_through` and the response cut that
+/// validates freshness before commit - come from here, so whoever could displace it would choose
+/// whether the response-cut rollback ever fires. `clock_timestamp` is therefore spelled with its
+/// schema: an unqualified call resolves through `search_path`, and a shadowing function would hand
+/// that choice away. Nothing at runtime would notice the qualification going missing, which is why
+/// `the_owner_clock_is_read_through_its_schema_and_not_through_search_path` pins it.
+const OWNER_CLOCK_EPOCH_MS_SQL: &str =
+    "SELECT floor(extract(epoch FROM pg_catalog.clock_timestamp()) * 1000)::BIGINT";
+
 #[derive(Debug, Clone)]
 pub struct PostgresQualificationOwnerV1 {
     pool: PgPool,
@@ -4536,13 +4546,11 @@ async fn verify_admission_envelope_in_transaction(
 async fn owner_clock_epoch_ms_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<u64, QualificationOwnerError> {
-    sqlx::query_scalar::<_, i64>(
-        "SELECT floor(extract(epoch FROM pg_catalog.clock_timestamp()) * 1000)::BIGINT",
-    )
-    .fetch_one(&mut **transaction)
-    .await
-    .map_err(storage)
-    .and_then(|value| u64::try_from(value).map_err(json_storage))
+    sqlx::query_scalar::<_, i64>(OWNER_CLOCK_EPOCH_MS_SQL)
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(storage)
+        .and_then(|value| u64::try_from(value).map_err(json_storage))
 }
 
 async fn admit_projection_row_in_transaction(
@@ -5975,6 +5983,28 @@ mod postgres_tests {
         assert!(
             mutation_deny_clause
                 .contains("'public.qualification_protected_attempt_dispositions_v1'")
+        );
+    }
+
+    /// An unqualified `clock_timestamp()` resolves through `search_path`, so anyone who could place
+    /// a function ahead of `pg_catalog` would choose the write edge and the response cut, and with
+    /// them whether the freshness rollback ever fires. Comparing the two counts fails on a second,
+    /// unqualified call as much as on an edit to this one; pinning the qualified count at one fails
+    /// if the read is dropped. Scope is this constant: `recovery.rs` reads its own clock, on the
+    /// incident path, and is not covered here.
+    #[rstest]
+    fn the_owner_clock_is_read_through_its_schema_and_not_through_search_path() {
+        assert_eq!(
+            OWNER_CLOCK_EPOCH_MS_SQL.matches("clock_timestamp(").count(),
+            OWNER_CLOCK_EPOCH_MS_SQL
+                .matches("pg_catalog.clock_timestamp(")
+                .count(),
+        );
+        assert_eq!(
+            OWNER_CLOCK_EPOCH_MS_SQL
+                .matches("pg_catalog.clock_timestamp(")
+                .count(),
+            1,
         );
     }
 
