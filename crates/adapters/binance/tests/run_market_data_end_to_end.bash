@@ -99,16 +99,20 @@ export MARKET_DATA_OWNER_DATABASE_URL="$MARKET_DATA_OWNER_TEST_DATABASE_URL"
 # proof reports `ObservationUnavailable`, which is where three separate erasures end up: the Data
 # Client discards the HTTP error, the store discards the client's category, and the intake
 # discards the store's. So a red leg says the venue did not answer and nothing about why. This
-# probe is the only place in the leg that can name a status code, and it names one per endpoint:
-# `api.binance.com` is the host the keyless spot client actually calls, `data-api.binance.vision`
-# is the public-data mirror the admitted binding's proposal names, and `fapi.binance.com` is the
-# USD-M host. Binance answers some networks with 451, and the three hosts do not answer alike.
+# probe is the only place in the leg that can name a status code, and it names one per endpoint.
+# The hosts do not answer alike, which is the whole reason to ask each of them separately rather
+# than to ask one and generalise.
 #
 # The probe never decides the leg. It prints and continues, so the proof stays the verdict; a
 # probe that failed the script would replace one mute red with another.
 probe_endpoint() {
   local label="$1" url="$2" status body
-  body="$(mktemp)"
+  if ! body="$(mktemp)"; then
+    # Without this the probe would call curl with an empty --output, and report the failure as
+    # "curl produced no status" - blaming the tool for the harness's own missing temp directory.
+    echo "market-data end-to-end venue probe: ${label}: no temporary file, probe not run" >&2
+    return 0
+  fi
   # curl's own stderr is left alone: for a connection failure its message ("Could not resolve
   # host", "Connection timed out") is the whole diagnosis, and `000` alone would not say which.
   status="$(curl --silent --show-error --output "$body" --write-out '%{http_code}' --max-time 20 "$url" || true)"
