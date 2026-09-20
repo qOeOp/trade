@@ -263,24 +263,36 @@ check_nextest_graph_contract() {
     echo "ERROR: rd-owner-postgres workflow must define the complete Composer and Source Intake feature union." >&2
     return 1
   fi
-  if ! rg -Fq \
-    'DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE: "1"' \
-    "$repository_root/.github/workflows/rd-owner-postgres.yml" ||
-    ! rg -Fq \
-      'DASHBOARD_STRATEGY_VIEWER_ACCEPTANCE_CANDIDATE: ${{ github.sha }}' \
-      "$repository_root/.github/workflows/rd-owner-postgres.yml" ||
-    ! rg -Fq \
-      '${{ runner.temp }}/dashboard-strategy-viewer-chrome/chrome-linux64/chrome' \
-      "$repository_root/.github/workflows/rd-owner-postgres.yml" ||
-    ! rg -Fq \
-      'npm ci --prefix product/dashboard' \
-      "$repository_root/.github/workflows/rd-owner-postgres.yml" ||
-    ! rg -Fq \
-      'ecae8b71d4890cf5f32577ab5ea1b3840c2b5e05f51490b1666674cf1f5b0c37' \
-      "$repository_root/.github/workflows/rd-owner-postgres.yml"; then
-    echo "ERROR: rd-owner-postgres must execute the sealed Dashboard browser acceptance with immutable runtime inputs." >&2
+  # The sealed browser inputs live in one composite action, and this pins that action rather than
+  # any workflow's copy of it. Pinning a copy is how the divergence happened: this check watched
+  # `rd-owner-postgres.yml`, `owner-chains.yml` grew a second copy, and `build.yml` never had one -
+  # so the two channels AGENTS.md calls interchangeable disagreed, and the check stayed green
+  # throughout because the file it watched was still correct.
+  local browser_action="$repository_root/.github/actions/dashboard-browser-acceptance/action.yml"
+  if [[ ! -f "$browser_action" ]]; then
+    echo "ERROR: the sealed Dashboard browser acceptance action is missing." >&2
     return 1
   fi
+  if ! rg -Fq 'DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE=1' "$browser_action" ||
+    ! rg -Fq 'DASHBOARD_STRATEGY_VIEWER_ACCEPTANCE_CANDIDATE=' "$browser_action" ||
+    ! rg -Fq '${{ runner.temp }}/dashboard-strategy-viewer-chrome/chrome-linux64/chrome' \
+      "$browser_action" ||
+    ! rg -Fq 'npm ci --prefix product/dashboard' "$browser_action" ||
+    ! rg -Fq 'ecae8b71d4890cf5f32577ab5ea1b3840c2b5e05f51490b1666674cf1f5b0c37' "$browser_action"; then
+    echo "ERROR: the sealed Dashboard browser acceptance action must install immutable runtime inputs." >&2
+    return 1
+  fi
+  # Every channel AGENTS.md accepts as chain evidence has to call it. A channel that does not still
+  # runs entry 28 and still reports PASS - in milliseconds, having driven no browser - so its
+  # absence here is indistinguishable from success in the chain's own output.
+  local acceptance_channel
+  for acceptance_channel in rd-owner-postgres owner-chains build; do
+    if ! rg -Fq './.github/actions/dashboard-browser-acceptance' \
+      "$repository_root/.github/workflows/${acceptance_channel}.yml"; then
+      echo "ERROR: ${acceptance_channel}.yml claims to carry the Owner chain but never installs the sealed Dashboard browser acceptance inputs." >&2
+      return 1
+    fi
+  done
   if ! rg -n 'EXTRA_FEATURES="\$\{RUST_TEST_EXTRA_FEATURES\}"' \
     "$repository_root/.github/workflows/rd-owner-postgres.yml" > /dev/null; then
     echo "ERROR: rd-owner-postgres workflow must pass RUST_TEST_EXTRA_FEATURES to the isolated test graph." >&2
