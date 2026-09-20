@@ -512,8 +512,9 @@ twenty-four emitted artifacts were byte-identical to their predecessors, so noth
 had been living in the generator that wrote it. **The line is not that this layer derives nothing -
 it is that the proposal layer need not be built at all.** For those ten programs the authored
 `design` and `meaning` are 228 KB and 297 KB, and the 378 KB proposal is the Owner's. What stays on
-the author's side is role identity, because `design` embeds it in each coordinate port id; it is a
-digest over `InputRoleV2`, so this layer does depend on a struct field order that no contract text
+the author's side is role identity, because `design` embeds it in each coordinate port id, and
+`project_bfp_role_bindings` in `strategy_plan_v2.rs` rejects a binding whose coordinate port id is
+not exactly that, so this is enforced rather than conventional. It is a digest over `InputRoleV2`, so this layer does depend on a struct field order that no contract text
 states or undertakes to keep, and that coupling is a named residue rather than something this split
 removes.
 
