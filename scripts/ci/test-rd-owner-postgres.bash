@@ -104,6 +104,8 @@ readonly rd_owner_postgres_tests=(
   'vibe-qualification|vibe_qualification|postgres::postgres_tests::protected_feedback_projection_readback_fails_closed_on_corruption_and_writes_nothing'
   'vibe-data|vibe_data|owner::postgres::market_data_rd_api_authorization_postgres_tests::market_data_rd_api_admits_the_rd_owner_through_the_grant_layer_alone'
   'vibe-data|vibe_data|owner::postgres::market_data_rd_api_authorization_postgres_tests::market_data_rd_api_refuses_the_backtest_owner_loudly_not_emptily'
+  'vibe-scanner-custody|vibe_scanner_custody|postgres::chain_proofs::terminal_receipt_custody_commits_joins_refuses_and_reads_back_to_product_edge'
+  'vibe-scanner-custody|vibe_scanner_custody|postgres::chain_proofs::a_caller_without_the_grant_is_refused_rather_than_answered_empty'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
@@ -118,6 +120,7 @@ readonly nextest_graph_args=(
   --package vibe-execution-owner
   --package vibe-portfolio-owner
   --package vibe-strategy-governance
+  --package vibe-scanner-custody
   --lib
   --tests
 )
@@ -125,7 +128,18 @@ readonly nextest_graph_args=(
 # the three selected packages expose. Keep the archive projection package-scoped.
 readonly nextest_archive_features='vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance'
 readonly schema_materialization_features="${nextest_archive_features},vibe-strategy-factory-rd-owner-api/sealed-develop-composer-acceptance"
-readonly nextest_execution_args=(--fail-fast --run-ignored ignored-only)
+# `--success-output final`: nextest discards a passing test's stdout by default, and every entry
+# here is one whole acceptance. Entry 28 alone drives eleven browser sub-tests whose individual
+# durations exist only on that stream, so a green entry printed nothing at all about what it did -
+# and a whole day was spent reading that absence as evidence: "the passing runs never build the
+# Dashboard" was read off a log that simply was not printing the build. It cost about 800 lines,
+# under three percent, measured on the runs that established this.
+# `--no-tests=fail`: every entry selects one test by exact name, so a typo in a name selects
+# nothing. On the pinned nextest (0.9.143) that is already an error - an unmatched filter exits 4,
+# with or without this flag, under `--profile ci` and without it - so this states a default rather
+# than correcting one. It is stated because the default belongs to the tool and the profile, and
+# this property should not move when either does.
+readonly nextest_execution_args=(--fail-fast --run-ignored ignored-only --success-output final --no-tests=fail)
 readonly candidate_experiment_upgrade_seed_test='trial_family_postgres::postgres_binding_tests::canonical_candidate_experiment_upgrade_seed_is_owner_issued_and_locked_readback_exact'
 
 check_nextest_graph_contract() {
@@ -133,8 +147,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 87 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all eighty-seven ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 89 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all eighty-nine ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -233,14 +247,16 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[83]}" != *'|postgres::postgres_tests::protected_feedback_projection_readback_fails_closed_on_corruption_and_writes_nothing' ]] ||
     [[ "${rd_owner_postgres_tests[84]}" != *'|owner::postgres::market_data_rd_api_authorization_postgres_tests::market_data_rd_api_admits_the_rd_owner_through_the_grant_layer_alone' ]] ||
     [[ "${rd_owner_postgres_tests[85]}" != *'|owner::postgres::market_data_rd_api_authorization_postgres_tests::market_data_rd_api_refuses_the_backtest_owner_loudly_not_emptily' ]] ||
-    [[ "${rd_owner_postgres_tests[86]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[86]}" != *'|postgres::chain_proofs::terminal_receipt_custody_commits_joins_refuses_and_reads_back_to_product_edge' ]] ||
+    [[ "${rd_owner_postgres_tests[87]}" != *'|postgres::chain_proofs::a_caller_without_the_grant_is_refused_rather_than_answered_empty' ]] ||
+    [[ "${rd_owner_postgres_tests[88]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
-  if [[ "${nextest_graph_args[*]}" != '--locked --package vibe-strategy-factory --package vibe-strategy-factory-rd-owner-api --package vibe-product-edge --package vibe-operator-authorization --package vibe-backtest-owner --package vibe-data --package vibe-qualification --package vibe-execution-owner --package vibe-portfolio-owner --package vibe-strategy-governance --lib --tests' ]] ||
+  if [[ "${nextest_graph_args[*]}" != '--locked --package vibe-strategy-factory --package vibe-strategy-factory-rd-owner-api --package vibe-product-edge --package vibe-operator-authorization --package vibe-backtest-owner --package vibe-data --package vibe-qualification --package vibe-execution-owner --package vibe-portfolio-owner --package vibe-strategy-governance --package vibe-scanner-custody --lib --tests' ]] ||
     [[ "$nextest_archive_features" != 'vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance' ]] ||
     [[ "$schema_materialization_features" != "${nextest_archive_features},vibe-strategy-factory-rd-owner-api/sealed-develop-composer-acceptance" ]] ||
-    [[ "${nextest_execution_args[*]}" != '--fail-fast --run-ignored ignored-only' ]]; then
+    [[ "${nextest_execution_args[*]}" != '--fail-fast --run-ignored ignored-only --success-output final --no-tests=fail' ]]; then
     echo "ERROR: shared nextest graph, schema feature union, or sequential ignored-only execution changed." >&2
     return 1
   fi
@@ -349,8 +365,8 @@ for line in array_body.splitlines():
     if len(fields) != 3 or any(not field for field in fields):
         raise SystemExit("ERROR: ordered PostgreSQL test literal must contain three fields.")
     entries.append(tuple(fields))
-if len(entries) != 87:
-    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain eighty-seven entries.")
+if len(entries) != 89:
+    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain eighty-nine entries.")
 if sum(test_name == poison_test for _, _, test_name in entries) != 1:
     raise SystemExit(
         "ERROR: recovery-sidecar poison test must occur exactly once as a parsed test name."

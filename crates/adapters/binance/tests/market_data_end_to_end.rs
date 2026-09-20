@@ -109,17 +109,36 @@ struct Product {
     /// The venue's own price tick and quantity step, as its exchange information states them.
     price_increment: (i128, u8),
     quantity_increment: (i128, u8),
+    /// The venue's own currencies for this contract. They were the same for the first two
+    /// products, which is a coincidence of both being quoted in USDT rather than a property of
+    /// the surface - so they are stated per product.
+    base_currency: &'static str,
+    quote_currency: &'static str,
+    settlement_currency: &'static str,
     /// A perpetual is margined; a spot pair is not.
     margin_currency: Option<&'static str>,
-    /// Every digest this product mints is offset by this, so two products admitted against one
-    /// store cannot collide on a frontier or a correlation identity.
-    digest_base: u8,
+    /// What the binding says a price on this surface means. Two bindings that agree on every one
+    /// of these derive one Market Semantics compatibility scope, and the Owner states a scope's
+    /// semantics once - so a product quoted in a different currency is a different scope, and a
+    /// product that merely reads a different interval is not.
+    price_meaning: &'static str,
+    /// Distinguishes every digest this product mints, so two products admitted against one store
+    /// cannot collide on a frontier or a correlation identity.
+    ///
+    /// It is a tag placed in one byte, not an offset added to all of them. An offset does not
+    /// scale: the fixture bytes below span `0x11..=0x55`, so bands must be 86 apart, and three
+    /// bands of 86 do not fit in a `u8` - the third would both overlap the second and overflow.
+    digest_tag: u8,
     /// Binds the real Data Client for this surface. No credential is supplied on either.
-    observations: fn(String) -> Arc<dyn PitObservationSourceV1>,
+    ///
+    /// It takes the product rather than closing over one, because a factory that named a product
+    /// directly would hand a second product on the same surface the first one's symbols and
+    /// interval - silently, and with every assertion below still passing.
+    observations: fn(&'static Self, String) -> Arc<dyn PitObservationSourceV1>,
 }
 
 /// The spot pair, read from the venue's public-data mirror.
-const SPOT: Product = Product {
+static SPOT: Product = Product {
     member: "BTCUSDT.BINANCE",
     venue_symbol: "BTCUSDT",
     interval: "1m",
@@ -135,8 +154,12 @@ const SPOT: Product = Product {
     lifecycle_rules: "binance/spot",
     price_increment: (1, 2),
     quantity_increment: (1, 5),
+    base_currency: "BTC",
+    quote_currency: "USDT",
+    settlement_currency: "USDT",
     margin_currency: None,
-    digest_base: 0x00,
+    price_meaning: "decimal-string/usdt",
+    digest_tag: 0x01,
     observations: spot_observations,
 };
 
@@ -147,7 +170,7 @@ const SPOT: Product = Product {
 /// Its `deliveryDate` is a far-future sentinel rather than an expiry, because a perpetual has none;
 /// the Owner's instrument fact has no expiry field to record it wrongly in, which is the reason
 /// this class needs no terms the spot pair lacks.
-const PERPETUAL: Product = Product {
+static PERPETUAL: Product = Product {
     member: "BTCUSDT-PERP.BINANCE",
     venue_symbol: "BTCUSDT",
     interval: "4h",
@@ -163,8 +186,12 @@ const PERPETUAL: Product = Product {
     lifecycle_rules: "binance/usdm-perpetual",
     price_increment: (1, 1),
     quantity_increment: (1, 3),
+    base_currency: "BTC",
+    quote_currency: "USDT",
+    settlement_currency: "USDT",
     margin_currency: Some("USDT"),
-    digest_base: 0x80,
+    price_meaning: "decimal-string/usdt",
+    digest_tag: 0x02,
     observations: futures_observations,
 };
 
@@ -177,7 +204,52 @@ fn endpoint(product: &Product) -> String {
     std::env::var(product.endpoint_override_var).unwrap_or_else(|_| product.endpoint.to_string())
 }
 
-fn spot_observations(endpoint: String) -> Arc<dyn PitObservationSourceV1> {
+/// The same venue's daily perpetual bar, which is where the label matters.
+///
+/// A second member rather than a second interval on the first: the instrument fact is keyed by
+/// canonical identity, and both proofs run against one store.
+///
+/// `1d` is the reason this product exists. On a venue that never closes it is twenty-four hours,
+/// and `1D` is taken - the Owner's equity fixtures bind that label to one named exchange session
+/// day. Until recently this client produced `1D` here, so a continuous-clock bar would have
+/// entered custody wearing a session-day label. The unit test asserts the table; this asserts that
+/// what the Owner commits carries `24H`.
+///
+/// It is quoted and margined in USDC, which is why it can exist beside the 4H product at all: two
+/// bindings that agree on every semantics field derive one compatibility scope, and the Owner
+/// states a scope's semantics exactly once. A second USDT perpetual would collide there, and which
+/// of the two collided would depend on which test ran first.
+///
+/// Its tick is BTCUSDC-PERP's own `tickSize` 0.1, with `stepSize` 0.001.
+static PERPETUAL_DAILY: Product = Product {
+    member: "BTCUSDC-PERP.BINANCE",
+    venue_symbol: "BTCUSDC",
+    interval: "1d",
+    timeframe: "24H",
+    bar_ns: 86_400_000_000_000,
+    instrument_class: "CRYPTO_PERPETUAL",
+    source_identity: "BINANCE_USDM",
+    endpoint: "https://fapi.binance.com",
+    endpoint_override_var: "MARKET_DATA_E2E_USDM_ENDPOINT",
+    dataset_mapping: "usdm/klines/1d",
+    stream_identity: "binance/usdm-klines-daily",
+    normalization: "binance/usdm-kline",
+    lifecycle_rules: "binance/usdm-perpetual",
+    price_increment: (1, 1),
+    quantity_increment: (1, 3),
+    base_currency: "BTC",
+    quote_currency: "USDC",
+    settlement_currency: "USDC",
+    margin_currency: Some("USDC"),
+    price_meaning: "decimal-string/usdc",
+    digest_tag: 0x03,
+    observations: futures_observations,
+};
+
+fn spot_observations(
+    product: &'static Product,
+    endpoint: String,
+) -> Arc<dyn PitObservationSourceV1> {
     let client = BinanceSpotHttpClient::new_with_json_responses(
         BinanceEnvironment::Live,
         get_atomic_clock_realtime(),
@@ -191,12 +263,15 @@ fn spot_observations(endpoint: String) -> Arc<dyn PitObservationSourceV1> {
     )
     .expect("the keyless spot client builds");
     Arc::new(
-        BinanceSpotBarObservationSourceV1::new(client, symbols(&SPOT), SPOT.interval)
+        BinanceSpotBarObservationSourceV1::new(client, symbols(product), product.interval)
             .expect("the Data Client accepts the member mapping"),
     )
 }
 
-fn futures_observations(endpoint: String) -> Arc<dyn PitObservationSourceV1> {
+fn futures_observations(
+    product: &'static Product,
+    endpoint: String,
+) -> Arc<dyn PitObservationSourceV1> {
     let client = BinanceFuturesHttpClient::new(
         BinanceProductType::UsdM,
         BinanceEnvironment::Live,
@@ -211,7 +286,7 @@ fn futures_observations(endpoint: String) -> Arc<dyn PitObservationSourceV1> {
     )
     .expect("the keyless USD-M client builds");
     Arc::new(
-        BinanceFuturesBarObservationSourceV1::new(client, symbols(&PERPETUAL), PERPETUAL.interval)
+        BinanceFuturesBarObservationSourceV1::new(client, symbols(product), product.interval)
             .expect("the Data Client accepts the member mapping"),
     )
 }
@@ -227,8 +302,14 @@ fn digest(byte: u8) -> BindingDigest {
 }
 
 /// A digest this product owns, distinct from every other product's.
+///
+/// The tag occupies one byte and the fixture byte fills the rest, so two products collide only if
+/// they share a tag - which is a duplicate to fix, not an arithmetic accident. It is never the
+/// all-zero sentinel that `digest(0)` mints, because every tag is non-zero.
 fn scoped(product: &Product, byte: u8) -> BindingDigest {
-    digest(product.digest_base + byte)
+    let mut bytes = [byte; 32];
+    bytes[0] = product.digest_tag;
+    BindingDigest::from_untrusted_bytes(bytes)
 }
 
 fn decimal((mantissa, scale): (i128, u8)) -> InstrumentDecimalSubmissionV1 {
@@ -269,7 +350,15 @@ async fn market_data_answers_one_frozen_perpetual_request_without_a_credential()
     admit_and_answer(&PERPETUAL).await;
 }
 
-async fn admit_and_answer(product: &Product) {
+/// The same seven steps for a perpetual's daily bar, which is where the Owner's timeframe word and
+/// the venue's interval word are furthest apart.
+#[tokio::test]
+#[ignore = "requires the disposable PostgreSQL harness and a reachable venue"]
+async fn market_data_answers_one_frozen_daily_perpetual_request_without_a_credential() {
+    admit_and_answer(&PERPETUAL_DAILY).await;
+}
+
+async fn admit_and_answer(product: &'static Product) {
     let effective_ns = frozen_event_effective_ns(product);
 
     // 1. Operations admits the Source Binding. The Owner decides the disposition.
@@ -369,7 +458,7 @@ async fn admit_and_answer(product: &Product) {
         proposal.adapter.authenticated_endpoint_identity, host,
         "the binding records the host the Data Client is about to call"
     );
-    let observations = (product.observations)(host);
+    let observations = (product.observations)(product, host);
 
     // What the Owner is about to take custody of is asked once here, directly, because nothing
     // downstream can be asked again: the terminal carries identities and a disposition, not rows.
@@ -514,9 +603,9 @@ fn instrument_submission(
             source_instrument: product.venue_symbol.as_bytes().to_vec(),
         }],
         instrument_class: product.instrument_class.into(),
-        base_currency: Some("BTC".into()),
-        quote_currency: Some("USDT".into()),
-        settlement_currency: Some("USDT".into()),
+        base_currency: Some(product.base_currency.into()),
+        quote_currency: Some(product.quote_currency.into()),
+        settlement_currency: Some(product.settlement_currency.into()),
         margin_currency: product.margin_currency.map(Into::into),
         price_increment: decimal(product.price_increment),
         quantity_increment: decimal(product.quantity_increment),
@@ -627,7 +716,7 @@ fn binance_source_proposal(product: &Product, effective_ns: u64) -> UntrustedSou
         semantics: UntrustedMarketSemantics {
             normalization: product.normalization.to_string(),
             adjustment: "raw".to_string(),
-            price_meaning: "decimal-string/usdt".to_string(),
+            price_meaning: product.price_meaning.to_string(),
             calendar_rules: "crypto/continuous".to_string(),
             session_rules: "crypto/continuous".to_string(),
             timezone_rules: "etc-utc".to_string(),

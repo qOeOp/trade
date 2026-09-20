@@ -41,7 +41,10 @@ def make_lines(path: Path) -> list[str]:
 
 
 def make_words(lines: list[str], name: str) -> list[str]:
-    pattern = re.compile(rf"^{re.escape(name)}\s*:?=\s*(.*)$")
+    # `?=` as well as `=` and `:=`: CARGO_TEST_EXCLUDED_PACKAGES is a conditional assignment so a
+    # caller can run `make cargo-test CARGO_TEST_EXCLUDED_PACKAGES=` for the whole workspace, and
+    # the earlier pattern could not read it at all.
+    pattern = re.compile(rf"^{re.escape(name)}\s*[:?+]?=\s*(.*)$")
     for line in lines:
         if match := pattern.match(line):
             return match.group(1).split()
@@ -133,11 +136,92 @@ for crate in inventories["NO_TEST_CRATES"]:
     if test_sources:
         errors.append(f"no-test crate {crate} contains Rust tests: {', '.join(test_sources)}")
 
+# The crates whose tests the required `rust tests` gate does not run. Excluding one is a decision
+# about how much of the workspace that gate covers, and a decision that a diff does not announce:
+# the edit is one word on a continuation line. Pinning the set here makes the next edit fail, and
+# the failure says what the edit costs rather than that a number moved.
+#
+# Changing this set is allowed. Changing it silently is what this prevents. #683 removed these
+# fifteen deliberately, in a pull request of its own, so that the reduction was visible; the point
+# of the pin is that the sixteenth cannot arrive as a one-word change inside an unrelated commit.
+PINNED_EXCLUDED_TEST_PACKAGES = (
+    "vibe-architect-ax",
+    "vibe-betfair",
+    "vibe-bitmex",
+    "vibe-bybit",
+    "vibe-coinbase",
+    "vibe-deribit",
+    "vibe-derive",
+    "vibe-dydx",
+    "vibe-hyperliquid",
+    "vibe-interactive-brokers",
+    "vibe-kraken",
+    "vibe-lighter",
+    "vibe-okx",
+    "vibe-polymarket",
+    "vibe-tardis",
+)
+
+excluded = make_words(lines, "CARGO_TEST_EXCLUDED_PACKAGES")
+excluded_set = set(excluded)
+
+duplicate_exclusions = sorted(name for name, count in Counter(excluded).items() if count != 1)
+if duplicate_exclusions:
+    errors.append(
+        "CARGO_TEST_EXCLUDED_PACKAGES lists a crate more than once: "
+        f"{', '.join(duplicate_exclusions)}"
+    )
+
+unknown_exclusions = sorted(excluded_set - workspace_members)
+if unknown_exclusions:
+    errors.append(
+        "CARGO_TEST_EXCLUDED_PACKAGES names crates that are not workspace members: "
+        f"{', '.join(unknown_exclusions)}"
+    )
+
+# Structural: only an adapter may be excluded. A core crate's tests are the gate; a no-test crate
+# has nothing to exclude, so naming one means the list and the inventories disagree.
+core_exclusions = sorted(excluded_set & set(inventories["CORE_CRATES"]))
+if core_exclusions:
+    errors.append(
+        "CARGO_TEST_EXCLUDED_PACKAGES excludes core crates, whose tests are what the required gate "
+        f"is for: {', '.join(core_exclusions)}"
+    )
+
+no_test_exclusions = sorted(excluded_set & set(inventories["NO_TEST_CRATES"]))
+if no_test_exclusions:
+    errors.append(
+        "CARGO_TEST_EXCLUDED_PACKAGES excludes crates listed as having no tests, so the exclusion "
+        f"removes nothing and the two lists disagree: {', '.join(no_test_exclusions)}"
+    )
+
+pinned = set(PINNED_EXCLUDED_TEST_PACKAGES)
+added = sorted(excluded_set - pinned)
+if added:
+    errors.append(
+        f"CARGO_TEST_EXCLUDED_PACKAGES gained {', '.join(added)}. This removes those crates' tests "
+        "from the required `rust tests` gate - it is a reduction in what that gate covers, not a "
+        "list edit. Land it on its own so the reduction is reviewable, say in the commit message "
+        "what the gate stops covering, and update PINNED_EXCLUDED_TEST_PACKAGES in this file in "
+        "the same commit."
+    )
+
+removed = sorted(pinned - excluded_set)
+if removed:
+    errors.append(
+        f"CARGO_TEST_EXCLUDED_PACKAGES no longer excludes {', '.join(removed)}. That restores "
+        "coverage, which needs no justification - update PINNED_EXCLUDED_TEST_PACKAGES in this "
+        "file in the same commit."
+    )
+
 if errors:
     print("Workspace test coverage check failed:", file=sys.stderr)
     for error in errors:
         print(f"  - {error}", file=sys.stderr)
     raise SystemExit(1)
 
-print(f"Workspace test coverage is complete ({len(workspace_members)} workspace members)")
+print(
+    f"Workspace test coverage is complete ({len(workspace_members)} workspace members; "
+    f"{len(excluded_set)} excluded from the required `rust tests` gate)"
+)
 PY
