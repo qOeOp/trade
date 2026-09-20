@@ -124,12 +124,26 @@ probe_endpoint() {
   rm -f "$body"
 }
 
-probe_endpoint "api.binance.com (the keyless spot client's host)" \
+# The spot pair's two hosts. The first run of this probe settled which is which: the trading API
+# answers a hosted runner with HTTP 451, "Service unavailable from a restricted location", and the
+# public-data mirror answers 200. That is why the spot binding names the mirror.
+probe_endpoint "api.binance.com (the spot trading API)" \
   "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=1"
-probe_endpoint "data-api.binance.vision (the binding proposal's host)" \
+probe_endpoint "data-api.binance.vision (the spot binding's host)" \
   "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=1"
-probe_endpoint "fapi.binance.com (the USD-M host)" \
+
+# A perpetual has no mirror to fall back to, so these ask whether any host serves one from here.
+# `data-api.binance.vision` is spot-only - it answers `/fapi/v1/klines` with 404 even from an
+# unrestricted network, so a 404 here means "wrong path", not "blocked", and the probe would be
+# lying if it were left out. The rest are separate hosts that serve the same futures API.
+probe_endpoint "data-api.binance.vision/fapi (does the mirror carry futures?)" \
+  "https://data-api.binance.vision/fapi/v1/klines?symbol=BTCUSDT&interval=4h&limit=1"
+probe_endpoint "fapi.binance.com (the USD-M host the perpetual binding names)" \
   "https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=4h&limit=1"
+probe_endpoint "www.binance.com/fapi (the site proxying the same futures API)" \
+  "https://www.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=4h&limit=1"
+probe_endpoint "dapi.binance.com (COIN-M, a different perpetual on a third host)" \
+  "https://dapi.binance.com/dapi/v1/klines?symbol=BTCUSD_PERP&interval=4h&limit=1"
 
 # Selection runs under nextest rather than `cargo test --exact`. The two agree except on the case
 # that matters: `cargo test --exact missing_name` prints `0 passed` and exits 0, so renaming the
