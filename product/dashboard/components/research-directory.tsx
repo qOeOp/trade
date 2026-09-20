@@ -57,6 +57,7 @@ function phaseLabel(item: ResearchDirectoryItemV1): string {
   if (item.availability === "STALE") return "Stale view";
   if (item.availability === "UNAVAILABLE") return "View unavailable";
   if (item.phase === "ARTIFACT_AVAILABLE") return "Artifact available";
+  if (item.phase === "EXPLORATION_ACTIVE") return "Exploration active";
   if (item.phase === "INTENT_FROZEN") return "Intent frozen";
   return "Request unresolved";
 }

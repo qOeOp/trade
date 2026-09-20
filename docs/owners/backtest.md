@@ -8,7 +8,7 @@ Replay frozen strategy artifacts against admitted historical facts with producti
 
 - Replay identity, deterministic clock, frozen inputs, runtime and simulation versions, and configuration digest.
 - Canonical orders, fills, positions, costs, and outcome produced by a replay.
-- **TARGET:** the complete ordered shared-kernel semantic trace, binding normalized lifecycle events, checkpoints,
+- **CURRENT_PARTIAL:** the complete ordered shared-kernel semantic trace, binding normalized lifecycle events, checkpoints,
   primitive and plugin results, target/protection transitions and fill reconciliation to the canonical replay.
 - Complete separation between exploratory runs and Qualification-requested protected runs.
 - Exploratory Run Result repeats the consumed Strategy Artifact, requested PIT scope, PIT Market Snapshot,
@@ -46,6 +46,54 @@ Replay frozen strategy artifacts against admitted historical facts with producti
 - **Sim Exchange** - model venue acceptance, latency, fills, fees, and account effects without external writes.
 - **Run Result** - bind consumed data, artifact, configuration, orders, fills, costs, and terminal outcome into one canonical receipt.
 
+## Implementation status ledger
+
+This ledger records only what the repository has reached at this cut. It uses the status vocabulary of the
+[Market Data](./market-data/) ledger, with `CURRENT_PARTIAL` as the merged-but-unreachable form, and grants no
+permission by itself. No row below is `IMPLEMENTATION_ADMITTED`: every row grants nothing, and widening the
+admitted set requires changing this document first.
+
+- **CURRENT_PARTIAL - ordered shared-kernel semantic trace:** the ordered vocabulary and its fail-closed census
+  live in `crates/backtest_owner_contracts/src/native_replay_trace.rs`, and both the producer and the Backtest
+  Owner apply that census before trace bytes are sealed, so a trace that skips a checkpoint, repeats a lifecycle,
+  or leaves a native fill unreconciled is a fault and commits nothing. One vertical reaches it: the Sim `EVENT`
+  consumer is the only caller of the census outside its own module, and no other vertical produces a trace.
+- **CURRENT_PARTIAL - durable Result custody and R&D locked read:** see the section of the same name for what the
+  ordered chain proves. Neither `crates/backtest_owner/Cargo.toml` nor `crates/backtest_result_custody/Cargo.toml`
+  declares a `[features]` table, so this custody path is the same code in every build.
+- **CURRENT_PARTIAL - exploratory Run Result views to Product Edge:** the Dashboard read API resolves exact
+  canonical Result bytes through `resolve_exploratory_replay_result_v2` in
+  `crates/strategy_factory_rd_owner_api/src/bin/dashboard_read_api.rs`, `product/rd-workbench/Dockerfile.owner`
+  builds and installs that binary, and the ordered chain covers the seam with
+  `replay_result_dashboard_read_api_returns_exact_canonical_bytes`. This is the one Backtest output handoff that
+  is reachable end to end in what is deployed.
+- **CURRENT_PARTIAL - production entry for exploratory replay:** the replay is implemented and proven, and nothing
+  in the deployed artifact can enter it. `run_exploratory_replay_v2` has exactly one caller outside its own crate,
+  `crates/strategy_factory_rd_owner_api/src/exploratory_replay.rs`, and that caller sits under
+  `#[cfg(feature = "sealed-develop-composer-acceptance")]`, while the image builds
+  `--bin strategy-factory-rd-owner-api` with no `--features` argument at all. That measures the deployment
+  artifact, not history. The other public commit path, `commit_exploratory_replay_result_v2`, has callers only
+  inside the `#[cfg(test)]` module of `crates/backtest_owner/src/lib.rs`.
+- **CURRENT_PARTIAL - protected observation:** Backtest derives the observation from the canonical result of the
+  run it executed and cannot learn which observation was frozen for that run.
+  `derive_protected_economic_measurement_v1` computes and seals it from canonical Result bytes, and its only
+  callers are in `crates/backtest_owner/tests/protected_economic_measurement.rs`.
+  `ProtectedEconomicComputationV1::resolve`, the one function that turns a frozen Qualification policy bundle into
+  a metric and a coverage rule, has no caller anywhere; no protected-request field carries either reference; and
+  `product/rd-workbench/postgres-init/10-migrate-authority-custody.sh` revokes `backtest_owner` on
+  `public.qualification_protected_economic_policy_bundles_v1`. The selection has no producer.
+- **CURRENT_PARTIAL - second Run Result projection:** `project_locked_exploratory_replay_result_v1` in
+  `crates/backtest_owner/src/result_projection/mod.rs` decodes drawdown, Sharpe, Sortino, realized PnL,
+  commission, slippage and return from canonical Result bytes and appears in no other file. The Product Edge
+  handoff above serves that consumer from exact canonical bytes instead.
+- **TARGET - `REPAIR_VALIDATION` request and result:** no implementation exists. `REPAIR_VALIDATION` and
+  `RepairValidation` appear in no file under `crates/` or `product/`.
+- **TARGET - `SIMULATOR` and `BACKTEST_OPERATIONAL` native repair:** no Backtest repair surface exists. The only
+  `repair` occurrences in the four Backtest crates are the comments in `crates/backtest_owner/src/postgres.rs`
+  recording that custody is never repaired, and `BACKTEST_RUNNER_SERVICE` appears in no Rust file while
+  `product/dashboard/lib/rd-iteration-timeline-client.ts` already lists it as a legal repair target. The consumer
+  vocabulary exists and the producer does not.
+
 ## Shared strategy lifecycle contract
 
 Backtest consumes only the [StrategyDesignV2 shared-kernel path](../architecture/strategy-factory#strategy-design-v2-shared-lifecycle-kernel):
@@ -71,44 +119,18 @@ cost/slippage/capacity models, seed, range, calendar/time-zone meaning and seman
 unmatched consumption evidence produces no positive receipt; equality between two caller-authored DTOs is never
 request-result correlation.
 
-### `ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1` terminal-result route
+### CURRENT_PARTIAL - durable Result custody and R&D locked read
 
-**TARGET / ISOLATED_ACCEPTANCE_ONLY:** this explicitly selected, request-driven route is the only admitted dynamic
-acceptance consumer for the matching Market Data isolated profile. Backtest accepts only the exact R&D Owner-issued
-sealed request locator and receipt after resolving its canonical bytes and digest through the fixed read-only R&D Owner
-port, plus the Market Data-sealed, read-only `StrategyInputSampleEventResolverV1` capability for that request.
-It also requires the additive versioned Owner binding receipt that cross-binds that sealed request, the exact Market
-Data projection receipt digest, and the Owner-native event identity; Replay V2 `resolved_owner_inputs` alone is generic
-content addressing and cannot authorize or reconstruct this binding.
-It resolves the exact request-selected Owner `EVENT` input through `ProgramHost`, executes it with the real
-BacktestEngine and Sim Exchange, and derives the actual-consumption record, complete diagnosis, semantic trace, and
-terminal result from what those components consumed. A caller-supplied request, digest, DSN, fixture, fixed corpus, or
-reconstructed input cannot substitute either Owner handoff or mint a result.
-The accepted Store Admission receipt must bind the immutable external acceptance trust bundle and the distinct signer,
-witness, credential-resolver, and direct-measurer identities; no authority derived by the candidate, caller, consumer,
-or tested process may satisfy that prerequisite.
-
-One Backtest Owner transaction commits the exact request identity and canonical bytes, one attempt, the sealed actual-
-consumption and diagnosis records, and the terminal result together. A byte-identical retry joins the same attempt and
-returns the same canonical result receipt bytes; the same identity with different request, consumption, diagnosis, or
-result bytes is a conflict and performs no write. After process and repository restart, the Owner must resolve the
-request locator and return byte-identical attempt, result receipt, and actual-consumption readback. No separate pool,
-in-memory or temporary-file writer, caller persistence, or response-loss retry may split or reconstruct that atomic
-custody.
-
-Any missing, stale, superseded, wrong-role, or mismatched Store Admission head/rotation/ACL/credential/measurement,
-Owner request, projection/event locator, sealed resolver, event, or readback fails before `ProgramHost` invocation or
-Backtest mutation and produces no positive receipt or result. The isolated proof covers only this disposable
-PostgreSQL topology. It never establishes production readiness, default-product reachability, deployment authority,
-protected replay acceptance, Paper, Live, real trading, or another production write; all distinct production adapters
-remain `UNAVAILABLE`.
-
-### TARGET / NOT_ADMITTED - durable Result custody and R&D locked read
-
-This target promotes the formal exploratory Result handoff beyond the isolated acceptance route without promoting
-any runtime or PostgreSQL implementation to CURRENT. Backtest remains the sole authority for the result fact. It
-owns the private canonical Result table and its append-only outbox, and only the Backtest writer may perform DML.
-Protected Result custody remains isolated and is not readable through this R&D seam.
+The Backtest Owner owns the private canonical Result table and its append-only outbox, and only the Backtest
+writer may perform DML. The fixed `SECURITY DEFINER` `owner_api` lock/read functions
+`resolve_exploratory_replay_result_v2/v3` exist, and the ordered PostgreSQL chain proves positive locked readback,
+function-source drift, Owner API sibling-routine, raw-table ACL drift, inherited-owner-membership and
+owner-attribute drift rejection, topology-fence serialization, mid-commit rollback, restart-exact readback, and R&D
+read-only access (the `vibe-backtest-owner` entries whose test names begin with `postgres_result_` in
+`scripts/ci/test-rd-owner-postgres.bash`; the `postgres_protected_result_` entry is deliberately not among
+them). Backtest remains the
+sole authority for the result fact, and Protected Result custody remains isolated and is not readable through this
+R&D seam.
 
 The Backtest Owner exposes one fixed, safe-`search_path`, `SECURITY DEFINER` `owner_api` lock/read function. Its fully
 qualified reads lock the exact Result, receipt, and outbox rows and return an untrusted envelope inside the
@@ -126,10 +148,9 @@ not depend on `vibe-backtest-owner`, while `vibe-backtest-owner` retains Result 
 Missing, stale, cross-spliced, wrong-owner, wrong-function, ACL-mismatched, noncanonical, digest-mismatched,
 receipt-or-outbox-incomplete, or separately read custody is `UNAVAILABLE`. After response loss, exact `RESOLVE` may
 return only the same pre-existing byte-identical Backtest Result and receipt; it cannot create first custody,
-recompose a result, or append a second Result, receipt, or outbox event. Admission requires implementation and real
-disposable PostgreSQL proof of positive readback, every zero-readback rejection, same-transaction locking, restart,
-and response-loss recovery. It grants no Dashboard implementation, deployment, production write, provider effect,
-Paper, Live, or trading authority.
+recompose a result, or append a second Result, receipt, or outbox event. Admitted on that disposable PostgreSQL
+proof; it still grants no Dashboard implementation, deployment, production write, provider effect, Paper, Live,
+or trading authority.
 
 ## Input handoffs
 

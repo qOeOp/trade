@@ -39,6 +39,47 @@ jobs:
   test:
     name: Product package tests
     runs-on: ubuntu-latest
+    # The suites drive a browser and spawn previews. Node's test runner has no timeout of its own,
+    # so without a bound a single unanswered command runs the job until the platform kills it, with
+    # no log to read afterwards.
+    timeout-minutes: 30
+    # The seven PostgreSQL suites and the HTTP session suite skip themselves without a runtime,
+    # which is how a directory of 133 test files ran 129 of them here while the RunStore routes
+    # that Operations serves (Runs, Workers, Schedules, Service Logs, Audit) and the three browser
+    # acceptances written for them never executed anywhere. The service container below is the
+    # same PostgreSQL pin the R&D Owner chain uses; each suite creates and drops its own database
+    # next to the control database named for it and never touches the caller's.
+    services:
+      postgres:
+        # yamllint disable-line rule:line-length
+        image: public.ecr.aws/docker/library/postgres:16.4-alpine@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c
+        env:
+          POSTGRES_PASSWORD: dashboard
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      DASHBOARD_SUITE_POSTGRES: postgresql://postgres:dashboard@127.0.0.1:5432
+      # The browser the Dashboard acceptances drive, held to the build the lane measures against
+      # locally rather than inherited from the image.
+      #
+      # This pin did not fix anything, and the record should not suggest it did. It was taken while
+      # the acceptances stalled here, on the theory that the runner's newer build was the cause; the
+      # run that carried it stalled exactly as before. What unblocked them was three Chrome startup
+      # flags the suites were missing, which the ordered chain's own acceptance had all along.
+      #
+      # It stays because these acceptances drive a browser directly over the DevTools protocol, so
+      # the version is a variable worth holding fixed while they are read as evidence, and because
+      # nothing has yet shown the flags alone suffice on an unpinned build. Release it by running
+      # this job once without the pin: if the acceptances stay green, the pin has no work left to do.
+      CHROME_FOR_TESTING_VERSION: 144.0.7559.96
+      CHROME_FOR_TESTING_SHA256: ebb811eef0a0206b6f15dbd325840e39331a132399a4e7e0770cbc1624c3bff0
+      DASHBOARD_BROWSER_ROOT: /tmp/dashboard-browser-acceptance-chrome
+      DASHBOARD_BROWSER_EXECUTABLE: /tmp/dashboard-browser-acceptance-chrome/chrome-linux64/chrome
     steps:
       - name: Harden runner
         # https://github.com/step-security/harden-runner
@@ -72,6 +113,102 @@ jobs:
       - name: Check Dashboard types
         run: npm run typecheck --prefix product/dashboard
 
+      - name: Install the pinned browser for the Dashboard browser acceptances
+        run: |
+          set -euo pipefail
+          mkdir -p "$DASHBOARD_BROWSER_ROOT"
+          archive="$DASHBOARD_BROWSER_ROOT/chrome-linux64.zip"
+          browser="$DASHBOARD_BROWSER_ROOT/chrome-linux64"
+          curl --fail --location --retry 3 --output "$archive" \
+            "https://storage.googleapis.com/chrome-for-testing-public/$CHROME_FOR_TESTING_VERSION/linux64/chrome-linux64.zip"
+          printf '%s  %s\n' "$CHROME_FOR_TESTING_SHA256" "$archive" | sha256sum --check --strict
+          python3 -m zipfile -e "$archive" "$DASHBOARD_BROWSER_ROOT"
+          chmod 0755 "$browser/chrome" "$browser/chrome_crashpad_handler"
+          "$browser/chrome" --version
+
+      - name: Create the Dashboard suite control databases
+        working-directory: product/dashboard
+        run: node scripts/create-suite-databases.mjs
+
+      # The README's local checks end with a production build, and the HTTP session suite starts
+      # that build; the gate never built the bundle before.
+      - name: Build the Dashboard
+        run: npm run build --prefix product/dashboard
+
+      - name: Run the Dashboard PostgreSQL and browser suites
+        working-directory: product/dashboard
+        env:
+          DASHBOARD_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_run_store
+          DASHBOARD_TEST_CURSOR_HMAC_KEY: run-store-disposable-cursor-key-at-least-32-bytes
+          DASHBOARD_RUN_LIST_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_runs
+          DASHBOARD_SHADOW_RUNTIME_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_shadow_runtime
+          DASHBOARD_SHADOW_RUNTIME_TEST_CURSOR_HMAC_KEY: shadow-runtime-disposable-cursor-key-at-least-32-bytes
+          # Workers and service logs drive a browser here. None of the three had ever run anywhere,
+          # and each was held back under a reason that measurement later replaced.
+          #
+          # Schedule calendar was recorded as leaving an evaluation outstanding past a 60 s command
+          # budget, which was true and said nothing: the evaluation was waiting for an animation
+          # frame before reading a sticky header's position, and the read does not need one -
+          # assigning scrollTop and asking for a rectangle forces the layout the assertion is about.
+          # Without it the same step passes in about 20 s, three runs out of three, on macOS.
+          #
+          # It is still held back, now on something this lane has not reproduced. On this runner it
+          # fails one step later: with a calendar trigger focused, enabled and sized, pressing Enter
+          # opens no dialog at all, and the page it captured is an ordinary September month grid.
+          # Its PostgreSQL body runs either way. Putting it in the gate on a local pass is exactly
+          # the mistake the other two were held back for, so it waits for a measurement from here.
+          #
+          # Service logs was held back three times over for reasons that measurement replaced, and
+          # the sequence is worth keeping. It was first recorded as meeting a cursor continuity
+          # failure, which the page never showed: the wait is a conjunction and a timeout quotes
+          # only its first line, so what was written down was the first line of the expression
+          # rather than the part that was unmet. That part required every row to contain an
+          # identifier the surface renders as a label. Past it, the acceptance surfaced a header
+          # that changed height while reading, and then a run of assertions written against the
+          # data model's identifiers rather than the page - none of which could have held on any
+          # day since they were written. It now passes in about 50 s.
+          #
+          # Workers stalled here twice while passing locally in 24 to 38 s, and the browser build
+          # looked like the difference. It was not: pinning the build changed nothing, and the suite
+          # was missing three Chrome startup flags the ordered chain's own acceptance passes on this
+          # same runner. Its holdback was the environment all along, one line of it.
+          DASHBOARD_WORKERS_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_workers
+          DASHBOARD_WORKERS_BROWSER_ACCEPTANCE: "1"
+          DASHBOARD_WORKERS_ACCEPTANCE_CANDIDATE: ${{ github.sha }}
+          DASHBOARD_WORKERS_BROWSER_EXECUTABLE: ${{ env.DASHBOARD_BROWSER_EXECUTABLE }}
+          DASHBOARD_CALENDAR_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_calendar
+          DASHBOARD_SERVICE_LOGS_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_service_logs
+          DASHBOARD_SERVICE_LOGS_BROWSER_ACCEPTANCE: "1"
+          DASHBOARD_SERVICE_LOGS_ACCEPTANCE_CANDIDATE: ${{ github.sha }}
+          DASHBOARD_SERVICE_LOGS_BROWSER_EXECUTABLE: ${{ env.DASHBOARD_BROWSER_EXECUTABLE }}
+        run: >-
+          node --test --test-concurrency=1 --test-timeout=600000 --test-force-exit
+          tests/run-store.postgres.test.mjs
+          tests/run-list-view-gateway.postgres.test.mjs
+          tests/shadow-runtime.postgres.test.mjs
+          tests/operations-workers.postgres.test.mjs
+          tests/schedule-calendar.postgres.test.mjs
+          tests/service-logs.postgres.test.mjs
+
+      # The Audit suite reads the same two variable names as the RunStore suite and migrates the
+      # database they name in place, so it gets a control database of its own.
+      - name: Run the Dashboard Audit PostgreSQL suite
+        working-directory: product/dashboard
+        env:
+          DASHBOARD_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_audit
+          DASHBOARD_TEST_CURSOR_HMAC_KEY: audit-disposable-cursor-key-at-least-32-bytes
+        run: node --test --test-timeout=300000 tests/operation-audit.postgres.test.mjs
+
+      # A suite that starts a server can fail in two ways this job has to tell apart. A test that
+      # hangs is bounded below; a process that will not exit once every test has passed is not, and
+      # `--test-force-exit` is the wrong instrument for it - it would end the process and report a
+      # pass while the leak that caused it stayed. This step lost a whole job to that second kind,
+      # and the fix is in the suite's own teardown. The job's own limit reports a recurrence as the
+      # failure it is.
+      - name: Run the Dashboard local operator session HTTP suite
+        working-directory: product/dashboard
+        run: node --test --test-timeout=300000 tests/local-operator-session.http.mjs
+
       # The R&D Owner client has no package manifest and no dependencies; it runs on the standard
       # library alone, which is why nothing had to install it and why nothing ran it either. The
       # R&D Workbench step that stood beside this one retired with Windmill: that package now ships
@@ -79,7 +216,7 @@ jobs:
       # test files at all.
       - name: Run R&D Owner client tests
         working-directory: product/rd-owner-client
-        run: node --test ./*.test.mjs
+        run: node --test --test-timeout=300000 ./*.test.mjs
 
       # The R&D deployment package carries manifests rather than tests. Its checks read files and
       # need no container, so the gate that already watches its path can run them.

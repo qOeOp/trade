@@ -95,11 +95,17 @@ export MARKET_DATA_OWNER_DATABASE_URL="$MARKET_DATA_OWNER_TEST_DATABASE_URL"
 # the point of this leg: the whole production path can be exercised with nothing but Docker and a
 # reachable network.
 
+# Selection runs under nextest rather than `cargo test --exact`. The two agree except on the case
+# that matters: `cargo test --exact missing_name` prints `0 passed` and exits 0, so renaming the
+# proof below would leave this script green while running nothing. nextest refuses an empty
+# selection with `error: no tests to run` and a non-zero exit.
 set +e
-cargo test --manifest-path crates/adapters/binance/Cargo.toml \
+cargo nextest run --manifest-path crates/adapters/binance/Cargo.toml \
   --test market_data_end_to_end \
-  -- --ignored --exact --nocapture \
-  market_data_answers_one_frozen_request_without_a_credential
+  --cargo-profile "${CARGO_CI_PROFILE:-nextest}" \
+  --run-ignored all \
+  --no-capture \
+  -E 'test(=market_data_answers_one_frozen_request_without_a_credential)'
 test_status=$?
 set -e
 

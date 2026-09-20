@@ -94,11 +94,17 @@ export MARKET_DATA_OWNER_DATABASE_URL="$MARKET_DATA_OWNER_TEST_DATABASE_URL"
 # The venue's public stream needs no credential, so this leg needs nothing but Docker and a
 # reachable network.
 
+# Selection runs under nextest rather than `cargo test --exact`. The two agree except on the case
+# that matters: `cargo test --exact missing_name` prints `0 passed` and exits 0, so renaming the
+# proof below would leave this script green while running nothing. nextest refuses an empty
+# selection with `error: no tests to run` and a non-zero exit.
 set +e
-cargo test --manifest-path crates/adapters/bybit/Cargo.toml \
+cargo nextest run --manifest-path crates/adapters/bybit/Cargo.toml \
   --test live_market_channel_end_to_end \
-  -- --ignored --exact --nocapture \
-  a_live_channel_seals_venue_trades_and_advances_its_durable_head
+  --cargo-profile "${CARGO_CI_PROFILE:-nextest}" \
+  --run-ignored all \
+  --no-capture \
+  -E 'test(=a_live_channel_seals_venue_trades_and_advances_its_durable_head)'
 test_status=$?
 set -e
 
