@@ -329,19 +329,25 @@ fn semantic_digest_is_separated_by_version_number() {
 /// Resolution keys on the requested version and refuses one this kernel does not publish.
 #[rstest::rstest]
 fn resolution_admits_only_published_versions() {
-    assert_eq!(crate::catalog_version::PUBLISHED_V1.len(), 2);
-    assert_eq!(crate::catalog_version::newest().semantic_version, 2);
+    assert_eq!(crate::catalog_version::PUBLISHED_V1.len(), 3);
+    assert_eq!(crate::catalog_version::newest().semantic_version, 3);
     assert_eq!(
         PrimitiveCatalogV1::resolve(1).unwrap().semantic_version(),
         1
     );
-    // `verify` means the newest published version, which is no longer version 1.
+    assert_eq!(
+        PrimitiveCatalogV1::resolve(2).unwrap().semantic_version(),
+        2
+    );
+    // `verify` means the newest published version, which is no longer version 1 or 2. Publishing a
+    // version changes what a freshly minted program resolves, so that move is asserted here rather
+    // than left to be noticed.
     assert_eq!(
         PrimitiveCatalogV1::verify().unwrap(),
-        PrimitiveCatalogV1::resolve(2).unwrap()
+        PrimitiveCatalogV1::resolve(3).unwrap()
     );
 
-    for unpublished in [0_u16, 3, 65_535] {
+    for unpublished in [0_u16, 4, 65_535] {
         assert_eq!(
             PrimitiveCatalogV1::resolve(unpublished),
             Err(PrimitiveCatalogFailure::UnpublishedSemanticVersion),

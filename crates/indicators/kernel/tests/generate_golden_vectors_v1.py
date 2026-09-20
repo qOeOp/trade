@@ -457,6 +457,7 @@ def vector_bytes(name, fields):
 # bytes, file names and semantic digest are unaffected by publishing version 2.
 
 V2_CASES = {}
+V3_CASES = {}
 
 
 def fused_program(steps):
@@ -541,6 +542,65 @@ def emit_v2(args):
     print(f"{len(entries)} version 2 vectors " + ("verified" if args.check else "generated"))
 
 
+def build_v3():
+    """
+    Version 3's own vectors: the fixed-point square root, both rounding modes.
+
+    Radicand 3 at scale 0 into output scale 0. The integer square root is 1 with
+    remainder 2, and the remainder exceeds the root, so the true root lies above 1.5:
+    toward zero truncates to 1 and nearest carries to 2. A square root of an integer is
+    never exactly a half, so nearest-ties-to-even has no tie to break here or anywhere
+    else; that is why one example separates the two modes. Both expectations are stated
+    here, not computed by the evaluator under test.
+
+    """
+    frame = HEADER + fixed(3, 0) + bytes([0])
+    for owner, rounding, expected in (
+        ("bfp.fixed-i128.sqrt.max-scale-38.i256-single-round.toward-zero.v1", 1, 1),
+        ("bfp.fixed-i128.sqrt.max-scale-38.i256-single-round.nearest-ties-to-even.v1", 2, 2),
+    ):
+        name = "bfp.golden.primitive." + owner[4:] + ".success.v1"
+        V3_CASES[name] = (owner, rounding, READY, b"", frame, fixed(expected), b"")
+
+
+def emit_v3(args):
+    """
+    Write version 3's own vectors and its registry, referencing the earlier files
+    unchanged.
+    """
+    build_v3()
+    artifacts = {}
+    v1_names = sorted(CASES)
+    v2_names = sorted(V2_CASES)
+    v3_names = sorted(V3_CASES)
+    entries = []
+    for name in sorted(set(v1_names) | set(V2_CASES) | set(V3_CASES)):
+        if name in V3_CASES:
+            filename = f"{v3_names.index(name):02}.bfgv"
+            artifacts[ROOT / "src/goldens_v3" / filename] = vector_bytes(name, V3_CASES[name])
+            entries.append(f'    include_bytes!("goldens_v3/{filename}"),')
+        elif name in V2_CASES:
+            entries.append(f'    include_bytes!("goldens_v2/{v2_names.index(name):02}.bfgv"),')
+        else:
+            entries.append(f'    include_bytes!("goldens_v1/{v1_names.index(name):02}.bfgv"),')
+    registry = (
+        "//! Literal canonical vectors for catalog version 3, regenerated only by\n"
+        "//! tests/generate_golden_vectors_v1.py. The earlier versions' files are referenced\n"
+        "//! unchanged.\n\n"
+        f"pub(super) const GOLDENS_V3: [&[u8]; {len(entries)}] = [\n"
+        + "\n".join(entries)
+        + "\n];\n"
+    )
+    artifacts[ROOT / "src/golden_corpus_v3.rs"] = registry.encode("ascii")
+    (ROOT / "src/goldens_v3").mkdir(exist_ok=True)
+    for path, contents in artifacts.items():
+        if args.check:
+            assert path.read_bytes() == contents, path
+        else:
+            path.write_bytes(contents)
+    print(f"{len(entries)} version 3 vectors " + ("verified" if args.check else "generated"))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true")
@@ -570,6 +630,7 @@ def main():
     }
     print("87 canonical vectors verified" if args.check else "87 canonical vectors generated")
     emit_v2(args)
+    emit_v3(args)
 
 
 if __name__ == "__main__":
