@@ -1199,6 +1199,7 @@ run_authority_migration_for_database() {
     --env "EXECUTION_WRITER_DB_PASSWORD=${test_password}" \
     --env "PORTFOLIO_WRITER_DB_PASSWORD=${test_password}" \
     --env "GOVERNANCE_WRITER_DB_PASSWORD=${test_password}" \
+    --env "INSTRUMENT_OWNER_DB_PASSWORD=${test_password}" \
     "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
 }
 
@@ -1556,6 +1557,7 @@ docker exec --interactive \
   --env "EXECUTION_WRITER_DB_PASSWORD=${test_password}" \
   --env "PORTFOLIO_WRITER_DB_PASSWORD=${test_password}" \
   --env "GOVERNANCE_WRITER_DB_PASSWORD=${test_password}" \
+  --env "INSTRUMENT_OWNER_DB_PASSWORD=${test_password}" \
   "$container" sh -s < product/rd-workbench/postgres-init/00-create-rd-owner.sh
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
@@ -1647,6 +1649,7 @@ docker exec --interactive \
   --env "EXECUTION_WRITER_DB_PASSWORD=${test_password}" \
   --env "PORTFOLIO_WRITER_DB_PASSWORD=${test_password}" \
   --env "GOVERNANCE_WRITER_DB_PASSWORD=${test_password}" \
+  --env "INSTRUMENT_OWNER_DB_PASSWORD=${test_password}" \
   "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
 
 existing_cutover_candidate_experiment_fingerprint_before="$(
@@ -1715,7 +1718,6 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --set=test_database="$test_database" \
   --set=test_password="$test_password" << 'SQL'
 CREATE ROLE vibe_test_owner_topology_admin LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'test_password';
-CREATE ROLE instrument_owner LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'test_password';
 CREATE ROLE instrument_economic_intruder LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE ROLE instrument_economic_noinherit_intruder LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 ALTER ROLE market_data_reader PASSWORD :'test_password';
@@ -1724,10 +1726,6 @@ DO $database_access$
 BEGIN
   EXECUTE pg_catalog.format(
     'GRANT CONNECT ON DATABASE %I TO rd_fact_writer, replay_policy_catalog_admin_writer, vibe_test_owner_topology_admin, instrument_owner',
-    pg_catalog.current_database()
-  );
-  EXECUTE pg_catalog.format(
-    'GRANT CREATE ON DATABASE %I TO instrument_owner',
     pg_catalog.current_database()
   );
 END
