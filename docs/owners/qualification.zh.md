@@ -9,26 +9,27 @@
 本节是实现状态记录，不是契约。它本身不授予任何权限，列在这里的步骤也不构成建造 部署或驱动保护评估的权威。
 下文契约不因某个步骤有没有调用者而改变。
 
-**Eligibility 终端从未被驱动过。** 下列每一步都已实现且都没有调用者，因此系统从未存在过
-Protected Replay Request Set、Attempt Frontier、Robustness Assessment 或 Eligibility Fact。
-有序 PostgreSQL 门禁只走到 `ADMITTED` intake 和一条 Origin（`schema_version=1`）replay request，
-而它那两条收尾条目恰好断言 Eligibility **不存在**。
+**Eligibility 终端由有序 PostgreSQL 门禁驱动，而且只有它在驱动。** 每一步都被那个门禁自己的条目调用，
+所以 Protected Replay Request Set、Attempt Frontier、Robustness Assessment 与 Eligibility Fact
+在门禁的数据库里都存在。步骤清单就是 `scripts/ci/test-rd-owner-postgres.bash` 里那个有序数组中属于
+Qualification 与 Backtest 的那些条目，那里始终是它们唯一的清单；没有任何一步在它之外有调用者。
 
-| 步骤                                            | 状态     |
-| ----------------------------------------------- | -------- |
-| `submit_protected_replay_request_v2`            | 无调用者 |
-| `seal_protected_replay_request_set_v1`          | 无调用者 |
-| `produce_and_commit_protected_replay_result_v3` | 无调用者 |
-| `close_protected_replay_attempt_frontier_v1`    | 无调用者 |
-| `close_economic_pass_assessment_v1`             | 无调用者 |
+第一步所需的 Shared Time 交接，由门禁从本仓库 sealed-acceptance 面的
+`issue_protected_evaluation_shared_time_v1` 构造，不是从部署解析器取得。**部署解析器仍然是关闭的**，
+原因记录在下文 需要部署授权的终端 一节，所以在门禁里驱动该终端，并不证明一次部署能驱动它。
 
-这些步骤严格串联，而第一步卡在**缺少 Owner 输入**而非缺少驱动。V2 请求是 V1 提案加一个
-`ClockHeadHandoff`，共享时钟 resolver 由 `DEPLOYMENT_STORE_ADMISSION_MODE` 构造，而门禁没有设置它，
-所以 resolver 返回空，V2 请求在那个环境里根本无法构造。其后 set 封存只接纳 `schema_version=2`
-成员--Origin 行的规范编码不同，读进来会让 frontier 搁浅--所以只有 Origin 行时，即便调用也只会
-封出一个空集合。
+有两条更早的条目仍然断言 Eligibility 不存在，而且它们仍然通过，因为有序门禁共用一个从不重置的数据库，
+它们跑在提交第一条 Eligibility Fact 的那条条目之前。**在第 `n` 条断言的缺席，是第 `n` 条处的缺席，
+不是本 Owner 的性质**。把那两条读成「Eligibility 永不存在」，正是这一段过去所编码的误读。
 
-因此把共享时钟证据准入到门禁环境，是终端的第一前置；在那之前写任何驱动都没有意义。
+这些步骤严格串联。V2 请求是 V1 提案加一个 `ClockHeadHandoff`，而生产的共享时钟 resolver 由
+`DEPLOYMENT_STORE_ADMISSION_MODE` 构造，它保持 `disabled`。门禁不使用那个 resolver，也不需要它：
+`issue_protected_evaluation_shared_time_v1` 在 sealed-acceptance 面上签发该交接，
+所以 V2 请求、非空请求集、终态结果、已关闭的 frontier 与一份评估，全都在那里被构造出来。
+set 封存只接纳 `schema_version=2` 成员--Origin 行的规范编码不同，读进来会让 frontier 搁浅--
+而门禁提供的正是 `schema_version=2` 成员。
+
+因此把共享时钟证据准入到一次**部署**，仍然是部署驱动该终端的前置。它不再是驱动该终端本身的前置。
 
 **TARGET - 需要部署授权的终端，以及它在等什么：** 这条终端是 TARGET，不是未完成的工作。
 `DEPLOYMENT_STORE_ADMISSION_MODE` 保持 `disabled`，直到存在一个部署授权方能够签发 `required`
@@ -259,8 +260,8 @@ Qualification 固定种子、标的宇宙、预注册窗口与抽取规模；R&D
 前者在试验数被少报时就不再是一个修正。后者不会，而这正是保护评估存在的意义。
 
 该交接按定义、合成、回放的顺序建造，而这个顺序是一条禁令，不是一种偏好。在 Qualification 发布对照集定义之前，
-不得建造它的合成侧或消费侧，因为对着尚不存在的定义建起来的消费者无法被证伪。本文档已经记录了五个先于任何调用者
-而建成的步骤。
+不得建造它的合成侧或消费侧，因为对着尚不存在的定义建起来的消费者无法被证伪。本 Owner 已经这样做过一次：
+Eligibility 终端的每一步都在任何调用者之前合入，并一直维持到有序门禁的条目被写出来为止。
 
 对请求相等的 `TERMINAL_RESULT`，Qualification 先消费 Backtest 完整 有限 非空的保护
 `diagnosticCategorySet`、内容摘要和逐类别决定性证据，并保留全部独立支持成员。随后先校验它是

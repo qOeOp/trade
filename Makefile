@@ -821,6 +821,23 @@ cargo-test-market-data-owner-postgres-isolated: check-nextest-installed  #-- Run
 	CARGO_CI_PROFILE="$(CARGO_CI_PROFILE)" \
 	bash crates/data/tests/run_market_data_owner_postgres.bash
 
+# The one end-to-end proof of the Owner's PIT shape that needs no credential, and the first caller
+# it has ever had. The shape is built three times - for this vendor, for Databento and for Bybit -
+# and `git grep` across `Makefile`, `.github` and `scripts` found no caller for any of them.
+#
+# It is not wired into `owner-chains` yet, and that is a finding rather than an oversight. Running
+# it on a hosted runner reaches `ObservationUnavailable`: the proof declares it needs a reachable
+# venue, and it does not get one there. Which reason - a regional refusal, DNS, a timeout, a
+# malformed answer - cannot be read off, because the Data Client maps every vendor failure through
+# `map_err(|_| Unavailable)`, so all of them arrive as one symptom. A chain entry that can only go
+# red, and whose red names no cause, costs every round and points the next reader at their own
+# change; it is worse than no entry. It passes here, on a developer machine, in about 30 seconds.
+.PHONY: cargo-test-market-data-end-to-end
+cargo-test-market-data-end-to-end: check-nextest-installed  #-- Run the credential-free Market Data end-to-end proof (local only; see comment)
+	NEXTEST_PROFILE="$(NEXTEST_PROFILE)" \
+	CARGO_CI_PROFILE="$(CARGO_CI_PROFILE)" \
+	bash crates/adapters/binance/tests/run_market_data_end_to_end.bash
+
 .PHONY: cargo-test-toolchain-proofs
 cargo-test-toolchain-proofs:  #-- Run the Owner proofs that need a real tool and no database
 	NEXTEST_PROFILE="$(NEXTEST_PROFILE)" \

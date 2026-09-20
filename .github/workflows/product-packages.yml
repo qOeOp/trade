@@ -64,22 +64,6 @@ jobs:
           --health-retries 30
     env:
       DASHBOARD_SUITE_POSTGRES: postgresql://postgres:dashboard@127.0.0.1:5432
-      # The browser the Dashboard acceptances drive, held to the build the lane measures against
-      # locally rather than inherited from the image.
-      #
-      # This pin did not fix anything, and the record should not suggest it did. It was taken while
-      # the acceptances stalled here, on the theory that the runner's newer build was the cause; the
-      # run that carried it stalled exactly as before. What unblocked them was three Chrome startup
-      # flags the suites were missing, which the ordered chain's own acceptance had all along.
-      #
-      # It stays because these acceptances drive a browser directly over the DevTools protocol, so
-      # the version is a variable worth holding fixed while they are read as evidence, and because
-      # nothing has yet shown the flags alone suffice on an unpinned build. Release it by running
-      # this job once without the pin: if the acceptances stay green, the pin has no work left to do.
-      CHROME_FOR_TESTING_VERSION: 144.0.7559.96
-      CHROME_FOR_TESTING_SHA256: ebb811eef0a0206b6f15dbd325840e39331a132399a4e7e0770cbc1624c3bff0
-      DASHBOARD_BROWSER_ROOT: /tmp/dashboard-browser-acceptance-chrome
-      DASHBOARD_BROWSER_EXECUTABLE: /tmp/dashboard-browser-acceptance-chrome/chrome-linux64/chrome
     steps:
       - name: Harden runner
         # https://github.com/step-security/harden-runner
@@ -113,18 +97,19 @@ jobs:
       - name: Check Dashboard types
         run: npm run typecheck --prefix product/dashboard
 
-      - name: Install the pinned browser for the Dashboard browser acceptances
+      # The browser this runner already has, rather than one this job downloads and pins.
+      #
+      # The pin was taken while these acceptances stalled here, on the theory that the runner's
+      # newer browser was the cause. It was not: the pinned run stalled identically, and what
+      # unblocked them was three Chrome startup flags the suites were missing. The pin was then kept
+      # because nothing had shown the flags alone suffice on an unpinned build, and its comment said
+      # so and named this run as the way to find out. This is that run.
+      - name: Locate the runner's own browser
         run: |
           set -euo pipefail
-          mkdir -p "$DASHBOARD_BROWSER_ROOT"
-          archive="$DASHBOARD_BROWSER_ROOT/chrome-linux64.zip"
-          browser="$DASHBOARD_BROWSER_ROOT/chrome-linux64"
-          curl --fail --location --retry 3 --output "$archive" \
-            "https://storage.googleapis.com/chrome-for-testing-public/$CHROME_FOR_TESTING_VERSION/linux64/chrome-linux64.zip"
-          printf '%s  %s\n' "$CHROME_FOR_TESTING_SHA256" "$archive" | sha256sum --check --strict
-          python3 -m zipfile -e "$archive" "$DASHBOARD_BROWSER_ROOT"
-          chmod 0755 "$browser/chrome" "$browser/chrome_crashpad_handler"
-          "$browser/chrome" --version
+          browser="$(command -v google-chrome || command -v chromium-browser || command -v chromium)"
+          echo "DASHBOARD_BROWSER_EXECUTABLE=$browser" >> "$GITHUB_ENV"
+          "$browser" --version
 
       - name: Create the Dashboard suite control databases
         working-directory: product/dashboard
