@@ -502,27 +502,47 @@ Five of the seven consistency points those generators maintained by hand are der
 decision: total state bytes, written in three places and summed from a hand-counted cell count; the
 per-cell byte formula; the eight `bounds` integers, filled with numbers chosen to be large enough; unit
 and scale along the DAG; and constants that exist only to give a port a value of its own unit and scale.
-**A compiler computes each of these from the graph, and none of them is a choice an author makes.**
+**The Owner already computes each of these, and none of them is a choice an author makes.** Ten
+programs were later rebuilt from their meaning by the Owner's own derivation and matched their
+references field for field, so this layer's work is not to compute them again but to stop short of
+them.
+
+Unifying those generators measured that claim: eight became one, 1232 lines became 487, and all
+twenty-four emitted artifacts were byte-identical to their predecessors, so nothing about a program
+had been living in the generator that wrote it. **The reason to stop short of derivation is stronger
+than avoiding duplicated code: a port identity is a digest over `InputRoleV2`, so it depends on that
+struct's field order, and no contract text states that order or undertakes to keep it.** An authoring
+layer that computed identities would hard-code a fact the Owner is free to change; one that emits
+`meaning` inherits it instead.
 
 The part with no abstraction at all is exactly the declaration surface. Port identities derive from role
 identity, and the second generator resolved that by reading a role-to-digest table produced by a separate
 run. **That is the same split the validator reports: of ten rejections taking the first real strategy
 through it, eight were the declaration surface and the graph not having been changed together, and two
-were expressive bounds.** One artifact generating both sides is what makes that class unrepresentable.
+were expressive bounds.** One artifact generating both sides is what makes that class unrepresentable. A validator rule
+added afterwards - a variant-typed port's terminal must read a variant constant carrying its own
+semantic id - found four errors already latent in prototypes of this layer, so that class is still
+arriving. Where the contract constrains a declaration not at all, this layer cannot make it correct
+either: which field a clocked extremum reads is unconstrained today, and two fixtures in the
+repository feed `CLOSE` to a swing high.
 
-This layer is a compiler and not a runtime. It emits the `StrategyDesignV2` and
-`BoundedFeatureProgramProposalV1` pair that `declare` already accepts, and the authored document is
-evaluated only in generating that pair. A unit is a syntactic product rather than an algebra - a
+This layer is a compiler and not a runtime. It emits the `design` and `meaning` that `declare`
+already accepts - never a `BoundedFeatureProgramProposalV1`, which is what the Owner derives from
+them - and the authored document is evaluated only in producing that pair. A unit is a syntactic product rather than an algebra - a
 quotient of two prices carries the unit `PRICE/PRICE` and not a dimensionless one - so a relative
 threshold either has its unit normalised by this layer or leaks that spelling into what an author
 writes. **Derivation never replaces validation: a derived field is
 checked afterwards by the same contract that checks a hand-written one, so a wrong derivation fails
 closed rather than admitting a program the validator would have refused.**
 
-**IMPLEMENTATION_ADMITTED - derivation of what the graph already determines:** one bounded slice,
-computing total and per-cell state bytes, the `bounds` integers, and unit and scale along the DAG from
-the graph, for a proposal that leaves them unstated. It introduces no authoring syntax, no new
-primitive, and no execution path, and the existing validator runs unchanged over its output.
+**IMPLEMENTATION_ADMITTED - an authoring output that stops at meaning:** one bounded slice, whose
+product is the `design` and `meaning` pair and nothing further. An earlier revision admitted the
+opposite slice - computing state bytes, the `bounds` integers, and unit and scale - on the reasoning
+that those are the layer's first job. They are not its job at all: they are the Owner's, and a
+generator that produced them was measured to be reproducing work that already existed. The code this
+slice adds is therefore less than the code it removes. It introduces no authoring syntax, no new
+primitive and no execution path, and what it emits is checked by the same contract that checks a
+hand-written declaration.
 
 ## Lineage and protected-feedback admission
 
