@@ -505,6 +505,7 @@ fn lowered_symbol(operation: PrimitiveOperationV1) -> &'static str {
         PrimitiveOperationV1::Mul => "FixedI128::checked_mul",
         PrimitiveOperationV1::Div => "FixedI128::checked_div",
         PrimitiveOperationV1::Rescale => "FixedI128::rescale",
+        PrimitiveOperationV1::Sqrt => "FixedI128::checked_sqrt",
         PrimitiveOperationV1::Compare => "FixedI128::checked_compare",
         PrimitiveOperationV1::Select => "FixedI128::checked_select",
         PrimitiveOperationV1::Body => "FixedOhlc::body",
@@ -2336,7 +2337,7 @@ mod tests {
         match operation {
             // No published catalog version offers it, so this fixture cannot build a node for it.
             Op::FusedRational => unimplemented!("fused rational has no declarable parameters yet"),
-            Op::Add | Op::Sub | Op::Mul | Op::Div | Op::Rescale => {
+            Op::Add | Op::Sub | Op::Mul | Op::Div | Op::Rescale | Op::Sqrt => {
                 BoundedFeatureParametersV1::OutputScale {
                     output_scale: 2,
                     rounding: BoundedFeatureRoundingV1::TowardZero,
@@ -2428,6 +2429,7 @@ mod tests {
             ],
             Op::Fraction => vec![("high", input()), ("low", input())],
             Op::Rescale
+            | Op::Sqrt
             | Op::Ema
             | Op::Wilder
             | Op::Rsi

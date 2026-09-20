@@ -17,7 +17,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::net::TcpListener;
 use vibe_binance::{
-    common::enums::BinanceEnvironment,
+    common::enums::{BinanceEnvironment, BinanceProductType},
+    futures::http::client::BinanceFuturesHttpClient,
+    futures_pit_observation_source_v1::BinanceFuturesBarObservationSourceV1,
     pit_observation_source_v1::BinanceSpotBarObservationSourceV1,
     spot::http::client::BinanceSpotHttpClient,
 };
@@ -729,8 +731,9 @@ async fn bootstrap_market_data_pit_intake()
             "" => return Ok(None),
             "databento" => databento_observation_source()?,
             "binance-spot" => binance_spot_observation_source()?,
+            "binance-perpetual" => binance_perpetual_observation_source()?,
             other => anyhow::bail!(
-                "MARKET_DATA_OBSERVATION_SOURCE must be databento or binance-spot, not {other}"
+                "MARKET_DATA_OBSERVATION_SOURCE must be databento, binance-spot or binance-perpetual, not {other}"
             ),
         },
     };
@@ -770,20 +773,63 @@ fn databento_observation_source() -> anyhow::Result<Arc<dyn PitObservationSource
 /// The mapping is stated as `member=symbol` pairs so a deployment says exactly which Owner member
 /// each venue symbol answers for; a client that guessed the mapping would be deciding what a
 /// universe member is.
-fn binance_spot_observation_source() -> anyhow::Result<Arc<dyn PitObservationSourceV1>> {
-    let members = required_env("BINANCE_PIT_MEMBERS")?;
-    let interval = required_env("BINANCE_PIT_INTERVAL")?;
+/// Parses one `member=symbol` mapping from the named variable.
+///
+/// Both Binance surfaces bind a universe member to a venue symbol the same way, and the two must
+/// keep parsing it the same way: a member that resolved to different symbols on the two surfaces
+/// would make the venue part of what a snapshot means without saying so.
+fn binance_member_mapping(variable: &str) -> anyhow::Result<std::collections::BTreeMap<String, String>> {
+    let members = required_env(variable)?;
     let mut mapping = std::collections::BTreeMap::new();
 
     for entry in members.split(',') {
         let (member, symbol) = entry
             .split_once('=')
-            .ok_or_else(|| anyhow::anyhow!("BINANCE_PIT_MEMBERS entries are member=symbol"))?;
+            .ok_or_else(|| anyhow::anyhow!("{variable} entries are member=symbol"))?;
+
         if member.trim().is_empty() || symbol.trim().is_empty() {
-            anyhow::bail!("BINANCE_PIT_MEMBERS entries are member=symbol");
+            anyhow::bail!("{variable} entries are member=symbol");
         }
         mapping.insert(member.trim().to_string(), symbol.trim().to_string());
     }
+    Ok(mapping)
+}
+
+/// Builds the USD-M perpetual Data Client for the Owner's point-in-time path.
+///
+/// The base URL is named rather than discovered. Binance answers `451` to some networks on its
+/// canonical `fapi.binance.com`, and a client that fell back to whichever host happened to answer
+/// would let the deployment's network decide what a snapshot records as its provenance. A
+/// deployment that must use another host says so, and that host is then what the binding carries.
+///
+/// The public kline endpoint is unsigned, so no credential is read here.
+fn binance_perpetual_observation_source() -> anyhow::Result<Arc<dyn PitObservationSourceV1>> {
+    let mapping = binance_member_mapping("BINANCE_PERPETUAL_PIT_MEMBERS")?;
+    let interval = required_env("BINANCE_PERPETUAL_PIT_INTERVAL")?;
+    let base_url = env::var("BINANCE_PERPETUAL_PIT_BASE_URL")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    let client = BinanceFuturesHttpClient::new(
+        BinanceProductType::UsdM,
+        BinanceEnvironment::Live,
+        get_atomic_clock_realtime(),
+        None,
+        None,
+        base_url,
+        None,
+        Some(30),
+        None,
+        false,
+    )?;
+    Ok(Arc::new(
+        BinanceFuturesBarObservationSourceV1::new(client, mapping, &interval)
+            .map_err(|e| anyhow::anyhow!("the Binance USD-M Data Client is unusable: {e}"))?,
+    ))
+}
+
+fn binance_spot_observation_source() -> anyhow::Result<Arc<dyn PitObservationSourceV1>> {
+    let mapping = binance_member_mapping("BINANCE_PIT_MEMBERS")?;
+    let interval = required_env("BINANCE_PIT_INTERVAL")?;
     let client = BinanceSpotHttpClient::new_with_json_responses(
         BinanceEnvironment::Live,
         get_atomic_clock_realtime(),
