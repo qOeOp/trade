@@ -86,6 +86,21 @@
   `/v2/exploratory-replay/execution-input-bindings`、`/v3/exploratory-replay-requests/composer-backed`，
   以及四条 `/_sealed-acceptance/v1/develop-composer/*`。一条验收路由绝不是生产能力的证据，
   而密封 feature 的存在就是为了让这个区别是机械的而不是靠记住的。
+- **CURRENT - 有一条只读操作只能经由写 API 触达：** Dashboard 的操作登记表声明了十一条 Owner 路由，
+  其中十条是 `GET`。第十一条 `research_goal.legacy_quarantine_read.v1` 声明 `effect_set: []`，
+  解析到 `POST /v1/research-goals/{request_identity}/resolve`，它注册在
+  `crates/strategy_factory_rd_owner_api/src/main.rs` 里，而读 API 那个二进制里没有它。
+  空效果集是准确的：该处理函数忽略自己的请求体，它的三条路径
+  `resolve_legacy_quarantined_v1`、`resolve_admission` 与 `resolve_historical_v1` 全部只读，
+  取的是 `FOR SHARE` 而不是 `FOR UPDATE`，也不发出任何 `INSERT`、`UPDATE` 或 `DELETE`。
+  错的是这条操作住在哪里：一个只认领只读操作的消费方仍然需要写 API 凭据，
+  因为它的其中一条读是一个本 Owner 别处都不暴露的 `POST`。在那条路由被读 API 提供之前，
+  一个持有写 API 凭据的只读消费方是这条约束本身而不是权限泄漏，
+  而把它收窄到读 API 那一对会打断这条操作而不是收紧它。具体地，
+  `product/rd-workbench/docker-compose.yml` 里 shadow worker 服务需要它那对写 API 凭据正是因为这个：
+  在整理那个文件时顺手删掉它，worker 会停在 `WORKER_CONFIGURATION_UNAVAILABLE`，
+  而那个文件里没有任何东西说明那对凭据为什么在。将来若再有一条在 `POST` 上声明
+  `effect_set: []` 的操作，这个问题要重新问一次，因为效果集描述的是操作，而凭据准入的是整条路由。
 - **CURRENT - 其它 Owner 被授权读取的跨 Owner 读面：** `rd_owner_api` 是本仓库唯一一个把执行权授予
   多于一个消费方 Owner 角色的 schema：`product_edge_owner`、`qualification_writer`、`backtest_owner`、
   `market_data_owner` 与 `market_data_reader`，`rd_owner` 是该 schema 自己的角色。这些 schema、
