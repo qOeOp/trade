@@ -203,6 +203,19 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[74]}" != *'|postgres::tests::shared_resolver_blocks_revoke_update_lock' ]] ||
     [[ "${rd_owner_postgres_tests[75]}" != *'|postgres::tests::select_only_consumer_resolve_serializes_with_revoke' ]] ||
     [[ "${rd_owner_postgres_tests[76]}" != *'|postgres::tests::lifecycle_request_admission_is_typed_effect_free_and_replay_exact' ]] ||
+  # The three trading-side entries carry no ordering dependency on one another: each drives the
+  # upstream custody it needs inside its own test, under its own per-process suffix identity. PR
+  # #693's body claimed the reverse; that claim was true of an earlier design, in which Portfolio's
+  # proof read a fact Execution's chain entry had left behind, and it was not re-checked after #654
+  # rewrote that proof to drive Execution's production custody itself. This note records the
+  # correction; it is not a claim that any entry may be freely reordered.
+  #
+  # Pinning them is not about their dependencies anyway. Every entry pinned by position makes a
+  # reorder something two places have to agree on, so a reorder is always deliberate rather than
+  # accidental - which is what matters in a chain that shares one database it never resets.
+    [[ "${rd_owner_postgres_tests[77]}" != *'|adapter_binding_postgres::tests::postgres_binding_custody_is_atomic_replay_safe_and_tamper_closed' ]] ||
+    [[ "${rd_owner_postgres_tests[78]}" != *'|capacity_scope_postgres::tests::postgres_capacity_scope_registry_is_append_only_and_seals_one_bound_scope' ]] ||
+    [[ "${rd_owner_postgres_tests[79]}" != *'|registry_postgres::postgres_proof::postgres_execution_scope_binds_only_what_both_source_owners_confirm' ]] ||
     [[ "${rd_owner_postgres_tests[80]}" != *'|owner::postgres::market_data_rd_api_authorization_postgres_tests::market_data_rd_api_admits_the_rd_owner_through_the_grant_layer_alone' ]] ||
     [[ "${rd_owner_postgres_tests[81]}" != *'|owner::postgres::market_data_rd_api_authorization_postgres_tests::market_data_rd_api_refuses_the_backtest_owner_loudly_not_emptily' ]] ||
     [[ "${rd_owner_postgres_tests[82]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
