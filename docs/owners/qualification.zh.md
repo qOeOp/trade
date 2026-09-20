@@ -71,6 +71,38 @@ Qualification 的其余部分并不排在它后面：attempt frontier、候选�
 - **Eligibility State** - 发布当前不合格 合格 过期或撤销的可部署事实 条件 撤销历史，以及 Governance
   与 Risk 必须执行的有界经济容量契约。它把撤销作为 Eligibility 转换拥有，但不接管 Runtime 恢复。
 
+## 实现状态台账
+
+本台账只记录仓库在此切点已经到达的状态。它沿用
+[Market Data](./market-data/) 台账的状态词汇，`CURRENT_PARTIAL` 表示已合入但不可达，本节自身不授予任何权限。
+这里没有任何一行是 `IMPLEMENTATION_ADMITTED`：本 Owner 没有已准入的切片，要扩大准入集合必须先改本文档。
+某项事实若已有独立小节，本行只指向它而不重复它，这样需要同步的地方只有一处。
+
+- **CURRENT_PARTIAL - Candidate Intake：** `submit_candidate_intake_v1`（位于
+  `crates/qualification/src/postgres.rs`）在 Candidate advisory lock 下写入回执，并对已 intake 的 Candidate 的
+  第二次评审请求返回类型化冲突。它没有生产调用者：本 Owner 之外的每一处调用都在
+  `sealed-develop-composer-acceptance` 测试模块里，该模块位于
+  `crates/strategy_factory/src/iteration_decision_postgres.rs`。
+- **CURRENT_PARTIAL - Protected Evaluation：** 每一个保护终端都由有序 PostgreSQL 门禁完整驱动，而且只有它在驱动。
+  各条目、准入每个终端的密封证据、以及门禁到达不了的那两项行为，都记录在上文
+  Eligibility 终端状态 一节。
+- **CURRENT_PARTIAL - Research 前保护反馈解析：** 这是唯一有生产调用者的能力。
+  `resolve_or_create_for_basis` 与 `admit_in_transaction` 由
+  `crates/strategy_factory/src/product_edge_postgres.rs` 调用，
+  `admit_historical_projection_in_transaction` 由
+  `crates/strategy_factory/src/rd_owner_postgres_custody.rs` 调用，都不在任何测试模块内。它的读回有一条有序链路
+  条目作为证明；response-cut 回滚没有，原因记录在上文。
+- **TARGET - Eligibility State：** 该模块拥有 `INELIGIBLE` `QUALIFIED` `EXPIRED` 与 `REVOKED`，其中只有前两个有实现。
+  `EligibilityState::Expired` 与 `::Revoked`（在 `crates/strategy_governance/src/model.rs`）在全仓没有任何生产者，
+  `QualificationPublicStatusV1` 的五个变体里没有这两个，本 Owner 的 `qualification_*_v1` 表里没有任何以到期或撤销
+  命名的关系，也不存在阻止前驱复活的后继链。消费者类型存在于 Governance，而每一个
+  `UntrustedEligibilityReadback` 都构造在该 crate 自己的测试里，所以读端口的形状在场，而两侧都从未写过这样一条事实。
+- **TARGET - 需要部署授权的终端：** `DEPLOYMENT_STORE_ADMISSION_MODE` 保持 `disabled`，它在等什么记录在上文
+  Eligibility 终端状态 一节。
+- **CURRENT，且永久不可证 - 特定事故 Owner 重建：** 机器已合入，即 `crates/qualification/src/recovery.rs`，
+  经 `run_owner_recovery_cli` 导出，并以 `qualification-owner-recovery` 二进制交付（在 `owner-recovery` 特性后面），
+  而它唯一的证明永远无法通过。实测记录在下文 特定事故 Owner 重建 一节。
+
 ## Research 前保护反馈解析
 
 Qualification 不接收调用方对 genesis 空历史或当前反馈的断言。它直接解析准确 R&D Independence Basis
@@ -111,6 +143,16 @@ closed。重建 projection 保留原半开区间，因此普通 resolver 在当�
 Executable provenance 是独立的效果边界。Qualification 记录实际使用的 executable hash 并验证数据库语义，
 但不声称仓库代码能够独立证明自身 executable bytes。Hub 拥有的外部 effect controller 在释放数据库能力并
 执行该 worker 前，绑定已审查的 Origin ancestry、candidate commit/tree、executable path 与 SHA-256。
+
+本节以下是实现状态记录，不是契约，上文契约不因它改变。绑定的证据 session 资源已经不存在，所以本仓库既不能
+再次执行这项重建，也不能重新证明它。两项实测让这件事是永久的而不是暂时的。该资源定位符是某个开发者主目录下的
+绝对路径，而 `verify_evidence` 拒绝任何其它路径，因此这条证明从来只能在那一台机器上跑，在 Linux CI 上从不可能
+通过。同一个函数还钉死了该文件指定行的 SHA-256，因此任何替代文件都无法满足它。而文件本身已从那台机器上消失：
+没有配置 Time Machine 目标，没有本地快照保留它，主目录与任何已挂载卷下都没有携带该 session 标识的文件，
+该产物也从未提交进仓库。于是它的证明
+`isolated_postgres_recovery_is_atomic_fail_closed_and_replay_safe` 在任何地方都无法通过。上文契约继续作为
+一次已封闭的单一事故重建的记录；它不会因为无法再被执行而扩大成通用 restore 路径，本节也不授权用夹具替代
+被封存的证据。
 
 ## 输入交接
 

@@ -688,12 +688,14 @@ async fn main() -> anyhow::Result<()> {
             token_digest,
         ));
     #[cfg(feature = "sealed-develop-composer-acceptance")]
-    let app = app
-        .merge(exploratory_replay::execution_router(
-            native_replay_execution,
-            token_digest,
-        ))
-        .merge(market_data_repair);
+    let app = app.merge(exploratory_replay::execution_router(
+        native_replay_execution,
+        token_digest,
+    ));
+    // The Market Data repair loop is a separate surface with its own admission; keeping its merge
+    // in its own statement is what lets the Native Replay route lose its gate on its own.
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    let app = app.merge(market_data_repair);
     let address = env_or("RD_OWNER_LISTEN", "0.0.0.0:8080");
     let listener = TcpListener::bind(&address).await?;
     tracing::info!(listen = %address, "R&D Owner API ready");
