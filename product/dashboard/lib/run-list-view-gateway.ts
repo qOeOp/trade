@@ -55,6 +55,7 @@ type SnapshotV2 = {
 
 type RunListAggregateRow = pg.QueryResultRow & {
   row_count: string;
+  overflow: boolean;
   invalid_projection_rows: string;
   transition_sum: string;
   fingerprint_sum_a: string;
@@ -286,6 +287,11 @@ export class PostgresRunListViewGatewayV2 {
             LIMIT ${RUN_LIST_RETENTION_LIMIT_V2}
          )
          SELECT COUNT(*)::text AS row_count,
+                (SELECT COUNT(*) FROM (
+                   SELECT 1 FROM dashboard_operation_runs_v1 r
+                    WHERE ${where}
+                    LIMIT ${RUN_LIST_RETENTION_LIMIT_V2 + 1}
+                 ) probe) > ${RUN_LIST_RETENTION_LIMIT_V2} AS overflow,
                 COUNT(*) FILTER (WHERE
                   r.run_identity !~ '^dashboard-run-v1-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
                   OR r.state NOT IN ('queued', 'running', 'succeeded', 'failed', 'cancelled', 'unknown')
@@ -357,10 +363,14 @@ export class PostgresRunListViewGatewayV2 {
         failed: exactCount(aggregate.failed),
       };
       const sourceCount = exactCount(aggregate.row_count);
-      const completeness = sourceCount >= RUN_LIST_RETENTION_LIMIT_V2
+      // The retained cut is complete when no eligible row exists beyond it; a one-row probe past
+      // the limit answers that exactly, so a full 512-row view is still `complete` and only the
+      // 513th eligible row makes it partial.
+      const completeness = aggregate.overflow
         ? "partial_unavailable" as const : "complete" as const;
       const sourceCut = sha256({
         row_count: sourceCount,
+        overflow: aggregate.overflow,
         transition_sum: aggregate.transition_sum,
         fingerprint_sum_a: aggregate.fingerprint_sum_a,
         fingerprint_sum_b: aggregate.fingerprint_sum_b,

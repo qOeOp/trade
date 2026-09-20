@@ -2756,15 +2756,38 @@ mod tests {
         OperatorAuthorizationIssuerPostgresV1, OperatorAuthorizationScopeV1,
     };
     use vibe_product_edge::{AgentOperationManifestProposalV1, ProductEdgeBootstrapProposalV1};
+    #[cfg(all(
+        feature = "sealed-artifact-source-browser-acceptance",
+        feature = "sealed-source-intake-acceptance"
+    ))]
+    use vibe_product_edge::{
+        SOURCE_INTAKE_OPERATION_SCHEMA_V1, SOURCE_INTAKE_OPERATION_V1,
+        SOURCE_INTAKE_REQUIRED_EFFECTS_V1, SOURCE_INTAKE_TARGET_OWNER_V1,
+    };
     use vibe_rd_artifact_invocation_custody::{
         ArtifactInvocationReservationMeaningV1, seal_invocation_reservation,
     };
     #[cfg(feature = "sealed-source-intake-acceptance")]
     use vibe_strategy_factory::replay_policy_catalog_sealed_acceptance_v2::ensure_replay_policy_catalog_fixture_v3;
+    #[cfg(all(
+        feature = "sealed-artifact-source-browser-acceptance",
+        feature = "sealed-source-intake-acceptance"
+    ))]
+    use vibe_strategy_factory::source_intake::{
+        ProductEdgeGatewayV1, SealedSourceIntakeEnvironmentV1, SourceIntakeOperationRequestV1,
+        SourceIntakeOwnerV1, SourceInterpretationV1,
+    };
     use vibe_strategy_factory::{
         ExploratoryReplayResultLocatorV2,
         artifact_build::{ARTIFACT_BUILD_SCOPE_V1, ReservedArtifactBuildInvocationV1},
         product_edge::{RESEARCH_SCOPE_V1, RESEARCH_VIEW_SCOPE_V1, ResearchSourceV1},
+    };
+    #[cfg(all(
+        feature = "sealed-artifact-source-browser-acceptance",
+        feature = "sealed-source-intake-acceptance"
+    ))]
+    use vibe_strategy_factory_rd_owner_api::dashboard_read_api::{
+        self, DashboardReadApiConfigV1, SourceIntakeReadConfigV1,
     };
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
@@ -2947,6 +2970,25 @@ mod tests {
         suffix: &str,
         request_proof_digest: &str,
     ) -> ProductEdgePostgresOwnerV1 {
+        bootstrap_api_test_product_edge_with(
+            test_database,
+            suffix,
+            request_proof_digest,
+            Vec::new(),
+            Vec::new(),
+        )
+        .await
+    }
+
+    /// Bootstraps the Research and Artifact manifests plus any extra operation manifests and
+    /// Operator Authorization permissions one acceptance needs beyond that pair.
+    async fn bootstrap_api_test_product_edge_with(
+        test_database: &CanonicalOwnerPostgresTestDatabaseV1,
+        suffix: &str,
+        request_proof_digest: &str,
+        extra_manifests: Vec<AgentOperationManifestProposalV1>,
+        extra_permissions: Vec<String>,
+    ) -> ProductEdgePostgresOwnerV1 {
         let now: u64 = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -2979,6 +3021,7 @@ mod tests {
                 valid_through_epoch_ms: now.saturating_add(3_600_000),
             },
         ];
+        manifests.extend(extra_manifests);
         manifests.sort_by_key(|manifest| manifest.manifest_identity().unwrap());
         let operation_manifests = manifests
             .iter()
@@ -3000,11 +3043,17 @@ mod tests {
                 scope: OperatorAuthorizationScopeV1 {
                     principal: principal.clone(),
                     audience: RESEARCH_OWNER_V1.to_string(),
-                    permissions: vec![
-                        ARTIFACT_BUILD_SCOPE_V1.to_string(),
-                        RESEARCH_SCOPE_V1.to_string(),
-                        RESEARCH_VIEW_SCOPE_V1.to_string(),
-                    ],
+                    permissions: {
+                        let mut permissions = vec![
+                            ARTIFACT_BUILD_SCOPE_V1.to_string(),
+                            RESEARCH_SCOPE_V1.to_string(),
+                            RESEARCH_VIEW_SCOPE_V1.to_string(),
+                        ];
+                        permissions.extend(extra_permissions);
+                        permissions.sort();
+                        permissions.dedup();
+                        permissions
+                    },
                 },
                 request_proof_digest: request_proof_digest.to_string(),
                 operation_manifests,
@@ -3046,51 +3095,63 @@ mod tests {
         product_edge
     }
 
-    #[cfg(feature = "sealed-artifact-source-browser-acceptance")]
-    async fn artifact_source_acceptance_snapshot(
+    /// Every R&D and Product Edge relation the Dashboard browser acceptance may touch. The
+    /// acceptance compares this snapshot before and after the browser journey, so a read that
+    /// leaked a write into any of them fails the proof.
+    #[cfg(all(
+        feature = "sealed-artifact-source-browser-acceptance",
+        feature = "sealed-source-intake-acceptance"
+    ))]
+    async fn dashboard_owner_readback_acceptance_snapshot(
         rd_owner_pool: &sqlx::PgPool,
         product_edge_pool: &sqlx::PgPool,
     ) -> serde_json::Value {
-        let rd_attempts: Vec<serde_json::Value> = sqlx::query_scalar(
-            "SELECT to_jsonb(row_value) FROM (SELECT * FROM rd_artifact_build_attempts_v1 ORDER BY build_request_identity) row_value",
-        )
-        .fetch_all(rd_owner_pool)
-        .await
-        .unwrap();
-        let artifacts: Vec<serde_json::Value> = sqlx::query_scalar(
-            "SELECT to_jsonb(row_value) FROM (SELECT * FROM rd_strategy_artifacts_v1 ORDER BY attempt_identity) row_value",
-        )
-        .fetch_all(rd_owner_pool)
-        .await
-        .unwrap();
-        let rd_outbox: Vec<serde_json::Value> = sqlx::query_scalar(
-            "SELECT to_jsonb(row_value) FROM (SELECT * FROM rd_owner_outbox_v1 ORDER BY event_identity) row_value",
-        )
-        .fetch_all(rd_owner_pool)
-        .await
-        .unwrap();
-        let admissions: Vec<serde_json::Value> = sqlx::query_scalar(
-            "SELECT to_jsonb(row_value) FROM (SELECT * FROM product_edge_request_admissions_v1 ORDER BY request_identity) row_value",
-        )
-        .fetch_all(product_edge_pool)
-        .await
-        .unwrap();
-        let product_edge_outbox: Vec<serde_json::Value> = sqlx::query_scalar(
-            "SELECT to_jsonb(row_value) FROM (SELECT * FROM product_edge_owner_outbox_v1 ORDER BY event_identity) row_value",
-        )
-        .fetch_all(product_edge_pool)
-        .await
-        .unwrap();
-        serde_json::json!({
-            "admissions": admissions,
-            "artifacts": artifacts,
-            "product_edge_outbox": product_edge_outbox,
-            "rd_attempts": rd_attempts,
-            "rd_outbox": rd_outbox,
-        })
+        const RD_RELATIONS: [(&str, &str); 7] = [
+            ("rd_artifact_build_attempts_v1", "build_request_identity"),
+            ("rd_strategy_artifacts_v1", "attempt_identity"),
+            ("rd_owner_outbox_v1", "event_identity"),
+            ("rd_research_request_receipts_v1", "request_identity"),
+            ("rd_source_intake_bindings_v1", "request_identity"),
+            ("rd_source_intake_receipts_v1", "receipt_identity"),
+            (
+                "rd_sealed_exploratory_replay_requests_v1",
+                "request_identity",
+            ),
+        ];
+        const PRODUCT_EDGE_RELATIONS: [(&str, &str); 2] = [
+            ("product_edge_request_admissions_v1", "request_identity"),
+            ("product_edge_owner_outbox_v1", "event_identity"),
+        ];
+        let mut snapshot = serde_json::Map::new();
+
+        for (pool, relations) in [
+            (rd_owner_pool, RD_RELATIONS.as_slice()),
+            (product_edge_pool, PRODUCT_EDGE_RELATIONS.as_slice()),
+        ] {
+            for (relation, order) in relations {
+                let rows: Vec<serde_json::Value> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+                    "SELECT to_jsonb(row_value) FROM (SELECT * FROM public.{relation} ORDER BY {order}) row_value"
+                )))
+                .fetch_all(pool)
+                .await
+                .unwrap_or_else(|e| panic!("snapshot of {relation} must read: {e}"));
+                snapshot.insert((*relation).to_owned(), serde_json::Value::Array(rows));
+            }
+        }
+        serde_json::Value::Object(snapshot)
     }
 
-    #[cfg(feature = "sealed-artifact-source-browser-acceptance")]
+    /// Serves every admitted Dashboard Owner read to a real browser from real Owner custody.
+    ///
+    /// The custody is committed through the write API handlers exactly as an operator would
+    /// commit it; the browser then reads it through the production
+    /// `strategy-factory-rd-dashboard-read-api` router plus the write API's historical custody
+    /// route, which is the deployed topology. The chain entries before this one must already
+    /// have sealed one Replay V2 request, because that custody cannot be created from this crate.
+    #[cfg(all(
+        feature = "sealed-artifact-source-browser-acceptance",
+        feature = "sealed-source-intake-acceptance"
+    ))]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[ignore = "requires explicit local PostgreSQL, Dashboard dependencies, and Chrome acceptance admission"]
     async fn strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody() {
@@ -3104,7 +3165,6 @@ mod tests {
             .expect("exact committed Dashboard candidate is required");
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
         let mutation = test_database.mutation();
-        #[cfg(feature = "sealed-source-intake-acceptance")]
         {
             let catalog_admin_pool = sqlx::PgPool::connect(
                 test_database
@@ -3124,11 +3184,37 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
+        let manifest_now: u64 = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+            .try_into()
+            .unwrap();
         let product_edge = Arc::new(
-            bootstrap_api_test_product_edge(
+            bootstrap_api_test_product_edge_with(
                 &test_database,
                 &format!("strategy-source-{suffix}"),
                 &request_proof_digest,
+                vec![AgentOperationManifestProposalV1 {
+                    operation: SOURCE_INTAKE_OPERATION_V1.to_string(),
+                    operation_schema: SOURCE_INTAKE_OPERATION_SCHEMA_V1.to_string(),
+                    target_owner: SOURCE_INTAKE_TARGET_OWNER_V1.to_string(),
+                    allowed_effects: SOURCE_INTAKE_REQUIRED_EFFECTS_V1
+                        .into_iter()
+                        .map(ToString::to_string)
+                        .collect(),
+                    prohibited_effects: vec!["REAL_TRADING_V1".to_string()],
+                    capability_policy_digest: format!("sha256:{}", "e".repeat(64)),
+                    // A manifest has to cover the binding that names it, and the binding's window
+                    // is cut from a clock this function reads later. Deriving both from a reading
+                    // taken here would leave the binding ending one millisecond past the manifest
+                    // whenever anything at all happened in between, which is a coin flip on how
+                    // fast the machine is rather than a property of the Owner. This window
+                    // brackets the bootstrap's own.
+                    effective_from_epoch_ms: manifest_now.saturating_sub(60_000),
+                    valid_through_epoch_ms: manifest_now.saturating_add(7_200_000),
+                }],
+                vec!["research:source-intake".to_string()],
             )
             .await,
         );
@@ -3316,7 +3402,72 @@ mod tests {
         assert_eq!(submitted_json["resolution"], "SUCCESS");
         assert!(submitted_json["provider_invocation"].is_null());
 
+        // Source Intake custody through the sealed acceptance environment: the same Owner
+        // workflow the production router runs, with the provider fixed instead of live.
         let rd_owner_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+        let source_intake_request_identity = format!("strategy-source-intake-{suffix}");
+        let source_intake_owner = Arc::new(SourceIntakeOwnerV1::sealed_acceptance(
+            SealedSourceIntakeEnvironmentV1::new(
+                state.product_edge.clone(),
+                rd_owner_pool.clone(),
+                state.request_proof_digest.clone(),
+            )
+            .unwrap(),
+        ));
+        let source_intake_terminal = source_intake_owner
+            .run(SourceIntakeOperationRequestV1 {
+                request_identity: source_intake_request_identity.clone(),
+                channel: ProductEdgeGatewayV1::WindmillProductEdge,
+                normalized_doi: "10.5555/sealed-success".to_string(),
+                interpretation: SourceInterpretationV1 {
+                    bounded_explanation:
+                        "A bounded momentum effect persists after exact costs in the sealed corpus."
+                            .to_string(),
+                    plausible_alternatives: vec![
+                        "Cost model error".to_string(),
+                        "Survivorship bias".to_string(),
+                    ],
+                    differentiating_prediction:
+                        "Net continuation stays positive after the modeled costs.".to_string(),
+                    falsifier: "Continuation vanishes once exact costs are applied.".to_string(),
+                },
+            })
+            .await
+            .unwrap()
+            .expect("sealed Source Intake must reach a terminal");
+        let source_intake_terminal = serde_json::to_value(&source_intake_terminal).unwrap();
+        assert_eq!(source_intake_terminal["terminal"], "RETRIEVED");
+        let source_intake_content_digest = source_intake_terminal["content_digest"]
+            .as_str()
+            .unwrap_or_else(|| {
+                panic!(
+                    "retrieved Source Intake must carry a content digest: {source_intake_terminal}"
+                )
+            })
+            .to_string();
+
+        // One pre-V2 rejection selector. Nothing in the repository materializes the legacy
+        // `rd_exploratory_replay_rejections_v1` relation and the chain revokes CREATE on the
+        // public schema, so the quarantine read is proven on its fail-closed path: the Owner port
+        // reports the relation unavailable and the browser renders exactly that.
+        let rejection_request_identity = format!("strategy-source-rejected-replay-{suffix}");
+        let rejection_attempt_identity = format!("strategy-source-rejected-attempt-{suffix}");
+        let rejection_semantic_digest = format!(
+            "sha256:{}",
+            hex_digest(&Sha256::digest(rejection_request_identity.as_bytes()))
+        );
+
+        // The sealed Replay V2 request the preceding chain entries committed. Its selector is
+        // handed to the browser exactly as an operator would paste it.
+        let replay_row = sqlx::query(
+            "SELECT request_identity, v2_meaning_digest FROM public.rd_sealed_exploratory_replay_requests_v1 WHERE v2_meaning_digest IS NOT NULL ORDER BY committed_at_epoch_ms DESC, request_identity DESC LIMIT 1",
+        )
+        .fetch_one(rd_owner_pool)
+        .await
+        .expect("a sealed Replay V2 request committed by the preceding chain entries must precede the Dashboard browser consumer");
+        let replay_request_identity: String = replay_row.try_get("request_identity").unwrap();
+        let replay_meaning_digest: String = replay_row.try_get("v2_meaning_digest").unwrap();
+
         let claim_count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM product_edge_effect_invocation_claims_v1 WHERE attempt_identity=$1",
         )
@@ -3325,7 +3476,8 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(claim_count, 0);
-        let before = artifact_source_acceptance_snapshot(rd_owner_pool, product_edge_pool).await;
+        let before =
+            dashboard_owner_readback_acceptance_snapshot(rd_owner_pool, product_edge_pool).await;
 
         let source_response = read_artifact_source(
             State(state.clone()),
@@ -3339,10 +3491,49 @@ mod tests {
         let source_digest = source["source_digest"].as_str().unwrap().to_string();
         assert_eq!(source["wasm_preview_status"], "NOT_RUN");
 
+        // The production Dashboard read API, composed exactly as its binary composes it, with a
+        // credential of its own so the browser proves it never borrows the write credential.
+        let read_token = "rd-dashboard-read-browser-acceptance";
+        let mut read_state = dashboard_read_api::compose_state(&DashboardReadApiConfigV1 {
+            owner_database_url: test_database
+                .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+                .to_string(),
+            token: read_token.to_string(),
+            source_intake: Some(SourceIntakeReadConfigV1 {
+                product_edge_database_url: test_database
+                    .database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner)
+                    .to_string(),
+                request_proof: token.to_string(),
+            }),
+            bind: String::new(),
+        })
+        .await
+        .unwrap();
+        assert!(
+            read_state.source_intake_readback.is_some(),
+            "Source Intake readback must bind to the disposable topology"
+        );
+        // Sealed Source Intake custody carries the sealed authority class, which the production
+        // readback port refuses by design because it binds live external authority. The sealed
+        // Owner reads its own custody back exactly as the sealed write API router does; every
+        // other port keeps the production composition bound above.
+        read_state.source_intake_readback = Some(source_intake_owner.clone());
+        let read_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let read_address = read_listener.local_addr().unwrap();
+        let read_server = tokio::spawn(async move {
+            axum::serve(read_listener, dashboard_read_api::router(read_state)).await
+        });
         let owner_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let owner_address = owner_listener.local_addr().unwrap();
+
         let owner_server = tokio::spawn(async move {
-            axum::serve(owner_listener, artifact_source_router().with_state(state)).await
+            axum::serve(
+                owner_listener,
+                artifact_source_router()
+                    .route("/v1/historical-custodies", get(read_historical_custodies))
+                    .with_state(state),
+            )
+            .await
         });
         let preview_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let preview_port = preview_listener.local_addr().unwrap().port();
@@ -3351,7 +3542,7 @@ mod tests {
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../product/dashboard");
         let browser_status = std::process::Command::new("node")
             .arg("--test")
-            .arg("tests/strategy-code-viewer.browser.test.mjs")
+            .arg("tests/dashboard-owner-readback.browser.test.mjs")
             .current_dir(&dashboard_root)
             .env("DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE", "1")
             .env(
@@ -3363,35 +3554,83 @@ mod tests {
                 browser_executable,
             )
             .env(
-                "DASHBOARD_STRATEGY_VIEWER_PREVIEW_PORT",
+                "DASHBOARD_OWNER_READBACK_PREVIEW_PORT",
                 preview_port.to_string(),
             )
             .env(
-                "DASHBOARD_STRATEGY_VIEWER_BUILD_REQUEST_IDENTITY",
+                "DASHBOARD_OWNER_READBACK_RESEARCH_REQUEST_IDENTITY",
+                &research.request_identity,
+            )
+            .env(
+                "DASHBOARD_OWNER_READBACK_RESEARCH_HYPOTHESIS",
+                &research.goal.hypothesis,
+            )
+            .env(
+                "DASHBOARD_OWNER_READBACK_BUILD_REQUEST_IDENTITY",
                 &build_request_identity,
             )
             .env(
-                "DASHBOARD_STRATEGY_VIEWER_ATTEMPT_IDENTITY",
+                "DASHBOARD_OWNER_READBACK_ATTEMPT_IDENTITY",
                 &attempt_identity,
             )
             .env(
-                "DASHBOARD_STRATEGY_VIEWER_MISMATCH_ATTEMPT_IDENTITY",
+                "DASHBOARD_OWNER_READBACK_UNKNOWN_BUILD_REQUEST_IDENTITY",
+                format!("strategy-source-unknown-build-{suffix}"),
+            )
+            .env(
+                "DASHBOARD_OWNER_READBACK_MISMATCH_ATTEMPT_IDENTITY",
                 format!("strategy-source-mismatch-{suffix}"),
             )
             .env(
-                "DASHBOARD_STRATEGY_VIEWER_ARTIFACT_IDENTITY",
+                "DASHBOARD_OWNER_READBACK_ARTIFACT_IDENTITY",
                 artifact_identity,
             )
-            .env("DASHBOARD_STRATEGY_VIEWER_SOURCE_DIGEST", source_digest)
+            .env("DASHBOARD_OWNER_READBACK_SOURCE_DIGEST", source_digest)
+            .env(
+                "DASHBOARD_OWNER_READBACK_SOURCE_INTAKE_REQUEST_IDENTITY",
+                &source_intake_request_identity,
+            )
+            .env(
+                "DASHBOARD_OWNER_READBACK_SOURCE_INTAKE_CONTENT_DIGEST",
+                source_intake_content_digest,
+            )
+            .env(
+                "DASHBOARD_OWNER_READBACK_REPLAY_REQUEST_IDENTITY",
+                replay_request_identity,
+            )
+            .env(
+                "DASHBOARD_OWNER_READBACK_REPLAY_MEANING_DIGEST",
+                replay_meaning_digest,
+            )
+            .env(
+                "DASHBOARD_OWNER_READBACK_REJECTION_REQUEST_IDENTITY",
+                &rejection_request_identity,
+            )
+            .env(
+                "DASHBOARD_OWNER_READBACK_REJECTION_ATTEMPT_IDENTITY",
+                &rejection_attempt_identity,
+            )
+            .env(
+                "DASHBOARD_OWNER_READBACK_REJECTION_SEMANTIC_DIGEST",
+                &rejection_semantic_digest,
+            )
+            .env(
+                "RD_DASHBOARD_OWNER_READ_API_URL",
+                format!("http://{read_address}/"),
+            )
+            .env("RD_DASHBOARD_OWNER_READ_API_TOKEN", read_token)
             .env("RD_OWNER_API_URL", format!("http://{owner_address}/"))
             .env("RD_OWNER_API_TOKEN", token)
             .status()
             .unwrap();
+        read_server.abort();
+        let _ = read_server.await;
         owner_server.abort();
         let _ = owner_server.await;
-        assert!(browser_status.success());
 
-        let after = artifact_source_acceptance_snapshot(rd_owner_pool, product_edge_pool).await;
+        let after =
+            dashboard_owner_readback_acceptance_snapshot(rd_owner_pool, product_edge_pool).await;
+        assert!(browser_status.success());
         assert_eq!(after, before);
     }
 

@@ -159,6 +159,26 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  authority-schema-materialize:
+    build:
+      context: ../..
+      dockerfile: product/rd-workbench/Dockerfile.owner
+    restart: "no"
+    entrypoint: ["/usr/local/bin/product-edge-authority-bootstrap", "materialize-schema"]
+    environment:
+      OPERATOR_AUTHORIZATION_DATABASE_URL: >-
+        ${OPERATOR_AUTHORIZATION_DATABASE_URL:?set OPERATOR_AUTHORIZATION_DATABASE_URL}
+      PRODUCT_EDGE_DATABASE_URL: >-
+        ${PRODUCT_EDGE_DATABASE_URL:?set PRODUCT_EDGE_DATABASE_URL}
+    # After the authority custody migration, not before: these migrations assume
+    # `operator_authorization_private` and the Product Edge relations' schema
+    # already exist, and that step is what creates them.
+    depends_on:
+      authority-custody-migrate:
+        condition: service_completed_successfully
+    security_opt:
+      - no-new-privileges:true
+
   replay-policy-catalog-bootstrap:
     profiles: ["authority-admin"]
     build:

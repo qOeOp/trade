@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:net";
 import { spawn } from "node:child_process";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { issueLocalOperatorSessionV1 } from "../lib/local-operator-session.ts";
 
@@ -21,6 +22,36 @@ async function unusedPort() {
   });
 }
 
+const NEXT_BINARY = fileURLToPath(new URL("../node_modules/.bin/next", import.meta.url));
+
+async function stopServerTree(child) {
+  const exited = new Promise((resolve) => child.once("exit", resolve));
+  const signalTree = (signal) => {
+    try {
+      process.kill(-child.pid, signal);
+    } catch {
+      // The group is already gone, which is the state this function is asking for.
+    }
+  };
+  if (child.exitCode === null) {
+    signalTree("SIGTERM");
+    let escalate;
+    const deadline = new Promise((resolve) => {
+      escalate = setTimeout(() => resolve(false), 5_000);
+    });
+    const stopped = await Promise.race([exited.then(() => true), deadline]);
+    clearTimeout(escalate);
+    if (!stopped) {
+      signalTree("SIGKILL");
+      await exited;
+    }
+  }
+  // A worker can outlive the process that spawned it, so stop reading rather than wait for the
+  // write ends to close on their own.
+  child.stdout?.destroy();
+  child.stderr?.destroy();
+}
+
 async function waitForHealth(origin, child) {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
@@ -37,7 +68,13 @@ async function waitForHealth(origin, child) {
 async function withDashboard(configuration, callback) {
   const port = await unusedPort();
   const origin = `http://127.0.0.1:${port}`;
-  const child = spawn("npm", ["start", "--", "--hostname", "127.0.0.1", "--port", String(port)], {
+  // The server is a tree, not a process: the Next server forks its own workers, and running it
+  // through `npm` adds one more parent that does not pass a signal down. The suite reads the tree's
+  // output through pipes, and a surviving worker inherits their write ends, so signalling only the
+  // process spawned here leaves those pipes open, keeps Node's stream handles referenced, and holds
+  // the test runner alive long after every test has passed. Start the binary itself, in its own
+  // process group, so teardown can address the whole tree.
+  const child = spawn(NEXT_BINARY, ["start", "--hostname", "127.0.0.1", "--port", String(port)], {
     cwd: new URL("..", import.meta.url),
     env: {
       ...process.env,
@@ -46,6 +83,7 @@ async function withDashboard(configuration, callback) {
       DASHBOARD_OPERATOR_API_TOKEN: EFFECT_BEARER,
     },
     stdio: ["ignore", "pipe", "pipe"],
+    detached: true,
   });
   let logs = "";
   child.stdout.on("data", (chunk) => { logs = `${logs}${chunk}`.slice(-8_000); });
@@ -56,8 +94,7 @@ async function withDashboard(configuration, callback) {
   } catch (error) {
     throw new Error(`${error instanceof Error ? error.message : String(error)}\n${logs}`);
   } finally {
-    child.kill("SIGTERM");
-    await new Promise((resolve) => child.once("exit", resolve));
+    await stopServerTree(child);
   }
 }
 
