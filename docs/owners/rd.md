@@ -103,14 +103,22 @@ requires changing this document first. Every row names the symbol or path that w
   `/v2/exploratory-replay/execution-input-bindings`, `/v3/exploratory-replay-requests/composer-backed`, and the
   four `/_sealed-acceptance/v1/develop-composer/*` routes. An acceptance route is never evidence of a production
   capability, and the sealed features exist to keep that distinction mechanical rather than remembered.
-- **CURRENT - the cross-Owner read surface other Owners are granted:** `rd_owner_api` carries 35 distinct
-  functions and is the only schema in this repository that grants execute to more than one consuming Owner role -
-  `product_edge_owner`, `qualification_writer`, `backtest_owner`, `market_data_owner` and `market_data_reader`,
-  with `rd_owner` as the schema's own role. For contrast at the same cut, `qualification_api` carries 13
-  functions, `market_data_rd_api` 12 granted to `rd_owner` alone, and `portfolio_api` and `governance_api` carry
-  none. The granted functions are `SECURITY DEFINER` and name no caller in their bodies, so access is decided by
-  the grant and a caller without it receives a permission error rather than an empty result. This row records the
-  surface and its grants; it does not establish that any consumer reads it in production.
+- **CURRENT - the cross-Owner read surface other Owners are granted:** `rd_owner_api` is the only schema in this
+  repository that grants execute to more than one consuming Owner role - `product_edge_owner`,
+  `qualification_writer`, `backtest_owner`, `market_data_owner` and `market_data_reader`, with `rd_owner` as the
+  schema's own role. The schemas, their functions and every grant are established by the Owner migrations that
+  `product/rd-workbench/postgres-init/10-migrate-authority-custody.sh` runs, and that script with the migrations
+  it invokes is the authority for what exists at any cut. This row deliberately states no function count. A count
+  goes stale the day an Owner adds a function, and it overstates the surface even while it is right: a function
+  living in an `_api` schema is reachable only when some role holds `EXECUTE` on it, and this schema holds both
+  kinds - entry points granted to a consuming Owner, and internal predicates revoked from every other role. What
+  is decidable is the grant. Two such facts hold at this cut and correct an earlier claim in this row that
+  `portfolio_api` and `governance_api` carry none: both carry functions, and `governance_api` carries exactly one,
+  revoked from `PUBLIC`, with no `GRANT EXECUTE` on it and no `GRANT USAGE ON SCHEMA governance_api` anywhere in
+  the repository - built, and reachable by no role. The granted functions are `SECURITY DEFINER` and name no
+  caller in their bodies, so access is decided by the grant and a caller without it receives a permission error
+  rather than an empty result. This row records the surface and its grants; it does not establish that any
+  consumer reads it in production.
 - **CURRENT_PARTIAL - the production Composer read port:**
   `crates/strategy_factory/src/source_research_composer_postgres_v2.rs` implements
   `DevelopComposerSealedReadPortV2` for `PostgresSourceResearchComposerProductionV2` with no `cfg` attribute, so
@@ -283,9 +291,41 @@ and restart recovery across processes, which no chain entry observes.
 
 ### CURRENT_PARTIAL - who authors a Strategy Design
 
-R&D does not derive a Design. No rule in this repository turns a hypothesis, mechanism and
-falsification question into input roles and a reaction graph, and none is intended: that translation
-is a judgement, and a judgement an Owner makes is a fact the Owner invented.
+R&D does not derive a Design from research prose. No rule in this repository turns a hypothesis,
+mechanism and falsification question into input roles and a reaction graph, and none is intended:
+that translation is a judgement, and a judgement an Owner makes is a fact the Owner invented.
+
+That prohibition is about inference, not about projection, and the two are separated by what the
+Research Intent already states. A Research Intent carries `data.channels`, and each channel already
+declares its `role`, its `asset_id`, its `timeframe`, whether it is `required`, and its source and
+staleness bound; `data.decision_clock_channel` names which of them advances the decision. Reading
+those out is not a judgement, because nothing is chosen, and the Intent carries no raw material a
+judgement could be made from: across the four `representative_intent_v*.jcs` assets the channel key
+set is exactly `asset_id`, `id`, `max_staleness_ns`, `owner_key`, `required`, `role`, `source` and
+`timeframe`, and `reaction`, `graph`, `threshold`, `rule`, `signal`, `condition`, `operator` and
+`compare` occur zero times in any of them.
+
+**The Owner may therefore project declared channels into the Design's input roles, one role per
+declared channel.** The projection is partial and its boundary is exact. Three `InputRoleV2` fields
+come from the channel and no other source: `instrument` from `asset_id`, `timeframe` from
+`timeframe`, and `channel` from `id`. `semantic_id`, `field_semantic_id`, `fact_class`, `unit`,
+`scale` and `value_type` are **not** in the Intent - a channel's `role` is proposer prose such as
+`broad_usd_proxy_not_ice_dxy`, not a catalog semantic ID - so they stay a proposer declaration the
+Owner admits, and an Intent whose channels cannot be matched to declared ones is refused rather than
+completed from the Owner's own knowledge of the instrument. `max_staleness_ns` and `owner_key` have
+no `InputRoleV2` field at all; they belong to binding custody and are not projected into the Design.
+
+A channel the projection cannot bind to a Market Semantics coordinate is a refusal, never a dropped
+role, and never a role the Owner supplies for itself.
+
+The reaction graph is the part that stays a judgement, and it stays with the proposer. A first
+bounded family is admitted for it and nothing wider: **a single declared channel compared against a
+single threshold**, with the decision clock taken from `data.decision_clock_channel`. Every graph
+outside that family - two signals, a conjunction, a state-dependent threshold, a threshold this
+Owner would have to choose - remains a proposer declaration this Owner admits rather than derives.
+The family exists so the first production path can close without the Owner inventing a mechanism; it
+is not a claim that one threshold is a good strategy, and widening it requires changing this
+document first.
 
 A **proposer** declares it instead. The proposer may be a language model, a person or any other
 caller; this contract does not name it and does not change with it. What the contract fixes is the

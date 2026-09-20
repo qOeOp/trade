@@ -78,7 +78,14 @@ pub enum DedicatedPostgresTestDatabaseError {
     CrossOwnerDatabaseMismatch,
     /// The read-only admission connection failed.
     ReadOnlyPreflightUnavailable,
-    /// The immutable admin marker was absent or did not match.
+    /// The marker row could not be read at all: the schema or table is not
+    /// granted to the connected role, absent, or otherwise unreadable. This is
+    /// distinct from a marker that was read and disagreed.
+    MarkerUnreadable,
+    /// The marker table was readable but holds no row for the connected role,
+    /// or holds more than one.
+    MarkerAbsentForRole,
+    /// The marker was read and its identity, database, or role did not match.
     MarkerMismatch,
     /// The connected role could create or mutate the marker.
     MarkerNotImmutable,
@@ -109,6 +116,12 @@ impl Display for DedicatedPostgresTestDatabaseError {
             }
             Self::ReadOnlyPreflightUnavailable => {
                 formatter.write_str("dedicated database read-only preflight unavailable")
+            }
+            Self::MarkerUnreadable => {
+                formatter.write_str("dedicated database marker unreadable by the connected role")
+            }
+            Self::MarkerAbsentForRole => {
+                formatter.write_str("dedicated database marker has no row for the connected role")
             }
             Self::MarkerMismatch => formatter.write_str("dedicated database marker mismatch"),
             Self::MarkerNotImmutable => {
@@ -751,13 +764,13 @@ async fn verify_marker_read_only(
     )
     .fetch_all(&mut *transaction)
     .await
-    .map_err(|_| DedicatedPostgresTestDatabaseError::MarkerMismatch)?;
+    .map_err(|_| DedicatedPostgresTestDatabaseError::MarkerUnreadable)?;
     transaction
         .rollback()
         .await
         .map_err(|_| DedicatedPostgresTestDatabaseError::ReadOnlyPreflightUnavailable)?;
     if rows.len() != 1 {
-        return Err(DedicatedPostgresTestDatabaseError::MarkerMismatch);
+        return Err(DedicatedPostgresTestDatabaseError::MarkerAbsentForRole);
     }
     let row = &rows[0];
     validate_observed_marker(
@@ -968,6 +981,35 @@ mod tests {
             validate_observed_marker(&expected, &missing),
             Err(DedicatedPostgresTestDatabaseError::MarkerMismatch)
         );
+    }
+
+    #[rstest]
+    fn marker_failures_name_their_own_cause() {
+        // These three used to be one variant rendering one sentence, so a role that
+        // could not read the marker table reported that the marker disagreed. A
+        // reader then looks for a wrong value that does not exist. Keep them
+        // distinct in both the variant and the words a human sees.
+        let unreadable = DedicatedPostgresTestDatabaseError::MarkerUnreadable;
+        let absent = DedicatedPostgresTestDatabaseError::MarkerAbsentForRole;
+        let mismatch = DedicatedPostgresTestDatabaseError::MarkerMismatch;
+
+        assert_ne!(unreadable, absent);
+        assert_ne!(absent, mismatch);
+        assert_ne!(unreadable, mismatch);
+
+        let rendered = [
+            unreadable.to_string(),
+            absent.to_string(),
+            mismatch.to_string(),
+        ];
+
+        for (index, left) in rendered.iter().enumerate() {
+            for right in rendered.iter().skip(index + 1) {
+                assert_ne!(left, right, "two marker failures render the same sentence");
+            }
+        }
+        assert!(unreadable.to_string().contains("unreadable"));
+        assert!(absent.to_string().contains("no row"));
     }
 
     #[rstest]

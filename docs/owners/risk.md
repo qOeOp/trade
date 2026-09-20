@@ -80,9 +80,28 @@ widening the admitted set requires changing this document first.
 - **TARGET - Aggregate Commitment Frontier:** no same-scope serialization exists. Its Portfolio-owned Capacity
   Scope now has production custody in `crates/portfolio_owner`, so the missing part here is Risk's own
   serialization, not the scope it would serialize against.
-- **TARGET - Recovery Fence and Kill Switch:** the inherited `TradingState` `Halted` and `Reducing` states are a
-  process-local switch; no fence binds a `RUNTIME_NOT_READY`, `RUNTIME_INCIDENT`, `RECONCILIATION_DRIFT`, or
-  `RISK_HARD_STOP` source branch, and no active-fence-set identity or action intersection exists.
+- **TARGET / IMPLEMENTATION_ADMITTED - Kill Switch:** the admitted slice is one out-of-band halt sentinel and the
+  read that answers, for a given venue, whether trading is halted. The sentinel is a file, its presence is the
+  halt, and its contents are attribution only: nothing a reader finds inside can lift a halt that the file's
+  existence declares. The read is fail-closed over an enumerated set. The file is absent is the only answer that
+  is not halted. The file exists and parses, the file exists and cannot be read, the file exists and cannot be
+  parsed, and the file exists and carries content this Owner does not recognise all answer halted. There is no
+  residual branch for a state the list does not name, because a residual branch is where an unreadable sentinel
+  becomes a permission to trade. A global sentinel answers halted for every venue whatever the per-venue sentinels
+  say, so a per-venue sentinel can add a halt and never lift one.
+  The read depends on the filesystem alone: no database, no network endpoint, no other Owner, and nothing that
+  reasons. A halt that needed any of those would be unavailable in exactly the incidents that call for it. The
+  inherited `TradingState` `Halted` and `Reducing` states cannot serve here because they are process-local, and a
+  switch inside a wedged process is wedged with it.
+  Admission is permission to build and verify this one read. It authorizes no Risk decision, no order path, no
+  production effect, and no real trading. It is not a Recovery Fence: it binds no source branch, carries no fence
+  epoch, and intersects no action set. The shape is taken from Vibe-Trading's `agent/src/live/halt.py` (MIT),
+  where the sentinel's existence is likewise the halt and malformed contents are likewise tripped rather than
+  ignored.
+- **TARGET - Recovery Fence:** no fence binds a `RUNTIME_NOT_READY`, `RUNTIME_INCIDENT`, `RECONCILIATION_DRIFT`, or
+  `RISK_HARD_STOP` source branch, and no active-fence-set identity or action intersection exists. Each of those
+  four source facts would have to be produced by an Owner that produces none of them today, which is why this half
+  stays blocked while the Kill Switch above depends on nothing.
 - **TARGET - handoffs and persistence:** no port to Runtime, Governance, Portfolio, or Execution and no durable
   relation for any Risk fact.
 
