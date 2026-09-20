@@ -86,11 +86,17 @@
   `/v2/exploratory-replay/execution-input-bindings`、`/v3/exploratory-replay-requests/composer-backed`，
   以及四条 `/_sealed-acceptance/v1/develop-composer/*`。一条验收路由绝不是生产能力的证据，
   而密封 feature 的存在就是为了让这个区别是机械的而不是靠记住的。
-- **CURRENT - 其它 Owner 被授权读取的跨 Owner 读面：** `rd_owner_api` 有 35 个去重函数，
-  是本仓库唯一一个把执行权授予多于一个消费方 Owner 角色的 schema：`product_edge_owner`、
-  `qualification_writer`、`backtest_owner`、`market_data_owner` 与 `market_data_reader`，
-  `rd_owner` 是该 schema 自己的角色。同一截面上作为对照：`qualification_api` 13 个函数、
-  `market_data_rd_api` 12 个且只授 `rd_owner`、`portfolio_api` 与 `governance_api` 一个都没有。
+- **CURRENT - 其它 Owner 被授权读取的跨 Owner 读面：** `rd_owner_api` 是本仓库唯一一个把执行权授予
+  多于一个消费方 Owner 角色的 schema：`product_edge_owner`、`qualification_writer`、`backtest_owner`、
+  `market_data_owner` 与 `market_data_reader`，`rd_owner` 是该 schema 自己的角色。这些 schema、
+  它们的函数与每一条授权，都由 `product/rd-workbench/postgres-init/10-migrate-authority-custody.sh`
+  所运行的 Owner 迁移确立；该脚本连同它调用的那些迁移，才是任一截面上"存在什么"的权威。
+  本行刻意不写函数个数。个数在任何一个 Owner 添一个函数的那天就过期，而且它即使正确也高估这个面：
+  一个住在 `_api` schema 里的函数，只有在某个角色持有它的 `EXECUTE` 时才可触达，而本 schema 两类都有：
+  授予了某个消费方 Owner 的入口，以及对其它每个角色都已撤权的内部谓词。可判定的是授权。
+  本截面上有两条这样的事实，它们更正了本行早先"`portfolio_api` 与 `governance_api` 一个都没有"的说法：
+  两者都有函数，而 `governance_api` 恰好有一个，已对 `PUBLIC` 撤权，全仓没有任何针对它的 `GRANT EXECUTE`，
+  也没有任何 `GRANT USAGE ON SCHEMA governance_api`：已建成，且没有任何角色够得到。
   这些被授权的函数是 `SECURITY DEFINER` 且函数体内不点名任何调用者，所以访问由授权决定，
   没有授权的调用者收到的是权限错误而不是空结果。本行记录的是这个面与它的授权，
   它不确立任何消费方在生产中读过它。
