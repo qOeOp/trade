@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { effectDispatchOperationIdsV1 } from "../lib/effect-dispatch-contract.ts";
 import { operationRegistryV1 } from "../lib/operation-registry.ts";
 
 import {
@@ -52,10 +53,9 @@ test("worker envelope admits the exact effect runtime role and rejects cross-rol
     ...worker,
     worker_kind: "owner_effect",
     worker_identity: `dashboard-effect-worker-v1-${"b".repeat(64)}`,
-    operation_ids: [
-      "artifact_build.formation_execute.v1",
-      "source_intake.research.submit_or_resolve.v1",
-    ],
+    // An effect worker carries the effect dispatch contract's operations exactly; naming a subset
+    // here is what let the contract's own list drift away from that one.
+    operation_ids: [...effectDispatchOperationIdsV1],
   };
   assert.deepEqual(parseWorkerBrowserEnvelopeV1(envelope({ workers: [effectWorker] }))?.workers, [effectWorker]);
   assert.equal(parseWorkerBrowserEnvelopeV1(envelope({ workers: [{

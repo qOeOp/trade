@@ -195,6 +195,41 @@ function replayRequest(value: unknown, requestIdentity: string): value is Json {
   return true;
 }
 
+function digestBytes(value: unknown): value is number[] {
+  return Array.isArray(value) && value.length === 32
+    && value.every((entry) => Number.isInteger(entry) && entry >= 0 && entry <= 255);
+}
+
+function hexOf(bytes: number[]): string {
+  return bytes.map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+// The Catalog V3 execution-profile seal the Owner binds to a sealed request: it names this exact
+// request, its meaning digest and its TrialFamily, and carries the three binding digests.
+function executionProfileSeal(value: unknown, request: Json, meaningDigest: string): boolean {
+  if (!object(value) || !exactKeys(value, [
+    "schema_version", "request", "catalog_v3_binding_digest", "family_profile_binding_digest",
+    "request_profile_binding_digest",
+  ]) || value.schema_version !== 1 || !object(value.request) || !exactKeys(value.request, [
+    "schema_version", "request_identity", "request_meaning_digest", "trial_family_identity",
+    "trial_family_digest", "economic_configuration_digest", "runner_operational_profile_digest",
+  ])) return false;
+  const seal = value.request;
+  const family = request.trial_family as Json;
+  return seal.schema_version === 1
+    && seal.request_identity === request.request_identity
+    && digestBytes(seal.request_meaning_digest)
+    && meaningDigest.endsWith(`:${hexOf(seal.request_meaning_digest)}`)
+    && seal.trial_family_identity === family.identity
+    && digestBytes(seal.trial_family_digest)
+    && String(family.digest).endsWith(`:${hexOf(seal.trial_family_digest)}`)
+    && digestBytes(seal.economic_configuration_digest)
+    && digestBytes(seal.runner_operational_profile_digest)
+    && digestBytes(value.catalog_v3_binding_digest)
+    && digestBytes(value.family_profile_binding_digest)
+    && digestBytes(value.request_profile_binding_digest);
+}
+
 function canonicalRequestMatches(bytes: unknown, request: Json): boolean {
   if (!Array.isArray(bytes) || bytes.length === 0
     || !bytes.every((entry) => Number.isInteger(entry) && entry >= 0 && entry <= 255)) return false;
@@ -235,15 +270,23 @@ export function parseExploratoryReplayOwnerV2(
   }
 
   const readback = value.readback;
-  if (!object(readback) || !exactKeys(readback, [
+  if (!object(readback) || !object(readback.receipt)) return null;
+  // A schema 3 receipt carries the Catalog V3 execution-profile seal and the readback repeats
+  // it; a schema 2 receipt predates the seal and carries none.
+  const sealed = readback.receipt.schema_version === 3;
+  if (!exactKeys(readback, [
     "request", "canonical_request_bytes", "meaning_digest", "receipt", "owner_cut_epoch_ms",
+    ...(sealed ? ["execution_profile_seal"] : []),
   ]) || !replayRequest(readback.request, expectedRequestIdentity)
     || !canonicalRequestMatches(readback.canonical_request_bytes, readback.request)
     || readback.meaning_digest !== expectedMeaningDigest || !digest(readback.meaning_digest)
-    || !object(readback.receipt) || !exactKeys(readback.receipt, [
+    || !exactKeys(readback.receipt, [
       "schema_version", "receipt_identity", "request_identity", "meaning_digest", "seal_digest",
-      "committed_at_epoch_ms",
-    ]) || readback.receipt.schema_version !== 2 || !identity(readback.receipt.receipt_identity)
+      ...(sealed ? ["execution_profile_seal"] : []), "committed_at_epoch_ms",
+    ]) || (readback.receipt.schema_version !== 2 && !sealed)
+    || (sealed && (!executionProfileSeal(readback.receipt.execution_profile_seal, readback.request, expectedMeaningDigest)
+      || JSON.stringify(readback.execution_profile_seal) !== JSON.stringify(readback.receipt.execution_profile_seal)))
+    || !identity(readback.receipt.receipt_identity)
     || readback.receipt.request_identity !== expectedRequestIdentity
     || readback.receipt.meaning_digest !== expectedMeaningDigest
     || !digest(readback.receipt.seal_digest) || !safeUnsignedNumber(readback.receipt.committed_at_epoch_ms)

@@ -22,14 +22,21 @@ pub(crate) fn request_matches_authenticated_role_v1(
     request: &UntrustedStrategyInputBindingRequest,
     role: &StrategyDesignRoleEntryV1,
 ) -> bool {
+    // A universe scope refuses here for the same reason an instrument set does: this comparison
+    // cannot express it. The scope carries a `selection_identity`, and projecting it to a constant
+    // string with an empty instrument discarded that payload, so two declarations naming different
+    // universes compared equal on every field. Nothing produces such a role today - the string
+    // `UNIVERSE_MEMBERS` appears nowhere in the repository except in the branch this replaces, and
+    // every `role.scope` written anywhere is `{"kind":"EXACT_INSTRUMENT"}` - so the branch was
+    // unreachable as well as wrong, and refusing is what the two callers already expect for a scope
+    // this function cannot decide. Supporting universes means comparing the payload, not widening
+    // the projection.
     let (scope, instrument) = match &request.scope {
         UntrustedStrategyInputScope::ExactInstrument { instrument } => {
             (r#"{"kind":"EXACT_INSTRUMENT"}"#, instrument.as_str())
         }
-        UntrustedStrategyInputScope::UniverseSelection { .. } => {
-            (r#"{"kind":"UNIVERSE_MEMBERS"}"#, "")
-        }
-        UntrustedStrategyInputScope::InstrumentSet { .. } => return false,
+        UntrustedStrategyInputScope::UniverseSelection { .. }
+        | UntrustedStrategyInputScope::InstrumentSet { .. } => return false,
     };
     role.role_identity == request.input_role_identity
         && role.fact_class == "MARKET_DATA"

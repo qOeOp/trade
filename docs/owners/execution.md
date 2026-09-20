@@ -74,7 +74,10 @@ grants nothing, and widening the admitted set requires changing this document fi
   stays **TARGET / NOT_ADMITTED**.
 - **CURRENT_PARTIAL - `PAPER` recovery-frontier read contract:** `crates/execution_owner/src/recovery_frontier.rs` exposes
   the query-only `RecoveryFrontierReadPort` and its sealed `SealedRecoveryFrontier`, consumed by the Runtime
-  foundation; no production custody or Runtime application exists behind it.
+  foundation; no production custody or Runtime application exists behind it. The only implementation that can mint
+  that sealed value is `#[cfg(test)]`, so nothing in production can produce one at all. That absence is declared
+  rather than hidden, by this row and by the module's own maturity constant, and the recovery loop is not an
+  admitted slice; an unimplemented capability that says so is not the same thing as one disguised as implemented.
 - **TARGET - Order Engine, Effect Journal, and permit-bound adapter admission:** the inherited `ExecutionEngine`,
   order manager, order emulator, execution clients, and the venue execution clients under `crates/adapters` are the
   migration sources named by capability adoption. No `PREPARED` or `INVOCATION_STARTED` record, Reservation Claim
