@@ -1,10 +1,11 @@
 use serde::{Deserialize, Serialize};
 use vibe_backtest_owner_contracts::{
     CanonicalDigestV2, OpaqueIdentityV2, PROTECTED_REPLAY_BINDING_COUNT_V1,
-    ProtectedEvaluationComparisonRuleV1, ProtectedEvaluationStageV1,
-    ProtectedEvaluationTimeEvidenceV1, ProtectedReplayRequestDtoV1, ProtectedReplayRequestDtoV2,
-    ProtectedReplayRequestLocatorV1, ProtectedReplayRequestSetMemberV1,
-    ProtectedReplayRequestSetSealDtoV1, protected_evaluation_time_evidence_digest_v1,
+    ProtectedEconomicPolicyBundleV1, ProtectedEvaluationComparisonRuleV1,
+    ProtectedEvaluationStageV1, ProtectedEvaluationTimeEvidenceV1, ProtectedReplayRequestDtoV1,
+    ProtectedReplayRequestDtoV2, ProtectedReplayRequestLocatorV1,
+    ProtectedReplayRequestSetMemberV1, ProtectedReplayRequestSetSealDtoV1,
+    protected_evaluation_time_evidence_digest_v1,
 };
 pub(crate) use vibe_backtest_owner_contracts::{
     ProtectedReplayBindingFieldV1, ProtectedReplayBindingV1,
@@ -390,6 +391,7 @@ pub(crate) fn form_protected_replay_request_set_v1(
     intake: &CandidateIntakeReceiptV1,
     source: &ProtectedReplayAuthoritySourceV1,
     requests: &[(ProtectedReplayRequestV2, ProtectedReplayRequestReceiptV1)],
+    economic_policy: &ProtectedEconomicPolicyBundleV1,
 ) -> Result<ProtectedReplayRequestSetCommitV1, QualificationOwnerError> {
     let reservation_identity = intake
         .holdout_reservation_identity()
@@ -457,7 +459,7 @@ pub(crate) fn form_protected_replay_request_set_v1(
     }
 
     let seal = ProtectedReplayRequestSetSealDtoV1 {
-        schema_version: 1,
+        schema_version: 2,
         request_set_identity: "pending-request-set-identity".to_string(),
         request_set_digest: format!("sha256:{}", "0".repeat(64)),
         candidate_identity: source.candidate_identity.clone(),
@@ -476,6 +478,7 @@ pub(crate) fn form_protected_replay_request_set_v1(
         missing_cell_policy_digest: source.missing_cell_policy_digest.clone(),
         stop_policy_identity: source.stop_policy_identity.clone(),
         stop_policy_digest: source.stop_policy_digest.clone(),
+        protected_economic_policy_bundle: economic_policy.clone(),
         members,
     }
     .seal()

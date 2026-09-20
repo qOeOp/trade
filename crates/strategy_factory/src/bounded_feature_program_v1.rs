@@ -1630,6 +1630,15 @@ fn derive_output_types(
         CatalogUnitRuleV1::DimensionlessOutput => "dimensionless".to_owned(),
         CatalogUnitRuleV1::Product => format!("{}*{}", fixed_inputs[0].0, fixed_inputs[1].0),
         CatalogUnitRuleV1::Quotient => format!("{}/{}", fixed_inputs[0].0, fixed_inputs[1].0),
+        CatalogUnitRuleV1::SquareRootOfEqualFactors => {
+            let radicand = fixed_inputs
+                .first()
+                .ok_or(BoundedFeatureProgramErrorV1::Type)?
+                .0;
+            square_root_unit(radicand)
+                .ok_or(BoundedFeatureProgramErrorV1::Type)?
+                .to_owned()
+        }
         CatalogUnitRuleV1::Policy | CatalogUnitRuleV1::LifecycleOwned => {
             return Err(BoundedFeatureProgramErrorV1::Primitive);
         }
@@ -1703,6 +1712,24 @@ fn derive_output_types(
             Err(BoundedFeatureProgramErrorV1::Primitive)
         }
     }
+}
+
+/// The unit of a square root: `A` for a radicand whose unit is exactly one square `A*A`.
+///
+/// `Product` is the only rule that builds a unit out of two others and it writes `A*B`, so a
+/// square is exactly `A*A`, whose length is always `2 * A.len() + 1`. The shape is therefore
+/// recognised by the midpoint rather than by the first `*`: a fourth power is `A*A*A*A`, and
+/// splitting that at its first `*` gives unequal halves, so a rule written that way would refuse
+/// a radicand that is a square. A unit that is not a square has no root here and is refused, which
+/// is what keeps a square root from being taken of a quantity that never was one.
+///
+/// The midpoint is a character boundary whenever this returns a unit, because it is checked to be
+/// the single ASCII byte `*` before either half is sliced.
+fn square_root_unit(unit: &str) -> Option<&str> {
+    let mid = unit.len().checked_sub(1)? / 2;
+
+    (mid > 0 && unit.as_bytes().get(mid) == Some(&b'*') && unit[..mid] == unit[mid + 1..])
+        .then(|| &unit[..mid])
 }
 
 fn validate_parameters(
@@ -3737,6 +3764,55 @@ pub(crate) mod tests {
         };
         input.require_ready = true;
         (design, proposal)
+    }
+
+    /// A square root's unit is defined only for a radicand that is exactly one square.
+    ///
+    /// Every case here is a unit this repository can actually produce: `Product` writes `A*B`,
+    /// `Quotient` writes `A/B`, `DimensionlessOutput` writes `dimensionless`, and an input role
+    /// declares its own. The two that would be wrong under a first-`*` split are the fourth power
+    /// and the product of two different quantities: one must be accepted and the other refused,
+    /// and splitting at the first `*` gets both wrong.
+    #[rstest::rstest]
+    fn square_root_unit_accepts_exactly_one_square() {
+        for (unit, expected) in [
+            // Variance: Mul(x, x) over a bps input.
+            ("bps*bps", Some("bps")),
+            // A quantity that never was a square has no root.
+            ("bps", None),
+            // Fourth power: also a square, and the case a first-`*` split refuses.
+            ("bps*bps*bps*bps", Some("bps*bps")),
+            // Mul of two Quotient outputs: the halves contain `/`, not `*`.
+            ("a/b*a/b", Some("a/b")),
+            // Product of two different quantities: the midpoint is `*`, the halves differ.
+            ("px*qty", None),
+            // A square whose factor is itself a product.
+            ("a*b*a*b", Some("a*b")),
+            // RSI's output unit.
+            ("dimensionless", None),
+            // Degenerate: accepting this would yield an empty unit.
+            ("*", None),
+            ("", None),
+        ] {
+            assert_eq!(
+                square_root_unit(unit),
+                expected,
+                "square root unit of {unit:?}"
+            );
+        }
+    }
+
+    /// A unit built by `Product` out of equal factors always has a root, and it is that factor.
+    ///
+    /// The table above fixes particular strings; this fixes the relationship to the rule that
+    /// produces them, so a change to `Product`'s formatting cannot leave the two rules disagreeing
+    /// while both still pass.
+    #[rstest::rstest]
+    fn square_root_unit_inverts_product_of_equal_factors() {
+        for factor in ["bps", "px", "a/b", "a*b", "u"] {
+            let square = format!("{factor}*{factor}");
+            assert_eq!(square_root_unit(&square), Some(factor), "square {square:?}");
+        }
     }
 
     #[rstest::rstest]

@@ -75,8 +75,21 @@ testkit 或 acceptance feature 的生产路径；其余各行不授予任何东�
   order emulator、execution client，以及 `crates/adapters` 下的场所 execution client 是 capability adoption 点名的
   迁移来源。不存在 `PREPARED` 或 `INVOCATION_STARTED` 记录、Reservation Claim Request 或 `ADAPTER_ADMISSION_REQUEST`，
   也没有任何命令对照 Risk 许可或 fence 校验。
-- **TARGET - 模拟 Execution Adapter：** 继承的 matching engine、Backtest `SimulatedExchange` 与 `crates/adapters/sandbox`
-  能模拟场所，但没有绑定到 Execution Scope 或 `PAPER` 命名空间。
+- **TARGET / IMPLEMENTATION_ADMITTED - `PAPER` 场所绑定：** 准入的切片是一次失败关闭的解析，它回答"对某个
+  Execution Scope 而言，效果可以到达哪个场所、在什么边界之内"。它读取本 Owner 自己当前的 adapter binding，
+  当该 binding 是 `ADMITTED` 且为 `PAPER` 时，给出它携带的效果命名空间、endpoint 身份、capability 集合与
+  reduce-only 策略。不存在、`SUPERSEDED`、`REVOKED`、`INCOMPATIBLE`，以及任何非 `PAPER` 模式，各自以自己的
+  名字拒绝，而不是坍缩成同一种不可用。一个说不出自己撞到哪一种的场所，在调用点上无法被诊断。这次解析
+  不铸造 binding、不接触任何场所、不携带任何凭据：handle 留在本 Owner 内部，在效果时刻才解析，正如
+  Strategy Governance 台账所记。
+  这一片刻意没有调用方。Order Engine、Effect Journal 与 Trade Intent 都不存在，所以今天没有任何东西向它
+  索要一个场所。现在准入它，是因为它是 adapter 边界上唯一不依赖任何更上游东西的一格：它据以解析的
+  Execution Scope 与已准入 binding 都已经在生产 custody 里；并且因为在必须通过某道门的东西出现之前先建
+  那道门，比在一条已经在流动的路径上事后补一道门便宜。
+  准入是建造并验证这一次解析的许可。它不授权任何订单 任何效果 任何场所接触 或真实交易。
+- **TARGET - 模拟 Execution Adapter：** 继承的 matching engine、Backtest `SimulatedExchange` 与
+  `crates/adapters/sandbox` 能模拟场所，并且仍然是采纳来源。它们今天不经过上面那条场所绑定就可达，
+  而把它们绑上去需要一条并不存在的订单路径。
 - **TARGET - Reconciler、Reconciliation Drift Fact、Recovery Admission Disposition、Recovery Case、Recovery Effect
   Attempt 与 `KNOWN_CLOSED`：** 继承的 `crates/execution/src/reconciliation` 函数把引擎状态与场所报告对齐，是迁移
   来源；不存在 drift fact、disposition、case、command 或闭合。
