@@ -47,6 +47,15 @@ jobs:
           - key: market-data
             name: market data owner postgres (ubuntu-22.04)
             make: cargo-test-market-data-owner-postgres-isolated
+          # The one end-to-end proof of the Owner's PIT shape that needs no credential. It stood
+          # without a caller until its Makefile target landed, and without a hosted one after that,
+          # because it reached `ObservationUnavailable` here and nothing in the leg could say why.
+          # The runner now probes each candidate venue host and prints a status code before the
+          # proof runs, so a red names a cause; and the client now calls the public-data mirror its
+          # own binding proposes rather than the trading API it was defaulting to.
+          - key: market-data-e2e
+            name: market data end-to-end, no credential (ubuntu-22.04)
+            make: cargo-test-market-data-end-to-end
     env:
       # What `build` gives these chains on a push to any branch other than `main` or `test-ci`.
       CARGO_CI_PROFILE: nextest
