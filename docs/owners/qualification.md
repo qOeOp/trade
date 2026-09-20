@@ -139,8 +139,18 @@ absent is a proof, and each absence was measured rather than assumed.
 - **Response-cut rollback.** Driving it needs a create or a renewal, so it needs a current frontier that is absent
   or expired. Aging a projection's `valid_through_epoch_ms` desynchronizes it from the canonical row the readback
   verifies, which fails as `Qualification admission envelope projection mismatch`, so the Owner forbids the only
-  way to force it. The test-only timing hook that existed solely for this was removed rather than left dead, and
-  proving the behaviour needs a harness that can materialize a fresh Qualification store.
+  way to force it. The test-only timing hook that existed solely for this was removed rather than left dead. A
+  harness that can materialize a fresh Qualification store is necessary and not sufficient, because the rollback
+  fires only when the response cut leaves the projection's half-open validity window, whose reachable edge is
+  `valid_through`; its other edge is a response cut earlier than the projection, which needs the server clock to
+  step backwards. Both cuts are taken by
+  `owner_clock_epoch_ms_in_transaction`, which reads `pg_catalog.clock_timestamp()` twice inside one transaction;
+  the call is schema-qualified, so no function reachable through `search_path` can displace it, and the ordered
+  gate separately asserts that `qualification_writer` is no superuser and holds `CREATE` on neither `public` nor
+  `rd_owner_api`, so the role cannot install a shadowing clock. The window is the private
+  `PROJECTION_VALIDITY_MS`, ten minutes, with no override. What a harness can still vary is therefore only real
+  elapsed time inside the transaction, at ten minutes per attempt; everything cheaper is a production change, for
+  which this Owner has no admitted slice.
 
 ## Pre-Research protected-feedback resolution
 

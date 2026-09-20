@@ -118,8 +118,14 @@ Qualification 的其余部分并不排在它后面：attempt frontier、候选�
 - **Response-cut 回滚。** 要驱动它就需要一次创建或一次续期，也就需要一个缺席或已过期的当前 frontier。把一份投影的
   `valid_through_epoch_ms` 变旧，会让它与读回所校验的规范行失去同步，于是以
   `Qualification admission envelope projection mismatch` 失败，所以本 Owner 恰好禁掉了唯一能强行触发它的途径。
-  那个仅为此存在的测试专用计时钩子已经被删掉，而不是留成死代码；要证明该行为，需要一套能物化全新 Qualification
-  存储的器具。
+  那个仅为此存在的测试专用计时钩子已经被删掉，而不是留成死代码。一套能物化全新 Qualification 存储的器具是必要
+  而不充分的，因为回滚只在响应切离开投影那个半开有效窗口时才触发，而该窗口可达的那一边是
+  `valid_through`；另一边是响应切早于投影本身，那需要服务器时钟往回跳。两个切都由
+  `owner_clock_epoch_ms_in_transaction` 采样，它在同一个事务里读两次 `pg_catalog.clock_timestamp()`；该调用限定了
+  schema，所以任何经 `search_path` 可达的函数都顶不掉它，而有序门禁另外断言了 `qualification_writer` 不是超级用户、
+  且对 `public` 与 `rd_owner_api` 都不持有 `CREATE`，因此该角色也装不了影子时钟。窗口是私有的
+  `PROJECTION_VALIDITY_MS`，十分钟，没有覆盖入口。于是器具还能变动的只剩事务内的真实流逝时间，每次尝试十分钟；
+  比这更便宜的一切都是生产改动，而本 Owner 没有可供这样改动的已准入切片。
 
 ## Research 前保护反馈解析
 
