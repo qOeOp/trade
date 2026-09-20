@@ -509,11 +509,13 @@ them.
 
 Unifying those generators measured that claim: eight became one, 1232 lines became 487, and all
 twenty-four emitted artifacts were byte-identical to their predecessors, so nothing about a program
-had been living in the generator that wrote it. **The reason to stop short of derivation is stronger
-than avoiding duplicated code: a port identity is a digest over `InputRoleV2`, so it depends on that
-struct's field order, and no contract text states that order or undertakes to keep it.** An authoring
-layer that computed identities would hard-code a fact the Owner is free to change; one that emits
-`meaning` inherits it instead.
+had been living in the generator that wrote it. **The line is not that this layer derives nothing -
+it is that the proposal layer need not be built at all.** For those ten programs the authored
+`design` and `meaning` are 228 KB and 297 KB, and the 378 KB proposal is the Owner's. What stays on
+the author's side is role identity, because `design` embeds it in each coordinate port id; it is a
+digest over `InputRoleV2`, so this layer does depend on a struct field order that no contract text
+states or undertakes to keep, and that coupling is a named residue rather than something this split
+removes.
 
 The part with no abstraction at all is exactly the declaration surface. Port identities derive from role
 identity, and the second generator resolved that by reading a role-to-digest table produced by a separate
