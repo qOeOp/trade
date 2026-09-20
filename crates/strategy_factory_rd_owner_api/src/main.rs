@@ -3543,7 +3543,14 @@ mod tests {
         drop(preview_listener);
         let dashboard_root =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../product/dashboard");
-        let browser_status = std::process::Command::new("node")
+        // The browser run takes minutes, and this runtime has two worker threads with both API
+        // servers spawned onto it. Waiting on the child with `Command::status` blocks the worker
+        // this future sits on for the whole run, leaving one worker to serve every request the
+        // page makes - on a runner already sharing two vCPUs with the Rust test process, node,
+        // the Next server, Chrome and PostgreSQL. `spawn_blocking` moves the wait off the worker
+        // pool, so both servers keep both workers.
+        let mut browser = std::process::Command::new("node");
+        browser
             .arg("--test")
             .arg("tests/dashboard-owner-readback.browser.test.mjs")
             .current_dir(&dashboard_root)
@@ -3623,8 +3630,10 @@ mod tests {
             )
             .env("RD_DASHBOARD_OWNER_READ_API_TOKEN", read_token)
             .env("RD_OWNER_API_URL", format!("http://{owner_address}/"))
-            .env("RD_OWNER_API_TOKEN", token)
-            .status()
+            .env("RD_OWNER_API_TOKEN", token);
+        let browser_status = tokio::task::spawn_blocking(move || browser.status())
+            .await
+            .expect("the browser acceptance wait joins")
             .unwrap();
         read_server.abort();
         let _ = read_server.await;
