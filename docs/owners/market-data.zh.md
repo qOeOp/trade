@@ -439,9 +439,14 @@ identity、结构有效的 bytes 或既有 Replay V2 fact 都不是独立 Owner 
 ### 有类型事实、时间与修正拓扑
 
 Version 1 的 closed value 准确包含：非零 normalization identity `[u8; 32]`；price adjustment `u16BE`，
-其值为 `1 RAW`、`2 SPLIT_ADJUSTED` 或 `3 TOTAL_RETURN_ADJUSTED`；timestamp basis `u16BE`，其值为
-`1 EVENT_EFFECTIVE`、`2 INTERVAL_OPEN` 或 `3 INTERVAL_CLOSE`；非零 price-unit identity `[u8; 32]`；
-以及非零 size-unit identity `[u8; 32]`。零值与所有未列出 tag 均不受支持。Unit identity 命名
+其值为 `1 RAW`、`2 SPLIT_ADJUSTED`、`3 TOTAL_RETURN_ADJUSTED` 或 `4 UNKNOWN`；timestamp basis `u16BE`，
+其值为 `1 EVENT_EFFECTIVE`、`2 INTERVAL_OPEN` 或 `3 INTERVAL_CLOSE`；非零 price-unit identity `[u8; 32]`；
+以及非零 size-unit identity `[u8; 32]`。零值与所有未列出 tag 均不受支持。
+
+`4 UNKNOWN` 表示提交方声明它不知道该 source 的 adjustment rule。它是一条声明，绝不是回退：本 Owner
+不认识的 adjustment 字符串仍然是无效提交并被拒绝，与此前完全一致。规则未知的 source 必须如实声明，
+而不得因为 `RAW` 是当时唯一可选项就被记为 `RAW`。携带 `4 UNKNOWN` 的 fact 没有 replay 表示并在那里被拒绝，
+因为 replay 要比较价格，而跨未声明口径无法比较。Unit identity 命名
 Owner-registry meaning，而不是 unit 字符串、currency default、scale 猜测或 Instrument Master increment
 field。
 
