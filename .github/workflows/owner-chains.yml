@@ -47,12 +47,6 @@ jobs:
           - key: market-data
             name: market data owner postgres (ubuntu-22.04)
             make: cargo-test-market-data-owner-postgres-isolated
-          # The one proof of this shape that needs no credential. It has existed since the
-          # Source Binding intake landed and has never run: the shape is built three times, for
-          # this vendor, for Databento and for Bybit, and none of the three had a caller.
-          - key: market-data-end-to-end
-            name: market data end-to-end, no credential (ubuntu-22.04)
-            make: cargo-test-market-data-end-to-end
     env:
       # What `build` gives these chains on a push to any branch other than `main` or `test-ci`.
       CARGO_CI_PROFILE: nextest
