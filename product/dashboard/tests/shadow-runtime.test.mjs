@@ -110,15 +110,18 @@ test("worker admission rejects missing, partial, or malformed selected Owner tar
   for (const environment of [
     { ...fixture.environment, RD_OWNER_API_TOKEN: "" },
     { ...fixture.environment, RD_OWNER_API_TOKEN: "owner\ntoken" },
+    // A half-configured Dashboard read pair must fail closed rather than borrow the write API's
+    // credential. These two cases used to name the separate pair that historical custody alone
+    // read; that pair is gone, and the behaviour they cover is not, so they name the surviving one.
     {
       ...fixture.environment,
-      RD_OWNER_READ_API_URL: "http://rd-owner-read.test:8081",
-      RD_OWNER_READ_API_TOKEN: "",
+      RD_DASHBOARD_OWNER_READ_API_URL: "http://rd-dashboard-owner-read.test:8082",
+      RD_DASHBOARD_OWNER_READ_API_TOKEN: "",
     },
     {
       ...fixture.environment,
-      RD_OWNER_READ_API_URL: "http://rd-owner-read.test:8081",
-      RD_OWNER_READ_API_TOKEN: "owner token",
+      RD_DASHBOARD_OWNER_READ_API_URL: "http://rd-dashboard-owner-read.test:8082",
+      RD_DASHBOARD_OWNER_READ_API_TOKEN: "owner token",
     },
     { ...fixture.environment, RD_OWNER_API_URL: "file:///owner" },
   ]) {
@@ -146,8 +149,8 @@ test("empty Compose Read API overrides retain the configured Owner API fallback"
     },
     environment: {
       ...fixture.environment,
-      RD_OWNER_READ_API_URL: "",
-      RD_OWNER_READ_API_TOKEN: "",
+      RD_DASHBOARD_OWNER_READ_API_URL: "",
+      RD_DASHBOARD_OWNER_READ_API_TOKEN: "",
     },
     nowEpochMs: fixture.nowEpochMs,
   });

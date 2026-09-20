@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "purpose": "Pins the canonical byte order of the schema 3 Research View identity so a change on either side of it fails loudly instead of silently rejecting every exploration view.",
+  "domain": "rd.research-view.identity.v4",
+  "identity_prefix": "rd-research-view-v4",
+  "origin": "Produced by the producing implementation (canonical_research_view_identity_v4) for a view that its own schema 3 validator accepts. No stored production exploration view exists to draw from.",
+  "initial_view": {
+    "schema_version": 1,
+    "projection_identity": "rd-research-view-v2-dd8f227ef037506e347b084cfba08a9dc50153af377515d018ba8e360cb0d647",
+    "request_identity": "research-request-test-v1",
+    "trusted_principal": "admin",
+    "authorized_scope": [
+      "research:submit",
+      "research:view"
+    ],
+    "authorization_policy_cut": "operator-frontier-test-v1",
+    "source_owner": "R_AND_D",
+    "source_cut": "rd-source-cut-test-v1",
+    "observed_at_epoch_ms": 1000,
+    "projection_at_epoch_ms": 1000,
+    "valid_through_epoch_ms": 601000,
+    "availability": "AVAILABLE",
+    "phase": "INTENT_FROZEN",
+    "intent_identity": "rd-research-intent-test-v1",
+    "source_frontier": [],
+    "next_legal_action": "WAIT_FOR_R_AND_D_EXECUTION"
+  },
+  "view": {
+    "schema_version": 3,
+    "projection_identity": "rd-research-view-v4-3e0febae1c5507fe6de3b7f86cc750fef9300e2cb6e54c2a214e25a432954a88",
+    "request_identity": "research-request-test-v1",
+    "trusted_principal": "admin",
+    "authorized_scope": [
+      "research:submit",
+      "research:view"
+    ],
+    "authorization_policy_cut": "operator-frontier-test-v1",
+    "source_owner": "R_AND_D",
+    "source_cut": "rd-composer-exploration-cut-v3-3333333333333333333333333333333333333333333333333333333333333333",
+    "observed_at_epoch_ms": 2000,
+    "projection_at_epoch_ms": 2000,
+    "valid_through_epoch_ms": 602000,
+    "availability": "AVAILABLE",
+    "phase": "EXPLORATION_ACTIVE",
+    "intent_identity": "rd-research-intent-test-v1",
+    "source_frontier": [],
+    "composer_artifact": {
+      "artifact_locator": "rd-strategy-artifact-v2-1111111111111111111111111111111111111111111111111111111111111111",
+      "artifact_identity_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "composer_request_identity": "composer-request",
+      "composer_operation_receipt_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "artifact_family_binding_identity": "rd-composer-artifact-family-binding-v3-4444444444444444444444444444444444444444444444444444444444444444",
+      "artifact_family_binding_digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "artifact_family_binding_receipt_identity": "rd-composer-artifact-family-binding-receipt-v3-7777777777777777777777777777777777777777777777777777777777777777",
+      "trial_family_identity": "trial-family",
+      "census_frontier_identity": "census-frontier",
+      "census_frontier_digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+    },
+    "exploration": {
+      "trial_family_identity": "trial-family",
+      "census_frontier_identity": "census-frontier",
+      "census_frontier_digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      "replay_request_identity": "replay-request",
+      "replay_request_meaning_digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+      "replay_request_seal_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "replay_receipt_identity": "rd-exploratory-replay-receipt-v2-8888888888888888888888888888888888888888888888888888888888888888"
+    },
+    "next_legal_action": "VIEW_EXPLORATORY_RUN"
+  },
+  "canonical_bytes": "{\"domain\":\"rd.research-view.identity.v4\",\"view\":{\"schema_version\":3,\"request_identity\":\"research-request-test-v1\",\"trusted_principal\":\"admin\",\"authorized_scope\":[\"research:submit\",\"research:view\"],\"authorization_policy_cut\":\"operator-frontier-test-v1\",\"source_owner\":\"R_AND_D\",\"source_cut\":\"rd-composer-exploration-cut-v3-3333333333333333333333333333333333333333333333333333333333333333\",\"observed_at_epoch_ms\":2000,\"projection_at_epoch_ms\":2000,\"valid_through_epoch_ms\":602000,\"availability\":\"AVAILABLE\",\"phase\":\"EXPLORATION_ACTIVE\",\"intent_identity\":\"rd-research-intent-test-v1\",\"source_frontier\":[],\"composer_artifact\":{\"artifact_locator\":\"rd-strategy-artifact-v2-1111111111111111111111111111111111111111111111111111111111111111\",\"artifact_identity_digest\":\"sha256:1111111111111111111111111111111111111111111111111111111111111111\",\"composer_request_identity\":\"composer-request\",\"composer_operation_receipt_digest\":\"sha256:2222222222222222222222222222222222222222222222222222222222222222\",\"artifact_family_binding_identity\":\"rd-composer-artifact-family-binding-v3-4444444444444444444444444444444444444444444444444444444444444444\",\"artifact_family_binding_digest\":\"sha256:4444444444444444444444444444444444444444444444444444444444444444\",\"artifact_family_binding_receipt_identity\":\"rd-composer-artifact-family-binding-receipt-v3-7777777777777777777777777777777777777777777777777777777777777777\",\"trial_family_identity\":\"trial-family\",\"census_frontier_identity\":\"census-frontier\",\"census_frontier_digest\":\"sha256:5555555555555555555555555555555555555555555555555555555555555555\"},\"exploration\":{\"trial_family_identity\":\"trial-family\",\"census_frontier_identity\":\"census-frontier\",\"census_frontier_digest\":\"sha256:5555555555555555555555555555555555555555555555555555555555555555\",\"replay_request_identity\":\"replay-request\",\"replay_request_meaning_digest\":\"sha256:6666666666666666666666666666666666666666666666666666666666666666\",\"replay_request_seal_digest\":\"sha256:3333333333333333333333333333333333333333333333333333333333333333\",\"replay_receipt_identity\":\"rd-exploratory-replay-receipt-v2-8888888888888888888888888888888888888888888888888888888888888888\"},\"next_legal_action\":\"VIEW_EXPLORATORY_RUN\"}}",
+  "identity": "rd-research-view-v4-3e0febae1c5507fe6de3b7f86cc750fef9300e2cb6e54c2a214e25a432954a88",
+  "order_sensitivity": {
+    "purpose": "Same data, one pair of keys transposed. A vector that only maps an input to an identity proves the mapping exists, not that the order matters.",
+    "transposed_keys": [
+      "request_identity",
+      "trusted_principal"
+    ],
+    "canonical_bytes": "{\"domain\":\"rd.research-view.identity.v4\",\"view\":{\"schema_version\":3,\"trusted_principal\":\"admin\",\"request_identity\":\"research-request-test-v1\",\"authorized_scope\":[\"research:submit\",\"research:view\"],\"authorization_policy_cut\":\"operator-frontier-test-v1\",\"source_owner\":\"R_AND_D\",\"source_cut\":\"rd-composer-exploration-cut-v3-3333333333333333333333333333333333333333333333333333333333333333\",\"observed_at_epoch_ms\":2000,\"projection_at_epoch_ms\":2000,\"valid_through_epoch_ms\":602000,\"availability\":\"AVAILABLE\",\"phase\":\"EXPLORATION_ACTIVE\",\"intent_identity\":\"rd-research-intent-test-v1\",\"source_frontier\":[],\"composer_artifact\":{\"artifact_locator\":\"rd-strategy-artifact-v2-1111111111111111111111111111111111111111111111111111111111111111\",\"artifact_identity_digest\":\"sha256:1111111111111111111111111111111111111111111111111111111111111111\",\"composer_request_identity\":\"composer-request\",\"composer_operation_receipt_digest\":\"sha256:2222222222222222222222222222222222222222222222222222222222222222\",\"artifact_family_binding_identity\":\"rd-composer-artifact-family-binding-v3-4444444444444444444444444444444444444444444444444444444444444444\",\"artifact_family_binding_digest\":\"sha256:4444444444444444444444444444444444444444444444444444444444444444\",\"artifact_family_binding_receipt_identity\":\"rd-composer-artifact-family-binding-receipt-v3-7777777777777777777777777777777777777777777777777777777777777777\",\"trial_family_identity\":\"trial-family\",\"census_frontier_identity\":\"census-frontier\",\"census_frontier_digest\":\"sha256:5555555555555555555555555555555555555555555555555555555555555555\"},\"exploration\":{\"trial_family_identity\":\"trial-family\",\"census_frontier_identity\":\"census-frontier\",\"census_frontier_digest\":\"sha256:5555555555555555555555555555555555555555555555555555555555555555\",\"replay_request_identity\":\"replay-request\",\"replay_request_meaning_digest\":\"sha256:6666666666666666666666666666666666666666666666666666666666666666\",\"replay_request_seal_digest\":\"sha256:3333333333333333333333333333333333333333333333333333333333333333\",\"replay_receipt_identity\":\"rd-exploratory-replay-receipt-v2-8888888888888888888888888888888888888888888888888888888888888888\"},\"next_legal_action\":\"VIEW_EXPLORATORY_RUN\"}}",
+    "identity": "rd-research-view-v4-0b48347a22974deb4546852604866e1affb47438f4a981ac363a38538673de38"
+  },
+  "envelope_key_sensitivity": {
+    "purpose": "This envelope names its payload `view`, while the v2 envelope names it `value`. Reusing the v2 encoder here yields a well-formed digest of the wrong thing, with nothing in either language to catch it. This is the identity that mistake produces.",
+    "wrong_key": "value",
+    "canonical_bytes": "{\"domain\":\"rd.research-view.identity.v4\",\"value\":{\"schema_version\":3,\"request_identity\":\"research-request-test-v1\",\"trusted_principal\":\"admin\",\"authorized_scope\":[\"research:submit\",\"research:view\"],\"authorization_policy_cut\":\"operator-frontier-test-v1\",\"source_owner\":\"R_AND_D\",\"source_cut\":\"rd-composer-exploration-cut-v3-3333333333333333333333333333333333333333333333333333333333333333\",\"observed_at_epoch_ms\":2000,\"projection_at_epoch_ms\":2000,\"valid_through_epoch_ms\":602000,\"availability\":\"AVAILABLE\",\"phase\":\"EXPLORATION_ACTIVE\",\"intent_identity\":\"rd-research-intent-test-v1\",\"source_frontier\":[],\"composer_artifact\":{\"artifact_locator\":\"rd-strategy-artifact-v2-1111111111111111111111111111111111111111111111111111111111111111\",\"artifact_identity_digest\":\"sha256:1111111111111111111111111111111111111111111111111111111111111111\",\"composer_request_identity\":\"composer-request\",\"composer_operation_receipt_digest\":\"sha256:2222222222222222222222222222222222222222222222222222222222222222\",\"artifact_family_binding_identity\":\"rd-composer-artifact-family-binding-v3-4444444444444444444444444444444444444444444444444444444444444444\",\"artifact_family_binding_digest\":\"sha256:4444444444444444444444444444444444444444444444444444444444444444\",\"artifact_family_binding_receipt_identity\":\"rd-composer-artifact-family-binding-receipt-v3-7777777777777777777777777777777777777777777777777777777777777777\",\"trial_family_identity\":\"trial-family\",\"census_frontier_identity\":\"census-frontier\",\"census_frontier_digest\":\"sha256:5555555555555555555555555555555555555555555555555555555555555555\"},\"exploration\":{\"trial_family_identity\":\"trial-family\",\"census_frontier_identity\":\"census-frontier\",\"census_frontier_digest\":\"sha256:5555555555555555555555555555555555555555555555555555555555555555\",\"replay_request_identity\":\"replay-request\",\"replay_request_meaning_digest\":\"sha256:6666666666666666666666666666666666666666666666666666666666666666\",\"replay_request_seal_digest\":\"sha256:3333333333333333333333333333333333333333333333333333333333333333\",\"replay_receipt_identity\":\"rd-exploratory-replay-receipt-v2-8888888888888888888888888888888888888888888888888888888888888888\"},\"next_legal_action\":\"VIEW_EXPLORATORY_RUN\"}}",
+    "identity": "rd-research-view-v4-d88bd11eba3f727424f240f1db005210ff889925957a42c643081e264e8bb757"
+  }
+}

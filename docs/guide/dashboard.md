@@ -481,7 +481,8 @@ passes the existing complete Research custody verifier, including its stored req
 Research view, authority lineage, independence basis, protected-feedback projection, and TrialFamily custody.
 Legacy or quarantined request schemas are omitted and make the cut explicitly partial. A malformed or changed
 candidate fails the entire read unavailable; it is never treated as an empty successful page. The default
-all-research view uses authenticated GET `/v1/historical-custodies`. Its dedicated Owner port opens only
+all-research view uses authenticated GET `/v1/historical-custodies`, served by the consolidated
+`strategy-factory-rd-dashboard-read-api` described below. Its dedicated Owner port opens only
 `default_transaction_read_only=on` sessions and reads one bounded repeatable-read transaction. It returns at most
 200 request identities with their custody time and the exact state `POINT_READ_REQUIRED`; it exposes no request
 meaning, disposition, availability, receipt, authority, or current/legacy classification. Truncation is explicit.
@@ -509,10 +510,13 @@ source GETs, while its state retains separate typed `ResearchDirectoryOwnerPort`
 `ArtifactDirectoryOwnerPort`, `ArtifactReadbackOwnerPortV1`, `ArtifactSourceOwnerPort`,
 `SourceIntakeReadbackOwnerPort`, and
 `DevelopComposerReadbackOwnerPortV2`, `ExploratoryReplayReadbackOwnerPortV2`,
-`FormationCatalogOwnerPortV1`, and `IterationTimelineOwnerPortV1` capabilities rather than collapsing
-domain boundaries into a generic repository. Its router exposes only `/health` and twelve admitted GETs after adding
-`GET /v1/formation-catalog` and
-`GET /v1/trial-families/{trial_family_identity}/iterations`; no write route is added. Dashboard binds them
+`FormationCatalogOwnerPortV1`, `HistoricalCustodyOwnerPortV1`, and `IterationTimelineOwnerPortV1`
+capabilities rather than collapsing
+domain boundaries into a generic repository. Its router exposes only `/health` and fourteen admitted GETs after
+adding `GET /v1/formation-catalog`,
+`GET /v1/trial-families/{trial_family_identity}/iterations`, and `GET /v1/historical-custodies`; no write route is
+added. Historical custody is served here rather than by the write API, so no Dashboard read needs a write-side
+credential. Dashboard binds them
 through the atomically configured `RD_DASHBOARD_OWNER_READ_API_URL` and
 `RD_DASHBOARD_OWNER_READ_API_TOKEN` pair. A partial pair fails closed and never borrows the write API's credential.
 The adapters reuse the canonical locking verifiers and expose no submit, resolve, sandbox, or mutation port.

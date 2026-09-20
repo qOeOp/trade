@@ -66,17 +66,9 @@ export function ownerApiTargetForOperationV1(
     || operationId === EXPLORATORY_REPLAY_SHADOW_READ_OPERATION
     || operationId === EXPLORATORY_REPLAY_RESULT_SHADOW_READ_OPERATION
     || operationId === RD_FORMATION_CATALOG_SHADOW_READ_OPERATION
+    || operationId === RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION
     || operationId === RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION) {
     return dashboardReadApiTargetV1(environment);
-  }
-  const usesReadApi = operationId === RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION;
-  const readBaseUrl = environment.RD_OWNER_READ_API_URL || undefined;
-  const readToken = environment.RD_OWNER_READ_API_TOKEN || undefined;
-  if (usesReadApi && (readBaseUrl || readToken)) {
-    return {
-      baseUrl: readBaseUrl,
-      token: readToken,
-    };
   }
   return {
     baseUrl: environment.RD_OWNER_API_URL,

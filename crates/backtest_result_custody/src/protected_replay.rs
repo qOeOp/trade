@@ -223,9 +223,19 @@ struct LockedEnvelopeV1 {
 #[serde(deny_unknown_fields)]
 struct LockedFrontierEnvelopeV1 {
     schema_version: u16,
-    frontier: LockedBytesV1,
+    frontier: LockedMirroredBytesV1,
     receipt: LockedBytesV1,
     outbox: LockedBytesV1,
+}
+
+/// Sealed bytes whose JSON mirror the sealed API also returns; the mirror must decode to exactly
+/// the canonical bytes or the readback is unavailable.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LockedMirroredBytesV1 {
+    bytes_base64: String,
+    storage_digest: String,
+    mirror: serde_json::Value,
 }
 
 #[derive(Deserialize)]
@@ -459,7 +469,7 @@ pub async fn resolve_protected_replay_attempt_frontier_for_qualification_in_tran
     if envelope.schema_version != 1 {
         return Err(BacktestResultCustodyErrorV2::Unavailable);
     }
-    let frontier_bytes = decode(&envelope.frontier, FRONTIER_STORAGE_DOMAIN)?;
+    let frontier_bytes = decode_mirrored(&envelope.frontier, FRONTIER_STORAGE_DOMAIN)?;
     let receipt_bytes = decode(&envelope.receipt, FRONTIER_RECEIPT_STORAGE_DOMAIN)?;
     let outbox_bytes = decode(&envelope.outbox, FRONTIER_OUTBOX_STORAGE_DOMAIN)?;
     let frontier = ProtectedReplayAttemptFrontierDtoV1::from_canonical_bytes(&frontier_bytes)
@@ -580,6 +590,27 @@ fn decode(value: &LockedBytesV1, domain: &str) -> Result<Vec<u8>, BacktestResult
         .decode(&value.bytes_base64)
         .map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
     if digest(domain, &bytes) != value.storage_digest {
+        return Err(BacktestResultCustodyErrorV2::Unavailable);
+    }
+    Ok(bytes)
+}
+
+fn decode_mirrored(
+    value: &LockedMirroredBytesV1,
+    domain: &str,
+) -> Result<Vec<u8>, BacktestResultCustodyErrorV2> {
+    let bytes = decode(
+        &LockedBytesV1 {
+            bytes_base64: value.bytes_base64.clone(),
+            storage_digest: value.storage_digest.clone(),
+        },
+        domain,
+    )?;
+
+    if serde_json::from_slice::<serde_json::Value>(&bytes)
+        .map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?
+        != value.mirror
+    {
         return Err(BacktestResultCustodyErrorV2::Unavailable);
     }
     Ok(bytes)
