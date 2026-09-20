@@ -984,7 +984,19 @@ fn emit_input_decode(
             _ => return Err(BoundedFeatureLoweringErrorV1::Program),
         }
     }
-    source.push_str("    let mut pre_state = [0u8; STATE_BYTES];\n    let pre_empty = reader.state(&mut pre_state)?;\n    reader.finish()?;\n");
+    // `reader.state` is called either way: it advances and validates the frame's state entry. Only
+    // the name changes, because `pre_empty` is read only where a state cell is restored, and a
+    // program with no state cells would carry a binding nothing reads.
+    let pre_empty = if program.state_cells.is_empty() {
+        "_pre_empty"
+    } else {
+        "pre_empty"
+    };
+    writeln!(
+        source,
+        "    let mut pre_state = [0u8; STATE_BYTES];\n    let {pre_empty} = reader.state(&mut pre_state)?;\n    reader.finish()?;"
+    )
+    .unwrap();
     Ok(())
 }
 
@@ -1679,7 +1691,13 @@ fn emit_state_bundle(
     program: &BoundedFeatureProgramProposalV1,
     names: &ValueNames,
 ) -> Result<(), BoundedFeatureLoweringErrorV1> {
-    source.push_str("    let mut post_state = [0u8; STATE_BYTES];\n");
+    // The frame always carries a state entry, so `post_state` is always read; it is written only
+    // where a state cell writes back, so a program with no state cells must not declare it `mut`.
+    source.push_str(if program.state_cells.is_empty() {
+        "    let post_state = [0u8; STATE_BYTES];\n"
+    } else {
+        "    let mut post_state = [0u8; STATE_BYTES];\n"
+    });
     let catalog =
         PrimitiveCatalogV1::verify().map_err(|_| BoundedFeatureLoweringErrorV1::Catalog)?;
     for (index, cell) in program.state_cells.iter().enumerate() {
@@ -2844,16 +2862,75 @@ mod tests {
     /// have been widened into catching it. This test therefore fixes the axis rather than
     /// extending the list: it reads the bindings the lowering actually emitted and requires each
     /// one to be read, whatever produced it.
+    /// Every `let` a lowering emits must be read somewhere in the same body.
+    ///
+    /// The guest is built with warnings denied, so an unused binding is not cosmetic: it turns a
+    /// proposal that validates cleanly into one that cannot be built. The `input_`-prefixed guard
+    /// above checks the same property, but restricts itself twice - to that prefix, and to
+    /// programs built from its own list of operations. Both shapes below sit outside both limits
+    /// at once, so neither restriction could have been widened into catching them. This test
+    /// therefore fixes the axis rather than extending the list: it reads the bindings the lowering
+    /// actually emitted and requires each one to be read, whatever produced it.
     #[rstest::rstest]
     fn no_lowering_binds_a_name_the_body_never_reads() {
         use crate::bounded_feature_program_v1::{
             BoundedFeatureConstantV1, BoundedFeatureConstantValueV1, BoundedFeatureInitialStateV1,
         };
 
+        fn unread_bindings(
+            design: &StrategyDesignV2,
+            proposal: crate::bounded_feature_program_v1::BoundedFeatureProgramProposalV1,
+        ) -> (Vec<String>, String) {
+            let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(design);
+            let frozen = freeze_research_bounded_feature_program_v1(&custody, design, proposal)
+                .expect("joint Owner freeze");
+            let lowered =
+                prepare_frozen_bounded_feature_source_inputs_v1(&frozen).expect("source lowering");
+            let (_, program_bytes) = lowered
+                .source_files()
+                .find(|(path, _)| path.ends_with("program.rs"))
+                .expect("lowering emits a program source");
+            let program = std::str::from_utf8(program_bytes).expect("lowered source is UTF-8");
+
+            // `constant_1` is a prefix of `constant_10`, and `input_0_value_bytes` contains the
+            // name `input_0_value`, so occurrences are counted over identifier tokens rather than
+            // substrings. Anything else lets a longer name pay for a shorter one's read.
+            let tokens = program
+                .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+                .filter(|token| !token.is_empty())
+                .fold(BTreeMap::<&str, usize>::new(), |mut counts, token| {
+                    *counts.entry(token).or_default() += 1;
+                    counts
+                });
+
+            let mut unread = Vec::new();
+            for line in program.lines() {
+                let Some(rest) = line.trim_start().strip_prefix("let ") else {
+                    continue;
+                };
+                let name = rest
+                    .trim_start_matches("mut ")
+                    .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+                    .next()
+                    .unwrap_or_default();
+
+                // A leading underscore is the compiler's own mark for a binding that is
+                // deliberately not read, and the build does not warn about those.
+                if name.is_empty() || name.starts_with('_') {
+                    continue;
+                }
+                // One occurrence is the binding itself; a read is any occurrence beyond it.
+                if tokens.get(name).copied().unwrap_or_default() < 2 {
+                    unread.push(name.to_owned());
+                }
+            }
+            (unread, program.to_owned())
+        }
+
         // `candidate()` reaches its state cell's initial constant from a decision predicate too, so
-        // the body reads it and the shape under test is absent there. Point the cell at a constant
-        // nothing else names, which is the shape a real proposal produces and which validation
-        // accepts: an initial-value constant *is* consumed, by the initial state bytes.
+        // the body reads it and the shape is absent there. Point the cell at a constant nothing
+        // else names, which is what a real proposal produces and what validation accepts: an
+        // initial-value constant *is* consumed, by the initial state bytes.
         let (design, mut proposal) = candidate();
         proposal.constants.push(BoundedFeatureConstantV1 {
             constant_id: "unread-initial".into(),
@@ -2862,53 +2939,27 @@ mod tests {
         proposal.state_cells[0].initial = BoundedFeatureInitialStateV1::Constant {
             constant_id: "unread-initial".into(),
         };
-        let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);
-        let frozen = freeze_research_bounded_feature_program_v1(&custody, &design, proposal)
-            .expect("joint Owner freeze");
-        let lowered =
-            prepare_frozen_bounded_feature_source_inputs_v1(&frozen).expect("source lowering");
-        let (_, program_bytes) = lowered
-            .source_files()
-            .find(|(path, _)| path.ends_with("program.rs"))
-            .expect("lowering emits a program source");
-        let program = std::str::from_utf8(program_bytes).expect("lowered source is UTF-8");
-
-        // `constant_1` is a prefix of `constant_10`, and `input_0_value_bytes` carries the name of
-        // `input_0_value`, so occurrences are counted over identifier tokens rather than
-        // substrings. Anything else would let a longer name pay for a shorter one's read.
-        let tokens = program
-            .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
-            .filter(|token| !token.is_empty())
-            .fold(BTreeMap::<&str, usize>::new(), |mut counts, token| {
-                *counts.entry(token).or_default() += 1;
-                counts
-            });
-
-        let mut unread = Vec::new();
-        for line in program.lines() {
-            let Some(rest) = line.trim_start().strip_prefix("let ") else {
-                continue;
-            };
-            let name = rest
-                .trim_start_matches("mut ")
-                .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
-                .next()
-                .unwrap_or_default();
-
-            // A leading underscore is the compiler's own mark for a binding that is deliberately
-            // not read, so those are not defects and the build does not warn about them.
-            if name.is_empty() || name.starts_with('_') {
-                continue;
-            }
-            // One occurrence is the binding itself; a read is any occurrence beyond it.
-            if tokens.get(name).copied().unwrap_or_default() < 2 {
-                unread.push(name);
-            }
-        }
+        let (found, _) = unread_bindings(&design, proposal);
         assert!(
-            unread.is_empty(),
-            "the lowering binds names nothing reads: {unread:?}"
+            found.is_empty(),
+            "a constant reachable only as a state cell's initial value: {found:?}"
         );
+
+        // A program with no state cells reads no prior state and writes none back, so `pre_empty`
+        // is read nowhere and `post_state` is never assigned.
+        let (design, mut proposal) = candidate();
+        proposal.state_cells.clear();
+        let (found, program) = unread_bindings(&design, proposal);
+        assert!(found.is_empty(), "a program with no state cells: {found:?}");
+        // `post_state` is read - the frame always carries a state entry - but with no state cell
+        // nothing assigns it, and `unused_mut` is denied just as `unused_variables` is. Counting
+        // reads cannot see that, so this one is asserted directly rather than by a heuristic for
+        // "was it written", which would have to recognise every way a binding can be mutated.
+        assert!(
+            !program.contains("let mut post_state"),
+            "a program with no state cells declares post_state mutable"
+        );
+        assert!(program.contains("let post_state"));
     }
 
     #[test]
