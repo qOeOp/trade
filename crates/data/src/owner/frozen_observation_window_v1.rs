@@ -260,6 +260,10 @@ fn frozen_request_at(
     // already states. A sweep is N of that request, not a second kind of request, and changing
     // what the four coordinates mean is a question about one snapshot rather than about a series.
     let mut request = UntrustedPitSnapshotRequest {
+        // Both claims are zero here and neither stays zero: `seal_request_claims_v1` at the end of
+        // this function derives them from the content this request commits. A reader who stops at
+        // these two lines sees a caller asserting an empty identity, which is the opposite of what
+        // happens - the identity is not the caller's to assert, so it is written last, by the seal.
         claimed_request_identity: BindingDigest::from_untrusted_bytes([0; 32]),
         claimed_request_digest: BindingDigest::from_untrusted_bytes([0; 32]),
         correlation_identity: window.correlation_identity,
@@ -652,6 +656,51 @@ mod tests {
         for open_ms in [1_789_776_000_000_u64, 1_789_862_400_000] {
             assert_eq!(open_ms * 1_000_000 % (24 * HOUR_NS), 0);
         }
+    }
+
+    /// A resolver that cannot answer, so the driver's own entry point is walked.
+    struct NoSuchSchedule;
+
+    impl super::super::bar_schedule::resolver_seal::Sealed for NoSuchSchedule {}
+
+    #[async_trait]
+    impl BarScheduleResolverV1 for NoSuchSchedule {
+        async fn resolve_bar_schedule_v1(
+            &self,
+            _locator: &UntrustedBarScheduleLocatorV1,
+        ) -> Result<
+            super::super::bar_schedule::BarScheduleReadbackV1,
+            super::super::bar_schedule::BarScheduleError,
+        > {
+            Err(super::super::bar_schedule::BarScheduleError::UnsupportedSchedule)
+        }
+    }
+
+    /// Constructs the driver and calls the trait method a caller would call.
+    ///
+    /// The proofs below drive `sweep` directly, which is the part with the interesting behaviour
+    /// but is not the part production uses. Until this existed the driver type had never been
+    /// instantiated anywhere in the repository and `answer_window` had never been called, so the
+    /// first caller would have been the first to walk it.
+    ///
+    /// What this covers is the entry and its first refusal. A window that resolves its schedule
+    /// and sweeps real coordinates through this entry needs a readback a store produces, and that
+    /// arrives with the composition root rather than being faked here.
+    #[tokio::test]
+    async fn the_driver_entry_refuses_a_schedule_it_cannot_resolve() {
+        let intake = IntakeThatStopsAfter {
+            answers: 0,
+            submitted: std::sync::atomic::AtomicUsize::new(0),
+        };
+        let driver = FrozenObservationWindowDriverV1::new(intake, NoSuchSchedule);
+
+        let outcome = driver.answer_window(window(0, 4 * HOUR_NS)).await;
+
+        assert_eq!(
+            outcome.err(),
+            Some(FrozenObservationWindowErrorV1::ScheduleUnavailable),
+            "a schedule that does not resolve is refused before any coordinate is attempted"
+        );
     }
 
     #[tokio::test]
