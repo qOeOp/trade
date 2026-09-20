@@ -3,12 +3,12 @@
 Owner: Lane 0 (platform).
 
     state:        open
-    main:         6117ae40d1db3782be57e1c8e3c98c19f6f18388
+    main:         6553c61cd4ac251e25ce2b5c19ff9433df0e96b4
     main_at_open: b0de5ea48acec4652a7e146dde711e56d1b5965d
     last_landed:  686 680 684 688 675 663 676
     landed_by:    various - the window is open, so this is expected
     opened_at:    2026-09-19T07:45Z
-    refreshed_at: 2026-09-19T09:50Z
+    refreshed_at: 2026-09-20T02:40Z
 
 ## The three members and #686 landed without me, and main is healthy
 
@@ -404,3 +404,39 @@ old main + PR).
 
 The one real harm is the one already written above: the tree that was proven is
 not the tree that will be merged.
+
+## main is red, and every Rust build taken before #702 lands is red with it
+
+    main            red on ONE test of 26520
+    the test        vibe-binance::spot
+                    exec_client::test_ws_trading_connect_retry_succeeds_after_setup_failure
+    why it matters  `quality` has seven `needs`; `rust tests` failing makes `quality` fail, and
+                    `quality` is the ONLY required status check in the repository - so this one
+                    test makes every lane's merge criterion unusable at once
+    the fix         #702, queued
+
+It is not a flake. `wait_for_ws_setup_response` treated `recv()` returning `None` - every sender
+dropped, so no setup error will ever arrive - as a reported error. On a reconnect the previous
+stream's teardown drops that sender while the new setup is succeeding, and a closed channel is
+ready immediately while `select!` is preemptive, so that arm does not sometimes win: it wins the
+moment the channel closes.
+
+### Do not take a Rust build until #702 lands
+
+Ask the branch, not the calendar and not the PR title:
+
+    git show <your branch>:crates/adapters/binance/src/spot/execution.rs \
+      | grep -c errors_can_still_arrive
+    # 0 = the fix is not in your tree
+
+A pure-documentation PR is unaffected: `plan.sh` routes it past the Rust gates and its
+`rust tests` job reports `completed/skipped`. Confirm by reading that run's job list rather than
+by reasoning from the PR title - a `docs(...)` title does not mean the diff is documentation, and
+reasoning from the title in either direction has already produced one wrong call today in each
+direction.
+
+The production sweep for this defect class is complete, so #702 is the whole of it rather than the
+first instalment: of 33 `select!` arms in `crates/**/src/` that bind the whole `Option` from
+`recv()`, one collapsed it, twenty have an explicit `None` arm, five use let-else, three are empty,
+and three delegate to a function returning `ControlFlow` (spot-checked: `ControlFlow::Break`).
+Three more sites exist in bybit's tests and are tracked separately; none is on the critical path.
