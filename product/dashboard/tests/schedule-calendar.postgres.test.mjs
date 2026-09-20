@@ -10,6 +10,7 @@ import test from "node:test";
 import pg from "pg";
 import { PostgresRunStoreV1 } from "../lib/run-store.ts";
 import { configuredShadowScheduleSetV1 } from "../lib/shadow-scheduler.ts";
+import { startProductionPreview } from "./browser-acceptance.mjs";
 import { parseScheduleEnvelopeV1 } from "../lib/schedule-projection.ts";
 import { scheduleCalendarGroupsV1 } from "../lib/schedule-calendar.ts";
 import { compatibleEnvironmentV1 } from "./compatibility-fixture.mjs";
@@ -379,13 +380,20 @@ test(testName, { skip: !url }, async () => {
         cwd: dashboardRoot, encoding: "utf8",
       }), "");
       const port = 3219;
-      preview = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "-H", "127.0.0.1", "-p", String(port)], {
-        cwd: dashboardRoot, env: {
-          ...process.env,
+      // The production bundle, as the other three RunStore acceptances already use. This suite ran
+      // the dev compiler, which is a different program: development enables React strict mode, whose
+      // double-invoked mount effect reads the Owner twice, and this calendar is keyed on the read
+      // envelope - so development carries a remount source that a deployed image does not have. An
+      // acceptance for a deployed route has to exercise the runtime that gets deployed.
+      preview = await startProductionPreview({
+        dashboardRoot,
+        port,
+        label: "calendar preview",
+        env: {
           ...environment,
           DASHBOARD_LOCAL_OPERATOR_LOGIN_TOKEN: calendarLogin,
           DASHBOARD_SESSION_HMAC_KEY: calendarSessionHmac,
-        }, stdio: "inherit",
+        },
       });
       const origin = `http://127.0.0.1:${port}`;
       const currentSchedulesUrl = `${origin}/operations/schedules/?view=current`;
@@ -993,8 +1001,11 @@ test(testName, { skip: !url }, async () => {
       await stopPreview(preview);
     } else if (process.env.DASHBOARD_CALENDAR_PREVIEW === "1") {
       // Inspect the real GET/browser boundary even when the consumer assertion below fails.
-      preview = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "-H", "127.0.0.1", "-p", "3219"], {
-        cwd: dashboardRoot, env: { ...process.env, ...environment }, stdio: "inherit",
+      preview = await startProductionPreview({
+        dashboardRoot,
+        port: 3219,
+        label: "calendar preview",
+        env: environment,
       });
       process.stdout.write("Disposable calendar preview: http://127.0.0.1:3219/operations/schedules/\n");
       await once(preview, "exit");
