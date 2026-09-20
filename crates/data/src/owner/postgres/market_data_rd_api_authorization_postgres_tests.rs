@@ -38,7 +38,6 @@ const ADMITTED_CALLER: &str = "rd_owner";
 /// The second Owner whose refusal proves the grant layer is load-bearing.
 const REFUSED_CALLER: &str = "backtest_owner";
 
-
 /// One routine of the face, as the live catalog reports it.
 struct FaceRoutine {
     /// `schema.name(argtypes)`, unambiguous across overloads.
@@ -120,13 +119,12 @@ async fn market_data_rd_api_admits_the_rd_owner_through_the_grant_layer_alone() 
     let mutation = database.mutation();
     let pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
 
-    let usage: bool =
-        sqlx::query_scalar("SELECT pg_catalog.has_schema_privilege($1,$2,'USAGE')")
-            .bind(ADMITTED_CALLER)
-            .bind(READ_FACE_SCHEMA)
-            .fetch_one(pool)
-            .await
-            .expect("schema privilege is readable");
+    let usage: bool = sqlx::query_scalar("SELECT pg_catalog.has_schema_privilege($1,$2,'USAGE')")
+        .bind(ADMITTED_CALLER)
+        .bind(READ_FACE_SCHEMA)
+        .fetch_one(pool)
+        .await
+        .expect("schema privilege is readable");
     assert!(usage, "{ADMITTED_CALLER} lost USAGE on {READ_FACE_SCHEMA}");
 
     for routine in read_face(pool).await {
@@ -149,9 +147,9 @@ async fn market_data_rd_api_admits_the_rd_owner_through_the_grant_layer_alone() 
         sqlx::query(sqlx::AssertSqlSafe(routine.null_call.clone()))
             .execute(&mut *transaction)
             .await
-            .unwrap_or_else(|error| {
+            .unwrap_or_else(|e| {
                 panic!(
-                    "{ADMITTED_CALLER} could not call {}: {error}",
+                    "{ADMITTED_CALLER} could not call {}: {e}",
                     routine.signature,
                 )
             });
