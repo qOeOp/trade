@@ -868,7 +868,18 @@ mod tests {
             CANONICAL_OWNER_TEST_URLS[CanonicalOwnerTestRoleV1::GovernanceWriter.index()],
             ("GOVERNANCE_OWNER_TEST_DATABASE_URL", "governance_writer")
         );
-        assert_eq!(CANONICAL_OWNER_TEST_URLS.len(), 13);
+    }
+
+    /// The canonical table's size, stated as a literal on purpose.
+    ///
+    /// `CANONICAL_OWNER_TEST_URLS` is declared `[_; CanonicalOwnerTestRoleV1::COUNT]`, so comparing
+    /// its length against `COUNT` would be true however many entries the table has. The literal is
+    /// the only thing here that a new Owner role has to walk past, and every place that provisions
+    /// the role - the two `postgres-init` scripts and the chain script's marker, clone-database
+    /// `GRANT CONNECT`, and custody role list - has to move with it.
+    #[rstest]
+    fn the_canonical_owner_test_table_has_exactly_the_admitted_number_of_roles() {
+        assert_eq!(CANONICAL_OWNER_TEST_URLS.len(), 15);
     }
 
     #[rstest]
