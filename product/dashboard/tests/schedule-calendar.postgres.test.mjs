@@ -238,6 +238,9 @@ async function pressEnterAndWaitFor(browser, expression, attempts = 3) {
     })()`);
     await dispatchBrowserKey(browser, "Enter");
     arrivedAt = await readBrowserValue(browser, "globalThis.__enterArrivedAt ?? null");
+    // A green run is otherwise silent about whether a retry was needed at all, which is the only
+    // evidence that the undelivered key this guards against still happens.
+    if (arrivedAt && attempt > 1) console.log(`enter delivery took ${attempt} attempts -> ${arrivedAt}`);
   }
   assert.ok(arrivedAt, `the synthesized Enter never reached the page in ${attempts} attempts`);
 
