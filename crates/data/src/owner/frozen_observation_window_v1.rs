@@ -106,6 +106,21 @@ pub enum FrozenObservationWindowErrorV1 {
     ClockUnavailable,
 }
 
+/// Why a sweep stopped where it did.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FrozenObservationWindowHaltReasonV1 {
+    /// The intake reached no finding for this coordinate, in its own bounded category.
+    Intake(PitMarketSnapshotIntakeErrorV1),
+    /// The coordinate is later than the cut this sweep froze against, so it asks about a time
+    /// this Owner has not decided yet.
+    ///
+    /// Reported rather than skipped. Dropping these coordinates would be this Owner narrowing the
+    /// caller's window, which is the one thing its first prohibition forbids; refusing the whole
+    /// window would discard the coordinates before the cut, which are answerable and were
+    /// answered. What is left is to say where the answerable part ended.
+    NotYetDecided,
+}
+
 /// Where a sweep stopped, and why.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FrozenObservationWindowHaltV1 {
@@ -113,8 +128,8 @@ pub struct FrozenObservationWindowHaltV1 {
     pub at_event_effective_ns: u64,
     /// How many coordinates were never attempted, this one included.
     pub unanswered: usize,
-    /// The intake's own bounded category for why it reached no finding.
-    pub reason: PitMarketSnapshotIntakeErrorV1,
+    /// Why it stopped.
+    pub reason: FrozenObservationWindowHaltReasonV1,
 }
 
 /// One coordinate the sweep answered, and the terminal it reached.
@@ -384,7 +399,23 @@ async fn sweep<I: PitMarketSnapshotIntakeV1>(
     let mut halted = None;
 
     for (index, event_effective_ns) in coordinates.into_iter().enumerate() {
+        // A coordinate after the cut asks about a time this Owner has not decided. The commit path
+        // would refuse it anyway - `pit_snapshot::authority` requires a row's retrieval to be at or
+        // before the decision cut, and a sweep stamps all four coordinates with the frozen instant
+        // - but it would refuse in a category naming neither the coordinate nor the reason. Saying
+        // it here costs one comparison and keeps the answerable part of the window.
+        if event_effective_ns > cut.decision_cut {
+            halted = Some(FrozenObservationWindowHaltV1 {
+                at_event_effective_ns: event_effective_ns,
+                unanswered: total - index,
+                reason: FrozenObservationWindowHaltReasonV1::NotYetDecided,
+            });
+
+            break;
+        }
+
         let request = frozen_request_at(window, cut, event_effective_ns);
+
         match intake.submit(request, window.universe_selection).await {
             Ok(terminal) => answered.push(AnsweredCoordinateV1 {
                 event_effective_ns,
@@ -394,7 +425,7 @@ async fn sweep<I: PitMarketSnapshotIntakeV1>(
                 halted = Some(FrozenObservationWindowHaltV1 {
                     at_event_effective_ns: event_effective_ns,
                     unanswered: total - index,
-                    reason,
+                    reason: FrozenObservationWindowHaltReasonV1::Intake(reason),
                 });
                 break;
             }
@@ -742,7 +773,53 @@ mod tests {
         );
         assert_eq!(
             halt.reason,
-            PitMarketSnapshotIntakeErrorV1::StoreUnavailable
+            FrozenObservationWindowHaltReasonV1::Intake(
+                PitMarketSnapshotIntakeErrorV1::StoreUnavailable
+            )
+        );
+    }
+
+    /// A window reaching past the cut is answered up to it, and says why it stopped.
+    ///
+    /// The caller owns the window, so nothing stops one naming coordinates in the future - "the
+    /// last thirty days" against a cut that has not advanced yet is a reasonable thing to ask.
+    /// Silently dropping the coordinates past the cut would be this Owner narrowing the window,
+    /// and refusing the whole window would throw away the part it could answer.
+    #[tokio::test]
+    async fn coordinates_after_the_decision_cut_stop_the_sweep_by_name() {
+        let intake = IntakeThatStopsAfter {
+            answers: usize::MAX,
+            submitted: std::sync::atomic::AtomicUsize::new(0),
+        };
+        let cut = intake.current_decision_cut().await.unwrap();
+        // Two coordinates at or before the cut, then two past it.
+        let coordinates = vec![
+            cut.decision_cut - 4 * HOUR_NS,
+            cut.decision_cut,
+            cut.decision_cut + 4 * HOUR_NS,
+            cut.decision_cut + 8 * HOUR_NS,
+        ];
+        let window = window(0, cut.decision_cut + 12 * HOUR_NS);
+
+        let terminal = sweep(&intake, &window, &cut, coordinates).await;
+
+        assert_eq!(
+            terminal
+                .coordinates()
+                .iter()
+                .map(|answered| answered.event_effective_ns)
+                .collect::<Vec<_>>(),
+            vec![cut.decision_cut - 4 * HOUR_NS, cut.decision_cut],
+            "a coordinate exactly at the cut is decided; the answerable part is kept"
+        );
+        let halt = terminal.halted().expect("it stopped, so it says where");
+        assert_eq!(halt.at_event_effective_ns, cut.decision_cut + 4 * HOUR_NS);
+        assert_eq!(halt.unanswered, 2);
+        assert_eq!(
+            halt.reason,
+            FrozenObservationWindowHaltReasonV1::NotYetDecided,
+            "the reason names the condition, not whatever category the commit path would have \
+             refused it under"
         );
     }
 
