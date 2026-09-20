@@ -9,10 +9,15 @@ use crate::{
     CatalogRowV1,
     catalog_rows::ROWS,
     catalog_rows_v2::ROWS_V2,
+    catalog_rows_v3::ROWS_V3,
     golden_corpus::GOLDENS,
     golden_corpus_v2::GOLDENS_V2,
+    golden_corpus_v3::GOLDENS_V3,
     required_golden_ids_v2::{
         CATALOG_SEMANTIC_IDS_V2, EXECUTABLE_PRIMITIVE_IDS_V2, REQUIRED_GOLDEN_IDS_V2,
+    },
+    required_golden_ids_v3::{
+        CATALOG_SEMANTIC_IDS_V3, EXECUTABLE_PRIMITIVE_IDS_V3, REQUIRED_GOLDEN_IDS_V3,
     },
 };
 
@@ -62,8 +67,26 @@ const VERSION_2: CatalogVersionV1 = CatalogVersionV1 {
     kind_counts: [6, 38, 15],
 };
 
+/// Version 3 adds the fixed-point square root and changes nothing else.
+///
+/// Its rows and name sets are spliced from version 2's rather than restated, and its corpus
+/// references the earlier vector files unchanged, so publishing it leaves versions 1 and 2
+/// byte-identical.
+const VERSION_3: CatalogVersionV1 = CatalogVersionV1 {
+    semantic_version: 3,
+    rows: &ROWS_V3,
+    semantic_ids: &CATALOG_SEMANTIC_IDS_V3,
+    executable_ids: &EXECUTABLE_PRIMITIVE_IDS_V3,
+    goldens: &GOLDENS_V3,
+    required_golden_ids: &REQUIRED_GOLDEN_IDS_V3,
+    kind_counts: [6, 40, 15],
+};
+
 /// Every version this kernel publishes, ascending by semantic version.
-pub(crate) const PUBLISHED_V1: [&CatalogVersionV1; 2] = [&VERSION_1, &VERSION_2];
+///
+/// `newest()` reads the last entry, so adding one here is also the change that makes a freshly
+/// minted program resolve the new version.
+pub(crate) const PUBLISHED_V1: [&CatalogVersionV1; 3] = [&VERSION_1, &VERSION_2, &VERSION_3];
 
 /// Resolves one published version's content, or `None` when this kernel does not publish it.
 pub(crate) fn published(semantic_version: u16) -> Option<&'static CatalogVersionV1> {

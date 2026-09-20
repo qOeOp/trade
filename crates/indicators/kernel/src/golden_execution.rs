@@ -151,7 +151,7 @@ impl<'a> Frame<'a> {
 
         let count = if op.bar() {
             4
-        } else if op.stateful() || matches!(op, Op::Rescale) {
+        } else if op.stateful() || matches!(op, Op::Rescale | Op::Sqrt) {
             1
         } else {
             2
@@ -177,7 +177,14 @@ impl<'a> Frame<'a> {
             }
         } else if matches!(
             op,
-            Op::Add | Op::Sub | Op::Mul | Op::Div | Op::Rescale | Op::Fraction | Op::FusedRational
+            Op::Add
+                | Op::Sub
+                | Op::Mul
+                | Op::Div
+                | Op::Rescale
+                | Op::Sqrt
+                | Op::Fraction
+                | Op::FusedRational
         ) {
             frame.output_scale = input.byte()?;
         }
@@ -360,6 +367,7 @@ fn scalar_execute(
         Op::Mul => numeric(a.checked_mul(frame.values[1].value()?, output_scale, rounding)),
         Op::Div => numeric(a.checked_div(frame.values[1].value()?, output_scale, rounding)),
         Op::Rescale => numeric(a.rescale(output_scale, rounding)),
+        Op::Sqrt => numeric(a.checked_sqrt(output_scale, rounding)),
         Op::Compare => {
             let condition = a
                 .checked_compare(

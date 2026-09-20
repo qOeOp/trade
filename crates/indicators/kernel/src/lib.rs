@@ -4,6 +4,7 @@
 mod catalog_contract;
 mod catalog_rows;
 mod catalog_rows_v2;
+mod catalog_rows_v3;
 mod catalog_version;
 mod fixed_bar_state;
 mod fixed_features;
@@ -14,12 +15,14 @@ mod fixed_window;
 mod fused_rational_v1;
 mod golden_corpus;
 mod golden_corpus_v2;
+mod golden_corpus_v3;
 mod golden_execution;
 mod golden_vector;
 mod i256;
 mod primitive_catalog;
 mod required_golden_ids;
 mod required_golden_ids_v2;
+mod required_golden_ids_v3;
 
 pub use catalog_contract::{
     CatalogAvailabilityRuleV1, CatalogClockRuleV1, CatalogContractV1, CatalogInputRuleV1,

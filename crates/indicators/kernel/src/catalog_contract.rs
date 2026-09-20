@@ -70,6 +70,7 @@ pub enum PrimitiveOperationV1 {
     SwingHigh,
     SwingLow,
     FusedRational,
+    Sqrt,
 }
 
 impl PrimitiveOperationV1 {
@@ -258,6 +259,9 @@ impl CatalogRowV1 {
             Op::Rescale => {
                 "a*10^(output.scale-a.scale) in coefficient space; I256 expression then one final round"
             }
+            Op::Sqrt => {
+                "sqrt(a); a>=0; 2*output.scale>=a.scale; exact I256 integer square root of a.coefficient*10^(2*output.scale-a.scale) then one final round; unit is the single repeated factor of a product unit"
+            }
             Op::Compare => {
                 "bool(a relation b), equal scales/units; frozen predicate byte1=less,2=less-or-equal,3=equal,4=not-equal,5=greater-or-equal,6=greater; other predicate tags unsupported; no cast from Ordering to bool"
             }
@@ -338,6 +342,11 @@ impl CatalogRowV1 {
             Op::Rescale => {
                 value.scale = S::DeclaredOutput;
                 value.parameters = P::OutputScale;
+            }
+            Op::Sqrt => {
+                value.scale = S::DeclaredOutput;
+                value.parameters = P::OutputScale;
+                value.unit = U::SquareRootOfEqualFactors;
             }
             Op::Compare => {
                 value.input = I::TwoFixed;
