@@ -771,11 +771,28 @@ jobs:
         if: runner.environment == 'github-hosted'
         run: echo "CARGO_BUILD_JOBS=2" >> "$GITHUB_ENV"
 
+      # Entry 28 of the R&D chain drives the Dashboard strategy viewer in a real browser only when
+      # these inputs are present, and reports PASS in a few milliseconds when they are not. Without
+      # this step `build`'s chain job and `owner-chains` were not interchangeable evidence, which is
+      # what AGENTS.md says they are. The Market Data leg has no browser to drive.
+      - name: Install the sealed Dashboard browser acceptance inputs
+        if: matrix.chain.key == 'rd-owner'
+        uses: ./.github/actions/dashboard-browser-acceptance
+        with:
+          acceptance-candidate: ${{ github.sha }}
+
       - name: Report disk space before the chain
         run: bash scripts/ci/report-disk-space.bash "before ${{ matrix.chain.key }}"
 
       - name: Run the isolated PostgreSQL Owner chain
         run: make ${{ matrix.chain.make }}
+
+      - name: Clean Dashboard browser acceptance inputs
+        if: always() && matrix.chain.key == 'rd-owner'
+        run: |
+          find product/dashboard/.next -depth -delete 2>/dev/null || true
+          find product/dashboard/node_modules -depth -delete 2>/dev/null || true
+          find "${RUNNER_TEMP}/dashboard-strategy-viewer-chrome" -depth -delete 2>/dev/null || true
 
       - name: Report disk space after the chain
         if: always()

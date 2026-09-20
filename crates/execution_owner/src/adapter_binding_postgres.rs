@@ -1244,9 +1244,52 @@ mod tests {
             owner
                 .resolve_admitted(&successor.locator, &capabilities())
                 .await,
-            Err(AdapterBindingError::NotAdmitted)
+            Err(AdapterBindingError::BindingRevoked)
         );
         assert_eq!(own_counts(&pool, &stream_identity).await, (2, 3, 1, 2));
+
+        // Each remaining non-admitted state refuses under its own name against the real store, not
+        // only in memory. One collapsed refusal could not tell a caller whether the binding was
+        // replaced, withdrawn, or found unusable, and those carry different next actions.
+        for (state, expected) in [
+            (
+                AdapterBindingState::Superseded,
+                AdapterBindingError::BindingSuperseded,
+            ),
+            (
+                AdapterBindingState::Incompatible,
+                AdapterBindingError::BindingIncompatible,
+            ),
+        ] {
+            let scope = format!("paper-scope-{state:?}-{suffix}").to_lowercase();
+            let mut candidate = draft(&scope);
+            candidate.state = state;
+            let committed = owner.commit(candidate).await.unwrap();
+            assert_eq!(
+                owner
+                    .resolve_admitted(&committed.locator, &capabilities())
+                    .await,
+                Err(expected)
+            );
+        }
+
+        // The venue an effect may reach is projected from the admitted binding this Owner already
+        // committed, and carries no credential: the handle stays here and resolves at effect time.
+        let venue_scope = format!("paper-scope-venue-{suffix}");
+        let venue_binding = owner.commit(draft(&venue_scope)).await.unwrap();
+        let admitted = owner
+            .resolve_admitted(&venue_binding.locator, &capabilities())
+            .await
+            .unwrap();
+        let venue = crate::venue_binding::bind_paper_venue(&admitted);
+        assert_eq!(venue.execution_scope_identity(), venue_scope);
+        assert_eq!(venue.account_namespace(), admitted.account_namespace());
+        assert_eq!(venue.effect_namespace(), admitted.effect_namespace());
+        assert_eq!(venue.capabilities(), admitted.capabilities());
+        assert_eq!(
+            venue.binding_fact_identity(),
+            venue_binding.locator.fact_identity
+        );
 
         // Time is Owner-sampled: outside the interval or in another epoch nothing resolves.
         let gamma = format!("paper-scope-gamma-{suffix}");
