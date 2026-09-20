@@ -1,4 +1,4 @@
-use vibe_scanner::{ProductEdgeTerminalReceiptReadSource, ProductEdgeTerminalReceiptReader};
+use vibe_scanner_custody::{ProductEdgeTerminalReceiptReadSource, ProductEdgeTerminalReceiptReader};
 
 fn caller_selected<R: ProductEdgeTerminalReceiptReadSource>(
     store: &R,

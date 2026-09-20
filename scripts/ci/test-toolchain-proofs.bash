@@ -33,6 +33,7 @@ readonly wasm_proof_features='sealed-develop-composer-acceptance'
 # second time.
 readonly portable_wasm_proofs=(
   'bounded_feature_program_lowerer_v1::tests::every_executable_operation_builds_and_runs_as_strict_abi_three_wasm'
+  'bounded_feature_program_lowerer_v1::tests::generated_candidate_is_a_real_strict_abi_three_module'
 )
 
 # Compiled only on the hosts the sandbox admits (macOS arm64, Linux arm64, Linux x86_64), which are
@@ -59,6 +60,13 @@ echo "Running ${#selected_proofs[@]} toolchain proof(s) against the tools they n
 
 # Each proof reports, whatever its neighbours did. Stopping at the first failure would hide the rest
 # behind it, and a proof nobody hears from is the thing this script exists to prevent.
+#
+# `--no-tests=fail` states a property rather than inheriting one. The filter is an exact match, so
+# a name with the wrong module path selects nothing, and whether that fails is the `--no-tests`
+# default - which depends on the nextest version and the profile, neither of which this script
+# pins. Measured on 0.9.143 here: an unmatched filter already exits 4 with or without the flag,
+# with or without `--profile ci`, with or without `CI` set. So today the flag changes nothing; it
+# means the behaviour stops depending on a default nobody is watching.
 refused=()
 
 for proof in "${selected_proofs[@]}"; do
@@ -70,6 +78,7 @@ for proof in "${selected_proofs[@]}"; do
     --features "$wasm_proof_features" \
     --profile "$nextest_profile" \
     --run-ignored ignored-only \
+    --no-tests=fail \
     --fail-fast \
     -E "test(=${proof})"; then
     refused+=("$proof")
@@ -84,6 +93,7 @@ if [[ "$(uname -m)" == "arm64" || "$(uname -m)" == "aarch64" ]]; then
     --test product_skeleton \
     --profile "$nextest_profile" \
     --run-ignored ignored-only \
+    --no-tests=fail \
     --fail-fast \
     -E "test(=${docker_seal_proof})"; then
     refused+=("$docker_seal_proof")

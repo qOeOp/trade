@@ -83,13 +83,22 @@ admitted set requires changing this document first.
   artifact, not history. The other public commit path, `commit_exploratory_replay_result_v2`, has callers only
   inside the `#[cfg(test)]` module of `crates/backtest_owner/src/lib.rs`.
 - **CURRENT_PARTIAL - protected observation:** Backtest derives the observation from the canonical result of the
-  run it executed and cannot learn which observation was frozen for that run.
-  `derive_protected_economic_measurement_v1` computes and seals it from canonical Result bytes, and its only
-  callers are in `crates/backtest_owner/tests/protected_economic_measurement.rs`.
-  `ProtectedEconomicComputationV1::resolve`, the one function that turns a frozen Qualification policy bundle into
-  a metric and a coverage rule, has no caller anywhere; no protected-request field carries either reference; and
-  `product/rd-workbench/postgres-init/10-migrate-authority-custody.sh` revokes `backtest_owner` on
-  `public.qualification_protected_economic_policy_bundles_v1`. The selection has no producer.
+  run it executed, and it can now learn which observation was frozen for that run:
+  `derive_protected_economic_measurement_v1` computes and seals it from canonical Result bytes, and
+  `ResolvedProtectedReplayRequestSetV1::economic_computation` resolves the metric and the coverage rule from the
+  bundle the request set carries, so a caller selects a published computation and describes none. What remains is
+  upstream of both. No production code constructs a `ProtectedEconomicPolicyBundleV1`, whose construction sites
+  all sit inside `#[cfg(test)]` modules, and the step that would seal one into a request set is called from
+  the ordered gate's entries and nowhere else, which [Qualification](./qualification/) states for every step of
+  that terminal. Backtest can select the computation, and nothing outside the gate produces the selection.
+- **CURRENT_PARTIAL - first evaluable tick of each decision condition:** the derivation exists and no
+  replay produces it. `derive_condition_readiness_census_v1` in
+  `crates/strategy_factory/src/condition_readiness_derivation_v1.rs` reads a frozen program's graph
+  and decision table and returns, per condition, the first tick at which every input in its closure
+  satisfies the availability rule it was frozen under, the rule that fixed it, and the node that
+  imposed it. It reads each rule from the published catalog rather than inferring it from the node's
+  parameters, so a primitive that carries a period without waiting for one is not counted as waiting.
+  Its callers are its own proofs.
 - **TARGET - `REPAIR_VALIDATION` request and result:** no implementation exists. `REPAIR_VALIDATION` and
   `RepairValidation` appear in no file under `crates/` or `product/`.
 - **TARGET - `SIMULATOR` and `BACKTEST_OPERATIONAL` native repair:** no Backtest repair surface exists. The only

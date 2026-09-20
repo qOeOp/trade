@@ -10,6 +10,7 @@ import test from "node:test";
 import pg from "pg";
 import { PostgresRunStoreV1 } from "../lib/run-store.ts";
 import { configuredShadowScheduleSetV1 } from "../lib/shadow-scheduler.ts";
+import { startProductionPreview } from "./browser-acceptance.mjs";
 import { parseScheduleEnvelopeV1 } from "../lib/schedule-projection.ts";
 import { scheduleCalendarGroupsV1 } from "../lib/schedule-calendar.ts";
 import { compatibleEnvironmentV1 } from "./compatibility-fixture.mjs";
@@ -196,6 +197,9 @@ async function waitForBrowserExpression(browser, expression, timeoutMs = 15_000)
       })(),
       reasons: [...document.querySelectorAll('details code, .unavailable-state code')]
         .map((code) => code.textContent),
+      faults: globalThis.__calendarFaults?.slice(-8) ?? null,
+      dialogHistory: globalThis.__dialogHistory?.slice(-10) ?? null,
+      dialogClosers: globalThis.__dialogClosers?.slice(-6) ?? null,
       body: document.body?.innerText.slice(0, 1_500) ?? '',
     }))()`,
     returnByValue: true,
@@ -210,6 +214,76 @@ async function readBrowserValue(browser, expression) {
   return result.result?.value;
 }
 
+// Every keyboard step in this suite presses Enter on a focused control and waits for what that
+// should do, and a synthesized key is not always delivered: on Linux this step failed intermittently
+// with a focused, enabled button, no page faults, and a dialog that opened the moment the same
+// element was clicked. Waiting on the dialog alone cannot tell an undelivered key from a trigger
+// that does not act, so it reported a harness fault as a defect in the page.
+//
+// Observe the key instead of assuming it. A delivery that never happened is retried; a key that did
+// reach the trigger and still opened nothing is the page's defect and fails, naming the element the
+// key actually arrived at and whether clicking it works.
+async function pressEnterAndWaitFor(browser, expression, attempts = 3) {
+  let arrivedAt = null;
+  let activatedAt = null;
+  for (let attempt = 1; attempt <= attempts && !activatedAt; attempt += 1) {
+    await readBrowserValue(browser, `(() => {
+      globalThis.__enterArrivedAt = null;
+      globalThis.__enterActivated = null;
+      if (!globalThis.__enterWatchers) {
+        const describe = (node) => (node?.tagName ?? "?")
+          + "[" + (node?.getAttribute?.("aria-label") ?? "") + "]";
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") globalThis.__enterArrivedAt = describe(event.target);
+        }, true);
+        document.addEventListener("click", (event) => {
+          globalThis.__enterActivated = describe(event.target);
+        }, true);
+        globalThis.__enterWatchers = true;
+      }
+      return true;
+    })()`);
+    // Mark the node before pressing it. If the tree remounts between the activation and the check,
+    // React builds a new element and the mark is gone with it - which is the difference between a
+    // handler that never ran and one whose effect was discarded by a remount.
+    await readBrowserValue(browser, `(() => {
+      document.activeElement?.setAttribute?.("data-acceptance-mark", "pressed");
+      return true;
+    })()`);
+    await dispatchBrowserKey(browser, "Enter");
+    arrivedAt = await readBrowserValue(browser, "globalThis.__enterArrivedAt ?? null");
+    activatedAt = await readBrowserValue(browser, "globalThis.__enterActivated ?? null");
+    // A green run is otherwise silent about whether a retry was needed at all, which is the only
+    // evidence that the failure this guards against still happens.
+    if (activatedAt && attempt > 1) console.log(`enter took ${attempt} attempts -> ${activatedAt}`);
+  }
+  assert.ok(arrivedAt, `the synthesized Enter never reached the page in ${attempts} attempts`);
+  // Arrival is not activation: the observed failure was a keydown that reached the right button and
+  // never acted on it. Only a control that was activated and still did nothing is the page's defect.
+  assert.ok(activatedAt,
+    `the synthesized Enter reached ${arrivedAt} but never activated it in ${attempts} attempts`);
+
+  await waitForBrowserExpression(browser, expression).catch(async (timedOut) => {
+    const probe = await readBrowserValue(browser, `(() => {
+      const node = document.activeElement;
+      const described = {
+        tag: node?.tagName ?? null,
+        label: node?.getAttribute?.('aria-label') ?? null,
+        tabIndex: node?.tabIndex ?? null,
+        hadFocus: document.hasFocus(),
+      };
+      node?.click?.();
+      return described;
+    })()`).catch(() => null);
+    await delay(500);
+    const openedByClick = await readBrowserValue(browser, expression).catch(() => null);
+    const pressedNodeSurvived = await readBrowserValue(browser,
+      `Boolean(document.querySelector('[data-acceptance-mark="pressed"]'))`).catch(() => null);
+    throw new Error(`${timedOut.message}; enter probe: ${
+      JSON.stringify({ ...probe, arrivedAt, activatedAt, pressedNodeSurvived, openedByClick })}`);
+  });
+}
+
 async function dispatchBrowserKey(browser, key) {
   const keys = {
     Enter: { code: "Enter", windowsVirtualKeyCode: 13, text: "\r" },
@@ -217,14 +291,16 @@ async function dispatchBrowserKey(browser, key) {
   };
   const descriptor = keys[key];
   assert.ok(descriptor, `unsupported browser key ${key}`);
-  for (const type of ["keyDown", "keyUp"]) {
+  // A button activates on the char event, not on keydown. Sending keyDown with text leaves Chrome to
+  // synthesize that char, and on Linux it intermittently did not - the keydown arrived at the right
+  // button and the button never acted. Send the three parts rather than rely on the synthesis.
+  const types = descriptor.text ? ["rawKeyDown", "char", "keyUp"] : ["rawKeyDown", "keyUp"];
+  for (const type of types) {
     await browser.send("Input.dispatchKeyEvent", {
       type, key, code: descriptor.code,
       windowsVirtualKeyCode: descriptor.windowsVirtualKeyCode,
       nativeVirtualKeyCode: descriptor.windowsVirtualKeyCode,
-      ...(type === "keyDown" && descriptor.text
-        ? { text: descriptor.text, unmodifiedText: descriptor.text }
-        : {}),
+      ...(type === "char" ? { text: descriptor.text, unmodifiedText: descriptor.text } : {}),
     });
   }
 }
@@ -315,13 +391,20 @@ test(testName, { skip: !url }, async () => {
         cwd: dashboardRoot, encoding: "utf8",
       }), "");
       const port = 3219;
-      preview = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "-H", "127.0.0.1", "-p", String(port)], {
-        cwd: dashboardRoot, env: {
-          ...process.env,
+      // The production bundle, as the other three RunStore acceptances already use. This suite ran
+      // the dev compiler, which is a different program: development enables React strict mode, whose
+      // double-invoked mount effect reads the Owner twice, and this calendar is keyed on the read
+      // envelope - so development carries a remount source that a deployed image does not have. An
+      // acceptance for a deployed route has to exercise the runtime that gets deployed.
+      preview = await startProductionPreview({
+        dashboardRoot,
+        port,
+        label: "calendar preview",
+        env: {
           ...environment,
           DASHBOARD_LOCAL_OPERATOR_LOGIN_TOKEN: calendarLogin,
           DASHBOARD_SESSION_HMAC_KEY: calendarSessionHmac,
-        }, stdio: "inherit",
+        },
       });
       const origin = `http://127.0.0.1:${port}`;
       const currentSchedulesUrl = `${origin}/operations/schedules/?view=current`;
@@ -375,6 +458,65 @@ test(testName, { skip: !url }, async () => {
       await browser.send("Page.enable");
       await browser.send("Page.bringToFront");
       await browser.send("Input.setIgnoreInputEvents", { ignore: false });
+      // A timeout below can report what the page held but never why: nothing here could observe a
+      // handler that threw or a hydration that failed, so the one defect this suite exists to catch
+      // - a control that renders but does not act - arrives looking exactly like a slow render.
+      // This has to run before the document does, or it misses precisely those faults.
+      await browser.send("Page.addScriptToEvaluateOnNewDocument", {
+        source: `(() => {
+          const faults = [];
+          globalThis.__calendarFaults = faults;
+          const at = (event) => " @ " + (event.filename ?? "?") + ":" + (event.lineno ?? 0);
+          addEventListener("error", (event) =>
+            faults.push("error: " + (event.message ?? event.error) + at(event)));
+          addEventListener("unhandledrejection", (event) =>
+            faults.push("rejection: " + event.reason));
+          // A dialog that never opened and one that opened and was closed again both read as zero
+          // at the moment a wait gives up. Record the transitions instead of the end state.
+          const dialogHistory = [];
+          globalThis.__dialogHistory = dialogHistory;
+          const watch = () => new MutationObserver((records) => {
+            for (const record of records) {
+              const node = record.target;
+              if (node.tagName !== "DIALOG") continue;
+              dialogHistory.push({
+                atMs: Math.round(performance.now()),
+                open: node.open,
+                label: node.getAttribute("aria-label"),
+              });
+            }
+          }).observe(document.documentElement, {
+            attributes: true, attributeFilter: ["open"], subtree: true,
+          });
+          if (document.documentElement) watch();
+          else addEventListener("DOMContentLoaded", watch);
+          // Knowing it closed does not say who closed it, and there are only three ways: the two
+          // close() call sites in the dialog component, and Escape, which does not go through
+          // close() at all. Name the caller rather than leaving a transition unattributed.
+          const closers = [];
+          globalThis.__dialogClosers = closers;
+          const nativeClose = HTMLDialogElement.prototype.close;
+          HTMLDialogElement.prototype.close = function recordedClose(...args) {
+            closers.push({
+              atMs: Math.round(performance.now()),
+              label: this.getAttribute("aria-label"),
+              by: String(new Error().stack || "").split(String.fromCharCode(10)).slice(1, 4)
+                .map((line) => line.trim()).join(" | ").slice(0, 240),
+            });
+            return nativeClose.apply(this, args);
+          };
+          addEventListener("cancel", (event) => closers.push({
+            atMs: Math.round(performance.now()),
+            label: event.target?.getAttribute?.("aria-label") ?? null,
+            by: "escape",
+          }), true);
+          const forward = console.error.bind(console);
+          console.error = (...args) => {
+            faults.push("console: " + args.map((arg) => String(arg?.message ?? arg)).join(" "));
+            forward(...args);
+          };
+        })()`,
+      });
       await browser.send("Page.navigate", { url: currentSchedulesUrl });
       const configuredOperations = JSON.stringify(descriptors.map((descriptor) => descriptor.operation_id));
       await waitForBrowserExpression(browser,
@@ -508,8 +650,7 @@ test(testName, { skip: !url }, async () => {
         };
       })()`);
       assert.deepEqual(keyboardTarget, { focused: true, tagName: "BUTTON", tabIndex: 0 });
-      await dispatchBrowserKey(browser, "Enter");
-      await waitForBrowserExpression(browser,
+      await pressEnterAndWaitFor(browser,
         `Boolean(document.querySelector('[data-slot="calendar-day-view"]'))
           && document.querySelector('button[aria-label="Day view"]')?.getAttribute('aria-pressed') === 'true'`);
 
@@ -542,8 +683,7 @@ test(testName, { skip: !url }, async () => {
         return Boolean(button && document.activeElement === button);
       })()`);
       assert.equal(overflowOpened, true, "dense schedule overflow is keyboard focusable");
-      await dispatchBrowserKey(browser, "Enter");
-      await waitForBrowserExpression(browser,
+      await pressEnterAndWaitFor(browser,
         "Boolean(document.querySelector('dialog[open][aria-label$=\"UTC\"]'))");
       const inspection = await readBrowserValue(browser, `(() => {
         const dialog = document.querySelector('dialog[open]');
@@ -585,13 +725,16 @@ test(testName, { skip: !url }, async () => {
           disabled: trigger?.disabled ?? null,
         };
       })()`);
+      // This accepts either shape, so which one runs is decided by where the verified run falls in
+      // its day - not by the assertion. A green run is then silent about which of the two it
+      // covered, and the branch that went red on Linux is the one local data never produces. Say it.
+      console.log(`calendar run origin trigger -> ${calendarRunOrigin.kind}`);
       assert.match(calendarRunOrigin.kind ?? "", /^(?:badge|overflow)$/u,
         "calendar exposes the verified observed-run group");
       assert.equal(calendarRunOrigin.focused, true, JSON.stringify(calendarRunOrigin));
       assert.ok(calendarRunOrigin.width > 0 && calendarRunOrigin.height > 0, JSON.stringify(calendarRunOrigin));
       assert.equal(calendarRunOrigin.disabled, false);
-      await dispatchBrowserKey(browser, "Enter");
-      await waitForBrowserExpression(browser,
+      await pressEnterAndWaitFor(browser,
         "Boolean(document.querySelector('dialog[open][aria-label$=\"UTC\"]'))");
       const calendarRunSelected = await readBrowserValue(browser, `(() => {
         const option = document.querySelector('dialog[open] option[data-run-identity="${previewRunIdentity}"]');
@@ -908,8 +1051,11 @@ test(testName, { skip: !url }, async () => {
       await stopPreview(preview);
     } else if (process.env.DASHBOARD_CALENDAR_PREVIEW === "1") {
       // Inspect the real GET/browser boundary even when the consumer assertion below fails.
-      preview = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "-H", "127.0.0.1", "-p", "3219"], {
-        cwd: dashboardRoot, env: { ...process.env, ...environment }, stdio: "inherit",
+      preview = await startProductionPreview({
+        dashboardRoot,
+        port: 3219,
+        label: "calendar preview",
+        env: environment,
       });
       process.stdout.write("Disposable calendar preview: http://127.0.0.1:3219/operations/schedules/\n");
       await once(preview, "exit");

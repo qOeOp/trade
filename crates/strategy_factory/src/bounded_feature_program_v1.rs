@@ -1370,6 +1370,22 @@ fn validate_terminals(
         .map(|port| (port.semantic_id.as_str(), port))
         .collect();
     let mut consumers = BTreeSet::new();
+    // A lifecycle variant reaches a terminal as the semantic identity a constant carries, and only
+    // that identity reaches the host. The terminal names a lifecycle semantic of its own, so the
+    // same fact is written twice with one of the two driving behaviour; this map is what lets the
+    // terminal check require them to be the same word rather than merely the same type.
+    let variant_constants: BTreeMap<&str, &str> = proposal
+        .constants
+        .iter()
+        .filter_map(|constant| match &constant.value {
+            BoundedFeatureConstantValueV1::PositionIntentV1 { semantic_id }
+            | BoundedFeatureConstantValueV1::TargetVariantV1 { semantic_id }
+            | BoundedFeatureConstantValueV1::ProtectionVariantV1 { semantic_id } => {
+                Some((constant.constant_id.as_str(), semantic_id.as_str()))
+            }
+            _ => None,
+        })
+        .collect();
 
     for node in &proposal.nodes {
         for binding in &node.input_bindings {
@@ -1404,6 +1420,7 @@ fn validate_terminals(
             manifest.output_ports.len(),
             catalog,
             values,
+            &variant_constants,
             &mut consumers,
         )?;
     }
@@ -1413,6 +1430,7 @@ fn validate_terminals(
         manifest.output_ports.len(),
         catalog,
         values,
+        &variant_constants,
         &mut consumers,
     )?;
     let coordinate_sidecars = consumers
@@ -1470,6 +1488,7 @@ fn validate_proposal_frame(
     manifest_output_count: usize,
     catalog: PrimitiveCatalogV1,
     values: &BTreeMap<String, ValueInfo>,
+    variant_constants: &BTreeMap<&str, &str>,
     consumers: &mut BTreeSet<String>,
 ) -> Result<(), BoundedFeatureProgramErrorV1> {
     let mut used_ports = BTreeSet::new();
@@ -1513,6 +1532,31 @@ fn validate_proposal_frame(
             || !used_ports.insert(port.semantic_id.as_str())
         {
             return Err(BoundedFeatureProgramErrorV1::Terminal);
+        }
+        // A variant-typed port takes its value from a lifecycle constant and from nothing else: a
+        // node emits only fixed or boolean values, and `strategy_state_width` gives a variant no
+        // width, so no state cell can hold one. The terminal must therefore read a variant
+        // constant, and that constant's semantic identity must be the one the terminal declares.
+        // The checks above prove both words name a variant of the right type; only this one proves
+        // they name the same variant, and the constant is the word the host actually branches on.
+        // Stating it as a requirement rather than a comparison-when-present means a second producer
+        // of variant values, if one is ever added, fails here instead of skipping the check.
+        if matches!(
+            port.value_type,
+            ValueTypeV2::PositionIntentV1
+                | ValueTypeV2::TargetVariantV1
+                | ValueTypeV2::ProtectionVariantV1
+        ) {
+            let BoundedFeatureValueRefV1::Constant { constant_id } = &terminal.source else {
+                return Err(BoundedFeatureProgramErrorV1::Terminal);
+            };
+            let emitted = variant_constants
+                .get(constant_id.as_str())
+                .ok_or(BoundedFeatureProgramErrorV1::Terminal)?;
+
+            if *emitted != terminal.lifecycle_semantic_id {
+                return Err(BoundedFeatureProgramErrorV1::Terminal);
+            }
         }
         consumers.insert(source_key);
     }
@@ -3896,6 +3940,70 @@ pub(crate) mod tests {
             .default_frame
             .terminal_outputs
             .pop();
+        assert_eq!(
+            prepare_bounded_feature_program_v1(proposal, &design),
+            Err(BoundedFeatureProgramErrorV1::Terminal)
+        );
+    }
+
+    /// A lifecycle variant is written twice - the terminal declares one and the constant it reads
+    /// carries one - and only the constant reaches the host, which branches on it. Each mutation
+    /// below keeps both words the same lifecycle *type*, so every check that predates this one
+    /// still passes; the proposal is rejected only because the two words stop naming the same
+    /// variant. That is what makes these cases a positive control for the equality itself rather
+    /// than for the type checks around it.
+    #[rstest::rstest]
+    fn terminal_variant_declaration_must_name_the_constant_it_emits() {
+        let (design, proposal) = candidate();
+        assert!(prepare_bounded_feature_program_v1(proposal, &design).is_ok());
+
+        // The declaration drifts: the host would still branch on `position`, having been told
+        // `weight`. Both are `TargetVariantV1`, so the type check cannot see the difference.
+        let (design, mut proposal) = candidate();
+        for terminal in &mut proposal
+            .proposal_decision_table
+            .default_frame
+            .terminal_outputs
+        {
+            if terminal.lifecycle_semantic_id == "kernel.target.position.v1"
+                && terminal.source
+                    == (BoundedFeatureValueRefV1::Constant {
+                        constant_id: "target".into(),
+                    })
+            {
+                terminal.lifecycle_semantic_id = "kernel.target.weight.v1".into();
+            }
+        }
+        assert_eq!(
+            prepare_bounded_feature_program_v1(proposal, &design),
+            Err(BoundedFeatureProgramErrorV1::Terminal)
+        );
+
+        // The emitted value drifts instead, which is the same disagreement from the other side.
+        let (design, mut proposal) = candidate();
+        for constant in &mut proposal.constants {
+            if constant.constant_id == "target" {
+                constant.value = BoundedFeatureConstantValueV1::TargetVariantV1 {
+                    semantic_id: "kernel.target.weight.v1".into(),
+                };
+            }
+        }
+        assert_eq!(
+            prepare_bounded_feature_program_v1(proposal, &design),
+            Err(BoundedFeatureProgramErrorV1::Terminal)
+        );
+
+        // Not a target-variant quirk: the same disagreement on a position intent is rejected too.
+        let (design, mut proposal) = candidate();
+        for terminal in &mut proposal
+            .proposal_decision_table
+            .default_frame
+            .terminal_outputs
+        {
+            if terminal.lifecycle_semantic_id == "kernel.position.enter.v1" {
+                terminal.lifecycle_semantic_id = "kernel.position.exit.v1".into();
+            }
+        }
         assert_eq!(
             prepare_bounded_feature_program_v1(proposal, &design),
             Err(BoundedFeatureProgramErrorV1::Terminal)

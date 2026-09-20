@@ -108,7 +108,7 @@ where
         }
     }
 
-    pub fn scan(
+    pub async fn scan(
         &self,
         schedule: &ScheduleDefinition,
         candidate: DueSlotCandidate,
@@ -153,7 +153,7 @@ where
                     },
                 };
 
-                if let Some(receipt) = self.join_existing(&due_slot.attempt_id, &meaning)? {
+                if let Some(receipt) = self.join_existing(&due_slot.attempt_id, &meaning).await? {
                     return Ok(ScanOutcome::Terminal(Box::new(receipt)));
                 }
                 let receipt = ScannerReceipt::membership_unresolved(
@@ -162,7 +162,7 @@ where
                     unavailable,
                 )?;
                 return Ok(ScanOutcome::Terminal(Box::new(
-                    self.receipts.commit_or_join(receipt)?,
+                    self.receipts.commit_or_join(receipt).await?,
                 )));
             }
         };
@@ -177,7 +177,7 @@ where
             },
         };
 
-        if let Some(receipt) = self.join_existing(&due_slot.attempt_id, &meaning)? {
+        if let Some(receipt) = self.join_existing(&due_slot.attempt_id, &meaning).await? {
             return Ok(ScanOutcome::Terminal(Box::new(receipt)));
         }
 
@@ -246,16 +246,16 @@ where
             operational_failure,
         )?;
         Ok(ScanOutcome::Terminal(Box::new(
-            self.receipts.commit_or_join(receipt)?,
+            self.receipts.commit_or_join(receipt).await?,
         )))
     }
 
-    fn join_existing(
+    async fn join_existing(
         &self,
         attempt_id: &crate::AttemptId,
         meaning: &AttemptMeaning,
     ) -> Result<Option<CommitOutcome>, ScannerError> {
-        let Some(receipt) = self.receipts.find(attempt_id)? else {
+        let Some(receipt) = self.receipts.find(attempt_id).await? else {
             return Ok(None);
         };
 
@@ -294,22 +294,6 @@ where
             capacity,
             EvidenceSet::new(combined)?,
         ))
-    }
-}
-
-impl<L, S, M, P, R> Scanner<L, S, M, P, R>
-where
-    R: crate::ProductEdgeTerminalReceiptReadSource,
-{
-    /// Returns the Scanner-owned read capability exposed to Product Edge.
-    ///
-    /// The handle is available only when the Scanner owner has sealed the composition's terminal
-    /// store as its canonical Product Edge read source. It exposes no write operation or store
-    /// access.
-    pub const fn product_edge_terminal_receipts(
-        &self,
-    ) -> crate::ProductEdgeTerminalReceiptReader<'_, R> {
-        crate::ProductEdgeTerminalReceiptReader::new(&self.receipts)
     }
 }
 

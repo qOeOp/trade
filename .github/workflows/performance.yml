@@ -7,6 +7,9 @@ permissions: # Principle of least privilege
 on:
   push:
     branches: [nightly]
+  # `nightly` does not exist in this repository, so dispatch is the only way to reach the
+  # benchmark path that docs/developer_guide/benchmarking.md tells crate owners to opt into.
+  workflow_dispatch:
 
 jobs:
   performance-benchmarks:
