@@ -64,6 +64,7 @@ members = [
   "crates/runtime",
   "crates/risk",
   "crates/scanner",
+  "crates/scanner_custody",
   "crates/serialization",
   "crates/strategy_factory",
   "crates/strategy_factory_rd_owner_api",

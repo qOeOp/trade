@@ -1,6 +1,6 @@
 #![allow(unreachable_code)]
 
-use vibe_scanner::{ProductEdgeTerminalReceiptReadSource, ProductEdgeTerminalReceiptReader};
+use vibe_scanner_custody::{ProductEdgeTerminalReceiptReadSource, ProductEdgeTerminalReceiptReader};
 
 fn commit<R: ProductEdgeTerminalReceiptReadSource>(
     reader: ProductEdgeTerminalReceiptReader<'_, R>,
