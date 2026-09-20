@@ -51,6 +51,7 @@ pub mod config;
 pub mod data_types;
 pub mod factories;
 pub mod futures;
+pub mod futures_pit_observation_source_v1;
 pub mod pit_observation_source_v1;
 pub mod spot;
 
