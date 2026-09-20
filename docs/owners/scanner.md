@@ -167,6 +167,14 @@ calendar, time zone, time-zone rules, fold/gap, misfire, or backfill rule create
 clock continuity, or conflicting or unresolvable scope or slot evidence, creates no attempt; wall-clock retries
 cannot invent a new slot or put a new clock epoch into the stable identity.
 
+**Reading a terminal receipt back is time-independent, and must stay so.** The clock observation admission
+consumed is not part of the receipt, so a readback cannot re-run the admission's clock predicates and must not be
+changed to: a receipt that read one way today and another way tomorrow is no longer a terminal record. What a
+readback does re-derive is everything the receipt itself carries, and one invariant admission cannot reach: every
+fact in one receipt shares one due slot, so their clock epochs and Time Evidence are all equal. Admitting a
+single fact cannot see a second fact, so nothing on the admission path can check that; only the whole receipt
+coming back can.
+
 ## Decision contract
 
 - **Inputs** - one due slot, complete governed registry frontier, strategy activation conditions, required PIT

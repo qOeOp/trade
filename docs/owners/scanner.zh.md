@@ -133,6 +133,13 @@ batch `FAILED`、完整 `PROPOSED`、完整 `COMPLETED_NO_PROPOSAL`、`INSUFFICI
 变化时创建后继 definition。clock continuity 缺失，或 scope/slot 证据冲突 无法解析时，不创建 attempt；
 基于墙钟的重试不能发明新 slot，也不能把新 clock epoch 写入稳定身份。
 
+**终态回执的读回是时间无关的，而且必须保持如此。** 准入所消费的那次时钟观测不是回执的一部分，
+所以读回无法重跑准入的时钟谓词，也不得被改成重跑：一份今天这样读、明天那样读的回执，
+已经不是终态记录。读回真正重算的，是回执自身携带的一切，外加一条准入够不到的不变量：
+同一份回执里的每条 fact 共用同一个到期槽，因此它们的 clock epoch 与 Time Evidence 必须全体相等。
+准入一条 fact 时看不到第二条 fact，所以准入路径上没有任何东西能查这一条；
+只有整份回执回来之后才查得了。
+
 ## 决策契约
 
 - **输入** - 一个 due slot、完整受治理 registry frontier、策略激活条件、所需 PIT snapshot 和仅在条件
