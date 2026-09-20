@@ -81,10 +81,6 @@
   函数，它在任何地方都没有调用方；保护请求没有任何字段携带这两个引用之一；而
   `product/rd-workbench/postgres-init/10-migrate-authority-custody.sh` 对
   `public.qualification_protected_economic_policy_bundles_v1` 撤销了 `backtest_owner`。这项选择没有生产方。
-- **CURRENT_PARTIAL - 第二份 Run Result 投影：** `project_locked_exploratory_replay_result_v1` 位于
-  `crates/backtest_owner/src/result_projection/mod.rs`，它从规范 Result 字节解码回撤 Sharpe Sortino 已实现
-  PnL 手续费 滑点与收益，并且不出现在任何其他文件里。上面那条 Product Edge 交接以准确规范字节服务同一个
-  消费方。
 - **TARGET - `REPAIR_VALIDATION` 请求与结果：** 不存在任何实现。`REPAIR_VALIDATION` 与
   `RepairValidation` 不出现在 `crates/` 或 `product/` 下的任何文件里。
 - **TARGET - `SIMULATOR` 与 `BACKTEST_OPERATIONAL` 原生 repair：** 不存在 Backtest 的 repair 面。四个 Backtest
