@@ -425,6 +425,7 @@ impl<'a> Decoder<'a> {
             1 => MarketSemanticsPriceAdjustmentV1::Raw,
             2 => MarketSemanticsPriceAdjustmentV1::SplitAdjusted,
             3 => MarketSemanticsPriceAdjustmentV1::TotalReturnAdjusted,
+            4 => MarketSemanticsPriceAdjustmentV1::Unknown,
             _ => return Err(MarketSemanticsErrorV1::CodecMismatch),
         };
         let timestamp_basis = match self.u16()? {

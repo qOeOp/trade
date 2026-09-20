@@ -1965,6 +1965,19 @@ fn normalize_spot_order_status_reports(
     }
 }
 
+/// Waits for one WS setup step, failing on a reported error rather than on silence.
+///
+/// The error sender lives in the dispatch task, which breaks out of its loop when the trading
+/// stream ends. So `recv()` can return `None` here while the step itself is still succeeding, and
+/// `None` means only "no setup error will arrive" - never "a setup error arrived". Reporting the
+/// closure as a failure turned that silence into a diagnosis, and on a reconnect the success
+/// notification is in flight exactly when the previous stream is being torn down, which is how
+/// `test_ws_trading_connect_retry_succeeds_after_setup_failure` failed on main with
+/// `WS setup error channel closed`.
+///
+/// After the channel closes this stops polling that arm - re-polling a closed receiver returns
+/// `None` immediately and would spin - and lets `success` or the timeout decide, which is what the
+/// timeout is for.
 async fn wait_for_ws_setup_response(
     timeout: Duration,
     success: impl Future<Output = ()>,
@@ -1972,15 +1985,16 @@ async fn wait_for_ws_setup_response(
     timeout_message: &'static str,
 ) -> anyhow::Result<()> {
     tokio::pin!(success);
+    let mut errors_can_still_arrive = true;
 
     let result = tokio::time::timeout(timeout, async {
-        tokio::select! {
-            () = &mut success => Ok(()),
-            err = setup_errors.recv() => {
-                anyhow::bail!(
-                    "{}",
-                    err.unwrap_or_else(|| "WS setup error channel closed".to_string()),
-                )
+        loop {
+            tokio::select! {
+                () = &mut success => return Ok(()),
+                reported = setup_errors.recv(), if errors_can_still_arrive => match reported {
+                    Some(reason) => anyhow::bail!("{reason}"),
+                    None => errors_can_still_arrive = false,
+                },
             }
         }
     })
@@ -3149,6 +3163,71 @@ fn is_local_http_command_failure(err: &BinanceSpotHttpError) -> bool {
 
 #[cfg(test)]
 mod tests {
+
+    /// A closed error channel is silence, not a reported failure.
+    ///
+    /// The sender lives in the dispatch task, so it drops whenever that task ends - including
+    /// while a reconnect is succeeding. Reporting the drop as a setup error is what made
+    /// `test_ws_trading_connect_retry_succeeds_after_setup_failure` fail on main, and the race
+    /// that exposed it is not reproducible on demand. This drives the same decision directly.
+    #[tokio::test]
+    async fn test_ws_setup_wait_ignores_a_closed_error_channel_and_takes_the_success() {
+        let notify = std::sync::Arc::new(tokio::sync::Notify::new());
+        let (setup_error_tx, mut setup_error_rx) = tokio::sync::mpsc::unbounded_channel();
+
+        let signal = notify.clone();
+        tokio::spawn(async move {
+            // Close first, notify after: the order the failing reconnect saw.
+            drop(setup_error_tx);
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            signal.notify_waiters();
+        });
+
+        wait_for_ws_setup_response(
+            Duration::from_secs(5),
+            notify.notified(),
+            &mut setup_error_rx,
+            "timed out",
+        )
+        .await
+        .expect("a dropped sender reports no error, so the success notification decides");
+    }
+
+    /// A reported error is still a failure, and still names itself.
+    #[tokio::test]
+    async fn test_ws_setup_wait_reports_the_error_it_was_sent() {
+        let notify = std::sync::Arc::new(tokio::sync::Notify::new());
+        let (setup_error_tx, mut setup_error_rx) = tokio::sync::mpsc::unbounded_channel();
+        setup_error_tx.send("auth rejected".to_string()).unwrap();
+
+        let error = wait_for_ws_setup_response(
+            Duration::from_secs(5),
+            notify.notified(),
+            &mut setup_error_rx,
+            "timed out",
+        )
+        .await
+        .expect_err("a sent error must still fail the setup step");
+        assert_eq!(error.to_string(), "auth rejected");
+    }
+
+    /// Silence on both arms is the timeout's job, and closing the channel must not shortcut it.
+    #[tokio::test]
+    async fn test_ws_setup_wait_still_times_out_after_the_channel_closes() {
+        let notify = std::sync::Arc::new(tokio::sync::Notify::new());
+        let (setup_error_tx, mut setup_error_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        drop(setup_error_tx);
+
+        let error = wait_for_ws_setup_response(
+            Duration::from_millis(50),
+            notify.notified(),
+            &mut setup_error_rx,
+            "WS session authentication timed out",
+        )
+        .await
+        .expect_err("no success and no error must end in the timeout, not in a spin");
+        assert_eq!(error.to_string(), "WS session authentication timed out");
+    }
     use rstest::rstest;
     use vibe_common::messages::ExecutionEvent;
     use vibe_core::time::get_atomic_clock_realtime;

@@ -28,4 +28,14 @@ vibe-strategy-factory = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true }
 trybuild = { workspace = true }
+# The ordered PostgreSQL gate binds protected V3 Results to the Market Data sealed-acceptance
+# Shared Time chain, and this crate takes the feature only for its tests.
+# Measured on main at 2026-09-19: every enabler is a test or gate path - CI's
+# `RUST_TEST_EXTRA_FEATURES`, the Makefile's chain feature set, the ordered chain script, and the
+# toolchain proofs - and no deployed binary enables it. That last part is recent rather than
+# permanent: #646 removed `dashboard-composer-readback` from the Dashboard read API, which until
+# then did enable it in the image. Re-measure before repeating the claim.
+vibe-data = { workspace = true, features = [
+  "sealed-strategy-input-acceptance",
+] }
 vibe-testkit = { workspace = true, features = ["postgres"] }

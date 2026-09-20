@@ -101,8 +101,13 @@
   把这一点钉成设计意图而非疏漏。因此本切片还包含使"从外部读回"成为可能的那一件事：`crates/scanner` 上一条
   校验式重建入口，它解析规范字节并拒绝重建不出来的东西，形状与本仓库已有的 `parse_untrusted_grant_envelope`
   相同。回执上的 `serde::Deserialize`，以及域核心里的数据库依赖，都被排除在外。
-  这一切片是有界的，因为两端都已经作为 port 存在于 `crates/scanner` 内部，
-  且两个名字在该 crate 之外都没有任何引用，所以它不等待任何尚不存在的缝。
+  这一切片在代码面上是有界的：两端都已经作为 port 存在于 `crates/scanner` 内部，
+  且两个名字在该 crate 之外都没有任何引用。但它今天还建不了，因为平台面是空的：
+  本 Owner 在两条供给路径上都没有数据库角色、没有 schema，`CanonicalOwnerTestRoleV1`
+  也没有 Scanner 变体，所以写不出任何链路条目，而链路条目正是本准入的验收。
+  因此建那个存储要等 `scanner_owner` 与它的 schema 同时存在于 `postgres-init` 那条路径
+  与 `scripts/ci/test-rd-owner-postgres.bash` 那条路径，并等 testkit 的角色表与 URL 表带上它。
+  那条重建入口不等待上述任何一样。
   **NOT_ADMITTED：** 调度器触发、sealed 来源 Owner 准入的生产构造器、任何 `StrategyLoader` `MarketSnapshot`
   或 Capacity View 实现、到 Governance 的回执交接、终态回执以外的任何 Scanner 事实，以及一切生产效应
   部署切换与真实交易。
@@ -132,6 +137,18 @@ batch `FAILED`、完整 `PROPOSED`、完整 `COMPLETED_NO_PROPOSAL`、`INSUFFICI
 解析到同一 attempt 与终态回执。cadence calendar time zone 时区规则 fold/gap misfire 或 backfill rule
 变化时创建后继 definition。clock continuity 缺失，或 scope/slot 证据冲突 无法解析时，不创建 attempt；
 基于墙钟的重试不能发明新 slot，也不能把新 clock epoch 写入稳定身份。
+
+**终态回执的读回是时间无关的，而且必须保持如此。** 准入所消费的那次时钟观测不是回执的一部分，
+所以读回无法重跑准入的时钟谓词，也不得被改成重跑：一份今天这样读、明天那样读的回执，
+已经不是终态记录。读回真正重算的，是那些两侧都仍然由回执持有的检查：source、frontier、scope
+与 requirement 各项检查、六条 market cross-cut 与一条 capacity cross-cut，
+以及由保留下来的 boundary 决定的到期时刻。
+一个回执携带、而它的对侧不携带的字段，比如每条 fact 的观测时刻，不被重查；
+为它导出一个替代的对侧，会让这项检查的强度取决于那次扫描恰好需要什么。
+读回还能够到一条准入够不到的不变量：同一份回执里的每条 fact 共用同一个到期槽，
+因此它们的 clock epoch 与 Time Evidence 必须全体相等。
+准入一条 fact 时看不到第二条 fact，所以准入路径上没有任何东西能查这一条；
+只有整份回执回来之后才查得了。
 
 ## 决策契约
 

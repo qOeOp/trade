@@ -2615,6 +2615,62 @@ mod v2_sealing_tests {
         );
     }
 
+    /// Pins the schema 3 identity's byte order against the consumer's, through one shared file.
+    ///
+    /// The envelope this identity is built from names its payload `view`, where the v2 envelope
+    /// names it `value`. Nothing in either language distinguishes a digest of the right data under
+    /// the wrong key from the right one, so the vectors carry the identity that mistake produces
+    /// and both sides assert they do not compute it.
+    #[rstest]
+    fn exploration_research_view_identity_matches_the_shared_vectors() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../product/rd-owner-client/fixtures/research_view_identity_vectors_v4.json");
+        let vectors: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(&path).expect("the shared identity vectors"),
+        )
+        .expect("the shared identity vectors parse");
+        let view: ResearchViewV1 =
+            serde_json::from_value(vectors["view"].clone()).expect("the pinned View deserializes");
+        let initial: ResearchViewV1 = serde_json::from_value(vectors["initial_view"].clone())
+            .expect("the pinned initial View deserializes");
+
+        // The vector is a View this side accepts, not merely JSON that happens to hash.
+        crate::rd_owner_postgres_custody::validate_historical_view(&view, &initial)
+            .expect("the pinned View passes the schema 3 validator");
+
+        let identity = vectors["identity"].as_str().expect("the pinned identity");
+        assert_eq!(
+            canonical_research_view_identity_v4(&view).expect("the identity derives"),
+            identity
+        );
+        assert_eq!(view.projection_identity, identity);
+
+        let variant = |name: &str| {
+            vectors[name]["canonical_bytes"]
+                .as_str()
+                .expect("the variant bytes")
+                .to_owned()
+        };
+        let variant_identity = |name: &str| {
+            vectors[name]["identity"]
+                .as_str()
+                .expect("the variant identity")
+                .to_owned()
+        };
+
+        for name in ["order_sensitivity", "envelope_key_sensitivity"] {
+            assert_ne!(variant_identity(name), identity, "{name} must differ");
+            assert_ne!(variant(name), vectors["canonical_bytes"].as_str().unwrap());
+        }
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&variant("order_sensitivity"))
+                .expect("transposed parses")["view"],
+            serde_json::from_str::<serde_json::Value>(vectors["canonical_bytes"].as_str().unwrap())
+                .expect("canonical parses")["view"],
+            "the transposed vector must carry the same data",
+        );
+    }
+
     #[rstest]
     fn owner_projection_becomes_stale_after_its_valid_through_cut() {
         let view = project_research_view_at(&research_view(1_000, 601_000), 601_001);
@@ -2668,6 +2724,75 @@ mod v2_sealing_tests {
         assert_ne!(
             canonical_research_view_identity_v2(&foreign_source),
             identity
+        );
+    }
+
+    /// Pins this side's canonical byte order against the consumer's, through one file both read.
+    ///
+    /// The Dashboard's consumer verifies a View by deriving this identity itself, so two
+    /// independent implementations have to agree. The duplication is the check, not an oversight:
+    /// a single shared implementation would remove it along with the verification. What the
+    /// duplication lacks on its own is a signal, because a field reordered here makes the consumer
+    /// reject every View while everything on this side still passes. Reading the same vectors from
+    /// here turns that into a failure where the change is made.
+    #[rstest]
+    fn research_view_identity_matches_the_shared_vectors() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../product/rd-owner-client/fixtures/research_view_identity_vectors_v1.json");
+        let vectors: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(&path).expect("the shared identity vectors"),
+        )
+        .expect("the shared identity vectors parse");
+        let view: ResearchViewV1 =
+            serde_json::from_value(vectors["view"].clone()).expect("the pinned View deserializes");
+
+        let identity = vectors["identity"].as_str().expect("the pinned identity");
+        assert_eq!(canonical_research_view_identity_v2(&view), identity);
+        assert_eq!(view.projection_identity, identity);
+
+        let canonical_bytes = vectors["canonical_bytes"]
+            .as_str()
+            .expect("the pinned canonical bytes");
+        assert_eq!(
+            serde_json::to_string(&ResearchViewIdentityEnvelopeV2 {
+                domain: "rd.research-view.identity.v2",
+                value: ResearchViewIdentityMeaningV2 {
+                    schema_version: view.schema_version,
+                    request_identity: &view.request_identity,
+                    trusted_principal: &view.trusted_principal,
+                    authorized_scope: &view.authorized_scope,
+                    authorization_policy_cut: &view.authorization_policy_cut,
+                    source_owner: &view.source_owner,
+                    source_cut: &view.source_cut,
+                    phase: &view.phase,
+                    intent_identity: &view.intent_identity,
+                    source_frontier: &view.source_frontier,
+                    attempt_identity: view.attempt_identity.as_deref(),
+                    artifact_identity: view.artifact_identity.as_deref(),
+                    build_receipt_identity: view.build_receipt_identity.as_deref(),
+                    artifact_review_identity: view.artifact_review_identity.as_deref(),
+                },
+            })
+            .expect("the identity meaning serializes"),
+            canonical_bytes,
+        );
+
+        // A vector that only maps an input to an identity proves the mapping exists. It says
+        // nothing about the field order that produced it, and the order is what drifts unseen.
+        let transposed_bytes = vectors["order_sensitivity"]["canonical_bytes"]
+            .as_str()
+            .expect("the transposed bytes");
+        assert_ne!(transposed_bytes, canonical_bytes);
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(transposed_bytes).expect("transposed parses"),
+            serde_json::from_str::<serde_json::Value>(canonical_bytes).expect("canonical parses"),
+            "the transposed vector must carry the same data",
+        );
+        assert_ne!(
+            vectors["order_sensitivity"]["identity"]
+                .as_str()
+                .expect("the transposed identity"),
+            identity,
         );
     }
 

@@ -431,6 +431,18 @@ already has the closed typed Market Semantics value described below. Source Bind
 normalization and meaning strings only as untrusted source claims; a Source Binding admission, string equality or
 digest carried by PIT or Instrument Master does not by itself authenticate typed Market Semantics.
 
+**A fact's granularity is the Source Binding, not the instrument and not the market.**
+`MarketSemanticsFactSubmissionV1` carries exactly a Source Binding locator, a PIT snapshot locator and the typed
+value; it carries no coordinate, and the compatibility scope a submission resolves against is one the Owner
+derives from the binding. One binding therefore states one price adjustment. A vendor that covers several
+markets under different adjustment rules - one market published with adjustment factors and another published
+raw because the vendor issues no factor series for it - has two ways to be stated and only two: it is admitted
+as one Source Binding per market, each with its own fact, or it declares for one of those markets an adjustment
+rule it does not hold. **The second is the same unheld assertion `UNKNOWN` exists to remove, relocated from the
+value to the binding.** Nothing in this document requires the split today, and requiring it would constrain
+every future source, so it is recorded here as a known limit rather than decided by the admission of any one
+source.
+
 **CURRENT:** Market Data has one standalone `MarketSemanticsFactV1` authority foundation. Its first fixed consumer is the
 Strategy Input Binding Registry; `ReplayMarketFactsV2` later consumes the same Owner readback as a deterministic
 projection. An untrusted proposal may carry only its request identity and meaning, stable correlation, claimed
@@ -469,9 +481,15 @@ standalone Owner readback.
 ### Typed fact, time and correction topology
 
 The closed version-1 value is exactly: non-zero normalization identity `[u8; 32]`; price adjustment `u16BE` with
-`1 RAW`, `2 SPLIT_ADJUSTED` or `3 TOTAL_RETURN_ADJUSTED`; timestamp basis `u16BE` with `1 EVENT_EFFECTIVE`,
-`2 INTERVAL_OPEN` or `3 INTERVAL_CLOSE`; non-zero price-unit identity `[u8; 32]`; and non-zero size-unit identity
-`[u8; 32]`. Zero and every unlisted tag are unsupported. Unit identities name Owner-registry meanings; they are
+`1 RAW`, `2 SPLIT_ADJUSTED`, `3 TOTAL_RETURN_ADJUSTED` or `4 UNKNOWN`; timestamp basis `u16BE` with
+`1 EVENT_EFFECTIVE`, `2 INTERVAL_OPEN` or `3 INTERVAL_CLOSE`; non-zero price-unit identity `[u8; 32]`; and non-zero
+size-unit identity `[u8; 32]`. Zero and every unlisted tag are unsupported.
+
+`4 UNKNOWN` is the submitter stating that the source's adjustment rule is not known to it. It is a declaration,
+never a fallback: an adjustment string this Owner does not recognise is an invalid submission and is refused,
+exactly as before. A source whose rule is unknown must say so; it must not be recorded as `RAW` because `RAW` was
+the only available answer. A fact carrying `4 UNKNOWN` has no replay representation and is refused there, because a
+replay compares prices and cannot do so across an undeclared caliber. Unit identities name Owner-registry meanings; they are
 not unit strings, currency defaults, scale guesses or Instrument Master increment fields.
 
 Each immutable fact binds one Owner-registry compatibility-scope identity, an optional exact predecessor, one

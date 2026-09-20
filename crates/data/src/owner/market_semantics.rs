@@ -34,6 +34,13 @@ pub(crate) enum MarketSemanticsPriceAdjustmentV1 {
     Raw = 1,
     SplitAdjusted = 2,
     TotalReturnAdjusted = 3,
+    /// The submitter states that the source's adjustment rule is not known to it.
+    ///
+    /// This is a declaration, never a fallback. An adjustment string this Owner does not recognise
+    /// stays an invalid submission and is refused; only the exact tag `UNKNOWN` reaches this
+    /// variant. A source whose rule is unknown must say so rather than be recorded as `Raw`
+    /// because `Raw` was the only available answer.
+    Unknown = 4,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
