@@ -136,12 +136,17 @@ probe_endpoint "fapi.binance.com (the USD-M host)" \
 # proof below would leave this script green while running nothing. nextest refuses an empty
 # selection with `error: no tests to run` and a non-zero exit.
 set +e
+# Both proofs share one store, so they run one at a time. Each reads the Owner's decision cut
+# after admitting its own binding, and a cut read across another admission is a cut for a head that
+# has already moved. `--no-capture` implies a single test thread today, but stating it keeps that
+# an intent rather than a consequence of an unrelated flag.
 cargo nextest run --manifest-path crates/adapters/binance/Cargo.toml \
   --test market_data_end_to_end \
   --cargo-profile "${CARGO_CI_PROFILE:-nextest}" \
   --run-ignored all \
   --no-capture \
-  -E 'test(=market_data_answers_one_frozen_request_without_a_credential)'
+  --test-threads 1 \
+  -E 'test(=market_data_answers_one_frozen_request_without_a_credential) + test(=market_data_answers_one_frozen_perpetual_request_without_a_credential)'
 test_status=$?
 set -e
 
