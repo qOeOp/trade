@@ -196,6 +196,7 @@ async function waitForBrowserExpression(browser, expression, timeoutMs = 15_000)
       })(),
       reasons: [...document.querySelectorAll('details code, .unavailable-state code')]
         .map((code) => code.textContent),
+      faults: globalThis.__calendarFaults?.slice(-8) ?? null,
       body: document.body?.innerText.slice(0, 1_500) ?? '',
     }))()`,
     returnByValue: true,
@@ -375,6 +376,26 @@ test(testName, { skip: !url }, async () => {
       await browser.send("Page.enable");
       await browser.send("Page.bringToFront");
       await browser.send("Input.setIgnoreInputEvents", { ignore: false });
+      // A timeout below can report what the page held but never why: nothing here could observe a
+      // handler that threw or a hydration that failed, so the one defect this suite exists to catch
+      // - a control that renders but does not act - arrives looking exactly like a slow render.
+      // This has to run before the document does, or it misses precisely those faults.
+      await browser.send("Page.addScriptToEvaluateOnNewDocument", {
+        source: `(() => {
+          const faults = [];
+          globalThis.__calendarFaults = faults;
+          const at = (event) => " @ " + (event.filename ?? "?") + ":" + (event.lineno ?? 0);
+          addEventListener("error", (event) =>
+            faults.push("error: " + (event.message ?? event.error) + at(event)));
+          addEventListener("unhandledrejection", (event) =>
+            faults.push("rejection: " + event.reason));
+          const forward = console.error.bind(console);
+          console.error = (...args) => {
+            faults.push("console: " + args.map((arg) => String(arg?.message ?? arg)).join(" "));
+            forward(...args);
+          };
+        })()`,
+      });
       await browser.send("Page.navigate", { url: currentSchedulesUrl });
       const configuredOperations = JSON.stringify(descriptors.map((descriptor) => descriptor.operation_id));
       await waitForBrowserExpression(browser,
@@ -543,8 +564,24 @@ test(testName, { skip: !url }, async () => {
       })()`);
       assert.equal(overflowOpened, true, "dense schedule overflow is keyboard focusable");
       await dispatchBrowserKey(browser, "Enter");
+      // Enter failing to open the dialog has two causes this suite must not report as one: the key
+      // never reached the button, or the button's handler never opened anything. Only the second is
+      // a defect in the page. The dump alone cannot separate them - it shows a focused, enabled
+      // button either way - so drive the same handler without the key path before failing.
       await waitForBrowserExpression(browser,
-        "Boolean(document.querySelector('dialog[open][aria-label$=\"UTC\"]'))");
+        "Boolean(document.querySelector('dialog[open][aria-label$=\"UTC\"]'))")
+        .catch(async (timedOut) => {
+          const probe = await readBrowserValue(browser, `(() => {
+            const button = document.querySelector('button[aria-label^="Show "][aria-label*=" more schedule groups on "]');
+            button?.click();
+            return { clicked: Boolean(button), hadFocus: document.hasFocus() };
+          })()`).catch(() => null);
+          await delay(500);
+          const openedByClick = await readBrowserValue(browser,
+            `Boolean(document.querySelector('dialog[open][aria-label$="UTC"]'))`).catch(() => null);
+          throw new Error(`${timedOut.message}; enter probe: ${
+            JSON.stringify({ ...probe, openedByClick })}`);
+        });
       const inspection = await readBrowserValue(browser, `(() => {
         const dialog = document.querySelector('dialog[open]');
         return {
