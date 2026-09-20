@@ -211,8 +211,8 @@ async function readBrowserValue(browser, expression) {
   return result.result?.value;
 }
 
-// Both keyboard paths into the schedule inspection dialog reach it by pressing Enter on a focused
-// trigger, and a synthesized key is not always delivered: on Linux this step failed intermittently
+// Every keyboard step in this suite presses Enter on a focused control and waits for what that
+// should do, and a synthesized key is not always delivered: on Linux this step failed intermittently
 // with a focused, enabled button, no page faults, and a dialog that opened the moment the same
 // element was clicked. Waiting on the dialog alone cannot tell an undelivered key from a trigger
 // that does not act, so it reported a harness fault as a defect in the page.
@@ -220,7 +220,7 @@ async function readBrowserValue(browser, expression) {
 // Observe the key instead of assuming it. A delivery that never happened is retried; a key that did
 // reach the trigger and still opened nothing is the page's defect and fails, naming the element the
 // key actually arrived at and whether clicking it works.
-async function pressEnterToOpenDialog(browser, expression, attempts = 3) {
+async function pressEnterAndWaitFor(browser, expression, attempts = 3) {
   let arrivedAt = null;
   for (let attempt = 1; attempt <= attempts && !arrivedAt; attempt += 1) {
     await readBrowserValue(browser, `(() => {
@@ -578,8 +578,7 @@ test(testName, { skip: !url }, async () => {
         };
       })()`);
       assert.deepEqual(keyboardTarget, { focused: true, tagName: "BUTTON", tabIndex: 0 });
-      await dispatchBrowserKey(browser, "Enter");
-      await waitForBrowserExpression(browser,
+      await pressEnterAndWaitFor(browser,
         `Boolean(document.querySelector('[data-slot="calendar-day-view"]'))
           && document.querySelector('button[aria-label="Day view"]')?.getAttribute('aria-pressed') === 'true'`);
 
@@ -612,7 +611,7 @@ test(testName, { skip: !url }, async () => {
         return Boolean(button && document.activeElement === button);
       })()`);
       assert.equal(overflowOpened, true, "dense schedule overflow is keyboard focusable");
-      await pressEnterToOpenDialog(browser,
+      await pressEnterAndWaitFor(browser,
         "Boolean(document.querySelector('dialog[open][aria-label$=\"UTC\"]'))");
       const inspection = await readBrowserValue(browser, `(() => {
         const dialog = document.querySelector('dialog[open]');
@@ -659,7 +658,7 @@ test(testName, { skip: !url }, async () => {
       assert.equal(calendarRunOrigin.focused, true, JSON.stringify(calendarRunOrigin));
       assert.ok(calendarRunOrigin.width > 0 && calendarRunOrigin.height > 0, JSON.stringify(calendarRunOrigin));
       assert.equal(calendarRunOrigin.disabled, false);
-      await pressEnterToOpenDialog(browser,
+      await pressEnterAndWaitFor(browser,
         "Boolean(document.querySelector('dialog[open][aria-label$=\"UTC\"]'))");
       const calendarRunSelected = await readBrowserValue(browser, `(() => {
         const option = document.querySelector('dialog[open] option[data-run-identity="${previewRunIdentity}"]');
