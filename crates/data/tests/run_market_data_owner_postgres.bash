@@ -165,15 +165,25 @@ for test_selection in "${market_data_owner_postgres_tests[@]}"; do
   ordinal=$((ordinal + 1))
   provision_database "${database_prefix}_${ordinal}" "${marker_prefix}-${ordinal}"
 
+  # Selection runs under nextest, not `cargo test --exact`, because the two differ on the case that
+  # matters: a name that no longer exists. `cargo test --exact missing_name` prints `0 passed` and
+  # exits 0, so renaming a proof would leave this gate green while running nothing at all. nextest
+  # refuses an empty selection with `error: no tests to run` and a non-zero exit, which makes the
+  # gate fail closed by construction rather than by a wrapper someone has to remember to keep.
   set +e
-  cargo test --manifest-path crates/data/Cargo.toml \
-    "$test_selection" \
-    --lib -- --ignored --exact
+  cargo nextest run \
+    --manifest-path crates/data/Cargo.toml \
+    --lib \
+    --cargo-profile "${CARGO_CI_PROFILE:-nextest}" \
+    --run-ignored all \
+    -E "test(=${test_selection})"
   test_status=$?
   set -e
 
   if [[ "$test_status" -ne 0 ]]; then
     echo "market-data proof ${ordinal}/${#market_data_owner_postgres_tests[@]} failed: ${test_selection}" >&2
+    echo "  a non-zero exit here is either a failing proof or a selection that matched nothing;" >&2
+    echo "  nextest prints 'error: no tests to run' for the second, which means the name is stale" >&2
     exit "$test_status"
   fi
 done

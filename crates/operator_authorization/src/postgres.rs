@@ -332,6 +332,31 @@ pub struct OperatorAuthorizationIssuerPostgresV1 {
     pool: PgPool,
 }
 
+/// Every private relation this Owner's custody lives in.
+///
+/// The legacy authorization tables are spelled out because the deployment
+/// creates them itself; each grant kind's four are derived from its own schema,
+/// so registering a third kind extends admission without anyone remembering to.
+/// Before this, admission proved the four legacy relations and said nothing
+/// about the grant kinds: a store carrying only the legacy tables was admitted
+/// and then failed on its first grant write with a missing relation instead of
+/// refusing as an unadmitted topology.
+fn admitted_relations() -> Vec<String> {
+    use crate::{AutonomousPolicyAuthorizationContentV1, PortfolioResourceGrantContentV1};
+
+    let mut relations = vec![
+        "operator_authorization_issuances_v1".to_string(),
+        "operator_authorization_revocation_frontiers_v1".to_string(),
+        "operator_authorization_revocation_heads_v1".to_string(),
+        "operator_authorization_owner_outbox_v1".to_string(),
+    ];
+    relations.extend(grant::relation_names_of::<PortfolioResourceGrantContentV1>());
+    relations.extend(grant::relation_names_of::<
+        AutonomousPolicyAuthorizationContentV1,
+    >());
+    relations
+}
+
 impl OperatorAuthorizationIssuerPostgresV1 {
     pub async fn connect(database_url: &str) -> Result<Self, OperatorAuthorizationError> {
         let pool = PgPool::connect(database_url).await.map_err(storage)?;
@@ -373,23 +398,19 @@ impl OperatorAuthorizationIssuerPostgresV1 {
                        WHERE membership.member = role.oid
                     )
                     AND (
-                      SELECT pg_catalog.count(*) = 4
+                      SELECT pg_catalog.count(*) = pg_catalog.array_length($1::pg_catalog.text[], 1)
                         FROM pg_catalog.pg_class relation
                         JOIN pg_catalog.pg_namespace namespace
                           ON namespace.oid = relation.relnamespace
                        WHERE namespace.nspname = 'operator_authorization_private'
-                         AND relation.relname = ANY(ARRAY[
-                           'operator_authorization_issuances_v1',
-                           'operator_authorization_revocation_frontiers_v1',
-                           'operator_authorization_revocation_heads_v1',
-                           'operator_authorization_owner_outbox_v1'
-                         ]::pg_catalog.text[])
+                         AND relation.relname = ANY($1::pg_catalog.text[])
                          AND relation.relkind = 'r'
                          AND relation.relowner = pg_catalog.to_regrole('operator_authorization_owner')::oid
                     )
                FROM pg_catalog.pg_roles role
               WHERE role.rolname = current_user",
         )
+        .bind(admitted_relations())
         .fetch_one(&pool)
         .await
         .map_err(storage)?;
@@ -409,6 +430,28 @@ impl OperatorAuthorizationIssuerPostgresV1 {
         let owner = Self { pool };
         owner.prepare_expired_manifest_recovery_schema().await?;
         Ok(owner)
+    }
+
+    /// Creates this Owner's private relations and their grants once, then
+    /// disconnects.
+    ///
+    /// Issuing a grant is not provisioning. `connect` runs this on every call
+    /// because nothing else did: the deployment's
+    /// `10-migrate-authority-custody.sh` creates the schema and the four legacy
+    /// relations, and no step ever created the grant kinds' twelve. The result
+    /// was that whichever process connected first created them, and that every
+    /// later connection re-issued the same `GRANT`, so the honest answer to who
+    /// last changed a privilege here was "whoever last ran the tool".
+    ///
+    /// This runs after `authority-custody-migrate`, not before: `migrate`
+    /// assumes `operator_authorization_private` already exists, and that schema
+    /// is created by that step.
+    pub async fn materialize_schema(database_url: &str) -> Result<(), OperatorAuthorizationError> {
+        let pool = PgPool::connect(database_url).await.map_err(storage)?;
+        let owner = Self { pool };
+        owner.migrate().await?;
+        owner.pool.close().await;
+        Ok(())
     }
 
     #[cfg(test)]
@@ -4347,6 +4390,31 @@ mod tests {
         .await
         .unwrap();
         assert!(executable);
+
+        // Who may read this kind, stated per role rather than only for whoever
+        // this connection happens to be. `governance_writer` is the reason the
+        // kind exists: Strategy Governance binds one of these to every unattended
+        // lifecycle decision. The negative rows matter as much - a grant with no
+        // one excluded proves nothing about what the grant withholds.
+        for (role, expected) in [
+            ("product_edge_owner", true),
+            ("operator_authorization_writer", true),
+            ("governance_writer", true),
+            ("rd_owner", false),
+            ("qualification_writer", false),
+        ] {
+            let executable: bool = sqlx::query_scalar(
+                "SELECT has_function_privilege($1::name, to_regprocedure('operator_authorization_api.lock_current_autonomous_policy_authorization_v1(text,text)'), 'EXECUTE')",
+            )
+            .bind(role)
+            .fetch_one(restarted.pool())
+            .await
+            .unwrap();
+            assert_eq!(
+                executable, expected,
+                "unexpected autonomous policy authorization ACL for {role}"
+            );
+        }
         assert!(!private_usage);
 
         for table in [
@@ -5232,7 +5300,12 @@ mod tests {
         let rollback_future = async move { rollback_owner.revoke(rollback_proposal).await };
 
         let rollback_revoke = tokio::spawn(rollback_future);
-        tokio::task::yield_now().await;
+        wait_for_row_lock(
+            owner.pool(),
+            "operator_authorization_writer",
+            "%operator_authorization_issuances_v1%FOR UPDATE%",
+        )
+        .await;
         assert!(!rollback_revoke.is_finished());
         rollback_holder.rollback().await.unwrap();
         tokio::time::timeout(Duration::from_secs(5), rollback_revoke)

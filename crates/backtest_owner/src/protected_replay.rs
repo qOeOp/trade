@@ -9,9 +9,9 @@ use vibe_backtest_owner_contracts::{CanonicalDigestV2, OpaqueIdentityV2};
 use vibe_backtest_owner_contracts::{
     DiagnosticCategoryV2, PROTECTED_REPLAY_BINDING_COUNT_V1, ProtectedCellApplicabilityEvidenceV3,
     ProtectedCellApplicabilityObservationV3, ProtectedConsumedInputLocatorV1,
-    ProtectedDiagnosticEvidenceV2, ProtectedEconomicMeasurementV1,
-    ProtectedEvaluationComparisonRuleV1, ProtectedEvaluationEpochSuccessorProofV1,
-    ProtectedEvaluationStageV1, ProtectedEvaluationTimeEvidenceV1, ProtectedReplayBindingFieldV1,
+    ProtectedDiagnosticEvidenceV2, ProtectedEvaluationComparisonRuleV1,
+    ProtectedEvaluationEpochSuccessorProofV1, ProtectedEvaluationStageV1,
+    ProtectedEvaluationTimeEvidenceV1, ProtectedReplayBindingFieldV1,
     ProtectedReplayReconciliationAtomV1, ProtectedReplayRequestDtoV1, ProtectedReplayRequestDtoV2,
     ProtectedReplayRequestSetSealDtoV1, ProtectedReplayResultDtoV1, ProtectedReplayResultDtoV2,
     ProtectedReplayResultDtoV3, ProtectedResultOutcomeLocatorV1, ReconciliationStatusV2,
@@ -19,6 +19,8 @@ use vibe_backtest_owner_contracts::{
     protected_evaluation_time_evidence_digest_v1,
 };
 use vibe_data::owner::shared_time_evidence::{ClockHeadComparisonRule, ClockHeadSuccessorReadback};
+
+use crate::protected_economic_measurement::SealedProtectedEconomicMeasurementV1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ProtectedReplayOwnerErrorV1 {
@@ -52,7 +54,12 @@ pub struct ProtectedReplayResultProposalV3 {
     pub diagnostic_evidence: Vec<ProtectedDiagnosticEvidenceV2>,
     pub applicability_evidence: ProtectedCellApplicabilityEvidenceV3,
     pub protected_outcome: ProtectedResultOutcomeLocatorV1,
-    pub protected_economic_measurement: Option<ProtectedEconomicMeasurementV1>,
+    /// The measurement this attempt's own canonical Backtest result produced, when the cell was
+    /// applicable and no execution defect preempted economics.
+    ///
+    /// It is a sealed value with no public constructor: a caller can choose to offer one or not,
+    /// but cannot author the number inside it.
+    pub protected_economic_measurement: Option<SealedProtectedEconomicMeasurementV1>,
     pub time_successor: ClockHeadSuccessorReadback,
 }
 
@@ -97,7 +104,7 @@ pub(crate) struct ProtectedReplayResultDraftV3 {
     pub(crate) diagnostic_evidence: Vec<ProtectedDiagnosticEvidenceV2>,
     pub(crate) applicability_evidence: ProtectedCellApplicabilityEvidenceV3,
     pub(crate) protected_outcome: ProtectedResultOutcomeLocatorV1,
-    pub(crate) protected_economic_measurement: Option<ProtectedEconomicMeasurementV1>,
+    pub(crate) protected_economic_measurement: Option<SealedProtectedEconomicMeasurementV1>,
     pub(crate) time_successor: ClockHeadSuccessorReadback,
 }
 
@@ -548,7 +555,8 @@ pub(crate) fn commit_protected_owner_result_v3(
         return Err(ProtectedReplayOwnerErrorV1::InvalidResult);
     }
 
-    if let Some(measurement) = &draft.protected_economic_measurement {
+    if let Some(sealed) = &draft.protected_economic_measurement {
+        let measurement = sealed.measurement();
         measurement
             .validate()
             .map_err(|_| ProtectedReplayOwnerErrorV1::InvalidResult)?;
@@ -567,6 +575,7 @@ pub(crate) fn commit_protected_owner_result_v3(
             || measurement.result_time_evidence_digest
                 != protected_evaluation_time_evidence_digest_v1(&result_time_evidence)
                     .map_err(|_| ProtectedReplayOwnerErrorV1::InvalidResult)?
+            || measurement.decisive_evidence.digest != *sealed.canonical_result_digest()
         {
             return Err(ProtectedReplayOwnerErrorV1::InvalidResult);
         }
@@ -595,7 +604,9 @@ pub(crate) fn commit_protected_owner_result_v3(
         diagnostic_evidence: draft.diagnostic_evidence,
         applicability_evidence: draft.applicability_evidence,
         protected_outcome: draft.protected_outcome,
-        protected_economic_measurement: draft.protected_economic_measurement,
+        protected_economic_measurement: draft
+            .protected_economic_measurement
+            .map(|sealed| sealed.measurement().clone()),
         request_time_evidence_digest,
         result_time_evidence,
     };
@@ -655,7 +666,7 @@ pub(crate) fn commit_protected_owner_result_proposal_v3(
     )
 }
 
-fn result_time_evidence(
+pub(crate) fn result_time_evidence(
     readback: &ClockHeadSuccessorReadback,
 ) -> ProtectedEvaluationTimeEvidenceV1 {
     let handoff = readback.handoff();

@@ -128,7 +128,7 @@ test("Runs v2 keeps summary, filters, and pages on one fail-closed PostgreSQL cu
 
     await pool.query(`WITH generated AS (
         SELECT sequence, md5('run-list-retention-' || sequence::text) AS identity_hash
-          FROM generate_series(1, 509) AS sequence
+          FROM generate_series(1, 508) AS sequence
       )
       INSERT INTO dashboard_operation_runs_v1 (
         run_identity, schema_version, operation_id, channel, run_kind, trigger_kind, state,
@@ -147,12 +147,16 @@ test("Runs v2 keeps summary, filters, and pages on one fail-closed PostgreSQL cu
              clock_timestamp() - interval '2 days' - sequence * interval '1 second',
              clock_timestamp() + interval '5 days', 'OWNER_AVAILABLE'
         FROM generated`);
+    // Exactly 512 dependency runs exist now, which fills the retention limit without exceeding
+    // it: every row is inside the view and the cut is still complete.
     const retainedDependencies = await gateway.read({ kind: "dependencies", pageSize: 25 });
-    assert.equal(retainedDependencies.filtered_total, 513);
+    assert.equal(retainedDependencies.completeness, "complete");
+    assert.equal(retainedDependencies.retention_limit, 512);
+    assert.equal(retainedDependencies.filtered_total, 512);
     assert.equal(retainedDependencies.total_pages, 21);
     assert.equal(retainedDependencies.runs.length, 25);
     assert.deepEqual(retainedDependencies.summary, {
-      queued: 0, running: 1, unknown: 0, succeeded: 512, cancelled: 0, completed: 512, failed: 0,
+      queued: 0, running: 1, unknown: 0, succeeded: 511, cancelled: 0, completed: 511, failed: 0,
     });
 
     const malformedRun = (await pool.query(`SELECT run_identity
@@ -187,7 +191,7 @@ test("Runs v2 keeps summary, filters, and pages on one fail-closed PostgreSQL cu
       SET terminal_code = NULL
       WHERE run_identity = $1`, [malformedRun.run_identity]);
     const validNonterminal = await gateway.read({ kind: "dependencies", pageSize: 25 });
-    assert.equal(validNonterminal.filtered_total, 513);
+    assert.equal(validNonterminal.filtered_total, 512);
     await pool.query(`UPDATE dashboard_operation_runs_v1
       SET state = 'succeeded', owner_outcome_state = 'available',
           created_at = '2026-09-01T00:00:00Z', updated_at = '2026-09-01T00:00:01.000001Z',
@@ -200,8 +204,32 @@ test("Runs v2 keeps summary, filters, and pages on one fail-closed PostgreSQL cu
     const oneToTenSeconds = await gateway.read({
       kind: "dependencies", duration: "1_10s", pageSize: 25,
     });
-    assert.equal(shorterThanOneSecond.filtered_total, 509);
+    assert.equal(shorterThanOneSecond.filtered_total, 508);
     assert.equal(oneToTenSeconds.filtered_total, 4);
+
+    // A 513th eligible dependency run, older than every retained one, makes the cut partial
+    // without touching the newest rows: the filtered total, the summary and the pagination keep
+    // describing the retained 512, never the whole table.
+    await pool.query(`INSERT INTO dashboard_operation_runs_v1 (
+        run_identity, schema_version, operation_id, channel, run_kind, trigger_kind, state,
+        owner_outcome_state, recovery_identity_json, recovery_identity_digest, transition_version,
+        created_at, updated_at, started_at, finished_at, retained_until, terminal_code
+      ) VALUES (
+        'dashboard-run-v1-00000000-0000-4000-8000-000000000513', 1, 'source_intake.shadow_read.v1',
+        'DASHBOARD_SHADOW_READ', 'owner_read', 'dashboard_api', 'succeeded', 'available', '{}'::jsonb,
+        'sha256:' || repeat('b', 64), 1,
+        clock_timestamp() - interval '3 days', clock_timestamp() - interval '3 days',
+        clock_timestamp() - interval '3 days', clock_timestamp() - interval '3 days',
+        clock_timestamp() + interval '5 days', 'OWNER_AVAILABLE'
+      )`);
+    const partialDependencies = await gateway.read({ kind: "dependencies", pageSize: 25 });
+    assert.equal(partialDependencies.completeness, "partial_unavailable");
+    assert.equal(partialDependencies.filtered_total, 512);
+    assert.equal(partialDependencies.total_pages, 21);
+    assert.equal(Object.values(partialDependencies.summary).reduce((sum, count) => sum + count, 0)
+      - partialDependencies.summary.completed, 512);
+    assert.ok(!partialDependencies.runs.some(({ run_identity }) =>
+      run_identity === "dashboard-run-v1-00000000-0000-4000-8000-000000000513"));
 
     const appendedRun = await insertRun(pool, {
       kind: "owner_effect", state: "queued", offset: 90,

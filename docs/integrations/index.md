@@ -1,5 +1,13 @@
 # Integrations
 
+:::note[Scope]
+These pages cover the live repository: how to build, test, and extend what is in `crates` and
+`python/vibe_trader` today. They are current.
+
+They do not set admission or ownership policy. Where a question turns on which component may act,
+or which component owns a business fact, the Owner contracts under `docs/owners/` govern.
+:::
+
 VibeTrader uses modular *adapters* to connect to trading venues and data providers, translating raw APIs into a unified interface and normalized domain model.
 
 :::note[Python API version]

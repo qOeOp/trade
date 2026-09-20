@@ -2478,6 +2478,9 @@ mod postgres_acceptance_tests {
         io::{AsyncReadExt, AsyncWriteExt},
         net::UnixListener,
     };
+    use vibe_backtest_owner_contracts::protected_economic_metric::{
+        ProtectedEconomicCoverageRuleV1, ProtectedEconomicMetricV1,
+    };
     use vibe_backtest_owner_contracts::{
         CanonicalDigestV2, ComponentObservationLocatorV2, ConsumedComponentObservationDtoV2,
         ContentIdentityV2, DiagnosticCategoryV2, DiagnosticEvidenceDtoV2, ObservationComponentV2,
@@ -2575,6 +2578,7 @@ mod postgres_acceptance_tests {
     struct ReadyDecisionPostgresHarnessV1 {
         database: CanonicalOwnerPostgresTestDatabaseV1,
         qualification: PostgresQualificationOwnerV1,
+        lineage: ReadyLineageV1,
         suffix: String,
         result_identity: String,
         composition: ReadyForSelectionCompositionRequestV1,
@@ -2770,7 +2774,7 @@ mod postgres_acceptance_tests {
             valid_from_epoch_ms: now.saturating_sub(1_000),
             valid_through_epoch_ms: valid_through,
             authorization: authorization.locator(),
-            manifests: vibe_product_edge::AgentOperationManifestSetV1::new(manifests.to_vec())
+            manifests: vibe_product_edge::AgentOperationManifestSetV1::new(manifests.clone())
                 .unwrap(),
         })
         .await
@@ -3360,7 +3364,7 @@ mod postgres_acceptance_tests {
             rd_pool,
             first_action.request().action_request_identity(),
             first.decision().decision_identity(),
-            &replay,
+            replay,
             market_data_evidence.source(),
             market_data_evidence.shared_time(),
         )
@@ -3370,7 +3374,7 @@ mod postgres_acceptance_tests {
             rd_pool,
             first_action.request().action_request_identity(),
             first.decision().decision_identity(),
-            &replay,
+            replay,
             market_data_evidence.source(),
             market_data_evidence.shared_time(),
         )
@@ -3384,7 +3388,7 @@ mod postgres_acceptance_tests {
             rd_pool,
             first_action.request().action_request_identity(),
             first.decision().decision_identity(),
-            &replay,
+            replay,
             market_data_evidence.source(),
             market_data_evidence.shared_time(),
         )
@@ -3442,7 +3446,7 @@ mod postgres_acceptance_tests {
             rd_pool,
             first_action.request().action_request_identity(),
             "rd-iteration-decision-v1-mismatch",
-            &replay,
+            replay,
             market_data_evidence.source(),
             market_data_evidence.shared_time(),
         )
@@ -3452,7 +3456,7 @@ mod postgres_acceptance_tests {
             rd_pool,
             "rd-repair-action-request-v1-mismatch",
             first.decision().decision_identity(),
-            &replay,
+            replay,
             market_data_evidence.source(),
             market_data_evidence.shared_time(),
         )
@@ -4635,12 +4639,71 @@ mod postgres_acceptance_tests {
     async fn positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic() {
         // Keep each phase independently pinned: one aggregate scenario future exhausts the Linux
         // test thread stack while its nested READY futures are constructed and polled.
-        let harness = Box::pin(prepare_ready_decision_postgres_harness()).await;
+        // One Candidate reserves holdout and seals one protected request set exactly once, and a
+        // Candidate Intake is admissible only while its R&D basis projection is fresh, so every
+        // Qualification terminal the ordered gate proves needs its own Candidate lineage minted
+        // here. Three admitted lineages are left ADMITTED and unevaluated for the terminal entries
+        // (economic pass, economic failure, all-not-applicable), one inadequate plan closes
+        // NOT_ADMITTED here, and the Origin lineage is minted last so the Origin attempt entries
+        // that select the latest ADMITTED intake keep consuming it.
+        for lineage in [
+            ReadyLineageV1::EconomicPass,
+            ReadyLineageV1::EconomicFailure,
+            ReadyLineageV1::AllNotApplicable,
+            ReadyLineageV1::InadequatePlan,
+        ] {
+            let lineage_harness = Box::pin(prepare_ready_decision_postgres_harness(lineage)).await;
+            Box::pin(assert_ready_retry_resolve_and_qualification(
+                &lineage_harness,
+            ))
+            .await;
+        }
+        let harness = Box::pin(prepare_ready_decision_postgres_harness(
+            ReadyLineageV1::Origin,
+        ))
+        .await;
         Box::pin(assert_ready_retry_resolve_and_qualification(&harness)).await;
         Box::pin(assert_ready_tamper_closure(&harness)).await;
     }
 
-    async fn prepare_ready_decision_postgres_harness() -> Box<ReadyDecisionPostgresHarnessV1> {
+    /// One Candidate lineage of the ordered gate, named by the Qualification terminal it feeds.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum ReadyLineageV1 {
+        /// Consumed by the Origin (`schema_version=1`) protected attempt entries.
+        Origin,
+        /// Driven to `QUALIFIED` by the current protected-evaluation entries.
+        EconomicPass,
+        /// Driven to `INELIGIBLE` by the current protected-evaluation entries.
+        EconomicFailure,
+        /// Driven to `ASSESSMENT_INVALID` by the current protected-evaluation entries.
+        AllNotApplicable,
+        /// A single preregistered time window: Qualification closes it `NOT_ADMITTED` here.
+        InadequatePlan,
+    }
+
+    impl ReadyLineageV1 {
+        /// The review request identity prefix the gate entries select this lineage by.
+        const fn review_slug(self) -> &'static str {
+            match self {
+                Self::Origin => "ready",
+                Self::EconomicPass => "economic-pass",
+                Self::EconomicFailure => "economic-failure",
+                Self::AllNotApplicable => "all-not-applicable",
+                Self::InadequatePlan => "inadequate-plan",
+            }
+        }
+
+        const fn expected_intake_status(self) -> vibe_qualification::CandidateIntakeStatusV1 {
+            match self {
+                Self::InadequatePlan => vibe_qualification::CandidateIntakeStatusV1::NotAdmitted,
+                _ => vibe_qualification::CandidateIntakeStatusV1::Admitted,
+            }
+        }
+    }
+
+    async fn prepare_ready_decision_postgres_harness(
+        lineage: ReadyLineageV1,
+    ) -> Box<ReadyDecisionPostgresHarnessV1> {
         let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
             .await
             .expect("canonical disposable topology");
@@ -4666,10 +4729,13 @@ mod postgres_acceptance_tests {
         ))
         .await;
         let qualification = PostgresQualificationOwnerV1::connect(
-            &database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+            database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
         )
         .await
         .expect("Qualification Owner projection custody");
+        // R&D obtains this frontier through Qualification's sealed admission API while forming the
+        // TrialFamily policy, so this resolve is an exact replay of a projection that already
+        // exists, not a first create.
         let protected_feedback = qualification
             .resolve_or_create_for_basis(&independence_basis_locator)
             .await
@@ -4731,7 +4797,7 @@ mod postgres_acceptance_tests {
         persist_backtest_result(backtest_pool, &result, &result_bytes, committed_at + 2).await;
 
         let positive_evidence = positive_evidence(&suffix);
-        let protected_plan = protected_plan(&suffix);
+        let protected_plan = protected_plan(&suffix, lineage);
         let composition = ReadyForSelectionCompositionRequestV1 {
             trial_family_identity: family_identity,
             result_identity: result_identity.clone(),
@@ -4792,6 +4858,7 @@ mod postgres_acceptance_tests {
         Box::new(ReadyDecisionPostgresHarnessV1 {
             database,
             qualification,
+            lineage,
             suffix,
             result_identity,
             composition,
@@ -4853,8 +4920,9 @@ mod postgres_acceptance_tests {
             .protected_robustness_plan()
             .proposal()
             .protected_decision_policy;
+        let lineage = harness.lineage;
         let intake_request = vibe_qualification::CandidateIntakeRequestV1::new(
-            format!("qualification-review-ready-{suffix}"),
+            format!("qualification-review-{}-{suffix}", lineage.review_slug()),
             issued.decision().decision_identity().to_string(),
             result_identity.clone(),
             issued.candidate().candidate_identity().to_string(),
@@ -4867,11 +4935,10 @@ mod postgres_acceptance_tests {
             .submit_candidate_intake_v1(&intake_request)
             .await
             .expect("Qualification Candidate Intake");
-        assert_eq!(
-            intake.status(),
-            vibe_qualification::CandidateIntakeStatusV1::Admitted
-        );
-        assert!(intake.holdout_reservation_identity().is_some());
+        let admitted = lineage.expected_intake_status()
+            == vibe_qualification::CandidateIntakeStatusV1::Admitted;
+        assert_eq!(intake.status(), lineage.expected_intake_status());
+        assert_eq!(intake.holdout_reservation_identity().is_some(), admitted);
         assert_eq!(
             qualification
                 .submit_candidate_intake_v1(&intake_request)
@@ -4879,15 +4946,55 @@ mod postgres_acceptance_tests {
                 .expect("Qualification Candidate Intake response-loss retry"),
             intake
         );
-        let intake_counts: (i64, i64, i64) = sqlx::query_as(
-            "SELECT (SELECT COUNT(*) FROM qualification_candidate_intake_receipts_v1 WHERE review_request_identity=$1), (SELECT COUNT(*) FROM qualification_holdout_reservations_v1 WHERE review_request_identity=$1), (SELECT COUNT(*) FROM qualification_owner_outbox_v1 WHERE aggregate_identity=$2 AND event_kind='QUALIFICATION_CANDIDATE_INTAKE_COMMITTED_V1')",
+        let reservations = i64::from(admitted);
+        let intake_counts: (i64, i64, i64, i64, String) = sqlx::query_as(
+            "SELECT (SELECT COUNT(*) FROM qualification_candidate_intake_receipts_v1 WHERE review_request_identity=$1), (SELECT COUNT(*) FROM qualification_holdout_reservations_v1 WHERE review_request_identity=$1), (SELECT COUNT(*) FROM qualification_holdout_treatment_registrations_v1 registration JOIN qualification_holdout_reservations_v1 reservation USING(reservation_identity) WHERE reservation.review_request_identity=$1), (SELECT COUNT(*) FROM qualification_owner_outbox_v1 WHERE aggregate_identity=$2 AND event_kind='QUALIFICATION_CANDIDATE_INTAKE_COMMITTED_V1'), (SELECT fact.status FROM qualification_public_status_heads_v1 head JOIN qualification_public_status_facts_v1 fact ON fact.fact_identity=head.fact_identity WHERE head.review_request_identity=$1)",
         )
         .bind(intake_request.review_request_identity())
         .bind(intake.receipt_identity())
         .fetch_one(qualification_pool)
         .await
         .expect("Qualification Candidate Intake counts");
-        assert_eq!(intake_counts, (1, 1, 1));
+        assert_eq!(
+            intake_counts,
+            (
+                1,
+                reservations,
+                reservations,
+                1,
+                if admitted { "ADMITTED" } else { "NOT_ADMITTED" }.to_string()
+            )
+        );
+
+        if !admitted {
+            // NOT_ADMITTED creates no protected attempt: the frozen request path finds no
+            // ADMITTED custody to bind.
+            let bindings = vibe_qualification::ProtectedReplayBindingFieldV1::ALL
+                .into_iter()
+                .enumerate()
+                .map(
+                    |(index, field)| vibe_qualification::ProtectedReplayBindingV1 {
+                        field,
+                        identity: format!("not-admitted-binding-{index}"),
+                        digest: format!("sha256:{index:064x}"),
+                    },
+                )
+                .collect::<Vec<_>>();
+            let proposal = vibe_qualification::ProtectedReplayRequestProposalV1::new(
+                format!("qualification-protected-not-admitted-request-{suffix}"),
+                intake.review_request_identity().to_string(),
+                intake.receipt_identity().to_string(),
+                intake.receipt_digest().to_string(),
+                0,
+                bindings,
+            )
+            .expect("canonical protected proposal");
+            assert!(matches!(
+                qualification.submit_protected_replay_request_v1(&proposal).await,
+                Err(vibe_qualification::QualificationOwnerError::Unavailable(message))
+                    if message == "ADMITTED Candidate Intake custody is unavailable"
+            ));
+        }
         let conflicting_intake = vibe_qualification::CandidateIntakeRequestV1::new(
             intake_request.review_request_identity().to_string(),
             issued.decision().decision_identity().to_string(),
@@ -4904,6 +5011,35 @@ mod postgres_acceptance_tests {
                 .await,
             Err(vibe_qualification::QualificationOwnerError::ConflictingIdentity)
         ));
+
+        // One Candidate resolves to exactly one intake receipt: a different review request for the
+        // same Candidate is changed meaning and creates neither a second receipt nor a second
+        // holdout attempt.
+        let second_review_request = vibe_qualification::CandidateIntakeRequestV1::new(
+            format!("qualification-review-second-{suffix}"),
+            issued.decision().decision_identity().to_string(),
+            result_identity.clone(),
+            issued.candidate().candidate_identity().to_string(),
+            issued.selection().selection_identity().to_string(),
+            policy.identity.clone(),
+            policy.version,
+        )
+        .expect("canonical second Qualification Candidate Intake request");
+        assert!(matches!(
+            qualification
+                .submit_candidate_intake_v1(&second_review_request)
+                .await,
+            Err(vibe_qualification::QualificationOwnerError::ConflictingIdentity)
+        ));
+        let candidate_intake_counts: (i64, i64, i64) = sqlx::query_as(
+            "SELECT (SELECT COUNT(*) FROM qualification_candidate_intake_receipts_v1 WHERE candidate_identity=$1), (SELECT COUNT(*) FROM qualification_holdout_reservations_v1 WHERE candidate_identity=$1), (SELECT COUNT(*) FROM qualification_public_status_facts_v1 WHERE review_request_identity=$2)",
+        )
+        .bind(issued.candidate().candidate_identity())
+        .bind(second_review_request.review_request_identity())
+        .fetch_one(qualification_pool)
+        .await
+        .expect("one intake and at most one reservation per Candidate");
+        assert_eq!(candidate_intake_counts, (1, reservations, 0));
     }
 
     async fn assert_ready_tamper_closure(harness: &ReadyDecisionPostgresHarnessV1) {
@@ -4923,14 +5059,14 @@ mod postgres_acceptance_tests {
         );
         let mut tamper_transaction = rd_pool.begin().await.expect("tamper transaction");
         sqlx::query("UPDATE rd_iteration_positive_assessments_v1 SET assessment_storage_bytes=assessment_storage_bytes || decode('00','hex') WHERE result_identity=$1")
-            .bind(&result_identity)
+            .bind(result_identity)
             .execute(&mut *tamper_transaction)
             .await
             .expect("temporary assessment tamper");
         assert!(
             Box::pin(load_ready_for_selection_by_result_in_transaction(
                 &mut tamper_transaction,
-                &result_identity,
+                result_identity,
                 None,
             ))
             .await
@@ -4943,14 +5079,14 @@ mod postgres_acceptance_tests {
         let mut selection_tamper_transaction =
             rd_pool.begin().await.expect("Selection tamper transaction");
         sqlx::query("UPDATE rd_research_selections_v1 SET selection_storage_bytes=selection_storage_bytes || decode('00','hex') WHERE result_identity=$1")
-            .bind(&result_identity)
+            .bind(result_identity)
             .execute(&mut *selection_tamper_transaction)
             .await
             .expect("temporary Selection tamper");
         assert!(
             Box::pin(load_ready_for_selection_by_result_in_transaction(
                 &mut selection_tamper_transaction,
-                &result_identity,
+                result_identity,
                 None,
             ))
             .await
@@ -5241,24 +5377,29 @@ mod postgres_acceptance_tests {
         }
     }
 
-    fn protected_plan(suffix: &str) -> ProtectedRobustnessPlanProposalV1 {
+    fn protected_plan(suffix: &str, lineage: ReadyLineageV1) -> ProtectedRobustnessPlanProposalV1 {
         let reference = |name: &str, byte: char| PositiveAssessmentEvidenceReferenceV1 {
             identity: format!("{name}-{suffix}"),
             digest: digest(byte),
         };
+        // R&D validates the plan's typed structure only; Qualification's adequacy policy also
+        // requires at least two non-overlapping preregistered windows, so one window is a plan
+        // R&D issues and Qualification closes NOT_ADMITTED.
+        let mut required_time_windows = vec![crate::iteration_decision::ProtectedTimeWindowV1 {
+            evidence: reference("ready-protected-window-a", '5'),
+            start_epoch_ms: 1_000,
+            end_epoch_ms: 2_000,
+        }];
+
+        if lineage != ReadyLineageV1::InadequatePlan {
+            required_time_windows.push(crate::iteration_decision::ProtectedTimeWindowV1 {
+                evidence: reference("ready-protected-window-b", '6'),
+                start_epoch_ms: 3_000,
+                end_epoch_ms: 4_000,
+            });
+        }
         ProtectedRobustnessPlanProposalV1 {
-            required_time_windows: vec![
-                crate::iteration_decision::ProtectedTimeWindowV1 {
-                    evidence: reference("ready-protected-window-a", '5'),
-                    start_epoch_ms: 1_000,
-                    end_epoch_ms: 2_000,
-                },
-                crate::iteration_decision::ProtectedTimeWindowV1 {
-                    evidence: reference("ready-protected-window-b", '6'),
-                    start_epoch_ms: 3_000,
-                    end_epoch_ms: 4_000,
-                },
-            ],
+            required_time_windows,
             required_regimes: vec![
                 crate::iteration_decision::ProtectedMarketRegimeV1 {
                     evidence: reference("ready-protected-regime-normal", '7'),
@@ -5287,8 +5428,26 @@ mod postgres_acceptance_tests {
             ],
             no_tunable_parameters_basis: None,
             preregistered_capacity_ceiling: 1_000,
-            metric: reference("ready-protected-metric", 'a'),
-            coverage_policy: reference("ready-protected-coverage", 'b'),
+            // The metric and the coverage rule are the only two plan references Backtest has to
+            // execute rather than merely repeat, so they name members of the Backtest catalog
+            // exactly. A synthetic identity here would freeze a computation no Owner publishes,
+            // and the protected run would produce no economic measurement at all.
+            metric: PositiveAssessmentEvidenceReferenceV1 {
+                identity: ProtectedEconomicMetricV1::NetReturnBasisPoints
+                    .semantic_id()
+                    .to_string(),
+                digest: ProtectedEconomicMetricV1::NetReturnBasisPoints
+                    .definition_digest()
+                    .expect("published protected economic metric definition"),
+            },
+            coverage_policy: PositiveAssessmentEvidenceReferenceV1 {
+                identity: ProtectedEconomicCoverageRuleV1::ObservedWindowSpan
+                    .semantic_id()
+                    .to_string(),
+                digest: ProtectedEconomicCoverageRuleV1::ObservedWindowSpan
+                    .definition_digest()
+                    .expect("published protected coverage rule definition"),
+            },
             tolerance_policy: reference("ready-protected-tolerance", 'c'),
             threshold_policy: reference("ready-protected-threshold", 'd'),
             aggregation_policy: reference("ready-protected-aggregation", 'e'),

@@ -17,7 +17,7 @@ test("Artifact detail wires the Owner source into the read-only CodeMirror viewe
   assert.match(workspace, /activeRequest\.current\?\.abort\(\)/u);
   assert.match(workspace, /signal: controller\.signal/u);
   assert.match(workspace, /generation\.current !== current \|\| controller\.signal\.aborted/u);
-  assert.match(workspace, /setProjection\(response\.ok[\s\S]*ARTIFACT_SOURCE_RESPONSE_UNAVAILABLE/u);
+  assert.match(workspace, /setProjection\(response\.ok \|\| gatewayUnavailableProjection\(raw, parsed\)[\s\S]*ARTIFACT_SOURCE_RESPONSE_UNAVAILABLE/u);
   assert.match(workspace, /setProjection\(loadingProjection\)[\s\S]*await fetch/u);
   assert.match(shell, /OWNER_CUSTODY_READ_ONLY - NO_EDIT_OR_EXECUTION/u);
   for (const forbidden of ["contentEditable", "textarea", "Save", "Run strategy", "WebSocket", "mockSource"] ) {

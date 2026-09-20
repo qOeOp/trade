@@ -71,6 +71,55 @@ Qualification 的其余部分并不排在它后面：attempt frontier、候选�
 - **Eligibility State** - 发布当前不合格 合格 过期或撤销的可部署事实 条件 撤销历史，以及 Governance
   与 Risk 必须执行的有界经济容量契约。它把撤销作为 Eligibility 转换拥有，但不接管 Runtime 恢复。
 
+## 实现状态台账
+
+本台账只记录仓库在此切点已经到达的状态。它沿用
+[Market Data](./market-data/) 台账的状态词汇，`CURRENT_PARTIAL` 表示已合入但不可达，本节自身不授予任何权限。
+这里没有任何一行是 `IMPLEMENTATION_ADMITTED`：本 Owner 没有已准入的切片，要扩大准入集合必须先改本文档。
+某项事实若已有独立小节，本行只指向它而不重复它，这样需要同步的地方只有一处。
+
+- **CURRENT_PARTIAL - Candidate Intake：** `submit_candidate_intake_v1`（位于
+  `crates/qualification/src/postgres.rs`）在 Candidate advisory lock 下写入回执，并对已 intake 的 Candidate 的
+  第二次评审请求返回类型化冲突。它没有生产调用者：本 Owner 之外的每一处调用都在
+  `sealed-develop-composer-acceptance` 测试模块里，该模块位于
+  `crates/strategy_factory/src/iteration_decision_postgres.rs`。
+- **CURRENT_PARTIAL - Protected Evaluation：** 每一个保护终端都由有序 PostgreSQL 门禁完整驱动，而且只有它在驱动。
+  它的各条目与准入每个终端的密封证据，就是 `scripts/ci/test-rd-owner-postgres.bash` 里那个有序数组中属于
+  Qualification 的那些行，而那个数组始终是它们唯一的清单；门禁到达不了的那两项行为，记录在下文
+  有序门禁到达不了的行为 一节。
+- **CURRENT_PARTIAL - Research 前保护反馈解析：** 这是唯一有生产调用者的能力。
+  `resolve_or_create_for_basis` 与 `admit_in_transaction` 由
+  `crates/strategy_factory/src/product_edge_postgres.rs` 调用，
+  `admit_historical_projection_in_transaction` 由
+  `crates/strategy_factory/src/rd_owner_postgres_custody.rs` 调用，都不在任何测试模块内。它的读回有一条有序链路
+  条目作为证明；response-cut 回滚没有，原因记录在下文 有序门禁到达不了的行为 一节。
+- **TARGET - Eligibility State：** 该模块拥有 `INELIGIBLE` `QUALIFIED` `EXPIRED` 与 `REVOKED`，其中只有前两个有实现。
+  `EligibilityState::Expired` 与 `::Revoked`（在 `crates/strategy_governance/src/model.rs`）在全仓没有任何生产者，
+  `QualificationPublicStatusV1` 的五个变体里没有这两个，本 Owner 的 `qualification_*_v1` 表里没有任何以到期或撤销
+  命名的关系，也不存在阻止前驱复活的后继链。消费者类型存在于 Governance，而每一个
+  `UntrustedEligibilityReadback` 都构造在该 crate 自己的测试里，所以读端口的形状在场，而两侧都从未写过这样一条事实。
+- **TARGET - 需要部署授权的终端：** `DEPLOYMENT_STORE_ADMISSION_MODE` 保持 `disabled`，它在等什么记录在上文
+  Eligibility 终端状态 一节。
+- **CURRENT，且永久不可证 - 特定事故 Owner 重建：** 机器已合入，即 `crates/qualification/src/recovery.rs`，
+  经 `run_owner_recovery_cli` 导出，并以 `qualification-owner-recovery` 二进制交付（在 `owner-recovery` 特性后面），
+  而它唯一的证明永远无法通过。实测记录在下文 特定事故 Owner 重建 一节。
+- **TARGET - 同宇宙随机对照：** 下文 失败与恢复 一节记录的那个交接已声明，既无生产者也无消费者。
+  没有任何东西发布对照集定义，没有任何东西据此合成比较程序，`crates/qualification` 也没有对照臂。
+  它必须遵循的建造顺序是那条 clause 的一部分，不是对它的一条注记。
+
+## 有序门禁到达不了的行为
+
+本节是实现状态记录，不是契约。下面两项行为都已实现；缺的是证明，而每一处缺失都是实测出来的，不是假定的。
+
+- **首次创建与 `GENESIS_EMPTY`。** 没有任何一个已准入的 R&D 请求能在缺少自己 frontier 的情况下存在：R&D 在形成
+  TrialFamily 策略时，就已经通过 Qualification 的密封准入 API 取得了那份投影，所以门禁手上的每一个 basis 都已经
+  被投影过。一条跳过 Qualification 解析的血缘会立刻失败，这就是该结论的实测方式。
+- **Response-cut 回滚。** 要驱动它就需要一次创建或一次续期，也就需要一个缺席或已过期的当前 frontier。把一份投影的
+  `valid_through_epoch_ms` 变旧，会让它与读回所校验的规范行失去同步，于是以
+  `Qualification admission envelope projection mismatch` 失败，所以本 Owner 恰好禁掉了唯一能强行触发它的途径。
+  那个仅为此存在的测试专用计时钩子已经被删掉，而不是留成死代码；要证明该行为，需要一套能物化全新 Qualification
+  存储的器具。
+
 ## Research 前保护反馈解析
 
 Qualification 不接收调用方对 genesis 空历史或当前反馈的断言。它直接解析准确 R&D Independence Basis
@@ -112,6 +161,16 @@ Executable provenance 是独立的效果边界。Qualification 记录实际使�
 但不声称仓库代码能够独立证明自身 executable bytes。Hub 拥有的外部 effect controller 在释放数据库能力并
 执行该 worker 前，绑定已审查的 Origin ancestry、candidate commit/tree、executable path 与 SHA-256。
 
+本节以下是实现状态记录，不是契约，上文契约不因它改变。绑定的证据 session 资源已经不存在，所以本仓库既不能
+再次执行这项重建，也不能重新证明它。两项实测让这件事是永久的而不是暂时的。该资源定位符是某个开发者主目录下的
+绝对路径，而 `verify_evidence` 拒绝任何其它路径，因此这条证明从来只能在那一台机器上跑，在 Linux CI 上从不可能
+通过。同一个函数还钉死了该文件指定行的 SHA-256，因此任何替代文件都无法满足它。而文件本身已从那台机器上消失：
+没有配置 Time Machine 目标，没有本地快照保留它，主目录与任何已挂载卷下都没有携带该 session 标识的文件，
+该产物也从未提交进仓库。于是它的证明
+`isolated_postgres_recovery_is_atomic_fail_closed_and_replay_safe` 在任何地方都无法通过。上文契约继续作为
+一次已封闭的单一事故重建的记录；它不会因为无法再被执行而扩大成通用 restore 路径，本节也不授权用夹具替代
+被封存的证据。
+
 ## 输入交接
 
 - [R&D](./rd/) 只提交拥有终态 `SELECTED_FOR_QUALIFICATION` Research Selection Disposition
@@ -134,11 +193,17 @@ Backtest 在生产中无法完成经济测量中属于它的那一半，因为�
 读不到 R&D 的 plan，那条唯一的密封读返回的是原生重放源存储；也读不到
 `qualification_protected_economic_policy_bundles_v1`，它的授权已被撤销。有序门禁之所以能走到测量，
 是因为门禁步骤以本 Owner 自己的角色读取 Candidate，那是夹具发现，不是 Backtest 拥有的路径。
-补上这个缺口需要一条 Backtest 真正读得到的冻结度量 单位与标度的交接 - 放进请求集合的封存里，
-或者作为一条密封的 `qualification_api` 读 - 而这是跨 Owner 的契约变更，不是一条证明。
+补上这个缺口需要一条 Backtest 真正读得到的交接，携带冻结的度量与覆盖策略引用以及单位与标度 - 放进请求
+集合的封存里，或者作为一条密封的 `qualification_api` 读 - 而这是跨 Owner 的契约变更，不是一条证明。
 
 ## 输出交接
 
+- 向 [Backtest](./backtest/) 提交一个冻结的 Protected Replay Request，它只在写入一次的 请求相关联的
+  `ADMITTED` 回执与 holdout 预留之后创建，固定每一个定义执行的身份以及准确的 Candidate 与 Intake 保护政策对。
+  每个请求处理一个已声明的 Protected Robustness Plan 单元或那个准确的冻结有界矩阵，因此不得在观察到结果之后
+  再挑选单元。该请求集合封存冻结的 `ProtectedEconomicPolicyBundleV1`，返回的 Result 必须逐项重复它的测量。
+  不是本 Owner 创建的请求就不是一个保护请求；而 Backtest 的接入拒绝要把它闭合为一份绑定同一请求的
+  `RUN_REJECTED` Protected Run Result，而不是让它悬着。
 - 向 [Strategy Governance](./strategy-governance/) 提供包含撤销在内的分类 Eligibility State 事实，绑定
   准确 Candidate 与事实版本 经济条件版本 已评估成本容量模型版本 资格容量上限 生效时间及不可解引用证据引用。
   过期 撤销 当前事实缺失和当前状态未知都是显式下游状态，任何状态都不能让 Governance 静默保留
@@ -176,6 +241,26 @@ holdout 预留前，Candidate Intake 先用准确且由 Qualification 拥有的�
 校验计划：时间覆盖至少两个不重叠预注册窗口；市场状态至少两个实质不同状态且含一个不利状态；只有
 冻结单标的 scope 才能让 instrument 不适用；perturbation 覆盖每个重要输入类；每个可调参数都有有界
 邻域或被接受的无可调参数依据。计划不足或政策不匹配时为 `NOT_ADMITTED`，绝不预留 holdout。
+
+计划还携带一个同宇宙随机对照，而本 Owner 定义它。同宇宙指的是一个确切的
+`vibe-indicators-kernel` 目录摘要、一组输入角色、一组图界。这三个量仓库已经冻结，所以该对照不引入任何新概念。
+Qualification 固定种子、标的宇宙、预注册窗口与抽取规模；R&D 依该定义合成比较程序，因为 Composer 与 lowerer
+在它手里而不在本 Owner 手里；Backtest 回放它们并返回其序列。这个分工不是为了方便：被评估方能影响的对照集不是对照，
+所以定义不能出自那一侧，而合成可以，因为一个种子加一个宇宙不留任何可选余地。充分性要求版本化策略规定的抽取规模，
+以及一个以该指标自身单位与标度表示的预注册裕度。凡计划缺少该对照、其定义来自本 Owner 以外、抽自不同的目录摘要、
+宇宙或窗口集合、或在观察到任何结果之后才固定其裕度，一律 `NOT_ADMITTED`，且从不预留 holdout。
+
+该对照的强度以那一版目录为界，而这个界是写明的，不是暗含的。目录不含平方根、方差、相关与秩，
+因此波动率归一化因子与横截面因子在该宇宙内不可表达：通过该对照的 Candidate 被证明的是优于自一个目录中抽取的样本，
+而不是优于所有因子。目录每增加一族原语，该界就抬高一档。
+
+这回答了 formation 路径上那些试验数修正回答不了的问题。那些修正按搜索方自报的试验次数对选出的结果做紧缩；
+这一条把 Candidate 与同一目录上、同一数据上可表达的任意程序相比，而抽取所依的定义不是搜索方写的。
+前者在试验数被少报时就不再是一个修正。后者不会，而这正是保护评估存在的意义。
+
+该交接按定义、合成、回放的顺序建造，而这个顺序是一条禁令，不是一种偏好。在 Qualification 发布对照集定义之前，
+不得建造它的合成侧或消费侧，因为对着尚不存在的定义建起来的消费者无法被证伪。本文档已经记录了五个先于任何调用者
+而建成的步骤。
 
 对请求相等的 `TERMINAL_RESULT`，Qualification 先消费 Backtest 完整 有限 非空的保护
 `diagnosticCategorySet`、内容摘要和逐类别决定性证据，并保留全部独立支持成员。随后先校验它是

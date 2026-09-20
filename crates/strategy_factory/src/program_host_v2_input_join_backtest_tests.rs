@@ -456,7 +456,7 @@ pub(crate) fn event_corpus_plan_and_artifact(
 ) -> (StrategyPlanV2, StrategyArtifactV2) {
     let design = event_corpus_design();
     let wasm = hold_plugin_module(&design.plugins[0]).expect("bounded HOLD plugin module");
-    plan_and_artifact(design, bindings, wasm)
+    plan_and_artifact(design, bindings, &wasm)
 }
 
 fn event_corpus_design() -> crate::strategy_design_v2::StrategyDesignV2 {
@@ -501,7 +501,7 @@ pub(crate) fn joined_plan_and_artifact(
     } else {
         stateful_plugin_module(manifest).expect("bounded stateful plugin module")
     };
-    plan_and_artifact(design, bindings, wasm)
+    plan_and_artifact(design, bindings, &wasm)
 }
 
 pub(crate) fn six_role_bar_design() -> crate::strategy_design_v2::StrategyDesignV2 {
@@ -676,15 +676,15 @@ pub(crate) fn six_role_bar_design() -> crate::strategy_design_v2::StrategyDesign
 fn plan_and_artifact(
     design: crate::strategy_design_v2::StrategyDesignV2,
     bindings: &[StrategyInputBindingReceipt],
-    wasm: Vec<u8>,
+    wasm: &[u8],
 ) -> (StrategyPlanV2, StrategyArtifactV2) {
     let manifest = &design.plugins[0];
     if manifest.abi_version == PLUGIN_FRAME_ABI_V3 {
         let build = VerifiedPluginCargoBuildV3::verify(
             manifest,
             PluginCargoBuildEvidenceV3 {
-                wasm_one: &wasm,
-                wasm_two: &wasm,
+                wasm_one: wasm,
+                wasm_two: wasm,
                 capsule_digest: BindingDigest::from_untrusted_bytes([31; 32]),
                 source_set_digest: BindingDigest::from_untrusted_bytes([41; 32]),
                 verified_build_receipt_digest: BindingDigest::from_untrusted_bytes([51; 32]),
@@ -718,8 +718,8 @@ fn plan_and_artifact(
     let build = VerifiedPluginCargoBuildV2::verify(
         manifest,
         PluginCargoBuildEvidenceV2 {
-            wasm_one: &wasm,
-            wasm_two: &wasm,
+            wasm_one: wasm,
+            wasm_two: wasm,
             implementation_capsule_digest: BindingDigest::from_untrusted_bytes([31; 32]),
             source_entry_digest: BindingDigest::from_untrusted_bytes([41; 32]),
             verified_build_receipt_digest: BindingDigest::from_untrusted_bytes([51; 32]),

@@ -1,4 +1,7 @@
-# Positions
+# Positions (engine)
+
+This page documents the existing engine. Where it differs from the Owner contract in
+`docs/owners/portfolio.md`, the Owner contract is authoritative.
 
 This guide explains how positions work in VibeTrader, including their lifecycle, aggregation
 from order fills, profit and loss calculations, and the important concept of position snapshotting

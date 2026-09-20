@@ -1,4 +1,6 @@
-# 回测 API 与重复运行
+# 回测 API 与重复运行（引擎层）
+
+本页记载既有引擎。凡与 `docs/owners/backtest.md` 的 Owner 契约不一致处，以 Owner 契约为准。
 
 VibeTrader 提供底层 `BacktestEngine` API 以便直接控制，也提供高层 `BacktestNode` API，
 用于基于目录执行可配置的回测。
