@@ -92,7 +92,9 @@
   未知的结果。Product Edge 不创建第二份 Scanner-owned 投影，不派生自己的状态，也绝不把一个不完整的
   `FAILED` 集合标为完整，或把一个未解析的期望集合渲染成空集。
   **IMPLEMENTATION_ADMITTED，终态回执托管及其 Product Edge 读回：** 一个位于 `TerminalReceiptStore` 之后的生产
-  实现，为每个 ScheduledScanId 持久保存且只保存一个终态 Scanner Receipt；以及其上的一个
+  实现，为每个稳定的 `AttemptId` 持久保存且只保存一个终态 Scanner Receipt，即 Schedule Definition 版本、
+  准确的扫描范围身份与版本、以及规范的到期槽边界，这正是本文档通篇所称的 ScheduledScanId，也是该 port
+  接受的唯一键；以及其上的一个
   `ProductEdgeTerminalReceiptReader`，它对一次读取要么返回恰好那一份回执，要么给出上述四种拒绝之一，其中
   中间两种仍然区分为已检出的托管故障。这一切片是有界的，因为两端都已经作为 port 存在于 `crates/scanner` 内部，
   且两个名字在该 crate 之外都没有任何引用，所以它不等待任何尚不存在的缝。

@@ -121,7 +121,9 @@ admitted.
   expected set as an empty one.
   **IMPLEMENTATION_ADMITTED, terminal receipt custody and its Product Edge readback:** one production
   implementation behind `TerminalReceiptStore` that durably holds exactly one terminal Scanner Receipt per
-  ScheduledScanId, and one `ProductEdgeTerminalReceiptReader` over it that answers a read with exactly that
+  stable `AttemptId` - the Schedule Definition version, the exact scan-scope identity and version, and the
+  canonical due-slot boundary, which is what ScheduledScanId names throughout this document and the only key
+  the port takes - and one `ProductEdgeTerminalReceiptReader` over it that answers a read with exactly that
   receipt or with one of the four refusals above, the middle two still distinguished as detected custody faults.
   The slice is bounded because both ends already exist as ports inside `crates/scanner` and neither name is
   referenced anywhere outside that crate, so it waits on no seam that does not yet exist.
