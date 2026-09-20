@@ -20,6 +20,8 @@ services:
       - PORTFOLIO_WRITER_DB_PASSWORD
       - GOVERNANCE_WRITER_DB_PASSWORD
       - INSTRUMENT_OWNER_DB_PASSWORD
+      - RISK_WRITER_DB_PASSWORD
+      - SCANNER_WRITER_DB_PASSWORD
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./postgres-init/00-create-rd-owner.sh:/docker-entrypoint-initdb.d/00-create-rd-owner.sh:ro
@@ -152,6 +154,8 @@ services:
       PORTFOLIO_WRITER_DB_PASSWORD: ${PORTFOLIO_WRITER_DB_PASSWORD:?set PORTFOLIO_WRITER_DB_PASSWORD}
       GOVERNANCE_WRITER_DB_PASSWORD: ${GOVERNANCE_WRITER_DB_PASSWORD:?set GOVERNANCE_WRITER_DB_PASSWORD}
       INSTRUMENT_OWNER_DB_PASSWORD: ${INSTRUMENT_OWNER_DB_PASSWORD:?set INSTRUMENT_OWNER_DB_PASSWORD}
+      RISK_WRITER_DB_PASSWORD: ${RISK_WRITER_DB_PASSWORD:?set RISK_WRITER_DB_PASSWORD}
+      SCANNER_WRITER_DB_PASSWORD: ${SCANNER_WRITER_DB_PASSWORD:?set SCANNER_WRITER_DB_PASSWORD}
     entrypoint: ["/bin/sh", "/opt/trade/10-migrate-authority-custody.sh"]
     volumes:
       - ./postgres-init/10-migrate-authority-custody.sh:/opt/trade/10-migrate-authority-custody.sh:ro
