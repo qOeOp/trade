@@ -211,21 +211,42 @@ async function readBrowserValue(browser, expression) {
   return result.result?.value;
 }
 
-// Both keyboard paths into the schedule inspection dialog fail the same way - a focused, enabled
-// trigger and no dialog - and that shape has two causes the suite must not report as one: the key
-// never reached the trigger, or the trigger's handler never opened anything. Only the second is a
-// defect in the page. Probing whatever holds focus keeps this honest at either call site, where the
-// trigger is a day's overflow button in one and, depending on where the verified run falls in its
-// day, either that button or an event badge in the other.
-async function pressEnterToOpenDialog(browser, expression) {
-  await dispatchBrowserKey(browser, "Enter");
+// Both keyboard paths into the schedule inspection dialog reach it by pressing Enter on a focused
+// trigger, and a synthesized key is not always delivered: on Linux this step failed intermittently
+// with a focused, enabled button, no page faults, and a dialog that opened the moment the same
+// element was clicked. Waiting on the dialog alone cannot tell an undelivered key from a trigger
+// that does not act, so it reported a harness fault as a defect in the page.
+//
+// Observe the key instead of assuming it. A delivery that never happened is retried; a key that did
+// reach the trigger and still opened nothing is the page's defect and fails, naming the element the
+// key actually arrived at and whether clicking it works.
+async function pressEnterToOpenDialog(browser, expression, attempts = 3) {
+  let arrivedAt = null;
+  for (let attempt = 1; attempt <= attempts && !arrivedAt; attempt += 1) {
+    await readBrowserValue(browser, `(() => {
+      globalThis.__enterArrivedAt = null;
+      if (!globalThis.__enterWatcher) {
+        globalThis.__enterWatcher = (event) => {
+          if (event.key !== "Enter") return;
+          const node = event.target;
+          globalThis.__enterArrivedAt = (node?.tagName ?? "?")
+            + "[" + (node?.getAttribute?.("aria-label") ?? "") + "]";
+        };
+        document.addEventListener("keydown", globalThis.__enterWatcher, true);
+      }
+      return true;
+    })()`);
+    await dispatchBrowserKey(browser, "Enter");
+    arrivedAt = await readBrowserValue(browser, "globalThis.__enterArrivedAt ?? null");
+  }
+  assert.ok(arrivedAt, `the synthesized Enter never reached the page in ${attempts} attempts`);
+
   await waitForBrowserExpression(browser, expression).catch(async (timedOut) => {
     const probe = await readBrowserValue(browser, `(() => {
       const node = document.activeElement;
       const described = {
         tag: node?.tagName ?? null,
         label: node?.getAttribute?.('aria-label') ?? null,
-        role: node?.getAttribute?.('role') ?? null,
         tabIndex: node?.tabIndex ?? null,
         hadFocus: document.hasFocus(),
       };
@@ -234,7 +255,8 @@ async function pressEnterToOpenDialog(browser, expression) {
     })()`).catch(() => null);
     await delay(500);
     const openedByClick = await readBrowserValue(browser, expression).catch(() => null);
-    throw new Error(`${timedOut.message}; enter probe: ${JSON.stringify({ ...probe, openedByClick })}`);
+    throw new Error(`${timedOut.message}; enter probe: ${
+      JSON.stringify({ ...probe, arrivedAt, openedByClick })}`);
   });
 }
 
