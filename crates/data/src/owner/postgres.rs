@@ -17,6 +17,8 @@ pub mod bar_joined_cut_acceptance_v1;
 mod calendar;
 mod corporate_action;
 mod live_market_stream_v1;
+#[cfg(test)]
+mod market_data_rd_api_authorization_postgres_tests;
 mod market_semantics;
 mod observation_census;
 mod pit_role_resolution_v1;

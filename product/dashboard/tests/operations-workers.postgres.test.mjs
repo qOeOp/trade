@@ -77,7 +77,20 @@ async function waitForHttp(target, child, headers = {}, timeoutMs = 60_000) {
 // its own process group at spawn and address the group. Only a child spawned detached may be
 // signalled this way, so callers opt in.
 async function stopProcess(child, { group = false } = {}) {
-  if (!child || child.exitCode !== null) return;
+  // A child that has already exited cannot be signalled, and its process group must not be either:
+  // the group is named by that child's process id, and once the child is gone that id can be
+  // reused, so signalling it risks reaching something unrelated. That is why this returns early
+  // rather than falling through to the group signal below.
+  //
+  // What still has to happen is closing the pipes. A surviving group member inherited the write
+  // ends, and while they are open Node keeps the stream handles referenced and the test runner
+  // stays alive with nothing left to run - which is the failure this whole teardown exists for.
+  // Releasing them costs nothing and does not touch any process id.
+  if (!child || child.exitCode !== null) {
+    child?.stdout?.destroy();
+    child?.stderr?.destroy();
+    return;
+  }
   const exited = once(child, "exit");
   const signal = (name) => {
     if (!group) return child.kill(name);

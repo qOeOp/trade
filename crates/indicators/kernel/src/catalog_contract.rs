@@ -24,7 +24,7 @@ wire_rules!(CatalogOutputRuleV1 {
 wire_rules!(CatalogUnitRuleV1 {
     Policy = 0, PreserveEqualInputs = 1, Product = 2, Quotient = 3,
     EqualInputsBooleanOutput = 4, EqualBranches = 5, DimensionlessOutput = 6, LifecycleOwned = 7,
-    DeclaredOutput = 8
+    DeclaredOutput = 8, SquareRootOfEqualFactors = 9
 });
 wire_rules!(CatalogScaleRuleV1 {
     Policy = 0, EqualInputsDeclaredOutput = 1, DeclaredOutput = 2,
