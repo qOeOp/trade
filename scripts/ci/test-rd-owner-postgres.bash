@@ -125,7 +125,7 @@ readonly nextest_graph_args=(
 # the three selected packages expose. Keep the archive projection package-scoped.
 readonly nextest_archive_features='vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance'
 readonly schema_materialization_features="${nextest_archive_features},vibe-strategy-factory-rd-owner-api/sealed-develop-composer-acceptance"
-readonly nextest_execution_args=(--fail-fast --run-ignored ignored-only)
+readonly nextest_execution_args=(--fail-fast --run-ignored ignored-only --success-output final)  # PROBE ONLY - never merge
 readonly candidate_experiment_upgrade_seed_test='trial_family_postgres::postgres_binding_tests::canonical_candidate_experiment_upgrade_seed_is_owner_issued_and_locked_readback_exact'
 
 check_nextest_graph_contract() {
@@ -240,7 +240,7 @@ check_nextest_graph_contract() {
   if [[ "${nextest_graph_args[*]}" != '--locked --package vibe-strategy-factory --package vibe-strategy-factory-rd-owner-api --package vibe-product-edge --package vibe-operator-authorization --package vibe-backtest-owner --package vibe-data --package vibe-qualification --package vibe-execution-owner --package vibe-portfolio-owner --package vibe-strategy-governance --lib --tests' ]] ||
     [[ "$nextest_archive_features" != 'vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance' ]] ||
     [[ "$schema_materialization_features" != "${nextest_archive_features},vibe-strategy-factory-rd-owner-api/sealed-develop-composer-acceptance" ]] ||
-    [[ "${nextest_execution_args[*]}" != '--fail-fast --run-ignored ignored-only' ]]; then
+    [[ "${nextest_execution_args[*]}" != '--fail-fast --run-ignored ignored-only --success-output final' ]]; then
     echo "ERROR: shared nextest graph, schema feature union, or sequential ignored-only execution changed." >&2
     return 1
   fi
