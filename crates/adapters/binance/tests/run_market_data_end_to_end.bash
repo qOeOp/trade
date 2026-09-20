@@ -95,6 +95,42 @@ export MARKET_DATA_OWNER_DATABASE_URL="$MARKET_DATA_OWNER_TEST_DATABASE_URL"
 # the point of this leg: the whole production path can be exercised with nothing but Docker and a
 # reachable network.
 
+# The venue's reachability is probed before the test rather than inferred from its verdict. The
+# proof reports `ObservationUnavailable`, which is where three separate erasures end up: the Data
+# Client discards the HTTP error, the store discards the client's category, and the intake
+# discards the store's. So a red leg says the venue did not answer and nothing about why. This
+# probe is the only place in the leg that can name a status code, and it names one per endpoint:
+# `api.binance.com` is the host the keyless spot client actually calls, `data-api.binance.vision`
+# is the public-data mirror the admitted binding's proposal names, and `fapi.binance.com` is the
+# USD-M host. Binance answers some networks with 451, and the three hosts do not answer alike.
+#
+# The probe never decides the leg. It prints and continues, so the proof stays the verdict; a
+# probe that failed the script would replace one mute red with another.
+probe_endpoint() {
+  local label="$1" url="$2" status body
+  body="$(mktemp)"
+  # curl's own stderr is left alone: for a connection failure its message ("Could not resolve
+  # host", "Connection timed out") is the whole diagnosis, and `000` alone would not say which.
+  status="$(curl --silent --show-error --output "$body" --write-out '%{http_code}' --max-time 20 "$url" || true)"
+  if [[ -z "$status" ]]; then
+    # An empty status means curl itself did not run. Without this branch that case would print as
+    # a blank line and read like a quiet success.
+    echo "market-data end-to-end venue probe: ${label}: curl produced no status (is curl installed?)" >&2
+  elif [[ "$status" == "000" ]]; then
+    echo "market-data end-to-end venue probe: ${label}: no HTTP response (DNS, TLS, or connection refused)" >&2
+  else
+    echo "market-data end-to-end venue probe: ${label}: HTTP ${status}: $(head -c 200 "$body" | tr -d '\r\n')" >&2
+  fi
+  rm -f "$body"
+}
+
+probe_endpoint "api.binance.com (the keyless spot client's host)" \
+  "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=1"
+probe_endpoint "data-api.binance.vision (the binding proposal's host)" \
+  "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=1"
+probe_endpoint "fapi.binance.com (the USD-M host)" \
+  "https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=4h&limit=1"
+
 # Selection runs under nextest rather than `cargo test --exact`. The two agree except on the case
 # that matters: `cargo test --exact missing_name` prints `0 passed` and exits 0, so renaming the
 # proof below would leave this script green while running nothing. nextest refuses an empty

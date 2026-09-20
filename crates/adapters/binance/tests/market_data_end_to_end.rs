@@ -183,7 +183,11 @@ async fn market_data_answers_one_frozen_request_without_a_credential() {
         get_atomic_clock_realtime(),
         None,
         None,
-        None,
+        // The client calls the host the admitted binding names, taken from the proposal itself so
+        // the two cannot drift. Left to its default the client would call `api.binance.com` while
+        // the binding recorded `data-api.binance.vision`, and the Owner would be holding a
+        // provenance for an endpoint nothing contacted.
+        Some(proposal.adapter.authenticated_endpoint_identity.clone()),
         None,
         Some(30),
         None,
