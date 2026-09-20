@@ -738,7 +738,7 @@ test(testName, { skip: !url }, async () => {
       })()`);
       assert.equal(calendarRunSelected, true, "calendar inspection selects the verified observed-run group");
       await waitForBrowserExpression(browser,
-        "Boolean(document.querySelector('dialog[open] [data-never-exists]'))");
+        "Boolean(document.querySelector('dialog[open] [data-run-preview-trigger]'))");
       await readBrowserValue(browser,
         "document.querySelector('dialog[open] [data-run-preview-trigger]')?.click()");
       await waitForBrowserExpression(browser,
