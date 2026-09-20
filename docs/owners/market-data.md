@@ -100,10 +100,11 @@ never runs in CI.
   because producing a fact and delivering it to a consumer are different things, and the slice admitting the
   channel excluded the consumer half in its own words: no Runtime custody. Nothing in Runtime consumes the intake,
   so a Strategy Instance still has no live input and neither Paper nor Live can begin. What clears this entry is a
-  Runtime-side consumer and a read surface on this side for it to consume, and this Owner has
-  neither built the second nor admitted it: no outward function serves a live fact, and the twelve
-  this Owner does expose name `rd_owner` inside their own bodies, so a grant to another caller yields
-  empty results rather than refusal.
+  Runtime-side consumer and a read surface on this side for it to consume. The second is now
+  admitted and not built, and the first is neither: no outward function serves a live fact. The
+  twelve this Owner does expose no longer name `session_user` inside their own bodies, so a grant
+  to another caller now refuses instead of returning empty results, which is what makes a
+  per-consumer read surface expressible at all. Its admitted shape is under the Runtime handoff.
 
 ### Per-slice ledger
 
@@ -1725,6 +1726,20 @@ instrument-class rejection.
   no second channel, no instrument-update stream, no Runtime custody, no order path.
   **NOT_ADMITTED:** a live channel establishes no Runtime readiness, Paper, Live, real trading or other production
   write, and a streamed fact is never a PIT snapshot, a replay input or evidence for a historical question.
+- **IMPLEMENTATION_ADMITTED, one live market read surface, admitted 2026-09-21 and not built:** a consumer of a
+  live market fact is identified by its own database role, and what it may read is narrowed before the read rather
+  than filtered by the caller's claim during it. The admitted shape is one view per consumer, owned by
+  `market_data_owner`, restricted to the bindings that consumer is admitted to, with `SELECT` granted to that
+  consumer's role and no privilege on `market_data_private`. That role is the upper bound on what the consumer can
+  see: never `rd_owner`, and never a superset shared with another consumer, so the bound is enforced by the
+  database rather than by trusting a process to hold a credential. A caller identity finer than a role is not
+  required today and is not introduced; should one ever be, the per-consumer role remains its upper bound and
+  refining inside that bound is the only admitted shape. Admission here is permission to build and verify this one
+  read. It authorizes no Runtime effect, no Paper or Live adapter binding, no production write and no real trading,
+  and it does not admit the Runtime-side consumer, which is the other half `B8` names. The first delivery states
+  both sides of its own proof: the consumer's own view returns only the bindings it is admitted to, while another
+  consumer's view and `market_data_private` each refuse it rather than returning no rows, because a read that
+  returns nothing where it should be refused is a grant that is too wide.
 - To [Portfolio](./portfolio/): prices, FX rates, contract specifications, valuation facts, and an identified liquidity input cut for Capacity View.
 - **TARGET, after Shared Time producer closure, to [Portfolio](./portfolio/):** the sealed canonical clock-head handoff
   for `PORTFOLIO_FRESHNESS`. Portfolio supplies its exact prior handoff and alone authorizes its transition; it cannot
