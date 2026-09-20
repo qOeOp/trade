@@ -412,7 +412,8 @@ candidate 都在独立的 canonical read-committed transaction 中以 `FOR SHARE
 custody verifier，覆盖 stored request、receipt、frozen intent、Research view、authority lineage、independence
 basis、protected-feedback projection 与 TrialFamily custody。legacy 或 quarantined request schema 被隐藏并使
 cut 明确标为 partial。任何 malformed 或跨读变化的 candidate 都使整次读取 unavailable，绝不能伪装成成功空页。
-默认 all-research view 使用经认证的 GET `/v1/historical-custodies`。其独立 Owner port 只建立
+默认 all-research view 使用经认证的 GET `/v1/historical-custodies`，由下文所述的
+`strategy-factory-rd-dashboard-read-api` 承载。其独立 Owner port 只建立
 `default_transaction_read_only=on` session，并在一个有界 repeatable-read transaction 中读取；最多返回 200 个
 request identity、custody time 与精确的 `POINT_READ_REQUIRED` state，不暴露 request meaning、disposition、
 availability、receipt、authority，也不判断 current/legacy；超限必须显式 truncated。
@@ -439,10 +440,13 @@ GET，但其 state 仍按域分别持有 typed `ResearchDirectoryOwnerPort`、`R
 `ArtifactDirectoryOwnerPort`、`ArtifactReadbackOwnerPortV1`、`ArtifactSourceOwnerPort`、
 `SourceIntakeReadbackOwnerPort` 与
 `DevelopComposerReadbackOwnerPortV2`、`ExploratoryReplayReadbackOwnerPortV2`、
-`FormationCatalogOwnerPortV1` 与 `IterationTimelineOwnerPortV1`，不把业务边界合并为一个通用
-repository。加入 `GET /v1/formation-catalog` 和
-`GET /v1/trial-families/{trial_family_identity}/iterations` 后，router 只暴露 `/health` 及十二个精确准入的
-GET，不增加任何 write route。Dashboard 通过必须原子成对配置的
+`FormationCatalogOwnerPortV1`、`HistoricalCustodyOwnerPortV1` 与 `IterationTimelineOwnerPortV1`，不把业务边界
+合并为一个通用
+repository。加入 `GET /v1/formation-catalog`、
+`GET /v1/trial-families/{trial_family_identity}/iterations` 和 `GET /v1/historical-custodies` 后，router 只暴露
+`/health` 及十四个精确准入的
+GET，不增加任何 write route。historical custody 由这里承载而不是 write API，因此没有任何 Dashboard 读取需要
+write 侧 credential。Dashboard 通过必须原子成对配置的
 `RD_DASHBOARD_OWNER_READ_API_URL` 与 `RD_DASHBOARD_OWNER_READ_API_TOKEN` 绑定；只配置一半时必须 fail closed，
 不能借用 write API credential。adapter 复用 canonical locking verifier，不暴露 submit、resolve、sandbox 或
 mutation port。Source Intake adapter 还必须绑定只读 Product Edge admission port 与现有 request-proof digest，

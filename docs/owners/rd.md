@@ -103,14 +103,39 @@ requires changing this document first. Every row names the symbol or path that w
   `/v2/exploratory-replay/execution-input-bindings`, `/v3/exploratory-replay-requests/composer-backed`, and the
   four `/_sealed-acceptance/v1/develop-composer/*` routes. An acceptance route is never evidence of a production
   capability, and the sealed features exist to keep that distinction mechanical rather than remembered.
-- **CURRENT - the cross-Owner read surface other Owners are granted:** `rd_owner_api` carries 35 distinct
-  functions and is the only schema in this repository that grants execute to more than one consuming Owner role -
-  `product_edge_owner`, `qualification_writer`, `backtest_owner`, `market_data_owner` and `market_data_reader`,
-  with `rd_owner` as the schema's own role. For contrast at the same cut, `qualification_api` carries 13
-  functions, `market_data_rd_api` 12 granted to `rd_owner` alone, and `portfolio_api` and `governance_api` carry
-  none. The granted functions are `SECURITY DEFINER` and name no caller in their bodies, so access is decided by
-  the grant and a caller without it receives a permission error rather than an empty result. This row records the
-  surface and its grants; it does not establish that any consumer reads it in production.
+- **CURRENT - one read-only operation is reachable only through the write API:** the Dashboard's operation
+  registry declares eleven Owner routes, and ten are `GET`. The eleventh,
+  `research_goal.legacy_quarantine_read.v1`, declares `effect_set: []` and resolves to
+  `POST /v1/research-goals/{request_identity}/resolve`, registered in
+  `crates/strategy_factory_rd_owner_api/src/main.rs` and absent from the read API binary. The empty effect set is
+  accurate: the handler ignores its request body, and each of its three paths -
+  `resolve_legacy_quarantined_v1`, `resolve_admission` and `resolve_historical_v1` - only reads, taking
+  `FOR SHARE` rather than `FOR UPDATE` and issuing no `INSERT`, `UPDATE` or `DELETE`. What is wrong is where the
+  operation lives: a consumer that claims only read operations still needs write-API credentials, because one of
+  its reads is a `POST` this Owner exposes nowhere else. Until that route is served from the read API, a
+  read-only consumer holding write-API credentials is this constraint rather than a privilege leak, and
+  narrowing it to the read-API pair would break the operation rather than tighten it. Concretely, the shadow
+  worker service in `product/rd-workbench/docker-compose.yml` needs its write-API pair for exactly this reason:
+  removing it while tidying that file stops the worker at `WORKER_CONFIGURATION_UNAVAILABLE`, and nothing in the
+  file says why the pair is there. A future operation
+  declaring `effect_set: []` over a `POST` needs the question asked again, because an effect set describes the
+  operation while the credential admits the whole route.
+- **CURRENT - the cross-Owner read surface other Owners are granted:** `rd_owner_api` is the only schema in this
+  repository that grants execute to more than one consuming Owner role - `product_edge_owner`,
+  `qualification_writer`, `backtest_owner`, `market_data_owner` and `market_data_reader`, with `rd_owner` as the
+  schema's own role. The schemas, their functions and every grant are established by the Owner migrations that
+  `product/rd-workbench/postgres-init/10-migrate-authority-custody.sh` runs, and that script with the migrations
+  it invokes is the authority for what exists at any cut. This row deliberately states no function count. A count
+  goes stale the day an Owner adds a function, and it overstates the surface even while it is right: a function
+  living in an `_api` schema is reachable only when some role holds `EXECUTE` on it, and this schema holds both
+  kinds - entry points granted to a consuming Owner, and internal predicates revoked from every other role. What
+  is decidable is the grant. Two such facts hold at this cut and correct an earlier claim in this row that
+  `portfolio_api` and `governance_api` carry none: both carry functions, and `governance_api` carries exactly one,
+  revoked from `PUBLIC`, with no `GRANT EXECUTE` on it and no `GRANT USAGE ON SCHEMA governance_api` anywhere in
+  the repository - built, and reachable by no role. The granted functions are `SECURITY DEFINER` and name no
+  caller in their bodies, so access is decided by the grant and a caller without it receives a permission error
+  rather than an empty result. This row records the surface and its grants; it does not establish that any
+  consumer reads it in production.
 - **CURRENT_PARTIAL - the production Composer read port:**
   `crates/strategy_factory/src/source_research_composer_postgres_v2.rs` implements
   `DevelopComposerSealedReadPortV2` for `PostgresSourceResearchComposerProductionV2` with no `cfg` attribute, so

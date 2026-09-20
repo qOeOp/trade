@@ -131,8 +131,13 @@ admitted.
   outside: a validating reconstruction entry on `crates/scanner`, which parses canonical bytes and refuses what
   does not reconstruct, in the shape `parse_untrusted_grant_envelope` already uses in this repository. A
   `serde::Deserialize` on the receipt, or a database dependency in the domain core, is excluded.
-  The slice is bounded because both ends already exist as ports inside `crates/scanner` and neither name is
-  referenced anywhere outside that crate, so it waits on no seam that does not yet exist.
+  The slice is bounded on the code surface: both ends already exist as ports inside `crates/scanner` and
+  neither name is referenced anywhere outside that crate. It is not yet buildable, because the platform
+  surface is empty - this Owner has no database role and no schema on either supply path, and
+  `CanonicalOwnerTestRoleV1` has no Scanner variant, so no chain entry can be written and the chain entry is
+  what this admission's acceptance is. Building the store therefore waits on `scanner_owner` and its schema
+  existing on both the `postgres-init` path and the `scripts/ci/test-rd-owner-postgres.bash` path, and on the
+  testkit role and URL table carrying it. The reconstruction entry does not wait on any of that.
   **NOT_ADMITTED:** the scheduler trigger, a production constructor for the sealed source-Owner admission, any
   `StrategyLoader`, `MarketSnapshot` or Capacity View implementation, the Governance receipt handoff, any Scanner
   fact other than the terminal receipt, and every production effect, deployment cutover and real trade.
@@ -170,8 +175,12 @@ cannot invent a new slot or put a new clock epoch into the stable identity.
 **Reading a terminal receipt back is time-independent, and must stay so.** The clock observation admission
 consumed is not part of the receipt, so a readback cannot re-run the admission's clock predicates and must not be
 changed to: a receipt that read one way today and another way tomorrow is no longer a terminal record. What a
-readback does re-derive is everything the receipt itself carries, and one invariant admission cannot reach: every
-fact in one receipt shares one due slot, so their clock epochs and Time Evidence are all equal. Admitting a
+readback re-derives is every check whose two sides the receipt still holds - the source, frontier, scope and
+requirement checks, the cross-cuts, and the due instant, which the retained boundary determines. A field the
+receipt carries whose counterpart it does not, such as each fact's observation instant, is not re-checked, and
+re-deriving a substitute counterpart would make the check depend on what that scan happened to need. A readback
+also reaches one invariant admission cannot: every fact in one receipt shares one due slot, so their clock
+epochs and Time Evidence are all equal. Admitting a
 single fact cannot see a second fact, so nothing on the admission path can check that; only the whole receipt
 coming back can.
 

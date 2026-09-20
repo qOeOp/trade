@@ -86,11 +86,32 @@
   `/v2/exploratory-replay/execution-input-bindings`、`/v3/exploratory-replay-requests/composer-backed`，
   以及四条 `/_sealed-acceptance/v1/develop-composer/*`。一条验收路由绝不是生产能力的证据，
   而密封 feature 的存在就是为了让这个区别是机械的而不是靠记住的。
-- **CURRENT - 其它 Owner 被授权读取的跨 Owner 读面：** `rd_owner_api` 有 35 个去重函数，
-  是本仓库唯一一个把执行权授予多于一个消费方 Owner 角色的 schema：`product_edge_owner`、
-  `qualification_writer`、`backtest_owner`、`market_data_owner` 与 `market_data_reader`，
-  `rd_owner` 是该 schema 自己的角色。同一截面上作为对照：`qualification_api` 13 个函数、
-  `market_data_rd_api` 12 个且只授 `rd_owner`、`portfolio_api` 与 `governance_api` 一个都没有。
+- **CURRENT - 有一条只读操作只能经由写 API 触达：** Dashboard 的操作登记表声明了十一条 Owner 路由，
+  其中十条是 `GET`。第十一条 `research_goal.legacy_quarantine_read.v1` 声明 `effect_set: []`，
+  解析到 `POST /v1/research-goals/{request_identity}/resolve`，它注册在
+  `crates/strategy_factory_rd_owner_api/src/main.rs` 里，而读 API 那个二进制里没有它。
+  空效果集是准确的：该处理函数忽略自己的请求体，它的三条路径
+  `resolve_legacy_quarantined_v1`、`resolve_admission` 与 `resolve_historical_v1` 全部只读，
+  取的是 `FOR SHARE` 而不是 `FOR UPDATE`，也不发出任何 `INSERT`、`UPDATE` 或 `DELETE`。
+  错的是这条操作住在哪里：一个只认领只读操作的消费方仍然需要写 API 凭据，
+  因为它的其中一条读是一个本 Owner 别处都不暴露的 `POST`。在那条路由被读 API 提供之前，
+  一个持有写 API 凭据的只读消费方是这条约束本身而不是权限泄漏，
+  而把它收窄到读 API 那一对会打断这条操作而不是收紧它。具体地，
+  `product/rd-workbench/docker-compose.yml` 里 shadow worker 服务需要它那对写 API 凭据正是因为这个：
+  在整理那个文件时顺手删掉它，worker 会停在 `WORKER_CONFIGURATION_UNAVAILABLE`，
+  而那个文件里没有任何东西说明那对凭据为什么在。将来若再有一条在 `POST` 上声明
+  `effect_set: []` 的操作，这个问题要重新问一次，因为效果集描述的是操作，而凭据准入的是整条路由。
+- **CURRENT - 其它 Owner 被授权读取的跨 Owner 读面：** `rd_owner_api` 是本仓库唯一一个把执行权授予
+  多于一个消费方 Owner 角色的 schema：`product_edge_owner`、`qualification_writer`、`backtest_owner`、
+  `market_data_owner` 与 `market_data_reader`，`rd_owner` 是该 schema 自己的角色。这些 schema、
+  它们的函数与每一条授权，都由 `product/rd-workbench/postgres-init/10-migrate-authority-custody.sh`
+  所运行的 Owner 迁移确立；该脚本连同它调用的那些迁移，才是任一截面上"存在什么"的权威。
+  本行刻意不写函数个数。个数在任何一个 Owner 添一个函数的那天就过期，而且它即使正确也高估这个面：
+  一个住在 `_api` schema 里的函数，只有在某个角色持有它的 `EXECUTE` 时才可触达，而本 schema 两类都有：
+  授予了某个消费方 Owner 的入口，以及对其它每个角色都已撤权的内部谓词。可判定的是授权。
+  本截面上有两条这样的事实，它们更正了本行早先"`portfolio_api` 与 `governance_api` 一个都没有"的说法：
+  两者都有函数，而 `governance_api` 恰好有一个，已对 `PUBLIC` 撤权，全仓没有任何针对它的 `GRANT EXECUTE`，
+  也没有任何 `GRANT USAGE ON SCHEMA governance_api`：已建成，且没有任何角色够得到。
   这些被授权的函数是 `SECURITY DEFINER` 且函数体内不点名任何调用者，所以访问由授权决定，
   没有授权的调用者收到的是权限错误而不是空结果。本行记录的是这个面与它的授权，
   它不确立任何消费方在生产中读过它。

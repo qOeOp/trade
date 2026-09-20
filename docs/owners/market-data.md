@@ -431,6 +431,18 @@ already has the closed typed Market Semantics value described below. Source Bind
 normalization and meaning strings only as untrusted source claims; a Source Binding admission, string equality or
 digest carried by PIT or Instrument Master does not by itself authenticate typed Market Semantics.
 
+**A fact's granularity is the Source Binding, not the instrument and not the market.**
+`MarketSemanticsFactSubmissionV1` carries exactly a Source Binding locator, a PIT snapshot locator and the typed
+value; it carries no coordinate, and the compatibility scope a submission resolves against is one the Owner
+derives from the binding. One binding therefore states one price adjustment. A vendor that covers several
+markets under different adjustment rules - one market published with adjustment factors and another published
+raw because the vendor issues no factor series for it - has two ways to be stated and only two: it is admitted
+as one Source Binding per market, each with its own fact, or it declares for one of those markets an adjustment
+rule it does not hold. **The second is the same unheld assertion `UNKNOWN` exists to remove, relocated from the
+value to the binding.** Nothing in this document requires the split today, and requiring it would constrain
+every future source, so it is recorded here as a known limit rather than decided by the admission of any one
+source.
+
 **CURRENT:** Market Data has one standalone `MarketSemanticsFactV1` authority foundation. Its first fixed consumer is the
 Strategy Input Binding Registry; `ReplayMarketFactsV2` later consumes the same Owner readback as a deterministic
 projection. An untrusted proposal may carry only its request identity and meaning, stable correlation, claimed

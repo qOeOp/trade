@@ -3531,9 +3531,10 @@ mod tests {
         let owner_server = tokio::spawn(async move {
             axum::serve(
                 owner_listener,
-                artifact_source_router()
-                    .route("/v1/historical-custodies", get(read_historical_custodies))
-                    .with_state(state),
+                // Historical custody used to be bolted on here, because the read API had no such
+                // route and the write API did. An acceptance that has to reproduce the write API's
+                // shape to pass is not proving the production path; the read API serves it now.
+                artifact_source_router().with_state(state),
             )
             .await
         });
