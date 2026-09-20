@@ -15,4 +15,5 @@ name = "vibe_scanner"
 
 [dev-dependencies]
 rstest = { workspace = true }
+tokio = { workspace = true }
 trybuild = { workspace = true }

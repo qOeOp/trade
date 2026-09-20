@@ -11,10 +11,27 @@ working state, not acceptance.
 ## Architecture authority
 
 The documentation is the highest-level architecture authority for this project. Every implementation
-must strictly conform to the architecture and design described in the documentation. If a documented
-design cannot be implemented as written, or implementation reveals that the documented top-level
-design must change, stop the task and request explicit user authorization before changing the
-documentation or continuing the implementation.
+must strictly conform to the architecture and design described in the documentation.
+
+When a documented design cannot be implemented as written, or implementation reveals that the
+documented design must change, the agent decides the change, makes it in the documentation, and
+delivers it with the measurement that forced it. Reinterpreting documented text so an implementation
+fits it is not that decision: text an implementation cannot satisfy is changed, not re-read, and the
+change stays reviewable because the measurement that forced it arrives with it.
+
+Three changes still require explicit user authorization before either the documentation or the
+implementation moves:
+
+- one that widens what may reach real money - real trading, another production write, or admitting a
+  Paper or Live execution path;
+- one that changes what this product is for, or the user route the documentation states;
+- one that removes a stated refusal, seal, bound or invariant rather than relocating it or making it
+  implementable. Relocating a property leaves it provable somewhere; removing it does not, and an
+  agent cannot tell from inside one delivery what the removed property was protecting.
+
+Everything else is the agent's to decide. Recording what the repository has reached, and making an
+already documented design implementable without weakening it, need no authorization and are not
+escalated.
 
 ## Dashboard implementation status
 

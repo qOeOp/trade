@@ -11269,7 +11269,20 @@ name = "vibe-scanner"
 version = "0.62.0"
 dependencies = [
  "rstest",
+ "tokio",
  "trybuild",
+]
+
+[[package]]
+name = "vibe-scanner-custody"
+version = "0.62.0"
+dependencies = [
+ "rstest",
+ "sqlx",
+ "tokio",
+ "trybuild",
+ "vibe-scanner",
+ "vibe-testkit",
 ]
 
 [[package]]

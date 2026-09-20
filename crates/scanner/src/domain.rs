@@ -208,9 +208,13 @@ pub struct DueSlot {
     pub clock_admission: ClockAdmission,
 }
 
-impl DueSlot {
+impl AttemptId {
+    /// The instant this attempt was due, which is a pure function of its own boundary.
+    ///
+    /// A terminal receipt retains the boundary, so the due instant survives custody even though the
+    /// clock admission the attempt observed does not.
     pub fn due_at(&self) -> UnixTimestamp {
-        let (local, offset) = match &self.attempt_id.boundary {
+        let (local, offset) = match &self.boundary {
             DueSlotBoundary::Normal {
                 local,
                 utc_offset_seconds,
@@ -233,6 +237,12 @@ impl DueSlot {
                 + i64::from(local.second)
                 - i64::from(offset),
         )
+    }
+}
+
+impl DueSlot {
+    pub fn due_at(&self) -> UnixTimestamp {
+        self.attempt_id.due_at()
     }
 
     pub const fn clock_epoch(&self) -> u64 {
@@ -438,6 +448,10 @@ impl EvidenceSet {
         self.0.contains(value)
     }
 
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = &OpaqueId> {
+        self.0.iter()
+    }
+
     pub fn into_inner(self) -> BTreeSet<OpaqueId> {
         self.0
     }
@@ -471,6 +485,20 @@ pub enum ReceiptStatus {
     InsufficientData,
     NoMatch,
     Failed(FailedReason),
+}
+
+impl ReceiptStatus {
+    /// The batch failure this status carries, which is one of the inputs `complete` consumed.
+    pub const fn batch_operational_failure(&self) -> Option<&BatchOperationalFailure> {
+        match self {
+            Self::Failed(FailedReason::BatchOperational(failure)) => Some(failure),
+            Self::Proposed
+            | Self::CompletedNoProposal
+            | Self::InsufficientData
+            | Self::NoMatch
+            | Self::Failed(FailedReason::MembershipUnresolved { .. }) => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

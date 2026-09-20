@@ -1,0 +1,26 @@
+error[E0277]: the trait bound `CallerStore: vibe_scanner_custody::sealed::ScannerOwnedTerminalReceiptStore` is not satisfied
+  --> tests/ui/caller_store_cannot_claim_read_source.rs:16:47
+   |
+16 | impl ProductEdgeTerminalReceiptReadSource for CallerStore {}
+   |                                               ^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `vibe_scanner_custody::sealed::ScannerOwnedTerminalReceiptStore` is not implemented for `CallerStore`
+  --> tests/ui/caller_store_cannot_claim_read_source.rs:4:1
+   |
+ 4 | struct CallerStore;
+   | ^^^^^^^^^^^^^^^^^^
+help: the trait `vibe_scanner_custody::sealed::ScannerOwnedTerminalReceiptStore` is implemented for `ScannerTerminalReceiptCustodyV1`
+  --> src/postgres.rs
+   |
+   | impl sealed::ScannerOwnedTerminalReceiptStore for ScannerTerminalReceiptCustodyV1 {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `ProductEdgeTerminalReceiptReadSource`
+  --> src/lib.rs
+   |
+   | pub trait ProductEdgeTerminalReceiptReadSource:
+   |           ------------------------------------ required by a bound in this trait
+   |     TerminalReceiptStore + sealed::ScannerOwnedTerminalReceiptStore
+   |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `ProductEdgeTerminalReceiptReadSource`
+   = note: `ProductEdgeTerminalReceiptReadSource` is a "sealed trait", because to implement it you also need to implement `vibe_scanner_custody::sealed::ScannerOwnedTerminalReceiptStore`, which is not accessible; this is usually done to force you to use one of the provided types that already implement it
+   = help: the following type implements the trait:
+             vibe_scanner_custody::ScannerTerminalReceiptCustodyV1

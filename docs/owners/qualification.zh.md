@@ -9,26 +9,27 @@
 本节是实现状态记录，不是契约。它本身不授予任何权限，列在这里的步骤也不构成建造 部署或驱动保护评估的权威。
 下文契约不因某个步骤有没有调用者而改变。
 
-**Eligibility 终端从未被驱动过。** 下列每一步都已实现且都没有调用者，因此系统从未存在过
-Protected Replay Request Set、Attempt Frontier、Robustness Assessment 或 Eligibility Fact。
-有序 PostgreSQL 门禁只走到 `ADMITTED` intake 和一条 Origin（`schema_version=1`）replay request，
-而它那两条收尾条目恰好断言 Eligibility **不存在**。
+**Eligibility 终端由有序 PostgreSQL 门禁驱动，而且只有它在驱动。** 每一步都被那个门禁自己的条目调用，
+所以 Protected Replay Request Set、Attempt Frontier、Robustness Assessment 与 Eligibility Fact
+在门禁的数据库里都存在。步骤清单就是 `scripts/ci/test-rd-owner-postgres.bash` 里那个有序数组中属于
+Qualification 与 Backtest 的那些条目，那里始终是它们唯一的清单；没有任何一步在它之外有调用者。
 
-| 步骤                                            | 状态     |
-| ----------------------------------------------- | -------- |
-| `submit_protected_replay_request_v2`            | 无调用者 |
-| `seal_protected_replay_request_set_v1`          | 无调用者 |
-| `produce_and_commit_protected_replay_result_v3` | 无调用者 |
-| `close_protected_replay_attempt_frontier_v1`    | 无调用者 |
-| `close_economic_pass_assessment_v1`             | 无调用者 |
+第一步所需的 Shared Time 交接，由门禁从本仓库 sealed-acceptance 面的
+`issue_protected_evaluation_shared_time_v1` 构造，不是从部署解析器取得。**部署解析器仍然是关闭的**，
+原因记录在下文 需要部署授权的终端 一节，所以在门禁里驱动该终端，并不证明一次部署能驱动它。
 
-这些步骤严格串联，而第一步卡在**缺少 Owner 输入**而非缺少驱动。V2 请求是 V1 提案加一个
-`ClockHeadHandoff`，共享时钟 resolver 由 `DEPLOYMENT_STORE_ADMISSION_MODE` 构造，而门禁没有设置它，
-所以 resolver 返回空，V2 请求在那个环境里根本无法构造。其后 set 封存只接纳 `schema_version=2`
-成员--Origin 行的规范编码不同，读进来会让 frontier 搁浅--所以只有 Origin 行时，即便调用也只会
-封出一个空集合。
+有两条更早的条目仍然断言 Eligibility 不存在，而且它们仍然通过，因为有序门禁共用一个从不重置的数据库，
+它们跑在提交第一条 Eligibility Fact 的那条条目之前。**在第 `n` 条断言的缺席，是第 `n` 条处的缺席，
+不是本 Owner 的性质**。把那两条读成「Eligibility 永不存在」，正是这一段过去所编码的误读。
 
-因此把共享时钟证据准入到门禁环境，是终端的第一前置；在那之前写任何驱动都没有意义。
+这些步骤严格串联。V2 请求是 V1 提案加一个 `ClockHeadHandoff`，而生产的共享时钟 resolver 由
+`DEPLOYMENT_STORE_ADMISSION_MODE` 构造，它保持 `disabled`。门禁不使用那个 resolver，也不需要它：
+`issue_protected_evaluation_shared_time_v1` 在 sealed-acceptance 面上签发该交接，
+所以 V2 请求、非空请求集、终态结果、已关闭的 frontier 与一份评估，全都在那里被构造出来。
+set 封存只接纳 `schema_version=2` 成员--Origin 行的规范编码不同，读进来会让 frontier 搁浅--
+而门禁提供的正是 `schema_version=2` 成员。
+
+因此把共享时钟证据准入到一次**部署**，仍然是部署驱动该终端的前置。它不再是驱动该终端本身的前置。
 
 **TARGET - 需要部署授权的终端，以及它在等什么：** 这条终端是 TARGET，不是未完成的工作。
 `DEPLOYMENT_STORE_ADMISSION_MODE` 保持 `disabled`，直到存在一个部署授权方能够签发 `required`
@@ -84,14 +85,15 @@ Qualification 的其余部分并不排在它后面：attempt frontier、候选�
   `sealed-develop-composer-acceptance` 测试模块里，该模块位于
   `crates/strategy_factory/src/iteration_decision_postgres.rs`。
 - **CURRENT_PARTIAL - Protected Evaluation：** 每一个保护终端都由有序 PostgreSQL 门禁完整驱动，而且只有它在驱动。
-  各条目、准入每个终端的密封证据、以及门禁到达不了的那两项行为，都记录在上文
-  Eligibility 终端状态 一节。
+  它的各条目与准入每个终端的密封证据，就是 `scripts/ci/test-rd-owner-postgres.bash` 里那个有序数组中属于
+  Qualification 的那些行，而那个数组始终是它们唯一的清单；门禁到达不了的那两项行为，记录在下文
+  有序门禁到达不了的行为 一节。
 - **CURRENT_PARTIAL - Research 前保护反馈解析：** 这是唯一有生产调用者的能力。
   `resolve_or_create_for_basis` 与 `admit_in_transaction` 由
   `crates/strategy_factory/src/product_edge_postgres.rs` 调用，
   `admit_historical_projection_in_transaction` 由
   `crates/strategy_factory/src/rd_owner_postgres_custody.rs` 调用，都不在任何测试模块内。它的读回有一条有序链路
-  条目作为证明；response-cut 回滚没有，原因记录在上文。
+  条目作为证明；response-cut 回滚没有，原因记录在下文 有序门禁到达不了的行为 一节。
 - **TARGET - Eligibility State：** 该模块拥有 `INELIGIBLE` `QUALIFIED` `EXPIRED` 与 `REVOKED`，其中只有前两个有实现。
   `EligibilityState::Expired` 与 `::Revoked`（在 `crates/strategy_governance/src/model.rs`）在全仓没有任何生产者，
   `QualificationPublicStatusV1` 的五个变体里没有这两个，本 Owner 的 `qualification_*_v1` 表里没有任何以到期或撤销
@@ -102,6 +104,22 @@ Qualification 的其余部分并不排在它后面：attempt frontier、候选�
 - **CURRENT，且永久不可证 - 特定事故 Owner 重建：** 机器已合入，即 `crates/qualification/src/recovery.rs`，
   经 `run_owner_recovery_cli` 导出，并以 `qualification-owner-recovery` 二进制交付（在 `owner-recovery` 特性后面），
   而它唯一的证明永远无法通过。实测记录在下文 特定事故 Owner 重建 一节。
+- **TARGET - 同宇宙随机对照：** 下文 失败与恢复 一节记录的那个交接已声明，既无生产者也无消费者。
+  没有任何东西发布对照集定义，没有任何东西据此合成比较程序，`crates/qualification` 也没有对照臂。
+  它必须遵循的建造顺序是那条 clause 的一部分，不是对它的一条注记。
+
+## 有序门禁到达不了的行为
+
+本节是实现状态记录，不是契约。下面两项行为都已实现；缺的是证明，而每一处缺失都是实测出来的，不是假定的。
+
+- **首次创建与 `GENESIS_EMPTY`。** 没有任何一个已准入的 R&D 请求能在缺少自己 frontier 的情况下存在：R&D 在形成
+  TrialFamily 策略时，就已经通过 Qualification 的密封准入 API 取得了那份投影，所以门禁手上的每一个 basis 都已经
+  被投影过。一条跳过 Qualification 解析的血缘会立刻失败，这就是该结论的实测方式。
+- **Response-cut 回滚。** 要驱动它就需要一次创建或一次续期，也就需要一个缺席或已过期的当前 frontier。把一份投影的
+  `valid_through_epoch_ms` 变旧，会让它与读回所校验的规范行失去同步，于是以
+  `Qualification admission envelope projection mismatch` 失败，所以本 Owner 恰好禁掉了唯一能强行触发它的途径。
+  那个仅为此存在的测试专用计时钩子已经被删掉，而不是留成死代码；要证明该行为，需要一套能物化全新 Qualification
+  存储的器具。
 
 ## Research 前保护反馈解析
 
@@ -224,6 +242,26 @@ holdout 预留前，Candidate Intake 先用准确且由 Qualification 拥有的�
 校验计划：时间覆盖至少两个不重叠预注册窗口；市场状态至少两个实质不同状态且含一个不利状态；只有
 冻结单标的 scope 才能让 instrument 不适用；perturbation 覆盖每个重要输入类；每个可调参数都有有界
 邻域或被接受的无可调参数依据。计划不足或政策不匹配时为 `NOT_ADMITTED`，绝不预留 holdout。
+
+计划还携带一个同宇宙随机对照，而本 Owner 定义它。同宇宙指的是一个确切的
+`vibe-indicators-kernel` 目录摘要、一组输入角色、一组图界。这三个量仓库已经冻结，所以该对照不引入任何新概念。
+Qualification 固定种子、标的宇宙、预注册窗口与抽取规模；R&D 依该定义合成比较程序，因为 Composer 与 lowerer
+在它手里而不在本 Owner 手里；Backtest 回放它们并返回其序列。这个分工不是为了方便：被评估方能影响的对照集不是对照，
+所以定义不能出自那一侧，而合成可以，因为一个种子加一个宇宙不留任何可选余地。充分性要求版本化策略规定的抽取规模，
+以及一个以该指标自身单位与标度表示的预注册裕度。凡计划缺少该对照、其定义来自本 Owner 以外、抽自不同的目录摘要、
+宇宙或窗口集合、或在观察到任何结果之后才固定其裕度，一律 `NOT_ADMITTED`，且从不预留 holdout。
+
+该对照的强度以那一版目录为界，而这个界是写明的，不是暗含的。目录不含平方根、方差、相关与秩，
+因此波动率归一化因子与横截面因子在该宇宙内不可表达：通过该对照的 Candidate 被证明的是优于自一个目录中抽取的样本，
+而不是优于所有因子。目录每增加一族原语，该界就抬高一档。
+
+这回答了 formation 路径上那些试验数修正回答不了的问题。那些修正按搜索方自报的试验次数对选出的结果做紧缩；
+这一条把 Candidate 与同一目录上、同一数据上可表达的任意程序相比，而抽取所依的定义不是搜索方写的。
+前者在试验数被少报时就不再是一个修正。后者不会，而这正是保护评估存在的意义。
+
+该交接按定义、合成、回放的顺序建造，而这个顺序是一条禁令，不是一种偏好。在 Qualification 发布对照集定义之前，
+不得建造它的合成侧或消费侧，因为对着尚不存在的定义建起来的消费者无法被证伪。本 Owner 已经这样做过一次：
+Eligibility 终端的每一步都在任何调用者之前合入，并一直维持到有序门禁的条目被写出来为止。
 
 对请求相等的 `TERMINAL_RESULT`，Qualification 先消费 Backtest 完整 有限 非空的保护
 `diagnosticCategorySet`、内容摘要和逐类别决定性证据，并保留全部独立支持成员。随后先校验它是

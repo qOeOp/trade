@@ -102,6 +102,8 @@ readonly rd_owner_postgres_tests=(
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_protected_v3_results_and_attempt_frontiers_close_every_terminal_lineage'
   'vibe-qualification|vibe_qualification|postgres::postgres_tests::protected_assessments_close_every_terminal_once_and_project_public_status'
   'vibe-qualification|vibe_qualification|postgres::postgres_tests::protected_feedback_projection_readback_fails_closed_on_corruption_and_writes_nothing'
+  'vibe-data|vibe_data|owner::postgres::market_data_rd_api_authorization_postgres_tests::market_data_rd_api_admits_the_rd_owner_through_the_grant_layer_alone'
+  'vibe-data|vibe_data|owner::postgres::market_data_rd_api_authorization_postgres_tests::market_data_rd_api_refuses_the_backtest_owner_loudly_not_emptily'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
@@ -131,16 +133,23 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 85 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all eighty-five ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 87 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all eighty-seven ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
     [[ "${rd_owner_postgres_tests[1]}" != *'|legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back' ]] ||
     [[ "${rd_owner_postgres_tests[2]}" != *'|origin_current_replay_table_renames_with_exact_v1_v2_read_continuity' ]] ||
+    [[ "${rd_owner_postgres_tests[3]}" != *'|product_edge_postgres::tests::fresh_rd_owner_migrates_before_qualification_writer_validates' ]] ||
+    [[ "${rd_owner_postgres_tests[4]}" != *'|durable_owner_is_atomic_restart_exact_and_fail_closed' ]] ||
     [[ "${rd_owner_postgres_tests[5]}" != *'|owner::replay_market_facts_v2::postgres_tests::postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_market_transaction_overlap' ]] ||
+    [[ "${rd_owner_postgres_tests[6]}" != *'|postgres_source_invocation_lifecycle_is_canonical_once_only_and_acl_sealed' ]] ||
+    [[ "${rd_owner_postgres_tests[7]}" != *'|tests::same_identity_started_retry_returns_http_ok_with_exact_custody_once' ]] ||
+    [[ "${rd_owner_postgres_tests[8]}" != *'|postgres::tests::genesis_admission_claim_cutover_and_revocation_are_canonical' ]] ||
     [[ "${rd_owner_postgres_tests[9]}" != *'|postgres::tests::expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows' ]] ||
+    [[ "${rd_owner_postgres_tests[10]}" != *'|frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owner' ]] ||
     [[ "${rd_owner_postgres_tests[11]}" != *'|market_data_owner_sealed_request_port_is_exact_serializable_and_runtime_immutable' ]] ||
+    [[ "${rd_owner_postgres_tests[12]}" != *'|replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox' ]] ||
     [[ "${rd_owner_postgres_tests[13]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
     [[ "${rd_owner_postgres_tests[14]}" != *'|tests::postgres_result_owner_is_atomic_restart_exact_and_rd_locked_read_only' ]] ||
     [[ "${rd_owner_postgres_tests[15]}" != *'|tests::exploratory_replay_result_http_readback_is_exact_locked_and_rd_read_only' ]] ||
@@ -205,11 +214,26 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[74]}" != *'|postgres::tests::shared_resolver_blocks_revoke_update_lock' ]] ||
     [[ "${rd_owner_postgres_tests[75]}" != *'|postgres::tests::select_only_consumer_resolve_serializes_with_revoke' ]] ||
     [[ "${rd_owner_postgres_tests[76]}" != *'|postgres::tests::lifecycle_request_admission_is_typed_effect_free_and_replay_exact' ]] ||
+    # The three trading-side entries carry no ordering dependency on one another: each drives the
+    # upstream custody it needs inside its own test, under its own per-process suffix identity. PR
+    # #693's body claimed the reverse; that claim was true of an earlier design, in which Portfolio's
+    # proof read a fact Execution's chain entry had left behind, and it was not re-checked after #654
+    # rewrote that proof to drive Execution's production custody itself. This note records the
+    # correction; it is not a claim that any entry may be freely reordered.
+    #
+    # Pinning them is not about their dependencies anyway. Every entry pinned by position makes a
+    # reorder something two places have to agree on, so a reorder is always deliberate rather than
+    # accidental - which is what matters in a chain that shares one database it never resets.
+    [[ "${rd_owner_postgres_tests[77]}" != *'|adapter_binding_postgres::tests::postgres_binding_custody_is_atomic_replay_safe_and_tamper_closed' ]] ||
+    [[ "${rd_owner_postgres_tests[78]}" != *'|capacity_scope_postgres::tests::postgres_capacity_scope_registry_is_append_only_and_seals_one_bound_scope' ]] ||
+    [[ "${rd_owner_postgres_tests[79]}" != *'|registry_postgres::postgres_proof::postgres_execution_scope_binds_only_what_both_source_owners_confirm' ]] ||
     [[ "${rd_owner_postgres_tests[80]}" != *'|postgres::postgres_tests::protected_replay_request_sets_seal_every_terminal_lineage_and_close_registration' ]] ||
     [[ "${rd_owner_postgres_tests[81]}" != *'|tests::postgres_protected_v3_results_and_attempt_frontiers_close_every_terminal_lineage' ]] ||
     [[ "${rd_owner_postgres_tests[82]}" != *'|postgres::postgres_tests::protected_assessments_close_every_terminal_once_and_project_public_status' ]] ||
     [[ "${rd_owner_postgres_tests[83]}" != *'|postgres::postgres_tests::protected_feedback_projection_readback_fails_closed_on_corruption_and_writes_nothing' ]] ||
-    [[ "${rd_owner_postgres_tests[84]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[84]}" != *'|owner::postgres::market_data_rd_api_authorization_postgres_tests::market_data_rd_api_admits_the_rd_owner_through_the_grant_layer_alone' ]] ||
+    [[ "${rd_owner_postgres_tests[85]}" != *'|owner::postgres::market_data_rd_api_authorization_postgres_tests::market_data_rd_api_refuses_the_backtest_owner_loudly_not_emptily' ]] ||
+    [[ "${rd_owner_postgres_tests[86]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
@@ -246,24 +270,36 @@ check_nextest_graph_contract() {
     echo "ERROR: rd-owner-postgres workflow must define the complete Composer and Source Intake feature union." >&2
     return 1
   fi
-  if ! rg -Fq \
-    'DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE: "1"' \
-    "$repository_root/.github/workflows/rd-owner-postgres.yml" ||
-    ! rg -Fq \
-      'DASHBOARD_STRATEGY_VIEWER_ACCEPTANCE_CANDIDATE: ${{ github.sha }}' \
-      "$repository_root/.github/workflows/rd-owner-postgres.yml" ||
-    ! rg -Fq \
-      '${{ runner.temp }}/dashboard-strategy-viewer-chrome/chrome-linux64/chrome' \
-      "$repository_root/.github/workflows/rd-owner-postgres.yml" ||
-    ! rg -Fq \
-      'npm ci --prefix product/dashboard' \
-      "$repository_root/.github/workflows/rd-owner-postgres.yml" ||
-    ! rg -Fq \
-      'ecae8b71d4890cf5f32577ab5ea1b3840c2b5e05f51490b1666674cf1f5b0c37' \
-      "$repository_root/.github/workflows/rd-owner-postgres.yml"; then
-    echo "ERROR: rd-owner-postgres must execute the sealed Dashboard browser acceptance with immutable runtime inputs." >&2
+  # The sealed browser inputs live in one composite action, and this pins that action rather than
+  # any workflow's copy of it. Pinning a copy is how the divergence happened: this check watched
+  # `rd-owner-postgres.yml`, `owner-chains.yml` grew a second copy, and `build.yml` never had one -
+  # so the two channels AGENTS.md calls interchangeable disagreed, and the check stayed green
+  # throughout because the file it watched was still correct.
+  local browser_action="$repository_root/.github/actions/dashboard-browser-acceptance/action.yml"
+  if [[ ! -f "$browser_action" ]]; then
+    echo "ERROR: the sealed Dashboard browser acceptance action is missing." >&2
     return 1
   fi
+  if ! rg -Fq 'DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE=1' "$browser_action" ||
+    ! rg -Fq 'DASHBOARD_STRATEGY_VIEWER_ACCEPTANCE_CANDIDATE=' "$browser_action" ||
+    ! rg -Fq '${{ runner.temp }}/dashboard-strategy-viewer-chrome/chrome-linux64/chrome' \
+      "$browser_action" ||
+    ! rg -Fq 'npm ci --prefix product/dashboard' "$browser_action" ||
+    ! rg -Fq 'ecae8b71d4890cf5f32577ab5ea1b3840c2b5e05f51490b1666674cf1f5b0c37' "$browser_action"; then
+    echo "ERROR: the sealed Dashboard browser acceptance action must install immutable runtime inputs." >&2
+    return 1
+  fi
+  # Every channel AGENTS.md accepts as chain evidence has to call it. A channel that does not still
+  # runs entry 28 and still reports PASS - in milliseconds, having driven no browser - so its
+  # absence here is indistinguishable from success in the chain's own output.
+  local acceptance_channel
+  for acceptance_channel in rd-owner-postgres owner-chains build; do
+    if ! rg -Fq './.github/actions/dashboard-browser-acceptance' \
+      "$repository_root/.github/workflows/${acceptance_channel}.yml"; then
+      echo "ERROR: ${acceptance_channel}.yml claims to carry the Owner chain but never installs the sealed Dashboard browser acceptance inputs." >&2
+      return 1
+    fi
+  done
   if ! rg -n 'EXTRA_FEATURES="\$\{RUST_TEST_EXTRA_FEATURES\}"' \
     "$repository_root/.github/workflows/rd-owner-postgres.yml" > /dev/null; then
     echo "ERROR: rd-owner-postgres workflow must pass RUST_TEST_EXTRA_FEATURES to the isolated test graph." >&2
@@ -313,8 +349,8 @@ for line in array_body.splitlines():
     if len(fields) != 3 or any(not field for field in fields):
         raise SystemExit("ERROR: ordered PostgreSQL test literal must contain three fields.")
     entries.append(tuple(fields))
-if len(entries) != 85:
-    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain eighty-five entries.")
+if len(entries) != 87:
+    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain eighty-seven entries.")
 if sum(test_name == poison_test for _, _, test_name in entries) != 1:
     raise SystemExit(
         "ERROR: recovery-sidecar poison test must occur exactly once as a parsed test name."
@@ -384,6 +420,8 @@ expected_overrides = (
     ("EXECUTION_OWNER_TEST_DATABASE_URL", '"postgresql://execution_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
     ("PORTFOLIO_OWNER_TEST_DATABASE_URL", '"postgresql://portfolio_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
     ("GOVERNANCE_OWNER_TEST_DATABASE_URL", '"postgresql://governance_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("RISK_OWNER_TEST_DATABASE_URL", '"postgresql://risk_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("SCANNER_OWNER_TEST_DATABASE_URL", '"postgresql://scanner_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
 )
 route_lines = route_body.splitlines()
 if route_lines[:2] != ["", "    env \\"]:
@@ -1182,6 +1220,9 @@ run_authority_migration_for_database() {
     --env "EXECUTION_WRITER_DB_PASSWORD=${test_password}" \
     --env "PORTFOLIO_WRITER_DB_PASSWORD=${test_password}" \
     --env "GOVERNANCE_WRITER_DB_PASSWORD=${test_password}" \
+    --env "INSTRUMENT_OWNER_DB_PASSWORD=${test_password}" \
+    --env "RISK_WRITER_DB_PASSWORD=${test_password}" \
+    --env "SCANNER_WRITER_DB_PASSWORD=${test_password}" \
     "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
 }
 
@@ -1539,6 +1580,9 @@ docker exec --interactive \
   --env "EXECUTION_WRITER_DB_PASSWORD=${test_password}" \
   --env "PORTFOLIO_WRITER_DB_PASSWORD=${test_password}" \
   --env "GOVERNANCE_WRITER_DB_PASSWORD=${test_password}" \
+  --env "INSTRUMENT_OWNER_DB_PASSWORD=${test_password}" \
+  --env "RISK_WRITER_DB_PASSWORD=${test_password}" \
+  --env "SCANNER_WRITER_DB_PASSWORD=${test_password}" \
   "$container" sh -s < product/rd-workbench/postgres-init/00-create-rd-owner.sh
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
@@ -1630,6 +1674,9 @@ docker exec --interactive \
   --env "EXECUTION_WRITER_DB_PASSWORD=${test_password}" \
   --env "PORTFOLIO_WRITER_DB_PASSWORD=${test_password}" \
   --env "GOVERNANCE_WRITER_DB_PASSWORD=${test_password}" \
+  --env "INSTRUMENT_OWNER_DB_PASSWORD=${test_password}" \
+  --env "RISK_WRITER_DB_PASSWORD=${test_password}" \
+  --env "SCANNER_WRITER_DB_PASSWORD=${test_password}" \
   "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
 
 existing_cutover_candidate_experiment_fingerprint_before="$(
@@ -1698,7 +1745,6 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --set=test_database="$test_database" \
   --set=test_password="$test_password" << 'SQL'
 CREATE ROLE vibe_test_owner_topology_admin LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'test_password';
-CREATE ROLE instrument_owner LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'test_password';
 CREATE ROLE instrument_economic_intruder LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE ROLE instrument_economic_noinherit_intruder LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 ALTER ROLE market_data_reader PASSWORD :'test_password';
@@ -1707,10 +1753,6 @@ DO $database_access$
 BEGIN
   EXECUTE pg_catalog.format(
     'GRANT CONNECT ON DATABASE %I TO rd_fact_writer, replay_policy_catalog_admin_writer, vibe_test_owner_topology_admin, instrument_owner',
-    pg_catalog.current_database()
-  );
-  EXECUTE pg_catalog.format(
-    'GRANT CREATE ON DATABASE %I TO instrument_owner',
     pg_catalog.current_database()
   );
 END
@@ -1731,8 +1773,8 @@ CREATE TABLE IF NOT EXISTS vibe_test_admin.dedicated_postgres_test_instance_v1 (
 ALTER TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 OWNER TO postgres;
 REVOKE ALL ON SCHEMA vibe_test_admin FROM PUBLIC;
 REVOKE ALL ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 FROM PUBLIC;
-GRANT USAGE ON SCHEMA vibe_test_admin TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, execution_writer, portfolio_writer, governance_writer, vibe_test_owner_topology_admin;
-GRANT SELECT ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, execution_writer, portfolio_writer, governance_writer, vibe_test_owner_topology_admin;
+GRANT USAGE ON SCHEMA vibe_test_admin TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, execution_writer, portfolio_writer, governance_writer, risk_writer, scanner_writer, vibe_test_owner_topology_admin;
+GRANT SELECT ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, execution_writer, portfolio_writer, governance_writer, risk_writer, scanner_writer, vibe_test_owner_topology_admin;
 INSERT INTO vibe_test_admin.dedicated_postgres_test_instance_v1(marker_identity, database_name, test_role)
 SELECT :'test_marker', :'test_database', role_name
 FROM unnest(ARRAY[
@@ -1749,6 +1791,8 @@ FROM unnest(ARRAY[
   'execution_writer',
   'portfolio_writer',
   'governance_writer',
+  'risk_writer',
+  'scanner_writer',
   'vibe_test_owner_topology_admin'
 ]) AS role_name
 ON CONFLICT (test_role) DO UPDATE
@@ -2418,15 +2462,15 @@ REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"legacy_replay_database" FROM PUB
 REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"program_host_acceptance_database" FROM PUBLIC;
 REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"composer_sealed_read_database" FROM PUBLIC;
 GRANT CONNECT ON DATABASE :"catalog_admin_database"
-  TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, execution_writer, portfolio_writer, governance_writer, vibe_test_owner_topology_admin;
+  TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, execution_writer, portfolio_writer, governance_writer, risk_writer, scanner_writer, vibe_test_owner_topology_admin;
 GRANT CONNECT ON DATABASE :"origin_current_database"
-  TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, execution_writer, portfolio_writer, governance_writer, vibe_test_owner_topology_admin;
+  TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, execution_writer, portfolio_writer, governance_writer, risk_writer, scanner_writer, vibe_test_owner_topology_admin;
 GRANT CONNECT ON DATABASE :"legacy_replay_database"
-  TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, execution_writer, portfolio_writer, governance_writer, vibe_test_owner_topology_admin;
+  TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, execution_writer, portfolio_writer, governance_writer, risk_writer, scanner_writer, vibe_test_owner_topology_admin;
 GRANT CONNECT ON DATABASE :"program_host_acceptance_database"
-  TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, execution_writer, portfolio_writer, governance_writer, vibe_test_owner_topology_admin;
+  TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, execution_writer, portfolio_writer, governance_writer, risk_writer, scanner_writer, vibe_test_owner_topology_admin;
 GRANT CONNECT ON DATABASE :"composer_sealed_read_database"
-  TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, execution_writer, portfolio_writer, governance_writer, vibe_test_owner_topology_admin;
+  TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, execution_writer, portfolio_writer, governance_writer, risk_writer, scanner_writer, vibe_test_owner_topology_admin;
 
 WITH clones(database_name) AS (
   VALUES (:'catalog_admin_database'), (:'origin_current_database'), (:'legacy_replay_database'), (:'program_host_acceptance_database'), (:'composer_sealed_read_database')
@@ -2442,6 +2486,11 @@ WITH clones(database_name) AS (
     ('qualification_writer'),
     ('backtest_owner'),
     ('instrument_owner'),
+    ('execution_writer'),
+    ('portfolio_writer'),
+    ('governance_writer'),
+    ('risk_writer'),
+    ('scanner_writer'),
     ('vibe_test_owner_topology_admin')
 )
 SELECT (
@@ -2659,6 +2708,8 @@ export INSTRUMENT_OWNER_DATABASE_URL="$INSTRUMENT_OWNER_TEST_DATABASE_URL"
 export EXECUTION_OWNER_TEST_DATABASE_URL="postgresql://execution_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export PORTFOLIO_OWNER_TEST_DATABASE_URL="postgresql://portfolio_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export GOVERNANCE_OWNER_TEST_DATABASE_URL="postgresql://governance_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
+export RISK_OWNER_TEST_DATABASE_URL="postgresql://risk_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
+export SCANNER_OWNER_TEST_DATABASE_URL="postgresql://scanner_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export OPERATOR_AUTHORIZATION_TEST_DATABASE_ROLE="operator_authorization_writer"
 export PRODUCT_EDGE_TEST_DATABASE_ROLE="product_edge_owner"
 export RD_OWNER_TEST_DATABASE_ROLE="rd_owner"
@@ -3030,6 +3081,8 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       EXECUTION_OWNER_TEST_DATABASE_URL="postgresql://execution_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}" \
       PORTFOLIO_OWNER_TEST_DATABASE_URL="postgresql://portfolio_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}" \
       GOVERNANCE_OWNER_TEST_DATABASE_URL="postgresql://governance_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}" \
+      RISK_OWNER_TEST_DATABASE_URL="postgresql://risk_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}" \
+      SCANNER_OWNER_TEST_DATABASE_URL="postgresql://scanner_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}" \
       cargo nextest run \
       --archive-file "$nextest_archive_file" \
       --profile "$nextest_profile" \
@@ -3053,6 +3106,8 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       EXECUTION_OWNER_TEST_DATABASE_URL="postgresql://execution_writer:${test_password}@${postgres_host}:${postgres_port}/${legacy_replay_database}" \
       PORTFOLIO_OWNER_TEST_DATABASE_URL="postgresql://portfolio_writer:${test_password}@${postgres_host}:${postgres_port}/${legacy_replay_database}" \
       GOVERNANCE_OWNER_TEST_DATABASE_URL="postgresql://governance_writer:${test_password}@${postgres_host}:${postgres_port}/${legacy_replay_database}" \
+      RISK_OWNER_TEST_DATABASE_URL="postgresql://risk_writer:${test_password}@${postgres_host}:${postgres_port}/${legacy_replay_database}" \
+      SCANNER_OWNER_TEST_DATABASE_URL="postgresql://scanner_writer:${test_password}@${postgres_host}:${postgres_port}/${legacy_replay_database}" \
       cargo nextest run \
       --archive-file "$nextest_archive_file" \
       --profile "$nextest_profile" \
@@ -3076,6 +3131,8 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       EXECUTION_OWNER_TEST_DATABASE_URL="postgresql://execution_writer:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
       PORTFOLIO_OWNER_TEST_DATABASE_URL="postgresql://portfolio_writer:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
       GOVERNANCE_OWNER_TEST_DATABASE_URL="postgresql://governance_writer:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
+      RISK_OWNER_TEST_DATABASE_URL="postgresql://risk_writer:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
+      SCANNER_OWNER_TEST_DATABASE_URL="postgresql://scanner_writer:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
       cargo nextest run \
       --archive-file "$nextest_archive_file" \
       --profile "$nextest_profile" \
@@ -3114,6 +3171,8 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       EXECUTION_OWNER_TEST_DATABASE_URL="postgresql://execution_writer:${test_password}@${postgres_host}:${postgres_port}/${composer_sealed_read_database}" \
       PORTFOLIO_OWNER_TEST_DATABASE_URL="postgresql://portfolio_writer:${test_password}@${postgres_host}:${postgres_port}/${composer_sealed_read_database}" \
       GOVERNANCE_OWNER_TEST_DATABASE_URL="postgresql://governance_writer:${test_password}@${postgres_host}:${postgres_port}/${composer_sealed_read_database}" \
+      RISK_OWNER_TEST_DATABASE_URL="postgresql://risk_writer:${test_password}@${postgres_host}:${postgres_port}/${composer_sealed_read_database}" \
+      SCANNER_OWNER_TEST_DATABASE_URL="postgresql://scanner_writer:${test_password}@${postgres_host}:${postgres_port}/${composer_sealed_read_database}" \
       cargo nextest run \
       --archive-file "$nextest_archive_file" \
       --profile "$nextest_profile" \
@@ -3137,6 +3196,8 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       EXECUTION_OWNER_TEST_DATABASE_URL="postgresql://execution_writer:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
       PORTFOLIO_OWNER_TEST_DATABASE_URL="postgresql://portfolio_writer:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
       GOVERNANCE_OWNER_TEST_DATABASE_URL="postgresql://governance_writer:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
+      RISK_OWNER_TEST_DATABASE_URL="postgresql://risk_writer:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
+      SCANNER_OWNER_TEST_DATABASE_URL="postgresql://scanner_writer:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
       cargo nextest run \
       --archive-file "$nextest_archive_file" \
       --profile "$nextest_profile" \

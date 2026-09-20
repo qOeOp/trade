@@ -4,6 +4,9 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 use thiserror::Error;
+use vibe_backtest_owner_contracts::protected_economic_metric::{
+    ProtectedEconomicCatalogFaultV1, ProtectedEconomicComputationV1,
+};
 #[cfg(test)]
 use vibe_backtest_owner_contracts::{CanonicalDigestV2, OpaqueIdentityV2};
 use vibe_backtest_owner_contracts::{
@@ -136,6 +139,22 @@ pub struct ResolvedProtectedReplayRequestSetV1(ProtectedReplayRequestSetSealDtoV
 impl ResolvedProtectedReplayRequestSetV1 {
     pub fn request_set(&self) -> &ProtectedReplayRequestSetSealDtoV1 {
         &self.0
+    }
+
+    /// Resolves the metric and coverage rule the set's frozen bundle selects.
+    ///
+    /// This is why the bundle travels inside the set. Backtest is revoked on Qualification's bundle
+    /// table, so a reference alone would name a row this Owner cannot read, and the computation
+    /// every protected measurement must be derived under would stay unselectable outside a fixture.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first reference the Backtest catalog does not publish exactly as frozen. A set
+    /// naming a member this Owner cannot execute yields no computation rather than a substitute.
+    pub fn economic_computation(
+        &self,
+    ) -> Result<ProtectedEconomicComputationV1, ProtectedEconomicCatalogFaultV1> {
+        ProtectedEconomicComputationV1::resolve(&self.0.protected_economic_policy_bundle)
     }
 
     pub(crate) fn new(request_set: ProtectedReplayRequestSetSealDtoV1) -> Self {
@@ -746,5 +765,142 @@ pub(crate) fn test_observation(
             digest: CanonicalDigestV2::try_from(format!("blake3:{}", "e".repeat(64)))
                 .expect("digest"),
         },
+    }
+}
+
+#[cfg(test)]
+mod economic_computation_tests {
+    use vibe_backtest_owner_contracts::protected_economic_metric::{
+        BASIS_POINTS_UNIT, NET_RETURN_BASIS_POINTS_METRIC_V1, OBSERVED_WINDOW_SPAN_COVERAGE_V1,
+        ProtectedEconomicCatalogFaultV1, ProtectedEconomicCoverageRuleV1,
+        ProtectedEconomicMetricV1,
+    };
+    use vibe_backtest_owner_contracts::{
+        PROTECTED_REPLAY_BINDING_COUNT_V1, ProtectedEconomicAggregationV1,
+        ProtectedEconomicComparisonV1, ProtectedEconomicPolicyBundleV1,
+        ProtectedEconomicPolicyReferenceV1, ProtectedReplayRequestSetMemberV1,
+        ProtectedReplayRequestSetSealDtoV1,
+    };
+
+    use super::ResolvedProtectedReplayRequestSetV1;
+
+    fn digest(byte: char) -> String {
+        format!("blake3:{}", byte.to_string().repeat(64))
+    }
+
+    fn reference(identity: &str, digest_value: String) -> ProtectedEconomicPolicyReferenceV1 {
+        ProtectedEconomicPolicyReferenceV1 {
+            identity: identity.to_owned(),
+            digest: digest_value,
+        }
+    }
+
+    /// One frozen bundle, with the metric reference under the caller's control so a set naming a
+    /// member this Owner does not publish can be built the same way a real one is.
+    fn bundle(metric: ProtectedEconomicPolicyReferenceV1) -> ProtectedEconomicPolicyBundleV1 {
+        ProtectedEconomicPolicyBundleV1 {
+            schema_version: 1,
+            bundle_identity: "pending-bundle".to_owned(),
+            bundle_digest: digest('0'),
+            protected_decision_policy_identity: "protected-decision-policy".to_owned(),
+            protected_decision_policy_version: 1,
+            metric,
+            coverage_policy: reference(
+                OBSERVED_WINDOW_SPAN_COVERAGE_V1,
+                ProtectedEconomicCoverageRuleV1::ObservedWindowSpan
+                    .definition_digest()
+                    .expect("published coverage digest"),
+            ),
+            tolerance_policy: reference("protected-tolerance-policy", digest('3')),
+            threshold_policy: reference("protected-threshold-policy", digest('4')),
+            aggregation_policy: reference("protected-aggregation-policy", digest('5')),
+            unit: BASIS_POINTS_UNIT.to_owned(),
+            decimal_scale: ProtectedEconomicMetricV1::NetReturnBasisPoints.decimal_scale(),
+            comparison: ProtectedEconomicComparisonV1::GreaterThanOrEqual,
+            threshold_raw: -100,
+            tolerance_raw: 5,
+            minimum_coverage_bps: 9_500,
+            aggregation: ProtectedEconomicAggregationV1::EveryApplicableCell,
+        }
+        .seal()
+        .expect("fixture bundle seals")
+    }
+
+    fn resolved_set(
+        metric: ProtectedEconomicPolicyReferenceV1,
+    ) -> ResolvedProtectedReplayRequestSetV1 {
+        let set = ProtectedReplayRequestSetSealDtoV1 {
+            schema_version: 2,
+            request_set_identity: "pending-request-set".to_owned(),
+            request_set_digest: digest('0'),
+            candidate_identity: "candidate".to_owned(),
+            candidate_digest: digest('1'),
+            intake_receipt_identity: "intake-receipt".to_owned(),
+            intake_receipt_digest: digest('2'),
+            holdout_reservation_identity: "holdout-reservation".to_owned(),
+            holdout_reservation_digest: digest('3'),
+            protected_decision_policy_identity: "protected-decision-policy".to_owned(),
+            protected_decision_policy_version: 1,
+            protected_plan_identity: "protected-plan".to_owned(),
+            protected_plan_digest: digest('4'),
+            plan_cell_set_identity: "plan-cell-set".to_owned(),
+            plan_cell_set_digest: digest('5'),
+            missing_cell_policy_identity: "missing-cell-policy".to_owned(),
+            missing_cell_policy_digest: digest('6'),
+            stop_policy_identity: "protected-stop-policy".to_owned(),
+            stop_policy_digest: digest('7'),
+            protected_economic_policy_bundle: bundle(metric),
+            members: vec![ProtectedReplayRequestSetMemberV1 {
+                request_identity: "protected-request".to_owned(),
+                request_digest: digest('8'),
+                request_receipt_identity: "protected-request-receipt".to_owned(),
+                request_seal_digest: digest('9'),
+                plan_cell_identity: "plan-cell".to_owned(),
+                plan_cell_digest: digest('a'),
+                request_time_evidence_digest: digest('b'),
+            }],
+        }
+        .seal()
+        .expect("fixture request set seals");
+        assert_eq!(set.members[0].request_digest.len(), digest('8').len());
+        assert_eq!(PROTECTED_REPLAY_BINDING_COUNT_V1, 16);
+        ResolvedProtectedReplayRequestSetV1::new(set)
+    }
+
+    #[rstest::rstest]
+    fn a_sealed_set_selects_the_computation_its_bundle_names() {
+        let published = reference(
+            NET_RETURN_BASIS_POINTS_METRIC_V1,
+            ProtectedEconomicMetricV1::NetReturnBasisPoints
+                .definition_digest()
+                .expect("published metric digest"),
+        );
+
+        let computation = resolved_set(published)
+            .economic_computation()
+            .expect("the sealed bundle names members this Owner publishes");
+
+        assert_eq!(
+            computation.metric,
+            ProtectedEconomicMetricV1::NetReturnBasisPoints
+        );
+        assert_eq!(
+            computation.coverage_rule,
+            ProtectedEconomicCoverageRuleV1::ObservedWindowSpan
+        );
+    }
+
+    #[rstest::rstest]
+    fn a_set_naming_a_member_this_owner_does_not_publish_yields_no_computation() {
+        let unpublished = reference("backtest.protected-metric.not-published.v1", digest('c'));
+
+        let fault = resolved_set(unpublished)
+            .economic_computation()
+            .expect_err("an unpublished metric cannot be executed");
+
+        assert!(matches!(
+            fault,
+            ProtectedEconomicCatalogFaultV1::UnknownMetric { .. }
+        ));
     }
 }

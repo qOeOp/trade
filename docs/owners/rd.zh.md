@@ -86,6 +86,21 @@
   `/v2/exploratory-replay/execution-input-bindings`、`/v3/exploratory-replay-requests/composer-backed`，
   以及四条 `/_sealed-acceptance/v1/develop-composer/*`。一条验收路由绝不是生产能力的证据，
   而密封 feature 的存在就是为了让这个区别是机械的而不是靠记住的。
+- **CURRENT - 有一条只读操作只能经由写 API 触达：** Dashboard 的操作登记表声明了十一条 Owner 路由，
+  其中十条是 `GET`。第十一条 `research_goal.legacy_quarantine_read.v1` 声明 `effect_set: []`，
+  解析到 `POST /v1/research-goals/{request_identity}/resolve`，它注册在
+  `crates/strategy_factory_rd_owner_api/src/main.rs` 里，而读 API 那个二进制里没有它。
+  空效果集是准确的：该处理函数忽略自己的请求体，它的三条路径
+  `resolve_legacy_quarantined_v1`、`resolve_admission` 与 `resolve_historical_v1` 全部只读，
+  取的是 `FOR SHARE` 而不是 `FOR UPDATE`，也不发出任何 `INSERT`、`UPDATE` 或 `DELETE`。
+  错的是这条操作住在哪里：一个只认领只读操作的消费方仍然需要写 API 凭据，
+  因为它的其中一条读是一个本 Owner 别处都不暴露的 `POST`。在那条路由被读 API 提供之前，
+  一个持有写 API 凭据的只读消费方是这条约束本身而不是权限泄漏，
+  而把它收窄到读 API 那一对会打断这条操作而不是收紧它。具体地，
+  `product/rd-workbench/docker-compose.yml` 里 shadow worker 服务需要它那对写 API 凭据正是因为这个：
+  在整理那个文件时顺手删掉它，worker 会停在 `WORKER_CONFIGURATION_UNAVAILABLE`，
+  而那个文件里没有任何东西说明那对凭据为什么在。将来若再有一条在 `POST` 上声明
+  `effect_set: []` 的操作，这个问题要重新问一次，因为效果集描述的是操作，而凭据准入的是整条路由。
 - **CURRENT - 其它 Owner 被授权读取的跨 Owner 读面：** `rd_owner_api` 是本仓库唯一一个把执行权授予
   多于一个消费方 Owner 角色的 schema：`product_edge_owner`、`qualification_writer`、`backtest_owner`、
   `market_data_owner` 与 `market_data_reader`，`rd_owner` 是该 schema 自己的角色。这些 schema、
@@ -252,26 +267,27 @@ R&D 不从研究散文导出 Design。本仓库没有任何规则把 hypothesis�
 question 变成输入角色与 reaction graph，也不打算有：那项转换是一次判断，而 Owner 作出的判断
 就是 Owner 发明的事实。
 
-这条禁止针对的是推断，不是投影，而分开两者的是 Research Intent 已经陈述了什么。一份
-Research Intent 带 `data.channels`，其中每条 channel 已经声明了自己的 `role`、`asset_id`、
-`timeframe`、是否 `required`，以及来源与陈旧度上界；`data.decision_clock_channel` 点名
-它们当中哪一条推进决策。把这些读出来不是一次判断，因为没有任何东西被选择，而且 Intent 里
-根本没有可供判断的原料：四份 `representative_intent_v*.jcs` 资产里，channel 的键集恰好是
-`asset_id`、`id`、`max_staleness_ns`、`owner_key`、`required`、`role`、`source` 与 `timeframe`，
-而 `reaction`、`graph`、`threshold`、`rule`、`signal`、`condition`、`operator`、`compare`
-在其中任何一份里出现次数都是零。
+**本仓库里有两样东西都叫 Research Intent，而这条禁止仍然成立，因为 Composer 路径握着的是
+没有东西可投影的那一样。**
 
-**因此 Owner 可以把已声明的 channel 投影成 Design 的输入角色，一条 channel 一个角色。**
-这个投影是部分的，而它的边界是精确的。`InputRoleV2` 只有三个字段来自 channel 而不来自别处：
-`instrument` 来自 `asset_id`、`timeframe` 来自 `timeframe`、`channel` 来自 `id`。
-`semantic_id`、`field_semantic_id`、`fact_class`、`unit`、`scale` 与 `value_type` **不在** Intent 里，
-一条 channel 的 `role` 是提案者写的散文，比如 `broad_usd_proxy_not_ice_dxy`，不是目录语义 ID，
-所以它们仍然是提案者的声明、由 Owner 准入；一份 channel 无法与已声明角色对上的 Intent 被拒绝，
-而不是由 Owner 凭自己对该标的的了解补全。`max_staleness_ns` 与 `owner_key` 在 `InputRoleV2` 里
-根本没有对应字段，它们属于绑定托管，不被投影进 Design。
+`crates/strategy_factory/src/research.rs` 里的 `ResearchIntent` 确实带 `data.channels`，
+每条 channel 声明了自己的 `role`、`asset_id`、`timeframe`、是否必需、来源与陈旧度上界，
+`data.decision_clock_channel` 点名其中哪一条推进决策。投影这些不会选择任何东西。但这个类型
+只有一个构造器 `frozen_representative()`，它解析一个编译期常量，然后拒绝任何 SHA-256、identity、
+revision 与 schema 版本不等于冻结值的东西；它的调用方只有 formation 路径
+（`family_adapters.rs`、`representative.rs`、`formation_adapters.rs`）。Composer 路径从不握着它。
 
-一条投影无法绑定到 Market Semantics 坐标的 channel 是一次拒绝，绝不是被丢弃的角色，
-也绝不是由 Owner 自己补上的角色。
+Composer 路径握着的是 `CurrentResearchDevelopCustodyV2`，它的十四个字段是定位符、身份与摘要，
+外加一个 `falsifier` 字符串；它背后存着的 `intent_json` 反序列化成 `FrozenResearchGoalIntentV2`，
+而那份 intent 的 `goal` 是一个 `SourcedResearchGoalV2`：`hypothesis`、`mechanism`、
+`falsification_question`、`expected_observation`、`cost_assumption`、`capacity_assumption`、
+`sources`，以及 `required_data: Vec<String>`，它的取值是 `PIT bars`、`sealed market bars`
+这类散文。**它不声明任何 channel、任何标的、任何周期、任何角色。**
+
+所以生产路径上没有东西可投影，而把 `required_data` 的散文变成输入角色，正是上一段禁止的那种推断。
+只有当 Owner 在 Composer 截面上握有 channel 声明时，投影才成为可能：要么存着的 intent 带上它们，
+要么有什么东西能从 intent 身份解析出它们，而这两样今天都不存在。在那之前，输入角色和 reaction graph
+一样，是提案者的声明、由本 Owner 准入。
 
 reaction graph 才是仍然属于判断的那一部分，而它仍然归提案者。为它准入第一个有界族，
 不准入更宽的任何东西：**单一已声明 channel 与单一阈值的比较**，决策时钟取自

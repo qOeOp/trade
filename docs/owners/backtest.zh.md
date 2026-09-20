@@ -10,6 +10,11 @@
 - 重放产生的规范订单 成交 持仓 成本和结果。
 - **CURRENT_PARTIAL：** 完整有序 shared-kernel semantic trace，把 normalized lifecycle event、checkpoint、primitive
   与 plugin result、target/protection transition 和 fill reconciliation 绑定到规范 replay。
+- **TARGET：** 一次重放的逐条件决策普查，把每个决策分支谓词绑定到三样东西：它的输入按冻结时的目录可用性规则
+  首次满足的那一拍、请求区间在那一拍之后留给它的可求值拍数、以及它的结果在这些拍上的有序游程。尚不可求值的
+  谓词绝不被记成为假的谓词，普查还说明是哪条规则与哪个窗口让它不可求值，而不只说它不可求值。它是有界的：
+  结果翻转频率超过普查容量的谓词退化为计数并把已退化这件事记下来，而不是截断成一段声称结果不再变化的游程。
+  它与语义轨迹同构，封印在规范 Result 之旁而不在其中，因此 Result 保持它自己的相等证明所需的大小。
 - 探索运行与 Qualification 请求的保护运行之间的完整隔离。
 - Exploratory Run Result 逐项重复实际消费的 Strategy Artifact 请求 PIT 范围 PIT Market Snapshot
   Universe Selection Record 与修订规则 重放配置 Runtime 内核 模拟器 成本 滑点和容量模型身份，
@@ -69,17 +74,13 @@
   `--bin strategy-factory-rd-owner-api` 时根本不带 `--features` 参数。这量的是部署产物，不是历史。另一条公开
   提交路径 `commit_exploratory_replay_result_v2` 的调用方只存在于
   `crates/backtest_owner/src/lib.rs` 的 `#[cfg(test)]` 模块内。
-- **CURRENT_PARTIAL - 保护观测：** Backtest 从它自己执行的那次运行的规范结果派生出观测，却无法得知为那次运行
-  冻结的是哪一个观测。`derive_protected_economic_measurement_v1` 从规范 Result 字节计算并封印它，其全部调用方
-  都在 `crates/backtest_owner/tests/protected_economic_measurement.rs` 内。
-  `ProtectedEconomicComputationV1::resolve` 是把冻结的 Qualification 政策束换成一个指标与一条覆盖规则的唯一
-  函数，它在任何地方都没有调用方；保护请求没有任何字段携带这两个引用之一；而
-  `product/rd-workbench/postgres-init/10-migrate-authority-custody.sh` 对
-  `public.qualification_protected_economic_policy_bundles_v1` 撤销了 `backtest_owner`。这项选择没有生产方。
-- **CURRENT_PARTIAL - 第二份 Run Result 投影：** `project_locked_exploratory_replay_result_v1` 位于
-  `crates/backtest_owner/src/result_projection/mod.rs`，它从规范 Result 字节解码回撤 Sharpe Sortino 已实现
-  PnL 手续费 滑点与收益，并且不出现在任何其他文件里。上面那条 Product Edge 交接以准确规范字节服务同一个
-  消费方。
+- **CURRENT_PARTIAL - 保护观测：** Backtest 从它自己执行的那次运行的规范结果派生出观测，现在也能得知为那次
+  运行冻结的是哪一个观测：`derive_protected_economic_measurement_v1` 从规范 Result 字节计算并封印它，而
+  `ResolvedProtectedReplayRequestSetV1::economic_computation` 从请求集所携带的那个 bundle 解析出指标与覆盖
+  规则，因此调用方只能选择一个已发布的计算，描述不出任何计算。剩下的缺口在两者的上游。生产代码不构造
+  `ProtectedEconomicPolicyBundleV1`，它的构造点全都位于 `#[cfg(test)]` 模块之内；而把它封印进请求集的
+  那一步只被有序门禁自己的条目调用、此外没有调用方，这一点 [Qualification](./qualification/) 已为该终端的
+  每一步写明。Backtest 能选出那个计算，而门禁之外没有东西产出那项选择。
 - **TARGET - `REPAIR_VALIDATION` 请求与结果：** 不存在任何实现。`REPAIR_VALIDATION` 与
   `RepairValidation` 不出现在 `crates/` 或 `product/` 下的任何文件里。
 - **TARGET - `SIMULATOR` 与 `BACKTEST_OPERATIONAL` 原生 repair：** 不存在 Backtest 的 repair 面。四个 Backtest

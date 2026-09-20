@@ -50,7 +50,20 @@ async function waitForHttp(url, child, headers = {}, timeoutMs = 60_000) {
 // its own process group at spawn and address the group. Only a child spawned detached may be
 // signalled this way, so callers opt in.
 async function stopPreview(child, { group = false } = {}) {
-  if (!child || child.exitCode !== null) return;
+  // A child that has already exited cannot be signalled, and its process group must not be either:
+  // the group is named by that child's process id, and once the child is gone that id can be
+  // reused, so signalling it risks reaching something unrelated. That is why this returns early
+  // rather than falling through to the group signal below.
+  //
+  // What still has to happen is closing the pipes. A surviving group member inherited the write
+  // ends, and while they are open Node keeps the stream handles referenced and the test runner
+  // stays alive with nothing left to run - which is the failure this whole teardown exists for.
+  // Releasing them costs nothing and does not touch any process id.
+  if (!child || child.exitCode !== null) {
+    child?.stdout?.destroy();
+    child?.stderr?.destroy();
+    return;
+  }
   const exited = once(child, "exit");
   const signal = (name) => {
     if (!group) return child.kill(name);
@@ -183,6 +196,7 @@ async function waitForBrowserExpression(browser, expression, timeoutMs = 15_000)
       })(),
       reasons: [...document.querySelectorAll('details code, .unavailable-state code')]
         .map((code) => code.textContent),
+      faults: globalThis.__calendarFaults?.slice(-8) ?? null,
       body: document.body?.innerText.slice(0, 1_500) ?? '',
     }))()`,
     returnByValue: true,
@@ -197,6 +211,67 @@ async function readBrowserValue(browser, expression) {
   return result.result?.value;
 }
 
+// Every keyboard step in this suite presses Enter on a focused control and waits for what that
+// should do, and a synthesized key is not always delivered: on Linux this step failed intermittently
+// with a focused, enabled button, no page faults, and a dialog that opened the moment the same
+// element was clicked. Waiting on the dialog alone cannot tell an undelivered key from a trigger
+// that does not act, so it reported a harness fault as a defect in the page.
+//
+// Observe the key instead of assuming it. A delivery that never happened is retried; a key that did
+// reach the trigger and still opened nothing is the page's defect and fails, naming the element the
+// key actually arrived at and whether clicking it works.
+async function pressEnterAndWaitFor(browser, expression, attempts = 3) {
+  let arrivedAt = null;
+  let activatedAt = null;
+  for (let attempt = 1; attempt <= attempts && !activatedAt; attempt += 1) {
+    await readBrowserValue(browser, `(() => {
+      globalThis.__enterArrivedAt = null;
+      globalThis.__enterActivated = null;
+      if (!globalThis.__enterWatchers) {
+        const describe = (node) => (node?.tagName ?? "?")
+          + "[" + (node?.getAttribute?.("aria-label") ?? "") + "]";
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") globalThis.__enterArrivedAt = describe(event.target);
+        }, true);
+        document.addEventListener("click", (event) => {
+          globalThis.__enterActivated = describe(event.target);
+        }, true);
+        globalThis.__enterWatchers = true;
+      }
+      return true;
+    })()`);
+    await dispatchBrowserKey(browser, "Enter");
+    arrivedAt = await readBrowserValue(browser, "globalThis.__enterArrivedAt ?? null");
+    activatedAt = await readBrowserValue(browser, "globalThis.__enterActivated ?? null");
+    // A green run is otherwise silent about whether a retry was needed at all, which is the only
+    // evidence that the failure this guards against still happens.
+    if (activatedAt && attempt > 1) console.log(`enter took ${attempt} attempts -> ${activatedAt}`);
+  }
+  assert.ok(arrivedAt, `the synthesized Enter never reached the page in ${attempts} attempts`);
+  // Arrival is not activation: the observed failure was a keydown that reached the right button and
+  // never acted on it. Only a control that was activated and still did nothing is the page's defect.
+  assert.ok(activatedAt,
+    `the synthesized Enter reached ${arrivedAt} but never activated it in ${attempts} attempts`);
+
+  await waitForBrowserExpression(browser, expression).catch(async (timedOut) => {
+    const probe = await readBrowserValue(browser, `(() => {
+      const node = document.activeElement;
+      const described = {
+        tag: node?.tagName ?? null,
+        label: node?.getAttribute?.('aria-label') ?? null,
+        tabIndex: node?.tabIndex ?? null,
+        hadFocus: document.hasFocus(),
+      };
+      node?.click?.();
+      return described;
+    })()`).catch(() => null);
+    await delay(500);
+    const openedByClick = await readBrowserValue(browser, expression).catch(() => null);
+    throw new Error(`${timedOut.message}; enter probe: ${
+      JSON.stringify({ ...probe, arrivedAt, activatedAt, openedByClick })}`);
+  });
+}
+
 async function dispatchBrowserKey(browser, key) {
   const keys = {
     Enter: { code: "Enter", windowsVirtualKeyCode: 13, text: "\r" },
@@ -204,14 +279,16 @@ async function dispatchBrowserKey(browser, key) {
   };
   const descriptor = keys[key];
   assert.ok(descriptor, `unsupported browser key ${key}`);
-  for (const type of ["keyDown", "keyUp"]) {
+  // A button activates on the char event, not on keydown. Sending keyDown with text leaves Chrome to
+  // synthesize that char, and on Linux it intermittently did not - the keydown arrived at the right
+  // button and the button never acted. Send the three parts rather than rely on the synthesis.
+  const types = descriptor.text ? ["rawKeyDown", "char", "keyUp"] : ["rawKeyDown", "keyUp"];
+  for (const type of types) {
     await browser.send("Input.dispatchKeyEvent", {
       type, key, code: descriptor.code,
       windowsVirtualKeyCode: descriptor.windowsVirtualKeyCode,
       nativeVirtualKeyCode: descriptor.windowsVirtualKeyCode,
-      ...(type === "keyDown" && descriptor.text
-        ? { text: descriptor.text, unmodifiedText: descriptor.text }
-        : {}),
+      ...(type === "char" ? { text: descriptor.text, unmodifiedText: descriptor.text } : {}),
     });
   }
 }
@@ -362,6 +439,26 @@ test(testName, { skip: !url }, async () => {
       await browser.send("Page.enable");
       await browser.send("Page.bringToFront");
       await browser.send("Input.setIgnoreInputEvents", { ignore: false });
+      // A timeout below can report what the page held but never why: nothing here could observe a
+      // handler that threw or a hydration that failed, so the one defect this suite exists to catch
+      // - a control that renders but does not act - arrives looking exactly like a slow render.
+      // This has to run before the document does, or it misses precisely those faults.
+      await browser.send("Page.addScriptToEvaluateOnNewDocument", {
+        source: `(() => {
+          const faults = [];
+          globalThis.__calendarFaults = faults;
+          const at = (event) => " @ " + (event.filename ?? "?") + ":" + (event.lineno ?? 0);
+          addEventListener("error", (event) =>
+            faults.push("error: " + (event.message ?? event.error) + at(event)));
+          addEventListener("unhandledrejection", (event) =>
+            faults.push("rejection: " + event.reason));
+          const forward = console.error.bind(console);
+          console.error = (...args) => {
+            faults.push("console: " + args.map((arg) => String(arg?.message ?? arg)).join(" "));
+            forward(...args);
+          };
+        })()`,
+      });
       await browser.send("Page.navigate", { url: currentSchedulesUrl });
       const configuredOperations = JSON.stringify(descriptors.map((descriptor) => descriptor.operation_id));
       await waitForBrowserExpression(browser,
@@ -495,8 +592,7 @@ test(testName, { skip: !url }, async () => {
         };
       })()`);
       assert.deepEqual(keyboardTarget, { focused: true, tagName: "BUTTON", tabIndex: 0 });
-      await dispatchBrowserKey(browser, "Enter");
-      await waitForBrowserExpression(browser,
+      await pressEnterAndWaitFor(browser,
         `Boolean(document.querySelector('[data-slot="calendar-day-view"]'))
           && document.querySelector('button[aria-label="Day view"]')?.getAttribute('aria-pressed') === 'true'`);
 
@@ -529,8 +625,7 @@ test(testName, { skip: !url }, async () => {
         return Boolean(button && document.activeElement === button);
       })()`);
       assert.equal(overflowOpened, true, "dense schedule overflow is keyboard focusable");
-      await dispatchBrowserKey(browser, "Enter");
-      await waitForBrowserExpression(browser,
+      await pressEnterAndWaitFor(browser,
         "Boolean(document.querySelector('dialog[open][aria-label$=\"UTC\"]'))");
       const inspection = await readBrowserValue(browser, `(() => {
         const dialog = document.querySelector('dialog[open]');
@@ -572,13 +667,16 @@ test(testName, { skip: !url }, async () => {
           disabled: trigger?.disabled ?? null,
         };
       })()`);
+      // This accepts either shape, so which one runs is decided by where the verified run falls in
+      // its day - not by the assertion. A green run is then silent about which of the two it
+      // covered, and the branch that went red on Linux is the one local data never produces. Say it.
+      console.log(`calendar run origin trigger -> ${calendarRunOrigin.kind}`);
       assert.match(calendarRunOrigin.kind ?? "", /^(?:badge|overflow)$/u,
         "calendar exposes the verified observed-run group");
       assert.equal(calendarRunOrigin.focused, true, JSON.stringify(calendarRunOrigin));
       assert.ok(calendarRunOrigin.width > 0 && calendarRunOrigin.height > 0, JSON.stringify(calendarRunOrigin));
       assert.equal(calendarRunOrigin.disabled, false);
-      await dispatchBrowserKey(browser, "Enter");
-      await waitForBrowserExpression(browser,
+      await pressEnterAndWaitFor(browser,
         "Boolean(document.querySelector('dialog[open][aria-label$=\"UTC\"]'))");
       const calendarRunSelected = await readBrowserValue(browser, `(() => {
         const option = document.querySelector('dialog[open] option[data-run-identity="${previewRunIdentity}"]');
