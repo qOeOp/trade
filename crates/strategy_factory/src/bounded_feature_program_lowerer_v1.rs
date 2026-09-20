@@ -4,7 +4,10 @@
 //! the positive joint-freeze type, revalidates both canonical payloads, and rejects any primitive
 //! outside the fixed integer kernel before allocating generated source bytes.
 
-use std::{collections::BTreeMap, fmt::Write as _};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::Write as _,
+};
 
 use sha2::{Digest as _, Sha256};
 use thiserror::Error;
@@ -993,12 +996,51 @@ fn read_binding_name<'a>(name: &'a str, body: &str) -> &'a str {
     if body.contains(name) { name } else { "_" }
 }
 
+/// The constant identities the generated body names.
+///
+/// A state cell's initial value is a constant too, but the lowering bakes it into a byte literal:
+/// `emit_state_initialization` writes `slot.initial_bytes()` and never reads the binding. A
+/// constant reachable only that way is therefore not read by the body, and because the guest is
+/// built with warnings denied, emitting a `let` for it turns a proposal that validates cleanly into
+/// one that cannot be built. Validation is right to count such a constant as consumed -- it is, by
+/// the initial state bytes -- so the two sides disagree only about what "the body reads", and this
+/// is that side's answer.
+fn body_constant_ids(program: &BoundedFeatureProgramProposalV1) -> BTreeSet<&str> {
+    fn note<'a>(ids: &mut BTreeSet<&'a str>, source: &'a BoundedFeatureValueRefV1) {
+        if let BoundedFeatureValueRefV1::Constant { constant_id } = source {
+            ids.insert(constant_id.as_str());
+        }
+    }
+
+    let mut ids = BTreeSet::new();
+    for node in &program.nodes {
+        for binding in &node.input_bindings {
+            note(&mut ids, &binding.source);
+        }
+    }
+    let table = &program.proposal_decision_table;
+    for branch in &table.branches {
+        note(&mut ids, &branch.predicate);
+        for terminal in &branch.frame.terminal_outputs {
+            note(&mut ids, &terminal.source);
+        }
+    }
+    for terminal in &table.default_frame.terminal_outputs {
+        note(&mut ids, &terminal.source);
+    }
+    ids
+}
+
 fn emit_constants(
     source: &mut String,
     program: &BoundedFeatureProgramProposalV1,
     names: &ValueNames,
 ) -> Result<(), BoundedFeatureLoweringErrorV1> {
+    let read_by_body = body_constant_ids(program);
     for constant in &program.constants {
+        if !read_by_body.contains(constant.constant_id.as_str()) {
+            continue;
+        }
         let name = names.name(&BoundedFeatureValueRefV1::Constant {
             constant_id: constant.constant_id.clone(),
         })?;
@@ -2789,6 +2831,84 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Every `let` a lowering emits must be read somewhere in the same body.
+    ///
+    /// The guest is built with warnings denied, so an unused binding is not cosmetic: it turns a
+    /// proposal that validates cleanly into one that cannot be built. The guard above checks the
+    /// same property, but only for names beginning with `input_` and only for programs built from
+    /// its own list of operations. The defect that prompted this test sat outside both limits at
+    /// once - a constant reachable only as a state cell's initial value is not an `input_`, and
+    /// "being a state cell's initial value" is not an operation - so neither restriction could
+    /// have been widened into catching it. This test therefore fixes the axis rather than
+    /// extending the list: it reads the bindings the lowering actually emitted and requires each
+    /// one to be read, whatever produced it.
+    #[rstest::rstest]
+    fn no_lowering_binds_a_name_the_body_never_reads() {
+        use crate::bounded_feature_program_v1::{
+            BoundedFeatureConstantV1, BoundedFeatureConstantValueV1, BoundedFeatureInitialStateV1,
+        };
+
+        // `candidate()` reaches its state cell's initial constant from a decision predicate too, so
+        // the body reads it and the shape under test is absent there. Point the cell at a constant
+        // nothing else names, which is the shape a real proposal produces and which validation
+        // accepts: an initial-value constant *is* consumed, by the initial state bytes.
+        let (design, mut proposal) = candidate();
+        proposal.constants.push(BoundedFeatureConstantV1 {
+            constant_id: "unread-initial".into(),
+            value: BoundedFeatureConstantValueV1::Boolean { value: false },
+        });
+        proposal.state_cells[0].initial = BoundedFeatureInitialStateV1::Constant {
+            constant_id: "unread-initial".into(),
+        };
+        let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);
+        let frozen = freeze_research_bounded_feature_program_v1(&custody, &design, proposal)
+            .expect("joint Owner freeze");
+        let lowered =
+            prepare_frozen_bounded_feature_source_inputs_v1(&frozen).expect("source lowering");
+        let (_, program_bytes) = lowered
+            .source_files()
+            .find(|(path, _)| path.ends_with("program.rs"))
+            .expect("lowering emits a program source");
+        let program = std::str::from_utf8(program_bytes).expect("lowered source is UTF-8");
+
+        // `constant_1` is a prefix of `constant_10`, and `input_0_value_bytes` carries the name of
+        // `input_0_value`, so occurrences are counted over identifier tokens rather than
+        // substrings. Anything else would let a longer name pay for a shorter one's read.
+        let tokens = program
+            .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+            .filter(|token| !token.is_empty())
+            .fold(BTreeMap::<&str, usize>::new(), |mut counts, token| {
+                *counts.entry(token).or_default() += 1;
+                counts
+            });
+
+        let mut unread = Vec::new();
+        for line in program.lines() {
+            let Some(rest) = line.trim_start().strip_prefix("let ") else {
+                continue;
+            };
+            let name = rest
+                .trim_start_matches("mut ")
+                .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+                .next()
+                .unwrap_or_default();
+
+            // A leading underscore is the compiler's own mark for a binding that is deliberately
+            // not read, so those are not defects and the build does not warn about them.
+            if name.is_empty() || name.starts_with('_') {
+                continue;
+            }
+            // One occurrence is the binding itself; a read is any occurrence beyond it.
+            if tokens.get(name).copied().unwrap_or_default() < 2 {
+                unread.push(name);
+            }
+        }
+        assert!(
+            unread.is_empty(),
+            "the lowering binds names nothing reads: {unread:?}"
+        );
     }
 
     #[test]
