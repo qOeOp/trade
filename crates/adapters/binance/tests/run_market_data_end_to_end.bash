@@ -105,6 +105,12 @@ export MARKET_DATA_OWNER_DATABASE_URL="$MARKET_DATA_OWNER_TEST_DATABASE_URL"
 #
 # The probe never decides the leg. It prints and continues, so the proof stays the verdict; a
 # probe that failed the script would replace one mute red with another.
+# The status alone, for the one decision this script makes. It shares `curl`'s invocation with the
+# probe below so the number that chooses a host and the number that gets printed cannot disagree.
+probe_status() {
+  curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 20 "$1" || true
+}
+
 probe_endpoint() {
   local label="$1" url="$2" status body
   if ! body="$(mktemp)"; then
@@ -148,6 +154,37 @@ probe_endpoint "www.binance.com/fapi (the site proxying the same futures API)" \
   "https://www.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=4h&limit=1"
 probe_endpoint "dapi.binance.com (COIN-M, a different perpetual on a third host)" \
   "https://dapi.binance.com/dapi/v1/klines?symbol=BTCUSD_PERP&interval=4h&limit=1"
+
+# The perpetual's host is chosen here, out loud, rather than hardcoded into the proof.
+#
+# The proof defaults to the venue's canonical USD-M host, which is what a deployment would name and
+# what answers from an unrestricted network. It is 451 from a GitHub-hosted runner, and no
+# public-data mirror carries futures - `data-api.binance.vision` answers `/fapi/v1/klines` with 404
+# even from an unrestricted network, as the probe above shows. The one host measured answering from
+# a runner is the venue's own site, which proxies the same futures API.
+#
+# So this substitutes that host only when the canonical one does not answer, prints that it did,
+# and leaves a local run on the default. `MARKET_DATA_E2E_USDM_ENDPOINT` moves the Data Client and
+# the recorded Source Binding endpoint together, because they are one value in the proof: a binding
+# that named one host while the client called another is the defect this leg carried until the spot
+# pair was fixed.
+if [[ -n "${MARKET_DATA_E2E_USDM_ENDPOINT:-}" ]]; then
+  usdm_reason="the environment set it"
+else
+  canonical_usdm_status="$(probe_status "https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=4h&limit=1")"
+  if [[ "$canonical_usdm_status" == "200" ]]; then
+    MARKET_DATA_E2E_USDM_ENDPOINT="https://fapi.binance.com"
+    usdm_reason="the canonical host answered 200"
+  else
+    MARKET_DATA_E2E_USDM_ENDPOINT="https://www.binance.com"
+    usdm_reason="the canonical host answered ${canonical_usdm_status}"
+  fi
+  export MARKET_DATA_E2E_USDM_ENDPOINT
+fi
+# Printed on every path, including the one where the caller chose the host. A run that did not say
+# which host it called cannot be read afterwards, and the two paths are exactly where a reader
+# would otherwise have to guess.
+echo "market-data end-to-end: the perpetual proof calls ${MARKET_DATA_E2E_USDM_ENDPOINT} and records it as the binding's endpoint, because ${usdm_reason}" >&2
 
 # Selection runs under nextest rather than `cargo test --exact`. The two agree except on the case
 # that matters: `cargo test --exact missing_name` prints `0 passed` and exits 0, so renaming the

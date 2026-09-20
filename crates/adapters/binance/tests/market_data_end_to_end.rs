@@ -87,8 +87,18 @@ struct Product {
     instrument_class: &'static str,
     /// The venue surface, as the instrument's venue-source mapping names it.
     source_identity: &'static str,
-    /// The host the Data Client calls. The binding records it, so it has to be the real one.
+    /// The host the Data Client calls, and therefore the host its binding records. The two are
+    /// one value on purpose: a binding that recorded one host while the client called another is
+    /// the defect this proof carried until the spot pair was fixed.
     endpoint: &'static str,
+    /// The variable that replaces `endpoint` where the default host cannot be reached.
+    ///
+    /// This exists because a network, not a venue, decides reachability. A GitHub-hosted runner is
+    /// a restricted location for this venue: measured there, `api.binance.com`, `fapi.binance.com`
+    /// and `dapi.binance.com` all answer HTTP 451, "Service unavailable from a restricted
+    /// location". Overriding the host is how the proof runs there; it is not a statement about
+    /// which host a deployment should name, which is why the default stays the venue's own.
+    endpoint_override_var: &'static str,
     /// The adapter's dataset mapping, and the frontier stream behind it.
     dataset_mapping: &'static str,
     stream_identity: &'static str,
@@ -105,7 +115,7 @@ struct Product {
     /// store cannot collide on a frontier or a correlation identity.
     digest_base: u8,
     /// Binds the real Data Client for this surface. No credential is supplied on either.
-    observations: fn(&'static str) -> Arc<dyn PitObservationSourceV1>,
+    observations: fn(String) -> Arc<dyn PitObservationSourceV1>,
 }
 
 /// The spot pair, read from the venue's public-data mirror.
@@ -118,6 +128,7 @@ const SPOT: Product = Product {
     instrument_class: "CRYPTO_SPOT",
     source_identity: "BINANCE_SPOT",
     endpoint: "https://data-api.binance.vision",
+    endpoint_override_var: "MARKET_DATA_E2E_SPOT_ENDPOINT",
     dataset_mapping: "spot/klines/1m",
     stream_identity: "binance/spot-klines",
     normalization: "binance/spot-kline",
@@ -145,6 +156,7 @@ const PERPETUAL: Product = Product {
     instrument_class: "CRYPTO_PERPETUAL",
     source_identity: "BINANCE_USDM",
     endpoint: "https://fapi.binance.com",
+    endpoint_override_var: "MARKET_DATA_E2E_USDM_ENDPOINT",
     dataset_mapping: "usdm/klines/4h",
     stream_identity: "binance/usdm-klines",
     normalization: "binance/usdm-kline",
@@ -156,13 +168,22 @@ const PERPETUAL: Product = Product {
     observations: futures_observations,
 };
 
-fn spot_observations(endpoint: &'static str) -> Arc<dyn PitObservationSourceV1> {
+/// The host this run will actually call: the product's own, unless the environment names another.
+///
+/// The spot pair's default is the venue's public-data mirror rather than its trading API, because
+/// the mirror is what the binding has always proposed and the trading API is what the client was
+/// wrongly defaulting to. The perpetual's default is the venue's canonical USD-M host.
+fn endpoint(product: &Product) -> String {
+    std::env::var(product.endpoint_override_var).unwrap_or_else(|_| product.endpoint.to_string())
+}
+
+fn spot_observations(endpoint: String) -> Arc<dyn PitObservationSourceV1> {
     let client = BinanceSpotHttpClient::new_with_json_responses(
         BinanceEnvironment::Live,
         get_atomic_clock_realtime(),
         None,
         None,
-        Some(endpoint.to_string()),
+        Some(endpoint),
         None,
         Some(30),
         None,
@@ -175,14 +196,14 @@ fn spot_observations(endpoint: &'static str) -> Arc<dyn PitObservationSourceV1> 
     )
 }
 
-fn futures_observations(endpoint: &'static str) -> Arc<dyn PitObservationSourceV1> {
+fn futures_observations(endpoint: String) -> Arc<dyn PitObservationSourceV1> {
     let client = BinanceFuturesHttpClient::new(
         BinanceProductType::UsdM,
         BinanceEnvironment::Live,
         get_atomic_clock_realtime(),
         None,
         None,
-        Some(endpoint.to_string()),
+        Some(endpoint),
         None,
         Some(30),
         None,
@@ -343,11 +364,12 @@ async fn admit_and_answer(product: &Product) {
     // The client calls the host the admitted binding names. Left to its library default the spot
     // client would call `api.binance.com` while the binding recorded `data-api.binance.vision`,
     // and the Owner would be holding a provenance for an endpoint nothing contacted.
+    let host = endpoint(product);
     assert_eq!(
-        proposal.adapter.authenticated_endpoint_identity, product.endpoint,
+        proposal.adapter.authenticated_endpoint_identity, host,
         "the binding records the host the Data Client is about to call"
     );
-    let observations = (product.observations)(product.endpoint);
+    let observations = (product.observations)(host);
 
     // What the Owner is about to take custody of is asked once here, directly, because nothing
     // downstream can be asked again: the terminal carries identities and a disposition, not rows.
@@ -583,7 +605,7 @@ fn binance_source_proposal(product: &Product, effective_ns: u64) -> UntrustedSou
         adapter: UntrustedAdapterBinding {
             implementation_digest: scoped(product, 0x51),
             configuration_digest: scoped(product, 0x52),
-            authenticated_endpoint_identity: product.endpoint.to_string(),
+            authenticated_endpoint_identity: endpoint(product),
             dataset_mapping: product.dataset_mapping.to_string(),
             account_mapping: "binance/public".to_string(),
         },
