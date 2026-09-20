@@ -1,0 +1,44 @@
+error[E0603]: struct `UntrustedCapacityViewRetentionV1` is private
+ --> tests/ui/committed_cuts_cannot_be_rebuilt_outside_the_parser.rs:1:52
+  |
+1 | use vibe_scanner::{CapacityViewCut, MarketFactCut, UntrustedCapacityViewRetentionV1};
+  |                                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ private struct
+  |
+note: the struct `UntrustedCapacityViewRetentionV1` is defined here
+ --> src/lib.rs
+  |
+  | pub use authority::*;
+  |         ^^^^^^^^^
+
+error[E0624]: associated function `reconstruct` is private
+ --> tests/ui/committed_cuts_cannot_be_rebuilt_outside_the_parser.rs:6:34
+  |
+6 |       let _market = MarketFactCut::reconstruct;
+  |                                    ^^^^^^^^^^^ private associated function
+  |
+ ::: src/authority.rs
+  |
+  | /     pub(crate) fn reconstruct(
+  | |         policy: &SnapshotAdmissionPolicy,
+  | |         witness: InputWitness<'_>,
+  | |         binding: &StrategyBinding,
+  | |         readback: UntrustedMarketFactReadback,
+  | |     ) -> Result<Self, InputMismatch> {
+  | |____________________________________- private associated function defined here
+
+error[E0624]: associated function `reconstruct` is private
+ --> tests/ui/committed_cuts_cannot_be_rebuilt_outside_the_parser.rs:7:38
+  |
+7 |       let _capacity = CapacityViewCut::reconstruct;
+  |                                        ^^^^^^^^^^^ private associated function
+  |
+ ::: src/authority.rs
+  |
+  | /     pub(crate) fn reconstruct(
+  | |         policy: &SnapshotAdmissionPolicy,
+  | |         witness: InputWitness<'_>,
+  | |         required: &CapacityRequirement,
+  | |         market: &MarketFactCut,
+  | |         retention: UntrustedCapacityViewRetentionV1,
+  | |     ) -> Result<Self, InputMismatch> {
+  | |____________________________________- private associated function defined here

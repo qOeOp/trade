@@ -582,6 +582,24 @@ pub struct ProtectedEconomicMeasurementV1 {
 }
 
 impl ProtectedEconomicPolicyBundleV1 {
+    /// Derives this bundle's immutable digest and identity, then proves the result.
+    ///
+    /// The derivation rule belongs to this type. Without this, a producer had to spell the rule out
+    /// itself, and a copy that drifts still yields a bundle that looks sealed to everyone reading it.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first rule the sealed bundle does not satisfy.
+    pub fn seal(mut self) -> Result<Self, ProtectedReplayContractErrorV1> {
+        self.bundle_digest = self.compute_digest()?;
+        self.bundle_identity = derived_identity(
+            "qualification-protected-economic-policy-v1",
+            &self.bundle_digest,
+        )?;
+        self.validate()?;
+        Ok(self)
+    }
+
     pub fn from_canonical_bytes(bytes: &[u8]) -> Result<Self, ProtectedReplayContractErrorV1> {
         let value: Self = serde_json::from_slice(bytes)
             .map_err(|_| ProtectedReplayContractErrorV1::InvalidEncoding)?;
@@ -880,6 +898,10 @@ pub struct ProtectedReplayRequestSetSealDtoV1 {
     pub missing_cell_policy_digest: String,
     pub stop_policy_identity: String,
     pub stop_policy_digest: String,
+    /// The frozen economic policy this set seals. Backtest is revoked on Qualification's bundle
+    /// table, so a reference it cannot resolve would leave the computation unselectable; the whole
+    /// bundle travels because that is what the consuming Owner must verify against.
+    pub protected_economic_policy_bundle: ProtectedEconomicPolicyBundleV1,
     pub members: Vec<ProtectedReplayRequestSetMemberV1>,
 }
 
@@ -1639,7 +1661,20 @@ impl ProtectedReplayRequestSetSealDtoV1 {
     }
 
     pub fn validate(&self) -> Result<(), ProtectedReplayContractErrorV1> {
-        if self.schema_version != 1
+        // The bundle proves its own digest and identity, so the pair this seal's digest covers is a
+        // faithful summary of every policy reference and decision parameter inside it. Propagating
+        // its own error keeps a bad bundle from being reported as a bad request set.
+        self.protected_economic_policy_bundle.validate()?;
+
+        if self.schema_version != 2
+            || self
+                .protected_economic_policy_bundle
+                .protected_decision_policy_identity
+                != self.protected_decision_policy_identity
+            || self
+                .protected_economic_policy_bundle
+                .protected_decision_policy_version
+                != self.protected_decision_policy_version
             || !valid_identity(&self.request_set_identity)
             || !valid_digest(&self.request_set_digest)
             || !valid_identity(&self.candidate_identity)
@@ -1728,6 +1763,8 @@ impl ProtectedReplayRequestSetSealDtoV1 {
                     &self.missing_cell_policy_digest,
                     &self.stop_policy_identity,
                     &self.stop_policy_digest,
+                    &self.protected_economic_policy_bundle.bundle_identity,
+                    &self.protected_economic_policy_bundle.bundle_digest,
                 ),
                 &self.members,
             ),
@@ -2452,14 +2489,18 @@ mod tests {
         result
     }
 
-    #[rstest::rstest]
-    fn economic_policy_and_measurement_are_fixed_point_and_content_addressed() {
-        let mut policy = ProtectedEconomicPolicyBundleV1 {
+    /// The one frozen economic policy every seal fixture carries. It is content addressed the way
+    /// Qualification addresses it, so a fixture cannot hold a bundle production would reject.
+    fn economic_policy_bundle(
+        decision_policy_identity: &str,
+        decision_policy_version: u64,
+    ) -> ProtectedEconomicPolicyBundleV1 {
+        let policy = ProtectedEconomicPolicyBundleV1 {
             schema_version: 1,
             bundle_identity: "pending-policy".into(),
             bundle_digest: format!("blake3:{}", "0".repeat(64)),
-            protected_decision_policy_identity: "protected-policy".into(),
-            protected_decision_policy_version: 1,
+            protected_decision_policy_identity: decision_policy_identity.into(),
+            protected_decision_policy_version: decision_policy_version,
             metric: ProtectedEconomicPolicyReferenceV1 {
                 identity: "net-return".into(),
                 digest: canonical_digest('1').as_str().into(),
@@ -2488,13 +2529,12 @@ mod tests {
             minimum_coverage_bps: 9_500,
             aggregation: ProtectedEconomicAggregationV1::EveryApplicableCell,
         };
-        policy.bundle_digest = policy.compute_digest().unwrap();
-        policy.bundle_identity = derived_identity(
-            "qualification-protected-economic-policy-v1",
-            &policy.bundle_digest,
-        )
-        .unwrap();
-        policy.validate().unwrap();
+        policy.seal().expect("fixture bundle seals")
+    }
+
+    #[rstest::rstest]
+    fn economic_policy_and_measurement_are_fixed_point_and_content_addressed() {
+        let policy = economic_policy_bundle("protected-policy", 1);
         assert_eq!(
             ProtectedEconomicPolicyBundleV1::from_canonical_bytes(
                 &policy.to_canonical_bytes().unwrap()
@@ -2706,7 +2746,7 @@ mod tests {
     fn request_set(request: &ProtectedReplayRequestDtoV2) -> ProtectedReplayRequestSetSealDtoV1 {
         let basis = &request.frozen_basis;
         ProtectedReplayRequestSetSealDtoV1 {
-            schema_version: 1,
+            schema_version: 2,
             request_set_identity: "pending-request-set".to_string(),
             request_set_digest: format!("blake3:{}", "0".repeat(64)),
             candidate_identity: basis.candidate_identity.clone(),
@@ -2725,6 +2765,10 @@ mod tests {
             missing_cell_policy_digest: format!("blake3:{}", "8".repeat(64)),
             stop_policy_identity: "protected-stop-policy-v1".to_string(),
             stop_policy_digest: format!("blake3:{}", "7".repeat(64)),
+            protected_economic_policy_bundle: economic_policy_bundle(
+                &basis.protected_decision_policy_identity,
+                basis.protected_decision_policy_version,
+            ),
             members: vec![ProtectedReplayRequestSetMemberV1 {
                 request_identity: request.request_identity.clone(),
                 request_digest: request.request_digest.clone(),
@@ -2757,6 +2801,53 @@ mod tests {
             result.result_digest.strip_prefix("blake3:").unwrap()
         );
         result
+    }
+
+    #[rstest::rstest]
+    fn request_set_digest_binds_the_economic_policy_it_seals() {
+        let request = request_v2();
+        let sealed = request_set(&request);
+
+        // A second bundle that is itself sealed and names the same decision policy, differing only
+        // in one frozen decision parameter. Swapping it is the exact move the seal must refuse.
+        let mut other = sealed.protected_economic_policy_bundle.clone();
+        other.threshold_raw += 1;
+        let other = other.seal().expect("the alternative bundle seals");
+
+        assert_ne!(other, sealed.protected_economic_policy_bundle);
+
+        let mut swapped = sealed.clone();
+        swapped.protected_economic_policy_bundle = other;
+
+        // The swapped set keeps the original identity and digest, so it is caught only because the
+        // request-set digest covers the bundle it carries.
+        assert_ne!(
+            swapped
+                .compute_request_set_digest()
+                .expect("digest recomputes"),
+            sealed.request_set_digest
+        );
+        // `InvalidDigest` rather than `InvalidRequestSet`: the swapped set is structurally sound
+        // and fails only because its digest no longer covers what it carries.
+        assert!(matches!(
+            swapped.validate(),
+            Err(ProtectedReplayContractErrorV1::InvalidDigest)
+        ));
+    }
+
+    #[rstest::rstest]
+    fn request_set_refuses_a_bundle_frozen_under_another_decision_policy() {
+        let request = request_v2();
+        let mut drifted = request_set(&request);
+        drifted.protected_economic_policy_bundle =
+            economic_policy_bundle("another-protected-policy", 1);
+
+        // Re-sealing recomputes the digest, so the refusal can only come from the agreement rule
+        // rather than from a digest left stale by the edit.
+        assert!(matches!(
+            drifted.seal(),
+            Err(ProtectedReplayContractErrorV1::InvalidRequestSet)
+        ));
     }
 
     #[rstest::rstest]
