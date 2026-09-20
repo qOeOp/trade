@@ -220,7 +220,12 @@ impl SnapshotAdmissionPolicy {
             return Err(InputMismatch::SourceOwnerResolveBindingMismatch);
         }
 
-        let market = MarketFactCut::admit(self, due_slot, binding, readback.market_fact_cut)?;
+        let market = MarketFactCut::admit(
+            self,
+            InputWitness::admitting(due_slot),
+            binding,
+            readback.market_fact_cut,
+        )?;
         let capacity = match (binding.capacity_requirement(), readback.capacity_view_cut) {
             (Some(required), Some(readback)) => Some(CapacityViewCut::admit(
                 self, due_slot, required, &market, readback,
@@ -302,9 +307,43 @@ impl CommittedOwnerFact {
     }
 }
 
+/// Which evidence an input check may compare a fact against.
+///
+/// Admission holds the attempt's own [`crate::DueSlot`], so it can compare a readback against the
+/// clock admission that attempt observed. A terminal receipt does not retain that clock admission -
+/// `ClockAdmission::Admitted.observed_at` is consumed by `admit` and stored nowhere - so a
+/// reconstruction cannot rebuild the due slot and cannot re-run the predicates that read it. It
+/// re-runs exactly the predicates whose two sides are both retained in the receipt, and the due
+/// instant, which is a pure function of the stored [`crate::DueSlotBoundary`].
+#[derive(Clone, Copy)]
+pub(crate) struct InputWitness<'a> {
+    due_at: crate::UnixTimestamp,
+    clock: Option<&'a crate::DueSlot>,
+}
+
+impl<'a> InputWitness<'a> {
+    fn admitting(due_slot: &'a crate::DueSlot) -> Self {
+        Self {
+            due_at: due_slot.due_at(),
+            clock: Some(due_slot),
+        }
+    }
+
+    pub(crate) const fn reconstructing(due_at: crate::UnixTimestamp) -> Self {
+        Self {
+            due_at,
+            clock: None,
+        }
+    }
+
+    const fn is_reconstruction(self) -> bool {
+        self.clock.is_none()
+    }
+}
+
 fn admit_fact(
     policy: &SnapshotAdmissionPolicy,
-    due_slot: &crate::DueSlot,
+    witness: InputWitness<'_>,
     expected_source: &OwnerSource,
     frontier_requirement: &FrontierRequirement,
     fact: UntrustedOwnerFactRefV1,
@@ -335,22 +374,28 @@ fn admit_fact(
         return Err(InputMismatch::CompatibilityCut);
     }
 
-    if fact.clock_epoch != due_slot.clock_epoch() {
-        return Err(InputMismatch::ClockEpoch);
+    if let Some(due_slot) = witness.clock {
+        if fact.clock_epoch != due_slot.clock_epoch() {
+            return Err(InputMismatch::ClockEpoch);
+        }
+
+        if fact.time_evidence != *due_slot.time_evidence() {
+            return Err(InputMismatch::TimeEvidence);
+        }
+
+        if fact.observed_at > due_slot.observed_at() {
+            return Err(InputMismatch::FutureObservation);
+        }
     }
 
-    if fact.time_evidence != *due_slot.time_evidence() {
-        return Err(InputMismatch::TimeEvidence);
+    if fact.valid_through <= witness.due_at {
+        return Err(InputMismatch::Expired);
     }
 
-    let due = due_slot.due_at();
-    let now = due_slot.observed_at();
-
-    if fact.observed_at > now {
-        return Err(InputMismatch::FutureObservation);
-    }
-
-    if fact.valid_through <= due || fact.valid_through <= now {
+    if witness
+        .clock
+        .is_some_and(|due_slot| fact.valid_through <= due_slot.observed_at())
+    {
         return Err(InputMismatch::Expired);
     }
 
@@ -536,9 +581,24 @@ pub struct MarketFactCut {
 }
 
 impl MarketFactCut {
+    /// Rebuilds a stored market cut, re-running every predicate the receipt still witnesses.
+    ///
+    /// The readback is exactly the shape [`Self::admit`] consumes, and [`MarketFactCut`] retains
+    /// every one of its fields, so a reconstruction re-runs the two requirement matches, the seven
+    /// per-fact source and frontier checks, and the six cross-cut equalities unchanged. Only the
+    /// clock-admission predicates are left out, for the reason [`InputWitness`] records.
+    pub(crate) fn reconstruct(
+        policy: &SnapshotAdmissionPolicy,
+        witness: InputWitness<'_>,
+        binding: &StrategyBinding,
+        readback: UntrustedMarketFactReadback,
+    ) -> Result<Self, InputMismatch> {
+        Self::admit(policy, witness, binding, readback)
+    }
+
     fn admit(
         policy: &SnapshotAdmissionPolicy,
-        due_slot: &crate::DueSlot,
+        witness: InputWitness<'_>,
         binding: &StrategyBinding,
         readback: UntrustedMarketFactReadback,
     ) -> Result<Self, InputMismatch> {
@@ -559,7 +619,7 @@ impl MarketFactCut {
         let admit = |fact| {
             admit_fact(
                 policy,
-                due_slot,
+                witness,
                 &policy.market_source,
                 &policy.market_frontier,
                 fact,
@@ -671,6 +731,7 @@ pub enum CapacityViewField {
     MeasurementTime,
     ValidThrough,
     CompatibleMarketSnapshotCut,
+    AdmittedAt,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -684,6 +745,26 @@ pub struct UntrustedCapacityViewReadback {
     pub measurement_time: Option<crate::UnixTimestamp>,
     pub valid_through: Option<crate::UnixTimestamp>,
     pub compatible_market_snapshot_cut: Option<SnapshotCut>,
+    pub auxiliary: BTreeSet<OpaqueId>,
+}
+
+/// The fields a committed [`CapacityViewCut`] retains, as untrusted canonical bytes present them.
+///
+/// It is [`UntrustedCapacityViewReadback`] minus `compatible_market_snapshot_cut`, which admission
+/// consumes without storing, plus `admitted_at`, which admission stamps and the cut keeps. The two
+/// differences are the retention boundary, and keeping them in the type means a reconstruction
+/// cannot silently re-derive the one field whose check would then always hold.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct UntrustedCapacityViewRetentionV1 {
+    pub requirement_contract: Option<CapacityRequirementContract>,
+    pub candidate_independent_scope: Option<CandidateIndependentCapacityScope>,
+    pub account_facts: Option<UntrustedOwnerFactRefV1>,
+    pub liquidity: Option<UntrustedOwnerFactRefV1>,
+    pub capital_pool_method: Option<CapitalPoolMethod>,
+    pub capital_pool_assumptions: Option<CapitalPoolAssumptions>,
+    pub measurement_time: Option<crate::UnixTimestamp>,
+    pub valid_through: Option<crate::UnixTimestamp>,
+    pub admitted_at: Option<crate::UnixTimestamp>,
     pub auxiliary: BTreeSet<OpaqueId>,
 }
 
@@ -709,8 +790,57 @@ impl CapacityViewCut {
         market: &MarketFactCut,
         readback: UntrustedCapacityViewReadback,
     ) -> Result<Self, InputMismatch> {
+        let compatible_market_snapshot_cut = readback.compatible_market_snapshot_cut;
+        Self::admit_retention(
+            policy,
+            InputWitness::admitting(due_slot),
+            required,
+            market,
+            UntrustedCapacityViewRetentionV1 {
+                requirement_contract: readback.requirement_contract,
+                candidate_independent_scope: readback.candidate_independent_scope,
+                account_facts: readback.account_facts,
+                liquidity: readback.liquidity,
+                capital_pool_method: readback.capital_pool_method,
+                capital_pool_assumptions: readback.capital_pool_assumptions,
+                measurement_time: readback.measurement_time,
+                valid_through: readback.valid_through,
+                admitted_at: None,
+                auxiliary: readback.auxiliary,
+            },
+            compatible_market_snapshot_cut,
+        )
+    }
+
+    /// Rebuilds a stored capacity cut from the fields the cut retains.
+    ///
+    /// Two fields are asymmetric and the retention type is where that asymmetry is written down.
+    /// `compatible_market_snapshot_cut` is consumed by [`Self::admit`] and stored nowhere, so a
+    /// reconstruction cannot re-run [`InputMismatch::CapacityMarketCrossCut`]; re-deriving that
+    /// field from the market cut it is checked against would turn the check into an assertion that
+    /// always holds. `admitted_at` is the opposite: admission stamps it from the due slot, and the
+    /// cut keeps it, so the bytes must carry it and a reconstruction reads it back rather than
+    /// inventing one.
+    pub(crate) fn reconstruct(
+        policy: &SnapshotAdmissionPolicy,
+        witness: InputWitness<'_>,
+        required: &CapacityRequirement,
+        market: &MarketFactCut,
+        retention: UntrustedCapacityViewRetentionV1,
+    ) -> Result<Self, InputMismatch> {
+        Self::admit_retention(policy, witness, required, market, retention, None)
+    }
+
+    fn admit_retention(
+        policy: &SnapshotAdmissionPolicy,
+        witness: InputWitness<'_>,
+        required: &CapacityRequirement,
+        market: &MarketFactCut,
+        retention: UntrustedCapacityViewRetentionV1,
+        compatible_market_snapshot_cut: Option<SnapshotCut>,
+    ) -> Result<Self, InputMismatch> {
         let requirement_contract = capacity_required(
-            readback.requirement_contract,
+            retention.requirement_contract,
             CapacityViewField::RequirementContract,
         )?;
 
@@ -718,50 +848,67 @@ impl CapacityViewCut {
             return Err(InputMismatch::CapacityRequirementContract);
         }
         let candidate_independent_scope = capacity_required(
-            readback.candidate_independent_scope,
+            retention.candidate_independent_scope,
             CapacityViewField::CandidateIndependentScope,
         )?;
 
         if &candidate_independent_scope != required.candidate_independent_scope() {
             return Err(InputMismatch::CapacityScope);
         }
-        let compatible_market_snapshot_cut = capacity_required(
-            readback.compatible_market_snapshot_cut,
-            CapacityViewField::CompatibleMarketSnapshotCut,
-        )?;
 
-        if &compatible_market_snapshot_cut != market.pit_snapshot().snapshot_cut() {
-            return Err(InputMismatch::CapacityMarketCrossCut);
+        if !witness.is_reconstruction() {
+            let compatible_market_snapshot_cut = capacity_required(
+                compatible_market_snapshot_cut,
+                CapacityViewField::CompatibleMarketSnapshotCut,
+            )?;
+
+            if &compatible_market_snapshot_cut != market.pit_snapshot().snapshot_cut() {
+                return Err(InputMismatch::CapacityMarketCrossCut);
+            }
         }
         let measurement_time = capacity_required(
-            readback.measurement_time,
+            retention.measurement_time,
             CapacityViewField::MeasurementTime,
         )?;
         let valid_through =
-            capacity_required(readback.valid_through, CapacityViewField::ValidThrough)?;
-        let now = due_slot.observed_at();
-        if measurement_time > now {
+            capacity_required(retention.valid_through, CapacityViewField::ValidThrough)?;
+
+        if witness
+            .clock
+            .is_some_and(|due_slot| measurement_time > due_slot.observed_at())
+        {
             return Err(InputMismatch::FutureObservation);
         }
 
-        if valid_through <= due_slot.due_at() || valid_through <= now {
+        if valid_through <= witness.due_at {
             return Err(InputMismatch::Expired);
         }
+
+        if witness
+            .clock
+            .is_some_and(|due_slot| valid_through <= due_slot.observed_at())
+        {
+            return Err(InputMismatch::Expired);
+        }
+        let admitted_at = match witness.clock {
+            Some(due_slot) => due_slot.observed_at(),
+            None => capacity_required(retention.admitted_at, CapacityViewField::AdmittedAt)?,
+        };
         let admit = |fact| {
             admit_fact(
                 policy,
-                due_slot,
+                witness,
                 &policy.capacity_source,
                 &policy.capacity_frontier,
                 fact,
             )
         };
         let account_facts = admit(capacity_required(
-            readback.account_facts,
+            retention.account_facts,
             CapacityViewField::AccountFacts,
         )?)?;
         let liquidity = admit(capacity_required(
-            readback.liquidity,
+            retention.liquidity,
             CapacityViewField::Liquidity,
         )?)?;
 
@@ -785,17 +932,17 @@ impl CapacityViewCut {
             account_facts,
             liquidity,
             capital_pool_method: capacity_required(
-                readback.capital_pool_method,
+                retention.capital_pool_method,
                 CapacityViewField::CapitalPoolMethod,
             )?,
             capital_pool_assumptions: capacity_required(
-                readback.capital_pool_assumptions,
+                retention.capital_pool_assumptions,
                 CapacityViewField::CapitalPoolAssumptions,
             )?,
             measurement_time,
             valid_through,
-            admitted_at: now,
-            auxiliary: readback.auxiliary,
+            admitted_at,
+            auxiliary: retention.auxiliary,
         })
     }
     pub const fn requirement_contract(&self) -> &CapacityRequirementContract {
