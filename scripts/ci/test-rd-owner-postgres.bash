@@ -125,7 +125,18 @@ readonly nextest_graph_args=(
 # the three selected packages expose. Keep the archive projection package-scoped.
 readonly nextest_archive_features='vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance'
 readonly schema_materialization_features="${nextest_archive_features},vibe-strategy-factory-rd-owner-api/sealed-develop-composer-acceptance"
-readonly nextest_execution_args=(--fail-fast --run-ignored ignored-only)
+# `--success-output final`: nextest discards a passing test's stdout by default, and every entry
+# here is one whole acceptance. Entry 28 alone drives eleven browser sub-tests whose individual
+# durations exist only on that stream, so a green entry printed nothing at all about what it did -
+# and a whole day was spent reading that absence as evidence: "the passing runs never build the
+# Dashboard" was read off a log that simply was not printing the build. It cost about 800 lines,
+# under three percent, measured on the runs that established this.
+# `--no-tests=fail`: every entry selects one test by exact name, so a typo in a name selects
+# nothing. On the pinned nextest (0.9.143) that is already an error - an unmatched filter exits 4,
+# with or without this flag, under `--profile ci` and without it - so this states a default rather
+# than correcting one. It is stated because the default belongs to the tool and the profile, and
+# this property should not move when either does.
+readonly nextest_execution_args=(--fail-fast --run-ignored ignored-only --success-output final --no-tests=fail)
 readonly candidate_experiment_upgrade_seed_test='trial_family_postgres::postgres_binding_tests::canonical_candidate_experiment_upgrade_seed_is_owner_issued_and_locked_readback_exact'
 
 check_nextest_graph_contract() {
@@ -240,7 +251,7 @@ check_nextest_graph_contract() {
   if [[ "${nextest_graph_args[*]}" != '--locked --package vibe-strategy-factory --package vibe-strategy-factory-rd-owner-api --package vibe-product-edge --package vibe-operator-authorization --package vibe-backtest-owner --package vibe-data --package vibe-qualification --package vibe-execution-owner --package vibe-portfolio-owner --package vibe-strategy-governance --lib --tests' ]] ||
     [[ "$nextest_archive_features" != 'vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance' ]] ||
     [[ "$schema_materialization_features" != "${nextest_archive_features},vibe-strategy-factory-rd-owner-api/sealed-develop-composer-acceptance" ]] ||
-    [[ "${nextest_execution_args[*]}" != '--fail-fast --run-ignored ignored-only' ]]; then
+    [[ "${nextest_execution_args[*]}" != '--fail-fast --run-ignored ignored-only --success-output final --no-tests=fail' ]]; then
     echo "ERROR: shared nextest graph, schema feature union, or sequential ignored-only execution changed." >&2
     return 1
   fi
