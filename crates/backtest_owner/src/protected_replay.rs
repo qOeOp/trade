@@ -666,7 +666,7 @@ pub(crate) fn commit_protected_owner_result_proposal_v3(
     )
 }
 
-fn result_time_evidence(
+pub(crate) fn result_time_evidence(
     readback: &ClockHeadSuccessorReadback,
 ) -> ProtectedEvaluationTimeEvidenceV1 {
     let handoff = readback.handoff();

@@ -61,13 +61,6 @@ const CLOCK_EPOCH_V1: &str = "unix-epoch-ms-v1";
 const PROJECTION_VALIDITY_MS: u64 = 600_000;
 const PROJECTED_EVENT_KIND: &str = "QUALIFICATION_PROTECTED_FEEDBACK_PROJECTED_V1";
 
-#[cfg(test)]
-#[derive(Debug, Clone, Copy)]
-struct CreateResponseTimingForTestV1 {
-    projection_age_ms: u64,
-    post_verify_delay_ms: i64,
-}
-
 #[derive(Debug, Clone)]
 pub struct PostgresQualificationOwnerV1 {
     pool: PgPool,
@@ -1030,6 +1023,27 @@ impl PostgresQualificationOwnerV1 {
             request.result_identity(),
         )
         .await?;
+        // One Candidate resolves to exactly one intake receipt. A different review request for an
+        // already intaken Candidate is changed meaning, not a new review: it neither creates a
+        // second receipt nor a second holdout attempt. Serialize on the Candidate so two concurrent
+        // first reviews cannot race the storage constraint into an untyped failure.
+        sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended($1, 0))")
+            .bind(handoff.candidate.candidate_identity())
+            .execute(&mut *transaction)
+            .await
+            .map_err(storage)?;
+        let intaken_review: Option<String> = sqlx::query_scalar(
+            "SELECT review_request_identity FROM public.qualification_candidate_intake_receipts_v1 \
+             WHERE candidate_identity=$1",
+        )
+        .bind(handoff.candidate.candidate_identity())
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(storage)?;
+
+        if intaken_review.is_some_and(|review| review != request.review_request_identity()) {
+            return Err(QualificationOwnerError::ConflictingIdentity);
+        }
         let committed_at_epoch_ms = owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
         let (_, feedback_frontier_is_current) = resolve_candidate_feedback_frontier_v1(
             &mut transaction,
@@ -2429,17 +2443,12 @@ impl PostgresQualificationOwnerV1 {
         &self,
         locator: &RdIndependenceBasisLocatorV1,
     ) -> Result<ProtectedFeedbackFrontierReadbackV1, QualificationOwnerError> {
-        #[cfg(test)]
-        return self.resolve_or_create_for_basis_inner(locator, None).await;
-
-        #[cfg(not(test))]
         self.resolve_or_create_for_basis_inner(locator).await
     }
 
     async fn resolve_or_create_for_basis_inner(
         &self,
         locator: &RdIndependenceBasisLocatorV1,
-        #[cfg(test)] test_timing: Option<CreateResponseTimingForTestV1>,
     ) -> Result<ProtectedFeedbackFrontierReadbackV1, QualificationOwnerError> {
         let mut transaction = self.pool.begin().await.map_err(storage)?;
         let basis = load_rd_basis_in_transaction(&mut transaction, locator).await?;
@@ -2489,15 +2498,6 @@ impl PostgresQualificationOwnerV1 {
 
         let owner_write_cut_epoch_ms =
             owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
-        #[cfg(test)]
-        let projection_at_epoch_ms = if let Some(timing) = test_timing {
-            owner_write_cut_epoch_ms
-                .checked_sub(timing.projection_age_ms)
-                .ok_or_else(|| unavailable("test projection age exceeds Owner write cut"))?
-        } else {
-            owner_write_cut_epoch_ms
-        };
-        #[cfg(not(test))]
         let projection_at_epoch_ms = owner_write_cut_epoch_ms;
         let projection = form_projection(
             &basis,
@@ -2526,17 +2526,6 @@ impl PostgresQualificationOwnerV1 {
             .projection_for_basis(&basis.basis_identity)
             .ok_or_else(|| unavailable("committed Qualification projection missing"))?;
 
-        #[cfg(test)]
-        if let Some(timing) = test_timing
-            && timing.post_verify_delay_ms > 0
-        {
-            sqlx::query("SELECT pg_catalog.pg_sleep($1::DOUBLE PRECISION / 1000.0)")
-                .bind(timing.post_verify_delay_ms)
-                .execute(&mut *transaction)
-                .await
-                .map_err(storage)?;
-        }
-
         let owner_response_cut_epoch_ms =
             owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
         if let Err(e) = verify_projection_freshness(verified, owner_response_cut_epoch_ms) {
@@ -2546,16 +2535,6 @@ impl PostgresQualificationOwnerV1 {
         let verified = verified.clone();
         transaction.commit().await.map_err(storage)?;
         Ok(verified)
-    }
-
-    #[cfg(test)]
-    async fn resolve_or_create_for_basis_with_test_timing(
-        &self,
-        locator: &RdIndependenceBasisLocatorV1,
-        test_timing: CreateResponseTimingForTestV1,
-    ) -> Result<ProtectedFeedbackFrontierReadbackV1, QualificationOwnerError> {
-        self.resolve_or_create_for_basis_inner(locator, Some(test_timing))
-            .await
     }
 
     pub async fn resolve_for_basis(
@@ -5708,7 +5687,6 @@ fn disposition_status(status: ProtectedAttemptDispositionStatusV1) -> &'static s
 fn closure_status(status: HoldoutClosureDispositionV1) -> &'static str {
     match status {
         HoldoutClosureDispositionV1::Consumed => "CONSUMED",
-        HoldoutClosureDispositionV1::Released => "RELEASED",
     }
 }
 
@@ -5824,7 +5802,6 @@ mod postgres_tests {
     use rstest::rstest;
 
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[rstest]
     fn negative_closure_retry_classification_is_structurally_bounded() {
@@ -6126,13 +6103,196 @@ mod postgres_tests {
         assert!(verify_projection_chain(&[first, tampered.clone()], Some(&tampered)).is_err());
     }
 
+    /// The sixteen execution-defining bindings every ordered-gate protected request freezes. The
+    /// plan, artifact, purge/embargo policy, multiplicity basis, and alternatives thresholds repeat
+    /// the Qualification authority source exactly, the cost, slippage, and capacity models repeat
+    /// its identities, and the remaining fields carry fixed acceptance identities.
+    fn chain_protected_bindings(
+        source: &ProtectedReplayAuthoritySourceV1,
+    ) -> Vec<crate::protected_replay_request::ProtectedReplayBindingV1> {
+        use crate::protected_replay_request::{
+            ProtectedReplayBindingFieldV1, ProtectedReplayBindingV1,
+        };
+
+        let mut bindings = ProtectedReplayBindingFieldV1::ALL
+            .into_iter()
+            .enumerate()
+            .map(|(index, field)| ProtectedReplayBindingV1 {
+                field,
+                identity: format!("protected-requested-binding-{index}"),
+                digest: format!("sha256:{index:064x}"),
+            })
+            .collect::<Vec<_>>();
+
+        for (index, identity_value, digest_value) in [
+            (0, &source.plan_identity, &source.plan_digest),
+            (1, &source.artifact_identity, &source.artifact_digest),
+            (
+                12,
+                &source.purge_embargo_policy_identity,
+                &source.purge_embargo_policy_digest,
+            ),
+            (
+                14,
+                &source.multiplicity_basis_identity,
+                &source.multiplicity_basis_digest,
+            ),
+            (
+                15,
+                &source.alternatives_thresholds_identity,
+                &source.alternatives_thresholds_digest,
+            ),
+        ] {
+            bindings[index].identity = identity_value.clone();
+            bindings[index].digest = digest_value.clone();
+        }
+
+        for (index, identity_value) in [
+            (9, &source.cost_model_identity),
+            (10, &source.slippage_model_identity),
+            (11, &source.capacity_model_identity),
+        ] {
+            bindings[index].identity = identity_value.clone();
+        }
+        bindings
+    }
+
+    /// The ordered gate's frozen economic policy bundle. Every policy reference repeats the
+    /// admitted plan; the numeric policy is the fixed acceptance threshold the Backtest gate step
+    /// measures every applicable cell against (`crates/backtest_owner/src/lib.rs`).
+    fn chain_economic_policy(
+        source: &ProtectedReplayAuthoritySourceV1,
+    ) -> ProtectedEconomicPolicyBundleV1 {
+        use vibe_backtest_owner_contracts::{
+            ProtectedEconomicAggregationV1, ProtectedEconomicComparisonV1,
+            ProtectedEconomicPolicyReferenceV1,
+        };
+
+        let reference = |identity: &str, digest: &str| ProtectedEconomicPolicyReferenceV1 {
+            identity: identity.to_string(),
+            digest: digest.to_string(),
+        };
+        let mut policy = ProtectedEconomicPolicyBundleV1 {
+            schema_version: 1,
+            bundle_identity: "pending-policy".to_string(),
+            bundle_digest: format!("blake3:{}", "0".repeat(64)),
+            protected_decision_policy_identity: source.protected_decision_policy_identity.clone(),
+            protected_decision_policy_version: source.protected_decision_policy_version,
+            metric: reference(&source.metric_policy_identity, &source.metric_policy_digest),
+            coverage_policy: reference(
+                &source.coverage_policy_identity,
+                &source.coverage_policy_digest,
+            ),
+            tolerance_policy: reference(
+                &source.tolerance_policy_identity,
+                &source.tolerance_policy_digest,
+            ),
+            threshold_policy: reference(
+                &source.threshold_policy_identity,
+                &source.threshold_policy_digest,
+            ),
+            aggregation_policy: reference(
+                &source.aggregation_policy_identity,
+                &source.aggregation_policy_digest,
+            ),
+            unit: "basis-points".to_string(),
+            decimal_scale: 4,
+            comparison: ProtectedEconomicComparisonV1::GreaterThanOrEqual,
+            // The gate's fixed acceptance corpus is one short round trip whose real net return is
+            // slightly negative, so this floor is set below it. It is the threshold that makes the
+            // frozen corpus an admitted pass, never a judgement that losing a hundred basis points
+            // is economically acceptable; a deployed policy states its own floor.
+            threshold_raw: -100,
+            tolerance_raw: 5,
+            minimum_coverage_bps: 9_500,
+            aggregation: ProtectedEconomicAggregationV1::EveryApplicableCell,
+        };
+        policy.bundle_digest = policy.compute_digest().expect("economic policy digest");
+        policy.bundle_identity = format!(
+            "qualification-protected-economic-policy-v1-{}",
+            policy
+                .bundle_digest
+                .strip_prefix("blake3:")
+                .expect("blake3 economic policy digest")
+        );
+        policy
+    }
+
+    /// The Candidate lineages the ordered gate's READY entry mints for the protected-evaluation
+    /// terminals, one per terminal because a Candidate reserves holdout and seals one request set
+    /// exactly once.
+    const PROTECTED_TERMINAL_LINEAGES_V1: [&str; 3] =
+        ["economic-pass", "economic-failure", "all-not-applicable"];
+
+    /// Exact row counts of every Qualification relation, one `name=count` per non-empty table.
+    ///
+    /// Zero counts are dropped so a table that does not exist and a table that is empty read the
+    /// same, which keeps this comparable across stores. Scoped counts answer whether this entry
+    /// wrote what it meant to; this answers whether it touched anything else, including rows
+    /// another gate entry owns, which no identity-scoped count can see.
+    async fn qualification_schema_row_counts(pool: &PgPool) -> Vec<String> {
+        sqlx::query_scalar::<_, String>(
+            "SELECT c.relname||'='||(xpath('/row/c/text()', query_to_xml(format('SELECT count(*) AS c FROM public.%I', c.relname), false, true, '')))[1]::text::bigint \
+             FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace \
+             WHERE n.nspname='public' AND c.relkind='r' AND c.relname LIKE 'qualification\\_%' \
+             ORDER BY c.relname",
+        )
+        .fetch_all(pool)
+        .await
+        .expect("Qualification schema row counts")
+        .into_iter()
+        .filter(|row| !row.ends_with("=0"))
+        .collect()
+    }
+
+    /// The `ADMITTED` intake of one exact gate lineage. Its public status has not reached a
+    /// terminal phase, so this entry owns the lineage's protected attempt.
+    async fn admitted_intake_for_lineage(
+        pool: &PgPool,
+        lineage: &str,
+    ) -> crate::CandidateIntakeReceiptV1 {
+        let intake_json: serde_json::Value = sqlx::query_scalar(
+            "SELECT receipt.receipt_json \
+             FROM public.qualification_candidate_intake_receipts_v1 receipt \
+             JOIN public.qualification_public_status_heads_v1 head \
+               ON head.review_request_identity=receipt.review_request_identity \
+             WHERE receipt.status='ADMITTED' AND head.phase_sequence<3 \
+               AND receipt.review_request_identity LIKE 'qualification-review-' || $1 || '-%' \
+             ORDER BY receipt.committed_at_epoch_ms DESC, receipt.review_request_identity DESC \
+             LIMIT 1",
+        )
+        .bind(lineage)
+        .fetch_one(pool)
+        .await
+        .expect("gate lineage ADMITTED intake");
+        decode_intake_receipt_v1(&intake_json).expect("canonical intake")
+    }
+
+    async fn authority_source_for_intake(
+        owner: &PostgresQualificationOwnerV1,
+        intake: &crate::CandidateIntakeReceiptV1,
+    ) -> ProtectedReplayAuthoritySourceV1 {
+        let mut source_transaction = owner.pool.begin().await.expect("source transaction");
+        let handoff = load_rd_selection_in_transaction(
+            &mut source_transaction,
+            intake.decision_identity(),
+            intake.result_identity(),
+        )
+        .await
+        .expect("sealed R&D handoff");
+        let source = protected_replay_authority_source_v1(intake, &handoff)
+            .expect("Qualification authority source");
+        source_transaction
+            .rollback()
+            .await
+            .expect("source rollback");
+        source
+    }
+
     #[tokio::test]
     #[ignore = "requires the repository-authoritative disposable Owner PostgreSQL topology"]
     async fn protected_replay_request_is_atomic_retry_exact_and_backtest_sealed() {
-        use crate::protected_replay_request::{
-            ProtectedReplayBindingFieldV1, ProtectedReplayBindingV1,
-            ProtectedReplayRequestProposalV1,
-        };
+        use crate::protected_replay_request::ProtectedReplayRequestProposalV1;
 
         let qualification_url = std::env::var("QUALIFICATION_TEST_DATABASE_URL")
             .expect("explicit disposable Qualification URL");
@@ -6189,64 +6349,8 @@ mod postgres_tests {
             .await
             .expect("Origin intake exact replay remains available after upgrade");
         assert_eq!(legacy_retry, intake);
-        let mut source_transaction = owner.pool.begin().await.expect("source transaction");
-        let handoff = load_rd_selection_in_transaction(
-            &mut source_transaction,
-            intake.decision_identity(),
-            intake.result_identity(),
-        )
-        .await
-        .expect("sealed R&D handoff");
-        let source = protected_replay_authority_source_v1(&intake, &handoff)
-            .expect("Qualification authority source");
-        source_transaction
-            .rollback()
-            .await
-            .expect("source rollback");
-
-        let mut bindings = ProtectedReplayBindingFieldV1::ALL
-            .into_iter()
-            .enumerate()
-            .map(|(index, field)| {
-                let digest = format!("sha256:{index:064x}");
-                ProtectedReplayBindingV1 {
-                    field,
-                    identity: format!("protected-requested-binding-{index}"),
-                    digest,
-                }
-            })
-            .collect::<Vec<_>>();
-
-        for (index, identity_value, digest_value) in [
-            (0, &source.plan_identity, &source.plan_digest),
-            (1, &source.artifact_identity, &source.artifact_digest),
-            (
-                12,
-                &source.purge_embargo_policy_identity,
-                &source.purge_embargo_policy_digest,
-            ),
-            (
-                14,
-                &source.multiplicity_basis_identity,
-                &source.multiplicity_basis_digest,
-            ),
-            (
-                15,
-                &source.alternatives_thresholds_identity,
-                &source.alternatives_thresholds_digest,
-            ),
-        ] {
-            bindings[index].identity = identity_value.clone();
-            bindings[index].digest = digest_value.clone();
-        }
-
-        for (index, identity_value) in [
-            (9, &source.cost_model_identity),
-            (10, &source.slippage_model_identity),
-            (11, &source.capacity_model_identity),
-        ] {
-            bindings[index].identity = identity_value.clone();
-        }
+        let source = authority_source_for_intake(&owner, &intake).await;
+        let mut bindings = chain_protected_bindings(&source);
         let request_identity = format!(
             "qualification-protected-request-{}",
             intake.receipt_identity()
@@ -7083,377 +7187,919 @@ mod postgres_tests {
     }
 
     #[tokio::test]
-    #[ignore = "requires explicit disposable QUALIFICATION_OWNER_RECOVERY_TEST_DATABASE_URL"]
-    async fn response_cut_rolls_back_stale_create_and_history_corruption_fails_closed() {
-        let database_url = std::env::var("QUALIFICATION_OWNER_RECOVERY_TEST_DATABASE_URL")
-            .expect("database-backed test requires an explicit disposable database URL");
-        let owner = PostgresQualificationOwnerV1::connect(&database_url)
+    #[ignore = "requires the ordered canonical Owner PostgreSQL gate after the READY terminal lineages"]
+    async fn protected_replay_request_sets_seal_every_terminal_lineage_and_close_registration() {
+        let qualification_url = std::env::var("QUALIFICATION_TEST_DATABASE_URL")
+            .expect("explicit disposable Qualification URL");
+        let backtest_url =
+            std::env::var("BACKTEST_TEST_DATABASE_URL").expect("explicit disposable Backtest URL");
+        let owner = PostgresQualificationOwnerV1::connect(&qualification_url)
             .await
-            .unwrap();
+            .expect("Qualification topology");
+        let backtest = PgPool::connect(&backtest_url).await.expect("Backtest pool");
 
-        for statement in [
-            "CREATE TABLE IF NOT EXISTS rd_independence_bases_v1 (basis_identity TEXT PRIMARY KEY, request_identity TEXT NOT NULL UNIQUE, principal TEXT NOT NULL, request_scope_json JSONB NOT NULL, lineage_digest TEXT NOT NULL, basis_digest TEXT NOT NULL, basis_json JSONB NOT NULL, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
-            "CREATE TABLE IF NOT EXISTS rd_owner_outbox_v1 (event_identity TEXT PRIMARY KEY, aggregate_identity TEXT NOT NULL, event_kind TEXT NOT NULL, payload_digest TEXT NOT NULL, payload_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE (aggregate_identity, event_kind))",
-        ] {
-            sqlx::query(statement).execute(&owner.pool).await.unwrap();
+        for lineage in PROTECTED_TERMINAL_LINEAGES_V1 {
+            Box::pin(seal_protected_request_set_for_lineage(
+                &owner, &backtest, lineage,
+            ))
+            .await;
         }
-        let suffix = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let now = u64::try_from(
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_millis(),
-        )
-        .unwrap();
-        let request_identity = format!("qualification-test-request-{suffix}");
-        let principal = format!("qualification-test-principal-{suffix}");
-        let request_scope = vec!["research:submit".to_string(), "research:view".to_string()];
-        let lineage_digest = canonical_digest(
-            "rd.semantic-predecessor-frontier.v1",
-            &(
-                &principal,
-                &request_scope,
-                "GENESIS_EMPTY",
-                Vec::<String>::new(),
-            ),
-        )
-        .unwrap();
-        let rationale_digest =
-            canonical_digest("rd.independence-rationale.v1", &"bounded test rationale").unwrap();
-        let mut basis = StoredRdBasisV1 {
-            schema_version: 1,
-            basis_identity: String::new(),
-            request_identity: request_identity.clone(),
-            principal: principal.clone(),
-            request_scope: request_scope.clone(),
-            rationale_digest,
-            independence_disposition: StoredIndependenceDispositionV1::Independent,
-            lineage_resolution: StoredLineageResolutionV1::GenesisEmpty,
-            semantic_predecessor_frontier: vec![],
-            lineage_digest,
-            basis_digest: String::new(),
+    }
+
+    /// Freezes one current request per plan cell of a lineage, seals the complete set with its
+    /// frozen economic policy, and proves the registration fence the seal closes.
+    async fn seal_protected_request_set_for_lineage(
+        owner: &PostgresQualificationOwnerV1,
+        backtest: &PgPool,
+        lineage: &str,
+    ) {
+        use crate::protected_replay_request::{
+            ProtectedReplayRequestProposalV1, ProtectedReplayRequestProposalV2,
         };
-        basis.basis_digest = canonical_digest(
-            "rd.independence-basis.v1",
-            &RdBasisMeaningV1 {
-                schema_version: 1,
-                request_identity: &basis.request_identity,
-                principal: &basis.principal,
-                request_scope: &basis.request_scope,
-                rationale_digest: &basis.rationale_digest,
-                independence_disposition: &basis.independence_disposition,
-                lineage_resolution: &basis.lineage_resolution,
-                semantic_predecessor_frontier: &basis.semantic_predecessor_frontier,
-                lineage_digest: &basis.lineage_digest,
-            },
-        )
-        .unwrap();
-        basis.basis_identity = identity("rd-independence-basis-v1", &basis.basis_digest);
-        let receipt_digest = canonical_digest(
-            "rd.independence-basis-receipt.v1",
-            &RdBasisReceiptMeaningV1 {
-                schema_version: 1,
-                basis_identity: &basis.basis_identity,
-                basis_digest: &basis.basis_digest,
-                committed_at_epoch_ms: now,
-            },
-        )
-        .unwrap();
-        let receipt = StoredRdBasisReceiptV1 {
-            schema_version: 1,
-            receipt_identity: identity("rd-independence-basis-receipt-v1", &receipt_digest),
-            basis_identity: basis.basis_identity.clone(),
-            basis_digest: basis.basis_digest.clone(),
-            committed_at_epoch_ms: now,
-        };
-        let payload = RdBasisOutboxPayloadV1 {
-            schema_version: 1,
-            basis_identity: basis.basis_identity.clone(),
-            basis_digest: basis.basis_digest.clone(),
-            receipt_identity: receipt.receipt_identity.clone(),
-            principal: principal.clone(),
-            request_scope: request_scope.clone(),
-            lineage_digest: basis.lineage_digest.clone(),
-        };
-        let payload_digest = canonical_digest("rd.owner-outbox.payload.v1", &payload).unwrap();
-        sqlx::query("INSERT INTO rd_independence_bases_v1 (basis_identity,request_identity,principal,request_scope_json,lineage_digest,basis_digest,basis_json,receipt_json,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)")
-            .bind(&basis.basis_identity).bind(&request_identity).bind(&principal)
-            .bind(serde_json::to_value(&request_scope).unwrap()).bind(&basis.lineage_digest)
-            .bind(&basis.basis_digest).bind(serde_json::to_value(&basis).unwrap())
-            .bind(serde_json::to_value(&receipt).unwrap()).bind(i64::try_from(now).unwrap())
-            .execute(&owner.pool).await.unwrap();
-        sqlx::query("INSERT INTO rd_owner_outbox_v1 (event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms) VALUES ($1,$2,'INDEPENDENCE_BASIS_PRECOMMITTED_V1',$3,$4,$5)")
-            .bind(identity("rd-owner-event-v1", &payload_digest)).bind(&basis.basis_identity)
-            .bind(&payload_digest).bind(serde_json::to_value(&payload).unwrap()).bind(i64::try_from(now).unwrap())
-            .execute(&owner.pool).await.unwrap();
-        let locator = RdIndependenceBasisLocatorV1 {
-            basis_identity: basis.basis_identity.clone(),
-            basis_digest: basis.basis_digest.clone(),
-            request_identity,
-            principal,
-            request_scope,
+        use vibe_data::owner::sealed_acceptance::issue_protected_evaluation_shared_time_v1;
+
+        let intake = admitted_intake_for_lineage(&owner.pool, lineage).await;
+        let source = authority_source_for_intake(owner, &intake).await;
+        let bindings = chain_protected_bindings(&source);
+        let shared_time =
+            issue_protected_evaluation_shared_time_v1().expect("sealed acceptance Shared Time");
+        let proposal_for = |request_identity: String, ordinal: u32, bindings: Vec<_>| {
+            ProtectedReplayRequestProposalV1::new(
+                request_identity,
+                intake.review_request_identity().to_string(),
+                intake.receipt_identity().to_string(),
+                intake.receipt_digest().to_string(),
+                ordinal,
+                bindings,
+            )
+            .expect("canonical protected proposal")
         };
 
-        let stale = owner
-            .resolve_or_create_for_basis_with_test_timing(
-                &locator,
-                CreateResponseTimingForTestV1 {
-                    projection_age_ms: PROJECTION_VALIDITY_MS - 100,
-                    post_verify_delay_ms: 200,
-                },
-            )
-            .await
-            .unwrap_err();
-        assert!(matches!(
-            stale,
-            QualificationOwnerError::Unavailable(message)
-                if message == "Qualification projection is stale"
-        ));
-        let projection_count = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM qualification_protected_feedback_projections_v1",
-        )
-        .fetch_one(&owner.pool)
-        .await
-        .unwrap();
-        let head_count = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM qualification_protected_feedback_heads_v1",
-        )
-        .fetch_one(&owner.pool)
-        .await
-        .unwrap();
-        let outbox_count =
-            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM qualification_owner_outbox_v1")
-                .fetch_one(&owner.pool)
+        let cell_count = source.plan_cells.len();
+        assert!(
+            cell_count > 1,
+            "the gate plan must carry more than one cell"
+        );
+        let mut request_identities = Vec::with_capacity(cell_count);
+        for ordinal in 0..cell_count {
+            let request_identity = format!(
+                "qualification-protected-request-v2-{ordinal}-{}",
+                intake.receipt_identity()
+            );
+            let proposal = ProtectedReplayRequestProposalV2::new(
+                proposal_for(
+                    request_identity.clone(),
+                    u32::try_from(ordinal).expect("bounded cell ordinal"),
+                    bindings.clone(),
+                ),
+                shared_time.request_head(),
+            );
+            let first = owner
+                .submit_protected_replay_request_v2(&proposal)
                 .await
-                .unwrap();
-        assert_eq!((projection_count, head_count, outbox_count), (0, 0, 0));
-
-        let short_lived = owner
-            .resolve_or_create_for_basis_with_test_timing(
-                &locator,
-                CreateResponseTimingForTestV1 {
-                    projection_age_ms: PROJECTION_VALIDITY_MS - 100,
-                    post_verify_delay_ms: 0,
-                },
+                .expect("current protected request commit");
+            let retry = owner
+                .submit_protected_replay_request_v2(&proposal)
+                .await
+                .expect("current protected request response-loss retry");
+            assert_eq!(first, retry);
+            let custody: (i64, i64, i64, String, String) = sqlx::query_as(
+                "SELECT \
+                 (SELECT count(*) FROM public.qualification_protected_replay_requests_v1 WHERE request_identity=$1), \
+                 (SELECT count(*) FROM public.qualification_protected_replay_request_receipts_v1 WHERE request_identity=$1), \
+                 (SELECT count(*) FROM public.qualification_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind='QUALIFICATION_PROTECTED_REPLAY_REQUEST_FROZEN_V1'), \
+                 (SELECT request_json->>'schema_version' FROM public.qualification_protected_replay_requests_v1 WHERE request_identity=$1), \
+                 (SELECT request_json#>>'{request_time_evidence,stage}' FROM public.qualification_protected_replay_requests_v1 WHERE request_identity=$1)",
             )
-            .await
-            .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(101)).await;
-        let renewed = owner.resolve_or_create_for_basis(&locator).await.unwrap();
-        assert_eq!(
-            renewed.resolution(),
-            ProtectedFeedbackResolutionV1::Frontier
-        );
-        assert_eq!(
-            renewed.source_frontier_identity(),
-            Some(short_lived.projection_identity())
-        );
-        assert_eq!(
-            renewed.source_frontier_digest(),
-            Some(short_lived.projection_digest())
-        );
-        assert_eq!(renewed.source_sequence(), short_lived.source_sequence());
-        assert_eq!(renewed.source_cut(), short_lived.source_cut());
-        assert_eq!(
-            owner.resolve_or_create_for_basis(&locator).await.unwrap(),
-            renewed
-        );
-        assert_eq!(
-            sqlx::query_scalar::<_, i64>(
-                "SELECT COUNT(*) FROM qualification_protected_feedback_projections_v1 WHERE basis_identity = $1",
-            )
-            .bind(&locator.basis_identity)
+            .bind(&request_identity)
             .fetch_one(&owner.pool)
             .await
-            .unwrap(),
-            2
+            .expect("current protected request custody");
+            assert_eq!(custody, (1, 1, 1, "2".to_string(), "REQUEST".to_string()));
+            request_identities.push(request_identity);
+        }
+        let mut changed_bindings = bindings.clone();
+        changed_bindings[2].digest = format!("sha256:{}", "f".repeat(64));
+        assert!(matches!(
+            owner
+                .submit_protected_replay_request_v2(&ProtectedReplayRequestProposalV2::new(
+                    proposal_for(request_identities[0].clone(), 0, changed_bindings),
+                    shared_time.request_head(),
+                ))
+                .await,
+            Err(QualificationOwnerError::ConflictingIdentity)
+        ));
+        let evaluating: (i64, String) = sqlx::query_as(
+            "SELECT head.phase_sequence,fact.status \
+             FROM public.qualification_public_status_heads_v1 head \
+             JOIN public.qualification_public_status_facts_v1 fact \
+               ON fact.fact_identity=head.fact_identity AND fact.fact_digest=head.fact_digest \
+             WHERE head.review_request_identity=$1",
+        )
+        .bind(intake.review_request_identity())
+        .fetch_one(&owner.pool)
+        .await
+        .expect("gate lineage review public status");
+        assert_eq!(evaluating, (2, "EVALUATING".to_string()));
+
+        let policy = chain_economic_policy(&source);
+        let sealed = owner
+            .seal_protected_replay_request_set_v1(
+                intake.review_request_identity(),
+                intake.receipt_identity(),
+                &policy,
+            )
+            .await
+            .expect("complete current request set seal");
+        let members = &sealed.seal().members;
+        assert_eq!(members.len(), cell_count);
+        let mut sealed_identities = members
+            .iter()
+            .map(|member| member.request_identity.clone())
+            .collect::<Vec<_>>();
+        sealed_identities.sort();
+        let mut expected_identities = request_identities.clone();
+        expected_identities.sort();
+        assert_eq!(sealed_identities, expected_identities);
+        assert_eq!(
+            sealed.seal().holdout_reservation_identity,
+            intake
+                .holdout_reservation_identity()
+                .expect("ADMITTED reservation")
         );
-        let scope_key = principal_scope_key(&locator.principal, &locator.request_scope).unwrap();
+        let retry = owner
+            .seal_protected_replay_request_set_v1(
+                intake.review_request_identity(),
+                intake.receipt_identity(),
+                &policy,
+            )
+            .await
+            .expect("request set seal response-loss retry");
+        assert_eq!(retry, sealed);
+
+        let mut changed_policy = policy.clone();
+        changed_policy.threshold_raw += 1;
+        changed_policy.bundle_digest = changed_policy
+            .compute_digest()
+            .expect("changed policy digest");
+        changed_policy.bundle_identity = format!(
+            "qualification-protected-economic-policy-v1-{}",
+            changed_policy
+                .bundle_digest
+                .strip_prefix("blake3:")
+                .expect("blake3 changed policy digest")
+        );
+        assert!(matches!(
+            owner
+                .seal_protected_replay_request_set_v1(
+                    intake.review_request_identity(),
+                    intake.receipt_identity(),
+                    &changed_policy,
+                )
+                .await,
+            Err(QualificationOwnerError::ConflictingIdentity)
+        ));
+
+        for late in [
+            owner
+                .submit_protected_replay_request_v2(&ProtectedReplayRequestProposalV2::new(
+                    proposal_for(
+                        format!(
+                            "qualification-protected-late-request-v2-{}",
+                            intake.receipt_identity()
+                        ),
+                        0,
+                        bindings.clone(),
+                    ),
+                    shared_time.request_head(),
+                ))
+                .await
+                .map(|_| ()),
+            owner
+                .submit_protected_replay_request_v1(&proposal_for(
+                    format!(
+                        "qualification-protected-late-request-v1-{}",
+                        intake.receipt_identity()
+                    ),
+                    0,
+                    bindings.clone(),
+                ))
+                .await
+                .map(|_| ()),
+        ] {
+            assert!(matches!(
+                late,
+                Err(QualificationOwnerError::Unavailable(message))
+                    if message == "Protected Replay Request registration is closed by the request-set seal"
+            ));
+        }
+        let counts: (i64, i64, i64, i64, i64) = sqlx::query_as(
+            "SELECT \
+             (SELECT count(*) FROM public.qualification_protected_replay_request_sets_v1 WHERE request_set_identity=$1), \
+             (SELECT count(*) FROM public.qualification_protected_replay_request_sets_v1 WHERE plan_cell_set_identity=$2), \
+             (SELECT count(*) FROM public.qualification_protected_economic_policy_bundles_v1 WHERE request_set_identity=$1 AND bundle_identity=$3), \
+             (SELECT count(*) FROM public.qualification_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind IN ('QUALIFICATION_PROTECTED_REPLAY_REQUEST_SET_SEALED_V1','QUALIFICATION_PROTECTED_REPLAY_REQUEST_SET_CUSTODY_V1')), \
+             (SELECT count(*) FROM public.qualification_protected_replay_requests_v1 WHERE intake_receipt_identity=$4 AND request_json->>'schema_version'='2')",
+        )
+        .bind(sealed.request_set_identity())
+        .bind(&source.plan_cell_set_identity)
+        .bind(&policy.bundle_identity)
+        .bind(intake.receipt_identity())
+        .fetch_one(&owner.pool)
+        .await
+        .expect("request set aggregate counts");
+        assert_eq!(
+            counts,
+            (
+                1,
+                1,
+                1,
+                2,
+                i64::try_from(cell_count).expect("bounded cell count")
+            )
+        );
+        let error = sqlx::query(
+            "UPDATE public.qualification_protected_replay_request_sets_v1 SET storage_digest=storage_digest WHERE request_set_identity=$1",
+        )
+        .bind(sealed.request_set_identity())
+        .execute(&owner.pool)
+        .await
+        .expect_err("runtime writer cannot tamper append-only request set custody");
+        assert_eq!(
+            error.as_database_error().and_then(|value| value.code()),
+            Some(std::borrow::Cow::Borrowed("42501"))
+        );
+
+        let mut backtest_transaction = backtest.begin().await.expect("Backtest transaction");
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *backtest_transaction)
+            .await
+            .expect("serializable request set read");
+        let locked: Option<serde_json::Value> = sqlx::query_scalar(
+            "SELECT qualification_api.lock_protected_replay_request_set_v1($1,$2)",
+        )
+        .bind(sealed.request_set_identity())
+        .bind(sealed.request_set_digest())
+        .fetch_one(&mut *backtest_transaction)
+        .await
+        .expect("sealed Backtest request set read");
+        assert!(locked.is_some());
+        backtest_transaction
+            .rollback()
+            .await
+            .expect("Backtest rollback");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the ordered canonical Owner PostgreSQL gate after the sealed Backtest attempt frontiers"]
+    async fn protected_assessments_close_every_terminal_once_and_project_public_status() {
+        let qualification_url = std::env::var("QUALIFICATION_TEST_DATABASE_URL")
+            .expect("explicit disposable Qualification URL");
+        let backtest_url =
+            std::env::var("BACKTEST_TEST_DATABASE_URL").expect("explicit disposable Backtest URL");
+        let owner = PostgresQualificationOwnerV1::connect(&qualification_url)
+            .await
+            .expect("Qualification topology");
+        let backtest = PgPool::connect(&backtest_url).await.expect("Backtest pool");
+
+        for (lineage, terminal) in [
+            ("economic-pass", ProtectedTerminalV1::Qualified),
+            ("economic-failure", ProtectedTerminalV1::Ineligible),
+            ("all-not-applicable", ProtectedTerminalV1::AssessmentInvalid),
+        ] {
+            Box::pin(close_protected_terminal_for_lineage(
+                &owner, &backtest, lineage, terminal,
+            ))
+            .await;
+        }
+    }
+
+    /// The three protected terminals a complete sealed attempt frontier can close into. Each one
+    /// is the categorical outcome of one frozen census; the caller never chooses it, the sealed
+    /// per-cell evidence does.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum ProtectedTerminalV1 {
+        Qualified,
+        Ineligible,
+        AssessmentInvalid,
+    }
+
+    /// One closed protected terminal, projected onto the fields every terminal shares.
+    struct ClosedProtectedTerminalV1 {
+        assessment_identity: String,
+        assessment_status: &'static str,
+        /// The native fact the public terminal cites: an Eligibility Fact, or the attempt
+        /// disposition when no Eligibility Fact exists.
+        native_source_identity: String,
+        eligibility_identity: Option<String>,
+        public_status: &'static str,
+        outbox_event_kind: &'static str,
+    }
+
+    /// Closes one lineage's complete sealed frontier into its exact terminal, proving the other
+    /// closures are rejected before and after, the commit is retry-exact, and the public terminal
+    /// carries no protected detail.
+    async fn close_protected_terminal_for_lineage(
+        owner: &PostgresQualificationOwnerV1,
+        backtest: &PgPool,
+        lineage: &str,
+        terminal: ProtectedTerminalV1,
+    ) {
+        use crate::{ProtectedAssessmentStatusV1, ProtectedEligibilityStatusV1};
+        use vibe_data::owner::sealed_acceptance::issue_protected_evaluation_shared_time_v1;
+
+        // Backtest custody and Qualification custody are read under their own identities: the
+        // sealed request set names this lineage, and Backtest answers only about the frontier.
+        let (request_set_identity, request_set_digest, review_request_identity): (
+            String,
+            String,
+            String,
+        ) = sqlx::query_as(
+            "SELECT request_set_identity,request_set_digest,review_request_identity \
+             FROM public.qualification_protected_replay_request_sets_v1 \
+             WHERE review_request_identity LIKE 'qualification-review-' || $1 || '-%' \
+             ORDER BY committed_at_epoch_ms DESC,request_set_identity DESC LIMIT 1",
+        )
+        .bind(lineage)
+        .fetch_one(&owner.pool)
+        .await
+        .expect("sealed request set of this gate lineage");
+        let (frontier_identity, frontier_digest, receipt_identity, receipt_digest): (
+            String,
+            String,
+            String,
+            String,
+        ) = sqlx::query_as(
+            "SELECT frontier.frontier_identity,frontier.frontier_digest,receipt.receipt_identity,receipt.receipt_digest \
+             FROM public.backtest_protected_replay_attempt_frontiers_v1 frontier \
+             JOIN public.backtest_protected_replay_attempt_frontier_receipts_v1 receipt USING(frontier_identity) \
+             WHERE frontier.request_set_identity=$1 AND frontier.request_set_digest=$2 \
+             ORDER BY frontier.committed_at_epoch_ms DESC,frontier.frontier_identity DESC LIMIT 1",
+        )
+        .bind(&request_set_identity)
+        .bind(&request_set_digest)
+        .fetch_one(backtest)
+        .await
+        .expect("sealed Backtest attempt frontier of this gate lineage");
+        let frontier_locator = ProtectedReplayAttemptFrontierLocatorV1 {
+            frontier_identity: frontier_identity.clone(),
+            frontier_digest: frontier_digest.clone(),
+            receipt_identity,
+            receipt_digest,
+        };
+        let intake_json: serde_json::Value = sqlx::query_scalar(
+            "SELECT receipt_json FROM public.qualification_candidate_intake_receipts_v1 WHERE review_request_identity=$1",
+        )
+        .bind(&review_request_identity)
+        .fetch_one(&owner.pool)
+        .await
+        .expect("sealed request set intake");
+        let intake = decode_intake_receipt_v1(&intake_json).expect("canonical intake");
+        let source = authority_source_for_intake(owner, &intake).await;
+        let shared_time =
+            issue_protected_evaluation_shared_time_v1().expect("sealed acceptance Shared Time");
+        let successor = shared_time.assessment_successor();
+
+        // The sealed per-cell evidence admits exactly one terminal: the other two closures reject
+        // this frontier and leave no assessment behind, and no closure accepts a changed frontier
+        // digest.
+        for rejected in [
+            ProtectedTerminalV1::Qualified,
+            ProtectedTerminalV1::Ineligible,
+            ProtectedTerminalV1::AssessmentInvalid,
+        ] {
+            let mut locator = frontier_locator.clone();
+
+            if rejected == terminal {
+                locator.frontier_digest = format!("blake3:{}", "f".repeat(64));
+            }
+            let closed = match rejected {
+                ProtectedTerminalV1::Qualified => owner
+                    .close_economic_pass_assessment_v1(&locator, &successor)
+                    .await
+                    .map(|_| ()),
+                ProtectedTerminalV1::Ineligible => owner
+                    .close_economic_failure_assessment_v1(&locator, &successor)
+                    .await
+                    .map(|_| ()),
+                ProtectedTerminalV1::AssessmentInvalid => owner
+                    .close_all_not_applicable_assessment_v1(&locator, &successor)
+                    .await
+                    .map(|_| ()),
+            };
+            assert!(closed.is_err());
+        }
+        let premature: (i64, i64) = sqlx::query_as(
+            "SELECT \
+             (SELECT count(*) FROM public.qualification_protected_robustness_assessments_v1 WHERE attempt_frontier_identity=$1), \
+             (SELECT count(*) FROM public.qualification_eligibility_facts_v1 WHERE candidate_identity=$2)",
+        )
+        .bind(&frontier_identity)
+        .bind(intake.candidate_identity())
+        .fetch_one(&owner.pool)
+        .await
+        .expect("no assessment before the admitted closure");
+        assert_eq!(premature, (0, 0));
+
+        let closed = match terminal {
+            ProtectedTerminalV1::Qualified => {
+                let first = owner
+                    .close_economic_pass_assessment_v1(&frontier_locator, &successor)
+                    .await
+                    .expect("economic pass assessment commit");
+                assert_eq!(first.status(), ProtectedEligibilityStatusV1::Qualified);
+                assert_eq!(
+                    first.assessment_status(),
+                    ProtectedAssessmentStatusV1::CompletePass
+                );
+                assert_eq!(
+                    first.qualified_capacity_ceiling(),
+                    Some(source.preregistered_capacity_ceiling)
+                );
+                assert_eq!(
+                    owner
+                        .close_economic_pass_assessment_v1(&frontier_locator, &successor)
+                        .await
+                        .expect("economic pass assessment response-loss retry"),
+                    first
+                );
+                ClosedProtectedTerminalV1 {
+                    assessment_identity: first.assessment_identity().to_string(),
+                    assessment_status: "COMPLETE_PASS",
+                    native_source_identity: first.eligibility_identity().to_string(),
+                    eligibility_identity: Some(first.eligibility_identity().to_string()),
+                    public_status: "QUALIFIED",
+                    outbox_event_kind: "QUALIFICATION_PROTECTED_QUALIFIED_COMMITTED_V1",
+                }
+            }
+            ProtectedTerminalV1::Ineligible => {
+                let first = owner
+                    .close_economic_failure_assessment_v1(&frontier_locator, &successor)
+                    .await
+                    .expect("economic failure assessment commit");
+                assert_eq!(first.status(), ProtectedEligibilityStatusV1::Ineligible);
+                assert_eq!(
+                    first.assessment_status(),
+                    ProtectedAssessmentStatusV1::CompleteFail
+                );
+                assert_eq!(
+                    owner
+                        .close_economic_failure_assessment_v1(&frontier_locator, &successor)
+                        .await
+                        .expect("economic failure assessment response-loss retry"),
+                    first
+                );
+                ClosedProtectedTerminalV1 {
+                    assessment_identity: first.assessment_identity().to_string(),
+                    assessment_status: "COMPLETE_FAIL",
+                    native_source_identity: first.eligibility_identity().to_string(),
+                    eligibility_identity: Some(first.eligibility_identity().to_string()),
+                    public_status: "CLOSED_NOT_QUALIFIED",
+                    outbox_event_kind: "QUALIFICATION_PROTECTED_INELIGIBLE_COMMITTED_V1",
+                }
+            }
+            ProtectedTerminalV1::AssessmentInvalid => {
+                let first = owner
+                    .close_all_not_applicable_assessment_v1(&frontier_locator, &successor)
+                    .await
+                    .expect("all-not-applicable assessment commit");
+                assert_eq!(
+                    first.status(),
+                    ProtectedAssessmentStatusV1::IncompleteInvalid
+                );
+                assert_eq!(
+                    first.holdout_closure_disposition(),
+                    HoldoutClosureDispositionV1::Consumed
+                );
+                assert_eq!(
+                    owner
+                        .close_all_not_applicable_assessment_v1(&frontier_locator, &successor)
+                        .await
+                        .expect("all-not-applicable assessment response-loss retry"),
+                    first
+                );
+                ClosedProtectedTerminalV1 {
+                    assessment_identity: first.assessment_identity().to_string(),
+                    assessment_status: "INCOMPLETE_INVALID",
+                    native_source_identity: first.disposition_identity().to_string(),
+                    eligibility_identity: None,
+                    public_status: "CLOSED_NOT_QUALIFIED",
+                    outbox_event_kind: "QUALIFICATION_PROTECTED_ASSESSMENT_INVALID_COMMITTED_V1",
+                }
+            }
+        };
+
+        // The committed terminal is final for this frontier: a later closure of any kind, this one
+        // included under a different name, cannot reinterpret the frozen census.
+        for rejected in [
+            ProtectedTerminalV1::Qualified,
+            ProtectedTerminalV1::Ineligible,
+            ProtectedTerminalV1::AssessmentInvalid,
+        ] {
+            if rejected == terminal {
+                continue;
+            }
+            let closed = match rejected {
+                ProtectedTerminalV1::Qualified => owner
+                    .close_economic_pass_assessment_v1(&frontier_locator, &successor)
+                    .await
+                    .map(|_| ()),
+                ProtectedTerminalV1::Ineligible => owner
+                    .close_economic_failure_assessment_v1(&frontier_locator, &successor)
+                    .await
+                    .map(|_| ()),
+                ProtectedTerminalV1::AssessmentInvalid => owner
+                    .close_all_not_applicable_assessment_v1(&frontier_locator, &successor)
+                    .await
+                    .map(|_| ()),
+            };
+            assert!(closed.is_err());
+        }
+        let eligibility_rows = i64::from(closed.eligibility_identity.is_some());
+        let counts: (i64, i64, i64, i64, i64, i64) = sqlx::query_as(
+            "SELECT \
+             (SELECT count(*) FROM public.qualification_protected_robustness_assessments_v1 WHERE attempt_frontier_identity=$1), \
+             (SELECT count(*) FROM public.qualification_protected_robustness_assessments_v1 WHERE assessment_identity=$2 AND status=$3), \
+             (SELECT count(*) FROM public.qualification_eligibility_facts_v1 WHERE candidate_identity=$4), \
+             (SELECT count(*) FROM public.qualification_eligibility_fact_receipts_v1 eligibility_receipt JOIN public.qualification_eligibility_facts_v1 eligibility USING(eligibility_identity) WHERE eligibility.assessment_identity=$2), \
+             (SELECT count(*) FROM public.qualification_holdout_closures_v2 closure JOIN public.qualification_protected_attempt_dispositions_v2 disposition USING(disposition_identity) WHERE disposition.assessment_identity=$2), \
+             (SELECT count(*) FROM public.qualification_owner_outbox_v1 WHERE aggregate_identity=$5 AND event_kind=$6)",
+        )
+        .bind(&frontier_identity)
+        .bind(&closed.assessment_identity)
+        .bind(closed.assessment_status)
+        .bind(intake.candidate_identity())
+        .bind(&closed.native_source_identity)
+        .bind(closed.outbox_event_kind)
+        .fetch_one(&owner.pool)
+        .await
+        .expect("closed terminal aggregate counts");
+        assert_eq!(
+            counts,
+            (
+                1,
+                1,
+                eligibility_rows,
+                eligibility_rows,
+                1 - eligibility_rows,
+                1
+            )
+        );
+
+        let public_terminal: serde_json::Value = sqlx::query_scalar(
+            "SELECT pg_catalog.jsonb_build_object( \
+               'fact',pg_catalog.to_jsonb(fact), \
+               'head',pg_catalog.to_jsonb(head), \
+               'event',pg_catalog.to_jsonb(event)) \
+             FROM public.qualification_public_status_facts_v1 fact \
+             JOIN public.qualification_public_status_heads_v1 head \
+               ON head.review_request_identity=fact.review_request_identity \
+              AND head.fact_identity=fact.fact_identity \
+              AND head.fact_digest=fact.fact_digest \
+              AND head.phase_sequence=fact.phase_sequence \
+             JOIN public.qualification_owner_outbox_v1 event \
+               ON event.aggregate_identity=fact.fact_identity \
+              AND event.event_kind='QUALIFICATION_PUBLIC_STATUS_TERMINAL_V1' \
+             WHERE fact.review_request_identity=$1 AND fact.phase_sequence=3",
+        )
+        .bind(&review_request_identity)
+        .fetch_one(&owner.pool)
+        .await
+        .expect("closed public terminal custody");
+        assert_eq!(
+            public_terminal["fact"]["status"],
+            serde_json::json!(closed.public_status)
+        );
+        assert_eq!(
+            public_terminal["fact"]["native_source_identity"],
+            serde_json::json!(closed.native_source_identity)
+        );
+        assert_eq!(
+            public_terminal["fact"]["candidate_identity"],
+            serde_json::json!(intake.candidate_identity())
+        );
+        let public_bytes = serde_json::to_vec(&public_terminal).expect("public terminal bytes");
+
+        for forbidden in [
+            closed.assessment_status,
+            "observed_raw",
+            "plan_cell",
+            "measurement",
+            "census",
+            "INELIGIBLE",
+            "ASSESSMENT_INVALID",
+        ] {
+            assert!(
+                !String::from_utf8_lossy(&public_bytes).contains(forbidden),
+                "public terminal custody leaks protected detail: {forbidden}"
+            );
+        }
+
+        if let Some(eligibility_identity) = &closed.eligibility_identity {
+            for statement in [
+                "UPDATE public.qualification_eligibility_facts_v1 SET eligibility_json=eligibility_json WHERE eligibility_identity=$1",
+                "UPDATE public.qualification_eligibility_fact_receipts_v1 SET receipt_json=receipt_json WHERE eligibility_identity=$1",
+            ] {
+                let error = sqlx::query(statement)
+                    .bind(eligibility_identity)
+                    .execute(&owner.pool)
+                    .await
+                    .expect_err("runtime writer cannot tamper append-only Eligibility custody");
+                assert_eq!(
+                    error.as_database_error().and_then(|value| value.code()),
+                    Some(std::borrow::Cow::Borrowed("42501"))
+                );
+            }
+            // Append-only means the fact cannot be removed either, not just that it
+            // cannot be edited. This Owner is granted SELECT and INSERT on
+            // `qualification_eligibility_facts_v1` and nothing else, so the delete is
+            // refused for want of the privilege rather than by a rule that a later
+            // migration could drop.
+            //
+            // The statement literal has to sit inside this call. The chain's
+            // destructive-SQL guard strips `assert_statement_is_refused(...)` and judges
+            // what is left, so hoisting the string to a binding would keep the literal,
+            // lose the marker, and be refused by the guard - deliberately, because a
+            // guard should fail loudly rather than pass a file that merely contains one
+            // sanctioned call somewhere else.
+            vibe_testkit::postgres::assert_statement_is_refused(
+                &owner.pool,
+                &format!(
+                    "DELETE FROM public.qualification_eligibility_facts_v1 WHERE eligibility_identity='{eligibility_identity}'"
+                ),
+                "42501",
+            )
+            .await;
+        }
+        let error = sqlx::query(
+            "UPDATE public.qualification_protected_robustness_assessments_v1 SET assessment_json=assessment_json WHERE assessment_identity=$1",
+        )
+        .bind(&closed.assessment_identity)
+        .execute(&owner.pool)
+        .await
+        .expect_err("runtime writer cannot tamper append-only assessment custody");
+        assert_eq!(
+            error.as_database_error().and_then(|value| value.code()),
+            Some(std::borrow::Cow::Borrowed("42501"))
+        );
+        let error = sqlx::query(
+            "SELECT assessment_identity FROM public.qualification_protected_robustness_assessments_v1 LIMIT 1",
+        )
+        .execute(backtest)
+        .await
+        .expect_err("Backtest cannot read Qualification assessment custody");
+        assert_eq!(
+            error.as_database_error().and_then(|value| value.code()),
+            Some(std::borrow::Cow::Borrowed("42501"))
+        );
+    }
+    #[tokio::test]
+    #[ignore = "requires the ordered canonical Owner PostgreSQL gate after the stale-frontier lineage"]
+    async fn protected_feedback_projection_readback_fails_closed_on_corruption_and_writes_nothing()
+    {
+        let qualification_url = std::env::var("QUALIFICATION_TEST_DATABASE_URL")
+            .expect("explicit disposable Qualification URL");
+        let rd_url =
+            std::env::var("RD_OWNER_TEST_DATABASE_URL").expect("explicit disposable R&D Owner URL");
+        let owner = PostgresQualificationOwnerV1::connect(&qualification_url)
+            .await
+            .expect("Qualification topology");
+        let rd = PgPool::connect(&rd_url).await.expect("R&D Owner pool");
+
+        // The inadequate-plan lineage's basis carries a projection R&D obtained through
+        // Qualification's sealed admission API and no admitted protected attempt, so this entry can
+        // renew and corrupt its custody without touching a lineage the terminal entries own. Its
+        // review request and its Research request share the gate suffix, the only correlation
+        // Qualification can follow without a raw R&D read.
+        let review_request_identity: String = sqlx::query_scalar(
+            "SELECT review_request_identity FROM public.qualification_candidate_intake_receipts_v1 \
+             WHERE review_request_identity LIKE 'qualification-review-inadequate-plan-%' \
+             ORDER BY committed_at_epoch_ms DESC LIMIT 1",
+        )
+        .fetch_one(&owner.pool)
+        .await
+        .expect("inadequate-plan lineage intake");
+        let suffix = review_request_identity
+            .strip_prefix("qualification-review-inadequate-plan-")
+            .expect("gate lineage suffix")
+            .to_string();
+        let request_identity = format!("repair-replay-research-{suffix}");
+        let basis_row = sqlx::query(
+            "SELECT basis_identity,basis_digest,principal,request_scope_json \
+             FROM public.rd_independence_bases_v1 WHERE request_identity=$1",
+        )
+        .bind(&request_identity)
+        .fetch_one(&rd)
+        .await
+        .expect("R&D Independence Basis of this gate lineage");
+        let locator = RdIndependenceBasisLocatorV1 {
+            basis_identity: basis_row.try_get("basis_identity").expect("basis identity"),
+            basis_digest: basis_row.try_get("basis_digest").expect("basis digest"),
+            request_identity,
+            principal: basis_row.try_get("principal").expect("basis principal"),
+            request_scope: serde_json::from_value(
+                basis_row
+                    .try_get::<serde_json::Value, _>("request_scope_json")
+                    .expect("basis request scope"),
+            )
+            .expect("canonical request scope"),
+        };
+        let scope_key =
+            principal_scope_key(&locator.principal, &locator.request_scope).expect("scope key");
+        // Taken before this entry writes anything, so a row it disturbs cannot already be inside
+        // the baseline.
+        let schema_before = qualification_schema_row_counts(&owner.pool).await;
+        let own_counts = |pool: PgPool, basis_identity: String, scope_key: String| async move {
+            // This entry writes into custody the gate shares, so "nothing was written" is proved
+            // by this basis's own counts before and after, never by a global emptiness.
+            sqlx::query_as::<_, (i64, i64, i64)>(
+                "SELECT \
+                 (SELECT count(*) FROM public.qualification_protected_feedback_projections_v1 WHERE basis_identity=$1), \
+                 (SELECT count(*) FROM public.qualification_protected_feedback_heads_v1 WHERE principal_scope_key=$2), \
+                 (SELECT count(*) FROM public.qualification_owner_outbox_v1 event WHERE EXISTS (SELECT 1 FROM public.qualification_protected_feedback_projections_v1 projection WHERE projection.projection_identity=event.aggregate_identity AND projection.basis_identity=$1))",
+            )
+            .bind(basis_identity)
+            .bind(scope_key)
+            .fetch_one(&pool)
+            .await
+            .expect("own protected-feedback custody counts")
+        };
+        let before = own_counts(
+            owner.pool.clone(),
+            locator.basis_identity.clone(),
+            scope_key.clone(),
+        )
+        .await;
+        assert_eq!(before, (1, 1, 1));
+
+        // Qualification already holds this basis's projection: R&D obtained it through the sealed
+        // admission API while forming the TrialFamily policy. A resolve is therefore an exact
+        // replay that writes nothing. The create and renewal paths are not reachable from the gate
+        // for any basis, because no admitted R&D request can exist without its frontier, and a
+        // projection's stored validity cannot be aged without breaking the canonical row it is
+        // part of; the response-cut rollback stays unproven here by construction.
+        let projection = owner
+            .resolve_for_basis(&locator)
+            .await
+            .expect("stored projection readback")
+            .expect("R&D-admitted projection");
+        assert_eq!(projection.basis_identity(), locator.basis_identity);
+        assert_eq!(projection.principal(), locator.principal);
+        assert!(
+            verify_projection_freshness(&projection, projection.projection_at_epoch_ms()).is_ok()
+        );
+        assert!(
+            verify_projection_freshness(&projection, projection.valid_through_epoch_ms()).is_err()
+        );
+        assert_eq!(
+            projection.valid_through_epoch_ms(),
+            projection.projection_at_epoch_ms() + PROJECTION_VALIDITY_MS
+        );
+        assert_eq!(
+            projection.receipt().committed_at_epoch_ms(),
+            projection.projection_at_epoch_ms()
+        );
+        assert_eq!(
+            owner
+                .resolve_or_create_for_basis(&locator)
+                .await
+                .expect("exact replay"),
+            projection
+        );
+        assert_eq!(
+            own_counts(
+                owner.pool.clone(),
+                locator.basis_identity.clone(),
+                scope_key.clone()
+            )
+            .await,
+            before
+        );
+
+        // A corrupted head and a corrupted projection event each fail the readback closed; every
+        // tamper is restored exactly and read back before the next one.
+        let head_digest: String = sqlx::query_scalar(
+            "SELECT frontier_digest FROM public.qualification_protected_feedback_heads_v1 WHERE principal_scope_key=$1",
+        )
+        .bind(&scope_key)
+        .fetch_one(&owner.pool)
+        .await
+        .expect("current head digest");
         sqlx::query(
-            "DELETE FROM qualification_protected_feedback_heads_v1 WHERE principal_scope_key = $1",
+            "UPDATE public.qualification_protected_feedback_heads_v1 SET frontier_digest='sha256:corrupt' WHERE principal_scope_key=$1",
         )
         .bind(&scope_key)
         .execute(&owner.pool)
         .await
-        .unwrap();
-        sqlx::query("DELETE FROM qualification_owner_outbox_v1 WHERE aggregate_identity = ANY($1)")
-            .bind(vec![
-                short_lived.projection_identity(),
-                renewed.projection_identity(),
-            ])
-            .execute(&owner.pool)
-            .await
-            .unwrap();
+        .expect("corrupt the head");
+        // Capture, restore, then assert. Asserting here would skip the restoration on exactly the
+        // run that matters - a readback that wrongly succeeds is the regression this entry exists
+        // to catch, and panicking before the restore would leave the corrupted digest in a chain
+        // database that is shared and never reset, so the first failure a reader sees would be
+        // some later entry with no apparent cause.
+        let corrupted_head_readback = owner.resolve_for_basis(&locator).await;
         sqlx::query(
-            "DELETE FROM qualification_protected_feedback_projections_v1 WHERE basis_identity = $1",
+            "UPDATE public.qualification_protected_feedback_heads_v1 SET frontier_digest=$2 WHERE principal_scope_key=$1",
+        )
+        .bind(&scope_key)
+        .bind(&head_digest)
+        .execute(&owner.pool)
+        .await
+        .expect("restore the head exactly");
+        assert!(corrupted_head_readback.is_err());
+        assert_eq!(
+            owner
+                .resolve_for_basis(&locator)
+                .await
+                .expect("readback after exact head restoration"),
+            Some(projection.clone())
+        );
+
+        let event_digest: String = sqlx::query_scalar(
+            "SELECT payload_digest FROM public.qualification_owner_outbox_v1 WHERE aggregate_identity=$1",
+        )
+        .bind(projection.projection_identity())
+        .fetch_one(&owner.pool)
+        .await
+        .expect("current projection event digest");
+        sqlx::query(
+            "UPDATE public.qualification_owner_outbox_v1 SET payload_digest='sha256:tampered' WHERE aggregate_identity=$1",
+        )
+        .bind(projection.projection_identity())
+        .execute(&owner.pool)
+        .await
+        .expect("corrupt the projection event");
+        let corrupted_event_readback = owner.resolve_for_basis(&locator).await;
+        sqlx::query(
+            "UPDATE public.qualification_owner_outbox_v1 SET payload_digest=$2 WHERE aggregate_identity=$1",
+        )
+        .bind(projection.projection_identity())
+        .bind(&event_digest)
+        .execute(&owner.pool)
+        .await
+        .expect("restore the projection event exactly");
+        assert!(corrupted_event_readback.is_err());
+        assert_eq!(
+            owner
+                .resolve_for_basis(&locator)
+                .await
+                .expect("readback after exact projection event restoration"),
+            Some(projection.clone())
+        );
+
+        // The R&D source event belongs to R&D, so its tamper and its exact restoration run under
+        // the R&D identity.
+        let rd_event: (String, String) = sqlx::query_as(
+            "SELECT event_identity,payload_digest FROM public.rd_owner_outbox_v1 \
+             WHERE aggregate_identity=$1 AND event_kind='INDEPENDENCE_BASIS_PRECOMMITTED_V1'",
         )
         .bind(&locator.basis_identity)
-        .execute(&owner.pool)
+        .fetch_one(&rd)
         .await
-        .unwrap();
-
-        let db_cut_before = sqlx::query_scalar::<_, i64>(
-            "SELECT floor(extract(epoch FROM pg_catalog.clock_timestamp()) * 1000)::BIGINT",
-        )
-        .fetch_one(&owner.pool)
-        .await
-        .unwrap();
-        let caller_sentinel_epoch_ms = 1_u64;
-        let first = owner.resolve_or_create_for_basis(&locator).await.unwrap();
-        let db_cut_after = sqlx::query_scalar::<_, i64>(
-            "SELECT floor(extract(epoch FROM pg_catalog.clock_timestamp()) * 1000)::BIGINT",
-        )
-        .fetch_one(&owner.pool)
-        .await
-        .unwrap();
-        let db_cut_before = u64::try_from(db_cut_before).unwrap();
-        let db_cut_after = u64::try_from(db_cut_after).unwrap();
-        assert!(db_cut_before <= first.projection_at_epoch_ms());
-        assert!(first.projection_at_epoch_ms() <= db_cut_after);
-        assert_ne!(first.projection_at_epoch_ms(), caller_sentinel_epoch_ms);
-        assert_eq!(
-            first.valid_through_epoch_ms(),
-            first.projection_at_epoch_ms() + PROJECTION_VALIDITY_MS
-        );
-        assert_eq!(
-            first.receipt().committed_at_epoch_ms(),
-            first.projection_at_epoch_ms()
-        );
-        assert!(verify_projection_freshness(&first, first.projection_at_epoch_ms()).is_ok());
-        assert!(verify_projection_freshness(&first, first.valid_through_epoch_ms()).is_err());
-        assert_eq!(
-            first.resolution(),
-            ProtectedFeedbackResolutionV1::GenesisEmpty
-        );
-        assert_eq!(
-            owner.resolve_for_basis(&locator).await.unwrap(),
-            Some(first.clone())
-        );
-        assert_eq!(
-            owner.resolve_or_create_for_basis(&locator).await.unwrap(),
-            first
-        );
+        .expect("R&D basis event");
+        sqlx::query("UPDATE public.rd_owner_outbox_v1 SET payload_digest='sha256:corrupt' WHERE event_identity=$1")
+            .bind(&rd_event.0)
+            .execute(&rd)
+            .await
+            .expect("corrupt the R&D source event");
+        let corrupted_source_readback = owner.resolve_for_basis(&locator).await;
         sqlx::query(
-            "DELETE FROM qualification_protected_feedback_heads_v1 WHERE principal_scope_key = $1",
+            "UPDATE public.rd_owner_outbox_v1 SET payload_digest=$2 WHERE event_identity=$1",
         )
-        .bind(&scope_key)
-        .execute(&owner.pool)
+        .bind(&rd_event.0)
+        .bind(&rd_event.1)
+        .execute(&rd)
         .await
-        .unwrap();
-        assert!(owner.resolve_for_basis(&locator).await.is_err());
+        .expect("restore the R&D source event exactly");
+        assert!(corrupted_source_readback.is_err());
         assert_eq!(
-            sqlx::query_scalar::<_, i64>(
-                "SELECT COUNT(*) FROM qualification_protected_feedback_projections_v1 WHERE projection_identity = $1",
+            sqlx::query_scalar::<_, String>(
+                "SELECT payload_digest FROM public.rd_owner_outbox_v1 WHERE event_identity=$1",
             )
-            .bind(first.projection_identity())
-            .fetch_one(&owner.pool)
+            .bind(&rd_event.0)
+            .fetch_one(&rd)
             .await
-            .unwrap(),
-            1
+            .expect("R&D source event readback"),
+            rd_event.1
         );
-        sqlx::query("INSERT INTO qualification_protected_feedback_heads_v1 (principal_scope_key,principal,request_scope_json,frontier_identity,frontier_digest,source_sequence,source_cut,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)")
-            .bind(&scope_key).bind(first.principal())
-            .bind(serde_json::to_value(first.request_scope()).unwrap())
-            .bind(first.projection_identity()).bind(first.projection_digest())
-            .bind(i64::try_from(first.source_sequence()).unwrap()).bind(first.source_cut())
-            .bind(i64::try_from(first.receipt().committed_at_epoch_ms()).unwrap())
-            .execute(&owner.pool).await.unwrap();
         assert_eq!(
-            owner.resolve_for_basis(&locator).await.unwrap(),
-            Some(first.clone())
+            owner
+                .resolve_for_basis(&locator)
+                .await
+                .expect("readback after exact R&D restoration"),
+            Some(projection.clone())
         );
 
-        sqlx::query(
-            "DELETE FROM qualification_protected_feedback_heads_v1 WHERE principal_scope_key = $1",
-        )
-        .bind(&scope_key)
-        .execute(&owner.pool)
-        .await
-        .unwrap();
-        sqlx::query("DELETE FROM qualification_protected_feedback_projections_v1 WHERE projection_identity = $1")
-            .bind(first.projection_identity()).execute(&owner.pool).await.unwrap();
-        assert!(owner.resolve_for_basis(&locator).await.is_err());
-        let stored = first.as_stored();
-        sqlx::query("INSERT INTO qualification_protected_feedback_projections_v1 (projection_identity,basis_identity,principal,request_scope_json,resolution_state,source_sequence,source_cut,projection_digest,projection_json,receipt_json,committed_at_epoch_ms,valid_through_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)")
-            .bind(first.projection_identity()).bind(first.basis_identity()).bind(first.principal())
-            .bind(serde_json::to_value(first.request_scope()).unwrap()).bind(resolution_name(first.resolution()))
-            .bind(i64::try_from(first.source_sequence()).unwrap()).bind(first.source_cut()).bind(first.projection_digest())
-            .bind(serde_json::to_value(&stored).unwrap()).bind(serde_json::to_value(first.receipt_as_stored()).unwrap())
-            .bind(i64::try_from(first.receipt().committed_at_epoch_ms()).unwrap())
-            .bind(i64::try_from(first.valid_through_epoch_ms()).unwrap())
-            .execute(&owner.pool).await.unwrap();
-        sqlx::query("INSERT INTO qualification_protected_feedback_heads_v1 (principal_scope_key,principal,request_scope_json,frontier_identity,frontier_digest,source_sequence,source_cut,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)")
-            .bind(&scope_key).bind(first.principal()).bind(serde_json::to_value(first.request_scope()).unwrap())
-            .bind(first.projection_identity()).bind(first.projection_digest()).bind(i64::try_from(first.source_sequence()).unwrap())
-            .bind(first.source_cut()).bind(i64::try_from(first.receipt().committed_at_epoch_ms()).unwrap())
-            .execute(&owner.pool).await.unwrap();
+        // Every tamper above was restored exactly and read back, so this entry leaves the shared
+        // custody exactly as it found it: its own rows by identity, and every other Qualification
+        // relation by row count.
         assert_eq!(
-            owner.resolve_for_basis(&locator).await.unwrap(),
-            Some(first.clone())
+            qualification_schema_row_counts(&owner.pool).await,
+            schema_before
         );
-
-        sqlx::query("INSERT INTO qualification_owner_outbox_v1 (event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms) VALUES ($1,$2,'TAMPERED_KIND',$3,$4,$5)")
-            .bind(format!("qualification-test-extra-event-{suffix}"))
-            .bind(first.projection_identity()).bind("sha256:tampered")
-            .bind(serde_json::json!({"tampered": true}))
-            .bind(i64::try_from(now).unwrap()).execute(&owner.pool).await.unwrap();
-        assert!(owner.resolve_for_basis(&locator).await.is_err());
-        sqlx::query("DELETE FROM qualification_owner_outbox_v1 WHERE aggregate_identity = $1 AND event_kind = 'TAMPERED_KIND'")
-            .bind(first.projection_identity()).execute(&owner.pool).await.unwrap();
         assert_eq!(
-            owner.resolve_for_basis(&locator).await.unwrap(),
-            Some(first.clone())
+            own_counts(owner.pool.clone(), locator.basis_identity, scope_key).await,
+            before
         );
-        sqlx::query("UPDATE rd_owner_outbox_v1 SET payload_digest = 'sha256:corrupt' WHERE aggregate_identity = $1")
-            .bind(&basis.basis_identity).execute(&owner.pool).await.unwrap();
-        assert!(owner.resolve_for_basis(&locator).await.is_err());
-        sqlx::query(
-            "UPDATE rd_owner_outbox_v1 SET payload_digest = $1 WHERE aggregate_identity = $2",
-        )
-        .bind(&payload_digest)
-        .bind(&basis.basis_identity)
-        .execute(&owner.pool)
-        .await
-        .unwrap();
-        assert_eq!(
-            owner.resolve_for_basis(&locator).await.unwrap(),
-            Some(first.clone())
-        );
-        sqlx::query(
-            "DELETE FROM qualification_protected_feedback_heads_v1 WHERE frontier_identity = $1",
-        )
-        .bind(first.projection_identity())
-        .execute(&owner.pool)
-        .await
-        .unwrap();
-        sqlx::query("DELETE FROM qualification_owner_outbox_v1 WHERE aggregate_identity = $1")
-            .bind(first.projection_identity())
-            .execute(&owner.pool)
-            .await
-            .unwrap();
-        sqlx::query("DELETE FROM qualification_protected_feedback_projections_v1 WHERE projection_identity = $1").bind(first.projection_identity()).execute(&owner.pool).await.unwrap();
-        sqlx::query("DELETE FROM rd_owner_outbox_v1 WHERE aggregate_identity = $1")
-            .bind(&basis.basis_identity)
-            .execute(&owner.pool)
-            .await
-            .unwrap();
-        sqlx::query("DELETE FROM rd_independence_bases_v1 WHERE basis_identity = $1")
-            .bind(&basis.basis_identity)
-            .execute(&owner.pool)
-            .await
-            .unwrap();
-
-        for statement in [
-            "DROP TABLE qualification_protected_feedback_heads_v1",
-            "DROP TABLE qualification_owner_outbox_v1",
-            "DROP TABLE qualification_protected_feedback_projections_v1",
-            "DROP TABLE rd_owner_outbox_v1",
-            "DROP TABLE rd_independence_bases_v1",
-        ] {
-            sqlx::query(statement).execute(&owner.pool).await.unwrap();
-        }
     }
 }
