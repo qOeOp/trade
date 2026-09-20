@@ -401,6 +401,8 @@ expected_overrides = (
     ("EXECUTION_OWNER_TEST_DATABASE_URL", '"postgresql://execution_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
     ("PORTFOLIO_OWNER_TEST_DATABASE_URL", '"postgresql://portfolio_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
     ("GOVERNANCE_OWNER_TEST_DATABASE_URL", '"postgresql://governance_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("RISK_OWNER_TEST_DATABASE_URL", '"postgresql://risk_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
+    ("SCANNER_OWNER_TEST_DATABASE_URL", '"postgresql://scanner_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}"'),
 )
 route_lines = route_body.splitlines()
 if route_lines[:2] != ["", "    env \\"]:
@@ -1200,6 +1202,8 @@ run_authority_migration_for_database() {
     --env "PORTFOLIO_WRITER_DB_PASSWORD=${test_password}" \
     --env "GOVERNANCE_WRITER_DB_PASSWORD=${test_password}" \
     --env "INSTRUMENT_OWNER_DB_PASSWORD=${test_password}" \
+    --env "RISK_WRITER_DB_PASSWORD=${test_password}" \
+    --env "SCANNER_WRITER_DB_PASSWORD=${test_password}" \
     "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
 }
 
@@ -1558,6 +1562,8 @@ docker exec --interactive \
   --env "PORTFOLIO_WRITER_DB_PASSWORD=${test_password}" \
   --env "GOVERNANCE_WRITER_DB_PASSWORD=${test_password}" \
   --env "INSTRUMENT_OWNER_DB_PASSWORD=${test_password}" \
+  --env "RISK_WRITER_DB_PASSWORD=${test_password}" \
+  --env "SCANNER_WRITER_DB_PASSWORD=${test_password}" \
   "$container" sh -s < product/rd-workbench/postgres-init/00-create-rd-owner.sh
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
@@ -1650,6 +1656,8 @@ docker exec --interactive \
   --env "PORTFOLIO_WRITER_DB_PASSWORD=${test_password}" \
   --env "GOVERNANCE_WRITER_DB_PASSWORD=${test_password}" \
   --env "INSTRUMENT_OWNER_DB_PASSWORD=${test_password}" \
+  --env "RISK_WRITER_DB_PASSWORD=${test_password}" \
+  --env "SCANNER_WRITER_DB_PASSWORD=${test_password}" \
   "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
 
 existing_cutover_candidate_experiment_fingerprint_before="$(
@@ -2674,6 +2682,8 @@ export INSTRUMENT_OWNER_DATABASE_URL="$INSTRUMENT_OWNER_TEST_DATABASE_URL"
 export EXECUTION_OWNER_TEST_DATABASE_URL="postgresql://execution_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export PORTFOLIO_OWNER_TEST_DATABASE_URL="postgresql://portfolio_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export GOVERNANCE_OWNER_TEST_DATABASE_URL="postgresql://governance_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
+export RISK_OWNER_TEST_DATABASE_URL="postgresql://risk_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
+export SCANNER_OWNER_TEST_DATABASE_URL="postgresql://scanner_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export OPERATOR_AUTHORIZATION_TEST_DATABASE_ROLE="operator_authorization_writer"
 export PRODUCT_EDGE_TEST_DATABASE_ROLE="product_edge_owner"
 export RD_OWNER_TEST_DATABASE_ROLE="rd_owner"
@@ -3045,6 +3055,8 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       EXECUTION_OWNER_TEST_DATABASE_URL="postgresql://execution_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}" \
       PORTFOLIO_OWNER_TEST_DATABASE_URL="postgresql://portfolio_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}" \
       GOVERNANCE_OWNER_TEST_DATABASE_URL="postgresql://governance_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}" \
+      RISK_OWNER_TEST_DATABASE_URL="postgresql://risk_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}" \
+      SCANNER_OWNER_TEST_DATABASE_URL="postgresql://scanner_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}" \
       cargo nextest run \
       --archive-file "$nextest_archive_file" \
       --profile "$nextest_profile" \
@@ -3068,6 +3080,8 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       EXECUTION_OWNER_TEST_DATABASE_URL="postgresql://execution_writer:${test_password}@${postgres_host}:${postgres_port}/${legacy_replay_database}" \
       PORTFOLIO_OWNER_TEST_DATABASE_URL="postgresql://portfolio_writer:${test_password}@${postgres_host}:${postgres_port}/${legacy_replay_database}" \
       GOVERNANCE_OWNER_TEST_DATABASE_URL="postgresql://governance_writer:${test_password}@${postgres_host}:${postgres_port}/${legacy_replay_database}" \
+      RISK_OWNER_TEST_DATABASE_URL="postgresql://risk_writer:${test_password}@${postgres_host}:${postgres_port}/${legacy_replay_database}" \
+      SCANNER_OWNER_TEST_DATABASE_URL="postgresql://scanner_writer:${test_password}@${postgres_host}:${postgres_port}/${legacy_replay_database}" \
       cargo nextest run \
       --archive-file "$nextest_archive_file" \
       --profile "$nextest_profile" \
@@ -3091,6 +3105,8 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       EXECUTION_OWNER_TEST_DATABASE_URL="postgresql://execution_writer:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
       PORTFOLIO_OWNER_TEST_DATABASE_URL="postgresql://portfolio_writer:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
       GOVERNANCE_OWNER_TEST_DATABASE_URL="postgresql://governance_writer:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
+      RISK_OWNER_TEST_DATABASE_URL="postgresql://risk_writer:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
+      SCANNER_OWNER_TEST_DATABASE_URL="postgresql://scanner_writer:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
       cargo nextest run \
       --archive-file "$nextest_archive_file" \
       --profile "$nextest_profile" \
@@ -3129,6 +3145,8 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       EXECUTION_OWNER_TEST_DATABASE_URL="postgresql://execution_writer:${test_password}@${postgres_host}:${postgres_port}/${composer_sealed_read_database}" \
       PORTFOLIO_OWNER_TEST_DATABASE_URL="postgresql://portfolio_writer:${test_password}@${postgres_host}:${postgres_port}/${composer_sealed_read_database}" \
       GOVERNANCE_OWNER_TEST_DATABASE_URL="postgresql://governance_writer:${test_password}@${postgres_host}:${postgres_port}/${composer_sealed_read_database}" \
+      RISK_OWNER_TEST_DATABASE_URL="postgresql://risk_writer:${test_password}@${postgres_host}:${postgres_port}/${composer_sealed_read_database}" \
+      SCANNER_OWNER_TEST_DATABASE_URL="postgresql://scanner_writer:${test_password}@${postgres_host}:${postgres_port}/${composer_sealed_read_database}" \
       cargo nextest run \
       --archive-file "$nextest_archive_file" \
       --profile "$nextest_profile" \
@@ -3152,6 +3170,8 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       EXECUTION_OWNER_TEST_DATABASE_URL="postgresql://execution_writer:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
       PORTFOLIO_OWNER_TEST_DATABASE_URL="postgresql://portfolio_writer:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
       GOVERNANCE_OWNER_TEST_DATABASE_URL="postgresql://governance_writer:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
+      RISK_OWNER_TEST_DATABASE_URL="postgresql://risk_writer:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
+      SCANNER_OWNER_TEST_DATABASE_URL="postgresql://scanner_writer:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
       cargo nextest run \
       --archive-file "$nextest_archive_file" \
       --profile "$nextest_profile" \

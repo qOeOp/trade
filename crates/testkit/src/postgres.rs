@@ -34,7 +34,7 @@ const DEFAULT_DATABASE_NAMES: [&str; 8] = [
     "product_edge",
 ];
 const INSTRUMENT_OWNER_RUNTIME_URL_ENV: &str = "INSTRUMENT_OWNER_DATABASE_URL";
-const CANONICAL_OWNER_TEST_URLS: [(&str, &str); 13] = [
+const CANONICAL_OWNER_TEST_URLS: [(&str, &str); CanonicalOwnerTestRoleV1::COUNT] = [
     (
         "OPERATOR_AUTHORIZATION_TEST_DATABASE_URL",
         "operator_authorization_writer",
@@ -57,6 +57,8 @@ const CANONICAL_OWNER_TEST_URLS: [(&str, &str); 13] = [
     ("EXECUTION_OWNER_TEST_DATABASE_URL", "execution_writer"),
     ("PORTFOLIO_OWNER_TEST_DATABASE_URL", "portfolio_writer"),
     ("GOVERNANCE_OWNER_TEST_DATABASE_URL", "governance_writer"),
+    ("RISK_OWNER_TEST_DATABASE_URL", "risk_writer"),
+    ("SCANNER_OWNER_TEST_DATABASE_URL", "scanner_writer"),
 ];
 
 /// A stable, credential-redacting failure from dedicated test-database admission.
@@ -191,6 +193,8 @@ pub enum CanonicalOwnerTestRoleV1 {
     ExecutionWriter,
     PortfolioWriter,
     GovernanceWriter,
+    RiskWriter,
+    ScannerWriter,
 }
 
 impl CanonicalOwnerTestRoleV1 {
@@ -209,14 +213,25 @@ impl CanonicalOwnerTestRoleV1 {
             Self::ExecutionWriter => 10,
             Self::PortfolioWriter => 11,
             Self::GovernanceWriter => 12,
+            Self::RiskWriter => 13,
+            Self::ScannerWriter => 14,
         }
     }
+
+    /// How many canonical roles the disposable topology provisions.
+    ///
+    /// Every fixed-size array below is declared with this rather than a literal. The literal
+    /// appeared in three places, so admitting an Owner meant changing all three, and getting it
+    /// wrong did not say so: the `try_into` in `admit` reports a length mismatch as
+    /// `ExpectedIdentityMismatch`, which names the wrong thing entirely. With one named constant
+    /// the array literal below simply stops compiling until it matches.
+    pub const COUNT: usize = 15;
 }
 
 /// Proof that all canonical Owner roles resolve to one immutable, disposable database.
 pub struct CanonicalOwnerPostgresTestDatabaseV1 {
-    database_urls: [String; 13],
-    pools: [PgPool; 13],
+    database_urls: [String; CanonicalOwnerTestRoleV1::COUNT],
+    pools: [PgPool; CanonicalOwnerTestRoleV1::COUNT],
     marker_identity: String,
     owner_topology_admin_pool: PgPool,
 }

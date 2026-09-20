@@ -7,6 +7,8 @@ set -eu
 : "${EXECUTION_WRITER_DB_PASSWORD:?set EXECUTION_WRITER_DB_PASSWORD}"
 : "${PORTFOLIO_WRITER_DB_PASSWORD:?set PORTFOLIO_WRITER_DB_PASSWORD}"
 : "${GOVERNANCE_WRITER_DB_PASSWORD:?set GOVERNANCE_WRITER_DB_PASSWORD}"
+: "${RISK_WRITER_DB_PASSWORD:?set RISK_WRITER_DB_PASSWORD}"
+: "${SCANNER_WRITER_DB_PASSWORD:?set SCANNER_WRITER_DB_PASSWORD}"
 
 psql --set=ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
   --set=rd_owner_database_name="$RD_OWNER_DATABASE_NAME" \
@@ -19,7 +21,9 @@ psql --set=ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
   --set=backtest_password="$BACKTEST_OWNER_DB_PASSWORD" \
   --set=execution_writer_password="$EXECUTION_WRITER_DB_PASSWORD" \
   --set=portfolio_writer_password="$PORTFOLIO_WRITER_DB_PASSWORD" \
-  --set=governance_writer_password="$GOVERNANCE_WRITER_DB_PASSWORD" << 'SQL'
+  --set=governance_writer_password="$GOVERNANCE_WRITER_DB_PASSWORD" \
+  --set=risk_writer_password="$RISK_WRITER_DB_PASSWORD" \
+  --set=scanner_writer_password="$SCANNER_WRITER_DB_PASSWORD" << 'SQL'
 CREATE ROLE rd_database_owner NOLOGIN;
 CREATE ROLE replay_policy_catalog_owner NOLOGIN;
 CREATE ROLE composer_owner NOLOGIN;
@@ -58,6 +62,12 @@ GRANT portfolio_owner TO portfolio_writer;
 CREATE ROLE governance_owner NOLOGIN;
 CREATE ROLE governance_writer LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'governance_writer_password';
 GRANT governance_owner TO governance_writer;
+CREATE ROLE risk_owner NOLOGIN;
+CREATE ROLE risk_writer LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'risk_writer_password';
+GRANT risk_owner TO risk_writer;
+CREATE ROLE scanner_owner NOLOGIN;
+CREATE ROLE scanner_writer LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'scanner_writer_password';
+GRANT scanner_owner TO scanner_writer;
 SQL
 
 psql --set=ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$RD_OWNER_DATABASE_NAME" << 'SQL'
@@ -87,7 +97,12 @@ CREATE SCHEMA portfolio_private AUTHORIZATION portfolio_owner;
 CREATE SCHEMA portfolio_api AUTHORIZATION portfolio_owner;
 CREATE SCHEMA governance_private AUTHORIZATION governance_owner;
 CREATE SCHEMA governance_api AUTHORIZATION governance_owner;
+CREATE SCHEMA risk_private AUTHORIZATION risk_owner;
+CREATE SCHEMA risk_api AUTHORIZATION risk_owner;
+CREATE SCHEMA scanner_private AUTHORIZATION scanner_owner;
+CREATE SCHEMA scanner_api AUTHORIZATION scanner_owner;
 REVOKE ALL ON SCHEMA execution_private, execution_api, portfolio_private, portfolio_api, governance_private, governance_api FROM PUBLIC, rd_owner, product_edge_owner;
+REVOKE ALL ON SCHEMA risk_private, risk_api, scanner_private, scanner_api FROM PUBLIC, rd_owner, product_edge_owner;
 GRANT USAGE ON SCHEMA operator_authorization_api TO product_edge_owner;
 ALTER DEFAULT PRIVILEGES FOR ROLE product_edge_owner IN SCHEMA public
   REVOKE ALL ON TABLES FROM rd_owner;
