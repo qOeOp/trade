@@ -43,9 +43,37 @@ above.
 
 This ledger records only what the repository has reached at this cut. It uses the status vocabulary of the
 [Market Data](./market-data/) ledger, with `CURRENT_PARTIAL` as the merged-but-unreachable form, and grants no
-permission by itself: no slice of this document is `IMPLEMENTATION_ADMITTED`, and widening the admitted set
-requires changing this document first.
+permission by itself. The one row marked `IMPLEMENTATION_ADMITTED` below is the only admitted slice, admitted on
+2026-09-19 as bounded, separately reviewable work whose acceptance is its ordered-chain entries passing on Linux
+and a production path that depends on no testkit or acceptance feature; every other row grants nothing, and
+widening the admitted set requires changing this document first.
 
+- **TARGET / IMPLEMENTATION_ADMITTED - Runtime Owner live market fact read port:** the admitted slice is one
+  Runtime role pair over its own private and API schemas, and one read-only Runtime custody that consumes the live
+  market fact channel `crates/data/src/owner/live_market_fact_v1.rs` already produces, and seals what it read
+  together with the evidence cut it read it at. It starts no Strategy Instance, emits no Trade Intent, persists no
+  checkpoint, and publishes no readiness: `RuntimeFoundation`'s only status stays `NotReady`. Three prerequisites
+  sit outside this Owner, and the first is larger than Risk's: the live market fact lands in
+  `market_data_private`, which is revoked from `PUBLIC`, and Market Data exposes no read function for it in any
+  API schema, so a read path must be built before there is anything to grant. Market Data has built an external read schema
+  before, but that schema is not a precedent this port can copy: `market_data_rd_api` carries twelve functions,
+  eight in `crates/data/src/owner/postgres/rd_strategy_input_custody.rs` and four in
+  `crates/data/src/owner/replay_market_facts_v2/postgres.rs`, and every one of them pins `session_user` to
+  `rd_owner` inside its own `SECURITY DEFINER` body. A caller the body does not name receives an empty result
+  rather than a permission error, so a read path built to that shape would return nothing to Runtime after the
+  grant was issued, and the failure would look like an absent fact.
+
+  That predicate is not a defect to be replaced by a grant. Inside a SQL function `session_user` is the only
+  caller identity the database has authenticated; everything else the body can see is an argument, and an argument
+  is whatever the caller says. The mismatch is granularity rather than mechanism. Market Data's own admitted slice
+  refuses an instrument outside the subscription the Owner issued, so its admission unit is narrower than a
+  database role, while a role is the narrowest thing either a predicate or a `GRANT` can name. Both are therefore
+  too coarse for what is admitted, and that is a question about caller identity for Market Data to settle, not a
+  grant this Owner is waiting on. The role pair and its schemas are then a shared-surface change
+  under `product/rd-workbench/postgres-init/`, and once the read path exists Market Data must grant the Runtime
+  role execute on it.
+  Admission is permission to build and verify this one read. It authorizes no Runtime effect, no Paper or Live
+  adapter binding, and no real trading.
 - **CURRENT_PARTIAL - fail-closed foundation:** `crates/runtime/src/lib.rs` exposes `RuntimeFoundation`, whose only
   status is `NotReady`, the four exact revalidation dependencies (a Governance authorized-generation-decision read
   port, canonical Runtime custody, an Artifact compatibility recovery read port, and the Execution recovery-frontier

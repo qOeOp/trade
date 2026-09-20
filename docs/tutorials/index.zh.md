@@ -1,5 +1,12 @@
 # 教程
 
+:::note[层次]
+这些演练驱动继承引擎的 Python API。它们能跑，也是端到端看懂引擎最快的方式。
+
+它们不是本平台准入的工作流。进入生产的策略是一份 Design，由 R&D 的 Develop 能力降级并编译，
+不是手写的子类。参见 `docs/owners/rd.md` 与 `docs/architecture/strategy-factory.md`。
+:::
+
 通过分步教程演示具体功能和工作流程。
 
 :::info

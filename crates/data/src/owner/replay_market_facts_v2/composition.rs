@@ -641,6 +641,13 @@ pub enum ReplayCompositionBindingErrorV1 {
     AmbiguousBinding,
     LegacyUnbound,
     ReplayV2Unavailable,
+    /// The Market Semantics fact states that the source's price adjustment rule is unknown.
+    ///
+    /// A replay compares prices, so it cannot proceed on a source whose caliber is undeclared.
+    /// This is distinct from `ReplayV2Unavailable`: the V2 path is available, and it is this one
+    /// fact that cannot be expressed in it. Reporting it as unavailable would send the reader
+    /// looking for a missing path instead of at a source that declined to state its rule.
+    PriceAdjustmentUnknown,
 }
 
 impl Display for ReplayCompositionBindingErrorV1 {

@@ -1019,6 +1019,27 @@ async fn insert_grant_frontier(
     Ok(())
 }
 
+/// The private relations one grant kind's custody lives in, unqualified.
+///
+/// Admission derives its expected set from this rather than listing names, so
+/// a third grant kind is covered the day it is registered. A list would have
+/// to be remembered, and the one place in this repository that kept a list of
+/// what a check should cover held six stale entries when it was last read.
+pub(crate) fn relation_names_of<C: GrantContentV1>() -> [String; 4] {
+    let schema = GrantSchemaV1::of::<C>();
+    [
+        schema.issuances,
+        schema.frontiers,
+        schema.heads,
+        schema.outbox,
+    ]
+    .map(|qualified| {
+        qualified
+            .rsplit_once('.')
+            .map_or(qualified.clone(), |(_, relation)| relation.to_string())
+    })
+}
+
 pub(crate) async fn lock_grant_resource_for_write(
     transaction: &mut Transaction<'_, Postgres>,
     schema: &GrantSchemaV1,

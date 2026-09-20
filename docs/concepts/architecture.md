@@ -1,4 +1,7 @@
-# Architecture
+# Architecture (engine)
+
+This page documents the existing engine. Where it differs from the target product architecture in
+`docs/architecture/index.md`, that document is authoritative.
 
 This guide covers the architectural principles and structure of VibeTrader:
 

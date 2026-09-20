@@ -61,17 +61,28 @@ testkit 或 acceptance feature 的生产路径；其余各行不授予任何东�
 - **CURRENT_PARTIAL - 静态失败关闭的 Governance 核心：** `crates/strategy_governance` 拥有内存中的 `GovernanceCore`，
   其 `resolve_frontier` 按规范优先级解析一个完整冲突前沿，把只写一次的 `LifecycleRequestReceipt` 写为 `ACCEPTED`
   或 `REJECTED_NO_WRITE`，检测别名重试、重放分歧与语义变更，并提供 `GovernanceDecisionView` 与当前生命周期回执
-  回读。模型携带七个生命周期动作、`PAPER` 与 `LIVE`、两种授权模式、eligibility 与 application 状态。静态切片只校验
+  回读。缺失或无效的 Eligibility 是唯一一种完全不产生回执的拒绝：它在写任何回执之前就以
+  `DecisionEvidenceUnavailable` 让整个前沿失败，而缺 artifact、capacity 或 adapter binding 各自都会产生一张拒绝
+  回执。这个不对称是有意的、并由单测钉住，所以在 Qualification 没有生产者期间，写一次的回执是一条从未被写过的
+  事实，而不是一条以拒绝形式写下的事实。模型携带七个生命周期动作、`PAPER` 与 `LIVE`、两种授权模式、eligibility 与 application 状态。这些只是消费端
+  的形状：全仓范围内 `EligibilityState::Expired` 与 `EligibilityState::Revoked` 没有任何生产者，每一个
+  `UntrustedEligibilityReadback` 都构造在本 crate 自己的测试里，而 `crates/qualification` 两个词都没有。读者不应
+  把这些类型的存在当作一条等待接线的读端口；从来没有任何一侧写过一条这样的事实。静态切片只校验
   `UNATTENDED_REQUEST_WITH_POLICY` 下单一 contender 集合的 `PAPER` `INITIAL_ACTIVATION`；其他每个动作、`LIVE`、
   `ATTENDED_REQUEST` 与条件激活分别以 `ActionNotAdmittedInStaticSlice`、`LiveNotAdmitted`、`AttendedNotAdmitted` 或
   `ConditionalScannerNotAdmitted` 拒绝。公开构造安装的是不可用的 Owner 准入，所以每个公开请求都失败关闭
   （`crates/strategy_governance/tests/public_fail_closed.rs`），且无法安装 Runtime 回执 resolver，因此 application
   投影为 `APPLICATION_UNKNOWN`。
-- **TARGET / IMPLEMENTATION_ADMITTED - Strategy Registry 与 Execution Scope 创建：** 不存在持久的 Governed Strategy Entry，而它必须绑定的
-  `BOUND` Capacity Scope 与 `ADMITTED` Execution Adapter Binding 本身只是 `crates/portfolio` 与 `crates/execution`
-  里的 Discovery 与静态契约。已准入切片：Governed Strategy Entry、Execution Scope、生命周期请求与回执的 PostgreSQL
-  custody，以及 crate 私有的 Owner 准入，它在一次 `PAPER` `INITIAL_ACTIVATION` 之前重读 Qualification Eligibility、
-  Portfolio 的 `BOUND` Capacity Scope、Execution 的 `ADMITTED` binding 与 R&D 构建回执。
+- **CURRENT_PARTIAL / IMPLEMENTATION_ADMITTED - Strategy Registry 与 Execution Scope 创建：** 不可变的 Execution Scope
+  现在在 `crates/strategy_governance` 里有生产 PostgreSQL custody，角色为 `governance_owner` 与 `governance_writer`。
+  写入之前，该 custody 在同一个写事务里通过两个源 Owner 各自的只读 API 重读 Portfolio 自己的 `BOUND` Capacity Scope
+  与 Execution 自己当前的 `ADMITTED` PAPER adapter binding，并且只有在两者对账户与预绑定一致、且调用方的每项预期与
+  各 Owner 所述相符时才写入。预绑定一致意味着 Portfolio 注册表点名的正是 Execution 已准入的那一条 adapter binding
+  事实，因此 Execution 每出现一个新的 binding generation，都必须先有一个新的 Portfolio 注册表切面，才能据它创建
+  scope；旧切面会被判为冲突的预绑定，而不是更窄的预绑定。它的 `governance_api` 回读暴露已绑定的语义，scope 自身不携带有效期窗口，重放保留创建
+  时间并按两个当前源事实刷新新鲜度。没有生产调用方到达它：Product Edge 没有生命周期请求入口。仍然已准入且仍然缺席的
+  是 Governed Strategy Entry、生命周期请求与回执，因为架构要求 entry 绑定一份确切的 Eligibility Fact、按 generation
+  的经济条件版本与合格容量上限，而 Qualification 与 R&D 对这些以及构建回执都没有生产写入者。
 - **TARGET - Lifecycle Manager：** 不存在证据驱动的生命周期状态、`DE_RISK_PENDING` 后继、保留续期或不利证据处置政策。
 - **TARGET / IMPLEMENTATION_ADMITTED - Capital Policy 与 Capital Allocation Disposition：** 不存在 `POOL_ROOT` 或
   `STRATEGY_GENERATION` Capital Envelope、contender-membership frontier 或分配。已准入切片：为唯一已准入 generation

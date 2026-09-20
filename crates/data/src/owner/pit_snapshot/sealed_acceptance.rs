@@ -41,7 +41,9 @@ use crate::owner::{
         derive_provenance_binding_digest, derive_snapshot_correction_rule_digest,
         seal_research_pit_terminal,
     },
-    shared_time_evidence::{ClockHeadHandoff, build_head_fact},
+    shared_time_evidence::{
+        ClockHeadHandoff, ClockHeadSuccessorReadback, build_head_fact, successor_readback,
+    },
     source_binding::{
         BindingDigest, MarketDataClockAdmission, SourceBindingError, UntrustedAdapterBinding,
         UntrustedCompleteFrontier, UntrustedCredentialAudienceClaim,
@@ -65,6 +67,13 @@ use crate::owner::{
 const CLOCK_IDENTITY: &str = "SEALED_ACCEPTANCE.MARKET_DATA.CLOCK";
 const CLOCK_EPOCH: &str = "SEALED_ACCEPTANCE.EPOCH.1";
 const DECISION_CUT: u64 = 40;
+const PROTECTED_EVALUATION_CLOCK_EPOCH: &str = "SEALED_ACCEPTANCE.PROTECTED_EVALUATION.EPOCH.1";
+/// 2100-01-01T00:00:00Z in epoch milliseconds. It puts every head's validity beyond any cut
+/// PostgreSQL will sample during an acceptance run, which takes validity out of the chain's reach
+/// rather than exercising it.
+const PROTECTED_EVALUATION_BASE_MS: u64 = 4_102_444_800_000;
+const PROTECTED_EVALUATION_STEP_MS: u64 = 1_000;
+const PROTECTED_EVALUATION_VALIDITY_MS: u64 = 86_400_000;
 const TIMEFRAME: &str = "1D";
 const SCALE: u8 = 2;
 const RESEARCH_REQUEST_IDENTITY: [u8; 32] = [1; 32];
@@ -199,6 +208,47 @@ impl SealedAcceptanceMarketDataRepairEvidenceV1 {
     #[must_use]
     pub fn into_repaired_terminal(self) -> ResearchPitTerminal {
         self.repaired_terminal
+    }
+}
+
+/// Closed Shared Time head chain for the protected-evaluation PostgreSQL acceptance.
+///
+/// One Qualification Protected Replay Request seals the request-stage root head, every Backtest
+/// protected Result binds the direct result-stage successor, and the Robustness Assessment binds
+/// the direct assessment-stage successor. The three heads share one epoch, so no epoch successor
+/// proof exists.
+///
+/// What this chain is for is the linkage: each stage names its direct predecessor, one epoch means
+/// no successor proof may appear, and every ordered cut strictly advances. Validity is deliberately
+/// not a tested variable here. Its consumers make exactly one comparison against real time, that an
+/// Owner commit cut lies below `valid_through`, and these cuts are placed beyond any cut PostgreSQL
+/// will sample, so that comparison is out of reach rather than satisfied. A head's remaining
+/// validity fields are only checked against each other. The fixture accepts no caller clock and
+/// cannot be constructed or advanced by a caller.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SealedAcceptanceProtectedEvaluationSharedTimeV1 {
+    request_head: ClockHeadHandoff,
+    result_successor: ClockHeadSuccessorReadback,
+    assessment_successor: ClockHeadSuccessorReadback,
+}
+
+impl SealedAcceptanceProtectedEvaluationSharedTimeV1 {
+    /// Root head sealed by every Protected Replay Request of one acceptance run.
+    #[must_use]
+    pub fn request_head(&self) -> ClockHeadHandoff {
+        self.request_head.clone()
+    }
+
+    /// Direct successor of [`Self::request_head`] bound by every protected Result.
+    #[must_use]
+    pub fn result_successor(&self) -> ClockHeadSuccessorReadback {
+        self.result_successor.clone()
+    }
+
+    /// Direct successor of the result head bound by the Robustness Assessment.
+    #[must_use]
+    pub fn assessment_successor(&self) -> ClockHeadSuccessorReadback {
+        self.assessment_successor.clone()
     }
 }
 
@@ -614,6 +664,46 @@ pub fn issue_market_data_repair_evidence_v1()
     })
 }
 
+/// Issues the fixed three-head Shared Time chain for the protected-evaluation acceptance.
+///
+/// This acceptance-only function performs no PostgreSQL, provider, network, or trading effect and
+/// accepts no request field from its caller. It is deterministic: every process that issues it
+/// observes byte-identical heads, so a Qualification request sealed in one gate step and a Backtest
+/// Result committed in a later step bind the same chain.
+///
+/// # Errors
+///
+/// Returns [`SealedAcceptanceError::PitSnapshot`] only if the fixed clocks stop satisfying the
+/// Owner's own head admission rules.
+pub fn issue_protected_evaluation_shared_time_v1()
+-> Result<SealedAcceptanceProtectedEvaluationSharedTimeV1, SealedAcceptanceError> {
+    let head = |sequence: u64| {
+        let cut = PROTECTED_EVALUATION_BASE_MS + sequence * PROTECTED_EVALUATION_STEP_MS;
+        MarketDataClockAdmission::seal_for_test(
+            CLOCK_IDENTITY,
+            PROTECTED_EVALUATION_CLOCK_EPOCH,
+            sequence,
+            cut,
+            cut,
+            PROTECTED_EVALUATION_BASE_MS + (sequence + 1) * PROTECTED_EVALUATION_VALIDITY_MS,
+            digest_byte(7),
+            1,
+            2,
+        )
+    };
+    let request =
+        build_head_fact(&head(1), None).map_err(|_| PitSnapshotError::TrustedClockMismatch)?;
+    let result = build_head_fact(&head(2), Some(request.handoff.head_digest()))
+        .map_err(|_| PitSnapshotError::TrustedClockMismatch)?;
+    let assessment = build_head_fact(&head(3), Some(result.handoff.head_digest()))
+        .map_err(|_| PitSnapshotError::TrustedClockMismatch)?;
+    Ok(SealedAcceptanceProtectedEvaluationSharedTimeV1 {
+        result_successor: successor_readback(&request.handoff, result.handoff.clone(), None),
+        assessment_successor: successor_readback(&result.handoff, assessment.handoff, None),
+        request_head: request.handoff,
+    })
+}
+
 fn digest_byte(value: u8) -> BindingDigest {
     BindingDigest::from_untrusted_bytes([value; 32])
 }
@@ -927,6 +1017,48 @@ fn exact_binding_request(
 mod tests {
     use super::*;
     use rstest::rstest;
+
+    #[rstest]
+    fn protected_evaluation_shared_time_is_deterministic_and_chains_three_heads() {
+        let issued = issue_protected_evaluation_shared_time_v1().expect("sealed Shared Time");
+        assert_eq!(
+            issue_protected_evaluation_shared_time_v1().expect("sealed Shared Time replay"),
+            issued
+        );
+        let request = issued.request_head();
+        let result = issued.result_successor();
+        let assessment = issued.assessment_successor();
+        assert_eq!(result.predecessor_head_identity(), request.head_identity());
+        assert_eq!(result.predecessor_head_digest(), request.head_digest());
+        assert_eq!(
+            assessment.predecessor_head_identity(),
+            result.handoff().head_identity()
+        );
+        assert_eq!(
+            assessment.predecessor_head_digest(),
+            result.handoff().head_digest()
+        );
+        assert!(result.epoch_successor_proof().is_none());
+        assert!(assessment.epoch_successor_proof().is_none());
+        let heads = [&request, result.handoff(), assessment.handoff()];
+        for (ordinal, head) in heads.iter().enumerate() {
+            assert_eq!(head.clock_identity(), CLOCK_IDENTITY);
+            assert_eq!(head.clock_epoch(), PROTECTED_EVALUATION_CLOCK_EPOCH);
+            assert_eq!(head.monotonic_sequence(), ordinal as u64 + 1);
+            assert!(head.wall_observed() < head.valid_through());
+        }
+
+        for pair in heads.windows(2) {
+            assert!(pair[1].wall_observed() > pair[0].wall_observed());
+            assert!(pair[1].wall_observed() < pair[0].valid_through());
+            assert!(pair[1].valid_through() > pair[0].valid_through());
+            assert_eq!(
+                pair[1].restart_continuity_digest(),
+                pair[0].restart_continuity_digest()
+            );
+        }
+        assert_ne!(request.clock_epoch(), CLOCK_EPOCH);
+    }
 
     #[rstest]
     fn a2_universe_frame_is_stable_and_identity_disjoint() {

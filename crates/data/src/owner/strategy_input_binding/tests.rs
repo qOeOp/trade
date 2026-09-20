@@ -99,3 +99,53 @@ fn declaration_codec_rejects_version_trailing_bytes_and_caps() {
         Err(codec::CodecError::CapacityExceeded)
     );
 }
+
+/// Two declarations naming different universes must not authenticate against one role.
+///
+/// This pins a repair rather than a behaviour anyone relied on. The projection used to map a
+/// universe scope to the constant `{"kind":"UNIVERSE_MEMBERS"}` with an empty instrument, which
+/// discarded the scope's `selection_identity`: the two requests below differed in exactly that
+/// payload and compared equal on all ten fields. Nothing in production could reach the branch, so
+/// no test failed and none would have. The hazard was that one authenticated role would have
+/// covered two different universes if anything ever did reach it.
+#[rstest]
+fn a_universe_scope_is_refused_rather_than_compared_without_its_selection() {
+    let role = StrategyDesignRoleEntryV1 {
+        role_identity: d(3),
+        semantic_id: "role-universe".into(),
+        fact_class: "MARKET_DATA".into(),
+        instrument: String::new(),
+        scope: r#"{"kind":"UNIVERSE_MEMBERS"}"#.into(),
+        field_semantic_id: "MARKET_DATA.BAR.CLOSE.PRICE.V1".into(),
+        channel: "MARKET".into(),
+        timeframe: "PT1M".into(),
+        unit: "PRICE".into(),
+        scale: 4,
+        value_type: "I128".into(),
+    };
+
+    let mut one = request();
+    one.scope = UntrustedStrategyInputScope::UniverseSelection {
+        selection_identity: d(200),
+    };
+    let mut other = request();
+    other.scope = UntrustedStrategyInputScope::UniverseSelection {
+        selection_identity: d(201),
+    };
+
+    // The role matches both on every field this function compares, so acceptance would have been
+    // indistinguishable between them. Refusal is what makes them distinguishable.
+    assert!(!request_matches_authenticated_role_v1(&one, &role));
+    assert!(!request_matches_authenticated_role_v1(&other, &role));
+
+    // The exact-instrument path is untouched: the repair narrows one branch, not the function.
+    let exact_role = StrategyDesignRoleEntryV1 {
+        instrument: "XNAS:AAPL".into(),
+        scope: r#"{"kind":"EXACT_INSTRUMENT"}"#.into(),
+        ..role
+    };
+    assert!(request_matches_authenticated_role_v1(
+        &request(),
+        &exact_role
+    ));
+}

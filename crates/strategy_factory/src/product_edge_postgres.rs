@@ -72,13 +72,12 @@ use crate::{
 };
 use vibe_data::owner::pit_snapshot::PitSnapshotOwnerReadback;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
+use vibe_data::owner::shared_time_evidence::SharedTimeEvidenceResolver;
 use vibe_data::owner::{
     instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresOwnerV1,
     instrument_master_v2_postgres::InstrumentMasterV2PostgresOwner,
     native_replay_scheduling_v1::NativeReplaySchedulingResolverV1,
-    shared_time_evidence::SharedTimeEvidenceResolver,
 };
-#[cfg(feature = "sealed-develop-composer-acceptance")]
 use vibe_model::identifiers::StrategyId;
 
 use crate::source_intake::{
@@ -171,7 +170,7 @@ async fn verify_research_readback_relation(pool: &PgPool) -> Result<(), Research
              AND relation.relpersistence='p'
              AND pg_catalog.pg_get_userbyid(relation.relowner)='rd_owner'
              AND pg_catalog.has_table_privilege(current_user, relation.oid, 'SELECT')
-             AND (SELECT pg_catalog.count(*)=11
+             AND (SELECT pg_catalog.count(*)=17
                     AND pg_catalog.bool_and(CASE attribute.attname
                       WHEN 'request_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
                       WHEN 'semantic_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
@@ -184,6 +183,12 @@ async fn verify_research_readback_relation(pool: &PgPool) -> Result<(), Research
                       WHEN 'artifact_evidence_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
                       WHEN 'source_ancestry_locator_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
                       WHEN 'source_ancestry_evidence_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'request_storage_bytes' THEN attribute.atttypid='pg_catalog.bytea'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'request_storage_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'receipt_storage_bytes' THEN attribute.atttypid='pg_catalog.bytea'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'receipt_storage_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'intent_storage_bytes' THEN attribute.atttypid='pg_catalog.bytea'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'intent_storage_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
                       ELSE false
                     END)
                     FROM pg_catalog.pg_attribute attribute
@@ -2085,7 +2090,6 @@ impl PostgresResearchGoalOwnerV1 {
     }
 
     /// Resolves every request-bound Owner input and atomically issues the R&D binding.
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
     pub async fn issue_native_replay_execution_input_binding_v1<P, R>(
         &self,
         locator: &ExploratoryReplayRequestLocatorV2,
@@ -2128,7 +2132,6 @@ impl PostgresResearchGoalOwnerV1 {
     }
 
     /// Re-resolves one issued binding into the existing native execution capability.
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
     #[allow(clippy::too_many_arguments)]
     pub async fn resolve_native_replay_execution_bundle_v1<P, R>(
         &self,
@@ -5347,6 +5350,9 @@ pub(crate) mod tests {
             bounded_feature_program_six_role_bar_fixture_v1::{
                 six_role_bar_bounded_feature_design_v1, six_role_bar_bounded_feature_meaning_v1,
             },
+            develop_composer_postgres_v2::{
+                DevelopComposerSealedReadLocatorV2, DevelopComposerSealedReadPortV2,
+            },
             program_host_v2::{
                 BAR_HOUR_CLOSE, BAR_MINUTE_CLOSE, BAR_MINUTE_HIGH, BAR_MINUTE_LOW, BAR_MINUTE_OPEN,
                 BAR_SESSION_DAY_CLOSE,
@@ -5618,6 +5624,56 @@ pub(crate) mod tests {
             .await
             .expect("the replay transaction completes");
         assert_eq!(replay, response);
+
+        // The same production composition now serves the sealed read port, so a consumer reads
+        // the committed operation back against the Owner's own current custody rather than
+        // against an acceptance fixture. Nothing here enables a feature: this is the default
+        // build of the production Composer. A readback that resolves at all is the custody
+        // proof, because the port resolves the current Research and binding custody inside its
+        // own read transaction and refuses the record when either no longer matches.
+        let read_locator = DevelopComposerSealedReadLocatorV2::from_accepted_response(&response)
+            .expect("a successful production Composer operation projects its read locator");
+        let readback = Box::pin(composer.read_accepted(&read_locator))
+            .await
+            .expect("the production read port resolves the operation it just committed");
+
+        // Only assert on what the store supplied. The readback echoes the locator it was given,
+        // so comparing against that would hold even if no record had been read at all.
+        assert!(
+            !readback.module_bytes_digests().is_empty(),
+            "the readback carries the module digests the run committed"
+        );
+        assert!(
+            !readback.build_receipt_identities().is_empty(),
+            "the readback carries the build receipts the run committed"
+        );
+        assert!(
+            !readback.artifact_package_bytes().is_empty(),
+            "the readback carries the Artifact package the run committed"
+        );
+        assert!(
+            !readback.design_bytes().is_empty(),
+            "the readback carries the Design the run compiled"
+        );
+
+        // Two negative controls, one per key the read locator is matched on. Without them the
+        // assertions above would pass for any record the store happens to hold.
+        let mut forged_artifact = read_locator.clone();
+        forged_artifact.artifact_identity = BindingDigest::from_untrusted_bytes([0_u8; 32]);
+        assert!(
+            Box::pin(composer.read_accepted(&forged_artifact))
+                .await
+                .is_err(),
+            "a locator naming a different Artifact resolves nothing"
+        );
+        let mut forged_plan = read_locator.clone();
+        forged_plan.canonical_plan_digest = BindingDigest::from_untrusted_bytes([0_u8; 32]);
+        assert!(
+            Box::pin(composer.read_accepted(&forged_plan))
+                .await
+                .is_err(),
+            "a locator naming a different canonical plan resolves nothing"
+        );
     }
 
     fn expected_digest_text(digest: BindingDigest) -> String {

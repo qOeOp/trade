@@ -50,9 +50,23 @@ Independently gate every normal Trade Intent against current policy, account exp
 
 This ledger records only what the repository has reached at this cut. It uses the status vocabulary of the
 [Market Data](./market-data/) ledger, with `CURRENT_PARTIAL` as the merged-but-unreachable form, and grants no
-permission by itself: no slice of this document is `IMPLEMENTATION_ADMITTED`, and widening the admitted set
-requires changing this document first.
+permission by itself. The one row marked `IMPLEMENTATION_ADMITTED` below is the only admitted slice, admitted on
+2026-09-19 as bounded, separately reviewable work whose acceptance is its ordered-chain entries passing on Linux
+and a production path that depends on no testkit or acceptance feature; every other row grants nothing, and
+widening the admitted set requires changing this document first.
 
+- **TARGET / IMPLEMENTATION_ADMITTED - Risk Owner capacity input read port:** the admitted slice is one
+  `risk_owner`/`risk_writer` role pair over `risk_private` and `risk_api`, and one read-only Risk custody that,
+  inside its own transaction, re-reads Portfolio's own `BOUND` Capacity Scope and current Capacity View through
+  that Owner's `portfolio_api` read functions, and seals what it read together with the evidence cut it read it
+  at. It makes no Risk decision, commits no Reservation, writes no fence, and consumes no Trade Intent, because
+  the inputs for all four have no producer. Two prerequisites sit outside this Owner: the role pair and its
+  schemas are a shared-surface change under `product/rd-workbench/postgres-init/`, and Portfolio must grant
+  `risk_writer` execute on those two read functions. They were built by
+  `crates/portfolio_owner/src/capacity_scope_postgres.rs`, whose migration grants them, and `USAGE` on their schema,
+  to `governance_writer` alone; a reader can recheck both grants there rather than take this sentence's word for it. Admission is permission to build and verify this
+  one read.
+  It authorizes no Risk decision, no production effect, and no real trading.
 - **TARGET - Risk Engine:** the inherited `RiskEngine` in `crates/risk/src/engine/mod.rs` performs pre-trade order
   validation, `TradingState` halt and reduce switching, notional and rate limits, and the sizing in
   `crates/risk/src/sizing.rs`; it is the adoption source named by capability adoption. It returns no terminal Risk
@@ -63,11 +77,31 @@ requires changing this document first.
 - **TARGET - Risk Reservation, Reservation Claim Result, and Adapter Admission Result:** the one-use Reservation
   lifecycle, claim arbitration, and `ADMITTED_ONCE` serialization against fence activation have no implementation;
   nothing in the repository sends or receives a Reservation Claim Request or `ADAPTER_ADMISSION_REQUEST`.
-- **TARGET - Aggregate Commitment Frontier:** no same-scope serialization exists, and its Portfolio-owned Capacity
-  Scope is itself only a Discovery contract in `crates/portfolio`.
-- **TARGET - Recovery Fence and Kill Switch:** the inherited `TradingState` `Halted` and `Reducing` states are a
-  process-local switch; no fence binds a `RUNTIME_NOT_READY`, `RUNTIME_INCIDENT`, `RECONCILIATION_DRIFT`, or
-  `RISK_HARD_STOP` source branch, and no active-fence-set identity or action intersection exists.
+- **TARGET - Aggregate Commitment Frontier:** no same-scope serialization exists. Its Portfolio-owned Capacity
+  Scope now has production custody in `crates/portfolio_owner`, so the missing part here is Risk's own
+  serialization, not the scope it would serialize against.
+- **TARGET / IMPLEMENTATION_ADMITTED - Kill Switch:** the admitted slice is one out-of-band halt sentinel and the
+  read that answers, for a given venue, whether trading is halted. The sentinel is a file, its presence is the
+  halt, and its contents are attribution only: nothing a reader finds inside can lift a halt that the file's
+  existence declares. The read is fail-closed over an enumerated set. The file is absent is the only answer that
+  is not halted. The file exists and parses, the file exists and cannot be read, the file exists and cannot be
+  parsed, and the file exists and carries content this Owner does not recognise all answer halted. There is no
+  residual branch for a state the list does not name, because a residual branch is where an unreadable sentinel
+  becomes a permission to trade. A global sentinel answers halted for every venue whatever the per-venue sentinels
+  say, so a per-venue sentinel can add a halt and never lift one.
+  The read depends on the filesystem alone: no database, no network endpoint, no other Owner, and nothing that
+  reasons. A halt that needed any of those would be unavailable in exactly the incidents that call for it. The
+  inherited `TradingState` `Halted` and `Reducing` states cannot serve here because they are process-local, and a
+  switch inside a wedged process is wedged with it.
+  Admission is permission to build and verify this one read. It authorizes no Risk decision, no order path, no
+  production effect, and no real trading. It is not a Recovery Fence: it binds no source branch, carries no fence
+  epoch, and intersects no action set. The shape is taken from Vibe-Trading's `agent/src/live/halt.py` (MIT),
+  where the sentinel's existence is likewise the halt and malformed contents are likewise tripped rather than
+  ignored.
+- **TARGET - Recovery Fence:** no fence binds a `RUNTIME_NOT_READY`, `RUNTIME_INCIDENT`, `RECONCILIATION_DRIFT`, or
+  `RISK_HARD_STOP` source branch, and no active-fence-set identity or action intersection exists. Each of those
+  four source facts would have to be produced by an Owner that produces none of them today, which is why this half
+  stays blocked while the Kill Switch above depends on nothing.
 - **TARGET - handoffs and persistence:** no port to Runtime, Governance, Portfolio, or Execution and no durable
   relation for any Risk fact.
 
@@ -120,6 +154,12 @@ requires changing this document first.
   QUALIFIED_ECONOMIC_BOUND_EXCEEDED > AGGREGATE_CAPACITY_EXHAUSTED`, independent of evidence or request arrival
   order. Governance-policy breach, Qualification economic-bound breach, and aggregate pool exhaustion remain
   distinct simultaneous causes rather than sharing one opaque limit category.
+
+Risk's silence is never approval. A consumer may proceed only after one terminal outcome - a rejection, an
+approved Risk Decision, or a pre-consumption `WITHDRAWN` - and a timeout is undecided, neither a rejection nor an
+approval. A consumer never reads `ADMITTED_ONCE` as proof that an effect has occurred, because it states only how
+the admission ordered against fence activation, and never reads the absence of a fence as proof that no fence
+exists.
 
 ## Rejections and prohibitions
 

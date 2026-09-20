@@ -1,5 +1,13 @@
 # 回测
 
+:::note[层次]
+这些页面描述继承引擎：`crates` 与 `python/vibe_trader` 今天实现的组件模型。
+它们对那一层的描述是准确的，为在该层工作的人保留。
+
+它们不是本平台的架构权威。当此处某页与 Owner 契约对同一问题给出不同答案时，以 Owner 契约为准。
+边界由 `docs/architecture/` 规定，每条业务事实及其唯一写入者由 `docs/owners/` 规定。
+:::
+
 回测使用历史数据模拟交易，并复用实盘交易中的相同核心系统组件：内置引擎、`Cache`、
 [MessageBus](../message_bus.md)、`Portfolio`、[Actor](../actors.md)、[策略](../strategies.md)、
 [执行算法](../execution.md)和用户定义模块。

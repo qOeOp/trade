@@ -74,7 +74,10 @@ grants nothing, and widening the admitted set requires changing this document fi
   stays **TARGET / NOT_ADMITTED**.
 - **CURRENT_PARTIAL - `PAPER` recovery-frontier read contract:** `crates/execution_owner/src/recovery_frontier.rs` exposes
   the query-only `RecoveryFrontierReadPort` and its sealed `SealedRecoveryFrontier`, consumed by the Runtime
-  foundation; no production custody or Runtime application exists behind it.
+  foundation; no production custody or Runtime application exists behind it. The only implementation that can mint
+  that sealed value is `#[cfg(test)]`, so nothing in production can produce one at all. That absence is declared
+  rather than hidden, by this row and by the module's own maturity constant, and the recovery loop is not an
+  admitted slice; an unimplemented capability that says so is not the same thing as one disguised as implemented.
 - **TARGET - Order Engine, Effect Journal, and permit-bound adapter admission:** the inherited `ExecutionEngine`,
   order manager, order emulator, execution clients, and the venue execution clients under `crates/adapters` are the
   migration sources named by capability adoption. No `PREPARED` or `INVOCATION_STARTED` record, Reservation Claim
@@ -85,8 +88,13 @@ grants nothing, and widening the admitted set requires changing this document fi
   Attempt, and `KNOWN_CLOSED`:** the inherited `crates/execution/src/reconciliation` functions align engine state
   with venue reports and are the adoption source; no drift fact, disposition, case, command, or closure exists.
 - **TARGET - Execution Quality Observation and Effect Closure View:** no type or custody exists.
-- **TARGET - handoffs and persistence:** no port to Runtime, Risk, Portfolio, Governance, or R&D and no durable
-  relation for any Execution fact.
+- **CURRENT_PARTIAL - read ports to Portfolio and Governance:** the Owner's own migration in
+  `crates/execution_owner/src/adapter_binding_postgres.rs` creates `execution_api.read_current_paper_adapter_binding_v1`
+  and `execution_api.read_paper_account_opening_fact_v1`, revokes both from `PUBLIC`, and grants each to exactly the
+  one consumer that reads it: the binding to `governance_writer`, the opening collateral fact to `portfolio_writer`.
+  Both are `SECURITY DEFINER` over `execution_private`, which holds the durable relations behind them.
+- **TARGET - remaining handoffs and persistence:** no port to Runtime, Risk, or R&D, and no durable relation for any
+  Execution fact outside the PAPER adapter binding and opening collateral custody above.
 
 ## Input handoffs
 

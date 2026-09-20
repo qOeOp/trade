@@ -87,6 +87,74 @@ Unify Research and Develop under one business-fact Owner. The Research capabilit
   Evidence. Its exhaustive states are `D0_COMPLETED_NO_ARTIFACT`, `D1_VALIDATED`,
   `D1_VALIDATION_FAILED`, `D1_BUILD_FAILED`, `REJECTED_NOT_D_ONLY`, and `OUTCOME_UNKNOWN`.
 
+## Implementation status ledger
+
+This ledger records only what the repository has reached at this cut. It uses the status vocabulary of the
+[Market Data](./market-data/) ledger, with `CURRENT_PARTIAL` as the merged-but-unreachable form, and grants no
+permission by itself: no slice of this document is `IMPLEMENTATION_ADMITTED`, and widening the admitted set
+requires changing this document first. Every row names the symbol or path that would falsify it.
+
+- **CURRENT - deployed service and the boundary of what it exposes:** `product/rd-workbench/Dockerfile.owner`
+  builds `--bin strategy-factory-rd-owner-api` with no `--features` at all; the file's only `--features` is on the
+  dashboard binary. So the deployed image is the ungated router in
+  `crates/strategy_factory_rd_owner_api/src/main.rs`, and the six routes registered after it by
+  `#[cfg(feature = "sealed-develop-composer-acceptance")]` and
+  `#[cfg(feature = "sealed-source-intake-composer-acceptance")]` are absent from it:
+  `/v2/exploratory-replay/execution-input-bindings`, `/v3/exploratory-replay-requests/composer-backed`, and the
+  four `/_sealed-acceptance/v1/develop-composer/*` routes. An acceptance route is never evidence of a production
+  capability, and the sealed features exist to keep that distinction mechanical rather than remembered.
+- **CURRENT - one read-only operation is reachable only through the write API:** the Dashboard's operation
+  registry declares eleven Owner routes, and ten are `GET`. The eleventh,
+  `research_goal.legacy_quarantine_read.v1`, declares `effect_set: []` and resolves to
+  `POST /v1/research-goals/{request_identity}/resolve`, registered in
+  `crates/strategy_factory_rd_owner_api/src/main.rs` and absent from the read API binary. The empty effect set is
+  accurate: the handler ignores its request body, and each of its three paths -
+  `resolve_legacy_quarantined_v1`, `resolve_admission` and `resolve_historical_v1` - only reads, taking
+  `FOR SHARE` rather than `FOR UPDATE` and issuing no `INSERT`, `UPDATE` or `DELETE`. What is wrong is where the
+  operation lives: a consumer that claims only read operations still needs write-API credentials, because one of
+  its reads is a `POST` this Owner exposes nowhere else. Until that route is served from the read API, a
+  read-only consumer holding write-API credentials is this constraint rather than a privilege leak, and
+  narrowing it to the read-API pair would break the operation rather than tighten it. Concretely, the shadow
+  worker service in `product/rd-workbench/docker-compose.yml` needs its write-API pair for exactly this reason:
+  removing it while tidying that file stops the worker at `WORKER_CONFIGURATION_UNAVAILABLE`, and nothing in the
+  file says why the pair is there. A future operation
+  declaring `effect_set: []` over a `POST` needs the question asked again, because an effect set describes the
+  operation while the credential admits the whole route.
+- **CURRENT - the cross-Owner read surface other Owners are granted:** `rd_owner_api` is the only schema in this
+  repository that grants execute to more than one consuming Owner role - `product_edge_owner`,
+  `qualification_writer`, `backtest_owner`, `market_data_owner` and `market_data_reader`, with `rd_owner` as the
+  schema's own role. The schemas, their functions and every grant are established by the Owner migrations that
+  `product/rd-workbench/postgres-init/10-migrate-authority-custody.sh` runs, and that script with the migrations
+  it invokes is the authority for what exists at any cut. This row deliberately states no function count. A count
+  goes stale the day an Owner adds a function, and it overstates the surface even while it is right: a function
+  living in an `_api` schema is reachable only when some role holds `EXECUTE` on it, and this schema holds both
+  kinds - entry points granted to a consuming Owner, and internal predicates revoked from every other role. What
+  is decidable is the grant. Two such facts hold at this cut and correct an earlier claim in this row that
+  `portfolio_api` and `governance_api` carry none: both carry functions, and `governance_api` carries exactly one,
+  revoked from `PUBLIC`, with no `GRANT EXECUTE` on it and no `GRANT USAGE ON SCHEMA governance_api` anywhere in
+  the repository - built, and reachable by no role. The granted functions are `SECURITY DEFINER` and name no
+  caller in their bodies, so access is decided by the grant and a caller without it receives a permission error
+  rather than an empty result. This row records the surface and its grants; it does not establish that any
+  consumer reads it in production.
+- **CURRENT_PARTIAL - the production Composer read port:**
+  `crates/strategy_factory/src/source_research_composer_postgres_v2.rs` implements
+  `DevelopComposerSealedReadPortV2` for `PostgresSourceResearchComposerProductionV2` with no `cfg` attribute, so
+  the deployed build carries it and no acceptance feature is required to resolve a committed Composer operation.
+  It proves the read resolves what the same transaction committed; it proves no consumer outside the ordered
+  chain.
+- **TARGET - the PIT input seam is wired and inert:** `rd.md` states that Market Data returns one sealed
+  `ResearchPitTerminal` per PIT Market Snapshot Request. `crates/strategy_factory_rd_owner_api/src/main.rs`
+  imports `ResearchPitTerminalResolver`, declares `_market_data_research_pit` and assigns it at construction, and
+  never reads it - the underscore is the only marker, and no trait method of that resolver is called anywhere
+  outside `crates/data`. The resolver is additionally optional: `bootstrap_deployment_store_admission` returns
+  `Option`, so the field may hold `None` in a deployment. Closing this needs a consumer in this Owner, not a
+  wider read from Market Data.
+- **TARGET / ISOLATED_ACCEPTANCE_ONLY - the exploratory replay production entry:** the only caller of
+  `run_exploratory_replay_v2` outside `vibe-backtest-owner` is inside `run_native_replay`, which carries
+  `#[cfg(feature = "sealed-develop-composer-acceptance")]` with no `cfg(not(...))` twin anywhere in the
+  repository. With the deployed image built without features, that path is unreachable in what is deployed. This
+  measures the deployment artifact, not history.
+
 ## Modules
 
 - **Source Intake** - admit papers, observations, notes, media, and tool output as untrusted data with origin and
@@ -240,9 +308,44 @@ and restart recovery across processes, which no chain entry observes.
 
 ### CURRENT_PARTIAL - who authors a Strategy Design
 
-R&D does not derive a Design. No rule in this repository turns a hypothesis, mechanism and
-falsification question into input roles and a reaction graph, and none is intended: that translation
-is a judgement, and a judgement an Owner makes is a fact the Owner invented.
+R&D does not derive a Design from research prose. No rule in this repository turns a hypothesis,
+mechanism and falsification question into input roles and a reaction graph, and none is intended:
+that translation is a judgement, and a judgement an Owner makes is a fact the Owner invented.
+
+**Two different things are called a Research Intent here, and the prohibition stands because the
+Composer path holds the one with nothing to project.**
+
+`ResearchIntent` in `crates/strategy_factory/src/research.rs` does carry `data.channels`, each
+declaring its `role`, `asset_id`, `timeframe`, requiredness, source and staleness bound, with
+`data.decision_clock_channel` naming which one advances the decision. Projecting those would choose
+nothing. But that type has exactly one constructor, `frozen_representative()`, which parses a
+compile-time constant and then refuses anything whose SHA-256, identity, revision and schema version
+are not the frozen ones; its only callers are the formation path in `family_adapters.rs`,
+`representative.rs` and `formation_adapters.rs`. The Composer path never holds it.
+
+What the Composer path holds is `CurrentResearchDevelopCustodyV2`, whose fourteen fields are
+locators, identities and digests plus one `falsifier` string, and behind it the stored
+`intent_json`, which deserializes to `FrozenResearchGoalIntentV2`. That intent's `goal` is a
+`SourcedResearchGoalV2`: `hypothesis`, `mechanism`, `falsification_question`,
+`expected_observation`, `cost_assumption`, `capacity_assumption`, `sources`, and
+`required_data: Vec<String>` whose values are prose such as `PIT bars` and `sealed market bars`.
+**It declares no channel, no instrument, no timeframe and no role.**
+
+So there is nothing to project on the production path, and turning `required_data` prose into input
+roles is exactly the inference the paragraph above forbids. A projection becomes available only when
+the Owner holds channel declarations at the Composer cut - either because the stored intent carries
+them, or because something resolves them from the intent identity, neither of which exists. Until
+then the input roles are a proposer declaration this Owner admits, on the same terms as the reaction
+graph.
+
+The reaction graph is the part that stays a judgement, and it stays with the proposer. A first
+bounded family is admitted for it and nothing wider: **a single declared channel compared against a
+single threshold**, with the decision clock taken from `data.decision_clock_channel`. Every graph
+outside that family - two signals, a conjunction, a state-dependent threshold, a threshold this
+Owner would have to choose - remains a proposer declaration this Owner admits rather than derives.
+The family exists so the first production path can close without the Owner inventing a mechanism; it
+is not a claim that one threshold is a good strategy, and widening it requires changing this
+document first.
 
 A **proposer** declares it instead. The proposer may be a language model, a person or any other
 caller; this contract does not name it and does not change with it. What the contract fixes is the
@@ -706,6 +809,18 @@ Decision, Selection, and Candidate. Changing one creates a successor lineage rat
 - To [Runtime](./runtime/): only a committed `REPAIR_INPUTS_RUNTIME_KERNEL` decision may create one correlated
   `native-repair-request`; Runtime alone returns `REPAIRED`, `UNAVAILABLE`, or `OUTCOME_UNKNOWN` for that exact
   kernel attempt.
+- To [Strategy Governance](./strategy-governance/): the sealed Build Receipt an Owner admission rereads before a
+  lifecycle decision, resolved at the exact Artifact identity and digest the receipt was sealed under, carrying the
+  intent, TrialFamily, code bytes and dependency set it binds. R&D states what it built and nothing about whether
+  that Artifact may run: a Build Receipt is never an activation, never a qualification, never a capital decision,
+  and never evidence that any lifecycle state was reached. A receipt that cannot be resolved at that exact identity
+  and digest is absent, not stale, and an absent receipt admits no lifecycle transition rather than a cautious one.
+- To [Portfolio](./portfolio/): the frozen Research Intent a degradation attribution names, resolved at the exact
+  intent identity and digest, carrying the prediction and falsifier that intent froze and the cut they were frozen
+  at. R&D supplies the frozen prediction only; it observes no realized performance, attributes no cause, and
+  measures no deviation. A Research Intent is never a performance claim, never a capacity statement, and never by
+  itself evidence that a mechanism degraded - the deviation and its preserved alternatives are Portfolio's, and
+  neither Owner may derive the other's half.
 - To [Qualification](./qualification/): only a R&D-owned frozen Candidate with a terminal
   `SELECTED_FOR_QUALIFICATION` Research Selection Disposition. The handoff cross-binds the exact Intent falsifier
   and stop rule, complete preregistration, immutable exhaustive TrialFamily Census Frontier, exploratory

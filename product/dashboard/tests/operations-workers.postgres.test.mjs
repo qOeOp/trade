@@ -32,6 +32,8 @@ const acceptanceCandidate = process.env.DASHBOARD_WORKERS_ACCEPTANCE_CANDIDATE ?
 const browserExecutable = process.env.DASHBOARD_WORKERS_BROWSER_EXECUTABLE ?? "";
 const dashboardRoot = new URL("../", import.meta.url);
 const cursorKey = "workers-disposable-only-cursor-key-32-bytes";
+const workersLogin = "workers-browser-acceptance-login-token-at-least-32-bytes";
+const workersSessionHmac = "workers-browser-acceptance-session-hmac-key-at-least-32-bytes";
 const activeWorker = "dashboard-worker-browser-active-v1";
 const expiredWorker = "dashboard-worker-browser-expired-v1";
 const effectWorkerCapability = "browser-effect-worker-capability-at-least-thirty-two-bytes";
@@ -54,12 +56,12 @@ function digest(value) {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
 }
 
-async function waitForHttp(target, child, timeoutMs = 60_000) {
+async function waitForHttp(target, child, headers = {}, timeoutMs = 60_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) throw new Error(`workers preview exited with ${child.exitCode}`);
     try {
-      const response = await fetch(target);
+      const response = await fetch(target, { headers });
       if (response.ok) return response;
     } catch {
       // The bounded local server is still starting.
@@ -69,13 +71,40 @@ async function waitForHttp(target, child, timeoutMs = 60_000) {
   throw new Error(`workers preview did not become ready at ${target}`);
 }
 
-async function stopProcess(child) {
-  if (!child || child.exitCode !== null) return;
+// A browser is a tree, not a process. Chrome's helper processes inherit the stderr pipe this
+// function reads, and they outlive a signal sent only to the process spawned here: the pipe stays
+// open, Node keeps the stream handle referenced, and the test runner never exits. Give the browser
+// its own process group at spawn and address the group. Only a child spawned detached may be
+// signalled this way, so callers opt in.
+async function stopProcess(child, { group = false } = {}) {
+  // A child that has already exited cannot be signalled, and its process group must not be either:
+  // the group is named by that child's process id, and once the child is gone that id can be
+  // reused, so signalling it risks reaching something unrelated. That is why this returns early
+  // rather than falling through to the group signal below.
+  //
+  // What still has to happen is closing the pipes. A surviving group member inherited the write
+  // ends, and while they are open Node keeps the stream handles referenced and the test runner
+  // stays alive with nothing left to run - which is the failure this whole teardown exists for.
+  // Releasing them costs nothing and does not touch any process id.
+  if (!child || child.exitCode !== null) {
+    child?.stdout?.destroy();
+    child?.stderr?.destroy();
+    return;
+  }
   const exited = once(child, "exit");
-  child.kill("SIGTERM");
+  const signal = (name) => {
+    if (!group) return child.kill(name);
+    try {
+      process.kill(-child.pid, name);
+    } catch {
+      child.kill(name);
+    }
+    return true;
+  };
+  signal("SIGTERM");
   const stopped = await Promise.race([exited.then(() => true), delay(5_000).then(() => false)]);
   if (!stopped && child.exitCode === null) {
-    child.kill("SIGKILL");
+    signal("SIGKILL");
     await exited;
   }
 }
@@ -83,14 +112,23 @@ async function stopProcess(child) {
 async function openBrowser(executable) {
   const profile = await mkdtemp(join(tmpdir(), "dashboard-workers-browser-"));
   const child = spawn(executable, [
+    // The same runner runs the ordered chain's browser acceptance to green with these three flags
+    // and stalls these suites without them, on an identical pinned browser build. A container's
+    // /dev/shm is small, and Chrome falls back to it for shared memory unless told otherwise.
     "--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`,
+    "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu",
     "--disable-background-networking", "--disable-default-apps", "--disable-extensions",
     "--disable-sync", "--metrics-recording-only", "--no-default-browser-check", "--no-first-run",
     "about:blank",
-  ], { stdio: "ignore" });
+  ], { stdio: ["ignore", "ignore", "pipe"], detached: true });
+  let browserStderr = "";
+  child.stderr?.setEncoding("utf8");
+  child.stderr?.on("data", (chunk) => { browserStderr = `${browserStderr}${chunk}`.slice(-4_096); });
   try {
     let devTools;
-    const deadline = Date.now() + 15_000;
+    // The browser starts beside a dev server and a database on the same machine, so this is
+    // generous; what matters is that it ends, and that it says what the browser reported.
+    const deadline = Date.now() + 60_000;
     while (Date.now() < deadline) {
       if (child.exitCode !== null) throw new Error(`workers browser exited with ${child.exitCode}`);
       try {
@@ -100,14 +138,22 @@ async function openBrowser(executable) {
         await delay(100);
       }
     }
-    if (!devTools?.[0]) throw new Error("workers browser debugging endpoint unavailable");
-    const target = await fetch(`http://127.0.0.1:${devTools[0]}/json/new?about:blank`, { method: "PUT" });
+    if (!devTools?.[0]) throw new Error(`workers browser debugging endpoint unavailable: ${browserStderr.trim() || "no output"}`);
+    // Bounded: a browser that opened its debugging port but never answers would otherwise leave
+    // this await pending for as long as the runner allows.
+    const target = await fetch(`http://127.0.0.1:${devTools[0]}/json/new?about:blank`, {
+      method: "PUT", signal: AbortSignal.timeout(30_000),
+    });
     assert.equal(target.ok, true);
     const { webSocketDebuggerUrl } = await target.json();
     const socket = new WebSocket(webSocketDebuggerUrl);
     await new Promise((resolve, reject) => {
-      socket.addEventListener("open", resolve, { once: true });
-      socket.addEventListener("error", reject, { once: true });
+      const timer = setTimeout(() => {
+        socket.close();
+        reject(new Error("browser websocket did not open"));
+      }, 30_000);
+      socket.addEventListener("open", () => { clearTimeout(timer); resolve(); }, { once: true });
+      socket.addEventListener("error", (error) => { clearTimeout(timer); reject(error); }, { once: true });
     });
     let id = 0;
     const pending = new Map();
@@ -119,14 +165,24 @@ async function openBrowser(executable) {
       if (message.error) waiter.reject(new Error(message.error.message));
       else waiter.resolve(message.result);
     });
-    const send = (method, params = {}) => new Promise((resolve, reject) => {
+    // Every command carries a deadline. A browser that accepts a command and never answers it -
+    // a renderer that stopped, a socket that died without an event - would otherwise leave this
+    // await pending forever, and the test runner has no timeout of its own to end it.
+    const send = (method, params = {}, timeoutMs = 60_000) => new Promise((resolve, reject) => {
       const requestId = ++id;
-      pending.set(requestId, { resolve, reject });
+      const timer = setTimeout(() => {
+        pending.delete(requestId);
+        reject(new Error(`browser command timed out: ${method}`));
+      }, timeoutMs);
+      pending.set(requestId, {
+        resolve: (value) => { clearTimeout(timer); resolve(value); },
+        reject: (error) => { clearTimeout(timer); reject(error); },
+      });
       socket.send(JSON.stringify({ id: requestId, method, params }));
     });
     return { child, profile, close: () => socket.close(), send };
   } catch (error) {
-    await stopProcess(child);
+    await stopProcess(child, { group: true });
     await rm(profile, { recursive: true, force: true });
     throw error;
   }
@@ -147,7 +203,21 @@ async function waitForBrowserExpression(browser, expression, timeoutMs = 15_000)
     if (await readBrowserValue(browser, expression) === true) return;
     await delay(100);
   }
-  throw new Error(`workers browser condition timed out: ${expression}`);
+  // A condition that never became true and one the page could never satisfy both end here, and a
+  // bare timeout cannot tell them apart. Carry what the page actually held into the failure.
+  const state = await browser.send("Runtime.evaluate", {
+    expression: `(() => ({
+      url: location.href,
+      readyState: document.readyState,
+      dialogs: document.querySelectorAll('dialog[open]').length,
+      reasons: [...document.querySelectorAll('details code, .unavailable-state code')]
+        .map((code) => code.textContent),
+      body: document.body?.innerText.slice(0, 1_500) ?? '',
+    }))()`,
+    returnByValue: true,
+  }).catch(() => null);
+  throw new Error(`workers browser condition timed out: ${expression}; page: ${
+    JSON.stringify(state?.result?.value ?? "unreadable")}`);
 }
 
 async function clickRefresh(browser) {
@@ -265,37 +335,84 @@ test(testName, { skip: !url }, async () => {
       cwd: dashboardRoot, encoding: "utf8",
     }), "");
 
+    // A registered lease is short by design and the acceptance outlives it, so without this the
+    // two available services expire part-way through and the summary counts them as offline: the
+    // suite would assert on how long the machine took rather than on what the surface shows.
+    await pool.query(`UPDATE dashboard_shadow_workers_v1
+      SET lease_expires_at = clock_timestamp() + interval '30 minutes'
+      WHERE worker_identity <> $1`, [expiredWorker]);
+    await pool.query(`UPDATE dashboard_effect_workers_v1
+      SET lease_expires_at = clock_timestamp() + interval '30 minutes'`);
+
     const environment = {
       ...fixture.environment,
       DASHBOARD_DATABASE_URL: isolatedUrl.href,
       DASHBOARD_CURSOR_HMAC_KEY: cursorKey,
+      DASHBOARD_DIST_DIR: ".next-test",
     };
     const port = 3221;
     preview = spawn(process.execPath, [
       "node_modules/next/dist/bin/next", "dev", "-H", "127.0.0.1", "-p", String(port),
-    ], { cwd: dashboardRoot, env: { ...process.env, ...environment }, stdio: "inherit" });
+    ], {
+      cwd: dashboardRoot,
+      env: {
+        ...process.env,
+        ...environment,
+        DASHBOARD_LOCAL_OPERATOR_LOGIN_TOKEN: workersLogin,
+        DASHBOARD_SESSION_HMAC_KEY: workersSessionHmac,
+      },
+      stdio: "inherit",
+    });
     const origin = `http://127.0.0.1:${port}`;
-    const pageResponse = await waitForHttp(`${origin}/operations/workers/`, preview);
+    // Every Operations surface is behind the local operator session, so the acceptance signs in
+    // the way an operator does and carries the session it was issued.
+    await waitForHttp(`${origin}/api/health/`, preview);
+    const login = await fetch(`${origin}/api/auth/session/`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin },
+      body: JSON.stringify({ credential: workersLogin }),
+    });
+    assert.equal(login.status, 200);
+    const cookie = (login.headers.get("set-cookie") ?? "").split(";", 1)[0];
+    assert.match(cookie, /^trade_dashboard_session_v1=/u);
+    const pageResponse = await waitForHttp(`${origin}/operations/workers/`, preview, { cookie });
     assert.match(await pageResponse.text(), /Service capacity/);
 
-    const listResponse = await fetch(`${origin}/api/operations/workers/`);
+    const listResponse = await fetch(`${origin}/api/operations/workers/`, { headers: { cookie } });
     assert.equal(listResponse.status, 200);
-    const listEnvelope = parseWorkerBrowserEnvelopeV1(await listResponse.json());
-    assert.ok(listEnvelope);
+    // The parser is exact-keyed, so a rejected envelope means the route's shape moved; carry the
+    // answer into the failure instead of asserting on a bare null.
+    const listBody = await listResponse.json();
+    const listEnvelope = parseWorkerBrowserEnvelopeV1(listBody);
+    assert.ok(listEnvelope, JSON.stringify(listBody));
     assert.equal(listEnvelope.workers.length, 3);
 
-    const exactResponse = await fetch(`${origin}/api/operations/workers/${activeWorker}/`);
+    const exactResponse = await fetch(`${origin}/api/operations/workers/${activeWorker}/`, { headers: { cookie } });
     assert.equal(exactResponse.status, 200);
-    const exactEnvelope = parseWorkerDetailBrowserEnvelopeV1(await exactResponse.json(), activeWorker);
-    assert.equal(exactEnvelope?.worker?.last_run_identity, queued.run_identity);
+    const exactBody = await exactResponse.json();
+    const exactEnvelope = parseWorkerDetailBrowserEnvelopeV1(exactBody, activeWorker);
+    assert.ok(exactEnvelope, JSON.stringify(exactBody));
+    assert.equal(exactEnvelope.worker?.last_run_identity, queued.run_identity);
 
     browser = await openBrowser(browserExecutable);
+    await browser.send("Network.enable");
+    const [cookieName, cookieValue] = cookie.split("=", 2);
+    assert.equal((await browser.send("Network.setCookie", {
+      name: cookieName, value: cookieValue, url: origin, httpOnly: true, sameSite: "Strict",
+    })).success, true);
     await browser.send("Page.enable");
+    // The exact list layout the doc describes - two columns with a sticky detail column in page
+    // flow - exists at 1280 px and wider; below it the detail moves into the shared sheet.
+    await browser.send("Emulation.setDeviceMetricsOverride", {
+      width: 1440, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
     await browser.send("Page.navigate", { url: `${origin}/operations/workers/` });
+    // The condition has to answer with a value the protocol can carry: an expression that ends in
+    // an element makes the evaluation fail to serialize instead of reporting the page's state.
     await waitForBrowserExpression(browser,
-      `document.querySelector('[title=${JSON.stringify(activeWorker)}]')
+      `Boolean(document.querySelector('[title=${JSON.stringify(activeWorker)}]')
         && document.querySelector('[title=${JSON.stringify(expiredWorker)}]')
-        && document.querySelector('[title=${JSON.stringify(effectWorker)}]')`);
+        && document.querySelector('[title=${JSON.stringify(effectWorker)}]'))`);
     const surface = await readBrowserValue(browser, `(() => {
       const summary = document.querySelector('[aria-label="Service capacity summary"]')?.innerText ?? '';
       const table = document.querySelector('table[aria-label="Background services"]');
@@ -312,10 +429,29 @@ test(testName, { skip: !url }, async () => {
         separatorBottom: separator?.bottom,
       };
     })()`);
-    assert.match(surface.summary, /Ready\s+2/);
-    assert.match(surface.summary, /Offline\s+1/);
-    assert.match(surface.summary, /Processed\s+1/);
-    assert.match(surface.summary, /Active\s+1/);
+    // The documented summary is the label and its count (doc 1929-1933); the compact pill renders
+    // its labels lowercased, which `innerText` reports after the transform.
+    // The summary counts leases at the list observation cut. Expect the store's own counts rather
+    // than the fixture's intent: a lease that expired while the run was slow would otherwise fail
+    // this on how long the machine took, while a real disagreement still fails.
+    // Shadow and effect workers live in their own relations and the surface counts both, so a
+    // query over one of them would expect a summary the page never claimed.
+    const leaseRows = await pool.query(
+      `SELECT worker_identity, lease_expires_at > clock_timestamp() AS available
+         FROM dashboard_shadow_workers_v1
+       UNION ALL
+       SELECT worker_identity, lease_expires_at > clock_timestamp() AS available
+         FROM dashboard_effect_workers_v1
+       ORDER BY worker_identity`,
+    );
+    const leaseReport = JSON.stringify(leaseRows.rows);
+    assert.equal(leaseRows.rows.length, 3, leaseReport);
+    const availableLeases = leaseRows.rows.filter((row) => row.available).length;
+    const expiredLeases = leaseRows.rows.length - availableLeases;
+    assert.match(surface.summary, new RegExp(`ready\\s+${availableLeases}`, "iu"), `${surface.summary} ${leaseReport}`);
+    assert.match(surface.summary, new RegExp(`offline\\s+${expiredLeases}`, "iu"), `${surface.summary} ${leaseReport}`);
+    assert.match(surface.summary, /processed\s+1/iu, `${surface.summary} ${leaseReport}`);
+    assert.match(surface.summary, /active\s+1/iu, `${surface.summary} ${leaseReport}`);
     assert.equal(surface.rows, 3);
     assert.equal(surface.allLeft, true);
     assert.equal(surface.allSticky, true);
@@ -346,34 +482,67 @@ test(testName, { skip: !url }, async () => {
         bodyOverflow: getComputedStyle(body).overflow,
         bodyPaddingTop: Number.parseFloat(getComputedStyle(body).paddingTop),
         detailPosition: getComputedStyle(detail).position,
+        detailStickyTop: getComputedStyle(detail).top,
         detailTop: detail.getBoundingClientRect().top,
+        layoutTop: layout.getBoundingClientRect().top,
+        bodyTop: body.getBoundingClientRect().top,
         viewportTop: viewport.getBoundingClientRect().top,
+        viewportPaddingTop: Number.parseFloat(getComputedStyle(viewport).paddingTop),
+        viewportScrollTop: viewport.scrollTop,
         scrollAncestorClass: ancestor?.className ?? '',
       };
     })()`);
     assert.ok(stickyDetail);
     assert.equal(stickyDetail.bodyOverflow, "clip");
     assert.equal(stickyDetail.detailPosition, "sticky");
+    assert.equal(stickyDetail.detailStickyTop, "0px");
+    assert.equal(stickyDetail.scrollAncestorClass, "page-viewport");
+    // A sticky box is held against the scrollport reduced by the scroll container's own padding,
+    // so a detail stuck at top 0 sits exactly that far below the container's border edge.
     assert.ok(
       Math.abs(
         stickyDetail.detailTop
           - stickyDetail.viewportTop
-          - stickyDetail.bodyPaddingTop,
+          - stickyDetail.viewportPaddingTop,
       ) <= 1,
       JSON.stringify(stickyDetail),
     );
-    assert.match(stickyDetail.scrollAncestorClass, /page-viewport/u);
+    // Recent activity opens the shared run preview and never navigates the Workers surface
+    // (doc 1951-1957), so the acceptance follows the trigger into the sheet and back out.
     const openedLastRun = await readBrowserValue(browser, `(() => {
-      const link = document.querySelector('a[href="/operations/runs/${queued.run_identity}"]');
-      link?.click();
-      return Boolean(link);
+      const trigger = document.querySelector(
+        '[data-run-preview-trigger=${JSON.stringify(queued.run_identity)}]');
+      trigger?.click();
+      return Boolean(trigger);
     })()`);
     assert.equal(openedLastRun, true);
     await waitForBrowserExpression(browser,
-      `location.pathname === "/operations/runs/${queued.run_identity}/"
-        && document.body?.innerText.toLowerCase().includes('run activity')
-        && document.querySelector('[title=${JSON.stringify(queued.run_identity)}]')
-        && document.body?.innerText.includes('Formation catalog')`);
+      `[...document.querySelectorAll('dialog[open] a, dialog[open] button')]
+        .some((control) => control.textContent?.trim().startsWith('Open full run details'))`);
+    // The preview carries bounded status facts only (doc 1956-1958); the run it opened is named by
+    // the full-details link, which is what binds the sheet to this run rather than another.
+    const previewText = await readBrowserValue(browser,
+      "document.querySelector('dialog[open]')?.innerText ?? ''");
+    for (const fact of ["Observed run", "activity", "started", "duration"]) {
+      assert.ok(previewText.includes(fact), JSON.stringify(previewText));
+    }
+    assert.equal(await readBrowserValue(browser, "location.pathname"), "/operations/workers/");
+    const fullRunHref = await readBrowserValue(browser, `(() => {
+      const link = [...document.querySelectorAll('dialog[open] a[href]')]
+        .find((candidate) => candidate.textContent?.trim().startsWith('Open full run details'));
+      return link?.getAttribute('href') ?? null;
+    })()`);
+    assert.equal(
+      fullRunHref === `/operations/runs/${queued.run_identity}`
+        || fullRunHref === `/operations/runs/${queued.run_identity}/`,
+      true,
+      String(fullRunHref),
+    );
+    assert.equal(await readBrowserValue(browser, `(() => {
+      document.querySelector('dialog[open]')?.close();
+      return true;
+    })()`), true);
+    await waitForBrowserExpression(browser, "document.querySelector('dialog[open]') === null");
 
     await browser.send("Page.navigate", { url: `${origin}/operations/workers/${expiredWorker}/` });
     await waitForBrowserExpression(browser,
@@ -383,12 +552,21 @@ test(testName, { skip: !url }, async () => {
         && [...document.querySelectorAll('button')]
           .some((button) => button.textContent?.trim() === 'Refresh')`);
     await pool.query("DELETE FROM dashboard_shadow_workers_v1 WHERE worker_identity = $1", [expiredWorker]);
-    assert.equal((await fetch(`${origin}/api/operations/workers/${expiredWorker}/`)).status, 404);
-    assert.equal((await fetch(`${origin}/api/operations/workers/`)).status, 200);
+    assert.equal((await fetch(`${origin}/api/operations/workers/${expiredWorker}/`, { headers: { cookie } })).status, 404);
+    assert.equal((await fetch(`${origin}/api/operations/workers/`, { headers: { cookie } })).status, 200);
     await clickRefresh(browser);
     await waitForBrowserExpression(browser,
-      `document.body?.innerText.includes('WORKER_NOT_FOUND')
+      `document.body?.innerText.includes('Service unavailable')
         && !document.body?.innerText.toLowerCase().includes('supported work')`);
+    // The technical reason lives behind the service information control, not in the page body.
+    assert.equal(await readBrowserValue(browser, `(() => {
+      const trigger = document.querySelector('button[aria-label="View service information"]');
+      trigger?.click();
+      return Boolean(trigger);
+    })()`), true);
+    await waitForBrowserExpression(browser,
+      `[...document.querySelectorAll('.panel-info-popover code')]
+        .some((code) => code.textContent === 'WORKER_NOT_FOUND')`);
 
     await browser.send("Page.navigate", { url: `${origin}/operations/workers/` });
     await waitForBrowserExpression(browser,
@@ -404,25 +582,38 @@ test(testName, { skip: !url }, async () => {
         && document.body?.innerText.toLowerCase().includes('supported work')`);
     await pool.query("ALTER TABLE dashboard_shadow_workers_v1 RENAME TO dashboard_shadow_workers_unavailable_v1");
     workerTableRenamed = true;
-    assert.equal((await fetch(`${origin}/api/operations/workers/${activeWorker}/`)).status, 503);
-    assert.equal((await fetch(`${origin}/api/operations/workers/`)).status, 503);
+    assert.equal((await fetch(`${origin}/api/operations/workers/${activeWorker}/`, { headers: { cookie } })).status, 503);
+    assert.equal((await fetch(`${origin}/api/operations/workers/`, { headers: { cookie } })).status, 503);
     await clickRefresh(browser);
     await waitForBrowserExpression(browser,
-      `document.body?.innerText.includes('Service capacity unavailable')
-        && document.body?.innerText.includes('WORKER_DETAIL_RESPONSE_UNAVAILABLE')
-        && document.querySelector('[title=${JSON.stringify(activeWorker)}]')
-        && !document.body?.innerText.toLowerCase().includes('supported work')`);
+      `document.body?.innerText.toLowerCase().includes('supported work') === false`);
+    const unavailableExact = await readBrowserValue(browser, "document.body?.innerText ?? ''");
+    assert.ok(unavailableExact.includes("Service capacity unavailable"), unavailableExact);
+    assert.equal(await readBrowserValue(browser, `(() => {
+      const trigger = document.querySelector('button[aria-label="View service information"]');
+      trigger?.click();
+      return Boolean(trigger);
+    })()`), true);
+    await waitForBrowserExpression(browser,
+      `[...document.querySelectorAll('.panel-info-popover code')]
+        .some((code) => code.textContent === 'WORKER_DETAIL_RESPONSE_UNAVAILABLE')`);
 
     await browser.send("Page.navigate", { url: `${origin}/operations/workers/` });
     await waitForBrowserExpression(browser,
       `document.body?.innerText.includes('Service capacity unavailable')
         && !document.querySelector('[title=${JSON.stringify(activeWorker)}]')`);
+    // An unavailable list reports four `-` values and never zeros inferred from failure
+    // (doc 1928-1931), so the summary stays present and says nothing was observed.
     const unavailableSummary = await readBrowserValue(browser,
       "document.querySelector('[aria-label=\"Service capacity summary\"]')?.innerText ?? ''");
-    assert.equal(unavailableSummary, "");
+    assert.match(unavailableSummary, /ready\s+-/iu, unavailableSummary);
+    assert.match(unavailableSummary, /offline\s+-/iu, unavailableSummary);
+    assert.match(unavailableSummary, /processed\s+-/iu, unavailableSummary);
+    assert.match(unavailableSummary, /active\s+-/iu, unavailableSummary);
+    assert.equal(/[0-9]/u.test(unavailableSummary), false, unavailableSummary);
   } finally {
     browser?.close();
-    await stopProcess(browser?.child);
+    await stopProcess(browser?.child, { group: true });
     if (browser?.profile) await rm(browser.profile, { recursive: true, force: true });
     await stopProcess(preview);
     if (workerTableRenamed) {

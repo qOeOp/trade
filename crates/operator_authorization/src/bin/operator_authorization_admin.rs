@@ -10,13 +10,23 @@ async fn main() -> anyhow::Result<()> {
     let action = env::args()
         .nth(1)
         .ok_or_else(|| anyhow::anyhow!("missing action"))?;
+    let database_url = env::var("OPERATOR_AUTHORIZATION_DATABASE_URL")
+        .map_err(|_| anyhow::anyhow!("OPERATOR_AUTHORIZATION_DATABASE_URL is missing"))?;
+
+    // Provisioning is its own action, and it is the only one that writes DDL.
+    if action == "materialize-schema" {
+        OperatorAuthorizationIssuerPostgresV1::materialize_schema(&database_url).await?;
+        println!("{}", serde_json::json!({"materialized": true}));
+        return Ok(());
+    }
+
     let proposal_path = env::args()
         .nth(2)
         .ok_or_else(|| anyhow::anyhow!("missing proposal path"))?;
-    let database_url = env::var("OPERATOR_AUTHORIZATION_DATABASE_URL")
-        .map_err(|_| anyhow::anyhow!("OPERATOR_AUTHORIZATION_DATABASE_URL is missing"))?;
     let bytes = fs::read(proposal_path)?;
-    let owner = OperatorAuthorizationIssuerPostgresV1::connect(&database_url).await?;
+    // Issuing a grant is not provisioning: this connects to a topology someone
+    // already materialized, and refuses if nobody has.
+    let owner = OperatorAuthorizationIssuerPostgresV1::connect_existing(&database_url).await?;
     let value = match action.as_str() {
         "issue-genesis" => serde_json::to_value(
             owner
