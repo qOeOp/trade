@@ -27,7 +27,9 @@ psql --set=ON_ERROR_STOP=1 --host "${POSTGRES_HOST:-postgres}" --username postgr
   --set=execution_writer_password="$EXECUTION_WRITER_DB_PASSWORD" \
   --set=portfolio_writer_password="$PORTFOLIO_WRITER_DB_PASSWORD" \
   --set=governance_writer_password="$GOVERNANCE_WRITER_DB_PASSWORD" \
-  --set=instrument_owner_password="$INSTRUMENT_OWNER_DB_PASSWORD" << 'SQL'
+  --set=instrument_owner_password="$INSTRUMENT_OWNER_DB_PASSWORD" \
+  --set=risk_writer_password="$RISK_WRITER_DB_PASSWORD" \
+  --set=scanner_writer_password="$SCANNER_WRITER_DB_PASSWORD" << 'SQL'
 BEGIN;
 SELECT pg_catalog.pg_advisory_xact_lock(
   pg_catalog.hashtextextended('vibe.backtest.result-topology.v2',0)
@@ -57,6 +59,10 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'portfolio_writer') THEN CREATE ROLE portfolio_writer LOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'governance_owner') THEN CREATE ROLE governance_owner NOLOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'governance_writer') THEN CREATE ROLE governance_writer LOGIN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'risk_owner') THEN CREATE ROLE risk_owner NOLOGIN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'risk_writer') THEN CREATE ROLE risk_writer LOGIN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'scanner_owner') THEN CREATE ROLE scanner_owner NOLOGIN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'scanner_writer') THEN CREATE ROLE scanner_writer LOGIN; END IF;
 END
 $roles$;
 ALTER ROLE rd_database_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
@@ -78,18 +84,29 @@ ALTER ROLE backtest_owner LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NORE
 ALTER ROLE portfolio_owner NOLOGIN;
 ALTER ROLE execution_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 ALTER ROLE governance_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+ALTER ROLE risk_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+ALTER ROLE scanner_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 ALTER ROLE execution_writer LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'execution_writer_password';
 ALTER ROLE portfolio_writer LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'portfolio_writer_password';
 ALTER ROLE governance_writer LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'governance_writer_password';
 ALTER ROLE instrument_owner LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'instrument_owner_password';
+ALTER ROLE risk_writer LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'risk_writer_password';
+ALTER ROLE scanner_writer LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'scanner_writer_password';
 GRANT execution_owner TO execution_writer;
 GRANT portfolio_owner TO portfolio_writer;
 GRANT governance_owner TO governance_writer;
+GRANT risk_owner TO risk_writer;
+GRANT scanner_owner TO scanner_writer;
 REVOKE execution_owner, portfolio_owner, governance_owner FROM rd_owner, rd_fact_writer, product_edge_owner, backtest_owner, qualification_writer, operator_authorization_writer, market_data_owner, market_data_reader;
 REVOKE rd_owner, rd_fact_writer, product_edge_owner, backtest_owner, qualification_owner, operator_authorization_owner, market_data_owner FROM execution_writer, portfolio_writer, governance_writer;
 REVOKE execution_owner FROM portfolio_writer, governance_writer;
 REVOKE portfolio_owner FROM execution_writer, governance_writer;
 REVOKE governance_owner FROM execution_writer, portfolio_writer;
+REVOKE risk_owner, scanner_owner FROM rd_owner, rd_fact_writer, product_edge_owner, backtest_owner, qualification_writer, operator_authorization_writer, market_data_owner, market_data_reader, execution_writer, portfolio_writer, governance_writer, instrument_owner;
+REVOKE execution_owner, portfolio_owner, governance_owner FROM risk_writer, scanner_writer;
+REVOKE rd_owner, rd_fact_writer, product_edge_owner, backtest_owner, qualification_owner, operator_authorization_owner, market_data_owner, instrument_owner FROM risk_writer, scanner_writer;
+REVOKE risk_owner FROM scanner_writer;
+REVOKE scanner_owner FROM risk_writer;
 GRANT operator_authorization_owner TO operator_authorization_writer;
 REVOKE portfolio_owner FROM product_edge_owner;
 REVOKE operator_authorization_owner FROM product_edge_owner, rd_owner;
@@ -133,7 +150,7 @@ BEGIN
     pg_catalog.current_database()
   );
   EXECUTE pg_catalog.format(
-    'GRANT CONNECT ON DATABASE %I TO rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, market_data_owner, operator_authorization_writer, qualification_writer, product_edge_owner, backtest_owner, execution_writer, portfolio_writer, governance_writer, instrument_owner',
+    'GRANT CONNECT ON DATABASE %I TO rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_reader, market_data_owner, operator_authorization_writer, qualification_writer, product_edge_owner, backtest_owner, execution_writer, portfolio_writer, governance_writer, instrument_owner, risk_writer, scanner_writer',
     pg_catalog.current_database()
   );
 END
@@ -150,6 +167,10 @@ CREATE SCHEMA IF NOT EXISTS execution_api AUTHORIZATION execution_owner;
 CREATE SCHEMA IF NOT EXISTS portfolio_private AUTHORIZATION portfolio_owner;
 CREATE SCHEMA IF NOT EXISTS portfolio_api AUTHORIZATION portfolio_owner;
 CREATE SCHEMA IF NOT EXISTS governance_private AUTHORIZATION governance_owner;
+CREATE SCHEMA IF NOT EXISTS risk_private AUTHORIZATION risk_owner;
+CREATE SCHEMA IF NOT EXISTS risk_api AUTHORIZATION risk_owner;
+CREATE SCHEMA IF NOT EXISTS scanner_private AUTHORIZATION scanner_owner;
+CREATE SCHEMA IF NOT EXISTS scanner_api AUTHORIZATION scanner_owner;
 CREATE SCHEMA IF NOT EXISTS governance_api AUTHORIZATION governance_owner;
 ALTER SCHEMA execution_private OWNER TO execution_owner;
 ALTER SCHEMA execution_api OWNER TO execution_owner;
@@ -157,10 +178,27 @@ ALTER SCHEMA portfolio_private OWNER TO portfolio_owner;
 ALTER SCHEMA portfolio_api OWNER TO portfolio_owner;
 ALTER SCHEMA governance_private OWNER TO governance_owner;
 ALTER SCHEMA governance_api OWNER TO governance_owner;
-REVOKE ALL ON SCHEMA execution_private, execution_api, portfolio_private, portfolio_api, governance_private, governance_api FROM PUBLIC, rd_owner, rd_fact_writer, product_edge_owner, backtest_owner, qualification_writer, operator_authorization_writer, market_data_owner, market_data_reader;
+ALTER SCHEMA risk_private OWNER TO risk_owner;
+ALTER SCHEMA risk_api OWNER TO risk_owner;
+ALTER SCHEMA scanner_private OWNER TO scanner_owner;
+ALTER SCHEMA scanner_api OWNER TO scanner_owner;
+REVOKE ALL ON SCHEMA execution_private, execution_api, portfolio_private, portfolio_api, governance_private, governance_api FROM PUBLIC, rd_owner, rd_fact_writer, product_edge_owner, backtest_owner, qualification_writer, operator_authorization_writer, market_data_owner, market_data_reader, risk_writer, scanner_writer;
+REVOKE ALL ON SCHEMA risk_private, risk_api, scanner_private, scanner_api FROM PUBLIC, rd_owner, rd_fact_writer, product_edge_owner, backtest_owner, qualification_writer, operator_authorization_writer, market_data_owner, market_data_reader, execution_writer, portfolio_writer, governance_writer, instrument_owner;
+REVOKE ALL ON SCHEMA risk_private, risk_api FROM scanner_writer;
+REVOKE ALL ON SCHEMA scanner_private, scanner_api FROM risk_writer;
+-- Layer 1 of the Risk Owner capacity input read port: Portfolio's public read face, and
+-- nothing else. Deliberately not wrapped in an `IF pg_catalog.to_regrole(...) IS NOT NULL`
+-- guard: if `risk_writer` does not exist this must fail and roll back here, where the cause
+-- is one line away, rather than succeed silently and surface later as an empty read.
+GRANT USAGE ON SCHEMA portfolio_api TO risk_writer;
 GRANT USAGE ON SCHEMA execution_api TO portfolio_writer, governance_writer;
 GRANT USAGE ON SCHEMA portfolio_api TO governance_writer;
 GRANT USAGE ON SCHEMA operator_authorization_api TO product_edge_owner;
+-- Product Edge reads one terminal Scanner receipt and nothing else. The schema grant lands
+-- here because `scanner_api` is created above; the matching `GRANT EXECUTE ON FUNCTION
+-- scanner_api.read_terminal_receipt_v1(bytea)` lands with that function, since an unguarded
+-- grant for a routine that does not exist yet would roll this migration back on every run.
+GRANT USAGE ON SCHEMA scanner_api TO product_edge_owner;
 REVOKE CREATE ON SCHEMA public FROM rd_owner;
 GRANT USAGE ON SCHEMA public TO rd_owner;
 GRANT USAGE, CREATE ON SCHEMA public TO product_edge_owner;
