@@ -82,8 +82,24 @@ grants nothing, and widening the admitted set requires changing this document fi
   order manager, order emulator, execution clients, and the venue execution clients under `crates/adapters` are the
   migration sources named by capability adoption. No `PREPARED` or `INVOCATION_STARTED` record, Reservation Claim
   Request, or `ADAPTER_ADMISSION_REQUEST` exists, and no command is validated against a Risk permit or fence.
+- **TARGET / IMPLEMENTATION_ADMITTED - `PAPER` venue binding:** the admitted slice is one fail-closed resolution
+  that answers, for an Execution Scope, which venue an effect may reach and under what bounds. It reads this
+  Owner's own current adapter binding, and when that binding is `ADMITTED` and `PAPER` it yields the effect
+  namespace, the endpoint identity, the capability set, and the reduce-only policy that binding carries. Absent,
+  `SUPERSEDED`, `REVOKED`, `INCOMPATIBLE`, and any non-`PAPER` mode each refuse under their own name rather than
+  collapsing into one unavailability, because a venue that cannot say which of those it hit cannot be diagnosed
+  from the call site. The resolution never mints a binding, never reaches a venue, and carries no credential: the
+  handle stays inside this Owner and is resolved at effect time, as the Strategy Governance ledger records.
+  This slice deliberately has no caller. No Order Engine, Effect Journal, or Trade Intent exists, so nothing asks
+  it for a venue yet. It is admitted now because it is the one part of the adapter boundary that depends on
+  nothing further upstream - the Execution Scope and the admitted binding it resolves against are both already in
+  production custody - and because building the gate before the thing that must pass through it is cheaper than
+  retrofitting a gate onto a path that already flows.
+  Admission is permission to build and verify this one resolution. It authorizes no order, no effect, no venue
+  contact, and no real trading.
 - **TARGET - simulated Execution Adapter:** the inherited matching engine, Backtest `SimulatedExchange`, and
-  `crates/adapters/sandbox` simulate a venue but are not bound to an Execution Scope or a `PAPER` namespace.
+  `crates/adapters/sandbox` simulate a venue and remain adoption sources. They are reachable today without passing
+  the venue binding above, and binding them to it needs an order path that does not exist.
 - **TARGET - Reconciler, Reconciliation Drift Fact, Recovery Admission Disposition, Recovery Case, Recovery Effect
   Attempt, and `KNOWN_CLOSED`:** the inherited `crates/execution/src/reconciliation` functions align engine state
   with venue reports and are the adoption source; no drift fact, disposition, case, command, or closure exists.

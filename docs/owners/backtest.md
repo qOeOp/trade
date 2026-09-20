@@ -10,6 +10,14 @@ Replay frozen strategy artifacts against admitted historical facts with producti
 - Canonical orders, fills, positions, costs, and outcome produced by a replay.
 - **CURRENT_PARTIAL:** the complete ordered shared-kernel semantic trace, binding normalized lifecycle events, checkpoints,
   primitive and plugin results, target/protection transitions and fill reconciliation to the canonical replay.
+- **TARGET:** the per-condition decision census of one replay, binding every decision-branch predicate to the
+  first tick at which the catalog availability rule its inputs were frozen under is satisfied, to the count of
+  evaluated ticks the requested range leaves after that tick, and to the ordered runs of its outcome across
+  them. A predicate that was not yet evaluable is never recorded as a false one, and the census names the rule
+  and the window that made it unevaluable rather than only that it was. It is bounded: a predicate whose
+  outcome changes more often than the census admits degrades to a count and records that it degraded, instead
+  of truncating into a run that claims the outcome stopped changing. It is sealed beside the canonical Result
+  rather than inside it, as the semantic trace is, so the Result stays the size its own equality proof needs.
 - Complete separation between exploratory runs and Qualification-requested protected runs.
 - Exploratory Run Result repeats the consumed Strategy Artifact, requested PIT scope, PIT Market Snapshot,
   Universe Selection Record and correction rule, replay configuration, Runtime kernel, simulator, and cost,
@@ -82,10 +90,6 @@ admitted set requires changing this document first.
   a metric and a coverage rule, has no caller anywhere; no protected-request field carries either reference; and
   `product/rd-workbench/postgres-init/10-migrate-authority-custody.sh` revokes `backtest_owner` on
   `public.qualification_protected_economic_policy_bundles_v1`. The selection has no producer.
-- **CURRENT_PARTIAL - second Run Result projection:** `project_locked_exploratory_replay_result_v1` in
-  `crates/backtest_owner/src/result_projection/mod.rs` decodes drawdown, Sharpe, Sortino, realized PnL,
-  commission, slippage and return from canonical Result bytes and appears in no other file. The Product Edge
-  handoff above serves that consumer from exact canonical bytes instead.
 - **TARGET - `REPAIR_VALIDATION` request and result:** no implementation exists. `REPAIR_VALIDATION` and
   `RepairValidation` appear in no file under `crates/` or `product/`.
 - **TARGET - `SIMULATOR` and `BACKTEST_OPERATIONAL` native repair:** no Backtest repair surface exists. The only

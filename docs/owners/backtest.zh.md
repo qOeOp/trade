@@ -10,6 +10,11 @@
 - 重放产生的规范订单 成交 持仓 成本和结果。
 - **CURRENT_PARTIAL：** 完整有序 shared-kernel semantic trace，把 normalized lifecycle event、checkpoint、primitive
   与 plugin result、target/protection transition 和 fill reconciliation 绑定到规范 replay。
+- **TARGET：** 一次重放的逐条件决策普查，把每个决策分支谓词绑定到三样东西：它的输入按冻结时的目录可用性规则
+  首次满足的那一拍、请求区间在那一拍之后留给它的可求值拍数、以及它的结果在这些拍上的有序游程。尚不可求值的
+  谓词绝不被记成为假的谓词，普查还说明是哪条规则与哪个窗口让它不可求值，而不只说它不可求值。它是有界的：
+  结果翻转频率超过普查容量的谓词退化为计数并把已退化这件事记下来，而不是截断成一段声称结果不再变化的游程。
+  它与语义轨迹同构，封印在规范 Result 之旁而不在其中，因此 Result 保持它自己的相等证明所需的大小。
 - 探索运行与 Qualification 请求的保护运行之间的完整隔离。
 - Exploratory Run Result 逐项重复实际消费的 Strategy Artifact 请求 PIT 范围 PIT Market Snapshot
   Universe Selection Record 与修订规则 重放配置 Runtime 内核 模拟器 成本 滑点和容量模型身份，
@@ -76,10 +81,6 @@
   函数，它在任何地方都没有调用方；保护请求没有任何字段携带这两个引用之一；而
   `product/rd-workbench/postgres-init/10-migrate-authority-custody.sh` 对
   `public.qualification_protected_economic_policy_bundles_v1` 撤销了 `backtest_owner`。这项选择没有生产方。
-- **CURRENT_PARTIAL - 第二份 Run Result 投影：** `project_locked_exploratory_replay_result_v1` 位于
-  `crates/backtest_owner/src/result_projection/mod.rs`，它从规范 Result 字节解码回撤 Sharpe Sortino 已实现
-  PnL 手续费 滑点与收益，并且不出现在任何其他文件里。上面那条 Product Edge 交接以准确规范字节服务同一个
-  消费方。
 - **TARGET - `REPAIR_VALIDATION` 请求与结果：** 不存在任何实现。`REPAIR_VALIDATION` 与
   `RepairValidation` 不出现在 `crates/` 或 `product/` 下的任何文件里。
 - **TARGET - `SIMULATOR` 与 `BACKTEST_OPERATIONAL` 原生 repair：** 不存在 Backtest 的 repair 面。四个 Backtest
