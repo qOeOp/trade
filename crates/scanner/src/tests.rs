@@ -364,11 +364,17 @@ impl MemoryReceiptStore {
 }
 
 impl TerminalReceiptStore for MemoryReceiptStore {
-    fn find(&self, attempt_id: &AttemptId) -> Result<Option<ScannerReceipt>, ReceiptStoreError> {
+    async fn find(
+        &self,
+        attempt_id: &AttemptId,
+    ) -> Result<Option<ScannerReceipt>, ReceiptStoreError> {
         Ok(self.0.lock().unwrap().get(attempt_id).cloned())
     }
 
-    fn commit_or_join(&self, receipt: ScannerReceipt) -> Result<CommitOutcome, ReceiptStoreError> {
+    async fn commit_or_join(
+        &self,
+        receipt: ScannerReceipt,
+    ) -> Result<CommitOutcome, ReceiptStoreError> {
         let mut receipts = self.0.lock().unwrap();
         if let Some(existing) = receipts.get(receipt.attempt_id()) {
             if existing.meaning() != receipt.meaning() {
@@ -388,35 +394,6 @@ impl TerminalReceiptStore for MemoryReceiptStore {
         })
     }
 }
-
-impl crate::product_edge::sealed::ScannerOwnedTerminalReceiptStore for MemoryReceiptStore {}
-impl ProductEdgeTerminalReceiptReadSource for MemoryReceiptStore {}
-
-#[derive(Clone)]
-enum ProductEdgeReadStore {
-    Missing,
-    Unavailable(OpaqueId),
-    Returned(Box<ScannerReceipt>),
-}
-
-impl TerminalReceiptStore for ProductEdgeReadStore {
-    fn find(&self, _: &AttemptId) -> Result<Option<ScannerReceipt>, ReceiptStoreError> {
-        match self {
-            Self::Missing => Ok(None),
-            Self::Unavailable(evidence) => Err(ReceiptStoreError::Unavailable {
-                evidence: evidence.clone(),
-            }),
-            Self::Returned(receipt) => Ok(Some(receipt.as_ref().clone())),
-        }
-    }
-
-    fn commit_or_join(&self, _: ScannerReceipt) -> Result<CommitOutcome, ReceiptStoreError> {
-        unreachable!("the Product Edge read capability cannot reach the store write path")
-    }
-}
-
-impl crate::product_edge::sealed::ScannerOwnedTerminalReceiptStore for ProductEdgeReadStore {}
-impl ProductEdgeTerminalReceiptReadSource for ProductEdgeReadStore {}
 
 fn frontier(names: &[&str]) -> StrategyFrontier {
     StrategyFrontier::new(id("registry-v9"), names.iter().map(|name| binding(name))).unwrap()
@@ -466,7 +443,7 @@ fn terminal(outcome: ScanOutcome) -> CommitOutcome {
     }
 }
 
-fn terminal_through_product_edge(
+async fn terminal_receipt(
     loader: LoaderResult,
     evaluations: &[(&str, Evaluation)],
     failure: Option<BatchOperationalFailure>,
@@ -482,28 +459,23 @@ fn terminal_through_product_edge(
         store,
         policy(),
     );
-    let committed = terminal(
+    terminal(
         scanner
             .scan(&schedule(), candidate(), Delivery::OnTime, clock(1))
+            .await
             .unwrap(),
     )
-    .receipt;
-    let reader = scanner.product_edge_terminal_receipts();
-    let first = reader.read(committed.attempt_id()).unwrap();
-    let second = reader.read(committed.attempt_id()).unwrap();
-    assert_eq!(first, committed);
-    assert_eq!(second, committed);
-    first
+    .receipt
 }
 
-fn scan_with_snapshot(
+async fn scan_with_snapshot(
     strategy: StrategyBinding,
     snapshot: UntrustedSnapshotReadback,
 ) -> (ScannerReceipt, Arc<Mutex<usize>>) {
-    scan_with_snapshot_and_clock(strategy, snapshot, clock(1))
+    scan_with_snapshot_and_clock(strategy, snapshot, clock(1)).await
 }
 
-fn scan_with_snapshot_and_clock(
+async fn scan_with_snapshot_and_clock(
     strategy: StrategyBinding,
     snapshot: UntrustedSnapshotReadback,
     clock_admission: ClockAdmission,
@@ -523,6 +495,7 @@ fn scan_with_snapshot_and_clock(
             policy(),
         )
         .scan(&schedule(), candidate(), Delivery::OnTime, clock_admission)
+        .await
         .unwrap(),
     )
     .receipt;
@@ -651,8 +624,8 @@ fn dst_fold_and_gap_rules_are_canonical_and_fail_closed() {
     );
 }
 
-#[rstest]
-fn duplicate_and_restart_delivery_join_one_terminal_receipt() {
+#[tokio::test]
+async fn duplicate_and_restart_delivery_join_one_terminal_receipt() {
     let store = MemoryReceiptStore::default();
     let (matcher, matcher_calls) = matcher(&[("a", Evaluation::Matched)], None);
     let (builder, builder_calls) = builder(None);
@@ -669,11 +642,13 @@ fn duplicate_and_restart_delivery_join_one_terminal_receipt() {
     let first = terminal(
         make_scanner()
             .scan(&schedule(), candidate(), Delivery::OnTime, clock(1))
+            .await
             .unwrap(),
     );
     let restarted = terminal(
         make_scanner()
             .scan(&schedule(), candidate(), Delivery::OnTime, clock(8))
+            .await
             .unwrap(),
     );
     assert_eq!(first.kind, CommitKind::Committed);
@@ -707,9 +682,24 @@ fn concurrent_delivery_atomically_commits_once_and_joins_once() {
             let scanner = Arc::clone(&scanner);
 
             thread::spawn(move || {
+                // Two OS threads and one blocking `Barrier`, unchanged: the barrier sits in the
+                // matcher, so both scans are provably in flight before either reaches the store.
+                // Driving the async scan from a per-thread runtime keeps that structure exactly;
+                // spawning two tasks on one runtime would let the scheduler put both on one worker
+                // and deadlock the barrier, and a barrier that only one writer reaches proves
+                // nothing about a race.
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("a current-thread runtime is available to each worker");
                 terminal(
-                    scanner
-                        .scan(&schedule(), candidate(), Delivery::OnTime, clock(epoch + 1))
+                    runtime
+                        .block_on(scanner.scan(
+                            &schedule(),
+                            candidate(),
+                            Delivery::OnTime,
+                            clock(epoch + 1),
+                        ))
                         .unwrap(),
                 )
             })
@@ -737,8 +727,8 @@ fn concurrent_delivery_atomically_commits_once_and_joins_once() {
     assert_eq!(store.len(), 1);
 }
 
-#[rstest]
-fn same_attempt_with_changed_semantics_fails_closed() {
+#[tokio::test]
+async fn same_attempt_with_changed_semantics_fails_closed() {
     let store = MemoryReceiptStore::default();
     let (matcher, _) = matcher(&[("a", Evaluation::NoMatch)], None);
     let (proposal_builder, _) = builder(None);
@@ -752,11 +742,13 @@ fn same_attempt_with_changed_semantics_fails_closed() {
     );
     scanner
         .scan(&schedule(), candidate(), Delivery::OnTime, clock(1))
+        .await
         .unwrap();
     let mut conflicting = schedule();
     conflicting.cadence = id("0 45 1 * * *");
     let error = scanner
         .scan(&conflicting, candidate(), Delivery::OnTime, clock(2))
+        .await
         .unwrap_err();
     assert!(matches!(
         error,
@@ -764,8 +756,8 @@ fn same_attempt_with_changed_semantics_fails_closed() {
     ));
 }
 
-#[rstest]
-fn same_attempt_with_changed_admission_policy_fails_closed() {
+#[tokio::test]
+async fn same_attempt_with_changed_admission_policy_fails_closed() {
     let store = MemoryReceiptStore::default();
     let (first_matcher, _) = matcher(&[("a", Evaluation::NoMatch)], None);
     let (first_builder, _) = builder(None);
@@ -778,6 +770,7 @@ fn same_attempt_with_changed_admission_policy_fails_closed() {
         policy_version(1),
     )
     .scan(&schedule(), candidate(), Delivery::OnTime, clock(1))
+    .await
     .unwrap();
 
     let (second_matcher, _) = matcher(&[("a", Evaluation::NoMatch)], None);
@@ -791,6 +784,7 @@ fn same_attempt_with_changed_admission_policy_fails_closed() {
         policy_version(2),
     )
     .scan(&schedule(), candidate(), Delivery::OnTime, clock(1))
+    .await
     .unwrap_err();
     assert!(matches!(
         error,
@@ -798,8 +792,8 @@ fn same_attempt_with_changed_admission_policy_fails_closed() {
     ));
 }
 
-#[rstest]
-fn mixed_strategy_outcomes_preserve_negative_members_and_valid_match() {
+#[tokio::test]
+async fn mixed_strategy_outcomes_preserve_negative_members_and_valid_match() {
     let store = MemoryReceiptStore::default();
     let (matcher, _) = matcher(
         &[
@@ -824,6 +818,7 @@ fn mixed_strategy_outcomes_preserve_negative_members_and_valid_match() {
             policy(),
         )
         .scan(&schedule(), candidate(), Delivery::OnTime, clock(1))
+        .await
         .unwrap(),
     )
     .receipt;
@@ -849,8 +844,8 @@ fn mixed_strategy_outcomes_preserve_negative_members_and_valid_match() {
     );
 }
 
-#[rstest]
-fn complete_resolved_membership_is_enforced() {
+#[tokio::test]
+async fn complete_resolved_membership_is_enforced() {
     let (no_match, _) = matcher(
         &[("a", Evaluation::NoMatch), ("b", Evaluation::NoMatch)],
         None,
@@ -866,6 +861,7 @@ fn complete_resolved_membership_is_enforced() {
             policy(),
         )
         .scan(&schedule(), candidate(), Delivery::OnTime, clock(1))
+        .await
         .unwrap(),
     )
     .receipt;
@@ -879,8 +875,8 @@ fn complete_resolved_membership_is_enforced() {
     ));
 }
 
-#[rstest]
-fn condition_failure_is_local_but_independent_operational_failure_wins() {
+#[tokio::test]
+async fn condition_failure_is_local_but_independent_operational_failure_wins() {
     let (condition_matcher, _) = matcher(
         &[
             ("a", Evaluation::ConditionFailed),
@@ -899,6 +895,7 @@ fn condition_failure_is_local_but_independent_operational_failure_wins() {
             policy(),
         )
         .scan(&schedule(), candidate(), Delivery::OnTime, clock(1))
+        .await
         .unwrap(),
     )
     .receipt;
@@ -922,6 +919,7 @@ fn condition_failure_is_local_but_independent_operational_failure_wins() {
             policy(),
         )
         .scan(&schedule(), candidate(), Delivery::OnTime, clock(1))
+        .await
         .unwrap(),
     )
     .receipt;
@@ -932,8 +930,8 @@ fn condition_failure_is_local_but_independent_operational_failure_wins() {
     assert!(failed.proposal().is_none());
 }
 
-#[rstest]
-fn unresolved_membership_never_invents_expected_or_missing_members() {
+#[tokio::test]
+async fn unresolved_membership_never_invents_expected_or_missing_members() {
     let unavailable = MembershipUnavailable {
         disposition: id("registry-frontier-unresolved"),
         source_cut: id("governance-cut"),
@@ -955,6 +953,7 @@ fn unresolved_membership_never_invents_expected_or_missing_members() {
             policy(),
         )
         .scan(&schedule(), candidate(), Delivery::OnTime, clock(1))
+        .await
         .unwrap(),
     )
     .receipt;
@@ -975,183 +974,14 @@ fn unresolved_membership_never_invents_expected_or_missing_members() {
     assert_eq!(*builder_calls.lock().unwrap(), 0);
 }
 
-#[rstest]
-fn product_edge_reads_every_terminal_state_without_losing_owner_meaning() {
-    let proposed = terminal_through_product_edge(
-        LoaderResult::Resolved(frontier(&["matched", "negative", "insufficient"])),
-        &[
-            ("matched", Evaluation::Matched),
-            ("negative", Evaluation::NoMatch),
-            ("insufficient", Evaluation::Insufficient),
-        ],
-        None,
-    );
-    assert_eq!(proposed.status(), &ReceiptStatus::Proposed);
-    assert_eq!(
-        proposed.dispositions()[&id("negative")].outcome(),
-        StrategyOutcome::NoMatch
-    );
-    assert_eq!(
-        proposed.dispositions()[&id("insufficient")].outcome(),
-        StrategyOutcome::InsufficientData
-    );
-    assert_eq!(
-        proposed
-            .proposal()
-            .unwrap()
-            .members()
-            .keys()
-            .cloned()
-            .collect::<BTreeSet<_>>(),
-        BTreeSet::from([id("matched")])
-    );
-
-    let no_match = terminal_through_product_edge(
-        LoaderResult::Resolved(frontier(&["negative"])),
-        &[("negative", Evaluation::NoMatch)],
-        None,
-    );
-    let insufficient = terminal_through_product_edge(
-        LoaderResult::Resolved(frontier(&["insufficient"])),
-        &[("insufficient", Evaluation::Insufficient)],
-        None,
-    );
-    let completed_no_proposal = terminal_through_product_edge(
-        LoaderResult::Resolved(frontier(&["condition"])),
-        &[("condition", Evaluation::ConditionFailed)],
-        None,
-    );
-
-    for (receipt, status) in [
-        (no_match, ReceiptStatus::NoMatch),
-        (insufficient, ReceiptStatus::InsufficientData),
-        (completed_no_proposal, ReceiptStatus::CompletedNoProposal),
-    ] {
-        assert_eq!(receipt.status(), &status);
-        assert!(receipt.proposal().is_none());
-        assert!(matches!(
-            receipt.membership(),
-            MembershipBranch::Resolved {
-                expected,
-                observed,
-                missing,
-            } if expected == observed && missing.is_empty()
-        ));
-    }
-
-    let operational_failure = BatchOperationalFailure {
-        category: BatchFailureCategory::ScannerServiceFailure,
-        failure_identity: id("product-edge-operational-failure"),
-        evidence_source_cut: id("product-edge-operational-cut"),
-        time_evidence: id("product-edge-operational-time"),
-    };
-    let failed_known = terminal_through_product_edge(
-        LoaderResult::Resolved(frontier(&["matched"])),
-        &[("matched", Evaluation::Matched)],
-        Some(operational_failure.clone()),
-    );
-    assert_eq!(
-        failed_known.status(),
-        &ReceiptStatus::Failed(FailedReason::BatchOperational(operational_failure))
-    );
-    assert!(matches!(
-        failed_known.membership(),
-        MembershipBranch::Resolved {
-            expected,
-            observed,
-            missing,
-        } if expected == observed && missing.is_empty()
-    ));
-    assert!(failed_known.proposal().is_none());
-
-    let failed_unresolved = terminal_through_product_edge(
-        LoaderResult::Unresolved(MembershipUnavailable {
-            disposition: id("product-edge-membership-unresolved"),
-            source_cut: id("product-edge-membership-cut"),
-            terminal_reason: id("product-edge-membership-reason"),
-            observed: vec![ObservedMemberFact::new(
-                id("observed-member"),
-                EvidenceSet::singleton(id("observed-member-evidence")),
-            )],
-        }),
-        &[],
-        None,
-    );
-    assert!(matches!(
-        failed_unresolved.status(),
-        ReceiptStatus::Failed(FailedReason::MembershipUnresolved { terminal_reason })
-            if terminal_reason == &id("product-edge-membership-reason")
-    ));
-    assert!(matches!(
-        failed_unresolved.membership(),
-        MembershipBranch::Unresolved {
-            observed,
-            missing_members_unavailable: MissingMembersUnavailable,
-            ..
-        } if observed.keys().cloned().collect::<BTreeSet<_>>()
-            == BTreeSet::from([id("observed-member")])
-    ));
-    assert!(failed_unresolved.proposal().is_none());
-}
-
-#[rstest]
-fn product_edge_read_fails_closed_for_missing_unavailable_or_wrong_identity() {
-    let requested = schedule()
-        .resolve_due_slot(candidate(), Delivery::OnTime, clock(1))
-        .unwrap()
-        .unwrap()
-        .attempt_id;
-
-    let missing = ProductEdgeTerminalReceiptReader::new(&ProductEdgeReadStore::Missing)
-        .read(&requested)
-        .unwrap_err();
-    assert_eq!(
-        missing,
-        ProductEdgeReceiptReadError::NotFound {
-            attempt_id: requested.clone()
-        }
-    );
-
-    let unavailable_evidence = id("product-edge-store-unavailable");
-    let unavailable_store = ProductEdgeReadStore::Unavailable(unavailable_evidence.clone());
-    let unavailable = ProductEdgeTerminalReceiptReader::new(&unavailable_store)
-        .read(&requested)
-        .unwrap_err();
-    assert_eq!(
-        unavailable,
-        ProductEdgeReceiptReadError::Unavailable {
-            evidence: unavailable_evidence
-        }
-    );
-
-    let receipt = terminal_through_product_edge(
-        LoaderResult::Resolved(frontier(&["foreign"])),
-        &[("foreign", Evaluation::NoMatch)],
-        None,
-    );
-    let mut foreign_identity = requested;
-    foreign_identity.scan_scope.identity = id("foreign-scope");
-    let wrong_store = ProductEdgeReadStore::Returned(Box::new(receipt.clone()));
-    let conflict = ProductEdgeTerminalReceiptReader::new(&wrong_store)
-        .read(&foreign_identity)
-        .unwrap_err();
-    assert_eq!(
-        conflict,
-        ProductEdgeReceiptReadError::IdentityConflict {
-            requested: Box::new(foreign_identity),
-            returned: Box::new(receipt.attempt_id().clone()),
-        }
-    );
-}
-
-#[rstest]
-fn every_named_market_fact_is_required_before_scanner_admission() {
+#[tokio::test]
+async fn every_named_market_fact_is_required_before_scanner_admission() {
     let strategy = binding("authority");
     macro_rules! assert_missing {
         ($field:ident, $expected:expr) => {{
             let mut readback = snapshot_readback(&strategy);
             readback.market_fact_cut.$field = None;
-            let (receipt, calls) = scan_with_snapshot(strategy.clone(), readback);
+            let (receipt, calls) = scan_with_snapshot(strategy.clone(), readback).await;
             let disposition = &receipt.dispositions()[strategy.strategy()];
             assert_eq!(
                 disposition.input_mismatch(),
@@ -1184,14 +1014,14 @@ fn every_named_market_fact_is_required_before_scanner_admission() {
     );
 }
 
-#[rstest]
-fn every_named_capacity_fact_is_required_before_scanner_admission() {
+#[tokio::test]
+async fn every_named_capacity_fact_is_required_before_scanner_admission() {
     let strategy = binding_with_capacity("capacity");
     macro_rules! assert_missing {
         ($field:ident, $expected:expr) => {{
             let mut readback = snapshot_readback(&strategy);
             readback.capacity_view_cut.as_mut().unwrap().$field = None;
-            let (receipt, calls) = scan_with_snapshot(strategy.clone(), readback);
+            let (receipt, calls) = scan_with_snapshot(strategy.clone(), readback).await;
             let disposition = &receipt.dispositions()[strategy.strategy()];
             assert_eq!(
                 disposition.input_mismatch(),
@@ -1221,8 +1051,8 @@ fn every_named_capacity_fact_is_required_before_scanner_admission() {
     );
 }
 
-#[rstest]
-fn contract_and_capacity_mismatches_close_input_unavailable_before_matcher() {
+#[tokio::test]
+async fn contract_and_capacity_mismatches_close_input_unavailable_before_matcher() {
     let strategy = binding_with_capacity("guarded");
     let mut wrong_data = snapshot_readback(&strategy);
     wrong_data.market_fact_cut.data_requirement =
@@ -1270,7 +1100,7 @@ fn contract_and_capacity_mismatches_close_input_unavailable_before_matcher() {
     ];
 
     for (expected_mismatch, snapshot) in cases {
-        let (receipt, matcher_calls) = scan_with_snapshot(strategy.clone(), snapshot);
+        let (receipt, matcher_calls) = scan_with_snapshot(strategy.clone(), snapshot).await;
         assert_eq!(receipt.status(), &ReceiptStatus::InsufficientData);
         assert!(receipt.proposal().is_none());
         let disposition = &receipt.dispositions()[strategy.strategy()];
@@ -1280,11 +1110,11 @@ fn contract_and_capacity_mismatches_close_input_unavailable_before_matcher() {
     }
 }
 
-#[rstest]
-fn complete_matching_capacity_cut_is_preserved_in_proposal_and_receipt() {
+#[tokio::test]
+async fn complete_matching_capacity_cut_is_preserved_in_proposal_and_receipt() {
     let strategy = binding_with_capacity("complete-capacity");
     let (receipt, matcher_calls) =
-        scan_with_snapshot(strategy.clone(), snapshot_readback(&strategy));
+        scan_with_snapshot(strategy.clone(), snapshot_readback(&strategy)).await;
     assert_eq!(receipt.status(), &ReceiptStatus::Proposed);
     assert_eq!(*matcher_calls.lock().unwrap(), 1);
     let disposition = &receipt.dispositions()[strategy.strategy()];
@@ -1302,8 +1132,8 @@ fn complete_matching_capacity_cut_is_preserved_in_proposal_and_receipt() {
     assert_eq!(member.capacity_view_cut(), Some(capacity));
 }
 
-#[rstest]
-fn exclusive_validity_equality_expires_market_and_capacity_before_matcher() {
+#[tokio::test]
+async fn exclusive_validity_equality_expires_market_and_capacity_before_matcher() {
     let strategy = binding_with_capacity("exclusive-validity");
     let now = UnixTimestamp::new(1_787_203_800);
 
@@ -1323,7 +1153,7 @@ fn exclusive_validity_equality_expires_market_and_capacity_before_matcher() {
         .valid_through = Some(now);
 
     for readback in [market_at_boundary, capacity_at_boundary] {
-        let (receipt, matcher_calls) = scan_with_snapshot(strategy.clone(), readback);
+        let (receipt, matcher_calls) = scan_with_snapshot(strategy.clone(), readback).await;
         assert_eq!(receipt.status(), &ReceiptStatus::InsufficientData);
         assert_eq!(
             receipt.dispositions()[strategy.strategy()].input_mismatch(),
@@ -1334,8 +1164,8 @@ fn exclusive_validity_equality_expires_market_and_capacity_before_matcher() {
     }
 }
 
-#[rstest]
-fn untrusted_source_time_frontier_and_cross_cuts_fail_before_matcher() {
+#[tokio::test]
+async fn untrusted_source_time_frontier_and_cross_cuts_fail_before_matcher() {
     let strategy = binding_with_capacity("guarded-authority");
     let mut expired = snapshot_readback(&strategy);
     expired
@@ -1465,7 +1295,7 @@ fn untrusted_source_time_frontier_and_cross_cuts_fail_before_matcher() {
         (InputMismatch::CapacityMeasurementTime, measurement),
         (InputMismatch::CapacityValidityCut, validity),
     ] {
-        let (receipt, calls) = scan_with_snapshot(strategy.clone(), readback);
+        let (receipt, calls) = scan_with_snapshot(strategy.clone(), readback).await;
         assert_eq!(receipt.status(), &ReceiptStatus::InsufficientData);
         assert_eq!(
             receipt.dispositions()[strategy.strategy()].input_mismatch(),
@@ -1487,7 +1317,7 @@ fn untrusted_source_time_frontier_and_cross_cuts_fail_before_matcher() {
         evidence: id("clock-cut-1"),
         observed_at: UnixTimestamp::new(1_787_203_900),
     };
-    let (receipt, calls) = scan_with_snapshot_and_clock(strategy.clone(), stale, stale_clock);
+    let (receipt, calls) = scan_with_snapshot_and_clock(strategy.clone(), stale, stale_clock).await;
     assert_eq!(
         receipt.dispositions()[strategy.strategy()].input_mismatch(),
         Some(InputMismatch::Expired)
@@ -1496,8 +1326,8 @@ fn untrusted_source_time_frontier_and_cross_cuts_fail_before_matcher() {
     assert_eq!(*calls.lock().unwrap(), 0);
 }
 
-#[rstest]
-fn public_scanner_rejects_before_any_terminal_receipt_without_owner_resolve() {
+#[tokio::test]
+async fn public_scanner_rejects_before_any_terminal_receipt_without_owner_resolve() {
     let strategy = binding_with_capacity("malicious-adapter");
     let (matcher, matcher_calls) = matcher(&[("malicious-adapter", Evaluation::Matched)], None);
     let (builder, builder_calls) = builder(None);
@@ -1513,7 +1343,9 @@ fn public_scanner_rejects_before_any_terminal_receipt_without_owner_resolve() {
         )
     };
     assert_eq!(
-        make_scanner().scan(&schedule(), candidate(), Delivery::OnTime, clock(1)),
+        make_scanner()
+            .scan(&schedule(), candidate(), Delivery::OnTime, clock(1))
+            .await,
         Err(ScannerError::OwnerResolveUnavailable)
     );
     assert_eq!(*matcher_calls.lock().unwrap(), 0);
@@ -1521,8 +1353,8 @@ fn public_scanner_rejects_before_any_terminal_receipt_without_owner_resolve() {
     assert_eq!(store.len(), 0);
 }
 
-#[rstest]
-fn sealed_identical_time_and_membership_replay_joins_existing_terminal_receipt() {
+#[tokio::test]
+async fn sealed_identical_time_and_membership_replay_joins_existing_terminal_receipt() {
     let store = MemoryReceiptStore::default();
     let (matcher, matcher_calls) = matcher(&[("a", Evaluation::Matched)], None);
     let (builder, builder_calls) = builder(None);
@@ -1539,11 +1371,13 @@ fn sealed_identical_time_and_membership_replay_joins_existing_terminal_receipt()
     let first = terminal(
         make_scanner()
             .scan(&schedule(), candidate(), Delivery::OnTime, clock(1))
+            .await
             .expect("sealed first scan"),
     );
     let replay = terminal(
         make_scanner()
             .scan(&schedule(), candidate(), Delivery::OnTime, clock(1))
+            .await
             .expect("sealed exact replay"),
     );
 
@@ -1578,8 +1412,8 @@ fn sealed_source_owner_admission_is_bound_to_one_exact_readback() {
     );
 }
 
-#[rstest]
-fn scanner_surface_closes_with_receipt_without_runtime_or_effect_port() {
+#[tokio::test]
+async fn scanner_surface_closes_with_receipt_without_runtime_or_effect_port() {
     let (matcher, matcher_calls) = matcher(&[("a", Evaluation::Matched)], None);
     let (builder, builder_calls) = builder(None);
     let outcome = Scanner::new_with_source_owner_fixture(
@@ -1591,6 +1425,7 @@ fn scanner_surface_closes_with_receipt_without_runtime_or_effect_port() {
         policy(),
     )
     .scan(&schedule(), candidate(), Delivery::OnTime, clock(1))
+    .await
     .unwrap();
     let receipt = terminal(outcome).receipt;
     assert_eq!(receipt.status(), &ReceiptStatus::Proposed);
@@ -1606,14 +1441,14 @@ fn scanner_surface_closes_with_receipt_without_runtime_or_effect_port() {
 ///
 /// Byte surgery below counts occurrences, so a single-strategy receipt keeps each landmark
 /// unambiguous while still carrying every kind of field the codec writes.
-fn custody_receipt() -> ScannerReceipt {
+async fn custody_receipt() -> ScannerReceipt {
     let strategy = binding_with_capacity("solo");
     let snapshot = snapshot_readback(&strategy);
-    scan_with_snapshot(strategy, snapshot).0
+    scan_with_snapshot(strategy, snapshot).await.0
 }
 
-fn custody_bytes() -> Vec<u8> {
-    encode_terminal_receipt_v1(&custody_receipt()).unwrap()
+async fn custody_bytes() -> Vec<u8> {
+    encode_terminal_receipt_v1(&custody_receipt().await).unwrap()
 }
 
 fn text(value: &str) -> Vec<u8> {
@@ -1667,8 +1502,8 @@ fn overwrite(bytes: &[u8], at: usize, value: u8) -> Vec<u8> {
     damaged
 }
 
-#[rstest]
-fn every_terminal_receipt_state_survives_canonical_custody_round_trip() {
+#[tokio::test]
+async fn every_terminal_receipt_state_survives_canonical_custody_round_trip() {
     let operational_failure = BatchOperationalFailure {
         category: BatchFailureCategory::SharedDependencyOperationalFailure,
         failure_identity: id("custody-operational-failure"),
@@ -1681,7 +1516,7 @@ fn every_terminal_receipt_state_survives_canonical_custody_round_trip() {
     let receipts = [
         (
             "proposed with negatives",
-            terminal_through_product_edge(
+            terminal_receipt(
                 LoaderResult::Resolved(frontier(&["matched", "negative", "insufficient"])),
                 &[
                     ("matched", Evaluation::Matched),
@@ -1689,43 +1524,48 @@ fn every_terminal_receipt_state_survives_canonical_custody_round_trip() {
                     ("insufficient", Evaluation::Insufficient),
                 ],
                 None,
-            ),
+            )
+            .await,
         ),
         (
             "no match",
-            terminal_through_product_edge(
+            terminal_receipt(
                 LoaderResult::Resolved(frontier(&["negative"])),
                 &[("negative", Evaluation::NoMatch)],
                 None,
-            ),
+            )
+            .await,
         ),
         (
             "insufficient data",
-            terminal_through_product_edge(
+            terminal_receipt(
                 LoaderResult::Resolved(frontier(&["insufficient"])),
                 &[("insufficient", Evaluation::Insufficient)],
                 None,
-            ),
+            )
+            .await,
         ),
         (
             "completed without proposal",
-            terminal_through_product_edge(
+            terminal_receipt(
                 LoaderResult::Resolved(frontier(&["condition"])),
                 &[("condition", Evaluation::ConditionFailed)],
                 None,
-            ),
+            )
+            .await,
         ),
         (
             "failed on batch operation",
-            terminal_through_product_edge(
+            terminal_receipt(
                 LoaderResult::Resolved(frontier(&["matched"])),
                 &[("matched", Evaluation::Matched)],
                 Some(operational_failure),
-            ),
+            )
+            .await,
         ),
         (
             "failed on unresolved membership",
-            terminal_through_product_edge(
+            terminal_receipt(
                 LoaderResult::Unresolved(MembershipUnavailable {
                     disposition: id("custody-membership-unresolved"),
                     source_cut: id("custody-membership-cut"),
@@ -1737,12 +1577,13 @@ fn every_terminal_receipt_state_survives_canonical_custody_round_trip() {
                 }),
                 &[],
                 None,
-            ),
+            )
+            .await,
         ),
-        ("proposed with a capacity cut", custody_receipt()),
+        ("proposed with a capacity cut", custody_receipt().await),
         (
             "input unavailable with a named mismatch",
-            scan_with_snapshot(binding("absent"), missing_fact).0,
+            scan_with_snapshot(binding("absent"), missing_fact).await.0,
         ),
     ];
 
@@ -1760,8 +1601,8 @@ fn every_terminal_receipt_state_survives_canonical_custody_round_trip() {
     }
 }
 
-#[rstest]
-fn the_attempt_key_separates_boundaries_that_share_a_local_time() {
+#[tokio::test]
+async fn the_attempt_key_separates_boundaries_that_share_a_local_time() {
     let resolve = |candidate| {
         schedule()
             .resolve_due_slot(candidate, Delivery::OnTime, clock(1))
@@ -1797,14 +1638,14 @@ fn the_attempt_key_separates_boundaries_that_share_a_local_time() {
     );
     assert_ne!(
         keys[0],
-        encode_terminal_receipt_v1(&custody_receipt()).unwrap(),
+        encode_terminal_receipt_v1(&custody_receipt().await).unwrap(),
         "the key and the receipt must not share a domain tag"
     );
 }
 
-#[rstest]
-fn framing_damage_refuses_by_name_and_never_as_absence() {
-    let bytes = custody_bytes();
+#[tokio::test]
+async fn framing_damage_refuses_by_name_and_never_as_absence() {
+    let bytes = custody_bytes().await;
     let domain = text("VIBE_SCANNER_TERMINAL_RECEIPT_V1");
 
     assert_eq!(
@@ -1819,7 +1660,7 @@ fn framing_damage_refuses_by_name_and_never_as_absence() {
     );
     assert_eq!(
         parse_untrusted_terminal_receipt_v1(
-            &encode_attempt_id_v1(custody_receipt().attempt_id()).unwrap()
+            &encode_attempt_id_v1(custody_receipt().await.attempt_id()).unwrap()
         ),
         Err(TerminalReceiptDecodeError::ForeignDomain),
         "the attempt key must not parse as a receipt"
@@ -1846,9 +1687,9 @@ fn framing_damage_refuses_by_name_and_never_as_absence() {
     );
 }
 
-#[rstest]
-fn damaged_text_and_broken_bounds_refuse_by_name() {
-    let bytes = custody_bytes();
+#[tokio::test]
+async fn damaged_text_and_broken_bounds_refuse_by_name() {
+    let bytes = custody_bytes().await;
     let zone = text("America/New_York");
     let mut invalid_utf8 = zone.clone();
     invalid_utf8[4] = 0xFF;
@@ -1868,9 +1709,9 @@ fn damaged_text_and_broken_bounds_refuse_by_name() {
     );
 }
 
-#[rstest]
-fn unknown_tags_refuse_instead_of_falling_back_to_a_default() {
-    let bytes = custody_bytes();
+#[tokio::test]
+async fn unknown_tags_refuse_instead_of_falling_back_to_a_default() {
+    let bytes = custody_bytes().await;
     let zone = text("America/New_York");
     let fold_disposition_at = landmark(&bytes, &zone, 0, 1) + zone.len();
     assert_eq!(
@@ -1896,12 +1737,14 @@ fn unknown_tags_refuse_instead_of_falling_back_to_a_default() {
     );
 }
 
-#[rstest]
-fn a_value_with_two_encodings_is_refused_under_the_one_that_is_not_canonical() {
+#[tokio::test]
+async fn a_value_with_two_encodings_is_refused_under_the_one_that_is_not_canonical() {
     let mut multiple_auxiliary = snapshot_readback(&binding("aux"));
     multiple_auxiliary.market_fact_cut.auxiliary =
         BTreeSet::from([id("aux-alpha"), id("aux-bravo")]);
-    let receipt = scan_with_snapshot(binding("aux"), multiple_auxiliary).0;
+    let receipt = scan_with_snapshot(binding("aux"), multiple_auxiliary)
+        .await
+        .0;
     let bytes = encode_terminal_receipt_v1(&receipt).unwrap();
     let alpha = landmark(&bytes, &text("aux-alpha"), 0, 1);
     let bravo = landmark(&bytes, &text("aux-bravo"), 0, 1);
@@ -1931,9 +1774,9 @@ fn a_value_with_two_encodings_is_refused_under_the_one_that_is_not_canonical() {
     );
 }
 
-#[rstest]
-fn bytes_the_scanner_domain_refuses_do_not_reconstruct_a_receipt() {
-    let bytes = custody_bytes();
+#[tokio::test]
+async fn bytes_the_scanner_domain_refuses_do_not_reconstruct_a_receipt() {
+    let bytes = custody_bytes().await;
     let zone = text("America/New_York");
     let mut blank = zone.clone();
     blank[4..].fill(b' ');
@@ -1962,9 +1805,9 @@ fn bytes_the_scanner_domain_refuses_do_not_reconstruct_a_receipt() {
     );
 }
 
-#[rstest]
-fn an_input_check_the_receipt_still_witnesses_refuses_with_the_domain_reason() {
-    let bytes = custody_bytes();
+#[tokio::test]
+async fn an_input_check_the_receipt_still_witnesses_refuses_with_the_domain_reason() {
+    let bytes = custody_bytes().await;
     let cut = text("market-snapshot-cut");
     assert_eq!(
         parse_untrusted_terminal_receipt_v1(&replace_nth(
@@ -2004,9 +1847,9 @@ fn an_input_check_the_receipt_still_witnesses_refuses_with_the_domain_reason() {
     );
 }
 
-#[rstest]
-fn facts_that_disagree_about_the_one_clock_admission_are_refused() {
-    let bytes = custody_bytes();
+#[tokio::test]
+async fn facts_that_disagree_about_the_one_clock_admission_are_refused() {
+    let bytes = custody_bytes().await;
     assert_eq!(
         parse_untrusted_terminal_receipt_v1(&replace_nth(
             &bytes,
@@ -2022,10 +1865,10 @@ fn facts_that_disagree_about_the_one_clock_admission_are_refused() {
     );
 }
 
-#[rstest]
-fn custody_re_runs_the_due_instant_and_says_what_it_cannot_witness() {
-    let bytes = custody_bytes();
-    let receipt = custody_receipt();
+#[tokio::test]
+async fn custody_re_runs_the_due_instant_and_says_what_it_cannot_witness() {
+    let bytes = custody_bytes().await;
+    let receipt = custody_receipt().await;
     let due_at = receipt.attempt_id().due_at();
 
     // The due instant is a pure function of the retained boundary, so `Expired` survives custody.
@@ -2054,9 +1897,9 @@ fn custody_re_runs_the_due_instant_and_says_what_it_cannot_witness() {
     assert_eq!(reconstructed.attempt_id(), receipt.attempt_id());
 }
 
-#[rstest]
-fn a_capacity_cut_is_never_quietly_dropped_or_quietly_kept() {
-    let bytes = custody_bytes();
+#[tokio::test]
+async fn a_capacity_cut_is_never_quietly_dropped_or_quietly_kept() {
+    let bytes = custody_bytes().await;
     // The contract is written three times: in the membership's binding, in the disposition's
     // binding, and as the capacity cut's own requirement. Only the last is preceded by a presence
     // byte.
@@ -2081,9 +1924,9 @@ fn a_capacity_cut_is_never_quietly_dropped_or_quietly_kept() {
     );
 }
 
-#[rstest]
-fn a_disposition_neither_constructor_can_produce_is_refused_by_the_encoder() {
-    let receipt = custody_receipt();
+#[tokio::test]
+async fn a_disposition_neither_constructor_can_produce_is_refused_by_the_encoder() {
+    let receipt = custody_receipt().await;
     let disposition = &receipt.dispositions()[&id("solo")];
     let orphaned = StrategyDisposition::input_unavailable(
         disposition.binding().clone(),
@@ -2115,8 +1958,8 @@ fn a_disposition_neither_constructor_can_produce_is_refused_by_the_encoder() {
 /// wider bound stay in custody, so a narrower reader starts refusing receipts that are intact. A
 /// comment asks the next person to remember that; this fails the moment the bound stops holding
 /// the strategy count it is stated to hold.
-#[rstest]
-fn the_custody_bound_states_how_many_strategies_one_receipt_holds() {
+#[tokio::test]
+async fn the_custody_bound_states_how_many_strategies_one_receipt_holds() {
     const SAMPLE: usize = 64;
     const STATED_STRATEGIES: usize = 1_000;
 
@@ -2127,13 +1970,14 @@ fn the_custody_bound_states_how_many_strategies_one_receipt_holds() {
         .iter()
         .map(|name| (name.as_str(), Evaluation::NoMatch))
         .collect::<Vec<_>>();
-    let receipt = terminal_through_product_edge(
+    let receipt = terminal_receipt(
         LoaderResult::Resolved(frontier_with(
             names.iter().map(|name| binding_with_capacity(name)),
         )),
         &evaluations,
         None,
-    );
+    )
+    .await;
     assert_eq!(receipt.dispositions().len(), SAMPLE);
     let bytes = encode_terminal_receipt_v1(&receipt).unwrap();
     let per_strategy = bytes.len() / SAMPLE;

@@ -181,7 +181,20 @@ fn last_closed_bar(
 ///
 /// Only intervals with an exact Owner unit are admitted. Binance's `1M` is a calendar month, which
 /// has no fixed-length unit here and would silently become one minute, so it is refused.
-const fn owner_timeframe(interval: &str) -> Option<&'static str> {
+/// The Owner timeframe label one interval denotes, or `None` for an interval with no label.
+///
+/// These are free-form binding labels, not timeframes. The timeframe is `TimeframeSpecV1`, whose
+/// kind and unit are closed sets with no DAY and no WEEK, and whose "where does the period start"
+/// lives in an anchor identity that a label cannot carry. So only labels that transcribe a legal
+/// `step` and `unit` belong here.
+///
+/// Two labels in particular must not be added back. `1D` already means one named exchange session
+/// day, and the Owner's own equity fixtures use it that way - `AAPL.CLOSE.EXCHANGE_SESSION_1D` -
+/// so attaching it to this venue's continuous 24-hour interval would give one label two different
+/// spec shapes, with the older use being the correct one. `1W` would need an anchor stating which
+/// day a week begins on, and nobody has made that decision; a week is expressible without a new
+/// unit as `step = 168, unit = HOUR` once someone does.
+pub(crate) const fn owner_timeframe(interval: &str) -> Option<&'static str> {
     Some(match interval.as_bytes() {
         b"1s" => "1S",
         b"1m" => "1M",
@@ -195,8 +208,8 @@ const fn owner_timeframe(interval: &str) -> Option<&'static str> {
         b"6h" => "6H",
         b"8h" => "8H",
         b"12h" => "12H",
-        b"1d" => "1D",
-        b"3d" => "3D",
+        b"1d" => "24H",
+        b"3d" => "72H",
         _ => return None,
     })
 }
@@ -222,6 +235,12 @@ const fn canonical_decimal(mantissa: i128, scale: u8) -> (i128, u8) {
 
 #[cfg(test)]
 mod tests {
+    /// Every interval this table accepts, so the absence assertions below cover the whole table
+    /// rather than the entries someone remembered to list.
+    const ALL_INTERVALS: [&str; 14] = [
+        "1s", "1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "3d",
+    ];
+
     use rstest::rstest;
 
     use super::*;
@@ -283,7 +302,21 @@ mod tests {
     fn only_intervals_with_an_exact_owner_unit_are_admitted() {
         assert_eq!(owner_timeframe("1m"), Some("1M"));
         assert_eq!(owner_timeframe("4h"), Some("4H"));
-        assert_eq!(owner_timeframe("1d"), Some("1D"));
+        assert_eq!(owner_timeframe("1d"), Some("24H"));
+        assert_eq!(owner_timeframe("3d"), Some("72H"));
+        // The two labels that must never come back. `1D` is taken: the Owner's equity fixtures
+        // bind it as one named exchange session day, which this venue does not have. `1W` has no
+        // anchor to say which day a week starts on. Asserting their absence is cheap; noticing
+        // that a continuous 24-hour interval had quietly acquired a session-day label is not.
+        for taken in ["1D", "3D", "1W"] {
+            assert!(
+                !ALL_INTERVALS
+                    .iter()
+                    .filter_map(|interval| owner_timeframe(interval))
+                    .any(|label| label == taken),
+                "{taken} must not be produced for a continuous-clock venue"
+            );
+        }
         assert_eq!(
             owner_timeframe("1M"),
             None,

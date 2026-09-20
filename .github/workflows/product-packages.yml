@@ -97,19 +97,23 @@ jobs:
       - name: Check Dashboard types
         run: npm run typecheck --prefix product/dashboard
 
-      # The browser this runner already has, rather than one this job downloads and pins.
+      # The browser, from the one definition the chain uses rather than a second copy of the install.
+      # That is the whole reason; the browser itself is not what the schedule calendar acceptance was
+      # red on. This comment previously said the channel was the cause, on a reading that did not
+      # survive its second run: the same Chrome for Testing 152.0.7977.83 build passed and failed it
+      # on byte-identical sources. The cause was the suite synthesizing Enter as keyDown with text
+      # and leaving Chrome to derive the char event a button activates on, which it intermittently
+      # did not. The suite now sends that event itself.
       #
-      # The pin was taken while these acceptances stalled here, on the theory that the runner's
-      # newer browser was the cause. It was not: the pinned run stalled identically, and what
-      # unblocked them was three Chrome startup flags the suites were missing. The pin was then kept
-      # because nothing had shown the flags alone suffice on an unpinned build, and its comment said
-      # so and named this run as the way to find out. This is that run.
-      - name: Locate the runner's own browser
-        run: |
-          set -euo pipefail
-          browser="$(command -v google-chrome || command -v chromium-browser || command -v chromium)"
-          echo "DASHBOARD_BROWSER_EXECUTABLE=$browser" >> "$GITHUB_ENV"
-          "$browser" --version
+      # It sits here rather than beside the Node setup for a reason a run found: this action also
+      # exports the three variables that switch the chain's own strategy-viewer acceptance on, and
+      # that acceptance needs an Owner API this job does not run. Placed earlier, it turned that
+      # acceptance on during `npm run test` and the job died there, before any of the three suites
+      # below had run at all.
+      - name: Install the Dashboard browser acceptance inputs
+        uses: ./.github/actions/dashboard-browser-acceptance
+        with:
+          acceptance-candidate: ${{ github.sha }}
 
       - name: Create the Dashboard suite control databases
         working-directory: product/dashboard
@@ -128,21 +132,32 @@ jobs:
           DASHBOARD_RUN_LIST_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_runs
           DASHBOARD_SHADOW_RUNTIME_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_shadow_runtime
           DASHBOARD_SHADOW_RUNTIME_TEST_CURSOR_HMAC_KEY: shadow-runtime-disposable-cursor-key-at-least-32-bytes
-          # Workers and service logs drive a browser here. None of the three had ever run anywhere,
-          # and each was held back under a reason that measurement later replaced.
+          # All three RunStore browser acceptances run here. None of them had ever run anywhere, and
+          # each was held back under a reason that measurement later replaced.
           #
-          # Schedule calendar was recorded as leaving an evaluation outstanding past a 60 s command
-          # budget, which was true and said nothing: the evaluation was waiting for an animation
-          # frame before reading a sticky header's position, and the read does not need one -
-          # assigning scrollTop and asking for a rectangle forces the layout the assertion is about.
-          # Without it the same step passes in about 20 s, three runs out of three, on macOS.
+          # Schedule calendar was the last, and it was the suite at fault rather than the page. It
+          # synthesized Enter as a keyDown carrying text, which leaves Chrome to derive the char
+          # event a button activates on - and on this runner Chrome intermittently did not derive
+          # it. The keypress reached the right button and the button never acted. The suite now
+          # sends rawKeyDown, char and keyUp itself, and asserts the control was activated rather
+          # than that the key arrived.
           #
-          # It is still held back, now on something this lane has not reproduced. On this runner it
-          # fails one step later: with a calendar trigger focused, enabled and sized, pressing Enter
-          # opens no dialog at all, and the page it captured is an ordinary September month grid.
-          # Its PostgreSQL body runs either way. Putting it in the gate on a local pass is exactly
-          # the mistake the other two were held back for, so it waits for a measurement from here.
+          # The record matters more than the conclusion here, because three readings preceded that
+          # one and two of them were written down as fact. First, focus: a dump showed focus on the
+          # right control and that control enabled, which killed it. Then four candidates went for
+          # nothing - the date, by rerunning on the runner's own day; the timezone, by rerunning
+          # under UTC after checking the override reached the browser; the platform, by installing
+          # the browser the local passes used; and the version, by holding the channel and moving
+          # only the build. The channel was what remained and it was written into this file as the
+          # cause - then the same Chrome for Testing 152.0.7977.83 build passed one run and failed
+          # the next on byte-identical sources, serially, on the same UTC day. Third, undelivered
+          # keys, which the suite's own new instrument refuted by reporting a shape nobody had
+          # proposed: the key arrived, at the right element, and still did not activate it.
           #
+          # What ended it was a positive control rather than another run: removing the char event
+          # reproduces the failure deterministically, including on a machine where twenty-eight
+          # consecutive runs had passed. A diagnostic that can report a shape you did not think of
+          # is worth more than one that confirms a candidate you did.
           # Service logs was held back three times over for reasons that measurement replaced, and
           # the sequence is worth keeping. It was first recorded as meeting a cursor continuity
           # failure, which the page never showed: the wait is a conjunction and a timeout quotes
@@ -160,12 +175,15 @@ jobs:
           DASHBOARD_WORKERS_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_workers
           DASHBOARD_WORKERS_BROWSER_ACCEPTANCE: "1"
           DASHBOARD_WORKERS_ACCEPTANCE_CANDIDATE: ${{ github.sha }}
-          DASHBOARD_WORKERS_BROWSER_EXECUTABLE: ${{ env.DASHBOARD_BROWSER_EXECUTABLE }}
+          DASHBOARD_WORKERS_BROWSER_EXECUTABLE: ${{ env.DASHBOARD_STRATEGY_VIEWER_BROWSER_EXECUTABLE }}
           DASHBOARD_CALENDAR_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_calendar
+          DASHBOARD_CALENDAR_BROWSER_ACCEPTANCE: "1"
+          DASHBOARD_CALENDAR_ACCEPTANCE_CANDIDATE: ${{ github.sha }}
+          DASHBOARD_CALENDAR_BROWSER_EXECUTABLE: ${{ env.DASHBOARD_STRATEGY_VIEWER_BROWSER_EXECUTABLE }}
           DASHBOARD_SERVICE_LOGS_TEST_DATABASE_URL: ${{ env.DASHBOARD_SUITE_POSTGRES }}/dashboard_service_logs
           DASHBOARD_SERVICE_LOGS_BROWSER_ACCEPTANCE: "1"
           DASHBOARD_SERVICE_LOGS_ACCEPTANCE_CANDIDATE: ${{ github.sha }}
-          DASHBOARD_SERVICE_LOGS_BROWSER_EXECUTABLE: ${{ env.DASHBOARD_BROWSER_EXECUTABLE }}
+          DASHBOARD_SERVICE_LOGS_BROWSER_EXECUTABLE: ${{ env.DASHBOARD_STRATEGY_VIEWER_BROWSER_EXECUTABLE }}
         # `--test-force-exit` used to be here, covering suites that left a browser or a server
         # running: the runner's cleanup had to terminate them as orphans, and without the flag the
         # test runner never exited. Those suites now put the browser in its own process group and

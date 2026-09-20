@@ -1,3 +1,5 @@
+use std::future::Future;
+
 use crate::{
     AttemptId, BatchOperationalFailure, CapacityViewCut, DueSlot, EvidenceSet, MarketFactCut,
     MembershipUnavailable, OpaqueId, ProposalEvidence, ScannerReceipt, StrategyBinding,
@@ -117,9 +119,21 @@ pub enum ReceiptStoreError {
     Unavailable { evidence: OpaqueId },
 }
 
+/// Durable custody for terminal receipts.
+///
+/// The methods are `async` because every production custody in this repository reaches a database,
+/// and a synchronous signature would force an adapter to block a runtime from inside it. Native
+/// `async fn` in a trait keeps this crate free of dependencies; `crates/common/src/providers.rs`
+/// uses the same form.
 pub trait TerminalReceiptStore {
-    fn find(&self, attempt_id: &AttemptId) -> Result<Option<ScannerReceipt>, ReceiptStoreError>;
+    fn find(
+        &self,
+        attempt_id: &AttemptId,
+    ) -> impl Future<Output = Result<Option<ScannerReceipt>, ReceiptStoreError>>;
 
     /// Atomically commits the first receipt, joins an equal-meaning receipt, and rejects conflicts.
-    fn commit_or_join(&self, receipt: ScannerReceipt) -> Result<CommitOutcome, ReceiptStoreError>;
+    fn commit_or_join(
+        &self,
+        receipt: ScannerReceipt,
+    ) -> impl Future<Output = Result<CommitOutcome, ReceiptStoreError>>;
 }

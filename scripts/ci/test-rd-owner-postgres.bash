@@ -140,9 +140,16 @@ check_nextest_graph_contract() {
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
     [[ "${rd_owner_postgres_tests[1]}" != *'|legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back' ]] ||
     [[ "${rd_owner_postgres_tests[2]}" != *'|origin_current_replay_table_renames_with_exact_v1_v2_read_continuity' ]] ||
+    [[ "${rd_owner_postgres_tests[3]}" != *'|product_edge_postgres::tests::fresh_rd_owner_migrates_before_qualification_writer_validates' ]] ||
+    [[ "${rd_owner_postgres_tests[4]}" != *'|durable_owner_is_atomic_restart_exact_and_fail_closed' ]] ||
     [[ "${rd_owner_postgres_tests[5]}" != *'|owner::replay_market_facts_v2::postgres_tests::postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_market_transaction_overlap' ]] ||
+    [[ "${rd_owner_postgres_tests[6]}" != *'|postgres_source_invocation_lifecycle_is_canonical_once_only_and_acl_sealed' ]] ||
+    [[ "${rd_owner_postgres_tests[7]}" != *'|tests::same_identity_started_retry_returns_http_ok_with_exact_custody_once' ]] ||
+    [[ "${rd_owner_postgres_tests[8]}" != *'|postgres::tests::genesis_admission_claim_cutover_and_revocation_are_canonical' ]] ||
     [[ "${rd_owner_postgres_tests[9]}" != *'|postgres::tests::expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows' ]] ||
+    [[ "${rd_owner_postgres_tests[10]}" != *'|frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owner' ]] ||
     [[ "${rd_owner_postgres_tests[11]}" != *'|market_data_owner_sealed_request_port_is_exact_serializable_and_runtime_immutable' ]] ||
+    [[ "${rd_owner_postgres_tests[12]}" != *'|replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox' ]] ||
     [[ "${rd_owner_postgres_tests[13]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
     [[ "${rd_owner_postgres_tests[14]}" != *'|tests::postgres_result_owner_is_atomic_restart_exact_and_rd_locked_read_only' ]] ||
     [[ "${rd_owner_postgres_tests[15]}" != *'|tests::exploratory_replay_result_http_readback_is_exact_locked_and_rd_read_only' ]] ||

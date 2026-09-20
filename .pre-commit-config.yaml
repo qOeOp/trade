@@ -138,6 +138,13 @@ repos:
             scripts/ci/check-docker-toolchain-pins\.bash
           )$
         pass_filenames: false
+      - id: check-source-canary
+        name: check source canary
+        description: Ensures reachability probes separate a refused runner address from a dead source
+        entry: python3 scripts/ci/test_source_canary.py
+        language: system
+        files: ^scripts/ci/(source_canary|test_source_canary)\.py$
+        pass_filenames: false
       - id: check-rust-toolchain
         name: check Rust toolchain
         description: Ensures the Rust toolchain parser requires an exact pinned channel

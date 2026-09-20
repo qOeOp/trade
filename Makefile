@@ -223,7 +223,7 @@ endif
 # Core crates (excludes adapters/* and workspace members without tests)
 CORE_CRATES := vibe-analysis vibe-backtest vibe-backtest-owner vibe-backtest-owner-contracts vibe-backtest-result-custody vibe-common vibe-core \
     vibe-cryptography vibe-data vibe-deployment-attestation vibe-event-store vibe-execution vibe-execution-owner \
-    vibe-indicators vibe-indicators-kernel vibe-infrastructure vibe-live vibe-market-data-repair-custody vibe-model vibe-scanner \
+    vibe-indicators vibe-indicators-kernel vibe-infrastructure vibe-live vibe-market-data-repair-custody vibe-model vibe-scanner vibe-scanner-custody \
     vibe-network vibe-observability vibe-persistence vibe-persistence-macros \
     vibe-operator-authorization vibe-plugin vibe-portfolio vibe-portfolio-owner vibe-product-edge vibe-product-edge-admin vibe-product-edge-claim-custody vibe-product-edge-contracts vibe-qualification vibe-risk vibe-rd-artifact-invocation-custody vibe-rd-exploratory-replay-custody vibe-rd-market-data-repair-custody vibe-rd-source-intake-invocation-custody vibe-runtime vibe-serialization \
     strategy-factory-program-sdk vibe-strategy-factory vibe-strategy-factory-rd-owner-api vibe-strategy-governance vibe-system vibe-testkit vibe-trader vibe-trading
@@ -825,15 +825,20 @@ cargo-test-market-data-owner-postgres-isolated: check-nextest-installed  #-- Run
 # it has ever had. The shape is built three times - for this vendor, for Databento and for Bybit -
 # and `git grep` across `Makefile`, `.github` and `scripts` found no caller for any of them.
 #
-# It is not wired into `owner-chains` yet, and that is a finding rather than an oversight. Running
-# it on a hosted runner reaches `ObservationUnavailable`: the proof declares it needs a reachable
-# venue, and it does not get one there. Which reason - a regional refusal, DNS, a timeout, a
-# malformed answer - cannot be read off, because the Data Client maps every vendor failure through
-# `map_err(|_| Unavailable)`, so all of them arrive as one symptom. A chain entry that can only go
-# red, and whose red names no cause, costs every round and points the next reader at their own
-# change; it is worse than no entry. It passes here, on a developer machine, in about 30 seconds.
+# Its first hosted run reached `ObservationUnavailable`, and nothing in the leg could say which
+# reason - a regional refusal, DNS, a timeout, a malformed answer - because the Data Client maps
+# every vendor failure through `map_err(|_| Unavailable)` and all of them arrive as one symptom. So
+# it stayed out of `owner-chains`: an entry that can only go red, and whose red names no cause,
+# costs every round and points the next reader at their own change.
+#
+# Two changes closed that. The runner probes each candidate venue host and prints its status code
+# before the proof runs, which is the one place in the leg that can still name a cause; and the
+# client now calls the public-data mirror its own admitted binding proposes, rather than the
+# trading API it had been defaulting to. The entry is wired into `owner-chains` on that basis. The
+# erasure itself is unfixed and is a finding of its own: it spans the Data Client, the store and
+# the intake, and collapsing three categories into one symptom is not this target's to repair.
 .PHONY: cargo-test-market-data-end-to-end
-cargo-test-market-data-end-to-end: check-nextest-installed  #-- Run the credential-free Market Data end-to-end proof (local only; see comment)
+cargo-test-market-data-end-to-end: check-nextest-installed  #-- Run the credential-free Market Data end-to-end proof
 	NEXTEST_PROFILE="$(NEXTEST_PROFILE)" \
 	CARGO_CI_PROFILE="$(CARGO_CI_PROFILE)" \
 	bash crates/adapters/binance/tests/run_market_data_end_to_end.bash

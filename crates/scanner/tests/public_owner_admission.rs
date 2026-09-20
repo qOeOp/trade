@@ -3,7 +3,6 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-use rstest::rstest;
 use vibe_scanner::{
     BatchOperationalFailure, ClockAdmission, CommitOutcome, CompatibilityCut, ConditionFailure,
     Delivery, DueSlot, DueSlotCandidate, FoldDisposition, FrontierLineage, FrontierRequirement,
@@ -156,7 +155,7 @@ struct CountingStore {
 }
 
 impl TerminalReceiptStore for CountingStore {
-    fn find(
+    async fn find(
         &self,
         _attempt_id: &vibe_scanner::AttemptId,
     ) -> Result<Option<ScannerReceipt>, ReceiptStoreError> {
@@ -164,7 +163,10 @@ impl TerminalReceiptStore for CountingStore {
         Ok(None)
     }
 
-    fn commit_or_join(&self, _receipt: ScannerReceipt) -> Result<CommitOutcome, ReceiptStoreError> {
+    async fn commit_or_join(
+        &self,
+        _receipt: ScannerReceipt,
+    ) -> Result<CommitOutcome, ReceiptStoreError> {
         self.commit_calls.fetch_add(1, Ordering::SeqCst);
         Err(ReceiptStoreError::Unavailable {
             evidence: id("unexpected-public-commit"),
@@ -172,8 +174,8 @@ impl TerminalReceiptStore for CountingStore {
     }
 }
 
-#[rstest]
-fn public_time_and_membership_dtos_cannot_reach_loader_store_or_commit() {
+#[tokio::test]
+async fn public_time_and_membership_dtos_cannot_reach_loader_store_or_commit() {
     let cases = [
         (
             "resolved membership",
@@ -215,6 +217,7 @@ fn public_time_and_membership_dtos_cannot_reach_loader_store_or_commit() {
         assert!(
             scanner
                 .scan(&schedule(), candidate(), Delivery::OnTime, clock)
+                .await
                 .is_err(),
             "{case} was accepted"
         );
