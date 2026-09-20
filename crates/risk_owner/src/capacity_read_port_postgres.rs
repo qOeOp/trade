@@ -947,7 +947,14 @@ mod postgres_proof {
         // Portfolio's custody is already materialised before this entry runs. Driving it would
         // mean dropping another Owner's schema, which is destroying state this proof does not own.
 
-        cleanup(&pool, portfolio_pool, execution_pool, &suffix).await;
+        cleanup(
+            &pool,
+            portfolio_pool,
+            execution_pool,
+            &suffix,
+            bound.capacity_scope_identity(),
+        )
+        .await;
         restore_registry_head(portfolio_pool, displaced_head).await;
         assert_eq!(
             (
@@ -960,31 +967,55 @@ mod postgres_proof {
         );
     }
 
-    async fn cleanup(risk: &PgPool, portfolio: &PgPool, execution: &PgPool, marker: &str) {
+    /// Removes every row this proof caused, from the schemas of all three Owners it touched.
+    ///
+    /// The identity columns are content-derived, so none of them contains `marker`: an earlier
+    /// revision matched on `capacity_scope_identity LIKE '%marker%'` and deleted nothing at all.
+    /// Portfolio's rows are reached the way Portfolio's own proof reaches them, through the two
+    /// columns that do carry a caller-supplied string - `request_identity` on the readback and the
+    /// marker inside `registry_json` - and everything else is joined to those. This Owner's own
+    /// row is deleted by the exact scope identity the observation sealed, which the caller holds.
+    async fn cleanup(
+        risk: &PgPool,
+        portfolio: &PgPool,
+        execution: &PgPool,
+        marker: &str,
+        scope_identity: &str,
+    ) {
         sqlx::query(
             "DELETE FROM risk_private.risk_capacity_observations_v1 \
-              WHERE capacity_scope_identity LIKE '%' || $1 || '%'",
+              WHERE capacity_scope_identity = $1",
         )
-        .bind(marker)
+        .bind(scope_identity)
         .execute(risk)
         .await
         .unwrap();
 
+        let like = format!("%{marker}%");
+
         for statement in [
-            "DELETE FROM portfolio_private.portfolio_capacity_views_v1 \
-              WHERE capacity_scope_identity LIKE '%' || $1 || '%'",
+            "DELETE FROM portfolio_private.portfolio_owner_outbox_v1 outbox \
+              WHERE EXISTS (SELECT 1 \
+                              FROM portfolio_private.portfolio_capacity_scope_registry_cuts_v1 cut \
+                             WHERE cut.proof_frontier_identity = outbox.event_identity \
+                               AND cut.registry_json::text LIKE $1)",
+            "DELETE FROM portfolio_private.portfolio_capacity_views_v1 view_record \
+              WHERE EXISTS (SELECT 1 \
+                              FROM portfolio_private.portfolio_capacity_scope_bound_readbacks_v1 readback \
+                             WHERE readback.capacity_scope_identity = view_record.capacity_scope_identity \
+                               AND readback.request_identity LIKE $1)",
             "DELETE FROM portfolio_private.portfolio_capacity_scope_bound_readbacks_v1 \
-              WHERE request_identity LIKE '%' || $1 || '%'",
-            "DELETE FROM portfolio_private.portfolio_capacity_scope_registry_heads_v1 \
-              WHERE proof_frontier_identity IN ( \
-                SELECT proof_frontier_identity \
-                  FROM portfolio_private.portfolio_capacity_scope_registry_cuts_v1 \
-                 WHERE registry_cut_identity LIKE '%' || $1 || '%')",
+              WHERE request_identity LIKE $1",
+            "DELETE FROM portfolio_private.portfolio_capacity_scope_registry_heads_v1 head \
+              WHERE EXISTS (SELECT 1 \
+                              FROM portfolio_private.portfolio_capacity_scope_registry_cuts_v1 cut \
+                             WHERE cut.proof_frontier_identity = head.proof_frontier_identity \
+                               AND cut.registry_json::text LIKE $1)",
             "DELETE FROM portfolio_private.portfolio_capacity_scope_registry_cuts_v1 \
-              WHERE registry_cut_identity LIKE '%' || $1 || '%'",
+              WHERE registry_json::text LIKE $1",
         ] {
             sqlx::query(statement)
-                .bind(marker)
+                .bind(&like)
                 .execute(portfolio)
                 .await
                 .unwrap();
