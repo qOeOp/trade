@@ -80,24 +80,39 @@ jobs:
         with:
           persist-credentials: false
 
-      # Node, the Dashboard dependencies and the browser, from the one definition the chain uses.
-      #
-      # This job used to install its own Node and then take whatever browser the image provided.
-      # Measurement says the browser channel is not interchangeable: the schedule calendar
-      # acceptance passes on Chrome for Testing at both 144.0.7559.96 and 152.0.7977.83 and fails on
-      # the image's Google Chrome 152.0.7977.82, with platform, date, timezone, viewport and startup
-      # flags all held constant. Two other acceptances pass either way, which is exactly why taking
-      # the image's browser looked safe - the suite that disagreed was switched off.
-      - name: Install the Dashboard browser acceptance inputs
-        uses: ./.github/actions/dashboard-browser-acceptance
+      - name: Set up Node.js
+        # https://github.com/actions/setup-node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          acceptance-candidate: ${{ github.sha }}
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: product/dashboard/package-lock.json
+
+      - name: Install Dashboard dependencies
+        run: npm ci --prefix product/dashboard
 
       - name: Run Dashboard tests
         run: npm run test --prefix product/dashboard
 
       - name: Check Dashboard types
         run: npm run typecheck --prefix product/dashboard
+
+      # The browser, from the one definition the chain uses rather than a second copy of the
+      # install. Measurement says the channel is not interchangeable: the schedule calendar
+      # acceptance passes on Chrome for Testing at both 144.0.7559.96 and 152.0.7977.83 and fails on
+      # the image's Google Chrome 152.0.7977.82, with platform, date, timezone, viewport and startup
+      # flags held constant. Two other acceptances pass either way, which is why taking the image's
+      # browser looked safe - the suite that disagreed was switched off.
+      #
+      # It sits here rather than beside the Node setup for a reason a run found: this action also
+      # exports the three variables that switch the chain's own strategy-viewer acceptance on, and
+      # that acceptance needs an Owner API this job does not run. Placed earlier, it turned that
+      # acceptance on during `npm run test` and the job died there, before any of the three suites
+      # below had run at all.
+      - name: Install the Dashboard browser acceptance inputs
+        uses: ./.github/actions/dashboard-browser-acceptance
+        with:
+          acceptance-candidate: ${{ github.sha }}
 
       - name: Create the Dashboard suite control databases
         working-directory: product/dashboard
