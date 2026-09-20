@@ -116,6 +116,10 @@ rather than repeating it, so there is one place to keep in step.
   `crates/qualification/src/recovery.rs`, exported as `run_owner_recovery_cli` and shipped as the
   `qualification-owner-recovery` binary behind the `owner-recovery` feature - and its only proof can never pass.
   The measurement is recorded under Incident-specific Owner reconstruction below.
+- **TARGET - same-universe random control:** the handoff recorded under Failure and recovery below is declared
+  and has neither a producer nor a consumer. Nothing publishes a control-set definition, nothing synthesizes
+  comparison programs from one, and `crates/qualification` has no comparison arm. The order in which it must be
+  built is part of that clause, not a note on it.
 
 ## Behaviours the ordered gate cannot reach
 
@@ -276,6 +280,35 @@ regime coverage requires at least two materially distinct regimes including a no
 instrument non-applicability is permitted only for a frozen single-instrument scope; perturbations cover every
 material input class; and every tunable parameter has bounded neighbours or an accepted no-tunable-parameter basis.
 An inadequate or policy-mismatched plan is `NOT_ADMITTED` and never reserves holdout.
+
+The plan also carries a same-universe random control, and this Owner defines it. Same universe means one exact
+`vibe-indicators-kernel` catalogue digest, one input-role set, and one set of graph bounds - three quantities the
+repository already freezes, so the control introduces no new concept. Qualification fixes the seed, the instrument
+universe, the preregistered windows, and the draw size; R&D synthesizes the comparison programs from that
+definition, because it holds the Composer and the lowerer and this Owner holds neither; Backtest replays them and
+returns their series. The division is not a convenience: a control set the evaluated side can influence is not a
+control, so the definition cannot come from that side, while synthesis can, because a seed and a universe leave
+nothing to choose. Adequacy requires the draw size the versioned policy sets together with a preregistered margin
+in the metric's own unit and scale. A plan that omits the control, takes its definition from anywhere but this
+Owner, draws from a different catalogue digest, universe, or window set, or fixes its margin after any result is
+observed is `NOT_ADMITTED` and never reserves holdout.
+
+The control's strength is bounded by that catalogue version, and the bound is stated rather than implied. The
+catalogue carries no square root, variance, correlation, or rank, so volatility-normalized and cross-sectional
+factors are not expressible in the universe: a Candidate that passes this control is shown to be better than a
+sample drawn from one catalogue, not better than every factor. Each primitive family the catalogue gains raises
+that bound.
+
+This answers a question the trial-count corrections on the formation path cannot. Those deflate a selected result
+by the number of trials the searcher reports having run; this compares the Candidate against arbitrary programs
+expressible in the same catalogue over the same data, drawn to a definition the searcher did not write. The first
+stops being a correction when the trial count is understated. The second does not, which is what a protected
+evaluation is for.
+
+The handoff is built in the order definition, synthesis, replay, and the order is a prohibition rather than a
+preference. Neither the synthesis side nor the consuming side is built before Qualification publishes a
+control-set definition, because a consumer built against a definition that does not yet exist cannot be
+falsified. This document already records five steps built ahead of any caller.
 
 For a request-equal `TERMINAL_RESULT`, Qualification first consumes Backtest's complete finite non-empty protected
 `diagnosticCategorySet`, content digest, and per-category decisive evidence. It preserves all independently
