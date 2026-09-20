@@ -493,8 +493,10 @@ an ordered list of threshold-weight pairs, which lowers to nested `Select`. The 
 in one generator and hand-expanded again in the second, which is the strongest available evidence that
 it is a real primitive: it was needed twice and rewritten the second time. Both are pure composition
 over the frozen primitive catalog, so a new strategy primitive costs nothing at the catalog level.
-**Two programs are not a sample from which a complete primitive set can be read, so this layer is
-specified as open at that point rather than as complete.**
+**A third program, deliberately chosen to share no shape with the first two, produced four primitives
+neither of them had, and one of them - `not` - had appeared in all three and been hand-written in all
+three. What is missing is therefore not sample size but a step that lifts what recurs, so this layer
+is specified as open at that point rather than as complete.**
 
 Five of the seven consistency points those generators maintained by hand are derivation rather than
 decision: total state bytes, written in three places and summed from a hand-counted cell count; the
@@ -510,7 +512,10 @@ were expressive bounds.** One artifact generating both sides is what makes that 
 
 This layer is a compiler and not a runtime. It emits the `StrategyDesignV2` and
 `BoundedFeatureProgramProposalV1` pair that `declare` already accepts, and the authored document is
-evaluated only in generating that pair. **Derivation never replaces validation: a derived field is
+evaluated only in generating that pair. A unit is a syntactic product rather than an algebra - a
+quotient of two prices carries the unit `PRICE/PRICE` and not a dimensionless one - so a relative
+threshold either has its unit normalised by this layer or leaks that spelling into what an author
+writes. **Derivation never replaces validation: a derived field is
 checked afterwards by the same contract that checks a hand-written one, so a wrong derivation fails
 closed rather than admitting a program the validator would have refused.**
 
