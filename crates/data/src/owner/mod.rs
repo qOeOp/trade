@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 pub mod bar_schedule;
 pub mod calendar;
+pub mod frozen_observation_window_v1;
 pub mod instrument_economic_terms_postgres_v1;
 pub mod instrument_economic_terms_v1;
 pub mod instrument_master;

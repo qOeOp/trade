@@ -81,6 +81,12 @@
   `ProtectedEconomicPolicyBundleV1`，它的构造点全都位于 `#[cfg(test)]` 模块之内；而把它封印进请求集的
   那一步只被有序门禁自己的条目调用、此外没有调用方，这一点 [Qualification](./qualification/) 已为该终端的
   每一步写明。Backtest 能选出那个计算，而门禁之外没有东西产出那项选择。
+- **CURRENT_PARTIAL - 各决策条件的首个可求值拍：** 推导已存在，而没有任何重放产出它。
+  `crates/strategy_factory/src/condition_readiness_derivation_v1.rs` 里的
+  `derive_condition_readiness_census_v1` 读一份冻结程序的图与决策表，逐条件返回：其闭包中每个输入
+  都满足冻结时可用性规则的首个拍、定下该拍的那条规则、以及施加它的那个节点。它从已发布的目录读取
+  每条规则，而不是从节点参数去推断，因此一个带着周期却并不为此等待的原语不会被算成在等待。
+  它的调用方只有它自己的证明。
 - **TARGET - `REPAIR_VALIDATION` 请求与结果：** 不存在任何实现。`REPAIR_VALIDATION` 与
   `RepairValidation` 不出现在 `crates/` 或 `product/` 下的任何文件里。
 - **TARGET - `SIMULATOR` 与 `BACKTEST_OPERATIONAL` 原生 repair：** 不存在 Backtest 的 repair 面。四个 Backtest

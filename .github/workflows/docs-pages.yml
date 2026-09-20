@@ -8,6 +8,16 @@ on:
       - docs/**
       - docs-site/**
       - icon.svg
+      # `check:routes:unit` asserts that Capability Adoption covers every Cargo workspace member
+      # exactly once. That correspondence has two sides and this trigger used to watch only one, so
+      # a pull request that added a crate and touched no documentation left the assertion failing on
+      # `main` with nothing reporting it - the next person to edit a document inherited the red and
+      # it was charged to them. #738 added `crates/scanner_custody`; the last green run here was the
+      # commit before it.
+      #
+      # Of the last 200 commits on `main`, 23 touch this file and 20 of those change the members
+      # list, so this trigger is almost always the case it exists for.
+      - Cargo.toml
   pull_request:
     branches: [main]
     paths:
@@ -15,6 +25,16 @@ on:
       - docs/**
       - docs-site/**
       - icon.svg
+      # `check:routes:unit` asserts that Capability Adoption covers every Cargo workspace member
+      # exactly once. That correspondence has two sides and this trigger used to watch only one, so
+      # a pull request that added a crate and touched no documentation left the assertion failing on
+      # `main` with nothing reporting it - the next person to edit a document inherited the red and
+      # it was charged to them. #738 added `crates/scanner_custody`; the last green run here was the
+      # commit before it.
+      #
+      # Of the last 200 commits on `main`, 23 touch this file and 20 of those change the members
+      # list, so this trigger is almost always the case it exists for.
+      - Cargo.toml
   workflow_dispatch:
 
 permissions:

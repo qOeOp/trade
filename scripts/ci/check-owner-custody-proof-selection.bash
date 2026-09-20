@@ -78,7 +78,6 @@ readonly -A unselected_reason=(
   ["exact_complex_cache_executes_program_family_path_reproducibly"]="requires the separately downloaded exact 24-month Binance Vision cache; no workflow, Makefile or script provides it"
   ["exact_pilot_cache_executes_native_family_path"]="requires the separately downloaded exact 24-month Binance Vision cache; no workflow, Makefile or script provides it"
   ["forged_v3_admission_fails_without_replay_transition_or_outbox_write"]="needs sealed-source-intake-composer-acceptance, which the chain cannot simply add: the feature changes what the API materializes, and the chain refuses the result with 'rd_research_view_transitions_v3 has incompatible custody or relation options'. These four need their own provisioning, not a wider union"
-  ["generated_candidate_is_a_real_strict_abi_three_module"]="its ad-hoc guest build does not clear the environment the way the frozen sandbox does, so it inherits the workspace's denied warnings and the generated guest's unused binding refuses the build; production is unaffected because the sandbox clears it"
   ["live_bounded_pit_probe_stops_on_cost_or_returns_authentic_evidence"]="live vendor probe; no workflow wires DATABENTO_API_KEY. It passes against the real vendor: one run downloads BBO and Definition for 0.000184 USD under a 0.05 USD ceiling"
   ["live_probe_answers_the_owner_scope_or_refuses"]="live vendor probe; no workflow wires DATABENTO_API_KEY. It passes locally, though on the refusal branch rather than the answering one"
   ["market_data_answers_one_frozen_request_from_live_vendor_data"]="live vendor probe; needs DATABENTO_API_KEY and MARKET_DATA_OWNER_DATABASE_URL on a store whose market_data_private schema already exists. It passes that way: twelve seconds against real vendor data"
@@ -210,7 +209,16 @@ for crate in "${owner_crates[@]}"; do
     rg -n -A4 '#\[ignore' "$crate" --type rust 2> /dev/null |
       awk '
         /^--$/ { taken = 0; next }
-        /#\[ignore/ { taken = 0; next }
+        /#\[ignore/ {
+          # Prose that names the attribute is not the attribute. A comment mentioning `#[ignore]`
+          # opens a four-line window like a real one, and the next `fn` in it was reported as an
+          # unselected proof even when that function is not ignored at all. Consuming the window
+          # rather than skipping the line is what suppresses it: skipping would leave the
+          # following `fn` to be taken by the untaken-window rule below, which is the bug.
+          if (substr($0, 1, index($0, "#[ignore") - 1) ~ /\/\//) { taken = 1; next }
+          taken = 0
+          next
+        }
         !taken && /[[:space:]:-]fn [a-z_0-9]+/ {
           match($0, /fn [a-z_0-9]+/)
           print substr($0, RSTART + 3, RLENGTH - 3)
