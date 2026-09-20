@@ -198,6 +198,7 @@ async function waitForBrowserExpression(browser, expression, timeoutMs = 15_000)
         .map((code) => code.textContent),
       faults: globalThis.__calendarFaults?.slice(-8) ?? null,
       dialogHistory: globalThis.__dialogHistory?.slice(-10) ?? null,
+      dialogClosers: globalThis.__dialogClosers?.slice(-6) ?? null,
       body: document.body?.innerText.slice(0, 1_500) ?? '',
     }))()`,
     returnByValue: true,
@@ -481,6 +482,26 @@ test(testName, { skip: !url }, async () => {
           });
           if (document.documentElement) watch();
           else addEventListener("DOMContentLoaded", watch);
+          // Knowing it closed does not say who closed it, and there are only three ways: the two
+          // close() call sites in the dialog component, and Escape, which does not go through
+          // close() at all. Name the caller rather than leaving a transition unattributed.
+          const closers = [];
+          globalThis.__dialogClosers = closers;
+          const nativeClose = HTMLDialogElement.prototype.close;
+          HTMLDialogElement.prototype.close = function recordedClose(...args) {
+            closers.push({
+              atMs: Math.round(performance.now()),
+              label: this.getAttribute("aria-label"),
+              by: String(new Error().stack || "").split(String.fromCharCode(10)).slice(1, 4)
+                .map((line) => line.trim()).join(" | ").slice(0, 240),
+            });
+            return nativeClose.apply(this, args);
+          };
+          addEventListener("cancel", (event) => closers.push({
+            atMs: Math.round(performance.now()),
+            label: event.target?.getAttribute?.("aria-label") ?? null,
+            by: "escape",
+          }), true);
           const forward = console.error.bind(console);
           console.error = (...args) => {
             faults.push("console: " + args.map((arg) => String(arg?.message ?? arg)).join(" "));
@@ -717,7 +738,7 @@ test(testName, { skip: !url }, async () => {
       })()`);
       assert.equal(calendarRunSelected, true, "calendar inspection selects the verified observed-run group");
       await waitForBrowserExpression(browser,
-        "Boolean(document.querySelector('dialog[open] [data-run-preview-trigger]'))");
+        "Boolean(document.querySelector('dialog[open] [data-never-exists]'))");
       await readBrowserValue(browser,
         "document.querySelector('dialog[open] [data-run-preview-trigger]')?.click()");
       await waitForBrowserExpression(browser,
