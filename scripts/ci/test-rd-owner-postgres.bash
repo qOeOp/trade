@@ -1413,6 +1413,48 @@ cleanup() {
       "$(printf '%s' "$postgres_server_log" | grep -c '' || true)" >&2
     printf '%s\n' "$postgres_server_log" >&2
     echo "=== end postgres server log ===" >&2
+
+    # A deadlock's DETAIL names both processes and the statement each one is BLOCKED ON. It never
+    # says what either one already holds, and that is the half the fix depends on: the inverted
+    # transaction is the one that took the second table first, which is a fact about its past.
+    #
+    # Two attempts to recover that past from the code failed. Walking the call graph by hand got
+    # lost six levels down, twice. A static walker over every function that threads the same
+    # `&mut Transaction` then reported that no single body takes the attempts lock before the
+    # receipts lock - so the order is assembled across calls, and reading the source cannot say
+    # in which order a given run made them.
+    #
+    # `log_statement=all` records the past directly. The whole statement log is far too large to
+    # print, so only the processes PostgreSQL itself named in a deadlock are printed, in the order
+    # they ran. That turns "which call site holds the attempts lock" from an inference into a
+    # transcript. The filter is the point: without it this block would bury the chain's own output.
+    local deadlock_pids
+    deadlock_pids="$(printf '%s' "$postgres_server_log" |
+      grep -oE 'Process [0-9]+ waits for' | grep -oE '[0-9]+' | sort -u || true)"
+    if [[ -n "$deadlock_pids" ]]; then
+      printf '=== statements of the %s processes named in a deadlock ===\n' \
+        "$(printf '%s' "$deadlock_pids" | grep -c '' || true)" >&2
+      local pid pid_lines
+      while read -r pid; do
+        [[ -n "$pid" ]] || continue
+        # `[pid]` appears in every line this backend wrote, so this keeps its whole transcript.
+        pid_lines="$(printf '%s\n' "$postgres_server_log" | grep -F "[$pid]" || true)"
+        if [[ -z "$pid_lines" ]]; then
+          # Before `log_statement=all` this was the normal reading for the process that WON the
+          # deadlock: it never errored, so it never wrote a line of its own and appeared only
+          # inside the loser's DETAIL. An empty transcript and a process that did nothing read
+          # the same way, so say which one this is instead of printing nothing.
+          printf -- '--- pid %s: named in a DETAIL but wrote no line of its own ---\n' "$pid" >&2
+          continue
+        fi
+        printf -- '--- pid %s, in order ---\n' "$pid" >&2
+        printf '%s\n' "$pid_lines" >&2
+      done <<< "$deadlock_pids"
+      echo "=== end deadlock process statements ===" >&2
+    else
+      # Zero is a reading only when the instrument was present. Say which zero this is.
+      echo "=== no deadlock in this run: no process transcripts to print ===" >&2
+    fi
   fi
 
   if [[ "$container_created" == true ]] &&
@@ -1509,7 +1551,8 @@ docker run \
   --env POSTGRES_DB=postgres \
   "$postgres_image" \
   -c log_lock_waits=on \
-  -c deadlock_timeout=1s > /dev/null
+  -c deadlock_timeout=1s \
+  -c log_statement=all > /dev/null
 container_created=true
 docker run \
   --detach \
