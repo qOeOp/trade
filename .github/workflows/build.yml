@@ -674,6 +674,16 @@ jobs:
           make cargo-test NEXTEST_PROFILE=ci
           EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
 
+      # `cargo nextest run` rewrites junit.xml, and the proofs below are a second invocation, so
+      # this copy has to happen between them or only the proofs survive. `always()`: a failing run
+      # is the one whose record matters most.
+      - name: Keep the workspace test record
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p junit
+          cp "${CARGO_TARGET_DIR}/nextest/ci/junit.xml" junit/workspace.xml
+
       - name: Run the toolchain proofs
         # These are `#[ignore]`, so `make cargo-test` never selects them. They need the pinned
         # wasm target this job already installs, or Docker, and no database.
@@ -682,6 +692,23 @@ jobs:
         # that only speaks when its neighbour succeeds is one an unrelated failure can silence.
         if: ${{ !cancelled() }}
         run: make cargo-test-toolchain-proofs NEXTEST_PROFILE=ci
+
+      - name: Keep the toolchain proof record
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p junit
+          cp "${CARGO_TARGET_DIR}/nextest/ci/junit.xml" junit/toolchain-proofs.xml
+
+      - name: Publish which tests ran
+        if: always()
+        # https://github.com/actions/upload-artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: test-record-linux-x86
+          path: junit/
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Report disk space after workspace Rust tests
         if: always()

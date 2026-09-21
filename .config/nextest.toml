@@ -5,6 +5,14 @@ large-data-tests = { max-threads = 1 }
 [profile.default]
 # Default settings
 
+# Which tests ran is not recoverable from this job's log: `--status-level fail` prints nothing for a
+# test that passes, so "the name is absent" reads the same whether it ran and passed or was never
+# selected. JUnit records every test by name, pass or fail, and a machine can assert on it.
+# Written to <CARGO_TARGET_DIR>/nextest/ci/junit.xml, and overwritten by each `cargo nextest run`,
+# so a job with more than one invocation must copy the file out between them.
+[profile.ci.junit]
+path = "junit.xml"
+
 [profile.ci]
 # GitHub Actions runners have 4 vCPUs and 16GB RAM.
 # Limit parallelism to avoid OOM kills from too many concurrent test processes.
