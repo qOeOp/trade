@@ -141,6 +141,44 @@ Owner resolve, provider call, or business write. No Dashboard route or admitted 
 currently supplies its positive projection, so component tests and static rendering do not establish
 live data, deployed-browser acceptance, S3 availability, or executor cutover.
 
+## Bounded admission: single-run backtest report
+
+`BacktestRunReport` is a `TARGET_DRAFT / IMPLEMENTATION_ADMITTED` read-only report surface for one
+Owner-committed backtest run on the already documented `/backtest` surface. It cites no upstream
+source-fidelity reference. The Vibe Trading tree the other bounded admissions name is not vendored
+in this repository and was not searched, so this section asserts nothing about whether such a
+surface exists there; the presentation is bounded by the contract below rather than by an imported
+design. It
+answers exactly four questions about a single run and carries no field that answers a fifth: what
+the strategy is, which data it ran on, what the run produced, and what each fill was. Ranking a
+strategy against its peers is `BacktestReturnBand`, not this surface, so this report renders no
+quantile band, no benchmark and no comparison.
+
+Positive rendering accepts only one exact, bounded Owner-projected `run_identity`. The strategy is
+given as the admitted single-threshold family states it: channel, threshold, comparison, both-side
+actions and falsifier. Canonical UTC means RFC3339 with exactly nine fractional digits and a
+`Z` offset, so no truncation decision is delegated and no offset form is accepted. The data window
+is given as instrument, granularity, canonical UTC start and end, snapshot count, and an explicit `cut_identity` that the projection carries rather than the
+browser inferring from timestamp alignment. Neither the strategy statement nor the granularity, snapshot count
+and `cut_identity` comes from the backtest result: the run carries them from upstream and the
+projection states them beside it, so a reader looking for a threshold inside a canonical backtest
+result will not find one. The result is an equity or return series plus net return, maximum drawdown
+and fill count, each a named field the Owner validates rather than a lookup into an untyped map, so
+a renamed key fails to `unavailable` instead of rendering as absent. Each fill carries a canonical UTC timestamp, side, price
+and quantity. Points are strictly ordered, so equal adjacent timestamps fail closed rather than
+render. Every numeric value is finite, so `NaN` and infinity fail closed rather than reaching an
+axis. Unknown keys, malformed ordering, mismatched series, stale carried values or non-canonical
+time fail closed to zero report data. The browser derives nothing: it does not synthesize returns,
+compute a drawdown the projection did not state, or infer a fill the projection did not list.
+
+`loading`, `unavailable`, valid `empty` and `available` are four distinct states, and the projection
+expresses them distinctly: an empty series must not stand for both a run that produced no points and
+a read that could not be answered. This surface performs no Backtest dispatch, selection commit,
+comparison judgment, Owner resolve, provider call or business write, and it establishes no S3
+deployment availability, executor cutover or real-trading authority. No Dashboard route or admitted
+Backtest Owner resolver currently supplies its positive projection, so component tests and static
+rendering do not establish live data or deployed-browser acceptance.
+
 ## Bounded admission: Exploratory Replay request and result readback
 
 `ExploratoryReplayReadbackWorkbench` is the exact `P` surface for `/backtest`. It is an
