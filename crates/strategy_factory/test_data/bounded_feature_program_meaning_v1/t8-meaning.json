@@ -1,0 +1,1562 @@
+{
+ "plugin_semantic_id": "research.plugin.bfp.v1",
+ "inputs": [
+  {
+   "role_semantic_id": "research.input.close.daily.v1",
+   "value_port_semantic_id": "input.daily.v1",
+   "update_clock": {
+    "kind": "TRIGGER",
+    "input_role_id": "research.input.close.daily.v1"
+   }
+  },
+  {
+   "role_semantic_id": "research.input.high.daily.v1",
+   "value_port_semantic_id": "input.high.v1",
+   "update_clock": {
+    "kind": "TRIGGER",
+    "input_role_id": "research.input.high.daily.v1"
+   }
+  },
+  {
+   "role_semantic_id": "research.input.low.daily.v1",
+   "value_port_semantic_id": "input.low.v1",
+   "update_clock": {
+    "kind": "TRIGGER",
+    "input_role_id": "research.input.low.daily.v1"
+   }
+  },
+  {
+   "role_semantic_id": "research.input.open.daily.v1",
+   "value_port_semantic_id": "input.open.v1",
+   "update_clock": {
+    "kind": "TRIGGER",
+    "input_role_id": "research.input.open.daily.v1"
+   }
+  }
+ ],
+ "constants": [
+  {
+   "constant_id": "position",
+   "value": {
+    "kind": "POSITION_INTENT_V1",
+    "semantic_id": "kernel.position.enter.v1"
+   }
+  },
+  {
+   "constant_id": "target",
+   "value": {
+    "kind": "TARGET_VARIANT_V1",
+    "semantic_id": "kernel.target.position.v1"
+   }
+  },
+  {
+   "constant_id": "target-position",
+   "value": {
+    "kind": "I64",
+    "value": 1
+   }
+  },
+  {
+   "constant_id": "target-weight",
+   "value": {
+    "kind": "I32",
+    "value": 0
+   }
+  },
+  {
+   "constant_id": "rebalance",
+   "value": {
+    "kind": "U64",
+    "value": 1
+   }
+  },
+  {
+   "constant_id": "reconciliation",
+   "value": {
+    "kind": "I64",
+    "value": 1
+   }
+  },
+  {
+   "constant_id": "protection",
+   "value": {
+    "kind": "PROTECTION_VARIANT_V1",
+    "semantic_id": "kernel.protection.replace.v1"
+   }
+  },
+  {
+   "constant_id": "stop-loss",
+   "value": {
+    "kind": "I64",
+    "value": 90
+   }
+  },
+  {
+   "constant_id": "take-profit",
+   "value": {
+    "kind": "I64",
+    "value": 120
+   }
+  },
+  {
+   "constant_id": "trailing-distance",
+   "value": {
+    "kind": "U64",
+    "value": 5
+   }
+  },
+  {
+   "constant_id": "trailing-stop",
+   "value": {
+    "kind": "I64",
+    "value": 95
+   }
+  },
+  {
+   "constant_id": "initial-condition",
+   "value": {
+    "kind": "BOOLEAN",
+    "value": false
+   }
+  },
+  {
+   "constant_id": "one",
+   "value": {
+    "kind": "FIXED_I128",
+    "coefficient": "1",
+    "unit": "SIGNAL",
+    "scale": 0
+   }
+  },
+  {
+   "constant_id": "zero",
+   "value": {
+    "kind": "FIXED_I128",
+    "coefficient": "0",
+    "unit": "SIGNAL",
+    "scale": 0
+   }
+  },
+  {
+   "constant_id": "k_enter",
+   "value": {
+    "kind": "FIXED_I128",
+    "coefficient": "-200",
+    "unit": "PRICE/PRICE",
+    "scale": 4
+   }
+  },
+  {
+   "constant_id": "k_exit",
+   "value": {
+    "kind": "FIXED_I128",
+    "coefficient": "-50",
+    "unit": "PRICE/PRICE",
+    "scale": 4
+   }
+  },
+  {
+   "constant_id": "k_up",
+   "value": {
+    "kind": "FIXED_I128",
+    "coefficient": "50",
+    "unit": "PRICE",
+    "scale": 2
+   }
+  },
+  {
+   "constant_id": "w_on",
+   "value": {
+    "kind": "FIXED_I128",
+    "coefficient": "200000",
+    "unit": "WEIGHT_MICROS",
+    "scale": 0
+   }
+  },
+  {
+   "constant_id": "position-exit",
+   "value": {
+    "kind": "POSITION_INTENT_V1",
+    "semantic_id": "kernel.position.exit.v1"
+   }
+  },
+  {
+   "constant_id": "target-weight-variant",
+   "value": {
+    "kind": "TARGET_VARIANT_V1",
+    "semantic_id": "kernel.target.weight.v1"
+   }
+  }
+ ],
+ "state_cells": [
+  {
+   "state_id": "st_m",
+   "writer_node_id": "m",
+   "state_kind": {
+    "kind": "PRIMITIVE"
+   },
+   "initial": "CANONICAL_EMPTY",
+   "max_bytes": 1316
+  },
+  {
+   "state_id": "st_atr",
+   "writer_node_id": "chg3",
+   "state_kind": {
+    "kind": "PRIMITIVE"
+   },
+   "initial": "CANONICAL_EMPTY",
+   "max_bytes": 400
+  },
+  {
+   "state_id": "in_pos",
+   "writer_node_id": "in_pos_next",
+   "state_kind": {
+    "kind": "STRATEGY",
+    "value_type": {
+     "kind": "BOOLEAN"
+    },
+    "source_port_id": "value"
+   },
+   "initial": {
+    "CONSTANT": {
+     "constant_id": "initial-condition"
+    }
+   },
+   "max_bytes": 1
+  }
+ ],
+ "nodes": [
+  {
+   "node_id": "m",
+   "primitive_semantic_id": "bfp.rolling.mean.full-window.nearest-ties-to-even.v1",
+   "input_bindings": [
+    {
+     "port_id": "value",
+     "source": {
+      "kind": "INPUT_VALUE",
+      "input_role_id": "research.input.close.daily.v1"
+     },
+     "require_ready": false
+    }
+   ],
+   "output_ports": [
+    {
+     "port_id": "value",
+     "value_type": {
+      "kind": "FIXED_I128",
+      "unit": "PRICE",
+      "scale": 2
+     },
+     "availability": "WARMING_READY"
+    }
+   ],
+   "parameters": {
+    "kind": "WINDOW_AND_OUTPUT_SCALE",
+    "window": 4,
+    "output_scale": 2,
+    "rounding": "NEAREST_TIES_TO_EVEN"
+   },
+   "state_id": "st_m",
+   "update_clock": {
+    "kind": "TRIGGER",
+    "input_role_id": "research.input.close.daily.v1"
+   }
+  },
+  {
+   "node_id": "dev",
+   "primitive_semantic_id": "bfp.fixed-i128.sub.max-scale-38.explicit-rescale.i256-single-round.nearest-ties-to-even.v1",
+   "input_bindings": [
+    {
+     "port_id": "a",
+     "source": {
+      "kind": "INPUT_VALUE",
+      "input_role_id": "research.input.close.daily.v1"
+     },
+     "require_ready": false
+    },
+    {
+     "port_id": "b",
+     "source": {
+      "kind": "NODE_OUTPUT",
+      "node_id": "m",
+      "port_id": "value"
+     },
+     "require_ready": true
+    }
+   ],
+   "output_ports": [
+    {
+     "port_id": "value",
+     "value_type": {
+      "kind": "FIXED_I128",
+      "unit": "PRICE",
+      "scale": 2
+     },
+     "availability": "READY"
+    }
+   ],
+   "parameters": {
+    "kind": "OUTPUT_SCALE",
+    "output_scale": 2,
+    "rounding": "NEAREST_TIES_TO_EVEN"
+   },
+   "state_id": null,
+   "update_clock": null
+  },
+  {
+   "node_id": "rel",
+   "primitive_semantic_id": "bfp.fixed-i128.div.max-scale-38.explicit-rescale.i256-single-round.nearest-ties-to-even.v1",
+   "input_bindings": [
+    {
+     "port_id": "a",
+     "source": {
+      "kind": "NODE_OUTPUT",
+      "node_id": "dev",
+      "port_id": "value"
+     },
+     "require_ready": false
+    },
+    {
+     "port_id": "b",
+     "source": {
+      "kind": "NODE_OUTPUT",
+      "node_id": "m",
+      "port_id": "value"
+     },
+     "require_ready": true
+    }
+   ],
+   "output_ports": [
+    {
+     "port_id": "value",
+     "value_type": {
+      "kind": "FIXED_I128",
+      "unit": "PRICE/PRICE",
+      "scale": 4
+     },
+     "availability": "READY"
+    }
+   ],
+   "parameters": {
+    "kind": "OUTPUT_SCALE",
+    "output_scale": 4,
+    "rounding": "NEAREST_TIES_TO_EVEN"
+   },
+   "state_id": null,
+   "update_clock": null
+  },
+  {
+   "node_id": "chg3",
+   "primitive_semantic_id": "bfp.candle.gap-signed.previous-close.ohlc-validated.v1",
+   "input_bindings": [
+    {
+     "port_id": "close",
+     "source": {
+      "kind": "INPUT_VALUE",
+      "input_role_id": "research.input.close.daily.v1"
+     },
+     "require_ready": false
+    },
+    {
+     "port_id": "high",
+     "source": {
+      "kind": "INPUT_VALUE",
+      "input_role_id": "research.input.high.daily.v1"
+     },
+     "require_ready": false
+    },
+    {
+     "port_id": "low",
+     "source": {
+      "kind": "INPUT_VALUE",
+      "input_role_id": "research.input.low.daily.v1"
+     },
+     "require_ready": false
+    },
+    {
+     "port_id": "open",
+     "source": {
+      "kind": "INPUT_VALUE",
+      "input_role_id": "research.input.open.daily.v1"
+     },
+     "require_ready": false
+    }
+   ],
+   "output_ports": [
+    {
+     "port_id": "value",
+     "value_type": {
+      "kind": "FIXED_I128",
+      "unit": "PRICE",
+      "scale": 2
+     },
+     "availability": "WARMING_READY"
+    }
+   ],
+   "parameters": {
+    "kind": "NONE"
+   },
+   "state_id": "st_atr",
+   "update_clock": {
+    "kind": "TRIGGER",
+    "input_role_id": "research.input.close.daily.v1"
+   }
+  },
+  {
+   "node_id": "c_low",
+   "primitive_semantic_id": "bfp.fixed-i128.compare.equal-scale.v1",
+   "input_bindings": [
+    {
+     "port_id": "a",
+     "source": {
+      "kind": "NODE_OUTPUT",
+      "node_id": "rel",
+      "port_id": "value"
+     },
+     "require_ready": false
+    },
+    {
+     "port_id": "b",
+     "source": {
+      "kind": "CONSTANT",
+      "constant_id": "k_enter"
+     },
+     "require_ready": false
+    }
+   ],
+   "output_ports": [
+    {
+     "port_id": "value",
+     "value_type": {
+      "kind": "BOOLEAN"
+     },
+     "availability": "READY"
+    }
+   ],
+   "parameters": {
+    "kind": "COMPARISON_PREDICATE",
+    "predicate": "LESS"
+   },
+   "state_id": null,
+   "update_clock": null
+  },
+  {
+   "node_id": "c_rsi",
+   "primitive_semantic_id": "bfp.fixed-i128.compare.equal-scale.v1",
+   "input_bindings": [
+    {
+     "port_id": "a",
+     "source": {
+      "kind": "NODE_OUTPUT",
+      "node_id": "chg3",
+      "port_id": "value"
+     },
+     "require_ready": true
+    },
+    {
+     "port_id": "b",
+     "source": {
+      "kind": "CONSTANT",
+      "constant_id": "k_up"
+     },
+     "require_ready": false
+    }
+   ],
+   "output_ports": [
+    {
+     "port_id": "value",
+     "value_type": {
+      "kind": "BOOLEAN"
+     },
+     "availability": "READY"
+    }
+   ],
+   "parameters": {
+    "kind": "COMPARISON_PREDICATE",
+    "predicate": "GREATER"
+   },
+   "state_id": null,
+   "update_clock": null
+  },
+  {
+   "node_id": "c_back",
+   "primitive_semantic_id": "bfp.fixed-i128.compare.equal-scale.v1",
+   "input_bindings": [
+    {
+     "port_id": "a",
+     "source": {
+      "kind": "NODE_OUTPUT",
+      "node_id": "rel",
+      "port_id": "value"
+     },
+     "require_ready": false
+    },
+    {
+     "port_id": "b",
+     "source": {
+      "kind": "CONSTANT",
+      "constant_id": "k_exit"
+     },
+     "require_ready": false
+    }
+   ],
+   "output_ports": [
+    {
+     "port_id": "value",
+     "value_type": {
+      "kind": "BOOLEAN"
+     },
+     "availability": "READY"
+    }
+   ],
+   "parameters": {
+    "kind": "COMPARISON_PREDICATE",
+    "predicate": "GREATER"
+   },
+   "state_id": null,
+   "update_clock": null
+  },
+  {
+   "node_id": "n_pos",
+   "primitive_semantic_id": "bfp.fixed-i128.select.equal-scale.v1",
+   "input_bindings": [
+    {
+     "port_id": "condition",
+     "source": {
+      "kind": "PRIOR_STATE",
+      "state_id": "in_pos"
+     },
+     "require_ready": false
+    },
+    {
+     "port_id": "when_true",
+     "source": {
+      "kind": "CONSTANT",
+      "constant_id": "zero"
+     },
+     "require_ready": false
+    },
+    {
+     "port_id": "when_false",
+     "source": {
+      "kind": "CONSTANT",
+      "constant_id": "one"
+     },
+     "require_ready": false
+    }
+   ],
+   "output_ports": [
+    {
+     "port_id": "value",
+     "value_type": {
+      "kind": "FIXED_I128",
+      "unit": "SIGNAL",
+      "scale": 0
+     },
+     "availability": "READY"
+    }
+   ],
+   "parameters": {
+    "kind": "NONE"
+   },
+   "state_id": null,
+   "update_clock": null
+  },
+  {
+   "node_id": "b_npos",
+   "primitive_semantic_id": "bfp.fixed-i128.compare.equal-scale.v1",
+   "input_bindings": [
+    {
+     "port_id": "a",
+     "source": {
+      "kind": "NODE_OUTPUT",
+      "node_id": "n_pos",
+      "port_id": "value"
+     },
+     "require_ready": false
+    },
+    {
+     "port_id": "b",
+     "source": {
+      "kind": "CONSTANT",
+      "constant_id": "zero"
+     },
+     "require_ready": false
+    }
+   ],
+   "output_ports": [
+    {
+     "port_id": "value",
+     "value_type": {
+      "kind": "BOOLEAN"
+     },
+     "availability": "READY"
+    }
+   ],
+   "parameters": {
+    "kind": "COMPARISON_PREDICATE",
+    "predicate": "GREATER"
+   },
+   "state_id": null,
+   "update_clock": null
+  },
+  {
+   "node_id": "y_pos",
+   "primitive_semantic_id": "bfp.fixed-i128.select.equal-scale.v1",
+   "input_bindings": [
+    {
+     "port_id": "condition",
+     "source": {
+      "kind": "NODE_OUTPUT",
+      "node_id": "b_npos",
+      "port_id": "value"
+     },
+     "require_ready": false
+    },
+    {
+     "port_id": "when_true",
+     "source": {
+      "kind": "CONSTANT",
+      "constant_id": "zero"
+     },
+     "require_ready": false
+    },
+    {
+     "port_id": "when_false",
+     "source": {
+      "kind": "CONSTANT",
+      "constant_id": "one"
+     },
+     "require_ready": false
+    }
+   ],
+   "output_ports": [
+    {
+     "port_id": "value",
+     "value_type": {
+      "kind": "FIXED_I128",
+      "unit": "SIGNAL",
+      "scale": 0
+     },
+     "availability": "READY"
+    }
+   ],
+   "parameters": {
+    "kind": "NONE"
+   },
+   "state_id": null,
+   "update_clock": null
+  },
+  {
+   "node_id": "b_ypos",
+   "primitive_semantic_id": "bfp.fixed-i128.compare.equal-scale.v1",
+   "input_bindings": [
+    {
+     "port_id": "a",
+     "source": {
+      "kind": "NODE_OUTPUT",
+      "node_id": "y_pos",
+      "port_id": "value"
+     },
+     "require_ready": false
+    },
+    {
+     "port_id": "b",
+     "source": {
+      "kind": "CONSTANT",
+      "constant_id": "zero"
+     },
+     "require_ready": false
+    }
+   ],
+   "output_ports": [
+    {
+     "port_id": "value",
+     "value_type": {
+      "kind": "BOOLEAN"
+     },
+     "availability": "READY"
+    }
+   ],
+   "parameters": {
+    "kind": "COMPARISON_PREDICATE",
+    "predicate": "GREATER"
+   },
+   "state_id": null,
+   "update_clock": null
+  },
+  {
+   "node_id": "e1",
+   "primitive_semantic_id": "bfp.fixed-i128.select.equal-scale.v1",
+   "input_bindings": [
+    {
+     "port_id": "condition",
+     "source": {
+      "kind": "NODE_OUTPUT",
+      "node_id": "c_rsi",
+      "port_id": "value"
+     },
+     "require_ready": false
+    },
+    {
+     "port_id": "when_true",
+     "source": {
+      "kind": "CONSTANT",
+      "constant_id": "one"
+     },
+     "require_ready": false
+    },
+    {
+     "port_id": "when_false",
+     "source": {
+      "kind": "CONSTANT",
+      "constant_id": "zero"
+     },
+     "require_ready": false
+    }
+   ],
+   "output_ports": [
+    {
+     "port_id": "value",
+     "value_type": {
+      "kind": "FIXED_I128",
+      "unit": "SIGNAL",
+      "scale": 0
+     },
+     "availability": "READY"
+    }
+   ],
+   "parameters": {
+    "kind": "NONE"
+   },
+   "state_id": null,
+   "update_clock": null
+  },
+  {
+   "node_id": "e2",
+   "primitive_semantic_id": "bfp.fixed-i128.select.equal-scale.v1",
+   "input_bindings": [
+    {
+     "port_id": "condition",
+     "source": {
+      "kind": "NODE_OUTPUT",
+      "node_id": "c_low",
+      "port_id": "value"
+     },
+     "require_ready": false
+    },
+    {
+     "port_id": "when_true",
+     "source": {
+      "kind": "NODE_OUTPUT",
+      "node_id": "e1",
+      "port_id": "value"
+     },
+     "require_ready": false
+    },
+    {
+     "port_id": "when_false",
+     "source": {
+      "kind": "CONSTANT",
+      "constant_id": "zero"
+     },
+     "require_ready": false
+    }
+   ],
+   "output_ports": [
+    {
+     "port_id": "value",
+     "value_type": {
+      "kind": "FIXED_I128",
+      "unit": "SIGNAL",
+      "scale": 0
+     },
+     "availability": "READY"
+    }
+   ],
+   "parameters": {
+    "kind": "NONE"
+   },
+   "state_id": null,
+   "update_clock": null
+  },
+  {
+   "node_id": "e3",
+   "primitive_semantic_id": "bfp.fixed-i128.select.equal-scale.v1",
+   "input_bindings": [
+    {
+     "port_id": "condition",
+     "source": {
+      "kind": "NODE_OUTPUT",
+      "node_id": "b_npos",
+      "port_id": "value"
+     },
+     "require_ready": false
+    },
+    {
+     "port_id": "when_true",
+     "source": {
+      "kind": "NODE_OUTPUT",
+      "node_id": "e2",
+      "port_id": "value"
+     },
+     "require_ready": false
+    },
+    {
+     "port_id": "when_false",
+     "source": {
+      "kind": "CONSTANT",
+      "constant_id": "zero"
+     },
+     "require_ready": false
+    }
+   ],
+   "output_ports": [
+    {
+     "port_id": "value",
+     "value_type": {
+      "kind": "FIXED_I128",
+      "unit": "SIGNAL",
+      "scale": 0
+     },
+     "availability": "READY"
+    }
+   ],
+   "parameters": {
+    "kind": "NONE"
+   },
+   "state_id": null,
+   "update_clock": null
+  },
+  {
+   "node_id": "entry",
+   "primitive_semantic_id": "bfp.fixed-i128.compare.equal-scale.v1",
+   "input_bindings": [
+    {
+     "port_id": "a",
+     "source": {
+      "kind": "NODE_OUTPUT",
+      "node_id": "e3",
+      "port_id": "value"
+     },
+     "require_ready": false
+    },
+    {
+     "port_id": "b",
+     "source": {
+      "kind": "CONSTANT",
+      "constant_id": "zero"
+     },
+     "require_ready": false
+    }
+   ],
+   "output_ports": [
+    {
+     "port_id": "value",
+     "value_type": {
+      "kind": "BOOLEAN"
+     },
+     "availability": "READY"
+    }
+   ],
+   "parameters": {
+    "kind": "COMPARISON_PREDICATE",
+    "predicate": "GREATER"
+   },
+   "state_id": null,
+   "update_clock": null
+  },
+  {
+   "node_id": "x1",
+   "primitive_semantic_id": "bfp.fixed-i128.select.equal-scale.v1",
+   "input_bindings": [
+    {
+     "port_id": "condition",
+     "source": {
+      "kind": "NODE_OUTPUT",
+      "node_id": "c_back",
+      "port_id": "value"
+     },
+     "require_ready": false
+    },
+    {
+     "port_id": "when_true",
+     "source": {
+      "kind": "CONSTANT",
+      "constant_id": "one"
+     },
+     "require_ready": false
+    },
+    {
+     "port_id": "when_false",
+     "source": {
+      "kind": "CONSTANT",
+      "constant_id": "zero"
+     },
+     "require_ready": false
+    }
+   ],
+   "output_ports": [
+    {
+     "port_id": "value",
+     "value_type": {
+      "kind": "FIXED_I128",
+      "unit": "SIGNAL",
+      "scale": 0
+     },
+     "availability": "READY"
+    }
+   ],
+   "parameters": {
+    "kind": "NONE"
+   },
+   "state_id": null,
+   "update_clock": null
+  },
+  {
+   "node_id": "x2",
+   "primitive_semantic_id": "bfp.fixed-i128.select.equal-scale.v1",
+   "input_bindings": [
+    {
+     "port_id": "condition",
+     "source": {
+      "kind": "NODE_OUTPUT",
+      "node_id": "b_ypos",
+      "port_id": "value"
+     },
+     "require_ready": false
+    },
+    {
+     "port_id": "when_true",
+     "source": {
+      "kind": "NODE_OUTPUT",
+      "node_id": "x1",
+      "port_id": "value"
+     },
+     "require_ready": false
+    },
+    {
+     "port_id": "when_false",
+     "source": {
+      "kind": "CONSTANT",
+      "constant_id": "zero"
+     },
+     "require_ready": false
+    }
+   ],
+   "output_ports": [
+    {
+     "port_id": "value",
+     "value_type": {
+      "kind": "FIXED_I128",
+      "unit": "SIGNAL",
+      "scale": 0
+     },
+     "availability": "READY"
+    }
+   ],
+   "parameters": {
+    "kind": "NONE"
+   },
+   "state_id": null,
+   "update_clock": null
+  },
+  {
+   "node_id": "exit",
+   "primitive_semantic_id": "bfp.fixed-i128.compare.equal-scale.v1",
+   "input_bindings": [
+    {
+     "port_id": "a",
+     "source": {
+      "kind": "NODE_OUTPUT",
+      "node_id": "x2",
+      "port_id": "value"
+     },
+     "require_ready": false
+    },
+    {
+     "port_id": "b",
+     "source": {
+      "kind": "CONSTANT",
+      "constant_id": "zero"
+     },
+     "require_ready": false
+    }
+   ],
+   "output_ports": [
+    {
+     "port_id": "value",
+     "value_type": {
+      "kind": "BOOLEAN"
+     },
+     "availability": "READY"
+    }
+   ],
+   "parameters": {
+    "kind": "COMPARISON_PREDICATE",
+    "predicate": "GREATER"
+   },
+   "state_id": null,
+   "update_clock": null
+  },
+  {
+   "node_id": "k1",
+   "primitive_semantic_id": "bfp.fixed-i128.select.equal-scale.v1",
+   "input_bindings": [
+    {
+     "port_id": "condition",
+     "source": {
+      "kind": "NODE_OUTPUT",
+      "node_id": "entry",
+      "port_id": "value"
+     },
+     "require_ready": false
+    },
+    {
+     "port_id": "when_true",
+     "source": {
+      "kind": "CONSTANT",
+      "constant_id": "one"
+     },
+     "require_ready": false
+    },
+    {
+     "port_id": "when_false",
+     "source": {
+      "kind": "NODE_OUTPUT",
+      "node_id": "y_pos",
+      "port_id": "value"
+     },
+     "require_ready": false
+    }
+   ],
+   "output_ports": [
+    {
+     "port_id": "value",
+     "value_type": {
+      "kind": "FIXED_I128",
+      "unit": "SIGNAL",
+      "scale": 0
+     },
+     "availability": "READY"
+    }
+   ],
+   "parameters": {
+    "kind": "NONE"
+   },
+   "state_id": null,
+   "update_clock": null
+  },
+  {
+   "node_id": "k2",
+   "primitive_semantic_id": "bfp.fixed-i128.select.equal-scale.v1",
+   "input_bindings": [
+    {
+     "port_id": "condition",
+     "source": {
+      "kind": "NODE_OUTPUT",
+      "node_id": "exit",
+      "port_id": "value"
+     },
+     "require_ready": false
+    },
+    {
+     "port_id": "when_true",
+     "source": {
+      "kind": "CONSTANT",
+      "constant_id": "zero"
+     },
+     "require_ready": false
+    },
+    {
+     "port_id": "when_false",
+     "source": {
+      "kind": "NODE_OUTPUT",
+      "node_id": "k1",
+      "port_id": "value"
+     },
+     "require_ready": false
+    }
+   ],
+   "output_ports": [
+    {
+     "port_id": "value",
+     "value_type": {
+      "kind": "FIXED_I128",
+      "unit": "SIGNAL",
+      "scale": 0
+     },
+     "availability": "READY"
+    }
+   ],
+   "parameters": {
+    "kind": "NONE"
+   },
+   "state_id": null,
+   "update_clock": null
+  },
+  {
+   "node_id": "in_pos_next",
+   "primitive_semantic_id": "bfp.fixed-i128.compare.equal-scale.v1",
+   "input_bindings": [
+    {
+     "port_id": "a",
+     "source": {
+      "kind": "NODE_OUTPUT",
+      "node_id": "k2",
+      "port_id": "value"
+     },
+     "require_ready": false
+    },
+    {
+     "port_id": "b",
+     "source": {
+      "kind": "CONSTANT",
+      "constant_id": "zero"
+     },
+     "require_ready": false
+    }
+   ],
+   "output_ports": [
+    {
+     "port_id": "value",
+     "value_type": {
+      "kind": "BOOLEAN"
+     },
+     "availability": "READY"
+    }
+   ],
+   "parameters": {
+    "kind": "COMPARISON_PREDICATE",
+    "predicate": "GREATER"
+   },
+   "state_id": null,
+   "update_clock": null
+  }
+ ],
+ "proposal_decision_table": {
+  "branches": [
+   {
+    "priority": 20,
+    "predicate": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "exit",
+     "port_id": "value"
+    },
+    "frame": {
+     "terminal_outputs": [
+      {
+       "manifest_port_id": "proposal.trailing-stop.v1",
+       "lifecycle_semantic_id": "kernel.protection.trailing-adjust.v1",
+       "source": {
+        "kind": "CONSTANT",
+        "constant_id": "trailing-stop"
+       },
+       "conversion": {
+        "kind": "EXACT"
+       }
+      },
+      {
+       "manifest_port_id": "proposal.trailing-distance.v1",
+       "lifecycle_semantic_id": "kernel.protection.trailing-adjust.v1",
+       "source": {
+        "kind": "CONSTANT",
+        "constant_id": "trailing-distance"
+       },
+       "conversion": {
+        "kind": "EXACT"
+       }
+      },
+      {
+       "manifest_port_id": "proposal.take-profit.v1",
+       "lifecycle_semantic_id": "kernel.protection.take-profit.v1",
+       "source": {
+        "kind": "CONSTANT",
+        "constant_id": "take-profit"
+       },
+       "conversion": {
+        "kind": "EXACT"
+       }
+      },
+      {
+       "manifest_port_id": "proposal.stop-loss.v1",
+       "lifecycle_semantic_id": "kernel.protection.stop-loss.v1",
+       "source": {
+        "kind": "CONSTANT",
+        "constant_id": "stop-loss"
+       },
+       "conversion": {
+        "kind": "EXACT"
+       }
+      },
+      {
+       "manifest_port_id": "proposal.protection-variant.v1",
+       "lifecycle_semantic_id": "kernel.protection.replace.v1",
+       "source": {
+        "kind": "CONSTANT",
+        "constant_id": "protection"
+       },
+       "conversion": {
+        "kind": "EXACT"
+       }
+      },
+      {
+       "manifest_port_id": "proposal.reconciliation-target.v1",
+       "lifecycle_semantic_id": "kernel.target.position.v1",
+       "source": {
+        "kind": "CONSTANT",
+        "constant_id": "reconciliation"
+       },
+       "conversion": {
+        "kind": "EXACT"
+       }
+      },
+      {
+       "manifest_port_id": "proposal.rebalance-sequence.v1",
+       "lifecycle_semantic_id": "kernel.target.rebalance.v1",
+       "source": {
+        "kind": "CONSTANT",
+        "constant_id": "rebalance"
+       },
+       "conversion": {
+        "kind": "EXACT"
+       }
+      },
+      {
+       "manifest_port_id": "proposal.target-weight.v1",
+       "lifecycle_semantic_id": "kernel.target.weight.v1",
+       "source": {
+        "kind": "CONSTANT",
+        "constant_id": "target-weight"
+       },
+       "conversion": {
+        "kind": "EXACT"
+       }
+      },
+      {
+       "manifest_port_id": "proposal.target-position.v1",
+       "lifecycle_semantic_id": "kernel.target.position.v1",
+       "source": {
+        "kind": "CONSTANT",
+        "constant_id": "target-position"
+       },
+       "conversion": {
+        "kind": "EXACT"
+       }
+      },
+      {
+       "manifest_port_id": "proposal.target-variant.v1",
+       "lifecycle_semantic_id": "kernel.target.position.v1",
+       "source": {
+        "kind": "CONSTANT",
+        "constant_id": "target"
+       },
+       "conversion": {
+        "kind": "EXACT"
+       }
+      },
+      {
+       "manifest_port_id": "proposal.position-intent.v1",
+       "lifecycle_semantic_id": "kernel.position.exit.v1",
+       "source": {
+        "kind": "CONSTANT",
+        "constant_id": "position-exit"
+       },
+       "conversion": {
+        "kind": "EXACT"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "priority": 10,
+    "predicate": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "entry",
+     "port_id": "value"
+    },
+    "frame": {
+     "terminal_outputs": [
+      {
+       "manifest_port_id": "proposal.trailing-stop.v1",
+       "lifecycle_semantic_id": "kernel.protection.trailing-adjust.v1",
+       "source": {
+        "kind": "CONSTANT",
+        "constant_id": "trailing-stop"
+       },
+       "conversion": {
+        "kind": "EXACT"
+       }
+      },
+      {
+       "manifest_port_id": "proposal.trailing-distance.v1",
+       "lifecycle_semantic_id": "kernel.protection.trailing-adjust.v1",
+       "source": {
+        "kind": "CONSTANT",
+        "constant_id": "trailing-distance"
+       },
+       "conversion": {
+        "kind": "EXACT"
+       }
+      },
+      {
+       "manifest_port_id": "proposal.take-profit.v1",
+       "lifecycle_semantic_id": "kernel.protection.take-profit.v1",
+       "source": {
+        "kind": "CONSTANT",
+        "constant_id": "take-profit"
+       },
+       "conversion": {
+        "kind": "EXACT"
+       }
+      },
+      {
+       "manifest_port_id": "proposal.stop-loss.v1",
+       "lifecycle_semantic_id": "kernel.protection.stop-loss.v1",
+       "source": {
+        "kind": "CONSTANT",
+        "constant_id": "stop-loss"
+       },
+       "conversion": {
+        "kind": "EXACT"
+       }
+      },
+      {
+       "manifest_port_id": "proposal.protection-variant.v1",
+       "lifecycle_semantic_id": "kernel.protection.replace.v1",
+       "source": {
+        "kind": "CONSTANT",
+        "constant_id": "protection"
+       },
+       "conversion": {
+        "kind": "EXACT"
+       }
+      },
+      {
+       "manifest_port_id": "proposal.reconciliation-target.v1",
+       "lifecycle_semantic_id": "kernel.target.position.v1",
+       "source": {
+        "kind": "CONSTANT",
+        "constant_id": "reconciliation"
+       },
+       "conversion": {
+        "kind": "EXACT"
+       }
+      },
+      {
+       "manifest_port_id": "proposal.rebalance-sequence.v1",
+       "lifecycle_semantic_id": "kernel.target.rebalance.v1",
+       "source": {
+        "kind": "CONSTANT",
+        "constant_id": "rebalance"
+       },
+       "conversion": {
+        "kind": "EXACT"
+       }
+      },
+      {
+       "manifest_port_id": "proposal.target-weight.v1",
+       "lifecycle_semantic_id": "kernel.target.weight.v1",
+       "source": {
+        "kind": "CONSTANT",
+        "constant_id": "w_on"
+       },
+       "conversion": {
+        "kind": "FIXED_COEFFICIENT_TO_I32",
+        "unit": "WEIGHT_MICROS",
+        "scale": 0
+       }
+      },
+      {
+       "manifest_port_id": "proposal.target-position.v1",
+       "lifecycle_semantic_id": "kernel.target.position.v1",
+       "source": {
+        "kind": "CONSTANT",
+        "constant_id": "target-position"
+       },
+       "conversion": {
+        "kind": "EXACT"
+       }
+      },
+      {
+       "manifest_port_id": "proposal.target-variant.v1",
+       "lifecycle_semantic_id": "kernel.target.weight.v1",
+       "source": {
+        "kind": "CONSTANT",
+        "constant_id": "target-weight-variant"
+       },
+       "conversion": {
+        "kind": "EXACT"
+       }
+      },
+      {
+       "manifest_port_id": "proposal.position-intent.v1",
+       "lifecycle_semantic_id": "kernel.position.enter.v1",
+       "source": {
+        "kind": "CONSTANT",
+        "constant_id": "position"
+       },
+       "conversion": {
+        "kind": "EXACT"
+       }
+      }
+     ]
+    }
+   }
+  ],
+  "default_frame": {
+   "terminal_outputs": [
+    {
+     "manifest_port_id": "proposal.trailing-stop.v1",
+     "lifecycle_semantic_id": "kernel.protection.trailing-adjust.v1",
+     "source": {
+      "kind": "CONSTANT",
+      "constant_id": "trailing-stop"
+     },
+     "conversion": {
+      "kind": "EXACT"
+     }
+    },
+    {
+     "manifest_port_id": "proposal.trailing-distance.v1",
+     "lifecycle_semantic_id": "kernel.protection.trailing-adjust.v1",
+     "source": {
+      "kind": "CONSTANT",
+      "constant_id": "trailing-distance"
+     },
+     "conversion": {
+      "kind": "EXACT"
+     }
+    },
+    {
+     "manifest_port_id": "proposal.take-profit.v1",
+     "lifecycle_semantic_id": "kernel.protection.take-profit.v1",
+     "source": {
+      "kind": "CONSTANT",
+      "constant_id": "take-profit"
+     },
+     "conversion": {
+      "kind": "EXACT"
+     }
+    },
+    {
+     "manifest_port_id": "proposal.stop-loss.v1",
+     "lifecycle_semantic_id": "kernel.protection.stop-loss.v1",
+     "source": {
+      "kind": "CONSTANT",
+      "constant_id": "stop-loss"
+     },
+     "conversion": {
+      "kind": "EXACT"
+     }
+    },
+    {
+     "manifest_port_id": "proposal.protection-variant.v1",
+     "lifecycle_semantic_id": "kernel.protection.replace.v1",
+     "source": {
+      "kind": "CONSTANT",
+      "constant_id": "protection"
+     },
+     "conversion": {
+      "kind": "EXACT"
+     }
+    },
+    {
+     "manifest_port_id": "proposal.reconciliation-target.v1",
+     "lifecycle_semantic_id": "kernel.target.position.v1",
+     "source": {
+      "kind": "CONSTANT",
+      "constant_id": "reconciliation"
+     },
+     "conversion": {
+      "kind": "EXACT"
+     }
+    },
+    {
+     "manifest_port_id": "proposal.rebalance-sequence.v1",
+     "lifecycle_semantic_id": "kernel.target.rebalance.v1",
+     "source": {
+      "kind": "CONSTANT",
+      "constant_id": "rebalance"
+     },
+     "conversion": {
+      "kind": "EXACT"
+     }
+    },
+    {
+     "manifest_port_id": "proposal.target-weight.v1",
+     "lifecycle_semantic_id": "kernel.target.weight.v1",
+     "source": {
+      "kind": "CONSTANT",
+      "constant_id": "target-weight"
+     },
+     "conversion": {
+      "kind": "EXACT"
+     }
+    },
+    {
+     "manifest_port_id": "proposal.target-position.v1",
+     "lifecycle_semantic_id": "kernel.target.position.v1",
+     "source": {
+      "kind": "CONSTANT",
+      "constant_id": "target-position"
+     },
+     "conversion": {
+      "kind": "EXACT"
+     }
+    },
+    {
+     "manifest_port_id": "proposal.target-variant.v1",
+     "lifecycle_semantic_id": "kernel.target.position.v1",
+     "source": {
+      "kind": "CONSTANT",
+      "constant_id": "target"
+     },
+     "conversion": {
+      "kind": "EXACT"
+     }
+    },
+    {
+     "manifest_port_id": "proposal.position-intent.v1",
+     "lifecycle_semantic_id": "kernel.position.enter.v1",
+     "source": {
+      "kind": "CONSTANT",
+      "constant_id": "position"
+     },
+     "conversion": {
+      "kind": "EXACT"
+     }
+    }
+   ]
+  }
+ },
+ "warmup": {
+  "position_intent_semantic_id": "kernel.position.hold.v1",
+  "target_variant_semantic_id": "kernel.target.keep.v1",
+  "target_position_units": 0,
+  "target_weight_micros": 0,
+  "rebalance_sequence": 0,
+  "reconciliation_target_units": 0,
+  "protection_variant_semantic_id": "kernel.protection.keep.v1",
+  "stop_loss_ticks": 0,
+  "take_profit_ticks": 0,
+  "trailing_distance_ticks": 0,
+  "trailing_stop_ticks": 0,
+  "post_state": "ADVANCED_CURRENT_EVENT"
+ },
+ "graph_bounds": {
+  "max_nodes": 64,
+  "max_edges": 256,
+  "max_depth": 24,
+  "max_ports": 192,
+  "max_constants": 64,
+  "max_fan_out": 24,
+  "max_lag": 64,
+  "max_window": 64,
+  "max_state_cells": 16,
+  "max_decision_branches": 8,
+  "max_source_bytes": 1048576,
+  "max_wasm_bytes": 4194304
+ }
+}

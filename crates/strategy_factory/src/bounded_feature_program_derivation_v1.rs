@@ -378,6 +378,221 @@ mod tests {
         assert_eq!(derived, expected);
     }
 
+    /// Where the authored corpus lives. One Design may carry several declared meanings.
+    const CORPUS: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/test_data/bounded_feature_program_meaning_v1/"
+    );
+
+    /// Names the meaning fields on which two declarations disagree, innermost index first.
+    ///
+    /// `assert_eq!` on the whole struct answers "these two 30 KB values differ", which is true and
+    /// useless. A regression here is one field of one program, and the report has to say which.
+    fn meaning_differences(
+        derived: &BoundedFeatureProgramMeaningV1,
+        declared: &BoundedFeatureProgramMeaningV1,
+    ) -> Vec<String> {
+        let mut differences = Vec::new();
+
+        macro_rules! scalar {
+            ($($field:ident),*) => {$(
+                if derived.$field != declared.$field {
+                    differences.push(stringify!($field).to_owned());
+                }
+            )*};
+        }
+        scalar!(
+            plugin_semantic_id,
+            proposal_decision_table,
+            warmup,
+            graph_bounds
+        );
+
+        macro_rules! sequence {
+            ($($field:ident),*) => {$(
+                if derived.$field != declared.$field {
+                    let at = derived
+                        .$field
+                        .iter()
+                        .zip(declared.$field.iter())
+                        .position(|(a, b)| a != b);
+                    differences.push(match at {
+                        Some(index) => format!("{}[{index}]", stringify!($field)),
+                        // Equal as far as both run, so the disagreement is the length itself.
+                        None => format!(
+                            "{} (derived {} entries, declared {})",
+                            stringify!($field),
+                            derived.$field.len(),
+                            declared.$field.len(),
+                        ),
+                    });
+                }
+            )*};
+        }
+        sequence!(inputs, constants, state_cells, nodes);
+
+        differences
+    }
+
+    /// One distinct, non-degenerate receipt digest per role position.
+    ///
+    /// `validate_inputs_and_constants` refuses an all-zero digest, so the filler is not zero: a
+    /// digest that is merely absent must not read as a digest that is present.
+    fn minted_receipt(index: usize) -> BindingDigest {
+        let mut bytes = [0x5au8; 32];
+        bytes[0] = u8::try_from(index).expect("a Design declares fewer than 256 roles");
+        BindingDigest::from_untrusted_bytes(bytes)
+    }
+
+    /// Owner-shaped custody whose receipts are this test's own, not the corpus file's.
+    ///
+    /// Receipt digests are custody, so no proposer declares them and no corpus file carries them.
+    /// Minting them here is what lets the assertion below check that derivation copies the receipt
+    /// it was handed rather than anything the meaning said.
+    fn minted_bindings(design: &StrategyDesignV2) -> VerifiedStrategyInputBindingsV2 {
+        let receipts = design
+            .inputs
+            .iter()
+            .enumerate()
+            .map(|(index, role)| (role.clone(), minted_receipt(index)))
+            .collect();
+
+        crate::strategy_plan_v2::verified_strategy_input_bindings_for_test(design, receipts)
+    }
+
+    /// Ten independently authored declarations reassemble against the newest published catalog.
+    ///
+    /// `derivation_reproduces_a_known_good_proposal` proves the claim once, against a proposal
+    /// built in this crate by the same hands as the derivation. These ten were written outside it,
+    /// as declared meaning only, and between them they reach every availability rule, every state
+    /// sizing rule and every input rule the catalog has. That is the part a single fixture cannot
+    /// carry: a derivation that mishandled one rule would still reproduce a proposal that never
+    /// used it.
+    ///
+    /// The catalog is the newest published one, matching what `declare` resolves in
+    /// `rd_bounded_feature_program_postgres_v1`, not the version each program was authored
+    /// against. So this also holds a second line: a new catalog version may add primitives, but it
+    /// may not stop an older declaration from assembling. `a0` and `a0v3` share one Design and
+    /// differ only in reaching for the square root v3 added, which is why both are here.
+    ///
+    /// Regenerating the corpus is described in its own README; nothing in CI runs that generator.
+    #[rstest]
+    #[case::a0("a0", "a0")]
+    #[case::a0v3("a0v3", "a0")]
+    #[case::ctl8("ctl8", "ctl8")]
+    #[case::t3("t3", "t3")]
+    #[case::t4("t4", "t4")]
+    #[case::t5("t5", "t4")]
+    #[case::t6("t6", "t6")]
+    #[case::t7("t7", "t7")]
+    #[case::t8("t8", "t7")]
+    #[case::t9("t9", "t7")]
+    fn every_authored_declaration_reassembles(#[case] program: &str, #[case] design_name: &str) {
+        let design: StrategyDesignV2 = serde_json::from_str(
+            &std::fs::read_to_string(format!("{CORPUS}{design_name}-design.json"))
+                .expect("the corpus carries the Design this program names"),
+        )
+        .expect("a corpus Design parses");
+        // Parsing is itself a check: `BoundedFeatureProgramMeaningV1` denies unknown fields, so a
+        // field that stopped being meaning would fail here rather than be dropped in silence.
+        let declared: BoundedFeatureProgramMeaningV1 = serde_json::from_str(
+            &std::fs::read_to_string(format!("{CORPUS}{program}-meaning.json"))
+                .expect("the corpus carries this program's declared meaning"),
+        )
+        .unwrap_or_else(|e| panic!("{program}: declared meaning does not parse: {e}"));
+
+        let bindings = minted_bindings(&design);
+        let catalog = PrimitiveCatalogV1::verify().expect("a published catalog verifies");
+        let derived =
+            derive_bounded_feature_program_proposal_v1(&design, catalog, &declared, &bindings)
+                .unwrap_or_else(|e| panic!("{program}: declared meaning does not assemble: {e}"));
+
+        // Derivation copies declared meaning through untouched, so this catches a derivation that
+        // starts dropping, reordering or rewriting it - and nothing else. It cannot catch a corpus
+        // that declares an unassemblable graph, because a mutated declaration mutates both sides
+        // of the comparison. The teeth for that are in preparation below.
+        let differences = meaning_differences(&meaning_of(&derived), &declared);
+        assert!(
+            differences.is_empty(),
+            "{program}: derivation changed declared meaning at {differences:?}",
+        );
+
+        // What makes each corpus entry a program rather than a well-formed document. Derivation
+        // assembles without looking at the graph: it will happily emit a proposal whose node
+        // references dangle. `prepare_bounded_feature_program_v1` is what validates identity,
+        // bounds, inputs, the graph and the terminals, and it is what the Owner reaches next.
+        crate::bounded_feature_program_v1::prepare_bounded_feature_program_v1(
+            derived.clone(),
+            &design,
+        )
+        .unwrap_or_else(|e| panic!("{program}: assembled proposal does not prepare: {e}"));
+
+        // The fields a proposer does not declare must come from the Design, the catalog and the
+        // minted custody. Each is checked against its own source, because a derivation that read
+        // any of them out of the declaration would still round-trip the declaration above.
+        let StrategyDesignPreparationV2::Prepared {
+            design_identity,
+            design_digest,
+        } = prepare_strategy_design_v2(&design)
+        else {
+            panic!("{program}: a corpus Design canonicalizes");
+        };
+        assert_eq!(derived.design_identity, design_identity, "{program}");
+        assert_eq!(derived.design_digest, design_digest, "{program}");
+        assert_eq!(
+            derived.catalog_digest,
+            BindingDigest::from_untrusted_bytes(catalog.semantic_digest()),
+            "{program}",
+        );
+
+        let manifest = design
+            .plugins
+            .iter()
+            .find(|plugin| plugin.semantic_id == declared.plugin_semantic_id)
+            .expect("the declared plugin is one the Design carries");
+        assert_eq!(
+            derived.plugin_manifest_digest,
+            plugin_manifest_digest(manifest),
+            "{program}"
+        );
+        assert_eq!(derived.bounds.max_fuel, manifest.max_fuel, "{program}");
+        assert_eq!(
+            derived.bounds.max_state_bytes, manifest.state.max_bytes,
+            "{program}"
+        );
+        assert_eq!(
+            derived.bounds.max_linear_memory_bytes, manifest.max_linear_memory_bytes,
+            "{program}",
+        );
+        assert_eq!(
+            derived.bounds.max_invocations_per_event, manifest.max_invocations_per_event,
+            "{program}",
+        );
+
+        for (index, input) in derived.inputs.iter().enumerate() {
+            let role = design
+                .inputs
+                .iter()
+                .find(|role| role.semantic_id == input.input_role_id)
+                .expect("derivation names the Design's own roles");
+            assert_eq!(
+                input.input_role_identity,
+                strategy_input_role_identity_v2(role),
+                "{program}: inputs[{index}] role identity is not the Design's",
+            );
+            let minted = design
+                .inputs
+                .iter()
+                .position(|candidate| candidate.semantic_id == input.input_role_id)
+                .expect("derivation names the Design's own roles");
+            assert_eq!(
+                input.static_binding_receipt_digest,
+                minted_receipt(minted),
+                "{program}: inputs[{index}] carries a receipt this test did not mint",
+            );
+        }
+    }
+
     /// The per-role half of declared meaning is a closed schema on the wire.
     ///
     /// `docs/owners/rd.md` promises a proposer a closed typed schema: unbounded prose in, one
