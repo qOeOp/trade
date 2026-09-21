@@ -62,6 +62,21 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   都解析为 `None`，而 `crates/strategy_factory_rd_owner_api/src/main.rs` 把 resolver 留在从不读取的字段
   `_market_data_research_pit` 里。解除条件：`docs/guide/architecture-rules.md` 点名的生产 resolver、signer、
   anti-rollback witness、credential resolver 与直接测量适配器，外加一个真正读取该读口的消费者。
+  读取一份 BAR schedule 有**两套托管策略**，每种构建一套，而本文档此前一套都没描述过。测试构建自行开启
+  `REPEATABLE READ READ ONLY` 事务并自验该 schedule 的历史；生产构建的快照由已准入读口的 evidence 承担，并在返回前
+  重新校验。两者跑的是同一个 `verify_bar_schedule_storage_evidence`。差别是一致性保证从哪里来，不是强弱：测试那条
+  路多一步生产没有的历史校验，生产那条路多一份测试拿不到的准入。
+  值得明说的后果是**生产那套策略没有任何种类的覆盖**。单测跑的是测试构建那个函数体，而 `crates/data/tests` 下没有任何
+  集成测试碰过 BAR schedule。所以 `B3` 挡住的不只是一次部署 - 那道门后的第一段代码从未被执行过。挡住测试够到它的是
+  可见性而不是权限：`Custodian::new` 对 store-admission 模块私有，`AdmittedCapability` 只有一个出口，所以该模块之外
+  的消费方构造不出生产读所需的那个 port。
+  关于这道门还有一条事实，读代码的人默认会读反：**`MarketDataReadPostgres` 的生产形态今天从不被构造。**它唯一的生产
+  构造器是 `from_admitted`，带 `cfg(not(test))` 门，而它的七个调用点全都位于
+  `RdOwnerStoreAdmissionBootstrap::Required` 之后；没有环境配置时该分支是 `Disabled`，返回 `Ok(None)`。
+  `Required` 之后的那个合成根用五个 `Unavailable*` 占位构造 custodian，因此它无条件返回 `Err`。三层都把自己命名成
+  占位，所以这是**一条自述未建的缝**而不是缺陷 - 但整片 `cfg(not(test))` 实现的存在理由是"等那天"，不是"今天在跑"。
+  真实部署会不会设成 `Required` 是一个关于部署配置的问题，代码里答不出；而无论哪种，只要准入恒为失败，
+  `from_admitted` 就到不了。
 - **`B4` 消费者未编入已部署镜像。** `product/rd-workbench/Dockerfile.owner` 以默认 feature 构建
   `strategy-factory-rd-owner-api`，使 `sealed-develop-composer-acceptance` 处于关闭，而 dashboard 读取二进制不触及任何
   Market Data 表面。解除条件：把该消费者移出 acceptance feature。
@@ -82,9 +97,9 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   通道会解除本条。首条实时通道现在已存在：它对一个有界 scope 真的在流，其持久头部与 Owner 签发的订阅由有序链路证明，
   本 Owner 其余每条取数缝仍然是 as-of。这并没有解除本条，因为产出一个事实和把它交付给消费者是两件事，而准入该通道
   的那一片自己写明排除了消费侧：no Runtime custody。不存在该 intake 的 Runtime 消费者，所以 Strategy Instance 仍然没有
-  实时输入，Paper 与 Live 都无从开始。解除本条需要两样：Runtime 侧的一个消费者，以及本 Owner 这一侧供它消费的一片读面，而后者本 Owner 既没建也没
-  准入：没有任何对外函数供给实时事实，已暴露的十二个在函数体内点名 `rd_owner`，所以给另一个调用者授权得到的是
-  空结果而不是拒绝。
+  实时输入，Paper 与 Live 都无从开始。解除本条需要两样：Runtime 侧的一个消费者，以及本 Owner 这一侧供它消费的一片读面。后者现已准入但尚未建成，前者
+  两样都不是：没有任何对外函数供给实时事实。已暴露的十二个在函数体内不再点名 `session_user`，所以给另一个调用者
+  授权现在得到的是拒绝而不是空结果，而这正是「每消费者一片读面」得以表达的前提。其准入形态见 Runtime 交接一节。
 
 ### 逐片台账
 
@@ -1598,6 +1613,15 @@ rejection。
   事：没有第二条通道、没有标的更新流、没有 Runtime 托管、没有下单路径。
   **NOT_ADMITTED：** 一条实时通道不建立 Runtime readiness、Paper、Live、真实交易或任何其他生产写；流式事实永远不是 PIT
   快照、replay 输入，也不是回答历史问题的证据。
+- **IMPLEMENTATION_ADMITTED，一片实时行情读面，2026-09-21 准入且尚未建成：** 一个实时行情事实的消费者由它自己的数据库
+  角色识别，它能读到什么在读之前就被收窄，而不是在读的时候按调用方的声称过滤。准入的形态是每消费者一个视图，属主为
+  `market_data_owner`，限定在该消费者被准入的那些 binding 上，`SELECT` 授予该消费者的角色，且对 `market_data_private`
+  零权限。该角色就是这个消费者可见内容的上界：绝不是 `rd_owner`，也绝不与另一个消费者共享一个超集，所以这个界由数据库
+  执行，而不是靠信任某个进程持有凭证。今天不需要比角色更细的调用者身份，本 Owner 也不引入；若将来确有需要，每消费者
+  一个角色仍是它的上界，在该上界之内细化是唯一准入的形态。此处的准入是建造并验证这一片读的许可，它不授权任何 Runtime
+  效应、任何 Paper 或 Live 适配器绑定、任何生产写，也不授权真实交易，并且不准入 Runtime 侧的那个消费者，即 `B8`
+  点名的另一半。首次交付要同时陈述其证明的两侧：该消费者自己的视图只返回它被准入的那些 binding，而另一个消费者的视图
+  与 `market_data_private` 对它都必须是拒绝而不是返回零行，因为本该拒绝之处返回空，说明授权给宽了。
 - 向 [Portfolio](./portfolio/) 提供价格 汇率 合约规格 估值事实，以及 Capacity View 使用的带身份流动性输入截面。
 - **TARGET，在 Shared Time producer 闭合后，向 [Portfolio](./portfolio/)：** 为 `PORTFOLIO_FRESHNESS` 提供
   sealed 规范 clock-head handoff。Portfolio 提交自己的准确 prior handoff 并独自授权自身 transition；不能

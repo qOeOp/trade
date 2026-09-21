@@ -293,6 +293,7 @@ pub struct PitSnapshotOwnerReadback {
     outbox_digest: BindingDigest,
     available: bool,
     locator: UntrustedPitSnapshotLocator,
+    instrument_master_digest: BindingDigest,
 }
 
 impl PitSnapshotOwnerReadback {
@@ -313,7 +314,19 @@ impl PitSnapshotOwnerReadback {
             outbox_digest: aggregate.receipt().outbox_digest(),
             available: fact.disposition() == PitSnapshotDisposition::Available,
             locator: aggregate.receipt().locator().clone(),
+            // The Owner's own resolution, not the caller's claim: the commit path replaces the
+            // request's digest with the cut it resolved for this instrument at this coordinate
+            // before sealing, so this reports what answered rather than what was asked for.
+            instrument_master_digest: fact.request().instrument_master_digest,
         }
+    }
+
+    /// Returns the Instrument Master cut digest this snapshot was resolved against.
+    ///
+    /// Effective-dated, so two snapshots at different coordinates may legitimately differ here.
+    /// A consumer composing several into one corpus needs this to know where the boundaries are.
+    pub const fn instrument_master_digest(&self) -> BindingDigest {
+        self.instrument_master_digest
     }
 
     /// Returns the exact request identity.
