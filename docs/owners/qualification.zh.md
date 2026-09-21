@@ -145,7 +145,7 @@ Qualification 的其余部分并不排在它后面：attempt frontier、候选�
   Catalog V3 的发布路径在已部署镜像里是存在的，但只有操作者喂给它那条封印命令，V3 头才会出现。
 
   这两处拒绝都不是以错误的形式到达调用方的。它们都被返回成 `Ok(unresolved_result_v2(..))`，
-  是 `product_edge_postgres.rs` 里二十九条同形代码行之一，于是 `submit_v2` 答的是 `SubmittedOrUnknown`
+  是 `product_edge_postgres.rs` 里二十八处同形返回之一，于是 `submit_v2` 答的是 `SubmittedOrUnknown`
   并带 `next_legal_action = ResolveSameRequestIdentity`，而理由只进了一条 `tracing::warn!`，
   闸门并不为它装订阅者。一个按 `Result::is_ok` 断言的调用方，看到的是一次它完全有理由读成「已接受」的提交。
   所以上面那条条目把断言挂在 resolution 与库上，绝不挂在 `Ok` 上；并且它是被写成「情况变好时会失败」的：

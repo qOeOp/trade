@@ -5319,7 +5319,8 @@ pub(crate) mod tests {
     /// publishes that head.
     ///
     /// Neither refusal surfaces as an error. Both are swallowed into
-    /// `Ok(unresolved_result_v2(..))`, one of the twenty-nine such lines this file carries, so it returns
+    /// an unresolved result wrapped in `Ok`, one of the twenty-eight `unresolved_result_v2` returns this
+    /// file carries, so it returns
     /// `SubmittedOrUnknown` and a caller that asserts on `Result::is_ok` sees a submission it has
     /// every reason to read as accepted. This entry therefore asserts on the resolution and on the
     /// store, never on `Ok`.

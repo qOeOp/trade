@@ -172,7 +172,7 @@ absent is a proof, and each absence was measured rather than assumed.
   it the sealed command.
 
   Neither refusal reaches the caller as an error. Both are returned as `Ok(unresolved_result_v2(..))`, one of the
-  twenty-nine such lines `product_edge_postgres.rs` carries, so `submit_v2` answers `SubmittedOrUnknown` with
+  twenty-eight such returns `product_edge_postgres.rs` carries, so `submit_v2` answers `SubmittedOrUnknown` with
   `next_legal_action = ResolveSameRequestIdentity` and the reason goes only to a `tracing::warn!` that the gate
   installs no subscriber for. A caller asserting on `Result::is_ok` sees a submission it has every reason to read
   as accepted. The entry above therefore asserts on the resolution and on the store, never on `Ok`, and it is
