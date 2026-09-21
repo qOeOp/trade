@@ -91,8 +91,17 @@ Unify Research and Develop under one business-fact Owner. The Research capabilit
 
 This ledger records only what the repository has reached at this cut. It uses the status vocabulary of the
 [Market Data](./market-data/) ledger, with `CURRENT_PARTIAL` as the merged-but-unreachable form, and grants no
-permission by itself: no slice of this document is `IMPLEMENTATION_ADMITTED`, and widening the admitted set
-requires changing this document first. Every row names the symbol or path that would falsify it.
+permission by itself. Widening the admitted set requires changing this document first. Every row names the symbol
+or path that would falsify it.
+
+Two slices of this document are `IMPLEMENTATION_ADMITTED`, and this ledger names them because it previously
+claimed none were. The claim was already false when it was written, and a reader who trusted it would have read
+an admission as invalid:
+
+- the authoring output that stops at `design` and `meaning`, under **Strategy authoring surface**;
+- the bounded Replay Policy V2 composition, whose admission is stated in the body of a section headed
+  **TARGET / NOT_ADMITTED**. The heading governs the wider target; the admitted composition is the narrower one
+  the body fixes. Reading the heading alone gets the opposite answer, in both directions.
 
 - **CURRENT - deployed service and the boundary of what it exposes:** `product/rd-workbench/Dockerfile.owner`
   builds `--bin strategy-factory-rd-owner-api` with no `--features` at all; the file's only `--features` is on the
