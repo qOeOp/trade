@@ -33,7 +33,7 @@ use crate::{
     bounded_feature_program_lowerer_v1::{
         BoundedFeatureLoweringErrorV1, prepare_frozen_bounded_feature_source_inputs_v1,
     },
-    bounded_feature_program_v1::BoundedFeatureProgramProposalV1,
+    bounded_feature_program_v1::{BoundedFeatureProgramErrorV1, BoundedFeatureProgramProposalV1},
     rd_bounded_feature_program_v1::{
         FrozenResearchBoundedFeatureProgramV1, ResearchBoundedFeatureProgramFreezeErrorV1,
         commit_research_bounded_feature_program_in_transaction_v1,
@@ -112,8 +112,13 @@ pub enum ResearchBoundedFeatureProgramOwnerErrorV1 {
     #[error("the declared Strategy Design is not canonicalizable")]
     Design,
     /// The declared program is outside the admitted Bounded Feature Program meaning.
-    #[error("the declared Bounded Feature Program is unsupported")]
-    Program,
+    ///
+    /// The payload is the preparation stage that refused it. Preparation distinguishes twelve, and
+    /// they send an author to different places: a graph topology refusal and a terminal lifecycle
+    /// refusal have nothing to do with each other. Discarding it here delivered all twelve as one
+    /// code, which is the condition the `Assembly` variant above was split to end.
+    #[error("the declared Bounded Feature Program is unsupported: {0}")]
+    Program(BoundedFeatureProgramErrorV1),
     /// The declared first-party SDK source digest is not the pinned first-party SDK.
     #[error("the declared first-party SDK source digest is not the pinned first-party SDK")]
     SdkSource,
@@ -139,7 +144,7 @@ pub enum ResearchBoundedFeatureProgramOwnerErrorV1 {
     Conflict,
 }
 
-const fn owner_error(
+fn owner_error(
     error: &ResearchBoundedFeatureProgramFreezeErrorV1,
 ) -> ResearchBoundedFeatureProgramOwnerErrorV1 {
     use ResearchBoundedFeatureProgramFreezeErrorV1 as Freeze;
@@ -148,7 +153,7 @@ const fn owner_error(
     match error {
         Freeze::ResearchCustody => Owner::ResearchCustody,
         Freeze::Design => Owner::Design,
-        Freeze::Program(_) => Owner::Program,
+        Freeze::Program(stage) => Owner::Program(stage.clone()),
         Freeze::SdkSource => Owner::SdkSource,
         Freeze::Unavailable => Owner::Unavailable,
         Freeze::Conflict => Owner::Conflict,
