@@ -47,16 +47,18 @@ mod postgres_tests {
 
     /// Proves the shared conversion keeps `SQLSTATE` and `DETAIL`, against a real server.
     ///
-    /// A unique violation stands in for the deadlock that motivated this: both reach the client as a
-    /// `PgDatabaseError` carrying `DETAIL`, and only one of the two can be produced on demand.
+    /// A malformed `jsonb` cast stands in for the deadlock that motivated this: both reach the
+    /// client as a `PgDatabaseError` carrying `DETAIL`, and only one of the two can be produced on
+    /// demand.
     ///
-    /// The probe table is permanent and created inside a transaction that is always rolled back,
-    /// rather than `TEMP`. No role in the chain can create temporary tables: the init scripts revoke
-    /// `TEMPORARY` from `PUBLIC` on every database and grant it to nobody, so a `TEMP` probe fails
-    /// with `42501` for the Owner's own role while passing for a superuser - which is the shape of a
-    /// proof that only works because its fixture was given rights production withholds. PostgreSQL
-    /// makes DDL transactional, so the rollback leaves the shared chain database untouched, and the
-    /// test reads back afterwards to say so rather than asserting it.
+    /// It is a cast of a literal because that needs no privilege beyond `CONNECT` and writes
+    /// nothing by construction. Two earlier probes were rejected by the chain's own roles, each
+    /// with `42501`: `CREATE TEMP TABLE` (the init scripts revoke `TEMPORARY` from `PUBLIC` on
+    /// every database and grant it to no role), then a permanent table in a rolled-back
+    /// transaction (`permission denied for schema public`). Both had passed locally against a
+    /// superuser. A probe that needs no rights cannot be wrong about which rights the Owner has,
+    /// and it leaves the shared chain database untouched without needing a cleanup step to be
+    /// correct.
     ///
     /// The control matters as much as the assertion. `sqlx`'s own `Display` is checked first to
     /// *not* carry the detail: without that, a future `sqlx` that included it would leave this test
@@ -68,7 +70,6 @@ mod postgres_tests {
     #[tokio::test]
     #[ignore = "requires an admitted R&D Owner test database URL"]
     async fn owner_storage_errors_carry_the_detail_postgres_sent() {
-        const PROBE: &str = "postgres_error_message_probe_v1";
         let url = std::env::var("RD_OWNER_TEST_DATABASE_URL")
             .expect("RD_OWNER_TEST_DATABASE_URL: this test asserts nothing without a server");
         let pool = sqlx::postgres::PgPoolOptions::new()
@@ -77,53 +78,30 @@ mod postgres_tests {
             .await
             .expect("connect");
 
-        let mut probe = pool.begin().await.expect("begin the probe transaction");
-        sqlx::query("CREATE TABLE postgres_error_message_probe_v1 (k TEXT PRIMARY KEY)")
-            .execute(&mut *probe)
+        let malformed = sqlx::query("SELECT '{\"a\":1'::jsonb")
+            .fetch_optional(&pool)
             .await
-            .expect("create the probe table");
-        sqlx::query("INSERT INTO postgres_error_message_probe_v1 (k) VALUES ('same')")
-            .execute(&mut *probe)
-            .await
-            .expect("seed the probe table");
-        let conflict =
-            sqlx::query("INSERT INTO postgres_error_message_probe_v1 (k) VALUES ('same')")
-                .execute(&mut *probe)
-                .await
-                .expect_err("the second insert must violate the primary key");
-        // Before any assertion: an assertion that fires here would leave the table committed.
-        probe.rollback().await.expect("roll the probe back");
+            .expect_err("a truncated json literal must not cast");
 
-        let left_behind: i64 =
-            sqlx::query_scalar("SELECT count(*) FROM pg_class WHERE relname = $1")
-                .bind(PROBE)
-                .fetch_one(&pool)
-                .await
-                .expect("read back what the probe left");
-        assert_eq!(
-            left_behind, 0,
-            "the probe left a table in the shared database"
+        let discarded = malformed.to_string();
+        assert!(
+            !discarded.contains("ended unexpectedly"),
+            "control failed: sqlx's own Display already carries the detail, so this test could no \
+             longer tell the shared conversion apart from a plain to_string: {discarded}"
         );
 
-        let discarded = conflict.to_string();
+        let reported = database_message(&malformed);
         assert!(
-            !discarded.contains("same"),
-            "control failed: sqlx's own Display already names the conflicting key, so this test \
-             could no longer tell the shared conversion apart from a plain to_string: {discarded}"
-        );
-
-        let reported = database_message(&conflict);
-        assert!(
-            reported.contains("SQLSTATE 23505"),
-            "the unique violation's sqlstate was dropped: {reported}"
+            reported.contains("SQLSTATE 22P02"),
+            "the invalid-input sqlstate was dropped: {reported}"
         );
         assert!(
             reported.contains("detail:"),
             "no detail carried: {reported}"
         );
         assert!(
-            reported.contains("same"),
-            "the detail did not name the conflicting key: {reported}"
+            reported.contains("ended unexpectedly"),
+            "the detail did not say what PostgreSQL said: {reported}"
         );
     }
 }
