@@ -1365,6 +1365,16 @@ cleanup() {
     cleanup_failed=true
   fi
 
+  # PostgreSQL writes a deadlock's DETAIL - both processes and both statements - to its own
+  # server log, and this script used to delete the container without ever reading it. A chain
+  # failure then reported "deadlock detected" with no way to learn which two transactions, and
+  # the evidence was destroyed on the way out. Dump it before the container goes.
+  if [[ "$primary_status" -ne 0 && "$container_created" == true ]]; then
+    echo "=== postgres server log (chain container) ===" >&2
+    docker logs "$container" 2>&1 | tail -n 400 >&2 || true
+    echo "=== end postgres server log ===" >&2
+  fi
+
   if [[ "$container_created" == true ]] &&
     ! remove_docker_object_for_cleanup container "$container" 3; then
     cleanup_failed=true
@@ -1457,7 +1467,9 @@ docker run \
   --env POSTGRES_USER=postgres \
   --env "POSTGRES_PASSWORD=${test_password}" \
   --env POSTGRES_DB=postgres \
-  "$postgres_image" > /dev/null
+  "$postgres_image" \
+  -c log_lock_waits=on \
+  -c deadlock_timeout=1s > /dev/null
 container_created=true
 docker run \
   --detach \
