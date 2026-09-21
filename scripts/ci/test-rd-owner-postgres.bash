@@ -107,6 +107,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-scanner-custody|vibe_scanner_custody|postgres::chain_proofs::terminal_receipt_custody_commits_joins_refuses_and_reads_back_to_product_edge'
   'vibe-scanner-custody|vibe_scanner_custody|postgres::chain_proofs::a_caller_without_the_grant_is_refused_rather_than_answered_empty'
   'vibe-risk-owner|vibe_risk_owner|capacity_read_port_postgres::postgres_proof::postgres_capacity_observation_seals_only_what_portfolio_currently_publishes'
+  'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::frozen_program_replays_over_http_to_the_same_joint_freeze'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
@@ -149,8 +150,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 90 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all ninety ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 91 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all 91 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -252,7 +253,8 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[86]}" != *'|postgres::chain_proofs::terminal_receipt_custody_commits_joins_refuses_and_reads_back_to_product_edge' ]] ||
     [[ "${rd_owner_postgres_tests[87]}" != *'|postgres::chain_proofs::a_caller_without_the_grant_is_refused_rather_than_answered_empty' ]] ||
     [[ "${rd_owner_postgres_tests[88]}" != *'|capacity_read_port_postgres::postgres_proof::postgres_capacity_observation_seals_only_what_portfolio_currently_publishes' ]] ||
-    [[ "${rd_owner_postgres_tests[89]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[89]}" != *'|tests::frozen_program_replays_over_http_to_the_same_joint_freeze' ]] ||
+    [[ "${rd_owner_postgres_tests[90]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
@@ -368,8 +370,8 @@ for line in array_body.splitlines():
     if len(fields) != 3 or any(not field for field in fields):
         raise SystemExit("ERROR: ordered PostgreSQL test literal must contain three fields.")
     entries.append(tuple(fields))
-if len(entries) != 90:
-    raise SystemExit("ERROR: ordered PostgreSQL test literal must contain ninety entries.")
+if len(entries) != 91:
+    raise SystemExit(f"ERROR: ordered PostgreSQL test literal must contain 91 entries, found {len(entries)}.")
 if sum(test_name == poison_test for _, _, test_name in entries) != 1:
     raise SystemExit(
         "ERROR: recovery-sidecar poison test must occur exactly once as a parsed test name."
@@ -1365,6 +1367,16 @@ cleanup() {
     cleanup_failed=true
   fi
 
+  # PostgreSQL writes a deadlock's DETAIL - both processes and both statements - to its own
+  # server log, and this script used to delete the container without ever reading it. A chain
+  # failure then reported "deadlock detected" with no way to learn which two transactions, and
+  # the evidence was destroyed on the way out. Dump it before the container goes.
+  if [[ "$primary_status" -ne 0 && "$container_created" == true ]]; then
+    echo "=== postgres server log (chain container) ===" >&2
+    docker logs "$container" 2>&1 | tail -n 400 >&2 || true
+    echo "=== end postgres server log ===" >&2
+  fi
+
   if [[ "$container_created" == true ]] &&
     ! remove_docker_object_for_cleanup container "$container" 3; then
     cleanup_failed=true
@@ -1457,7 +1469,9 @@ docker run \
   --env POSTGRES_USER=postgres \
   --env "POSTGRES_PASSWORD=${test_password}" \
   --env POSTGRES_DB=postgres \
-  "$postgres_image" > /dev/null
+  "$postgres_image" \
+  -c log_lock_waits=on \
+  -c deadlock_timeout=1s > /dev/null
 container_created=true
 docker run \
   --detach \
