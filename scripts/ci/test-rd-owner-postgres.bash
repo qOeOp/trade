@@ -108,8 +108,8 @@ readonly rd_owner_postgres_tests=(
   'vibe-scanner-custody|vibe_scanner_custody|postgres::chain_proofs::a_caller_without_the_grant_is_refused_rather_than_answered_empty'
   'vibe-risk-owner|vibe_risk_owner|capacity_read_port_postgres::postgres_proof::postgres_capacity_observation_seals_only_what_portfolio_currently_publishes'
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::frozen_program_replays_over_http_to_the_same_joint_freeze'
-  'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
   'vibe-strategy-factory|vibe_strategy_factory|postgres_error_message::postgres_tests::owner_storage_errors_carry_the_detail_postgres_sent'
+  'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
   --locked
@@ -255,7 +255,8 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[87]}" != *'|postgres::chain_proofs::a_caller_without_the_grant_is_refused_rather_than_answered_empty' ]] ||
     [[ "${rd_owner_postgres_tests[88]}" != *'|capacity_read_port_postgres::postgres_proof::postgres_capacity_observation_seals_only_what_portfolio_currently_publishes' ]] ||
     [[ "${rd_owner_postgres_tests[89]}" != *'|tests::frozen_program_replays_over_http_to_the_same_joint_freeze' ]] ||
-    [[ "${rd_owner_postgres_tests[90]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[90]}" != *'|postgres_error_message::postgres_tests::owner_storage_errors_carry_the_detail_postgres_sent' ]] ||
+    [[ "${rd_owner_postgres_tests[91]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
