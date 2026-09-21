@@ -84,6 +84,16 @@ never runs in CI.
   test from reaching it is visibility rather than permission: `Custodian::new` is private to the store-admission
   module and `AdmittedCapability` leaves it by one exit, so no consumer outside that module can construct the port
   a production read requires.
+  One further fact about that gate, which a reader of the code gets backwards by default:
+  **the production form of `MarketDataReadPostgres` is never constructed today.** Its only production constructor is
+  `from_admitted`, gated `cfg(not(test))`, and its seven callers all sit behind
+  `RdOwnerStoreAdmissionBootstrap::Required`; with no environment configuration that branch is `Disabled` and
+  returns `Ok(None)`. The composition root behind `Required` builds its custodian from five `Unavailable*`
+  placeholders, so it answers `Err` unconditionally. All three layers name themselves placeholders, which makes this
+  **a seam that declares its own incompleteness** rather than a defect - but the whole `cfg(not(test))` impl block
+  exists for the day that changes, not because anything runs it now. Whether a real deployment sets `Required` is a
+  question about deployment configuration that the code cannot answer; either way `from_admitted` is unreachable
+  while the admission fails closed.
 - **`B4` consumer not compiled into the deployed image.** `product/rd-workbench/Dockerfile.owner` builds
   `strategy-factory-rd-owner-api` with default features, which leaves `sealed-develop-composer-acceptance` off, and
   the dashboard read binary touches no Market Data surface. Cleared by moving the consumer out of an acceptance

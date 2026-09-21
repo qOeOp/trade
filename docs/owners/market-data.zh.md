@@ -70,6 +70,13 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   集成测试碰过 BAR schedule。所以 `B3` 挡住的不只是一次部署 - 那道门后的第一段代码从未被执行过。挡住测试够到它的是
   可见性而不是权限：`Custodian::new` 对 store-admission 模块私有，`AdmittedCapability` 只有一个出口，所以该模块之外
   的消费方构造不出生产读所需的那个 port。
+  关于这道门还有一条事实，读代码的人默认会读反：**`MarketDataReadPostgres` 的生产形态今天从不被构造。**它唯一的生产
+  构造器是 `from_admitted`，带 `cfg(not(test))` 门，而它的七个调用点全都位于
+  `RdOwnerStoreAdmissionBootstrap::Required` 之后；没有环境配置时该分支是 `Disabled`，返回 `Ok(None)`。
+  `Required` 之后的那个合成根用五个 `Unavailable*` 占位构造 custodian，因此它无条件返回 `Err`。三层都把自己命名成
+  占位，所以这是**一条自述未建的缝**而不是缺陷 - 但整片 `cfg(not(test))` 实现的存在理由是"等那天"，不是"今天在跑"。
+  真实部署会不会设成 `Required` 是一个关于部署配置的问题，代码里答不出；而无论哪种，只要准入恒为失败，
+  `from_admitted` 就到不了。
 - **`B4` 消费者未编入已部署镜像。** `product/rd-workbench/Dockerfile.owner` 以默认 feature 构建
   `strategy-factory-rd-owner-api`，使 `sealed-develop-composer-acceptance` 处于关闭，而 dashboard 读取二进制不触及任何
   Market Data 表面。解除条件：把该消费者移出 acceptance feature。
