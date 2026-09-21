@@ -678,16 +678,17 @@ mod database_message_tests {
         let Ok(url) = std::env::var("RD_OWNER_TEST_DATABASE_URL") else {
             return;
         };
+        // One connection, because a temp table belongs to the session that made it.
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
             .connect(&url)
             .await
             .expect("connect");
-        sqlx::query("CREATE TABLE IF NOT EXISTS detail_probe_v1 (k TEXT PRIMARY KEY)")
+        sqlx::query("CREATE TEMP TABLE detail_probe_v1 (k TEXT PRIMARY KEY)")
             .execute(&pool)
             .await
             .expect("create");
-        sqlx::query("INSERT INTO detail_probe_v1 (k) VALUES ('same') ON CONFLICT DO NOTHING")
+        sqlx::query("INSERT INTO detail_probe_v1 (k) VALUES ('same')")
             .execute(&pool)
             .await
             .expect("seed");
@@ -708,9 +709,5 @@ mod database_message_tests {
             reported.contains("SQLSTATE"),
             "no sqlstate carried: {reported}"
         );
-        sqlx::query("DROP TABLE detail_probe_v1")
-            .execute(&pool)
-            .await
-            .expect("drop");
     }
 }
