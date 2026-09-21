@@ -2118,11 +2118,51 @@ async fn admit_research_row_in_transaction(
                 .await
                 .map_err(|e| storage(&e))?
         }
-        ResearchCustodyLookupV1::Intent(_) => {
-            sqlx::query("SELECT request_identity, semantic_digest, request_json, receipt_json, intent_json, view_json, source_ancestry_locator_json, source_ancestry_evidence_digest, committed_at_epoch_ms FROM rd_research_request_receipts_v1 ORDER BY request_identity FOR UPDATE")
+        // An intent has no column of its own, so this used to lock every row of the table and
+        // then discard all but the one it returns. That full-table `FOR UPDATE` was the collision
+        // surface behind chain entry 28: PostgreSQL reported cycles between it and
+        // `rd_artifact_build_attempts_v1 ... FOR UPDATE`, and between it and the single-row lock
+        // above. Locking a row this call is going to throw away buys nothing and makes every
+        // concurrent transaction a candidate cycle partner.
+        //
+        // The narrowing has to happen in SQL rather than in Rust, and that is not a preference.
+        // Selecting the candidates in Rust means running the row verification first, and that
+        // verification takes the Qualification projection lock - which put this transaction in
+        // the order qualification-then-receipts while the attempt path runs
+        // receipts-then-qualification. PostgreSQL reported that cycle at entry 55 the moment
+        // entry 28 stopped hiding it. Filtering on the column takes no lock before the row lock,
+        // so the order this transaction acquires them in is unchanged.
+        //
+        // `intent_json->>'intent_identity'` is the access path `exploratory_replay/postgres.rs`
+        // already uses against this column, not a new coupling to the stored shape.
+        ResearchCustodyLookupV1::Intent(intent_identity) => {
+            let locked = sqlx::query("SELECT request_identity, semantic_digest, request_json, receipt_json, intent_json, view_json, source_ancestry_locator_json, source_ancestry_evidence_digest, committed_at_epoch_ms FROM rd_research_request_receipts_v1 WHERE intent_json->>'intent_identity' = $1 ORDER BY request_identity FOR UPDATE")
+                .bind(intent_identity)
                 .fetch_all(&mut **transaction)
                 .await
-                .map_err(|e| storage(&e))?
+                .map_err(|e| storage(&e))?;
+
+            // The hint read above and this one are separate statements under READ COMMITTED, so
+            // a row can move between them. The lock is here to stop that, and this is what says
+            // it did: every locked row must have been in the hints, with the digest it had then.
+            for row in &locked {
+                let request_identity: String =
+                    row.try_get("request_identity").map_err(|e| storage(&e))?;
+                let semantic_digest: String =
+                    row.try_get("semantic_digest").map_err(|e| storage(&e))?;
+                let hinted = hint_rows.iter().find_map(|hint| {
+                    let hinted_identity: String = hint.try_get("request_identity").ok()?;
+                    let hinted_digest: String = hint.try_get("semantic_digest").ok()?;
+                    (hinted_identity == request_identity).then_some(hinted_digest)
+                });
+
+                if hinted.as_deref() != Some(semantic_digest.as_str()) {
+                    return Err(ResearchGoalOwnerError::Storage(
+                        "research custody changed across authority cut".into(),
+                    ));
+                }
+            }
+            locked
         }
     };
     let mut matching = Vec::new();
