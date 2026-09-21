@@ -379,18 +379,18 @@ impl PostgresIterationTimelineOwnerV1 {
             .max_connections(4)
             .connect(database_url)
             .await
-            .map_err(|e| unavailable(e.to_string()))?;
+            .map_err(|e| unavailable(database_message(&e)))?;
         crate::schema_materialization::require_existing_public_tables_for_readback(
             &pool,
             &crate::iteration_decision_postgres::TABLES[..1],
         )
         .await
-        .map_err(|e| unavailable(e.to_string()))?;
+        .map_err(|e| unavailable(database_message(&e)))?;
         let census_v2_available: bool =
             sqlx::query_scalar("SELECT to_regclass('rd_trial_family_attempt_cuts_v2') IS NOT NULL")
                 .fetch_one(&pool)
                 .await
-                .map_err(|e| unavailable(e.to_string()))?;
+                .map_err(|e| unavailable(database_message(&e)))?;
         Ok(Self {
             pool,
             census_v2_available,
@@ -412,15 +412,15 @@ impl IterationTimelineOwnerPortV1 for PostgresIterationTimelineOwnerV1 {
             .pool
             .begin()
             .await
-            .map_err(|e| unavailable(e.to_string()))?;
+            .map_err(|e| unavailable(database_message(&e)))?;
         let exists = sqlx::query("SELECT trial_family_identity FROM rd_trial_families_v1 WHERE trial_family_identity=$1 FOR SHARE")
             .bind(trial_family_identity).fetch_optional(&mut *transaction).await
-            .map_err(|e| unavailable(e.to_string()))?;
+            .map_err(|e| unavailable(database_message(&e)))?;
         if exists.is_none() {
             transaction
                 .commit()
                 .await
-                .map_err(|e| unavailable(e.to_string()))?;
+                .map_err(|e| unavailable(database_message(&e)))?;
             return Err(DashboardReadErrorV1::NotFound);
         }
         // A family carries a V2 census only once its first exploration cut committed; a family
@@ -436,7 +436,7 @@ impl IterationTimelineOwnerPortV1 for PostgresIterationTimelineOwnerV1 {
             .bind(trial_family_identity)
             .fetch_optional(&mut *transaction)
             .await
-            .map_err(|e| unavailable(e.to_string()))?
+            .map_err(|e| unavailable(database_message(&e)))?
             .is_some();
         let (census_frontier_identity, census_frontier_digest, consumed_trial_budget, trial_budget) =
             if census_v2_present {
@@ -470,7 +470,7 @@ impl IterationTimelineOwnerPortV1 for PostgresIterationTimelineOwnerV1 {
         let rows = sqlx::query(
             "SELECT decision_identity,result_identity,decision_digest,committed_at_epoch_ms FROM rd_iteration_decisions_v1 WHERE trial_family_identity=$1 ORDER BY committed_at_epoch_ms ASC, decision_identity COLLATE \"C\" ASC LIMIT $2",
         ).bind(trial_family_identity).bind(ITERATION_LIMIT + 1).fetch_all(&mut *transaction).await
-            .map_err(|e| unavailable(e.to_string()))?;
+            .map_err(|e| unavailable(database_message(&e)))?;
         if rows.len() > usize::try_from(ITERATION_LIMIT).unwrap_or(128) {
             return Err(unavailable(
                 "Iteration timeline exceeds the bounded response",
@@ -481,14 +481,14 @@ impl IterationTimelineOwnerPortV1 for PostgresIterationTimelineOwnerV1 {
             .map(|row| {
                 Ok((
                     row.try_get::<String, _>("decision_identity")
-                        .map_err(|e| unavailable(e.to_string()))?,
+                        .map_err(|e| unavailable(database_message(&e)))?,
                     row.try_get::<String, _>("result_identity")
-                        .map_err(|e| unavailable(e.to_string()))?,
+                        .map_err(|e| unavailable(database_message(&e)))?,
                     row.try_get::<String, _>("decision_digest")
-                        .map_err(|e| unavailable(e.to_string()))?,
+                        .map_err(|e| unavailable(database_message(&e)))?,
                     u64::try_from(
                         row.try_get::<i64, _>("committed_at_epoch_ms")
-                            .map_err(|e| unavailable(e.to_string()))?,
+                            .map_err(|e| unavailable(database_message(&e)))?,
                     )
                     .map_err(|e| unavailable(e.to_string()))?,
                 ))
@@ -497,7 +497,7 @@ impl IterationTimelineOwnerPortV1 for PostgresIterationTimelineOwnerV1 {
         transaction
             .commit()
             .await
-            .map_err(|e| unavailable(e.to_string()))?;
+            .map_err(|e| unavailable(database_message(&e)))?;
 
         let mut decisions = Vec::with_capacity(locators.len());
         for (index, (decision_identity, result_identity, stored_digest, stored_commit)) in
@@ -633,4 +633,84 @@ fn current_epoch_ms() -> Result<u64, DashboardReadErrorV1> {
 
 fn unavailable(message: impl Into<String>) -> DashboardReadErrorV1 {
     DashboardReadErrorV1::Unavailable(message.into())
+}
+
+/// Carries what PostgreSQL said beyond its one-line message.
+///
+/// A deadlock reports `deadlock detected` as its message and names both sides in `DETAIL`: the two
+/// processes, what each waited on, and the statement each was running. Converting the error with
+/// `to_string` keeps the first and discards the second, so a deadlock arrives naming neither party -
+/// which is how one reached a chain failure report as a bare `deadlock detected` with nothing to act
+/// on. The same field carries the conflicting key for a unique violation and the failing row for a
+/// check violation, so this is not specific to deadlocks.
+fn database_message(error: &sqlx::Error) -> String {
+    let sqlx::Error::Database(database) = error else {
+        return error.to_string();
+    };
+    let mut text = database.message().to_owned();
+    if let Some(code) = database.code() {
+        text.push_str(&format!(" [SQLSTATE {code}]"));
+    }
+
+    if let Some(postgres) = database.try_downcast_ref::<sqlx::postgres::PgDatabaseError>() {
+        if let Some(detail) = postgres.detail() {
+            text.push_str(&format!("; detail: {detail}"));
+        }
+
+        if let Some(hint) = postgres.hint() {
+            text.push_str(&format!("; hint: {hint}"));
+        }
+    }
+    text
+}
+
+#[cfg(test)]
+mod database_message_tests {
+    use super::database_message;
+
+    /// Proves the extraction runs, rather than only that it compiles.
+    ///
+    /// A unique violation is used because it carries `DETAIL` the same way a deadlock does and can
+    /// be produced on demand, which a deadlock cannot. Without this the helper could return the bare
+    /// message forever and read exactly like a database that had nothing more to say.
+    #[tokio::test]
+    async fn a_database_error_carries_its_detail_not_only_its_message() {
+        let Ok(url) = std::env::var("RD_OWNER_TEST_DATABASE_URL") else {
+            return;
+        };
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&url)
+            .await
+            .expect("connect");
+        sqlx::query("CREATE TABLE IF NOT EXISTS detail_probe_v1 (k TEXT PRIMARY KEY)")
+            .execute(&pool)
+            .await
+            .expect("create");
+        sqlx::query("INSERT INTO detail_probe_v1 (k) VALUES ('same') ON CONFLICT DO NOTHING")
+            .execute(&pool)
+            .await
+            .expect("seed");
+        let conflict = sqlx::query("INSERT INTO detail_probe_v1 (k) VALUES ('same')")
+            .execute(&pool)
+            .await
+            .expect_err("the second insert must violate the key");
+        let reported = database_message(&conflict);
+        assert!(
+            reported.contains("detail:"),
+            "no detail carried: {reported}"
+        );
+        assert!(
+            reported.contains("same"),
+            "detail did not name the key: {reported}"
+        );
+        assert!(
+            reported.contains("SQLSTATE"),
+            "no sqlstate carried: {reported}"
+        );
+        sqlx::query("DROP TABLE detail_probe_v1")
+            .execute(&pool)
+            .await
+            .expect("drop");
+    }
 }
