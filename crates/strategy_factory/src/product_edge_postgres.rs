@@ -5507,11 +5507,13 @@ pub(crate) mod tests {
         // on the receipt's commit time holds under either reading and distinguishes neither. A
         // moved clock separates them: the receipt must still report the first commit.
         //
-        // One millisecond, not a visible interval: the read cut is bounded by the custody view it
-        // reads against (`develop_composer_v2.rs` refuses a cut at or past `valid_through`), so a
-        // clock moved far enough to look obvious fails the custody read instead and the replay
-        // never reaches this assertion. The advance only has to be non-zero.
-        let replay_cut = read_cut + 1;
+        // Backwards, and by one millisecond. `read_cut` above is
+        // `valid_through_epoch_ms.saturating_sub(1)`: the last cut this custody view admits. And
+        // `develop_composer_v2.rs` refuses a cut at or past `valid_through`, so every forward
+        // advance - +1 exactly as much as +524_000 - fails the Research custody read with
+        // `Unavailable`, and the replay never reaches the assertion below. The window is ten
+        // minutes wide, so one millisecond earlier is well inside it. The clock only has to differ.
+        let replay_cut = read_cut - 1;
         let replay_root = PostgresResearchBoundedFeatureProgramOwnerV1::with_clock(
             owner.pool.clone(),
             std::sync::Arc::new(move || replay_cut),
