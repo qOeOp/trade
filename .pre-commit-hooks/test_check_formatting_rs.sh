@@ -81,7 +81,11 @@ write_rs "$match_guard_and_if_case/crates/common/src/lib.rs" \
   '}'
 expect_failure "$match_guard_and_if_case" "crates/common/src/lib.rs:15"
 
-violation_count=$(rg -c "Missing blank line above" "$match_guard_and_if_case/output.txt")
+# `|| echo 0`: rg exits 1 and prints nothing when the count is zero, so under `set -e` the
+# assignment ends the script before the message below - silent in the one case that message
+# exists for, a hook that stopped reporting. `|| true` is not enough: it leaves the variable
+# empty and the comparison then fails on a non-integer.
+violation_count=$(rg -c "Missing blank line above" "$match_guard_and_if_case/output.txt" || echo 0)
 if [ "$violation_count" -ne 1 ]; then
   echo "Expected exactly one missing-blank violation"
   cat "$match_guard_and_if_case/output.txt"
