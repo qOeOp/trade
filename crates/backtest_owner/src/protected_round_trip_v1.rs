@@ -13,6 +13,15 @@
 //!
 //! The frozen bytes it replaces were the same kind of corpus, written down once. What changes is
 //! that the engine can now move the number, and nothing before this could.
+//!
+//! This is a different corpus from those bytes, not a re-run of them, so the two numbers are not
+//! comparable and nothing here suggests the frozen one failed to reproduce. The frozen bytes are
+//! `target-set-backtest-b3-round-trip`: two equity instruments driven by bars through the target
+//! set program host, 14 iterations, 6 orders, 2 positions, -20 basis points. This is
+//! `protected-economic-round-trip-v1`: one instrument driven by quotes through `EmaCross`, 88
+//! iterations, 2 orders, 1 position, -9 basis points. Those bytes are still in the tree and
+//! `tests/protected_economic_measurement.rs` still proves the measurement against them field by
+//! field; what changed is only that the gate no longer takes its number from them.
 
 use vibe_backtest::{
     config::{BacktestEngineConfig, SimulatedVenueConfig},
@@ -34,6 +43,17 @@ const VENUE: &str = "SIM";
 const FAST_PERIOD: usize = 2;
 const SLOW_PERIOD: usize = 3;
 const TRADE_SIZE: &str = "1";
+
+// Coverage is a function of the warmup length and the window length, not a free parameter. The
+// first corpus written here, a 10/20 crossing with a 24-quote warmup, measured 4022 basis points
+// of coverage; this one, a 2/3 crossing with a 3-quote warmup, measures 9748. The 9500 floor it
+// clears was itself set around the frozen corpus - `chain_economic_policy` in
+// `crates/qualification/src/postgres.rs` says so in its own comment, and says the same of the
+// -100 economic floor. NEITHER NUMBER IS A PRODUCT CRITERION. Reading `9748 >= 9500` as this
+// pipeline reaching a meaningful coverage bar is exactly the misreading to avoid.
+//
+// The coupling is real beyond this corpus: a strategy with a serious warmup cannot cover a short
+// window, whatever it trades.
 
 /// Quotes held flat long enough for both averages to initialize on the same value.
 ///
