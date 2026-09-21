@@ -8,8 +8,9 @@ large-data-tests = { max-threads = 1 }
 # Which tests ran is not recoverable from this job's log: `--status-level fail` prints nothing for a
 # test that passes, so "the name is absent" reads the same whether it ran and passed or was never
 # selected. JUnit records every test by name, pass or fail, and a machine can assert on it.
-# Written to <CARGO_TARGET_DIR>/nextest/ci/junit.xml, and overwritten by each `cargo nextest run`,
-# so a job with more than one invocation must copy the file out between them.
+# Written to <workspace>/target/nextest/ci/junit.xml - nextest's store directory, which does not
+# follow CARGO_TARGET_DIR - and overwritten by each `cargo nextest run`, so a job with more than
+# one invocation must copy the file out between them.
 [profile.ci.junit]
 path = "junit.xml"
 
