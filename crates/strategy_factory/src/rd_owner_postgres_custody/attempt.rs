@@ -244,11 +244,43 @@ pub(crate) struct VerifiedAttemptReservationHeaderV1 {
     pub(crate) attempt: StoredAttemptV1,
 }
 
+/// Whether reading the reservation header should also lock the attempt row.
+///
+/// Reading it unlocked is what lets a caller learn which Research intent the attempt names before
+/// it takes any lock. That matters because the locks this file and
+/// `rd_owner_postgres_custody` take have an order - `rd_research_request_receipts_v1` before
+/// `rd_artifact_build_attempts_v1` - and the attempt row is what says which receipt to lock. A
+/// caller that locks the attempt first to answer that question has taken the two in the opposite
+/// order, which is what PostgreSQL reported at chain entry 28.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum AttemptHeaderReadV1 {
+    /// Probe only: decides what to do next, holds nothing.
+    Unlocked,
+    /// Locks the attempt row, for a caller that is about to act on it.
+    Locked,
+}
+
+impl AttemptHeaderReadV1 {
+    /// Both statements are literals. sqlx refuses a built string, and rightly: a query assembled
+    /// at runtime is one nobody can read off the source.
+    const fn query(self) -> &'static str {
+        match self {
+            Self::Unlocked => {
+                "SELECT build_request_identity, attempt_identity, semantic_digest, attempt_json, prepared_at_epoch_ms FROM rd_artifact_build_attempts_v1 WHERE build_request_identity = $1"
+            }
+            Self::Locked => {
+                "SELECT build_request_identity, attempt_identity, semantic_digest, attempt_json, prepared_at_epoch_ms FROM rd_artifact_build_attempts_v1 WHERE build_request_identity = $1 FOR UPDATE"
+            }
+        }
+    }
+}
+
 pub(crate) async fn admit_attempt_reservation_header_in_transaction(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     build_request_identity: &str,
+    read: AttemptHeaderReadV1,
 ) -> Result<Option<VerifiedAttemptReservationHeaderV1>, ArtifactBuildError> {
-    let rows = sqlx::query("SELECT build_request_identity, attempt_identity, semantic_digest, attempt_json, prepared_at_epoch_ms FROM rd_artifact_build_attempts_v1 WHERE build_request_identity = $1 FOR UPDATE")
+    let rows = sqlx::query(read.query())
         .bind(build_request_identity)
         .fetch_all(&mut **transaction)
         .await

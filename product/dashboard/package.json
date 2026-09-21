@@ -7,7 +7,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "next dev",
+    "dev": "node scripts/local-preview.mjs",
     "start": "next start",
     "build": "next build",
     "run-store:migrate": "node scripts/migrate-run-store.mjs",

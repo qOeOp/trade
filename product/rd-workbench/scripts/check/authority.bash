@@ -91,7 +91,17 @@ rd_owner_api_compose=$(sed -n '/^  rd-owner-api:$/,/^  schema-materialize:$/p' "
 printf '%s\n' "$rd_owner_api_compose" | grep -Fq 'replay-policy-catalog-owner-readback:'
 printf '%s\n' "$rd_owner_api_compose" | grep -Fq 'MARKET_DATA_OWNER_DATABASE_URL:'
 printf '%s\n' "$rd_owner_api_compose" | grep -Fq 'MARKET_DATA_RD_ROLE_SET_DATABASE_URL:'
-if printf '%s\n' "$rd_owner_api_compose" | grep -Eq 'RD_FACT_WRITER|REPLAY_POLICY_CATALOG'; then
+# `RD_FACT_WRITER` is deliberately not in this alternation. It is Composer authority, not Catalog
+# authority, and this service is the Composer's host: `main.rs` builds
+# `PostgresSourceResearchComposerProductionV2` from it on the default build, which is the one the
+# deployment image makes. Naming it here made the R&D API unable to start at all, because a value it
+# reads unconditionally was the one value the check refused to let it have.
+#
+# What that clause claimed to protect is enforced where it cannot be bypassed by a string: the
+# catalog roles are revoked from `rd_fact_writer` in both directions
+# (`postgres-init/10-migrate-authority-custody.sh:131-132`), and every catalog API function revokes
+# it by name (`:4333` onward). A compose file that mentions the writer URL still reaches nothing.
+if printf '%s\n' "$rd_owner_api_compose" | grep -Eq 'REPLAY_POLICY_CATALOG'; then
   echo "R&D API must not receive Catalog bootstrap authority or inputs" >&2
   exit 1
 fi
