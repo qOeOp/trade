@@ -3233,6 +3233,17 @@ mod tests {
 
         install_acceptance_tracing();
 
+        // Reported rather than assumed: this harness pins `worker_threads = 2`, and whether that
+        // is a constraint or a restatement of the default depends on a number nobody here has
+        // measured. Two sessions have carried "the runner has 2 vCPUs" as fact with no measurement
+        // behind it, while `owner-chains.yml` says 4 for a public repository. This is the figure
+        // tokio actually defaults to, read in the process that would use it.
+        tracing::info!(
+            available_parallelism = ?std::thread::available_parallelism(),
+            pinned_worker_threads = 2,
+            "acceptance harness runtime width"
+        );
+
         let browser_executable = env::var("DASHBOARD_STRATEGY_VIEWER_BROWSER_EXECUTABLE")
             .expect("explicit browser executable is required");
         let acceptance_candidate = env::var("DASHBOARD_STRATEGY_VIEWER_ACCEPTANCE_CANDIDATE")
