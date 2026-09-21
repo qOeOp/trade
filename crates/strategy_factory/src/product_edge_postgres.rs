@@ -4760,7 +4760,7 @@ pub(crate) mod tests {
             .unwrap()
             .as_nanos();
         let request_identity = format!("research-request-v2-read-cut-{suffix}");
-        let admission = bootstrap_admission(
+        let (admission, _) = bootstrap_admission(
             BootstrapAdmissionTopology::Migrating {
                 database_url: &database_url,
             },
@@ -4947,7 +4947,7 @@ pub(crate) mod tests {
             .unwrap()
             .as_nanos();
         let request_identity = format!("research-bfp-joint-freeze-{suffix}");
-        let admission = bootstrap_admission(
+        let (admission, _) = bootstrap_admission(
             BootstrapAdmissionTopology::Existing {
                 operator_authorization_database_url: &operator_authorization_database_url,
                 product_edge_database_url: &product_edge_database_url,
@@ -5296,6 +5296,203 @@ pub(crate) mod tests {
         declared_bounded_feature_program_fixture(ComposerRunCoverageV1::BindingsOnly);
     }
 
+    /// A second Research request under one principal is refused before the lineage advances.
+    ///
+    /// Protected-feedback resolution has three paths: a basis whose projection is still fresh
+    /// replays, a basis under a scope with no frontier takes the genesis arm, and a basis under a
+    /// scope that already has one takes the `FRONTIER` arm. The gate had only ever taken the
+    /// genesis arm, and the reason recorded for that was a property of the corpus: every entry
+    /// bootstraps its own deployment under `admin-{suffix}`, so no scope had ever seen a second
+    /// request. This entry supplies exactly that missing configuration - one deployment, one
+    /// principal, one authorized scope, two requests, each with its own admission - and the
+    /// `FRONTIER` arm is still not reached. The corpus property was not the only thing in the way.
+    ///
+    /// What the second request meets is `load_or_create_basis_in_transaction` taking its
+    /// `head_lineage == lineage_digest` branch. That branch is written for a replay of the request
+    /// that created the head, so it looks up basis-stage custody under the request identity it was
+    /// given, finds none for a request it has not seen, and returns
+    /// `Owner storage unavailable: R&D basis-stage custody missing`. The `FRONTIER` arm sits past
+    /// that branch and is reached only when the lineage has advanced, which needs the first
+    /// request to have completed; the first request does not complete either, because
+    /// `resolve_current_v3_for_trial_family_formation` refuses with
+    /// `current Catalog V3 head is missing, partial, or duplicate` and nothing in the gate
+    /// publishes that head.
+    ///
+    /// Neither refusal surfaces as an error. Both are swallowed into
+    /// `Ok(unresolved_result_v2(..))`, one of the twenty-nine such lines this file carries, so it returns
+    /// `SubmittedOrUnknown` and a caller that asserts on `Result::is_ok` sees a submission it has
+    /// every reason to read as accepted. This entry therefore asserts on the resolution and on the
+    /// store, never on `Ok`.
+    ///
+    /// What this pins is the refusal, not the arm.
+    ///
+    /// **This entry is built to fail when the situation improves.** Publishing a Catalog V3 head,
+    /// or any other change that lets the lineage advance, turns the assertions below red. That red
+    /// is the signal, not a regression: read it as "the `FRONTIER` arm is now reachable" and
+    /// rewrite this entry to assert the arm it currently proves unreachable. A test that fails
+    /// when things get better is worth more than a comment saying they have not, because a comment
+    /// cannot notice.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "requires the ordered canonical Owner PostgreSQL gate"]
+    async fn second_request_under_one_principal_is_refused_before_the_lineage_advances() {
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let operator_authorization_database_url = test_database
+            .database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter)
+            .to_string();
+        let product_edge_database_url = test_database
+            .database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner)
+            .to_string();
+        let rd_database_url = test_database
+            .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+            .to_string();
+        let qualification_database_url = test_database
+            .database_url(CanonicalOwnerTestRoleV1::QualificationWriter)
+            .to_string();
+
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let principal = format!("admin-{suffix}");
+        let first_identity = format!("research-frontier-first-{suffix}");
+        let second_identity = format!("research-frontier-second-{suffix}");
+
+        let (first_admission, second_admission) = {
+            let (first_admission, edge) = bootstrap_admission(
+                BootstrapAdmissionTopology::Existing {
+                    operator_authorization_database_url: &operator_authorization_database_url,
+                    product_edge_database_url: &product_edge_database_url,
+                },
+                &first_identity,
+                suffix,
+            )
+            .await;
+            let second_payload = request(
+                &second_identity,
+                ProductEdgeAdmissionLocatorV1 {
+                    request_identity: second_identity.clone(),
+                    admission_identity: String::new(),
+                    admission_digest: String::new(),
+                },
+            );
+            let second_admission = admit_one_request(
+                &edge,
+                &second_identity,
+                BootstrapAdmittedOperationV1 {
+                    operation: RESEARCH_GOAL_OPERATION_V2,
+                    operation_schema: RESEARCH_GOAL_SCHEMA_V2,
+                    effect: "R_AND_D_RESEARCH_MUTATION_V1",
+                    typed_payload: serde_json::json!({
+                        "request_identity": second_payload.request_identity,
+                        "channel": second_payload.channel,
+                        "goal": second_payload.goal,
+                        "trial_family_proposal": second_payload.trial_family_proposal,
+                    }),
+                },
+            )
+            .await;
+            (first_admission, second_admission)
+        };
+
+        let owner =
+            PostgresResearchGoalOwnerV1::connect(&rd_database_url, &qualification_database_url)
+                .await
+                .unwrap();
+        // One deployment admitting two requests is the configuration the ledger named as missing.
+        // Both admissions are genuine: the second is issued by the same Product Edge, under the
+        // same authorization, for its own request identity.
+        let first = owner
+            .submit_v2(request(&first_identity, first_admission))
+            .await
+            .expect("the first Research request reaches the Owner");
+        let second = owner
+            .submit_v2(request(&second_identity, second_admission))
+            .await
+            .expect("the second Research request reaches the Owner");
+
+        // `Ok` carries no verdict here: both refusals below are returned as `Ok`.
+        assert_eq!(
+            first.resolution(),
+            ProductEdgeResolution::SubmittedOrUnknown,
+            "the first request cannot complete while no Catalog V3 head is published",
+        );
+        assert_eq!(
+            second.resolution(),
+            ProductEdgeResolution::SubmittedOrUnknown,
+            "the second request under one principal is refused, not accepted",
+        );
+        assert_eq!(
+            second.next_legal_action(),
+            ResearchNextLegalAction::ResolveSameRequestIdentity,
+            "an unresolved submission admits only a resolve under its own request identity",
+        );
+        assert!(
+            second.independence_basis().is_none() && second.protected_feedback().is_none(),
+            "a refused second request carries neither a basis nor a protected-feedback readback",
+        );
+
+        // Two pools and two statements, not one join. `rd_independence_bases_v1` belongs to R&D
+        // and `qualification_protected_feedback_projections_v1` to Qualification, and no role can
+        // read both: that isolation is a property under test here, so a join across it would be
+        // asking the database to break the thing this entry exists to observe.
+        let rd_pool = sqlx::PgPool::connect(&rd_database_url).await.unwrap();
+        let qualification_pool = sqlx::PgPool::connect(&qualification_database_url)
+            .await
+            .unwrap();
+
+        // The first request is this entry's positive control. Every absence asserted below is read
+        // by the same statement, on the same pool, that finds the first request here: an absence
+        // read by an instrument that has just returned a row is an absence and not a broken query.
+        let first_basis: String = sqlx::query_scalar(
+            "SELECT basis_identity FROM public.rd_independence_bases_v1 WHERE request_identity = $1",
+        )
+        .bind(&first_identity)
+        .fetch_one(&rd_pool)
+        .await
+        .expect("the first request commits its basis in a transaction of its own");
+        let first_state: String = sqlx::query_scalar(
+            "SELECT resolution_state FROM public.qualification_protected_feedback_projections_v1
+              WHERE basis_identity = $1",
+        )
+        .bind(&first_basis)
+        .fetch_one(&qualification_pool)
+        .await
+        .expect("the first basis carries the projection the genesis arm writes");
+        assert_eq!(
+            first_state, "GENESIS_EMPTY",
+            "the first request under a scope takes the arm the gate has always taken",
+        );
+
+        let second_bases: i64 = sqlx::query_scalar(
+            "SELECT pg_catalog.count(*) FROM public.rd_independence_bases_v1
+              WHERE request_identity = $1",
+        )
+        .bind(&second_identity)
+        .fetch_one(&rd_pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            second_bases, 0,
+            "the refused second request rolls its transaction back and writes no basis",
+        );
+
+        // Scoped to this entry's own principal: the gate shares one database it never resets, so a
+        // global count would read every other entry's rows.
+        let projections_under_this_principal: i64 = sqlx::query_scalar(
+            "SELECT pg_catalog.count(*)
+               FROM public.qualification_protected_feedback_projections_v1
+              WHERE principal = $1",
+        )
+        .bind(&principal)
+        .fetch_one(&qualification_pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            projections_under_this_principal, 1,
+            "one principal with two requests still carries exactly the one genesis projection",
+        );
+    }
+
     /// The Composer RUN that a frozen pair authorises, carried all the way to a durable Artifact.
     ///
     /// Everything before the run is the same fixture: Market Data issues the six BAR bindings, the
@@ -5391,7 +5588,7 @@ pub(crate) mod tests {
             .unwrap()
             .as_nanos();
         let request_identity = format!("research-bfp-declare-{suffix}");
-        let admission = bootstrap_admission(
+        let (admission, _) = bootstrap_admission(
             BootstrapAdmissionTopology::Existing {
                 operator_authorization_database_url: &operator_authorization_database_url,
                 product_edge_database_url: &product_edge_database_url,
@@ -5750,7 +5947,7 @@ pub(crate) mod tests {
         topology: BootstrapAdmissionTopology<'_>,
         request_identity: &str,
         suffix: u128,
-    ) -> ProductEdgeAdmissionLocatorV1 {
+    ) -> (ProductEdgeAdmissionLocatorV1, ProductEdgePostgresOwnerV1) {
         let payload = request(
             request_identity,
             ProductEdgeAdmissionLocatorV1 {
@@ -5778,12 +5975,19 @@ pub(crate) mod tests {
         .await
     }
 
+    /// Bootstraps a deployment, its authorization and its binding, then admits one request.
+    ///
+    /// The deployment is returned alongside the admission so a caller can admit further requests
+    /// into it. A second deployment is not the way to get a second admission: its genesis is
+    /// refused once any history exists, its authorization cannot be a second genesis under one
+    /// scope, and a successor authorization may differ from its predecessor only in identity and
+    /// lifetime. One deployment admitting many requests is the shape the Owner is built for.
     pub(crate) async fn bootstrap_operation_admission(
         topology: BootstrapAdmissionTopology<'_>,
         request_identity: &str,
         suffix: u128,
         admitted: BootstrapAdmittedOperationV1<'_>,
-    ) -> ProductEdgeAdmissionLocatorV1 {
+    ) -> (ProductEdgeAdmissionLocatorV1, ProductEdgePostgresOwnerV1) {
         let now = current_epoch_ms().unwrap();
         let principal = format!("admin-{suffix}");
         let manifest = AgentOperationManifestProposalV1 {
@@ -5879,6 +6083,16 @@ pub(crate) mod tests {
         })
         .await
         .unwrap();
+        let locator = admit_one_request(&edge, request_identity, admitted).await;
+        (locator, edge)
+    }
+
+    /// Admits one more request into a deployment that is already bootstrapped.
+    pub(crate) async fn admit_one_request(
+        edge: &ProductEdgePostgresOwnerV1,
+        request_identity: &str,
+        admitted: BootstrapAdmittedOperationV1<'_>,
+    ) -> ProductEdgeAdmissionLocatorV1 {
         edge.admit_request(ProductEdgeAdmissionRequestV1 {
             request_identity: request_identity.to_string(),
             typed_payload: admitted.typed_payload,

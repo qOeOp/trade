@@ -124,15 +124,32 @@ Qualification 的其余部分并不排在它后面：attempt frontier、候选�
   走 `FRONTIER` 那一臂。门禁走过 genesis 那一臂二十次，走过 `FRONTIER` 那一臂零次，所以从来没有任何东西产生过
   那个 resolution、它存下来的编码、或者一份 source frontier 的身份与摘要。在有东西产生它之前，
   「选了 genesis 那一臂」和「没有别的臂可选」是同一个观察。驱动另一臂需要同一 principal 与
-  authorized scope 下的第二个研究请求，而挡路的既不是这个 Owner 够不着，也不是 R&D 不肯写一份 basis。
-  第二份 basis 由第一份用过的那个 `load_or_create_basis_in_transaction` 自己写，走的是闸门已经走过二十次
-  的同一条生产路径。闸门从来没有过的是两个请求共享一个 principal：每条条目各自 bootstrap 自己的准入，
-  principal 是 `admin-{suffix}`，所以每条各带一个自己的 principal，每个 scope 只见过一个请求。
-  这是语料的性质，不是生产路径的性质。它下面还压着第二个条件，而那一个是生产路径的性质：一个 scope 的
+  authorized scope 下的第二个研究请求。闸门从来没有过的是两个请求共享一个 principal：每条条目各自
+  bootstrap 自己的准入，principal 是 `admin-{suffix}`，所以每条各带一个自己的 principal，每个 scope
+  只见过一个请求。这是语料的性质，不是生产路径的性质；它下面还压着一个生产路径的性质：一个 scope 的
   第一份授权是 genesis，之后每一份都必须是 successor，所以两份共享 scope 的准入需要 `issue_successor`，
-  而准入 bootstrap 只会 `issue_genesis`。两个条件都是驱动出来的：同一 suffix 下的两份准入被拒为冲突重放，
+  而准入 bootstrap 只会 `issue_genesis`。两者都是驱动出来的：同一 suffix 下的两份准入被拒为冲突重放，
   因为授权身份是按 suffix 派生的；一份准入服务不了两个请求，因为准入绑定它被签发时的那个请求身份；
   而同一 principal 下的两份准入被拒，因为该 scope 已经有了 genesis。
+
+  但让那一臂走不到的不是这两条。本台账此前记的是这两条，并且记着第二份 basis 会由第一份用过的那个
+  `load_or_create_basis_in_transaction` 自己写出来。那是读代码读出来的，不是驱动出来的，而驱动它就推翻了它。
+  `second_request_under_one_principal_is_refused_before_the_lineage_advances`
+  供上了此前缺的那个配置（一个 deployment、一个 principal、一个 authorized scope、两个请求，各自一份准入），
+  而第二份 basis 并没有被写出来。第二个请求撞上的是那个函数的 `head_lineage == lineage_digest` 分支，
+  而那一支是为「创建了 head 的那个请求的重放」写的：它拿收到的请求身份去查 basis-stage 托管，
+  对一个它没见过的请求当然查不到，于是以 `Owner storage unavailable: R&D basis-stage custody missing` 拒绝。
+  `FRONTIER` 那一臂在该分支之后，只有 lineage 前进了才到得了，而 lineage 前进需要第一个请求走完。
+  第一个请求也走不完：trial-family 形成以 `current Catalog V3 head is missing, partial, or duplicate` 拒绝，
+  而闸门里没有任何东西发布那个 head。**因此那一臂真正的前置是一个运维动作，而不是本 Owner 或 R&D 的缺口**：
+  Catalog V3 的发布路径在已部署镜像里是存在的，但只有操作者喂给它那条封印命令，V3 头才会出现。
+
+  这两处拒绝都不是以错误的形式到达调用方的。它们都被返回成 `Ok(unresolved_result_v2(..))`，
+  是 `product_edge_postgres.rs` 里二十九条同形代码行之一，于是 `submit_v2` 答的是 `SubmittedOrUnknown`
+  并带 `next_legal_action = ResolveSameRequestIdentity`，而理由只进了一条 `tracing::warn!`，
+  闸门并不为它装订阅者。一个按 `Result::is_ok` 断言的调用方，看到的是一次它完全有理由读成「已接受」的提交。
+  所以上面那条条目把断言挂在 resolution 与库上，绝不挂在 `Ok` 上；并且它是被写成「情况变好时会失败」的：
+  凡是让 lineage 得以前进的改动都会把它变红，而那个红就是把它改写成断言那一臂、而不是断言这次拒绝的信号。
 - **Response-cut 回滚。** 要驱动它就需要一次创建或一次续期，也就需要一个缺席或已过期的当前 frontier。把一份投影的
   `valid_through_epoch_ms` 变旧，会让它与读回所校验的规范行失去同步，于是以
   `Qualification admission envelope projection mismatch` 失败，所以本 Owner 恰好禁掉了唯一能强行触发它的途径。
