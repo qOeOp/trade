@@ -12,6 +12,21 @@ Between them they reach every availability rule, every state sizing rule and eve
 catalog has, which is the part one fixture cannot carry: a derivation that mishandled a single rule
 would still reproduce a proposal that never used it.
 
+`s1` is the exception to all of this: every other program here was grown to drive a catalog rule,
+so all of them are wider than the bounded family a first production path is admitted for. `s1` is
+built to be minimal instead - one declared channel against one threshold, no state cell, no
+cross-tick carry. With a single channel there is no choice of decision clock to make, so the clock
+is that role and an Owner assembling this invents nothing.
+
+Three things it measured that a minimal program runs into:
+
+- a bound is a capacity and every capacity must be non-zero, so a program with no state cell still
+  declares room for one; zero is not expressible;
+- a declared constant no node or terminal consumes is refused, exactly as an unconsumed input role
+  is, so the template's state seed had to be dropped along with the state cell;
+- edges count terminal references, so this graph's two bindings sit inside an edge count of
+  twenty-five. A minimal program does not get small bounds; the decision table sets the floor.
+
 `a0` and `a0v3` share one Design and differ only in reaching for the square root catalog version 3
 added. `t4`/`t5` and `t7`/`t8`/`t9` likewise share a Design, which is why there are six Designs and
 ten meanings.
