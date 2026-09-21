@@ -23,6 +23,7 @@ grep -Fq ': "${RD_OWNER_DATABASE_NAME:=rd_owner}"' "$package_dir/postgres-init/0
 grep -Fq ": \"\${RD_FACT_WRITER_DB_PASSWORD:?set RD_FACT_WRITER_DB_PASSWORD}\"" "$package_dir/postgres-init/00-create-rd-owner.sh"
 grep -Fq ": \"\${RD_FACT_WRITER_DB_PASSWORD:?set RD_FACT_WRITER_DB_PASSWORD}\"" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq ": \"\${MARKET_DATA_OWNER_DB_PASSWORD:?set MARKET_DATA_OWNER_DB_PASSWORD}\"" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq ": \"\${MARKET_DATA_READER_DB_PASSWORD:?set MARKET_DATA_READER_DB_PASSWORD}\"" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq ": \"\${REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD:?set REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD}\"" "$package_dir/postgres-init/00-create-rd-owner.sh"
 grep -Fq ": \"\${REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD:?set REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD}\"" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE DATABASE :"rd_owner_database_name" OWNER rd_owner' "$package_dir/postgres-init/00-create-rd-owner.sh"
@@ -37,19 +38,23 @@ grep -Fq "ALTER ROLE replay_policy_catalog_admin_writer LOGIN INHERIT NOSUPERUSE
 postgres_compose=$(sed -n '/^  postgres:$/,/^  rd-owner-api:$/p' "$package_dir/docker-compose.yml")
 printf '%s\n' "$postgres_compose" | grep -Fq "RD_FACT_WRITER_DB_PASSWORD=\${RD_FACT_WRITER_DB_PASSWORD:?set RD_FACT_WRITER_DB_PASSWORD}"
 printf '%s\n' "$postgres_compose" | grep -Fq "MARKET_DATA_OWNER_DB_PASSWORD=\${MARKET_DATA_OWNER_DB_PASSWORD:?set MARKET_DATA_OWNER_DB_PASSWORD}"
+printf '%s\n' "$postgres_compose" | grep -Fq "MARKET_DATA_READER_DB_PASSWORD=\${MARKET_DATA_READER_DB_PASSWORD:?set MARKET_DATA_READER_DB_PASSWORD}"
 printf '%s\n' "$postgres_compose" | grep -Fq "REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD=\${REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD:?set REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD}"
 custody_migrate_compose=$(sed -n '/^  authority-custody-migrate:$/,/^  replay-policy-catalog-bootstrap:$/p' "$package_dir/docker-compose.yml")
 printf '%s\n' "$custody_migrate_compose" | grep -Fq 'RD_FACT_WRITER_DB_PASSWORD: >-'
 printf '%s\n' "$custody_migrate_compose" | grep -Fq "\${RD_FACT_WRITER_DB_PASSWORD:?set RD_FACT_WRITER_DB_PASSWORD}"
 printf '%s\n' "$custody_migrate_compose" | grep -Fq "\${MARKET_DATA_OWNER_DB_PASSWORD:?set MARKET_DATA_OWNER_DB_PASSWORD}"
+printf '%s\n' "$custody_migrate_compose" | grep -Fq "\${MARKET_DATA_READER_DB_PASSWORD:?set MARKET_DATA_READER_DB_PASSWORD}"
 printf '%s\n' "$custody_migrate_compose" | grep -Fq "\${REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD:?set REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD}"
 grep -Fq 'RD_FACT_WRITER_DB_PASSWORD=replace-with-local-random-value' "$package_dir/.env.example"
 grep -Fq 'MARKET_DATA_OWNER_DB_PASSWORD=replace-with-local-random-value' "$package_dir/.env.example"
+grep -Fq 'MARKET_DATA_READER_DB_PASSWORD=replace-with-local-random-value' "$package_dir/.env.example"
 grep -Fq 'MARKET_DATA_OWNER_DATABASE_URL=replace-with-private-market-data-owner-database-url' "$package_dir/.env.example"
 grep -Fq 'REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD=replace-with-local-random-value' "$package_dir/.env.example"
 ci_postgres_test="$package_dir/../../scripts/ci/test-rd-owner-postgres.bash"
 test "$(grep -Fc -- "--env \"RD_FACT_WRITER_DB_PASSWORD=\${test_password}\"" "$ci_postgres_test")" -eq 3
 test "$(grep -Fc -- "--env \"MARKET_DATA_OWNER_DB_PASSWORD=\${test_password}\"" "$ci_postgres_test")" -eq 3
+test "$(grep -Fc -- "--env \"MARKET_DATA_READER_DB_PASSWORD=\${test_password}\"" "$ci_postgres_test")" -eq 3
 test "$(grep -Fc -- "--env \"REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD=\${test_password}\"" "$ci_postgres_test")" -eq 3
 if grep -Fq "ALTER ROLE rd_fact_writer LOGIN PASSWORD :'test_password';" "$ci_postgres_test"; then
   echo "disposable CI must use the canonical rd_fact_writer credential chain" >&2
