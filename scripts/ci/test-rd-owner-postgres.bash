@@ -1358,6 +1358,11 @@ cleanup() {
   trap - EXIT
   set +e
 
+  # The entry that ended the run never reached its own copy, so take it here.
+  if [[ "$primary_status" -ne 0 && -n "${chain_position:-}" ]]; then
+    keep_chain_record "$chain_position"
+  fi
+
   if [[ -n "$nextest_archive_file" ]] &&
     ! rm -f -- "$nextest_archive_file"; then
     cleanup_failed=true
@@ -1405,6 +1410,27 @@ cleanup() {
   fi
   exit 0
 }
+# Every `cargo nextest run` below rewrites the same junit.xml, so the chain's invocations leave only
+# the last one behind. One copy per entry is what makes "did entry N run, and for how long" a
+# question a machine can answer instead of one a person answers by reading the log. nextest's store
+# does not follow CARGO_TARGET_DIR - it is always <workspace>/target/nextest - so this reads the
+# store path rather than deriving one.
+chain_record_dir='target/nextest/chain-records'
+readonly chain_record_dir
+chain_record_source='target/nextest/ci/junit.xml'
+readonly chain_record_source
+rm -rf -- "$chain_record_dir"
+mkdir -p -- "$chain_record_dir"
+
+# Copies the record nextest just wrote. Called once per entry on the way through, and once more from
+# `cleanup` for the entry that ended the run: without that second call a failing entry would have no
+# record, and "no record" would mean both "never ran" and "ran and failed".
+keep_chain_record() {
+  local position="$1"
+  [[ -f "$chain_record_source" ]] || return 0
+  cp -- "$chain_record_source" "$(printf '%s/%03d.xml' "$chain_record_dir" "$position")"
+}
+
 trap cleanup EXIT
 
 probe_tcp_endpoint() {
@@ -3243,6 +3269,7 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       "${nextest_execution_args[@]}" \
       -E "$test_filter"
   fi
+  keep_chain_record "$chain_position"
   if [[ -n "$backtest_result_fault" ]]; then
     restore_backtest_result_fault "$backtest_result_fault"
   fi

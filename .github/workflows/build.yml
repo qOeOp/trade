@@ -804,6 +804,19 @@ jobs:
       - name: Run the isolated PostgreSQL Owner chain
         run: make ${{ matrix.chain.make }}
 
+      # `if: always()`: the run that ends at an entry is the one whose record answers the most.
+      # `if-no-files-found: error` because an empty upload would say "no entry ran" in the same
+      # shape as "the copy broke".
+      - name: Publish which chain entries ran
+        if: always()
+        # https://github.com/actions/upload-artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: chain-record-${{ matrix.chain.key }}
+          path: target/nextest/chain-records/
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Clean Dashboard browser acceptance inputs
         if: always() && matrix.chain.key == 'rd-owner'
         run: |
