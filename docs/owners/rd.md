@@ -505,7 +505,12 @@ and scale along the DAG; and constants that exist only to give a port a value of
 **The Owner already computes each of these, and none of them is a choice an author makes.** Ten
 programs were later rebuilt from their meaning by the Owner's own derivation and matched their
 references field for field, so this layer's work is not to compute them again but to stop short of
-them.
+them. That reproduction is not admission: derivation copies the graph through without inspecting
+it, and its six refusals name identities, plugins and roles but never a graph. The graph is judged
+afterwards, in `prepare_bounded_feature_program_v1`, and when a check was first placed there four of
+those same ten programs were refused. **A layer that emits `meaning` therefore has to be checked
+against the stage that reads the graph, because the stage that rebuilds a proposal from it would
+accept a graph that cannot run.**
 
 Unifying those generators measured that claim: eight became one, 1232 lines became 487, and all
 twenty-four emitted artifacts were byte-identical to their predecessors, so nothing about a program
