@@ -1371,9 +1371,23 @@ cleanup() {
   # server log, and this script used to delete the container without ever reading it. A chain
   # failure then reported "deadlock detected" with no way to learn which two transactions, and
   # the evidence was destroyed on the way out. Dump it before the container goes.
-  if [[ "$primary_status" -ne 0 && "$container_created" == true ]]; then
-    echo "=== postgres server log (chain container) ===" >&2
-    docker logs "$container" 2>&1 | tail -n 400 >&2 || true
+  #
+  # Dumped on every run, not only on a failing one. `log_lock_waits` records a wait whether or
+  # not the chain goes on to fail, and the runs that pass carry deadlocks too: across twelve
+  # runs the passing side logged 0, 2, 2, 3, 3, 3, 4 and 5 of them while the four that stopped
+  # at entry 28 logged 1, 1, 1 and 2. Reading only the failing side samples on the outcome being
+  # explained, and the comparison that needs making is between the two.
+  #
+  # The length is printed and the log is not tailed. A dump cut to a fixed length and a log with
+  # nothing in it read the same way, and nothing in the output tells the reader which one they
+  # are holding; `tail -n 400` on a run that completes ninety entries would have kept the last
+  # entry and silently dropped the rest.
+  if [[ "$container_created" == true ]]; then
+    local postgres_server_log
+    postgres_server_log="$(docker logs "$container" 2>&1 || true)"
+    printf '=== postgres server log (chain container): %s lines ===\n' \
+      "$(printf '%s' "$postgres_server_log" | grep -c '' || true)" >&2
+    printf '%s\n' "$postgres_server_log" >&2
     echo "=== end postgres server log ===" >&2
   fi
 
