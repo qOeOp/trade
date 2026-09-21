@@ -446,7 +446,9 @@ fi
 # `cargo nextest run` rewrites junit.xml. The rust tests job invokes it twice (workspace, then the
 # toolchain proofs), so without a copy between them only the second survives and the artifact
 # silently becomes a record of the proofs alone.
-keeps="$(grep -c 'nextest/ci/junit\.xml' "$build_workflow")"
+# `|| true`: grep -c exits 1 when the count is zero, and under `set -e` that ends the script with
+# no message - a red that names nothing, which is the failure mode this guard exists to prevent.
+keeps="$(grep -c 'nextest/ci/junit\.xml' "$build_workflow" || true)"
 if [[ "$keeps" -ne 1 ]]; then
   echo "build.yml copies junit.xml $keeps time(s); expected exactly 1, taken straight after the" >&2
   echo "workspace run and before anything else invokes nextest. A second copy would record" >&2
