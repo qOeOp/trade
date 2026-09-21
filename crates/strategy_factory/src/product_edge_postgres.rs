@@ -5506,7 +5506,12 @@ pub(crate) mod tests {
         // call was made" and "the time the row was written" are the same number, so an assertion
         // on the receipt's commit time holds under either reading and distinguishes neither. A
         // moved clock separates them: the receipt must still report the first commit.
-        let replay_cut = read_cut + 524_000;
+        //
+        // One millisecond, not a visible interval: the read cut is bounded by the custody view it
+        // reads against (`develop_composer_v2.rs` refuses a cut at or past `valid_through`), so a
+        // clock moved far enough to look obvious fails the custody read instead and the replay
+        // never reaches this assertion. The advance only has to be non-zero.
+        let replay_cut = read_cut + 1;
         let replay_root = PostgresResearchBoundedFeatureProgramOwnerV1::with_clock(
             owner.pool.clone(),
             std::sync::Arc::new(move || replay_cut),
