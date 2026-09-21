@@ -7,6 +7,7 @@ import { join } from "node:path"
 import { setTimeout as delay } from "node:timers/promises"
 import test from "node:test"
 
+import { stopProcess } from "./browser-acceptance.mjs"
 import { reapPredecessor, startedAt } from "../scripts/local-preview.mjs"
 
 const scratch = mkdtempSync(join(tmpdir(), "local-preview-reap-"))
@@ -49,4 +50,29 @@ test("no record and an unreadable record are reported, not guessed at", () => {
   const malformed = join(scratch, "malformed.json")
   writeFileSync(malformed, "{")
   assert.equal(reapPredecessor(malformed), "no-record")
+})
+
+// `stopProcess`'s group path is what the local preview depends on, and until this nothing
+// exercised it: `teardown-releases-pipes.test.mjs` covers the pipe release and the plain signal,
+// and the four callers that pass `group: true` were covered by none of them. A dev server is a
+// tree - `next dev` spawns the server that holds the port - so signalling only the process that
+// was spawned leaves the listener running, which is the shape of the leak this whole file exists
+// for.
+test("stopping by group takes the processes the child started, not only the child", async () => {
+  // The shell is the group leader and `sleep` joins its group. Signalling the shell alone leaves
+  // the sleeper; signalling the group does not.
+  const child = spawn("/bin/sh", ["-c", "sleep 30 & echo $!; wait"], {
+    stdio: ["ignore", "pipe", "ignore"], detached: true,
+  })
+  const [chunk] = await once(child.stdout, "data")
+  const descendant = Number.parseInt(String(chunk).trim(), 10)
+  assert.ok(Number.isInteger(descendant), "the descendant must announce its id")
+  assert.equal(startedAt(descendant) !== null, true,
+    "the descendant must be alive before this asserts anything about stopping it")
+
+  await stopProcess(child, "probe", { group: true })
+
+  await delay(200)
+  assert.equal(startedAt(descendant), null,
+    "the process the child started must be gone, not just the child")
 })
