@@ -18,6 +18,7 @@ use axum::{
 use serde::Deserialize;
 use serde_json::json;
 use vibe_data::owner::strategy_design_role_intent_v1::StrategyDesignRoleIntentV1;
+use vibe_strategy_factory::bounded_feature_program_derivation_v1::BoundedFeatureProgramAssemblyErrorV1;
 use vibe_strategy_factory::rd_bounded_feature_program_postgres_v1::{
     PostgresResearchBoundedFeatureProgramOwnerV1, ResearchBoundedFeatureProgramDeclarationV1,
     ResearchBoundedFeatureProgramFreezeReceiptV1, ResearchBoundedFeatureProgramFreezeRequestV1,
@@ -333,9 +334,24 @@ fn owner_error(
         ResearchBoundedFeatureProgramOwnerErrorV1::Conflict => {
             (StatusCode::CONFLICT, "JOINT_FREEZE_CHANGED_MEANING")
         }
-        ResearchBoundedFeatureProgramOwnerErrorV1::Assembly(_) => (
+        // The two assembly variants tell a proposer to do opposite things - change the meaning, or
+        // wait for an Owner gap it cannot affect - so they cannot share one code. Collapsing them
+        // left a proposer holding a 422 with no way to know which of the two it was.
+        ResearchBoundedFeatureProgramOwnerErrorV1::CatalogUnavailable => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "NO_VERIFIED_PRIMITIVE_CATALOG",
+        ),
+        ResearchBoundedFeatureProgramOwnerErrorV1::Assembly(
+            BoundedFeatureProgramAssemblyErrorV1::Derivation(_),
+        ) => (
             StatusCode::UNPROCESSABLE_ENTITY,
             "DECLARED_MEANING_DOES_NOT_ASSEMBLE",
+        ),
+        ResearchBoundedFeatureProgramOwnerErrorV1::Assembly(
+            BoundedFeatureProgramAssemblyErrorV1::MarketDataUnavailable,
+        ) => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "MARKET_DATA_INPUT_CUSTODY_UNAVAILABLE",
         ),
     };
     rejection(status, code, research_request_locator)
@@ -352,4 +368,65 @@ fn rejection(status: StatusCode, code: &str, research_request_locator: &str) -> 
         .into_response();
     insert_rejection_code(&mut response, code);
     response
+}
+
+#[cfg(test)]
+mod assembly_rejection_tests {
+    use axum::http::StatusCode;
+    use rstest::rstest;
+    use vibe_strategy_factory::bounded_feature_program_derivation_v1::{
+        BoundedFeatureProgramAssemblyErrorV1, BoundedFeatureProgramDerivationErrorV1,
+    };
+    use vibe_strategy_factory::rd_bounded_feature_program_postgres_v1::ResearchBoundedFeatureProgramOwnerErrorV1;
+
+    use super::owner_error;
+
+    fn code_of(error: &ResearchBoundedFeatureProgramOwnerErrorV1) -> String {
+        let response = owner_error(error, "research.request.test.v1");
+        response
+            .headers()
+            .get("x-rd-rejection-code")
+            .expect("a rejection carries its code in a header")
+            .to_str()
+            .expect("the code is ASCII")
+            .to_owned()
+    }
+
+    /// A proposer reading `MARKET_DATA_INPUT_CUSTODY_UNAVAILABLE` must change nothing it owns, and
+    /// one reading `DECLARED_MEANING_DOES_NOT_ASSEMBLE` must change its meaning. One code for both
+    /// told a proposer neither.
+    #[rstest]
+    fn the_two_assembly_failures_do_not_share_a_rejection_code() {
+        let custody = ResearchBoundedFeatureProgramOwnerErrorV1::Assembly(
+            BoundedFeatureProgramAssemblyErrorV1::MarketDataUnavailable,
+        );
+        let meaning = ResearchBoundedFeatureProgramOwnerErrorV1::Assembly(
+            BoundedFeatureProgramAssemblyErrorV1::Derivation(
+                BoundedFeatureProgramDerivationErrorV1::UnknownPlugin,
+            ),
+        );
+        assert_eq!(code_of(&custody), "MARKET_DATA_INPUT_CUSTODY_UNAVAILABLE");
+        assert_eq!(code_of(&meaning), "DECLARED_MEANING_DOES_NOT_ASSEMBLE");
+        assert_ne!(code_of(&custody), code_of(&meaning));
+    }
+
+    /// Positive control: both still reject, so the split did not turn one of them into an answer.
+    #[rstest]
+    fn both_assembly_failures_are_still_unprocessable() {
+        for error in [
+            ResearchBoundedFeatureProgramOwnerErrorV1::Assembly(
+                BoundedFeatureProgramAssemblyErrorV1::MarketDataUnavailable,
+            ),
+            ResearchBoundedFeatureProgramOwnerErrorV1::Assembly(
+                BoundedFeatureProgramAssemblyErrorV1::Derivation(
+                    BoundedFeatureProgramDerivationErrorV1::UnknownPlugin,
+                ),
+            ),
+        ] {
+            assert_eq!(
+                owner_error(&error, "research.request.test.v1").status(),
+                StatusCode::UNPROCESSABLE_ENTITY
+            );
+        }
+    }
 }
