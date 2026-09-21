@@ -25,6 +25,7 @@ vibe-data = { workspace = true }
 vibe-strategy-factory = { workspace = true }
 
 [dev-dependencies]
+anyhow = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true }
 trybuild = { workspace = true }
@@ -38,4 +39,8 @@ trybuild = { workspace = true }
 vibe-data = { workspace = true, features = [
   "sealed-strategy-input-acceptance",
 ] }
+vibe-model = { workspace = true }
 vibe-testkit = { workspace = true, features = ["postgres"] }
+# The gate runs a real Backtest round trip rather than replaying frozen bytes, and `examples`
+# carries the first-party strategy that trades one.
+vibe-trading = { workspace = true, features = ["examples"] }

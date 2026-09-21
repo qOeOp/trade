@@ -223,7 +223,11 @@ async function readBrowserValue(browser, expression) {
 // Observe the key instead of assuming it. A delivery that never happened is retried; a key that did
 // reach the trigger and still opened nothing is the page's defect and fails, naming the element the
 // key actually arrived at and whether clicking it works.
+let pressOrdinalCounter = 0;
+
 async function pressEnterAndWaitFor(browser, expression, attempts = 3) {
+  const pressOrdinal = (pressOrdinalCounter += 1);
+  let lastMark = null;
   let arrivedAt = null;
   let activatedAt = null;
   for (let attempt = 1; attempt <= attempts && !activatedAt; attempt += 1) {
@@ -246,8 +250,18 @@ async function pressEnterAndWaitFor(browser, expression, attempts = 3) {
     // Mark the node before pressing it. If the tree remounts between the activation and the check,
     // React builds a new element and the mark is gone with it - which is the difference between a
     // handler that never ran and one whose effect was discarded by a remount.
+    //
+    // The mark carries the press it belongs to, and older marks are cleared first. A constant value
+    // answered "is any node this suite ever marked still attached", which four presses make true
+    // almost regardless of what happened to the node under test - a real measurement of the wrong
+    // thing, which reads exactly like a measurement of the right one.
+    const mark = `pressed-${pressOrdinal}-${attempt}`;
+    lastMark = mark;
     await readBrowserValue(browser, `(() => {
-      document.activeElement?.setAttribute?.("data-acceptance-mark", "pressed");
+      for (const node of document.querySelectorAll("[data-acceptance-mark]")) {
+        node.removeAttribute("data-acceptance-mark");
+      }
+      document.activeElement?.setAttribute?.("data-acceptance-mark", ${JSON.stringify(mark)});
       return true;
     })()`);
     await dispatchBrowserKey(browser, "Enter");
@@ -278,7 +292,8 @@ async function pressEnterAndWaitFor(browser, expression, attempts = 3) {
     await delay(500);
     const openedByClick = await readBrowserValue(browser, expression).catch(() => null);
     const pressedNodeSurvived = await readBrowserValue(browser,
-      `Boolean(document.querySelector('[data-acceptance-mark="pressed"]'))`).catch(() => null);
+      `Boolean(document.querySelector('[data-acceptance-mark=${JSON.stringify(lastMark)}]'))`)
+      .catch(() => null);
     throw new Error(`${timedOut.message}; enter probe: ${
       JSON.stringify({ ...probe, arrivedAt, activatedAt, pressedNodeSurvived, openedByClick })}`);
   });
@@ -535,6 +550,15 @@ test(testName, { skip: !url }, async () => {
                 .map((line) => line.trim()).join(" | ").slice(0, 200),
             });
           }, true);
+          // React's onClose runs on the close event, which is not the same thing as close() being
+          // called or cancel firing. Listening for only those two left the one question unanswered:
+          // what emptied the state that keeps the dialog rendered. Capture reaches it even though
+          // close does not bubble.
+          addEventListener("close", (event) => closers.push({
+            atMs: Math.round(performance.now()),
+            label: event.target?.getAttribute?.("aria-label") ?? null,
+            by: "close-event",
+          }), true);
           addEventListener("cancel", (event) => closers.push({
             atMs: Math.round(performance.now()),
             label: event.target?.getAttribute?.("aria-label") ?? null,
@@ -731,6 +755,24 @@ test(testName, { skip: !url }, async () => {
       assert.match(inspection.text, /Expected triggers|Observed run reference/);
       assert.equal(inspection.modal, true);
       assert.equal(inspection.focusInside, true, JSON.stringify(inspection.activeElement));
+
+      // A close event arriving while the dialog is still open must not tear it down. The handler
+      // behind `onClose` runs on that event and treats it as "the user closed the dialog in front of
+      // them", so it withdraws the inspection without asking whether the dialog is closed - while
+      // the opening side does check (`current.open` guards showModal). That asymmetry is what this
+      // asserts; it does not depend on how such an event comes to arrive.
+      const stillOpen = await readBrowserValue(browser, `(() => {
+        const dialog = document.querySelector('dialog[open][aria-label$="UTC"]');
+        if (!dialog) return "no open dialog to test";
+        dialog.dispatchEvent(new Event("close"));
+        return dialog.open;
+      })()`);
+      assert.equal(stillOpen, true, `nothing closed the dialog: ${JSON.stringify(stillOpen)}`);
+      await delay(150);
+      assert.equal(await readBrowserValue(browser,
+        `Boolean(document.querySelector('dialog[open][aria-label$="UTC"]'))`), true,
+      "a close event must not withdraw a dialog that is still open");
+
       await dispatchBrowserKey(browser, "Escape");
       await waitForBrowserExpression(browser, "document.querySelector('dialog[open]') === null");
       assert.equal(await readBrowserValue(browser,

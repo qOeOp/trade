@@ -24,10 +24,12 @@ use vibe_binance::{
     spot::http::client::BinanceSpotHttpClient,
 };
 use vibe_core::time::get_atomic_clock_realtime;
+// `ReplayCompositionOwnerV1` is imported without the gate because `--materialize-schema` calls it
+// in every build; the two locator types below it are only used by the acceptance surface.
+use vibe_data::owner::replay_market_facts_v2::ReplayCompositionOwnerV1;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 use vibe_data::owner::replay_market_facts_v2::{
     ReplayCompositionIssuanceLocatorV1, ReplayCompositionLocatorOnlyIssuanceRequestV1,
-    ReplayCompositionOwnerV1,
 };
 #[cfg(test)]
 use vibe_data::owner::{
@@ -338,7 +340,21 @@ async fn main() -> anyhow::Result<()> {
         vibe_strategy_factory::develop_composer_postgres_v2::PostgresDevelopComposerStoreV2::materialize_schema(&database_url).await?;
         vibe_strategy_factory::iteration_analysis_postgres::materialize_schema(&database_url)
             .await?;
-        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        // Ungated. The deployed image is built with default features
+        // (`product/rd-workbench/Dockerfile.owner` runs `cargo build` with no `--features`), so
+        // behind that gate this line did not exist in the binary that `schema-materialize` runs.
+        // The service still exited 0, because it had nothing to do.
+        //
+        // What it installs is four private Market Data schemas - calendar, time zone, session and
+        // the reference fact catalog. `rd-owner-api` then checks for the seven `time_zone_*`
+        // relations on startup and refuses with "the Market Data store is unavailable" when they
+        // are absent, which is every deployment: measured on a full local bring-up, the chain ran
+        // to completion and the database held zero of the seven.
+        //
+        // Installing a schema is not an acceptance behaviour. The four `materialize_schema` calls
+        // above it carry no gate, and this one differing was what made the Owner unable to start.
+        // The gate stays off `source_intake::materialize_schema` below, which has the same shape
+        // but no measurement behind it yet.
         ReplayCompositionOwnerV1::materialize_schema(&database_url).await?;
         #[cfg(feature = "sealed-source-intake-acceptance")]
         source_intake::materialize_schema(&database_url).await?;
