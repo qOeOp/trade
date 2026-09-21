@@ -731,6 +731,24 @@ test(testName, { skip: !url }, async () => {
       assert.match(inspection.text, /Expected triggers|Observed run reference/);
       assert.equal(inspection.modal, true);
       assert.equal(inspection.focusInside, true, JSON.stringify(inspection.activeElement));
+
+      // A close event arriving while the dialog is still open must not tear it down. The handler
+      // behind `onClose` runs on that event and treats it as "the user closed the dialog in front of
+      // them", so it withdraws the inspection without asking whether the dialog is closed - while
+      // the opening side does check (`current.open` guards showModal). That asymmetry is what this
+      // asserts; it does not depend on how such an event comes to arrive.
+      const stillOpen = await readBrowserValue(browser, `(() => {
+        const dialog = document.querySelector('dialog[open][aria-label$="UTC"]');
+        if (!dialog) return "no open dialog to test";
+        dialog.dispatchEvent(new Event("close"));
+        return dialog.open;
+      })()`);
+      assert.equal(stillOpen, true, `nothing closed the dialog: ${JSON.stringify(stillOpen)}`);
+      await delay(150);
+      assert.equal(await readBrowserValue(browser,
+        `Boolean(document.querySelector('dialog[open][aria-label$="UTC"]'))`), true,
+      "a close event must not withdraw a dialog that is still open");
+
       await dispatchBrowserKey(browser, "Escape");
       await waitForBrowserExpression(browser, "document.querySelector('dialog[open]') === null");
       assert.equal(await readBrowserValue(browser,
