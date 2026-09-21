@@ -4625,6 +4625,11 @@ mod tests {
             sqlx::PgPool::connect(test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner))
                 .await
                 .unwrap();
+        let freezes_before: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM public.rd_bounded_feature_program_freezes_v1")
+                .fetch_one(&rd_pool)
+                .await
+                .unwrap();
         let frozen: Option<StoredJointFreeze> = sqlx::query_as(
             "SELECT request_identity, design_identity, design_bytes, joint_freeze_digest,
                     committed_at_epoch_ms
@@ -4637,7 +4642,7 @@ mod tests {
         .unwrap();
         // Zero rows is a statement about the entries before this one, not about these routes.
         // Reporting it as a route failure would send the next reader to the wrong place.
-        let (locator, design_identity, design_bytes, stored_joint_freeze, stored_committed_at) =
+        let (locator, design_identity, design_bytes, stored_joint_freeze, _stored_committed_at) =
             frozen.expect(
             "an earlier ordered entry must have committed a Bounded Feature Program freeze: this \
              entry replays one rather than minting it, so no rows means that entry did not run",
@@ -4751,11 +4756,17 @@ mod tests {
             format!("sha256:{}", hex_digest(&stored_joint_freeze)),
             "the replay must name the stored joint freeze",
         );
+        // Counted rather than compared against the stored commit time. Both receipt paths take
+        // `committed_at_epoch_ms` from the Owner clock at the moment of the call rather than from
+        // the row, so a rejoin reports when it was asked, not when the freeze was committed, and
+        // the two agree only by coincidence. What a replay must not do is add a row.
+        let freezes_after: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM public.rd_bounded_feature_program_freezes_v1")
+                .fetch_one(&rd_pool)
+                .await
+                .unwrap();
         assert_eq!(
-            receipt["committed_at_epoch_ms"]
-                .as_u64()
-                .unwrap_or_default(),
-            u64::try_from(stored_committed_at).unwrap(),
+            freezes_after, freezes_before,
             "the replay must rejoin the stored freeze rather than commit a second one",
         );
     }
