@@ -357,8 +357,8 @@ impl DashboardReadApiConfigV1 {
             _ => None,
         };
         Ok(Self {
-            owner_database_url: required_env("RD_DASHBOARD_OWNER_READ_DATABASE_URL")?,
-            token: required_env("RD_DASHBOARD_OWNER_READ_API_TOKEN")?,
+            owner_database_url: crate::required_env("RD_DASHBOARD_OWNER_READ_DATABASE_URL")?,
+            token: crate::required_env("RD_DASHBOARD_OWNER_READ_API_TOKEN")?,
             source_intake,
             bind: env::var("RD_DASHBOARD_OWNER_READ_BIND")
                 .unwrap_or_else(|_| "0.0.0.0:8082".to_string()),
@@ -1058,10 +1058,6 @@ fn authorized(headers: &HeaderMap, expected_digest: &[u8; 32]) -> bool {
             difference | (left ^ right)
         })
         == 0
-}
-
-fn required_env(name: &str) -> anyhow::Result<String> {
-    env::var(name).map_err(|_| anyhow::anyhow!("required environment variable {name} is missing"))
 }
 
 fn hex_digest(bytes: &[u8]) -> String {

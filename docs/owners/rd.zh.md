@@ -75,8 +75,16 @@
 ## 实现状态台账
 
 本台账只记录仓库在本截面实际到达的状态。它沿用 [Market Data](./market-data/) 台账的状态词汇，并以
-`CURRENT_PARTIAL` 表示已合并但不可触达的形态；台账本身不授予任何许可：本文档没有任何切片是
-`IMPLEMENTATION_ADMITTED`，扩大准入集必须先修改本文档。每一行都点名那个可以证伪它的符号或路径。
+`CURRENT_PARTIAL` 表示已合并但不可触达的形态；台账本身不授予任何许可。扩大准入集必须先修改本文档。
+每一行都点名那个可以证伪它的符号或路径。
+
+本文档有两个切片是 `IMPLEMENTATION_ADMITTED`，此处点名它们，因为这里此前声称一个都没有。
+那句话写下时就已经是假的，而信了它的读者会把一处准入读成无效：
+
+- 停在 `design` 与 `meaning` 的编写出口，在 **Strategy authoring surface** 一节；
+- 有界的 Replay Policy V2 composition，它的准入写在一个标题为 **TARGET / NOT_ADMITTED** 的小节正文里。
+  标题管的是更宽的那个目标，被准入的是正文钉住的那个更窄的 composition。
+  只读标题会得到相反的答案，而且两个方向都会错。
 
 - **CURRENT - 已部署的服务，以及它暴露面的边界：** `product/rd-workbench/Dockerfile.owner` 构建
   `--bin strategy-factory-rd-owner-api` 时完全不带 `--features`，该文件唯一的 `--features` 属于 dashboard
@@ -437,6 +445,10 @@ host 仍 fail closed，绝不替换为 generic toolchain。
 以及那些仅仅为了给某个端口一个同单位同标度的值而存在的常量。
 **Owner 已经在算每一项，而它们没有一项是作者做的选择。** 后来十个程序由 Owner 自己的推导从
 它们的 meaning 重建出来，与参照逐字段相同，所以这一层的工作不是再算一遍，而是停在它们之前。
+这种重建不等于准入：推导把图原样搬过去而不看它，它那六条拒绝说的是身份、插件与角色，从不说图。
+图是在之后由 `prepare_bounded_feature_program_v1` 判的，而当一条检查第一次被放到那里时，
+同样这十个程序里有四个被拒。**所以一个产出 `meaning` 的层必须拿读图的那一阶段来检验，
+因为从它重建提案的那一阶段，会接受一个跑不起来的图。**
 
 把那些生成器统一起来，就是对这个说法的一次测量：八个变成一个，1232 行变成 487 行，二十四份产物
 逐字节与原先相同，所以没有任何关于某个程序的东西是活在写它的那个生成器里的。**界线不是这一层

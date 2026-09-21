@@ -1,0 +1,679 @@
+{
+ "schema_version": 2,
+ "research_request_identity": [
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1
+ ],
+ "intent_identity": [
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2,
+  2
+ ],
+ "intent_digest": [
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3,
+  3
+ ],
+ "inputs": [
+  {
+   "semantic_id": "research.input.close.daily.v1",
+   "fact_class": "MARKET_DATA",
+   "instrument": "BTCUSDT-PERP.BINANCE",
+   "field_semantic_id": "MARKET_DATA.BAR.CLOSE.PRICE.V1",
+   "channel": "MARKET",
+   "timeframe": "1D",
+   "unit": "PRICE",
+   "scale": 2,
+   "value_type": "I128"
+  }
+ ],
+ "joins": [],
+ "parameters": [
+  {
+   "semantic_id": "research.parameter.timer-close.v1",
+   "value_type": "I128",
+   "value": {
+    "kind": "I128",
+    "value": 0
+   },
+   "unit": "PRICE"
+  }
+ ],
+ "state": [
+  {
+   "semantic_id": "research.state.bfp.v1",
+   "value_type": "BYTES",
+   "initial": {
+    "kind": "BYTES",
+    "value": []
+   },
+   "max_bytes": 3405
+  },
+  {
+   "semantic_id": "research.state.timer-fixture.v1",
+   "value_type": "BYTES",
+   "initial": {
+    "kind": "BYTES",
+    "value": []
+   },
+   "max_bytes": 64
+  }
+ ],
+ "reactions": [
+  {
+   "kind": "START",
+   "nodes": [],
+   "state_writes": [],
+   "proposal": null
+  },
+  {
+   "kind": "BAR",
+   "nodes": [
+    {
+     "semantic_id": "research.node.bfp.v1",
+     "plugin_semantic_id": "research.plugin.bfp.v1",
+     "input_bindings": [
+      {
+       "port_id": "input.daily.v1",
+       "source": {
+        "kind": "INPUT",
+        "input_id": "research.input.close.daily.v1"
+       }
+      },
+      {
+       "port_id": "strategy.input.sample-coordinate.v1.b381ffc3ed3213b5a199cfac8e6b468b66e5b1478ef6df073e1667ffd78839fe",
+       "source": {
+        "kind": "OWNER_SAMPLE_COORDINATE",
+        "input_id": "research.input.close.daily.v1",
+        "source_semantic_id": "strategy.value-ref.owner-sample-coordinate.v1(research.input.close.daily.v1)"
+       }
+      }
+     ],
+     "pre_state": {
+      "kind": "PRIOR_STATE",
+      "state_id": "research.state.bfp.v1"
+     },
+     "output_port_ids": [
+      "proposal.position-intent.v1",
+      "proposal.target-variant.v1",
+      "proposal.target-position.v1",
+      "proposal.target-weight.v1",
+      "proposal.rebalance-sequence.v1",
+      "proposal.reconciliation-target.v1",
+      "proposal.protection-variant.v1",
+      "proposal.stop-loss.v1",
+      "proposal.take-profit.v1",
+      "proposal.trailing-distance.v1",
+      "proposal.trailing-stop.v1"
+     ],
+     "post_state_port_id": "plugin.state.post.v1"
+    }
+   ],
+   "state_writes": [
+    {
+     "state_id": "research.state.bfp.v1",
+     "source": {
+      "kind": "NODE_OUTPUT",
+      "node_id": "research.node.bfp.v1",
+      "port_id": "plugin.state.post.v1"
+     }
+    }
+   ],
+   "proposal": {
+    "position_intent": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.bfp.v1",
+     "port_id": "proposal.position-intent.v1"
+    },
+    "target_variant": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.bfp.v1",
+     "port_id": "proposal.target-variant.v1"
+    },
+    "target_position_units": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.bfp.v1",
+     "port_id": "proposal.target-position.v1"
+    },
+    "target_weight_micros": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.bfp.v1",
+     "port_id": "proposal.target-weight.v1"
+    },
+    "rebalance_sequence": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.bfp.v1",
+     "port_id": "proposal.rebalance-sequence.v1"
+    },
+    "reconciliation_target_units": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.bfp.v1",
+     "port_id": "proposal.reconciliation-target.v1"
+    },
+    "protection_variant": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.bfp.v1",
+     "port_id": "proposal.protection-variant.v1"
+    },
+    "stop_loss_ticks": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.bfp.v1",
+     "port_id": "proposal.stop-loss.v1"
+    },
+    "take_profit_ticks": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.bfp.v1",
+     "port_id": "proposal.take-profit.v1"
+    },
+    "trailing_distance_ticks": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.bfp.v1",
+     "port_id": "proposal.trailing-distance.v1"
+    },
+    "trailing_stop_ticks": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.bfp.v1",
+     "port_id": "proposal.trailing-stop.v1"
+    }
+   }
+  },
+  {
+   "kind": "EVENT",
+   "nodes": [
+    {
+     "semantic_id": "research.node.bfp.event.v1",
+     "plugin_semantic_id": "research.plugin.bfp.v1",
+     "input_bindings": [
+      {
+       "port_id": "input.daily.v1",
+       "source": {
+        "kind": "INPUT",
+        "input_id": "research.input.close.daily.v1"
+       }
+      },
+      {
+       "port_id": "strategy.input.sample-coordinate.v1.b381ffc3ed3213b5a199cfac8e6b468b66e5b1478ef6df073e1667ffd78839fe",
+       "source": {
+        "kind": "OWNER_SAMPLE_COORDINATE",
+        "input_id": "research.input.close.daily.v1",
+        "source_semantic_id": "strategy.value-ref.owner-sample-coordinate.v1(research.input.close.daily.v1)"
+       }
+      }
+     ],
+     "pre_state": {
+      "kind": "PRIOR_STATE",
+      "state_id": "research.state.bfp.v1"
+     },
+     "output_port_ids": [
+      "proposal.position-intent.v1",
+      "proposal.target-variant.v1",
+      "proposal.target-position.v1",
+      "proposal.target-weight.v1",
+      "proposal.rebalance-sequence.v1",
+      "proposal.reconciliation-target.v1",
+      "proposal.protection-variant.v1",
+      "proposal.stop-loss.v1",
+      "proposal.take-profit.v1",
+      "proposal.trailing-distance.v1",
+      "proposal.trailing-stop.v1"
+     ],
+     "post_state_port_id": "plugin.state.post.v1"
+    }
+   ],
+   "state_writes": [
+    {
+     "state_id": "research.state.bfp.v1",
+     "source": {
+      "kind": "NODE_OUTPUT",
+      "node_id": "research.node.bfp.event.v1",
+      "port_id": "plugin.state.post.v1"
+     }
+    }
+   ],
+   "proposal": {
+    "position_intent": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.bfp.event.v1",
+     "port_id": "proposal.position-intent.v1"
+    },
+    "target_variant": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.bfp.event.v1",
+     "port_id": "proposal.target-variant.v1"
+    },
+    "target_position_units": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.bfp.event.v1",
+     "port_id": "proposal.target-position.v1"
+    },
+    "target_weight_micros": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.bfp.event.v1",
+     "port_id": "proposal.target-weight.v1"
+    },
+    "rebalance_sequence": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.bfp.event.v1",
+     "port_id": "proposal.rebalance-sequence.v1"
+    },
+    "reconciliation_target_units": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.bfp.event.v1",
+     "port_id": "proposal.reconciliation-target.v1"
+    },
+    "protection_variant": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.bfp.event.v1",
+     "port_id": "proposal.protection-variant.v1"
+    },
+    "stop_loss_ticks": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.bfp.event.v1",
+     "port_id": "proposal.stop-loss.v1"
+    },
+    "take_profit_ticks": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.bfp.event.v1",
+     "port_id": "proposal.take-profit.v1"
+    },
+    "trailing_distance_ticks": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.bfp.event.v1",
+     "port_id": "proposal.trailing-distance.v1"
+    },
+    "trailing_stop_ticks": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.bfp.event.v1",
+     "port_id": "proposal.trailing-stop.v1"
+    }
+   }
+  },
+  {
+   "kind": "FILL",
+   "nodes": [],
+   "state_writes": [],
+   "proposal": null
+  },
+  {
+   "kind": "TIMER",
+   "nodes": [
+    {
+     "semantic_id": "research.node.timer-fixture.v1",
+     "plugin_semantic_id": "research.plugin.timer-fixture.v1",
+     "input_bindings": [
+      {
+       "port_id": "input.timer-close.v1",
+       "source": {
+        "kind": "PARAMETER",
+        "parameter_id": "research.parameter.timer-close.v1"
+       }
+      }
+     ],
+     "pre_state": {
+      "kind": "PRIOR_STATE",
+      "state_id": "research.state.timer-fixture.v1"
+     },
+     "output_port_ids": [
+      "proposal.position-intent.v1",
+      "proposal.target-variant.v1",
+      "proposal.target-position.v1",
+      "proposal.target-weight.v1",
+      "proposal.rebalance-sequence.v1",
+      "proposal.reconciliation-target.v1",
+      "proposal.protection-variant.v1",
+      "proposal.stop-loss.v1",
+      "proposal.take-profit.v1",
+      "proposal.trailing-distance.v1",
+      "proposal.trailing-stop.v1"
+     ],
+     "post_state_port_id": "timer.state.post.v1"
+    }
+   ],
+   "state_writes": [
+    {
+     "state_id": "research.state.timer-fixture.v1",
+     "source": {
+      "kind": "NODE_OUTPUT",
+      "node_id": "research.node.timer-fixture.v1",
+      "port_id": "timer.state.post.v1"
+     }
+    }
+   ],
+   "proposal": {
+    "position_intent": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.timer-fixture.v1",
+     "port_id": "proposal.position-intent.v1"
+    },
+    "target_variant": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.timer-fixture.v1",
+     "port_id": "proposal.target-variant.v1"
+    },
+    "target_position_units": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.timer-fixture.v1",
+     "port_id": "proposal.target-position.v1"
+    },
+    "target_weight_micros": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.timer-fixture.v1",
+     "port_id": "proposal.target-weight.v1"
+    },
+    "rebalance_sequence": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.timer-fixture.v1",
+     "port_id": "proposal.rebalance-sequence.v1"
+    },
+    "reconciliation_target_units": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.timer-fixture.v1",
+     "port_id": "proposal.reconciliation-target.v1"
+    },
+    "protection_variant": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.timer-fixture.v1",
+     "port_id": "proposal.protection-variant.v1"
+    },
+    "stop_loss_ticks": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.timer-fixture.v1",
+     "port_id": "proposal.stop-loss.v1"
+    },
+    "take_profit_ticks": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.timer-fixture.v1",
+     "port_id": "proposal.take-profit.v1"
+    },
+    "trailing_distance_ticks": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.timer-fixture.v1",
+     "port_id": "proposal.trailing-distance.v1"
+    },
+    "trailing_stop_ticks": {
+     "kind": "NODE_OUTPUT",
+     "node_id": "research.node.timer-fixture.v1",
+     "port_id": "proposal.trailing-stop.v1"
+    }
+   }
+  },
+  {
+   "kind": "STOP",
+   "nodes": [],
+   "state_writes": [],
+   "proposal": null
+  }
+ ],
+ "capabilities": [
+  {
+   "semantic_id": "research.bfp.v1",
+   "version": 1,
+   "dependencies": []
+  }
+ ],
+ "plugins": [
+  {
+   "semantic_id": "research.plugin.bfp.v1",
+   "abi_version": 3,
+   "input_ports": [
+    {
+     "semantic_id": "input.daily.v1",
+     "value_type": "I128",
+     "max_bytes": 16
+    },
+    {
+     "semantic_id": "strategy.input.sample-coordinate.v1.b381ffc3ed3213b5a199cfac8e6b468b66e5b1478ef6df073e1667ffd78839fe",
+     "value_type": "BYTES",
+     "max_bytes": 308
+    }
+   ],
+   "output_ports": [
+    {
+     "semantic_id": "proposal.position-intent.v1",
+     "value_type": "POSITION_INTENT_V1",
+     "max_bytes": 25
+    },
+    {
+     "semantic_id": "proposal.target-variant.v1",
+     "value_type": "TARGET_VARIANT_V1",
+     "max_bytes": 26
+    },
+    {
+     "semantic_id": "proposal.target-position.v1",
+     "value_type": "I64",
+     "max_bytes": 8
+    },
+    {
+     "semantic_id": "proposal.target-weight.v1",
+     "value_type": "I32",
+     "max_bytes": 4
+    },
+    {
+     "semantic_id": "proposal.rebalance-sequence.v1",
+     "value_type": "U64",
+     "max_bytes": 8
+    },
+    {
+     "semantic_id": "proposal.reconciliation-target.v1",
+     "value_type": "I64",
+     "max_bytes": 8
+    },
+    {
+     "semantic_id": "proposal.protection-variant.v1",
+     "value_type": "PROTECTION_VARIANT_V1",
+     "max_bytes": 36
+    },
+    {
+     "semantic_id": "proposal.stop-loss.v1",
+     "value_type": "I64",
+     "max_bytes": 8
+    },
+    {
+     "semantic_id": "proposal.take-profit.v1",
+     "value_type": "I64",
+     "max_bytes": 8
+    },
+    {
+     "semantic_id": "proposal.trailing-distance.v1",
+     "value_type": "U64",
+     "max_bytes": 8
+    },
+    {
+     "semantic_id": "proposal.trailing-stop.v1",
+     "value_type": "I64",
+     "max_bytes": 8
+    }
+   ],
+   "state": {
+    "pre_port_id": "plugin.state.pre.v1",
+    "post_port_id": "plugin.state.post.v1",
+    "value_type": "BYTES",
+    "max_bytes": 3405
+   },
+   "capability_ids": [
+    "research.bfp.v1"
+   ],
+   "max_fuel": 100000,
+   "max_linear_memory_bytes": 1048576,
+   "max_invocations_per_event": 1,
+   "failure_semantic_id": "bfp.numeric.failure.no-state-change.v1"
+  },
+  {
+   "semantic_id": "research.plugin.timer-fixture.v1",
+   "abi_version": 2,
+   "input_ports": [
+    {
+     "semantic_id": "input.timer-close.v1",
+     "value_type": "I128",
+     "max_bytes": 16
+    }
+   ],
+   "output_ports": [
+    {
+     "semantic_id": "proposal.position-intent.v1",
+     "value_type": "POSITION_INTENT_V1",
+     "max_bytes": 25
+    },
+    {
+     "semantic_id": "proposal.target-variant.v1",
+     "value_type": "TARGET_VARIANT_V1",
+     "max_bytes": 26
+    },
+    {
+     "semantic_id": "proposal.target-position.v1",
+     "value_type": "I64",
+     "max_bytes": 8
+    },
+    {
+     "semantic_id": "proposal.target-weight.v1",
+     "value_type": "I32",
+     "max_bytes": 4
+    },
+    {
+     "semantic_id": "proposal.rebalance-sequence.v1",
+     "value_type": "U64",
+     "max_bytes": 8
+    },
+    {
+     "semantic_id": "proposal.reconciliation-target.v1",
+     "value_type": "I64",
+     "max_bytes": 8
+    },
+    {
+     "semantic_id": "proposal.protection-variant.v1",
+     "value_type": "PROTECTION_VARIANT_V1",
+     "max_bytes": 36
+    },
+    {
+     "semantic_id": "proposal.stop-loss.v1",
+     "value_type": "I64",
+     "max_bytes": 8
+    },
+    {
+     "semantic_id": "proposal.take-profit.v1",
+     "value_type": "I64",
+     "max_bytes": 8
+    },
+    {
+     "semantic_id": "proposal.trailing-distance.v1",
+     "value_type": "U64",
+     "max_bytes": 8
+    },
+    {
+     "semantic_id": "proposal.trailing-stop.v1",
+     "value_type": "I64",
+     "max_bytes": 8
+    }
+   ],
+   "state": {
+    "pre_port_id": "timer.state.pre.v1",
+    "post_port_id": "timer.state.post.v1",
+    "value_type": "BYTES",
+    "max_bytes": 64
+   },
+   "capability_ids": [
+    "research.bfp.v1"
+   ],
+   "max_fuel": 100000,
+   "max_linear_memory_bytes": 1048576,
+   "max_invocations_per_event": 1,
+   "failure_semantic_id": "strategy.plugin.failure.unsupported.v1"
+  }
+ ],
+ "resources": {
+  "max_inputs": 16,
+  "max_nodes_per_reaction": 4,
+  "max_dependency_edges": 256,
+  "max_state_bytes": 3469,
+  "max_plugin_calls_per_event": 1
+ },
+ "falsifier": "the frozen BFP cannot produce the declared lifecycle outputs"
+}

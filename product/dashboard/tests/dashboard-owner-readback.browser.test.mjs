@@ -373,7 +373,7 @@ test(browserAcceptance
       await waitForBrowserExpressionWithRefresh(browser,
         `[...document.querySelectorAll('table[aria-label="Verified strategy artifacts"] a[href]')]
           .some((link) => link.getAttribute('href').replace(/\\/$/u, '') === ${JSON.stringify(`/rd/artifacts/${encodeURIComponent(buildRequestIdentity)}/attempts/${encodeURIComponent(attemptIdentity)}`)})`,
-        { label: "verified artifact row", endpoints: ["/api/rd/artifacts/"] });
+        { label: "verified artifact row", endpoints: ["/api/rd/artifacts/directory/"] });
       assert.deepEqual(await readBrowserValue(browser, `(() => {
         const link = [...document.querySelectorAll('table[aria-label="Verified strategy artifacts"] a[href]')]
           .find((candidate) => candidate.getAttribute('href').replace(/\\/$/u, '') === ${JSON.stringify(`/rd/artifacts/${encodeURIComponent(buildRequestIdentity)}/attempts/${encodeURIComponent(attemptIdentity)}`)});

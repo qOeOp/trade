@@ -3,6 +3,7 @@ use std::{
     io::{self, Write},
     path::Path,
 };
+use vibe_strategy_factory_rd_owner_api::required_env;
 
 use anyhow::Context;
 use sqlx::postgres::PgPoolOptions;
@@ -22,12 +23,12 @@ const MAX_RECEIPT_BYTES: usize = 16 * 1024;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     require_no_arguments(std::env::args().skip(1))?;
-    let database_url = require_environment(DATABASE_URL_ENV)?;
-    let sealed_create_command_path = require_environment(SEALED_CREATE_COMMAND_PATH_ENV)?;
-    let trusted_verifier_identity = require_environment(TRUSTED_VERIFIER_IDENTITY_ENV)?;
+    let database_url = required_env(DATABASE_URL_ENV)?;
+    let sealed_create_command_path = required_env(SEALED_CREATE_COMMAND_PATH_ENV)?;
+    let trusted_verifier_identity = required_env(TRUSTED_VERIFIER_IDENTITY_ENV)?;
     require_trusted_verifier_identity(&trusted_verifier_identity)?;
     let trusted_verifier_public_key_bytes = read_bounded_file(
-        Path::new(&require_environment(TRUSTED_VERIFIER_PUBLIC_KEY_PATH_ENV)?),
+        Path::new(&required_env(TRUSTED_VERIFIER_PUBLIC_KEY_PATH_ENV)?),
         MAX_PUBLIC_KEY_FILE_BYTES,
         "trusted verifier public key",
     )?;
@@ -73,10 +74,6 @@ fn require_no_arguments(mut arguments: impl Iterator<Item = String>) -> anyhow::
         anyhow::bail!("Replay Policy Catalog Owner readback accepts no command-line arguments");
     }
     Ok(())
-}
-
-fn require_environment(name: &'static str) -> anyhow::Result<String> {
-    std::env::var(name).with_context(|| format!("{name} must be explicitly set"))
 }
 
 fn read_bounded_file(path: &Path, limit: usize, label: &'static str) -> anyhow::Result<Vec<u8>> {

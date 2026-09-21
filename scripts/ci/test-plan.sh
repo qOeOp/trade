@@ -300,9 +300,27 @@ for workflow in \
 done
 test ! -e "$repo_root/.github/workflows/pr-fast.yml"
 build_triggers="$(sed -n '/^on:/,/^concurrency:/p' "$repo_root/.github/workflows/build.yml")"
-for branch in test-ci test-pre-commit main nightly master; do
-  [[ "$build_triggers" == *"- $branch"* ]]
+for branch in test-ci test-pre-commit nightly master; do
+  if [[ "$build_triggers" != *"- $branch"* ]]; then
+    echo "build.yml push trigger must keep $branch" >&2
+    exit 1
+  fi
 done
+# `main` is verified on a schedule, not on push. Every push to `main` shared one concurrency group
+# with `cancel-in-progress: true`, so each merge killed the run before it: 53 of the 60 `main`
+# builds in the twenty hours to 2026-09-20T23:34Z were cancelled for 6 verdicts. Re-adding `main`
+# here restores that, and it does so silently - the runs still appear, they just stop finishing.
+# Comments are stripped: this must key on the YAML, not on prose that happens to name a branch.
+push_branches="$(sed -n '/^  push:/,/^  [a-z_]*:/p' <<< "$build_triggers" | grep -v '^[[:space:]]*#')"
+if [[ "$push_branches" == *"- main"* ]]; then
+  echo "build.yml must not build main on push: merges cancel each other, so the tip goes" >&2
+  echo "unverified. main is verified by the schedule trigger instead." >&2
+  exit 1
+fi
+if [[ "$build_triggers" != *"schedule:"* ]] || [[ "$build_triggers" != *"cron:"* ]]; then
+  echo "build.yml must keep the schedule trigger: it is the only thing that verifies main" >&2
+  exit 1
+fi
 
 # `build` gates pull requests, but only on the events `ready-gate` can answer `run-full` for.
 # Admitting `synchronize` here would fail every push instead of validating it.
@@ -376,8 +394,83 @@ grep -Fq 'Available disk remains below' "$disk_cleanup"
 # Match literal GitHub expressions.
 # shellcheck disable=SC2016
 grep -Fq 'rust-cache-workspaces: . -> target/py${{ matrix.python-version }}' "$build_workflow"
-# shellcheck disable=SC2016
-grep -Fq 'rust-cache-save-if: ${{ github.event_name == '\''push'\'' }}' "$build_workflow"
+# `main` is built by the schedule trigger, not by a push, so every cache-saving job has to save on
+# the scheduled run too: a job that still gates on `push` alone simply stops populating the cache
+# that pull requests restore from, and nothing goes red when it does. Written as a universal rather
+# than as a list of today's entries - the way this decays is a seventh job gating on `push` alone,
+# which an enumeration of six would not notice.
+save_gate_total="$(awk '/save-if:/ && /event_name/ {n++} END {print n+0}' "$build_workflow")"
+save_gate_scheduled="$(awk '/save-if:/ && /event_name/ && /schedule/ {n++} END {print n+0}' "$build_workflow")"
+if [[ "$save_gate_total" != "$save_gate_scheduled" ]]; then
+  echo "build.yml: $((save_gate_total - save_gate_scheduled)) cache-saving job(s) gate on push alone," >&2
+  echo "but main is built on a schedule, so those jobs never save a cache for main:" >&2
+  awk '/save-if:/ && /event_name/ && !/schedule/ {print "  " FILENAME ":" FNR ": " $0}' \
+    "$build_workflow" >&2
+  exit 1
+fi
+if [[ "$save_gate_total" -ne 6 ]]; then
+  echo "build.yml has $save_gate_total event-gated save-if entries, expected 6." >&2
+  echo "A removed entry stops saving a cache; a new one must also admit the schedule." >&2
+  exit 1
+fi
+
+# `main` reaches this workflow as a `schedule` event, never as a push, so anything that selects a
+# Cargo profile or target directory by asking whether the event is a push silently picks the other
+# branch on every scheduled run of `main`. That changes the profile and the cache key without
+# changing a single job's name or status, which is the kind of drift nothing here would report.
+# Select on the ref instead, the way `rust tests` already does.
+profile_by_event="$(awk '
+  /CARGO_CI_PROFILE:|CARGO_TARGET_DIR:/ { inside = 1; start = FNR; next }
+  inside && /event_name == .push./ { print FILENAME ":" FNR ": " $0; inside = 0; next }
+  inside && /^      [A-Z_]+:|^    steps:/ { inside = 0 }
+' "$build_workflow")"
+if [[ -n "$profile_by_event" ]]; then
+  echo "build.yml selects a Cargo profile or target directory by event_name == 'push':" >&2
+  echo "$profile_by_event" >&2
+  echo "main is built by the schedule trigger, so that branch is never taken for main and the" >&2
+  echo "job silently switches profile. Select on github.ref_name instead." >&2
+  exit 1
+fi
+
+# Which tests ran must be recoverable from CI, not only from a human reading a log. `--status-level
+# fail` prints nothing for a passing test, so a name's absence reads the same whether it ran and
+# passed or was never selected. The JUnit record is the only machine-readable answer, and it is
+# worth nothing unless it leaves the runner.
+nextest_config="$repo_root/.config/nextest.toml"
+if ! grep -q '^\[profile\.ci\.junit\]' "$nextest_config"; then
+  echo ".config/nextest.toml must enable JUnit for profile ci." >&2
+  echo "Without it no CI job can answer 'did this named test run', because a passing test" >&2
+  echo "prints no name and an absent name is indistinguishable from one never selected." >&2
+  exit 1
+fi
+# `cargo nextest run` rewrites junit.xml. The rust tests job invokes it twice (workspace, then the
+# toolchain proofs), so without a copy between them only the second survives and the artifact
+# silently becomes a record of the proofs alone.
+# `|| true`: grep -c exits 1 when the count is zero, and under `set -e` that ends the script with
+# no message - a red that names nothing, which is the failure mode this guard exists to prevent.
+keeps="$(grep -c 'nextest/ci/junit\.xml' "$build_workflow" || true)"
+if [[ "$keeps" -ne 1 ]]; then
+  echo "build.yml copies junit.xml $keeps time(s); expected exactly 1, taken straight after the" >&2
+  echo "workspace run and before anything else invokes nextest. A second copy would record" >&2
+  echo "whatever ran last, and the toolchain proofs run one invocation per proof, so such a" >&2
+  echo "record would hold one proof while looking like all of them." >&2
+  exit 1
+fi
+if ! grep -q 'name: test-record-linux-x86' "$build_workflow"; then
+  echo "build.yml must upload the JUnit record; a file that never leaves the runner answers" >&2
+  echo "nothing about which tests ran." >&2
+  exit 1
+fi
+# The chain runs one `cargo nextest run` per entry, so its junit.xml holds the last entry only.
+# Uploading it would publish a file that looks like a full record and is not; the chain already
+# names every entry it runs in the log.
+chain_block="$(sed -n '/^  postgres-owner-chains-linux-x86:/,/^  [a-z][a-z-]*:$/p' "$build_workflow")"
+if [[ "$chain_block" == *"junit"* ]]; then
+  echo "The Owner chain job must not publish a JUnit record: it runs one nextest invocation per" >&2
+  echo "entry, so junit.xml holds the last entry only and would look like a full record." >&2
+  echo "The chain already prints every entry it runs." >&2
+  exit 1
+fi
 grep -Fq 'rust-cache-workspace-crates: "true"' "$build_workflow"
 grep -Fq 'rust-doctests-linux-x86:' "$build_workflow"
 rust_tests_block="$(sed -n '/^  rust-tests-linux-x86:/,/^  quality:/p' "$build_workflow")"
