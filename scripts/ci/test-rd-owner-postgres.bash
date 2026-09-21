@@ -3274,8 +3274,19 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
     restore_backtest_result_fault "$backtest_result_fault"
   fi
   if [[ "$chain_position" -eq "$chain_entry_count" ]]; then
+    # One record per entry, counted against the array rather than checked for being non-empty: a
+    # non-empty directory only rules out "nothing ran at all", not "ran thirty and the copy stopped
+    # answering". A short count here means the record is incomplete while the chain says it passed,
+    # which is the one combination that would let a reader trust a record that is missing entries.
+    chain_record_count="$(find "$chain_record_dir" -name '*.xml' -type f | grep -c '' || true)"
+    if [[ "$chain_record_count" -ne "$chain_entry_count" ]]; then
+      echo "ERROR: the chain passed ${chain_entry_count} entries but left ${chain_record_count}" >&2
+      echo "record(s) in ${chain_record_dir}. Every entry must leave one, or the published record" >&2
+      echo "is missing entries while reporting success." >&2
+      exit 1
+    fi
     chain_completed=true
-    echo "=== ordered chain: all ${chain_entry_count} entries passed"
+    echo "=== ordered chain: all ${chain_entry_count} entries passed, ${chain_record_count} recorded"
   fi
 done
 
