@@ -492,6 +492,7 @@ mod tests {
     #[case::t7("t7", "t7")]
     #[case::t8("t8", "t7")]
     #[case::t9("t9", "t7")]
+    #[case::s1("s1", "s1")]
     fn every_authored_declaration_reassembles(#[case] program: &str, #[case] design_name: &str) {
         let design: StrategyDesignV2 = serde_json::from_str(
             &std::fs::read_to_string(format!("{CORPUS}{design_name}-design.json"))

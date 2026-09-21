@@ -917,9 +917,88 @@ def build_a_line():
     )
 
 
+def s1():
+    """
+    Build the smallest admissible shape: one declared channel against one threshold.
+
+    Every other program here was grown to drive a catalog rule, so all of them are wider than the
+    bounded family a first production path is admitted for. This one is built to be minimal
+    instead: one input role, one comparison against one constant, no state cell and no cross-tick
+    carry. With a single channel there is no choice of decision clock to make, so the clock is
+    that role and an Owner assembling this invents nothing.
+    """
+    role = ("research.input.close.daily.v1", "1D", "MARKET_DATA.BAR.CLOSE.PRICE.V1", "PRICE", "c")
+    d, p, _ = bfp.base([role])
+    channel = role[0]
+    nodes = [
+        op(
+            "over",
+            CMP,
+            [bd("a", iv(channel)), bd("b", co("threshold"))],
+            bl(),
+            CP("GREATER"),
+        ),
+    ]
+    # The entry branch names its own target variant. The default frame keeps the template's, and
+    # the two must not become one constant: collapsing them is what left four earlier programs
+    # with a correct entry branch and a wrong exit, and derivation does not look at the graph.
+    consts = [
+        {
+            "constant_id": "target-entry-variant",
+            "value": {"kind": "TARGET_VARIANT_V1", "semantic_id": "kernel.target.position.v1"},
+        },
+    ]
+    return bfp.emit(
+        d,
+        p,
+        f"{OUT}/s1",
+        nodes=nodes,
+        # `initial-condition` exists to seed a state cell, and this program has none. A declared
+        # constant no node or terminal consumes is refused: the declaration surface has to follow
+        # the graph for constants exactly as it does for input roles.
+        drop_constants={"initial-condition"},
+        add_constants=consts,
+        state_cells=[],
+        branches=[
+            {
+                "priority": 10,
+                "predicate": no("over"),
+                "overrides": {
+                    "proposal.position-intent.v1": {
+                        "lifecycle_semantic_id": "kernel.position.enter.v1",
+                        "source": co("position"),
+                    },
+                    "proposal.target-variant.v1": {
+                        "lifecycle_semantic_id": "kernel.target.position.v1",
+                        "source": co("target-entry-variant"),
+                    },
+                },
+            },
+        ],
+        bounds={
+            "max_nodes": 4,
+            # Edges count terminal references, not just graph wiring: eleven outputs in the
+            # default frame, eleven in the branch, the predicate, and this node's two bindings
+            # come to twenty-five. The graph contributes two of them, so a minimal program does
+            # not get a small edge bound - the decision table sets the floor.
+            "max_edges": 32,
+            "max_depth": 2,
+            "max_ports": 8,
+            # A bound is a capacity and every capacity must be non-zero: `validate_bounds`
+            # refuses `max_state_cells == 0` outright, so a program with no state cell still
+            # declares room for one. Zero is not expressible.
+            "max_state_cells": 1,
+            "max_fan_out": 4,
+            "max_constants": 16,
+        },
+    )
+
+
 if __name__ == "__main__":
     build_bases()
     build_all()
     build_a_line()
     ctl8()
-    print("ten programs and two bases, all from one generator")
+    s1()
+    written = len({f.name.rsplit("-", 1)[0] for f in pathlib.Path(OUT).glob("*-meaning.json")})
+    print(f"{written} programs from one generator")
