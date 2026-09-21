@@ -8,13 +8,25 @@ permissions:
   actions: read
 
 on:
+  # `main` is deliberately absent here and verified by `schedule` below instead.
   push:
     branches:
       - test-ci
       - test-pre-commit
-      - main
       - nightly
       - master
+  # Every push to `main` started a full build, and the concurrency group below puts all of them in
+  # one group with `cancel-in-progress: true`, so each merge killed the run before it finished. In
+  # the twenty hours to 2026-09-20T23:34Z, 53 of the 60 `main` builds were cancelled and 6 reached
+  # a verdict; `main` had gone 39 commits with no Owner-chain verdict at all. A fixed schedule
+  # verifies the tip on its own cadence: six runs a day that nothing supersedes, in place of sixty
+  # that cancel one another for the same six verdicts.
+  #
+  # This trigger cannot make a red tree green - a scheduled run validates the same tree a push
+  # would have - so the only failure it can introduce is a verdict arriving later than a merge,
+  # never a false green.
+  schedule:
+    - cron: "0 */4 * * *"
   # `ready-gate` admits exactly `ready_for_review`, `opened:false` and `reopened:false`, so these
   # are the only events it can answer `run-full` for. `synchronize` is deliberately absent: a push
   # would fail the gate rather than validate, and re-validating after a push is the Draft -> Ready
@@ -365,7 +377,7 @@ jobs:
             ${{ hashFiles('python/pyproject.toml') }}
           rust-cache-workspaces: . -> target/py${{ matrix.python-version }}
           rust-cache-on-failure: "false"
-          rust-cache-save-if: ${{ github.event_name == 'push' }}
+          rust-cache-save-if: ${{ github.event_name == 'push' || github.event_name == 'schedule' }}
           rust-cache-workspace-crates: "true"
 
       - name: Limit Cargo build jobs on GitHub-hosted runners
@@ -415,7 +427,7 @@ jobs:
           # largest single step in the gate. The wheel cache in this same job hashes only
           # `python/pyproject.toml` and does restore.
           key: py-stubs
-          save-if: ${{ github.event_name == 'push' }}
+          save-if: ${{ github.event_name == 'push' || github.event_name == 'schedule' }}
 
       - name: Check generated file drift
         # Keep this 3.13 condition in sync with the matrix so drift is checked once per run.
@@ -612,7 +624,7 @@ jobs:
           rust-cache-key: rust-tests-linux-x86
           rust-cache-workspaces: . -> target/rust-tests-linux-x86
           rust-cache-on-failure: "false"
-          rust-cache-save-if: ${{ github.event_name == 'push' }}
+          rust-cache-save-if: ${{ github.event_name == 'push' || github.event_name == 'schedule' }}
           rust-cache-workspace-crates: "true"
 
       # A GitHub-hosted `ubuntu-22.04` runner on a public repository has 4 vCPUs and 16 GB, and
@@ -906,7 +918,7 @@ jobs:
           free-disk-space: "true"
           rust-cache-key: build-linux-arm
           rust-cache-workspaces: . -> target/build-linux-arm
-          rust-cache-save-if: ${{ github.event_name == 'push' }}
+          rust-cache-save-if: ${{ github.event_name == 'push' || github.event_name == 'schedule' }}
 
       - name: Update version in pyproject.toml
         if: ${{ github.ref != 'refs/heads/master' }}
@@ -975,7 +987,7 @@ jobs:
           free-disk-space: "true"
           rust-cache-key: build-macos
           rust-cache-workspaces: . -> target/build-macos
-          rust-cache-save-if: ${{ github.event_name == 'push' }}
+          rust-cache-save-if: ${{ github.event_name == 'push' || github.event_name == 'schedule' }}
 
       - name: Update version in pyproject.toml
         if: ${{ github.ref != 'refs/heads/master' }}
@@ -1039,7 +1051,7 @@ jobs:
           free-disk-space: "true"
           rust-cache-key: build-windows
           rust-cache-workspaces: . -> target/build-windows
-          rust-cache-save-if: ${{ github.event_name == 'push' }}
+          rust-cache-save-if: ${{ github.event_name == 'push' || github.event_name == 'schedule' }}
 
       - name: Update version in pyproject.toml
         if: ${{ github.ref != 'refs/heads/master' }}

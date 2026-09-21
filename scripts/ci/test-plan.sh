@@ -300,9 +300,27 @@ for workflow in \
 done
 test ! -e "$repo_root/.github/workflows/pr-fast.yml"
 build_triggers="$(sed -n '/^on:/,/^concurrency:/p' "$repo_root/.github/workflows/build.yml")"
-for branch in test-ci test-pre-commit main nightly master; do
-  [[ "$build_triggers" == *"- $branch"* ]]
+for branch in test-ci test-pre-commit nightly master; do
+  if [[ "$build_triggers" != *"- $branch"* ]]; then
+    echo "build.yml push trigger must keep $branch" >&2
+    exit 1
+  fi
 done
+# `main` is verified on a schedule, not on push. Every push to `main` shared one concurrency group
+# with `cancel-in-progress: true`, so each merge killed the run before it: 53 of the 60 `main`
+# builds in the twenty hours to 2026-09-20T23:34Z were cancelled for 6 verdicts. Re-adding `main`
+# here restores that, and it does so silently - the runs still appear, they just stop finishing.
+# Comments are stripped: this must key on the YAML, not on prose that happens to name a branch.
+push_branches="$(sed -n '/^  push:/,/^  [a-z_]*:/p' <<< "$build_triggers" | grep -v '^[[:space:]]*#')"
+if [[ "$push_branches" == *"- main"* ]]; then
+  echo "build.yml must not build main on push: merges cancel each other, so the tip goes" >&2
+  echo "unverified. main is verified by the schedule trigger instead." >&2
+  exit 1
+fi
+if [[ "$build_triggers" != *"schedule:"* ]] || [[ "$build_triggers" != *"cron:"* ]]; then
+  echo "build.yml must keep the schedule trigger: it is the only thing that verifies main" >&2
+  exit 1
+fi
 
 # `build` gates pull requests, but only on the events `ready-gate` can answer `run-full` for.
 # Admitting `synchronize` here would fail every push instead of validating it.
@@ -376,8 +394,25 @@ grep -Fq 'Available disk remains below' "$disk_cleanup"
 # Match literal GitHub expressions.
 # shellcheck disable=SC2016
 grep -Fq 'rust-cache-workspaces: . -> target/py${{ matrix.python-version }}' "$build_workflow"
-# shellcheck disable=SC2016
-grep -Fq 'rust-cache-save-if: ${{ github.event_name == '\''push'\'' }}' "$build_workflow"
+# `main` is built by the schedule trigger, not by a push, so every cache-saving job has to save on
+# the scheduled run too: a job that still gates on `push` alone simply stops populating the cache
+# that pull requests restore from, and nothing goes red when it does. Written as a universal rather
+# than as a list of today's entries - the way this decays is a seventh job gating on `push` alone,
+# which an enumeration of six would not notice.
+save_gate_total="$(awk '/save-if:/ && /event_name/ {n++} END {print n+0}' "$build_workflow")"
+save_gate_scheduled="$(awk '/save-if:/ && /event_name/ && /schedule/ {n++} END {print n+0}' "$build_workflow")"
+if [[ "$save_gate_total" != "$save_gate_scheduled" ]]; then
+  echo "build.yml: $((save_gate_total - save_gate_scheduled)) cache-saving job(s) gate on push alone," >&2
+  echo "but main is built on a schedule, so those jobs never save a cache for main:" >&2
+  awk '/save-if:/ && /event_name/ && !/schedule/ {print "  " FILENAME ":" FNR ": " $0}' \
+    "$build_workflow" >&2
+  exit 1
+fi
+if [[ "$save_gate_total" -ne 6 ]]; then
+  echo "build.yml has $save_gate_total event-gated save-if entries, expected 6." >&2
+  echo "A removed entry stops saving a cache; a new one must also admit the schedule." >&2
+  exit 1
+fi
 grep -Fq 'rust-cache-workspace-crates: "true"' "$build_workflow"
 grep -Fq 'rust-doctests-linux-x86:' "$build_workflow"
 rust_tests_block="$(sed -n '/^  rust-tests-linux-x86:/,/^  quality:/p' "$build_workflow")"
