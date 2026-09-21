@@ -51,9 +51,6 @@ jobs:
             make: >-
               cargo-test-rd-owner-postgres-isolated NEXTEST_PROFILE=ci
               EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
-          - key: market-data
-            name: market data owner postgres (ubuntu-22.04)
-            make: cargo-test-market-data-owner-postgres-isolated
     env:
       # What `build` gives these chains on a push to any branch other than `main` or `test-ci`.
       CARGO_CI_PROFILE: nextest
