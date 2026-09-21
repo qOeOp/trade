@@ -12,7 +12,7 @@ use std::{
     fmt::Debug,
     num::NonZeroU32,
     sync::{
-        Arc, LazyLock, Mutex,
+        Arc, LazyLock,
         atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
     },
 };
@@ -80,7 +80,20 @@ pub struct BinanceSpotWsTradingClient {
     user_data_tracker: AuthTracker,
     cmd_tx:
         Arc<tokio::sync::RwLock<tokio::sync::mpsc::UnboundedSender<BinanceSpotWsTradingCommand>>>,
-    out_rx: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<BinanceSpotWsTradingMessage>>>>,
+    /// The single consumer's receiver, which never leaves this mutex.
+    ///
+    /// It is a `tokio` mutex rather than a `std` one so it can be held across the `recv().await`
+    /// inside. Taking the receiver out for the duration of the await and putting it back was not
+    /// cancellation-safe and not safe against a concurrent `connect`: a caller that arrived while
+    /// it was out got `None`, which this client's consumers read as "the stream ended"; a task
+    /// aborted while holding it dropped it on the floor; and a late put-back could overwrite the
+    /// receiver a reconnect had just installed. All three presented as an instant, silent end of
+    /// the dispatch loop.
+    out_rx: Arc<
+        tokio::sync::Mutex<
+            Option<tokio::sync::mpsc::UnboundedReceiver<BinanceSpotWsTradingMessage>>,
+        >,
+    >,
     task_handle: Option<Arc<tokio::task::JoinHandle<()>>>,
     request_id_counter: Arc<AtomicU64>,
     cancellation_token: CancellationToken,
@@ -124,7 +137,7 @@ impl BinanceSpotWsTradingClient {
             )))),
             user_data_tracker: AuthTracker::new(),
             cmd_tx: Arc::new(tokio::sync::RwLock::new(cmd_tx)),
-            out_rx: Arc::new(Mutex::new(None)),
+            out_rx: Arc::new(tokio::sync::Mutex::new(None)),
             task_handle: None,
             request_id_counter: Arc::new(AtomicU64::new(1)),
             cancellation_token: CancellationToken::new(),
@@ -229,8 +242,6 @@ impl BinanceSpotWsTradingClient {
     /// # Errors
     ///
     /// Returns an error if connection fails.
-    // Mutex poisoning is not documented individually
-    #[expect(clippy::missing_panics_doc)]
     pub async fn connect(&mut self) -> BinanceWsApiResult<()> {
         self.signal.store(false, Ordering::Relaxed);
         self.user_data_tracker.invalidate();
@@ -283,7 +294,9 @@ impl BinanceSpotWsTradingClient {
         let (out_tx, out_rx) = tokio::sync::mpsc::unbounded_channel();
 
         {
-            let mut rx_guard = self.out_rx.lock().expect("Mutex poisoned");
+            // Taken before the receiver is replaced, so a consumer parked in `recv` finishes or is
+            // dropped before the new one is installed rather than racing it.
+            let mut rx_guard = self.out_rx.lock().await;
             *rx_guard = Some(out_rx);
         }
 
@@ -446,18 +459,13 @@ impl BinanceSpotWsTradingClient {
     ///
     /// Panics if the internal output receiver mutex is poisoned.
     pub async fn recv(&self) -> Option<BinanceSpotWsTradingMessage> {
-        // Take the receiver out of the mutex to avoid holding it across await
-        let rx_opt = {
-            let mut rx_guard = self.out_rx.lock().expect("Mutex poisoned");
-            rx_guard.take()
-        };
+        // The receiver stays in the mutex for the whole await. A second caller waits its turn
+        // instead of being told the stream ended, and a caller aborted mid-await releases the
+        // guard with the receiver still inside, so the next connect finds what it expects.
+        let mut rx_guard = self.out_rx.lock().await;
 
-        if let Some(mut rx) = rx_opt {
-            let result = rx.recv().await;
-
-            let mut rx_guard = self.out_rx.lock().expect("Mutex poisoned");
-            *rx_guard = Some(rx);
-            result
+        if let Some(rx) = rx_guard.as_mut() {
+            rx.recv().await
         } else {
             None
         }
@@ -497,6 +505,84 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
+
+    fn client_for_receiver_tests() -> BinanceSpotWsTradingClient {
+        BinanceSpotWsTradingClient::new(
+            None,
+            "api-key".to_string(),
+            "hmac-secret".to_string(),
+            None,
+            TransportBackend::default(),
+        )
+    }
+
+    /// A second caller waits its turn instead of being told the stream ended.
+    ///
+    /// The previous implementation took the receiver out of the mutex for the duration of the
+    /// await, so a caller arriving during that window found `None` and every consumer in this
+    /// crate reads `None` as "the stream ended". On a reconnect that is precisely what happens:
+    /// the aborted dispatch task has not been dropped yet while the new one makes its first call.
+    #[tokio::test]
+    async fn a_concurrent_receiver_waits_rather_than_seeing_the_stream_end() {
+        let client = client_for_receiver_tests();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        *client.out_rx.lock().await = Some(rx);
+
+        let parked = client.clone();
+        let first = tokio::spawn(async move { parked.recv().await });
+        // Let the first caller reach its await and hold the receiver.
+        tokio::task::yield_now().await;
+
+        let contending = client.clone();
+        let second = tokio::spawn(async move { contending.recv().await });
+        tokio::task::yield_now().await;
+
+        tx.send(BinanceSpotWsTradingMessage::Authenticated).unwrap();
+        assert!(
+            matches!(
+                first.await.unwrap(),
+                Some(BinanceSpotWsTradingMessage::Authenticated)
+            ),
+            "the first caller receives the message"
+        );
+
+        tx.send(BinanceSpotWsTradingMessage::Authenticated).unwrap();
+        assert!(
+            matches!(
+                second.await.unwrap(),
+                Some(BinanceSpotWsTradingMessage::Authenticated)
+            ),
+            "the second caller waited and then received, rather than reading contention as the \
+             end of the stream"
+        );
+    }
+
+    /// A caller aborted mid-await leaves the receiver where the next one will find it.
+    ///
+    /// Taking it out and putting it back afterwards was not cancellation-safe: `disconnect` aborts
+    /// the dispatch task exactly where it parks, so the receiver went with it and the reconnect
+    /// installed its replacement into a slot the dead task could still overwrite.
+    #[tokio::test]
+    async fn aborting_a_parked_receiver_does_not_lose_it() {
+        let client = client_for_receiver_tests();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        *client.out_rx.lock().await = Some(rx);
+
+        let parked = client.clone();
+        let handle = tokio::spawn(async move { parked.recv().await });
+        tokio::task::yield_now().await;
+        handle.abort();
+        let _ = handle.await;
+
+        tx.send(BinanceSpotWsTradingMessage::Authenticated).unwrap();
+        assert!(
+            matches!(
+                client.recv().await,
+                Some(BinanceSpotWsTradingMessage::Authenticated)
+            ),
+            "the receiver survived the abort, so the next caller still reads the stream"
+        );
+    }
 
     #[rstest]
     fn test_operational_options_are_preserved() {
