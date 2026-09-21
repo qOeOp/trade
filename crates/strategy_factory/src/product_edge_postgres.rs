@@ -5501,11 +5501,25 @@ pub(crate) mod tests {
         assert_eq!(declared.committed_at_epoch_ms, read_cut);
 
         // Replaying the identical declaration is the same freeze, not a second one.
-        let replayed = composition_root
+        //
+        // The replay runs on a clock that has moved. With the fixed clock above, "the time this
+        // call was made" and "the time the row was written" are the same number, so an assertion
+        // on the receipt's commit time holds under either reading and distinguishes neither. A
+        // moved clock separates them: the receipt must still report the first commit.
+        let replay_cut = read_cut + 524_000;
+        let replay_root = PostgresResearchBoundedFeatureProgramOwnerV1::with_clock(
+            owner.pool.clone(),
+            std::sync::Arc::new(move || replay_cut),
+        );
+        let replayed = replay_root
             .declare(declaration)
             .await
             .expect("the identical declaration replays");
         assert_eq!(replayed, declared);
+        assert_eq!(
+            replayed.committed_at_epoch_ms, read_cut,
+            "a replayed receipt reports the freeze's commit time, not this call's clock"
+        );
         let settled: (i64, i64) = sqlx::query_as(
             "SELECT
                 (SELECT COUNT(*) FROM rd_bounded_feature_program_freezes_v1 WHERE request_identity=$1),
