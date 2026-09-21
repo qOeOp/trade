@@ -431,6 +431,46 @@ if [[ -n "$profile_by_event" ]]; then
   echo "job silently switches profile. Select on github.ref_name instead." >&2
   exit 1
 fi
+
+# Which tests ran must be recoverable from CI, not only from a human reading a log. `--status-level
+# fail` prints nothing for a passing test, so a name's absence reads the same whether it ran and
+# passed or was never selected. The JUnit record is the only machine-readable answer, and it is
+# worth nothing unless it leaves the runner.
+nextest_config="$repo_root/.config/nextest.toml"
+if ! grep -q '^\[profile\.ci\.junit\]' "$nextest_config"; then
+  echo ".config/nextest.toml must enable JUnit for profile ci." >&2
+  echo "Without it no CI job can answer 'did this named test run', because a passing test" >&2
+  echo "prints no name and an absent name is indistinguishable from one never selected." >&2
+  exit 1
+fi
+# `cargo nextest run` rewrites junit.xml. The rust tests job invokes it twice (workspace, then the
+# toolchain proofs), so without a copy between them only the second survives and the artifact
+# silently becomes a record of the proofs alone.
+# `|| true`: grep -c exits 1 when the count is zero, and under `set -e` that ends the script with
+# no message - a red that names nothing, which is the failure mode this guard exists to prevent.
+keeps="$(grep -c 'nextest/ci/junit\.xml' "$build_workflow" || true)"
+if [[ "$keeps" -ne 1 ]]; then
+  echo "build.yml copies junit.xml $keeps time(s); expected exactly 1, taken straight after the" >&2
+  echo "workspace run and before anything else invokes nextest. A second copy would record" >&2
+  echo "whatever ran last, and the toolchain proofs run one invocation per proof, so such a" >&2
+  echo "record would hold one proof while looking like all of them." >&2
+  exit 1
+fi
+if ! grep -q 'name: test-record-linux-x86' "$build_workflow"; then
+  echo "build.yml must upload the JUnit record; a file that never leaves the runner answers" >&2
+  echo "nothing about which tests ran." >&2
+  exit 1
+fi
+# The chain runs one `cargo nextest run` per entry, so its junit.xml holds the last entry only.
+# Uploading it would publish a file that looks like a full record and is not; the chain already
+# names every entry it runs in the log.
+chain_block="$(sed -n '/^  postgres-owner-chains-linux-x86:/,/^  [a-z][a-z-]*:$/p' "$build_workflow")"
+if [[ "$chain_block" == *"junit"* ]]; then
+  echo "The Owner chain job must not publish a JUnit record: it runs one nextest invocation per" >&2
+  echo "entry, so junit.xml holds the last entry only and would look like a full record." >&2
+  echo "The chain already prints every entry it runs." >&2
+  exit 1
+fi
 grep -Fq 'rust-cache-workspace-crates: "true"' "$build_workflow"
 grep -Fq 'rust-doctests-linux-x86:' "$build_workflow"
 rust_tests_block="$(sed -n '/^  rust-tests-linux-x86:/,/^  quality:/p' "$build_workflow")"

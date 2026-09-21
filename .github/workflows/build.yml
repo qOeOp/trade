@@ -653,6 +653,25 @@ jobs:
           make cargo-test NEXTEST_PROFILE=ci
           EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
 
+      # `cargo nextest run` rewrites junit.xml, and the proofs below are a second invocation, so
+      # this copy has to happen between them or only the proofs survive. `always()`: a failing run
+      # is the one whose record matters most.
+      #
+      # The path is workspace-relative and deliberately does not use CARGO_TARGET_DIR: nextest's
+      # store directory is `<workspace>/target/nextest` whatever CARGO_TARGET_DIR says. Measured -
+      # with CARGO_TARGET_DIR pointed elsewhere, `cargo metadata` follows it and the record does
+      # not. Guessing the other way is what made run 35558496598 fail.
+      - name: Keep the workspace test record
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p junit
+          cp target/nextest/ci/junit.xml junit/workspace.xml
+
+      # Deliberately not captured: `test-toolchain-proofs.bash` loops, running one
+      # `cargo nextest run` per proof, so a single junit.xml holds the last proof and would look
+      # like a record of all of them. It prints `--- <proof>` per iteration instead, which is what
+      # the Owner chain does and is why the chain publishes no record either.
       - name: Run the toolchain proofs
         # These are `#[ignore]`, so `make cargo-test` never selects them. They need the pinned
         # wasm target this job already installs, or Docker, and no database.
@@ -661,6 +680,16 @@ jobs:
         # that only speaks when its neighbour succeeds is one an unrelated failure can silence.
         if: ${{ !cancelled() }}
         run: make cargo-test-toolchain-proofs NEXTEST_PROFILE=ci
+
+      - name: Publish which tests ran
+        if: always()
+        # https://github.com/actions/upload-artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: test-record-linux-x86
+          path: junit/
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Report disk space after workspace Rust tests
         if: always()
