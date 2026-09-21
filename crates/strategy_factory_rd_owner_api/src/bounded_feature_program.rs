@@ -19,6 +19,7 @@ use serde::Deserialize;
 use serde_json::json;
 use vibe_data::owner::strategy_design_role_intent_v1::StrategyDesignRoleIntentV1;
 use vibe_strategy_factory::bounded_feature_program_derivation_v1::BoundedFeatureProgramAssemblyErrorV1;
+use vibe_strategy_factory::bounded_feature_program_v1::BoundedFeatureProgramErrorV1;
 use vibe_strategy_factory::rd_bounded_feature_program_postgres_v1::{
     PostgresResearchBoundedFeatureProgramOwnerV1, ResearchBoundedFeatureProgramDeclarationV1,
     ResearchBoundedFeatureProgramFreezeReceiptV1, ResearchBoundedFeatureProgramFreezeRequestV1,
@@ -323,9 +324,13 @@ fn owner_error(
         ResearchBoundedFeatureProgramOwnerErrorV1::Design => {
             (StatusCode::UNPROCESSABLE_ENTITY, "DESIGN_NOT_CANONICAL")
         }
-        ResearchBoundedFeatureProgramOwnerErrorV1::Program => (
+        // Preparation distinguishes twelve refusals and they send an author to different places:
+        // a graph topology refusal and a terminal lifecycle refusal have nothing in common. One
+        // code for all of them told a proposer only that something was wrong. These stay 422
+        // together, because every one of them is the declaration's own fault.
+        ResearchBoundedFeatureProgramOwnerErrorV1::Program(stage) => (
             StatusCode::UNPROCESSABLE_ENTITY,
-            "BOUNDED_FEATURE_PROGRAM_UNSUPPORTED",
+            bounded_feature_program_stage_code(stage),
         ),
         ResearchBoundedFeatureProgramOwnerErrorV1::SdkSource => (
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -355,6 +360,30 @@ fn owner_error(
         ),
     };
     rejection(status, code, research_request_locator)
+}
+
+/// Names which preparation stage refused a declared program.
+///
+/// One code per `BoundedFeatureProgramErrorV1` variant, so the mapping is total by construction:
+/// adding a stage without a code stops compiling here rather than silently folding into a
+/// neighbour.
+const fn bounded_feature_program_stage_code(stage: &BoundedFeatureProgramErrorV1) -> &'static str {
+    match stage {
+        BoundedFeatureProgramErrorV1::Identity => "BOUNDED_FEATURE_PROGRAM_IDENTITY_UNSUPPORTED",
+        BoundedFeatureProgramErrorV1::Bounds => "BOUNDED_FEATURE_PROGRAM_BOUNDS_INVALID",
+        BoundedFeatureProgramErrorV1::Design => "BOUNDED_FEATURE_PROGRAM_DESIGN_BINDING_INVALID",
+        BoundedFeatureProgramErrorV1::Input => "BOUNDED_FEATURE_PROGRAM_INPUT_BINDING_INVALID",
+        BoundedFeatureProgramErrorV1::Constant => "BOUNDED_FEATURE_PROGRAM_CONSTANT_INVALID",
+        BoundedFeatureProgramErrorV1::Primitive => "BOUNDED_FEATURE_PROGRAM_PRIMITIVE_UNKNOWN",
+        BoundedFeatureProgramErrorV1::Type => "BOUNDED_FEATURE_PROGRAM_TYPED_EDGE_INVALID",
+        BoundedFeatureProgramErrorV1::State => "BOUNDED_FEATURE_PROGRAM_STATE_OWNERSHIP_INVALID",
+        BoundedFeatureProgramErrorV1::Graph => "BOUNDED_FEATURE_PROGRAM_GRAPH_INVALID",
+        BoundedFeatureProgramErrorV1::Terminal => "BOUNDED_FEATURE_PROGRAM_TERMINAL_INVALID",
+        BoundedFeatureProgramErrorV1::NonCanonical => "BOUNDED_FEATURE_PROGRAM_NOT_CANONICAL",
+        BoundedFeatureProgramErrorV1::InvalidDestinationLength => {
+            "BOUNDED_FEATURE_PROGRAM_DESTINATION_LENGTH_INVALID"
+        }
+    }
 }
 
 fn rejection(status: StatusCode, code: &str, research_request_locator: &str) -> Response {
@@ -408,6 +437,57 @@ mod assembly_rejection_tests {
         assert_eq!(code_of(&custody), "MARKET_DATA_INPUT_CUSTODY_UNAVAILABLE");
         assert_eq!(code_of(&meaning), "DECLARED_MEANING_DOES_NOT_ASSEMBLE");
         assert_ne!(code_of(&custody), code_of(&meaning));
+    }
+
+    /// Twelve preparation stages, twelve codes. A proposer that reads one must be able to tell
+    /// which of them refused it, and the earlier single code told it nothing.
+    #[rstest]
+    fn every_preparation_stage_has_its_own_rejection_code() {
+        use vibe_strategy_factory::bounded_feature_program_v1::BoundedFeatureProgramErrorV1 as Stage;
+
+        let stages = [
+            Stage::Identity,
+            Stage::Bounds,
+            Stage::Design,
+            Stage::Input,
+            Stage::Constant,
+            Stage::Primitive,
+            Stage::Type,
+            Stage::State,
+            Stage::Graph,
+            Stage::Terminal,
+            Stage::NonCanonical,
+            Stage::InvalidDestinationLength,
+        ];
+        let codes: std::collections::BTreeSet<String> = stages
+            .iter()
+            .map(|stage| {
+                code_of(&ResearchBoundedFeatureProgramOwnerErrorV1::Program(
+                    stage.clone(),
+                ))
+            })
+            .collect();
+        assert_eq!(codes.len(), stages.len(), "{codes:?}");
+    }
+
+    /// Positive control for the split above: every stage still refuses, so naming them did not
+    /// turn any one of them into an answer.
+    #[rstest]
+    fn every_preparation_stage_is_still_unprocessable() {
+        use vibe_strategy_factory::bounded_feature_program_v1::BoundedFeatureProgramErrorV1 as Stage;
+
+        for stage in [
+            Stage::Identity,
+            Stage::Graph,
+            Stage::Terminal,
+            Stage::NonCanonical,
+        ] {
+            let error = ResearchBoundedFeatureProgramOwnerErrorV1::Program(stage);
+            assert_eq!(
+                owner_error(&error, "research.request.test.v1").status(),
+                StatusCode::UNPROCESSABLE_ENTITY
+            );
+        }
     }
 
     /// Positive control: both still reject, so the split did not turn one of them into an answer.
