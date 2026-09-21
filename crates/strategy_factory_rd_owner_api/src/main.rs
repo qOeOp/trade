@@ -4588,6 +4588,224 @@ mod tests {
         );
     }
 
+    /// The columns a replay needs from a stored joint freeze: the Research locator it was
+    /// committed under, the canonical Design identity and bytes, the joint freeze digest, and the
+    /// commit time a replay has to rejoin rather than replace.
+    type StoredJointFreeze = (String, Vec<u8>, Vec<u8>, Vec<u8>, i64);
+
+    /// A frozen program replays over HTTP to the same freeze the in-process entry committed.
+    ///
+    /// `product_edge_postgres::tests::declared_bounded_feature_program_assembles_from_owner_custody_and_freezes`
+    /// proves this path against the Owner directly. It cannot prove the transport, because it
+    /// never crosses one, and `market_data_pit::router` is private to this binary, so nothing
+    /// drove these routes in order. While nothing did, the declaration's refusal read as a
+    /// missing capability rather than a missing call.
+    ///
+    /// The Design is read back rather than built. A Design that can carry Market Data custody is
+    /// not a static document: it is a base bound at run time to live Research custody, so its
+    /// identity differs every run and a committed copy matches no published intent. The bound
+    /// bytes survive in the freeze the entry above committed, which is the only place they do.
+    /// Declared meaning is committed, because none of the four bound fields are meaning.
+    ///
+    /// Publishing the role intent is therefore not driven here. That step needs a Design bound to
+    /// custody that has not been frozen yet, and what this database holds is one already frozen.
+    ///
+    /// Sending the frozen pair again is a replay, and that is the stronger assertion: the receipt
+    /// must name the freeze already stored, not merely answer 200. A route that reached some other
+    /// freeze, or minted a second one, would still answer 200.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "requires the ordered chain's PostgreSQL and the freeze an earlier entry commits"]
+    async fn frozen_program_replays_over_http_to_the_same_joint_freeze() {
+        use axum::body::Body;
+        use axum::extract::Request;
+        use tower::ServiceExt;
+        use vibe_strategy_factory::{
+            bounded_feature_program_derivation_v1::BoundedFeatureProgramMeaningV1,
+            strategy_design_v2::StrategyDesignV2,
+        };
+
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+
+        // The Market Data admissions are composed from the environment and the chain exports
+        // neither URL, so both would be absent and the routes would answer 503 without saying the
+        // answer was about configuration. The roles are pinned in SQL rather than by convention:
+        // the composer cut lock refuses any `session_user` outside
+        // ('market_data_reader','market_data_owner'), and the reader's connect checks sixteen ACL
+        // flags exactly, including that it reaches a published intent only through a function and
+        // holds no direct table privilege. A wrong role fails the way a missing URL does.
+        unsafe {
+            env::set_var(
+                "MARKET_DATA_OWNER_DATABASE_URL",
+                test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner),
+            );
+        }
+        unsafe {
+            env::set_var(
+                "MARKET_DATA_RD_ROLE_SET_DATABASE_URL",
+                test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataReader),
+            );
+        }
+
+        let bindings = bootstrap_market_data_strategy_input_bindings()
+            .await
+            .unwrap();
+        // Asserted before any request, so a configuration answer cannot arrive as a 503 and be
+        // read as the Owner's answer about this Design.
+        assert!(
+            bindings.is_some(),
+            "the strategy input binding admission must be composed before its routes are driven",
+        );
+
+        let rd_pool =
+            sqlx::PgPool::connect(test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner))
+                .await
+                .unwrap();
+        let freezes_before: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM public.rd_bounded_feature_program_freezes_v1")
+                .fetch_one(&rd_pool)
+                .await
+                .unwrap();
+        let frozen: Option<StoredJointFreeze> = sqlx::query_as(
+            "SELECT request_identity, design_identity, design_bytes, joint_freeze_digest,
+                    committed_at_epoch_ms
+               FROM public.rd_bounded_feature_program_freezes_v1
+              ORDER BY committed_at_epoch_ms DESC
+              LIMIT 1",
+        )
+        .fetch_optional(&rd_pool)
+        .await
+        .unwrap();
+        // Zero rows is a statement about the entries before this one, not about these routes.
+        // Reporting it as a route failure would send the next reader to the wrong place.
+        let (locator, design_identity, design_bytes, stored_joint_freeze, _stored_committed_at) =
+            frozen.expect(
+            "an earlier ordered entry must have committed a Bounded Feature Program freeze: this \
+             entry replays one rather than minting it, so no rows means that entry did not run",
+        );
+
+        let design: StrategyDesignV2 = serde_json::from_slice(&design_bytes)
+            .expect("the stored Design bytes are the canonical Design");
+        let meaning: BoundedFeatureProgramMeaningV1 = serde_json::from_str(
+            &std::fs::read_to_string(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/test_data/six_role_bar_bounded_feature/meaning.json"
+            ))
+            .unwrap(),
+        )
+        .expect("the committed declared meaning parses");
+
+        let token = "rd-owner-api-http-replay-test";
+        let token_digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
+        let owner = Arc::new(
+            PostgresResearchBoundedFeatureProgramOwnerV1::connect(
+                test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+            )
+            .await
+            .unwrap(),
+        );
+        let app =
+            bounded_feature_program::router(owner, token_digest).merge(market_data_pit::router(
+                bootstrap_market_data_pit_intake().await.unwrap(),
+                bootstrap_market_data_source_binding_admission()
+                    .await
+                    .unwrap(),
+                bootstrap_market_data_universe_selection().await.unwrap(),
+                bindings,
+                bootstrap_market_data_instrument_master_admission()
+                    .await
+                    .unwrap(),
+                bootstrap_market_data_market_semantics_admission()
+                    .await
+                    .unwrap(),
+                token_digest,
+            ));
+
+        // Driven through the router rather than a socket: what is unproven is that these paths,
+        // their bearer guard and their typed bodies compose in order, and the router is where all
+        // three live. A listener would add the one layer nothing here doubts.
+        let post =
+            async |app: Router, path: &str, body: serde_json::Value| -> (StatusCode, String) {
+                let response = app
+                    .oneshot(
+                        Request::builder()
+                            .method("POST")
+                            .uri(path)
+                            .header("authorization", format!("Bearer {token}"))
+                            .header("content-type", "application/json")
+                            .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                let status = response.status();
+                // The rejection code is a header, not a body field, and it is the only part that says
+                // which refusal this is: two different 409s are spelled identically in the body.
+                let code = response
+                    .headers()
+                    .get("x-rd-rejection-code")
+                    .and_then(|value| value.to_str().ok())
+                    .unwrap_or("-")
+                    .to_owned();
+                let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .unwrap();
+                (
+                    status,
+                    format!("[{code}] {}", String::from_utf8_lossy(&bytes)),
+                )
+            };
+
+        let (status, body) = post(
+            app.clone(),
+            "/v1/market-data/strategy-input-bindings/from-design-intent",
+            // `BindingDigest` is a newtype over `[u8; 32]` with derived serde, so the wire shape
+            // is an array of thirty-two numbers rather than a hex string.
+            serde_json::json!({ "design_identity": design_identity }),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "admitting binding custody from the published intent: {body}",
+        );
+
+        let (status, body) = post(
+            app,
+            "/v1/bounded-feature-programs/declare",
+            serde_json::json!({
+                "research_request_locator": locator,
+                "design": design,
+                "meaning": meaning,
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "replaying the declaration: {body}");
+
+        let receipt: serde_json::Value =
+            serde_json::from_str(body.split_once("] ").expect("the code prefix").1)
+                .expect("the freeze receipt parses");
+        // The same freeze, not merely a freeze: a route that reached another one, or minted a
+        // second, would also have answered 200.
+        assert_eq!(
+            receipt["joint_freeze_digest"].as_str().unwrap_or_default(),
+            format!("sha256:{}", hex_digest(&stored_joint_freeze)),
+            "the replay must name the stored joint freeze",
+        );
+        // Counted rather than compared against the stored commit time. Both receipt paths take
+        // `committed_at_epoch_ms` from the Owner clock at the moment of the call rather than from
+        // the row, so a rejoin reports when it was asked, not when the freeze was committed, and
+        // the two agree only by coincidence. What a replay must not do is add a row.
+        let freezes_after: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM public.rd_bounded_feature_program_freezes_v1")
+                .fetch_one(&rd_pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            freezes_after, freezes_before,
+            "the replay must rejoin the stored freeze rather than commit a second one",
+        );
+    }
+
     fn bearer_headers(token: &str) -> HeaderMap {
         let mut headers = HeaderMap::new();
         headers.insert(
