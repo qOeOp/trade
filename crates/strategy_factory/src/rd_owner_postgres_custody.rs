@@ -3403,9 +3403,9 @@ where
 
 mod attempt;
 pub(crate) use attempt::{
-    AttemptState, StoredAttemptV1, StoredInvocationClaimBindingV1, VerifiedAttemptCustodyV1,
-    admit_attempt_custody_for_request_in_transaction, admit_attempt_custody_in_transaction,
-    admit_attempt_custody_with_admission_mode_in_transaction,
+    AttemptHeaderReadV1, AttemptState, StoredAttemptV1, StoredInvocationClaimBindingV1,
+    VerifiedAttemptCustodyV1, admit_attempt_custody_for_request_in_transaction,
+    admit_attempt_custody_in_transaction, admit_attempt_custody_with_admission_mode_in_transaction,
     admit_attempt_reservation_header_in_transaction, admit_attempt_with_research_in_transaction,
     no_artifact_receipt, resolve_verified_artifact_family,
 };
