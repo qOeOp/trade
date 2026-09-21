@@ -195,6 +195,8 @@ struct DevelopComposerA0ExecutionsV1 {
     a0_executions: u64,
 }
 
+use vibe_strategy_factory_rd_owner_api::required_env;
+
 mod bounded_feature_program;
 mod exploratory_replay;
 mod iteration_analysis;
@@ -2703,10 +2705,6 @@ async fn maybe_delay(state: &ApiState, headers: &HeaderMap) {
     if delay > 0 {
         tokio::time::sleep(Duration::from_millis(delay)).await;
     }
-}
-
-fn required_env(name: &str) -> anyhow::Result<String> {
-    env::var(name).map_err(|_| anyhow::anyhow!("required environment variable {name} is missing"))
 }
 
 async fn admit_product_edge_request<T: Serialize>(
