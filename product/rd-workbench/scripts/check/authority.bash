@@ -385,35 +385,44 @@ if grep -Eq '^[[:space:]]*authority-recovery:[[:space:]]*$' "$package_dir/docker
   exit 1
 fi
 
-# Every role this migration gives LOGIN must also be given a PASSWORD.
+# Every role this migration gives LOGIN must also be given a PASSWORD, judged by role name.
 #
 # Stated once over all of them rather than role by role. The checks above name each contract
 # literally, which is what a contract check should do - but an enumeration only refuses what it
 # enumerates, and `market_data_reader` was given LOGIN with no password and no line here noticed.
 # A LOGIN role with `rolpassword IS NULL` cannot authenticate over TCP, so the deployment could
 # not produce `MARKET_DATA_RD_ROLE_SET_DATABASE_URL`, which `main.rs` requires unconditionally:
-# the Owner refused to start with `fe_sendauth: no password supplied`, and it had been that way
-# since the role was introduced.
+# the Owner refused to start with `fe_sendauth: no password supplied`.
 #
-# The gate did not catch it because the chain's fixtures mint that credential themselves, under a
-# TEST-suffixed variable or a differently named role. A universal check costs one loop and
-# refuses the next one too.
-login_without_password=$(
-  awk '
-    /^ALTER ROLE [a-z_]+ / && /LOGIN/ && !/NOLOGIN/ && !/PASSWORD/ { print $3 }
-  ' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+# The first version of this check matched line shapes - `^ALTER ROLE ... LOGIN` - and so was an
+# enumeration wearing a loop's clothes. It could not see `product_edge_owner` at all: that role
+# takes LOGIN from an indented `CREATE ROLE ... LOGIN` inside a DO block, and takes its password
+# from a separate `ALTER ROLE ... PASSWORD` line that never says LOGIN. Deleting that password
+# line left the check green. Counting by role name instead of by line closes that, and the counts
+# say why it mattered: 14 roles take LOGIN via ALTER, 14 via CREATE, and only 13 are in both.
+#
+# None of the 14 `CREATE ROLE ... LOGIN` statements carries a password of its own; every one of
+# them depends on a later ALTER. So the next role added with only a DO-block CREATE would repeat
+# `market_data_reader` exactly, which is the case this check exists to refuse.
+migration_sql="$package_dir/postgres-init/10-migrate-authority-custody.sh"
+roles_with_login=$(
+  {
+    grep -oE 'ALTER ROLE [a-z_]+ [^;]*LOGIN' "$migration_sql" | grep -v NOLOGIN | awk '{print $3}'
+    grep -oE 'CREATE ROLE [a-z_]+ [^;]*LOGIN' "$migration_sql" | grep -v NOLOGIN | awk '{print $3}'
+  } | sort -u
 )
+roles_with_password=$(
+  grep -oE 'ALTER ROLE [a-z_]+ [^;]*PASSWORD' "$migration_sql" | awk '{print $3}' | sort -u
+)
+login_without_password=$(comm -23 <(printf '%s\n' "$roles_with_login") <(printf '%s\n' "$roles_with_password"))
 if [ -n "$login_without_password" ]; then
   echo "these roles are given LOGIN with no PASSWORD, so no deployment can authenticate as them:" >&2
-  echo "$login_without_password" >&2
+  printf '%s\n' "$login_without_password" >&2
   exit 1
 fi
-# A check that can only pass proves nothing, so assert the loop saw roles at all.
-login_role_count=$(
-  awk '/^ALTER ROLE [a-z_]+ / && /LOGIN/ && !/NOLOGIN/ { n++ } END { print n + 0 }' \
-    "$package_dir/postgres-init/10-migrate-authority-custody.sh"
-)
+# A check that can only pass proves nothing, so assert the matcher still sees roles at all.
+login_role_count=$(printf '%s\n' "$roles_with_login" | grep -c .)
 if [ "$login_role_count" -lt 10 ]; then
-  echo "expected at least ten LOGIN roles, saw $login_role_count - the matcher stopped matching" >&2
+  echo "expected at least ten roles taking LOGIN, saw $login_role_count - the matcher stopped matching" >&2
   exit 1
 fi
