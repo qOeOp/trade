@@ -8,7 +8,7 @@ use vibe_data::owner::{
     strategy_input_joined_cut::StrategyInputJoinedCutReceiptV1,
 };
 use vibe_strategy_factory::{
-    OwnerBarJoinedCutBacktestReadbackV1, OwnerBarJoinedCutPreparationV1,
+    OwnerBarJoinedCutBacktestRunV1, OwnerBarJoinedCutPreparationV1,
     PreparedProgramHostBarCapabilityV1, PreparedProgramHostBarHandoffV1,
     PreparedProgramHostCapabilityV2, PreparedProgramHostEventCorpusCapabilityV2,
     PreparedProgramHostHandoffV2, ProgramPreparationFaultV2,
@@ -62,7 +62,7 @@ fn accepts_bar_handoff_transition(
 }
 
 type OwnerBarBacktestConsumerV1 =
-    fn(PreparedProgramHostBarHandoffV1) -> anyhow::Result<OwnerBarJoinedCutBacktestReadbackV1>;
+    fn(PreparedProgramHostBarHandoffV1) -> anyhow::Result<OwnerBarJoinedCutBacktestRunV1>;
 
 #[allow(dead_code)]
 fn public_owner_projection_consumer(

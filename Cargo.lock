@@ -9659,6 +9659,7 @@ dependencies = [
 name = "vibe-backtest-owner"
 version = "0.62.0"
 dependencies = [
+ "anyhow",
  "base64 0.23.1",
  "blake3",
  "rstest",
@@ -9673,8 +9674,10 @@ dependencies = [
  "vibe-backtest-owner-contracts",
  "vibe-backtest-result-custody",
  "vibe-data",
+ "vibe-model",
  "vibe-strategy-factory",
  "vibe-testkit",
+ "vibe-trading",
 ]
 
 [[package]]
