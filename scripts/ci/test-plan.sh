@@ -432,6 +432,43 @@ if [[ -n "$profile_by_event" ]]; then
   exit 1
 fi
 
+# A pull request builds one interpreter, everything else builds all three. The version kept on a
+# pull request is not interchangeable: two steps gate on `matrix.python-version == '3.13'`, one of
+# them the generated-stub drift check, so keeping a different version would stop that check running
+# on pull requests without failing anything - a gate that goes quiet rather than red.
+py_matrix="$(sed -n '/^        python-version: >-/,/}}/p' "$build_workflow")"
+if [[ -z "$py_matrix" ]]; then
+  echo "build.yml no longer selects the Python matrix by event. A pull request that builds all" >&2
+  echo "three interpreters spends 3 of its 11 jobs on them, and the account allows 20 jobs, so" >&2
+  echo "two pull requests then saturate it." >&2
+  exit 1
+fi
+if [[ "$py_matrix" != *"github.event_name == 'pull_request'"* ]]; then
+  echo "The Python matrix must branch on github.event_name == 'pull_request'." >&2
+  exit 1
+fi
+if [[ "$py_matrix" != *'fromJSON('"'"'["3.13"]'"'"')'* ]]; then
+  echo "A pull request must build exactly Python 3.13 - the version the drift check gates on." >&2
+  echo "$py_matrix" >&2
+  exit 1
+fi
+for py_version in 3.12 3.13 3.14; do
+  if [[ "$py_matrix" != *"\"$py_version\""* ]]; then
+    echo "The non-pull-request Python matrix must keep $py_version: compatibility is deferred to" >&2
+    echo "the scheduled run, not dropped." >&2
+    exit 1
+  fi
+done
+# `grep -v '^ *#'`: the comment above the matrix quotes this same condition to explain itself, so
+# counting raw occurrences would count the explanation as one of the things it explains.
+drift_gates="$(grep -v '^ *#' "$build_workflow" |
+  grep -c "matrix.python-version == '3.13'" || true)"
+if [[ "$drift_gates" -ne 2 ]]; then
+  echo "build.yml gates $drift_gates step(s) on Python 3.13; expected 2. If that set changes, the" >&2
+  echo "version a pull request keeps has to change with it, or those steps stop running there." >&2
+  exit 1
+fi
+
 # Which tests ran must be recoverable from CI, not only from a human reading a log. `--status-level
 # fail` prints nothing for a passing test, so a name's absence reads the same whether it ran and
 # passed or was never selected. The JUnit record is the only machine-readable answer, and it is
