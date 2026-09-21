@@ -2118,11 +2118,75 @@ async fn admit_research_row_in_transaction(
                 .await
                 .map_err(|e| storage(&e))?
         }
-        ResearchCustodyLookupV1::Intent(_) => {
-            sqlx::query("SELECT request_identity, semantic_digest, request_json, receipt_json, intent_json, view_json, source_ancestry_locator_json, source_ancestry_evidence_digest, committed_at_epoch_ms FROM rd_research_request_receipts_v1 ORDER BY request_identity FOR UPDATE")
+        // An intent has no column to select on, so this used to lock every row of the table and
+        // then discard all but the one it returns. That full-table `FOR UPDATE` was the collision
+        // surface behind the ordered chain's entry 28 deadlocks: PostgreSQL reported cycles
+        // between it and `rd_artifact_build_attempts_v1 ... FOR UPDATE`, and between it and the
+        // single-row lock above. Locking a row this call is going to throw away buys nothing and
+        // makes every concurrent transaction a candidate cycle partner.
+        //
+        // So the scan that finds the match runs first, over the unlocked hint rows, using the
+        // same predicate the loop below applies. Only what it selects is locked. The hint rows
+        // and this read are separate statements under READ COMMITTED, so the digest check below
+        // is what refuses a row that changed in between - the property the lock is here for.
+        ResearchCustodyLookupV1::Intent(intent_identity) => {
+            let mut candidates = Vec::new();
+
+            for row in &hint_rows {
+                let request_identity: String =
+                    row.try_get("request_identity").map_err(|e| storage(&e))?;
+                let admission = admissions.get(&request_identity).ok_or_else(|| {
+                    ResearchGoalOwnerError::Storage(
+                        "research custody changed across authority cut".into(),
+                    )
+                })?;
+                let custody =
+                    admit_preloaded_research_row_in_transaction(transaction, row, admission)
+                        .await?;
+
+                if custody
+                    .intent()
+                    .is_some_and(|intent| intent.intent_identity() == intent_identity)
+                {
+                    let semantic_digest: String =
+                        row.try_get("semantic_digest").map_err(|e| storage(&e))?;
+                    candidates.push((request_identity, semantic_digest));
+                }
+            }
+
+            let identities: Vec<String> =
+                candidates.iter().map(|(id, _)| id.clone()).collect();
+            let locked = sqlx::query("SELECT request_identity, semantic_digest, request_json, receipt_json, intent_json, view_json, source_ancestry_locator_json, source_ancestry_evidence_digest, committed_at_epoch_ms FROM rd_research_request_receipts_v1 WHERE request_identity = ANY($1) ORDER BY request_identity FOR UPDATE")
+                .bind(&identities)
                 .fetch_all(&mut **transaction)
                 .await
-                .map_err(|e| storage(&e))?
+                .map_err(|e| storage(&e))?;
+
+            // The unlocked scan chose these rows; the lock must have caught the same ones. A row
+            // that vanished or whose digest moved between the two statements means the scan
+            // decided on a state that no longer exists, and there is no safe way to continue
+            // from it.
+            if locked.len() != candidates.len() {
+                return Err(ResearchGoalOwnerError::Storage(
+                    "research custody changed across authority cut".into(),
+                ));
+            }
+
+            for row in &locked {
+                let request_identity: String =
+                    row.try_get("request_identity").map_err(|e| storage(&e))?;
+                let semantic_digest: String =
+                    row.try_get("semantic_digest").map_err(|e| storage(&e))?;
+                if !candidates
+                    .iter()
+                    .any(|(id, digest)| *id == request_identity && *digest == semantic_digest)
+                {
+                    return Err(ResearchGoalOwnerError::Storage(
+                        "research custody changed across authority cut".into(),
+                    ));
+                }
+            }
+            locked
         }
     };
     let mut matching = Vec::new();
