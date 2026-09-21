@@ -2790,6 +2790,30 @@ fn env_or(name: &str, default: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// Installs a subscriber so the servers this module spawns can be heard.
+    ///
+    /// The acceptance harness serves `dashboard_read_api` and the Owner API in-process with
+    /// `tokio::spawn`, and a test does not run `main`, which held the crate's only subscriber. The
+    /// read API's thirteen `tracing::warn!` sites were therefore formatted and dropped, including
+    /// the one that names why a Formation Catalog read answered 503. A line that is written and a
+    /// line that is emitted are two different histories, and the log a reader greps looks the same
+    /// under both, so the absence of that line was read as the handler not having run.
+    ///
+    /// `try_init` rather than `init`, because a process may host more than one test.
+    #[cfg(all(
+        feature = "sealed-artifact-source-browser-acceptance",
+        feature = "sealed-source-intake-acceptance"
+    ))]
+    fn install_acceptance_tracing() {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+            )
+            .with_test_writer()
+            .try_init();
+    }
+
     use std::{
         sync::atomic::{AtomicUsize, Ordering},
         time::{SystemTime, UNIX_EPOCH},
@@ -3206,6 +3230,8 @@ mod tests {
         if env::var("DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE").as_deref() != Ok("1") {
             return;
         }
+
+        install_acceptance_tracing();
 
         let browser_executable = env::var("DASHBOARD_STRATEGY_VIEWER_BROWSER_EXECUTABLE")
             .expect("explicit browser executable is required");
