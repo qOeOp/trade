@@ -372,8 +372,13 @@ for line in array_body.splitlines():
     if len(fields) != 3 or any(not field for field in fields):
         raise SystemExit("ERROR: ordered PostgreSQL test literal must contain three fields.")
     entries.append(tuple(fields))
-if len(entries) != 91:
-    raise SystemExit(f"ERROR: ordered PostgreSQL test literal must contain 91 entries, found {len(entries)}.")
+# The count lives in one place. Writing it into the message as well lets the two drift, and the
+# drifted form reads as nonsense the moment it fires: "must contain 92 entries, found 92".
+expected_entries = 92
+if len(entries) != expected_entries:
+    raise SystemExit(
+        f"ERROR: ordered PostgreSQL test literal must contain {expected_entries} entries, found {len(entries)}."
+    )
 if sum(test_name == poison_test for _, _, test_name in entries) != 1:
     raise SystemExit(
         "ERROR: recovery-sidecar poison test must occur exactly once as a parsed test name."
