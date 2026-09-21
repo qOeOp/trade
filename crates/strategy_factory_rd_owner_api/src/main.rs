@@ -195,6 +195,8 @@ struct DevelopComposerA0ExecutionsV1 {
     a0_executions: u64,
 }
 
+use vibe_strategy_factory_rd_owner_api::required_env;
+
 mod bounded_feature_program;
 mod exploratory_replay;
 mod iteration_analysis;
@@ -2705,10 +2707,6 @@ async fn maybe_delay(state: &ApiState, headers: &HeaderMap) {
     }
 }
 
-fn required_env(name: &str) -> anyhow::Result<String> {
-    env::var(name).map_err(|_| anyhow::anyhow!("required environment variable {name} is missing"))
-}
-
 async fn admit_product_edge_request<T: Serialize>(
     state: &ApiState,
     typed_payload: &T,
@@ -2792,6 +2790,30 @@ fn env_or(name: &str, default: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// Installs a subscriber so the servers this module spawns can be heard.
+    ///
+    /// The acceptance harness serves `dashboard_read_api` and the Owner API in-process with
+    /// `tokio::spawn`, and a test does not run `main`, which held the crate's only subscriber. The
+    /// read API's thirteen `tracing::warn!` sites were therefore formatted and dropped, including
+    /// the one that names why a Formation Catalog read answered 503. A line that is written and a
+    /// line that is emitted are two different histories, and the log a reader greps looks the same
+    /// under both, so the absence of that line was read as the handler not having run.
+    ///
+    /// `try_init` rather than `init`, because a process may host more than one test.
+    #[cfg(all(
+        feature = "sealed-artifact-source-browser-acceptance",
+        feature = "sealed-source-intake-acceptance"
+    ))]
+    fn install_acceptance_tracing() {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+            )
+            .with_test_writer()
+            .try_init();
+    }
+
     use std::{
         sync::atomic::{AtomicUsize, Ordering},
         time::{SystemTime, UNIX_EPOCH},
@@ -3208,6 +3230,19 @@ mod tests {
         if env::var("DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE").as_deref() != Ok("1") {
             return;
         }
+
+        install_acceptance_tracing();
+
+        // Reported rather than assumed: this harness pins `worker_threads = 2`, and whether that
+        // is a constraint or a restatement of the default depends on a number nobody here has
+        // measured. Two sessions have carried "the runner has 2 vCPUs" as fact with no measurement
+        // behind it, while `owner-chains.yml` says 4 for a public repository. This is the figure
+        // tokio actually defaults to, read in the process that would use it.
+        tracing::info!(
+            available_parallelism = ?std::thread::available_parallelism(),
+            pinned_worker_threads = 2,
+            "acceptance harness runtime width"
+        );
 
         let browser_executable = env::var("DASHBOARD_STRATEGY_VIEWER_BROWSER_EXECUTABLE")
             .expect("explicit browser executable is required");

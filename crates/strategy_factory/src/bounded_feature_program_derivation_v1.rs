@@ -12,17 +12,22 @@
 //! contract, the graph's own bounds, and for each declared input role the value port the graph
 //! reads and the clock that updates it.
 //!
-//! Derivation has no production caller yet, and the path it waits for is not missing so much as
-//! unassembled. Every step already exists and is re-exported from `vibe_data::owner`:
+//! `PostgresResearchBoundedFeatureProgramOwnerV1::declare` calls
+//! `assemble_declared_bounded_feature_program_v1` with no feature gate, so this module is on a live
+//! request path. `assemble` performs, in order:
 //!
 //! 1. `resolve_pit_request_for_strategy_design_v1` returns the Design's admitted PIT coordinate;
 //! 2. that coordinate fills an `UntrustedStrategyInputCustodyClaimV1`;
 //! 3. `reread_persisted_strategy_input_custody_for_update_v1` answers it with a custody readback;
 //! 4. `VerifiedStrategyInputBindingsV2::from_owner_receipts(readback.bindings())` closes it.
 //!
-//! `source_research_composer_postgres_v2` already performs exactly those four steps, but only under
-//! `sealed-source-intake-composer-acceptance`. Lifting them into an ordinary R&D Owner path is what
-//! connects a declared meaning to the freeze.
+//! An earlier revision of this comment said derivation had no production caller and that those four
+//! steps still had to be lifted out of `sealed-source-intake-composer-acceptance`. Both were true
+//! once and are not now, and the cost of leaving them was that a reader would go do work already
+//! done. A declaration sent to the running endpoint reaches step 3 and stops there: it is refused
+//! with `MarketDataUnavailable`, because nothing has written the custody rows that step reads for
+//! that Design. What connects a declared meaning to the freeze is therefore a writer of those rows,
+//! not a lift of these steps.
 //!
 //! Derivation is not admission. The result is still a proposal, carries no Owner authority, and
 //! must pass the same canonical verification as one assembled by hand.

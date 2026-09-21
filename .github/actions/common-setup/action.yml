@@ -25,6 +25,16 @@ inputs:
     description: Extra rust-cache key material to partition cache entries
     required: false
     default: ""
+  rust-cache-shared-key:
+    description: >-
+      A rust-cache key shared across jobs. rust-cache appends `GITHUB_JOB` to
+      `key`, so two jobs that name the same `key` still get separate entries;
+      `shared-key` replaces that job component instead, letting one job's entry
+      serve another. The rest of the key -- `rustc -vV`, every CARGO_/RUST_
+      variable, the toolchain file, the manifests and the lockfile -- still has
+      to match, so sharing jobs must agree on their profile and target directory.
+    required: false
+    default: ""
   rust-cache-workspaces:
     description: Optional rust-cache workspace mapping, e.g. ". -> target/py3.13"
     required: false
@@ -188,6 +198,7 @@ runs:
         cache-on-failure: ${{ inputs.rust-cache-on-failure }}
         cache-workspace-crates: ${{ inputs.rust-cache-workspace-crates }}
         key: ${{ inputs.rust-cache-key }}
+        shared-key: ${{ inputs.rust-cache-shared-key }}
         save-if: ${{ inputs.rust-cache-save-if }}
 
     - name: Get cargo-nextest version

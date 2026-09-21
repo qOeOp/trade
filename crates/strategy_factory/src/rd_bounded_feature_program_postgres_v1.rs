@@ -33,7 +33,7 @@ use crate::{
     bounded_feature_program_lowerer_v1::{
         BoundedFeatureLoweringErrorV1, prepare_frozen_bounded_feature_source_inputs_v1,
     },
-    bounded_feature_program_v1::BoundedFeatureProgramProposalV1,
+    bounded_feature_program_v1::{BoundedFeatureProgramErrorV1, BoundedFeatureProgramProposalV1},
     rd_bounded_feature_program_v1::{
         FrozenResearchBoundedFeatureProgramV1, ResearchBoundedFeatureProgramFreezeErrorV1,
         commit_research_bounded_feature_program_in_transaction_v1,
@@ -112,14 +112,30 @@ pub enum ResearchBoundedFeatureProgramOwnerErrorV1 {
     #[error("the declared Strategy Design is not canonicalizable")]
     Design,
     /// The declared program is outside the admitted Bounded Feature Program meaning.
-    #[error("the declared Bounded Feature Program is unsupported")]
-    Program,
+    ///
+    /// The payload is the preparation stage that refused it. Preparation distinguishes twelve, and
+    /// they send an author to different places: a graph topology refusal and a terminal lifecycle
+    /// refusal have nothing to do with each other. Discarding it here delivered all twelve as one
+    /// code, which is the condition the `Assembly` variant above was split to end.
+    #[error("the declared Bounded Feature Program is unsupported: {0}")]
+    Program(BoundedFeatureProgramErrorV1),
     /// The declared first-party SDK source digest is not the pinned first-party SDK.
     #[error("the declared first-party SDK source digest is not the pinned first-party SDK")]
     SdkSource,
     /// Declared meaning does not fit the Design, or Owner binding custody did not answer.
+    ///
+    /// The payload is the typed reason rather than its rendering, because the two reasons ask a
+    /// caller for opposite things: one to change the meaning it declared, one to wait for an Owner
+    /// gap it cannot affect. Rendering them to a string here left every consumer holding a single
+    /// outcome, which is the condition the `assembly_error` documentation says must not arise.
     #[error("declared meaning does not assemble against Owner custody: {0}")]
-    Assembly(String),
+    Assembly(#[from] BoundedFeatureProgramAssemblyErrorV1),
+    /// No published primitive catalog verifies, so nothing can be assembled against any meaning.
+    ///
+    /// This is neither of the assembly reasons: it precedes them and is not about this caller's
+    /// declaration at all. It shared their variant while that variant carried a string.
+    #[error("no published primitive catalog verifies")]
+    CatalogUnavailable,
     /// R&D Owner joint-freeze custody is unavailable.
     #[error("R&D Owner joint-freeze custody is unavailable")]
     Unavailable,
@@ -128,7 +144,7 @@ pub enum ResearchBoundedFeatureProgramOwnerErrorV1 {
     Conflict,
 }
 
-const fn owner_error(
+fn owner_error(
     error: &ResearchBoundedFeatureProgramFreezeErrorV1,
 ) -> ResearchBoundedFeatureProgramOwnerErrorV1 {
     use ResearchBoundedFeatureProgramFreezeErrorV1 as Freeze;
@@ -137,7 +153,7 @@ const fn owner_error(
     match error {
         Freeze::ResearchCustody => Owner::ResearchCustody,
         Freeze::Design => Owner::Design,
-        Freeze::Program(_) => Owner::Program,
+        Freeze::Program(stage) => Owner::Program(stage.clone()),
         Freeze::SdkSource => Owner::SdkSource,
         Freeze::Unavailable => Owner::Unavailable,
         Freeze::Conflict => Owner::Conflict,
@@ -417,11 +433,8 @@ impl PostgresResearchBoundedFeatureProgramOwnerV1 {
         // Assembling a new program picks a catalog and the proposal records which one; rebuilding
         // a stored program instead uses the version its own bytes declare, which is why `freeze`
         // and `lower` resolve none.
-        let catalog = PrimitiveCatalogV1::verify().map_err(|_| {
-            ResearchBoundedFeatureProgramOwnerErrorV1::Assembly(
-                "no published primitive catalog verifies".to_owned(),
-            )
-        })?;
+        let catalog = PrimitiveCatalogV1::verify()
+            .map_err(|_| ResearchBoundedFeatureProgramOwnerErrorV1::CatalogUnavailable)?;
         let read_cut_epoch_ms = (self.clock)();
         let committed_at_epoch_ms = (self.clock)().max(read_cut_epoch_ms);
         let mut transaction = self.pool.begin().await?;
@@ -529,7 +542,7 @@ impl PostgresResearchBoundedFeatureProgramOwnerV1 {
 fn assembly_error(
     error: &BoundedFeatureProgramAssemblyErrorV1,
 ) -> ResearchBoundedFeatureProgramOwnerErrorV1 {
-    ResearchBoundedFeatureProgramOwnerErrorV1::Assembly(error.to_string())
+    ResearchBoundedFeatureProgramOwnerErrorV1::Assembly(error.clone())
 }
 
 fn receipt(

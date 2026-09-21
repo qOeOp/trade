@@ -13,6 +13,7 @@ use std::{
     io::{self, Write},
     path::Path,
 };
+use vibe_strategy_factory_rd_owner_api::required_env;
 
 use anyhow::Context;
 use ed25519_dalek::SigningKey;
@@ -45,14 +46,14 @@ struct SealedCommandSummaryV3 {
 fn main() -> anyhow::Result<()> {
     require_no_arguments(std::env::args().skip(1))?;
     let authoring_json = read_bounded_file(
-        Path::new(&require_environment(AUTHORING_PATH_ENV)?),
+        Path::new(&required_env(AUTHORING_PATH_ENV)?),
         MAX_AUTHORING_BYTES,
         "Catalog command authoring",
     )?;
     let authoring: ReplayPolicyCatalogAdminCommandAuthoringV3 =
         serde_json::from_slice(&authoring_json).context("Catalog command authoring is invalid")?;
-    let signing_key = read_signing_key(Path::new(&require_environment(SIGNING_KEY_PATH_ENV)?))?;
-    let output_path = require_environment(OUTPUT_PATH_ENV)?;
+    let signing_key = read_signing_key(Path::new(&required_env(SIGNING_KEY_PATH_ENV)?))?;
+    let output_path = required_env(OUTPUT_PATH_ENV)?;
     let mut summary = SealedCommandSummaryV3 {
         schema_version: 3,
         command_identity: authoring.command_identity.clone(),
@@ -84,10 +85,6 @@ fn require_no_arguments(mut arguments: impl Iterator<Item = String>) -> anyhow::
         anyhow::bail!("Replay Policy Catalog command sealer accepts no command-line arguments");
     }
     Ok(())
-}
-
-fn require_environment(name: &'static str) -> anyhow::Result<String> {
-    std::env::var(name).with_context(|| format!("{name} must be explicitly set"))
 }
 
 fn read_bounded_file(path: &Path, limit: usize, label: &'static str) -> anyhow::Result<Vec<u8>> {
