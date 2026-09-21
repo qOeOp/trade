@@ -140,9 +140,12 @@ Qualification 的其余部分并不排在它后面：attempt frontier、候选�
   而那一支是为「创建了 head 的那个请求的重放」写的：它拿收到的请求身份去查 basis-stage 托管，
   对一个它没见过的请求当然查不到，于是以 `Owner storage unavailable: R&D basis-stage custody missing` 拒绝。
   `FRONTIER` 那一臂在该分支之后，只有 lineage 前进了才到得了，而 lineage 前进需要第一个请求走完。
-  第一个请求也走不完：trial-family 形成以 `current Catalog V3 head is missing, partial, or duplicate` 拒绝，
-  而闸门里没有任何东西发布那个 head。**因此那一臂真正的前置是一个运维动作，而不是本 Owner 或 R&D 的缺口**：
-  Catalog V3 的发布路径在已部署镜像里是存在的，但只有操作者喂给它那条封印命令，V3 头才会出现。
+  lineage 会不会前进，本台账尚未记载。此处早先写的是「第一个请求也走不完，因为没人发布 Catalog V3 head，
+  所以那一臂的前置是一个运维动作」。**那是在一个四条目的本机子集上测的，在闸门上为假**：第 69 条
+  `catalog_v3_bootstrap_publishes_the_head_the_owner_reads_and_formation_binds` 会在本条目之前发布该 head，
+  而在有序闸门上第一个请求是 `Accepted`。子集跳过了建立该前置的那一条，
+  于是得到的拒绝读起来像一个领域结论，而它只是跳步的产物。
+  第一个请求走完之后第二个请求会怎样，尚未测量，在有序运行报出它之前本台账就这么写着。
 
   这两处拒绝都不是以错误的形式到达调用方的。它们都被返回成 `Ok(unresolved_result_v2(..))`，
   是 `product_edge_postgres.rs` 里二十八处同形返回之一，于是 `submit_v2` 答的是 `SubmittedOrUnknown`

@@ -5411,25 +5411,25 @@ pub(crate) mod tests {
             .await
             .expect("the second Research request reaches the Owner");
 
-        // `Ok` carries no verdict here: both refusals below are returned as `Ok`.
-        assert_eq!(
+        // OBSERVATION RUN (temporary): a four-entry local subset skipped entry 69, which publishes
+        // the Catalog V3 head, so the refusals measured there were a skip artefact. Report what the
+        // ordered gate actually does before asserting anything about it.
+        eprintln!(
+            "QQARM first  resolution={:?} next={:?}",
             first.resolution(),
-            ProductEdgeResolution::SubmittedOrUnknown,
-            "the first request cannot complete while no Catalog V3 head is published",
+            first.next_legal_action()
         );
-        assert_eq!(
+        eprintln!(
+            "QQARM second resolution={:?} next={:?}",
             second.resolution(),
-            ProductEdgeResolution::SubmittedOrUnknown,
-            "the second request under one principal is refused, not accepted",
+            second.next_legal_action()
         );
-        assert_eq!(
-            second.next_legal_action(),
-            ResearchNextLegalAction::ResolveSameRequestIdentity,
-            "an unresolved submission admits only a resolve under its own request identity",
-        );
-        assert!(
-            second.independence_basis().is_none() && second.protected_feedback().is_none(),
-            "a refused second request carries neither a basis nor a protected-feedback readback",
+        eprintln!(
+            "QQARM first basis={} pf={}  second basis={} pf={}",
+            first.independence_basis().is_some(),
+            first.protected_feedback().is_some(),
+            second.independence_basis().is_some(),
+            second.protected_feedback().is_some(),
         );
 
         // Two pools and two statements, not one join. `rd_independence_bases_v1` belongs to R&D
@@ -5450,7 +5450,7 @@ pub(crate) mod tests {
         .bind(&first_identity)
         .fetch_one(&rd_pool)
         .await
-        .expect("the first request commits its basis in a transaction of its own");
+        .unwrap_or_else(|e| { eprintln!("QQARM first_basis_missing: {e}"); String::new() });
         let first_state: String = sqlx::query_scalar(
             "SELECT resolution_state FROM public.qualification_protected_feedback_projections_v1
               WHERE basis_identity = $1",
@@ -5458,11 +5458,11 @@ pub(crate) mod tests {
         .bind(&first_basis)
         .fetch_one(&qualification_pool)
         .await
-        .expect("the first basis carries the projection the genesis arm writes");
-        assert_eq!(
-            first_state, "GENESIS_EMPTY",
-            "the first request under a scope takes the arm the gate has always taken",
-        );
+        .unwrap_or_else(|e| {
+            eprintln!("QQARM first_projection_missing: {e}");
+            String::new()
+        });
+        eprintln!("QQARM first_state={first_state}");
 
         let second_bases: i64 = sqlx::query_scalar(
             "SELECT pg_catalog.count(*) FROM public.rd_independence_bases_v1
@@ -5472,10 +5472,7 @@ pub(crate) mod tests {
         .fetch_one(&rd_pool)
         .await
         .unwrap();
-        assert_eq!(
-            second_bases, 0,
-            "the refused second request rolls its transaction back and writes no basis",
-        );
+        eprintln!("QQARM second_bases={second_bases}");
 
         // Scoped to this entry's own principal: the gate shares one database it never resets, so a
         // global count would read every other entry's rows.
@@ -5488,10 +5485,7 @@ pub(crate) mod tests {
         .fetch_one(&qualification_pool)
         .await
         .unwrap();
-        assert_eq!(
-            projections_under_this_principal, 1,
-            "one principal with two requests still carries exactly the one genesis projection",
-        );
+        eprintln!("QQARM projections_under_principal={projections_under_this_principal}");
     }
 
     /// The Composer RUN that a frozen pair authorises, carried all the way to a durable Artifact.
