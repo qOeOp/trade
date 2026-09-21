@@ -379,6 +379,21 @@ if len(entries) != expected_entries:
     raise SystemExit(
         f"ERROR: ordered PostgreSQL test literal must contain {expected_entries} entries, found {len(entries)}."
     )
+
+# The count and the positional guards are independent, and that gap is how an entry lands in a
+# slot nobody checks: raise the count, pin every index up to the old last one, and the new slot
+# is unconstrained. An entry appended there is exactly what "destructive-drain-last" exists to
+# refuse, and the positional guards stay green while it is false. So the guards must cover every
+# position, checked here rather than left to whoever edits them to notice.
+pinned_positions = {int(index) for index in re.findall(r"rd_owner_postgres_tests\[(\d+)\]", source)}
+expected_positions = set(range(expected_entries))
+if pinned_positions != expected_positions:
+    unpinned = sorted(expected_positions - pinned_positions)
+    out_of_range = sorted(pinned_positions - expected_positions)
+    raise SystemExit(
+        "ERROR: ordered PostgreSQL positional guards must pin every entry by name; "
+        f"unpinned {unpinned}, out of range {out_of_range}."
+    )
 if sum(test_name == poison_test for _, _, test_name in entries) != 1:
     raise SystemExit(
         "ERROR: recovery-sidecar poison test must occur exactly once as a parsed test name."
