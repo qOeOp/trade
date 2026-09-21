@@ -3029,6 +3029,89 @@ mod tests {
         );
     }
 
+    /// Executes the port's own BAR schedule read for the first time in this repository.
+    ///
+    /// Its only caller is `postgres.rs:7952`, inside a `#[cfg(not(test))]` block, so no test build
+    /// contains a call to it: the method is unreachable rather than untested. This reaches it
+    /// directly, from the module that owns the property, so nothing here is a consumer holding a
+    /// port it did not earn.
+    ///
+    /// **What this does not reach**, stated because the next reader will otherwise assume more:
+    ///
+    /// 1. The ordering in `postgres.rs` around 7940-7963 - read, verify, revalidate, return. Those
+    ///    three calls do not exist in a test build, and it is the arrangement rather than any one
+    ///    of them that has never been observed.
+    /// 2. The second half of this method: the `admit` and `validate` pair that runs *after* the
+    ///    storage read and before the value is returned. Reaching it needs a real read, so it
+    ///    belongs with a database-backed proof.
+    /// 3. `verify_admitted_bar_schedule_v1`, which sits between the read and the revalidation.
+    /// 4. The before-return property itself, which is **already** covered by
+    ///    `bar_schedule_capability_requires_and_preserves_exact_measurement_floor` above - it
+    ///    counts one measurement, calls `revalidate_bar_schedule_v1_before_return`, and counts two.
+    ///    That test, not this one, is what guards the property; anyone editing it should know that.
+    /// 5. `validate_bar_schedule_revalidation_v1` between the admission and the read. Deleting that
+    ///    call leaves this test green, which was measured rather than assumed: reaching the read
+    ///    proves only that nothing before it rejected, not that everything before it ran. Covering
+    ///    it needs a fixture whose second admission disagrees with the sealed receipt, so that
+    ///    skipping the check changes the outcome instead of merely removing a step.
+    #[tokio::test]
+    async fn the_admitted_ports_bar_schedule_read_admits_and_validates_before_it_measures() {
+        let complete = Fixture::with_spec(
+            &PostgresMeasurementSpec::new(
+                "market_data_private",
+                "market_data_private.schema_migrations_v1",
+                vec![
+                    "market_data_private.resolve_bar_schedule_v1(bytea)".to_string(),
+                    "market_data_private.resolve_bar_schedule_candidates_v1(text)".to_string(),
+                    "market_data_private.resolve_bar_schedule_history_v1(text)".to_string(),
+                ],
+                vec![
+                    "market_data_private.bar_schedule_state_v1".to_string(),
+                    "market_data_private.bar_schedule_facts_v1".to_string(),
+                    "market_data_private.bar_schedule_heads_v1".to_string(),
+                    "market_data_private.bar_schedule_cuts_v1".to_string(),
+                    "market_data_private.bar_schedule_receipts_v1".to_string(),
+                    "market_data_private.bar_schedule_outbox_v1".to_string(),
+                ],
+            )
+            .unwrap(),
+        );
+        let measurement_calls = Arc::new(AtomicUsize::new(0));
+        let custodian = complete.custodian(
+            Arc::new(AtomicUsize::new(0)),
+            Arc::clone(&measurement_calls),
+        );
+        let port = custodian
+            .admit_capability(complete.request.scope())
+            .await
+            .expect("complete BAR floor admitted")
+            .into_bar_schedule_snapshot_port()
+            .expect("complete floor promotes BAR port");
+        assert_eq!(measurement_calls.load(Ordering::SeqCst), 1);
+
+        let outcome = port.resolve_bar_schedule_v1([7; 32]).await;
+
+        // No store is configured here, so the read fails - and where it fails is the point: the
+        // method reached the read, so it did not reject earlier. It does not follow that the
+        // validation between the admission and the read ran; see boundary 5 below, which is there
+        // because deleting that validation leaves this test green.
+        let Err(rejected) = outcome else {
+            panic!("no store is reachable from this test, so the read cannot succeed");
+        };
+
+        assert_eq!(
+            rejected.code(),
+            AdmissionFailureCode::DirectMeasurementUnavailable,
+            "the read is what failed, so everything before it succeeded"
+        );
+        assert_eq!(
+            measurement_calls.load(Ordering::SeqCst),
+            2,
+            "the method re-admits before reading rather than trusting the capability it was built \
+             from; the count distinguishes that from reusing the admission"
+        );
+    }
+
     #[rstest::rstest]
     fn shared_time_floor_requires_every_fixed_function_and_relation() {
         let functions = vec![
