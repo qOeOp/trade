@@ -556,12 +556,18 @@ async fn load_artifact_trial_family_with_intent_in_transaction(
     Ok(readback)
 }
 
-pub(crate) async fn load_trial_family_in_transaction(
+/// Reads the family with the caller's lock mode.
+///
+/// `Snapshot` exists so a read-only projection can read this without entering the lock graph.
+/// PostgreSQL refuses `SELECT ... FOR SHARE` inside a `READ ONLY` transaction, so a caller that
+/// declares itself read-only cannot reach the `ForShare` form by accident: the server rejects it.
+pub(crate) async fn load_trial_family_with_lock_mode_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     intent_identity: &str,
     research_receipt_identity: &str,
+    lock_mode: PostgresReadLockMode,
 ) -> Result<TrialFamilyReadbackV1, TrialFamilyError> {
-    let root_rows = sqlx::query("SELECT trial_family_identity, intent_identity, root_digest, root_json, root_receipt_json, root_storage_bytes, root_storage_digest, root_receipt_storage_bytes, root_receipt_storage_digest, initial_frontier_storage_bytes, initial_frontier_storage_digest, committed_at_epoch_ms FROM rd_trial_families_v1 WHERE intent_identity = $1 FOR SHARE")
+    let root_rows = sqlx::query(lock_mode.query("SELECT trial_family_identity, intent_identity, root_digest, root_json, root_receipt_json, root_storage_bytes, root_storage_digest, root_receipt_storage_bytes, root_receipt_storage_digest, initial_frontier_storage_bytes, initial_frontier_storage_digest, committed_at_epoch_ms FROM rd_trial_families_v1 WHERE intent_identity = $1", " FOR SHARE"))
         .bind(intent_identity)
         .fetch_all(&mut **transaction)
         .await
@@ -577,12 +583,12 @@ pub(crate) async fn load_trial_family_in_transaction(
         root_row.try_get("trial_family_identity").map_err(storage)?;
     let root_json = root_row.try_get("root_json").map_err(storage)?;
     let root_receipt_json = root_row.try_get("root_receipt_json").map_err(storage)?;
-    let member_rows = sqlx::query("SELECT member_identity, trial_family_identity, ordinal, fact_identity, member_digest, member_json, membership_receipt_json, member_storage_bytes, member_storage_digest, membership_receipt_storage_bytes, membership_receipt_storage_digest, committed_at_epoch_ms FROM rd_trial_family_members_v1 WHERE trial_family_identity = $1 ORDER BY ordinal FOR SHARE")
+    let member_rows = sqlx::query(lock_mode.query("SELECT member_identity, trial_family_identity, ordinal, fact_identity, member_digest, member_json, membership_receipt_json, member_storage_bytes, member_storage_digest, membership_receipt_storage_bytes, membership_receipt_storage_digest, committed_at_epoch_ms FROM rd_trial_family_members_v1 WHERE trial_family_identity = $1 ORDER BY ordinal", " FOR SHARE"))
         .bind(&trial_family_identity)
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
-    let head_rows = sqlx::query("SELECT trial_family_identity, frontier_identity, frontier_digest, frontier_json, frontier_storage_bytes, frontier_storage_digest, committed_at_epoch_ms FROM rd_trial_family_heads_v1 WHERE trial_family_identity = $1 FOR SHARE")
+    let head_rows = sqlx::query(lock_mode.query("SELECT trial_family_identity, frontier_identity, frontier_digest, frontier_json, frontier_storage_bytes, frontier_storage_digest, committed_at_epoch_ms FROM rd_trial_family_heads_v1 WHERE trial_family_identity = $1", " FOR SHARE"))
         .bind(&trial_family_identity)
         .fetch_all(&mut **transaction)
         .await
@@ -647,20 +653,38 @@ pub(crate) async fn load_trial_family_in_transaction(
     Ok(readback)
 }
 
-pub(crate) async fn load_trial_family_by_family_in_transaction(
+/// The lock-taking form every write path uses. Unchanged behaviour for existing callers.
+pub(crate) async fn load_trial_family_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    intent_identity: &str,
+    research_receipt_identity: &str,
+) -> Result<TrialFamilyReadbackV1, TrialFamilyError> {
+    Box::pin(load_trial_family_with_lock_mode_in_transaction(
+        transaction,
+        intent_identity,
+        research_receipt_identity,
+        PostgresReadLockMode::ForShare,
+    ))
+    .await
+}
+
+pub(crate) async fn load_trial_family_by_family_with_lock_mode_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     trial_family_identity: &str,
+    lock_mode: PostgresReadLockMode,
 ) -> Result<TrialFamilyReadbackV1, TrialFamilyError> {
-    let family_rows = sqlx::query(
-        "SELECT intent_identity FROM rd_trial_families_v1 WHERE trial_family_identity = $1 FOR SHARE",
-    )
+    let family_rows = sqlx::query(lock_mode.query(
+        "SELECT intent_identity FROM rd_trial_families_v1 WHERE trial_family_identity = $1",
+        " FOR SHARE",
+    ))
     .bind(trial_family_identity)
     .fetch_all(&mut **transaction)
     .await
     .map_err(storage)?;
-    let outbox_rows = sqlx::query(
-        "SELECT aggregate_identity,event_kind,payload_json FROM rd_owner_outbox_v1 WHERE aggregate_identity = $1 AND event_kind = $2 FOR SHARE",
-    )
+    let outbox_rows = sqlx::query(lock_mode.query(
+        "SELECT aggregate_identity,event_kind,payload_json FROM rd_owner_outbox_v1 WHERE aggregate_identity = $1 AND event_kind = $2",
+        " FOR SHARE",
+    ))
     .bind(trial_family_identity)
     .bind(FAMILY_FROZEN_EVENT)
     .fetch_all(&mut **transaction)
@@ -690,10 +714,11 @@ pub(crate) async fn load_trial_family_by_family_in_transaction(
             "TrialFamily locator/outbox cross-binding mismatch".to_string(),
         ));
     }
-    let family = load_trial_family_in_transaction(
+    let family = load_trial_family_with_lock_mode_in_transaction(
         transaction,
         &intent_identity,
         &payload.research_receipt_identity,
+        lock_mode,
     )
     .await?;
 
@@ -703,6 +728,19 @@ pub(crate) async fn load_trial_family_by_family_in_transaction(
         ));
     }
     Ok(family)
+}
+
+/// The form a read-only projection uses: reads the same rows without entering the lock graph.
+pub(crate) async fn load_trial_family_by_family_snapshot_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    trial_family_identity: &str,
+) -> Result<TrialFamilyReadbackV1, TrialFamilyError> {
+    Box::pin(load_trial_family_by_family_with_lock_mode_in_transaction(
+        transaction,
+        trial_family_identity,
+        PostgresReadLockMode::Snapshot,
+    ))
+    .await
 }
 
 #[cfg_attr(

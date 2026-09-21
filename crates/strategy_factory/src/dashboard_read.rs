@@ -413,9 +413,25 @@ impl IterationTimelineOwnerPortV1 for PostgresIterationTimelineOwnerV1 {
             .begin()
             .await
             .map_err(|e| unavailable(e.to_string()))?;
-        let exists = sqlx::query("SELECT trial_family_identity FROM rd_trial_families_v1 WHERE trial_family_identity=$1 FOR SHARE")
-            .bind(trial_family_identity).fetch_optional(&mut *transaction).await
+        // A read-only projection has no business holding row locks: `FOR SHARE` blocks writers for
+        // the life of the transaction, which is a write-side effect from a read port. The snapshot
+        // asked for here is also what actually makes the several tables below agree - `FOR SHARE`
+        // never did that under READ COMMITTED, it only stopped one row changing.
+        //
+        // `READ ONLY` is what keeps this true later. PostgreSQL refuses `SELECT ... FOR SHARE` in a
+        // read-only transaction, so a lock reintroduced anywhere on this path fails here instead of
+        // waiting to be noticed.
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .execute(&mut *transaction)
+            .await
             .map_err(|e| unavailable(e.to_string()))?;
+        let exists = sqlx::query(
+            "SELECT trial_family_identity FROM rd_trial_families_v1 WHERE trial_family_identity=$1",
+        )
+        .bind(trial_family_identity)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|e| unavailable(e.to_string()))?;
         if exists.is_none() {
             transaction
                 .commit()
@@ -440,7 +456,7 @@ impl IterationTimelineOwnerPortV1 for PostgresIterationTimelineOwnerV1 {
             .is_some();
         let (census_frontier_identity, census_frontier_digest, consumed_trial_budget, trial_budget) =
             if census_v2_present {
-                let census = crate::trial_family_postgres::load_trial_family_census_v2_by_family_in_transaction(
+                let census = crate::trial_family_postgres::load_trial_family_census_v2_by_family_snapshot_in_transaction(
                 &mut transaction,
                 trial_family_identity,
             )
@@ -454,7 +470,7 @@ impl IterationTimelineOwnerPortV1 for PostgresIterationTimelineOwnerV1 {
                 )
             } else {
                 let family =
-                    crate::trial_family_postgres::load_trial_family_by_family_in_transaction(
+                    crate::trial_family_postgres::load_trial_family_by_family_snapshot_in_transaction(
                         &mut transaction,
                         trial_family_identity,
                     )
