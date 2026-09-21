@@ -42,9 +42,9 @@ use crate::{
         canonical_research_view_identity_v2,
     },
     rd_owner_postgres_custody::{
-        AttemptState, StoredAttemptV1, StoredInvocationClaimBindingV1, VerifiedAttemptCustodyV1,
-        VerifiedResearchCustodyV1, admit_attempt_custody_for_request_in_transaction,
-        admit_attempt_custody_in_transaction,
+        AttemptHeaderReadV1, AttemptState, StoredAttemptV1, StoredInvocationClaimBindingV1,
+        VerifiedAttemptCustodyV1, VerifiedResearchCustodyV1,
+        admit_attempt_custody_for_request_in_transaction, admit_attempt_custody_in_transaction,
         admit_attempt_custody_with_admission_mode_in_transaction,
         admit_attempt_reservation_header_in_transaction,
         admit_attempt_with_research_in_transaction, admit_research_custody_in_transaction,
@@ -981,9 +981,15 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
         claim: ProductEdgeInvocationClaimReadbackV1,
     ) -> Result<ReservedArtifactBuildInvocationV1, ArtifactBuildError> {
         let mut transaction = self.pool.begin().await.map_err(storage)?;
+        // Unlocked on purpose. This read only decides which branch runs; the attempt row it
+        // names is what says which Research receipt the `Prepared` branch will lock, and the
+        // order those two are taken in is fixed - receipts before attempts. Locking the attempt
+        // here to answer that question reversed it against every other path, and PostgreSQL
+        // reported the cycle at chain entry 28. Each branch below takes what it needs, in order.
         let header = admit_attempt_reservation_header_in_transaction(
             &mut transaction,
             build_request_identity,
+            AttemptHeaderReadV1::Unlocked,
         )
         .await?
         .ok_or_else(|| ArtifactBuildError::Storage("prepared attempt missing".to_string()))?;
@@ -1028,6 +1034,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
                 let persisted = admit_attempt_reservation_header_in_transaction(
                     &mut transaction,
                     build_request_identity,
+                    AttemptHeaderReadV1::Locked,
                 )
                 .await?
                 .ok_or_else(|| {
@@ -1037,6 +1044,28 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
             }
 
             AttemptState::InvocationReserved => {
+                // This branch never calls the custody admission, so the probe above is the only
+                // read of the attempt. Take the lock here before acting on it. Nothing on this
+                // path locks a Research receipt, so there is no order to get wrong.
+                let header = admit_attempt_reservation_header_in_transaction(
+                    &mut transaction,
+                    build_request_identity,
+                    AttemptHeaderReadV1::Locked,
+                )
+                .await?
+                .ok_or_else(|| {
+                    ArtifactBuildError::Storage("reserved attempt missing".to_string())
+                })?;
+
+                // The identity check above ran against the unlocked probe, so it says what was
+                // true before this lock. Repeat it against the row actually held: a probe that
+                // agreed and a locked row that does not is exactly the window the lock closes.
+                if header.attempt.request.build_request_identity != build_request_identity
+                    || header.attempt.request.attempt_identity != attempt_identity
+                {
+                    return Err(ArtifactBuildError::ConflictingReplay);
+                }
+
                 let claim_matches = matches!(
                     claim.state(),
                     ProductEdgeInvocationStateV1::Claimed
