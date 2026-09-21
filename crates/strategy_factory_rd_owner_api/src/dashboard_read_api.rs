@@ -601,7 +601,10 @@ pub async fn read_artifact_directory(
     {
         Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
         Err(ArtifactBuildError::Candidate(_)) => StatusCode::BAD_REQUEST.into_response(),
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        Err(e) => {
+            tracing::warn!(%e, "Artifact directory Dashboard read unavailable");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
     }
 }
 
@@ -625,7 +628,10 @@ pub async fn read_artifact_source(
     {
         Ok(Some(readback)) => (StatusCode::OK, Json(readback)).into_response(),
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        Err(e) => {
+            tracing::warn!(%e, "Artifact source Dashboard read unavailable");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
     }
 }
 
@@ -650,7 +656,10 @@ pub async fn read_artifact(
         Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
         Err(ArtifactBuildError::ConflictingReplay) => StatusCode::CONFLICT.into_response(),
         Err(ArtifactBuildError::Candidate(_)) => StatusCode::BAD_REQUEST.into_response(),
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        Err(e) => {
+            tracing::warn!(%e, "Artifact readback Dashboard read unavailable");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
     }
 }
 
@@ -904,7 +913,11 @@ pub async fn read_develop_composer(
 
     match owner.read_develop_composer(&request_identity).await {
         Ok(response) => composer_operation_response(response),
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        Err(e) => {
+            // This error carries no Display, so it is reported by Debug rather than not at all.
+            tracing::warn!(?e, "Develop Composer Dashboard read unavailable");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
     }
 }
 
@@ -994,7 +1007,10 @@ pub async fn read_exploratory_replay_result(
         )
             .into_response(),
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        Err(e) => {
+            tracing::warn!(%e, "Exploratory Replay result Dashboard read unavailable");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
     }
 }
 
@@ -1024,7 +1040,10 @@ pub async fn read_exploratory_replay_historical_rejection(
         Err(ExploratoryReplayOwnerError::InvalidProposal(_)) => {
             StatusCode::BAD_REQUEST.into_response()
         }
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        Err(e) => {
+            tracing::warn!(%e, "Exploratory Replay historical rejection Dashboard read unavailable");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
     }
 }
 

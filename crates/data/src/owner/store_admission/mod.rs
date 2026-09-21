@@ -2229,6 +2229,18 @@ mod tests {
         }
 
         fn with_spec(spec: &PostgresMeasurementSpec) -> Self {
+            Self::with_spec_and_measurement(spec, measurement("role-v1"))
+        }
+
+        /// Builds the fixture around a measurement the caller supplies.
+        ///
+        /// Admission compares what the measurer returns against what the manifest recorded, so a
+        /// custodian holding a *real* measurer needs manifests built from a real measurement. Every
+        /// other caller passes the synthetic one and behaves exactly as before.
+        fn with_spec_and_measurement(
+            spec: &PostgresMeasurementSpec,
+            measurement: PostgresMeasurement,
+        ) -> Self {
             let request = RdOwnerMarketDataAdmissionRequest::new(
                 "test-environment".to_string(),
                 "rd-workbench-test".to_string(),
@@ -2236,7 +2248,6 @@ mod tests {
             )
             .unwrap();
             let scope = request.scope();
-            let measurement = measurement("role-v1");
             let signing_key = SigningKey::from_bytes(&[7_u8; 32]);
             let genesis = manifest(
                 &scope,
@@ -3029,6 +3040,89 @@ mod tests {
         );
     }
 
+    /// Executes the port's own BAR schedule read for the first time in this repository.
+    ///
+    /// Its only caller is `postgres.rs:7952`, inside a `#[cfg(not(test))]` block, so no test build
+    /// contains a call to it: the method is unreachable rather than untested. This reaches it
+    /// directly, from the module that owns the property, so nothing here is a consumer holding a
+    /// port it did not earn.
+    ///
+    /// **What this does not reach**, stated because the next reader will otherwise assume more:
+    ///
+    /// 1. The ordering in `postgres.rs` around 7940-7963 - read, verify, revalidate, return. Those
+    ///    three calls do not exist in a test build, and it is the arrangement rather than any one
+    ///    of them that has never been observed.
+    /// 2. The second half of this method: the `admit` and `validate` pair that runs *after* the
+    ///    storage read and before the value is returned. Reaching it needs a real read, so it
+    ///    belongs with a database-backed proof.
+    /// 3. `verify_admitted_bar_schedule_v1`, which sits between the read and the revalidation.
+    /// 4. The before-return property itself, which is **already** covered by
+    ///    `bar_schedule_capability_requires_and_preserves_exact_measurement_floor` above - it
+    ///    counts one measurement, calls `revalidate_bar_schedule_v1_before_return`, and counts two.
+    ///    That test, not this one, is what guards the property; anyone editing it should know that.
+    /// 5. `validate_bar_schedule_revalidation_v1` between the admission and the read. Deleting that
+    ///    call leaves this test green, which was measured rather than assumed: reaching the read
+    ///    proves only that nothing before it rejected, not that everything before it ran. Covering
+    ///    it needs a fixture whose second admission disagrees with the sealed receipt, so that
+    ///    skipping the check changes the outcome instead of merely removing a step.
+    #[tokio::test]
+    async fn the_admitted_ports_bar_schedule_read_admits_and_validates_before_it_measures() {
+        let complete = Fixture::with_spec(
+            &PostgresMeasurementSpec::new(
+                "market_data_private",
+                "market_data_private.schema_migrations_v1",
+                vec![
+                    "market_data_private.resolve_bar_schedule_v1(bytea)".to_string(),
+                    "market_data_private.resolve_bar_schedule_candidates_v1(text)".to_string(),
+                    "market_data_private.resolve_bar_schedule_history_v1(text)".to_string(),
+                ],
+                vec![
+                    "market_data_private.bar_schedule_state_v1".to_string(),
+                    "market_data_private.bar_schedule_facts_v1".to_string(),
+                    "market_data_private.bar_schedule_heads_v1".to_string(),
+                    "market_data_private.bar_schedule_cuts_v1".to_string(),
+                    "market_data_private.bar_schedule_receipts_v1".to_string(),
+                    "market_data_private.bar_schedule_outbox_v1".to_string(),
+                ],
+            )
+            .unwrap(),
+        );
+        let measurement_calls = Arc::new(AtomicUsize::new(0));
+        let custodian = complete.custodian(
+            Arc::new(AtomicUsize::new(0)),
+            Arc::clone(&measurement_calls),
+        );
+        let port = custodian
+            .admit_capability(complete.request.scope())
+            .await
+            .expect("complete BAR floor admitted")
+            .into_bar_schedule_snapshot_port()
+            .expect("complete floor promotes BAR port");
+        assert_eq!(measurement_calls.load(Ordering::SeqCst), 1);
+
+        let outcome = port.resolve_bar_schedule_v1([7; 32]).await;
+
+        // No store is configured here, so the read fails - and where it fails is the point: the
+        // method reached the read, so it did not reject earlier. It does not follow that the
+        // validation between the admission and the read ran; see boundary 5 below, which is there
+        // because deleting that validation leaves this test green.
+        let Err(rejected) = outcome else {
+            panic!("no store is reachable from this test, so the read cannot succeed");
+        };
+
+        assert_eq!(
+            rejected.code(),
+            AdmissionFailureCode::DirectMeasurementUnavailable,
+            "the read is what failed, so everything before it succeeded"
+        );
+        assert_eq!(
+            measurement_calls.load(Ordering::SeqCst),
+            2,
+            "the method re-admits before reading rather than trusting the capability it was built \
+             from; the count distinguishes that from reusing the admission"
+        );
+    }
+
     #[rstest::rstest]
     fn shared_time_floor_requires_every_fixed_function_and_relation() {
         let functions = vec![
@@ -3230,5 +3324,271 @@ mod tests {
             &receipt,
             &rotated_between_checkout_and_return
         ));
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // The BAR schedule arrangement, against a real disposable PostgreSQL.
+    //
+    // Everything a real database can answer is real here: the schema, the migration, the seeded
+    // schedule, the measurement and the storage read. Custody, signatures and the witness stay
+    // fixtures, because those are exactly the authorities `B3` is missing - this proves the order
+    // the Owner reads in, not that store admission is available.
+    // ---------------------------------------------------------------------------------------
+
+    /// Counts admissions while delegating to the real measurer.
+    ///
+    /// The count lives here rather than in the arrangement on purpose: code that reports its own
+    /// execution order proves only that it contains a reporting statement.
+    struct CountingPostgresMeasurer {
+        calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl DirectMeasurer for CountingPostgresMeasurer {
+        async fn measure(
+            &self,
+            lease: &PostgresCredentialLease,
+            spec: &PostgresMeasurementSpec,
+        ) -> Result<PostgresMeasurement, ()> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            PostgresDirectMeasurer::measure(&PostgresDirectMeasurer, lease, spec)
+                .await
+                .map_err(|_| ())
+        }
+    }
+
+    /// Mints a lease for the disposable database the harness provisioned.
+    struct LeasedCredentials {
+        database_url: String,
+    }
+
+    #[async_trait]
+    impl CredentialResolver for LeasedCredentials {
+        async fn resolve(
+            &self,
+            handle: &CredentialHandleBinding,
+        ) -> Result<PostgresCredentialLease, ()> {
+            PostgresCredentialLease::from_resolved_secret(
+                handle.identity.clone(),
+                handle.audience.clone(),
+                handle.version.clone(),
+                NOW + 3_600_000,
+                self.database_url.clone(),
+            )
+            .map_err(|_| ())
+        }
+    }
+
+    fn bar_schedule_measurement_spec() -> PostgresMeasurementSpec {
+        PostgresMeasurementSpec::new(
+            "market_data_private",
+            "market_data_private.owner_migrations_v1",
+            vec![
+                "market_data_private.resolve_bar_schedule_v1(bytea)".to_string(),
+                "market_data_private.resolve_bar_schedule_candidates_v1(text)".to_string(),
+                "market_data_private.resolve_bar_schedule_history_v1(text)".to_string(),
+            ],
+            vec![
+                "market_data_private.bar_schedule_state_v1".to_string(),
+                "market_data_private.bar_schedule_facts_v1".to_string(),
+                "market_data_private.bar_schedule_heads_v1".to_string(),
+                "market_data_private.bar_schedule_cuts_v1".to_string(),
+                "market_data_private.bar_schedule_receipts_v1".to_string(),
+                "market_data_private.bar_schedule_outbox_v1".to_string(),
+            ],
+        )
+        .expect("BAR schedule measurement spec")
+    }
+
+    /// Drives the three-step BAR schedule arrangement against a real database, twice.
+    ///
+    /// The arrangement is `resolve_bar_schedule_through_admitted_port_v1`: the port's read, then
+    /// verification of the evidence it returned, then the port's revalidation before the value is
+    /// handed back. Each of those three has its own coverage. **The order had none**, and until it
+    /// left the `cfg(not(test))` arm it could not have had any.
+    ///
+    /// **Both readings must be reported together; neither alone says anything.**
+    ///
+    /// ```text
+    ///   intact row     admissions +3   Ok    2 from the port's own read, 1 from the revalidation
+    ///   tampered row   admissions +2   Err   the same 2, and the revalidation never happened
+    /// ```
+    ///
+    /// The first reading alone is also satisfied by the order read, revalidate, verify - the
+    /// verification is a pure function, so moving it past the revalidation changes no count. The
+    /// second reading is what pins it between them: the tampered row resolves (the query finds it,
+    /// the joins hold, the counts are untouched) and fails only when its bytes are decoded, so a
+    /// build that revalidated before verifying would show +3 here. **Deleting either assertion as
+    /// redundant removes the whole property.**
+    ///
+    /// The two admissions inside the port's own read are not a mistake in the count. The port
+    /// brackets its storage read with an admission on each side, which was measured here rather
+    /// than assumed - the first version of this proof expected +2 and +1 and was corrected by the
+    /// run. The revalidation the arrangement performs is a third, and it is the only one the two
+    /// readings differ by.
+    ///
+    /// The count is kept by the measurer, not by the arrangement. Code that records its own
+    /// execution order proves only that it contains a recording statement.
+    ///
+    /// Custody, signatures and the witness are fixtures. That is the honest boundary: they are the
+    /// authorities `B3` does not have, and this proof does not claim to supply them. What is real
+    /// is everything a database can answer - schema, migration, seeded schedule, measurement, and
+    /// the storage read the port performs.
+    #[rstest]
+    #[ignore = "requires the crates/data disposable PostgreSQL harness"]
+    fn the_admitted_bar_schedule_order_verifies_before_it_revalidates() {
+        std::thread::Builder::new()
+            .name("market-data-bar-schedule-order".into())
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(run_bar_schedule_order_scenario());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    async fn run_bar_schedule_order_scenario() {
+        let owner_url = std::env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL")
+            .expect("explicit disposable Owner URL");
+        let database =
+            std::env::var("VIBE_POSTGRES_TEST_DATABASE_NAME").expect("disposable database name");
+        assert!(
+            database.starts_with("vibe_test_"),
+            "this proof writes and tampers; it runs only against a disposable database"
+        );
+
+        // The port's storage read refuses outright when ambient PostgreSQL configuration is
+        // present, and that refusal is reported as a store failure - the same shape as a missing
+        // row or a broken order. Asserting it here keeps a machine's stray `PG*` from being read
+        // as a finding about the arrangement.
+        for name in [
+            "PGHOST",
+            "PGPORT",
+            "PGUSER",
+            "PGPASSWORD",
+            "PGDATABASE",
+            "PGSERVICE",
+            "PGSSLMODE",
+        ] {
+            assert!(
+                std::env::var(name).is_err(),
+                "{name} is set: the port's read fails closed on ambient configuration, and that \
+                 failure cannot be told apart from the ones this proof is looking for"
+            );
+        }
+
+        let owner = crate::owner::postgres::MarketDataOwnerPostgres::connect(&owner_url)
+            .await
+            .expect("Owner connects and migrates");
+        let seed = crate::owner::sample_fact::tests::bar_postgres_schedule_fixture_v1();
+        let prepared = crate::owner::bar_schedule::prepare_bar_schedule_commit_v1(
+            seed.schedule_proposal.clone(),
+            &seed.binding,
+            &seed.batch,
+            &seed.instrument_master,
+        )
+        .expect("prepared BAR schedule");
+        let committed = owner
+            .commit_prepared_bar_schedule_v1(&prepared)
+            .await
+            .expect("Owner commits the seed schedule");
+        let locator = crate::owner::bar_schedule::UntrustedBarScheduleLocatorV1 {
+            digest: committed.digest(),
+        };
+
+        let spec = bar_schedule_measurement_spec();
+        let lease = PostgresCredentialLease::from_resolved_secret(
+            "bar-schedule-order-handle",
+            "market-data-owner",
+            "v1",
+            NOW + 3_600_000,
+            owner_url.clone(),
+        )
+        .expect("lease for the disposable database");
+
+        // Measure once directly, so the manifests can record what the real measurer will return.
+        // Admission compares the two, so a synthetic measurement would reject before the
+        // arrangement was ever reached - and that rejection looks like a broken order.
+        let measured = PostgresDirectMeasurer::measure(&PostgresDirectMeasurer, &lease, &spec)
+            .await
+            .expect("the real measurer reads the disposable database");
+
+        let fixture = Fixture::with_spec_and_measurement(&spec, measured);
+        let calls = Arc::new(AtomicUsize::new(0));
+        let custodian = Custodian::new(
+            Arc::new(fixture.custody()),
+            Arc::new(Ed25519Verifier {
+                key: fixture.signing_key.verifying_key(),
+                calls: Arc::new(AtomicUsize::new(0)),
+            }),
+            Arc::new(FakeWitness {
+                observation: fixture.witness.clone(),
+            }),
+            Arc::new(LeasedCredentials {
+                database_url: owner_url.clone(),
+            }),
+            Arc::new(CountingPostgresMeasurer {
+                calls: Arc::clone(&calls),
+            }),
+            Arc::new(FixedClock),
+        );
+        let port = custodian
+            .admit_capability(fixture.request.scope())
+            .await
+            .expect("the disposable database satisfies the recorded manifest")
+            .into_bar_schedule_snapshot_port()
+            .expect("the admitted capability carries the BAR schedule port");
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "obtaining the port measures once"
+        );
+
+        // Reading one: the intact row.
+        let before = calls.load(Ordering::SeqCst);
+        let readback =
+            crate::owner::postgres::resolve_bar_schedule_through_admitted_port_v1(&port, &locator)
+                .await
+                .expect("the intact schedule is read, verified and revalidated");
+        assert_eq!(readback.digest(), committed.digest());
+        assert_eq!(
+            calls.load(Ordering::SeqCst) - before,
+            3,
+            "the port's read admits on each side of the storage read, and the arrangement's \
+             revalidation admits once more; two would mean the revalidation never ran"
+        );
+
+        // Reading two: the same row, with bytes that no longer decode to their digest. The query
+        // still finds it - every join key and every count is untouched - so the read succeeds and
+        // only the verification can reject.
+        sqlx::query(
+            "UPDATE market_data_private.bar_schedule_facts_v1 SET fact_bytes = fact_bytes || \
+             '\\x00'::bytea",
+        )
+        .execute(owner.pool())
+        .await
+        .expect("tamper the stored fact bytes");
+
+        let before = calls.load(Ordering::SeqCst);
+        let rejected =
+            crate::owner::postgres::resolve_bar_schedule_through_admitted_port_v1(&port, &locator)
+                .await
+                .expect_err("evidence that does not decode to its digest must not be returned");
+        assert!(matches!(
+            rejected,
+            crate::owner::bar_schedule::BarScheduleError::StoreUnavailable
+        ));
+        assert_eq!(
+            calls.load(Ordering::SeqCst) - before,
+            2,
+            "the port's read still bracketed the storage read, the verification then rejected, and \
+             the revalidation did not run; three would mean the revalidation happens before the \
+             evidence is checked"
+        );
     }
 }

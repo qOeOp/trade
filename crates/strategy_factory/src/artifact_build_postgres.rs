@@ -1665,7 +1665,29 @@ async fn read_source_from_pool(
     attempt_identity: &str,
 ) -> Result<Option<ArtifactSourceReadbackV1>, ArtifactBuildError> {
     let mut transaction = pool.begin().await.map_err(storage)?;
-    let rows = sqlx::query("SELECT build_request_identity, attempt_identity, attempt_json FROM rd_artifact_build_attempts_v1 WHERE build_request_identity=$1 OR attempt_identity=$2 FOR SHARE")
+    // This read used to take `FOR SHARE` here, and that is the inverted half of entry 28's
+    // deadlock. Every write path locks a Research receipt before it locks an attempt; this one
+    // locked the attempt first and then reached a receipt through the custody admission below,
+    // so the two orders met on the same rows and PostgreSQL killed one of them.
+    //
+    // It took an instrumented run to see, because every search for it looked for `FOR UPDATE`
+    // on the attempts table and this is `FOR SHARE` - which conflicts with `FOR UPDATE` just as
+    // well. `log_statement=all` printed one transaction's statements in order and the inversion
+    // was three lines apart:
+    //
+    //     BEGIN
+    //     SELECT ... FROM rd_artifact_build_attempts_v1 ... FOR SHARE            <- here
+    //     SELECT ... FROM rd_research_request_receipts_v1 ... FOR UPDATE         <- custody
+    //     SELECT ... FROM rd_artifact_build_attempts_v1 ... FOR UPDATE
+    //     COMMIT
+    //
+    // The lock bought nothing that is not re-established immediately. These rows answer three
+    // questions - does the locator resolve to exactly one attempt, does that attempt carry the
+    // identities asked for, and does it decode as a current attempt - and then
+    // `admit_attempt_custody_in_transaction` re-reads the attempt under its own lock and the
+    // identity is checked again against what that returns. So the probe says what was true
+    // before the custody read, which is all an unlocked probe can say and all this one needs.
+    let rows = sqlx::query("SELECT build_request_identity, attempt_identity, attempt_json FROM rd_artifact_build_attempts_v1 WHERE build_request_identity=$1 OR attempt_identity=$2")
         .bind(build_request_identity)
         .bind(attempt_identity)
         .fetch_all(&mut *transaction)
@@ -1767,7 +1789,12 @@ async fn read_artifact_from_pool(
 ) -> Result<ArtifactBuildResultV1, ArtifactBuildError> {
     let read_cut_epoch_ms = clock()?;
     let mut transaction = pool.begin().await.map_err(storage)?;
-    let rows = sqlx::query("SELECT build_request_identity, attempt_identity, semantic_digest, attempt_json, prepared_at_epoch_ms FROM rd_artifact_build_attempts_v1 WHERE build_request_identity=$1 OR attempt_identity=$2 FOR SHARE")
+    // Unlocked for the reason spelled out in `read_source_from_pool`: a read that locks the
+    // attempt and then reaches a Research receipt through the custody admission below is the
+    // inverted half of entry 28's deadlock. The identity this probe checks is checked again
+    // against the custody actually returned, so the probe only has to say what was true before
+    // that read.
+    let rows = sqlx::query("SELECT build_request_identity, attempt_identity, semantic_digest, attempt_json, prepared_at_epoch_ms FROM rd_artifact_build_attempts_v1 WHERE build_request_identity=$1 OR attempt_identity=$2")
         .bind(build_request_identity)
         .bind(attempt_identity)
         .fetch_all(&mut *transaction)
@@ -2973,8 +3000,13 @@ fn current_epoch_ms() -> Result<u64, ArtifactBuildError> {
     u64::try_from(duration.as_millis()).map_err(json_storage)
 }
 
-fn storage(error: impl Display) -> ArtifactBuildError {
-    ArtifactBuildError::Storage(error.to_string())
+#[allow(clippy::needless_pass_by_value)] // exact `map_err` adapter keeps every SQL boundary uniform
+/// Narrowed from `impl Display` because every caller in this file already passes a
+/// `sqlx::Error` - the compiler says so: widening it back produces no new callers, and narrowing
+/// it produced no errors across 111 call sites. `impl Display` erased the type at the
+/// boundary, which is where `DETAIL` was being lost before any formatter could read it.
+fn storage(error: sqlx::Error) -> ArtifactBuildError {
+    ArtifactBuildError::Storage(crate::postgres_error_message::database_message(&error))
 }
 
 fn json_storage(error: impl Display) -> ArtifactBuildError {

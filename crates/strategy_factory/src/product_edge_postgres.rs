@@ -4090,7 +4090,7 @@ fn current_epoch_ms() -> Result<u64, ResearchGoalOwnerError> {
 }
 
 fn storage(error: &sqlx::Error) -> ResearchGoalOwnerError {
-    ResearchGoalOwnerError::Storage(error.to_string())
+    ResearchGoalOwnerError::Storage(crate::postgres_error_message::database_message(error))
 }
 
 fn json_storage(error: impl Display) -> ResearchGoalOwnerError {
@@ -5411,25 +5411,27 @@ pub(crate) mod tests {
             .await
             .expect("the second Research request reaches the Owner");
 
-        // OBSERVATION RUN (temporary): a four-entry local subset skipped entry 69, which publishes
-        // the Catalog V3 head, so the refusals measured there were a skip artefact. Report what the
-        // ordered gate actually does before asserting anything about it.
-        eprintln!(
-            "QQARM first  resolution={:?} next={:?}",
+        // Measured on the ordered gate (owner-chains 35632339563, 187 PASS / 0 FAIL / 93 entries),
+        // not on a local subset: a four-entry subset had skipped entry 69, which publishes the
+        // Catalog V3 head, and reported refusals that were a skip artefact.
+        assert_eq!(
             first.resolution(),
-            first.next_legal_action()
+            ProductEdgeResolution::Accepted,
+            "the gate publishes a Catalog V3 head before this entry, so the first request completes",
         );
-        eprintln!(
-            "QQARM second resolution={:?} next={:?}",
+        assert_eq!(
             second.resolution(),
-            second.next_legal_action()
+            ProductEdgeResolution::Accepted,
+            "a second request under one principal and scope is accepted, not refused",
         );
-        eprintln!(
-            "QQARM first basis={} pf={}  second basis={} pf={}",
-            first.independence_basis().is_some(),
-            first.protected_feedback().is_some(),
-            second.independence_basis().is_some(),
-            second.protected_feedback().is_some(),
+        assert_eq!(
+            second.next_legal_action(),
+            ResearchNextLegalAction::WaitForRAndDExecution,
+            "an accepted submission waits for R&D execution",
+        );
+        assert!(
+            second.independence_basis().is_some() && second.protected_feedback().is_some(),
+            "the second request carries both a basis and a protected-feedback readback",
         );
 
         // Two pools and two statements, not one join. `rd_independence_bases_v1` belongs to R&D
@@ -5462,7 +5464,10 @@ pub(crate) mod tests {
             eprintln!("QQARM first_projection_missing: {e}");
             String::new()
         });
-        eprintln!("QQARM first_state={first_state}");
+        assert_eq!(
+            first_state, "GENESIS_EMPTY",
+            "the first request under a fresh scope takes the genesis arm",
+        );
 
         let second_bases: i64 = sqlx::query_scalar(
             "SELECT pg_catalog.count(*) FROM public.rd_independence_bases_v1
@@ -5472,7 +5477,10 @@ pub(crate) mod tests {
         .fetch_one(&rd_pool)
         .await
         .unwrap();
-        eprintln!("QQARM second_bases={second_bases}");
+        assert_eq!(
+            second_bases, 1,
+            "the second request writes a basis of its own once the lineage has advanced",
+        );
 
         // Scoped to this entry's own principal: the gate shares one database it never resets, so a
         // global count would read every other entry's rows.
@@ -5485,7 +5493,23 @@ pub(crate) mod tests {
         .fetch_one(&qualification_pool)
         .await
         .unwrap();
-        eprintln!("QQARM projections_under_principal={projections_under_this_principal}");
+        assert_eq!(
+            projections_under_this_principal, 2,
+            "one principal with two requests carries two protected-feedback projections",
+        );
+        // The one field still unmeasured: which arm the second projection took. Printed rather
+        // than asserted, because inferring FRONTIER from "the scope now has a frontier" is the
+        // reasoning that produced the refuted ledger claim this entry already had to correct.
+        let second_state: String = sqlx::query_scalar(
+            "SELECT resolution_state FROM public.qualification_protected_feedback_projections_v1
+              WHERE principal = $1 AND resolution_state <> 'GENESIS_EMPTY'",
+        )
+        .bind(&principal)
+        .fetch_optional(&qualification_pool)
+        .await
+        .unwrap()
+        .unwrap_or_else(|| "<none-non-genesis>".to_string());
+        eprintln!("QQARM second_state={second_state}");
     }
 
     /// The Composer RUN that a frozen pair authorises, carried all the way to a durable Artifact.
@@ -5693,11 +5717,32 @@ pub(crate) mod tests {
         assert_eq!(declared.committed_at_epoch_ms, read_cut);
 
         // Replaying the identical declaration is the same freeze, not a second one.
-        let replayed = composition_root
+        //
+        // The replay runs on a clock that has moved. With the fixed clock above, "the time this
+        // call was made" and "the time the row was written" are the same number, so an assertion
+        // on the receipt's commit time holds under either reading and distinguishes neither. A
+        // moved clock separates them: the receipt must still report the first commit.
+        //
+        // Backwards, and by one millisecond. `read_cut` above is
+        // `valid_through_epoch_ms.saturating_sub(1)`: the last cut this custody view admits. And
+        // `develop_composer_v2.rs` refuses a cut at or past `valid_through`, so every forward
+        // advance - +1 exactly as much as +524_000 - fails the Research custody read with
+        // `Unavailable`, and the replay never reaches the assertion below. The window is ten
+        // minutes wide, so one millisecond earlier is well inside it. The clock only has to differ.
+        let replay_cut = read_cut - 1;
+        let replay_root = PostgresResearchBoundedFeatureProgramOwnerV1::with_clock(
+            owner.pool.clone(),
+            std::sync::Arc::new(move || replay_cut),
+        );
+        let replayed = replay_root
             .declare(declaration)
             .await
             .expect("the identical declaration replays");
         assert_eq!(replayed, declared);
+        assert_eq!(
+            replayed.committed_at_epoch_ms, read_cut,
+            "a replayed receipt reports the freeze's commit time, not this call's clock"
+        );
         let settled: (i64, i64) = sqlx::query_as(
             "SELECT
                 (SELECT COUNT(*) FROM rd_bounded_feature_program_freezes_v1 WHERE request_identity=$1),

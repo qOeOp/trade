@@ -319,10 +319,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version:
-          - "3.12"
-          - "3.13"
-          - "3.14"
+        # One version on a pull request, all three everywhere else. A pull request gate answers
+        # "is this change correct", and three interpreter builds cost 37 of the 139 job-minutes a
+        # pull request spends - 3 of its 11 jobs. The concurrency allowance is 20 jobs for the whole
+        # account, so 11 jobs means two pull requests saturate it and the third waits; 9 means it
+        # does not. Version compatibility is still checked, on `main`'s scheduled run and on every
+        # other push, a few hours later rather than once per pull request.
+        #
+        # 3.13 is the one kept, not an arbitrary pick: two steps below gate on
+        # `matrix.python-version == '3.13'`, including the generated-stub drift check. Keeping a
+        # different version would stop that check running on pull requests without failing anything.
+        python-version: >-
+          ${{ github.event_name == 'pull_request'
+          && fromJSON('["3.13"]')
+          || fromJSON('["3.12", "3.13", "3.14"]') }}
     name: build - python ${{ matrix.python-version }} (ubuntu-22.04)
     runs-on: ubuntu-22.04
     defaults:

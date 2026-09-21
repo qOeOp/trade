@@ -63,26 +63,37 @@ pub struct PitMarketSnapshotTerminalV1 {
     fact_digest: BindingDigest,
     disposition: PitMarketSnapshotDispositionV1,
     locator: Option<UntrustedPitSnapshotLocator>,
+    instrument_master_digest: BindingDigest,
+}
+
+/// The values a terminal is sealed over, named rather than positional.
+///
+/// Six of these are a `BindingDigest`, and a positional constructor makes two of them
+/// interchangeable to the compiler while meaning entirely different things. That is not
+/// hypothetical: the request identity, the scope digest and the universe selection digest were
+/// conflated once in this Owner's first sweep caller, and no test caught it.
+pub(crate) struct PitMarketSnapshotTerminalFieldsV1 {
+    pub request_identity: BindingDigest,
+    pub request_digest: BindingDigest,
+    pub correlation_identity: BindingDigest,
+    pub snapshot_identity: BindingDigest,
+    pub fact_digest: BindingDigest,
+    pub disposition: PitMarketSnapshotDispositionV1,
+    pub locator: Option<UntrustedPitSnapshotLocator>,
+    pub instrument_master_digest: BindingDigest,
 }
 
 impl PitMarketSnapshotTerminalV1 {
-    pub(crate) const fn seal(
-        request_identity: BindingDigest,
-        request_digest: BindingDigest,
-        correlation_identity: BindingDigest,
-        snapshot_identity: BindingDigest,
-        fact_digest: BindingDigest,
-        disposition: PitMarketSnapshotDispositionV1,
-        locator: Option<UntrustedPitSnapshotLocator>,
-    ) -> Self {
+    pub(crate) fn seal(fields: PitMarketSnapshotTerminalFieldsV1) -> Self {
         Self {
-            request_identity,
-            request_digest,
-            correlation_identity,
-            snapshot_identity,
-            fact_digest,
-            disposition,
-            locator,
+            request_identity: fields.request_identity,
+            request_digest: fields.request_digest,
+            correlation_identity: fields.correlation_identity,
+            snapshot_identity: fields.snapshot_identity,
+            fact_digest: fields.fact_digest,
+            disposition: fields.disposition,
+            locator: fields.locator,
+            instrument_master_digest: fields.instrument_master_digest,
         }
     }
 
@@ -122,6 +133,17 @@ impl PitMarketSnapshotTerminalV1 {
     #[must_use]
     pub const fn fact_digest(&self) -> BindingDigest {
         self.fact_digest
+    }
+
+    /// The Instrument Master cut digest this snapshot was resolved against.
+    ///
+    /// The Owner resolves it from the request's own effective instant, and Instrument Master facts
+    /// are effective-dated, so two terminals at different coordinates may legitimately differ here.
+    /// A caller composing several snapshots into one corpus is required to use one cut for all of
+    /// them, and this is how it can tell where that stops being possible.
+    #[must_use]
+    pub const fn instrument_master_digest(&self) -> BindingDigest {
+        self.instrument_master_digest
     }
 
     /// The terminal disposition Market Data derived.

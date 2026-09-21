@@ -286,6 +286,7 @@ export async function readArtifactHistoricalGatewayV1({
   if (!url || !target.token) {
     return unavailable(buildRequestIdentity, attemptIdentity, "OWNER_CONFIGURATION_UNAVAILABLE", 503);
   }
+  const startedAtMs = performance.now();
   try {
     const response = await fetcher(url, {
       method: "GET",
@@ -318,7 +319,14 @@ export async function readArtifactHistoricalGatewayV1({
     return projection
       ? { status: 200, projection }
       : unavailable(buildRequestIdentity, attemptIdentity, "OWNER_RESPONSE_UNAVAILABLE", 502);
-  } catch {
+  } catch (cause) {
+    // Without this the only trace of a failed Owner read is the reason code, which says
+    // "transport" for an 8s abort, a refused connection and a DNS failure alike. Naming
+    // the error and the elapsed time against the budget is what makes the next failure
+    // evidence rather than another sighting.
+    const elapsedMs = Math.round(performance.now() - startedAtMs);
+    const detail = cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause);
+    console.error(`rd artifact readback: Owner read failed after ${elapsedMs}ms against an 8000ms budget: ${detail}`);
     return unavailable(buildRequestIdentity, attemptIdentity, "OWNER_TRANSPORT_UNAVAILABLE", 503);
   }
 }

@@ -90,6 +90,7 @@ pub mod iteration_decision;
 mod iteration_decision_postgres;
 pub mod iteration_result_admission;
 mod iteration_result_admission_postgres;
+pub mod single_threshold_authoring_v1;
 pub mod successor_intent;
 mod successor_intent_postgres;
 pub use iteration_candidate::{
@@ -170,9 +171,12 @@ pub use native_replay_v2::{
     ProgramPreparationFaultV2, prepare_program_host_from_owner_bar_joined_cut_v1,
     prepare_program_host_from_owner_event_corpus_v1, prepare_program_host_from_owner_readbacks_v2,
 };
+mod owner_backtest_report_v1;
+pub use owner_backtest_report_v1::{OwnerBacktestFillV1, OwnerBacktestReportV1};
 mod pairs_relative_value;
 pub mod pilot;
 pub mod plugin_wire_v2;
+mod postgres_error_message;
 mod producer;
 pub mod product_edge;
 pub mod product_edge_postgres;
@@ -185,7 +189,8 @@ mod program_host_backtest_v2;
 mod program_host_bar_joined_cut_backtest_v1;
 pub mod repair_action;
 pub use program_host_bar_joined_cut_backtest_v1::{
-    OwnerBarJoinedCutBacktestReadbackV1, run_prepared_owner_bar_joined_cut_backtest_v1,
+    OwnerBarJoinedCutBacktestReadbackV1, OwnerBarJoinedCutBacktestRunV1,
+    run_prepared_owner_bar_joined_cut_backtest_v1,
 };
 #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
 mod program_host_bar_joined_cut_postgres_acceptance_tests;

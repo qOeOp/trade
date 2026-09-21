@@ -688,6 +688,34 @@ fn canonical_f64(value: f64) -> String {
     }
 }
 
+/// Decodes one canonical statistic string back into the `f64` that produced it.
+///
+/// This is the exact inverse of the private `canonical_f64` encoder above, and lives beside it so
+/// the two cannot drift onto different spellings of `nan`, `+inf`, or the 16-digit bit pattern.
+/// Reading a canonical result's statistics needs it; nothing in the write path does.
+///
+/// # Errors
+///
+/// Returns an error if `text` is neither a documented non-finite spelling nor exactly sixteen
+/// lowercase hexadecimal digits. A wider parse would silently accept a corrupted document.
+pub fn decode_canonical_f64(text: &str) -> anyhow::Result<f64> {
+    match text {
+        "nan" => return Ok(f64::NAN),
+        "+inf" => return Ok(f64::INFINITY),
+        "-inf" => return Ok(f64::NEG_INFINITY),
+        _ => {}
+    }
+
+    anyhow::ensure!(
+        text.len() == 16
+            && text
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()),
+        "canonical f64 {text} is neither a documented non-finite spelling nor sixteen lowercase hex digits",
+    );
+    Ok(f64::from_bits(u64::from_str_radix(text, 16)?))
+}
+
 fn canonical_decimal(value: rust_decimal::Decimal) -> String {
     value.normalize().to_string()
 }
@@ -1132,6 +1160,52 @@ mod tests {
         assert_eq!(canonical_f64(nan_with_payload), "nan");
         assert_eq!(canonical_f64(f64::INFINITY), "+inf");
         assert_eq!(canonical_f64(f64::NEG_INFINITY), "-inf");
+    }
+
+    #[rstest]
+    fn test_decode_canonical_f64_round_trips_every_encoder_output() {
+        for value in [1.5_f64, -0.0, 0.0, -20.5, f64::MIN_POSITIVE, f64::MAX] {
+            let decoded = decode_canonical_f64(&canonical_f64(value)).unwrap();
+
+            assert_eq!(decoded.to_bits(), value.to_bits(), "round trip for {value}");
+        }
+
+        assert!(
+            decode_canonical_f64(&canonical_f64(f64::NAN))
+                .unwrap()
+                .is_nan()
+        );
+        assert_eq!(
+            decode_canonical_f64(&canonical_f64(f64::INFINITY))
+                .unwrap()
+                .to_bits(),
+            f64::INFINITY.to_bits()
+        );
+        assert_eq!(
+            decode_canonical_f64(&canonical_f64(f64::NEG_INFINITY))
+                .unwrap()
+                .to_bits(),
+            f64::NEG_INFINITY.to_bits()
+        );
+    }
+
+    #[rstest]
+    fn test_decode_canonical_f64_rejects_spellings_the_encoder_never_emits() {
+        // A shorter hex string, an uppercase one, and the informal non-finite spellings are all
+        // corrupted documents rather than values, so each has to fail rather than parse.
+        for text in [
+            "3ff800000000000",
+            "3FF8000000000000",
+            "NaN",
+            "inf",
+            "",
+            "0x1.8p0",
+        ] {
+            assert!(
+                decode_canonical_f64(text).is_err(),
+                "{text} must not decode"
+            );
+        }
     }
 
     #[rstest]
