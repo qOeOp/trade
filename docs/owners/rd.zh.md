@@ -75,8 +75,16 @@
 ## 实现状态台账
 
 本台账只记录仓库在本截面实际到达的状态。它沿用 [Market Data](./market-data/) 台账的状态词汇，并以
-`CURRENT_PARTIAL` 表示已合并但不可触达的形态；台账本身不授予任何许可：本文档没有任何切片是
-`IMPLEMENTATION_ADMITTED`，扩大准入集必须先修改本文档。每一行都点名那个可以证伪它的符号或路径。
+`CURRENT_PARTIAL` 表示已合并但不可触达的形态；台账本身不授予任何许可。扩大准入集必须先修改本文档。
+每一行都点名那个可以证伪它的符号或路径。
+
+本文档有两个切片是 `IMPLEMENTATION_ADMITTED`，此处点名它们，因为这里此前声称一个都没有。
+那句话写下时就已经是假的，而信了它的读者会把一处准入读成无效：
+
+- 停在 `design` 与 `meaning` 的编写出口，在 **Strategy authoring surface** 一节；
+- 有界的 Replay Policy V2 composition，它的准入写在一个标题为 **TARGET / NOT_ADMITTED** 的小节正文里。
+  标题管的是更宽的那个目标，被准入的是正文钉住的那个更窄的 composition。
+  只读标题会得到相反的答案，而且两个方向都会错。
 
 - **CURRENT - 已部署的服务，以及它暴露面的边界：** `product/rd-workbench/Dockerfile.owner` 构建
   `--bin strategy-factory-rd-owner-api` 时完全不带 `--features`，该文件唯一的 `--features` 属于 dashboard
