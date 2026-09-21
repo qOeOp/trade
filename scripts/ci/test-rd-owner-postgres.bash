@@ -109,6 +109,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-risk-owner|vibe_risk_owner|capacity_read_port_postgres::postgres_proof::postgres_capacity_observation_seals_only_what_portfolio_currently_publishes'
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::frozen_program_replays_over_http_to_the_same_joint_freeze'
   'vibe-strategy-factory|trial_family_owner|intent_lookup_does_not_lock_a_receipt_it_does_not_return'
+  'vibe-strategy-factory|vibe_strategy_factory|postgres_error_message::postgres_tests::owner_storage_errors_carry_the_detail_postgres_sent'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
@@ -151,8 +152,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 92 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all 92 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 93 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all 93 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -256,7 +257,8 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[88]}" != *'|capacity_read_port_postgres::postgres_proof::postgres_capacity_observation_seals_only_what_portfolio_currently_publishes' ]] ||
     [[ "${rd_owner_postgres_tests[89]}" != *'|tests::frozen_program_replays_over_http_to_the_same_joint_freeze' ]] ||
     [[ "${rd_owner_postgres_tests[90]}" != *'|intent_lookup_does_not_lock_a_receipt_it_does_not_return' ]] ||
-    [[ "${rd_owner_postgres_tests[91]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[91]}" != *'|postgres_error_message::postgres_tests::owner_storage_errors_carry_the_detail_postgres_sent' ]] ||
+    [[ "${rd_owner_postgres_tests[92]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
@@ -374,7 +376,7 @@ for line in array_body.splitlines():
     entries.append(tuple(fields))
 # The count lives in one place. Writing it into the message as well lets the two drift, and the
 # drifted form reads as nonsense the moment it fires: "must contain 92 entries, found 92".
-expected_entries = 92
+expected_entries = 93
 if len(entries) != expected_entries:
     raise SystemExit(
         f"ERROR: ordered PostgreSQL test literal must contain {expected_entries} entries, found {len(entries)}."
@@ -1393,9 +1395,23 @@ cleanup() {
   # server log, and this script used to delete the container without ever reading it. A chain
   # failure then reported "deadlock detected" with no way to learn which two transactions, and
   # the evidence was destroyed on the way out. Dump it before the container goes.
-  if [[ "$primary_status" -ne 0 && "$container_created" == true ]]; then
-    echo "=== postgres server log (chain container) ===" >&2
-    docker logs "$container" 2>&1 | tail -n 400 >&2 || true
+  #
+  # Dumped on every run, not only on a failing one. `log_lock_waits` records a wait whether or
+  # not the chain goes on to fail, and the runs that pass carry deadlocks too: across twelve
+  # runs the passing side logged 0, 2, 2, 3, 3, 3, 4 and 5 of them while the four that stopped
+  # at entry 28 logged 1, 1, 1 and 2. Reading only the failing side samples on the outcome being
+  # explained, and the comparison that needs making is between the two.
+  #
+  # The length is printed and the log is not tailed. A dump cut to a fixed length and a log with
+  # nothing in it read the same way, and nothing in the output tells the reader which one they
+  # are holding; `tail -n 400` on a run that completes ninety entries would have kept the last
+  # entry and silently dropped the rest.
+  if [[ "$container_created" == true ]]; then
+    local postgres_server_log
+    postgres_server_log="$(docker logs "$container" 2>&1 || true)"
+    printf '=== postgres server log (chain container): %s lines ===\n' \
+      "$(printf '%s' "$postgres_server_log" | grep -c '' || true)" >&2
+    printf '%s\n' "$postgres_server_log" >&2
     echo "=== end postgres server log ===" >&2
   fi
 

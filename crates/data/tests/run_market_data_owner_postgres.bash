@@ -8,6 +8,7 @@ readonly market_data_owner_postgres_tests=(
   owner::postgres::tests::postgres_owner_is_atomic_restart_safe_acl_sealed_and_fail_closed
   owner::postgres::sample_projection_v4::tests::postgres_v4_is_atomic_idempotent_exact_and_tamper_closed
   owner::postgres::live_market_stream_v1::tests::postgres_live_channel_head_resumes_and_is_acl_sealed_and_tamper_closed
+  owner::store_admission::tests::the_admitted_bar_schedule_order_verifies_before_it_revalidates
 )
 
 # The ordered chain refuses a guarded crate whose test SQL is destructive without dedicated-database

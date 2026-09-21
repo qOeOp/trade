@@ -71,11 +71,6 @@ use crate::owner::{
     time_zone::UntrustedTimeZoneLocatorV1,
     universe_selection::UntrustedUniverseSelectionLocatorV1,
 };
-use crate::owner::{
-    observation_census::{ObservationCensusResolverV1, StrategyInputJoinedCutOwnerResolverV1},
-    sample_projection::StrategyInputSampleProjectionResolverV2,
-    universe_selection::UniverseSelectionResolverV1,
-};
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, Row, postgres::PgPoolOptions};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -3401,29 +3396,6 @@ fn build_reference_cuts(
             facts: membership_facts,
         },
     ])
-}
-
-pub(super) struct ReplayMarketFactsDependencyPortsV2<'a> {
-    pub(super) universe_selection: &'a dyn UniverseSelectionResolverV1,
-    pub(super) observation_census: &'a dyn ObservationCensusResolverV1,
-    pub(super) joined_cut: &'a dyn StrategyInputJoinedCutOwnerResolverV1,
-    pub(super) sample_projection: &'a dyn StrategyInputSampleProjectionResolverV2,
-}
-
-impl<'a> ReplayMarketFactsDependencyPortsV2<'a> {
-    pub(super) const fn new(
-        universe_selection: &'a dyn UniverseSelectionResolverV1,
-        observation_census: &'a dyn ObservationCensusResolverV1,
-        joined_cut: &'a dyn StrategyInputJoinedCutOwnerResolverV1,
-        sample_projection: &'a dyn StrategyInputSampleProjectionResolverV2,
-    ) -> Self {
-        Self {
-            universe_selection,
-            observation_census,
-            joined_cut,
-            sample_projection,
-        }
-    }
 }
 
 /// Maps a reader-side failure onto the admission's own bounded categories.

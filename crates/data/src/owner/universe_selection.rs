@@ -359,25 +359,6 @@ impl UniverseSelectionReadbackV1 {
     }
 }
 
-#[doc(hidden)]
-pub(crate) mod resolver_seal {
-    pub trait Sealed {}
-}
-
-#[async_trait::async_trait]
-#[allow(private_bounds)]
-pub trait UniverseSelectionResolverV1: resolver_seal::Sealed + Send + Sync {
-    async fn resolve_universe_selection_v1(
-        &self,
-        request: &UntrustedUniverseSelectionRequestV1,
-    ) -> Result<UniverseSelectionReadbackV1, UniverseSelectionErrorV1>;
-
-    async fn recover_universe_selection_v1(
-        &self,
-        locator: &UntrustedUniverseSelectionLocatorV1,
-    ) -> Result<UniverseSelectionReadbackV1, UniverseSelectionErrorV1>;
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum UniverseSelectionErrorV1 {
     InvalidRequest,

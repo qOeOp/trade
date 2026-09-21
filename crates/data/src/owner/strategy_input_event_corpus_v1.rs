@@ -127,18 +127,8 @@ pub(in crate::owner) fn issue_strategy_input_event_source_v1(
         }
         prior = Some(key);
     }
-    let first = &authorities[0];
-    if authorities.iter().any(|authority| {
-        authority.source_binding_identity != first.source_binding_identity
-            || authority.source_binding_lineage_root != first.source_binding_lineage_root
-            || authority.source_binding_lineage_version != first.source_binding_lineage_version
-            || authority.source_frontier_digest != first.source_frontier_digest
-            || authority.correction_frontier_digest != first.correction_frontier_digest
-            || authority.correction_stream_identity != first.correction_stream_identity
-            || authority.instrument_master_digest != first.instrument_master_digest
-            || authority.universe_selection_digest != first.universe_selection_digest
-            || authority.market_semantics_identity != first.market_semantics_identity
-    }) {
+
+    if !authorities_share_one_basis(&authorities) {
         return Err(StrategyInputBindingUnavailable::StaleBatch);
     }
     let digest = event_source_digest(&frames);
@@ -146,6 +136,36 @@ pub(in crate::owner) fn issue_strategy_input_event_source_v1(
         frames: frames.into_boxed_slice(),
         authorities: authorities.into_boxed_slice(),
         digest,
+    })
+}
+
+/// Answers whether every batch in one source was resolved against the same basis.
+///
+/// The nine fields are the ones that make two batches comparable at all: which source binding
+/// answered them, at which lineage version, against which source and correction frontiers, and
+/// which instrument, universe and semantics the Owner resolved. A source whose batches disagree
+/// on any of them is not one series - it is two, spliced.
+///
+/// Extracted from the caller so that each of the nine can be driven on its own. Inline, the
+/// conjunction could lose a field to an edit and stay green, because no test distinguishes
+/// "the batches agree" from "the check no longer looks".
+fn authorities_share_one_basis(authorities: &[StrategyInputEventAuthorityV1]) -> bool {
+    let Some(first) = authorities.first() else {
+        // No basis was established, so none is shared. The caller has already refused fewer than
+        // two batches, which makes this unreachable today; it answers `false` rather than `true`
+        // so that a future caller which drops that guard is refused instead of admitted.
+        return false;
+    };
+    authorities.iter().all(|authority| {
+        authority.source_binding_identity == first.source_binding_identity
+            && authority.source_binding_lineage_root == first.source_binding_lineage_root
+            && authority.source_binding_lineage_version == first.source_binding_lineage_version
+            && authority.source_frontier_digest == first.source_frontier_digest
+            && authority.correction_frontier_digest == first.correction_frontier_digest
+            && authority.correction_stream_identity == first.correction_stream_identity
+            && authority.instrument_master_digest == first.instrument_master_digest
+            && authority.universe_selection_digest == first.universe_selection_digest
+            && authority.market_semantics_identity == first.market_semantics_identity
     })
 }
 
@@ -1290,6 +1310,177 @@ fn event_source_digest(frames: &[StrategyInputEventFrameReceipt]) -> BindingDige
     BindingDigest::from_untrusted_bytes(hasher.finalize().into())
 }
 
+/// Drives the nine-field basis check directly, because nothing else in this repository does.
+///
+/// This module is deliberately **not** behind `sealed-strategy-input-acceptance`: the check it
+/// drives is a pure predicate over nine field comparisons, and a proof of one should not need an
+/// acceptance corpus, a database or a feature to run. The `tests` module below does need all
+/// three, which is the other half of the proof rather than a substitute for this one.
+///
+/// (An earlier version of this comment claimed that feature was enabled nowhere. It is: the chain
+/// turns on `vibe-strategy-factory/sealed-develop-composer-acceptance`, which pulls
+/// `sealed-strategy-input-acceptance`, which pulls `vibe-data/sealed-strategy-input-acceptance`.
+/// Grepping the Makefile, scripts and workflows for a feature's own name measures whether it is
+/// named, not whether it is enabled.)
+#[cfg(test)]
+mod authority_basis_tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    /// One named field of the authority, paired with the edit that changes it.
+    type NamedPerturbation = (&'static str, fn(&mut StrategyInputEventAuthorityV1));
+
+    fn digest(byte: u8) -> BindingDigest {
+        BindingDigest::from_untrusted_bytes([byte; 32])
+    }
+
+    /// One authority whose every field differs from every other field's value, so that a
+    /// perturbation cannot accidentally reproduce a neighbour.
+    fn authority() -> StrategyInputEventAuthorityV1 {
+        StrategyInputEventAuthorityV1 {
+            request_identity: digest(1),
+            request_digest: digest(2),
+            snapshot_identity: digest(3),
+            snapshot_fact_digest: digest(4),
+            observation_batch_digest: digest(5),
+            source_binding_identity: digest(6),
+            source_binding_lineage_root: digest(7),
+            source_binding_lineage_version: 8,
+            source_frontier_digest: digest(9),
+            correction_frontier_digest: digest(10),
+            correction_stream_identity: "CORRECTIONS-11".to_owned(),
+            instrument_master_digest: digest(12),
+            universe_selection_digest: digest(13),
+            market_semantics_identity: digest(14),
+            observation_count: 15,
+        }
+    }
+
+    /// Every field of the authority, partitioned into the nine the basis check reads and the six
+    /// it does not. The partition is exhaustive by construction: adding a field to the struct
+    /// without adding it here leaves `authority()` failing to compile.
+    fn basis_fields() -> Vec<NamedPerturbation> {
+        vec![
+            ("source_binding_identity", |a| {
+                a.source_binding_identity = digest(200);
+            }),
+            ("source_binding_lineage_root", |a| {
+                a.source_binding_lineage_root = digest(201);
+            }),
+            ("source_binding_lineage_version", |a| {
+                a.source_binding_lineage_version = 202;
+            }),
+            ("source_frontier_digest", |a| {
+                a.source_frontier_digest = digest(203);
+            }),
+            ("correction_frontier_digest", |a| {
+                a.correction_frontier_digest = digest(204);
+            }),
+            ("correction_stream_identity", |a| {
+                a.correction_stream_identity = "CORRECTIONS-205".to_owned();
+            }),
+            ("instrument_master_digest", |a| {
+                a.instrument_master_digest = digest(206);
+            }),
+            ("universe_selection_digest", |a| {
+                a.universe_selection_digest = digest(207);
+            }),
+            ("market_semantics_identity", |a| {
+                a.market_semantics_identity = digest(208);
+            }),
+        ]
+    }
+
+    fn non_basis_fields() -> Vec<NamedPerturbation> {
+        vec![
+            ("request_identity", |a| a.request_identity = digest(210)),
+            ("request_digest", |a| a.request_digest = digest(211)),
+            ("snapshot_identity", |a| a.snapshot_identity = digest(212)),
+            ("snapshot_fact_digest", |a| {
+                a.snapshot_fact_digest = digest(213);
+            }),
+            ("observation_batch_digest", |a| {
+                a.observation_batch_digest = digest(214);
+            }),
+            ("observation_count", |a| a.observation_count = 215),
+        ]
+    }
+
+    /// The positive control this file had none of: the predicate must be able to answer `true`.
+    ///
+    /// Without it, every rejection below is consistent with a predicate that rejects everything,
+    /// and nine passing assertions would measure nothing.
+    #[rstest]
+    fn two_batches_resolved_against_one_basis_agree() {
+        assert!(authorities_share_one_basis(&[authority(), authority()]));
+    }
+
+    #[rstest]
+    fn each_of_the_nine_basis_fields_on_its_own_makes_two_batches_disagree() {
+        for (name, perturb) in basis_fields() {
+            let mut second = authority();
+            perturb(&mut second);
+            assert!(
+                !authorities_share_one_basis(&[authority(), second]),
+                "{name} differs between the two batches, so they were not resolved against one                  basis - but the check accepted them"
+            );
+        }
+    }
+
+    /// Distinguishes "the nine are compared" from "everything is compared".
+    ///
+    /// A check that compared the whole authority would pass every assertion above while refusing
+    /// batches that legitimately differ - each batch carries its own request, snapshot and
+    /// observation count, and a series of N coordinates is N different ones.
+    #[rstest]
+    fn the_six_fields_outside_the_basis_are_allowed_to_differ() {
+        for (name, perturb) in non_basis_fields() {
+            let mut second = authority();
+            perturb(&mut second);
+            assert!(
+                authorities_share_one_basis(&[authority(), second]),
+                "{name} is not part of the basis and varies per coordinate by design, so a series                  must survive it - but the check refused"
+            );
+        }
+    }
+
+    /// The partition must balance. Fifteen fields, nine load-bearing and six not; a field added to
+    /// the struct and to neither list is a field nobody decided about.
+    #[rstest]
+    fn the_two_lists_account_for_every_field_of_the_authority() {
+        assert_eq!(basis_fields().len(), 9);
+        assert_eq!(non_basis_fields().len(), 6);
+        let StrategyInputEventAuthorityV1 {
+            request_identity: _,
+            request_digest: _,
+            snapshot_identity: _,
+            snapshot_fact_digest: _,
+            observation_batch_digest: _,
+            source_binding_identity: _,
+            source_binding_lineage_root: _,
+            source_binding_lineage_version: _,
+            source_frontier_digest: _,
+            correction_frontier_digest: _,
+            correction_stream_identity: _,
+            instrument_master_digest: _,
+            universe_selection_digest: _,
+            market_semantics_identity: _,
+            observation_count: _,
+        } = authority();
+    }
+
+    /// An empty slice establishes no basis, so it cannot share one.
+    ///
+    /// `issue_strategy_input_event_source_v1` refuses fewer than two batches before reaching here,
+    /// so this is unreachable through the caller today. It is asserted anyway because the answer
+    /// is the direction a future caller should fail in, and `true` would read as "agreed".
+    #[rstest]
+    fn no_authorities_do_not_share_a_basis() {
+        assert!(!authorities_share_one_basis(&[]));
+    }
+}
+
 #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
 mod tests {
     use rstest::rstest;
@@ -1327,6 +1518,131 @@ mod tests {
             .take_event_source()
             .expect("real Owner/PIT/source/batch EVENT source");
         issue_strategy_input_event_corpus_v1(source, joined.bindings(), candidates)
+    }
+
+    /// Measures the nine-field basis on a real Owner corpus, **before** asking the check.
+    ///
+    /// `authority_basis_tests` proves the check reads those nine and only those nine. It cannot
+    /// prove that a real series satisfies them, because it builds its authorities by hand. This
+    /// does the other half, and does it in that order deliberately: the comparison below is
+    /// written out field by field and asserted on its own, then `authorities_share_one_basis` is
+    /// consulted. Asking the check first and reporting its answer would make one construction
+    /// both the thing driving the constraint and the thing judged by it, and a matched pair of
+    /// errors would read as a pass.
+    ///
+    /// **What this cannot show.** `instrument_master_digest` is constant here, and the reasoning
+    /// recorded for a long sweep says it need not be - the Owner resolves it against
+    /// `time.event_effective.value`, and Instrument Master facts are effective-dated, so a window
+    /// crossing a symbol change or a terms correction yields coordinates whose instrument fact
+    /// legitimately differs. This corpus spans three event times inside one effective interval, so
+    /// it cannot exercise that. The constancy asserted below is this fixture's, not a general law.
+    #[rstest]
+    fn a_real_three_coordinate_corpus_shares_one_basis_across_all_nine_fields() {
+        let mut joined = issue_strategy_input_event_join_corpus_v1().expect("Owner EVENT cuts");
+        let source = joined
+            .take_event_source()
+            .expect("real Owner/PIT/source/batch EVENT source");
+        let authorities = &source.authorities;
+        assert!(
+            authorities.len() >= 2,
+            "one authority agrees with itself, so the comparison would hold no matter what the \
+             check does"
+        );
+
+        // The fixture's own control: these three coordinates must actually be three. If every
+        // field were constant, "the nine agree" would be true of three copies of one batch and
+        // would measure nothing about a series.
+        let first = &authorities[0];
+        assert!(
+            authorities
+                .iter()
+                .any(|a| a.request_identity != first.request_identity)
+                && authorities
+                    .iter()
+                    .any(|a| a.snapshot_identity != first.snapshot_identity)
+                && authorities
+                    .iter()
+                    .any(|a| a.observation_batch_digest != first.observation_batch_digest),
+            "these three coordinates carry one request, one snapshot and one batch each, so a \
+             corpus in which they agree is not a series"
+        );
+        let event_times: BTreeSet<_> = source
+            .frames
+            .iter()
+            .map(|frame| frame.trigger().lifecycle().event_time())
+            .collect();
+        assert_eq!(
+            event_times.len(),
+            source.frames.len(),
+            "the coordinates must stand at distinct event times, or the sweep is not across time"
+        );
+
+        // The nine, compared directly and named one at a time, so a failure says which.
+        for (name, agrees) in [
+            (
+                "source_binding_identity",
+                authorities
+                    .iter()
+                    .all(|a| a.source_binding_identity == first.source_binding_identity),
+            ),
+            (
+                "source_binding_lineage_root",
+                authorities
+                    .iter()
+                    .all(|a| a.source_binding_lineage_root == first.source_binding_lineage_root),
+            ),
+            (
+                "source_binding_lineage_version",
+                authorities.iter().all(|a| {
+                    a.source_binding_lineage_version == first.source_binding_lineage_version
+                }),
+            ),
+            (
+                "source_frontier_digest",
+                authorities
+                    .iter()
+                    .all(|a| a.source_frontier_digest == first.source_frontier_digest),
+            ),
+            (
+                "correction_frontier_digest",
+                authorities
+                    .iter()
+                    .all(|a| a.correction_frontier_digest == first.correction_frontier_digest),
+            ),
+            (
+                "correction_stream_identity",
+                authorities
+                    .iter()
+                    .all(|a| a.correction_stream_identity == first.correction_stream_identity),
+            ),
+            (
+                "instrument_master_digest",
+                authorities
+                    .iter()
+                    .all(|a| a.instrument_master_digest == first.instrument_master_digest),
+            ),
+            (
+                "universe_selection_digest",
+                authorities
+                    .iter()
+                    .all(|a| a.universe_selection_digest == first.universe_selection_digest),
+            ),
+            (
+                "market_semantics_identity",
+                authorities
+                    .iter()
+                    .all(|a| a.market_semantics_identity == first.market_semantics_identity),
+            ),
+        ] {
+            assert!(
+                agrees,
+                "{name} differs across this corpus, so these coordinates were not resolved \
+                 against one basis"
+            );
+        }
+
+        // Only now the check, and it must reach the same verdict the nine comparisons above did.
+        assert!(authorities_share_one_basis(authorities));
     }
 
     #[rstest]

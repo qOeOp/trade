@@ -37,7 +37,7 @@ use crate::{
     rd_bounded_feature_program_v1::{
         FrozenResearchBoundedFeatureProgramV1, ResearchBoundedFeatureProgramFreezeErrorV1,
         commit_research_bounded_feature_program_in_transaction_v1,
-        read_research_bounded_feature_program_in_transaction_v1,
+        read_research_bounded_feature_program_in_transaction_v1, stored_commit_time_v1,
     },
     strategy_design_v2::StrategyDesignV2,
 };
@@ -291,8 +291,17 @@ impl PostgresResearchBoundedFeatureProgramOwnerV1 {
 
         match committed {
             Ok(frozen) => {
+                // Read inside the transaction, before the commit: on a replay the row already
+                // existed, and `committed_at_epoch_ms` is only this call's clock. Every other
+                // receipt field comes from the row, and this one is documented as the Owner
+                // commit time, so taking it from the clock made a replay report when it was
+                // asked rather than when the freeze happened.
+                let stored_at =
+                    stored_commit_time_v1(&mut transaction, &request.research_request_locator)
+                        .await
+                        .map_err(|e| owner_error(&e))?;
                 transaction.commit().await?;
-                Ok(receipt(&frozen, committed_at_epoch_ms))
+                Ok(receipt(&frozen, stored_at))
             }
             Err(e) => {
                 transaction.rollback().await?;
@@ -466,8 +475,17 @@ impl PostgresResearchBoundedFeatureProgramOwnerV1 {
 
         match committed {
             Ok(frozen) => {
+                // Read inside the transaction, before the commit: on a replay the row already
+                // existed, and `committed_at_epoch_ms` is only this call's clock. Every other
+                // receipt field comes from the row, and this one is documented as the Owner
+                // commit time, so taking it from the clock made a replay report when it was
+                // asked rather than when the freeze happened.
+                let stored_at =
+                    stored_commit_time_v1(&mut transaction, &declaration.research_request_locator)
+                        .await
+                        .map_err(|e| owner_error(&e))?;
                 transaction.commit().await?;
-                Ok(receipt(&frozen, committed_at_epoch_ms))
+                Ok(receipt(&frozen, stored_at))
             }
             Err(e) => {
                 transaction.rollback().await?;

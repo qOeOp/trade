@@ -90,6 +90,7 @@ pub mod iteration_decision;
 mod iteration_decision_postgres;
 pub mod iteration_result_admission;
 mod iteration_result_admission_postgres;
+pub mod single_threshold_authoring_v1;
 pub mod successor_intent;
 mod successor_intent_postgres;
 pub use iteration_candidate::{
@@ -173,6 +174,7 @@ pub use native_replay_v2::{
 mod pairs_relative_value;
 pub mod pilot;
 pub mod plugin_wire_v2;
+mod postgres_error_message;
 mod producer;
 pub mod product_edge;
 pub mod product_edge_postgres;

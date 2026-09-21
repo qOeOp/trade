@@ -240,6 +240,34 @@ fn validate_stored_freeze(
     Ok(())
 }
 
+/// Reads the commit time already stored for this freeze.
+///
+/// A replay returns the row that existed, so every receipt field but this one came from that row.
+/// Taking this one from the caller's clock made a replayed receipt report when it was asked
+/// rather than when the freeze happened - and the field is documented as the Owner commit time.
+/// Callers read it inside the same transaction, before committing.
+///
+/// # Errors
+///
+/// Returns [`ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable`] when the row is absent or
+/// its stored time is not representable.
+pub(crate) async fn stored_commit_time_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    request_locator: &str,
+) -> Result<u64, ResearchBoundedFeatureProgramFreezeErrorV1> {
+    let stored: i64 = sqlx::query_scalar(
+        "SELECT committed_at_epoch_ms
+           FROM public.rd_bounded_feature_program_freezes_v1
+          WHERE request_identity=$1",
+    )
+    .bind(request_locator)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|_| ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)?
+    .ok_or(ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)?;
+    u64::try_from(stored).map_err(|_| ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)
+}
+
 async fn load_stored_freeze(
     transaction: &mut Transaction<'_, Postgres>,
     request_locator: &str,
