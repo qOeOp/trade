@@ -53,7 +53,7 @@ jobs:
               EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
     env:
       # What `build` gives these chains on a push to any branch other than `main` or `test-ci`.
-      CARGO_CI_PROFILE: nextest
+      CARGO_CI_PROFILE: ci-pr
       CARGO_TARGET_DIR: /home/runner/.cache/cargo-target/rust-tests-linux-x86
       # yamllint disable-line rule:line-length
       RUST_TEST_EXTRA_FEATURES: capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres,vibe-strategy-factory/sealed-develop-composer-acceptance
