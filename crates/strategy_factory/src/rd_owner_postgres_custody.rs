@@ -3339,7 +3339,7 @@ fn owner_identity(prefix: &str, digest: &str) -> String {
 }
 
 fn storage(error: &sqlx::Error) -> ResearchGoalOwnerError {
-    ResearchGoalOwnerError::Storage(error.to_string())
+    ResearchGoalOwnerError::Storage(crate::postgres_error_message::database_message(error))
 }
 fn json_storage(error: impl Display) -> ResearchGoalOwnerError {
     ResearchGoalOwnerError::Storage(error.to_string())

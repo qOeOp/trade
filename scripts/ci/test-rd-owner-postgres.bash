@@ -109,6 +109,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-risk-owner|vibe_risk_owner|capacity_read_port_postgres::postgres_proof::postgres_capacity_observation_seals_only_what_portfolio_currently_publishes'
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::frozen_program_replays_over_http_to_the_same_joint_freeze'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
+  'vibe-strategy-factory|vibe_strategy_factory|postgres_error_message::postgres_tests::owner_storage_errors_carry_the_detail_postgres_sent'
 )
 readonly nextest_graph_args=(
   --locked
@@ -150,8 +151,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 91 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all 91 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 92 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all 92 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -370,8 +371,8 @@ for line in array_body.splitlines():
     if len(fields) != 3 or any(not field for field in fields):
         raise SystemExit("ERROR: ordered PostgreSQL test literal must contain three fields.")
     entries.append(tuple(fields))
-if len(entries) != 91:
-    raise SystemExit(f"ERROR: ordered PostgreSQL test literal must contain 91 entries, found {len(entries)}.")
+if len(entries) != 92:
+    raise SystemExit(f"ERROR: ordered PostgreSQL test literal must contain 92 entries, found {len(entries)}.")
 if sum(test_name == poison_test for _, _, test_name in entries) != 1:
     raise SystemExit(
         "ERROR: recovery-sidecar poison test must occur exactly once as a parsed test name."

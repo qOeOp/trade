@@ -11,6 +11,8 @@ use serde::Serialize;
 use sqlx::{PgPool, Row};
 use thiserror::Error;
 
+use crate::postgres_error_message::database_message;
+
 use crate::{
     IterationDecisionResolutionLocatorV1,
     artifact_build::{
@@ -633,81 +635,4 @@ fn current_epoch_ms() -> Result<u64, DashboardReadErrorV1> {
 
 fn unavailable(message: impl Into<String>) -> DashboardReadErrorV1 {
     DashboardReadErrorV1::Unavailable(message.into())
-}
-
-/// Carries what PostgreSQL said beyond its one-line message.
-///
-/// A deadlock reports `deadlock detected` as its message and names both sides in `DETAIL`: the two
-/// processes, what each waited on, and the statement each was running. Converting the error with
-/// `to_string` keeps the first and discards the second, so a deadlock arrives naming neither party -
-/// which is how one reached a chain failure report as a bare `deadlock detected` with nothing to act
-/// on. The same field carries the conflicting key for a unique violation and the failing row for a
-/// check violation, so this is not specific to deadlocks.
-fn database_message(error: &sqlx::Error) -> String {
-    let sqlx::Error::Database(database) = error else {
-        return error.to_string();
-    };
-    let mut text = database.message().to_owned();
-    if let Some(code) = database.code() {
-        text.push_str(&format!(" [SQLSTATE {code}]"));
-    }
-
-    if let Some(postgres) = database.try_downcast_ref::<sqlx::postgres::PgDatabaseError>() {
-        if let Some(detail) = postgres.detail() {
-            text.push_str(&format!("; detail: {detail}"));
-        }
-
-        if let Some(hint) = postgres.hint() {
-            text.push_str(&format!("; hint: {hint}"));
-        }
-    }
-    text
-}
-
-#[cfg(test)]
-mod database_message_tests {
-    use super::database_message;
-
-    /// Proves the extraction runs, rather than only that it compiles.
-    ///
-    /// A unique violation is used because it carries `DETAIL` the same way a deadlock does and can
-    /// be produced on demand, which a deadlock cannot. Without this the helper could return the bare
-    /// message forever and read exactly like a database that had nothing more to say.
-    #[tokio::test]
-    async fn a_database_error_carries_its_detail_not_only_its_message() {
-        let Ok(url) = std::env::var("RD_OWNER_TEST_DATABASE_URL") else {
-            return;
-        };
-        // One connection, because a temp table belongs to the session that made it.
-        let pool = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(1)
-            .connect(&url)
-            .await
-            .expect("connect");
-        sqlx::query("CREATE TEMP TABLE detail_probe_v1 (k TEXT PRIMARY KEY)")
-            .execute(&pool)
-            .await
-            .expect("create");
-        sqlx::query("INSERT INTO detail_probe_v1 (k) VALUES ('same')")
-            .execute(&pool)
-            .await
-            .expect("seed");
-        let conflict = sqlx::query("INSERT INTO detail_probe_v1 (k) VALUES ('same')")
-            .execute(&pool)
-            .await
-            .expect_err("the second insert must violate the key");
-        let reported = database_message(&conflict);
-        assert!(
-            reported.contains("detail:"),
-            "no detail carried: {reported}"
-        );
-        assert!(
-            reported.contains("same"),
-            "detail did not name the key: {reported}"
-        );
-        assert!(
-            reported.contains("SQLSTATE"),
-            "no sqlstate carried: {reported}"
-        );
-    }
 }

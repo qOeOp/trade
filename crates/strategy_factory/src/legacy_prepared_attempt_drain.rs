@@ -864,7 +864,7 @@ fn unavailable(message: &str) -> ArtifactBuildError {
     ArtifactBuildError::Storage(message.into())
 }
 fn storage(error: &sqlx::Error) -> ArtifactBuildError {
-    ArtifactBuildError::Storage(error.to_string())
+    ArtifactBuildError::Storage(crate::postgres_error_message::database_message(error))
 }
 fn json_storage(error: impl Display) -> ArtifactBuildError {
     ArtifactBuildError::Storage(error.to_string())
