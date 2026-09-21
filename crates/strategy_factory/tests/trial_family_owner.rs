@@ -1465,6 +1465,140 @@ async fn research_and_attempt_resolve_share_one_deadlock_free_lock_order() {
     cleanup_research(&_mutation, &request_identity, &family_identity).await;
 }
 
+/// An intent lookup must not lock a receipt row it is going to discard.
+///
+/// `admit_research_row_in_transaction` has no column to select an intent on, so it used to take
+/// `FOR UPDATE` over every row of `rd_research_request_receipts_v1` and then return at most one.
+/// The rows it discarded were locked for nothing, and that made every concurrent transaction a
+/// candidate deadlock partner: the ordered chain's entry 28 reported cycles between that scan and
+/// `rd_artifact_build_attempts_v1 ... FOR UPDATE`, and between it and the single-row lock beside
+/// it.
+///
+/// `research_and_attempt_resolve_share_one_deadlock_free_lock_order` above did not catch it, and
+/// it is worth saying why, because the same two gaps would hide the next one. It drives
+/// `resolve_v2`, which is the *request* lookup and locks one row; the intent lookup is the other
+/// shape. And it holds two receipts at most, where locking "every row" and locking one row are
+/// the same act - the chain shares one database across its entries and never resets, so by entry
+/// 28 that table holds many rows and the scan finally spans them.
+///
+/// So this does not try to reproduce the race. It holds an exclusive lock on a receipt the lookup
+/// has no reason to read, and asks whether the lookup completes anyway. The lock is taken before
+/// and released after, which makes the answer deterministic: a lookup scoped to what it returns
+/// finishes, and one that locks the table waits for a row it was always going to throw away.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires admitted OA/PE/R&D test database URLs"]
+async fn intent_lookup_does_not_lock_a_receipt_it_does_not_return() {
+    let test_database = test_database().await;
+    let _mutation = test_database.mutation();
+    let database_url = test_database
+        .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+        .to_string();
+    let research_owner = PostgresResearchGoalOwnerV1::connect(
+        &database_url,
+        test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+    )
+    .await
+    .unwrap();
+    let artifact_owner = PostgresArtifactBuildOwnerV1::connect(
+        &database_url,
+        "/tmp/unused-rd-sandbox.sock",
+        u64::MAX,
+    )
+    .await
+    .unwrap();
+    let pool = PgPoolOptions::new()
+        .max_connections(2)
+        .connect(&database_url)
+        .await
+        .unwrap();
+    let suffix = unique_suffix();
+    let edge = TestProductEdge::bootstrap(
+        test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+        test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+        &suffix,
+    )
+    .await;
+
+    // The receipt the lookup has to reach.
+    let subject_identity = format!("research-request-v2-intent-scope-{suffix}");
+    let admitted_subject = edge.admit_v2(request(&subject_identity)).await;
+    let accepted = research_owner.submit_v2(admitted_subject).await.unwrap();
+    let intent_identity = accepted
+        .owner_receipt()
+        .unwrap()
+        .resulting_research_intent_identity
+        .as_deref()
+        .unwrap()
+        .to_string();
+    let subject_family = accepted
+        .trial_family()
+        .unwrap()
+        .root()
+        .trial_family_identity()
+        .to_string();
+
+    // A second receipt, with its own intent, that this lookup has no reason to read.
+    let bystander_identity = format!("research-request-v2-intent-bystander-{suffix}");
+    let admitted_bystander = edge.admit_v2(request(&bystander_identity)).await;
+    let bystander = research_owner.submit_v2(admitted_bystander).await.unwrap();
+    let bystander_family = bystander
+        .trial_family()
+        .unwrap()
+        .root()
+        .trial_family_identity()
+        .to_string();
+
+    let build_request = edge
+        .admit_artifact(ArtifactBuildRequestV1 {
+            build_request_identity: format!("artifact-build-request-intent-scope-{suffix}"),
+            attempt_identity: format!("artifact-attempt-intent-scope-{suffix}"),
+            intent_identity,
+            channel: ProductEdgeChannel::WindmillProductEdge,
+            admission: admission_locator(&format!("artifact-build-request-intent-scope-{suffix}")),
+        })
+        .await;
+    assert_eq!(
+        artifact_owner
+            .prepare(build_request.clone())
+            .await
+            .unwrap()
+            .resolution(),
+        ArtifactBuildResolution::Prepared
+    );
+
+    // Held across the resolve below, and released after it either way.
+    let mut bystander_lock = pool.begin().await.unwrap();
+    sqlx::query("SELECT request_identity FROM rd_research_request_receipts_v1 WHERE request_identity = $1 FOR UPDATE")
+        .bind(&bystander_identity)
+        .fetch_all(&mut *bystander_lock)
+        .await
+        .unwrap();
+
+    let resolved = tokio::time::timeout(
+        Duration::from_secs(10),
+        artifact_owner.resolve(
+            &build_request.build_request_identity,
+            &build_request.attempt_identity,
+            &build_request.admission,
+        ),
+    )
+    .await;
+
+    // Released before the assertion, so a failure does not strand the cleanup behind this lock.
+    bystander_lock.rollback().await.unwrap();
+    resolved
+        .expect("the intent lookup waited on a receipt it never returns")
+        .unwrap();
+
+    sqlx::query("DELETE FROM rd_artifact_build_attempts_v1 WHERE build_request_identity = $1")
+        .bind(&build_request.build_request_identity)
+        .execute(&pool)
+        .await
+        .unwrap();
+    cleanup_research(&_mutation, &subject_identity, &subject_family).await;
+    cleanup_research(&_mutation, &bystander_identity, &bystander_family).await;
+}
+
 #[tokio::test]
 #[ignore = "requires admitted OA/PE/R&D test database URLs"]
 async fn no_artifact_receipt_mutation_fails_closed_and_exact_restore_replays() {

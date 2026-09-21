@@ -108,6 +108,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-scanner-custody|vibe_scanner_custody|postgres::chain_proofs::a_caller_without_the_grant_is_refused_rather_than_answered_empty'
   'vibe-risk-owner|vibe_risk_owner|capacity_read_port_postgres::postgres_proof::postgres_capacity_observation_seals_only_what_portfolio_currently_publishes'
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::frozen_program_replays_over_http_to_the_same_joint_freeze'
+  'vibe-strategy-factory|trial_family_owner|intent_lookup_does_not_lock_a_receipt_it_does_not_return'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
@@ -150,8 +151,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 91 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all 91 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 92 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all 92 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -254,7 +255,8 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[87]}" != *'|postgres::chain_proofs::a_caller_without_the_grant_is_refused_rather_than_answered_empty' ]] ||
     [[ "${rd_owner_postgres_tests[88]}" != *'|capacity_read_port_postgres::postgres_proof::postgres_capacity_observation_seals_only_what_portfolio_currently_publishes' ]] ||
     [[ "${rd_owner_postgres_tests[89]}" != *'|tests::frozen_program_replays_over_http_to_the_same_joint_freeze' ]] ||
-    [[ "${rd_owner_postgres_tests[90]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[90]}" != *'|intent_lookup_does_not_lock_a_receipt_it_does_not_return' ]] ||
+    [[ "${rd_owner_postgres_tests[91]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
@@ -370,8 +372,28 @@ for line in array_body.splitlines():
     if len(fields) != 3 or any(not field for field in fields):
         raise SystemExit("ERROR: ordered PostgreSQL test literal must contain three fields.")
     entries.append(tuple(fields))
-if len(entries) != 91:
-    raise SystemExit(f"ERROR: ordered PostgreSQL test literal must contain 91 entries, found {len(entries)}.")
+# The count lives in one place. Writing it into the message as well lets the two drift, and the
+# drifted form reads as nonsense the moment it fires: "must contain 92 entries, found 92".
+expected_entries = 92
+if len(entries) != expected_entries:
+    raise SystemExit(
+        f"ERROR: ordered PostgreSQL test literal must contain {expected_entries} entries, found {len(entries)}."
+    )
+
+# The count and the positional guards are independent, and that gap is how an entry lands in a
+# slot nobody checks: raise the count, pin every index up to the old last one, and the new slot
+# is unconstrained. An entry appended there is exactly what "destructive-drain-last" exists to
+# refuse, and the positional guards stay green while it is false. So the guards must cover every
+# position, checked here rather than left to whoever edits them to notice.
+pinned_positions = {int(index) for index in re.findall(r"rd_owner_postgres_tests\[(\d+)\]", source)}
+expected_positions = set(range(expected_entries))
+if pinned_positions != expected_positions:
+    unpinned = sorted(expected_positions - pinned_positions)
+    out_of_range = sorted(pinned_positions - expected_positions)
+    raise SystemExit(
+        "ERROR: ordered PostgreSQL positional guards must pin every entry by name; "
+        f"unpinned {unpinned}, out of range {out_of_range}."
+    )
 if sum(test_name == poison_test for _, _, test_name in entries) != 1:
     raise SystemExit(
         "ERROR: recovery-sidecar poison test must occur exactly once as a parsed test name."

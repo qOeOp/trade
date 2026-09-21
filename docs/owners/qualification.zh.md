@@ -123,8 +123,16 @@ Qualification 的其余部分并不排在它后面：attempt frontier、候选�
   本 basis 没有投影且该 scope 没有 frontier 时走 genesis 那一臂；本 basis 没有投影但该 scope 已有 frontier 时
   走 `FRONTIER` 那一臂。门禁走过 genesis 那一臂二十次，走过 `FRONTIER` 那一臂零次，所以从来没有任何东西产生过
   那个 resolution、它存下来的编码、或者一份 source frontier 的身份与摘要。在有东西产生它之前，
-  「选了 genesis 那一臂」和「没有别的臂可选」是同一个观察。驱动另一臂需要同一 principal 与 scope 下的第二个
-  basis，而只有 R&D 写得了。
+  「选了 genesis 那一臂」和「没有别的臂可选」是同一个观察。驱动另一臂需要同一 principal 与
+  authorized scope 下的第二个研究请求，而挡路的既不是这个 Owner 够不着，也不是 R&D 不肯写一份 basis。
+  第二份 basis 由第一份用过的那个 `load_or_create_basis_in_transaction` 自己写，走的是闸门已经走过二十次
+  的同一条生产路径。闸门从来没有过的是两个请求共享一个 principal：每条条目各自 bootstrap 自己的准入，
+  principal 是 `admin-{suffix}`，所以每条各带一个自己的 principal，每个 scope 只见过一个请求。
+  这是语料的性质，不是生产路径的性质。它下面还压着第二个条件，而那一个是生产路径的性质：一个 scope 的
+  第一份授权是 genesis，之后每一份都必须是 successor，所以两份共享 scope 的准入需要 `issue_successor`，
+  而准入 bootstrap 只会 `issue_genesis`。两个条件都是驱动出来的：同一 suffix 下的两份准入被拒为冲突重放，
+  因为授权身份是按 suffix 派生的；一份准入服务不了两个请求，因为准入绑定它被签发时的那个请求身份；
+  而同一 principal 下的两份准入被拒，因为该 scope 已经有了 genesis。
 - **Response-cut 回滚。** 要驱动它就需要一次创建或一次续期，也就需要一个缺席或已过期的当前 frontier。把一份投影的
   `valid_through_epoch_ms` 变旧，会让它与读回所校验的规范行失去同步，于是以
   `Qualification admission envelope projection mismatch` 失败，所以本 Owner 恰好禁掉了唯一能强行触发它的途径。
