@@ -118,6 +118,13 @@ pub enum FrozenObservationWindowHaltReasonV1 {
     /// caller's window, which is the one thing its first prohibition forbids; refusing the whole
     /// window would discard the coordinates before the cut, which are answerable and were
     /// answered. What is left is to say where the answerable part ended.
+    ///
+    /// **This is diagnosis, not enforcement.** `pit_snapshot::authority` already refuses a row
+    /// whose retrieval is after the decision cut, and that refusal is what keeps such a coordinate
+    /// out; this only separates one class of it from a generic category and names it, so a caller
+    /// can see which coordinate to resume from. Relaxing the check here changes what a caller is
+    /// told and not what is admitted; relaxing the one in `authority` would leave this covering a
+    /// single path. Anyone reading this as the gate would be entitled to remove the real one.
     NotYetDecided,
 }
 
