@@ -609,7 +609,11 @@ jobs:
             || github.event_name == 'push'
             && (github.ref_name == 'main' || github.ref_name == 'test-ci'))
             && 'true' || 'false' }}
-          rust-cache-key: rust-tests-linux-x86
+          # `shared-key`, not `key`: rust-cache appends `GITHUB_JOB` to `key`, so the two jobs
+          # that build into this directory would each get their own multi-GB entry. This job is
+          # the only one that builds the whole workspace and the only one that saves, so its
+          # entry is the superset the others restore.
+          rust-cache-shared-key: rust-tests-linux-x86
           rust-cache-workspaces: . -> target/rust-tests-linux-x86
           rust-cache-on-failure: "false"
           rust-cache-save-if: ${{ github.event_name == 'push' }}
@@ -702,20 +706,18 @@ jobs:
             name: market data owner postgres (ubuntu-22.04)
             make: cargo-test-market-data-owner-postgres-isolated
     env:
+      # Byte-identical to `rust tests`, deliberately: rust-cache folds every CARGO_/RUST_
+      # variable into the key, so a different profile or target directory here would defeat the
+      # shared entry below however the key is spelled.
       CARGO_CI_PROFILE: >-
-        ${{ github.event_name == 'pull_request'
-        && needs.plan.outputs.untrusted_pr != 'false'
-        && 'ci-pr'
-        || github.event_name == 'push'
-        && (github.ref_name == 'main' || github.ref_name == 'test-ci')
-        && 'ci-pr'
-        || 'nextest' }}
+        ${{ (github.event_name == 'pull_request'
+        || github.event_name == 'merge_group'
+        || github.ref_name == 'main' || github.ref_name == 'test-ci')
+        && 'ci-pr' || 'nextest' }}
       CARGO_TARGET_DIR: >-
-        ${{ github.event_name == 'pull_request'
-        && needs.plan.outputs.untrusted_pr != 'false'
-        && 'target/rust-tests-linux-x86'
-        || github.event_name == 'push'
-        && (github.ref_name == 'main' || github.ref_name == 'test-ci')
+        ${{ (github.event_name == 'pull_request'
+        || github.event_name == 'merge_group'
+        || github.ref_name == 'main' || github.ref_name == 'test-ci')
         && 'target/rust-tests-linux-x86'
         || '/home/runner/.cache/cargo-target/rust-tests-linux-x86' }}
       # yamllint disable-line rule:line-length
@@ -758,13 +760,12 @@ jobs:
             && 'true' || 'false' }}
           # These chains build a different selection from `rust tests` -- five packages under the
           # sealed Owner features rather than the whole workspace -- into the same target
-          # directory. Writing `rust tests`'s key here was meant to share its entry; it cannot,
-          # because rust-cache appends `GITHUB_JOB` to whatever this string is, and run
-          # 35184756502 duly logged `No cache found.` for this job. The string is kept as the
-          # directory's name, and the job keeps `save-if: "false"` so it does not spend the 10 GB
-          # quota on a third copy of one directory. Sharing needs rust-cache's `shared-key`, which
-          # is not wired through `common-setup` yet.
-          rust-cache-key: rust-tests-linux-x86
+          # directory, so `rust tests`'s entry is a superset of what they need. `key` could not
+          # deliver it: rust-cache appends `GITHUB_JOB`, so run 35414461628 logged `No cache
+          # found.` here and compiled 473 crates from scratch, 26 minutes, on the gate's
+          # second-longest job. `shared-key` drops that job component. The job still does not
+          # save, so the quota still holds one copy of this directory, not three.
+          rust-cache-shared-key: rust-tests-linux-x86
           rust-cache-workspaces: . -> target/rust-tests-linux-x86
           rust-cache-on-failure: "false"
           rust-cache-save-if: "false"
