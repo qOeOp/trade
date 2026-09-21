@@ -5028,8 +5028,15 @@ fn valid_blake3(value: &str) -> bool {
     })
 }
 
-fn storage(error: impl Display) -> ExploratoryReplayOwnerError {
-    ExploratoryReplayOwnerError::Unavailable(error.to_string())
+#[allow(clippy::needless_pass_by_value)] // exact `map_err` adapter keeps every SQL boundary uniform
+/// Narrowed from `impl Display` because every caller in this file already passes a
+/// `sqlx::Error` - the compiler says so: widening it back produces no new callers, and narrowing
+/// it produced no errors across 101 call sites. `impl Display` erased the type at the
+/// boundary, which is where `DETAIL` was being lost before any formatter could read it.
+fn storage(error: sqlx::Error) -> ExploratoryReplayOwnerError {
+    ExploratoryReplayOwnerError::Unavailable(crate::postgres_error_message::database_message(
+        &error,
+    ))
 }
 
 fn unavailable(error: impl Display) -> ExploratoryReplayOwnerError {

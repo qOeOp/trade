@@ -174,6 +174,7 @@ pub use native_replay_v2::{
 mod pairs_relative_value;
 pub mod pilot;
 pub mod plugin_wire_v2;
+mod postgres_error_message;
 mod producer;
 pub mod product_edge;
 pub mod product_edge_postgres;

@@ -11,6 +11,8 @@ use serde::Serialize;
 use sqlx::{PgPool, Row};
 use thiserror::Error;
 
+use crate::postgres_error_message::database_message;
+
 use crate::{
     IterationDecisionResolutionLocatorV1,
     artifact_build::{
@@ -379,18 +381,18 @@ impl PostgresIterationTimelineOwnerV1 {
             .max_connections(4)
             .connect(database_url)
             .await
-            .map_err(|e| unavailable(e.to_string()))?;
+            .map_err(|e| unavailable(database_message(&e)))?;
         crate::schema_materialization::require_existing_public_tables_for_readback(
             &pool,
             &crate::iteration_decision_postgres::TABLES[..1],
         )
         .await
-        .map_err(|e| unavailable(e.to_string()))?;
+        .map_err(|e| unavailable(database_message(&e)))?;
         let census_v2_available: bool =
             sqlx::query_scalar("SELECT to_regclass('rd_trial_family_attempt_cuts_v2') IS NOT NULL")
                 .fetch_one(&pool)
                 .await
-                .map_err(|e| unavailable(e.to_string()))?;
+                .map_err(|e| unavailable(database_message(&e)))?;
         Ok(Self {
             pool,
             census_v2_available,
@@ -412,15 +414,15 @@ impl IterationTimelineOwnerPortV1 for PostgresIterationTimelineOwnerV1 {
             .pool
             .begin()
             .await
-            .map_err(|e| unavailable(e.to_string()))?;
+            .map_err(|e| unavailable(database_message(&e)))?;
         let exists = sqlx::query("SELECT trial_family_identity FROM rd_trial_families_v1 WHERE trial_family_identity=$1 FOR SHARE")
             .bind(trial_family_identity).fetch_optional(&mut *transaction).await
-            .map_err(|e| unavailable(e.to_string()))?;
+            .map_err(|e| unavailable(database_message(&e)))?;
         if exists.is_none() {
             transaction
                 .commit()
                 .await
-                .map_err(|e| unavailable(e.to_string()))?;
+                .map_err(|e| unavailable(database_message(&e)))?;
             return Err(DashboardReadErrorV1::NotFound);
         }
         // A family carries a V2 census only once its first exploration cut committed; a family
@@ -436,7 +438,7 @@ impl IterationTimelineOwnerPortV1 for PostgresIterationTimelineOwnerV1 {
             .bind(trial_family_identity)
             .fetch_optional(&mut *transaction)
             .await
-            .map_err(|e| unavailable(e.to_string()))?
+            .map_err(|e| unavailable(database_message(&e)))?
             .is_some();
         let (census_frontier_identity, census_frontier_digest, consumed_trial_budget, trial_budget) =
             if census_v2_present {
@@ -470,7 +472,7 @@ impl IterationTimelineOwnerPortV1 for PostgresIterationTimelineOwnerV1 {
         let rows = sqlx::query(
             "SELECT decision_identity,result_identity,decision_digest,committed_at_epoch_ms FROM rd_iteration_decisions_v1 WHERE trial_family_identity=$1 ORDER BY committed_at_epoch_ms ASC, decision_identity COLLATE \"C\" ASC LIMIT $2",
         ).bind(trial_family_identity).bind(ITERATION_LIMIT + 1).fetch_all(&mut *transaction).await
-            .map_err(|e| unavailable(e.to_string()))?;
+            .map_err(|e| unavailable(database_message(&e)))?;
         if rows.len() > usize::try_from(ITERATION_LIMIT).unwrap_or(128) {
             return Err(unavailable(
                 "Iteration timeline exceeds the bounded response",
@@ -481,14 +483,14 @@ impl IterationTimelineOwnerPortV1 for PostgresIterationTimelineOwnerV1 {
             .map(|row| {
                 Ok((
                     row.try_get::<String, _>("decision_identity")
-                        .map_err(|e| unavailable(e.to_string()))?,
+                        .map_err(|e| unavailable(database_message(&e)))?,
                     row.try_get::<String, _>("result_identity")
-                        .map_err(|e| unavailable(e.to_string()))?,
+                        .map_err(|e| unavailable(database_message(&e)))?,
                     row.try_get::<String, _>("decision_digest")
-                        .map_err(|e| unavailable(e.to_string()))?,
+                        .map_err(|e| unavailable(database_message(&e)))?,
                     u64::try_from(
                         row.try_get::<i64, _>("committed_at_epoch_ms")
-                            .map_err(|e| unavailable(e.to_string()))?,
+                            .map_err(|e| unavailable(database_message(&e)))?,
                     )
                     .map_err(|e| unavailable(e.to_string()))?,
                 ))
@@ -497,7 +499,7 @@ impl IterationTimelineOwnerPortV1 for PostgresIterationTimelineOwnerV1 {
         transaction
             .commit()
             .await
-            .map_err(|e| unavailable(e.to_string()))?;
+            .map_err(|e| unavailable(database_message(&e)))?;
 
         let mut decisions = Vec::with_capacity(locators.len());
         for (index, (decision_identity, result_identity, stored_digest, stored_commit)) in
