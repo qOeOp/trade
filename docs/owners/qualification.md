@@ -145,8 +145,19 @@ absent is a proof, and each absence was measured rather than assumed.
   a basis with no projection under a scope that has one takes the `FRONTIER` arm. The gate has taken the genesis
   arm twenty times and the `FRONTIER` arm never, so nothing has ever produced that resolution, its stored encoding,
   or a source-frontier identity and digest. Until something does, taking the genesis arm and having no other arm to
-  take are the same observation. Driving the other arm needs a second basis under one principal and scope, and only
-  R&D can write one.
+  take are the same observation. Driving the other arm needs a second Research request under one principal and
+  authorized scope, and what stands in the way is neither this Owner's reach nor R&D's willingness to write a
+  basis. The second basis is written by the same `load_or_create_basis_in_transaction` the first one used, on the
+  production path the gate has already taken twenty times. What the gate has never had is two requests sharing a
+  principal: every entry bootstraps its own admission under `admin-{suffix}`, so each carries a principal of its
+  own and every scope has seen exactly one request. That is a property of the corpus, not of the production path.
+  Underneath it sits a second condition that is a property of the production path: a scope's first authorization
+  is a genesis and every later one must be a successor, so two admissions sharing a scope need
+  `issue_successor`, and the admission bootstrap issues only `issue_genesis`. Both conditions were measured by
+  driving them: two admissions under one suffix are refused as a conflicting replay because the authorization
+  identity is keyed on the suffix, one admission cannot serve two requests because an admission is bound to the
+  request identity it was issued for, and two admissions under one principal are refused because the scope
+  already has a genesis.
 - **Response-cut rollback.** Driving it needs a create or a renewal, so it needs a current frontier that is absent
   or expired. Aging a projection's `valid_through_epoch_ms` desynchronizes it from the canonical row the readback
   verifies, which fails as `Qualification admission envelope projection mismatch`, so the Owner forbids the only
