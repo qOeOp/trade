@@ -4553,6 +4553,184 @@ mod tests {
         );
     }
 
+    /// The three routes a first-cycle Design crosses, driven in order over HTTP.
+    ///
+    /// `product_edge_postgres::tests::declared_bounded_feature_program_assembles_from_owner_custody_and_freezes`
+    /// proves this path against the Owner directly. It cannot prove the transport, because it
+    /// never crosses one: it calls the Owner in-process. `market_data_pit::router` is private to
+    /// this binary, so nothing anywhere drives these three routes in order, and while nothing did,
+    /// the third one's refusal read as a missing capability rather than a missing call.
+    ///
+    /// The order is the Design's own first cycle. A Design with no Composer operation to attest it
+    /// is authenticated by the R&D role intent it publishes; binding custody is issued against
+    /// that intent; and only then does declared meaning have custody to assemble against.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "requires the ordered chain's PostgreSQL and the Market Data corpus it supplies"]
+    async fn first_cycle_design_crosses_publish_bindings_and_declare_over_http() {
+        use axum::body::Body;
+        use axum::extract::Request;
+        use tower::ServiceExt;
+        use vibe_strategy_factory::{
+            bounded_feature_program_derivation_v1::BoundedFeatureProgramMeaningV1,
+            strategy_design_v2::StrategyDesignV2,
+            strategy_plan_v2::{StrategyDesignPreparationV2, prepare_strategy_design_v2},
+        };
+
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+
+        // The Market Data admissions are composed from the environment and the chain exports
+        // neither URL, so both would be `None` here and the two routes would answer 503 without
+        // saying that the answer was about configuration. The roles are not a convention either:
+        // the composer cut lock refuses any `session_user` outside
+        // ('market_data_reader','market_data_owner'), and the reader's connect checks sixteen ACL
+        // flags exactly, including that it may reach a published role intent only through
+        // `rd_owner_api.resolve_design_role_intent_for_market_data_v1` and holds no direct table
+        // privilege at all. A wrong role fails the same way a missing URL does.
+        // One operation per block: `multiple_unsafe_ops_per_block` wants each mutation of the
+        // process environment to carry its own justification rather than share one.
+        unsafe {
+            env::set_var(
+                "MARKET_DATA_OWNER_DATABASE_URL",
+                test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner),
+            );
+        }
+        unsafe {
+            env::set_var(
+                "MARKET_DATA_RD_ROLE_SET_DATABASE_URL",
+                test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataReader),
+            );
+        }
+
+        let bindings = bootstrap_market_data_strategy_input_bindings()
+            .await
+            .unwrap();
+        // Asserted before any request, so a configuration answer cannot arrive as a 503 and be
+        // read as the Owner's answer about this Design.
+        assert!(
+            bindings.is_some(),
+            "the strategy input binding admission must be composed before its routes are driven",
+        );
+
+        let token = "rd-owner-api-http-declare-test";
+        let token_digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
+        let owner = Arc::new(
+            PostgresResearchBoundedFeatureProgramOwnerV1::connect(
+                test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+            )
+            .await
+            .unwrap(),
+        );
+
+        let app =
+            bounded_feature_program::router(owner, token_digest).merge(market_data_pit::router(
+                bootstrap_market_data_pit_intake().await.unwrap(),
+                bootstrap_market_data_source_binding_admission()
+                    .await
+                    .unwrap(),
+                bootstrap_market_data_universe_selection().await.unwrap(),
+                bindings,
+                bootstrap_market_data_instrument_master_admission()
+                    .await
+                    .unwrap(),
+                bootstrap_market_data_market_semantics_admission()
+                    .await
+                    .unwrap(),
+                token_digest,
+            ));
+        // Driven through the router rather than a socket: what is unproven is that these three
+        // paths, their bearer guard and their typed bodies compose in order, and the router is
+        // where all three live. A socket would add the listener, which nothing here doubts.
+        let post =
+            async |app: Router, path: &str, body: serde_json::Value| -> (StatusCode, String) {
+                let response = app
+                    .oneshot(
+                        Request::builder()
+                            .method("POST")
+                            .uri(path)
+                            .header("authorization", format!("Bearer {token}"))
+                            .header("content-type", "application/json")
+                            .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                let status = response.status();
+                let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .unwrap();
+                (status, String::from_utf8_lossy(&bytes).into_owned())
+            };
+
+        // The pair is committed rather than built here: its fixtures are private to
+        // `vibe-strategy-factory`'s test build, and widening them reaches a whole test module.
+        // Drift is caught by this entry rather than by a pin, because a pin would need the sealed
+        // acceptance feature, and a test behind that feature runs only if the chain selects it.
+        let corpus = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/test_data/six_role_bar_bounded_feature/"
+        );
+        let design: StrategyDesignV2 =
+            serde_json::from_str(&std::fs::read_to_string(format!("{corpus}design.json")).unwrap())
+                .unwrap();
+        let meaning: BoundedFeatureProgramMeaningV1 = serde_json::from_str(
+            &std::fs::read_to_string(format!("{corpus}meaning.json")).unwrap(),
+        )
+        .unwrap();
+        let StrategyDesignPreparationV2::Prepared {
+            design_identity, ..
+        } = prepare_strategy_design_v2(&design)
+        else {
+            panic!("the committed Design canonicalizes");
+        };
+
+        let locator = format!(
+            "research.request.http-declare.{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+
+        let (status, body) = post(
+            app.clone(),
+            "/v1/strategy-designs/publish-role-intent",
+            serde_json::json!({
+                "research_request_locator": locator,
+                "design": design,
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "publishing the role intent: {body}");
+
+        let (status, body) = post(
+            app.clone(),
+            "/v1/market-data/strategy-input-bindings/from-design-intent",
+            serde_json::json!({ "design_identity": design_identity }),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "admitting binding custody from the published intent: {body}",
+        );
+
+        let (status, body) = post(
+            app,
+            "/v1/bounded-feature-programs/declare",
+            serde_json::json!({
+                "research_request_locator": locator,
+                "design": design,
+                "meaning": meaning,
+            }),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "declared meaning must assemble once its custody exists: {body}",
+        );
+    }
+
     fn bearer_headers(token: &str) -> HeaderMap {
         let mut headers = HeaderMap::new();
         headers.insert(

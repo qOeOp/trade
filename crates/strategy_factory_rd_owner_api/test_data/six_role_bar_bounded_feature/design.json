@@ -1,0 +1,604 @@
+{
+  "schema_version": 2,
+  "research_request_identity": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1
+  ],
+  "intent_identity": [
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2
+  ],
+  "intent_digest": [
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3,
+    3
+  ],
+  "inputs": [
+    {
+      "semantic_id": "exchange-session-day-close",
+      "fact_class": "MARKET_DATA",
+      "instrument": "AAPL",
+      "field_semantic_id": "MARKET_DATA.BAR.CLOSE.PRICE.V1",
+      "channel": "MARKET",
+      "timeframe": "1D",
+      "unit": "PRICE",
+      "scale": 2,
+      "value_type": "I128"
+    },
+    {
+      "semantic_id": "hour-close",
+      "fact_class": "MARKET_DATA",
+      "instrument": "AAPL",
+      "field_semantic_id": "MARKET_DATA.BAR.CLOSE.PRICE.V1",
+      "channel": "MARKET",
+      "timeframe": "1H",
+      "unit": "PRICE",
+      "scale": 2,
+      "value_type": "I128"
+    },
+    {
+      "semantic_id": "minute-close",
+      "fact_class": "MARKET_DATA",
+      "instrument": "AAPL",
+      "field_semantic_id": "MARKET_DATA.BAR.CLOSE.PRICE.V1",
+      "channel": "MARKET",
+      "timeframe": "1M",
+      "unit": "PRICE",
+      "scale": 2,
+      "value_type": "I128"
+    },
+    {
+      "semantic_id": "minute-high",
+      "fact_class": "MARKET_DATA",
+      "instrument": "AAPL",
+      "field_semantic_id": "MARKET_DATA.BAR.HIGH.PRICE.V1",
+      "channel": "MARKET",
+      "timeframe": "1M",
+      "unit": "PRICE",
+      "scale": 2,
+      "value_type": "I128"
+    },
+    {
+      "semantic_id": "minute-low",
+      "fact_class": "MARKET_DATA",
+      "instrument": "AAPL",
+      "field_semantic_id": "MARKET_DATA.BAR.LOW.PRICE.V1",
+      "channel": "MARKET",
+      "timeframe": "1M",
+      "unit": "PRICE",
+      "scale": 2,
+      "value_type": "I128"
+    },
+    {
+      "semantic_id": "minute-open",
+      "fact_class": "MARKET_DATA",
+      "instrument": "AAPL",
+      "field_semantic_id": "MARKET_DATA.BAR.OPEN.PRICE.V1",
+      "channel": "MARKET",
+      "timeframe": "1M",
+      "unit": "PRICE",
+      "scale": 2,
+      "value_type": "I128"
+    }
+  ],
+  "joins": [
+    {
+      "semantic_id": "replay-composition-six-role-v1",
+      "inputs": [
+        "minute-open",
+        "minute-high",
+        "minute-low",
+        "minute-close",
+        "hour-close",
+        "exchange-session-day-close"
+      ],
+      "alignment_semantic_id": "strategy.input-join.latest-not-after-trigger.v1",
+      "trigger_input_id": "minute-close",
+      "max_staleness_ns": 1
+    }
+  ],
+  "parameters": [],
+  "state": [
+    {
+      "semantic_id": "research.state.trend.v1",
+      "value_type": "BYTES",
+      "initial": {
+        "kind": "BYTES",
+        "value": [
+          0
+        ]
+      },
+      "max_bytes": 256
+    }
+  ],
+  "reactions": [
+    {
+      "kind": "START",
+      "nodes": [],
+      "state_writes": [],
+      "proposal": null
+    },
+    {
+      "kind": "BAR",
+      "nodes": [
+        {
+          "semantic_id": "research.node.bar.v1",
+          "plugin_semantic_id": "research.plugin.stateful-trend.v1",
+          "input_bindings": [
+            {
+              "port_id": "input.aapl-close.v1",
+              "source": {
+                "kind": "INPUT",
+                "input_id": "minute-close"
+              }
+            },
+            {
+              "port_id": "input.aapl-open.v1",
+              "source": {
+                "kind": "INPUT",
+                "input_id": "minute-open"
+              }
+            },
+            {
+              "port_id": "input.close.v1",
+              "source": {
+                "kind": "INPUT",
+                "input_id": "exchange-session-day-close"
+              }
+            },
+            {
+              "port_id": "input.minute-high.v1",
+              "source": {
+                "kind": "INPUT",
+                "input_id": "minute-high"
+              }
+            },
+            {
+              "port_id": "input.minute-low.v1",
+              "source": {
+                "kind": "INPUT",
+                "input_id": "minute-low"
+              }
+            },
+            {
+              "port_id": "input.open.v1",
+              "source": {
+                "kind": "INPUT",
+                "input_id": "hour-close"
+              }
+            },
+            {
+              "port_id": "strategy.input.sample-coordinate.v1.0beb7c19690f79602f08e713f83b18bc2fcbdda64d5e7a3a91ceda49e7aac7ac",
+              "source": {
+                "kind": "OWNER_SAMPLE_COORDINATE",
+                "input_id": "minute-low",
+                "source_semantic_id": "strategy.value-ref.owner-sample-coordinate.v1(minute-low)"
+              }
+            },
+            {
+              "port_id": "strategy.input.sample-coordinate.v1.2081a50054aa44672ee64090b6d64468c89eaea61ac4f92fc33e2597a09c5662",
+              "source": {
+                "kind": "OWNER_SAMPLE_COORDINATE",
+                "input_id": "minute-open",
+                "source_semantic_id": "strategy.value-ref.owner-sample-coordinate.v1(minute-open)"
+              }
+            },
+            {
+              "port_id": "strategy.input.sample-coordinate.v1.6a23c4fd161ea85b11e1f51ad3dd7161aeff10cecae1379fbaf38188391c6495",
+              "source": {
+                "kind": "OWNER_SAMPLE_COORDINATE",
+                "input_id": "hour-close",
+                "source_semantic_id": "strategy.value-ref.owner-sample-coordinate.v1(hour-close)"
+              }
+            },
+            {
+              "port_id": "strategy.input.sample-coordinate.v1.cf21643ff62c8a609bb72b75c84d2f271139c78618b0a334298d70f729324df0",
+              "source": {
+                "kind": "OWNER_SAMPLE_COORDINATE",
+                "input_id": "minute-high",
+                "source_semantic_id": "strategy.value-ref.owner-sample-coordinate.v1(minute-high)"
+              }
+            },
+            {
+              "port_id": "strategy.input.sample-coordinate.v1.e2e59f5296a7ad62c4ce357b41c57289182246c3b31420688c80841f88893c93",
+              "source": {
+                "kind": "OWNER_SAMPLE_COORDINATE",
+                "input_id": "exchange-session-day-close",
+                "source_semantic_id": "strategy.value-ref.owner-sample-coordinate.v1(exchange-session-day-close)"
+              }
+            },
+            {
+              "port_id": "strategy.input.sample-coordinate.v1.eda1576e6fccb1982b8d957ca2288a01189a99ffc5c17ac4f3fef8cb5a5e1ae1",
+              "source": {
+                "kind": "OWNER_SAMPLE_COORDINATE",
+                "input_id": "minute-close",
+                "source_semantic_id": "strategy.value-ref.owner-sample-coordinate.v1(minute-close)"
+              }
+            }
+          ],
+          "pre_state": {
+            "kind": "PRIOR_STATE",
+            "state_id": "research.state.trend.v1"
+          },
+          "output_port_ids": [
+            "proposal.position-intent.v1",
+            "proposal.target-variant.v1",
+            "proposal.target-position.v1",
+            "proposal.target-weight.v1",
+            "proposal.rebalance-sequence.v1",
+            "proposal.reconciliation-target.v1",
+            "proposal.protection-variant.v1",
+            "proposal.stop-loss.v1",
+            "proposal.take-profit.v1",
+            "proposal.trailing-distance.v1",
+            "proposal.trailing-stop.v1"
+          ],
+          "post_state_port_id": "plugin.state.post.v1"
+        }
+      ],
+      "state_writes": [
+        {
+          "state_id": "research.state.trend.v1",
+          "source": {
+            "kind": "NODE_OUTPUT",
+            "node_id": "research.node.bar.v1",
+            "port_id": "plugin.state.post.v1"
+          }
+        }
+      ],
+      "proposal": {
+        "position_intent": {
+          "kind": "NODE_OUTPUT",
+          "node_id": "research.node.bar.v1",
+          "port_id": "proposal.position-intent.v1"
+        },
+        "target_variant": {
+          "kind": "NODE_OUTPUT",
+          "node_id": "research.node.bar.v1",
+          "port_id": "proposal.target-variant.v1"
+        },
+        "target_position_units": {
+          "kind": "NODE_OUTPUT",
+          "node_id": "research.node.bar.v1",
+          "port_id": "proposal.target-position.v1"
+        },
+        "target_weight_micros": {
+          "kind": "NODE_OUTPUT",
+          "node_id": "research.node.bar.v1",
+          "port_id": "proposal.target-weight.v1"
+        },
+        "rebalance_sequence": {
+          "kind": "NODE_OUTPUT",
+          "node_id": "research.node.bar.v1",
+          "port_id": "proposal.rebalance-sequence.v1"
+        },
+        "reconciliation_target_units": {
+          "kind": "NODE_OUTPUT",
+          "node_id": "research.node.bar.v1",
+          "port_id": "proposal.reconciliation-target.v1"
+        },
+        "protection_variant": {
+          "kind": "NODE_OUTPUT",
+          "node_id": "research.node.bar.v1",
+          "port_id": "proposal.protection-variant.v1"
+        },
+        "stop_loss_ticks": {
+          "kind": "NODE_OUTPUT",
+          "node_id": "research.node.bar.v1",
+          "port_id": "proposal.stop-loss.v1"
+        },
+        "take_profit_ticks": {
+          "kind": "NODE_OUTPUT",
+          "node_id": "research.node.bar.v1",
+          "port_id": "proposal.take-profit.v1"
+        },
+        "trailing_distance_ticks": {
+          "kind": "NODE_OUTPUT",
+          "node_id": "research.node.bar.v1",
+          "port_id": "proposal.trailing-distance.v1"
+        },
+        "trailing_stop_ticks": {
+          "kind": "NODE_OUTPUT",
+          "node_id": "research.node.bar.v1",
+          "port_id": "proposal.trailing-stop.v1"
+        }
+      }
+    },
+    {
+      "kind": "EVENT",
+      "nodes": [],
+      "state_writes": [],
+      "proposal": null
+    },
+    {
+      "kind": "FILL",
+      "nodes": [],
+      "state_writes": [],
+      "proposal": null
+    },
+    {
+      "kind": "TIMER",
+      "nodes": [],
+      "state_writes": [],
+      "proposal": null
+    },
+    {
+      "kind": "STOP",
+      "nodes": [],
+      "state_writes": [],
+      "proposal": null
+    }
+  ],
+  "capabilities": [
+    {
+      "semantic_id": "research.trend.warmup.v1",
+      "version": 1,
+      "dependencies": []
+    },
+    {
+      "semantic_id": "research.trend.enter.v1",
+      "version": 1,
+      "dependencies": []
+    },
+    {
+      "semantic_id": "research.trend.add.v1",
+      "version": 1,
+      "dependencies": []
+    },
+    {
+      "semantic_id": "research.trend.reduce.v1",
+      "version": 1,
+      "dependencies": []
+    },
+    {
+      "semantic_id": "research.trend.trailing.v1",
+      "version": 1,
+      "dependencies": []
+    },
+    {
+      "semantic_id": "research.trend.timer-exit.v1",
+      "version": 1,
+      "dependencies": []
+    }
+  ],
+  "plugins": [
+    {
+      "semantic_id": "research.plugin.stateful-trend.v1",
+      "abi_version": 3,
+      "input_ports": [
+        {
+          "semantic_id": "input.aapl-close.v1",
+          "value_type": "I128",
+          "max_bytes": 16
+        },
+        {
+          "semantic_id": "input.aapl-open.v1",
+          "value_type": "I128",
+          "max_bytes": 16
+        },
+        {
+          "semantic_id": "input.close.v1",
+          "value_type": "I128",
+          "max_bytes": 16
+        },
+        {
+          "semantic_id": "input.minute-high.v1",
+          "value_type": "I128",
+          "max_bytes": 16
+        },
+        {
+          "semantic_id": "input.minute-low.v1",
+          "value_type": "I128",
+          "max_bytes": 16
+        },
+        {
+          "semantic_id": "input.open.v1",
+          "value_type": "I128",
+          "max_bytes": 16
+        },
+        {
+          "semantic_id": "strategy.input.sample-coordinate.v1.0beb7c19690f79602f08e713f83b18bc2fcbdda64d5e7a3a91ceda49e7aac7ac",
+          "value_type": "BYTES",
+          "max_bytes": 308
+        },
+        {
+          "semantic_id": "strategy.input.sample-coordinate.v1.2081a50054aa44672ee64090b6d64468c89eaea61ac4f92fc33e2597a09c5662",
+          "value_type": "BYTES",
+          "max_bytes": 308
+        },
+        {
+          "semantic_id": "strategy.input.sample-coordinate.v1.6a23c4fd161ea85b11e1f51ad3dd7161aeff10cecae1379fbaf38188391c6495",
+          "value_type": "BYTES",
+          "max_bytes": 308
+        },
+        {
+          "semantic_id": "strategy.input.sample-coordinate.v1.cf21643ff62c8a609bb72b75c84d2f271139c78618b0a334298d70f729324df0",
+          "value_type": "BYTES",
+          "max_bytes": 308
+        },
+        {
+          "semantic_id": "strategy.input.sample-coordinate.v1.e2e59f5296a7ad62c4ce357b41c57289182246c3b31420688c80841f88893c93",
+          "value_type": "BYTES",
+          "max_bytes": 308
+        },
+        {
+          "semantic_id": "strategy.input.sample-coordinate.v1.eda1576e6fccb1982b8d957ca2288a01189a99ffc5c17ac4f3fef8cb5a5e1ae1",
+          "value_type": "BYTES",
+          "max_bytes": 308
+        }
+      ],
+      "output_ports": [
+        {
+          "semantic_id": "proposal.position-intent.v1",
+          "value_type": "POSITION_INTENT_V1",
+          "max_bytes": 25
+        },
+        {
+          "semantic_id": "proposal.protection-variant.v1",
+          "value_type": "PROTECTION_VARIANT_V1",
+          "max_bytes": 36
+        },
+        {
+          "semantic_id": "proposal.rebalance-sequence.v1",
+          "value_type": "U64",
+          "max_bytes": 8
+        },
+        {
+          "semantic_id": "proposal.reconciliation-target.v1",
+          "value_type": "I64",
+          "max_bytes": 8
+        },
+        {
+          "semantic_id": "proposal.stop-loss.v1",
+          "value_type": "I64",
+          "max_bytes": 8
+        },
+        {
+          "semantic_id": "proposal.take-profit.v1",
+          "value_type": "I64",
+          "max_bytes": 8
+        },
+        {
+          "semantic_id": "proposal.target-position.v1",
+          "value_type": "I64",
+          "max_bytes": 8
+        },
+        {
+          "semantic_id": "proposal.target-variant.v1",
+          "value_type": "TARGET_VARIANT_V1",
+          "max_bytes": 26
+        },
+        {
+          "semantic_id": "proposal.target-weight.v1",
+          "value_type": "I32",
+          "max_bytes": 4
+        },
+        {
+          "semantic_id": "proposal.trailing-distance.v1",
+          "value_type": "U64",
+          "max_bytes": 8
+        },
+        {
+          "semantic_id": "proposal.trailing-stop.v1",
+          "value_type": "I64",
+          "max_bytes": 8
+        }
+      ],
+      "state": {
+        "pre_port_id": "plugin.state.pre.v1",
+        "post_port_id": "plugin.state.post.v1",
+        "value_type": "BYTES",
+        "max_bytes": 256
+      },
+      "capability_ids": [
+        "research.trend.add.v1",
+        "research.trend.enter.v1",
+        "research.trend.reduce.v1",
+        "research.trend.timer-exit.v1",
+        "research.trend.trailing.v1",
+        "research.trend.warmup.v1"
+      ],
+      "max_fuel": 10000000,
+      "max_linear_memory_bytes": 1048576,
+      "max_invocations_per_event": 1,
+      "failure_semantic_id": "bfp.numeric.failure.no-state-change.v1"
+    }
+  ],
+  "resources": {
+    "max_inputs": 6,
+    "max_nodes_per_reaction": 4,
+    "max_dependency_edges": 256,
+    "max_state_bytes": 4096,
+    "max_plugin_calls_per_event": 4
+  },
+  "falsifier": "trend state does not improve the frozen next-return decision"
+}
