@@ -689,6 +689,10 @@ jobs:
           mkdir -p junit
           cp target/nextest/ci/junit.xml junit/workspace.xml
 
+      # Deliberately not captured: `test-toolchain-proofs.bash` loops, running one
+      # `cargo nextest run` per proof, so a single junit.xml holds the last proof and would look
+      # like a record of all of them. It prints `--- <proof>` per iteration instead, which is what
+      # the Owner chain does and is why the chain publishes no record either.
       - name: Run the toolchain proofs
         # These are `#[ignore]`, so `make cargo-test` never selects them. They need the pinned
         # wasm target this job already installs, or Docker, and no database.
@@ -697,13 +701,6 @@ jobs:
         # that only speaks when its neighbour succeeds is one an unrelated failure can silence.
         if: ${{ !cancelled() }}
         run: make cargo-test-toolchain-proofs NEXTEST_PROFILE=ci
-
-      - name: Keep the toolchain proof record
-        if: always()
-        run: |
-          set -euo pipefail
-          mkdir -p junit
-          cp target/nextest/ci/junit.xml junit/toolchain-proofs.xml
 
       - name: Publish which tests ran
         if: always()

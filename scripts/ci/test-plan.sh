@@ -447,9 +447,11 @@ fi
 # toolchain proofs), so without a copy between them only the second survives and the artifact
 # silently becomes a record of the proofs alone.
 keeps="$(grep -c 'nextest/ci/junit\.xml' "$build_workflow")"
-if [[ "$keeps" -ne 2 ]]; then
-  echo "build.yml copies junit.xml $keeps time(s); expected 2, one per nextest invocation in" >&2
-  echo "the rust tests job. A missing copy leaves a record of the later invocation only." >&2
+if [[ "$keeps" -ne 1 ]]; then
+  echo "build.yml copies junit.xml $keeps time(s); expected exactly 1, taken straight after the" >&2
+  echo "workspace run and before anything else invokes nextest. A second copy would record" >&2
+  echo "whatever ran last, and the toolchain proofs run one invocation per proof, so such a" >&2
+  echo "record would hold one proof while looking like all of them." >&2
   exit 1
 fi
 if ! grep -q 'name: test-record-linux-x86' "$build_workflow"; then
