@@ -27,6 +27,19 @@ Three things it measured that a minimal program runs into:
 - edges count terminal references, so this graph's two bindings sit inside an edge count of
   twenty-five. A minimal program does not get small bounds; the decision table sets the floor.
 
+**Do not copy `s1`'s protection constants as the family's values.** It carries
+`kernel.protection.replace.v1` with a stop loss of 90, a take profit of 120, trailing 5 and 95,
+and a reconciliation of 1, and every one of those is inherited from the fixture template rather
+than chosen. The family is a single channel against a single threshold, which carries no judgement
+about protection at all, so its defining values are `kernel.protection.keep.v1` with zeros; an
+assembler that emitted 90 and 120 would be inventing a judgement nobody declared. `s1` exists to be
+a hand-written program that reassembles, not to show the family's normative values.
+
+For the same reason `s1` names two target-variant constants that carry the same semantic id. That
+keeps the branch and the default frame from ever sharing one constant, which is the shape that once
+left four programs with a correct entry and a wrong exit, but it is a structural separation rather
+than a semantic one. The family requires only that the two frames differ, which they do.
+
 `a0` and `a0v3` share one Design and differ only in reaching for the square root catalog version 3
 added. `t4`/`t5` and `t7`/`t8`/`t9` likewise share a Design, which is why there are six Designs and
 ten meanings.
