@@ -48,13 +48,19 @@ mod postgres_tests {
     /// Proves the shared conversion keeps `SQLSTATE` and `DETAIL`, against a real server.
     ///
     /// A unique violation stands in for the deadlock that motivated this: both reach the client as a
-    /// `PgDatabaseError` carrying `DETAIL`, and only one of the two can be produced on demand. The
-    /// probe table is `TEMP`, so it belongs to this session and the chain's shared database keeps
-    /// nothing once the connection closes.
+    /// `PgDatabaseError` carrying `DETAIL`, and only one of the two can be produced on demand.
+    ///
+    /// The probe table is permanent and created inside a transaction that is always rolled back,
+    /// rather than `TEMP`. No role in the chain can create temporary tables: the init scripts revoke
+    /// `TEMPORARY` from `PUBLIC` on every database and grant it to nobody, so a `TEMP` probe fails
+    /// with `42501` for the Owner's own role while passing for a superuser - which is the shape of a
+    /// proof that only works because its fixture was given rights production withholds. PostgreSQL
+    /// makes DDL transactional, so the rollback leaves the shared chain database untouched, and the
+    /// test reads back afterwards to say so rather than asserting it.
     ///
     /// The control matters as much as the assertion. `sqlx`'s own `Display` is checked first to
     /// *not* carry the detail: without that, a future `sqlx` that included it would leave this test
-    /// passing while proving nothing, and the passing test would be the only thing anyone read.
+    /// passing while proving nothing.
     ///
     /// What this does not prove: that any given Owner call reaches this function. That holds because
     /// the three `storage` helpers are the only `sqlx::Error` -> `String` conversions on those
@@ -62,27 +68,42 @@ mod postgres_tests {
     #[tokio::test]
     #[ignore = "requires an admitted R&D Owner test database URL"]
     async fn owner_storage_errors_carry_the_detail_postgres_sent() {
+        const PROBE: &str = "postgres_error_message_probe_v1";
         let url = std::env::var("RD_OWNER_TEST_DATABASE_URL")
             .expect("RD_OWNER_TEST_DATABASE_URL: this test asserts nothing without a server");
-        // One connection, because a temp table belongs to the session that created it.
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
             .connect(&url)
             .await
             .expect("connect");
-        sqlx::query("CREATE TEMP TABLE postgres_error_message_probe_v1 (k TEXT PRIMARY KEY)")
-            .execute(&pool)
+
+        let mut probe = pool.begin().await.expect("begin the probe transaction");
+        sqlx::query("CREATE TABLE postgres_error_message_probe_v1 (k TEXT PRIMARY KEY)")
+            .execute(&mut *probe)
             .await
             .expect("create the probe table");
         sqlx::query("INSERT INTO postgres_error_message_probe_v1 (k) VALUES ('same')")
-            .execute(&pool)
+            .execute(&mut *probe)
             .await
             .expect("seed the probe table");
         let conflict =
             sqlx::query("INSERT INTO postgres_error_message_probe_v1 (k) VALUES ('same')")
-                .execute(&pool)
+                .execute(&mut *probe)
                 .await
                 .expect_err("the second insert must violate the primary key");
+        // Before any assertion: an assertion that fires here would leave the table committed.
+        probe.rollback().await.expect("roll the probe back");
+
+        let left_behind: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM pg_class WHERE relname = $1")
+                .bind(PROBE)
+                .fetch_one(&pool)
+                .await
+                .expect("read back what the probe left");
+        assert_eq!(
+            left_behind, 0,
+            "the probe left a table in the shared database"
+        );
 
         let discarded = conflict.to_string();
         assert!(
