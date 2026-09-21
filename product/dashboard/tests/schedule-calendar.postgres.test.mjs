@@ -488,6 +488,23 @@ test(testName, { skip: !url }, async () => {
           }).observe(document.documentElement, {
             attributes: true, attributeFilter: ["open"], subtree: true,
           });
+          // A dialog removed while open leaves no attribute change, so the previous field could only
+          // show it as a zero at the end. Watch removals too: unmounted-while-open and closed are
+          // different events with different causes, and one of them was being read as the other.
+          const removed = () => new MutationObserver((records) => {
+            for (const record of records) {
+              for (const node of record.removedNodes) {
+                if (node.tagName !== "DIALOG") continue;
+                dialogHistory.push({
+                  atMs: Math.round(performance.now()),
+                  removedWhileOpen: node.open,
+                  label: node.getAttribute("aria-label"),
+                });
+              }
+            }
+          }).observe(document.documentElement, { childList: true, subtree: true });
+          if (document.documentElement) removed();
+          else addEventListener("DOMContentLoaded", removed);
           if (document.documentElement) watch();
           else addEventListener("DOMContentLoaded", watch);
           // Knowing it closed does not say who closed it, and there are only three ways: the two
@@ -505,6 +522,19 @@ test(testName, { skip: !url }, async () => {
             });
             return nativeClose.apply(this, args);
           };
+          // Where an Escape came from is the open question, and the stack separates the two
+          // sources: a key the browser delivered has no JavaScript frames above the listener, while
+          // one some code dispatched does. An empty stack is the answer, not a missing answer.
+          addEventListener("keydown", (event) => {
+            if (event.key !== "Escape") return;
+            closers.push({
+              atMs: Math.round(performance.now()),
+              label: "escape-keydown",
+              trusted: event.isTrusted,
+              by: String(new Error().stack || "").split(String.fromCharCode(10)).slice(1, 4)
+                .map((line) => line.trim()).join(" | ").slice(0, 200),
+            });
+          }, true);
           addEventListener("cancel", (event) => closers.push({
             atMs: Math.round(performance.now()),
             label: event.target?.getAttribute?.("aria-label") ?? null,

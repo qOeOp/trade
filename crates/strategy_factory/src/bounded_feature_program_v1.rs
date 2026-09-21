@@ -2099,15 +2099,35 @@ fn encode_state_constant(
     Ok(bytes)
 }
 
+/// The output scale a node states, for the parameter shapes that state one.
+///
+/// A fused expression states both its unit and its quotient's scale, because neither follows from
+/// the inputs, and the catalog says so: "The expression decides the unit and the quotient's scale,
+/// so neither can be derived from the inputs ... Both are declared and checked." The unit half is
+/// read in `derive_output_types` under `CatalogUnitRuleV1::DeclaredOutput`; the scale half was not,
+/// so the caller's `or_else` fell back to the first input's scale.
+///
+/// The lowering does not fall back: its fused arm writes the declared `output_scale` into the
+/// guest. So a fused node declaring a scale its first input does not share was admitted against one
+/// scale and executed against another - admission passed, the module built, and evaluation returned
+/// `Failure::Numeric`. Admitting a program that cannot produce a value is exactly what this
+/// contract exists to prevent.
+///
+/// This is listed as returning `None` for the shapes that state no scale rather than as a
+/// catch-all, so that a new parameter shape that states one has to be placed here instead of
+/// silently inheriting an input's.
 fn declared_output_scale(parameters: &BoundedFeatureParametersV1) -> Option<u8> {
     match parameters {
         BoundedFeatureParametersV1::OutputScale { output_scale, .. }
         | BoundedFeatureParametersV1::RangeFraction { output_scale, .. }
         | BoundedFeatureParametersV1::PeriodAndOutputScale { output_scale, .. }
-        | BoundedFeatureParametersV1::WindowAndOutputScale { output_scale, .. } => {
-            Some(*output_scale)
-        }
-        _ => None,
+        | BoundedFeatureParametersV1::WindowAndOutputScale { output_scale, .. }
+        | BoundedFeatureParametersV1::FusedRational { output_scale, .. } => Some(*output_scale),
+        BoundedFeatureParametersV1::None
+        | BoundedFeatureParametersV1::Period { .. }
+        | BoundedFeatureParametersV1::Window { .. }
+        | BoundedFeatureParametersV1::Lag { .. }
+        | BoundedFeatureParametersV1::ComparisonPredicate { .. } => None,
     }
 }
 
@@ -4109,6 +4129,40 @@ pub(crate) mod tests {
         assert_eq!(
             prepare_bounded_feature_program_v1(proposal, &design),
             Err(BoundedFeatureProgramErrorV1::Constant)
+        );
+    }
+
+    /// A fused node's declared output scale is the one the program is checked against.
+    ///
+    /// The lowering writes this declaration into the guest, so if validation derives a different
+    /// scale the two disagree and evaluation returns `Failure::Numeric` on a program that was
+    /// admitted and built. Lane 4 measured exactly that with a two-arm experiment whose only
+    /// variable was this field: equal to the input's scale ran for eighteen ticks, unequal built
+    /// and then returned -1.
+    ///
+    /// The exhaustive match is the structural half of the fix - a new parameter shape carrying an
+    /// output scale cannot compile until it is placed - and this is the half that pins the shape
+    /// that was actually wrong.
+    #[rstest::rstest]
+    fn a_fused_node_declares_its_own_output_scale() {
+        let fused = BoundedFeatureParametersV1::FusedRational {
+            numerator: vec![0],
+            denominator: vec![1],
+            quotient_scale: 4,
+            output_scale: 7,
+            output_unit: "SIGNAL".into(),
+            rounding: BoundedFeatureRoundingV1::NearestTiesToEven,
+        };
+        assert_eq!(declared_output_scale(&fused), Some(7));
+
+        // The shapes that state no scale still state none: the caller falls back to an input's
+        // scale for those on purpose, and widening this would change what they are checked against.
+        assert_eq!(
+            declared_output_scale(&BoundedFeatureParametersV1::Window {
+                window: 4,
+                rounding: None
+            }),
+            None
         );
     }
 

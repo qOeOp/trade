@@ -56,12 +56,15 @@
   `risk_owner`/`risk_writer` 角色对，覆盖 `risk_private` 与 `risk_api` 两个 schema；以及一个只读的 Risk
   custody，它在自己的事务内通过该 Owner 的 `portfolio_api` 读函数重读 Portfolio 自己的 `BOUND` Capacity
   Scope 与当前 Capacity View，并把读到的内容连同读取时所处的证据截面一并封存。它不做任何 Risk 决策 不提交
-  Reservation 不写 fence 也不消费 Trade Intent，因为这四者的输入都没有生产者。两项前置不在本 Owner 手上：
-  角色对与其 schema 属于 `product/rd-workbench/postgres-init/` 下的共享面变更；以及 Portfolio 必须把那两个
-  读函数的执行权授予 `risk_writer`。这两个函数由 `crates/portfolio_owner/src/capacity_scope_postgres.rs` 建出，
-  它的迁移把这两个函数以及该 schema 的 `USAGE` 只授给 `governance_writer`；读者可以直接去那里复核这两条授权，
-  不必采信本句。准入是建造并验证这一条读取的许可，它不授权任何 Risk 决策 任何生产效果 或真实
-  交易。
+  Reservation 不写 fence 也不消费 Trade Intent，因为这四者的输入都没有生产者。曾有两项前置不在本 Owner 手上：
+  角色对与其 schema 属于 `product/rd-workbench/postgres-init/` 下的共享面变更；以及 Portfolio 必须把那些
+  读函数的执行权授予 `risk_writer`。两者现已由 `crates/portfolio_owner/src/capacity_scope_postgres.rs` 满足，
+  它的迁移授出 `portfolio_api` 的 `USAGE`，以及三个函数的执行权：`read_bound_capacity_scope_v1` 与
+  `read_current_capacity_view_v1` 同时授给 `governance_writer` 和 `risk_writer`，`capacity_view_expired_at_v1`
+  只授给 `risk_writer`。第三个之所以存在，是因为第二个在"从未发布过视图"与"发布过但已落出有效窗口"两种情形下
+  都返回 NULL，而本 Owner 必须在不读 `portfolio_private` 的前提下区分它们；Strategy Governance 从不需要这个
+  区分，这就是它不持有该授权的原因。读者可以直接去那里复核这三条授权，不必采信本句。准入是建造并验证这一条
+  读取的许可，它不授权任何 Risk 决策 任何生产效果 或真实交易。
 - **TARGET - Risk Engine：** `crates/risk/src/engine/mod.rs` 里继承的 `RiskEngine` 执行交易前订单校验、`TradingState`
   的 halt 与 reduce 切换、名义额与速率限制，以及 `crates/risk/src/sizing.rs` 的仓位规模计算；它是 capability adoption
   点名的迁移来源。它不返回终态 Risk Decision，不绑定 policy 截面、Portfolio 截面或 Authorization Lineage，只被

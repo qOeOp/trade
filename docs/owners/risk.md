@@ -60,11 +60,16 @@ widening the admitted set requires changing this document first.
   inside its own transaction, re-reads Portfolio's own `BOUND` Capacity Scope and current Capacity View through
   that Owner's `portfolio_api` read functions, and seals what it read together with the evidence cut it read it
   at. It makes no Risk decision, commits no Reservation, writes no fence, and consumes no Trade Intent, because
-  the inputs for all four have no producer. Two prerequisites sit outside this Owner: the role pair and its
-  schemas are a shared-surface change under `product/rd-workbench/postgres-init/`, and Portfolio must grant
-  `risk_writer` execute on those two read functions. They were built by
-  `crates/portfolio_owner/src/capacity_scope_postgres.rs`, whose migration grants them, and `USAGE` on their schema,
-  to `governance_writer` alone; a reader can recheck both grants there rather than take this sentence's word for it. Admission is permission to build and verify this
+  the inputs for all four have no producer. Two prerequisites sat outside this Owner: the role pair and its
+  schemas are a shared-surface change under `product/rd-workbench/postgres-init/`, and Portfolio had to grant
+  `risk_writer` execute on the read functions. Both are now met in
+  `crates/portfolio_owner/src/capacity_scope_postgres.rs`, whose migration grants `USAGE` on `portfolio_api` and
+  execute on three functions: `read_bound_capacity_scope_v1` and `read_current_capacity_view_v1` to
+  `governance_writer` and `risk_writer` alike, and `capacity_view_expired_at_v1` to `risk_writer` alone. The third
+  exists because the second returns NULL both when no view was ever published and when the published one has
+  fallen out of its window, and this Owner must distinguish them without reading `portfolio_private`; Strategy
+  Governance never needed that distinction, which is why it does not hold the grant. A reader can recheck all
+  three grants there rather than take this sentence's word for it. Admission is permission to build and verify this
   one read.
   It authorizes no Risk decision, no production effect, and no real trading.
 - **TARGET - Risk Engine:** the inherited `RiskEngine` in `crates/risk/src/engine/mod.rs` performs pre-trade order
