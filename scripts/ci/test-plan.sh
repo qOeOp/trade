@@ -413,6 +413,24 @@ if [[ "$save_gate_total" -ne 6 ]]; then
   echo "A removed entry stops saving a cache; a new one must also admit the schedule." >&2
   exit 1
 fi
+
+# `main` reaches this workflow as a `schedule` event, never as a push, so anything that selects a
+# Cargo profile or target directory by asking whether the event is a push silently picks the other
+# branch on every scheduled run of `main`. That changes the profile and the cache key without
+# changing a single job's name or status, which is the kind of drift nothing here would report.
+# Select on the ref instead, the way `rust tests` already does.
+profile_by_event="$(awk '
+  /CARGO_CI_PROFILE:|CARGO_TARGET_DIR:/ { inside = 1; start = FNR; next }
+  inside && /event_name == .push./ { print FILENAME ":" FNR ": " $0; inside = 0; next }
+  inside && /^      [A-Z_]+:|^    steps:/ { inside = 0 }
+' "$build_workflow")"
+if [[ -n "$profile_by_event" ]]; then
+  echo "build.yml selects a Cargo profile or target directory by event_name == 'push':" >&2
+  echo "$profile_by_event" >&2
+  echo "main is built by the schedule trigger, so that branch is never taken for main and the" >&2
+  echo "job silently switches profile. Select on github.ref_name instead." >&2
+  exit 1
+fi
 grep -Fq 'rust-cache-workspace-crates: "true"' "$build_workflow"
 grep -Fq 'rust-doctests-linux-x86:' "$build_workflow"
 rust_tests_block="$(sed -n '/^  rust-tests-linux-x86:/,/^  quality:/p' "$build_workflow")"

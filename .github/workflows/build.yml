@@ -463,13 +463,10 @@ jobs:
       - plan
     env:
       CARGO_CI_PROFILE: >-
-        ${{ github.event_name == 'pull_request'
-        && needs.plan.outputs.untrusted_pr != 'false'
-        && 'ci-pr'
-        || github.event_name == 'push'
-        && (github.ref_name == 'main' || github.ref_name == 'test-ci')
-        && 'ci-pr'
-        || 'nextest' }}
+        ${{ (github.event_name == 'pull_request'
+        || github.event_name == 'merge_group'
+        || github.ref_name == 'main' || github.ref_name == 'test-ci')
+        && 'ci-pr' || 'nextest' }}
       CARGO_TARGET_DIR: target/rust-tests-linux-x86
       RUST_BACKTRACE: 1
     steps:
@@ -715,19 +712,14 @@ jobs:
             make: cargo-test-market-data-owner-postgres-isolated
     env:
       CARGO_CI_PROFILE: >-
-        ${{ github.event_name == 'pull_request'
-        && needs.plan.outputs.untrusted_pr != 'false'
-        && 'ci-pr'
-        || github.event_name == 'push'
-        && (github.ref_name == 'main' || github.ref_name == 'test-ci')
-        && 'ci-pr'
-        || 'nextest' }}
+        ${{ (github.event_name == 'pull_request'
+        || github.event_name == 'merge_group'
+        || github.ref_name == 'main' || github.ref_name == 'test-ci')
+        && 'ci-pr' || 'nextest' }}
       CARGO_TARGET_DIR: >-
-        ${{ github.event_name == 'pull_request'
-        && needs.plan.outputs.untrusted_pr != 'false'
-        && 'target/rust-tests-linux-x86'
-        || github.event_name == 'push'
-        && (github.ref_name == 'main' || github.ref_name == 'test-ci')
+        ${{ (github.event_name == 'pull_request'
+        || github.event_name == 'merge_group'
+        || github.ref_name == 'main' || github.ref_name == 'test-ci')
         && 'target/rust-tests-linux-x86'
         || '/home/runner/.cache/cargo-target/rust-tests-linux-x86' }}
       # yamllint disable-line rule:line-length
