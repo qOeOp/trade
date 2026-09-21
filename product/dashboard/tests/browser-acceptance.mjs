@@ -292,7 +292,11 @@ export async function waitForBrowserExpression(browser, expression, { timeoutMs 
   const answers = await readBrowserValue(browser, `Promise.all(${JSON.stringify(endpoints)}.map(async (endpoint) => {
     try {
       const response = await fetch(endpoint, { cache: 'no-store' });
-      return [endpoint, response.status, (await response.text()).slice(0, 1_500)];
+      // A path with no route is answered by the app shell with a 200, so a status alone cannot say
+      // whether the endpoint exists. One probe here reported 200 for a path nothing serves and read
+      // as an answered question. Carry the content type, which separates them.
+      const contentType = response.headers.get('content-type') ?? 'none';
+      return [endpoint, response.status, contentType, (await response.text()).slice(0, 1_500)];
     } catch (error) {
       return [endpoint, 'error', String(error)];
     }
