@@ -87,6 +87,14 @@
   都满足冻结时可用性规则的首个拍、定下该拍的那条规则、以及施加它的那个节点。它从已发布的目录读取
   每条规则，而不是从节点参数去推断，因此一个带着周期却并不为此等待的原语不会被算成在等待。
   它的调用方只有它自己的证明。
+- **CURRENT_PARTIAL - 一次重放的可读经济结果：** V4 BAR joined cut 的消费方在确定性回执之外，一并返回该次
+  运行的规范结果；`crates/strategy_factory/src/owner_backtest_report_v1.rs` 里的 `OwnerBacktestReportV1`
+  把那份结果读成这次运行的成交、收益序列、净收益与最大回撤。最大回撤是算出来的而不是读出来的：默认的
+  `PortfolioAnalyzer` 注册了二十个统计量，`MaxDrawdown` 不在其中，因此没有任何规范结果携带它；报告用同一个
+  统计量从收益序列算出它，而不是再写一份它的实现。当一次运行没有记录任何收益时，净收益与最大回撤是缺席而
+  不是零，于是「取不到的数」与「挣到的零」保持可区分。有序链路为
+  `owner_postgres_v4_moves_through_program_host_and_real_backtest` 打印这份报告，而该条目只喂一根 BAR，
+  因此报告的是一次什么都没成交的运行。没有生产调用方读这份报告，也没有任何 Owner 消费它。
 - **TARGET - `REPAIR_VALIDATION` 请求与结果：** 不存在任何实现。`REPAIR_VALIDATION` 与
   `RepairValidation` 不出现在 `crates/` 或 `product/` 下的任何文件里。
 - **TARGET - `SIMULATOR` 与 `BACKTEST_OPERATIONAL` 原生 repair：** 不存在 Backtest 的 repair 面。四个 Backtest

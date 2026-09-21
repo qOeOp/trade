@@ -29,6 +29,8 @@ pub mod postgres;
 pub mod protected_economic_measurement;
 mod protected_replay;
 mod protected_replay_postgres;
+#[cfg(test)]
+mod protected_round_trip_v1;
 pub use protected_replay::{
     ProtectedConsumedBindingObservationProposalV3, ProtectedReplayResultProposalV3,
     ResolvedProtectedReplayRequestSetV1, SealedProtectedReplayResultV1,
@@ -821,6 +823,7 @@ mod tests {
         ProtectedReplayOwnerErrorV1, ProtectedReplayResultDraftV1, ProtectedReplayResultDraftV2,
         commit_protected_owner_result_v1, commit_protected_owner_result_v2, test_observation,
     };
+    use crate::protected_round_trip_v1::run_protected_economic_round_trip_v1;
     use vibe_backtest_owner_contracts::protected_economic_metric::{
         ProtectedEconomicComputationV1, ProtectedEconomicCoverageRuleV1, ProtectedEconomicMetricV1,
     };
@@ -1213,12 +1216,6 @@ mod tests {
         applicable: bool,
     }
 
-    /// The exact canonical bytes a real BacktestEngine/Sim Exchange round trip produced, shared
-    /// with `tests/protected_economic_measurement.rs` rather than copied, so the gate and that
-    /// proof cannot drift onto different corpora.
-    const CANONICAL_PROTECTED_RESULT: &[u8] =
-        include_bytes!("../tests/data/protected_round_trip_canonical_result_v1.json");
-
     impl ProtectedTerminalLineageV1 {
         const fn carries_measurement(self) -> bool {
             self.applicable && matches!(self.diagnostic, DiagnosticCategoryV2::NoExecutionDefect)
@@ -1348,6 +1345,14 @@ mod tests {
             reference: identity(name),
             digest: digest(byte),
         };
+        // Run the corpus rather than remember it. This used to be canonical bytes frozen into the
+        // tree by the pull request that first produced them, which meant the number this entry
+        // commits could not notice that the engine had changed. Now the engine, the simulated
+        // venue and the portfolio all run in this round, and the number is whatever they report.
+        let canonical_result = run_protected_economic_round_trip_v1()
+            .expect("the protected round trip runs and opens a position")
+            .to_bytes()
+            .expect("the round trip's canonical result encodes");
         // `variant` perturbs sealed evidence every shape carries, so a second proposal for the same
         // attempt is a different meaning for every lineage. Perturbing only the measurement would
         // leave the shapes that carry none byte-identical to the committed Result.
@@ -1358,13 +1363,15 @@ mod tests {
             );
             let basis = &request.frozen_basis;
             // #633 sealed this: a measurement is what one run's canonical bytes support, and no
-            // caller can construct or edit it. The bytes are that PR's own fixture - a real
-            // BacktestEngine/Sim Exchange round trip - so the number this entry commits is the one
-            // the run reports (-20 basis points, scale 4), not one chosen to clear a threshold.
-            // The gate's economic floor sits at -100 in `chain_economic_policy`, below the corpus
-            // rather than above it, which is why the economic-pass lineage is honest.
+            // caller can construct or edit it. The bytes come from this round's own real
+            // BacktestEngine/Sim Exchange round trip, so the number this entry commits is the one
+            // that run reports, not one chosen to clear a threshold. The gate's economic floor
+            // sits at -100 in `chain_economic_policy`, below the corpus rather than above it,
+            // which is why the economic-pass lineage is honest. The corpus is shaped so its
+            // position spans the run window, because the coverage rule refuses a measurement taken
+            // over too little of it; that shaping fixes coverage, never the return.
             let sealed_measurement = derive_protected_economic_measurement_v1(
-                CANONICAL_PROTECTED_RESULT,
+                &canonical_result,
                 // Resolve the computation from the plan's own frozen metric reference rather than
                 // naming a catalogue member here. Naming one would make this entry agree with
                 // itself: it would derive under whatever metric the test picked, while
