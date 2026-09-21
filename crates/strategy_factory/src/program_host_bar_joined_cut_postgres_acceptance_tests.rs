@@ -464,6 +464,7 @@ use crate::{
         SealedExploratoryReplayReadbackV2,
         issue_sealed_exploratory_replay_readback_for_acceptance_v2,
     },
+    owner_backtest_report_v1::OwnerBacktestReportV1,
     prepare_program_host_from_owner_bar_joined_cut_v1,
     program_host_v2::{
         BAR_HOUR_CLOSE, BAR_MINUTE_CLOSE, BAR_MINUTE_HIGH, BAR_MINUTE_LOW, BAR_MINUTE_OPEN,
@@ -1238,7 +1239,8 @@ async fn owner_postgres_v4_moves_through_program_host_and_real_backtest() -> any
     let handoff = prepared.into_program_host_bar_handoff_v1()?;
     anyhow::ensure!(handoff.sample_projection_digest() == projection_digest);
     anyhow::ensure!(handoff.schedule_dependency_set_digest() == schedule_digest);
-    let readback = run_prepared_owner_bar_joined_cut_backtest_v1(handoff)?;
+    let run = run_prepared_owner_bar_joined_cut_backtest_v1(handoff)?;
+    let readback = run.receipt();
     anyhow::ensure!(readback.consumed());
     anyhow::ensure!(readback.projection_digest() == projection_digest);
     anyhow::ensure!(readback.schedule_dependency_set_digest() == schedule_digest);
@@ -1246,6 +1248,18 @@ async fn owner_postgres_v4_moves_through_program_host_and_real_backtest() -> any
     anyhow::ensure!(readback.checkpoint_after() != [0; 32]);
     anyhow::ensure!(readback.terminal_checkpoint() != [0; 32]);
     anyhow::ensure!(readback.checkpoint_after() != readback.terminal_checkpoint());
+
+    // What the run earned, traded, and risked. This entry feeds one BAR, so the numbers below are
+    // the numbers of a one-bar run; they are printed rather than asserted because the run's
+    // economics are an observation of the admitted corpus, not a property this entry fixes.
+    let report = OwnerBacktestReportV1::from_canonical_result(run.canonical_result())?;
+    println!("owner v4 bar joined cut backtest report\n{report}");
+    anyhow::ensure!(report.outcome == "completed");
+    anyhow::ensure!(report.fill_count() == report.fills.len());
+    anyhow::ensure!(
+        report.iterations >= 1,
+        "a consumed BAR joined cut must have driven at least one engine iteration"
+    );
     Ok(())
 }
 

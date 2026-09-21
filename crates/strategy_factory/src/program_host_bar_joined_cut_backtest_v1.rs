@@ -9,7 +9,9 @@ use serde::Serialize;
 use strategy_factory_program_sdk::lifecycle_v1::{
     EnvelopePayloadV1, EventOrderKeyV1, LifecycleEnvelopeV1, LifecycleKind,
 };
-use vibe_backtest::{config::BacktestEngineConfig, engine::BacktestEngine};
+use vibe_backtest::{
+    config::BacktestEngineConfig, engine::BacktestEngine, result::CanonicalBacktestResult,
+};
 use vibe_common::actor::DataActor;
 use vibe_core::UnixNanos;
 use vibe_model::{
@@ -314,15 +316,41 @@ impl DataActor for OwnerBarJoinedCutBacktestStrategyV1 {
     }
 }
 
+/// What one real Backtest run of a V4 BAR handoff observed.
+///
+/// The two readbacks answer different questions and are deliberately kept apart: the receipt is the
+/// deterministic consumption evidence, and the canonical result is what the run earned and traded.
+/// Adding economics to the receipt would blur what an assertion about the receipt means.
+#[derive(Clone, Debug)]
+pub struct OwnerBarJoinedCutBacktestRunV1 {
+    receipt: OwnerBarJoinedCutBacktestReadbackV1,
+    canonical_result: CanonicalBacktestResult,
+}
+
+impl OwnerBarJoinedCutBacktestRunV1 {
+    /// Returns the deterministic consumption receipt.
+    #[must_use]
+    pub const fn receipt(&self) -> &OwnerBarJoinedCutBacktestReadbackV1 {
+        &self.receipt
+    }
+
+    /// Returns the canonical result of the run, the authority for every economic number.
+    #[must_use]
+    pub const fn canonical_result(&self) -> &CanonicalBacktestResult {
+        &self.canonical_result
+    }
+}
+
 /// Consumes one V4 BAR handoff in the real Backtest engine.
 ///
 /// # Errors
 ///
-/// Returns an error if handoff revalidation, scheduling, Host execution, or complete terminal
-/// consumption fails. Callback failure is promoted from Backtest logging to the returned result.
+/// Returns an error if handoff revalidation, scheduling, Host execution, complete terminal
+/// consumption, or canonical projection fails. Callback failure is promoted from Backtest logging
+/// to the returned result.
 pub fn run_prepared_owner_bar_joined_cut_backtest_v1(
     handoff: PreparedProgramHostBarHandoffV1,
-) -> anyhow::Result<OwnerBarJoinedCutBacktestReadbackV1> {
+) -> anyhow::Result<OwnerBarJoinedCutBacktestRunV1> {
     let trace = Rc::new(std::cell::RefCell::new(
         OwnerBarJoinedCutBacktestReadbackV1::default(),
     ));
@@ -344,7 +372,13 @@ pub fn run_prepared_owner_bar_joined_cut_backtest_v1(
         observed.consumed,
         "Owner V4 BAR Backtest returned without consumption"
     );
-    Ok(observed)
+    // `run_analysis` stays off: it gates only the post-run performance log, which `bypass_logging`
+    // suppresses anyway. Statistics are computed on demand by the canonical projection below.
+    let canonical_result = engine.get_canonical_result()?;
+    Ok(OwnerBarJoinedCutBacktestRunV1 {
+        receipt: observed,
+        canonical_result,
+    })
 }
 
 fn lifecycle_envelope(

@@ -99,6 +99,16 @@ admitted set requires changing this document first.
   imposed it. It reads each rule from the published catalog rather than inferring it from the node's
   parameters, so a primitive that carries a period without waiting for one is not counted as waiting.
   Its callers are its own proofs.
+- **CURRENT_PARTIAL - readable economics of a replayed run:** the V4 BAR joined-cut consumer returns the
+  canonical result of its run beside the deterministic receipt, and `OwnerBacktestReportV1` in
+  `crates/strategy_factory/src/owner_backtest_report_v1.rs` reads that result into the run's executions,
+  return series, net return and maximum drawdown. Maximum drawdown is derived rather than read: the default
+  `PortfolioAnalyzer` registers twenty statistics and `MaxDrawdown` is not among them, so no canonical result
+  carries it, and the report computes it from the return series with that same statistic rather than with a
+  second implementation of it. Net return and maximum drawdown are absent rather than zero when a run recorded
+  no returns, so an unavailable number and an earned zero stay distinguishable. The ordered chain prints the
+  report for `owner_postgres_v4_moves_through_program_host_and_real_backtest`, which feeds one BAR and so
+  reports a run that executed nothing. No production caller reads the report and no Owner consumes it.
 - **TARGET - `REPAIR_VALIDATION` request and result:** no implementation exists. `REPAIR_VALIDATION` and
   `RepairValidation` appear in no file under `crates/` or `product/`.
 - **TARGET - `SIMULATOR` and `BACKTEST_OPERATIONAL` native repair:** no Backtest repair surface exists. The only
