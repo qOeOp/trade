@@ -232,3 +232,41 @@ test("malformed and oversized Owner responses remain unavailable", async () => {
     assert.deepEqual(result.projection.items, []);
   }
 });
+
+// The reason code says "transport" for an 8s abort, a refused connection and a DNS failure alike.
+// Entry 28 of the ordered chain has failed repeatedly reporting exactly that code, and the one
+// question it cannot answer is which of those happened - because the catch discarded the error.
+// This pins that the gateway says it, so the next failure arrives as evidence.
+test("a failed Owner read names the error and how long it took", async () => {
+  const errors = [];
+  const previous = console.error;
+  console.error = (line) => errors.push(String(line));
+  try {
+    const result = await readArtifactDirectoryGatewayV1({
+      baseUrl: "http://owner.invalid",
+      token: "t",
+      fetcher: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        throw Object.assign(new Error("The operation was aborted due to timeout"), {
+          name: "TimeoutError",
+        });
+      },
+    });
+    assert.equal(result.status, 503);
+    assert.equal(result.projection.reason, "OWNER_TRANSPORT_UNAVAILABLE");
+  } finally {
+    console.error = previous;
+  }
+  assert.equal(errors.length, 1, `expected one report, got ${JSON.stringify(errors)}`);
+  const [reported] = errors;
+  assert.match(reported, /TimeoutError/u,
+    `the report must name the error class, not just "transport": ${reported}`);
+  assert.match(reported, /aborted due to timeout/u,
+    `the report must carry the message: ${reported}`);
+  // A real elapsed reading, not a constant: the fetcher above waits before throwing.
+  const elapsed = Number(/after (\d+)ms/u.exec(reported)?.[1]);
+  assert.ok(Number.isFinite(elapsed) && elapsed >= 10,
+    `the report must carry a real elapsed time, read ${elapsed}: ${reported}`);
+  assert.match(reported, /8000ms budget/u,
+    `the report must say what budget was being measured against: ${reported}`);
+});

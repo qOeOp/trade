@@ -206,3 +206,34 @@ test("invalid identity, malformed Owner data and transport errors remain unavail
     assert.equal(result.projection.outcome, null);
   }
 });
+
+// Same reason as in the directory gateway: "transport" covers an abort, a refused connection and a
+// DNS failure alike, and the catch used to discard which one it was.
+test("a failed Owner readback read names the error and how long it took", async () => {
+  const errors = [];
+  const previous = console.error;
+  console.error = (line) => errors.push(String(line));
+  try {
+    const result = await readArtifactHistoricalGatewayV1({
+      buildRequestIdentity: "artifact-build-1",
+      attemptIdentity: "artifact-attempt-1",
+      baseUrl: "http://owner.invalid",
+      token: "t",
+      fetcher: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        throw Object.assign(new Error("The operation was aborted due to timeout"), {
+          name: "TimeoutError",
+        });
+      },
+    });
+    assert.equal(result.status, 503);
+  } finally {
+    console.error = previous;
+  }
+  assert.equal(errors.length, 1, `expected one report, got ${JSON.stringify(errors)}`);
+  const [reported] = errors;
+  assert.match(reported, /TimeoutError/u, `must name the error class: ${reported}`);
+  const elapsed = Number(/after (\d+)ms/u.exec(reported)?.[1]);
+  assert.ok(Number.isFinite(elapsed) && elapsed >= 10,
+    `must carry a real elapsed time, read ${elapsed}: ${reported}`);
+});
