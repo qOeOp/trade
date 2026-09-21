@@ -99,9 +99,12 @@ use super::sealed_replay_input::{
 use super::store_admission::RawSharedTimeEvidenceSnapshotV1;
 #[cfg(test)]
 use super::store_admission::RawSharedTimeHistoryRowV1;
+// The port and the BAR schedule evidence are needed in every build: the arrangement that reads a
+// schedule through the port is no longer inside a `cfg(not(test))` arm, so that its order can be
+// driven rather than only deployed. The rest stay gated with their production-only readers.
+use super::store_admission::{AdmittedMarketDataSnapshotPort, BarScheduleStorageEvidenceV1};
 #[cfg(not(test))]
 use super::store_admission::{
-    AdmittedMarketDataSnapshotPort, BarScheduleStorageEvidenceV1,
     MarketDataPitEvaluationStorageEvidence, MarketDataPitTerminalStorageEvidence,
     MarketDataSourceBindingStorageEvidence, StrategyInputSampleProjectionStorageEvidenceV2,
     StrategyInputSampleProjectionStorageEvidenceV3,
@@ -7947,25 +7950,41 @@ impl BarScheduleResolverV1 for MarketDataReadPostgres {
         }
         #[cfg(not(test))]
         {
-            let evidence = self
-                .admitted_port
-                .resolve_bar_schedule_v1(*locator.digest.as_bytes())
-                .await
-                .map_err(|_| super::bar_schedule::BarScheduleError::StoreUnavailable)?;
-            let evidence =
-                evidence.ok_or(super::bar_schedule::BarScheduleError::UnknownIdentity)?;
-            let readback = verify_admitted_bar_schedule_v1(locator.digest, &evidence)
-                .map_err(|_| super::bar_schedule::BarScheduleError::StoreUnavailable)?;
-            self.admitted_port
-                .revalidate_bar_schedule_v1_before_return()
-                .await
-                .map_err(|_| super::bar_schedule::BarScheduleError::StoreUnavailable)?;
-            Ok(readback)
+            resolve_bar_schedule_through_admitted_port_v1(&self.admitted_port, locator).await
         }
     }
 }
 
-#[cfg(not(test))]
+/// Reads one BAR schedule through an admitted port, in the order the custody argument requires.
+///
+/// Three steps, and the arrangement is the property: the port's own read, then verification of the
+/// evidence it returned, then the port's revalidation before the value is handed back. Skipping the
+/// middle step would return evidence nothing checked; skipping the last would return a value proven
+/// against an admission that may have expired while the read was in flight.
+///
+/// **Deliberately not `cfg`-gated, although its only production caller is.** While this lived inside
+/// the `cfg(not(test))` arm of `resolve_bar_schedule_v1`, the arrangement did not exist in a test
+/// build at all - not untested but absent - so no proof could reach it and the first execution of
+/// this order would have happened in a deployment. The three methods it calls each have their own
+/// coverage; what had none was the order, and an order cannot be observed from outside the build
+/// that contains it.
+pub(super) async fn resolve_bar_schedule_through_admitted_port_v1(
+    port: &AdmittedMarketDataSnapshotPort,
+    locator: &UntrustedBarScheduleLocatorV1,
+) -> Result<BarScheduleReadbackV1, super::bar_schedule::BarScheduleError> {
+    let evidence = port
+        .resolve_bar_schedule_v1(*locator.digest.as_bytes())
+        .await
+        .map_err(|_| super::bar_schedule::BarScheduleError::StoreUnavailable)?;
+    let evidence = evidence.ok_or(super::bar_schedule::BarScheduleError::UnknownIdentity)?;
+    let readback = verify_admitted_bar_schedule_v1(locator.digest, &evidence)
+        .map_err(|_| super::bar_schedule::BarScheduleError::StoreUnavailable)?;
+    port.revalidate_bar_schedule_v1_before_return()
+        .await
+        .map_err(|_| super::bar_schedule::BarScheduleError::StoreUnavailable)?;
+    Ok(readback)
+}
+
 fn verify_admitted_bar_schedule_v1(
     expected_identity: BarScheduleIdentity,
     evidence: &BarScheduleStorageEvidenceV1,
