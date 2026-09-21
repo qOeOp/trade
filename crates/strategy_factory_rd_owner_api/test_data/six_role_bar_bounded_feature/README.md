@@ -1,9 +1,15 @@
 # The six-role BAR Design and the meaning declared against it
 
 `first_cycle_design_crosses_publish_bindings_and_declare_over_http`, in `src/main.rs`, sends these
-two documents across the three routes a first-cycle Design crosses: it publishes the Design's R&D
-role intent, admits Market Data binding custody from that intent, and declares the meaning against
-the custody.
+two documents across two of the routes a first-cycle Design crosses: it admits Market Data binding
+custody from the Design's published R&D role intent, and declares the meaning against that custody.
+
+Publishing the intent is the step before those two and is not driven here. For this Design it
+cannot succeed: the intent table is `ON CONFLICT (design_identity) DO NOTHING` followed by a
+read-back, so publishing one Design twice under different Research locators is refused, and the
+in-process entry has already published this one. It is also the only Design the chain issues
+binding custody for, so no Design available here has both an unpublished intent and the custody
+these two routes need.
 
 They are committed rather than built here because their producers,
 `six_role_bar_bounded_feature_design_v1` and `six_role_bar_bounded_feature_meaning_v1`, live in

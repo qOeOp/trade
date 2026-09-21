@@ -4553,17 +4553,22 @@ mod tests {
         );
     }
 
-    /// The three routes a first-cycle Design crosses, driven in order over HTTP.
+    /// Binding custody and declaration, driven in order over HTTP against a published intent.
     ///
     /// `product_edge_postgres::tests::declared_bounded_feature_program_assembles_from_owner_custody_and_freezes`
     /// proves this path against the Owner directly. It cannot prove the transport, because it
     /// never crosses one: it calls the Owner in-process. `market_data_pit::router` is private to
-    /// this binary, so nothing anywhere drives these three routes in order, and while nothing did,
-    /// the third one's refusal read as a missing capability rather than a missing call.
+    /// this binary, so nothing drove these routes in order, and while nothing did, the
+    /// declaration's refusal read as a missing capability rather than a missing call.
     ///
-    /// The order is the Design's own first cycle. A Design with no Composer operation to attest it
-    /// is authenticated by the R&D role intent it publishes; binding custody is issued against
-    /// that intent; and only then does declared meaning have custody to assemble against.
+    /// Publishing the role intent is the step before these two and is deliberately not driven
+    /// here, because for this Design it cannot succeed: `rd_design_role_intents_v1` is
+    /// `ON CONFLICT (design_identity) DO NOTHING` and then reads the stored row back, so a second
+    /// publish of one Design under a different Research locator is refused as a conflict. The
+    /// in-process entry above already published this Design's intent, and it is the only Design
+    /// the chain issues Market Data binding custody for, so no Design here can have both an
+    /// unpublished intent and the custody these two routes need. Driving that route would take a
+    /// Design with its own corpus, which is the gap this entry does not close.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[ignore = "requires the ordered chain's PostgreSQL and the Market Data corpus it supplies"]
     async fn first_cycle_design_crosses_publish_bindings_and_declare_over_http() {
@@ -4655,10 +4660,22 @@ mod tests {
                     .await
                     .unwrap();
                 let status = response.status();
+                // The rejection code is a header, not a body field, and it is the only part that
+                // says which refusal this is. Reporting the body alone cost a run to learn that
+                // two different 409s are spelled the same way in it.
+                let code = response
+                    .headers()
+                    .get("x-rd-rejection-code")
+                    .and_then(|value| value.to_str().ok())
+                    .unwrap_or("-")
+                    .to_owned();
                 let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
                     .await
                     .unwrap();
-                (status, String::from_utf8_lossy(&bytes).into_owned())
+                (
+                    status,
+                    format!("[{code}] {}", String::from_utf8_lossy(&bytes)),
+                )
             };
 
         // The pair is committed rather than built here: its fixtures are private to
@@ -4690,17 +4707,6 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         );
-
-        let (status, body) = post(
-            app.clone(),
-            "/v1/strategy-designs/publish-role-intent",
-            serde_json::json!({
-                "research_request_locator": locator,
-                "design": design,
-            }),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK, "publishing the role intent: {body}");
 
         let (status, body) = post(
             app.clone(),
