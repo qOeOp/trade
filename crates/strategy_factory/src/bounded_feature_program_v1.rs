@@ -27,6 +27,35 @@ pub const BOUNDED_FEATURE_CATALOG_SEMANTIC_VERSION_V1: u16 = 1;
 pub const BOUNDED_FEATURE_PLUGIN_ABI_V1: u16 = 3;
 pub const BOUNDED_FEATURE_NUMERIC_FAILURE_V1: &str = "bfp.numeric.failure.no-state-change.v1";
 pub const OWNER_SAMPLE_COORDINATE_SOURCE_V1: &str = "strategy.value-ref.owner-sample-coordinate.v1";
+
+/// The eleven proposal ports a bounded plugin's manifest declares, in lifecycle order.
+///
+/// The order is load-bearing: `ProposalWiringV2` has one field per port and the two are paired by
+/// position, so reordering this list rewires every Design built from it.
+///
+/// Five files pair these eleven ports with their value types at b3600f5e6 - this one and
+/// `develop_composer_sealed_acceptance_v2`, `program_host_v2_backtest_tests`,
+/// `source_research_composer_postgres_v2` and `strategy_design_v2_tests`. This constant replaces
+/// one of the five, the copy that lived in this file's own tests. The other four are untouched,
+/// so the duplication is reduced and not resolved; a copy that drifts still produces a Design
+/// whose manifest and whose proposal wiring disagree, and it fails far from the copy that caused
+/// it.
+pub(crate) const BOUNDED_FEATURE_PROPOSAL_OUTPUT_PORTS_V1: [(&str, ValueTypeV2); 11] = [
+    ("proposal.position-intent.v1", ValueTypeV2::PositionIntentV1),
+    ("proposal.target-variant.v1", ValueTypeV2::TargetVariantV1),
+    ("proposal.target-position.v1", ValueTypeV2::I64),
+    ("proposal.target-weight.v1", ValueTypeV2::I32),
+    ("proposal.rebalance-sequence.v1", ValueTypeV2::U64),
+    ("proposal.reconciliation-target.v1", ValueTypeV2::I64),
+    (
+        "proposal.protection-variant.v1",
+        ValueTypeV2::ProtectionVariantV1,
+    ),
+    ("proposal.stop-loss.v1", ValueTypeV2::I64),
+    ("proposal.take-profit.v1", ValueTypeV2::I64),
+    ("proposal.trailing-distance.v1", ValueTypeV2::U64),
+    ("proposal.trailing-stop.v1", ValueTypeV2::I64),
+];
 const DOMAIN: &[u8] = b"strategy.bounded-feature-program.v1\0";
 const MAGIC: &[u8; 8] = b"BFP1\x01\0\0\0";
 const MAX_ID_BYTES: usize = 255;
@@ -2234,7 +2263,7 @@ const fn gcd(mut a: u32, mut b: u32) -> u32 {
     a
 }
 
-fn coordinate_port_id(identity: BindingDigest) -> String {
+pub(crate) fn coordinate_port_id(identity: BindingDigest) -> String {
     let mut value = String::with_capacity(100);
     value.push_str("strategy.input.sample-coordinate.v1.");
 
@@ -3238,22 +3267,7 @@ pub(crate) mod tests {
     const TIMER_STATE: &str = "research.state.timer-fixture.v1";
     const NODE: &str = "research.node.bfp.v1";
     const POST_STATE: &str = "plugin.state.post.v1";
-    const OUTPUTS: [(&str, ValueTypeV2); 11] = [
-        ("proposal.position-intent.v1", ValueTypeV2::PositionIntentV1),
-        ("proposal.target-variant.v1", ValueTypeV2::TargetVariantV1),
-        ("proposal.target-position.v1", ValueTypeV2::I64),
-        ("proposal.target-weight.v1", ValueTypeV2::I32),
-        ("proposal.rebalance-sequence.v1", ValueTypeV2::U64),
-        ("proposal.reconciliation-target.v1", ValueTypeV2::I64),
-        (
-            "proposal.protection-variant.v1",
-            ValueTypeV2::ProtectionVariantV1,
-        ),
-        ("proposal.stop-loss.v1", ValueTypeV2::I64),
-        ("proposal.take-profit.v1", ValueTypeV2::I64),
-        ("proposal.trailing-distance.v1", ValueTypeV2::U64),
-        ("proposal.trailing-stop.v1", ValueTypeV2::I64),
-    ];
+    use super::BOUNDED_FEATURE_PROPOSAL_OUTPUT_PORTS_V1 as OUTPUTS;
 
     fn node_output(node_id: &str, port_id: &str) -> ValueRefV2 {
         ValueRefV2::NodeOutput {
