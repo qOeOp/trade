@@ -110,6 +110,13 @@ repos:
         files: "\\.(rs|py|md|toml|yaml|yml)$"
         # Bilibili Note is a Chinese-language research product by contract.
         exclude: ^(docs/.*\.zh\.md|services/bilibili-note-mcp/)
+      - id: test-non-latin-text
+        name: test non-Latin text hook
+        description: Verifies each blocked script is rejected identically in every locale
+        entry: bash .pre-commit-hooks/test_check_non_latin_text.sh
+        language: system
+        files: ^(\.pre-commit-config\.yaml|\.pre-commit-hooks/(check|test_check)_non_latin_text\.sh)$
+        pass_filenames: false
       - id: check-toml-codegen
         name: check toml-codegen
         description: Ensures TOML files don't contain the 'codegen-backend' keyword
