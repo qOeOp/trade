@@ -5533,7 +5533,7 @@ pub(crate) mod tests {
     /// cannot notice.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[ignore = "requires the ordered canonical Owner PostgreSQL gate"]
-    async fn second_request_under_one_principal_is_refused_before_the_lineage_advances() {
+    async fn second_request_under_one_principal_resolves_through_the_frontier_arm() {
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
         let operator_authorization_database_url = test_database
             .database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter)

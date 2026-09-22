@@ -158,7 +158,7 @@ absent is a proof, and each absence was measured rather than assumed.
 
   Those two are not what keeps the arm unreached. This ledger previously recorded that they were, and that the
   second basis would be written by the same `load_or_create_basis_in_transaction` the first one used. That was
-  read off the code rather than driven, and driving it refutes it. `second_request_under_one_principal_is_refused_before_the_lineage_advances`
+  read off the code rather than driven, and driving it refutes it. `second_request_under_one_principal_resolves_through_the_frontier_arm`
   supplies exactly the missing configuration - one deployment, one principal, one authorized scope, two requests,
   each with an admission of its own - and no second basis is written. The second request meets that function's
   `head_lineage == lineage_digest` branch, which is written for a replay of the request that created the head: it
