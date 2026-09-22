@@ -4678,35 +4678,7 @@ mod tests {
 
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
 
-        // The Market Data admissions are composed from the environment and the chain exports
-        // neither URL, so both would be absent and the routes would answer 503 without saying the
-        // answer was about configuration. The roles are pinned in SQL rather than by convention:
-        // the composer cut lock refuses any `session_user` outside
-        // ('market_data_reader','market_data_owner'), and the reader's connect checks sixteen ACL
-        // flags exactly, including that it reaches a published intent only through a function and
-        // holds no direct table privilege. A wrong role fails the way a missing URL does.
-        unsafe {
-            env::set_var(
-                "MARKET_DATA_OWNER_DATABASE_URL",
-                test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner),
-            );
-        }
-        unsafe {
-            env::set_var(
-                "MARKET_DATA_RD_ROLE_SET_DATABASE_URL",
-                test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataReader),
-            );
-        }
-
-        let bindings = bootstrap_market_data_strategy_input_bindings()
-            .await
-            .unwrap();
-        // Asserted before any request, so a configuration answer cannot arrive as a 503 and be
-        // read as the Owner's answer about this Design.
-        assert!(
-            bindings.is_some(),
-            "the strategy input binding admission must be composed before its routes are driven",
-        );
+        let bindings = composed_market_data_binding_admission(&test_database).await;
 
         let rd_pool =
             sqlx::PgPool::connect(test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner))
@@ -4901,23 +4873,6 @@ mod tests {
 
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
 
-        // The Market Data admissions are composed from the environment and the chain exports
-        // neither URL, so without these the binding admission is absent and the route that admits
-        // this Design would answer 503 about its own configuration rather than about the Design.
-        // The entry before this one sets the same two for the same reason.
-        unsafe {
-            env::set_var(
-                "MARKET_DATA_OWNER_DATABASE_URL",
-                test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner),
-            );
-        }
-        unsafe {
-            env::set_var(
-                "MARKET_DATA_RD_ROLE_SET_DATABASE_URL",
-                test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataReader),
-            );
-        }
-
         let rd_pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(2)
             .connect(test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner))
@@ -4988,15 +4943,7 @@ mod tests {
             .await
             .unwrap(),
         );
-        let bindings = bootstrap_market_data_strategy_input_bindings()
-            .await
-            .unwrap();
-        // Asserted before any request, so a configuration answer cannot arrive as a 503 and be read
-        // as this Owner's answer about this Design.
-        assert!(
-            bindings.is_some(),
-            "the strategy input binding admission must be composed before its routes are driven",
-        );
+        let bindings = composed_market_data_binding_admission(&test_database).await;
         let app =
             bounded_feature_program::router(owner, token_digest).merge(market_data_pit::router(
                 bootstrap_market_data_pit_intake().await.unwrap(),
@@ -5168,6 +5115,50 @@ mod tests {
             serde_json::to_vec(&authored).unwrap(),
             "the committed freeze must hold the Design this entry authored",
         );
+    }
+
+    /// Composes the Market Data binding admission the ordered chain's entries drive their routes
+    /// with, and refuses to hand back one that is absent.
+    ///
+    /// The admission is composed from the environment and the chain exports neither URL, so an
+    /// entry that omits them receives `None`, and its routes then answer 503 about their own
+    /// configuration rather than about the Design under test.
+    ///
+    /// The two variables and the check that they worked live in one function because separating
+    /// them is how they came apart: an entry took the assertion from its neighbour without the
+    /// block three hundred lines above that makes it hold, and failed on the assertion rather than
+    /// on the omission. The comment there predicted that failure exactly and did not prevent it,
+    /// because code is copied upward and comments are not read upward. Here the assertion cannot
+    /// be taken without the setup.
+    ///
+    /// The roles are pinned in SQL rather than by convention: the composer cut lock refuses any
+    /// `session_user` outside ('market_data_reader','market_data_owner'), and the reader's connect
+    /// checks sixteen ACL flags exactly, including that it reaches a published intent only through
+    /// a function and holds no direct table privilege. A wrong role fails the way a missing URL
+    /// does.
+    async fn composed_market_data_binding_admission(
+        test_database: &CanonicalOwnerPostgresTestDatabaseV1,
+    ) -> Option<Arc<dyn StrategyInputBindingAdmissionV1>> {
+        unsafe {
+            env::set_var(
+                "MARKET_DATA_OWNER_DATABASE_URL",
+                test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner),
+            );
+        }
+        unsafe {
+            env::set_var(
+                "MARKET_DATA_RD_ROLE_SET_DATABASE_URL",
+                test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataReader),
+            );
+        }
+        let bindings = bootstrap_market_data_strategy_input_bindings()
+            .await
+            .unwrap();
+        assert!(
+            bindings.is_some(),
+            "the strategy input binding admission must be composed before its routes are driven",
+        );
+        bindings
     }
 
     fn bearer_headers(token: &str) -> HeaderMap {
