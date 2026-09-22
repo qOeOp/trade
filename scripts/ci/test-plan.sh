@@ -1,10 +1,17 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
 fixture_root="$(mktemp -d "${TMPDIR:-/tmp}/trade-ci-plan-tests.XXXXXX")"
 source_repo="$fixture_root/source"
 trap 'rm -rf "$fixture_root"' EXIT
+# Most checks below are a bare `grep -Fq` or `[[ ]]`. Under `set -e` a miss ends this script, and
+# neither form prints anything, so a red arrives as an exit code plus whichever progress line it
+# stopped after - which narrows the check to a section, not to a line. This names it.
+# `-E` on the `set` line above is what also reaches the checks that sit inside a function: without
+# it a failure in a function body fires no trap at all. A function called as `if ! func` still
+# reports nothing, because the ERR trap follows the same suppression `set -e` does in a condition.
+trap 'echo "test-plan.sh:${LINENO}: this check failed: ${BASH_COMMAND}" >&2' ERR
 
 git init -q --initial-branch=main "$source_repo"
 git -C "$source_repo" config user.email ci-plan@example.invalid
@@ -549,6 +556,46 @@ for chain_channel in .github/workflows/build.yml .github/workflows/owner-chains.
     exit 1
   fi
 done
+# Both gate scripts assert with bare commands in places, and a bare command that fails under `set -e`
+# prints nothing: run 35650397288 spent a hosted runner on the ordered chain and left the log holding
+# nothing at all between the `make` line and `Error 1`. The ERR trap is what turns that into a line
+# and a command; `-E` is what carries it into a function body, and that is not a detail - without
+# `-E` a failure inside a function fires no trap at all, at the line or at the call site, and every
+# check in these two scripts lives inside one.
+for named_gate in scripts/ci/test-plan.sh scripts/ci/test-rd-owner-postgres.bash; do
+  if ! grep -q '^set -Eeuo pipefail$' "$repo_root/$named_gate"; then
+    echo "$named_gate does not set -E, so a check failing inside a function fires no ERR trap and" >&2
+    echo "the script ends with an empty log instead of the line that refused." >&2
+    exit 1
+  fi
+  if ! grep -q "^trap '.*BASH_COMMAND.*' ERR\$" "$repo_root/$named_gate"; then
+    echo "$named_gate has no ERR trap naming the failing command, so a bare assertion in it fails" >&2
+    echo "with no message and a red says only that the script exited non-zero." >&2
+    exit 1
+  fi
+done
+# The chain's own summary must be printed before the server log, never after it. That dump is
+# unbounded - 270157 lines on run 35703938333 - and while GitHub keeps the whole job log, two of the
+# three commands people read one with return a silently shortened copy: measured on that run, the raw
+# jobs/<id>/logs API gave 297380 lines and held the summary, `gh run view --log` gave 119412 and
+# `gh run view --job <id> --log` gave 78108, and neither of those two held it. A summary printed
+# after the dump is therefore readable only by someone who already knows which command to use.
+# `|| true` on both greps, so an absent side is reported below rather than ending this script inside
+# a command substitution.
+chain_script="$repo_root/scripts/ci/test-rd-owner-postgres.bash"
+chain_summary_line="$(grep -n 'ordered chain stopped at entry' "$chain_script" | head -1 | cut -d: -f1 || true)"
+chain_dump_line="$(grep -n 'postgres server log (chain container)' "$chain_script" | head -1 | cut -d: -f1 || true)"
+if [[ -z "$chain_summary_line" || -z "$chain_dump_line" ]]; then
+  echo "test-rd-owner-postgres.bash no longer prints both the chain summary and the server log, so" >&2
+  echo "their order cannot be read: summary='$chain_summary_line' dump='$chain_dump_line'." >&2
+  exit 1
+fi
+if [[ "$chain_summary_line" -ge "$chain_dump_line" ]]; then
+  echo "test-rd-owner-postgres.bash prints its chain summary at line $chain_summary_line, after the" >&2
+  echo "unbounded server log at line $chain_dump_line. A truncated hosted log keeps the dump and" >&2
+  echo "drops the one line that says which entry stopped the run." >&2
+  exit 1
+fi
 grep -Fq 'rust-cache-workspace-crates: "true"' "$build_workflow"
 grep -Fq 'rust-doctests-linux-x86:' "$build_workflow"
 rust_tests_block="$(sed -n '/^  rust-tests-linux-x86:/,/^  quality:/p' "$build_workflow")"

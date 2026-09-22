@@ -892,7 +892,32 @@ mod discarded_cause_tests {
                 .iter()
                 .rfind(|(start, _)| *start < at)
                 .expect("every site sits inside a function");
-            let body = &source[start..at];
+
+            // The innermost block this site sits in, not the whole function before it. Every
+            // recording sits in the same `{ … }` as the value it explains - a `map_err` closure,
+            // an `ok_or_else` closure, or the branch that returns. Scanning from the function
+            // start instead let one instrumented site vouch for every later site in the same
+            // function: removing the recording from `read_terminal`'s second arm passed, because
+            // its first arm's recording was still in the window. All four original mutations
+            // happened to remove the first recording in their function, so none of them showed it.
+            let mut depth = 0_isize;
+            let mut block = start;
+
+            for (offset, character) in source[start..at].char_indices().rev() {
+                match character {
+                    '}' => depth += 1,
+                    '{' => {
+                        if depth == 0 {
+                            block = start + offset;
+                            break;
+                        }
+
+                        depth -= 1;
+                    }
+                    _ => {}
+                }
+            }
+            let body = &source[block..at];
 
             if UNIMPLEMENTED_PRODUCTION_STAGES.contains(&name) {
                 unbuilt += 1;

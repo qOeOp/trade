@@ -11,6 +11,7 @@
 //! ```
 
 use std::collections::BTreeMap;
+use std::fmt::Debug;
 
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
@@ -69,7 +70,7 @@ impl InstrumentEconomicTermsPostgresOwnerV1 {
             sqlx::query(statement)
                 .execute(&pool)
                 .await
-                .map_err(store_error)?;
+                .map_err(|cause| store_error(&cause))?;
         }
         let owner = Self { pool };
         owner.assert_acl().await?;
@@ -85,24 +86,28 @@ impl InstrumentEconomicTermsPostgresOwnerV1 {
         &self,
         fact: &InstrumentEconomicTermsFactV1,
     ) -> Result<InstrumentEconomicTermsReadbackV1, InstrumentEconomicTermsPostgresErrorV1> {
-        let mut tx = self.pool.begin().await.map_err(store_error)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|cause| store_error(&cause))?;
         sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
             .execute(&mut *tx)
             .await
-            .map_err(store_error)?;
+            .map_err(|cause| store_error(&cause))?;
         lock_protected_tables_in_transaction(&mut tx).await?;
         assert_acl_in_transaction(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock($1)")
             .bind(ADVISORY_LOCK_KEY)
             .execute(&mut *tx)
             .await
-            .map_err(store_error)?;
+            .map_err(|cause| store_error(&cause))?;
 
         assert_complete_ledger_in_transaction(&mut tx).await?;
 
         let rows = sqlx::query(
             "SELECT f.fact_identity,f.meaning_identity,f.fact_bytes,f.custody_digest,r.receipt_identity,r.receipt_bytes,r.custody_digest AS receipt_custody_digest,s.instrument_identity AS selection_instrument_identity,s.venue_identity AS selection_venue_identity,s.account_scope_identity AS selection_account_scope_identity,s.quote_currency AS selection_quote_currency FROM instrument_owner_private.economic_terms_facts_v1 f JOIN instrument_owner_private.economic_terms_receipts_v1 r ON r.fact_identity=f.fact_identity JOIN instrument_owner_private.economic_terms_selection_v1 s ON s.fact_identity=f.fact_identity",
-        ).fetch_all(&mut *tx).await.map_err(store_error)?;
+        ).fetch_all(&mut *tx).await.map_err(|cause| store_error(&cause))?;
 
         for row in rows {
             let readback = decode_row(&row)?;
@@ -110,7 +115,7 @@ impl InstrumentEconomicTermsPostgresOwnerV1 {
                 if readback.fact().canonical_bytes() != fact.canonical_bytes() {
                     return Err(InstrumentEconomicTermsPostgresErrorV1::MeaningConflict);
                 }
-                tx.commit().await.map_err(store_error)?;
+                tx.commit().await.map_err(|cause| store_error(&cause))?;
                 return Ok(readback);
             }
         }
@@ -120,17 +125,17 @@ impl InstrumentEconomicTermsPostgresOwnerV1 {
         let fact_insert = sqlx::query("INSERT INTO instrument_owner_private.economic_terms_facts_v1(fact_identity,meaning_identity,fact_bytes,custody_digest) VALUES($1,$2,$3,$4)")
             .bind(fact.identity().as_slice()).bind(fact.meaning_identity().as_slice())
             .bind(fact.canonical_bytes()).bind(custody.as_slice())
-            .execute(&mut *tx).await.map_err(classify_insert)?;
+            .execute(&mut *tx).await.map_err(|cause| classify_insert(&cause))?;
         let receipt_insert = sqlx::query("INSERT INTO instrument_owner_private.economic_terms_receipts_v1(receipt_identity,fact_identity,receipt_bytes,custody_digest) VALUES($1,$2,$3,$4)")
             .bind(receipt.identity().as_slice()).bind(fact.identity().as_slice())
             .bind(receipt.canonical_bytes()).bind(custody.as_slice())
-            .execute(&mut *tx).await.map_err(classify_insert)?;
+            .execute(&mut *tx).await.map_err(|cause| classify_insert(&cause))?;
         let input = fact.input();
         let selection_insert = sqlx::query("INSERT INTO instrument_owner_private.economic_terms_selection_v1(fact_identity,instrument_identity,venue_identity,account_scope_identity,quote_currency) VALUES($1,$2,$3,$4,$5)")
             .bind(fact.identity().as_slice()).bind(&input.instrument_identity)
             .bind(&input.venue_identity).bind(&input.account_scope_identity)
             .bind(&input.quote_currency)
-            .execute(&mut *tx).await.map_err(classify_insert)?;
+            .execute(&mut *tx).await.map_err(|cause| classify_insert(&cause))?;
 
         if fact_insert.rows_affected() != 1
             || receipt_insert.rows_affected() != 1
@@ -145,7 +150,7 @@ impl InstrumentEconomicTermsPostgresOwnerV1 {
                 .map_err(corrupt)?,
         )
         .await?;
-        tx.commit().await.map_err(store_error)?;
+        tx.commit().await.map_err(|cause| store_error(&cause))?;
         Ok(readback)
     }
 
@@ -158,16 +163,20 @@ impl InstrumentEconomicTermsPostgresOwnerV1 {
         &self,
         locator: InstrumentEconomicTermsLocatorV1,
     ) -> Result<InstrumentEconomicTermsReadbackV1, InstrumentEconomicTermsPostgresErrorV1> {
-        let mut tx = self.pool.begin().await.map_err(store_error)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|cause| store_error(&cause))?;
         sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
             .execute(&mut *tx)
             .await
-            .map_err(store_error)?;
+            .map_err(|cause| store_error(&cause))?;
         lock_protected_tables_in_transaction(&mut tx).await?;
         assert_acl_in_transaction(&mut tx).await?;
         assert_complete_ledger_in_transaction(&mut tx).await?;
         let readback = resolve_in_transaction(&mut tx, locator).await?;
-        tx.commit().await.map_err(store_error)?;
+        tx.commit().await.map_err(|cause| store_error(&cause))?;
         Ok(readback)
     }
 
@@ -205,11 +214,15 @@ impl InstrumentEconomicTermsPostgresOwnerV1 {
             members[1].fact().canonical_identity(),
         ];
 
-        let mut tx = self.pool.begin().await.map_err(store_error)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|cause| store_error(&cause))?;
         sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
             .execute(&mut *tx)
             .await
-            .map_err(store_error)?;
+            .map_err(|cause| store_error(&cause))?;
         lock_protected_tables_in_transaction(&mut tx).await?;
         assert_acl_in_transaction(&mut tx).await?;
         assert_complete_ledger_in_transaction(&mut tx).await?;
@@ -222,7 +235,7 @@ impl InstrumentEconomicTermsPostgresOwnerV1 {
         .bind(quote_currency)
         .fetch_all(&mut *tx)
         .await
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
 
         let expected_digests = [
             *members[0].fact().identity().as_bytes(),
@@ -270,14 +283,18 @@ impl InstrumentEconomicTermsPostgresOwnerV1 {
         let second = readbacks[pair[1]]
             .take()
             .ok_or(InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)?;
-        tx.commit().await.map_err(store_error)?;
+        tx.commit().await.map_err(|cause| store_error(&cause))?;
         Ok([first, second])
     }
 
     async fn assert_acl(&self) -> Result<(), InstrumentEconomicTermsPostgresErrorV1> {
-        let mut tx = self.pool.begin().await.map_err(store_error)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|cause| store_error(&cause))?;
         assert_acl_in_transaction(&mut tx).await?;
-        tx.rollback().await.map_err(store_error)
+        tx.rollback().await.map_err(|cause| store_error(&cause))
     }
 }
 
@@ -288,7 +305,7 @@ async fn resolve_in_transaction(
     let row = sqlx::query(
         "SELECT f.fact_identity,f.meaning_identity,f.fact_bytes,f.custody_digest,r.receipt_identity,r.receipt_bytes,r.custody_digest AS receipt_custody_digest,s.instrument_identity AS selection_instrument_identity,s.venue_identity AS selection_venue_identity,s.account_scope_identity AS selection_account_scope_identity,s.quote_currency AS selection_quote_currency FROM instrument_owner_private.economic_terms_facts_v1 f JOIN instrument_owner_private.economic_terms_receipts_v1 r ON r.fact_identity=f.fact_identity JOIN instrument_owner_private.economic_terms_selection_v1 s ON s.fact_identity=f.fact_identity WHERE f.fact_identity=$1 AND r.receipt_identity=$2",
     ).bind(locator.fact_identity().as_slice()).bind(locator.receipt_identity().as_slice())
-        .fetch_optional(&mut **tx).await.map_err(store_error)?
+        .fetch_optional(&mut **tx).await.map_err(|cause| store_error(&cause))?
         .ok_or(InstrumentEconomicTermsPostgresErrorV1::UnknownLocator)?;
     decode_row(&row)
 }
@@ -323,7 +340,7 @@ async fn lock_protected_tables_in_transaction(
     )
     .execute(&mut **tx)
     .await
-    .map_err(store_error)?;
+    .map_err(|cause| store_error(&cause))?;
     Ok(())
 }
 
@@ -421,7 +438,7 @@ async fn assert_acl_in_transaction(
           AND has_table_privilege(current_user,'instrument_owner_private.economic_terms_selection_v1','SELECT,INSERT,UPDATE,DELETE')
         FROM pg_namespace n WHERE n.nspname='instrument_owner_private'
         ",
-    ).fetch_one(&mut **tx).await.map_err(store_error)?;
+    ).fetch_one(&mut **tx).await.map_err(|cause| store_error(&cause))?;
 
     if admitted {
         Ok(())
@@ -438,7 +455,7 @@ async fn assert_complete_ledger_in_transaction(
     )
     .fetch_one(&mut **tx)
     .await
-    .map_err(store_error)?;
+    .map_err(|cause| store_error(&cause))?;
 
     if has_orphan {
         Err(InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)
@@ -450,25 +467,39 @@ async fn assert_complete_ledger_in_transaction(
 fn decode_row(
     row: &sqlx::postgres::PgRow,
 ) -> Result<InstrumentEconomicTermsReadbackV1, InstrumentEconomicTermsPostgresErrorV1> {
-    let fact_identity: Vec<u8> = row.try_get("fact_identity").map_err(store_error)?;
-    let meaning_identity: Vec<u8> = row.try_get("meaning_identity").map_err(store_error)?;
-    let fact_bytes: Vec<u8> = row.try_get("fact_bytes").map_err(store_error)?;
-    let fact_custody: Vec<u8> = row.try_get("custody_digest").map_err(store_error)?;
-    let receipt_identity: Vec<u8> = row.try_get("receipt_identity").map_err(store_error)?;
-    let receipt_bytes: Vec<u8> = row.try_get("receipt_bytes").map_err(store_error)?;
-    let receipt_custody: Vec<u8> = row.try_get("receipt_custody_digest").map_err(store_error)?;
+    let fact_identity: Vec<u8> = row
+        .try_get("fact_identity")
+        .map_err(|cause| store_error(&cause))?;
+    let meaning_identity: Vec<u8> = row
+        .try_get("meaning_identity")
+        .map_err(|cause| store_error(&cause))?;
+    let fact_bytes: Vec<u8> = row
+        .try_get("fact_bytes")
+        .map_err(|cause| store_error(&cause))?;
+    let fact_custody: Vec<u8> = row
+        .try_get("custody_digest")
+        .map_err(|cause| store_error(&cause))?;
+    let receipt_identity: Vec<u8> = row
+        .try_get("receipt_identity")
+        .map_err(|cause| store_error(&cause))?;
+    let receipt_bytes: Vec<u8> = row
+        .try_get("receipt_bytes")
+        .map_err(|cause| store_error(&cause))?;
+    let receipt_custody: Vec<u8> = row
+        .try_get("receipt_custody_digest")
+        .map_err(|cause| store_error(&cause))?;
     let selection_instrument_identity: String = row
         .try_get("selection_instrument_identity")
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
     let selection_venue_identity: String = row
         .try_get("selection_venue_identity")
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
     let selection_account_scope_identity: String = row
         .try_get("selection_account_scope_identity")
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
     let selection_quote_currency: String = row
         .try_get("selection_quote_currency")
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
     let fact = InstrumentEconomicTermsFactV1::parse_canonical(&fact_bytes).map_err(corrupt)?;
     let receipt = InstrumentEconomicTermsReceiptV1::parse(&receipt_bytes).map_err(corrupt)?;
     let custody = custody_digest(&fact_bytes, &receipt_bytes);
@@ -503,10 +534,13 @@ fn custody_digest(fact: &[u8], receipt: &[u8]) -> [u8; 32] {
 fn corrupt(_: InstrumentEconomicTermsErrorV1) -> InstrumentEconomicTermsPostgresErrorV1 {
     InstrumentEconomicTermsPostgresErrorV1::CorruptReadback
 }
-fn store_error(_: sqlx::Error) -> InstrumentEconomicTermsPostgresErrorV1 {
+#[track_caller]
+fn store_error(cause: &impl Debug) -> InstrumentEconomicTermsPostgresErrorV1 {
+    crate::owner::storage_diagnostic::refused_by_store_at(cause);
     InstrumentEconomicTermsPostgresErrorV1::StoreUnavailable
 }
-fn classify_insert(error: sqlx::Error) -> InstrumentEconomicTermsPostgresErrorV1 {
+#[track_caller]
+fn classify_insert(error: &sqlx::Error) -> InstrumentEconomicTermsPostgresErrorV1 {
     if error
         .as_database_error()
         .and_then(sqlx::error::DatabaseError::code)

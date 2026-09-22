@@ -8,6 +8,8 @@
     reason = "Calendar product composition is intentionally not registered"
 )]
 
+use std::fmt::Debug;
+
 use sqlx::{Postgres, Row, Transaction};
 
 use crate::owner::{
@@ -46,7 +48,7 @@ pub(super) async fn install_calendar_schema_v1(
         sqlx::query(*statement)
             .execute(&mut **transaction)
             .await
-            .map_err(store_error)?;
+            .map_err(|cause| store_error(&cause))?;
     }
     Ok(())
 }
@@ -101,7 +103,7 @@ pub(super) async fn register_calendar_v1(
     .bind(to_i64(prior_sequence)?)
     .fetch_optional(&mut **transaction)
     .await
-    .map_err(store_error)?;
+    .map_err(|cause| store_error(&cause))?;
 
     if updated != Some(to_i64(append_sequence)?) {
         return Err(CalendarErrorV1::StoreUntrusted);
@@ -119,25 +121,25 @@ pub(super) async fn resolve_calendar_in_transaction_v1(
     sqlx::query("SAVEPOINT market_data_calendar_catalog_v1")
         .execute(&mut **transaction)
         .await
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
     let result = resolve_calendar_inner(transaction, request, proposals, authenticated).await;
     match result {
         Ok(readback) => {
             sqlx::query("RELEASE SAVEPOINT market_data_calendar_catalog_v1")
                 .execute(&mut **transaction)
                 .await
-                .map_err(store_error)?;
+                .map_err(|cause| store_error(&cause))?;
             Ok(readback)
         }
         Err(e) => {
             sqlx::query("ROLLBACK TO SAVEPOINT market_data_calendar_catalog_v1")
                 .execute(&mut **transaction)
                 .await
-                .map_err(store_error)?;
+                .map_err(|cause| store_error(&cause))?;
             sqlx::query("RELEASE SAVEPOINT market_data_calendar_catalog_v1")
                 .execute(&mut **transaction)
                 .await
-                .map_err(store_error)?;
+                .map_err(|cause| store_error(&cause))?;
             Err(e)
         }
     }
@@ -183,9 +185,11 @@ async fn validate_fact_heads_and_rows(
 ) -> Result<(), CalendarErrorV1> {
     for fact in &prepared.facts {
         let stored = sqlx::query("SELECT fact_bytes FROM market_data_private.calendar_facts_v1 WHERE fact_identity=$1 FOR UPDATE")
-            .bind(fact.identity().as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(store_error)?;
+            .bind(fact.identity().as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
         if let Some(row) = stored {
-            let bytes: Vec<u8> = row.try_get("fact_bytes").map_err(store_error)?;
+            let bytes: Vec<u8> = row
+                .try_get("fact_bytes")
+                .map_err(|cause| store_error(&cause))?;
             if bytes != fact.canonical_bytes() {
                 return Err(CalendarErrorV1::StoreUntrusted);
             }
@@ -193,7 +197,7 @@ async fn validate_fact_heads_and_rows(
             continue;
         }
         let head = sqlx::query("SELECT lineage_root,head_identity,correction_sequence FROM market_data_private.calendar_heads_v1 WHERE calendar_identity=$1 AND civil_day=$2 FOR UPDATE")
-            .bind(fact.calendar_identity()).bind(fact.day()).fetch_optional(&mut **transaction).await.map_err(store_error)?;
+            .bind(fact.calendar_identity()).bind(fact.day()).fetch_optional(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
 
         match (
             head,
@@ -204,7 +208,9 @@ async fn validate_fact_heads_and_rows(
             (Some(row), Some(predecessor), sequence) => {
                 let lineage = row_digest(&row, "lineage_root")?;
                 let head_identity = row_digest(&row, "head_identity")?;
-                let head_sequence: i64 = row.try_get("correction_sequence").map_err(store_error)?;
+                let head_sequence: i64 = row
+                    .try_get("correction_sequence")
+                    .map_err(|cause| store_error(&cause))?;
 
                 if lineage != fact.lineage_root()
                     || head_identity != predecessor
@@ -216,13 +222,14 @@ async fn validate_fact_heads_and_rows(
                     return Err(CalendarErrorV1::CorrectionHeadMismatch);
                 }
                 let predecessor_row = sqlx::query("SELECT calendar_identity,civil_day,lineage_root,correction_sequence,fact_bytes FROM market_data_private.calendar_facts_v1 WHERE fact_identity=$1 FOR UPDATE")
-                    .bind(predecessor.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(store_error)?
+                    .bind(predecessor.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(|cause| store_error(&cause))?
                     .ok_or(CalendarErrorV1::InvalidPredecessor)?;
                 let predecessor_calendar: Vec<u8> = predecessor_row
                     .try_get("calendar_identity")
-                    .map_err(store_error)?;
-                let predecessor_day: i32 =
-                    predecessor_row.try_get("civil_day").map_err(store_error)?;
+                    .map_err(|cause| store_error(&cause))?;
+                let predecessor_day: i32 = predecessor_row
+                    .try_get("civil_day")
+                    .map_err(|cause| store_error(&cause))?;
 
                 if predecessor_calendar != fact.calendar_identity()
                     || predecessor_day != fact.day()
@@ -230,8 +237,9 @@ async fn validate_fact_heads_and_rows(
                 {
                     return Err(CalendarErrorV1::InvalidPredecessor);
                 }
-                let prior_bytes: Vec<u8> =
-                    predecessor_row.try_get("fact_bytes").map_err(store_error)?;
+                let prior_bytes: Vec<u8> = predecessor_row
+                    .try_get("fact_bytes")
+                    .map_err(|cause| store_error(&cause))?;
                 let prior_fact = decode_fact(&prior_bytes, predecessor)?;
                 let catalog = load_catalog_for_fact(transaction, fact).await?;
                 let prior_catalog = load_catalog_for_fact(transaction, &prior_fact).await?;
@@ -262,9 +270,11 @@ async fn validate_stored_lineage(
 ) -> Result<(), CalendarErrorV1> {
     let _ = owner_observation_ns;
     let head = sqlx::query("SELECT head_identity,correction_sequence FROM market_data_private.calendar_heads_v1 WHERE calendar_identity=$1 AND civil_day=$2")
-        .bind(selected.calendar_identity()).bind(selected.day()).fetch_optional(&mut **transaction).await.map_err(store_error)?
+        .bind(selected.calendar_identity()).bind(selected.day()).fetch_optional(&mut **transaction).await.map_err(|cause| store_error(&cause))?
         .ok_or(CalendarErrorV1::StoreUntrusted)?;
-    let head_sequence: i64 = head.try_get("correction_sequence").map_err(store_error)?;
+    let head_sequence: i64 = head
+        .try_get("correction_sequence")
+        .map_err(|cause| store_error(&cause))?;
     if row_digest(&head, "head_identity")? != selected.identity()
         || u64::try_from(head_sequence).ok() != Some(selected.correction_sequence())
     {
@@ -335,7 +345,7 @@ async fn persist_facts_and_heads(
             .bind(fact.identity().as_bytes().as_slice()).bind(fact.calendar_identity()).bind(fact.day())
             .bind(fact.lineage_root().as_bytes().as_slice()).bind(to_i64(fact.correction_sequence())?)
             .bind(fact.predecessor_identity().map(|value| value.as_bytes().to_vec())).bind(fact.canonical_bytes())
-            .execute(&mut **transaction).await.map_err(store_error)?;
+            .execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
 
         if inserted.rows_affected() == 0 {
             continue;
@@ -343,7 +353,7 @@ async fn persist_facts_and_heads(
         sqlx::query("INSERT INTO market_data_private.calendar_heads_v1(calendar_identity,civil_day,lineage_root,head_identity,correction_sequence) VALUES($1,$2,$3,$4,$5) ON CONFLICT(calendar_identity,civil_day) DO UPDATE SET lineage_root=EXCLUDED.lineage_root,head_identity=EXCLUDED.head_identity,correction_sequence=EXCLUDED.correction_sequence")
             .bind(fact.calendar_identity()).bind(fact.day()).bind(fact.lineage_root().as_bytes().as_slice())
             .bind(fact.identity().as_bytes().as_slice()).bind(to_i64(fact.correction_sequence())?)
-            .execute(&mut **transaction).await.map_err(store_error)?;
+            .execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     }
     Ok(())
 }
@@ -356,20 +366,20 @@ async fn persist_aggregate(
         .bind(readback.cut.request_identity.as_bytes().as_slice()).bind(readback.cut.request_meaning_digest.as_bytes().as_slice())
         .bind(readback.cut.identity().as_bytes().as_slice()).bind(readback.cut.canonical_bytes())
         .bind(readback.identity().as_bytes().as_slice()).bind(readback.canonical_bytes())
-        .execute(&mut **transaction).await.map_err(store_error)?;
+        .execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
 
     for (day, identity, digest) in &readback.cut.days {
         sqlx::query("INSERT INTO market_data_private.calendar_cut_days_v1(request_identity,civil_day,fact_identity,fact_digest) VALUES($1,$2,$3,$4)")
             .bind(readback.cut.request_identity.as_bytes().as_slice()).bind(*day).bind(identity.as_bytes().as_slice()).bind(digest.as_bytes().as_slice())
-            .execute(&mut **transaction).await.map_err(store_error)?;
+            .execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     }
     sqlx::query("INSERT INTO market_data_private.calendar_receipts_v1(request_identity,receipt_identity,receipt_bytes,append_sequence) VALUES($1,$2,$3,$4)")
         .bind(readback.cut.request_identity.as_bytes().as_slice()).bind(readback.receipt_identity().as_bytes().as_slice())
         .bind(readback.receipt.canonical_bytes.as_ref()).bind(to_i64(readback.receipt.append_sequence)?)
-        .execute(&mut **transaction).await.map_err(store_error)?;
+        .execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     sqlx::query("INSERT INTO market_data_private.calendar_outbox_v1(request_identity,outbox_identity,receipt_bytes) VALUES($1,$2,$3)")
         .bind(readback.cut.request_identity.as_bytes().as_slice()).bind(readback.outbox_identity().as_bytes().as_slice())
-        .bind(readback.receipt.canonical_bytes.as_ref()).execute(&mut **transaction).await.map_err(store_error)?;
+        .bind(readback.receipt.canonical_bytes.as_ref()).execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     Ok(())
 }
 
@@ -387,21 +397,29 @@ async fn load_calendar_v1(
         .bind(request_identity.as_bytes().as_slice())
         .fetch_optional(&mut **transaction)
         .await
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
     let Some(row) = row else {
         let partial: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM market_data_private.calendar_cuts_v1 WHERE request_identity=$1) OR EXISTS(SELECT 1 FROM market_data_private.calendar_receipts_v1 WHERE request_identity=$1) OR EXISTS(SELECT 1 FROM market_data_private.calendar_outbox_v1 WHERE request_identity=$1)")
-            .bind(request_identity.as_bytes().as_slice()).fetch_one(&mut **transaction).await.map_err(store_error)?;
+            .bind(request_identity.as_bytes().as_slice()).fetch_one(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
         return if partial {
             Err(CalendarErrorV1::StoreUntrusted)
         } else {
             Ok(None)
         };
     };
-    let readback_bytes: Vec<u8> = row.try_get("readback_bytes").map_err(store_error)?;
+    let readback_bytes: Vec<u8> = row
+        .try_get("readback_bytes")
+        .map_err(|cause| store_error(&cause))?;
     let readback = decode_readback(&readback_bytes)?;
-    let receipt_bytes: Vec<u8> = row.try_get("receipt_bytes").map_err(store_error)?;
-    let outbox_bytes: Vec<u8> = row.try_get("outbox_receipt_bytes").map_err(store_error)?;
-    let append_sequence: i64 = row.try_get("append_sequence").map_err(store_error)?;
+    let receipt_bytes: Vec<u8> = row
+        .try_get("receipt_bytes")
+        .map_err(|cause| store_error(&cause))?;
+    let outbox_bytes: Vec<u8> = row
+        .try_get("outbox_receipt_bytes")
+        .map_err(|cause| store_error(&cause))?;
+    let append_sequence: i64 = row
+        .try_get("append_sequence")
+        .map_err(|cause| store_error(&cause))?;
     if readback.cut.request_identity != request_identity
         || row_digest(&row, "request_meaning_digest")? != readback.cut.request_meaning_digest
         || row_digest(&row, "cut_identity")? != readback.cut.identity()
@@ -425,7 +443,7 @@ async fn verify_day_rows(
     readback: &CalendarReadbackV1,
 ) -> Result<(), CalendarErrorV1> {
     let rows = sqlx::query("SELECT d.civil_day,d.fact_identity,d.fact_digest,f.fact_bytes FROM market_data_private.calendar_cut_days_v1 d JOIN market_data_private.calendar_facts_v1 f ON f.fact_identity=d.fact_identity WHERE d.request_identity=$1 ORDER BY d.civil_day")
-        .bind(readback.cut.request_identity.as_bytes().as_slice()).fetch_all(&mut **transaction).await.map_err(store_error)?;
+        .bind(readback.cut.request_identity.as_bytes().as_slice()).fetch_all(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     if rows.len() != readback.cut.days.len() {
         return Err(CalendarErrorV1::StoreUntrusted);
     }
@@ -435,8 +453,12 @@ async fn verify_day_rows(
         .zip(readback.cut.days.iter())
         .zip(readback.facts())
     {
-        let day: i32 = row.try_get("civil_day").map_err(store_error)?;
-        let fact_bytes: Vec<u8> = row.try_get("fact_bytes").map_err(store_error)?;
+        let day: i32 = row
+            .try_get("civil_day")
+            .map_err(|cause| store_error(&cause))?;
+        let fact_bytes: Vec<u8> = row
+            .try_get("fact_bytes")
+            .map_err(|cause| store_error(&cause))?;
         if day != expected.0
             || row_digest(row, "fact_identity")? != expected.1
             || row_digest(row, "fact_digest")? != expected.2
@@ -446,7 +468,7 @@ async fn verify_day_rows(
         }
         load_catalog_for_fact(transaction, fact).await?;
         let head: Option<(Vec<u8>, i64)> = sqlx::query_as("SELECT head_identity,correction_sequence FROM market_data_private.calendar_heads_v1 WHERE calendar_identity=$1 AND civil_day=$2 FOR SHARE")
-            .bind(fact.calendar_identity()).bind(fact.day()).fetch_optional(&mut **transaction).await.map_err(store_error)?;
+            .bind(fact.calendar_identity()).bind(fact.day()).fetch_optional(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
         if head.as_ref().is_none_or(|(identity, sequence)| {
             identity.as_slice() != fact.identity().as_bytes().as_slice()
                 || u64::try_from(*sequence).ok() != Some(fact.correction_sequence())
@@ -463,14 +485,16 @@ async fn state_for_update(
     let database_name: String = sqlx::query_scalar("SELECT current_database()")
         .fetch_one(&mut **transaction)
         .await
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
     let generation = codec::digest(codec::STORE_DOMAIN, database_name.as_bytes());
     sqlx::query("INSERT INTO market_data_private.calendar_state_v1(singleton,store_generation_identity,append_sequence) VALUES(TRUE,$1,0) ON CONFLICT(singleton) DO NOTHING")
-        .bind(generation.as_bytes().as_slice()).execute(&mut **transaction).await.map_err(store_error)?;
+        .bind(generation.as_bytes().as_slice()).execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     let row = sqlx::query("SELECT store_generation_identity,append_sequence FROM market_data_private.calendar_state_v1 WHERE singleton FOR UPDATE")
-        .fetch_one(&mut **transaction).await.map_err(store_error)?;
+        .fetch_one(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     let stored = row_digest(&row, "store_generation_identity")?;
-    let sequence: i64 = row.try_get("append_sequence").map_err(store_error)?;
+    let sequence: i64 = row
+        .try_get("append_sequence")
+        .map_err(|cause| store_error(&cause))?;
 
     if stored != generation {
         return Err(CalendarErrorV1::StoreUntrusted);
@@ -494,7 +518,7 @@ async fn advisory_lock(
         .bind(key)
         .execute(&mut **transaction)
         .await
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
     Ok(())
 }
 
@@ -502,7 +526,7 @@ fn row_digest(
     row: &sqlx::postgres::PgRow,
     name: &str,
 ) -> Result<CalendarIdentityV1, CalendarErrorV1> {
-    let bytes: Vec<u8> = row.try_get(name).map_err(store_error)?;
+    let bytes: Vec<u8> = row.try_get(name).map_err(|cause| store_error(&cause))?;
     let array: [u8; 32] = bytes
         .try_into()
         .map_err(|_| CalendarErrorV1::StoreUntrusted)?;
@@ -512,7 +536,9 @@ fn row_digest(
 fn to_i64(value: u64) -> Result<i64, CalendarErrorV1> {
     i64::try_from(value).map_err(|_| CalendarErrorV1::SequenceOverflow)
 }
-fn store_error(_: sqlx::Error) -> CalendarErrorV1 {
+#[track_caller]
+fn store_error(cause: &impl Debug) -> CalendarErrorV1 {
+    crate::owner::storage_diagnostic::refused_by_store_at(cause);
     CalendarErrorV1::StoreUnavailable
 }
 

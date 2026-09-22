@@ -2,6 +2,8 @@
 
 #![allow(dead_code, reason = "Session is intentionally not globally installed")]
 
+use std::fmt::Debug;
+
 use crate::owner::{
     calendar::UntrustedCalendarLocatorV1,
     reference_fact_catalog::{ReferenceFactCatalogValueV1, UntrustedReferenceFactCatalogLocatorV1},
@@ -55,7 +57,7 @@ pub(super) async fn install_session_schema_v1(
         sqlx::query(*s)
             .execute(&mut **tx)
             .await
-            .map_err(store_error)?;
+            .map_err(|cause| store_error(&cause))?;
     }
     Ok(())
 }
@@ -68,25 +70,25 @@ pub(super) async fn resolve_session_in_transaction_v1(
     sqlx::query("SAVEPOINT market_data_session_v1")
         .execute(&mut **tx)
         .await
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
     let result = resolve_inner(tx, request, inputs).await;
     match result {
         Ok(v) => {
             sqlx::query("RELEASE SAVEPOINT market_data_session_v1")
                 .execute(&mut **tx)
                 .await
-                .map_err(store_error)?;
+                .map_err(|cause| store_error(&cause))?;
             Ok(v)
         }
         Err(e) => {
             sqlx::query("ROLLBACK TO SAVEPOINT market_data_session_v1")
                 .execute(&mut **tx)
                 .await
-                .map_err(store_error)?;
+                .map_err(|cause| store_error(&cause))?;
             sqlx::query("RELEASE SAVEPOINT market_data_session_v1")
                 .execute(&mut **tx)
                 .await
-                .map_err(store_error)?;
+                .map_err(|cause| store_error(&cause))?;
             Err(e)
         }
     }
@@ -178,20 +180,20 @@ async fn resolve_inner(
     sqlx::query("SELECT pg_advisory_xact_lock(6004799503164006721)")
         .execute(&mut **tx)
         .await
-        .map_err(store_error)?;
-    let mut state:Option<(Vec<u8>,i64)>=sqlx::query_as("SELECT store_generation_identity,append_sequence FROM market_data_private.session_state_v1 WHERE singleton FOR UPDATE").fetch_optional(&mut **tx).await.map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
+    let mut state:Option<(Vec<u8>,i64)>=sqlx::query_as("SELECT store_generation_identity,append_sequence FROM market_data_private.session_state_v1 WHERE singleton FOR UPDATE").fetch_optional(&mut **tx).await.map_err(|cause| store_error(&cause))?;
     if state.is_none() {
         let seed: String = sqlx::query_scalar(
             "SELECT current_database() || ':' || pg_catalog.gen_random_uuid()::text",
         )
         .fetch_one(&mut **tx)
         .await
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
         let generation = codec::digest(
             b"vibe.market-data.session-store-generation.v1\0",
             seed.as_bytes(),
         );
-        sqlx::query("INSERT INTO market_data_private.session_state_v1(singleton,store_generation_identity,append_sequence) VALUES(TRUE,$1,0)").bind(generation.as_bytes().as_slice()).execute(&mut **tx).await.map_err(store_error)?;
+        sqlx::query("INSERT INTO market_data_private.session_state_v1(singleton,store_generation_identity,append_sequence) VALUES(TRUE,$1,0)").bind(generation.as_bytes().as_slice()).execute(&mut **tx).await.map_err(|cause| store_error(&cause))?;
         state = Some((generation.as_bytes().to_vec(), 0));
     }
     let state = state.ok_or(SessionErrorV1::StoreUntrusted)?;
@@ -203,14 +205,14 @@ async fn resolve_inner(
     let readback = seal_readback_v1(prepared, generation, sequence)?;
     for fact in readback.facts() {
         advisory_lock(tx, fact.identity).await?;
-        let existing:Option<Vec<u8>>=sqlx::query_scalar("SELECT fact_bytes FROM market_data_private.session_facts_v1 WHERE fact_identity=$1 FOR UPDATE").bind(fact.identity.as_bytes().as_slice()).fetch_optional(&mut **tx).await.map_err(store_error)?;
+        let existing:Option<Vec<u8>>=sqlx::query_scalar("SELECT fact_bytes FROM market_data_private.session_facts_v1 WHERE fact_identity=$1 FOR UPDATE").bind(fact.identity.as_bytes().as_slice()).fetch_optional(&mut **tx).await.map_err(|cause| store_error(&cause))?;
         if let Some(bytes) = existing {
             if bytes != fact.canonical_bytes() {
                 return Err(SessionErrorV1::StoreUntrusted);
             }
         } else {
             if let Some(predecessor) = fact.predecessor_identity {
-                let prior:Option<StoredSessionPredecessorRow>=sqlx::query_as("SELECT lineage_root,session_identity,trading_day,interval_ordinal,fact_bytes FROM market_data_private.session_facts_v1 WHERE fact_identity=$1 FOR SHARE").bind(predecessor.as_bytes().as_slice()).fetch_optional(&mut **tx).await.map_err(store_error)?;
+                let prior:Option<StoredSessionPredecessorRow>=sqlx::query_as("SELECT lineage_root,session_identity,trading_day,interval_ordinal,fact_bytes FROM market_data_private.session_facts_v1 WHERE fact_identity=$1 FOR SHARE").bind(predecessor.as_bytes().as_slice()).fetch_optional(&mut **tx).await.map_err(|cause| store_error(&cause))?;
                 let Some((prior_lineage, prior_session, prior_day, prior_ordinal, prior_bytes)) =
                     prior
                 else {
@@ -238,12 +240,12 @@ async fn resolve_inner(
                     return Err(SessionErrorV1::InvalidDependency);
                 }
             }
-            sqlx::query("INSERT INTO market_data_private.session_facts_v1(fact_identity,session_identity,trading_day,interval_ordinal,lineage_root,predecessor_identity,correction_sequence,fact_bytes) VALUES($1,$2,$3,$4,$5,$6,$7,$8)").bind(fact.identity.as_bytes().as_slice()).bind(&fact.session_identity).bind(fact.trading_day).bind(i64::from(fact.interval_ordinal)).bind(fact.lineage_root.as_bytes().as_slice()).bind(fact.predecessor_identity.map(|v|v.as_bytes().to_vec())).bind(i64::try_from(fact.correction_sequence).map_err(|_|SessionErrorV1::CapacityExceeded)?).bind(fact.canonical_bytes()).execute(&mut **tx).await.map_err(store_error)?;
+            sqlx::query("INSERT INTO market_data_private.session_facts_v1(fact_identity,session_identity,trading_day,interval_ordinal,lineage_root,predecessor_identity,correction_sequence,fact_bytes) VALUES($1,$2,$3,$4,$5,$6,$7,$8)").bind(fact.identity.as_bytes().as_slice()).bind(&fact.session_identity).bind(fact.trading_day).bind(i64::from(fact.interval_ordinal)).bind(fact.lineage_root.as_bytes().as_slice()).bind(fact.predecessor_identity.map(|v|v.as_bytes().to_vec())).bind(i64::try_from(fact.correction_sequence).map_err(|_|SessionErrorV1::CapacityExceeded)?).bind(fact.canonical_bytes()).execute(&mut **tx).await.map_err(|cause| store_error(&cause))?;
         }
-        let head:Option<Vec<u8>>=sqlx::query_scalar("SELECT fact_identity FROM market_data_private.session_heads_v1 WHERE session_identity=$1 AND trading_day=$2 AND interval_ordinal=$3 FOR UPDATE").bind(&fact.session_identity).bind(fact.trading_day).bind(i64::from(fact.interval_ordinal)).fetch_optional(&mut **tx).await.map_err(store_error)?;
+        let head:Option<Vec<u8>>=sqlx::query_scalar("SELECT fact_identity FROM market_data_private.session_heads_v1 WHERE session_identity=$1 AND trading_day=$2 AND interval_ordinal=$3 FOR UPDATE").bind(&fact.session_identity).bind(fact.trading_day).bind(i64::from(fact.interval_ordinal)).fetch_optional(&mut **tx).await.map_err(|cause| store_error(&cause))?;
         match head {
             None if fact.predecessor_identity.is_none() => {
-                sqlx::query("INSERT INTO market_data_private.session_heads_v1(session_identity,trading_day,interval_ordinal,fact_identity) VALUES($1,$2,$3,$4)").bind(&fact.session_identity).bind(fact.trading_day).bind(i64::from(fact.interval_ordinal)).bind(fact.identity.as_bytes().as_slice()).execute(&mut **tx).await.map_err(store_error)?;
+                sqlx::query("INSERT INTO market_data_private.session_heads_v1(session_identity,trading_day,interval_ordinal,fact_identity) VALUES($1,$2,$3,$4)").bind(&fact.session_identity).bind(fact.trading_day).bind(i64::from(fact.interval_ordinal)).bind(fact.identity.as_bytes().as_slice()).execute(&mut **tx).await.map_err(|cause| store_error(&cause))?;
             }
             Some(v) if v == fact.identity.as_bytes().as_slice() => {}
             Some(v)
@@ -251,18 +253,18 @@ async fn resolve_inner(
                     .predecessor_identity
                     .is_some_and(|p| p.as_bytes().as_slice() == v) =>
             {
-                sqlx::query("UPDATE market_data_private.session_heads_v1 SET fact_identity=$4 WHERE session_identity=$1 AND trading_day=$2 AND interval_ordinal=$3").bind(&fact.session_identity).bind(fact.trading_day).bind(i64::from(fact.interval_ordinal)).bind(fact.identity.as_bytes().as_slice()).execute(&mut **tx).await.map_err(store_error)?;
+                sqlx::query("UPDATE market_data_private.session_heads_v1 SET fact_identity=$4 WHERE session_identity=$1 AND trading_day=$2 AND interval_ordinal=$3").bind(&fact.session_identity).bind(fact.trading_day).bind(i64::from(fact.interval_ordinal)).bind(fact.identity.as_bytes().as_slice()).execute(&mut **tx).await.map_err(|cause| store_error(&cause))?;
             }
             _ => return Err(SessionErrorV1::RequestConflict),
         }
     }
-    sqlx::query("INSERT INTO market_data_private.session_cuts_v1(cut_identity,request_identity,request_meaning_digest,cut_bytes) VALUES($1,$2,$3,$4)").bind(readback.cut.identity.as_bytes().as_slice()).bind(readback.cut.request_identity.as_bytes().as_slice()).bind(readback.cut.request_meaning_digest.as_bytes().as_slice()).bind(readback.cut.canonical_bytes()).execute(&mut **tx).await.map_err(store_error)?;
+    sqlx::query("INSERT INTO market_data_private.session_cuts_v1(cut_identity,request_identity,request_meaning_digest,cut_bytes) VALUES($1,$2,$3,$4)").bind(readback.cut.identity.as_bytes().as_slice()).bind(readback.cut.request_identity.as_bytes().as_slice()).bind(readback.cut.request_meaning_digest.as_bytes().as_slice()).bind(readback.cut.canonical_bytes()).execute(&mut **tx).await.map_err(|cause| store_error(&cause))?;
     for (index, fact) in readback.facts().iter().enumerate() {
-        sqlx::query("INSERT INTO market_data_private.session_cut_facts_v1(cut_identity,ordinal,fact_identity) VALUES($1,$2,$3)").bind(readback.cut.identity.as_bytes().as_slice()).bind(i64::try_from(index+1).map_err(|_|SessionErrorV1::CapacityExceeded)?).bind(fact.identity.as_bytes().as_slice()).execute(&mut **tx).await.map_err(store_error)?;
+        sqlx::query("INSERT INTO market_data_private.session_cut_facts_v1(cut_identity,ordinal,fact_identity) VALUES($1,$2,$3)").bind(readback.cut.identity.as_bytes().as_slice()).bind(i64::try_from(index+1).map_err(|_|SessionErrorV1::CapacityExceeded)?).bind(fact.identity.as_bytes().as_slice()).execute(&mut **tx).await.map_err(|cause| store_error(&cause))?;
     }
-    sqlx::query("INSERT INTO market_data_private.session_receipts_v1(request_identity,request_meaning_digest,cut_identity,receipt_identity,receipt_bytes,append_sequence) VALUES($1,$2,$3,$4,$5,$6)").bind(readback.receipt.request_identity.as_bytes().as_slice()).bind(readback.receipt.request_meaning_digest.as_bytes().as_slice()).bind(readback.receipt.cut_identity.as_bytes().as_slice()).bind(readback.receipt.identity.as_bytes().as_slice()).bind(&readback.receipt.canonical_bytes).bind(i64::try_from(sequence).map_err(|_|SessionErrorV1::CapacityExceeded)?).execute(&mut **tx).await.map_err(store_error)?;
-    sqlx::query("INSERT INTO market_data_private.session_outbox_v1(outbox_identity,request_identity,receipt_bytes) VALUES($1,$2,$3)").bind(readback.outbox_identity.as_bytes().as_slice()).bind(readback.receipt.request_identity.as_bytes().as_slice()).bind(&readback.receipt.canonical_bytes).execute(&mut **tx).await.map_err(store_error)?;
-    let updated=sqlx::query("UPDATE market_data_private.session_state_v1 SET append_sequence=$1 WHERE singleton AND store_generation_identity=$2 AND append_sequence=$3").bind(i64::try_from(sequence).map_err(|_|SessionErrorV1::CapacityExceeded)?).bind(generation.as_bytes().as_slice()).bind(state.1).execute(&mut **tx).await.map_err(store_error)?;
+    sqlx::query("INSERT INTO market_data_private.session_receipts_v1(request_identity,request_meaning_digest,cut_identity,receipt_identity,receipt_bytes,append_sequence) VALUES($1,$2,$3,$4,$5,$6)").bind(readback.receipt.request_identity.as_bytes().as_slice()).bind(readback.receipt.request_meaning_digest.as_bytes().as_slice()).bind(readback.receipt.cut_identity.as_bytes().as_slice()).bind(readback.receipt.identity.as_bytes().as_slice()).bind(&readback.receipt.canonical_bytes).bind(i64::try_from(sequence).map_err(|_|SessionErrorV1::CapacityExceeded)?).execute(&mut **tx).await.map_err(|cause| store_error(&cause))?;
+    sqlx::query("INSERT INTO market_data_private.session_outbox_v1(outbox_identity,request_identity,receipt_bytes) VALUES($1,$2,$3)").bind(readback.outbox_identity.as_bytes().as_slice()).bind(readback.receipt.request_identity.as_bytes().as_slice()).bind(&readback.receipt.canonical_bytes).execute(&mut **tx).await.map_err(|cause| store_error(&cause))?;
+    let updated=sqlx::query("UPDATE market_data_private.session_state_v1 SET append_sequence=$1 WHERE singleton AND store_generation_identity=$2 AND append_sequence=$3").bind(i64::try_from(sequence).map_err(|_|SessionErrorV1::CapacityExceeded)?).bind(generation.as_bytes().as_slice()).bind(state.1).execute(&mut **tx).await.map_err(|cause| store_error(&cause))?;
     if updated.rows_affected() != 1 {
         return Err(SessionErrorV1::StoreUntrusted);
     }
@@ -287,26 +289,47 @@ async fn load(
     tx: &mut Transaction<'_, Postgres>,
     request: SessionIdentityV1,
 ) -> Result<Option<SessionReadbackV1>, SessionErrorV1> {
-    let row=sqlx::query("SELECT c.cut_identity,c.request_meaning_digest AS cut_meaning,c.cut_bytes,r.request_meaning_digest AS receipt_meaning,r.cut_identity AS receipt_cut,r.receipt_identity,r.receipt_bytes,r.append_sequence,o.outbox_identity,o.receipt_bytes AS payload FROM market_data_private.session_cuts_v1 c JOIN market_data_private.session_receipts_v1 r ON r.request_identity=c.request_identity JOIN market_data_private.session_outbox_v1 o ON o.request_identity=c.request_identity WHERE c.request_identity=$1 FOR UPDATE OF c,r,o").bind(request.as_bytes().as_slice()).fetch_optional(&mut **tx).await.map_err(store_error)?;
+    let row=sqlx::query("SELECT c.cut_identity,c.request_meaning_digest AS cut_meaning,c.cut_bytes,r.request_meaning_digest AS receipt_meaning,r.cut_identity AS receipt_cut,r.receipt_identity,r.receipt_bytes,r.append_sequence,o.outbox_identity,o.receipt_bytes AS payload FROM market_data_private.session_cuts_v1 c JOIN market_data_private.session_receipts_v1 r ON r.request_identity=c.request_identity JOIN market_data_private.session_outbox_v1 o ON o.request_identity=c.request_identity WHERE c.request_identity=$1 FOR UPDATE OF c,r,o").bind(request.as_bytes().as_slice()).fetch_optional(&mut **tx).await.map_err(|cause| store_error(&cause))?;
     let Some(row) = row else {
         let partial: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM market_data_private.session_cuts_v1 WHERE request_identity=$1) OR EXISTS(SELECT 1 FROM market_data_private.session_receipts_v1 WHERE request_identity=$1) OR EXISTS(SELECT 1 FROM market_data_private.session_outbox_v1 WHERE request_identity=$1)")
-            .bind(request.as_bytes().as_slice()).fetch_one(&mut **tx).await.map_err(store_error)?;
+            .bind(request.as_bytes().as_slice()).fetch_one(&mut **tx).await.map_err(|cause| store_error(&cause))?;
         return if partial {
             Err(SessionErrorV1::StoreUntrusted)
         } else {
             Ok(None)
         };
     };
-    let cut_identity: Vec<u8> = row.try_get("cut_identity").map_err(store_error)?;
-    let cut_meaning: Vec<u8> = row.try_get("cut_meaning").map_err(store_error)?;
-    let cut_bytes: Vec<u8> = row.try_get("cut_bytes").map_err(store_error)?;
-    let receipt_meaning: Vec<u8> = row.try_get("receipt_meaning").map_err(store_error)?;
-    let receipt_cut: Vec<u8> = row.try_get("receipt_cut").map_err(store_error)?;
-    let receipt_identity: Vec<u8> = row.try_get("receipt_identity").map_err(store_error)?;
-    let receipt_bytes: Vec<u8> = row.try_get("receipt_bytes").map_err(store_error)?;
-    let append: i64 = row.try_get("append_sequence").map_err(store_error)?;
-    let outbox = digest_row(row.try_get("outbox_identity").map_err(store_error)?)?;
-    let payload: Vec<u8> = row.try_get("payload").map_err(store_error)?;
+    let cut_identity: Vec<u8> = row
+        .try_get("cut_identity")
+        .map_err(|cause| store_error(&cause))?;
+    let cut_meaning: Vec<u8> = row
+        .try_get("cut_meaning")
+        .map_err(|cause| store_error(&cause))?;
+    let cut_bytes: Vec<u8> = row
+        .try_get("cut_bytes")
+        .map_err(|cause| store_error(&cause))?;
+    let receipt_meaning: Vec<u8> = row
+        .try_get("receipt_meaning")
+        .map_err(|cause| store_error(&cause))?;
+    let receipt_cut: Vec<u8> = row
+        .try_get("receipt_cut")
+        .map_err(|cause| store_error(&cause))?;
+    let receipt_identity: Vec<u8> = row
+        .try_get("receipt_identity")
+        .map_err(|cause| store_error(&cause))?;
+    let receipt_bytes: Vec<u8> = row
+        .try_get("receipt_bytes")
+        .map_err(|cause| store_error(&cause))?;
+    let append: i64 = row
+        .try_get("append_sequence")
+        .map_err(|cause| store_error(&cause))?;
+    let outbox = digest_row(
+        row.try_get("outbox_identity")
+            .map_err(|cause| store_error(&cause))?,
+    )?;
+    let payload: Vec<u8> = row
+        .try_get("payload")
+        .map_err(|cause| store_error(&cause))?;
 
     if cut_identity
         != codec::digest(codec::CUT_DOMAIN, &cut_bytes)
@@ -319,9 +342,9 @@ async fn load(
     {
         return Err(SessionErrorV1::StoreUntrusted);
     }
-    let facts:Vec<Vec<u8>>=sqlx::query_scalar("SELECT f.fact_bytes FROM market_data_private.session_cut_facts_v1 j JOIN market_data_private.session_facts_v1 f ON f.fact_identity=j.fact_identity WHERE j.cut_identity=$1 ORDER BY j.ordinal FOR SHARE OF j,f").bind(&cut_identity).fetch_all(&mut **tx).await.map_err(store_error)?;
+    let facts:Vec<Vec<u8>>=sqlx::query_scalar("SELECT f.fact_bytes FROM market_data_private.session_cut_facts_v1 j JOIN market_data_private.session_facts_v1 f ON f.fact_identity=j.fact_identity WHERE j.cut_identity=$1 ORDER BY j.ordinal FOR SHARE OF j,f").bind(&cut_identity).fetch_all(&mut **tx).await.map_err(|cause| store_error(&cause))?;
     let readback = rejoin_stored_v1(&facts, &cut_bytes, &receipt_bytes, outbox, &payload)?;
-    let state:Option<(Vec<u8>,i64)>=sqlx::query_as("SELECT store_generation_identity,append_sequence FROM market_data_private.session_state_v1 WHERE singleton FOR SHARE").fetch_optional(&mut **tx).await.map_err(store_error)?;
+    let state:Option<(Vec<u8>,i64)>=sqlx::query_as("SELECT store_generation_identity,append_sequence FROM market_data_private.session_state_v1 WHERE singleton FOR SHARE").fetch_optional(&mut **tx).await.map_err(|cause| store_error(&cause))?;
     let Some((generation, state_sequence)) = state else {
         return Err(SessionErrorV1::StoreUntrusted);
     };
@@ -349,7 +372,7 @@ async fn load(
 
     for fact in readback.facts() {
         load_catalog_for_fact(tx, fact).await?;
-        let head:Option<Vec<u8>>=sqlx::query_scalar("SELECT fact_identity FROM market_data_private.session_heads_v1 WHERE session_identity=$1 AND trading_day=$2 AND interval_ordinal=$3 FOR SHARE").bind(&fact.session_identity).bind(fact.trading_day).bind(i64::from(fact.interval_ordinal)).fetch_optional(&mut **tx).await.map_err(store_error)?;
+        let head:Option<Vec<u8>>=sqlx::query_scalar("SELECT fact_identity FROM market_data_private.session_heads_v1 WHERE session_identity=$1 AND trading_day=$2 AND interval_ordinal=$3 FOR SHARE").bind(&fact.session_identity).bind(fact.trading_day).bind(i64::from(fact.interval_ordinal)).fetch_optional(&mut **tx).await.map_err(|cause| store_error(&cause))?;
         if head.as_deref() != Some(fact.identity().as_bytes().as_slice()) {
             return Err(SessionErrorV1::StoreUntrusted);
         }
@@ -524,10 +547,12 @@ async fn advisory_lock(
         .bind(key)
         .execute(&mut **tx)
         .await
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
     Ok(())
 }
-fn store_error<E>(_e: E) -> SessionErrorV1 {
+#[track_caller]
+fn store_error(cause: &impl Debug) -> SessionErrorV1 {
+    crate::owner::storage_diagnostic::refused_by_store_at(cause);
     SessionErrorV1::StoreUnavailable
 }
 

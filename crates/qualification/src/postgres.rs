@@ -4188,25 +4188,44 @@ async fn verify_candidate_intake_commit_v1(
                 "candidate_identity": receipt.candidate_identity(),
             });
 
-            if reservations.len() != 1
-                || reservations[0]
-                    .try_get::<String, _>("reservation_identity")
-                    .map_err(storage)?
-                    != reservation_identity
-                || reservations[0]
-                    .try_get::<String, _>("candidate_identity")
-                    .map_err(storage)?
-                    != receipt.candidate_identity()
-                || reservations[0]
-                    .try_get::<serde_json::Value, _>("reservation_json")
-                    .map_err(storage)?
-                    != expected_reservation
-                || reservations[0]
-                    .try_get::<i64, _>("committed_at_epoch_ms")
-                    .map_err(storage)?
-                    != i64::try_from(receipt.committed_at_epoch_ms()).map_err(json_storage)?
+            // This is a readback of what this transaction just wrote, so the row being absent
+            // and a column differing are different failures: the first says the write did not
+            // land, the second says it landed as something else. One name for both left the
+            // reader unable to tell which.
+            let diverged = if reservations.len() != 1 {
+                Some("row count")
+            } else if reservations[0]
+                .try_get::<String, _>("reservation_identity")
+                .map_err(storage)?
+                != reservation_identity
             {
-                return Err(unavailable("Candidate Intake holdout reservation changed"));
+                Some("reservation_identity")
+            } else if reservations[0]
+                .try_get::<String, _>("candidate_identity")
+                .map_err(storage)?
+                != receipt.candidate_identity()
+            {
+                Some("candidate_identity")
+            } else if reservations[0]
+                .try_get::<serde_json::Value, _>("reservation_json")
+                .map_err(storage)?
+                != expected_reservation
+            {
+                Some("reservation_json")
+            } else if reservations[0]
+                .try_get::<i64, _>("committed_at_epoch_ms")
+                .map_err(storage)?
+                != i64::try_from(receipt.committed_at_epoch_ms()).map_err(json_storage)?
+            {
+                Some("committed_at_epoch_ms")
+            } else {
+                None
+            };
+
+            if let Some(field) = diverged {
+                return Err(unavailable(format!(
+                    "Candidate Intake holdout reservation readback diverged at {field}"
+                )));
             }
 
             let registrations = sqlx::query("SELECT treatment_policy_identity,treatment_policy_digest,closure_disposition,registration_json,committed_at_epoch_ms FROM public.qualification_holdout_treatment_registrations_v1 WHERE reservation_identity=$1")
@@ -4763,19 +4782,42 @@ fn verify_head_envelope_row(
         .next()
         .ok_or_else(|| unavailable("Qualification feedback head projection unavailable"))?;
 
-    if matching.next().is_some()
-        || row.principal_scope_key != principal_scope_key
-        || row.principal != principal
-        || scope != request_scope
-        || projection.principal != principal
-        || projection.request_scope != request_scope
-        || row.frontier_digest != projection.projection_digest
-        || u64::try_from(row.source_sequence).map_err(json_storage)? != projection.source_sequence
-        || row.source_cut != projection.source_cut
-        || u64::try_from(row.committed_at_epoch_ms).map_err(json_storage)?
-            != projection.receipt.committed_at_epoch_ms
+    // Three different things were named "feedback head mismatch" here. A second matching head is
+    // an ambiguity, not a mismatch. The `projection.*` comparisons are the projection disagreeing
+    // with the request, which is not the head's fault at all. Only the `row.*` comparisons are
+    // the head itself. Each now says which it was, and against what.
+    let diverged = if matching.next().is_some() {
+        Some("more than one head matches this principal and scope")
+    } else if row.principal_scope_key != principal_scope_key {
+        Some("head principal_scope_key")
+    } else if row.principal != principal {
+        Some("head principal")
+    } else if scope != request_scope {
+        Some("head request scope")
+    } else if projection.principal != principal {
+        Some("projection principal does not match the request")
+    } else if projection.request_scope != request_scope {
+        Some("projection request scope does not match the request")
+    } else if row.frontier_digest != projection.projection_digest {
+        Some("head frontier_digest against the projection digest")
+    } else if u64::try_from(row.source_sequence).map_err(json_storage)?
+        != projection.source_sequence
     {
-        return Err(unavailable("Qualification feedback head mismatch"));
+        Some("head source_sequence against the projection")
+    } else if row.source_cut != projection.source_cut {
+        Some("head source_cut against the projection")
+    } else if u64::try_from(row.committed_at_epoch_ms).map_err(json_storage)?
+        != projection.receipt.committed_at_epoch_ms
+    {
+        Some("head committed_at_epoch_ms against the projection receipt")
+    } else {
+        None
+    };
+
+    if let Some(field) = diverged {
+        return Err(unavailable(format!(
+            "Qualification feedback head admission failed: {field}"
+        )));
     }
     Ok(projection.clone())
 }
@@ -4790,15 +4832,29 @@ fn verify_outbox_envelope_row(
         &projection.as_stored(),
     )?;
 
-    if row.event_identity != identity("qualification-owner-event-v1", &payload_digest)
-        || row.aggregate_identity != projection.projection_identity
-        || row.event_kind != PROJECTED_EVENT_KIND
-        || row.payload_digest != payload_digest
-        || row.payload_json != projection_json
-        || u64::try_from(row.committed_at_epoch_ms).map_err(json_storage)?
+    let diverged =
+        if row.event_identity != identity("qualification-owner-event-v1", &payload_digest) {
+            Some("event_identity")
+        } else if row.aggregate_identity != projection.projection_identity {
+            Some("aggregate_identity")
+        } else if row.event_kind != PROJECTED_EVENT_KIND {
+            Some("event_kind")
+        } else if row.payload_digest != payload_digest {
+            Some("payload_digest")
+        } else if row.payload_json != projection_json {
+            Some("payload_json")
+        } else if u64::try_from(row.committed_at_epoch_ms).map_err(json_storage)?
             != projection.receipt.committed_at_epoch_ms
-    {
-        return Err(unavailable("Qualification projection outbox mismatch"));
+        {
+            Some("committed_at_epoch_ms")
+        } else {
+            None
+        };
+
+    if let Some(field) = diverged {
+        return Err(unavailable(format!(
+            "Qualification projection outbox mismatch at {field}"
+        )));
     }
     Ok(())
 }
@@ -5014,10 +5070,25 @@ fn verify_projection_freshness(
     projection: &ProtectedFeedbackFrontierReadbackV1,
     owner_cut_epoch_ms: u64,
 ) -> Result<(), QualificationOwnerError> {
-    if owner_cut_epoch_ms < projection.projection_at_epoch_ms
-        || owner_cut_epoch_ms >= projection.valid_through_epoch_ms
-    {
-        return Err(unavailable("Qualification projection is stale"));
+    // These two bounds fail in opposite directions and only one of them is staleness. A cut that
+    // precedes `projection_at` is a read of a projection that did not exist yet, which is a
+    // caller reading at the wrong cut; a cut at or after `valid_through` is the projection having
+    // expired. Naming both "stale" sent the reader looking for an old projection in the first
+    // case, when the projection was too new.
+    if owner_cut_epoch_ms < projection.projection_at_epoch_ms {
+        return Err(unavailable(format!(
+            "Qualification projection is not yet in effect at this Owner cut: cut \
+             {owner_cut_epoch_ms} precedes projection_at {}",
+            projection.projection_at_epoch_ms
+        )));
+    }
+
+    if owner_cut_epoch_ms >= projection.valid_through_epoch_ms {
+        return Err(unavailable(format!(
+            "Qualification projection is stale at this Owner cut: cut {owner_cut_epoch_ms} is at \
+             or after valid_through {}",
+            projection.valid_through_epoch_ms
+        )));
     }
     Ok(())
 }
@@ -5255,21 +5326,44 @@ fn verify_rd_basis_outbox(
     let payload: RdBasisOutboxPayloadV1 = decode_exact(&row.payload_json)?;
     let payload_digest = canonical_digest("rd.owner-outbox.payload.v1", &payload)?;
 
-    if payload.schema_version != 1
-        || payload.basis_identity != basis.basis_identity
-        || payload.basis_digest != basis.basis_digest
-        || payload.receipt_identity != receipt.receipt_identity
-        || payload.principal != basis.principal
-        || payload.request_scope != basis.request_scope
-        || payload.lineage_digest != basis.lineage_digest
-        || row.event_identity != identity("rd-owner-event-v1", &payload_digest)
-        || row.aggregate_identity != basis.basis_identity
-        || row.event_kind != "INDEPENDENCE_BASIS_PRECOMMITTED_V1"
-        || row.payload_digest != payload_digest
-        || u64::try_from(row.committed_at_epoch_ms).map_err(json_storage)?
-            != receipt.committed_at_epoch_ms
+    // Two groups under one name. The `payload` checks are the event body disagreeing with the
+    // basis and receipt it claims to describe; the `row` checks are the outbox row's own columns.
+    // A reader who only knows "outbox mismatch" cannot tell whether to look at what was published
+    // or at where it was published.
+    let diverged = if payload.schema_version != 1 {
+        Some("payload schema_version")
+    } else if payload.basis_identity != basis.basis_identity {
+        Some("payload basis_identity")
+    } else if payload.basis_digest != basis.basis_digest {
+        Some("payload basis_digest")
+    } else if payload.receipt_identity != receipt.receipt_identity {
+        Some("payload receipt_identity")
+    } else if payload.principal != basis.principal {
+        Some("payload principal")
+    } else if payload.request_scope != basis.request_scope {
+        Some("payload request_scope")
+    } else if payload.lineage_digest != basis.lineage_digest {
+        Some("payload lineage_digest")
+    } else if row.event_identity != identity("rd-owner-event-v1", &payload_digest) {
+        Some("row event_identity")
+    } else if row.aggregate_identity != basis.basis_identity {
+        Some("row aggregate_identity")
+    } else if row.event_kind != "INDEPENDENCE_BASIS_PRECOMMITTED_V1" {
+        Some("row event_kind")
+    } else if row.payload_digest != payload_digest {
+        Some("row payload_digest")
+    } else if u64::try_from(row.committed_at_epoch_ms).map_err(json_storage)?
+        != receipt.committed_at_epoch_ms
     {
-        return Err(unavailable("R&D Independence Basis outbox mismatch"));
+        Some("row committed_at_epoch_ms")
+    } else {
+        None
+    };
+
+    if let Some(field) = diverged {
+        return Err(unavailable(format!(
+            "R&D Independence Basis outbox mismatch at {field}"
+        )));
     }
     Ok(())
 }
@@ -5386,20 +5480,36 @@ fn verify_head_row(
     let sequence: i64 = row.try_get("source_sequence").map_err(storage)?;
     let committed_at: i64 = row.try_get("committed_at_epoch_ms").map_err(storage)?;
 
-    if row.try_get::<String, _>("principal").map_err(storage)? != principal
-        || scope != request_scope
-        || projection.principal != principal
-        || projection.request_scope != request_scope
-        || row
-            .try_get::<String, _>("frontier_digest")
-            .map_err(storage)?
-            != projection.projection_digest
-        || u64::try_from(sequence).map_err(json_storage)? != projection.source_sequence
-        || row.try_get::<String, _>("source_cut").map_err(storage)? != projection.source_cut
-        || u64::try_from(committed_at).map_err(json_storage)?
-            != projection.receipt.committed_at_epoch_ms
+    let diverged = if row.try_get::<String, _>("principal").map_err(storage)? != principal {
+        Some("head principal")
+    } else if scope != request_scope {
+        Some("head request scope")
+    } else if projection.principal != principal {
+        Some("projection principal does not match the request")
+    } else if projection.request_scope != request_scope {
+        Some("projection request scope does not match the request")
+    } else if row
+        .try_get::<String, _>("frontier_digest")
+        .map_err(storage)?
+        != projection.projection_digest
     {
-        return Err(unavailable("Qualification feedback head mismatch"));
+        Some("head frontier_digest against the projection digest")
+    } else if u64::try_from(sequence).map_err(json_storage)? != projection.source_sequence {
+        Some("head source_sequence against the projection")
+    } else if row.try_get::<String, _>("source_cut").map_err(storage)? != projection.source_cut {
+        Some("head source_cut against the projection")
+    } else if u64::try_from(committed_at).map_err(json_storage)?
+        != projection.receipt.committed_at_epoch_ms
+    {
+        Some("head committed_at_epoch_ms against the projection receipt")
+    } else {
+        None
+    };
+
+    if let Some(field) = diverged {
+        return Err(unavailable(format!(
+            "Qualification feedback head admission failed: {field}"
+        )));
     }
     Ok(projection.clone())
 }
@@ -5414,27 +5524,44 @@ fn verify_outbox_row(
         &projection.as_stored(),
     )?;
     let committed_at: i64 = row.try_get("committed_at_epoch_ms").map_err(storage)?;
-    if row
+    let diverged = if row
         .try_get::<String, _>("event_identity")
         .map_err(storage)?
         != identity("qualification-owner-event-v1", &payload_digest)
-        || row
-            .try_get::<String, _>("aggregate_identity")
-            .map_err(storage)?
-            != projection.projection_identity
-        || row.try_get::<String, _>("event_kind").map_err(storage)? != PROJECTED_EVENT_KIND
-        || row
-            .try_get::<String, _>("payload_digest")
-            .map_err(storage)?
-            != payload_digest
-        || row
-            .try_get::<serde_json::Value, _>("payload_json")
-            .map_err(storage)?
-            != projection_json
-        || u64::try_from(committed_at).map_err(json_storage)?
-            != projection.receipt.committed_at_epoch_ms
     {
-        return Err(unavailable("Qualification projection outbox mismatch"));
+        Some("event_identity")
+    } else if row
+        .try_get::<String, _>("aggregate_identity")
+        .map_err(storage)?
+        != projection.projection_identity
+    {
+        Some("aggregate_identity")
+    } else if row.try_get::<String, _>("event_kind").map_err(storage)? != PROJECTED_EVENT_KIND {
+        Some("event_kind")
+    } else if row
+        .try_get::<String, _>("payload_digest")
+        .map_err(storage)?
+        != payload_digest
+    {
+        Some("payload_digest")
+    } else if row
+        .try_get::<serde_json::Value, _>("payload_json")
+        .map_err(storage)?
+        != projection_json
+    {
+        Some("payload_json")
+    } else if u64::try_from(committed_at).map_err(json_storage)?
+        != projection.receipt.committed_at_epoch_ms
+    {
+        Some("committed_at_epoch_ms")
+    } else {
+        None
+    };
+
+    if let Some(field) = diverged {
+        return Err(unavailable(format!(
+            "Qualification projection outbox mismatch at {field}"
+        )));
     }
     Ok(())
 }
@@ -6036,6 +6163,77 @@ mod postgres_tests {
     use rstest::rstest;
 
     use super::*;
+
+    /// The two freshness bounds fail in opposite directions, and one name for both pointed the
+    /// reader the wrong way in half the cases.
+    ///
+    /// A cut before `projection_at` is a read of a projection that did not exist yet: the caller
+    /// is reading at the wrong cut. A cut at or after `valid_through` is expiry. Calling the
+    /// first "stale" sent the reader looking for an old projection when the projection was too
+    /// new. The accept case is asserted too, because without it both refusals would be satisfied
+    /// by a function that had started refusing everything.
+    ///
+    /// This is a pure function, so the proof needs no database and no ordered chain entry.
+    #[rstest]
+    fn projection_freshness_names_which_bound_it_failed() {
+        fn projection_between(at: u64, valid_through: u64) -> ProtectedFeedbackFrontierReadbackV1 {
+            ProtectedFeedbackFrontierReadbackV1 {
+                schema_version: 1,
+                projection_identity: "qualification-protected-feedback-frontier-v1-probe".into(),
+                projection_digest: "sha256:probe".into(),
+                resolution: ProtectedFeedbackResolutionV1::GenesisEmpty,
+                principal: "rd-operator-local-v1".into(),
+                request_scope: vec!["research:submit".into()],
+                basis_identity: "rd-independence-basis-v1-probe".into(),
+                basis_digest: "sha256:probe-basis".into(),
+                source_sequence: 1,
+                source_cut: "cut-probe".into(),
+                source_frontier_identity: None,
+                source_frontier_digest: None,
+                clock_epoch: CLOCK_EPOCH_V1.to_string(),
+                projection_at_epoch_ms: at,
+                valid_through_epoch_ms: valid_through,
+                receipt: ProtectedFeedbackFrontierReceiptV1 {
+                    schema_version: 1,
+                    receipt_identity: "qualification-protected-feedback-frontier-receipt-v1-probe"
+                        .into(),
+                    projection_identity: "qualification-protected-feedback-frontier-v1-probe"
+                        .into(),
+                    projection_digest: "sha256:probe".into(),
+                    committed_at_epoch_ms: at,
+                },
+            }
+        }
+
+        let projection = projection_between(100, 200);
+
+        // Accept-state control: a cut inside the window is admitted.
+        verify_projection_freshness(&projection, 150).expect("a cut inside the window is fresh");
+
+        let too_early = verify_projection_freshness(&projection, 50)
+            .expect_err("a cut before projection_at is refused")
+            .to_string();
+        let expired = verify_projection_freshness(&projection, 200)
+            .expect_err("a cut at valid_through is refused")
+            .to_string();
+
+        assert!(
+            too_early.contains("not yet in effect"),
+            "a cut before projection_at is not staleness: {too_early}"
+        );
+        assert!(
+            !too_early.contains("is stale"),
+            "the early bound must not borrow the staleness name: {too_early}"
+        );
+        assert!(
+            expired.contains("is stale"),
+            "a cut at or after valid_through is staleness: {expired}"
+        );
+        assert_ne!(
+            too_early, expired,
+            "the two bounds are distinguishable by their message alone"
+        );
+    }
 
     #[rstest]
     fn negative_closure_retry_classification_is_structurally_bounded() {
