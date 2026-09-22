@@ -165,14 +165,19 @@ absent is a proof, and each absence was measured rather than assumed.
   looks up basis-stage custody under the request identity it was handed, finds none for a request it has not
   seen, and refuses with `Owner storage unavailable: R&D basis-stage custody missing`. The `FRONTIER` arm sits
   past that branch and is reached only once the lineage has advanced, which needs the first request to complete.
-  Whether the lineage advances is not yet recorded here. An earlier draft of this paragraph said the first
-  request cannot complete because no Catalog V3 head is published and the arm's precondition is therefore an
-  operator action. **That was measured on a four-entry local subset and is false on the gate**: entry 69,
-  `catalog_v3_bootstrap_publishes_the_head_the_owner_reads_and_formation_binds`, publishes the head before this
-  entry runs, and on the ordered gate the first request is `Accepted`. The subset had skipped the entry that
-  establishes the precondition, and the resulting refusal read as a domain conclusion rather than as the
-  skip artefact it was. What the second request does once the first one completes is unmeasured, and this
-  ledger will say so until an ordered run reports it.
+  **The arm is reached.** On the ordered gate both requests are `Accepted`, the second writes a basis of its
+  own, one principal carries two protected-feedback projections, and the second projection's resolution state
+  is `FRONTIER` (owner-chains 35654451152, 190 passed, 94 entries). Until that run nothing had ever produced
+  that resolution, its stored encoding, or a source-frontier identity and digest, so taking the genesis arm and
+  having no other arm to take were the same observation; they are now distinguishable.
+
+  An earlier draft of this paragraph said the opposite twice, and both errors came from the same place. It said
+  no second basis is written, and that the first request cannot complete because no Catalog V3 head is
+  published so the arm's precondition is an operator action. Both were measured on a four-entry local subset
+  that had skipped entry 69, `catalog_v3_bootstrap_publishes_the_head_the_owner_reads_and_formation_binds`,
+  which publishes the head before this entry runs. The skipped-upstream artefact did not announce itself as
+  one: its recorded symptom is a panic on a line reading an upstream table, and this refusal instead read as a
+  clean domain conclusion.
 
   Neither refusal reaches the caller as an error. Both are returned as `Ok(unresolved_result_v2(..))`, one of the
   twenty-eight such returns `product_edge_postgres.rs` carries, so `submit_v2` answers `SubmittedOrUnknown` with

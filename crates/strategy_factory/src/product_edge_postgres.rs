@@ -5497,9 +5497,10 @@ pub(crate) mod tests {
             projections_under_this_principal, 2,
             "one principal with two requests carries two protected-feedback projections",
         );
-        // The one field still unmeasured: which arm the second projection took. Printed rather
-        // than asserted, because inferring FRONTIER from "the scope now has a frontier" is the
-        // reasoning that produced the refuted ledger claim this entry already had to correct.
+        // Measured on owner-chains 35654451152 (190 PASS / 0 FAIL / 94 entries): the second
+        // projection takes the `FRONTIER` arm. Until that run, nothing had ever produced this
+        // resolution, its stored encoding, or a source-frontier identity and digest, so taking
+        // the genesis arm and having no other arm to take were the same observation.
         let second_state: String = sqlx::query_scalar(
             "SELECT resolution_state FROM public.qualification_protected_feedback_projections_v1
               WHERE principal = $1 AND resolution_state <> 'GENESIS_EMPTY'",
@@ -5509,7 +5510,10 @@ pub(crate) mod tests {
         .await
         .unwrap()
         .unwrap_or_else(|| "<none-non-genesis>".to_string());
-        eprintln!("QQARM second_state={second_state}");
+        assert_eq!(
+            second_state, "FRONTIER",
+            "a basis under a scope that already carries a frontier takes the frontier arm",
+        );
     }
 
     /// The Composer RUN that a frozen pair authorises, carried all the way to a durable Artifact.

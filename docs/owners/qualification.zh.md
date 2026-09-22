@@ -140,12 +140,18 @@ Qualification 的其余部分并不排在它后面：attempt frontier、候选�
   而那一支是为「创建了 head 的那个请求的重放」写的：它拿收到的请求身份去查 basis-stage 托管，
   对一个它没见过的请求当然查不到，于是以 `Owner storage unavailable: R&D basis-stage custody missing` 拒绝。
   `FRONTIER` 那一臂在该分支之后，只有 lineage 前进了才到得了，而 lineage 前进需要第一个请求走完。
-  lineage 会不会前进，本台账尚未记载。此处早先写的是「第一个请求也走不完，因为没人发布 Catalog V3 head，
-  所以那一臂的前置是一个运维动作」。**那是在一个四条目的本机子集上测的，在闸门上为假**：第 69 条
-  `catalog_v3_bootstrap_publishes_the_head_the_owner_reads_and_formation_binds` 会在本条目之前发布该 head，
-  而在有序闸门上第一个请求是 `Accepted`。子集跳过了建立该前置的那一条，
-  于是得到的拒绝读起来像一个领域结论，而它只是跳步的产物。
-  第一个请求走完之后第二个请求会怎样，尚未测量，在有序运行报出它之前本台账就这么写着。
+  **那一臂已经到达。** 在有序闸门上两个请求都是 `Accepted`，第二个写出自己的 basis，
+  一个 principal 下有两份 protected-feedback 投影，且第二份投影的 resolution state 是 `FRONTIER`
+  （owner-chains 35654451152，190 通过，94 条目）。在那一轮之前，从来没有任何东西产生过那个 resolution、
+  它存下来的编码、或一份 source frontier 的身份与摘要；所以「选了 genesis 那一臂」和「没有别的臂可选」
+  曾经是同一个观察，现在它们可以分开了。
+
+  此处早先的写法两次说了相反的话，而两次都源自同一处。它先说第二份 basis 不会被写出来，
+  又说第一个请求也走不完、因为没人发布 Catalog V3 head、所以那一臂的前置是一个运维动作。
+  两者都是在一个四条目的本机子集上测的，而该子集跳过了第 69 条
+  `catalog_v3_bootstrap_publishes_the_head_the_owner_reads_and_formation_binds`，它在本条目之前发布该 head。
+  跳步的产物没有自报家门：它被记录下来的症状是「panic 落在读上游表的那一行」，
+  而这次的拒绝读起来是一个干净的领域结论。
 
   这两处拒绝都不是以错误的形式到达调用方的。它们都被返回成 `Ok(unresolved_result_v2(..))`，
   是 `product_edge_postgres.rs` 里二十八处同形返回之一，于是 `submit_v2` 答的是 `SubmittedOrUnknown`
