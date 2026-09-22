@@ -1403,7 +1403,15 @@ async fn verify_contract(
     .fetch_one(&mut **transaction)
     .await
     .map_err(|_| StrategyInputEventBindingErrorV1::StoreUnavailable)?;
+
     if !exact {
+        // The query ran and the store answered; this is the Owner rejecting that answer. Before
+        // this line it was reported as `StoreUnavailable`, which sends a reader to the network
+        // when the schema is what drifted.
+        crate::owner::storage_diagnostic::refused_by_store(
+            "strategy_input_event_binding.contract.relations_and_procedures",
+            &"relation set, ownership, ACLs, procedure volatility or column counts differ from the contract",
+        );
         return Err(StrategyInputEventBindingErrorV1::StoreUnavailable);
     }
     let topology_is_exact: bool = sqlx::query_scalar(VERIFY_TOPOLOGY_V1)
@@ -1412,6 +1420,10 @@ async fn verify_contract(
         .map_err(store_error)?;
 
     if !topology_is_exact {
+        crate::owner::storage_diagnostic::refused_by_store(
+            "strategy_input_event_binding.contract.topology",
+            &"stored topology differs from VERIFY_TOPOLOGY_V1",
+        );
         return Err(StrategyInputEventBindingErrorV1::StoreUnavailable);
     }
     let trusted_search_path: String = sqlx::query_scalar(TRUSTED_DEPARSE_SEARCH_PATH_V1)
@@ -1420,6 +1432,10 @@ async fn verify_contract(
         .map_err(store_error)?;
 
     if trusted_search_path != "pg_catalog" {
+        crate::owner::storage_diagnostic::refused_by_store(
+            "strategy_input_event_binding.contract.search_path",
+            &format_args!("deparse search_path is {trusted_search_path}, not pg_catalog"),
+        );
         return Err(StrategyInputEventBindingErrorV1::StoreUnavailable);
     }
     let check_rows = sqlx::query(
@@ -1438,7 +1454,12 @@ async fn verify_contract(
             ))
         })
         .collect::<Result<Vec<_>, StrategyInputEventBindingErrorV1>>()?;
+
     if !check_predicates_are_exact(&checks) {
+        crate::owner::storage_diagnostic::refused_by_store(
+            "strategy_input_event_binding.contract.check_predicates",
+            &"stored CHECK constraint predicates differ from the contract",
+        );
         return Err(StrategyInputEventBindingErrorV1::StoreUnavailable);
     }
 
@@ -1465,6 +1486,10 @@ async fn verify_contract(
         .map_err(store_error)?;
 
         if signature.as_deref() != Some(expected) {
+            crate::owner::storage_diagnostic::refused_by_store(
+                "strategy_input_event_binding.contract.column_signature",
+                &format_args!("column signature of {table} differs from the contract"),
+            );
             return Err(StrategyInputEventBindingErrorV1::StoreUnavailable);
         }
     }
@@ -1476,6 +1501,14 @@ async fn verify_contract(
     if binding_source.trim() != RESOLVE_BINDING_SOURCE_V1
         || census_source.trim() != RESOLVE_CENSUS_SOURCE_V1
     {
+        crate::owner::storage_diagnostic::refused_by_store(
+            "strategy_input_event_binding.contract.function_source",
+            &format_args!(
+                "resolver source drifted (binding={}, census={})",
+                binding_source.trim() != RESOLVE_BINDING_SOURCE_V1,
+                census_source.trim() != RESOLVE_CENSUS_SOURCE_V1
+            ),
+        );
         return Err(StrategyInputEventBindingErrorV1::StoreUnavailable);
     }
     Ok(())
@@ -1704,7 +1737,86 @@ async fn advisory_lock(
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
+
+    /// Every contract refusal in `verify_contract` records which part of the contract drifted.
+    ///
+    /// `verify_contract` asks the store what shape it has and rejects the answer when it differs.
+    /// Each of those rejections is a decision, not an outage, but each returned the same
+    /// `StoreUnavailable` a dropped connection returns - so a reader was sent to the network while
+    /// the schema was what moved. This pins that every one of them now names its own coordinate.
+    ///
+    /// Scoped to this one function on purpose. The rest of the file still discards causes through
+    /// `store_error`, which is a different fault - a cause not stated, rather than a wrong one
+    /// asserted - and belongs to its own change.
+    #[rstest]
+    fn every_contract_refusal_names_the_part_that_drifted() {
+        let source = include_str!("strategy_input_event_binding_v1.rs");
+        let start = source
+            .find("async fn verify_contract(")
+            .expect("the contract verifier is in this file");
+        // Walk matched braces rather than a fixed window: a window that ends early stops looking,
+        // and stopping early reads exactly like finding nothing wrong.
+        let open = source[start..].find('{').expect("the verifier has a body") + start;
+        let mut depth = 0usize;
+        let mut end = open;
+        for (offset, byte) in source[open..].bytes().enumerate() {
+            match byte {
+                b'{' => depth += 1,
+                b'}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = open + offset;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        assert!(end > open, "the verifier body is delimited");
+        let body = &source[open..end];
+
+        // Assembled at run time so this assertion's own source does not contain what it forbids.
+        let refusal = [
+            "return Err(StrategyInputEventBindingErrorV1::",
+            "StoreUnavailable)",
+        ]
+        .concat();
+        let recording = ["storage_diagnostic::", "refused_by_store("].concat();
+        let refusals = body.matches(&refusal).count();
+        let recordings = body.matches(&recording).count();
+        assert_eq!(
+            refusals, recordings,
+            "every contract refusal records a coordinate: {refusals} refusals, {recordings} records"
+        );
+        assert!(refusals >= 6, "the verifier still checks what it used to");
+
+        let coordinates: Vec<&str> = body
+            .match_indices(&recording)
+            .map(|(at, needle)| {
+                let rest = &body[at + needle.len()..];
+                let open = rest.find('"').expect("a recorded coordinate is a literal");
+                let close = rest[open + 1..].find('"').expect("a closed literal");
+                &rest[open + 1..open + 1 + close]
+            })
+            .collect();
+        let mut distinct = coordinates.clone();
+        distinct.sort_unstable();
+        distinct.dedup();
+        assert_eq!(
+            distinct.len(),
+            coordinates.len(),
+            "a coordinate that names two sites cannot locate either"
+        );
+        assert!(
+            coordinates
+                .iter()
+                .all(|c| c.starts_with("strategy_input_event_binding.contract.")),
+            "contract coordinates carry their own prefix"
+        );
+    }
 
     fn d(byte: u8) -> BindingDigest {
         BindingDigest::from_untrusted_bytes([byte; 32])
