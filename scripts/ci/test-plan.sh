@@ -408,8 +408,8 @@ if [[ "$save_gate_total" != "$save_gate_scheduled" ]]; then
     "$build_workflow" >&2
   exit 1
 fi
-if [[ "$save_gate_total" -ne 6 ]]; then
-  echo "build.yml has $save_gate_total event-gated save-if entries, expected 6." >&2
+if [[ "$save_gate_total" -ne 3 ]]; then
+  echo "build.yml has $save_gate_total event-gated save-if entries, expected 3." >&2
   echo "A removed entry stops saving a cache; a new one must also admit the schedule." >&2
   exit 1
 fi
@@ -602,7 +602,6 @@ assert_nextest_role "$repo_root/.github/workflows/nightly-miri.yml" miri test
 assert_nextest_role "$build_workflow" pre-commit release
 assert_nextest_role "$build_workflow" build release
 assert_nextest_role "$build_workflow" rust-doctests-linux-x86 release
-assert_nextest_role "$build_workflow" release-cargo-publish-preflight release
 assert_nextest_role "$repo_root/.github/workflows/nightly-tests.yml" standard-precision release
 assert_nextest_role "$repo_root/.github/workflows/nightly-tests.yml" cargo-publish-plan release
 

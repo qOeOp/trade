@@ -145,6 +145,13 @@ repos:
             scripts/ci/check-docker-toolchain-pins\.bash
           )$
         pass_filenames: false
+      - id: check-feature-gate-coverage
+        name: check feature gate coverage
+        description: Names Cargo features that gate code no job compiles, and fails on a new one
+        entry: python3 scripts/ci/check-feature-gate-coverage.py
+        language: system
+        files: ^(crates/|product/|scripts/ci/check-feature-gate-coverage\.py$|Makefile$|\.github/workflows/)
+        pass_filenames: false
       - id: check-source-canary
         name: check source canary
         description: Ensures reachability probes separate a refused runner address from a dead source

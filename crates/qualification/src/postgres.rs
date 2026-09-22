@@ -4982,7 +4982,10 @@ pub(crate) async fn load_rd_basis_in_transaction(
     .await?;
 
     if locator.request_identity != basis.request_identity {
-        return Err(unavailable("R&D Independence Basis locator mismatch"));
+        return Err(unavailable(format!(
+            "R&D Independence Basis locator mismatch on request_identity: locator={} row={}",
+            locator.request_identity, basis.request_identity
+        )));
     }
     Ok(basis)
 }
@@ -5034,7 +5037,11 @@ async fn load_rd_basis_by_locator_fields_preserving_sqlstate_in_transaction(
     // not match, and for a missing outbox event, and all five arrived here as the single sentence
     // "R&D Independence Basis unavailable".
     if let Some(refusal) = raw_envelope.get("refusal").and_then(|value| value.as_str()) {
-        return Err(unavailable(format!("R&D Independence Basis unavailable: {refusal}")).into());
+        return Err(unavailable(format!(
+            "R&D Independence Basis unavailable: {refusal} for basis_identity={basis_identity} \
+             basis_digest={basis_digest} principal={principal}"
+        ))
+        .into());
     }
     let envelope: LockedRdBasisEnvelopeV1 = decode_exact(&raw_envelope)?;
 
@@ -5059,12 +5066,25 @@ async fn load_rd_basis_by_locator_fields_preserving_sqlstate_in_transaction(
     }
     verify_rd_basis_outbox(&envelope.outbox, &basis, &receipt)?;
 
-    if basis_identity != basis.basis_identity
-        || basis_digest != basis.basis_digest
-        || principal != basis.principal
-        || request_scope != basis.request_scope
-    {
-        return Err(unavailable("R&D Independence Basis locator mismatch").into());
+    // A four-way disjunction reported as one sentence: the caller learned that one of four
+    // fields disagreed, not which, and had to bisect by hand to find out.
+    let disagreed = if basis_identity != basis.basis_identity {
+        Some("basis_identity")
+    } else if basis_digest != basis.basis_digest {
+        Some("basis_digest")
+    } else if principal != basis.principal {
+        Some("principal")
+    } else if request_scope != basis.request_scope {
+        Some("request_scope")
+    } else {
+        None
+    };
+
+    if let Some(field) = disagreed {
+        return Err(unavailable(format!(
+            "R&D Independence Basis locator mismatch on {field}"
+        ))
+        .into());
     }
     Ok(basis)
 }
@@ -6484,11 +6504,229 @@ mod postgres_tests {
         .fetch_one(&mut *backtest_transaction)
         .await
         .expect("sealed Backtest read");
-        assert!(locked.is_some());
+        // Not `is_some()`. A refusal is also Some now that this function names its causes, so
+        // the old assertion would accept the very outcome it exists to rule out.
+        let locked = locked.expect("sealed Backtest read returns an envelope");
+        assert!(
+            locked.get("refusal").is_none(),
+            "sealed envelope expected; this read was refused as {:?}",
+            locked.get("refusal")
+        );
         backtest_transaction
             .rollback()
             .await
             .expect("Backtest rollback");
+    }
+
+    /// Every admission these two sealed reads can refuse names itself.
+    ///
+    /// Both functions used to answer a bare `NULL` for six causes each: a three-way admission
+    /// guard and a three-way exception handler. The boundary is built so the caller cannot look
+    /// for itself - `backtest_owner` holds no `SELECT` on the underlying tables - so a cause the
+    /// function does not name is a cause nobody downstream can recover.
+    ///
+    /// The refusals control each other. The isolation case and the missing-row case below use the
+    /// same role and the same identity and differ only in the transaction's isolation level, so
+    /// two different codes prove the guard discriminates rather than the row merely being absent.
+    /// Without that pairing, either assertion alone would also pass if the function refused
+    /// everything for one reason.
+    ///
+    /// Three of the twelve are not driven here:
+    ///
+    /// - `CALLER_NOT_BACKTEST_OWNER` is not constructible today, and the reason was measured
+    ///   rather than assumed: driving it returned SQLSTATE 42501 before the guard ran. `EXECUTE`
+    ///   on both functions is granted to `backtest_owner` alone and no role anywhere is granted
+    ///   membership in `backtest_owner`, so every caller that clears the ACL has
+    ///   `session_user = 'backtest_owner'`. One `GRANT backtest_owner TO <role>` makes it
+    ///   reachable, which is the shape every other Owner already has as `X_owner TO X_writer`.
+    ///   The ACL refusal it collapses into is asserted below.
+    ///
+    /// - `DEFINER_NOT_QUALIFICATION_OWNER` is not constructible. The function is `SECURITY
+    ///   DEFINER` and `ALTER FUNCTION ... OWNER TO qualification_owner` follows it, so
+    ///   `current_user` inside the body is always the owner. Control that this is not a blanket
+    ///   property of the migration: four functions in the same file are `SECURITY INVOKER`.
+    ///   Live control: the accept-state assertion at the end of this test reads an admitted
+    ///   request back as a three-part envelope, which this branch firing would replace with a
+    ///   refusal. No invocation count is claimed from the chain's PostgreSQL log, which is dumped
+    ///   as a partial window and cannot carry one.
+    /// - `REQUEST_AMBIGUOUS` is constructible but not driven here, and the mechanism is recorded
+    ///   so the next person does not have to rediscover it: the three filtered identity columns
+    ///   are each `TEXT PRIMARY KEY`, so they cannot multiply, but the outbox is joined on
+    ///   `payload_json->>'request_identity'` and its siblings, which carry no unique constraint,
+    ///   and `qualification_writer` holds `INSERT` on that table. A second outbox row with the
+    ///   same payload fields raises `too_many_rows`.
+    #[tokio::test]
+    #[ignore = "requires the repository-authoritative disposable Owner PostgreSQL topology"]
+    async fn sealed_request_reads_name_the_admission_they_refused() {
+        async fn refusal_of(pool: &PgPool, serializable: bool, identity: &str) -> Option<String> {
+            let mut transaction = pool.begin().await.expect("probe transaction");
+
+            if serializable {
+                sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+                    .execute(&mut *transaction)
+                    .await
+                    .expect("probe isolation");
+            }
+            let value: Option<serde_json::Value> = sqlx::query_scalar(
+                "SELECT qualification_api.lock_protected_replay_request_v1($1,$2,$3,$4)",
+            )
+            .bind(identity)
+            .bind("absent-request-digest")
+            .bind("absent-receipt-identity")
+            .bind("absent-seal-digest")
+            .fetch_one(&mut *transaction)
+            .await
+            .expect("sealed read answers");
+            transaction.rollback().await.expect("probe rollback");
+            value.and_then(|v| v.get("refusal").and_then(|r| r.as_str().map(str::to_owned)))
+        }
+
+        let qualification_url = std::env::var("QUALIFICATION_TEST_DATABASE_URL")
+            .expect("explicit disposable Qualification URL");
+        let backtest_url =
+            std::env::var("BACKTEST_TEST_DATABASE_URL").expect("explicit disposable Backtest URL");
+        let qualification = PgPool::connect(&qualification_url)
+            .await
+            .expect("Qualification pool");
+        let backtest = PgPool::connect(&backtest_url).await.expect("Backtest pool");
+
+        // One identity that belongs to no row, reused everywhere below so the only thing that
+        // changes between cases is the admission under test.
+        let absent = "protected-replay-request-that-was-never-admitted";
+
+        // `CALLER_NOT_BACKTEST_OWNER` cannot be driven: the ACL refuses a foreign caller one
+        // layer earlier than the guard, so the guard never runs. Assert the layer that does
+        // fire, because that is the boundary the caller actually meets.
+        let mut foreign_transaction = qualification.begin().await.expect("foreign transaction");
+        let foreign: Result<Option<serde_json::Value>, sqlx::Error> = sqlx::query_scalar(
+            "SELECT qualification_api.lock_protected_replay_request_v1($1,$2,$3,$4)",
+        )
+        .bind(absent)
+        .bind("absent-request-digest")
+        .bind("absent-receipt-identity")
+        .bind("absent-seal-digest")
+        .fetch_one(&mut *foreign_transaction)
+        .await;
+        foreign_transaction
+            .rollback()
+            .await
+            .expect("foreign rollback");
+        assert_eq!(
+            foreign
+                .expect_err("a foreign caller is refused")
+                .as_database_error()
+                .and_then(sqlx::error::DatabaseError::code)
+                .as_deref(),
+            Some("42501"),
+            "the Qualification role holds no EXECUTE on its own Backtest-facing function"
+        );
+
+        // Same role, same identity, non-serializable transaction.
+        assert_eq!(
+            refusal_of(&backtest, false, absent).await.as_deref(),
+            Some("ISOLATION_NOT_SERIALIZABLE"),
+        );
+
+        // Same role, same identity, serializable: the admission passes and the row is missing.
+        // This is the control for the case above - one variable changed, a different code.
+        assert_eq!(
+            refusal_of(&backtest, true, absent).await.as_deref(),
+            Some("REQUEST_NOT_FOUND"),
+        );
+
+        let mut set_transaction = backtest.begin().await.expect("request set transaction");
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *set_transaction)
+            .await
+            .expect("request set isolation");
+        let set_value: Option<serde_json::Value> = sqlx::query_scalar(
+            "SELECT qualification_api.lock_protected_replay_request_set_v1($1,$2)",
+        )
+        .bind("protected-replay-request-set-that-was-never-sealed")
+        .bind("absent-request-set-digest")
+        .fetch_one(&mut *set_transaction)
+        .await
+        .expect("sealed request set read answers");
+        set_transaction
+            .rollback()
+            .await
+            .expect("request set rollback");
+        assert_eq!(
+            set_value
+                .as_ref()
+                .and_then(|v| v.get("refusal"))
+                .and_then(serde_json::Value::as_str),
+            Some("REQUEST_SET_NOT_FOUND"),
+        );
+
+        // Accept-state control. Without it every assertion above is satisfied by a function that
+        // refuses everything, so the four codes would prove only that the boundary is closed, not
+        // that it still discriminates. The coordinates are read under the Qualification role
+        // because `backtest_owner` holds no SELECT on these tables - that asymmetry is the reason
+        // the refusal has to be named in the return value rather than looked up by the caller.
+        let (request_identity, request_digest, receipt_identity, seal_digest): (
+            String,
+            String,
+            String,
+            String,
+        ) = sqlx::query_as(
+            "SELECT request.request_identity,
+                    request.request_digest,
+                    receipt.receipt_identity,
+                    receipt.seal_digest
+               FROM public.qualification_protected_replay_requests_v1 request
+               JOIN public.qualification_protected_replay_request_receipts_v1 receipt
+                 ON receipt.request_identity = request.request_identity
+                AND receipt.request_digest = request.request_digest
+               JOIN public.qualification_owner_outbox_v1 outbox
+                 ON outbox.aggregate_identity = request.request_identity
+                AND outbox.event_kind = 'QUALIFICATION_PROTECTED_REPLAY_REQUEST_FROZEN_V1'
+                AND outbox.payload_json->>'request_identity' = request.request_identity
+                AND outbox.payload_json->>'request_digest' = request.request_digest
+                AND outbox.payload_json->>'receipt_identity' = receipt.receipt_identity
+                AND outbox.payload_json->>'seal_digest' = receipt.seal_digest
+              ORDER BY request.request_identity
+              LIMIT 1",
+        )
+        .fetch_one(&qualification)
+        .await
+        .expect("an earlier ordered entry sealed at least one protected replay request");
+        // The join above mirrors the function's own WHERE clause, including the outbox
+        // conditions, so a row selected here is a row the function must admit. Selecting on the
+        // request and receipt alone would let this control fail for a reason that has nothing
+        // to do with the refusal codes under test.
+
+        let mut accept_transaction = backtest.begin().await.expect("accept transaction");
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *accept_transaction)
+            .await
+            .expect("accept isolation");
+        let accepted: Option<serde_json::Value> = sqlx::query_scalar(
+            "SELECT qualification_api.lock_protected_replay_request_v1($1,$2,$3,$4)",
+        )
+        .bind(&request_identity)
+        .bind(&request_digest)
+        .bind(&receipt_identity)
+        .bind(&seal_digest)
+        .fetch_one(&mut *accept_transaction)
+        .await
+        .expect("sealed read answers");
+        accept_transaction
+            .rollback()
+            .await
+            .expect("accept rollback");
+        let accepted = accepted.expect("sealed Backtest read returns an envelope");
+        assert!(
+            accepted.get("refusal").is_none(),
+            "sealed envelope expected; this read was refused as {:?}",
+            accepted.get("refusal")
+        );
+        assert!(
+            accepted.get("request").is_some()
+                && accepted.get("receipt").is_some()
+                && accepted.get("outbox").is_some(),
+            "the admitted envelope carries all three sealed parts"
+        );
     }
 
     #[tokio::test]
@@ -7474,7 +7712,13 @@ mod postgres_tests {
         .fetch_one(&mut *backtest_transaction)
         .await
         .expect("sealed Backtest request set read");
-        assert!(locked.is_some());
+        // Not `is_some()`: see the sibling read above. A refusal object is Some too.
+        let locked = locked.expect("sealed Backtest request set read returns an envelope");
+        assert!(
+            locked.get("refusal").is_none(),
+            "sealed envelope expected; this read was refused as {:?}",
+            locked.get("refusal")
+        );
         backtest_transaction
             .rollback()
             .await
