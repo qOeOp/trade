@@ -1,3 +1,10 @@
+// This target compiles the Source Intake module tree as its own crate, so a `crate::` path out of
+// that tree has to resolve here too. `owner.rs` records why a refusal collapsed into
+// `Unavailable` through the crate-level diagnostic channel; including that file the same way the
+// module tree is included keeps one definition rather than a second copy that could drift.
+#[path = "../src/storage_diagnostic.rs"]
+pub mod storage_diagnostic;
+
 #[path = "../src/source_intake/mod.rs"]
 pub mod source_intake;
 
