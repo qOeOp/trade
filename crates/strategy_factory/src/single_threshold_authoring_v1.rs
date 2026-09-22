@@ -712,6 +712,35 @@ mod tests {
         BindingDigest::from_untrusted_bytes([seed; 32])
     }
 
+    /// The shipped example must deserialise and author.
+    ///
+    /// The example is what `strategy-factory-author-role-intent` is documented with, so it is the
+    /// only statement of the wire form: the comparison is `GREATER`, not `Greater`, and each
+    /// digest is thirty-two numbers, not hex. Both were gotten wrong on the first attempt to feed
+    /// the binary by hand, and neither is visible from the Rust types. Deriving serde does not
+    /// document what it produces; an example that must parse does.
+    #[rstest]
+    fn the_shipped_example_statement_parses_and_authors() {
+        #[derive(serde::Deserialize)]
+        struct Example {
+            research_request_locator: String,
+            authoring: SingleThresholdAuthoringRequestV1,
+        }
+        let raw = include_str!("../test_data/single_threshold/example_statement.json");
+        let example: Example =
+            serde_json::from_str(raw).expect("the shipped example parses as a statement");
+        assert!(
+            !example.research_request_locator.is_empty(),
+            "the example names a locator, because the route's body carries one"
+        );
+        let (design, meaning) = author_single_threshold_program_v1(&example.authoring)
+            .expect("the shipped example is authorable");
+        // Serialising is the half the binary adds, and a type that authors but cannot be written
+        // out would make the binary useless while every test here still passed.
+        serde_json::to_string(&design).expect("the design serialises");
+        serde_json::to_string(&meaning).expect("the meaning serialises");
+    }
+
     fn request() -> SingleThresholdAuthoringRequestV1 {
         SingleThresholdAuthoringRequestV1 {
             research_request_identity: digest(1),

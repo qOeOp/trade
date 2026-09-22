@@ -95,6 +95,12 @@ vibe-portfolio = { workspace = true }
 vibe-testkit = { workspace = true, features = ["postgres"] }
 
 [[bin]]
+name = "strategy-factory-author-role-intent"
+path = "src/bin/author_role_intent.rs"
+doc = false
+test = false
+
+[[bin]]
 name = "strategy-factory-formation"
 path = "src/bin/strategy_factory_formation.rs"
 doc = false
