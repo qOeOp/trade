@@ -871,21 +871,26 @@ impl BacktestReadbackRefusalV1 {
         Self::ProtectedFrontierMalformed,
     ];
 
-    /// Whether the refusal says a row is simply not there.
+    /// Whether the locator addressed no row at all.
     ///
-    /// A caller that answered "not found" before this vocabulary existed keeps answering it for
-    /// exactly these, and now says which row was missing.
+    /// This is an empty result, not a refusal: the caller asked about something that is not
+    /// there, and there is nothing further to recover. It stays `Ok(None)` exactly as it answered
+    /// before this vocabulary existed.
+    ///
+    /// Every other refusal is an aggregate that exists and cannot be answered with, which is an
+    /// anomaly rather than an absence. Folding the two together would rebuild the fault this
+    /// vocabulary removes, in the opposite direction: a caller could no longer tell "there is no
+    /// such row" from "something is wrong".
+    ///
+    /// `ProtectedResultAbsent` and `ProtectedFrontierAbsent` still merge one distinction this
+    /// vocabulary does not resolve. They are raised by `no_data_found` on a three-relation join,
+    /// so they cover both an unknown identity and an aggregate whose cross-references disagree.
+    /// Separating those needs the join split, which is not this change.
     #[must_use]
-    pub const fn is_absent(self) -> bool {
+    pub const fn addresses_no_row(self) -> bool {
         matches!(
             self,
             Self::ExploratoryResultAbsent
-                | Self::ExploratoryReceiptAbsent
-                | Self::ExploratoryOutboxAbsent
-                | Self::SemanticTraceAbsent
-                | Self::OutcomeEvidenceAbsent
-                | Self::OutcomeEvidenceReceiptAbsent
-                | Self::OutcomeEvidenceOutboxAbsent
                 | Self::ProtectedResultAbsent
                 | Self::ProtectedFrontierAbsent
         )
@@ -1119,7 +1124,11 @@ pub async fn resolve_exploratory_replay_result_v2(
     };
 
     if let Some(refusal) = refusal_of(&value)? {
-        return Err(BacktestResultCustodyErrorV2::Refused(refusal));
+        return if refusal.addresses_no_row() {
+            Ok(None)
+        } else {
+            Err(BacktestResultCustodyErrorV2::Refused(refusal))
+        };
     }
     validate_envelope(value, locator).map(Some)
 }
@@ -1157,7 +1166,11 @@ pub async fn resolve_exploratory_replay_result_v3(
     };
 
     if let Some(refusal) = refusal_of(&value)? {
-        return Err(BacktestResultCustodyErrorV2::Refused(refusal));
+        return if refusal.addresses_no_row() {
+            Ok(None)
+        } else {
+            Err(BacktestResultCustodyErrorV2::Refused(refusal))
+        };
     }
     validate_outcome_envelope(value, locator).map(Some)
 }

@@ -294,7 +294,11 @@ pub async fn resolve_protected_replay_result_for_qualification_in_transaction(
     };
 
     if let Some(refusal) = crate::refusal_of(&value)? {
-        return Err(BacktestResultCustodyErrorV2::Refused(refusal));
+        return if refusal.addresses_no_row() {
+            Ok(None)
+        } else {
+            Err(BacktestResultCustodyErrorV2::Refused(refusal))
+        };
     }
     let envelope: LockedEnvelopeV1 =
         serde_json::from_value(value).map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
@@ -365,7 +369,11 @@ pub async fn resolve_protected_replay_result_v2_for_qualification_in_transaction
     };
 
     if let Some(refusal) = crate::refusal_of(&value)? {
-        return Err(BacktestResultCustodyErrorV2::Refused(refusal));
+        return if refusal.addresses_no_row() {
+            Ok(None)
+        } else {
+            Err(BacktestResultCustodyErrorV2::Refused(refusal))
+        };
     }
     let envelope: LockedEnvelopeV1 =
         serde_json::from_value(value).map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
@@ -436,7 +444,11 @@ pub async fn resolve_protected_replay_result_v3_for_qualification_in_transaction
     };
 
     if let Some(refusal) = crate::refusal_of(&value)? {
-        return Err(BacktestResultCustodyErrorV2::Refused(refusal));
+        return if refusal.addresses_no_row() {
+            Ok(None)
+        } else {
+            Err(BacktestResultCustodyErrorV2::Refused(refusal))
+        };
     }
     let envelope: LockedEnvelopeV1 =
         serde_json::from_value(value).map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
@@ -506,7 +518,11 @@ pub async fn resolve_protected_replay_attempt_frontier_for_qualification_in_tran
     };
 
     if let Some(refusal) = crate::refusal_of(&value)? {
-        return Err(BacktestResultCustodyErrorV2::Refused(refusal));
+        return if refusal.addresses_no_row() {
+            Ok(None)
+        } else {
+            Err(BacktestResultCustodyErrorV2::Refused(refusal))
+        };
     }
     let envelope: LockedFrontierEnvelopeV1 =
         serde_json::from_value(value).map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
