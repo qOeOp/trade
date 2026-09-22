@@ -23,9 +23,9 @@
 
 use std::io::{Read, Write};
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use vibe_strategy_factory::single_threshold_authoring_v1::{
-    SingleThresholdAuthoringRequestV1, author_single_threshold_program_v1,
+    DesignRoleIntentProposalV1, SingleThresholdAuthoringRequestV1,
 };
 
 #[derive(Debug, Deserialize)]
@@ -38,41 +38,27 @@ struct ProposalInput {
     authoring: SingleThresholdAuthoringRequestV1,
 }
 
-#[derive(Debug, Serialize)]
-struct PublishRoleIntentBody<'a> {
-    research_request_locator: &'a str,
-    design: &'a vibe_strategy_factory::strategy_design_v2::StrategyDesignV2,
-}
-
-#[derive(Debug, Serialize)]
-struct ProposalOutput<'a> {
-    publish_role_intent: PublishRoleIntentBody<'a>,
-    meaning: &'a vibe_strategy_factory::bounded_feature_program_derivation_v1::BoundedFeatureProgramMeaningV1,
-}
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut raw = String::new();
     std::io::stdin().read_to_string(&mut raw)?;
     let input: ProposalInput = serde_json::from_str(&raw)?;
 
-    let (design, meaning) = match author_single_threshold_program_v1(&input.authoring) {
-        Ok(pair) => pair,
-        Err(refusal) => {
-            // The refusal's own name, not a generic failure: a statement both sides propose the
-            // same frame for is a different thing from a malformed one, and the caller has to be
-            // able to tell them apart without reading this program.
-            writeln!(std::io::stderr(), "refused: {refusal}")?;
-            std::process::exit(1);
-        }
-    };
+    // The output shape is `DesignRoleIntentProposalV1`, which lives in the library rather than
+    // here so that a test can serialise what this program actually emits and feed it to the
+    // Owner's request type. A copy of the shape kept in this binary would drift silently.
+    let out =
+        match DesignRoleIntentProposalV1::author(&input.research_request_locator, &input.authoring)
+        {
+            Ok(proposal) => proposal,
+            Err(refusal) => {
+                // The refusal's own name, not a generic failure: a statement both sides propose the
+                // same frame for is a different thing from a malformed one, and the caller has to be
+                // able to tell them apart without reading this program.
+                writeln!(std::io::stderr(), "refused: {refusal}")?;
+                std::process::exit(1);
+            }
+        };
 
-    let out = ProposalOutput {
-        publish_role_intent: PublishRoleIntentBody {
-            research_request_locator: &input.research_request_locator,
-            design: &design,
-        },
-        meaning: &meaning,
-    };
     serde_json::to_writer_pretty(std::io::stdout(), &out)?;
     writeln!(std::io::stdout())?;
     Ok(())

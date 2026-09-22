@@ -2295,11 +2295,35 @@ SET search_path = pg_catalog
 AS $function$
 DECLARE locked jsonb;
 BEGIN
-  IF session_user <> 'backtest_owner'
-     OR current_user <> 'qualification_owner'
-     OR pg_catalog.current_setting('transaction_isolation') <> 'serializable'
-  THEN
-    RETURN NULL;
+  -- One refusal per cause. A single NULL behind a three-way disjunction cannot tell the
+  -- caller which admission it failed, and the boundary is built so the caller cannot read the
+  -- underlying tables to find out: has_table_privilege('backtest_owner', …, 'SELECT') is false.
+  -- Cannot fire today, and kept for the same reason as the branch below: EXECUTE on this
+  -- function is granted to backtest_owner alone and no role is granted membership in
+  -- backtest_owner, so a foreign caller is refused with SQLSTATE 42501 before this runs.
+  -- Measured, not assumed - the ordered entry named below asserts that 42501. A single
+  -- `GRANT backtest_owner TO <role>` makes this branch reachable, and every other Owner in
+  -- this file already has that shape as `X_owner TO X_writer`.
+  IF session_user <> 'backtest_owner' THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version', 1, 'refusal', 'CALLER_NOT_BACKTEST_OWNER');
+  END IF;
+
+  -- Not constructible today, and kept rather than deleted because removing a stated refusal
+  -- loses the property it protects. Evidence it cannot fire: this function is SECURITY DEFINER
+  -- and `ALTER FUNCTION … OWNER TO qualification_owner` follows it, so current_user inside the
+  -- body is always qualification_owner. Control that this is not a blanket property of the file:
+  -- four functions here are SECURITY INVOKER. Live control that the branch is not simply
+  -- swallowing everything: the ordered entry
+  -- `postgres::postgres_tests::sealed_request_reads_name_the_admission_they_refused` asserts an
+  -- admitted read returns a three-part envelope with no `refusal` key, which this branch firing
+  -- would replace. No invocation count is claimed here: the chain's PostgreSQL log dump is a
+  -- partial window, so it cannot carry one.
+  IF current_user <> 'qualification_owner' THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version', 1, 'refusal', 'DEFINER_NOT_QUALIFICATION_OWNER');
+  END IF;
+
+  IF pg_catalog.current_setting('transaction_isolation') <> 'serializable' THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version', 1, 'refusal', 'ISOLATION_NOT_SERIALIZABLE');
   END IF;
   SELECT pg_catalog.jsonb_build_object(
            'schema_version', 1,
@@ -2338,8 +2362,13 @@ BEGIN
      AND outbox.payload_json->>'seal_digest' = receipt.seal_digest
    FOR SHARE OF request, receipt, outbox;
   RETURN locked;
-EXCEPTION WHEN no_data_found OR too_many_rows OR data_exception THEN
-  RETURN NULL;
+EXCEPTION
+  WHEN no_data_found THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version', 1, 'refusal', 'REQUEST_NOT_FOUND');
+  WHEN too_many_rows THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version', 1, 'refusal', 'REQUEST_AMBIGUOUS');
+  WHEN data_exception THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version', 1, 'refusal', 'REQUEST_MALFORMED');
 END
 $function$;
 ALTER FUNCTION qualification_api.lock_protected_replay_request_v1(text,text,text,text) OWNER TO qualification_owner;
@@ -2355,11 +2384,35 @@ SET search_path = pg_catalog
 AS $function$
 DECLARE locked jsonb;
 BEGIN
-  IF session_user <> 'backtest_owner'
-     OR current_user <> 'qualification_owner'
-     OR pg_catalog.current_setting('transaction_isolation') <> 'serializable'
-  THEN
-    RETURN NULL;
+  -- One refusal per cause. A single NULL behind a three-way disjunction cannot tell the
+  -- caller which admission it failed, and the boundary is built so the caller cannot read the
+  -- underlying tables to find out: has_table_privilege('backtest_owner', …, 'SELECT') is false.
+  -- Cannot fire today, and kept for the same reason as the branch below: EXECUTE on this
+  -- function is granted to backtest_owner alone and no role is granted membership in
+  -- backtest_owner, so a foreign caller is refused with SQLSTATE 42501 before this runs.
+  -- Measured, not assumed - the ordered entry named below asserts that 42501. A single
+  -- `GRANT backtest_owner TO <role>` makes this branch reachable, and every other Owner in
+  -- this file already has that shape as `X_owner TO X_writer`.
+  IF session_user <> 'backtest_owner' THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version', 1, 'refusal', 'CALLER_NOT_BACKTEST_OWNER');
+  END IF;
+
+  -- Not constructible today, and kept rather than deleted because removing a stated refusal
+  -- loses the property it protects. Evidence it cannot fire: this function is SECURITY DEFINER
+  -- and `ALTER FUNCTION … OWNER TO qualification_owner` follows it, so current_user inside the
+  -- body is always qualification_owner. Control that this is not a blanket property of the file:
+  -- four functions here are SECURITY INVOKER. Live control that the branch is not simply
+  -- swallowing everything: the ordered entry
+  -- `postgres::postgres_tests::sealed_request_reads_name_the_admission_they_refused` asserts an
+  -- admitted read returns a three-part envelope with no `refusal` key, which this branch firing
+  -- would replace. No invocation count is claimed here: the chain's PostgreSQL log dump is a
+  -- partial window, so it cannot carry one.
+  IF current_user <> 'qualification_owner' THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version', 1, 'refusal', 'DEFINER_NOT_QUALIFICATION_OWNER');
+  END IF;
+
+  IF pg_catalog.current_setting('transaction_isolation') <> 'serializable' THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version', 1, 'refusal', 'ISOLATION_NOT_SERIALIZABLE');
   END IF;
   SELECT pg_catalog.jsonb_build_object(
            'schema_version', 1,
@@ -2392,8 +2445,13 @@ BEGIN
      )
    FOR SHARE OF request_set,outbox;
   RETURN locked;
-EXCEPTION WHEN no_data_found OR too_many_rows OR data_exception THEN
-  RETURN NULL;
+EXCEPTION
+  WHEN no_data_found THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version', 1, 'refusal', 'REQUEST_SET_NOT_FOUND');
+  WHEN too_many_rows THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version', 1, 'refusal', 'REQUEST_SET_AMBIGUOUS');
+  WHEN data_exception THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version', 1, 'refusal', 'REQUEST_SET_MALFORMED');
 END
 $function$;
 ALTER FUNCTION qualification_api.lock_protected_replay_request_set_v1(text,text) OWNER TO qualification_owner;

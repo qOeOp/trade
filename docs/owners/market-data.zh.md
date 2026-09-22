@@ -1601,6 +1601,15 @@ rejection。
   与 Universe Selection Record。**TARGET：** 直接 `BACKTEST_OWNER_V1` Instrument Master resolution 提供
   sealed fact/cut readback；实际消费与 Run Result 必须重复准确 snapshot、selection、Instrument Master
   fact/cut 以及每个冻结 execution identity。
+  **一条序列的成本是每根 bar 一次场馆往返，这是结构性的而非实现细节。** 一个 PIT 快照是一个 as-of 切面，
+  所以 N 根 bar 就是 N 个冻结请求、N 次取数；这条路径上没有任何地方把一个窗口摊销成一次调用。
+  **实测 2026-09-22**：`BTCUSDT.BINANCE` 的 `1M`，512 个连续坐标产出 512 根不同的 bar 与 512 个不同的封印
+  快照，严格连续、无缺口、无重复，耗时 767.8 秒。该数字折合每根 1.50 秒，但它每个坐标含 **两** 次往返，
+  因为那一轮还另外探了一次场馆以见证每个坐标解析到哪根 bar；只提交的消费方只需一次，所以生产形态接近每根
+  0.75 秒 - **由折半推得，不是实测。** **按该速率外推**（这是外推，仅在每根耗时保持不变且场馆不限流时成立）：
+  一年的 `1M` bar 是 525,600 次取数，约 4.6 至 9.1 天墙钟；而一年的日线是 365 次取数，几分钟内完成。
+  **所以这条路径服务的是一个有界窗口，不服务长跨度的分钟级历史**，打算要后者的消费方需要的是另一种供给
+  形态，而不是更长的超时。
 - 向 [Scanner](./scanner/) 提供已发布激活条件请求的准确 PIT Market Snapshot。
 - 向 [Runtime](./runtime/) 提供携带同一 Market Semantics Compatibility 身份的实时行情流和标的更新；
   generation 的 Strategy Artifact 与历史证据必须消费该身份。

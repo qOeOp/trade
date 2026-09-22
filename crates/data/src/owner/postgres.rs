@@ -5256,6 +5256,10 @@ async fn validate_source_lineage_shape(
             .map_err(|_| SourceBindingError::StoreUnavailable)?;
 
     if !valid {
+        super::storage_diagnostic::refused_by_store(
+            "source_lineage.shape.custody",
+            &"source lineage custody rejected its own stored shape",
+        );
         return Err(SourceBindingError::StoreUnavailable);
     }
     let identities: Vec<Vec<u8>> = sqlx::query_scalar(
@@ -5337,6 +5341,13 @@ async fn validate_owner_history_custody(
             .map_err(|_| SourceBindingError::StoreUnavailable)?;
 
     if !census_is_valid {
+        // A detection, not an outage: the query ran and the store disagreed with itself. Without
+        // this line the two are the same `StoreUnavailable` to every caller and to every log, so
+        // "has this check ever caught anything?" could not be answered from any record.
+        super::storage_diagnostic::refused_by_store(
+            "owner_history.census.custody",
+            &"lineage census disagrees with the facts and heads it indexes",
+        );
         return Err(SourceBindingError::StoreUnavailable);
     }
     let source_roots: Vec<Vec<u8>> = sqlx::query_scalar(
@@ -5360,11 +5371,22 @@ async fn validate_owner_history_custody(
     .map_err(|_| SourceBindingError::StoreUnavailable)?;
 
     for lineage_root in pit_roots {
-        let lineage_root =
-            digest_from_bytes(&lineage_root).map_err(|_| SourceBindingError::StoreUnavailable)?;
+        let lineage_root = digest_from_bytes(&lineage_root).map_err(|e| {
+            super::storage_diagnostic::refused_by_store(
+                "owner_history.pit_lineage.root_digest",
+                &e,
+            );
+            SourceBindingError::StoreUnavailable
+        })?;
         validate_pit_lineage_shape(transaction, lineage_root)
             .await
-            .map_err(|_| SourceBindingError::StoreUnavailable)?;
+            .map_err(|e| {
+                // This `map_err` crosses an error-type boundary, so before this line the reason a
+                // PIT lineage failed its shape check was discarded one statement from where it was
+                // produced - the exact defect `storage_diagnostic` was written for.
+                super::storage_diagnostic::refused_by_store("owner_history.pit_lineage.shape", &e);
+                SourceBindingError::StoreUnavailable
+            })?;
     }
     Ok(())
 }
@@ -5945,6 +5967,10 @@ async fn validate_pit_lineage_shape(
             .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
 
     if !valid {
+        super::storage_diagnostic::refused_by_store(
+            "pit_lineage.shape.custody",
+            &"PIT lineage custody rejected its own stored shape",
+        );
         return Err(PitSnapshotError::PersistenceUnavailable);
     }
     let identities: Vec<Vec<u8>> = sqlx::query_scalar(
