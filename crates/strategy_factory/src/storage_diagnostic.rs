@@ -15,10 +15,20 @@
 //! sends a refused caller down, so a gap there means the caller is told to ask again and the
 //! second answer is as silent as the first.
 //!
-//! Scope is a refusal that the response does not name. A refusal the contract already names -
-//! `ConflictingReplay`, `Unauthorized`, `Storage` - is not reported here, and neither is a lookup
-//! that simply found no row: an identity the Owner has never been told about is not a refusal and
-//! has no cause to record.
+//! Source Intake is covered on the same terms, and it is where the rule below needed stating
+//! precisely. Its route answers `503 OWNER_OUTCOME_UNKNOWN` with a body carrying no cause at all,
+//! so an operator holding that 503 cannot tell a store that is down from an admission that
+//! disagrees from a pipeline stage that does not exist. `SourceIntakeOwnerErrorV1::Unavailable`
+//! is a unit variant with twenty production sites, and before this channel reached them every one
+//! was silent.
+//!
+//! Scope is a refusal **the response does not name**. A refusal the response already names is not
+//! reported here, and neither is a lookup that simply found no row: an identity the Owner has
+//! never been told about is not a refusal and has no cause to record. `submit_v2` reads that rule
+//! as excluding `ConflictingReplay`, `Unauthorized` and `Storage`, because its response names each
+//! of them. Source Intake reads the same rule as *including* a Product Edge `Storage` detail,
+//! because its response collapses that into `OWNER_OUTCOME_UNKNOWN` and names nothing. The rule is
+//! about what the caller is told, not about which variant was raised.
 
 use std::fmt::Display;
 
