@@ -4858,7 +4858,8 @@ mod tests {
         );
     }
 
-    /// Publishes a Design this repository authored, not one an acceptance fixture committed.
+    /// Carries a Design this repository authored, not one an acceptance fixture committed, through
+    /// the three routes that publish it, bind it and freeze it.
     ///
     /// `POST /v1/strategy-designs/publish-role-intent` had never been called by anything. The route
     /// is mounted and alive, and `author_single_threshold_program_v1` produces exactly the body it
@@ -4870,9 +4871,22 @@ mod tests {
     /// The Research identities are taken from custody rather than invented, because
     /// `derive_design_role_intent_v1` refuses a Design whose three identities disagree with the
     /// Research request it names. What is new here is the Design, not the Research.
+    ///
+    /// The authored channel is the daily close of `AAPL` because the binding admission resolves
+    /// every role against this Owner's own PIT custody at the decision cut, and the only coordinates
+    /// the ordered chain supplies are the six that
+    /// `prepare_owner_bar_joined_cut_acceptance_basis_v1` commits at entry 32 - `MARKET`, `BAR`,
+    /// scale 2, on that instrument. A freely chosen coordinate is refused with
+    /// `STRATEGY_INPUT_SNAPSHOT_UNAVAILABLE`, which would be a true statement about what the chain
+    /// stocks and no statement at all about the route under test.
+    ///
+    /// The declaration is asserted to add exactly one freeze rather than to answer 200. A Design
+    /// that was already frozen rejoins its freeze and also answers 200, so the count is what
+    /// separates a first declaration from a replay, and the stored bytes are compared against what
+    /// was authored because some other Design's freeze would satisfy the count too.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[ignore = "requires the ordered chain's PostgreSQL and a Research request an earlier entry commits"]
-    async fn an_authored_design_publishes_its_role_intent_over_http() {
+    async fn an_authored_design_is_published_bound_and_frozen_over_http() {
         use axum::body::Body;
         use axum::extract::Request;
         use tower::ServiceExt;
@@ -4909,14 +4923,14 @@ mod tests {
         let committed: StrategyDesignV2 = serde_json::from_slice(&committed_design_bytes)
             .expect("the stored Design bytes are the canonical Design");
 
-        let (authored, _meaning) =
+        let (authored, meaning) =
             author_single_threshold_program_v1(&SingleThresholdAuthoringRequestV1 {
                 research_request_identity: committed.research_request_identity,
                 intent_identity: committed.intent_identity,
                 intent_digest: committed.intent_digest,
                 channel: SingleThresholdChannelV1 {
                     role_semantic_id: "research.input.close.daily.v1".to_owned(),
-                    instrument: "BTCUSDT-PERP.BINANCE".to_owned(),
+                    instrument: "AAPL".to_owned(),
                     field_semantic_id: "MARKET_DATA.BAR.CLOSE.PRICE.V1".to_owned(),
                     timeframe: "1D".to_owned(),
                     unit: "PRICE".to_owned(),
@@ -4956,31 +4970,74 @@ mod tests {
             .await
             .unwrap(),
         );
-        let app = bounded_feature_program::router(owner, token_digest);
-
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/v1/strategy-designs/publish-role-intent")
-                    .header("authorization", format!("Bearer {token}"))
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        serde_json::json!({
-                            "research_request_locator": locator,
-                            "design": authored,
-                        })
-                        .to_string(),
-                    ))
-                    .unwrap(),
-            )
+        let bindings = bootstrap_market_data_strategy_input_bindings()
             .await
             .unwrap();
-        let status = response.status();
-        let body = axum::body::to_bytes(response.into_body(), 1 << 20)
-            .await
-            .map(|b| String::from_utf8_lossy(&b).into_owned())
-            .unwrap_or_default();
+        // Asserted before any request, so a configuration answer cannot arrive as a 503 and be read
+        // as this Owner's answer about this Design.
+        assert!(
+            bindings.is_some(),
+            "the strategy input binding admission must be composed before its routes are driven",
+        );
+        let app =
+            bounded_feature_program::router(owner, token_digest).merge(market_data_pit::router(
+                bootstrap_market_data_pit_intake().await.unwrap(),
+                bootstrap_market_data_source_binding_admission()
+                    .await
+                    .unwrap(),
+                bootstrap_market_data_universe_selection().await.unwrap(),
+                bindings,
+                bootstrap_market_data_instrument_master_admission()
+                    .await
+                    .unwrap(),
+                bootstrap_market_data_market_semantics_admission()
+                    .await
+                    .unwrap(),
+                token_digest,
+            ));
+
+        let post =
+            async |app: Router, path: &str, body: serde_json::Value| -> (StatusCode, String) {
+                let response = app
+                    .oneshot(
+                        Request::builder()
+                            .method("POST")
+                            .uri(path)
+                            .header("authorization", format!("Bearer {token}"))
+                            .header("content-type", "application/json")
+                            .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                let status = response.status();
+                // The rejection code is a header, not a body field, and it is the only part that
+                // says which refusal this is: two different 409s are spelled identically in the
+                // body.
+                let code = response
+                    .headers()
+                    .get("x-rd-rejection-code")
+                    .and_then(|value| value.to_str().ok())
+                    .unwrap_or("-")
+                    .to_owned();
+                let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .unwrap();
+                (
+                    status,
+                    format!("[{code}] {}", String::from_utf8_lossy(&bytes)),
+                )
+            };
+
+        let (status, body) = post(
+            app.clone(),
+            "/v1/strategy-designs/publish-role-intent",
+            serde_json::json!({
+                "research_request_locator": locator,
+                "design": authored,
+            }),
+        )
+        .await;
         assert_eq!(
             status,
             StatusCode::OK,
@@ -4991,10 +5048,12 @@ mod tests {
         // Design it already had. The published intent must name the authored Design, so its identity
         // is compared against the frozen one whose Research identities this entry borrowed.
         let published: serde_json::Value =
-            serde_json::from_str(&body).expect("the published role intent is JSON");
+            serde_json::from_str(body.split_once("] ").expect("the code prefix").1)
+                .expect("the published role intent is JSON");
         let published_design_identity = published
             .get("design_identity")
-            .expect("the published role intent names the Design it published");
+            .expect("the published role intent names the Design it published")
+            .clone();
         // Both sides must be the same shape before they are compared, or the inequality below holds
         // for every input and asserts nothing: a digest rendered as a string could never equal one
         // rendered as bytes, and the entry would pass whichever Design was published.
@@ -5012,7 +5071,7 @@ mod tests {
             "a design identity is a 32-byte digest",
         );
         assert_ne!(
-            serde_json::to_string(published_design_identity).unwrap(),
+            serde_json::to_string(&published_design_identity).unwrap(),
             serde_json::to_string(&committed_design_identity).unwrap(),
             "the published intent names the frozen fixture Design, not the authored one: {body}",
         );
@@ -5022,6 +5081,74 @@ mod tests {
                 .and_then(serde_json::Value::as_array)
                 .is_some_and(|roles| !roles.is_empty()),
             "a published role intent with no roles describes no Design: {body}",
+        );
+
+        // Publishing proves the Design is well formed and names its Research. It does not prove this
+        // Owner can bind it: that route resolves every role against its own PIT custody at the
+        // decision cut and refuses a coordinate it does not hold, which is why the authored channel
+        // is the daily close of the instrument the ordered chain's basis supplies rather than a
+        // coordinate chosen freely.
+        let (status, body) = post(
+            app.clone(),
+            "/v1/market-data/strategy-input-bindings/from-design-intent",
+            serde_json::json!({ "design_identity": published_design_identity }),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "the authored Design's roles must resolve to Owner-held snapshots: {body}",
+        );
+
+        // Counted immediately before the declaration, because the assertion below is that this
+        // Design adds one - a replay of an already frozen Design answers 200 and adds none.
+        let freezes_before: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM public.rd_bounded_feature_program_freezes_v1")
+                .fetch_one(&rd_pool)
+                .await
+                .unwrap();
+        let (status, body) = post(
+            app,
+            "/v1/bounded-feature-programs/declare",
+            serde_json::json!({
+                "research_request_locator": locator,
+                "design": authored,
+                "meaning": meaning,
+            }),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "declaring the authored Design must assemble and freeze it: {body}",
+        );
+
+        let freezes_after: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM public.rd_bounded_feature_program_freezes_v1")
+                .fetch_one(&rd_pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            freezes_after,
+            freezes_before + 1,
+            "an authored Design that was never frozen before must commit one freeze, not rejoin one",
+        );
+
+        // The count alone would also be satisfied by a freeze of some other Design committed by
+        // this call, so the newest stored Design bytes are compared against what was authored.
+        let newest_design_bytes: Vec<u8> = sqlx::query_scalar(
+            "SELECT design_bytes
+               FROM public.rd_bounded_feature_program_freezes_v1
+              ORDER BY committed_at_epoch_ms DESC
+              LIMIT 1",
+        )
+        .fetch_one(&rd_pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            newest_design_bytes,
+            serde_json::to_vec(&authored).unwrap(),
+            "the committed freeze must hold the Design this entry authored",
         );
     }
 
