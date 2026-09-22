@@ -3515,8 +3515,9 @@ AS $function$
 DECLARE
   locked_basis record;
   locked_outbox record;
+  stored_basis record;
 BEGIN
-  IF pg_catalog.current_setting('transaction_isolation') NOT IN ('read committed','serializable') THEN RETURN NULL; END IF;
+  IF pg_catalog.current_setting('transaction_isolation') NOT IN ('read committed','serializable') THEN RETURN pg_catalog.jsonb_build_object('schema_version', 1, 'refusal', 'ISOLATION_UNSUPPORTED'); END IF;
   SELECT basis_identity, request_identity, principal, request_scope_json, lineage_digest,
          basis_digest, basis_json, receipt_json, committed_at_epoch_ms
     INTO locked_basis
@@ -3526,15 +3527,38 @@ BEGIN
      AND principal = requested_principal
      AND request_scope_json = requested_request_scope
    FOR SHARE;
-  IF NOT FOUND THEN RETURN NULL; END IF;
-  SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json,
-         committed_at_epoch_ms
-    INTO STRICT locked_outbox
-    FROM public.rd_owner_outbox_v1
-   WHERE aggregate_identity = requested_basis_identity
-     AND event_kind = 'INDEPENDENCE_BASIS_PRECOMMITTED_V1'
-   FOR SHARE;
-  IF NOT FOUND THEN RETURN NULL; END IF;
+  IF NOT FOUND THEN
+    SELECT basis_digest, principal, request_scope_json
+      INTO stored_basis
+      FROM public.rd_independence_bases_v1
+     WHERE basis_identity = requested_basis_identity
+     FOR SHARE;
+    IF NOT FOUND THEN
+      RETURN pg_catalog.jsonb_build_object('schema_version', 1, 'refusal', 'BASIS_IDENTITY_UNKNOWN');
+    ELSIF stored_basis.basis_digest IS DISTINCT FROM requested_basis_digest THEN
+      RETURN pg_catalog.jsonb_build_object('schema_version', 1, 'refusal', 'BASIS_DIGEST_MISMATCH');
+    ELSIF stored_basis.principal IS DISTINCT FROM requested_principal THEN
+      RETURN pg_catalog.jsonb_build_object('schema_version', 1, 'refusal', 'BASIS_PRINCIPAL_MISMATCH');
+    ELSIF stored_basis.request_scope_json IS DISTINCT FROM requested_request_scope THEN
+      RETURN pg_catalog.jsonb_build_object('schema_version', 1, 'refusal', 'BASIS_SCOPE_MISMATCH');
+    ELSE
+      RETURN pg_catalog.jsonb_build_object('schema_version', 1, 'refusal', 'BASIS_LOOKUP_INCONSISTENT');
+    END IF;
+  END IF;
+  BEGIN
+    SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json,
+           committed_at_epoch_ms
+      INTO STRICT locked_outbox
+      FROM public.rd_owner_outbox_v1
+     WHERE aggregate_identity = requested_basis_identity
+       AND event_kind = 'INDEPENDENCE_BASIS_PRECOMMITTED_V1'
+     FOR SHARE;
+  EXCEPTION
+    WHEN no_data_found THEN
+      RETURN pg_catalog.jsonb_build_object('schema_version', 1, 'refusal', 'OUTBOX_EVENT_ABSENT');
+    WHEN too_many_rows THEN
+      RETURN pg_catalog.jsonb_build_object('schema_version', 1, 'refusal', 'OUTBOX_EVENT_AMBIGUOUS');
+  END;
   RETURN pg_catalog.jsonb_build_object(
     'schema_version', 1,
     'basis', pg_catalog.jsonb_build_object(
