@@ -1881,9 +1881,10 @@ impl ReplayCompositionOwnerV1 {
             .await
             .map_err(|_| StrategyInputBindingAdmissionErrorV1::StoreUnavailable)?;
         let published = async {
-            let (isolation, read_only): (String, String) = sqlx::query_as(
+            let (isolation, read_only, session_user): (String, String, String) = sqlx::query_as(
                 "SELECT pg_catalog.current_setting('transaction_isolation'),
-                        pg_catalog.current_setting('transaction_read_only')",
+                        pg_catalog.current_setting('transaction_read_only'),
+                        pg_catalog.session_user",
             )
             .fetch_one(&mut *reader_transaction)
             .await
@@ -1892,6 +1893,19 @@ impl ReplayCompositionOwnerV1 {
             if isolation != "repeatable read" || read_only != "on" {
                 return Err(StrategyInputBindingAdmissionErrorV1::StoreUnavailable);
             }
+
+            // The Owner's exact-locator function carries `AND session_user = 'market_data_reader'`
+            // inside its `WHERE`, so a connection under any other principal reads zero rows - the
+            // same zero rows a Design that was never published reads. Without this check, pointing
+            // this pool at the wrong role is reported as `DESIGN_ROLE_INTENT_UNKNOWN`, which sends
+            // a reader looking for a missing Design instead of a misconfigured connection.
+            //
+            // Checked here rather than changed there: the repository already answers this eight
+            // times the other way round - `10-migrate-authority-custody.sh` has eight
+            // `IF session_user <> ...` guards and exactly one function that folds the test into a
+            // `WHERE`. That one is the odd one out, and its caller is what can still tell the two
+            // apart.
+            Self::admit_design_intent_reader_principal(&session_user)?;
             Self::resolve_design_role_intent(&mut reader_transaction, design_identity).await
         }
         .await;
@@ -1911,6 +1925,38 @@ impl ReplayCompositionOwnerV1 {
             .await
             .map_err(|_| StrategyInputBindingAdmissionErrorV1::StoreUnavailable)?;
         outcome
+    }
+
+    /// Refuses a connection that is not the admitted reader principal, and says so in the log.
+    ///
+    /// The Owner's exact-locator function carries `AND session_user = 'market_data_reader'` inside
+    /// its `WHERE`, so a connection under any other principal reads zero rows - the same zero rows
+    /// a Design that was never published reads. Unchecked, pointing this pool at the wrong role is
+    /// reported as `DESIGN_ROLE_INTENT_UNKNOWN`, which sends a reader looking for a missing Design
+    /// instead of a misconfigured connection.
+    ///
+    /// Checked here rather than changed there: the repository already answers this eight times the
+    /// other way round - `10-migrate-authority-custody.sh` has eight `IF session_user <> ...`
+    /// guards and exactly one function that folds the test into a `WHERE`. That one is the odd one
+    /// out, and its caller is what can still tell the two apart.
+    ///
+    /// `StoreUnavailable` is the right code even so: the caller cannot change which principal this
+    /// pool connects as, so its options are the same as for an unreachable store. What differs is
+    /// what an operator should go and look at, and that is what the log line carries.
+    fn admit_design_intent_reader_principal(
+        session_user: &str,
+    ) -> Result<(), StrategyInputBindingAdmissionErrorV1> {
+        if session_user == "market_data_reader" {
+            return Ok(());
+        }
+
+        crate::owner::storage_diagnostic::refused_by_store(
+            "strategy_input_binding.design_intent.reader_principal",
+            &format!(
+                "the R&D role-intent reader must connect as market_data_reader, not {session_user}"
+            ),
+        );
+        Err(StrategyInputBindingAdmissionErrorV1::StoreUnavailable)
     }
 
     /// Reads one published intent through R&D's exact-locator function and re-derives its digest.
@@ -3575,6 +3621,33 @@ mod composer_facade_tests {
             MARKET_OWNER_COMPOSER_ACL_QUERY_V1,
         ] {
             assert!(!query.contains("has_table_privilege(current_user,'"));
+        }
+    }
+
+    /// The admitted reader principal is admitted, and every other one is refused by name.
+    ///
+    /// Driven here rather than end to end: reaching the guard through the real path needs a
+    /// connection under a principal other than `market_data_reader`, which is an ordered-chain
+    /// entry of its own. That entry is constructible - point the reader at the `rd_owner` URL -
+    /// and is not written yet, so this covers the decision and not its wiring.
+    #[rstest]
+    #[case::admitted("market_data_reader", true)]
+    #[case::owner_principal("rd_owner", false)]
+    #[case::composer("composer_reader", false)]
+    #[case::empty("", false)]
+    fn only_the_admitted_reader_principal_may_resolve_a_design_intent(
+        #[case] session_user: &str,
+        #[case] admitted: bool,
+    ) {
+        let outcome = ReplayCompositionOwnerV1::admit_design_intent_reader_principal(session_user);
+
+        assert_eq!(outcome.is_ok(), admitted, "{session_user}");
+        if !admitted {
+            assert_eq!(
+                outcome.unwrap_err(),
+                StrategyInputBindingAdmissionErrorV1::StoreUnavailable,
+                "a wrong principal is refused as an unusable store, not as a missing Design"
+            );
         }
     }
 }
