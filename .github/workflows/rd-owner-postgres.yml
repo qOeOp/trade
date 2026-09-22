@@ -5,9 +5,15 @@ permissions:
 
 on:
   workflow_call:
-  push:
-    branches:
-      - test-rd-owner-postgres
+  # No `push:` trigger. `owner-chains.yml` runs the same
+  # `cargo-test-rd-owner-postgres-isolated` target on `test-chain/**`, and two more targets beside
+  # it, so a second branch-triggered channel bought a duplicate forty-minute run and nothing else.
+  #
+  # The file stays because the channel is not all it is. `scripts/ci/test-rd-owner-postgres.bash`
+  # pins the `RUST_TEST_EXTRA_FEATURES` block below verbatim and fails closed without it, while
+  # `owner-chains.yml` declares a strictly smaller set. Deleting this workflow would take the
+  # declaration along with the channel and leave nothing checking that union.
+  workflow_dispatch:
 
 concurrency:
   group: >-
