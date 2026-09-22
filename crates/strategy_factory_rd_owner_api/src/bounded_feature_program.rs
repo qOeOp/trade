@@ -653,9 +653,13 @@ mod assembly_rejection_tests {
                 .expect("the emitted design serialises"),
         );
 
-        // The control. This request type declares `deny_unknown_fields`, and the whole proposal
-        // carries `meaning` alongside the body, so posting the wrong half must be refused. Without
-        // this, the assertion above would hold just as well against a type that accepted anything.
+        // The control: without it, the assertion above would hold just as well against a type
+        // that accepted anything.
+        //
+        // It is not a control for `deny_unknown_fields`, though an earlier version of this comment
+        // said it was. Removing that attribute leaves this assertion passing, because the whole
+        // proposal is *missing* `research_request_locator` and `design` either way - it nests them
+        // one level down. Measured by mutation, not read off the derive.
         assert!(
             serde_json::from_value::<DesignRoleIntentPublicationRequestV1>(emitted).is_err(),
             "the route must refuse the whole proposal, which carries `meaning` as well"
