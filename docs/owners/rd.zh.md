@@ -100,7 +100,11 @@
   它实现了 `terminal_preflight`、`admit` 与 `resolve_terminal`。`resolve_policy` 无条件答 `Ok(None)`，
   `SourceIntakeWorkflowV1::run` 把它变成 `PolicyUnavailable`；其后的九个阶段，从 `commit_binding` 到
   `commit_terminal`，都是无条件的 `Err(Unavailable)`。所以一个已部署的 Owner 受理一次 source intake 请求，
-  此外什么都取不到：实测发一次，答的是 `503 OWNER_OUTCOME_UNKNOWN`。这一句要对着
+  此外什么都取不到。它停在哪一跳，和一次探测停在哪一跳，要分开说，因为两者不是同一跳。按发布形态，
+  这次运行止于 `resolve_policy`，而 `PolicyUnavailable` 答 `202` 并留下日志。一次打到已部署 Owner 的真实请求
+  从没走到那里：它答的是 `503`，而只有 `Unavailable` 会产出它，来自 `resolve_policy` 之前的一跳；
+  在那条臂被装上仪器之前它什么都不记，所以说不出是哪一跳。因此那九个阶段不可达有两重：
+  一重是 `resolve_policy` 先返回了，一重是那个部署根本没走到那么远。这一句要对着
   [Source Intake Playbook](../guide/source-intake/) 读：只要任何一项 `LIVE_EXTERNAL` 权威缺席，
   它要求的正是这个答案，并且禁止退回夹具。所以「不可用」在今天是符合契约的答案，缺口是另一件事：
   这些阶段并不是去查权威然后失败关闭，它们根本不看输入，所以把 Playbook 点名的权威全部配齐也不会改变答案。
