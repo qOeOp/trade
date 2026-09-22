@@ -108,6 +108,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-scanner-custody|vibe_scanner_custody|postgres::chain_proofs::a_caller_without_the_grant_is_refused_rather_than_answered_empty'
   'vibe-risk-owner|vibe_risk_owner|capacity_read_port_postgres::postgres_proof::postgres_capacity_observation_seals_only_what_portfolio_currently_publishes'
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::frozen_program_replays_over_http_to_the_same_joint_freeze'
+  'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::an_authored_design_publishes_its_role_intent_over_http'
   'vibe-strategy-factory|trial_family_owner|intent_lookup_does_not_lock_a_receipt_it_does_not_return'
   'vibe-strategy-factory|vibe_strategy_factory|postgres_error_message::postgres_tests::owner_storage_errors_carry_the_detail_postgres_sent'
   'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::second_request_under_one_principal_resolves_through_the_frontier_arm'
@@ -153,8 +154,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 94 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all 94 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 95 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all 95 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -257,10 +258,11 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[87]}" != *'|postgres::chain_proofs::a_caller_without_the_grant_is_refused_rather_than_answered_empty' ]] ||
     [[ "${rd_owner_postgres_tests[88]}" != *'|capacity_read_port_postgres::postgres_proof::postgres_capacity_observation_seals_only_what_portfolio_currently_publishes' ]] ||
     [[ "${rd_owner_postgres_tests[89]}" != *'|tests::frozen_program_replays_over_http_to_the_same_joint_freeze' ]] ||
-    [[ "${rd_owner_postgres_tests[90]}" != *'|intent_lookup_does_not_lock_a_receipt_it_does_not_return' ]] ||
-    [[ "${rd_owner_postgres_tests[91]}" != *'|postgres_error_message::postgres_tests::owner_storage_errors_carry_the_detail_postgres_sent' ]] ||
-    [[ "${rd_owner_postgres_tests[92]}" != *'|product_edge_postgres::tests::second_request_under_one_principal_resolves_through_the_frontier_arm' ]] ||
-    [[ "${rd_owner_postgres_tests[93]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[90]}" != *'|tests::an_authored_design_publishes_its_role_intent_over_http' ]] ||
+    [[ "${rd_owner_postgres_tests[91]}" != *'|intent_lookup_does_not_lock_a_receipt_it_does_not_return' ]] ||
+    [[ "${rd_owner_postgres_tests[92]}" != *'|postgres_error_message::postgres_tests::owner_storage_errors_carry_the_detail_postgres_sent' ]] ||
+    [[ "${rd_owner_postgres_tests[93]}" != *'|product_edge_postgres::tests::second_request_under_one_principal_resolves_through_the_frontier_arm' ]] ||
+    [[ "${rd_owner_postgres_tests[94]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
@@ -378,7 +380,7 @@ for line in array_body.splitlines():
     entries.append(tuple(fields))
 # The count lives in one place. Writing it into the message as well lets the two drift, and the
 # drifted form reads as nonsense the moment it fires: "must contain 92 entries, found 92".
-expected_entries = 94
+expected_entries = 95
 if len(entries) != expected_entries:
     raise SystemExit(
         f"ERROR: ordered PostgreSQL test literal must contain {expected_entries} entries, found {len(entries)}."

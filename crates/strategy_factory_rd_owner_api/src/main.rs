@@ -4858,6 +4858,157 @@ mod tests {
         );
     }
 
+    /// Publishes a Design this repository authored, not one an acceptance fixture committed.
+    ///
+    /// `POST /v1/strategy-designs/publish-role-intent` had never been called by anything. The route
+    /// is mounted and alive, and `author_single_threshold_program_v1` produces exactly the body it
+    /// accepts, but nothing joined the two: the only producer reachable from a default build writes
+    /// its JSON to stdout. Every other entry that reaches this area replays a Design read back from
+    /// a freeze that `bounded_feature_program_six_role_bar_fixture_v1` committed, and that fixture
+    /// exists only under `cfg(all(test, feature = "sealed-strategy-input-acceptance"))`.
+    ///
+    /// The Research identities are taken from custody rather than invented, because
+    /// `derive_design_role_intent_v1` refuses a Design whose three identities disagree with the
+    /// Research request it names. What is new here is the Design, not the Research.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "requires the ordered chain's PostgreSQL and a Research request an earlier entry commits"]
+    async fn an_authored_design_publishes_its_role_intent_over_http() {
+        use axum::body::Body;
+        use axum::extract::Request;
+        use tower::ServiceExt;
+        use vibe_strategy_factory::{
+            bounded_feature_program_v1::BoundedFeaturePredicateV1,
+            single_threshold_authoring_v1::{
+                SingleThresholdAuthoringRequestV1, SingleThresholdChannelV1,
+                SingleThresholdOutcomeV1, author_single_threshold_program_v1,
+            },
+            strategy_design_v2::StrategyDesignV2,
+        };
+
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let rd_pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(2)
+            .connect(test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner))
+            .await
+            .unwrap();
+
+        let frozen: Option<(String, Vec<u8>, Vec<u8>)> = sqlx::query_as(
+            "SELECT request_identity, design_bytes, design_identity
+               FROM public.rd_bounded_feature_program_freezes_v1
+              ORDER BY committed_at_epoch_ms DESC
+              LIMIT 1",
+        )
+        .fetch_optional(&rd_pool)
+        .await
+        .unwrap();
+        // Zero rows is a statement about the entries before this one, not about this route.
+        let (locator, committed_design_bytes, committed_design_identity) = frozen.expect(
+            "an earlier ordered entry must have committed a freeze: this entry borrows its Research \
+             identities rather than minting a Research request, so no rows means that entry did not run",
+        );
+        let committed: StrategyDesignV2 = serde_json::from_slice(&committed_design_bytes)
+            .expect("the stored Design bytes are the canonical Design");
+
+        let (authored, _meaning) =
+            author_single_threshold_program_v1(&SingleThresholdAuthoringRequestV1 {
+                research_request_identity: committed.research_request_identity,
+                intent_identity: committed.intent_identity,
+                intent_digest: committed.intent_digest,
+                channel: SingleThresholdChannelV1 {
+                    role_semantic_id: "research.input.close.daily.v1".to_owned(),
+                    instrument: "BTCUSDT-PERP.BINANCE".to_owned(),
+                    field_semantic_id: "MARKET_DATA.BAR.CLOSE.PRICE.V1".to_owned(),
+                    timeframe: "1D".to_owned(),
+                    unit: "PRICE".to_owned(),
+                    scale: 2,
+                },
+                threshold_coefficient: 10_000,
+                comparison: BoundedFeaturePredicateV1::Greater,
+                when_true: SingleThresholdOutcomeV1 {
+                    position_intent_semantic_id: "kernel.position.enter.v1".to_owned(),
+                    target_variant_semantic_id: "kernel.target.position.v1".to_owned(),
+                    target_position_units: 1,
+                },
+                otherwise: SingleThresholdOutcomeV1 {
+                    position_intent_semantic_id: "kernel.position.exit.v1".to_owned(),
+                    target_variant_semantic_id: "kernel.target.position.v1".to_owned(),
+                    target_position_units: 0,
+                },
+                falsifier: "the channel never crosses the threshold in the admitted window"
+                    .to_owned(),
+            })
+            .expect("the authoring surface must author this statement");
+
+        // Without this the route could answer 200 for the fixture's own Design and the run would
+        // read as though an authored one had been accepted.
+        assert_ne!(
+            serde_json::to_vec(&authored).unwrap(),
+            committed_design_bytes,
+            "the authored Design must differ from the fixture Design this entry borrowed identities from",
+        );
+
+        let token = "rd-owner-api-authored-design-test";
+        let token_digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
+        let owner = Arc::new(
+            vibe_strategy_factory::rd_bounded_feature_program_postgres_v1::PostgresResearchBoundedFeatureProgramOwnerV1::connect(
+                test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+            )
+            .await
+            .unwrap(),
+        );
+        let app = bounded_feature_program::router(owner, token_digest);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/strategy-designs/publish-role-intent")
+                    .header("authorization", format!("Bearer {token}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "research_request_locator": locator,
+                            "design": authored,
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), 1 << 20)
+            .await
+            .map(|b| String::from_utf8_lossy(&b).into_owned())
+            .unwrap_or_default();
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "the first authored Design this repository ever sent must be published: {body}",
+        );
+
+        // 200 alone would also be the answer of a route that accepted the body and published the
+        // Design it already had. The published intent must name the authored Design, so its identity
+        // is compared against the frozen one whose Research identities this entry borrowed.
+        let published: serde_json::Value =
+            serde_json::from_str(&body).expect("the published role intent is JSON");
+        let published_design_identity = published
+            .get("design_identity")
+            .expect("the published role intent names the Design it published");
+        assert_ne!(
+            serde_json::to_string(published_design_identity).unwrap(),
+            serde_json::to_string(&committed_design_identity).unwrap(),
+            "the published intent names the frozen fixture Design, not the authored one: {body}",
+        );
+        assert!(
+            published
+                .get("roles")
+                .and_then(serde_json::Value::as_array)
+                .is_some_and(|roles| !roles.is_empty()),
+            "a published role intent with no roles describes no Design: {body}",
+        );
+    }
+
     fn bearer_headers(token: &str) -> HeaderMap {
         let mut headers = HeaderMap::new();
         headers.insert(
