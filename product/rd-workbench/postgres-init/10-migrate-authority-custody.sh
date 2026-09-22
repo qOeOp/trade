@@ -4062,20 +4062,44 @@ DECLARE
   operator_authorization_envelope jsonb;
   product_edge_envelope jsonb;
 BEGIN
-  IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF;
+  -- A bare NULL from here now means one thing only: this STRICT function short-circuited on a
+  -- NULL argument and never ran. The two locks this composes are asked to name their own
+  -- refusals; whatever they name travels up unchanged, so the caller reads the cause rather
+  -- than the fact that some inner call said no.
+  IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN jsonb_build_object('schema_version', 1, 'refusal', 'ISOLATION_NOT_READ_COMMITTED'); END IF;
 
   SELECT operator_authorization_api.lock_current_portfolio_resource_grant_v1(
     requested_grant_identity,
     requested_grant_receipt_identity
   ) INTO operator_authorization_envelope;
-  IF operator_authorization_envelope IS NULL THEN RETURN NULL; END IF;
+  -- The Portfolio resource grant lock is generated from the shared grant template in
+  -- `crates/operator_authorization/src/postgres/grant.rs`, which still answers every one of its
+  -- causes with a bare NULL. Until it names them this reports only that it refused; the branch
+  -- below already forwards a named refusal, so it starts carrying the cause the day it has one.
+  IF operator_authorization_envelope IS NULL THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'PORTFOLIO_GRANT_LOCK_REFUSED',
+      'refused_by', 'operator_authorization_api.lock_current_portfolio_resource_grant_v1');
+  ELSIF operator_authorization_envelope->>'refusal' IS NOT NULL THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', operator_authorization_envelope->>'refusal',
+      'refused_by', COALESCE(operator_authorization_envelope->>'refused_by', 'operator_authorization_api.lock_current_portfolio_resource_grant_v1'));
+  END IF;
 
   SELECT product_edge_api.lock_downstream_admission_v1(
     requested_request_identity,
     requested_admission_identity,
     requested_admission_digest
   ) INTO product_edge_envelope;
-  IF product_edge_envelope IS NULL THEN RETURN NULL; END IF;
+  IF product_edge_envelope IS NULL THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'DOWNSTREAM_ADMISSION_LOCATOR_NULL',
+      'refused_by', 'product_edge_api.lock_downstream_admission_v1');
+  ELSIF product_edge_envelope->>'refusal' IS NOT NULL THEN
+    -- Keep the raiser the inner envelope already named. Overwriting it with the callee this
+    -- layer happens to have called would report the last hop instead of where the cause came
+    -- from, which is the information the caller cannot reconstruct.
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', product_edge_envelope->>'refusal',
+      'refused_by', COALESCE(product_edge_envelope->>'refused_by', 'product_edge_api.lock_downstream_admission_v1'),
+      'authorization_identity', product_edge_envelope->>'authorization_identity');
+  END IF;
 
   RETURN pg_catalog.jsonb_build_object(
     'operator_authorization', operator_authorization_envelope,
