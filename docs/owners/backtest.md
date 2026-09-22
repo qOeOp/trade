@@ -109,6 +109,17 @@ admitted set requires changing this document first.
   no returns, so an unavailable number and an earned zero stay distinguishable. The ordered chain prints the
   report for `owner_postgres_v4_moves_through_program_host_and_real_backtest`, which feeds one BAR and so
   reports a run that executed nothing. No production caller reads the report and no Owner consumes it.
+- **TARGET - production driver for the protected economic measurement:**
+  `derive_protected_economic_measurement_v1` and `produce_and_commit_protected_replay_result_v3` are complete
+  implementations with no production caller, and that is the documented design rather than a gap:
+  [Qualification](./qualification/) states who may drive a protected evaluation and states that the ordered gate
+  is the only driver of the eligibility terminal. Building a production driver therefore means changing a bound
+  that document states, which needs the user's authorization first. This row deliberately does not repeat that
+  bound's wording, because a second copy of one fact drifts when only one copy is edited; read it there. Two
+  things a future driver will need are worth recording here rather than rediscovering: the validator in
+  `crates/backtest_owner/src/protected_replay.rs` rejects a result whose cell is applicable and carries no
+  execution defect unless a sealed measurement accompanies it, so the measurement is a precondition rather than
+  an enrichment; and the exploratory path is separate, so nothing here blocks an exploratory Run Result report.
 - **TARGET - `REPAIR_VALIDATION` request and result:** no implementation exists. `REPAIR_VALIDATION` and
   `RepairValidation` appear in no file under `crates/` or `product/`.
 - **TARGET - `SIMULATOR` and `BACKTEST_OPERATIONAL` native repair:** no Backtest repair surface exists. The only
