@@ -431,7 +431,10 @@ fn product_edge_error(error: &ProductEdgeError, request_identity: &str) -> Respo
     let status = match error {
         ProductEdgeError::ConflictingReplay => StatusCode::CONFLICT,
         ProductEdgeError::InvalidProposal(_) => StatusCode::BAD_REQUEST,
-        ProductEdgeError::Unavailable(_) | ProductEdgeError::Storage(_) => {
+        // The code tells the caller the admission is unavailable, which is all it can act on.
+        // Which of the two made it unavailable belongs in the log, and was discarded here.
+        error @ (ProductEdgeError::Unavailable(_) | ProductEdgeError::Storage(_)) => {
+            tracing::warn!(%error, %request_identity, "Product Edge admission unavailable");
             StatusCode::SERVICE_UNAVAILABLE
         }
     };
@@ -446,6 +449,9 @@ fn product_edge_error(error: &ProductEdgeError, request_identity: &str) -> Respo
 mod tests {
     use super::*;
     use rstest::rstest;
+    use vibe_product_edge::{
+        ProductEdgeSubjectKindV1, ProductEdgeUnavailableReasonV1, ProductEdgeUnavailableV1,
+    };
 
     fn operation_fixture() -> SourceIntakeResearchOperationV1 {
         serde_json::from_value(serde_json::json!({
@@ -689,5 +695,38 @@ mod tests {
                 "trial_family_proposal": operation.proposal.trial_family_proposal,
             })
         );
+    }
+
+    /// The two causes are one status and one code on the wire; the log is where they come apart.
+    #[rstest]
+    #[case::authority(
+        ProductEdgeError::Unavailable(ProductEdgeUnavailableV1::about(
+            ProductEdgeUnavailableReasonV1::Missing,
+            ProductEdgeSubjectKindV1::Admission,
+            "source-intake-research-authority",
+        )),
+        "source-intake-research-authority",
+        "Product Edge authority unavailable",
+        StatusCode::SERVICE_UNAVAILABLE
+    )]
+    #[case::storage(
+        ProductEdgeError::Storage("source-intake-research-storage".to_string()),
+        "source-intake-research-storage",
+        "Product Edge storage unavailable",
+        StatusCode::SERVICE_UNAVAILABLE,
+    )]
+    fn an_unavailable_refusal_names_its_cause_in_the_log(
+        #[case] error: ProductEdgeError,
+        #[case] detail: &str,
+        #[case] message: &str,
+        #[case] status: StatusCode,
+    ) {
+        let (response, written) =
+            crate::log_capture::capture(|| product_edge_error(&error, "request-1"));
+
+        assert_eq!(response.status(), status, "{written}");
+        assert!(written.contains("WARN"), "{written}");
+        assert!(written.contains(detail), "{written}");
+        assert!(written.contains(message), "{written}");
     }
 }

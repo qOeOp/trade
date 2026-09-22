@@ -1280,11 +1280,31 @@ fn product_edge_error(error: &ProductEdgeError, request_identity: &str) -> Respo
             "INVALID_EXPLORATORY_REPLAY_REQUEST",
             request_identity,
         ),
-        ProductEdgeError::Unavailable(_) | ProductEdgeError::Storage(_) => rejection(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "OWNER_UNAVAILABLE",
-            request_identity,
-        ),
+        // Two causes collapse into one code here, and the response cannot separate them:
+        // `OWNER_UNAVAILABLE` is consumed by the Dashboard's run contract, its run store and the
+        // Owner client, so splitting it is a wire change, not a diagnostic fix.
+        //
+        // What can be fixed is that the cause was thrown away. A deployment bring-up spent a pass
+        // on a 503 from this family and the response carried nothing to say whether the authority
+        // or the store was the one unavailable - the `_` was the whole answer and it was
+        // discarded at the match. Logged under the two variants' own names, the reason survives
+        // where a reader can find it while the contract stays where its consumers expect it.
+        ProductEdgeError::Unavailable(detail) => {
+            tracing::warn!(%detail, %request_identity, "Product Edge authority unavailable");
+            rejection(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "OWNER_UNAVAILABLE",
+                request_identity,
+            )
+        }
+        ProductEdgeError::Storage(detail) => {
+            tracing::warn!(%detail, %request_identity, "Product Edge storage unavailable");
+            rejection(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "OWNER_UNAVAILABLE",
+                request_identity,
+            )
+        }
     }
 }
 
@@ -1330,6 +1350,9 @@ mod tests {
     use tower::ServiceExt;
 
     use super::*;
+    use vibe_product_edge::{
+        ProductEdgeSubjectKindV1, ProductEdgeUnavailableReasonV1, ProductEdgeUnavailableV1,
+    };
 
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     #[rstest]
@@ -1937,5 +1960,38 @@ mod tests {
             .status(),
             StatusCode::SERVICE_UNAVAILABLE
         );
+    }
+
+    /// The two causes are one status and one code on the wire; the log is where they come apart.
+    #[rstest]
+    #[case::authority(
+        ProductEdgeError::Unavailable(ProductEdgeUnavailableV1::about(
+            ProductEdgeUnavailableReasonV1::Missing,
+            ProductEdgeSubjectKindV1::Admission,
+            "exploratory-replay-authority",
+        )),
+        "exploratory-replay-authority",
+        "Product Edge authority unavailable",
+        StatusCode::SERVICE_UNAVAILABLE
+    )]
+    #[case::storage(
+        ProductEdgeError::Storage("exploratory-replay-storage".to_string()),
+        "exploratory-replay-storage",
+        "Product Edge storage unavailable",
+        StatusCode::SERVICE_UNAVAILABLE,
+    )]
+    fn an_unavailable_refusal_names_its_cause_in_the_log(
+        #[case] error: ProductEdgeError,
+        #[case] detail: &str,
+        #[case] message: &str,
+        #[case] status: StatusCode,
+    ) {
+        let (response, written) =
+            crate::log_capture::capture(|| product_edge_error(&error, "request-1"));
+
+        assert_eq!(response.status(), status, "{written}");
+        assert!(written.contains("WARN"), "{written}");
+        assert!(written.contains(detail), "{written}");
+        assert!(written.contains(message), "{written}");
     }
 }

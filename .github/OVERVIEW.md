@@ -9,7 +9,6 @@ CI/CD, testing, publishing, and automation within the NautilusTrader repository.
 ## Composite actions (`.github/actions`)
 
 - **attest-build-provenance-retry**: wraps GitHub build provenance attestation with bounded retries.
-- **attest-sbom-retry**: wraps Docker SBOM attestation with bounded retries.
 - **cargo-tool-install**: installs version‑pinned Cargo tools such as `cargo-audit`, `cargo-deny`,
   and `cargo-vet` with caching.
 - **common-setup**: prepares the environment (OS packages, Rust toolchain, Rust cache, Python, prek, swap space).
@@ -61,9 +60,6 @@ CI/CD, testing, publishing, and automation within the NautilusTrader repository.
   restore its own entries again, and returning that space is what keeps the shared build caches
   from being evicted between runs. It checks out no code, runs on `pull_request` rather than
   `pull_request_target`, and touches no ref but the closing pull request's.
-- **docker.yml**: builds and pushes multi‑platform `nautilus_trader` and `jupyterlab` images with
-  Buildx and native ARM runners, then signs them with cosign and verifies their SPDX SBOM
-  attestations.
 - **dst.yml**: runs deterministic simulation smoke tests on `nightly` and manual dispatch.
 - **nightly-docs-features-check.yml**: nightly docs.rs build checks and crate feature compatibility verification.
 - **nightly-miri.yml**: runs Miri against the core, model, and plugin crates each day at 13:00 UTC.
