@@ -85,6 +85,40 @@ Do not silently repair a stale page while implementing another chunk. Record the
 implementation stopped where it depends on that mismatch, and create a separate documentation correction when
 Main admits it. This prevents an Agent from widening one task into an undocumented migration.
 
+## Instruments that read wrong in this repository
+
+Each entry below is a measurement taken against this repository, with what the tool returns and what
+answers the same question instead. They are recorded because each cost a wrong conclusion once, and
+because a wrong reading here lands inside the legal range of the answer rather than as an error.
+
+- **`grep` in an agent shell resolves to ugrep.** A three-branch ERE alternation
+  (`grep -rl "a\|b\|c"`) returned zero files across the whole crate tree, where the same three words
+  searched one at a time returned 46, 17 and 13. A pattern beginning `^+++` is a syntax error there,
+  because `+` is a quantifier. Searching one term per invocation, or using `rg` or a small script,
+  answers it. A zero from an alternation is worth a second engine before it is worth believing.
+- **`repos/O/R/commits/<sha>/check-runs` returns the checks of every run on that commit**, not the
+  newest. After a re-run, the earlier run's failures are still in the list, while the merge state
+  that GitHub itself computes uses the latest run per check name. Grouping by `.name` and taking the
+  last by `.started_at` gives the same view the merge button uses.
+- **A pull request head commit is never an ancestor of `main` after a squash merge.** Asking
+  `git merge-base --is-ancestor <pr-head> <tree>` therefore answers "not contained" for every
+  squash-merged change, including trees that do contain it, so it cannot separate the two cases. The
+  commit that does land is `gh pr view <n> --json mergeCommit`. A check for a string the change
+  introduced - `git show <tree>:<file> | grep -q <marker>` - needs no commit identity at all and
+  survives rebase and cherry-pick.
+- **This repository squashes with `squash_merge_commit_message: COMMIT_MESSAGES`.** The pull request
+  body never reaches `main`; the commit messages do. Editing a description after review leaves the
+  original claim in the branch, and `gh pr merge --squash --body-file` replaces the message at merge
+  time without a force push.
+- **`sysctl vm.swapusage` reports used swap that does not fall** when memory pressure is relieved on
+  macOS: pages already written out are not reclaimed, so the figure stays near its peak on a machine
+  that is no longer under pressure. `vm_stat`'s free page count moves with the actual state.
+- **`scripts/ci/test-rd-owner-postgres.bash` exits 1 on a non-Linux host.** A local ordered-chain run
+  is therefore a modified copy, and which modification was made decides what the run means: changing
+  the comparison keeps the container, the databases, the role grants and every earlier entry, while
+  invoking the test binary directly skips all of them. A failure from the second is not a failure of
+  the entry.
+
 ## Why the old guides stay outside product authority
 
 Product users need stable Owner journeys rather than every engine API. Development Agents need both: the stable
