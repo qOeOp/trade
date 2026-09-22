@@ -94,7 +94,16 @@ impl VerifiedOwnerSequenceV2 {
         }
         let owner_sequence_digest = *sequence.sequence_digest().as_bytes();
         // Consume the Owner token: the caller cannot keep it and offer a second reading.
-        let [first, second] = sequence.into_frames();
+        //
+        // The Owner issues the window's whole sequence; this binding's canonical bytes still fix
+        // `FRAME_COUNT` frames, so a longer sequence is refused here rather than narrowed to the
+        // frames that happen to fit. Narrowing would bind a meaning the Owner never sealed.
+        let Ok(frames): Result<[NativeReplayFrameEvidenceV2; FRAME_COUNT], _> =
+            sequence.into_frames().try_into()
+        else {
+            return Err(NativeReplayExecutionInputBindingErrorV2::Unavailable);
+        };
+        let [first, second] = frames;
         let frames = [verified_frame(&first)?, verified_frame(&second)?];
         Ok(Self {
             owner_sequence_digest,
