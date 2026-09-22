@@ -4982,7 +4982,10 @@ pub(crate) async fn load_rd_basis_in_transaction(
     .await?;
 
     if locator.request_identity != basis.request_identity {
-        return Err(unavailable("R&D Independence Basis locator mismatch"));
+        return Err(unavailable(format!(
+            "R&D Independence Basis locator mismatch on request_identity: locator={} row={}",
+            locator.request_identity, basis.request_identity
+        )));
     }
     Ok(basis)
 }
@@ -5034,7 +5037,11 @@ async fn load_rd_basis_by_locator_fields_preserving_sqlstate_in_transaction(
     // not match, and for a missing outbox event, and all five arrived here as the single sentence
     // "R&D Independence Basis unavailable".
     if let Some(refusal) = raw_envelope.get("refusal").and_then(|value| value.as_str()) {
-        return Err(unavailable(format!("R&D Independence Basis unavailable: {refusal}")).into());
+        return Err(unavailable(format!(
+            "R&D Independence Basis unavailable: {refusal} for basis_identity={basis_identity} \
+             basis_digest={basis_digest} principal={principal}"
+        ))
+        .into());
     }
     let envelope: LockedRdBasisEnvelopeV1 = decode_exact(&raw_envelope)?;
 
@@ -5059,12 +5066,25 @@ async fn load_rd_basis_by_locator_fields_preserving_sqlstate_in_transaction(
     }
     verify_rd_basis_outbox(&envelope.outbox, &basis, &receipt)?;
 
-    if basis_identity != basis.basis_identity
-        || basis_digest != basis.basis_digest
-        || principal != basis.principal
-        || request_scope != basis.request_scope
-    {
-        return Err(unavailable("R&D Independence Basis locator mismatch").into());
+    // A four-way disjunction reported as one sentence: the caller learned that one of four
+    // fields disagreed, not which, and had to bisect by hand to find out.
+    let disagreed = if basis_identity != basis.basis_identity {
+        Some("basis_identity")
+    } else if basis_digest != basis.basis_digest {
+        Some("basis_digest")
+    } else if principal != basis.principal {
+        Some("principal")
+    } else if request_scope != basis.request_scope {
+        Some("request_scope")
+    } else {
+        None
+    };
+
+    if let Some(field) = disagreed {
+        return Err(unavailable(format!(
+            "R&D Independence Basis locator mismatch on {field}"
+        ))
+        .into());
     }
     Ok(basis)
 }
