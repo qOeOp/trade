@@ -1,6 +1,17 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
+set -Eeuo pipefail
+
+# The checks in this script name what they looked for, but it is four thousand lines long and any
+# bare command that fails under `set -e` still ends it with an empty log. Run 35650397288 is what
+# that costs: a hosted runner spent on the ordered chain, and between the `make` line and `Error 1`
+# the log held nothing at all. This is the backstop for whatever the named checks do not cover.
+# `-E` on the line above is what makes this reach a function body. Measured, because the shape is
+# easy to get wrong: without `-E` a failure inside a function fires no trap at all - not at the line,
+# not at the call site - and every check in this script lives inside one. With `-E` the trap names
+# the failing line itself, and a function called as `if ! func` still reports nothing, because the
+# ERR trap follows the same suppression `set -e` does inside a condition.
+trap 'echo "test-rd-owner-postgres.bash:${LINENO}: this failed: ${BASH_COMMAND}" >&2' ERR
 
 readonly guarded_roots=(
   crates/operator_authorization
@@ -860,28 +871,79 @@ if canonical_v1_parameter not in drift_source:
 PY
 }
 
+# Every literal below is a line that some other file in this repository writes, so a miss means that
+# file moved rather than that this check is wrong - and the author needs to be told which line moved.
+# A bare `rg -Fq` or `test` cannot tell them: under `set -euo pipefail` either one ends the whole
+# script on a miss, and `-q` discards the only output there was. Run 35650397288 ended exactly that
+# way: a hosted runner spent on the ordered chain, and between the `make` line and `Error 1` the log
+# held nothing at all - no entry, no reason. The branch under it had given `market_data_reader` a
+# password, so one pinned literal stopped matching. Naming that literal would have been the whole
+# diagnosis, and it cost a thirty-minute run not to have it.
+require_exact_line_once() {
+  local literal="$1" file="$2" proves="$3"
+  local found
+  # `rg -Fxc` prints nothing and exits 1 when nothing matches, so `|| true` would leave `found` empty
+  # and the message below would carry no number at all.
+  found="$(rg -Fxc -- "$literal" "$file" || echo 0)"
+  if [[ "$found" != 1 ]]; then
+    echo "ERROR: ${proves}: expected this line exactly once in ${file}, found ${found}: ${literal}" >&2
+    return 1
+  fi
+}
+
+require_literal_present() {
+  local literal="$1" file="$2" proves="$3"
+  if ! rg -Fq -- "$literal" "$file"; then
+    echo "ERROR: ${proves}: this exact text is no longer in ${file}: ${literal}" >&2
+    return 1
+  fi
+}
+
 check_market_data_principal_bootstrap_order() {
   local repository_root bootstrap migration bootstrap_line materializer_line
   repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
   bootstrap="$repository_root/product/rd-workbench/postgres-init/00-create-rd-owner.sh"
   migration="$repository_root/product/rd-workbench/postgres-init/10-migrate-authority-custody.sh"
-  test "$(rg -Fxc 'CREATE ROLE market_data_owner NOLOGIN;' "$bootstrap")" -eq 1
-  test "$(rg -Fxc 'CREATE ROLE market_data_reader NOLOGIN;' "$bootstrap")" -eq 1
-  test "$(rg -Fxc 'GRANT rd_exploratory_replay_api_owner TO rd_owner;' "$bootstrap")" -eq 1
-  test "$(rg -Fxc 'GRANT USAGE, CREATE ON SCHEMA rd_owner_api TO rd_exploratory_replay_api_owner;' "$bootstrap")" -eq 1
-  rg -Fq 'REVOKE ALL ON SCHEMA rd_owner_api FROM PUBLIC, operator_authorization_writer, qualification_writer, rd_exploratory_replay_api_owner;' "$migration"
-  rg -Fq 'REVOKE ALL ON FUNCTION rd_owner_api.lock_market_data_repair_request_v1(text,text,text,text) FROM PUBLIC, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner' \
-    "$repository_root/crates/strategy_factory/src/market_data_repair_request_postgres.rs"
-  rg -Fq 'REVOKE replay_policy_catalog_owner, replay_policy_catalog_admin_writer, composer_owner, rd_exploratory_replay_api_owner, market_data_owner, rd_database_owner FROM rd_owner, rd_fact_writer, market_data_reader;' "$migration"
+  require_exact_line_once 'CREATE ROLE market_data_owner NOLOGIN;' "$bootstrap" \
+    'the bootstrap creates the Market Data owner with no login of its own'
+  require_exact_line_once 'CREATE ROLE market_data_reader NOLOGIN;' "$bootstrap" \
+    'the bootstrap creates the Market Data reader with no login of its own'
+  require_exact_line_once 'GRANT rd_exploratory_replay_api_owner TO rd_owner;' "$bootstrap" \
+    'the R&D Owner holds the exploratory replay API role'
+  require_exact_line_once 'GRANT USAGE, CREATE ON SCHEMA rd_owner_api TO rd_exploratory_replay_api_owner;' "$bootstrap" \
+    'the exploratory replay API role owns the schema it writes'
+  require_literal_present 'REVOKE ALL ON SCHEMA rd_owner_api FROM PUBLIC, operator_authorization_writer, qualification_writer, rd_exploratory_replay_api_owner;' "$migration" \
+    'the migration closes the R&D Owner API schema to every principal that must not hold it'
+  require_literal_present 'REVOKE ALL ON FUNCTION rd_owner_api.lock_market_data_repair_request_v1(text,text,text,text) FROM PUBLIC, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner' \
+    "$repository_root/crates/strategy_factory/src/market_data_repair_request_postgres.rs" \
+    'the repair-request lock is revoked from every principal outside the R&D Owner'
+  require_literal_present 'REVOKE replay_policy_catalog_owner, replay_policy_catalog_admin_writer, composer_owner, rd_exploratory_replay_api_owner, market_data_owner, rd_database_owner FROM rd_owner, rd_fact_writer, market_data_reader;' "$migration" \
+    'the migration strips the Owner roles this chain must not inherit'
   if rg -n 'CREATE ROLE market_data_(owner|reader) LOGIN|market_data_(owner|reader).*PASSWORD|GRANT .*market_data_(owner|reader)|GRANT market_data_(owner|reader)' "$bootstrap"; then
     echo "ERROR: bootstrap must not admit Market Data login, password, membership, or grants" >&2
     return 1
   fi
-  rg -Fq "ALTER ROLE market_data_owner LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'market_data_owner_password';" "$migration"
-  rg -Fq "ALTER ROLE market_data_reader LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'market_data_reader_password';" "$migration"
-  bootstrap_line="$(rg -n '00-create-rd-owner\.sh' "${BASH_SOURCE[0]}" | tail -1 | cut -d: -f1)"
-  materializer_line="$(rg -n -- '--materialize-schema' "${BASH_SOURCE[0]}" | tail -1 | cut -d: -f1)"
-  test "$bootstrap_line" -lt "$materializer_line"
+  require_literal_present "ALTER ROLE market_data_owner LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'market_data_owner_password';" "$migration" \
+    'the migration, not the bootstrap, is where the Market Data owner gains its login'
+  require_literal_present "ALTER ROLE market_data_reader LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'market_data_reader_password';" "$migration" \
+    'the migration, not the bootstrap, is where the Market Data reader gains its login'
+  # `|| true` on both pipelines: under `pipefail` an unmatched `rg` would fail the whole substitution
+  # and end the script before the emptiness below could be reported. Neither message below may spell
+  # the materializer flag out, because these two greps count occurrences in this very file and a
+  # message holding the literal would add one: `tail -1` happens to survive that today only because
+  # the messages sit above the real invocation. The emptiness branch is reachable through the
+  # bootstrap side alone - `00-create-rd-owner\.sh` carries a backslash and so does not match the
+  # line that greps for it, while the materializer pattern always matches its own line.
+  bootstrap_line="$(rg -n '00-create-rd-owner\.sh' "${BASH_SOURCE[0]}" | tail -1 | cut -d: -f1 || true)"
+  materializer_line="$(rg -n -- '--materialize-schema' "${BASH_SOURCE[0]}" | tail -1 | cut -d: -f1 || true)"
+  if [[ -z "$bootstrap_line" || -z "$materializer_line" ]]; then
+    echo "ERROR: this script no longer names both the bootstrap and the schema materializer, so their order cannot be read: bootstrap='${bootstrap_line}' materializer='${materializer_line}'." >&2
+    return 1
+  fi
+  if [[ "$bootstrap_line" -ge "$materializer_line" ]]; then
+    echo "ERROR: the bootstrap must run before the schema materializer, but this script names the bootstrap at line ${bootstrap_line} and the materializer at line ${materializer_line}." >&2
+    return 1
+  fi
 }
 
 check_trial_family_candidate_experiment_cutover() {
@@ -1389,6 +1451,11 @@ cleanup() {
   local primary_status="$?"
   local cleanup_failed=false
   trap - EXIT
+  # `set +e` does not quiet the ERR trap - Bash runs it on any failing command outside a condition,
+  # whatever errexit is set to - and everything below is written to tolerate failure and report it in
+  # its own words. Without this line a failing chain would end in a run of generic trap lines that
+  # say nothing the explicit messages here do not already say better.
+  trap - ERR
   set +e
 
   # The entry that ended the run never reached its own copy, so take it here.
