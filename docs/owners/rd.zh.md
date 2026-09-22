@@ -100,11 +100,16 @@
   它实现了 `terminal_preflight`、`admit` 与 `resolve_terminal`。`resolve_policy` 无条件答 `Ok(None)`，
   `SourceIntakeWorkflowV1::run` 把它变成 `PolicyUnavailable`；其后的九个阶段，从 `commit_binding` 到
   `commit_terminal`，都是无条件的 `Err(Unavailable)`。所以一个已部署的 Owner 受理一次 source intake 请求，
-  此外什么都取不到：实测发一次，答的是 `503 OWNER_OUTCOME_UNKNOWN`。这条路由把它陈述为
-  `SUBMITTED_OR_UNKNOWN` 加 `RESOLVE_SAME_REQUEST`，而那个状态是留给传输结果确实未知的情形的；
-  这里结果是已知的，重发同一请求改变不了它。还缺哪些阶段不记在这里：那个模块里的
+  此外什么都取不到：实测发一次，答的是 `503 OWNER_OUTCOME_UNKNOWN`。这一句要对着
+  [Source Intake Playbook](../guide/source-intake/) 读：只要任何一项 `LIVE_EXTERNAL` 权威缺席，
+  它要求的正是这个答案，并且禁止退回夹具。所以「不可用」在今天是符合契约的答案，缺口是另一件事：
+  这些阶段并不是去查权威然后失败关闭，它们根本不看输入，所以把 Playbook 点名的权威全部配齐也不会改变答案。
+  权威齐备时该跑的那条路不存在。存在的那条是 `SealedSourceIntakeEnvironmentV1`，
+  而同一节规定它是仅供验收的类别、完全不许有外部网络。还缺哪些阶段不记在这里：那个模块里的
   `UNIMPLEMENTED_PRODUCTION_STAGES` 列着它们，且有一条守卫在清单与代码不一致时报红。
-  要当前数目请读那份清单，不要读这一段。
+  要当前数目请读那份清单，不要读这一段。另外，这条路由把它陈述为 `SUBMITTED_OR_UNKNOWN` 加
+  `RESOLVE_SAME_REQUEST`，而那个状态是留给传输结果确实未知的情形的；这里结果是已知的，
+  重发同一请求改变不了它。
 - **CURRENT - 有一条只读操作只能经由写 API 触达：** Dashboard 的操作登记表声明了十一条 Owner 路由，
   其中十条是 `GET`。第十一条 `research_goal.legacy_quarantine_read.v1` 声明 `effect_set: []`，
   解析到 `POST /v1/research-goals/{request_identity}/resolve`，它注册在
