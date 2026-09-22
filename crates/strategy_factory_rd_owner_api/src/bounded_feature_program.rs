@@ -395,12 +395,21 @@ const fn bounded_feature_program_stage_code(stage: &BoundedFeatureProgramErrorV1
     }
 }
 
+/// Answers a refusal with the locator it refused and the code that refused it.
+///
+/// The body used to carry a constant `"state": "NOT_FROZEN"` instead of the code. That is not a
+/// reading of anything: it was emitted for every refusal on these routes, including
+/// `RD_OWNER_CUSTODY_UNAVAILABLE`, where the store was never reached and the program's
+/// frozen-ness is exactly what the Owner does not know. A caller that believed it learned a fact
+/// the Owner had not checked, while the one value it could act on was reachable only through a
+/// header. The seven sibling helpers in this crate all name the code in the body; this one does
+/// too now.
 fn rejection(status: StatusCode, code: &str, research_request_locator: &str) -> Response {
     let mut response = (
         status,
         Json(json!({
             "research_request_locator": research_request_locator,
-            "state": "NOT_FROZEN",
+            "error": code,
         })),
     )
         .into_response();
@@ -418,6 +427,48 @@ mod assembly_rejection_tests {
     use vibe_strategy_factory::rd_bounded_feature_program_postgres_v1::ResearchBoundedFeatureProgramOwnerErrorV1;
 
     use super::owner_error;
+
+    async fn body_of(error: &ResearchBoundedFeatureProgramOwnerErrorV1) -> serde_json::Value {
+        let response = owner_error(error, "research.request.test.v1");
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("the rejection body is bounded");
+        serde_json::from_slice(&bytes).expect("the rejection body is JSON")
+    }
+
+    /// A store that was never reached says nothing about whether a program is frozen, yet this
+    /// body used to assert `NOT_FROZEN` for that refusal and every other one. The assertion was
+    /// true of nothing the Owner had read, and no caller could tell it apart from a refusal that
+    /// had actually looked.
+    #[tokio::test]
+    async fn a_refusal_that_reached_no_store_does_not_report_a_frozen_state() {
+        let unavailable = body_of(&ResearchBoundedFeatureProgramOwnerErrorV1::Unavailable).await;
+        assert_eq!(unavailable["error"], "RD_OWNER_CUSTODY_UNAVAILABLE");
+        assert!(
+            unavailable.get("state").is_none(),
+            "a refusal that never reached the store cannot report a lifecycle state: {unavailable}"
+        );
+    }
+
+    /// The code is what separates two refusals, so a body that carries it must carry a different
+    /// one for each. Holding the header and the body to the same value keeps the two from
+    /// drifting into a response whose header and body disagree about what refused it.
+    #[tokio::test]
+    async fn the_body_names_the_same_code_the_header_does() {
+        for error in [
+            ResearchBoundedFeatureProgramOwnerErrorV1::ResearchCustody,
+            ResearchBoundedFeatureProgramOwnerErrorV1::Design,
+            ResearchBoundedFeatureProgramOwnerErrorV1::Conflict,
+            ResearchBoundedFeatureProgramOwnerErrorV1::CatalogUnavailable,
+        ] {
+            let header = code_of(&error);
+            let body = body_of(&error).await;
+            assert_eq!(
+                body["error"], header,
+                "the header and the body must name one refusal: {body}"
+            );
+        }
+    }
 
     fn code_of(error: &ResearchBoundedFeatureProgramOwnerErrorV1) -> String {
         let response = owner_error(error, "research.request.test.v1");
