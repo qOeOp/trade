@@ -464,6 +464,7 @@ use crate::{
         SealedExploratoryReplayReadbackV2,
         issue_sealed_exploratory_replay_readback_for_acceptance_v2,
     },
+    native_replay_v2::OwnerBarJoinedCutMemberV1,
     owner_backtest_report_v1::OwnerBacktestReportV1,
     prepare_program_host_from_owner_bar_joined_cut_v1,
     program_host_v2::{
@@ -1226,12 +1227,14 @@ async fn owner_postgres_v4_moves_through_program_host_and_real_backtest() -> any
     let prepared = prepare_program_host_from_owner_bar_joined_cut_v1(
         &replay,
         &composer,
+        // One cut is a series of one. This entry proves the seam, not the length: the length that
+        // produces a report is driven outside the ordered chain, because every snapshot written
+        // here raises the cost of every later snapshot for every writer, permanently.
         OwnerBarJoinedCutPreparationV1::new(
             replay_input,
             instrument_master,
             bindings,
-            joined_cut,
-            native_join,
+            vec![OwnerBarJoinedCutMemberV1::new(joined_cut, native_join)],
         ),
         &owner,
     )

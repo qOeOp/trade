@@ -137,6 +137,23 @@ pub struct PreparedProgramHostBarCapabilityV1 {
     replay_input: SealedReplayInput,
     instrument_master: InstrumentMasterReadbackV1,
     input_bindings: Vec<StrategyInputBindingReceipt>,
+    base: PreparedProgramBindingV2,
+    members: Vec<PreparedBarMemberV1>,
+}
+
+/// One admitted member of an Owner-issued V4 BAR series, with the projection identity its
+/// scheduler trigger has to repeat.
+pub(crate) struct AdmittedBarMemberV1 {
+    pub(crate) event: AdmittedProgramEventV2,
+    pub(crate) sample_projection_digest: [u8; 32],
+}
+
+/// One resolved member of an Owner-issued V4 BAR series.
+///
+/// A PIT snapshot is one as-of cut, so a series of N bars is N joined cuts with N projections
+/// rather than one cut carrying N coordinates. Each member keeps the exact readbacks its own
+/// admission was checked against.
+pub(crate) struct PreparedBarMemberV1 {
     joined_cut: StrategyInputJoinedCutReceiptV1,
     sample_projection: StrategyInputSampleProjectionReadbackV4,
     native_join: AuthenticatedComposerNativeJoinV1,
@@ -159,25 +176,50 @@ pub struct OwnerBarJoinedCutPreparationV1 {
     replay_input: SealedReplayInput,
     instrument_master: InstrumentMasterReadbackV1,
     input_bindings: Vec<StrategyInputBindingReceipt>,
+    members: Vec<OwnerBarJoinedCutMemberV1>,
+}
+
+/// One Owner-issued V4 BAR cut and the authenticated native join that addresses its projection.
+///
+/// The pair travels together because neither half admits a bar on its own: the join addresses the
+/// projection and the cut is what the projection must be a projection of.
+pub struct OwnerBarJoinedCutMemberV1 {
     joined_cut: StrategyInputJoinedCutReceiptV1,
     native_join: AuthenticatedComposerNativeJoinV1,
 }
 
+impl OwnerBarJoinedCutMemberV1 {
+    /// Carries one exact Owner-issued cut and its authenticated native join into a preparation.
+    #[must_use]
+    pub const fn new(
+        joined_cut: StrategyInputJoinedCutReceiptV1,
+        native_join: AuthenticatedComposerNativeJoinV1,
+    ) -> Self {
+        Self {
+            joined_cut,
+            native_join,
+        }
+    }
+}
+
 impl OwnerBarJoinedCutPreparationV1 {
+    /// Carries the Owner readbacks for one V4 BAR series into a preparation.
+    ///
+    /// `members` is the series in the order the Owner issued it. An empty series prepares nothing
+    /// and is refused where the preparation revalidates, rather than silently producing a run that
+    /// observed no bar.
     #[must_use]
     pub fn new(
         replay_input: SealedReplayInput,
         instrument_master: InstrumentMasterReadbackV1,
         input_bindings: Vec<StrategyInputBindingReceipt>,
-        joined_cut: StrategyInputJoinedCutReceiptV1,
-        native_join: AuthenticatedComposerNativeJoinV1,
+        members: Vec<OwnerBarJoinedCutMemberV1>,
     ) -> Self {
         Self {
             replay_input,
             instrument_master,
             input_bindings,
-            joined_cut,
-            native_join,
+            members,
         }
     }
 }
@@ -199,21 +241,25 @@ impl PreparedProgramHostBarCapabilityV1 {
             replay_input,
             instrument_master,
             input_bindings,
-            joined_cut,
-            sample_projection,
-            native_join,
-            binding,
+            base,
+            members,
         } = self;
 
-        if !prepared_bar_binding_matches_v1(
-            &binding,
-            &plan,
-            &joined_cut,
-            &sample_projection,
-            &native_join,
-        ) || binding.base.artifact != artifact.identity()
-        {
+        if base.artifact != artifact.identity() {
             return Err(ProgramHostV2Error::InputCoverage);
+        }
+
+        for member in &members {
+            if !prepared_bar_binding_matches_v1(
+                &base,
+                &member.binding,
+                &plan,
+                &member.joined_cut,
+                &member.sample_projection,
+                &member.native_join,
+            ) {
+                return Err(ProgramHostV2Error::InputCoverage);
+            }
         }
         let host = construct_prepared_program_host_v2(plan, artifact)?;
         Ok(PreparedProgramHostBarHandoffV1 {
@@ -222,10 +268,8 @@ impl PreparedProgramHostBarCapabilityV1 {
             replay_input,
             instrument_master,
             input_bindings,
-            joined_cut,
-            sample_projection,
-            native_join,
-            binding,
+            base,
+            members,
         })
     }
 }
@@ -425,23 +469,34 @@ pub struct PreparedProgramHostBarHandoffV1 {
     replay_input: SealedReplayInput,
     instrument_master: InstrumentMasterReadbackV1,
     input_bindings: Vec<StrategyInputBindingReceipt>,
-    joined_cut: StrategyInputJoinedCutReceiptV1,
-    sample_projection: StrategyInputSampleProjectionReadbackV4,
-    native_join: AuthenticatedComposerNativeJoinV1,
-    binding: PreparedProgramBarBindingV1,
+    base: PreparedProgramBindingV2,
+    members: Vec<PreparedBarMemberV1>,
 }
 
 impl PreparedProgramHostBarHandoffV1 {
-    /// Returns the exact V4 projection identity admitted before Host construction.
+    /// Returns the exact V4 projection identity of the series' first member.
+    ///
+    /// The series is ordered, so the first member is the one the run observes first. A caller that
+    /// needs every member's identity takes the handoff and reads the admitted events.
     #[must_use]
-    pub const fn sample_projection_digest(&self) -> [u8; 32] {
-        self.binding.sample_projection_digest
+    pub fn sample_projection_digest(&self) -> [u8; 32] {
+        self.members
+            .first()
+            .map_or([0; 32], |member| member.binding.sample_projection_digest)
     }
 
-    /// Returns the exact schedule-dependency-set digest sealed by Market Data.
+    /// Returns the schedule-dependency-set digest Market Data sealed for the first member.
     #[must_use]
-    pub const fn schedule_dependency_set_digest(&self) -> [u8; 32] {
-        self.binding.schedule_dependency_set_digest
+    pub fn schedule_dependency_set_digest(&self) -> [u8; 32] {
+        self.members.first().map_or([0; 32], |member| {
+            member.binding.schedule_dependency_set_digest
+        })
+    }
+
+    /// Returns how many Owner-issued cuts this handoff carries.
+    #[must_use]
+    pub fn member_count(&self) -> usize {
+        self.members.len()
     }
 
     /// Returns the canonical Host identity without exposing the prepared Host.
@@ -452,34 +507,77 @@ impl PreparedProgramHostBarHandoffV1 {
 
     pub(crate) fn into_bar_parts_v1(
         self,
-    ) -> Result<(ProgramHostV2, AdmittedProgramEventV2), ProgramHostV2Error> {
+    ) -> Result<(ProgramHostV2, Vec<AdmittedBarMemberV1>), ProgramHostV2Error> {
         let Self {
             host,
             request: _,
             replay_input: _,
             instrument_master: _,
             input_bindings: _,
-            joined_cut,
-            sample_projection,
-            native_join,
-            binding,
+            base,
+            members,
         } = self;
 
-        if !prepared_bar_binding_matches_v1(
-            &binding,
-            host.plan(),
-            &joined_cut,
-            &sample_projection,
-            &native_join,
-        ) {
+        if members.is_empty() {
             return Err(ProgramHostV2Error::InputCoverage);
         }
-        let event = admit_market_data_bar_joined_cut_program_event_v4(
-            host.plan(),
-            &joined_cut,
-            &sample_projection,
-        )?;
-        Ok((host, event))
+        let mut events = Vec::with_capacity(members.len());
+
+        for member in &members {
+            if !prepared_bar_binding_matches_v1(
+                &base,
+                &member.binding,
+                host.plan(),
+                &member.joined_cut,
+                &member.sample_projection,
+                &member.native_join,
+            ) {
+                return Err(ProgramHostV2Error::InputCoverage);
+            }
+            events.push(AdmittedBarMemberV1 {
+                event: admit_market_data_bar_joined_cut_program_event_v4(
+                    host.plan(),
+                    &member.joined_cut,
+                    &member.sample_projection,
+                )?,
+                sample_projection_digest: member.binding.sample_projection_digest,
+            });
+        }
+
+        // The series is what the Owner issued, in the order it issued it. A run that replayed two
+        // cuts out of order, or the same cut twice, would observe a history the Owner never sealed,
+        // and neither is distinguishable from a correct run once the bars are in the engine.
+        //
+        // `owner_sequence` is deliberately not compared. Market Data derives it from a row's
+        // correction sequence, so it counts how many times a row has been corrected rather than
+        // where the row sits in a series: an uncorrected series carries the same value in every
+        // member. Comparing it strictly would reject every legitimate uncorrected series, and the
+        // Owner's own event-set admission only needs it as the last term of a lexicographic key,
+        // after logical and event time have already tied.
+        //
+        // What is compared is not a second copy of that admission. The Owner validates the order
+        // within one sealed event set; these members are separately sealed cuts assembled by the
+        // caller, and nothing else checks that the caller assembled them in the order the Owner
+        // issued them. The members keep the caller's order from preparation to here, so adjacency
+        // below is adjacency in that assembly rather than in any Owner-side sort.
+        //
+        // Neither rule below has been driven yet. Driving them needs two admissions in one
+        // database, each using a different member, because a second admission of the same member
+        // fails with `PredecessorUnavailable`; the Market Data runner's three default proofs share
+        // one database exactly that way. One sweep run is not enough: it is a single admission cut
+        // with many event-effective coordinates, so it produces one member's series rather than
+        // two members to order against each other.
+        for pair in events.windows(2) {
+            let earlier = pair[0].event.envelope().order_key;
+            let later = pair[1].event.envelope().order_key;
+
+            if later.logical_time_ns <= earlier.logical_time_ns
+                || later.event_identity == earlier.event_identity
+            {
+                return Err(ProgramHostV2Error::InputCoverage);
+            }
+        }
+        Ok((host, events))
     }
 }
 
@@ -563,7 +661,6 @@ pub(crate) struct PreparedProgramBindingV2 {
 
 #[derive(Debug, Eq, PartialEq)]
 struct PreparedProgramBarBindingV1 {
-    base: PreparedProgramBindingV2,
     strategy_design_identity: BindingDigest,
     join_identity: BindingDigest,
     joined_cut_receipt_digest: BindingDigest,
@@ -645,19 +742,18 @@ where
         replay_input,
         instrument_master,
         input_bindings,
-        joined_cut,
-        native_join,
+        members,
     } = inputs;
+
+    if members.is_empty() {
+        // A series of no cuts would prepare a run that observes nothing, which is a caller fault
+        // rather than an empty result: nothing downstream can tell it from a run whose bars were
+        // all refused.
+        return Err(ProgramPreparationFaultV2::OwnerMismatch);
+    }
 
     if !verify_instrument_master_readback(&instrument_master) {
         return Err(ProgramPreparationFaultV2::Unavailable);
-    }
-    let sample_projection = resolver
-        .resolve_strategy_input_sample_projection_v4(native_join.locator())
-        .await
-        .map_err(|_| ProgramPreparationFaultV2::Unavailable)?;
-    if !sealed_replay_input_contains_joined_cut_v1(&replay_input, &joined_cut) {
-        return Err(ProgramPreparationFaultV2::OwnerMismatch);
     }
     let claims = ProgramPreparationClaimsV2::from_owner_readbacks(
         replay,
@@ -667,17 +763,39 @@ where
     );
     let verified_bindings = VerifiedStrategyInputBindingsV2::from_owner_receipts(&input_bindings);
     let (plan, artifact, base) = prepare_program_package_v2(&claims, verified_bindings)?;
-    validate_bar_projection_admission_v1(&plan, &joined_cut, &sample_projection, &native_join)?;
-    let binding = PreparedProgramBarBindingV1 {
-        base,
-        strategy_design_identity: native_join.strategy_design_identity(),
-        join_identity: native_join.join_identity(),
-        joined_cut_receipt_digest: native_join.joined_cut_receipt_digest(),
-        sample_projection_digest: sample_projection.receipt_digest(),
-        sample_projection_subject: sample_projection.subject_identity(),
-        schedule_dependency_set_digest: sample_projection.schedule_dependency_set_digest(),
-        sample_projection_component_count: sample_projection.component_count(),
-    };
+    let mut prepared = Vec::with_capacity(members.len());
+
+    // Every member is resolved and revalidated on its own terms. The Plan, Artifact and base
+    // binding are the series' shared frozen meaning and are computed once above.
+    for member in members {
+        let OwnerBarJoinedCutMemberV1 {
+            joined_cut,
+            native_join,
+        } = member;
+        let sample_projection = resolver
+            .resolve_strategy_input_sample_projection_v4(native_join.locator())
+            .await
+            .map_err(|_| ProgramPreparationFaultV2::Unavailable)?;
+
+        if !sealed_replay_input_contains_joined_cut_v1(&replay_input, &joined_cut) {
+            return Err(ProgramPreparationFaultV2::OwnerMismatch);
+        }
+        validate_bar_projection_admission_v1(&plan, &joined_cut, &sample_projection, &native_join)?;
+        prepared.push(PreparedBarMemberV1 {
+            binding: PreparedProgramBarBindingV1 {
+                strategy_design_identity: native_join.strategy_design_identity(),
+                join_identity: native_join.join_identity(),
+                joined_cut_receipt_digest: native_join.joined_cut_receipt_digest(),
+                sample_projection_digest: sample_projection.receipt_digest(),
+                sample_projection_subject: sample_projection.subject_identity(),
+                schedule_dependency_set_digest: sample_projection.schedule_dependency_set_digest(),
+                sample_projection_component_count: sample_projection.component_count(),
+            },
+            joined_cut,
+            sample_projection,
+            native_join,
+        });
+    }
     Ok(PreparedProgramHostBarCapabilityV1 {
         plan,
         artifact,
@@ -685,10 +803,8 @@ where
         replay_input,
         instrument_master,
         input_bindings,
-        joined_cut,
-        sample_projection,
-        native_join,
-        binding,
+        base,
+        members: prepared,
     })
 }
 
@@ -718,14 +834,15 @@ fn validate_bar_projection_admission_v1(
 }
 
 fn prepared_bar_binding_matches_v1(
+    base: &PreparedProgramBindingV2,
     binding: &PreparedProgramBarBindingV1,
     plan: &StrategyPlanV2,
     joined_cut: &StrategyInputJoinedCutReceiptV1,
     projection: &StrategyInputSampleProjectionReadbackV4,
     native_join: &AuthenticatedComposerNativeJoinV1,
 ) -> bool {
-    binding.base.plan == plan.canonical_plan_digest()
-        && binding.base.artifact != BindingDigest::from_untrusted_bytes([0; 32])
+    base.plan == plan.canonical_plan_digest()
+        && base.artifact != BindingDigest::from_untrusted_bytes([0; 32])
         && binding.strategy_design_identity == plan.design_identity()
         && binding.strategy_design_identity == native_join.strategy_design_identity()
         && binding.join_identity == joined_cut.join_identity()

@@ -3,7 +3,7 @@
 //! Scheduling data is derived only from the move-only handoff. It carries no value or coordinate
 //! authority and cannot replace, omit, duplicate, or reorder the admitted Market Data event.
 
-use std::{fmt::Debug, rc::Rc, sync::Arc};
+use std::{collections::VecDeque, fmt::Debug, rc::Rc, sync::Arc};
 
 use serde::Serialize;
 use strategy_factory_program_sdk::lifecycle_v1::{
@@ -24,8 +24,8 @@ use vibe_trading::{
 };
 
 use crate::{
-    native_replay_v2::PreparedProgramHostBarHandoffV1,
-    program_host_v2::{AdmittedProgramEventV2, ProgramHostV2},
+    native_replay_v2::{AdmittedBarMemberV1, PreparedProgramHostBarHandoffV1},
+    program_host_v2::ProgramHostV2,
 };
 
 const BAR_JOINED_CUT_DATA_TYPE_V1: &str = "StrategyInputBarJoinedCutTriggerV1";
@@ -132,9 +132,13 @@ impl OwnerBarJoinedCutBacktestReadbackV1 {
 struct OwnerBarJoinedCutBacktestStrategyV1 {
     core: StrategyCore,
     host: ProgramHostV2,
-    event: Option<AdmittedProgramEventV2>,
+    /// The Owner series in the order it was issued, consumed one member per scheduler trigger.
+    events: VecDeque<AdmittedBarMemberV1>,
+    /// The first member's projection identity, which the START and STOP lifecycle events derive
+    /// their own identities from. Keeping it fixed to the first member leaves a one-cut series
+    /// deriving exactly the identities it derived before series existed.
+    series_subject: [u8; 32],
     data_type: DataType,
-    projection_digest: [u8; 32],
     trace: Rc<std::cell::RefCell<OwnerBarJoinedCutBacktestReadbackV1>>,
 }
 
@@ -145,33 +149,40 @@ impl OwnerBarJoinedCutBacktestStrategyV1 {
     ) -> anyhow::Result<(Self, Vec<Data>)> {
         let projection_digest = handoff.sample_projection_digest();
         let schedule_dependency_set_digest = handoff.schedule_dependency_set_digest();
-        let (host, event) = handoff.into_bar_parts_v1()?;
-        let envelope = event.envelope();
-        anyhow::ensure!(
-            envelope.order_key.kind == LifecycleKind::Bar
-                && matches!(envelope.payload, EnvelopePayloadV1::Bar),
-            "Owner V4 handoff did not contain one BAR event"
-        );
+        let (host, members) = handoff.into_bar_parts_v1()?;
+        anyhow::ensure!(!members.is_empty(), "Owner V4 handoff carried no BAR event");
         let data_type = DataType::new(BAR_JOINED_CUT_DATA_TYPE_V1, None, None);
-        let trigger = BarJoinedCutTriggerV1 {
-            projection_digest,
-            logical_time_ns: envelope.order_key.logical_time_ns,
-            event_time_ns: envelope.order_key.event_time_ns,
-            owner_sequence: envelope.order_key.owner_sequence,
-            event_identity: envelope.order_key.event_identity,
-        };
-        let data = vec![Data::Custom(CustomData::new(
-            Arc::new(trigger),
-            data_type.clone(),
-        ))];
+        let mut data = Vec::with_capacity(members.len());
+
+        for member in &members {
+            let envelope = member.event.envelope();
+            anyhow::ensure!(
+                envelope.order_key.kind == LifecycleKind::Bar
+                    && matches!(envelope.payload, EnvelopePayloadV1::Bar),
+                "Owner V4 handoff carried a member that is not a BAR event"
+            );
+            data.push(Data::Custom(CustomData::new(
+                Arc::new(BarJoinedCutTriggerV1 {
+                    projection_digest: member.sample_projection_digest,
+                    logical_time_ns: envelope.order_key.logical_time_ns,
+                    event_time_ns: envelope.order_key.event_time_ns,
+                    owner_sequence: envelope.order_key.owner_sequence,
+                    event_identity: envelope.order_key.event_identity,
+                }),
+                data_type.clone(),
+            )));
+        }
+        // The readback describes the series by its first member, as the handoff accessors do, so
+        // an assertion written against one cut keeps meaning what it meant.
+        let first = members[0].event.envelope().order_key;
         *trace.borrow_mut() = OwnerBarJoinedCutBacktestReadbackV1 {
             host_identity: *host.host_identity().as_bytes(),
             projection_digest,
             schedule_dependency_set_digest,
-            logical_time_ns: envelope.order_key.logical_time_ns,
-            event_time_ns: envelope.order_key.event_time_ns,
-            owner_sequence: envelope.order_key.owner_sequence,
-            event_identity: envelope.order_key.event_identity,
+            logical_time_ns: first.logical_time_ns,
+            event_time_ns: first.event_time_ns,
+            owner_sequence: first.owner_sequence,
+            event_identity: first.event_identity,
             ..Default::default()
         };
         Ok((
@@ -182,9 +193,9 @@ impl OwnerBarJoinedCutBacktestStrategyV1 {
                         .build()?,
                 ),
                 host,
-                event: Some(event),
+                series_subject: members[0].sample_projection_digest,
+                events: members.into(),
                 data_type,
-                projection_digest,
                 trace,
             },
             data,
@@ -192,20 +203,23 @@ impl OwnerBarJoinedCutBacktestStrategyV1 {
     }
 
     fn on_start_checked(&mut self) -> anyhow::Result<()> {
-        let logical_time = self
+        let first = self
+            .events
+            .front()
+            .ok_or_else(|| anyhow::anyhow!("Owner V4 BAR series is unavailable"))?;
+        let logical_time = first
             .event
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Owner V4 BAR event is unavailable"))?
             .envelope()
             .order_key
             .logical_time_ns
             .saturating_sub(1);
+
         let envelope = lifecycle_envelope(
             logical_time,
             logical_time,
             LifecycleKind::Start,
             1,
-            stable_identity(b"strategy.owner-v4-bar.start.v1\0", &self.projection_digest),
+            stable_identity(b"strategy.owner-v4-bar.start.v1\0", &self.series_subject),
             EnvelopePayloadV1::Start,
         )?;
         let event = self.host.admit_backtest_lifecycle_event(envelope)?;
@@ -224,13 +238,14 @@ impl OwnerBarJoinedCutBacktestStrategyV1 {
             .as_any()
             .downcast_ref::<BarJoinedCutTriggerV1>()
             .ok_or_else(|| anyhow::anyhow!("foreign V4 BAR scheduler payload"))?;
-        let event = self
-            .event
-            .take()
-            .ok_or_else(|| anyhow::anyhow!("V4 BAR scheduler duplicated the Owner event"))?;
+        let member = self
+            .events
+            .pop_front()
+            .ok_or_else(|| anyhow::anyhow!("V4 BAR scheduler outran the Owner series"))?;
+        let event = member.event;
         let key = event.envelope().order_key;
         anyhow::ensure!(
-            trigger.projection_digest == self.projection_digest
+            trigger.projection_digest == member.sample_projection_digest
                 && (
                     trigger.logical_time_ns,
                     trigger.event_time_ns,
@@ -248,7 +263,12 @@ impl OwnerBarJoinedCutBacktestStrategyV1 {
         let semantic_trace = self.host.apply_event(&event)?;
         let after = self.host.checkpoint().digest();
         let mut trace = self.trace.borrow_mut();
-        trace.checkpoint_before = *before.as_bytes();
+
+        if !trace.consumed {
+            // The first member's before-checkpoint is the series' before-checkpoint; later members
+            // start from where the previous one ended.
+            trace.checkpoint_before = *before.as_bytes();
+        }
         trace.checkpoint_after = *after.as_bytes();
         trace.semantic_trace = semantic_trace.encode().to_vec();
         trace.plugin_calls = self.host.plugin_calls();
@@ -259,8 +279,8 @@ impl OwnerBarJoinedCutBacktestStrategyV1 {
     fn on_stop_checked(&mut self) -> anyhow::Result<()> {
         self.unsubscribe_data(self.data_type.clone(), None, None);
         anyhow::ensure!(
-            self.event.is_none(),
-            "Backtest stopped before consuming the Owner V4 BAR event"
+            self.events.is_empty(),
+            "Backtest stopped before consuming the whole Owner V4 BAR series"
         );
         let now = self.clock().timestamp_ns().as_u64();
         let envelope = lifecycle_envelope(
@@ -268,7 +288,7 @@ impl OwnerBarJoinedCutBacktestStrategyV1 {
             now,
             LifecycleKind::Stop,
             u64::MAX,
-            stable_identity(b"strategy.owner-v4-bar.stop.v1\0", &self.projection_digest),
+            stable_identity(b"strategy.owner-v4-bar.stop.v1\0", &self.series_subject),
             EnvelopePayloadV1::Stop,
         )?;
         let event = self.host.admit_backtest_lifecycle_event(envelope)?;
