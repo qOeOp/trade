@@ -1497,22 +1497,42 @@ cleanup() {
   # failure then reported "deadlock detected" with no way to learn which two transactions, and
   # the evidence was destroyed on the way out. Dump it before the container goes.
   #
-  # Dumped on every run, not only on a failing one. `log_lock_waits` records a wait whether or
-  # not the chain goes on to fail, and the runs that pass carry deadlocks too: across twelve
-  # runs the passing side logged 0, 2, 2, 3, 3, 3, 4 and 5 of them while the four that stopped
-  # at entry 28 logged 1, 1, 1 and 2. Reading only the failing side samples on the outcome being
-  # explained, and the comparison that needs making is between the two.
+  # Both sides of the comparison, at the cost each one is worth.
   #
-  # The length is printed and the log is not tailed. A dump cut to a fixed length and a log with
-  # nothing in it read the same way, and nothing in the output tells the reader which one they
-  # are holding; `tail -n 400` on a run that completes ninety entries would have kept the last
-  # entry and silently dropped the rest.
+  # `log_lock_waits` records a wait whether or not the chain goes on to fail, and the passing runs
+  # carry deadlocks too: across twelve runs the passing side logged 0, 2, 2, 3, 3, 3, 4 and 5 of
+  # them while the four that stopped at entry 28 logged 1, 1, 1 and 2. Reading only the failing
+  # side samples on the outcome being explained, so the counts have to come from both.
+  #
+  # The counts are not the whole log. Measured on one passing round: 627780 lines in the job, of
+  # which the server log was 598824 -- 95% -- and the entire reason it is there was 14 `still
+  # waiting` records and no deadlock. Emitting all of it to carry fourteen lines also pushed
+  # everything printed after it out of two of the three ways a log can be fetched
+  # (`gh run view --log` returns 119412 lines, `--job --log` 78108, the REST endpoint 297380, and
+  # none of them says it truncated).
+  #
+  # So a passing round prints the lock records and says how many lines it did not print; a failing
+  # round prints everything, because then the question is which two transactions, and that answer
+  # is in the lines around them. Tailing to a fixed length would be the wrong economy either way:
+  # lock waits are spread across the whole round, so keeping the end drops the early ones, and
+  # drops them silently.
   if [[ "$container_created" == true ]]; then
-    local postgres_server_log
+    local postgres_server_log postgres_log_lines postgres_lock_records
     postgres_server_log="$(docker logs "$container" 2>&1 || true)"
-    printf '=== postgres server log (chain container): %s lines ===\n' \
-      "$(printf '%s' "$postgres_server_log" | grep -c '' || true)" >&2
-    printf '%s\n' "$postgres_server_log" >&2
+    postgres_log_lines="$(printf '%s' "$postgres_server_log" | grep -c '' || true)"
+    if [[ "$primary_status" -ne 0 ]]; then
+      printf '=== postgres server log (chain container): %s lines, all of them ===\n' \
+        "$postgres_log_lines" >&2
+      printf '%s\n' "$postgres_server_log" >&2
+    else
+      postgres_lock_records="$(printf '%s\n' "$postgres_server_log" |
+        grep -E 'deadlock detected|still waiting for|acquired .*Lock|ERROR:|FATAL:|PANIC:' || true)"
+      printf '=== postgres server log (chain container): %s lines, showing %s lock and error records ===\n' \
+        "$postgres_log_lines" \
+        "$(printf '%s' "$postgres_lock_records" | grep -c '' || true)" >&2
+      printf '%s\n' "$postgres_lock_records" >&2
+      printf '=== the other lines carried no deadlock, lock wait, ERROR, FATAL or PANIC ===\n' >&2
+    fi
     echo "=== end postgres server log ===" >&2
 
     # A deadlock's DETAIL names both processes and the statement each one is BLOCKED ON. It never
