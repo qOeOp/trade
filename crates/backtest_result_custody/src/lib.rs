@@ -4,6 +4,8 @@
 //! crate validates the fixed topology and the complete Result/receipt/outbox aggregate inside the
 //! transaction supplied by the caller.
 
+use std::fmt::Display;
+
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
@@ -30,8 +32,8 @@ const RESOLVE_V3_FUNCTION_NAME: &str = "resolve_exploratory_replay_result_v3";
 const AUTHORITY_LOCK_FUNCTION: &str = "backtest_authority_lock_api.lock_authority_catalogs_v1()";
 const TOPOLOGY_FENCE: &str = "vibe.backtest.result-topology.v2";
 const AUTHORITY_LOCK_FUNCTION_SOURCE: &str = "BEGIN LOCK TABLE pg_catalog.pg_authid, pg_catalog.pg_auth_members IN SHARE MODE; RETURN true; END";
-const FUNCTION_SOURCE: &str = "DECLARE locked_result public.backtest_replay_results_v2%ROWTYPE; locked_receipt public.backtest_replay_result_receipts_v1%ROWTYPE; locked_outbox public.backtest_replay_result_outbox_v1%ROWTYPE; locked_trace public.backtest_native_replay_semantic_traces_v2%ROWTYPE; BEGIN SELECT result.* INTO locked_result FROM public.backtest_replay_results_v2 result WHERE result.result_identity=p_result_identity AND result.request_identity=p_request_identity AND result.attempt_identity=p_attempt_identity; IF NOT FOUND THEN RETURN NULL; END IF; SELECT receipt.* INTO locked_receipt FROM public.backtest_replay_result_receipts_v1 receipt WHERE receipt.result_identity=p_result_identity; IF NOT FOUND THEN RETURN NULL; END IF; SELECT outbox.* INTO locked_outbox FROM public.backtest_replay_result_outbox_v1 outbox WHERE outbox.result_identity=p_result_identity; IF NOT FOUND THEN RETURN NULL; END IF; SELECT trace.* INTO locked_trace FROM public.backtest_native_replay_semantic_traces_v2 trace WHERE trace.result_identity=p_result_identity; RETURN pg_catalog.jsonb_build_object('schema_version',3,'result',pg_catalog.jsonb_build_object('result_identity',locked_result.result_identity,'result_digest',locked_result.result_digest,'request_identity',locked_result.request_identity,'request_meaning_digest',locked_result.request_meaning_digest,'attempt_identity',locked_result.attempt_identity,'terminal',locked_result.terminal,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_result.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_result.canonical_bytes_blake3),'receipt',pg_catalog.jsonb_build_object('result_identity',locked_receipt.result_identity,'receipt_identity',locked_receipt.receipt_identity,'receipt_digest',locked_receipt.receipt_digest,'request_identity',locked_receipt.request_identity,'request_meaning_digest',locked_receipt.request_meaning_digest,'result_digest',locked_receipt.result_digest,'namespace',locked_receipt.namespace,'outbox_event_identity',locked_receipt.outbox_event_identity,'committed_at_epoch_ms',locked_receipt.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_receipt.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_receipt.canonical_bytes_blake3),'outbox',pg_catalog.jsonb_build_object('result_identity',locked_outbox.result_identity,'event_identity',locked_outbox.event_identity,'event_digest',locked_outbox.event_digest,'receipt_identity',locked_outbox.receipt_identity,'request_identity',locked_outbox.request_identity,'request_meaning_digest',locked_outbox.request_meaning_digest,'result_digest',locked_outbox.result_digest,'namespace',locked_outbox.namespace,'payload_digest',locked_outbox.payload_digest,'committed_at_epoch_ms',locked_outbox.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_outbox.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_outbox.canonical_bytes_blake3),'semantic_trace',CASE WHEN locked_trace.result_identity IS NULL THEN NULL ELSE pg_catalog.jsonb_build_object('result_identity',locked_trace.result_identity,'locator_reference',locked_trace.locator_reference,'locator_digest',locked_trace.locator_digest,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_trace.canonical_bytes,'base64'),pg_catalog.chr(10),'')) END); END";
-const FUNCTION_SOURCE_V3: &str = "DECLARE locked_result public.backtest_replay_results_v2%ROWTYPE; locked_receipt public.backtest_replay_result_receipts_v1%ROWTYPE; locked_outbox public.backtest_replay_result_outbox_v1%ROWTYPE; locked_trace public.backtest_native_replay_semantic_traces_v2%ROWTYPE; locked_evidence public.backtest_native_replay_outcome_evidence_v1%ROWTYPE; locked_evidence_receipt public.backtest_native_replay_outcome_evidence_receipts_v1%ROWTYPE; locked_evidence_outbox public.backtest_native_replay_outcome_evidence_outbox_v1%ROWTYPE; BEGIN SELECT result.* INTO locked_result FROM public.backtest_replay_results_v2 result WHERE result.result_identity=p_result_identity AND result.request_identity=p_request_identity AND result.attempt_identity=p_attempt_identity; IF NOT FOUND THEN RETURN NULL; END IF; SELECT receipt.* INTO locked_receipt FROM public.backtest_replay_result_receipts_v1 receipt WHERE receipt.result_identity=p_result_identity; IF NOT FOUND THEN RETURN NULL; END IF; SELECT outbox.* INTO locked_outbox FROM public.backtest_replay_result_outbox_v1 outbox WHERE outbox.result_identity=p_result_identity; IF NOT FOUND THEN RETURN NULL; END IF; SELECT trace.* INTO locked_trace FROM public.backtest_native_replay_semantic_traces_v2 trace WHERE trace.result_identity=p_result_identity; IF NOT FOUND THEN RETURN NULL; END IF; SELECT evidence.* INTO locked_evidence FROM public.backtest_native_replay_outcome_evidence_v1 evidence WHERE evidence.result_identity=p_result_identity AND evidence.request_identity=p_request_identity AND evidence.attempt_identity=p_attempt_identity; IF NOT FOUND THEN RETURN NULL; END IF; SELECT receipt.* INTO locked_evidence_receipt FROM public.backtest_native_replay_outcome_evidence_receipts_v1 receipt WHERE receipt.result_identity=p_result_identity; IF NOT FOUND THEN RETURN NULL; END IF; SELECT outbox.* INTO locked_evidence_outbox FROM public.backtest_native_replay_outcome_evidence_outbox_v1 outbox WHERE outbox.result_identity=p_result_identity; IF NOT FOUND THEN RETURN NULL; END IF; RETURN pg_catalog.jsonb_build_object('schema_version',4,'result',pg_catalog.jsonb_build_object('result_identity',locked_result.result_identity,'result_digest',locked_result.result_digest,'request_identity',locked_result.request_identity,'request_meaning_digest',locked_result.request_meaning_digest,'attempt_identity',locked_result.attempt_identity,'terminal',locked_result.terminal,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_result.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_result.canonical_bytes_blake3),'receipt',pg_catalog.jsonb_build_object('result_identity',locked_receipt.result_identity,'receipt_identity',locked_receipt.receipt_identity,'receipt_digest',locked_receipt.receipt_digest,'request_identity',locked_receipt.request_identity,'request_meaning_digest',locked_receipt.request_meaning_digest,'result_digest',locked_receipt.result_digest,'namespace',locked_receipt.namespace,'outbox_event_identity',locked_receipt.outbox_event_identity,'committed_at_epoch_ms',locked_receipt.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_receipt.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_receipt.canonical_bytes_blake3),'outbox',pg_catalog.jsonb_build_object('result_identity',locked_outbox.result_identity,'event_identity',locked_outbox.event_identity,'event_digest',locked_outbox.event_digest,'receipt_identity',locked_outbox.receipt_identity,'request_identity',locked_outbox.request_identity,'request_meaning_digest',locked_outbox.request_meaning_digest,'result_digest',locked_outbox.result_digest,'namespace',locked_outbox.namespace,'payload_digest',locked_outbox.payload_digest,'committed_at_epoch_ms',locked_outbox.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_outbox.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_outbox.canonical_bytes_blake3),'semantic_trace',pg_catalog.jsonb_build_object('result_identity',locked_trace.result_identity,'locator_reference',locked_trace.locator_reference,'locator_digest',locked_trace.locator_digest,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_trace.canonical_bytes,'base64'),pg_catalog.chr(10),'')),'outcome_evidence',pg_catalog.jsonb_build_object('result_identity',locked_evidence.result_identity,'evidence_identity',locked_evidence.evidence_identity,'evidence_digest',locked_evidence.evidence_digest,'result_digest',locked_evidence.result_digest,'request_identity',locked_evidence.request_identity,'request_meaning_digest',locked_evidence.request_meaning_digest,'attempt_identity',locked_evidence.attempt_identity,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_evidence.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_evidence.canonical_bytes_blake3,'engine_canonical_result_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_evidence.engine_canonical_result_bytes,'base64'),pg_catalog.chr(10),''),'engine_canonical_result_bytes_blake3',locked_evidence.engine_canonical_result_bytes_blake3),'outcome_evidence_receipt',pg_catalog.jsonb_build_object('result_identity',locked_evidence_receipt.result_identity,'receipt_identity',locked_evidence_receipt.receipt_identity,'receipt_digest',locked_evidence_receipt.receipt_digest,'evidence_identity',locked_evidence_receipt.evidence_identity,'evidence_digest',locked_evidence_receipt.evidence_digest,'result_digest',locked_evidence_receipt.result_digest,'request_identity',locked_evidence_receipt.request_identity,'request_meaning_digest',locked_evidence_receipt.request_meaning_digest,'attempt_identity',locked_evidence_receipt.attempt_identity,'outbox_event_identity',locked_evidence_receipt.outbox_event_identity,'committed_at_epoch_ms',locked_evidence_receipt.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_evidence_receipt.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_evidence_receipt.canonical_bytes_blake3),'outcome_evidence_outbox',pg_catalog.jsonb_build_object('result_identity',locked_evidence_outbox.result_identity,'event_identity',locked_evidence_outbox.event_identity,'event_digest',locked_evidence_outbox.event_digest,'receipt_identity',locked_evidence_outbox.receipt_identity,'evidence_identity',locked_evidence_outbox.evidence_identity,'evidence_digest',locked_evidence_outbox.evidence_digest,'result_digest',locked_evidence_outbox.result_digest,'request_identity',locked_evidence_outbox.request_identity,'request_meaning_digest',locked_evidence_outbox.request_meaning_digest,'attempt_identity',locked_evidence_outbox.attempt_identity,'payload_digest',locked_evidence_outbox.payload_digest,'committed_at_epoch_ms',locked_evidence_outbox.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_evidence_outbox.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_evidence_outbox.canonical_bytes_blake3)); END";
+const FUNCTION_SOURCE: &str = "DECLARE locked_result public.backtest_replay_results_v2%ROWTYPE; locked_receipt public.backtest_replay_result_receipts_v1%ROWTYPE; locked_outbox public.backtest_replay_result_outbox_v1%ROWTYPE; locked_trace public.backtest_native_replay_semantic_traces_v2%ROWTYPE; BEGIN SELECT result.* INTO locked_result FROM public.backtest_replay_results_v2 result WHERE result.result_identity=p_result_identity AND result.request_identity=p_request_identity AND result.attempt_identity=p_attempt_identity; IF NOT FOUND THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','EXPLORATORY_RESULT_ABSENT'); END IF; SELECT receipt.* INTO locked_receipt FROM public.backtest_replay_result_receipts_v1 receipt WHERE receipt.result_identity=p_result_identity; IF NOT FOUND THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','EXPLORATORY_RECEIPT_ABSENT'); END IF; SELECT outbox.* INTO locked_outbox FROM public.backtest_replay_result_outbox_v1 outbox WHERE outbox.result_identity=p_result_identity; IF NOT FOUND THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','EXPLORATORY_OUTBOX_ABSENT'); END IF; SELECT trace.* INTO locked_trace FROM public.backtest_native_replay_semantic_traces_v2 trace WHERE trace.result_identity=p_result_identity; RETURN pg_catalog.jsonb_build_object('schema_version',3,'result',pg_catalog.jsonb_build_object('result_identity',locked_result.result_identity,'result_digest',locked_result.result_digest,'request_identity',locked_result.request_identity,'request_meaning_digest',locked_result.request_meaning_digest,'attempt_identity',locked_result.attempt_identity,'terminal',locked_result.terminal,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_result.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_result.canonical_bytes_blake3),'receipt',pg_catalog.jsonb_build_object('result_identity',locked_receipt.result_identity,'receipt_identity',locked_receipt.receipt_identity,'receipt_digest',locked_receipt.receipt_digest,'request_identity',locked_receipt.request_identity,'request_meaning_digest',locked_receipt.request_meaning_digest,'result_digest',locked_receipt.result_digest,'namespace',locked_receipt.namespace,'outbox_event_identity',locked_receipt.outbox_event_identity,'committed_at_epoch_ms',locked_receipt.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_receipt.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_receipt.canonical_bytes_blake3),'outbox',pg_catalog.jsonb_build_object('result_identity',locked_outbox.result_identity,'event_identity',locked_outbox.event_identity,'event_digest',locked_outbox.event_digest,'receipt_identity',locked_outbox.receipt_identity,'request_identity',locked_outbox.request_identity,'request_meaning_digest',locked_outbox.request_meaning_digest,'result_digest',locked_outbox.result_digest,'namespace',locked_outbox.namespace,'payload_digest',locked_outbox.payload_digest,'committed_at_epoch_ms',locked_outbox.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_outbox.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_outbox.canonical_bytes_blake3),'semantic_trace',CASE WHEN locked_trace.result_identity IS NULL THEN NULL ELSE pg_catalog.jsonb_build_object('result_identity',locked_trace.result_identity,'locator_reference',locked_trace.locator_reference,'locator_digest',locked_trace.locator_digest,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_trace.canonical_bytes,'base64'),pg_catalog.chr(10),'')) END); END";
+const FUNCTION_SOURCE_V3: &str = "DECLARE locked_result public.backtest_replay_results_v2%ROWTYPE; locked_receipt public.backtest_replay_result_receipts_v1%ROWTYPE; locked_outbox public.backtest_replay_result_outbox_v1%ROWTYPE; locked_trace public.backtest_native_replay_semantic_traces_v2%ROWTYPE; locked_evidence public.backtest_native_replay_outcome_evidence_v1%ROWTYPE; locked_evidence_receipt public.backtest_native_replay_outcome_evidence_receipts_v1%ROWTYPE; locked_evidence_outbox public.backtest_native_replay_outcome_evidence_outbox_v1%ROWTYPE; BEGIN SELECT result.* INTO locked_result FROM public.backtest_replay_results_v2 result WHERE result.result_identity=p_result_identity AND result.request_identity=p_request_identity AND result.attempt_identity=p_attempt_identity; IF NOT FOUND THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','EXPLORATORY_RESULT_ABSENT'); END IF; SELECT receipt.* INTO locked_receipt FROM public.backtest_replay_result_receipts_v1 receipt WHERE receipt.result_identity=p_result_identity; IF NOT FOUND THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','EXPLORATORY_RECEIPT_ABSENT'); END IF; SELECT outbox.* INTO locked_outbox FROM public.backtest_replay_result_outbox_v1 outbox WHERE outbox.result_identity=p_result_identity; IF NOT FOUND THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','EXPLORATORY_OUTBOX_ABSENT'); END IF; SELECT trace.* INTO locked_trace FROM public.backtest_native_replay_semantic_traces_v2 trace WHERE trace.result_identity=p_result_identity; IF NOT FOUND THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','SEMANTIC_TRACE_ABSENT'); END IF; SELECT evidence.* INTO locked_evidence FROM public.backtest_native_replay_outcome_evidence_v1 evidence WHERE evidence.result_identity=p_result_identity AND evidence.request_identity=p_request_identity AND evidence.attempt_identity=p_attempt_identity; IF NOT FOUND THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','OUTCOME_EVIDENCE_ABSENT'); END IF; SELECT receipt.* INTO locked_evidence_receipt FROM public.backtest_native_replay_outcome_evidence_receipts_v1 receipt WHERE receipt.result_identity=p_result_identity; IF NOT FOUND THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','OUTCOME_EVIDENCE_RECEIPT_ABSENT'); END IF; SELECT outbox.* INTO locked_evidence_outbox FROM public.backtest_native_replay_outcome_evidence_outbox_v1 outbox WHERE outbox.result_identity=p_result_identity; IF NOT FOUND THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','OUTCOME_EVIDENCE_OUTBOX_ABSENT'); END IF; RETURN pg_catalog.jsonb_build_object('schema_version',4,'result',pg_catalog.jsonb_build_object('result_identity',locked_result.result_identity,'result_digest',locked_result.result_digest,'request_identity',locked_result.request_identity,'request_meaning_digest',locked_result.request_meaning_digest,'attempt_identity',locked_result.attempt_identity,'terminal',locked_result.terminal,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_result.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_result.canonical_bytes_blake3),'receipt',pg_catalog.jsonb_build_object('result_identity',locked_receipt.result_identity,'receipt_identity',locked_receipt.receipt_identity,'receipt_digest',locked_receipt.receipt_digest,'request_identity',locked_receipt.request_identity,'request_meaning_digest',locked_receipt.request_meaning_digest,'result_digest',locked_receipt.result_digest,'namespace',locked_receipt.namespace,'outbox_event_identity',locked_receipt.outbox_event_identity,'committed_at_epoch_ms',locked_receipt.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_receipt.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_receipt.canonical_bytes_blake3),'outbox',pg_catalog.jsonb_build_object('result_identity',locked_outbox.result_identity,'event_identity',locked_outbox.event_identity,'event_digest',locked_outbox.event_digest,'receipt_identity',locked_outbox.receipt_identity,'request_identity',locked_outbox.request_identity,'request_meaning_digest',locked_outbox.request_meaning_digest,'result_digest',locked_outbox.result_digest,'namespace',locked_outbox.namespace,'payload_digest',locked_outbox.payload_digest,'committed_at_epoch_ms',locked_outbox.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_outbox.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_outbox.canonical_bytes_blake3),'semantic_trace',pg_catalog.jsonb_build_object('result_identity',locked_trace.result_identity,'locator_reference',locked_trace.locator_reference,'locator_digest',locked_trace.locator_digest,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_trace.canonical_bytes,'base64'),pg_catalog.chr(10),'')),'outcome_evidence',pg_catalog.jsonb_build_object('result_identity',locked_evidence.result_identity,'evidence_identity',locked_evidence.evidence_identity,'evidence_digest',locked_evidence.evidence_digest,'result_digest',locked_evidence.result_digest,'request_identity',locked_evidence.request_identity,'request_meaning_digest',locked_evidence.request_meaning_digest,'attempt_identity',locked_evidence.attempt_identity,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_evidence.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_evidence.canonical_bytes_blake3,'engine_canonical_result_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_evidence.engine_canonical_result_bytes,'base64'),pg_catalog.chr(10),''),'engine_canonical_result_bytes_blake3',locked_evidence.engine_canonical_result_bytes_blake3),'outcome_evidence_receipt',pg_catalog.jsonb_build_object('result_identity',locked_evidence_receipt.result_identity,'receipt_identity',locked_evidence_receipt.receipt_identity,'receipt_digest',locked_evidence_receipt.receipt_digest,'evidence_identity',locked_evidence_receipt.evidence_identity,'evidence_digest',locked_evidence_receipt.evidence_digest,'result_digest',locked_evidence_receipt.result_digest,'request_identity',locked_evidence_receipt.request_identity,'request_meaning_digest',locked_evidence_receipt.request_meaning_digest,'attempt_identity',locked_evidence_receipt.attempt_identity,'outbox_event_identity',locked_evidence_receipt.outbox_event_identity,'committed_at_epoch_ms',locked_evidence_receipt.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_evidence_receipt.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_evidence_receipt.canonical_bytes_blake3),'outcome_evidence_outbox',pg_catalog.jsonb_build_object('result_identity',locked_evidence_outbox.result_identity,'event_identity',locked_evidence_outbox.event_identity,'event_digest',locked_evidence_outbox.event_digest,'receipt_identity',locked_evidence_outbox.receipt_identity,'evidence_identity',locked_evidence_outbox.evidence_identity,'evidence_digest',locked_evidence_outbox.evidence_digest,'result_digest',locked_evidence_outbox.result_digest,'request_identity',locked_evidence_outbox.request_identity,'request_meaning_digest',locked_evidence_outbox.request_meaning_digest,'attempt_identity',locked_evidence_outbox.attempt_identity,'payload_digest',locked_evidence_outbox.payload_digest,'committed_at_epoch_ms',locked_evidence_outbox.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_evidence_outbox.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_evidence_outbox.canonical_bytes_blake3)); END";
 const RESULT_STORAGE_DOMAIN: &str = "vibe.backtest.replay-result-storage.v2";
 const RECEIPT_STORAGE_DOMAIN: &str = "vibe.backtest.result-receipt-storage.v1";
 const OUTBOX_STORAGE_DOMAIN: &str = "vibe.backtest.result-outbox-storage.v1";
@@ -780,6 +782,150 @@ pub enum BacktestResultCustodyErrorV2 {
     Unavailable,
     #[error("Backtest Replay V2 result custody storage unavailable: {0}")]
     Storage(String),
+    #[error("Backtest Replay V2 result custody refused the read: {0}")]
+    Refused(BacktestReadbackRefusalV1),
+}
+
+/// Why one `backtest_owner_api` readback answered nothing.
+///
+/// A caller outside the Backtest Owner holds no `SELECT` on the tables behind these functions, so a
+/// cause the function does not name is a cause nobody downstream can recover. Every one of these
+/// used to be the same `NULL`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BacktestReadbackRefusalV1 {
+    /// The exploratory Result row does not exist for this locator.
+    ExploratoryResultAbsent,
+    /// The Result exists and its receipt does not.
+    ExploratoryReceiptAbsent,
+    /// The Result and receipt exist and the outbox event does not.
+    ExploratoryOutboxAbsent,
+    /// The aggregate exists and its semantic trace does not.
+    SemanticTraceAbsent,
+    /// The aggregate exists and its outcome evidence does not.
+    OutcomeEvidenceAbsent,
+    /// The outcome evidence exists and its receipt does not.
+    OutcomeEvidenceReceiptAbsent,
+    /// The outcome evidence and receipt exist and the outbox event does not.
+    OutcomeEvidenceOutboxAbsent,
+    /// The calling session is not the one this function answers.
+    SessionUserRejected,
+    /// The function is not running as the custodian that owns its tables.
+    DefinerContextRejected,
+    /// The calling transaction is not serializable.
+    TransactionIsolationRejected,
+    /// No protected Result aggregate matches this locator.
+    ProtectedResultAbsent,
+    /// More than one protected Result aggregate matches this locator.
+    ProtectedResultAmbiguous,
+    /// A protected Result column could not be projected.
+    ProtectedResultMalformed,
+    /// No protected attempt frontier aggregate matches this locator.
+    ProtectedFrontierAbsent,
+    /// More than one protected attempt frontier aggregate matches this locator.
+    ProtectedFrontierAmbiguous,
+    /// A protected attempt frontier column could not be projected.
+    ProtectedFrontierMalformed,
+}
+
+impl BacktestReadbackRefusalV1 {
+    /// Returns the exact wire code the `backtest_owner_api` function writes.
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::ExploratoryResultAbsent => "EXPLORATORY_RESULT_ABSENT",
+            Self::ExploratoryReceiptAbsent => "EXPLORATORY_RECEIPT_ABSENT",
+            Self::ExploratoryOutboxAbsent => "EXPLORATORY_OUTBOX_ABSENT",
+            Self::SemanticTraceAbsent => "SEMANTIC_TRACE_ABSENT",
+            Self::OutcomeEvidenceAbsent => "OUTCOME_EVIDENCE_ABSENT",
+            Self::OutcomeEvidenceReceiptAbsent => "OUTCOME_EVIDENCE_RECEIPT_ABSENT",
+            Self::OutcomeEvidenceOutboxAbsent => "OUTCOME_EVIDENCE_OUTBOX_ABSENT",
+            Self::SessionUserRejected => "SESSION_USER_REJECTED",
+            Self::DefinerContextRejected => "DEFINER_CONTEXT_REJECTED",
+            Self::TransactionIsolationRejected => "TRANSACTION_ISOLATION_REJECTED",
+            Self::ProtectedResultAbsent => "PROTECTED_RESULT_ABSENT",
+            Self::ProtectedResultAmbiguous => "PROTECTED_RESULT_AMBIGUOUS",
+            Self::ProtectedResultMalformed => "PROTECTED_RESULT_MALFORMED",
+            Self::ProtectedFrontierAbsent => "PROTECTED_FRONTIER_ABSENT",
+            Self::ProtectedFrontierAmbiguous => "PROTECTED_FRONTIER_AMBIGUOUS",
+            Self::ProtectedFrontierMalformed => "PROTECTED_FRONTIER_MALFORMED",
+        }
+    }
+
+    /// Every refusal this vocabulary publishes, in wire order.
+    pub const ALL: [Self; 16] = [
+        Self::ExploratoryResultAbsent,
+        Self::ExploratoryReceiptAbsent,
+        Self::ExploratoryOutboxAbsent,
+        Self::SemanticTraceAbsent,
+        Self::OutcomeEvidenceAbsent,
+        Self::OutcomeEvidenceReceiptAbsent,
+        Self::OutcomeEvidenceOutboxAbsent,
+        Self::SessionUserRejected,
+        Self::DefinerContextRejected,
+        Self::TransactionIsolationRejected,
+        Self::ProtectedResultAbsent,
+        Self::ProtectedResultAmbiguous,
+        Self::ProtectedResultMalformed,
+        Self::ProtectedFrontierAbsent,
+        Self::ProtectedFrontierAmbiguous,
+        Self::ProtectedFrontierMalformed,
+    ];
+
+    /// Whether the locator addressed no row at all.
+    ///
+    /// This is an empty result, not a refusal: the caller asked about something that is not
+    /// there, and there is nothing further to recover. It stays `Ok(None)` exactly as it answered
+    /// before this vocabulary existed.
+    ///
+    /// Every other refusal is an aggregate that exists and cannot be answered with, which is an
+    /// anomaly rather than an absence. Folding the two together would rebuild the fault this
+    /// vocabulary removes, in the opposite direction: a caller could no longer tell "there is no
+    /// such row" from "something is wrong".
+    ///
+    /// `ProtectedResultAbsent` and `ProtectedFrontierAbsent` still merge one distinction this
+    /// vocabulary does not resolve. They are raised by `no_data_found` on a three-relation join,
+    /// so they cover both an unknown identity and an aggregate whose cross-references disagree.
+    /// Separating those needs the join split, which is not this change.
+    #[must_use]
+    pub const fn addresses_no_row(self) -> bool {
+        matches!(
+            self,
+            Self::ExploratoryResultAbsent
+                | Self::ProtectedResultAbsent
+                | Self::ProtectedFrontierAbsent
+        )
+    }
+}
+
+impl Display for BacktestReadbackRefusalV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.code())
+    }
+}
+
+/// Reads one refusal envelope, or returns the aggregate for the caller to validate.
+///
+/// # Errors
+///
+/// Returns [`BacktestResultCustodyErrorV2::Refused`] when the function named a cause, and
+/// [`BacktestResultCustodyErrorV2::Storage`] when it wrote a `refusal` this build does not publish,
+/// because an unrecognized code is a contract drift rather than an absence.
+pub(crate) fn refusal_of(
+    value: &serde_json::Value,
+) -> Result<Option<BacktestReadbackRefusalV1>, BacktestResultCustodyErrorV2> {
+    let Some(code) = value.get("refusal") else {
+        return Ok(None);
+    };
+    let code = code
+        .as_str()
+        .ok_or_else(|| BacktestResultCustodyErrorV2::Storage("refusal is not a string".into()))?;
+    BacktestReadbackRefusalV1::ALL
+        .into_iter()
+        .find(|refusal| refusal.code() == code)
+        .map(Some)
+        .ok_or_else(|| {
+            BacktestResultCustodyErrorV2::Storage(format!("unpublished refusal code {code}"))
+        })
 }
 
 /// Move-only positive Backtest custody readback.
@@ -971,9 +1117,20 @@ pub async fn resolve_exploratory_replay_result_v2(
     .fetch_one(&mut **transaction)
     .await
     .map_err(|e| storage(&e))?;
-    envelope
-        .map(|value| validate_envelope(value, locator))
-        .transpose()
+    let Some(value) = envelope else {
+        // The function is STRICT, so a bare NULL now means only that a NULL argument short-circuited
+        // it without executing. Every cause it decides for itself arrives as a named refusal.
+        return Ok(None);
+    };
+
+    if let Some(refusal) = refusal_of(&value)? {
+        return if refusal.addresses_no_row() {
+            Ok(None)
+        } else {
+            Err(BacktestResultCustodyErrorV2::Refused(refusal))
+        };
+    }
+    validate_envelope(value, locator).map(Some)
 }
 
 /// Resolves one complete native outcome aggregate under the caller's existing R&D transaction.
@@ -1002,9 +1159,20 @@ pub async fn resolve_exploratory_replay_result_v3(
     .fetch_one(&mut **transaction)
     .await
     .map_err(|e| storage(&e))?;
-    envelope
-        .map(|value| validate_outcome_envelope(value, locator))
-        .transpose()
+    let Some(value) = envelope else {
+        // The function is STRICT, so a bare NULL now means only that a NULL argument short-circuited
+        // it without executing. Every cause it decides for itself arrives as a named refusal.
+        return Ok(None);
+    };
+
+    if let Some(refusal) = refusal_of(&value)? {
+        return if refusal.addresses_no_row() {
+            Ok(None)
+        } else {
+            Err(BacktestResultCustodyErrorV2::Refused(refusal))
+        };
+    }
+    validate_outcome_envelope(value, locator).map(Some)
 }
 
 /// Validates the exact append-only writer topology in the supplied Backtest transaction.

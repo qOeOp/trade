@@ -33,7 +33,7 @@ use vibe_data::owner::{
         market_semantics_admission_from_environment_v1,
     },
     pit_market_snapshot_intake_v1::{
-        MarketDataDecisionCutV1, PitMarketSnapshotDispositionV1,
+        MarketDataDecisionCutV1, PitMarketSnapshotDispositionV1, PitMarketSnapshotIntakeV1,
         pit_market_snapshot_intake_from_environment_v1,
     },
     pit_observation_source_v1::{PitObservationScopeV1, PitObservationSourceV1},
@@ -352,13 +352,45 @@ async fn market_data_answers_one_frozen_perpetual_request_without_a_credential()
 
 /// The same seven steps for a perpetual's daily bar, which is where the Owner's timeframe word and
 /// the venue's interval word are furthest apart.
+/// Answers one year of daily coordinates and prints the sealed pair for each.
+///
+/// Not selected by the end-to-end runner's default set, and deliberately not a chain entry. The
+/// Owner re-validates every lineage in the store on each commit and every snapshot opens its own
+/// lineage, so the cost of a sweep is quadratic in what the store already holds: writing these into
+/// a database that is never reset would tax every later snapshot, for every writer, permanently.
+/// A disposable database pays that cost once and discards it.
+///
+/// Three hundred and sixty-five daily coordinates is a window a strategy can be judged over, and it
+/// is cheaper than the 512 one-minute coordinates measured earlier - fewer coordinates, and the cost
+/// follows the count rather than the span.
+#[tokio::test]
+#[ignore = "requires the disposable PostgreSQL harness and a reachable venue"]
+async fn market_data_answers_one_year_of_daily_perpetual_coordinates() {
+    admit_and_sweep(&PERPETUAL_DAILY, 365).await;
+}
+
 #[tokio::test]
 #[ignore = "requires the disposable PostgreSQL harness and a reachable venue"]
 async fn market_data_answers_one_frozen_daily_perpetual_request_without_a_credential() {
     admit_and_answer(&PERPETUAL_DAILY).await;
 }
 
-async fn admit_and_answer(product: &'static Product) {
+/// Everything one product's admission establishes before any snapshot is requested.
+///
+/// Extracted so the single-coordinate proof and the window sweep share one admission rather than
+/// two copies that could drift. A sweep is not a second kind of request: it is this same
+/// admission answered at more than one coordinate.
+struct Admitted {
+    intake: std::sync::Arc<dyn PitMarketSnapshotIntakeV1>,
+    cut: MarketDataDecisionCutV1,
+    binding_locator: UntrustedSourceBindingLocator,
+    semantics_identity: BindingDigest,
+    selection: UniverseSelectionTerminalV1,
+    effective_ns: u64,
+    instrument_fact_digest: BindingDigest,
+}
+
+async fn admit(product: &'static Product) -> Admitted {
     let effective_ns = frozen_event_effective_ns(product);
 
     // 1. Operations admits the Source Binding. The Owner decides the disposition.
@@ -505,6 +537,27 @@ async fn admit_and_answer(product: &'static Product) {
         .current_decision_cut()
         .await
         .expect("admitting the binding established the canonical clock head");
+    Admitted {
+        intake,
+        cut,
+        binding_locator,
+        semantics_identity,
+        selection,
+        effective_ns,
+        instrument_fact_digest: instrument.fact_digest(),
+    }
+}
+
+async fn admit_and_answer(product: &'static Product) {
+    let Admitted {
+        intake,
+        cut,
+        binding_locator,
+        semantics_identity,
+        selection,
+        effective_ns,
+        instrument_fact_digest,
+    } = admit(product).await;
     let mut request = frozen_request(
         product,
         &cut,
@@ -531,8 +584,7 @@ async fn admit_and_answer(product: &'static Product) {
         "a committed snapshot carries a real identity"
     );
     assert_ne!(
-        claimed_instrument_master_digest,
-        instrument.fact_digest(),
+        claimed_instrument_master_digest, instrument_fact_digest,
         "the caller's placeholder is not the Owner's resolution, so the stamp is observable"
     );
 
@@ -574,6 +626,119 @@ async fn admit_and_answer(product: &'static Product) {
         snapshot.disposition(),
         stated.fact_identity()
     );
+}
+
+/// Answers one product at `coordinates` consecutive bar boundaries, all frozen against one cut.
+///
+/// A series is N of the single-coordinate request rather than a second kind of request: the Owner
+/// still answers "as of T" once per coordinate, through the same admitted intake the proof above
+/// uses once. Nothing here resolves a BAR schedule, so **this does not claim these coordinates are
+/// the venue's own bar boundaries**. What that costs is bounded and visible: the source answers
+/// with the last bar already closed at each coordinate, so a step that does not line up returns the
+/// same bar twice rather than a wrong one, and the repeat shows up in `event_effective`. The count
+/// of distinct bars printed below is what says whether that happened.
+///
+/// Each coordinate prints its sealed pair so a consumer can resolve the series without this process
+/// handing it rows: a snapshot identity and its fact digest are what the Owner sealed, and they are
+/// the only things a downstream Owner port will accept.
+async fn admit_and_sweep(product: &'static Product, coordinates: usize) {
+    let Admitted {
+        intake,
+        cut,
+        binding_locator,
+        semantics_identity,
+        selection,
+        effective_ns,
+        ..
+    } = admit(product).await;
+
+    // A second client, used only to witness which bar each coordinate resolved to. The intake asks
+    // the venue itself; the terminal it returns carries identities and a disposition, not rows, so
+    // the repeat check cannot be read off it.
+    let witness = (product.observations)(product, endpoint(product));
+    let started = std::time::Instant::now();
+    let mut bars = Vec::with_capacity(coordinates);
+    let mut sealed = Vec::with_capacity(coordinates);
+
+    for index in 0..coordinates {
+        let back = u64::try_from(coordinates - 1 - index).expect("the coordinate count fits");
+        let at = effective_ns - back * product.bar_ns;
+
+        let scope = PitObservationScopeV1::from_owner_request(
+            vec![product.member.to_string()],
+            at,
+            at,
+            at,
+            at,
+            at,
+        );
+        let rows = witness
+            .observe(&scope)
+            .await
+            .expect("the venue answers every coordinate in the window");
+        bars.push(
+            rows.first()
+                .expect("a coordinate the venue answers has at least one field")
+                .event_effective,
+        );
+
+        let mut request = frozen_request(
+            product,
+            &cut,
+            &binding_locator,
+            semantics_identity,
+            selection.selection_identity(),
+            at,
+        );
+        seal_request_claims_v1(&mut request);
+        let snapshot = intake
+            .submit(request, universe_locator(&selection))
+            .await
+            .expect("the Owner reaches a finding at every coordinate");
+        assert_eq!(
+            snapshot.disposition(),
+            PitMarketSnapshotDispositionV1::Available,
+            "every coordinate in an admitted window mints AVAILABLE"
+        );
+        sealed.push((snapshot.snapshot_identity(), snapshot.fact_digest()));
+    }
+
+    let elapsed = started.elapsed();
+    let distinct_bars = bars.iter().collect::<std::collections::BTreeSet<_>>().len();
+    let distinct_sealed = sealed
+        .iter()
+        .map(|(identity, _)| identity)
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
+
+    assert_eq!(sealed.len(), coordinates, "every coordinate sealed a pair");
+    assert_eq!(
+        distinct_sealed, coordinates,
+        "each coordinate is its own request, so each seals its own identity"
+    );
+
+    eprintln!(
+        "SWEEP {} {} coordinates={coordinates} distinct_bars={distinct_bars} \
+         elapsed_s={:.1} first_bar_ns={} last_bar_ns={}",
+        product.member,
+        product.timeframe,
+        elapsed.as_secs_f64(),
+        bars.first().copied().unwrap_or_default(),
+        bars.last().copied().unwrap_or_default(),
+    );
+
+    for (ordinal, ((identity, digest), bar)) in sealed.iter().zip(bars.iter()).enumerate() {
+        eprintln!(
+            "SEALED {ordinal} event_effective_ns={bar} snapshot_identity={} fact_digest={}",
+            hex(identity.as_bytes()),
+            hex(digest.as_bytes())
+        );
+    }
+}
+
+/// Lower-case hexadecimal, so a consumer can paste an identity straight into a query.
+fn hex(bytes: &[u8; 32]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn universe_locator(

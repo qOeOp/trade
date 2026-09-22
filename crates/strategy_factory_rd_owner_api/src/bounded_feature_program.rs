@@ -395,12 +395,21 @@ const fn bounded_feature_program_stage_code(stage: &BoundedFeatureProgramErrorV1
     }
 }
 
+/// Answers a refusal with the locator it refused and the code that refused it.
+///
+/// The body used to carry a constant `"state": "NOT_FROZEN"` instead of the code. That is not a
+/// reading of anything: it was emitted for every refusal on these routes, including
+/// `RD_OWNER_CUSTODY_UNAVAILABLE`, where the store was never reached and the program's
+/// frozen-ness is exactly what the Owner does not know. A caller that believed it learned a fact
+/// the Owner had not checked, while the one value it could act on was reachable only through a
+/// header. The seven sibling helpers in this crate all name the code in the body; this one does
+/// too now.
 fn rejection(status: StatusCode, code: &str, research_request_locator: &str) -> Response {
     let mut response = (
         status,
         Json(json!({
             "research_request_locator": research_request_locator,
-            "state": "NOT_FROZEN",
+            "error": code,
         })),
     )
         .into_response();
@@ -418,6 +427,48 @@ mod assembly_rejection_tests {
     use vibe_strategy_factory::rd_bounded_feature_program_postgres_v1::ResearchBoundedFeatureProgramOwnerErrorV1;
 
     use super::owner_error;
+
+    async fn body_of(error: &ResearchBoundedFeatureProgramOwnerErrorV1) -> serde_json::Value {
+        let response = owner_error(error, "research.request.test.v1");
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("the rejection body is bounded");
+        serde_json::from_slice(&bytes).expect("the rejection body is JSON")
+    }
+
+    /// A store that was never reached says nothing about whether a program is frozen, yet this
+    /// body used to assert `NOT_FROZEN` for that refusal and every other one. The assertion was
+    /// true of nothing the Owner had read, and no caller could tell it apart from a refusal that
+    /// had actually looked.
+    #[tokio::test]
+    async fn a_refusal_that_reached_no_store_does_not_report_a_frozen_state() {
+        let unavailable = body_of(&ResearchBoundedFeatureProgramOwnerErrorV1::Unavailable).await;
+        assert_eq!(unavailable["error"], "RD_OWNER_CUSTODY_UNAVAILABLE");
+        assert!(
+            unavailable.get("state").is_none(),
+            "a refusal that never reached the store cannot report a lifecycle state: {unavailable}"
+        );
+    }
+
+    /// The code is what separates two refusals, so a body that carries it must carry a different
+    /// one for each. Holding the header and the body to the same value keeps the two from
+    /// drifting into a response whose header and body disagree about what refused it.
+    #[tokio::test]
+    async fn the_body_names_the_same_code_the_header_does() {
+        for error in [
+            ResearchBoundedFeatureProgramOwnerErrorV1::ResearchCustody,
+            ResearchBoundedFeatureProgramOwnerErrorV1::Design,
+            ResearchBoundedFeatureProgramOwnerErrorV1::Conflict,
+            ResearchBoundedFeatureProgramOwnerErrorV1::CatalogUnavailable,
+        ] {
+            let header = code_of(&error);
+            let body = body_of(&error).await;
+            assert_eq!(
+                body["error"], header,
+                "the header and the body must name one refusal: {body}"
+            );
+        }
+    }
 
     fn code_of(error: &ResearchBoundedFeatureProgramOwnerErrorV1) -> String {
         let response = owner_error(error, "research.request.test.v1");
@@ -602,12 +653,343 @@ mod assembly_rejection_tests {
                 .expect("the emitted design serialises"),
         );
 
-        // The control. This request type declares `deny_unknown_fields`, and the whole proposal
-        // carries `meaning` alongside the body, so posting the wrong half must be refused. Without
-        // this, the assertion above would hold just as well against a type that accepted anything.
+        // The control: without it, the assertion above would hold just as well against a type
+        // that accepted anything.
+        //
+        // It is not a control for `deny_unknown_fields`, though an earlier version of this comment
+        // said it was. Removing that attribute leaves this assertion passing, because the whole
+        // proposal is *missing* `research_request_locator` and `design` either way - it nests them
+        // one level down. Measured by mutation, not read off the derive.
         assert!(
             serde_json::from_value::<DesignRoleIntentPublicationRequestV1>(emitted).is_err(),
             "the route must refuse the whole proposal, which carries `meaning` as well"
+        );
+    }
+}
+
+/// Drives the four routes this module mounts.
+///
+/// Nothing did before. The refusal tests above call `owner_error` directly, and #817's contract
+/// test stops at the request type, so every test in this module reached its subject without ever
+/// building a request: the token check, the body decode, the handler dispatch and the success
+/// shape had no coverage at all. That is how a constant `"state": "NOT_FROZEN"` survived in every
+/// answer these routes gave - the answers were never read by anything that had to act on them.
+#[cfg(test)]
+mod router_tests {
+    use std::sync::{Arc, Mutex};
+
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use sha2::{Digest, Sha256};
+    use tower::ServiceExt;
+    use vibe_data::owner::source_binding::BindingDigest;
+    use vibe_data::owner::strategy_design_role_set::StrategyDesignRoleEntryV1;
+    use vibe_strategy_factory::single_threshold_authoring_v1::DesignRoleIntentProposalV1;
+
+    use super::*;
+
+    const TOKEN: &str = "router-tests-bearer-token";
+
+    /// Records what reached the Owner, and answers with whatever the test armed.
+    ///
+    /// The recording half is what makes the refusal tests mean anything: asserting a 403 proves
+    /// nothing unless the same test can show the Owner was never called, because a route that
+    /// called the Owner and then threw the answer away would answer 403 just the same.
+    #[derive(Default)]
+    struct RecordingPort {
+        published: Mutex<Vec<(String, StrategyDesignV2)>>,
+        answer: Mutex<
+            Option<Result<StrategyDesignRoleIntentV1, ResearchBoundedFeatureProgramOwnerErrorV1>>,
+        >,
+    }
+
+    impl RecordingPort {
+        fn publish_count(&self) -> usize {
+            self.published
+                .lock()
+                .expect("the recorder is not poisoned")
+                .len()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ResearchBoundedFeatureProgramPort for RecordingPort {
+        async fn freeze(
+            &self,
+            _request: ResearchBoundedFeatureProgramFreezeRequestV1,
+        ) -> Result<
+            ResearchBoundedFeatureProgramFreezeReceiptV1,
+            ResearchBoundedFeatureProgramOwnerErrorV1,
+        > {
+            unreachable!("no test in this module drives freeze past the token check")
+        }
+
+        async fn declare(
+            &self,
+            _declaration: ResearchBoundedFeatureProgramDeclarationV1,
+        ) -> Result<
+            ResearchBoundedFeatureProgramFreezeReceiptV1,
+            ResearchBoundedFeatureProgramOwnerErrorV1,
+        > {
+            unreachable!("no test in this module drives declare past the token check")
+        }
+
+        async fn lower(
+            &self,
+            _research_request_locator: &str,
+        ) -> Result<
+            ResearchBoundedFeatureProgramLoweringV1,
+            ResearchBoundedFeatureProgramLoweringErrorV1,
+        > {
+            unreachable!("no test in this module drives lower past the token check")
+        }
+
+        async fn publish_design_role_intent(
+            &self,
+            research_request_locator: &str,
+            design: &StrategyDesignV2,
+        ) -> Result<StrategyDesignRoleIntentV1, ResearchBoundedFeatureProgramOwnerErrorV1> {
+            self.published
+                .lock()
+                .expect("the recorder is not poisoned")
+                .push((research_request_locator.to_owned(), design.clone()));
+            self.answer
+                .lock()
+                .expect("the recorder is not poisoned")
+                .take()
+                .expect("the test armed one answer per call")
+        }
+    }
+
+    fn router_for(port: &Arc<RecordingPort>) -> Router {
+        let digest: [u8; 32] = Sha256::digest(TOKEN.as_bytes()).into();
+        bounded_feature_program_router(port.clone(), digest)
+    }
+
+    fn post_request(path: &str, bearer: Option<&str>, body: &str) -> Request<Body> {
+        let mut builder = Request::builder()
+            .method("POST")
+            .uri(path)
+            .header("content-type", "application/json");
+        if let Some(bearer) = bearer {
+            builder = builder.header("authorization", format!("Bearer {bearer}"));
+        }
+        builder
+            .body(Body::from(body.to_owned()))
+            .expect("the request builds")
+    }
+
+    async fn send(
+        port: &Arc<RecordingPort>,
+        request: Request<Body>,
+    ) -> (StatusCode, String, serde_json::Value) {
+        let response = router_for(port)
+            .oneshot(request)
+            .await
+            .expect("the router answers every request");
+        let status = response.status();
+        let code = response
+            .headers()
+            .get("x-rd-rejection-code")
+            .map(|value| value.to_str().expect("the code is ASCII").to_owned())
+            .unwrap_or_default();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("the body is bounded");
+        let body = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+        (status, code, body)
+    }
+
+    /// The body the proposer writes to stdout, posted to the route that receives it.
+    fn proposal() -> DesignRoleIntentProposalV1 {
+        #[derive(serde::Deserialize)]
+        struct Example {
+            research_request_locator: String,
+            authoring:
+                vibe_strategy_factory::single_threshold_authoring_v1::SingleThresholdAuthoringRequestV1,
+        }
+        let raw = include_str!(
+            "../../strategy_factory/test_data/single_threshold/example_statement.json"
+        );
+        let example: Example =
+            serde_json::from_str(raw).expect("the shipped example parses as a statement");
+        DesignRoleIntentProposalV1::author(&example.research_request_locator, &example.authoring)
+            .expect("the shipped example is authorable")
+    }
+
+    fn intent_for(design: &StrategyDesignV2) -> StrategyDesignRoleIntentV1 {
+        let roles: Vec<StrategyDesignRoleEntryV1> = design
+            .inputs
+            .iter()
+            .enumerate()
+            .map(|(index, role)| {
+                let mut bytes = [0x11_u8; 32];
+                bytes[0] = u8::try_from(index).expect("fewer than 256 roles");
+                StrategyDesignRoleEntryV1 {
+                    role_identity: BindingDigest::from_untrusted_bytes(bytes),
+                    semantic_id: role.semantic_id.clone(),
+                    fact_class: format!("{:?}", role.fact_class),
+                    instrument: role.instrument.clone(),
+                    scope: format!("{:?}", role.scope),
+                    field_semantic_id: role.field_semantic_id.clone(),
+                    channel: role.channel.clone(),
+                    timeframe: role.timeframe.clone(),
+                    unit: role.unit.clone(),
+                    scale: role.scale,
+                    value_type: format!("{:?}", role.value_type),
+                }
+            })
+            .collect();
+        StrategyDesignRoleIntentV1::from_rd_owner_projection(
+            BindingDigest::from_untrusted_bytes([1; 32]),
+            BindingDigest::from_untrusted_bytes([2; 32]),
+            BindingDigest::from_untrusted_bytes([3; 32]),
+            BindingDigest::from_untrusted_bytes([4; 32]),
+            BindingDigest::from_untrusted_bytes([5; 32]),
+            roles,
+        )
+        .expect("the projection is well formed")
+    }
+
+    /// Four routes, one token check. None of them had a test that sent a request.
+    #[tokio::test]
+    async fn no_route_reaches_the_owner_without_the_token() {
+        let port = Arc::new(RecordingPort::default());
+
+        for path in [
+            "/v1/bounded-feature-programs/freeze",
+            "/v1/bounded-feature-programs/declare",
+            "/v1/bounded-feature-programs/lower",
+            "/v1/strategy-designs/publish-role-intent",
+        ] {
+            let (status, code, body) = send(&port, post_request(path, None, "{}")).await;
+            assert_eq!(status, StatusCode::FORBIDDEN, "{path}");
+            assert_eq!(code, "UNAUTHORIZED_PRODUCT_EDGE", "{path}");
+            assert_eq!(body["error"], "UNAUTHORIZED_PRODUCT_EDGE", "{path}");
+        }
+        // The `unreachable!` arms above would have caught a call to the other three. This catches
+        // one to `publish`, which is the only method a test in this module ever arms.
+        assert_eq!(port.publish_count(), 0);
+
+        // Positive control: the same route, same body shape, with the token, does reach the Owner.
+        // Without this the assertion above would hold just as well for a route that was broken.
+        let proposal = proposal();
+        *port.answer.lock().expect("not poisoned") =
+            Some(Ok(intent_for(&proposal.publish_role_intent.design)));
+        let body = serde_json::to_string(&proposal.publish_role_intent).expect("it serialises");
+        let (status, _, _) = send(
+            &port,
+            post_request(
+                "/v1/strategy-designs/publish-role-intent",
+                Some(TOKEN),
+                &body,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(port.publish_count(), 1);
+    }
+
+    /// End to end across the two programs: the proposer authors, the route publishes.
+    ///
+    /// #817 compared the proposer's JSON against this route's request type. This drives the route
+    /// with it, so a handler that decoded the body and then passed the wrong half of it to the
+    /// Owner would be caught here and was not caught there.
+    #[tokio::test]
+    async fn the_route_hands_the_owner_exactly_what_the_proposer_emitted() {
+        let port = Arc::new(RecordingPort::default());
+        let proposal = proposal();
+        let intent = intent_for(&proposal.publish_role_intent.design);
+        *port.answer.lock().expect("not poisoned") = Some(Ok(intent.clone()));
+
+        let emitted = serde_json::to_value(&proposal).expect("the proposal serialises");
+        let body = emitted["publish_role_intent"].to_string();
+        let (status, code, answered) = send(
+            &port,
+            post_request(
+                "/v1/strategy-designs/publish-role-intent",
+                Some(TOKEN),
+                &body,
+            ),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(code, "", "a success carries no rejection code");
+        assert_eq!(
+            answered,
+            serde_json::to_value(&intent).expect("the intent serialises"),
+            "the route relays the Owner's own answer without reshaping it"
+        );
+
+        let published = port.published.lock().expect("not poisoned");
+        assert_eq!(published.len(), 1);
+        assert_eq!(
+            published[0].0,
+            proposal.publish_role_intent.research_request_locator
+        );
+        assert_eq!(
+            serde_json::to_value(&published[0].1).expect("the design serialises"),
+            serde_json::to_value(&proposal.publish_role_intent.design)
+                .expect("the design serialises"),
+        );
+    }
+
+    /// A body this route cannot decode must not reach the Owner.
+    #[tokio::test]
+    async fn a_body_that_does_not_decode_stops_before_the_owner() {
+        let port = Arc::new(RecordingPort::default());
+        // The whole proposal, not the half this route takes. `deny_unknown_fields` refuses it, and
+        // it is the mistake a caller piping the binary's stdout straight through would make.
+        let body = serde_json::to_string(&proposal()).expect("the proposal serialises");
+        let (status, code, answered) = send(
+            &port,
+            post_request(
+                "/v1/strategy-designs/publish-role-intent",
+                Some(TOKEN),
+                &body,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(code, "MALFORMED_TYPED_REQUEST");
+        assert_eq!(answered["error"], "MALFORMED_TYPED_REQUEST");
+        assert_eq!(
+            answered["research_request_locator"], "unbound",
+            "a body that did not decode names no locator, and must not invent one"
+        );
+        assert_eq!(port.publish_count(), 0);
+    }
+
+    /// An Owner refusal reaches the caller under its own name, in the header and in the body.
+    #[tokio::test]
+    async fn an_owner_refusal_reaches_the_caller_with_its_code() {
+        let port = Arc::new(RecordingPort::default());
+        let proposal = proposal();
+        *port.answer.lock().expect("not poisoned") = Some(Err(
+            ResearchBoundedFeatureProgramOwnerErrorV1::ResearchCustody,
+        ));
+        let body = serde_json::to_string(&proposal.publish_role_intent).expect("it serialises");
+        let (status, code, answered) = send(
+            &port,
+            post_request(
+                "/v1/strategy-designs/publish-role-intent",
+                Some(TOKEN),
+                &body,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(code, "RESEARCH_CUSTODY_MISMATCH");
+        assert_eq!(answered["error"], "RESEARCH_CUSTODY_MISMATCH");
+        assert_eq!(
+            answered["research_request_locator"],
+            proposal.publish_role_intent.research_request_locator,
+            "a refusal names the locator the caller asked about"
+        );
+        assert!(
+            answered.get("state").is_none(),
+            "a refusal reports no lifecycle state it did not read: {answered}"
         );
     }
 }

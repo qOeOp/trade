@@ -165,7 +165,7 @@ pub mod native_replay_rd_sources_v2;
 )]
 mod native_replay_v2;
 pub use native_replay_v2::{
-    OwnerBarJoinedCutPreparationV1, PreparedProgramHostBarCapabilityV1,
+    OwnerBarJoinedCutMemberV1, OwnerBarJoinedCutPreparationV1, PreparedProgramHostBarCapabilityV1,
     PreparedProgramHostBarHandoffV1, PreparedProgramHostCapabilityV2,
     PreparedProgramHostEventCorpusCapabilityV2, PreparedProgramHostHandoffV2,
     ProgramPreparationFaultV2, prepare_program_host_from_owner_bar_joined_cut_v1,

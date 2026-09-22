@@ -1526,7 +1526,7 @@ CREATE OR REPLACE FUNCTION backtest_owner_api.resolve_exploratory_replay_result_
   p_attempt_identity text
 ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
-AS $function$DECLARE locked_result public.backtest_replay_results_v2%ROWTYPE; locked_receipt public.backtest_replay_result_receipts_v1%ROWTYPE; locked_outbox public.backtest_replay_result_outbox_v1%ROWTYPE; locked_trace public.backtest_native_replay_semantic_traces_v2%ROWTYPE; BEGIN SELECT result.* INTO locked_result FROM public.backtest_replay_results_v2 result WHERE result.result_identity=p_result_identity AND result.request_identity=p_request_identity AND result.attempt_identity=p_attempt_identity; IF NOT FOUND THEN RETURN NULL; END IF; SELECT receipt.* INTO locked_receipt FROM public.backtest_replay_result_receipts_v1 receipt WHERE receipt.result_identity=p_result_identity; IF NOT FOUND THEN RETURN NULL; END IF; SELECT outbox.* INTO locked_outbox FROM public.backtest_replay_result_outbox_v1 outbox WHERE outbox.result_identity=p_result_identity; IF NOT FOUND THEN RETURN NULL; END IF; SELECT trace.* INTO locked_trace FROM public.backtest_native_replay_semantic_traces_v2 trace WHERE trace.result_identity=p_result_identity; RETURN pg_catalog.jsonb_build_object('schema_version',3,'result',pg_catalog.jsonb_build_object('result_identity',locked_result.result_identity,'result_digest',locked_result.result_digest,'request_identity',locked_result.request_identity,'request_meaning_digest',locked_result.request_meaning_digest,'attempt_identity',locked_result.attempt_identity,'terminal',locked_result.terminal,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_result.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_result.canonical_bytes_blake3),'receipt',pg_catalog.jsonb_build_object('result_identity',locked_receipt.result_identity,'receipt_identity',locked_receipt.receipt_identity,'receipt_digest',locked_receipt.receipt_digest,'request_identity',locked_receipt.request_identity,'request_meaning_digest',locked_receipt.request_meaning_digest,'result_digest',locked_receipt.result_digest,'namespace',locked_receipt.namespace,'outbox_event_identity',locked_receipt.outbox_event_identity,'committed_at_epoch_ms',locked_receipt.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_receipt.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_receipt.canonical_bytes_blake3),'outbox',pg_catalog.jsonb_build_object('result_identity',locked_outbox.result_identity,'event_identity',locked_outbox.event_identity,'event_digest',locked_outbox.event_digest,'receipt_identity',locked_outbox.receipt_identity,'request_identity',locked_outbox.request_identity,'request_meaning_digest',locked_outbox.request_meaning_digest,'result_digest',locked_outbox.result_digest,'namespace',locked_outbox.namespace,'payload_digest',locked_outbox.payload_digest,'committed_at_epoch_ms',locked_outbox.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_outbox.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_outbox.canonical_bytes_blake3),'semantic_trace',CASE WHEN locked_trace.result_identity IS NULL THEN NULL ELSE pg_catalog.jsonb_build_object('result_identity',locked_trace.result_identity,'locator_reference',locked_trace.locator_reference,'locator_digest',locked_trace.locator_digest,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_trace.canonical_bytes,'base64'),pg_catalog.chr(10),'')) END); END$function$;
+AS $function$DECLARE locked_result public.backtest_replay_results_v2%ROWTYPE; locked_receipt public.backtest_replay_result_receipts_v1%ROWTYPE; locked_outbox public.backtest_replay_result_outbox_v1%ROWTYPE; locked_trace public.backtest_native_replay_semantic_traces_v2%ROWTYPE; BEGIN SELECT result.* INTO locked_result FROM public.backtest_replay_results_v2 result WHERE result.result_identity=p_result_identity AND result.request_identity=p_request_identity AND result.attempt_identity=p_attempt_identity; IF NOT FOUND THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','EXPLORATORY_RESULT_ABSENT'); END IF; SELECT receipt.* INTO locked_receipt FROM public.backtest_replay_result_receipts_v1 receipt WHERE receipt.result_identity=p_result_identity; IF NOT FOUND THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','EXPLORATORY_RECEIPT_ABSENT'); END IF; SELECT outbox.* INTO locked_outbox FROM public.backtest_replay_result_outbox_v1 outbox WHERE outbox.result_identity=p_result_identity; IF NOT FOUND THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','EXPLORATORY_OUTBOX_ABSENT'); END IF; SELECT trace.* INTO locked_trace FROM public.backtest_native_replay_semantic_traces_v2 trace WHERE trace.result_identity=p_result_identity; RETURN pg_catalog.jsonb_build_object('schema_version',3,'result',pg_catalog.jsonb_build_object('result_identity',locked_result.result_identity,'result_digest',locked_result.result_digest,'request_identity',locked_result.request_identity,'request_meaning_digest',locked_result.request_meaning_digest,'attempt_identity',locked_result.attempt_identity,'terminal',locked_result.terminal,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_result.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_result.canonical_bytes_blake3),'receipt',pg_catalog.jsonb_build_object('result_identity',locked_receipt.result_identity,'receipt_identity',locked_receipt.receipt_identity,'receipt_digest',locked_receipt.receipt_digest,'request_identity',locked_receipt.request_identity,'request_meaning_digest',locked_receipt.request_meaning_digest,'result_digest',locked_receipt.result_digest,'namespace',locked_receipt.namespace,'outbox_event_identity',locked_receipt.outbox_event_identity,'committed_at_epoch_ms',locked_receipt.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_receipt.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_receipt.canonical_bytes_blake3),'outbox',pg_catalog.jsonb_build_object('result_identity',locked_outbox.result_identity,'event_identity',locked_outbox.event_identity,'event_digest',locked_outbox.event_digest,'receipt_identity',locked_outbox.receipt_identity,'request_identity',locked_outbox.request_identity,'request_meaning_digest',locked_outbox.request_meaning_digest,'result_digest',locked_outbox.result_digest,'namespace',locked_outbox.namespace,'payload_digest',locked_outbox.payload_digest,'committed_at_epoch_ms',locked_outbox.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_outbox.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_outbox.canonical_bytes_blake3),'semantic_trace',CASE WHEN locked_trace.result_identity IS NULL THEN NULL ELSE pg_catalog.jsonb_build_object('result_identity',locked_trace.result_identity,'locator_reference',locked_trace.locator_reference,'locator_digest',locked_trace.locator_digest,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_trace.canonical_bytes,'base64'),pg_catalog.chr(10),'')) END); END$function$;
 ALTER FUNCTION backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text) OWNER TO backtest_custodian;
 REVOKE ALL ON FUNCTION backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text) FROM PUBLIC, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, rd_fact_writer, market_data_reader, rd_owner;
 GRANT EXECUTE ON FUNCTION backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text) TO rd_owner;
@@ -1663,7 +1663,7 @@ CREATE OR REPLACE FUNCTION backtest_owner_api.resolve_exploratory_replay_result_
   p_attempt_identity text
 ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
-AS $function$DECLARE locked_result public.backtest_replay_results_v2%ROWTYPE; locked_receipt public.backtest_replay_result_receipts_v1%ROWTYPE; locked_outbox public.backtest_replay_result_outbox_v1%ROWTYPE; locked_trace public.backtest_native_replay_semantic_traces_v2%ROWTYPE; locked_evidence public.backtest_native_replay_outcome_evidence_v1%ROWTYPE; locked_evidence_receipt public.backtest_native_replay_outcome_evidence_receipts_v1%ROWTYPE; locked_evidence_outbox public.backtest_native_replay_outcome_evidence_outbox_v1%ROWTYPE; BEGIN SELECT result.* INTO locked_result FROM public.backtest_replay_results_v2 result WHERE result.result_identity=p_result_identity AND result.request_identity=p_request_identity AND result.attempt_identity=p_attempt_identity; IF NOT FOUND THEN RETURN NULL; END IF; SELECT receipt.* INTO locked_receipt FROM public.backtest_replay_result_receipts_v1 receipt WHERE receipt.result_identity=p_result_identity; IF NOT FOUND THEN RETURN NULL; END IF; SELECT outbox.* INTO locked_outbox FROM public.backtest_replay_result_outbox_v1 outbox WHERE outbox.result_identity=p_result_identity; IF NOT FOUND THEN RETURN NULL; END IF; SELECT trace.* INTO locked_trace FROM public.backtest_native_replay_semantic_traces_v2 trace WHERE trace.result_identity=p_result_identity; IF NOT FOUND THEN RETURN NULL; END IF; SELECT evidence.* INTO locked_evidence FROM public.backtest_native_replay_outcome_evidence_v1 evidence WHERE evidence.result_identity=p_result_identity AND evidence.request_identity=p_request_identity AND evidence.attempt_identity=p_attempt_identity; IF NOT FOUND THEN RETURN NULL; END IF; SELECT receipt.* INTO locked_evidence_receipt FROM public.backtest_native_replay_outcome_evidence_receipts_v1 receipt WHERE receipt.result_identity=p_result_identity; IF NOT FOUND THEN RETURN NULL; END IF; SELECT outbox.* INTO locked_evidence_outbox FROM public.backtest_native_replay_outcome_evidence_outbox_v1 outbox WHERE outbox.result_identity=p_result_identity; IF NOT FOUND THEN RETURN NULL; END IF; RETURN pg_catalog.jsonb_build_object('schema_version',4,'result',pg_catalog.jsonb_build_object('result_identity',locked_result.result_identity,'result_digest',locked_result.result_digest,'request_identity',locked_result.request_identity,'request_meaning_digest',locked_result.request_meaning_digest,'attempt_identity',locked_result.attempt_identity,'terminal',locked_result.terminal,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_result.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_result.canonical_bytes_blake3),'receipt',pg_catalog.jsonb_build_object('result_identity',locked_receipt.result_identity,'receipt_identity',locked_receipt.receipt_identity,'receipt_digest',locked_receipt.receipt_digest,'request_identity',locked_receipt.request_identity,'request_meaning_digest',locked_receipt.request_meaning_digest,'result_digest',locked_receipt.result_digest,'namespace',locked_receipt.namespace,'outbox_event_identity',locked_receipt.outbox_event_identity,'committed_at_epoch_ms',locked_receipt.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_receipt.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_receipt.canonical_bytes_blake3),'outbox',pg_catalog.jsonb_build_object('result_identity',locked_outbox.result_identity,'event_identity',locked_outbox.event_identity,'event_digest',locked_outbox.event_digest,'receipt_identity',locked_outbox.receipt_identity,'request_identity',locked_outbox.request_identity,'request_meaning_digest',locked_outbox.request_meaning_digest,'result_digest',locked_outbox.result_digest,'namespace',locked_outbox.namespace,'payload_digest',locked_outbox.payload_digest,'committed_at_epoch_ms',locked_outbox.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_outbox.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_outbox.canonical_bytes_blake3),'semantic_trace',pg_catalog.jsonb_build_object('result_identity',locked_trace.result_identity,'locator_reference',locked_trace.locator_reference,'locator_digest',locked_trace.locator_digest,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_trace.canonical_bytes,'base64'),pg_catalog.chr(10),'')),'outcome_evidence',pg_catalog.jsonb_build_object('result_identity',locked_evidence.result_identity,'evidence_identity',locked_evidence.evidence_identity,'evidence_digest',locked_evidence.evidence_digest,'result_digest',locked_evidence.result_digest,'request_identity',locked_evidence.request_identity,'request_meaning_digest',locked_evidence.request_meaning_digest,'attempt_identity',locked_evidence.attempt_identity,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_evidence.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_evidence.canonical_bytes_blake3,'engine_canonical_result_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_evidence.engine_canonical_result_bytes,'base64'),pg_catalog.chr(10),''),'engine_canonical_result_bytes_blake3',locked_evidence.engine_canonical_result_bytes_blake3),'outcome_evidence_receipt',pg_catalog.jsonb_build_object('result_identity',locked_evidence_receipt.result_identity,'receipt_identity',locked_evidence_receipt.receipt_identity,'receipt_digest',locked_evidence_receipt.receipt_digest,'evidence_identity',locked_evidence_receipt.evidence_identity,'evidence_digest',locked_evidence_receipt.evidence_digest,'result_digest',locked_evidence_receipt.result_digest,'request_identity',locked_evidence_receipt.request_identity,'request_meaning_digest',locked_evidence_receipt.request_meaning_digest,'attempt_identity',locked_evidence_receipt.attempt_identity,'outbox_event_identity',locked_evidence_receipt.outbox_event_identity,'committed_at_epoch_ms',locked_evidence_receipt.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_evidence_receipt.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_evidence_receipt.canonical_bytes_blake3),'outcome_evidence_outbox',pg_catalog.jsonb_build_object('result_identity',locked_evidence_outbox.result_identity,'event_identity',locked_evidence_outbox.event_identity,'event_digest',locked_evidence_outbox.event_digest,'receipt_identity',locked_evidence_outbox.receipt_identity,'evidence_identity',locked_evidence_outbox.evidence_identity,'evidence_digest',locked_evidence_outbox.evidence_digest,'result_digest',locked_evidence_outbox.result_digest,'request_identity',locked_evidence_outbox.request_identity,'request_meaning_digest',locked_evidence_outbox.request_meaning_digest,'attempt_identity',locked_evidence_outbox.attempt_identity,'payload_digest',locked_evidence_outbox.payload_digest,'committed_at_epoch_ms',locked_evidence_outbox.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_evidence_outbox.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_evidence_outbox.canonical_bytes_blake3)); END$function$;
+AS $function$DECLARE locked_result public.backtest_replay_results_v2%ROWTYPE; locked_receipt public.backtest_replay_result_receipts_v1%ROWTYPE; locked_outbox public.backtest_replay_result_outbox_v1%ROWTYPE; locked_trace public.backtest_native_replay_semantic_traces_v2%ROWTYPE; locked_evidence public.backtest_native_replay_outcome_evidence_v1%ROWTYPE; locked_evidence_receipt public.backtest_native_replay_outcome_evidence_receipts_v1%ROWTYPE; locked_evidence_outbox public.backtest_native_replay_outcome_evidence_outbox_v1%ROWTYPE; BEGIN SELECT result.* INTO locked_result FROM public.backtest_replay_results_v2 result WHERE result.result_identity=p_result_identity AND result.request_identity=p_request_identity AND result.attempt_identity=p_attempt_identity; IF NOT FOUND THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','EXPLORATORY_RESULT_ABSENT'); END IF; SELECT receipt.* INTO locked_receipt FROM public.backtest_replay_result_receipts_v1 receipt WHERE receipt.result_identity=p_result_identity; IF NOT FOUND THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','EXPLORATORY_RECEIPT_ABSENT'); END IF; SELECT outbox.* INTO locked_outbox FROM public.backtest_replay_result_outbox_v1 outbox WHERE outbox.result_identity=p_result_identity; IF NOT FOUND THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','EXPLORATORY_OUTBOX_ABSENT'); END IF; SELECT trace.* INTO locked_trace FROM public.backtest_native_replay_semantic_traces_v2 trace WHERE trace.result_identity=p_result_identity; IF NOT FOUND THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','SEMANTIC_TRACE_ABSENT'); END IF; SELECT evidence.* INTO locked_evidence FROM public.backtest_native_replay_outcome_evidence_v1 evidence WHERE evidence.result_identity=p_result_identity AND evidence.request_identity=p_request_identity AND evidence.attempt_identity=p_attempt_identity; IF NOT FOUND THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','OUTCOME_EVIDENCE_ABSENT'); END IF; SELECT receipt.* INTO locked_evidence_receipt FROM public.backtest_native_replay_outcome_evidence_receipts_v1 receipt WHERE receipt.result_identity=p_result_identity; IF NOT FOUND THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','OUTCOME_EVIDENCE_RECEIPT_ABSENT'); END IF; SELECT outbox.* INTO locked_evidence_outbox FROM public.backtest_native_replay_outcome_evidence_outbox_v1 outbox WHERE outbox.result_identity=p_result_identity; IF NOT FOUND THEN RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','OUTCOME_EVIDENCE_OUTBOX_ABSENT'); END IF; RETURN pg_catalog.jsonb_build_object('schema_version',4,'result',pg_catalog.jsonb_build_object('result_identity',locked_result.result_identity,'result_digest',locked_result.result_digest,'request_identity',locked_result.request_identity,'request_meaning_digest',locked_result.request_meaning_digest,'attempt_identity',locked_result.attempt_identity,'terminal',locked_result.terminal,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_result.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_result.canonical_bytes_blake3),'receipt',pg_catalog.jsonb_build_object('result_identity',locked_receipt.result_identity,'receipt_identity',locked_receipt.receipt_identity,'receipt_digest',locked_receipt.receipt_digest,'request_identity',locked_receipt.request_identity,'request_meaning_digest',locked_receipt.request_meaning_digest,'result_digest',locked_receipt.result_digest,'namespace',locked_receipt.namespace,'outbox_event_identity',locked_receipt.outbox_event_identity,'committed_at_epoch_ms',locked_receipt.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_receipt.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_receipt.canonical_bytes_blake3),'outbox',pg_catalog.jsonb_build_object('result_identity',locked_outbox.result_identity,'event_identity',locked_outbox.event_identity,'event_digest',locked_outbox.event_digest,'receipt_identity',locked_outbox.receipt_identity,'request_identity',locked_outbox.request_identity,'request_meaning_digest',locked_outbox.request_meaning_digest,'result_digest',locked_outbox.result_digest,'namespace',locked_outbox.namespace,'payload_digest',locked_outbox.payload_digest,'committed_at_epoch_ms',locked_outbox.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_outbox.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_outbox.canonical_bytes_blake3),'semantic_trace',pg_catalog.jsonb_build_object('result_identity',locked_trace.result_identity,'locator_reference',locked_trace.locator_reference,'locator_digest',locked_trace.locator_digest,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_trace.canonical_bytes,'base64'),pg_catalog.chr(10),'')),'outcome_evidence',pg_catalog.jsonb_build_object('result_identity',locked_evidence.result_identity,'evidence_identity',locked_evidence.evidence_identity,'evidence_digest',locked_evidence.evidence_digest,'result_digest',locked_evidence.result_digest,'request_identity',locked_evidence.request_identity,'request_meaning_digest',locked_evidence.request_meaning_digest,'attempt_identity',locked_evidence.attempt_identity,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_evidence.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_evidence.canonical_bytes_blake3,'engine_canonical_result_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_evidence.engine_canonical_result_bytes,'base64'),pg_catalog.chr(10),''),'engine_canonical_result_bytes_blake3',locked_evidence.engine_canonical_result_bytes_blake3),'outcome_evidence_receipt',pg_catalog.jsonb_build_object('result_identity',locked_evidence_receipt.result_identity,'receipt_identity',locked_evidence_receipt.receipt_identity,'receipt_digest',locked_evidence_receipt.receipt_digest,'evidence_identity',locked_evidence_receipt.evidence_identity,'evidence_digest',locked_evidence_receipt.evidence_digest,'result_digest',locked_evidence_receipt.result_digest,'request_identity',locked_evidence_receipt.request_identity,'request_meaning_digest',locked_evidence_receipt.request_meaning_digest,'attempt_identity',locked_evidence_receipt.attempt_identity,'outbox_event_identity',locked_evidence_receipt.outbox_event_identity,'committed_at_epoch_ms',locked_evidence_receipt.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_evidence_receipt.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_evidence_receipt.canonical_bytes_blake3),'outcome_evidence_outbox',pg_catalog.jsonb_build_object('result_identity',locked_evidence_outbox.result_identity,'event_identity',locked_evidence_outbox.event_identity,'event_digest',locked_evidence_outbox.event_digest,'receipt_identity',locked_evidence_outbox.receipt_identity,'evidence_identity',locked_evidence_outbox.evidence_identity,'evidence_digest',locked_evidence_outbox.evidence_digest,'result_digest',locked_evidence_outbox.result_digest,'request_identity',locked_evidence_outbox.request_identity,'request_meaning_digest',locked_evidence_outbox.request_meaning_digest,'attempt_identity',locked_evidence_outbox.attempt_identity,'payload_digest',locked_evidence_outbox.payload_digest,'committed_at_epoch_ms',locked_evidence_outbox.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_evidence_outbox.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_evidence_outbox.canonical_bytes_blake3)); END$function$;
 ALTER FUNCTION backtest_owner_api.resolve_exploratory_replay_result_v3(text,text,text) OWNER TO backtest_custodian;
 REVOKE ALL ON FUNCTION backtest_owner_api.resolve_exploratory_replay_result_v3(text,text,text) FROM PUBLIC, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, rd_fact_writer, market_data_reader, rd_owner;
 GRANT EXECUTE ON FUNCTION backtest_owner_api.resolve_exploratory_replay_result_v3(text,text,text) TO rd_owner;
@@ -1677,11 +1677,14 @@ SET search_path = pg_catalog
 AS $function$
 DECLARE locked jsonb;
 BEGIN
-  IF session_user <> 'qualification_writer'
-     OR current_user <> 'backtest_custodian'
-     OR pg_catalog.current_setting('transaction_isolation') <> 'serializable'
-  THEN
-    RETURN NULL;
+  IF session_user <> 'qualification_writer' THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','SESSION_USER_REJECTED');
+  END IF;
+  IF current_user <> 'backtest_custodian' THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','DEFINER_CONTEXT_REJECTED');
+  END IF;
+  IF pg_catalog.current_setting('transaction_isolation') <> 'serializable' THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','TRANSACTION_ISOLATION_REJECTED');
   END IF;
   SELECT pg_catalog.jsonb_build_object(
            'schema_version',1,
@@ -1710,8 +1713,13 @@ BEGIN
      AND outbox.result_digest=result.result_digest
    FOR SHARE OF result,receipt,outbox;
   RETURN locked;
-EXCEPTION WHEN no_data_found OR too_many_rows OR data_exception THEN
-  RETURN NULL;
+EXCEPTION
+  WHEN no_data_found THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','PROTECTED_RESULT_ABSENT');
+  WHEN too_many_rows THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','PROTECTED_RESULT_AMBIGUOUS');
+  WHEN data_exception THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','PROTECTED_RESULT_MALFORMED');
 END
 $function$;
 ALTER FUNCTION backtest_owner_api.resolve_protected_replay_result_v1(text,text,text) OWNER TO backtest_custodian;
@@ -1726,11 +1734,14 @@ SET search_path = pg_catalog
 AS $function$
 DECLARE locked jsonb;
 BEGIN
-  IF session_user <> 'qualification_writer'
-     OR current_user <> 'backtest_custodian'
-     OR pg_catalog.current_setting('transaction_isolation') <> 'serializable'
-  THEN
-    RETURN NULL;
+  IF session_user <> 'qualification_writer' THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','SESSION_USER_REJECTED');
+  END IF;
+  IF current_user <> 'backtest_custodian' THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','DEFINER_CONTEXT_REJECTED');
+  END IF;
+  IF pg_catalog.current_setting('transaction_isolation') <> 'serializable' THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','TRANSACTION_ISOLATION_REJECTED');
   END IF;
   SELECT pg_catalog.jsonb_build_object(
            'schema_version',1,
@@ -1759,8 +1770,13 @@ BEGIN
      AND outbox.request_set_digest=frontier.request_set_digest
    FOR SHARE OF frontier,receipt,outbox;
   RETURN locked;
-EXCEPTION WHEN no_data_found OR too_many_rows OR data_exception THEN
-  RETURN NULL;
+EXCEPTION
+  WHEN no_data_found THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','PROTECTED_FRONTIER_ABSENT');
+  WHEN too_many_rows THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','PROTECTED_FRONTIER_AMBIGUOUS');
+  WHEN data_exception THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','PROTECTED_FRONTIER_MALFORMED');
 END
 $function$;
 ALTER FUNCTION backtest_owner_api.resolve_protected_replay_attempt_frontier_v1(text,text) OWNER TO backtest_custodian;
@@ -3389,13 +3405,26 @@ DECLARE
   head operator_authorization_private.operator_authorization_revocation_heads_v1%ROWTYPE;
   current_frontier operator_authorization_private.operator_authorization_revocation_frontiers_v1%ROWTYPE;
 BEGIN
-  IF current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF;
+  -- A bare NULL now means one thing only: this STRICT function short-circuited on a NULL
+  -- argument and never ran. Every other refusal names itself, because the caller cannot read
+  -- these tables - the boundary is SECURITY DEFINER precisely so that it cannot - and a cause
+  -- this function does not name is a cause the caller has no way to recover.
+  IF current_setting('transaction_isolation') <> 'read committed' THEN RETURN jsonb_build_object('schema_version', 1, 'refusal', 'ISOLATION_NOT_READ_COMMITTED'); END IF;
   SELECT * INTO issuance FROM operator_authorization_private.operator_authorization_issuances_v1 WHERE authorization_identity = requested_authorization_identity FOR SHARE;
-  IF NOT FOUND OR issuance.receipt_json->>'receipt_identity' <> requested_issuance_receipt_identity THEN RETURN NULL; END IF;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'AUTHORIZATION_IDENTITY_UNKNOWN');
+  END IF;
+  IF issuance.receipt_json->>'receipt_identity' <> requested_issuance_receipt_identity THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'ISSUANCE_RECEIPT_IDENTITY_MISMATCH');
+  END IF;
   SELECT * INTO head FROM operator_authorization_private.operator_authorization_revocation_heads_v1 WHERE scope_digest = issuance.scope_digest FOR SHARE;
-  IF NOT FOUND THEN RETURN NULL; END IF;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'REVOCATION_HEAD_MISSING');
+  END IF;
   SELECT * INTO current_frontier FROM operator_authorization_private.operator_authorization_revocation_frontiers_v1 WHERE frontier_identity = head.frontier_identity AND scope_digest = issuance.scope_digest FOR SHARE;
-  IF NOT FOUND THEN RETURN NULL; END IF;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'REVOCATION_FRONTIER_MISSING');
+  END IF;
   PERFORM 1 FROM operator_authorization_private.operator_authorization_issuances_v1 scope_issuance WHERE scope_issuance.scope_digest = issuance.scope_digest FOR SHARE;
   PERFORM 1 FROM operator_authorization_private.operator_authorization_revocation_frontiers_v1 frontier WHERE frontier.scope_digest = issuance.scope_digest FOR SHARE;
   PERFORM 1 FROM operator_authorization_private.operator_authorization_owner_outbox_v1 outbox WHERE outbox.aggregate_identity IN (SELECT scope_issuance.authorization_identity FROM operator_authorization_private.operator_authorization_issuances_v1 scope_issuance WHERE scope_issuance.scope_digest = issuance.scope_digest) OR outbox.aggregate_identity IN (SELECT frontier.frontier_identity FROM operator_authorization_private.operator_authorization_revocation_frontiers_v1 frontier WHERE frontier.scope_digest = issuance.scope_digest) FOR SHARE;
@@ -3731,15 +3760,22 @@ DECLARE
   hinted_binding_locators jsonb;
   locked_head jsonb;
 BEGIN
-  IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF;
+  -- A bare NULL from here now means one thing only: this STRICT function short-circuited on a
+  -- NULL argument and never ran. Everything else names itself, and a refusal raised by the
+  -- Operator Authorization lock travels up unchanged rather than collapsing into this one -
+  -- naming it here would report that an inner call refused, not why it refused.
+  IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN jsonb_build_object('schema_version', 1, 'refusal', 'ISOLATION_NOT_READ_COMMITTED'); END IF;
 
   SELECT * INTO hinted_admission
   FROM public.product_edge_request_admissions_v1
   WHERE request_identity=requested_request_identity;
-  IF NOT FOUND
-     OR hinted_admission.admission_identity<>requested_admission_identity
-     OR hinted_admission.admission_digest<>requested_admission_digest
-  THEN RETURN NULL; END IF;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'REQUEST_ADMISSION_UNKNOWN');
+  ELSIF hinted_admission.admission_identity<>requested_admission_identity THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'ADMISSION_IDENTITY_MISMATCH');
+  ELSIF hinted_admission.admission_digest<>requested_admission_digest THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'ADMISSION_DIGEST_MISMATCH');
+  END IF;
 
   SELECT COALESCE(jsonb_agg(jsonb_build_object(
       'binding_identity', binding.binding_identity,
@@ -3768,7 +3804,14 @@ BEGIN
       requirement.authorization_identity,
       requirement.issuance_receipt_identity
     ) INTO authorization_envelope;
-    IF authorization_envelope IS NULL THEN RETURN NULL; END IF;
+    IF authorization_envelope IS NULL THEN
+      RETURN jsonb_build_object('schema_version', 1, 'refusal', 'AUTHORIZATION_LOCATOR_NULL',
+        'authorization_identity', requirement.authorization_identity);
+    ELSIF authorization_envelope->>'refusal' IS NOT NULL THEN
+      RETURN jsonb_build_object('schema_version', 1, 'refusal', authorization_envelope->>'refusal',
+        'refused_by', 'operator_authorization_api.lock_current_authorization_v1',
+        'authorization_identity', requirement.authorization_identity);
+    END IF;
     authorization_envelopes := authorization_envelopes || jsonb_build_array(jsonb_build_object(
       'authorization_identity', requirement.authorization_identity,
       'issuance_receipt_identity', requirement.issuance_receipt_identity,
@@ -3783,7 +3826,11 @@ BEGIN
   FROM public.product_edge_request_admissions_v1
   WHERE request_identity=requested_request_identity
   FOR SHARE;
-  IF NOT FOUND OR to_jsonb(locked_admission)<>to_jsonb(hinted_admission) THEN RETURN NULL; END IF;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'ADMISSION_ROW_ABSENT_UNDER_LOCK');
+  ELSIF to_jsonb(locked_admission)<>to_jsonb(hinted_admission) THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'ADMISSION_CHANGED_UNDER_LOCK');
+  END IF;
 
   PERFORM binding.binding_identity
   FROM public.product_edge_deployment_bindings_v1 binding
@@ -4089,20 +4136,44 @@ DECLARE
   operator_authorization_envelope jsonb;
   product_edge_envelope jsonb;
 BEGIN
-  IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF;
+  -- A bare NULL from here now means one thing only: this STRICT function short-circuited on a
+  -- NULL argument and never ran. The two locks this composes are asked to name their own
+  -- refusals; whatever they name travels up unchanged, so the caller reads the cause rather
+  -- than the fact that some inner call said no.
+  IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN jsonb_build_object('schema_version', 1, 'refusal', 'ISOLATION_NOT_READ_COMMITTED'); END IF;
 
   SELECT operator_authorization_api.lock_current_portfolio_resource_grant_v1(
     requested_grant_identity,
     requested_grant_receipt_identity
   ) INTO operator_authorization_envelope;
-  IF operator_authorization_envelope IS NULL THEN RETURN NULL; END IF;
+  -- The Portfolio resource grant lock is generated from the shared grant template in
+  -- `crates/operator_authorization/src/postgres/grant.rs`, which still answers every one of its
+  -- causes with a bare NULL. Until it names them this reports only that it refused; the branch
+  -- below already forwards a named refusal, so it starts carrying the cause the day it has one.
+  IF operator_authorization_envelope IS NULL THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'PORTFOLIO_GRANT_LOCK_REFUSED',
+      'refused_by', 'operator_authorization_api.lock_current_portfolio_resource_grant_v1');
+  ELSIF operator_authorization_envelope->>'refusal' IS NOT NULL THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', operator_authorization_envelope->>'refusal',
+      'refused_by', COALESCE(operator_authorization_envelope->>'refused_by', 'operator_authorization_api.lock_current_portfolio_resource_grant_v1'));
+  END IF;
 
   SELECT product_edge_api.lock_downstream_admission_v1(
     requested_request_identity,
     requested_admission_identity,
     requested_admission_digest
   ) INTO product_edge_envelope;
-  IF product_edge_envelope IS NULL THEN RETURN NULL; END IF;
+  IF product_edge_envelope IS NULL THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'DOWNSTREAM_ADMISSION_LOCATOR_NULL',
+      'refused_by', 'product_edge_api.lock_downstream_admission_v1');
+  ELSIF product_edge_envelope->>'refusal' IS NOT NULL THEN
+    -- Keep the raiser the inner envelope already named. Overwriting it with the callee this
+    -- layer happens to have called would report the last hop instead of where the cause came
+    -- from, which is the information the caller cannot reconstruct.
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', product_edge_envelope->>'refusal',
+      'refused_by', COALESCE(product_edge_envelope->>'refused_by', 'product_edge_api.lock_downstream_admission_v1'),
+      'authorization_identity', product_edge_envelope->>'authorization_identity');
+  END IF;
 
   RETURN pg_catalog.jsonb_build_object(
     'operator_authorization', operator_authorization_envelope,

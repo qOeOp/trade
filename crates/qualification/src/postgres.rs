@@ -5133,6 +5133,66 @@ async fn load_rd_basis_by_locator_fields_in_transaction(
     .map_err(QualificationTransactionError::into_public)
 }
 
+/// Asks a database which version of the basis lock it holds.
+///
+/// The `LIKE` pattern is a literal the named-refusal version of that function contains and no
+/// earlier version does. `the_version_probe_recognises_the_function_this_repository_ships` reads
+/// the pattern out of this statement and requires it to appear in both copies of the function, so
+/// renaming a refusal fails that test rather than making every current database report itself as
+/// stale. The pattern lives here rather than in a constant beside it because a second copy is the
+/// thing that would drift.
+const BASIS_LOCK_VERSION_PROBE_SQL_V1: &str = "SELECT p.prosrc LIKE '%BASIS_IDENTITY_UNKNOWN%' FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'rd_owner_api' AND p.proname = 'lock_independence_basis_for_qualification_v1'";
+
+/// Explains a bare `NULL` from the basis lock, having first read which version of that function
+/// this database actually holds.
+///
+/// The previous message asserted one cause: that a locator field was null, reasoning that the
+/// function is `STRICT` and decides every other refusal by name. That reasoning is sound about
+/// the function *this repository ships*. The deployed function is a different artifact:
+/// `postgres-init` installs it when the database is created, and upgrading this binary does not
+/// carry it along. On a database created before the named refusals landed, that function still
+/// answers a bare `NULL` for an unknown basis, a digest mismatch, an unsupported isolation and
+/// four other causes - and this message named the one cause that was not among them.
+///
+/// A deployment can be asked which one it holds, so it is asked rather than assumed. That also
+/// makes the mixed-version state observable from the message, instead of leaving every reader to
+/// compare an image build time against a merge time by hand.
+async fn bare_null_from_basis_lock(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> QualificationTransactionError {
+    let names_its_refusals: Result<Option<bool>, sqlx::Error> =
+        sqlx::query_scalar(BASIS_LOCK_VERSION_PROBE_SQL_V1)
+            .fetch_optional(transaction.as_mut())
+            .await;
+
+    QualificationTransactionError::Domain(unavailable(match names_its_refusals {
+        // The current function. Every refusal it decides for itself arrives named, and it is
+        // `STRICT`, so a bare NULL leaves only the null argument.
+        Ok(Some(true)) => {
+            "R&D Independence Basis lookup was passed a null locator field".to_owned()
+        }
+        // An older function. A bare NULL is any of its own causes and cannot be recovered here,
+        // which is a fact about the database rather than about the request.
+        Ok(Some(false)) => concat!(
+            "R&D Independence Basis lookup returned a bare NULL, and this database's ",
+            "rd_owner_api.lock_independence_basis_for_qualification_v1 predates the named ",
+            "refusals, so the cause is one of that function's own and cannot be recovered here. ",
+            "Its postgres-init migration is older than this binary."
+        )
+        .to_owned(),
+        Ok(None) => concat!(
+            "R&D Independence Basis lookup returned a bare NULL, and this database has no ",
+            "rd_owner_api.lock_independence_basis_for_qualification_v1 at all"
+        )
+        .to_owned(),
+        Err(e) => format!(
+            "R&D Independence Basis lookup returned a bare NULL, and reading which version of \
+             lock_independence_basis_for_qualification_v1 this database holds failed as well: \
+             {e}"
+        ),
+    }))
+}
+
 async fn load_rd_basis_by_locator_fields_preserving_sqlstate_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     basis_identity: &str,
@@ -5150,11 +5210,10 @@ async fn load_rd_basis_by_locator_fields_preserving_sqlstate_in_transaction(
     .fetch_one(&mut **transaction)
     .await
     .map_err(transaction_storage)?;
-    // A bare NULL now means only one thing. The function is `STRICT`, so a NULL argument returns
-    // without running; every refusal it decides for itself arrives as a named `refusal` instead.
-    let raw_envelope = raw_envelope.ok_or_else(|| {
-        unavailable("R&D Independence Basis lookup was passed a null locator field")
-    })?;
+    let raw_envelope = match raw_envelope {
+        Some(envelope) => envelope,
+        None => return Err(bare_null_from_basis_lock(transaction).await),
+    };
     // The caller cannot read `rd_independence_bases_v1`: the boundary is a SECURITY DEFINER
     // function and `qualification_writer` holds no SELECT on the table. So whatever the function
     // does not say, nobody downstream can find out. It used to answer NULL for an unsupported
@@ -6016,6 +6075,83 @@ async fn verify_negative_protected_attempt_commit_v1(
 
 fn json_storage(error: impl Display) -> QualificationOwnerError {
     unavailable(error.to_string())
+}
+
+#[cfg(test)]
+mod basis_lock_version_probe_tests {
+    use rstest::rstest;
+
+    use super::BASIS_LOCK_VERSION_PROBE_SQL_V1;
+
+    /// The pattern the probe looks for, read out of the statement that runs.
+    fn marker() -> &'static str {
+        let (_, rest) = BASIS_LOCK_VERSION_PROBE_SQL_V1
+            .split_once("LIKE '%")
+            .expect("the probe is a LIKE against a marker");
+        let (marker, _) = rest.split_once("%'").expect("the marker is closed");
+        marker
+    }
+
+    /// The probe must recognise the function this repository ships, in both of its copies.
+    ///
+    /// If it does not, the probe answers `false` for a database whose migration is current, and
+    /// the refusal tells an operator their migration is stale when it is not - the same class of
+    /// wrong-cause message this probe exists to stop, pointed the other way.
+    #[rstest]
+    fn the_version_probe_recognises_the_function_this_repository_ships() {
+        let marker = marker();
+        assert!(!marker.is_empty(), "the probe looks for an empty marker");
+
+        for (name, source) in [
+            (
+                "product_edge_postgres.rs",
+                include_str!("../../strategy_factory/src/product_edge_postgres.rs"),
+            ),
+            (
+                "10-migrate-authority-custody.sh",
+                include_str!(
+                    "../../../product/rd-workbench/postgres-init/10-migrate-authority-custody.sh"
+                ),
+            ),
+        ] {
+            let function = source
+                .split_once("FUNCTION rd_owner_api.lock_independence_basis_for_qualification_v1")
+                .unwrap_or_else(|| panic!("{name} defines the basis lock"))
+                .1;
+            let body = function
+                .split_once("$function$")
+                .expect("the body opens")
+                .1
+                .split_once("$function$")
+                .expect("the body closes")
+                .0;
+            assert!(
+                body.contains(marker),
+                "{name} ships a basis lock the version probe would not recognise, so a current \
+                 database would be reported as stale: looking for `{marker}`"
+            );
+        }
+    }
+
+    /// The marker must not be in a version that predates the named refusals, or the probe answers
+    /// `true` for a stale database and the old wrong message comes back.
+    ///
+    /// There is no older copy in the tree to read, so this holds the property that made the
+    /// marker a valid discriminator in the first place: it is one of the refusal names, and a
+    /// function with no named refusals cannot contain one.
+    #[rstest]
+    fn the_marker_is_a_refusal_name_and_not_incidental_sql() {
+        let marker = marker();
+        assert!(
+            marker.chars().all(|c| c.is_ascii_uppercase() || c == '_'),
+            "a refusal name is upper snake case; `{marker}` could match incidental SQL"
+        );
+        let source = include_str!("../../strategy_factory/src/product_edge_postgres.rs");
+        assert!(
+            source.contains(&format!("'refusal', '{marker}'")),
+            "`{marker}` is not one of the named refusals, so its absence proves nothing"
+        );
+    }
 }
 
 fn unavailable(error: impl Into<String>) -> QualificationOwnerError {

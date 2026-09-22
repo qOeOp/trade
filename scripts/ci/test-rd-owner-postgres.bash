@@ -108,6 +108,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-scanner-custody|vibe_scanner_custody|postgres::chain_proofs::a_caller_without_the_grant_is_refused_rather_than_answered_empty'
   'vibe-risk-owner|vibe_risk_owner|capacity_read_port_postgres::postgres_proof::postgres_capacity_observation_seals_only_what_portfolio_currently_publishes'
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::frozen_program_replays_over_http_to_the_same_joint_freeze'
+  'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::an_authored_design_publishes_its_role_intent_over_http'
   'vibe-strategy-factory|trial_family_owner|intent_lookup_does_not_lock_a_receipt_it_does_not_return'
   'vibe-strategy-factory|vibe_strategy_factory|postgres_error_message::postgres_tests::owner_storage_errors_carry_the_detail_postgres_sent'
   'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::second_request_under_one_principal_resolves_through_the_frontier_arm'
@@ -155,8 +156,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 96 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all 96 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 97 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all 97 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -259,12 +260,13 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[87]}" != *'|postgres::chain_proofs::a_caller_without_the_grant_is_refused_rather_than_answered_empty' ]] ||
     [[ "${rd_owner_postgres_tests[88]}" != *'|capacity_read_port_postgres::postgres_proof::postgres_capacity_observation_seals_only_what_portfolio_currently_publishes' ]] ||
     [[ "${rd_owner_postgres_tests[89]}" != *'|tests::frozen_program_replays_over_http_to_the_same_joint_freeze' ]] ||
-    [[ "${rd_owner_postgres_tests[90]}" != *'|intent_lookup_does_not_lock_a_receipt_it_does_not_return' ]] ||
-    [[ "${rd_owner_postgres_tests[91]}" != *'|postgres_error_message::postgres_tests::owner_storage_errors_carry_the_detail_postgres_sent' ]] ||
-    [[ "${rd_owner_postgres_tests[92]}" != *'|product_edge_postgres::tests::second_request_under_one_principal_resolves_through_the_frontier_arm' ]] ||
-    [[ "${rd_owner_postgres_tests[93]}" != *'|postgres::postgres_tests::sealed_request_reads_name_the_admission_they_refused' ]] ||
-    [[ "${rd_owner_postgres_tests[94]}" != *'|postgres::postgres_tests::an_orphaned_projection_names_itself_rather_than_the_caller_request' ]] ||
-    [[ "${rd_owner_postgres_tests[95]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[90]}" != *'|tests::an_authored_design_publishes_its_role_intent_over_http' ]] ||
+    [[ "${rd_owner_postgres_tests[91]}" != *'|intent_lookup_does_not_lock_a_receipt_it_does_not_return' ]] ||
+    [[ "${rd_owner_postgres_tests[92]}" != *'|postgres_error_message::postgres_tests::owner_storage_errors_carry_the_detail_postgres_sent' ]] ||
+    [[ "${rd_owner_postgres_tests[93]}" != *'|product_edge_postgres::tests::second_request_under_one_principal_resolves_through_the_frontier_arm' ]] ||
+    [[ "${rd_owner_postgres_tests[94]}" != *'|postgres::postgres_tests::sealed_request_reads_name_the_admission_they_refused' ]] ||
+    [[ "${rd_owner_postgres_tests[95]}" != *'|postgres::postgres_tests::an_orphaned_projection_names_itself_rather_than_the_caller_request' ]] ||
+    [[ "${rd_owner_postgres_tests[96]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
@@ -382,7 +384,7 @@ for line in array_body.splitlines():
     entries.append(tuple(fields))
 # The count lives in one place. Writing it into the message as well lets the two drift, and the
 # drifted form reads as nonsense the moment it fires: "must contain 92 entries, found 92".
-expected_entries = 96
+expected_entries = 97
 if len(entries) != expected_entries:
     raise SystemExit(
         f"ERROR: ordered PostgreSQL test literal must contain {expected_entries} entries, found {len(entries)}."
@@ -1389,6 +1391,11 @@ cleanup() {
   trap - EXIT
   set +e
 
+  # The entry that ended the run never reached its own copy, so take it here.
+  if [[ "$primary_status" -ne 0 && -n "${chain_position:-}" ]]; then
+    keep_chain_record "$chain_position"
+  fi
+
   if [[ -n "$nextest_archive_file" ]] &&
     ! rm -f -- "$nextest_archive_file"; then
     cleanup_failed=true
@@ -1492,6 +1499,27 @@ cleanup() {
   fi
   exit 0
 }
+# Every `cargo nextest run` below rewrites the same junit.xml, so the chain's invocations leave only
+# the last one behind. One copy per entry is what makes "did entry N run, and for how long" a
+# question a machine can answer instead of one a person answers by reading the log. nextest's store
+# does not follow CARGO_TARGET_DIR - it is always <workspace>/target/nextest - so this reads the
+# store path rather than deriving one.
+chain_record_dir='target/nextest/chain-records'
+readonly chain_record_dir
+chain_record_source='target/nextest/ci/junit.xml'
+readonly chain_record_source
+rm -rf -- "$chain_record_dir"
+mkdir -p -- "$chain_record_dir"
+
+# Copies the record nextest just wrote. Called once per entry on the way through, and once more from
+# `cleanup` for the entry that ended the run: without that second call a failing entry would have no
+# record, and "no record" would mean both "never ran" and "ran and failed".
+keep_chain_record() {
+  local position="$1"
+  [[ -f "$chain_record_source" ]] || return 0
+  cp -- "$chain_record_source" "$(printf '%s/%03d.xml' "$chain_record_dir" "$position")"
+}
+
 trap cleanup EXIT
 
 probe_tcp_endpoint() {
@@ -3334,12 +3362,24 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       "${nextest_execution_args[@]}" \
       -E "$test_filter"
   fi
+  keep_chain_record "$chain_position"
   if [[ -n "$backtest_result_fault" ]]; then
     restore_backtest_result_fault "$backtest_result_fault"
   fi
   if [[ "$chain_position" -eq "$chain_entry_count" ]]; then
+    # One record per entry, counted against the array rather than checked for being non-empty: a
+    # non-empty directory only rules out "nothing ran at all", not "ran thirty and the copy stopped
+    # answering". A short count here means the record is incomplete while the chain says it passed,
+    # which is the one combination that would let a reader trust a record that is missing entries.
+    chain_record_count="$(find "$chain_record_dir" -name '*.xml' -type f | grep -c '' || true)"
+    if [[ "$chain_record_count" -ne "$chain_entry_count" ]]; then
+      echo "ERROR: the chain passed ${chain_entry_count} entries but left ${chain_record_count}" >&2
+      echo "record(s) in ${chain_record_dir}. Every entry must leave one, or the published record" >&2
+      echo "is missing entries while reporting success." >&2
+      exit 1
+    fi
     chain_completed=true
-    echo "=== ordered chain: all ${chain_entry_count} entries passed"
+    echo "=== ordered chain: all ${chain_entry_count} entries passed, ${chain_record_count} recorded"
   fi
 done
 

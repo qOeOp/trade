@@ -428,27 +428,84 @@ impl MarketDataOwnerPostgres {
             .max_connections(8)
             .connect(database_url)
             .await
-            .map_err(|_| SourceBindingError::StoreUnavailable)?;
+            .map_err(|e| {
+                super::storage_diagnostic::refused_by_store("market_data_owner.connect.pool", &e);
+                SourceBindingError::StoreUnavailable
+            })?;
         let owner = Self { pool };
         owner.migrate().await?;
         Ok(owner)
     }
+
+    /// The twelve conditions `connect_existing` admits this connection against, by name.
+    ///
+    /// They were one `AND` chain answered by a single boolean, so every way of failing them
+    /// produced `StoreUnavailable` and nothing else - the same value a store that is genuinely
+    /// down produces. Connecting as the wrong role, connecting to a replica, and connecting to a
+    /// database this Owner has never migrated were one answer.
+    ///
+    /// This list is the readable form. `ADMISSION_SQL_V1` is what runs, and
+    /// `the_admission_query_names_every_condition_it_checks` holds the two together, because a
+    /// dynamic string cannot be sent here and a hand-maintained copy would drift.
+    const ADMISSION_CONDITIONS_V1: &'static [(&'static str, &'static str)] = &[
+        ("session_user", "session_user='market_data_owner'"),
+        ("current_user", "current_user='market_data_owner'"),
+        ("not_in_recovery", "NOT pg_catalog.pg_is_in_recovery()"),
+        (
+            "owner_migrations_present",
+            "pg_catalog.to_regclass('market_data_private.owner_migrations_v1') IS NOT NULL",
+        ),
+        ("rolcanlogin", "role.rolcanlogin"),
+        ("rolinherit", "role.rolinherit"),
+        ("not_rolsuper", "NOT role.rolsuper"),
+        ("not_rolcreatedb", "NOT role.rolcreatedb"),
+        ("not_rolcreaterole", "NOT role.rolcreaterole"),
+        ("not_rolreplication", "NOT role.rolreplication"),
+        ("not_rolbypassrls", "NOT role.rolbypassrls"),
+        (
+            "no_role_membership",
+            "NOT EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.member=role.oid OR membership.roleid=role.oid)",
+        ),
+    ];
+
+    /// One round trip that still decides admission, and answers with the names that refused it.
+    const ADMISSION_SQL_V1: &'static str = "SELECT pg_catalog.array_to_string(pg_catalog.array_remove(ARRAY[CASE WHEN session_user='market_data_owner' THEN NULL ELSE 'session_user' END,CASE WHEN current_user='market_data_owner' THEN NULL ELSE 'current_user' END,CASE WHEN NOT pg_catalog.pg_is_in_recovery() THEN NULL ELSE 'not_in_recovery' END,CASE WHEN pg_catalog.to_regclass('market_data_private.owner_migrations_v1') IS NOT NULL THEN NULL ELSE 'owner_migrations_present' END,CASE WHEN role.rolcanlogin THEN NULL ELSE 'rolcanlogin' END,CASE WHEN role.rolinherit THEN NULL ELSE 'rolinherit' END,CASE WHEN NOT role.rolsuper THEN NULL ELSE 'not_rolsuper' END,CASE WHEN NOT role.rolcreatedb THEN NULL ELSE 'not_rolcreatedb' END,CASE WHEN NOT role.rolcreaterole THEN NULL ELSE 'not_rolcreaterole' END,CASE WHEN NOT role.rolreplication THEN NULL ELSE 'not_rolreplication' END,CASE WHEN NOT role.rolbypassrls THEN NULL ELSE 'not_rolbypassrls' END,CASE WHEN NOT EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.member=role.oid OR membership.roleid=role.oid) THEN NULL ELSE 'no_role_membership' END]::text[], NULL), ',') FROM pg_catalog.pg_roles role WHERE role.rolname=current_user";
 
     pub(crate) async fn connect_existing(database_url: &str) -> Result<Self, SourceBindingError> {
         let pool = PgPoolOptions::new()
             .max_connections(8)
             .connect(database_url)
             .await
-            .map_err(|_| SourceBindingError::StoreUnavailable)?;
-        let admitted: bool = sqlx::query_scalar(
-            "SELECT session_user='market_data_owner' AND current_user='market_data_owner' AND NOT pg_catalog.pg_is_in_recovery() AND pg_catalog.to_regclass('market_data_private.owner_migrations_v1') IS NOT NULL AND role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.member=role.oid OR membership.roleid=role.oid) FROM pg_catalog.pg_roles role WHERE role.rolname=current_user",
-        )
-        .fetch_one(&pool)
-        .await
-        .map_err(|_| SourceBindingError::StoreUnavailable)?;
-        if !admitted {
+            .map_err(|e| {
+                super::storage_diagnostic::refused_by_store(
+                    "market_data_owner.connect_existing.pool",
+                    &e,
+                );
+                SourceBindingError::StoreUnavailable
+            })?;
+
+        let refused: String = sqlx::query_scalar(Self::ADMISSION_SQL_V1)
+            .fetch_one(&pool)
+            .await
+            .map_err(|e| {
+                // `fetch_one` also fails when the row is absent, which is its own fact: the
+                // connected role has no `pg_roles` entry to admit, and none of the conditions
+                // above were read at all.
+                super::storage_diagnostic::refused_by_store(
+                    "market_data_owner.connect_existing.admission_query",
+                    &e,
+                );
+                SourceBindingError::StoreUnavailable
+            })?;
+
+        if !refused.is_empty() {
+            super::storage_diagnostic::refused_by_store(
+                "market_data_owner.connect_existing.admission",
+                &format!("this connection does not satisfy: {refused}"),
+            );
             return Err(SourceBindingError::StoreUnavailable);
         }
+
         Ok(Self { pool })
     }
 
@@ -10816,5 +10873,52 @@ impl StrategyInputBindingAdmissionV1 for StrategyInputBindingAdmissionPostgresV1
         self.binding
             .declare_strategy_input_bindings_from_design_intent_v1(design_identity)
             .await
+    }
+}
+
+#[cfg(test)]
+mod store_admission_tests {
+    use rstest::rstest;
+
+    use super::MarketDataOwnerPostgres;
+
+    /// The readable list and the statement that runs must be the same twelve conditions.
+    ///
+    /// A dynamic SQL string cannot be sent through `query_scalar` here - the type bound refuses
+    /// it - so the statement is a literal and the list beside it could drift into decoration.
+    /// This is what stops that: every condition must appear in the statement in the exact form
+    /// that makes it contribute its own name, and the statement must contain no other name.
+    #[rstest]
+    fn the_admission_query_names_every_condition_it_checks() {
+        let sql = MarketDataOwnerPostgres::ADMISSION_SQL_V1;
+
+        for (name, predicate) in MarketDataOwnerPostgres::ADMISSION_CONDITIONS_V1 {
+            let case = format!("CASE WHEN {predicate} THEN NULL ELSE '{name}' END");
+            assert!(
+                sql.contains(&case),
+                "`{name}` is listed but the statement does not contribute its name: {case}"
+            );
+        }
+
+        // The other direction. Without it, deleting a condition from the statement while leaving
+        // it in the list would pass: the loop above only reads what the list still names.
+        assert_eq!(
+            sql.matches("CASE WHEN ").count(),
+            MarketDataOwnerPostgres::ADMISSION_CONDITIONS_V1.len(),
+            "the statement checks a different number of conditions than the list names"
+        );
+    }
+
+    /// Every name is distinct, so a refusal naming one identifies one condition.
+    #[rstest]
+    fn no_two_conditions_answer_with_the_same_name() {
+        let mut names: Vec<&str> = MarketDataOwnerPostgres::ADMISSION_CONDITIONS_V1
+            .iter()
+            .map(|(name, _)| *name)
+            .collect();
+        let total = names.len();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(names.len(), total, "two conditions share one name");
     }
 }

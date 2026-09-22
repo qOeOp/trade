@@ -5,6 +5,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+
+use crate::storage_diagnostic::refused_by_store;
 use vibe_product_edge::{
     ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionRequestV1, ProductEdgeError,
     ProductEdgePostgresAdmissionPointReadPortV1, ProductEdgePostgresOwnerV1,
@@ -176,7 +178,13 @@ impl PostgresSourceIntakeReadbackOwnerV1 {
             .max_connections(4)
             .connect(owner_database_url)
             .await
-            .map_err(|_| SourceIntakeOwnerErrorV1::Unavailable)?;
+            .map_err(|e| {
+                refused_by_store(
+                    "source_intake.production_environment.owner_pool.connect",
+                    &e,
+                );
+                SourceIntakeOwnerErrorV1::Unavailable
+            })?;
         Ok(Self {
             product_edge,
             owner_pool,
@@ -544,6 +552,10 @@ pub(super) async fn terminal_preflight(
                 .await?
                 .is_some()
             {
+                refused_by_store(
+                    "source_intake.terminal_preflight.terminal_without_admission",
+                    &"this Owner holds a terminal for a request Product Edge never admitted",
+                );
                 return Err(SourceIntakeOwnerErrorV1::Unavailable);
             }
             Ok(None)
@@ -562,6 +574,10 @@ pub(super) async fn admit(
         .await
         .map_err(|e| product_edge_error(&e))?;
     if admission.request() != &expected {
+        refused_by_store(
+            "source_intake.admit.admission_readback_differs",
+            &"Product Edge stored an admission request that is not the one this Owner offered",
+        );
         return Err(SourceIntakeOwnerErrorV1::Unavailable);
     }
     Ok(AdmissionCustodyV1 {
@@ -600,11 +616,17 @@ pub(super) async fn read_terminal(
             .bind(request_identity)
             .fetch_one(owner_pool)
             .await
-            .map_err(|_| SourceIntakeOwnerErrorV1::Unavailable)?;
+            .map_err(|e| {
+                refused_by_store("source_intake.read_terminal.query", &e);
+                SourceIntakeOwnerErrorV1::Unavailable
+            })?;
     value
         .map(|value| {
             serde_json::from_value(value)
-                .map_err(|_| SourceIntakeOwnerErrorV1::Unavailable)
+                .map_err(|e| {
+                    refused_by_store("source_intake.read_terminal.decode", &e);
+                    SourceIntakeOwnerErrorV1::Unavailable
+                })
                 .and_then(|readback| project_terminal(readback, request_identity, authority))
         })
         .transpose()
@@ -635,12 +657,20 @@ pub(super) fn project_terminal(
     authority: &SourceAcquisitionAuthorityBindingV1,
 ) -> Result<SourceIntakeTerminalAtomV1, SourceIntakeOwnerErrorV1> {
     validate_readback_authority(&readback.authority, authority)?;
-    let terminal = readback
-        .terminal
-        .ok_or(SourceIntakeOwnerErrorV1::Unavailable)?;
-    let receipt = readback
-        .receipt
-        .ok_or(SourceIntakeOwnerErrorV1::Unavailable)?;
+    let terminal = readback.terminal.ok_or_else(|| {
+        refused_by_store(
+            "source_intake.project_terminal.terminal_absent",
+            &"the stored readback carries no acquisition terminal",
+        );
+        SourceIntakeOwnerErrorV1::Unavailable
+    })?;
+    let receipt = readback.receipt.ok_or_else(|| {
+        refused_by_store(
+            "source_intake.project_terminal.receipt_absent",
+            &"the stored readback carries no acquisition receipt",
+        );
+        SourceIntakeOwnerErrorV1::Unavailable
+    })?;
 
     if readback.request_identity != request_identity
         || readback.state != SourceIntakeStateV1::Terminal
@@ -652,8 +682,13 @@ pub(super) fn project_terminal(
             .as_deref()
             .is_none_or(str::is_empty)
     {
+        refused_by_store(
+            "source_intake.project_terminal.correlation",
+            &"the stored terminal, receipt and outbox event do not correlate with this request",
+        );
         return Err(SourceIntakeOwnerErrorV1::Unavailable);
     }
+
     let retrieved = terminal == AcquisitionTerminalV1::Retrieved;
     if retrieved
         && (receipt.invocation_identity.is_none()
@@ -667,6 +702,10 @@ pub(super) fn project_terminal(
             || readback.provenance_identity.is_none()
             || readback.source_candidate_identity.is_none())
     {
+        refused_by_store(
+            "source_intake.project_terminal.retrieved_incomplete",
+            &"a retrieved terminal is missing content, provenance or candidate custody",
+        );
         return Err(SourceIntakeOwnerErrorV1::Unavailable);
     }
 
@@ -677,6 +716,10 @@ pub(super) fn project_terminal(
             || readback.provenance_identity.is_some()
             || readback.source_candidate_identity.is_some())
     {
+        refused_by_store(
+            "source_intake.project_terminal.unretrieved_carries_content",
+            &"a terminal that retrieved nothing carries content, provenance or candidate custody",
+        );
         return Err(SourceIntakeOwnerErrorV1::Unavailable);
     }
     Ok(SourceIntakeTerminalAtomV1 {
@@ -721,7 +764,15 @@ pub(super) fn product_edge_error(error: &ProductEdgeError) -> SourceIntakeOwnerE
     match error {
         ProductEdgeError::ConflictingReplay => SourceIntakeOwnerErrorV1::Conflict,
         ProductEdgeError::InvalidProposal(_) => SourceIntakeOwnerErrorV1::Invalid,
-        ProductEdgeError::Unavailable(_) | ProductEdgeError::Storage(_) => {
+        // Both variants carry a detail, and both collapse into one code the response does not
+        // name. Discarding them here is what made a 503 on this route unreadable: the Owner knew
+        // what Product Edge had said and threw it away one line from where it arrived.
+        ProductEdgeError::Unavailable(detail) => {
+            refused_by_store("source_intake.product_edge.unavailable", detail);
+            SourceIntakeOwnerErrorV1::Unavailable
+        }
+        ProductEdgeError::Storage(detail) => {
+            refused_by_store("source_intake.product_edge.storage", detail);
             SourceIntakeOwnerErrorV1::Unavailable
         }
     }
@@ -762,4 +813,118 @@ fn validate_text(value: &str) -> Result<(), SourceIntakeOwnerErrorV1> {
         return Err(SourceIntakeOwnerErrorV1::Invalid);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod discarded_cause_tests {
+    use rstest::rstest;
+
+    /// The nine pipeline stages `ProductionEnvironmentV1` does not implement.
+    ///
+    /// Each returns `Unavailable` unconditionally, with no cause to record because nothing was
+    /// attempted. They are listed here rather than instrumented because none of them is reachable
+    /// in production: `resolve_policy` answers `Ok(None)` for this environment, and
+    /// `SourceIntakeWorkflowV1::run` turns that into `PolicyUnavailable` one stage earlier. A log
+    /// line inside them would be a guard that can never fire, which reads as coverage and is not.
+    ///
+    /// The list is the record of that gap. Implementing a stage means taking its name out of
+    /// here, and adding a stage without implementing it means putting one in - either way the
+    /// count of unbuilt stages stays visible to whoever next asks how far this pipeline goes.
+    const UNIMPLEMENTED_PRODUCTION_STAGES: [&str; 9] = [
+        "commit_binding",
+        "claim_invocation",
+        "reserve_start",
+        "commit_rejection",
+        "mark_started",
+        "reserve_permit",
+        "execute_provider",
+        "resolve_retrieval",
+        "commit_terminal",
+    ];
+
+    /// Every `Unavailable` this file produces either records why, or is an unbuilt stage.
+    ///
+    /// The route answers `503 OWNER_OUTCOME_UNKNOWN` with a body that names no cause, and that is
+    /// the contract. So the only place a cause can survive is the log, and an uninstrumented site
+    /// here leaves an operator holding a 503 with nothing at all - which is how a live probe of
+    /// this route spent an afternoon unable to say whether the store was down, the admission
+    /// disagreed, or the pipeline simply stops.
+    #[rstest]
+    fn every_unavailable_records_its_cause_or_names_an_unbuilt_stage() {
+        let source = include_str!("owner.rs");
+        // Assembled rather than written out, so this test's own source is not one of the sites it
+        // counts.
+        let produced = ["SourceIntakeOwnerErrorV1", "::Unavailable"].concat();
+        let recording = ["refused_by_store", "("].concat();
+
+        // Every function start in the file, at whatever visibility and indentation. An earlier
+        // version of this walk-back searched for three literal prefixes and missed
+        // `pub(super) async fn` entirely, so eleven of the twenty sites were attributed to the
+        // last trait method above them - a window spanning half the file, which contains a
+        // `refused_by_store` no matter what the site itself does. The partition still balanced
+        // and the counts were still right. Removing an instrumentation did not fail the test.
+        let mut functions: Vec<(usize, &str)> = Vec::new();
+        let mut offset = 0_usize;
+
+        for line in source.split_inclusive('\n') {
+            let trimmed = line.trim_start();
+            if let Some(rest) = trimmed
+                .strip_prefix("pub(super) async fn ")
+                .or_else(|| trimmed.strip_prefix("pub(crate) async fn "))
+                .or_else(|| trimmed.strip_prefix("pub async fn "))
+                .or_else(|| trimmed.strip_prefix("async fn "))
+                .or_else(|| trimmed.strip_prefix("pub(super) fn "))
+                .or_else(|| trimmed.strip_prefix("pub(crate) fn "))
+                .or_else(|| trimmed.strip_prefix("pub fn "))
+                .or_else(|| trimmed.strip_prefix("fn "))
+            {
+                let name = rest.split(['(', '<']).next().unwrap_or_default().trim();
+                functions.push((offset, name));
+            }
+            offset += line.len();
+        }
+
+        let mut recorded = 0_usize;
+        let mut unbuilt = 0_usize;
+
+        for (at, _) in source.match_indices(&produced) {
+            let (start, name) = *functions
+                .iter()
+                .rfind(|(start, _)| *start < at)
+                .expect("every site sits inside a function");
+            let body = &source[start..at];
+
+            if UNIMPLEMENTED_PRODUCTION_STAGES.contains(&name) {
+                unbuilt += 1;
+                assert!(
+                    !body.contains(&recording),
+                    "`{name}` is listed as unbuilt but records a cause, so it attempts something"
+                );
+                continue;
+            }
+
+            assert!(
+                body.contains(&recording),
+                "`{name}` collapses into Unavailable without recording why"
+            );
+            recorded += 1;
+        }
+
+        assert_eq!(
+            unbuilt,
+            UNIMPLEMENTED_PRODUCTION_STAGES.len(),
+            "every listed stage must still produce the Unavailable it is listed for"
+        );
+        // The partition must balance. Without this, a site the walk-back misattributed would be
+        // counted in neither bucket and the two assertions above would still pass.
+        assert_eq!(
+            recorded + unbuilt,
+            source.matches(&produced).count(),
+            "every produced Unavailable must land in exactly one bucket"
+        );
+        assert!(
+            recorded >= 11,
+            "the instrumented sites must not shrink silently: found {recorded}"
+        );
+    }
 }
