@@ -119,7 +119,12 @@ an admission as invalid:
   `resolve_terminal`. `resolve_policy` answers `Ok(None)` unconditionally, which `SourceIntakeWorkflowV1::run`
   turns into `PolicyUnavailable`, and the nine stages after it - `commit_binding` through `commit_terminal` - are
   unconditional `Err(Unavailable)`. A deployed Owner therefore admits a source intake request and acquires
-  nothing: measured by sending one, the answer is `503 OWNER_OUTCOME_UNKNOWN`. Read this carefully against the
+  nothing. Where it stops is worth separating from where a probe of it stopped, because they are not the same
+  hop. As shipped the run ends at `resolve_policy`, and `PolicyUnavailable` answers `202` with a log. A live
+  request to a deployed Owner never reached that: it answered `503`, which only `Unavailable` produces, from a
+  hop before `resolve_policy` - and until that arm was instrumented it recorded nothing, so which hop could not
+  be said. The nine stages are therefore unreachable twice over, once because `resolve_policy` returns first and
+  once because that deployment did not get that far. Read this carefully against the
   [Source Intake Playbook](../guide/source-intake/), which requires exactly that answer while any
   `LIVE_EXTERNAL` authority is absent and forbids falling back to a fixture. Unavailable is therefore the
   contract-conformant answer today, and the gap is a different one: these stages do not consult an authority and
