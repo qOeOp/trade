@@ -553,4 +553,61 @@ mod assembly_rejection_tests {
             "the log must separate the two variants: {written}"
         );
     }
+
+    use super::DesignRoleIntentPublicationRequestV1;
+    use vibe_strategy_factory::single_threshold_authoring_v1::{
+        DesignRoleIntentProposalV1, SingleThresholdAuthoringRequestV1,
+    };
+
+    /// What the proposer emits is what this route accepts.
+    ///
+    /// `docs/owners/rd.md` gives the Design-from-Research translation to a proposer - "a language
+    /// model, a person or any other caller" - so the author and the Owner are separate programs
+    /// and the only thing joining them is this JSON. Both sides had tests. Nothing compared them:
+    /// the authoring test stopped at "the design serialises", and this route's tests all built
+    /// their body by hand. A field renamed on either side would have passed both.
+    #[rstest]
+    fn the_proposer_output_is_accepted_by_the_route_that_receives_it() {
+        #[derive(serde::Deserialize)]
+        struct Example {
+            research_request_locator: String,
+            authoring: SingleThresholdAuthoringRequestV1,
+        }
+        let raw = include_str!(
+            "../../strategy_factory/test_data/single_threshold/example_statement.json"
+        );
+        let example: Example =
+            serde_json::from_str(raw).expect("the shipped example parses as a statement");
+        let proposal = DesignRoleIntentProposalV1::author(
+            &example.research_request_locator,
+            &example.authoring,
+        )
+        .expect("the shipped example is authorable");
+
+        // Exactly the bytes the binary writes to stdout.
+        let emitted = serde_json::to_value(&proposal).expect("the proposal serialises");
+        let body = emitted
+            .get("publish_role_intent")
+            .expect("the emitted proposal carries the route's body under its own key");
+
+        let request: DesignRoleIntentPublicationRequestV1 = serde_json::from_value(body.clone())
+            .expect("this route accepts the body the proposer emits");
+        assert_eq!(
+            request.research_request_locator,
+            example.research_request_locator
+        );
+        assert_eq!(
+            serde_json::to_value(&request.design).expect("the received design serialises"),
+            serde_json::to_value(&proposal.publish_role_intent.design)
+                .expect("the emitted design serialises"),
+        );
+
+        // The control. This request type declares `deny_unknown_fields`, and the whole proposal
+        // carries `meaning` alongside the body, so posting the wrong half must be refused. Without
+        // this, the assertion above would hold just as well against a type that accepted anything.
+        assert!(
+            serde_json::from_value::<DesignRoleIntentPublicationRequestV1>(emitted).is_err(),
+            "the route must refuse the whole proposal, which carries `meaning` as well"
+        );
+    }
 }

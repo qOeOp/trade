@@ -691,6 +691,58 @@ fn frame(
     }
 }
 
+/// What a proposer hands the Owner, in the exact shape the Owner's route accepts.
+///
+/// The proposer is not the Owner: `docs/owners/rd.md` assigns this translation to "a language
+/// model, a person or any other caller", so the two sides are separate programs and the only
+/// thing joining them is this JSON. Both ends had their own tests and nothing compared them,
+/// which is the shape this repository keeps finding: two healthy parts and an unmeasured wire.
+///
+/// It lives here rather than in the binary so that a test can serialise what the binary actually
+/// emits, instead of a copy of it that drifts on the next edit.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DesignRoleIntentProposalV1 {
+    /// The body of `POST /v1/strategy-designs/publish-role-intent`, field for field. The route
+    /// declares `deny_unknown_fields`, so an extra key here is a refusal there.
+    pub publish_role_intent: PublishRoleIntentBodyV1,
+    /// The meaning that belongs with the Design. The Owner derives its own; this is what the
+    /// proposer computed, carried so the author can compare them.
+    pub meaning: BoundedFeatureProgramMeaningV1,
+}
+
+/// The publish-role-intent request body a proposer emits.
+///
+/// The caller states no identity, digest or role coordinate of its own: the Owner derives all of
+/// them from the Design and from the Research custody the locator names.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PublishRoleIntentBodyV1 {
+    /// Names a request the Owner already holds. The proposer does not invent it.
+    pub research_request_locator: String,
+    pub design: StrategyDesignV2,
+}
+
+impl DesignRoleIntentProposalV1 {
+    /// Authors the pair and packages it as the Owner's route expects it.
+    ///
+    /// # Errors
+    ///
+    /// Returns the authoring refusal under its own name when the statement is not one this
+    /// family admits.
+    pub fn author(
+        research_request_locator: impl Into<String>,
+        request: &SingleThresholdAuthoringRequestV1,
+    ) -> Result<Self, SingleThresholdAuthoringErrorV1> {
+        let (design, meaning) = author_single_threshold_program_v1(request)?;
+        Ok(Self {
+            publish_role_intent: PublishRoleIntentBodyV1 {
+                research_request_locator: research_request_locator.into(),
+                design,
+            },
+            meaning,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
