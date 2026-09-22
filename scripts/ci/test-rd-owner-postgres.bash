@@ -1389,6 +1389,11 @@ cleanup() {
   trap - EXIT
   set +e
 
+  # The entry that ended the run never reached its own copy, so take it here.
+  if [[ "$primary_status" -ne 0 && -n "${chain_position:-}" ]]; then
+    keep_chain_record "$chain_position"
+  fi
+
   if [[ -n "$nextest_archive_file" ]] &&
     ! rm -f -- "$nextest_archive_file"; then
     cleanup_failed=true
@@ -1492,6 +1497,27 @@ cleanup() {
   fi
   exit 0
 }
+# Every `cargo nextest run` below rewrites the same junit.xml, so the chain's invocations leave only
+# the last one behind. One copy per entry is what makes "did entry N run, and for how long" a
+# question a machine can answer instead of one a person answers by reading the log. nextest's store
+# does not follow CARGO_TARGET_DIR - it is always <workspace>/target/nextest - so this reads the
+# store path rather than deriving one.
+chain_record_dir='target/nextest/chain-records'
+readonly chain_record_dir
+chain_record_source='target/nextest/ci/junit.xml'
+readonly chain_record_source
+rm -rf -- "$chain_record_dir"
+mkdir -p -- "$chain_record_dir"
+
+# Copies the record nextest just wrote. Called once per entry on the way through, and once more from
+# `cleanup` for the entry that ended the run: without that second call a failing entry would have no
+# record, and "no record" would mean both "never ran" and "ran and failed".
+keep_chain_record() {
+  local position="$1"
+  [[ -f "$chain_record_source" ]] || return 0
+  cp -- "$chain_record_source" "$(printf '%s/%03d.xml' "$chain_record_dir" "$position")"
+}
+
 trap cleanup EXIT
 
 probe_tcp_endpoint() {
@@ -3334,12 +3360,24 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       "${nextest_execution_args[@]}" \
       -E "$test_filter"
   fi
+  keep_chain_record "$chain_position"
   if [[ -n "$backtest_result_fault" ]]; then
     restore_backtest_result_fault "$backtest_result_fault"
   fi
   if [[ "$chain_position" -eq "$chain_entry_count" ]]; then
+    # One record per entry, counted against the array rather than checked for being non-empty: a
+    # non-empty directory only rules out "nothing ran at all", not "ran thirty and the copy stopped
+    # answering". A short count here means the record is incomplete while the chain says it passed,
+    # which is the one combination that would let a reader trust a record that is missing entries.
+    chain_record_count="$(find "$chain_record_dir" -name '*.xml' -type f | grep -c '' || true)"
+    if [[ "$chain_record_count" -ne "$chain_entry_count" ]]; then
+      echo "ERROR: the chain passed ${chain_entry_count} entries but left ${chain_record_count}" >&2
+      echo "record(s) in ${chain_record_dir}. Every entry must leave one, or the published record" >&2
+      echo "is missing entries while reporting success." >&2
+      exit 1
+    fi
     chain_completed=true
-    echo "=== ordered chain: all ${chain_entry_count} entries passed"
+    echo "=== ordered chain: all ${chain_entry_count} entries passed, ${chain_record_count} recorded"
   fi
 done
 

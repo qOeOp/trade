@@ -483,6 +483,17 @@ fi
 # `cargo nextest run` rewrites junit.xml. The rust tests job invokes it twice (workspace, then the
 # toolchain proofs), so without a copy between them only the second survives and the artifact
 # silently becomes a record of the proofs alone.
+chain_block="$(sed -n '/^  postgres-owner-chains-linux-x86:/,/^  [a-z][a-z-]*:$/p' "$build_workflow")"
+# The chain runs one `cargo nextest run` per entry and they all rewrite the same junit.xml, so
+# publishing that file would ship one entry in a shape that looks like all of them. Publishing the
+# per-entry copies the chain script takes is the supported way, and this names the difference
+# rather than the word, so a future upload of the store path is caught whatever it is called.
+if [[ "$chain_block" == *"nextest/ci/junit.xml"* ]]; then
+  echo "The Owner chain job must not publish nextest's junit.xml: it runs one invocation per" >&2
+  echo "entry, so that file holds the last entry only and would look like a full record." >&2
+  echo "Publish target/nextest/chain-records/ instead - one file per entry." >&2
+  exit 1
+fi
 # `|| true`: grep -c exits 1 when the count is zero, and under `set -e` that ends the script with
 # no message - a red that names nothing, which is the failure mode this guard exists to prevent.
 keeps="$(grep -c 'nextest/ci/junit\.xml' "$build_workflow" || true)"
@@ -501,13 +512,43 @@ fi
 # The chain runs one `cargo nextest run` per entry, so its junit.xml holds the last entry only.
 # Uploading it would publish a file that looks like a full record and is not; the chain already
 # names every entry it runs in the log.
-chain_block="$(sed -n '/^  postgres-owner-chains-linux-x86:/,/^  [a-z][a-z-]*:$/p' "$build_workflow")"
-if [[ "$chain_block" == *"junit"* ]]; then
-  echo "The Owner chain job must not publish a JUnit record: it runs one nextest invocation per" >&2
-  echo "entry, so junit.xml holds the last entry only and would look like a full record." >&2
-  echo "The chain already prints every entry it runs." >&2
+# The per-entry record is what makes "did entry N run, and for how long" answerable without a
+# person reading the log. It is worth nothing unless the script writes it and both channels that
+# AGENTS.md accepts as chain evidence carry it off the runner.
+# Two call sites, and both are load-bearing: the one inside the loop records every entry that
+# completes, and the one in `cleanup` records the entry that ended the run - `--fail-fast` and
+# `set -e` mean a failing entry never reaches its own copy. Counting them apart matters: grepping
+# for the call at all is satisfied by either, so removing the loop copy would leave a record of
+# nothing but failures while the guard stayed green.
+# Match the literal call text, not an expansion of it.
+# shellcheck disable=SC2016
+chain_copies="$(grep -c 'keep_chain_record "\$chain_position"' \
+  "$repo_root/scripts/ci/test-rd-owner-postgres.bash" || true)"
+if [[ "$chain_copies" -ne 2 ]]; then
+  echo "test-rd-owner-postgres.bash calls keep_chain_record $chain_copies time(s); expected 2:" >&2
+  echo "once in the entry loop, once in cleanup for the entry that ended the run. With only the" >&2
+  echo "cleanup call the record holds failures alone; with only the loop call a failing entry has" >&2
+  echo "no record, and 'no record' would mean both 'never ran' and 'ran and failed'." >&2
   exit 1
 fi
+for chain_channel in .github/workflows/build.yml .github/workflows/owner-chains.yml; do
+  if ! grep -q 'target/nextest/chain-records/' "$repo_root/$chain_channel"; then
+    echo "$chain_channel carries the Owner chain but does not publish its per-entry record." >&2
+    echo "A record that never leaves the runner answers nothing about which entries ran." >&2
+    exit 1
+  fi
+  # Both channels run the chain job as a matrix over two legs, and only the R&D leg's script takes
+  # the per-entry copies. An unconditional upload finds nothing on the Market Data leg, and
+  # `if-no-files-found: error` - which is there so an empty upload cannot read as "no entry ran" -
+  # then fails that job. Run 35688437514 is what that looks like.
+  if ! grep -A1 'name: Publish which chain entries ran' "$repo_root/$chain_channel" |
+    grep -q "matrix.chain.key == 'rd-owner'"; then
+    echo "$chain_channel publishes the chain record without restricting it to the rd-owner leg." >&2
+    echo "The Market Data leg writes no records, so the upload finds nothing there and fails the" >&2
+    echo "job on if-no-files-found: error." >&2
+    exit 1
+  fi
+done
 grep -Fq 'rust-cache-workspace-crates: "true"' "$build_workflow"
 grep -Fq 'rust-doctests-linux-x86:' "$build_workflow"
 rust_tests_block="$(sed -n '/^  rust-tests-linux-x86:/,/^  quality:/p' "$build_workflow")"
