@@ -1465,8 +1465,9 @@ impl PostgresResearchGoalOwnerV1 {
             DECLARE
               locked_basis record;
               locked_outbox record;
+              stored_basis record;
             BEGIN
-              IF pg_catalog.current_setting('transaction_isolation') NOT IN ('read committed','serializable') THEN RETURN NULL; END IF;
+              IF pg_catalog.current_setting('transaction_isolation') NOT IN ('read committed','serializable') THEN RETURN pg_catalog.jsonb_build_object('schema_version', 1, 'refusal', 'ISOLATION_UNSUPPORTED'); END IF;
               SELECT basis_identity, request_identity, principal, request_scope_json, lineage_digest,
                      basis_digest, basis_json, receipt_json, committed_at_epoch_ms
                 INTO locked_basis
@@ -1476,15 +1477,38 @@ impl PostgresResearchGoalOwnerV1 {
                  AND principal = requested_principal
                  AND request_scope_json = requested_request_scope
                FOR SHARE;
-              IF NOT FOUND THEN RETURN NULL; END IF;
-              SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json,
-                     committed_at_epoch_ms
-                INTO STRICT locked_outbox
-                FROM public.rd_owner_outbox_v1
-               WHERE aggregate_identity = requested_basis_identity
-                 AND event_kind = 'INDEPENDENCE_BASIS_PRECOMMITTED_V1'
-               FOR SHARE;
-              IF NOT FOUND THEN RETURN NULL; END IF;
+              IF NOT FOUND THEN
+                SELECT basis_digest, principal, request_scope_json
+                  INTO stored_basis
+                  FROM public.rd_independence_bases_v1
+                 WHERE basis_identity = requested_basis_identity
+                 FOR SHARE;
+                IF NOT FOUND THEN
+                  RETURN pg_catalog.jsonb_build_object('schema_version', 1, 'refusal', 'BASIS_IDENTITY_UNKNOWN');
+                ELSIF stored_basis.basis_digest IS DISTINCT FROM requested_basis_digest THEN
+                  RETURN pg_catalog.jsonb_build_object('schema_version', 1, 'refusal', 'BASIS_DIGEST_MISMATCH');
+                ELSIF stored_basis.principal IS DISTINCT FROM requested_principal THEN
+                  RETURN pg_catalog.jsonb_build_object('schema_version', 1, 'refusal', 'BASIS_PRINCIPAL_MISMATCH');
+                ELSIF stored_basis.request_scope_json IS DISTINCT FROM requested_request_scope THEN
+                  RETURN pg_catalog.jsonb_build_object('schema_version', 1, 'refusal', 'BASIS_SCOPE_MISMATCH');
+                ELSE
+                  RETURN pg_catalog.jsonb_build_object('schema_version', 1, 'refusal', 'BASIS_LOOKUP_INCONSISTENT');
+                END IF;
+              END IF;
+              BEGIN
+                SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json,
+                       committed_at_epoch_ms
+                  INTO STRICT locked_outbox
+                  FROM public.rd_owner_outbox_v1
+                 WHERE aggregate_identity = requested_basis_identity
+                   AND event_kind = 'INDEPENDENCE_BASIS_PRECOMMITTED_V1'
+                 FOR SHARE;
+              EXCEPTION
+                WHEN no_data_found THEN
+                  RETURN pg_catalog.jsonb_build_object('schema_version', 1, 'refusal', 'OUTBOX_EVENT_ABSENT');
+                WHEN too_many_rows THEN
+                  RETURN pg_catalog.jsonb_build_object('schema_version', 1, 'refusal', 'OUTBOX_EVENT_AMBIGUOUS');
+              END;
               RETURN pg_catalog.jsonb_build_object(
                 'schema_version', 1,
                 'basis', pg_catalog.jsonb_build_object(
@@ -4741,6 +4765,140 @@ pub(crate) mod tests {
             basis_privileges,
             (true, true, false, false, false, false, true)
         );
+
+        // Every refusal this function decides for itself, driven. `qualification_writer` holds no
+        // SELECT on `rd_independence_bases_v1` - the assertion four lines up is what says so - so
+        // a cause this function does not name is a cause nobody downstream can recover. All of
+        // these used to be one NULL, and one NULL is one sentence at the caller.
+        //
+        // Everything below runs inside a transaction that is never committed, because entry 3 of
+        // the ordered chain runs this test against a database the later entries keep using.
+        let refusal = |envelope: Option<serde_json::Value>| -> String {
+            envelope
+                .expect("the function answers with an envelope, not NULL")
+                .get("refusal")
+                .and_then(serde_json::Value::as_str)
+                .expect("a refusal envelope names its cause")
+                .to_string()
+        };
+        let call = "SELECT rd_owner_api.lock_independence_basis_for_qualification_v1($1,$2,$3,$4)";
+        let scope = serde_json::json!(["research:view"]);
+
+        let mut probe = owner.pool.begin().await.unwrap();
+        let unknown: Option<serde_json::Value> = sqlx::query_scalar(call)
+            .bind("basis-that-was-never-written")
+            .bind("sha256:0")
+            .bind("principal-1")
+            .bind(&scope)
+            .fetch_one(&mut *probe)
+            .await
+            .unwrap();
+        assert_eq!(refusal(unknown), "BASIS_IDENTITY_UNKNOWN");
+
+        sqlx::query("INSERT INTO public.rd_independence_bases_v1 (basis_identity, request_identity, principal, request_scope_json, lineage_digest, basis_digest, basis_json, receipt_json, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)")
+            .bind("basis-refusal-probe")
+            .bind("request-refusal-probe")
+            .bind("principal-1")
+            .bind(&scope)
+            .bind("lineage-1")
+            .bind("sha256:basis")
+            .bind(serde_json::json!({}))
+            .bind(serde_json::json!({}))
+            .bind(1_i64)
+            .execute(&mut *probe)
+            .await
+            .unwrap();
+
+        for (digest, principal_arg, scope_arg, expected) in [
+            (
+                "sha256:other",
+                "principal-1",
+                scope.clone(),
+                "BASIS_DIGEST_MISMATCH",
+            ),
+            (
+                "sha256:basis",
+                "principal-2",
+                scope.clone(),
+                "BASIS_PRINCIPAL_MISMATCH",
+            ),
+            (
+                "sha256:basis",
+                "principal-1",
+                serde_json::json!(["research:write"]),
+                "BASIS_SCOPE_MISMATCH",
+            ),
+            (
+                "sha256:basis",
+                "principal-1",
+                scope.clone(),
+                "OUTBOX_EVENT_ABSENT",
+            ),
+        ] {
+            let answered: Option<serde_json::Value> = sqlx::query_scalar(call)
+                .bind("basis-refusal-probe")
+                .bind(digest)
+                .bind(principal_arg)
+                .bind(&scope_arg)
+                .fetch_one(&mut *probe)
+                .await
+                .unwrap();
+            assert_eq!(refusal(answered), expected);
+        }
+
+        // The positive control. Without it the four assertions above would also hold if the
+        // function had been changed to refuse everything.
+        sqlx::query("INSERT INTO public.rd_owner_outbox_v1 (event_identity, aggregate_identity, event_kind, payload_digest, payload_json, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6)")
+            .bind("outbox-refusal-probe")
+            .bind("basis-refusal-probe")
+            .bind("INDEPENDENCE_BASIS_PRECOMMITTED_V1")
+            .bind("sha256:payload")
+            .bind(serde_json::json!({}))
+            .bind(1_i64)
+            .execute(&mut *probe)
+            .await
+            .unwrap();
+        let accepted: Option<serde_json::Value> = sqlx::query_scalar(call)
+            .bind("basis-refusal-probe")
+            .bind("sha256:basis")
+            .bind("principal-1")
+            .bind(&scope)
+            .fetch_one(&mut *probe)
+            .await
+            .unwrap();
+        let accepted = accepted.expect("the matching four-tuple is answered");
+        assert!(accepted.get("refusal").is_none(), "{accepted}");
+        assert_eq!(accepted["basis"]["basis_identity"], "basis-refusal-probe");
+        assert_eq!(accepted["outbox"]["event_identity"], "outbox-refusal-probe");
+        probe.rollback().await.unwrap();
+
+        // `ISOLATION_UNSUPPORTED` needs its own transaction, because the level is set at BEGIN.
+        let mut isolated = owner.pool.begin().await.unwrap();
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            .execute(&mut *isolated)
+            .await
+            .unwrap();
+        let refused: Option<serde_json::Value> = sqlx::query_scalar(call)
+            .bind("basis-that-was-never-written")
+            .bind("sha256:0")
+            .bind("principal-1")
+            .bind(&scope)
+            .fetch_one(&mut *isolated)
+            .await
+            .unwrap();
+        assert_eq!(refusal(refused), "ISOLATION_UNSUPPORTED");
+        isolated.rollback().await.unwrap();
+
+        // Two the function names that this test does not drive, and why:
+        //
+        // `OUTBOX_EVENT_AMBIGUOUS` is not constructible. `rd_owner_outbox_v1` carries
+        // `UNIQUE (aggregate_identity, event_kind)`, so a second matching event cannot be
+        // inserted. The handler is kept because it fails toward refusing and the constraint is
+        // not the function's to rely on.
+        //
+        // `BASIS_LOOKUP_INCONSISTENT` is not constructible either: it needs the four-tuple read
+        // to miss and the identity-only read that follows it to then agree on all four, inside
+        // one transaction holding FOR SHARE on the row.
     }
 
     #[tokio::test]

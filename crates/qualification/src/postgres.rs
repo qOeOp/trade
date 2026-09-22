@@ -5022,9 +5022,21 @@ async fn load_rd_basis_by_locator_fields_preserving_sqlstate_in_transaction(
     .fetch_one(&mut **transaction)
     .await
     .map_err(transaction_storage)?;
-    let envelope: LockedRdBasisEnvelopeV1 = decode_exact(
-        &raw_envelope.ok_or_else(|| unavailable("R&D Independence Basis unavailable"))?,
-    )?;
+    // A bare NULL now means only one thing. The function is `STRICT`, so a NULL argument returns
+    // without running; every refusal it decides for itself arrives as a named `refusal` instead.
+    let raw_envelope = raw_envelope.ok_or_else(|| {
+        unavailable("R&D Independence Basis lookup was passed a null locator field")
+    })?;
+    // The caller cannot read `rd_independence_bases_v1`: the boundary is a SECURITY DEFINER
+    // function and `qualification_writer` holds no SELECT on the table. So whatever the function
+    // does not say, nobody downstream can find out. It used to answer NULL for an unsupported
+    // isolation, for an unknown basis identity, for a basis whose digest, principal or scope did
+    // not match, and for a missing outbox event, and all five arrived here as the single sentence
+    // "R&D Independence Basis unavailable".
+    if let Some(refusal) = raw_envelope.get("refusal").and_then(|value| value.as_str()) {
+        return Err(unavailable(format!("R&D Independence Basis unavailable: {refusal}")).into());
+    }
+    let envelope: LockedRdBasisEnvelopeV1 = decode_exact(&raw_envelope)?;
 
     if envelope.schema_version != 1 {
         return Err(unavailable("R&D Independence Basis envelope mismatch").into());
