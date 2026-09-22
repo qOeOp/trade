@@ -1733,6 +1733,18 @@ instrument-class rejection.
   scope and snapshot/correction rule. **TARGET:** direct `BACKTEST_OWNER_V1` Instrument Master resolution supplies
   the sealed fact/cut readback; actual consumption and Run Result must repeat the exact snapshot, selection,
   Instrument Master fact/cut and every frozen execution identity.
+  **A series costs one venue round trip per bar, and this is structural rather than an implementation
+  detail.** A PIT snapshot is one as-of cut, so N bars are N frozen requests and N retrievals; nothing in this
+  path amortises a window into one call. **Measured 2026-09-22** on `BTCUSDT.BINANCE` at `1M`: 512 consecutive
+  coordinates produced 512 distinct bars and 512 distinct sealed snapshots, strictly consecutive with no gap and
+  no repeat, in 767.8 s. That figure is 1.50 s per bar, but it carries **two** round trips per coordinate because
+  the run also probed the venue separately to witness which bar each coordinate resolved to; a consumer that only
+  submits would make one, so the production shape is nearer 0.75 s per bar - **inferred by halving, not measured.**
+  **Extrapolating that rate** - and it is an extrapolation, valid only while per-bar cost stays flat and the venue
+  does not rate-limit - one year of `1M` bars is 525,600 retrievals, or roughly 4.6 to 9.1 days of wall clock,
+  while one year of daily bars is 365 retrievals and completes in minutes. **So this path serves a bounded window
+  and does not serve a long minute-resolution history**, and a consumer planning the latter needs a different
+  supply shape rather than a longer timeout.
 - To [Scanner](./scanner/): the exact PIT Market Snapshot requested by published activation conditions.
 - To [Runtime](./runtime/): live market streams and instrument updates carrying the same Market Semantics
   Compatibility identity consumed by the generation's Strategy Artifact and historical evidence.
