@@ -5,6 +5,8 @@
     reason = "C2 is intentionally not installed by global migration"
 )]
 
+use std::fmt::Debug;
+
 use sqlx::{PgPool, Postgres, Row, Transaction};
 
 use super::reference_fact_catalog::{
@@ -310,7 +312,7 @@ pub(super) async fn verify_time_zone_custody_v1(pool: &PgPool) -> Result<(), Tim
     let exact: bool = sqlx::query_scalar(TIME_ZONE_CUSTODY_QUERY_V1)
         .fetch_one(pool)
         .await
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
 
     if !exact {
         return Err(TimeZoneErrorV1::StoreUntrusted);
@@ -324,7 +326,7 @@ pub(super) async fn verify_time_zone_custody_in_transaction_v1(
     let exact: bool = sqlx::query_scalar(TIME_ZONE_CUSTODY_QUERY_V1)
         .fetch_one(&mut **transaction)
         .await
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
 
     if !exact {
         return Err(TimeZoneErrorV1::StoreUntrusted);
@@ -339,7 +341,7 @@ pub(super) async fn install_time_zone_schema_v1(
         sqlx::query(*statement)
             .execute(&mut **transaction)
             .await
-            .map_err(store_error)?;
+            .map_err(|cause| store_error(&cause))?;
     }
     Ok(())
 }
@@ -354,7 +356,7 @@ pub(super) async fn resolve_time_zone_in_transaction_v1(
     sqlx::query("SAVEPOINT market_data_time_zone_v1")
         .execute(&mut **transaction)
         .await
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
     let result = resolve_inner(
         transaction,
         request,
@@ -369,18 +371,18 @@ pub(super) async fn resolve_time_zone_in_transaction_v1(
             sqlx::query("RELEASE SAVEPOINT market_data_time_zone_v1")
                 .execute(&mut **transaction)
                 .await
-                .map_err(store_error)?;
+                .map_err(|cause| store_error(&cause))?;
             Ok(readback)
         }
         Err(e) => {
             sqlx::query("ROLLBACK TO SAVEPOINT market_data_time_zone_v1")
                 .execute(&mut **transaction)
                 .await
-                .map_err(store_error)?;
+                .map_err(|cause| store_error(&cause))?;
             sqlx::query("RELEASE SAVEPOINT market_data_time_zone_v1")
                 .execute(&mut **transaction)
                 .await
-                .map_err(store_error)?;
+                .map_err(|cause| store_error(&cause))?;
             Err(e)
         }
     }
@@ -417,9 +419,9 @@ async fn resolve_inner(
     sqlx::query("SELECT pg_advisory_xact_lock(6075990727067795457)")
         .execute(&mut **transaction)
         .await
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
     let mut state: Option<(Vec<u8>, i64)> = sqlx::query_as("SELECT store_generation_identity,append_sequence FROM market_data_private.time_zone_state_v1 WHERE singleton FOR UPDATE")
-        .fetch_optional(&mut **transaction).await.map_err(store_error)?;
+        .fetch_optional(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
 
     if state.is_none() {
         let seed: String = sqlx::query_scalar(
@@ -427,13 +429,13 @@ async fn resolve_inner(
         )
         .fetch_one(&mut **transaction)
         .await
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
         let generation = codec::digest(
             b"vibe.market-data.time-zone-store-generation.v1\0",
             seed.as_bytes(),
         );
         sqlx::query("INSERT INTO market_data_private.time_zone_state_v1(singleton,store_generation_identity,append_sequence) VALUES(TRUE,$1,0)")
-            .bind(generation.as_bytes().as_slice()).execute(&mut **transaction).await.map_err(store_error)?;
+            .bind(generation.as_bytes().as_slice()).execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
         state = Some((generation.as_bytes().to_vec(), 0));
     }
     let state = state.ok_or(TimeZoneErrorV1::StoreUntrusted)?;
@@ -476,13 +478,13 @@ async fn resolve_inner(
                 .bind(fact.identity().as_bytes().as_slice()).bind(fact.time_zone_identity()).bind(fact.ruleset_identity().as_bytes().as_slice()).bind(fact.catalog_entry_identity().as_bytes().as_slice()).bind(fact.lineage_root().as_bytes().as_slice())
                 .bind(i64::try_from(fact.correction_sequence()).map_err(|_| TimeZoneErrorV1::CapacityExceeded)?).bind(fact.predecessor_identity().map(|value| value.as_bytes().to_vec()))
                 .bind(fact.effective_from_ns().to_string()).bind(fact.effective_until_ns().map(|value| value.to_string())).bind(fact.canonical_bytes())
-                .execute(&mut **transaction).await.map_err(store_error)?;
+                .execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
         }
         let head: Option<Vec<u8>> = sqlx::query_scalar("SELECT fact_identity FROM market_data_private.time_zone_heads_v1 WHERE lineage_root=$1 FOR UPDATE")
-            .bind(fact.lineage_root().as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(store_error)?;
+            .bind(fact.lineage_root().as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
         match head {
             None if fact.predecessor_identity().is_none() => {
-                sqlx::query("INSERT INTO market_data_private.time_zone_heads_v1(lineage_root,fact_identity) VALUES($1,$2)").bind(fact.lineage_root().as_bytes().as_slice()).bind(fact.identity().as_bytes().as_slice()).execute(&mut **transaction).await.map_err(store_error)?;
+                sqlx::query("INSERT INTO market_data_private.time_zone_heads_v1(lineage_root,fact_identity) VALUES($1,$2)").bind(fact.lineage_root().as_bytes().as_slice()).bind(fact.identity().as_bytes().as_slice()).execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
             }
             Some(head) if head == fact.identity().as_bytes().as_slice() => {}
             Some(head)
@@ -490,22 +492,22 @@ async fn resolve_inner(
                     .predecessor_identity()
                     .is_some_and(|prior| prior.as_bytes().as_slice() == head) =>
             {
-                sqlx::query("UPDATE market_data_private.time_zone_heads_v1 SET fact_identity=$2 WHERE lineage_root=$1").bind(fact.lineage_root().as_bytes().as_slice()).bind(fact.identity().as_bytes().as_slice()).execute(&mut **transaction).await.map_err(store_error)?;
+                sqlx::query("UPDATE market_data_private.time_zone_heads_v1 SET fact_identity=$2 WHERE lineage_root=$1").bind(fact.lineage_root().as_bytes().as_slice()).bind(fact.identity().as_bytes().as_slice()).execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
             }
             _ => return Err(TimeZoneErrorV1::RequestConflict),
         }
     }
     sqlx::query("INSERT INTO market_data_private.time_zone_cuts_v1(cut_identity,request_identity,request_meaning_digest,cut_bytes) VALUES($1,$2,$3,$4)")
-        .bind(readback.cut().identity().as_bytes().as_slice()).bind(readback.cut().request_identity().as_bytes().as_slice()).bind(readback.cut().request_meaning_digest().as_bytes().as_slice()).bind(readback.cut().canonical_bytes()).execute(&mut **transaction).await.map_err(store_error)?;
+        .bind(readback.cut().identity().as_bytes().as_slice()).bind(readback.cut().request_identity().as_bytes().as_slice()).bind(readback.cut().request_meaning_digest().as_bytes().as_slice()).bind(readback.cut().canonical_bytes()).execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     for (index, fact) in readback.facts().iter().enumerate() {
-        sqlx::query("INSERT INTO market_data_private.time_zone_cut_facts_v1(cut_identity,ordinal,fact_identity) VALUES($1,$2,$3)").bind(readback.cut().identity().as_bytes().as_slice()).bind(i64::try_from(index + 1).map_err(|_| TimeZoneErrorV1::CapacityExceeded)?).bind(fact.identity().as_bytes().as_slice()).execute(&mut **transaction).await.map_err(store_error)?;
+        sqlx::query("INSERT INTO market_data_private.time_zone_cut_facts_v1(cut_identity,ordinal,fact_identity) VALUES($1,$2,$3)").bind(readback.cut().identity().as_bytes().as_slice()).bind(i64::try_from(index + 1).map_err(|_| TimeZoneErrorV1::CapacityExceeded)?).bind(fact.identity().as_bytes().as_slice()).execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     }
     sqlx::query("INSERT INTO market_data_private.time_zone_receipts_v1(request_identity,request_meaning_digest,cut_identity,receipt_identity,receipt_bytes,append_sequence) VALUES($1,$2,$3,$4,$5,$6)")
-        .bind(readback.receipt().request_identity().as_bytes().as_slice()).bind(readback.receipt().request_meaning_digest().as_bytes().as_slice()).bind(readback.receipt().cut_identity().as_bytes().as_slice()).bind(readback.receipt().identity().as_bytes().as_slice()).bind(readback.receipt().canonical_bytes()).bind(i64::try_from(sequence).map_err(|_| TimeZoneErrorV1::CapacityExceeded)?).execute(&mut **transaction).await.map_err(store_error)?;
+        .bind(readback.receipt().request_identity().as_bytes().as_slice()).bind(readback.receipt().request_meaning_digest().as_bytes().as_slice()).bind(readback.receipt().cut_identity().as_bytes().as_slice()).bind(readback.receipt().identity().as_bytes().as_slice()).bind(readback.receipt().canonical_bytes()).bind(i64::try_from(sequence).map_err(|_| TimeZoneErrorV1::CapacityExceeded)?).execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     sqlx::query("INSERT INTO market_data_private.time_zone_outbox_v1(outbox_identity,request_identity,receipt_bytes) VALUES($1,$2,$3)")
-        .bind(readback.outbox_identity().as_bytes().as_slice()).bind(readback.receipt().request_identity().as_bytes().as_slice()).bind(readback.receipt().canonical_bytes()).execute(&mut **transaction).await.map_err(store_error)?;
+        .bind(readback.outbox_identity().as_bytes().as_slice()).bind(readback.receipt().request_identity().as_bytes().as_slice()).bind(readback.receipt().canonical_bytes()).execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     let update = sqlx::query("UPDATE market_data_private.time_zone_state_v1 SET append_sequence=$1 WHERE singleton AND store_generation_identity=$2 AND append_sequence=$3")
-        .bind(i64::try_from(sequence).map_err(|_| TimeZoneErrorV1::CapacityExceeded)?).bind(generation.as_bytes().as_slice()).bind(state.1).execute(&mut **transaction).await.map_err(store_error)?;
+        .bind(i64::try_from(sequence).map_err(|_| TimeZoneErrorV1::CapacityExceeded)?).bind(generation.as_bytes().as_slice()).bind(state.1).execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     if update.rows_affected() != 1 {
         return Err(TimeZoneErrorV1::StoreUntrusted);
     }
@@ -531,26 +533,47 @@ async fn load(
     request: BindingDigest,
 ) -> Result<Option<TimeZoneReadbackV1>, TimeZoneErrorV1> {
     let row = sqlx::query("SELECT c.cut_identity,c.request_meaning_digest AS cut_meaning,c.cut_bytes,r.request_meaning_digest AS receipt_meaning,r.cut_identity AS receipt_cut_identity,r.receipt_identity,r.receipt_bytes,r.append_sequence,o.outbox_identity,o.receipt_bytes AS outbox_payload FROM market_data_private.time_zone_cuts_v1 c JOIN market_data_private.time_zone_receipts_v1 r ON r.request_identity=c.request_identity JOIN market_data_private.time_zone_outbox_v1 o ON o.request_identity=c.request_identity WHERE c.request_identity=$1 FOR UPDATE OF c,r,o")
-        .bind(request.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(store_error)?;
+        .bind(request.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     let Some(row) = row else {
         let partial: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM market_data_private.time_zone_cuts_v1 WHERE request_identity=$1) OR EXISTS(SELECT 1 FROM market_data_private.time_zone_receipts_v1 WHERE request_identity=$1) OR EXISTS(SELECT 1 FROM market_data_private.time_zone_outbox_v1 WHERE request_identity=$1)")
-            .bind(request.as_bytes().as_slice()).fetch_one(&mut **transaction).await.map_err(store_error)?;
+            .bind(request.as_bytes().as_slice()).fetch_one(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
         return if partial {
             Err(TimeZoneErrorV1::StoreUntrusted)
         } else {
             Ok(None)
         };
     };
-    let cut_identity: Vec<u8> = row.try_get("cut_identity").map_err(store_error)?;
-    let cut_meaning: Vec<u8> = row.try_get("cut_meaning").map_err(store_error)?;
-    let receipt_meaning: Vec<u8> = row.try_get("receipt_meaning").map_err(store_error)?;
-    let receipt_cut_identity: Vec<u8> = row.try_get("receipt_cut_identity").map_err(store_error)?;
-    let cut_bytes: Vec<u8> = row.try_get("cut_bytes").map_err(store_error)?;
-    let receipt_identity: Vec<u8> = row.try_get("receipt_identity").map_err(store_error)?;
-    let receipt_bytes: Vec<u8> = row.try_get("receipt_bytes").map_err(store_error)?;
-    let append_sequence: i64 = row.try_get("append_sequence").map_err(store_error)?;
-    let outbox_identity = digest_from_row(row.try_get("outbox_identity").map_err(store_error)?)?;
-    let outbox_payload: Vec<u8> = row.try_get("outbox_payload").map_err(store_error)?;
+    let cut_identity: Vec<u8> = row
+        .try_get("cut_identity")
+        .map_err(|cause| store_error(&cause))?;
+    let cut_meaning: Vec<u8> = row
+        .try_get("cut_meaning")
+        .map_err(|cause| store_error(&cause))?;
+    let receipt_meaning: Vec<u8> = row
+        .try_get("receipt_meaning")
+        .map_err(|cause| store_error(&cause))?;
+    let receipt_cut_identity: Vec<u8> = row
+        .try_get("receipt_cut_identity")
+        .map_err(|cause| store_error(&cause))?;
+    let cut_bytes: Vec<u8> = row
+        .try_get("cut_bytes")
+        .map_err(|cause| store_error(&cause))?;
+    let receipt_identity: Vec<u8> = row
+        .try_get("receipt_identity")
+        .map_err(|cause| store_error(&cause))?;
+    let receipt_bytes: Vec<u8> = row
+        .try_get("receipt_bytes")
+        .map_err(|cause| store_error(&cause))?;
+    let append_sequence: i64 = row
+        .try_get("append_sequence")
+        .map_err(|cause| store_error(&cause))?;
+    let outbox_identity = digest_from_row(
+        row.try_get("outbox_identity")
+            .map_err(|cause| store_error(&cause))?,
+    )?;
+    let outbox_payload: Vec<u8> = row
+        .try_get("outbox_payload")
+        .map_err(|cause| store_error(&cause))?;
 
     if cut_identity
         != codec::digest(codec::CUT_DOMAIN, &cut_bytes)
@@ -564,14 +587,19 @@ async fn load(
         return Err(TimeZoneErrorV1::StoreUntrusted);
     }
     let fact_rows = sqlx::query("SELECT j.ordinal,j.fact_identity FROM market_data_private.time_zone_cut_facts_v1 j WHERE j.cut_identity=$1 ORDER BY j.ordinal FOR SHARE OF j")
-        .bind(&cut_identity).fetch_all(&mut **transaction).await.map_err(store_error)?;
+        .bind(&cut_identity).fetch_all(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     let mut facts = Vec::with_capacity(fact_rows.len());
     for (index, row) in fact_rows.into_iter().enumerate() {
-        let ordinal: i64 = row.try_get("ordinal").map_err(store_error)?;
+        let ordinal: i64 = row
+            .try_get("ordinal")
+            .map_err(|cause| store_error(&cause))?;
         if usize::try_from(ordinal).ok() != Some(index + 1) {
             return Err(TimeZoneErrorV1::StoreUntrusted);
         }
-        let identity = digest_from_row(row.try_get("fact_identity").map_err(store_error)?)?;
+        let identity = digest_from_row(
+            row.try_get("fact_identity")
+                .map_err(|cause| store_error(&cause))?,
+        )?;
         let fact = load_native_time_zone_fact_v1(transaction, identity, false)
             .await?
             .ok_or(TimeZoneErrorV1::StoreUntrusted)?;
@@ -585,7 +613,7 @@ async fn load(
         &outbox_payload,
     )?;
     let state: Option<(Vec<u8>, i64)> = sqlx::query_as("SELECT store_generation_identity,append_sequence FROM market_data_private.time_zone_state_v1 WHERE singleton FOR SHARE")
-        .fetch_optional(&mut **transaction).await.map_err(store_error)?;
+        .fetch_optional(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     let Some((generation, store_sequence)) = state else {
         return Err(TimeZoneErrorV1::StoreUntrusted);
     };
@@ -625,7 +653,7 @@ async fn load(
     let head_identity: BindingDigest = digest_from_row(
         sqlx::query_scalar("SELECT fact_identity FROM market_data_private.time_zone_heads_v1 WHERE lineage_root=$1 FOR SHARE")
             .bind(cut_last.lineage_root().as_bytes().as_slice())
-            .fetch_optional(&mut **transaction).await.map_err(store_error)?
+            .fetch_optional(&mut **transaction).await.map_err(|cause| store_error(&cause))?
             .ok_or(TimeZoneErrorV1::StoreUntrusted)?,
     )?;
     let head = load_native_time_zone_fact_v1(transaction, head_identity, false)
@@ -649,46 +677,52 @@ async fn load_native_time_zone_fact_v1(
         .bind(identity.as_bytes().as_slice())
         .fetch_optional(&mut **transaction)
         .await
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
     let Some(row) = row else {
         return Ok(None);
     };
-    let bytes: Vec<u8> = row.try_get("fact_bytes").map_err(store_error)?;
+    let bytes: Vec<u8> = row
+        .try_get("fact_bytes")
+        .map_err(|cause| store_error(&cause))?;
     let fact = decode_fact_v1(&bytes)?;
-    let stored_sequence: i64 = row.try_get("correction_sequence").map_err(store_error)?;
-    let stored_predecessor: Option<Vec<u8>> =
-        row.try_get("predecessor_identity").map_err(store_error)?;
-    let stored_effective_until: Option<String> =
-        row.try_get("effective_until_ns").map_err(store_error)?;
+    let stored_sequence: i64 = row
+        .try_get("correction_sequence")
+        .map_err(|cause| store_error(&cause))?;
+    let stored_predecessor: Option<Vec<u8>> = row
+        .try_get("predecessor_identity")
+        .map_err(|cause| store_error(&cause))?;
+    let stored_effective_until: Option<String> = row
+        .try_get("effective_until_ns")
+        .map_err(|cause| store_error(&cause))?;
     let canonical_predecessor = fact
         .predecessor_identity()
         .map(|value| value.as_bytes().to_vec());
 
     if row
         .try_get::<Vec<u8>, _>("fact_identity")
-        .map_err(store_error)?
+        .map_err(|cause| store_error(&cause))?
         != fact.identity().as_bytes().as_slice()
         || row
             .try_get::<Vec<u8>, _>("time_zone_identity")
-            .map_err(store_error)?
+            .map_err(|cause| store_error(&cause))?
             != fact.time_zone_identity()
         || row
             .try_get::<Vec<u8>, _>("ruleset_identity")
-            .map_err(store_error)?
+            .map_err(|cause| store_error(&cause))?
             != fact.ruleset_identity().as_bytes().as_slice()
         || row
             .try_get::<Vec<u8>, _>("catalog_entry_identity")
-            .map_err(store_error)?
+            .map_err(|cause| store_error(&cause))?
             != fact.catalog_entry_identity().as_bytes().as_slice()
         || row
             .try_get::<Vec<u8>, _>("lineage_root")
-            .map_err(store_error)?
+            .map_err(|cause| store_error(&cause))?
             != fact.lineage_root().as_bytes().as_slice()
         || u64::try_from(stored_sequence).ok() != Some(fact.correction_sequence())
         || stored_predecessor != canonical_predecessor
         || row
             .try_get::<String, _>("effective_from_ns")
-            .map_err(store_error)?
+            .map_err(|cause| store_error(&cause))?
             != fact.effective_from_ns().to_string()
         || stored_effective_until != fact.effective_until_ns().map(|value| value.to_string())
     {
@@ -849,10 +883,12 @@ async fn advisory_lock(
         .bind(key)
         .execute(&mut **transaction)
         .await
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
     Ok(())
 }
-fn store_error<E>(_error: E) -> TimeZoneErrorV1 {
+#[track_caller]
+fn store_error(cause: &impl Debug) -> TimeZoneErrorV1 {
+    crate::owner::storage_diagnostic::refused_by_store_at(cause);
     TimeZoneErrorV1::StoreUnavailable
 }
 

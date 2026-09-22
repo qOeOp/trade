@@ -6,6 +6,7 @@
 )]
 
 use std::collections::HashSet;
+use std::fmt::Debug;
 
 use sqlx::{Postgres, Row, Transaction};
 
@@ -29,7 +30,7 @@ pub(super) async fn install_reference_fact_catalog_schema_v1(
         sqlx::query(*statement)
             .execute(&mut **tx)
             .await
-            .map_err(store_error)?;
+            .map_err(|cause| store_error(&cause))?;
     }
     Ok(())
 }
@@ -41,25 +42,25 @@ pub(super) async fn admit_reference_fact_catalog_entry_v1(
     sqlx::query("SAVEPOINT market_data_reference_fact_catalog_v1")
         .execute(&mut **tx)
         .await
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
     let result = admit_inner(tx, entry).await;
     match result {
         Ok(stored) => {
             sqlx::query("RELEASE SAVEPOINT market_data_reference_fact_catalog_v1")
                 .execute(&mut **tx)
                 .await
-                .map_err(store_error)?;
+                .map_err(|cause| store_error(&cause))?;
             Ok(stored)
         }
         Err(e) => {
             sqlx::query("ROLLBACK TO SAVEPOINT market_data_reference_fact_catalog_v1")
                 .execute(&mut **tx)
                 .await
-                .map_err(store_error)?;
+                .map_err(|cause| store_error(&cause))?;
             sqlx::query("RELEASE SAVEPOINT market_data_reference_fact_catalog_v1")
                 .execute(&mut **tx)
                 .await
-                .map_err(store_error)?;
+                .map_err(|cause| store_error(&cause))?;
             Err(e)
         }
     }
@@ -87,7 +88,7 @@ async fn admit_inner(
     )
     .bind(entry.scope_identity().as_bytes().as_slice())
     .bind(entry.lineage_root().as_bytes().as_slice())
-    .fetch_optional(&mut **tx).await.map_err(store_error)?;
+    .fetch_optional(&mut **tx).await.map_err(|cause| store_error(&cause))?;
 
     let predecessor = match entry.predecessor_identity() {
         None => None,
@@ -131,19 +132,19 @@ async fn admit_inner(
         .bind(i64::try_from(entry.correction_sequence()).map_err(|_| ReferenceFactCatalogErrorV1::CapacityExceeded)?)
         .bind(entry.predecessor_identity().map(|v| v.as_bytes().to_vec()))
         .bind(entry.effective_from_ns().to_string()).bind(entry.effective_until_ns().map(|v| v.to_string()))
-        .bind(entry.canonical_bytes()).execute(&mut **tx).await.map_err(store_error)?;
+        .bind(entry.canonical_bytes()).execute(&mut **tx).await.map_err(|cause| store_error(&cause))?;
     let sequence = i64::try_from(entry.correction_sequence())
         .map_err(|_| ReferenceFactCatalogErrorV1::CapacityExceeded)?;
     let affected = match entry.predecessor_identity() {
         None => sqlx::query("INSERT INTO market_data_private.reference_fact_catalog_heads_v1(scope_identity,lineage_root,entry_identity,correction_sequence) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING")
             .bind(entry.scope_identity().as_bytes().as_slice()).bind(entry.lineage_root().as_bytes().as_slice())
             .bind(entry.identity().as_bytes().as_slice()).bind(sequence)
-            .execute(&mut **tx).await.map_err(store_error)?.rows_affected(),
+            .execute(&mut **tx).await.map_err(|cause| store_error(&cause))?.rows_affected(),
         Some(prior) => sqlx::query("UPDATE market_data_private.reference_fact_catalog_heads_v1 SET entry_identity=$3,correction_sequence=$4 WHERE scope_identity=$1 AND lineage_root=$2 AND entry_identity=$5 AND correction_sequence=$6")
             .bind(entry.scope_identity().as_bytes().as_slice()).bind(entry.lineage_root().as_bytes().as_slice())
             .bind(entry.identity().as_bytes().as_slice()).bind(sequence)
             .bind(prior.as_bytes().as_slice()).bind(sequence - 1)
-            .execute(&mut **tx).await.map_err(store_error)?.rows_affected(),
+            .execute(&mut **tx).await.map_err(|cause| store_error(&cause))?.rows_affected(),
     };
 
     if affected != 1 {
@@ -189,10 +190,12 @@ pub(super) async fn resolve_reference_fact_catalog_entry_v1(
     let head = sqlx::query("SELECT entry_identity,correction_sequence FROM market_data_private.reference_fact_catalog_heads_v1 WHERE scope_identity=$1 AND lineage_root=$2 FOR SHARE")
         .bind(entry.scope_identity().as_bytes().as_slice())
         .bind(entry.lineage_root().as_bytes().as_slice())
-        .fetch_optional(&mut **tx).await.map_err(store_error)?
+        .fetch_optional(&mut **tx).await.map_err(|cause| store_error(&cause))?
         .ok_or(ReferenceFactCatalogErrorV1::StoreUntrusted)?;
     let head_identity = row_identity(&head, "entry_identity")?;
-    let head_sequence: i64 = head.try_get("correction_sequence").map_err(store_error)?;
+    let head_sequence: i64 = head
+        .try_get("correction_sequence")
+        .map_err(|cause| store_error(&cause))?;
     let head_sequence =
         u64::try_from(head_sequence).map_err(|_| ReferenceFactCatalogErrorV1::StoreUntrusted)?;
     if head_sequence < entry.correction_sequence() {
@@ -260,7 +263,7 @@ pub(super) async fn verify_reference_fact_catalog_head_v1(
     .bind(entry.lineage_root().as_bytes().as_slice())
     .fetch_optional(&mut **tx)
     .await
-    .map_err(store_error)?;
+    .map_err(|cause| store_error(&cause))?;
     let Some((identity, sequence)) = head else {
         return Err(ReferenceFactCatalogErrorV1::StoreUntrusted);
     };
@@ -278,19 +281,29 @@ async fn load_entry(
     identity: crate::owner::source_binding::BindingDigest,
 ) -> Result<Option<ReferenceFactCatalogEntryV1>, ReferenceFactCatalogErrorV1> {
     let row = sqlx::query("SELECT entry_digest,scope_identity,lineage_root,correction_sequence,predecessor_identity,effective_from_ns,effective_until_ns,entry_bytes FROM market_data_private.reference_fact_catalog_entries_v1 WHERE entry_identity=$1 FOR SHARE")
-        .bind(identity.as_bytes().as_slice()).fetch_optional(&mut **tx).await.map_err(store_error)?;
+        .bind(identity.as_bytes().as_slice()).fetch_optional(&mut **tx).await.map_err(|cause| store_error(&cause))?;
     let Some(row) = row else {
         return Ok(None);
     };
     let digest = row_identity(&row, "entry_digest")?;
     let scope = row_identity(&row, "scope_identity")?;
     let lineage = row_identity(&row, "lineage_root")?;
-    let sequence: i64 = row.try_get("correction_sequence").map_err(store_error)?;
-    let predecessor: Option<Vec<u8>> = row.try_get("predecessor_identity").map_err(store_error)?;
+    let sequence: i64 = row
+        .try_get("correction_sequence")
+        .map_err(|cause| store_error(&cause))?;
+    let predecessor: Option<Vec<u8>> = row
+        .try_get("predecessor_identity")
+        .map_err(|cause| store_error(&cause))?;
     let predecessor = predecessor.map(digest_from_bytes).transpose()?;
-    let effective_from: String = row.try_get("effective_from_ns").map_err(store_error)?;
-    let effective_until: Option<String> = row.try_get("effective_until_ns").map_err(store_error)?;
-    let bytes: Vec<u8> = row.try_get("entry_bytes").map_err(store_error)?;
+    let effective_from: String = row
+        .try_get("effective_from_ns")
+        .map_err(|cause| store_error(&cause))?;
+    let effective_until: Option<String> = row
+        .try_get("effective_until_ns")
+        .map_err(|cause| store_error(&cause))?;
+    let bytes: Vec<u8> = row
+        .try_get("entry_bytes")
+        .map_err(|cause| store_error(&cause))?;
     let entry = decode_reference_fact_catalog_entry_v1(&bytes)
         .map_err(|_| ReferenceFactCatalogErrorV1::StoreUntrusted)?;
 
@@ -312,7 +325,7 @@ fn row_identity(
     row: &sqlx::postgres::PgRow,
     name: &str,
 ) -> Result<crate::owner::source_binding::BindingDigest, ReferenceFactCatalogErrorV1> {
-    digest_from_bytes(row.try_get(name).map_err(store_error)?)
+    digest_from_bytes(row.try_get(name).map_err(|cause| store_error(&cause))?)
 }
 
 fn digest_from_bytes(
@@ -337,7 +350,7 @@ async fn advisory_lock(
         .bind(i64::from_be_bytes(bytes))
         .execute(&mut **tx)
         .await
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
     Ok(())
 }
 fn catalog_head_lock(
@@ -350,6 +363,8 @@ fn catalog_head_lock(
     hasher.update(lineage_root.as_bytes());
     crate::owner::source_binding::BindingDigest::from_untrusted_bytes(*hasher.finalize().as_bytes())
 }
-fn store_error<E: std::fmt::Debug>(_: E) -> ReferenceFactCatalogErrorV1 {
+#[track_caller]
+fn store_error(cause: &impl Debug) -> ReferenceFactCatalogErrorV1 {
+    crate::owner::storage_diagnostic::refused_by_store_at(cause);
     ReferenceFactCatalogErrorV1::StoreUnavailable
 }

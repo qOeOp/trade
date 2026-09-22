@@ -39,7 +39,7 @@ pub(super) async fn install_reference_fact_r0_schema_v1(
         sqlx::query(*statement)
             .execute(&mut **transaction)
             .await
-            .map_err(store_error)?;
+            .map_err(|cause| store_error(&cause))?;
     }
     Ok(())
 }
@@ -282,15 +282,15 @@ pub(super) async fn resolve_reference_fact_r0_in_transaction_v1(
     let database: String = sqlx::query_scalar("SELECT current_database()")
         .fetch_one(&mut **transaction)
         .await
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
     let generation = digest(
         b"vibe.market-data.reference-fact-r0-store-generation.v1\0",
         database.as_bytes(),
     );
     sqlx::query("INSERT INTO market_data_private.reference_fact_r0_state_v1(singleton,store_generation_identity,append_sequence) VALUES(TRUE,$1,0) ON CONFLICT(singleton) DO NOTHING")
-        .bind(generation.as_bytes().as_slice()).execute(&mut **transaction).await.map_err(store_error)?;
+        .bind(generation.as_bytes().as_slice()).execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     let sequence: i64 = sqlx::query_scalar("UPDATE market_data_private.reference_fact_r0_state_v1 SET append_sequence=append_sequence+1 WHERE singleton AND store_generation_identity=$1 RETURNING append_sequence")
-        .bind(generation.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(store_error)?
+        .bind(generation.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(|cause| store_error(&cause))?
         .ok_or(ReferenceFactR0ErrorV1::StoreUntrusted)?;
     let sequence = u64::try_from(sequence).map_err(|_| ReferenceFactR0ErrorV1::StoreUntrusted)?;
     let readback = issue_readback_v1(record, cut, generation, sequence)?;
@@ -320,13 +320,13 @@ async fn persist(
     let c = value.cut();
     let p = value.receipt();
     sqlx::query("INSERT INTO market_data_private.reference_fact_r0_records_v1(record_identity,request_identity,request_meaning_digest,record_bytes) VALUES($1,$2,$3,$4)")
-        .bind(r.identity().as_bytes().as_slice()).bind(r.request_identity.as_bytes().as_slice()).bind(r.request_meaning_digest.as_bytes().as_slice()).bind(r.canonical_bytes()).execute(&mut **tx).await.map_err(store_error)?;
+        .bind(r.identity().as_bytes().as_slice()).bind(r.request_identity.as_bytes().as_slice()).bind(r.request_meaning_digest.as_bytes().as_slice()).bind(r.canonical_bytes()).execute(&mut **tx).await.map_err(|cause| store_error(&cause))?;
     sqlx::query("INSERT INTO market_data_private.reference_fact_r0_cuts_v1(request_identity,cut_identity,cut_bytes) VALUES($1,$2,$3)")
-        .bind(r.request_identity.as_bytes().as_slice()).bind(c.identity().as_bytes().as_slice()).bind(c.canonical_bytes()).execute(&mut **tx).await.map_err(store_error)?;
+        .bind(r.request_identity.as_bytes().as_slice()).bind(c.identity().as_bytes().as_slice()).bind(c.canonical_bytes()).execute(&mut **tx).await.map_err(|cause| store_error(&cause))?;
     sqlx::query("INSERT INTO market_data_private.reference_fact_r0_receipts_v1(request_identity,receipt_identity,receipt_bytes,readback_identity,readback_bytes,append_sequence) VALUES($1,$2,$3,$4,$5,$6)")
-        .bind(r.request_identity.as_bytes().as_slice()).bind(p.identity().as_bytes().as_slice()).bind(p.canonical_bytes()).bind(value.identity().as_bytes().as_slice()).bind(value.canonical_bytes()).bind(i64::try_from(p.append_sequence).map_err(|_|ReferenceFactR0ErrorV1::StoreUntrusted)?).execute(&mut **tx).await.map_err(store_error)?;
+        .bind(r.request_identity.as_bytes().as_slice()).bind(p.identity().as_bytes().as_slice()).bind(p.canonical_bytes()).bind(value.identity().as_bytes().as_slice()).bind(value.canonical_bytes()).bind(i64::try_from(p.append_sequence).map_err(|_|ReferenceFactR0ErrorV1::StoreUntrusted)?).execute(&mut **tx).await.map_err(|cause| store_error(&cause))?;
     sqlx::query("INSERT INTO market_data_private.reference_fact_r0_outbox_v1(outbox_identity,request_identity,payload) VALUES($1,$2,$3)")
-        .bind(value.outbox_identity().as_bytes().as_slice()).bind(r.request_identity.as_bytes().as_slice()).bind(p.canonical_bytes()).execute(&mut **tx).await.map_err(store_error)?;
+        .bind(value.outbox_identity().as_bytes().as_slice()).bind(r.request_identity.as_bytes().as_slice()).bind(p.canonical_bytes()).execute(&mut **tx).await.map_err(|cause| store_error(&cause))?;
     Ok(())
 }
 
@@ -347,7 +347,7 @@ pub(super) async fn load_reference_fact_r0_readback_by_record_v1(
     .bind(record.as_bytes().as_slice())
     .fetch_optional(&mut **tx)
     .await
-    .map_err(store_error)?;
+    .map_err(|cause| store_error(&cause))?;
     let Some(request) = request else {
         return Ok(None);
     };
@@ -372,22 +372,28 @@ async fn load_readback(
     request: R0IdentityV1,
 ) -> Result<Option<ReferenceFactR0ReadbackV1>, ReferenceFactR0ErrorV1> {
     let row=sqlx::query("SELECT x.request_identity,x.record_identity,x.request_meaning_digest,x.record_bytes,c.cut_identity,c.cut_bytes,p.receipt_identity,p.receipt_bytes,p.readback_identity,p.readback_bytes,p.append_sequence,o.outbox_identity,o.payload,s.store_generation_identity,s.append_sequence AS state_sequence FROM market_data_private.reference_fact_r0_records_v1 x JOIN market_data_private.reference_fact_r0_cuts_v1 c USING(request_identity) JOIN market_data_private.reference_fact_r0_receipts_v1 p USING(request_identity) JOIN market_data_private.reference_fact_r0_outbox_v1 o USING(request_identity) CROSS JOIN market_data_private.reference_fact_r0_state_v1 s WHERE s.singleton AND x.request_identity=$1 FOR UPDATE OF x,c,p,o,s")
-        .bind(request.as_bytes().as_slice()).fetch_optional(&mut **tx).await.map_err(store_error)?;
+        .bind(request.as_bytes().as_slice()).fetch_optional(&mut **tx).await.map_err(|cause| store_error(&cause))?;
     let Some(row) = row else {
-        let partial:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM market_data_private.reference_fact_r0_records_v1 WHERE request_identity=$1) OR EXISTS(SELECT 1 FROM market_data_private.reference_fact_r0_cuts_v1 WHERE request_identity=$1) OR EXISTS(SELECT 1 FROM market_data_private.reference_fact_r0_receipts_v1 WHERE request_identity=$1) OR EXISTS(SELECT 1 FROM market_data_private.reference_fact_r0_outbox_v1 WHERE request_identity=$1)").bind(request.as_bytes().as_slice()).fetch_one(&mut **tx).await.map_err(store_error)?;
+        let partial:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM market_data_private.reference_fact_r0_records_v1 WHERE request_identity=$1) OR EXISTS(SELECT 1 FROM market_data_private.reference_fact_r0_cuts_v1 WHERE request_identity=$1) OR EXISTS(SELECT 1 FROM market_data_private.reference_fact_r0_receipts_v1 WHERE request_identity=$1) OR EXISTS(SELECT 1 FROM market_data_private.reference_fact_r0_outbox_v1 WHERE request_identity=$1)").bind(request.as_bytes().as_slice()).fetch_one(&mut **tx).await.map_err(|cause| store_error(&cause))?;
         return if partial {
             Err(ReferenceFactR0ErrorV1::StoreUntrusted)
         } else {
             Ok(None)
         };
     };
-    let readback_bytes: Vec<u8> = row.try_get("readback_bytes").map_err(store_error)?;
+    let readback_bytes: Vec<u8> = row
+        .try_get("readback_bytes")
+        .map_err(|cause| store_error(&cause))?;
     let v = decode_and_verify_readback_v1(&readback_bytes)?;
     let bytes = |n: &str| -> Result<Vec<u8>, ReferenceFactR0ErrorV1> {
-        row.try_get(n).map_err(store_error)
+        row.try_get(n).map_err(|cause| store_error(&cause))
     };
-    let stored_seq: i64 = row.try_get("append_sequence").map_err(store_error)?;
-    let state_seq: i64 = row.try_get("state_sequence").map_err(store_error)?;
+    let stored_seq: i64 = row
+        .try_get("append_sequence")
+        .map_err(|cause| store_error(&cause))?;
+    let state_seq: i64 = row
+        .try_get("state_sequence")
+        .map_err(|cause| store_error(&cause))?;
     let exact = bytes("request_identity")? == request.as_bytes()
         && v.record().request_identity == request
         && bytes("record_identity")? == v.record().identity().as_bytes()
@@ -432,7 +438,7 @@ async fn advisory_lock(
         .bind(v.as_bytes().as_slice())
         .execute(&mut **tx)
         .await
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
     Ok(())
 }
 fn digest(domain: &[u8], bytes: &[u8]) -> R0IdentityV1 {
@@ -441,6 +447,8 @@ fn digest(domain: &[u8], bytes: &[u8]) -> R0IdentityV1 {
     h.update(bytes);
     R0IdentityV1::from_untrusted_bytes(*h.finalize().as_bytes())
 }
-fn store_error(_: impl Debug) -> ReferenceFactR0ErrorV1 {
+#[track_caller]
+fn store_error(cause: &impl Debug) -> ReferenceFactR0ErrorV1 {
+    crate::owner::storage_diagnostic::refused_by_store_at(cause);
     ReferenceFactR0ErrorV1::StoreUnavailable
 }
