@@ -185,11 +185,19 @@ fn product_edge_error(error: &ProductEdgeError, result_identity: &str) -> Respon
         ProductEdgeError::ConflictingReplay => {
             (StatusCode::CONFLICT, "PRODUCT_EDGE_IDENTITY_CONFLICT")
         }
-        ProductEdgeError::Unavailable(_) => (StatusCode::FORBIDDEN, "UNAUTHORIZED_PRODUCT_EDGE"),
-        ProductEdgeError::Storage(_) => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "PRODUCT_EDGE_STORAGE_UNAVAILABLE",
-        ),
+        // Unlike the rest of the crate these two do reach the caller as different codes, so the
+        // caller can already tell them apart. What it cannot see is the detail each one carries.
+        ProductEdgeError::Unavailable(detail) => {
+            tracing::warn!(%detail, %result_identity, "Product Edge authority unavailable");
+            (StatusCode::FORBIDDEN, "UNAUTHORIZED_PRODUCT_EDGE")
+        }
+        ProductEdgeError::Storage(detail) => {
+            tracing::warn!(%detail, %result_identity, "Product Edge storage unavailable");
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "PRODUCT_EDGE_STORAGE_UNAVAILABLE",
+            )
+        }
     };
 
     rejection(status, code, result_identity)
@@ -285,6 +293,9 @@ mod tests {
     use tower::ServiceExt;
 
     use super::*;
+    use vibe_product_edge::{
+        ProductEdgeSubjectKindV1, ProductEdgeUnavailableReasonV1, ProductEdgeUnavailableV1,
+    };
 
     struct OwnerStub {
         admit_calls: AtomicUsize,
@@ -620,5 +631,38 @@ mod tests {
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
         assert_eq!(owner.resolve_calls.load(Ordering::SeqCst), 1);
         assert_eq!(owner.admit_calls.load(Ordering::SeqCst), 0);
+    }
+
+    /// The two causes are one status and one code on the wire; the log is where they come apart.
+    #[rstest]
+    #[case::authority(
+        ProductEdgeError::Unavailable(ProductEdgeUnavailableV1::about(
+            ProductEdgeUnavailableReasonV1::Missing,
+            ProductEdgeSubjectKindV1::Admission,
+            "iteration-result-admission-authority",
+        )),
+        "iteration-result-admission-authority",
+        "Product Edge authority unavailable",
+        StatusCode::FORBIDDEN
+    )]
+    #[case::storage(
+        ProductEdgeError::Storage("iteration-result-admission-storage".to_string()),
+        "iteration-result-admission-storage",
+        "Product Edge storage unavailable",
+        StatusCode::SERVICE_UNAVAILABLE,
+    )]
+    fn an_unavailable_refusal_names_its_cause_in_the_log(
+        #[case] error: ProductEdgeError,
+        #[case] detail: &str,
+        #[case] message: &str,
+        #[case] status: StatusCode,
+    ) {
+        let (response, written) =
+            crate::log_capture::capture(|| product_edge_error(&error, "result-1"));
+
+        assert_eq!(response.status(), status, "{written}");
+        assert!(written.contains("WARN"), "{written}");
+        assert!(written.contains(detail), "{written}");
+        assert!(written.contains(message), "{written}");
     }
 }
