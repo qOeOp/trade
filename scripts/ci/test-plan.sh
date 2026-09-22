@@ -500,6 +500,17 @@ for chain_channel in .github/workflows/build.yml .github/workflows/owner-chains.
     echo "A record that never leaves the runner answers nothing about which entries ran." >&2
     exit 1
   fi
+  # Both channels run the chain job as a matrix over two legs, and only the R&D leg's script takes
+  # the per-entry copies. An unconditional upload finds nothing on the Market Data leg, and
+  # `if-no-files-found: error` - which is there so an empty upload cannot read as "no entry ran" -
+  # then fails that job. Run 35688437514 is what that looks like.
+  if ! grep -A1 'name: Publish which chain entries ran' "$repo_root/$chain_channel" |
+    grep -q "matrix.chain.key == 'rd-owner'"; then
+    echo "$chain_channel publishes the chain record without restricting it to the rd-owner leg." >&2
+    echo "The Market Data leg writes no records, so the upload finds nothing there and fails the" >&2
+    echo "job on if-no-files-found: error." >&2
+    exit 1
+  fi
 done
 grep -Fq 'rust-cache-workspace-crates: "true"' "$build_workflow"
 grep -Fq 'rust-doctests-linux-x86:' "$build_workflow"

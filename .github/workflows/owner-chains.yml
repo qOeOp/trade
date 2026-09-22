@@ -127,8 +127,12 @@ jobs:
       # `if: always()`: the run that ends at an entry is the one whose record answers the most.
       # `if-no-files-found: error` because an empty upload would say "no entry ran" in the same
       # shape as "the copy broke".
+      # Only the R&D leg writes these: `test-rd-owner-postgres.bash` takes the per-entry copies,
+      # and the Market Data chain has its own script that does not. Without the leg condition this
+      # step runs on both, finds nothing on the Market Data leg, and `if-no-files-found: error`
+      # turns that into a failed job - which is exactly what it did on run 35688437514.
       - name: Publish which chain entries ran
-        if: always()
+        if: always() && matrix.chain.key == 'rd-owner'
         # https://github.com/actions/upload-artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
