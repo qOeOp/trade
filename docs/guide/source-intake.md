@@ -101,6 +101,24 @@ invocation claim and start, terminal receipt, and readback. A class mismatch is 
 replay. An acceptance endpoint must use a non-public fixture identity and must never masquerade as
 `api.openalex.org`; a fixture result is never live-provider evidence.
 
+**CURRENT - what a production policy resolution is still missing, measured rather than surveyed.**
+`SourceIntakePolicyEvidencePort` turns five policy locators plus a shared-time head into the
+forty-four fields of `SourceIntakePolicyEvidenceV1`. Both halves of that exist only behind
+`sealed-source-intake-research-acceptance`: the query that decides *which* policies apply fills
+every locator from a `SEALED_` constant, and the port that resolves them calls a fixture
+constructor and then overwrites the shared-time fields with literals. The port has no production
+implementation at all - its other implementation is inside a `#[cfg(test)]` module.
+
+Reading the two halves separates the gap into parts that are not the same size. On a replay the
+locators have a source: the stored acquisition binding carries every policy identity and version,
+and the doc comment on the sealed query builder states the rule that makes this safe - the binding
+is an untrusted locator source and the port still re-resolves and seals each referenced fact. On a
+**first** acquisition they have none. `AgentOperationManifestProposalV1` is the nearest thing that
+could carry them and does not: it binds the operation, its allowed and prohibited effects, a
+capability policy digest and a validity window, which is effect authority rather than acquisition
+policy. So the first question a production implementation answers is not how to resolve a locator
+but where a first acquisition's locators come from at all.
+
 One Source Intake Owner orchestrator owns the complete lifecycle:
 
 `admission → sealed/live policy → binding commit → durable claim/start → move-only permit → provider execution → retrieval time → atomic terminal`
