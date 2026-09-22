@@ -3331,13 +3331,26 @@ DECLARE
   head operator_authorization_private.operator_authorization_revocation_heads_v1%ROWTYPE;
   current_frontier operator_authorization_private.operator_authorization_revocation_frontiers_v1%ROWTYPE;
 BEGIN
-  IF current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF;
+  -- A bare NULL now means one thing only: this STRICT function short-circuited on a NULL
+  -- argument and never ran. Every other refusal names itself, because the caller cannot read
+  -- these tables - the boundary is SECURITY DEFINER precisely so that it cannot - and a cause
+  -- this function does not name is a cause the caller has no way to recover.
+  IF current_setting('transaction_isolation') <> 'read committed' THEN RETURN jsonb_build_object('schema_version', 1, 'refusal', 'ISOLATION_NOT_READ_COMMITTED'); END IF;
   SELECT * INTO issuance FROM operator_authorization_private.operator_authorization_issuances_v1 WHERE authorization_identity = requested_authorization_identity FOR SHARE;
-  IF NOT FOUND OR issuance.receipt_json->>'receipt_identity' <> requested_issuance_receipt_identity THEN RETURN NULL; END IF;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'AUTHORIZATION_IDENTITY_UNKNOWN');
+  END IF;
+  IF issuance.receipt_json->>'receipt_identity' <> requested_issuance_receipt_identity THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'ISSUANCE_RECEIPT_IDENTITY_MISMATCH');
+  END IF;
   SELECT * INTO head FROM operator_authorization_private.operator_authorization_revocation_heads_v1 WHERE scope_digest = issuance.scope_digest FOR SHARE;
-  IF NOT FOUND THEN RETURN NULL; END IF;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'REVOCATION_HEAD_MISSING');
+  END IF;
   SELECT * INTO current_frontier FROM operator_authorization_private.operator_authorization_revocation_frontiers_v1 WHERE frontier_identity = head.frontier_identity AND scope_digest = issuance.scope_digest FOR SHARE;
-  IF NOT FOUND THEN RETURN NULL; END IF;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'REVOCATION_FRONTIER_MISSING');
+  END IF;
   PERFORM 1 FROM operator_authorization_private.operator_authorization_issuances_v1 scope_issuance WHERE scope_issuance.scope_digest = issuance.scope_digest FOR SHARE;
   PERFORM 1 FROM operator_authorization_private.operator_authorization_revocation_frontiers_v1 frontier WHERE frontier.scope_digest = issuance.scope_digest FOR SHARE;
   PERFORM 1 FROM operator_authorization_private.operator_authorization_owner_outbox_v1 outbox WHERE outbox.aggregate_identity IN (SELECT scope_issuance.authorization_identity FROM operator_authorization_private.operator_authorization_issuances_v1 scope_issuance WHERE scope_issuance.scope_digest = issuance.scope_digest) OR outbox.aggregate_identity IN (SELECT frontier.frontier_identity FROM operator_authorization_private.operator_authorization_revocation_frontiers_v1 frontier WHERE frontier.scope_digest = issuance.scope_digest) FOR SHARE;
