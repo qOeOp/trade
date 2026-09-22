@@ -834,7 +834,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let locator = crate::product_edge_postgres::tests::bootstrap_operation_admission(
+        let (locator, _) = crate::product_edge_postgres::tests::bootstrap_operation_admission(
             crate::product_edge_postgres::tests::BootstrapAdmissionTopology::Existing {
                 operator_authorization_database_url: database
                     .database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),

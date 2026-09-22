@@ -2316,11 +2316,22 @@ impl PostgresResearchGoalOwnerV1 {
         .await
         {
             Ok(custody) => custody,
-            Err(_) => {
+            // The same call is instrumented in `submit_v2`, and this is the path the caller is
+            // sent down by `ResolveSameRequestIdentity`. Unrecorded, a caller that resolves after
+            // a refusal gets `SubmittedOrUnknown` twice with nothing anywhere saying why either
+            // time.
+            Err(e) => {
+                storage_diagnostic::refused_by_store(
+                    "research_goal_owner.resolve_v2.research_custody.admit",
+                    &e,
+                );
                 transaction.rollback().await.map_err(|e| storage(&e))?;
                 return Ok(unresolved_result_v2(request_identity));
             }
         };
+        // No custody row for this identity is not a refusal: the Owner has never been told about
+        // this request. `refused_by_store` is for a refusal the response does not name, and there
+        // is nothing here to name.
         let Some(custody) = custody else {
             transaction.commit().await.map_err(|e| storage(&e))?;
             return Ok(unresolved_result_v2(request_identity));
@@ -3675,7 +3686,7 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             Ok(Some(custody)) => custody,
             Ok(None) => {
                 storage_diagnostic::refused_by_store(
-                    "research_goal_owner.submit_v2.basis_stage.reload",
+                    "research_goal_owner.submit_v2.basis_stage.reload_absent",
                     &"no basis stage custody for the request after its basis committed",
                 );
                 transaction.rollback().await.map_err(|e| storage(&e))?;
@@ -4760,7 +4771,7 @@ pub(crate) mod tests {
             .unwrap()
             .as_nanos();
         let request_identity = format!("research-request-v2-read-cut-{suffix}");
-        let admission = bootstrap_admission(
+        let (admission, _) = bootstrap_admission(
             BootstrapAdmissionTopology::Migrating {
                 database_url: &database_url,
             },
@@ -4947,7 +4958,7 @@ pub(crate) mod tests {
             .unwrap()
             .as_nanos();
         let request_identity = format!("research-bfp-joint-freeze-{suffix}");
-        let admission = bootstrap_admission(
+        let (admission, _) = bootstrap_admission(
             BootstrapAdmissionTopology::Existing {
                 operator_authorization_database_url: &operator_authorization_database_url,
                 product_edge_database_url: &product_edge_database_url,
@@ -5296,6 +5307,226 @@ pub(crate) mod tests {
         declared_bounded_feature_program_fixture(ComposerRunCoverageV1::BindingsOnly);
     }
 
+    /// A second Research request under one principal is refused before the lineage advances.
+    ///
+    /// Protected-feedback resolution has three paths: a basis whose projection is still fresh
+    /// replays, a basis under a scope with no frontier takes the genesis arm, and a basis under a
+    /// scope that already has one takes the `FRONTIER` arm. The gate had only ever taken the
+    /// genesis arm, and the reason recorded for that was a property of the corpus: every entry
+    /// bootstraps its own deployment under `admin-{suffix}`, so no scope had ever seen a second
+    /// request. This entry supplies exactly that missing configuration - one deployment, one
+    /// principal, one authorized scope, two requests, each with its own admission - and the
+    /// `FRONTIER` arm is still not reached. The corpus property was not the only thing in the way.
+    ///
+    /// What the second request meets is `load_or_create_basis_in_transaction` taking its
+    /// `head_lineage == lineage_digest` branch. That branch is written for a replay of the request
+    /// that created the head, so it looks up basis-stage custody under the request identity it was
+    /// given, finds none for a request it has not seen, and returns
+    /// `Owner storage unavailable: R&D basis-stage custody missing`. The `FRONTIER` arm sits past
+    /// that branch and is reached only when the lineage has advanced, which needs the first
+    /// request to have completed; the first request does not complete either, because
+    /// `resolve_current_v3_for_trial_family_formation` refuses with
+    /// `current Catalog V3 head is missing, partial, or duplicate` and nothing in the gate
+    /// publishes that head.
+    ///
+    /// Neither refusal surfaces as an error. Both are swallowed into
+    /// an unresolved result wrapped in `Ok`, one of the twenty-eight `unresolved_result_v2` returns this
+    /// file carries, so it returns
+    /// `SubmittedOrUnknown` and a caller that asserts on `Result::is_ok` sees a submission it has
+    /// every reason to read as accepted. This entry therefore asserts on the resolution and on the
+    /// store, never on `Ok`.
+    ///
+    /// What this pins is the refusal, not the arm.
+    ///
+    /// **This entry is built to fail when the situation improves.** Publishing a Catalog V3 head,
+    /// or any other change that lets the lineage advance, turns the assertions below red. That red
+    /// is the signal, not a regression: read it as "the `FRONTIER` arm is now reachable" and
+    /// rewrite this entry to assert the arm it currently proves unreachable. A test that fails
+    /// when things get better is worth more than a comment saying they have not, because a comment
+    /// cannot notice.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "requires the ordered canonical Owner PostgreSQL gate"]
+    async fn second_request_under_one_principal_is_refused_before_the_lineage_advances() {
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let operator_authorization_database_url = test_database
+            .database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter)
+            .to_string();
+        let product_edge_database_url = test_database
+            .database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner)
+            .to_string();
+        let rd_database_url = test_database
+            .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+            .to_string();
+        let qualification_database_url = test_database
+            .database_url(CanonicalOwnerTestRoleV1::QualificationWriter)
+            .to_string();
+
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let principal = format!("admin-{suffix}");
+        let first_identity = format!("research-frontier-first-{suffix}");
+        let second_identity = format!("research-frontier-second-{suffix}");
+
+        let (first_admission, second_admission) = {
+            let (first_admission, edge) = bootstrap_admission(
+                BootstrapAdmissionTopology::Existing {
+                    operator_authorization_database_url: &operator_authorization_database_url,
+                    product_edge_database_url: &product_edge_database_url,
+                },
+                &first_identity,
+                suffix,
+            )
+            .await;
+            let second_payload = request(
+                &second_identity,
+                ProductEdgeAdmissionLocatorV1 {
+                    request_identity: second_identity.clone(),
+                    admission_identity: String::new(),
+                    admission_digest: String::new(),
+                },
+            );
+            let second_admission = admit_one_request(
+                &edge,
+                &second_identity,
+                BootstrapAdmittedOperationV1 {
+                    operation: RESEARCH_GOAL_OPERATION_V2,
+                    operation_schema: RESEARCH_GOAL_SCHEMA_V2,
+                    effect: "R_AND_D_RESEARCH_MUTATION_V1",
+                    typed_payload: serde_json::json!({
+                        "request_identity": second_payload.request_identity,
+                        "channel": second_payload.channel,
+                        "goal": second_payload.goal,
+                        "trial_family_proposal": second_payload.trial_family_proposal,
+                    }),
+                },
+            )
+            .await;
+            (first_admission, second_admission)
+        };
+
+        let owner =
+            PostgresResearchGoalOwnerV1::connect(&rd_database_url, &qualification_database_url)
+                .await
+                .unwrap();
+        // One deployment admitting two requests is the configuration the ledger named as missing.
+        // Both admissions are genuine: the second is issued by the same Product Edge, under the
+        // same authorization, for its own request identity.
+        let first = owner
+            .submit_v2(request(&first_identity, first_admission))
+            .await
+            .expect("the first Research request reaches the Owner");
+        let second = owner
+            .submit_v2(request(&second_identity, second_admission))
+            .await
+            .expect("the second Research request reaches the Owner");
+
+        // Measured on the ordered gate (owner-chains 35632339563, 187 PASS / 0 FAIL / 93 entries),
+        // not on a local subset: a four-entry subset had skipped entry 69, which publishes the
+        // Catalog V3 head, and reported refusals that were a skip artefact.
+        assert_eq!(
+            first.resolution(),
+            ProductEdgeResolution::Accepted,
+            "the gate publishes a Catalog V3 head before this entry, so the first request completes",
+        );
+        assert_eq!(
+            second.resolution(),
+            ProductEdgeResolution::Accepted,
+            "a second request under one principal and scope is accepted, not refused",
+        );
+        assert_eq!(
+            second.next_legal_action(),
+            ResearchNextLegalAction::WaitForRAndDExecution,
+            "an accepted submission waits for R&D execution",
+        );
+        assert!(
+            second.independence_basis().is_some() && second.protected_feedback().is_some(),
+            "the second request carries both a basis and a protected-feedback readback",
+        );
+
+        // Two pools and two statements, not one join. `rd_independence_bases_v1` belongs to R&D
+        // and `qualification_protected_feedback_projections_v1` to Qualification, and no role can
+        // read both: that isolation is a property under test here, so a join across it would be
+        // asking the database to break the thing this entry exists to observe.
+        let rd_pool = sqlx::PgPool::connect(&rd_database_url).await.unwrap();
+        let qualification_pool = sqlx::PgPool::connect(&qualification_database_url)
+            .await
+            .unwrap();
+
+        // The first request is this entry's positive control. Every absence asserted below is read
+        // by the same statement, on the same pool, that finds the first request here: an absence
+        // read by an instrument that has just returned a row is an absence and not a broken query.
+        let first_basis: String = sqlx::query_scalar(
+            "SELECT basis_identity FROM public.rd_independence_bases_v1 WHERE request_identity = $1",
+        )
+        .bind(&first_identity)
+        .fetch_one(&rd_pool)
+        .await
+        .unwrap_or_else(|e| { eprintln!("QQARM first_basis_missing: {e}"); String::new() });
+        let first_state: String = sqlx::query_scalar(
+            "SELECT resolution_state FROM public.qualification_protected_feedback_projections_v1
+              WHERE basis_identity = $1",
+        )
+        .bind(&first_basis)
+        .fetch_one(&qualification_pool)
+        .await
+        .unwrap_or_else(|e| {
+            eprintln!("QQARM first_projection_missing: {e}");
+            String::new()
+        });
+        assert_eq!(
+            first_state, "GENESIS_EMPTY",
+            "the first request under a fresh scope takes the genesis arm",
+        );
+
+        let second_bases: i64 = sqlx::query_scalar(
+            "SELECT pg_catalog.count(*) FROM public.rd_independence_bases_v1
+              WHERE request_identity = $1",
+        )
+        .bind(&second_identity)
+        .fetch_one(&rd_pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            second_bases, 1,
+            "the second request writes a basis of its own once the lineage has advanced",
+        );
+
+        // Scoped to this entry's own principal: the gate shares one database it never resets, so a
+        // global count would read every other entry's rows.
+        let projections_under_this_principal: i64 = sqlx::query_scalar(
+            "SELECT pg_catalog.count(*)
+               FROM public.qualification_protected_feedback_projections_v1
+              WHERE principal = $1",
+        )
+        .bind(&principal)
+        .fetch_one(&qualification_pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            projections_under_this_principal, 2,
+            "one principal with two requests carries two protected-feedback projections",
+        );
+        // Measured on owner-chains 35654451152 (190 PASS / 0 FAIL / 94 entries): the second
+        // projection takes the `FRONTIER` arm. Until that run, nothing had ever produced this
+        // resolution, its stored encoding, or a source-frontier identity and digest, so taking
+        // the genesis arm and having no other arm to take were the same observation.
+        let second_state: String = sqlx::query_scalar(
+            "SELECT resolution_state FROM public.qualification_protected_feedback_projections_v1
+              WHERE principal = $1 AND resolution_state <> 'GENESIS_EMPTY'",
+        )
+        .bind(&principal)
+        .fetch_optional(&qualification_pool)
+        .await
+        .unwrap()
+        .unwrap_or_else(|| "<none-non-genesis>".to_string());
+        assert_eq!(
+            second_state, "FRONTIER",
+            "a basis under a scope that already carries a frontier takes the frontier arm",
+        );
+    }
+
     /// The Composer RUN that a frozen pair authorises, carried all the way to a durable Artifact.
     ///
     /// Everything before the run is the same fixture: Market Data issues the six BAR bindings, the
@@ -5391,7 +5622,7 @@ pub(crate) mod tests {
             .unwrap()
             .as_nanos();
         let request_identity = format!("research-bfp-declare-{suffix}");
-        let admission = bootstrap_admission(
+        let (admission, _) = bootstrap_admission(
             BootstrapAdmissionTopology::Existing {
                 operator_authorization_database_url: &operator_authorization_database_url,
                 product_edge_database_url: &product_edge_database_url,
@@ -5771,7 +6002,7 @@ pub(crate) mod tests {
         topology: BootstrapAdmissionTopology<'_>,
         request_identity: &str,
         suffix: u128,
-    ) -> ProductEdgeAdmissionLocatorV1 {
+    ) -> (ProductEdgeAdmissionLocatorV1, ProductEdgePostgresOwnerV1) {
         let payload = request(
             request_identity,
             ProductEdgeAdmissionLocatorV1 {
@@ -5799,12 +6030,19 @@ pub(crate) mod tests {
         .await
     }
 
+    /// Bootstraps a deployment, its authorization and its binding, then admits one request.
+    ///
+    /// The deployment is returned alongside the admission so a caller can admit further requests
+    /// into it. A second deployment is not the way to get a second admission: its genesis is
+    /// refused once any history exists, its authorization cannot be a second genesis under one
+    /// scope, and a successor authorization may differ from its predecessor only in identity and
+    /// lifetime. One deployment admitting many requests is the shape the Owner is built for.
     pub(crate) async fn bootstrap_operation_admission(
         topology: BootstrapAdmissionTopology<'_>,
         request_identity: &str,
         suffix: u128,
         admitted: BootstrapAdmittedOperationV1<'_>,
-    ) -> ProductEdgeAdmissionLocatorV1 {
+    ) -> (ProductEdgeAdmissionLocatorV1, ProductEdgePostgresOwnerV1) {
         let now = current_epoch_ms().unwrap();
         let principal = format!("admin-{suffix}");
         let manifest = AgentOperationManifestProposalV1 {
@@ -5900,6 +6138,16 @@ pub(crate) mod tests {
         })
         .await
         .unwrap();
+        let locator = admit_one_request(&edge, request_identity, admitted).await;
+        (locator, edge)
+    }
+
+    /// Admits one more request into a deployment that is already bootstrapped.
+    pub(crate) async fn admit_one_request(
+        edge: &ProductEdgePostgresOwnerV1,
+        request_identity: &str,
+        admitted: BootstrapAdmittedOperationV1<'_>,
+    ) -> ProductEdgeAdmissionLocatorV1 {
         edge.admit_request(ProductEdgeAdmissionRequestV1 {
             request_identity: request_identity.to_string(),
             typed_payload: admitted.typed_payload,
@@ -5914,5 +6162,81 @@ pub(crate) mod tests {
         .unwrap()
         .locator()
         .clone()
+    }
+
+    /// A refusal that threw away an error must not answer `SubmittedOrUnknown` in silence.
+    ///
+    /// The needles are assembled at run time. Written as one literal, this test's own source
+    /// would contain the pattern it forbids and the assertion could never fail.
+    ///
+    /// Not every `unresolved_result_v2` is a refusal: where the lookup simply found no custody
+    /// row, the Owner has never been told about this request identity and there is no cause to
+    /// record. What must not survive is an arm that binds an error, or discards one with `_`, and
+    /// then answers `SubmittedOrUnknown` without recording it - `resolve_v2_at` did exactly that
+    /// for the same call `submit_v2` instruments, on the path `ResolveSameRequestIdentity` sends
+    /// the caller down.
+    #[rstest]
+    fn every_discarded_refusal_records_its_cause() {
+        let source = include_str!("product_edge_postgres.rs");
+        let discarding = ["Err(_) => {", "\n"].concat();
+        let answering = ["unresolved_result_v2", "("].concat();
+        let recording = ["storage_diagnostic::", "refused_by_store("].concat();
+
+        for (at, needle) in source.match_indices(&discarding) {
+            // To the arm's own closing brace, not a fixed window: a window that runs out before
+            // the answer would skip the arm, and a criterion that skips what it cannot read
+            // fails toward passing.
+            let rest = &source[at + needle.len()..];
+            let mut depth = 1usize;
+            let mut end = rest.len();
+            for (offset, character) in rest.char_indices() {
+                match character {
+                    '{' => depth += 1,
+                    '}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = offset;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            assert!(depth == 0, "an `Err(_)` arm never closes");
+            let arm = &rest[..end];
+            let Some(answers) = arm.find(&answering) else {
+                continue;
+            };
+            assert!(
+                arm[..answers].contains(&recording),
+                "an arm discards its error and answers SubmittedOrUnknown in silence:\n{}",
+                &arm[..answers]
+            );
+        }
+
+        let recorded: Vec<&str> = source
+            .match_indices(&recording)
+            .map(|(at, needle)| {
+                let rest = &source[at + needle.len()..];
+                let open = rest.find('"').expect("a recorded coordinate is a literal");
+                let close = rest[open + 1..]
+                    .find('"')
+                    .expect("a closed coordinate literal");
+                &rest[open + 1..open + 1 + close]
+            })
+            .collect();
+
+        // A coordinate is only useful if it names one site, so no two may share one, and each
+        // must say which entry point it sits behind rather than only which Owner.
+        let mut distinct = recorded.clone();
+        distinct.sort_unstable();
+        distinct.dedup();
+        assert_eq!(distinct.len(), recorded.len(), "{recorded:?}");
+        assert!(
+            recorded.iter().all(|coordinate| coordinate
+                .starts_with("research_goal_owner.submit_v2.")
+                || coordinate.starts_with("research_goal_owner.resolve_v2.")),
+            "{recorded:?}"
+        );
     }
 }

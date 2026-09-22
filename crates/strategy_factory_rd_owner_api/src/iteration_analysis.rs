@@ -224,7 +224,10 @@ async fn complete_iteration_analysis(
                 &result_identity,
             );
         }
-        Err(ProductEdgeError::Unavailable(_) | ProductEdgeError::Storage(_)) => {
+        // The code tells the caller the admission is unavailable, which is all it can act on.
+        // Which of the two made it unavailable belongs in the log, and was discarded here.
+        Err(error @ (ProductEdgeError::Unavailable(_) | ProductEdgeError::Storage(_))) => {
+            tracing::warn!(%error, %result_identity, "Product Edge admission unavailable");
             return rejection(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "PRODUCT_EDGE_ITERATION_ANALYSIS_ADMISSION_UNAVAILABLE",

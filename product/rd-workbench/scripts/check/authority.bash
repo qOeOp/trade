@@ -23,6 +23,7 @@ grep -Fq ': "${RD_OWNER_DATABASE_NAME:=rd_owner}"' "$package_dir/postgres-init/0
 grep -Fq ": \"\${RD_FACT_WRITER_DB_PASSWORD:?set RD_FACT_WRITER_DB_PASSWORD}\"" "$package_dir/postgres-init/00-create-rd-owner.sh"
 grep -Fq ": \"\${RD_FACT_WRITER_DB_PASSWORD:?set RD_FACT_WRITER_DB_PASSWORD}\"" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq ": \"\${MARKET_DATA_OWNER_DB_PASSWORD:?set MARKET_DATA_OWNER_DB_PASSWORD}\"" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq ": \"\${MARKET_DATA_READER_DB_PASSWORD:?set MARKET_DATA_READER_DB_PASSWORD}\"" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq ": \"\${REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD:?set REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD}\"" "$package_dir/postgres-init/00-create-rd-owner.sh"
 grep -Fq ": \"\${REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD:?set REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD}\"" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE DATABASE :"rd_owner_database_name" OWNER rd_owner' "$package_dir/postgres-init/00-create-rd-owner.sh"
@@ -37,19 +38,23 @@ grep -Fq "ALTER ROLE replay_policy_catalog_admin_writer LOGIN INHERIT NOSUPERUSE
 postgres_compose=$(sed -n '/^  postgres:$/,/^  rd-owner-api:$/p' "$package_dir/docker-compose.yml")
 printf '%s\n' "$postgres_compose" | grep -Fq "RD_FACT_WRITER_DB_PASSWORD=\${RD_FACT_WRITER_DB_PASSWORD:?set RD_FACT_WRITER_DB_PASSWORD}"
 printf '%s\n' "$postgres_compose" | grep -Fq "MARKET_DATA_OWNER_DB_PASSWORD=\${MARKET_DATA_OWNER_DB_PASSWORD:?set MARKET_DATA_OWNER_DB_PASSWORD}"
+printf '%s\n' "$postgres_compose" | grep -Fq "MARKET_DATA_READER_DB_PASSWORD=\${MARKET_DATA_READER_DB_PASSWORD:?set MARKET_DATA_READER_DB_PASSWORD}"
 printf '%s\n' "$postgres_compose" | grep -Fq "REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD=\${REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD:?set REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD}"
 custody_migrate_compose=$(sed -n '/^  authority-custody-migrate:$/,/^  replay-policy-catalog-bootstrap:$/p' "$package_dir/docker-compose.yml")
 printf '%s\n' "$custody_migrate_compose" | grep -Fq 'RD_FACT_WRITER_DB_PASSWORD: >-'
 printf '%s\n' "$custody_migrate_compose" | grep -Fq "\${RD_FACT_WRITER_DB_PASSWORD:?set RD_FACT_WRITER_DB_PASSWORD}"
 printf '%s\n' "$custody_migrate_compose" | grep -Fq "\${MARKET_DATA_OWNER_DB_PASSWORD:?set MARKET_DATA_OWNER_DB_PASSWORD}"
+printf '%s\n' "$custody_migrate_compose" | grep -Fq "\${MARKET_DATA_READER_DB_PASSWORD:?set MARKET_DATA_READER_DB_PASSWORD}"
 printf '%s\n' "$custody_migrate_compose" | grep -Fq "\${REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD:?set REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD}"
 grep -Fq 'RD_FACT_WRITER_DB_PASSWORD=replace-with-local-random-value' "$package_dir/.env.example"
 grep -Fq 'MARKET_DATA_OWNER_DB_PASSWORD=replace-with-local-random-value' "$package_dir/.env.example"
+grep -Fq 'MARKET_DATA_READER_DB_PASSWORD=replace-with-local-random-value' "$package_dir/.env.example"
 grep -Fq 'MARKET_DATA_OWNER_DATABASE_URL=replace-with-private-market-data-owner-database-url' "$package_dir/.env.example"
 grep -Fq 'REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD=replace-with-local-random-value' "$package_dir/.env.example"
 ci_postgres_test="$package_dir/../../scripts/ci/test-rd-owner-postgres.bash"
 test "$(grep -Fc -- "--env \"RD_FACT_WRITER_DB_PASSWORD=\${test_password}\"" "$ci_postgres_test")" -eq 3
 test "$(grep -Fc -- "--env \"MARKET_DATA_OWNER_DB_PASSWORD=\${test_password}\"" "$ci_postgres_test")" -eq 3
+test "$(grep -Fc -- "--env \"MARKET_DATA_READER_DB_PASSWORD=\${test_password}\"" "$ci_postgres_test")" -eq 3
 test "$(grep -Fc -- "--env \"REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD=\${test_password}\"" "$ci_postgres_test")" -eq 3
 if grep -Fq "ALTER ROLE rd_fact_writer LOGIN PASSWORD :'test_password';" "$ci_postgres_test"; then
   echo "disposable CI must use the canonical rd_fact_writer credential chain" >&2
@@ -382,5 +387,47 @@ grep -Fq 'authority-custody-migrate:' "$package_dir/docker-compose.yml"
 if grep -Eq '^[[:space:]]*authority-recovery:[[:space:]]*$' "$package_dir/docker-compose.yml" &&
   ! grep -A3 -F 'authority-recovery:' "$package_dir/docker-compose.yml" | grep -Fq 'profiles: ["authority-admin"]'; then
   echo "authority recovery must remain opt-in" >&2
+  exit 1
+fi
+
+# Every role this migration gives LOGIN must also be given a PASSWORD, judged by role name.
+#
+# Stated once over all of them rather than role by role. The checks above name each contract
+# literally, which is what a contract check should do - but an enumeration only refuses what it
+# enumerates, and `market_data_reader` was given LOGIN with no password and no line here noticed.
+# A LOGIN role with `rolpassword IS NULL` cannot authenticate over TCP, so the deployment could
+# not produce `MARKET_DATA_RD_ROLE_SET_DATABASE_URL`, which `main.rs` requires unconditionally:
+# the Owner refused to start with `fe_sendauth: no password supplied`.
+#
+# The first version of this check matched line shapes - `^ALTER ROLE ... LOGIN` - and so was an
+# enumeration wearing a loop's clothes. It could not see `product_edge_owner` at all: that role
+# takes LOGIN from an indented `CREATE ROLE ... LOGIN` inside a DO block, and takes its password
+# from a separate `ALTER ROLE ... PASSWORD` line that never says LOGIN. Deleting that password
+# line left the check green. Counting by role name instead of by line closes that, and the counts
+# say why it mattered: 14 roles take LOGIN via ALTER, 14 via CREATE, and only 13 are in both.
+#
+# None of the 14 `CREATE ROLE ... LOGIN` statements carries a password of its own; every one of
+# them depends on a later ALTER. So the next role added with only a DO-block CREATE would repeat
+# `market_data_reader` exactly, which is the case this check exists to refuse.
+migration_sql="$package_dir/postgres-init/10-migrate-authority-custody.sh"
+roles_with_login=$(
+  {
+    grep -oE 'ALTER ROLE [a-z_]+ [^;]*LOGIN' "$migration_sql" | grep -v NOLOGIN | awk '{print $3}'
+    grep -oE 'CREATE ROLE [a-z_]+ [^;]*LOGIN' "$migration_sql" | grep -v NOLOGIN | awk '{print $3}'
+  } | sort -u
+)
+roles_with_password=$(
+  grep -oE 'ALTER ROLE [a-z_]+ [^;]*PASSWORD' "$migration_sql" | awk '{print $3}' | sort -u
+)
+login_without_password=$(comm -23 <(printf '%s\n' "$roles_with_login") <(printf '%s\n' "$roles_with_password"))
+if [ -n "$login_without_password" ]; then
+  echo "these roles are given LOGIN with no PASSWORD, so no deployment can authenticate as them:" >&2
+  printf '%s\n' "$login_without_password" >&2
+  exit 1
+fi
+# A check that can only pass proves nothing, so assert the matcher still sees roles at all.
+login_role_count=$(printf '%s\n' "$roles_with_login" | grep -c .)
+if [ "$login_role_count" -lt 10 ]; then
+  echo "expected at least ten roles taking LOGIN, saw $login_role_count - the matcher stopped matching" >&2
   exit 1
 fi

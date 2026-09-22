@@ -115,6 +115,34 @@ provider call 或业务写。当前没有 Dashboard route 或已准入 Backtest 
 因此组件测试与静态渲染不能建立 live data、deployed-browser acceptance、S3 availability 或 Windmill
 replacement。
 
+## 有界准入：单次回测报告
+
+`BacktestRunReport` 是已文档化 `/backtest` 表面上、针对单次 Owner 已提交回测运行的
+`TARGET_DRAFT / IMPLEMENTATION_ADMITTED` 只读报告表面。它不引用上游源码保真基线。其余有界准入所指的 Vibe
+Trading 树并未 vendor 进本仓库，也未被检索，因此本节不对该树是否存在这样的表面作任何断言；其展示的
+边界由下面的契约约束，而不是由引入的设计约束。
+它恰好回答关于一次运行的四个问题，且不携带回答第五个问题的任何字段：策略是什么、跑在哪段数据上、
+这次运行产出了什么、每一笔成交是什么。把一条策略与同类排名是 `BacktestReturnBand` 的职责而不是本表面，
+因此本报告不渲染 quantile band、不渲染 benchmark、不做对比。
+
+正向渲染只接受一个精确、有界、Owner 投影的 `run_identity`。策略按已准入的单阈值族的陈述给出：通道、
+阈值、比较、两侧动作与 falsifier。canonical UTC 指 RFC3339、恰好九位小数秒、且带 `Z` 偏移，因此不把截断决定下放，也不接受任何带偏移量的
+形式。数据窗口按 instrument、粒度、canonical UTC 起止、快照数，以及一个由
+投影显式携带的 `cut_identity` 给出，而不是由浏览器从时间戳对齐推断。策略陈述,以及粒度、快照数与 `cut_identity`,都不来自回测结果:它们由 run 从上游携带,
+投影在其旁陈述,因此到规范回测结果里去找阈值的读者将找不到。结果是权益或收益序列,加上净收益、
+最大回撤与成交次数,每一项都是 Owner 校验过的具名字段,而不是对无类型 map 的按键查找,
+因此键名被改会 fail 到 `unavailable`,而不是渲染成缺失。每一笔成交携带 canonical UTC 时间戳、方向、价格与数量。point 严格按时间排序，
+因此相邻时间戳相等时 fail closed 而不是渲染。每一个数值都是有限的，因此 `NaN` 与无穷 fail closed
+而不是到达坐标轴。未知字段、错误顺序、series 失配、携带陈旧值或非 canonical 时间全部 fail closed 为零
+报告数据。浏览器不派生任何东西：它不合成收益、不计算投影未陈述的回撤、不推断投影未列出的成交。
+
+`loading`、`unavailable`、合法 `empty` 与 `available` 是四种独立状态，且投影必须把它们区分表达：空序列
+不得同时代表「这次运行没有产出 point」与「这次读取无法被回答」。本表面不执行 Backtest dispatch、
+selection commit、comparison judgment、Owner resolve、provider call 或业务写，也不建立 S3 deployment
+availability、executor cutover 或 real-trading authority。当前没有 Dashboard route 或已准入 Backtest
+Owner resolver 为它提供正向投影，因此组件测试与静态渲染不能建立 live data 或 deployed-browser
+acceptance。
+
 ## 有界准入：Exploratory Replay 请求与结果回读
 
 `ExploratoryReplayReadbackWorkbench` 是 `/backtest` 的精确 `P` surface。它是一个

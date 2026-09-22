@@ -1185,7 +1185,10 @@ async fn compose_successor_research_intent(
                 &request_identity,
             );
         }
-        Err(ProductEdgeError::Unavailable(_) | ProductEdgeError::Storage(_)) => {
+        // Same shape as the other admission sites: the code is what the caller acts on, the
+        // cause is what a reader needs, and it was thrown away at the match.
+        Err(error @ (ProductEdgeError::Unavailable(_) | ProductEdgeError::Storage(_))) => {
+            tracing::warn!(%error, %request_identity, "Product Edge admission unavailable");
             return successor_intent_rejection(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "PRODUCT_EDGE_SUCCESSOR_ADMISSION_UNAVAILABLE",
