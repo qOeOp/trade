@@ -313,11 +313,20 @@ fn owner_error(
     research_request_locator: &str,
 ) -> Response {
     let (status, code) = match error {
-        ResearchBoundedFeatureProgramOwnerErrorV1::Storage(_)
-        | ResearchBoundedFeatureProgramOwnerErrorV1::Unavailable => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "RD_OWNER_CUSTODY_UNAVAILABLE",
-        ),
+        // Two variants, one code. `RD_OWNER_CUSTODY_UNAVAILABLE` is what the caller can act on
+        // either way; which of the two it was, and what the store said, belongs in the log.
+        error @ (ResearchBoundedFeatureProgramOwnerErrorV1::Storage(_)
+        | ResearchBoundedFeatureProgramOwnerErrorV1::Unavailable) => {
+            tracing::warn!(
+                %error,
+                %research_request_locator,
+                "R&D bounded feature program custody unavailable"
+            );
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "RD_OWNER_CUSTODY_UNAVAILABLE",
+            )
+        }
         ResearchBoundedFeatureProgramOwnerErrorV1::ResearchCustody => {
             (StatusCode::CONFLICT, "RESEARCH_CUSTODY_MISMATCH")
         }
@@ -508,5 +517,40 @@ mod assembly_rejection_tests {
                 StatusCode::UNPROCESSABLE_ENTITY
             );
         }
+    }
+
+    /// Both variants keep one code; the log is where they come apart.
+    #[rstest]
+    #[case::storage(
+        ResearchBoundedFeatureProgramOwnerErrorV1::Storage(sqlx::Error::RowNotFound),
+        "no rows returned"
+    )]
+    // `no rows returned` is sqlx's own text for `RowNotFound`. Asserting it rather than the
+    // variant name is deliberate: the variant's `#[error(..)]` used to say only "R&D Owner
+    // storage is unavailable" and drop `{0}`, so the payload was discarded at Display time and
+    // `%error` could not recover it. This case fails again if that interpolation is removed.
+    // Not "unavailable": that word is in this site's own log message, so asserting it would
+    // hold whether or not the variant reached the log. The negative control caught exactly that
+    // - this case was the one that still passed when the cause was removed. `joint-freeze` is
+    // the part only `Unavailable`'s own Display contributes.
+    #[case::unavailable(ResearchBoundedFeatureProgramOwnerErrorV1::Unavailable, "joint-freeze")]
+    fn an_unavailable_custody_names_which_one_in_the_log(
+        #[case] error: ResearchBoundedFeatureProgramOwnerErrorV1,
+        #[case] distinguishing: &str,
+    ) {
+        let (response, written) =
+            crate::log_capture::capture(|| super::owner_error(&error, "research-request-1"));
+
+        assert_eq!(
+            response.status(),
+            StatusCode::SERVICE_UNAVAILABLE,
+            "{written}"
+        );
+        assert!(written.contains("WARN"), "{written}");
+        assert!(written.contains("research-request-1"), "{written}");
+        assert!(
+            written.to_lowercase().contains(distinguishing),
+            "the log must separate the two variants: {written}"
+        );
     }
 }
