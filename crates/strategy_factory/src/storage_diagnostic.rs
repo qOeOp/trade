@@ -11,8 +11,14 @@
 //! instrumented build against a disposable store. Market Data's `storage_diagnostic` is the
 //! precedent; this is the same channel for the R&D Owner.
 //!
+//! `resolve_v2_at` is covered on the same terms. It is the path `ResolveSameRequestIdentity`
+//! sends a refused caller down, so a gap there means the caller is told to ask again and the
+//! second answer is as silent as the first.
+//!
 //! Scope is a refusal that the response does not name. A refusal the contract already names -
-//! `ConflictingReplay`, `Unauthorized`, `Storage` - is not reported here.
+//! `ConflictingReplay`, `Unauthorized`, `Storage` - is not reported here, and neither is a lookup
+//! that simply found no row: an identity the Owner has never been told about is not a refusal and
+//! has no cause to record.
 
 use std::fmt::Display;
 

@@ -2316,11 +2316,22 @@ impl PostgresResearchGoalOwnerV1 {
         .await
         {
             Ok(custody) => custody,
-            Err(_) => {
+            // The same call is instrumented in `submit_v2`, and this is the path the caller is
+            // sent down by `ResolveSameRequestIdentity`. Unrecorded, a caller that resolves after
+            // a refusal gets `SubmittedOrUnknown` twice with nothing anywhere saying why either
+            // time.
+            Err(e) => {
+                storage_diagnostic::refused_by_store(
+                    "research_goal_owner.resolve_v2.research_custody.admit",
+                    &e,
+                );
                 transaction.rollback().await.map_err(|e| storage(&e))?;
                 return Ok(unresolved_result_v2(request_identity));
             }
         };
+        // No custody row for this identity is not a refusal: the Owner has never been told about
+        // this request. `refused_by_store` is for a refusal the response does not name, and there
+        // is nothing here to name.
         let Some(custody) = custody else {
             transaction.commit().await.map_err(|e| storage(&e))?;
             return Ok(unresolved_result_v2(request_identity));
@@ -3675,7 +3686,7 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             Ok(Some(custody)) => custody,
             Ok(None) => {
                 storage_diagnostic::refused_by_store(
-                    "research_goal_owner.submit_v2.basis_stage.reload",
+                    "research_goal_owner.submit_v2.basis_stage.reload_absent",
                     &"no basis stage custody for the request after its basis committed",
                 );
                 transaction.rollback().await.map_err(|e| storage(&e))?;
@@ -5914,5 +5925,81 @@ pub(crate) mod tests {
         .unwrap()
         .locator()
         .clone()
+    }
+
+    /// A refusal that threw away an error must not answer `SubmittedOrUnknown` in silence.
+    ///
+    /// The needles are assembled at run time. Written as one literal, this test's own source
+    /// would contain the pattern it forbids and the assertion could never fail.
+    ///
+    /// Not every `unresolved_result_v2` is a refusal: where the lookup simply found no custody
+    /// row, the Owner has never been told about this request identity and there is no cause to
+    /// record. What must not survive is an arm that binds an error, or discards one with `_`, and
+    /// then answers `SubmittedOrUnknown` without recording it - `resolve_v2_at` did exactly that
+    /// for the same call `submit_v2` instruments, on the path `ResolveSameRequestIdentity` sends
+    /// the caller down.
+    #[rstest]
+    fn every_discarded_refusal_records_its_cause() {
+        let source = include_str!("product_edge_postgres.rs");
+        let discarding = ["Err(_) => {", "\n"].concat();
+        let answering = ["unresolved_result_v2", "("].concat();
+        let recording = ["storage_diagnostic::", "refused_by_store("].concat();
+
+        for (at, needle) in source.match_indices(&discarding) {
+            // To the arm's own closing brace, not a fixed window: a window that runs out before
+            // the answer would skip the arm, and a criterion that skips what it cannot read
+            // fails toward passing.
+            let rest = &source[at + needle.len()..];
+            let mut depth = 1usize;
+            let mut end = rest.len();
+            for (offset, character) in rest.char_indices() {
+                match character {
+                    '{' => depth += 1,
+                    '}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = offset;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            assert!(depth == 0, "an `Err(_)` arm never closes");
+            let arm = &rest[..end];
+            let Some(answers) = arm.find(&answering) else {
+                continue;
+            };
+            assert!(
+                arm[..answers].contains(&recording),
+                "an arm discards its error and answers SubmittedOrUnknown in silence:\n{}",
+                &arm[..answers]
+            );
+        }
+
+        let recorded: Vec<&str> = source
+            .match_indices(&recording)
+            .map(|(at, needle)| {
+                let rest = &source[at + needle.len()..];
+                let open = rest.find('"').expect("a recorded coordinate is a literal");
+                let close = rest[open + 1..]
+                    .find('"')
+                    .expect("a closed coordinate literal");
+                &rest[open + 1..open + 1 + close]
+            })
+            .collect();
+
+        // A coordinate is only useful if it names one site, so no two may share one, and each
+        // must say which entry point it sits behind rather than only which Owner.
+        let mut distinct = recorded.clone();
+        distinct.sort_unstable();
+        distinct.dedup();
+        assert_eq!(distinct.len(), recorded.len(), "{recorded:?}");
+        assert!(
+            recorded.iter().all(|coordinate| coordinate
+                .starts_with("research_goal_owner.submit_v2.")
+                || coordinate.starts_with("research_goal_owner.resolve_v2.")),
+            "{recorded:?}"
+        );
     }
 }
