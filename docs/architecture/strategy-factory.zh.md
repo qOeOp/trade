@@ -623,6 +623,15 @@ canonical Result bytes；单帧 V1 的 28 项证据不能证明双帧运行。�
 不得声称闭环，无法对账的减仓必须失败。按准确 attempt/Result 的恢复只能回读已提交 Result 与证据，不能
 重跑或制造闭环。该设计尚未证明动态 Owner 签发、disposable PostgreSQL 验收、策略盈利或交易权限。
 
+**为什么更长的回测是更长的帧序列，而不是更大的 batch：** 一个 PIT batch 就是一个时刻。解析成员角色行的
+那一步不按事件时间过滤，所以一个 batch 里若还有同一角色的后一个时刻，就有两条精确匹配的行，于是根本绑不出
+universe frame；`a_batch_holding_a_second_instant_of_one_role_binds_no_frame` 测的正是这件事。若干个 BAR
+时刻的窗口因此就是同样数量的快照、universe frame 与原生调度封印，而消费端本来就是这样读的：target-set
+ProgramHost 策略按时刻索引待配对的 BAR 与 Owner frame，两个映射都排空之前不肯收尾。从今天到一次真实价格
+序列上的运行，中间隔着的是帧序列模块自己写明的东西，一份持久的、覆盖完整请求窗口的 frame census，以及一份
+sequence receipt/outbox readback，再加上那个序列自己的 `FRAME_COUNT`，它等于二。把原生调度封印改成从一个
+batch 里投影出整个窗口，也不是绕过去的路：这样一条序列所需要的那些 frame，从它出身的那个 batch 里绑不出来。
+
 **TARGET / NOT_ADMITTED，BAR FRAME 与 JOINED_CUT composition：** additive
 `StrategyInputSampleProjectionV4` 是唯一可在完整 native join 中组合 BAR component 的 projection。
 它的 projection kind 闭集为 `FRAME|JOINED_CUT`，lifecycle 闭集为 `BAR`；V2 EVENT/FRAME/JOINED_CUT 与 V3

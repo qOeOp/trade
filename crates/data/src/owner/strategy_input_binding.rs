@@ -2698,6 +2698,37 @@ mod tests {
         assert_ne!(first.digest().as_bytes(), &[0; 32]);
     }
 
+    /// One batch is one instant, and that is what makes a BAR series a sequence of frames.
+    ///
+    /// Nothing that resolves a member's role row filters it by event time, so a batch that also
+    /// holds a later instant of the same role offers two exact rows and binds no frame at all. A
+    /// window of several BAR instants is therefore several PIT batches and several frames, never
+    /// one batch a consumer reads a series out of. Reading a series out of one batch would mean
+    /// choosing between those rows, and choosing is what this binding exists to refuse.
+    #[rstest]
+    fn a_batch_holding_a_second_instant_of_one_role_binds_no_frame() {
+        let rows = complete_universe_rows();
+        let one_instant = batch(rows.clone());
+        let requests = universe_requests(&one_instant);
+        bind_strategy_input_universe_frame(&requests, &one_instant)
+            .expect("one instant of each role binds one frame");
+
+        let mut two_instants = rows.clone();
+
+        for mut later in rows {
+            later.event_effective += 60;
+            later.provider_available += 60;
+            later.retrieval += 60;
+            later.correction_publication += 60;
+            two_instants.push(later);
+        }
+
+        assert_eq!(
+            bind_strategy_input_universe_frame(&requests, &batch(two_instants)),
+            Err(StrategyInputBindingUnavailable::NonUniqueResolution)
+        );
+    }
+
     #[rstest]
     fn universe_frame_rejects_missing_duplicate_third_and_inconsistent_members() {
         for rows in [

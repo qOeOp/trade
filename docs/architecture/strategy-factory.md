@@ -698,6 +698,19 @@ attempt/Result response-loss readback returns the already committed Result and e
 re-executes or fabricates a closure. This contract does not itself prove dynamic Owner issuance,
 disposable PostgreSQL acceptance, profitable strategy behavior, Paper, Live or trading authority.
 
+**Why a longer Backtest is a longer frame sequence and not a larger batch:** one PIT batch is one
+instant. Nothing that resolves a member's role row filters it by event time, so a batch that also
+holds a later instant of the same role offers two exact rows and binds no universe frame at all;
+`a_batch_holding_a_second_instant_of_one_role_binds_no_frame` measures exactly that. A window of
+several BAR instants is therefore that many snapshots, universe frames and native scheduling seals,
+and the consumer already reads it that way: the target-set ProgramHost strategy keys pending BARs
+and Owner frames by instant and refuses to finish until both are exhausted. What stands between
+here and a run over a real price series is what the frame-sequence module states about itself, a
+durable request-window-complete frame census and a sequence receipt/outbox readback, together with
+that sequence's own `FRAME_COUNT`, which is two. Generalizing the native scheduling seal to project
+a whole window out of one batch is not a way around either: the frames such a series needs cannot
+be bound from the batch it came from.
+
 **TARGET / NOT_ADMITTED, BAR FRAME and JOINED_CUT composition:** the additive
 `StrategyInputSampleProjectionV4` is the only projection that may compose BAR components across a complete
 native join. It has closed `FRAME|JOINED_CUT` projection kinds and the closed `BAR` lifecycle; V2 EVENT/FRAME/
