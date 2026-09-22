@@ -4,6 +4,8 @@
 //! crate validates the fixed topology and the complete Result/receipt/outbox aggregate inside the
 //! transaction supplied by the caller.
 
+use std::fmt::Display;
+
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
@@ -890,7 +892,7 @@ impl BacktestReadbackRefusalV1 {
     }
 }
 
-impl std::fmt::Display for BacktestReadbackRefusalV1 {
+impl Display for BacktestReadbackRefusalV1 {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(self.code())
     }
