@@ -4555,6 +4555,51 @@ async fn owner_clock_epoch_ms_in_transaction(
         .and_then(|value| u64::try_from(value).map_err(json_storage))
 }
 
+/// Re-label the failure to load the R&D Independence Basis that a *stored projection* records.
+///
+/// Every read of this Owner's scope history admits every stored projection, and each projection
+/// carries the `basis_identity` it was formed against. So a projection whose basis is gone fails
+/// reads that have nothing to do with it, under any principal, for as long as the row is there.
+///
+/// Until now that arrived as the same sentence as a caller whose own request locator did not
+/// resolve, and the two call for opposite handling: one is a request to correct, the other is
+/// storage residue to clear. The caller cannot tell them apart by looking, because it holds no
+/// SELECT on either table. So the identity is named here, together with where it came from,
+/// which is the part that sends the reader to the right side.
+///
+/// Only a domain refusal is re-labelled. A `Storage` error is a real SQL failure and saying
+/// "stored projection" about it would be the same mistake this function exists to fix.
+fn projection_basis_unavailable(
+    projection_identity: &str,
+    basis_identity: &str,
+    cause: QualificationOwnerError,
+) -> QualificationOwnerError {
+    match cause {
+        QualificationOwnerError::Unavailable(cause) => unavailable(format!(
+            "scope history halted on a stored projection: projection {projection_identity} \
+             records R&D Independence Basis {basis_identity}, which this read cannot load. That \
+             identity is stored on the projection row and was not supplied by this request. \
+             Underlying refusal: {cause}"
+        )),
+        other => other,
+    }
+}
+
+fn projection_basis_unavailable_in_transaction(
+    projection_identity: &str,
+    basis_identity: &str,
+    error: QualificationTransactionError,
+) -> QualificationTransactionError {
+    match error {
+        QualificationTransactionError::Storage(error) => {
+            QualificationTransactionError::Storage(error)
+        }
+        QualificationTransactionError::Domain(cause) => {
+            projection_basis_unavailable(projection_identity, basis_identity, cause).into()
+        }
+    }
+}
+
 async fn admit_projection_row_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     row: &PgRow,
@@ -4565,6 +4610,9 @@ async fn admit_projection_row_in_transaction(
     let receipt_json: serde_json::Value =
         row.try_get("receipt_json").map_err(transaction_storage)?;
     let stored: StoredProjectionV1 = decode_exact(&projection_json)?;
+    let projection_identity: String = row
+        .try_get("projection_identity")
+        .map_err(transaction_storage)?;
     let basis = load_rd_basis_by_locator_fields_preserving_sqlstate_in_transaction(
         transaction,
         &stored.basis_identity,
@@ -4572,7 +4620,10 @@ async fn admit_projection_row_in_transaction(
         &stored.principal,
         &stored.request_scope,
     )
-    .await?;
+    .await
+    .map_err(|e| {
+        projection_basis_unavailable_in_transaction(&projection_identity, &stored.basis_identity, e)
+    })?;
     let receipt: StoredProjectionReceiptV1 = decode_exact(&receipt_json)?;
     let expected = form_projection(
         &basis,
@@ -4651,7 +4702,10 @@ async fn admit_projection_envelope_row_in_transaction(
         &stored.principal,
         &stored.request_scope,
     )
-    .await?;
+    .await
+    .map_err(|e| {
+        projection_basis_unavailable(&row.projection_identity, &stored.basis_identity, e)
+    })?;
     verify_projection_envelope_row(row, &basis)
 }
 
@@ -6555,6 +6609,133 @@ mod postgres_tests {
     ///   `payload_json->>'request_identity'` and its siblings, which carry no unique constraint,
     ///   and `qualification_writer` holds `INSERT` on that table. A second outbox row with the
     ///   same payload fields raises `too_many_rows`.
+    /// Two reads fail on the same helper for opposite reasons, and they must not say the same
+    /// thing.
+    ///
+    /// A caller whose own request locator does not resolve has a request to correct. A stored
+    /// projection whose recorded basis is gone is storage residue to clear, and it fails every
+    /// read of this Owner's scope history until the row goes, under any principal: the projection
+    /// query carries no `WHERE`, so one orphan anywhere halts all of them. Both used to arrive as
+    /// `R&D Independence Basis unavailable`, which sends the reader to the wrong side.
+    ///
+    /// The tamper runs inside a transaction that is rolled back, and the row is read back
+    /// afterwards to show it is unchanged. The untampered call is asserted first so the failure
+    /// below is attributable to the tamper and not to a state an earlier entry left behind.
+    #[tokio::test]
+    #[ignore = "requires the repository-authoritative disposable Owner PostgreSQL topology"]
+    async fn an_orphaned_projection_names_itself_rather_than_the_caller_request() {
+        const ABSENT_BASIS: &str = "rd-independence-basis-v1-that-no-row-carries";
+
+        let qualification_url = std::env::var("QUALIFICATION_TEST_DATABASE_URL")
+            .expect("explicit disposable Qualification URL");
+        let owner = PostgresQualificationOwnerV1::connect(&qualification_url)
+            .await
+            .expect("Qualification topology");
+        let (projection_identity, principal, scope_json, projection_json): (
+            String,
+            String,
+            serde_json::Value,
+            serde_json::Value,
+        ) = sqlx::query_as(
+            "SELECT projection_identity, principal, request_scope_json, projection_json
+               FROM public.qualification_protected_feedback_projections_v1
+              ORDER BY projection_identity
+              LIMIT 1",
+        )
+        .fetch_one(&owner.pool)
+        .await
+        .expect("an earlier ordered entry stored a protected feedback projection");
+        let request_scope: Vec<String> =
+            serde_json::from_value(scope_json).expect("canonical stored request scope");
+        let scope_key =
+            principal_scope_key(&principal, &request_scope).expect("principal scope key");
+
+        // Accept-state control. Without it the failure below is not attributable to the tamper.
+        let mut admitted = owner.pool.begin().await.expect("control transaction");
+        verify_scope_history_in_transaction(&mut admitted, &principal, &request_scope, &scope_key)
+            .await
+            .expect("scope history admits before the tamper");
+        admitted.rollback().await.expect("control rollback");
+
+        // The caller's own locator does not resolve. Same helper, different object.
+        let mut caller = owner.pool.begin().await.expect("caller transaction");
+        let caller_error = load_rd_basis_in_transaction(
+            &mut caller,
+            &RdIndependenceBasisLocatorV1 {
+                basis_identity: ABSENT_BASIS.to_owned(),
+                basis_digest: "sha256:absent".to_owned(),
+                request_identity: "rd-research-request-v2-that-no-row-carries".to_owned(),
+                principal: principal.clone(),
+                request_scope: request_scope.clone(),
+            },
+        )
+        .await
+        .expect_err("an absent request locator is refused");
+        caller.rollback().await.expect("caller rollback");
+        let caller_error = caller_error.to_string();
+
+        // A stored projection records a basis that is gone.
+        let mut orphaned = owner.pool.begin().await.expect("tamper transaction");
+        let mut tampered = projection_json.clone();
+        tampered["basis_identity"] = serde_json::Value::String(ABSENT_BASIS.to_owned());
+        let updated = sqlx::query(
+            "UPDATE public.qualification_protected_feedback_projections_v1
+                SET projection_json = $1
+              WHERE projection_identity = $2",
+        )
+        .bind(&tampered)
+        .bind(&projection_identity)
+        .execute(&mut *orphaned)
+        .await
+        .expect("tamper applies")
+        .rows_affected();
+        assert_eq!(updated, 1, "the tamper reached exactly the row under test");
+
+        let orphan_error = verify_scope_history_in_transaction(
+            &mut orphaned,
+            &principal,
+            &request_scope,
+            &scope_key,
+        )
+        .await
+        .expect_err("an orphaned projection is refused");
+        orphaned.rollback().await.expect("tamper rollback");
+        let orphan_error = orphan_error.to_string();
+
+        assert!(
+            orphan_error.contains(&projection_identity),
+            "the refusal names the projection an operator has to clear: {orphan_error}"
+        );
+        assert!(
+            orphan_error.contains(ABSENT_BASIS),
+            "the refusal names the basis identity that could not be loaded: {orphan_error}"
+        );
+        assert!(
+            orphan_error.contains("stored on the projection row"),
+            "the refusal says where that identity came from: {orphan_error}"
+        );
+        assert!(
+            !caller_error.contains("stored projection"),
+            "a caller locator failure is not attributed to stored state: {caller_error}"
+        );
+        assert_ne!(
+            caller_error, orphan_error,
+            "the two causes are distinguishable by their message alone"
+        );
+
+        // Nothing was written. Read the row back rather than trusting the rollback.
+        let after: serde_json::Value = sqlx::query_scalar(
+            "SELECT projection_json
+               FROM public.qualification_protected_feedback_projections_v1
+              WHERE projection_identity = $1",
+        )
+        .bind(&projection_identity)
+        .fetch_one(&owner.pool)
+        .await
+        .expect("the projection row is still there");
+        assert_eq!(after, projection_json, "the tamper was rolled back in full");
+    }
+
     #[tokio::test]
     #[ignore = "requires the repository-authoritative disposable Owner PostgreSQL topology"]
     async fn sealed_request_reads_name_the_admission_they_refused() {
