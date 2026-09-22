@@ -1231,6 +1231,11 @@ pub enum ProductEdgeUnavailableReasonV1 {
     CompareAndSwapLost,
     /// The connected role or schema topology is not the admitted one.
     TopologyNotAdmitted,
+    /// The transaction is not at the isolation the locking function requires.
+    ///
+    /// The `SECURITY DEFINER` locks refuse outright rather than read at an isolation
+    /// whose guarantees they were not written for.
+    IsolationNotReadCommitted,
     /// The Operator Authorization Issuer refused for this reason.
     OperatorAuthorization(OperatorAuthorizationUnavailableV1),
     /// Operator Authorization custody failed its own proposal validation.
@@ -1266,6 +1271,7 @@ impl ProductEdgeUnavailableReasonV1 {
             Self::CursorMismatch => "CURSOR_MISMATCH",
             Self::CompareAndSwapLost => "COMPARE_AND_SWAP_LOST",
             Self::TopologyNotAdmitted => "TOPOLOGY_NOT_ADMITTED",
+            Self::IsolationNotReadCommitted => "ISOLATION_NOT_READ_COMMITTED",
             Self::OperatorAuthorization(_) => "OPERATOR_AUTHORIZATION",
             Self::OperatorAuthorizationProposal(_) => "OPERATOR_AUTHORIZATION_PROPOSAL",
             Self::ClaimCustody(_) => "CLAIM_CUSTODY",

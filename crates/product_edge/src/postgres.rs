@@ -4618,6 +4618,75 @@ fn require_manifest_covers_binding(
     Ok(())
 }
 
+/// Map a named refusal from `product_edge_api` onto this crate's closed vocabulary.
+///
+/// That boundary is `SECURITY DEFINER` so this process cannot read the tables behind
+/// it. The vocabulary here is deliberately coarse - it names operator-visible classes
+/// without projecting protected detail - so several named refusals share one class,
+/// and the finer split stays where the operator can read it: in the function's own
+/// return value and in the PostgreSQL log.
+///
+/// Returns `None` for an accepting envelope. The function is `STRICT`, so a bare NULL
+/// means it short-circuited on a NULL argument and never ran; the caller reports that
+/// as a malformed locator rather than as one of these.
+fn downstream_admission_refusal(
+    envelope: &serde_json::Value,
+    locator: &ProductEdgeAdmissionLocatorV1,
+) -> Option<ProductEdgeError> {
+    let refusal = envelope.get("refusal")?.as_str()?;
+    Some(match refusal {
+        "ISOLATION_NOT_READ_COMMITTED" => unavailable_for(
+            Reason::IsolationNotReadCommitted,
+            Subject::Admission,
+            &locator.admission_identity,
+        ),
+        "REQUEST_ADMISSION_UNKNOWN" => {
+            unavailable_for(Reason::Missing, Subject::Request, &locator.request_identity)
+        }
+        // Both say the locator the caller holds disagrees with the stored row, which is
+        // one repair; the identity carries which of the two values was rejected.
+        "ADMISSION_IDENTITY_MISMATCH" => unavailable_for(
+            Reason::RequestMismatch,
+            Subject::Admission,
+            &locator.admission_identity,
+        ),
+        "ADMISSION_DIGEST_MISMATCH" => unavailable_for(
+            Reason::RequestMismatch,
+            Subject::Admission,
+            &locator.admission_digest,
+        ),
+        "ADMISSION_ROW_ABSENT_UNDER_LOCK" => unavailable_for(
+            Reason::Missing,
+            Subject::Admission,
+            &locator.admission_identity,
+        ),
+        // This is what `HintMismatch` exists for: the row moved between the pre-lock
+        // read and the read under lock, so the caller may simply retry.
+        "ADMISSION_CHANGED_UNDER_LOCK" => unavailable_for(
+            Reason::HintMismatch,
+            Subject::Admission,
+            &locator.admission_identity,
+        ),
+        "AUTHORIZATION_LOCATOR_NULL" => unavailable_for(
+            Reason::Malformed,
+            Subject::Authorization,
+            &locator.admission_identity,
+        ),
+        // Anything else was raised further in and travelled up: the envelope names the
+        // authorization it was about, which is the part this layer could not otherwise
+        // report. An unknown code means the deployed migration is ahead of this binary,
+        // and it stays visible rather than passing as an accepting envelope.
+        _ => unavailable_for(
+            Reason::AuthorizationNotCurrent,
+            Subject::Authorization,
+            envelope
+                .get("authorization_identity")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or(&locator.admission_identity),
+        ),
+    })
+}
+
 pub async fn resolve_admission_for_downstream_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     locator: &ProductEdgeAdmissionLocatorV1,
@@ -4631,17 +4700,18 @@ pub async fn resolve_admission_for_downstream_in_transaction(
             .fetch_one(&mut **transaction)
             .await
             .map_err(storage)?;
-    verify_locked_downstream_envelope(
-        envelope.ok_or_else(|| {
-            unavailable_for(
-                Reason::Missing,
-                Subject::Admission,
-                &locator.admission_identity,
-            )
-        })?,
-        locator,
-        mode,
-    )
+    let envelope = envelope.ok_or_else(|| {
+        unavailable_for(
+            Reason::Malformed,
+            Subject::Admission,
+            &locator.admission_identity,
+        )
+    })?;
+
+    if let Some(refusal) = downstream_admission_refusal(&envelope, locator) {
+        return Err(refusal);
+    }
+    verify_locked_downstream_envelope(envelope, locator, mode)
 }
 
 /// Resolves committed Product Edge admission custody from one repeatable, read-only snapshot.
@@ -4736,6 +4806,25 @@ pub async fn resolve_portfolio_read_policy_in_transaction(
     let Some(envelope) = envelope else {
         return unavailable(PortfolioReadPolicyUnavailableReasonV1::OwnerUnavailable);
     };
+    // A named refusal must not reach `from_json` below: it would fail to decode and be
+    // reported as `OwnerUnavailable`, which sends the reader to look at a healthy Owner.
+    // `refused_by` already names which Owner refused, and this vocabulary distinguishes
+    // exactly those two, so the propagated field decides the class.
+    if let Some(refusal) = envelope.get("refusal").and_then(serde_json::Value::as_str) {
+        let refused_by = envelope
+            .get("refused_by")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        return unavailable(if refusal == "ISOLATION_NOT_READ_COMMITTED" {
+            PortfolioReadPolicyUnavailableReasonV1::OwnerUnavailable
+        } else if refused_by.starts_with("operator_authorization_api.")
+            || refusal == "PORTFOLIO_GRANT_LOCK_REFUSED"
+        {
+            PortfolioReadPolicyUnavailableReasonV1::OperatorAuthorizationMismatch
+        } else {
+            PortfolioReadPolicyUnavailableReasonV1::ProductEdgeCustodyMismatch
+        });
+    }
     let final_cut_epoch_ms = match database_now(transaction).await {
         Ok(value) => value,
         Err(_) => return unavailable(PortfolioReadPolicyUnavailableReasonV1::OwnerUnavailable),
