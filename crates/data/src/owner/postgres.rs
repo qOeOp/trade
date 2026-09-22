@@ -9,7 +9,7 @@
     reason = "private durable Owner composition is exercised by disposable PostgreSQL tests until product composition exists"
 )]
 
-use std::fmt::Debug;
+use std::{collections::BTreeSet, fmt::Debug};
 
 mod authenticated_design_registration_v1;
 #[cfg(feature = "sealed-strategy-input-acceptance")]
@@ -66,13 +66,23 @@ pub(crate) struct NativeReplayFrameSequenceCustodyReadbackV2 {
 /// The complete coordinate set for a successor frame, every field Owner-derived.
 ///
 /// `docs/owners/market-data.md` forbids a caller-supplied second snapshot, frame time, member
-/// values, schedule, event order or frame list. The frame time here is the successor's own
+/// values, schedule, event order or frame list. The frame time here is the frame's own
 /// event-effective coordinate as the Owner recorded it, not a window bound the caller chose.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct NativeReplaySuccessorFrameV2 {
+pub(crate) struct NativeReplayCensusFrameV2 {
     pub(crate) snapshot_identity: BindingDigest,
     pub(crate) snapshot_fact_digest: BindingDigest,
     pub(crate) frame_time_ns: u64,
+}
+
+/// The frames one scope's census holds inside a request window, in commit order.
+///
+/// The last frame is not consumed: it bounds the liquidity of the one before it. Keeping the two
+/// apart here means no consumer has to remember which of the resolved frames it may run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NativeReplayCensusSequenceV2 {
+    pub(crate) consumed: Vec<NativeReplayCensusFrameV2>,
+    pub(crate) bounding_successor: NativeReplayCensusFrameV2,
 }
 
 use super::native_replay_scheduling_v2::{
@@ -522,25 +532,29 @@ impl MarketDataOwnerPostgres {
         Err(ReplayMarketFactsErrorV2::CustodyUnavailable)
     }
 
-    /// Resolves the successor frame for a sealed request window, from Owner custody alone.
+    /// Resolves a sealed request window's frame sequence, from Owner custody alone.
     ///
     /// `docs/owners/market-data.md` admits "no caller-supplied second PIT locator, timestamp,
     /// frame list, raw row, price, quantity, schedule, pool or replacement resolver". The caller
     /// therefore names only the first frame - the one its sealed request already fixes - and the
-    /// successor comes out of the scope census or not at all. There is no parameter through which
-    /// a second snapshot could be offered.
+    /// rest of the sequence comes out of the scope census or not at all. There is no parameter
+    /// through which another snapshot could be offered.
+    ///
+    /// These are the rules a census row can decide on its own. Scope and liquidity order need each
+    /// frame's resolved schedule and Quote evidence, so `admit_frame_census_v2` checks those once
+    /// the caller has resolved them; this function never claims to have checked them.
     ///
     /// # Errors
     ///
     /// Returns the exact [`NativeReplayFrameCensusRefusalV2`] for the first violated rule.
-    pub(crate) async fn resolve_native_replay_successor_frame_v2(
+    pub(crate) async fn resolve_native_replay_census_sequence_v2(
         &self,
         scope_digest: BindingDigest,
         first_frame_snapshot_identity: BindingDigest,
         request_decision_cut_ns: u64,
         window_start_ns: u64,
         window_end_ns_exclusive: u64,
-    ) -> Result<NativeReplaySuccessorFrameV2, NativeReplayFrameCensusRefusalV2> {
+    ) -> Result<NativeReplayCensusSequenceV2, NativeReplayFrameCensusRefusalV2> {
         let mut transaction = self
             .pool
             .begin_with("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
@@ -568,29 +582,50 @@ impl MarketDataOwnerPostgres {
         }) {
             return Err(NativeReplayFrameCensusRefusalV2::AmbiguousCorrectionBranch);
         }
-        let [first, second] = rows.as_slice() else {
-            return Err(NativeReplayFrameCensusRefusalV2::EligibleFrameCountIsNotTwo);
+        let Some(first) = rows.first() else {
+            return Err(NativeReplayFrameCensusRefusalV2::EligibleFrameCountIsBelowTwo);
         };
+
         // The census decides which frame is first; the request may only agree with it.
         if first.snapshot_identity != first_frame_snapshot_identity {
             return Err(NativeReplayFrameCensusRefusalV2::FirstFrameIsNotTheSealedRequestFrame);
         }
+        let mut identities = BTreeSet::new();
 
-        if first.snapshot_identity == second.snapshot_identity {
+        // Distinctness is asked of the whole sequence: two rows sharing an identity are the same
+        // frame counted twice however far apart the census puts them.
+        if rows
+            .iter()
+            .any(|row| !identities.insert(row.snapshot_identity))
+        {
             return Err(NativeReplayFrameCensusRefusalV2::DuplicateFrameIdentity);
         }
 
-        if second.frame_ordinal != first.frame_ordinal + 1 {
-            return Err(NativeReplayFrameCensusRefusalV2::SkippedEligibleFrame);
-        }
+        // Each rule held between the two rows of a pair and holds between every neighbouring pair.
+        for pair in rows.windows(2) {
+            if pair[1].frame_ordinal != pair[0].frame_ordinal + 1 {
+                return Err(NativeReplayFrameCensusRefusalV2::SkippedEligibleFrame);
+            }
 
-        if second.event_effective_ns <= first.event_effective_ns {
-            return Err(NativeReplayFrameCensusRefusalV2::NonIncreasingEventOrder);
+            if pair[1].event_effective_ns <= pair[0].event_effective_ns {
+                return Err(NativeReplayFrameCensusRefusalV2::NonIncreasingEventOrder);
+            }
         }
-        Ok(NativeReplaySuccessorFrameV2 {
-            snapshot_identity: second.snapshot_identity,
-            snapshot_fact_digest: second.snapshot_fact_digest,
-            frame_time_ns: second.event_effective_ns,
+        let Some((successor, consumed)) = rows.split_last() else {
+            return Err(NativeReplayFrameCensusRefusalV2::EligibleFrameCountIsBelowTwo);
+        };
+
+        if consumed.is_empty() {
+            return Err(NativeReplayFrameCensusRefusalV2::EligibleFrameCountIsBelowTwo);
+        }
+        let frame = |row: &NativeReplayFrameCensusRowV2| NativeReplayCensusFrameV2 {
+            snapshot_identity: row.snapshot_identity,
+            snapshot_fact_digest: row.snapshot_fact_digest,
+            frame_time_ns: row.event_effective_ns,
+        };
+        Ok(NativeReplayCensusSequenceV2 {
+            consumed: consumed.iter().map(frame).collect(),
+            bounding_successor: frame(successor),
         })
     }
 

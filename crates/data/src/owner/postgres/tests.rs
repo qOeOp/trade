@@ -4,7 +4,10 @@ use rstest::rstest;
 use sqlx::{PgPool, Row, postgres::PgPoolOptions};
 
 use super::*;
-use super::{NativeReplayFrameSequenceCustodyReadbackV2, NativeReplaySuccessorFrameV2};
+use super::{
+    NativeReplayCensusFrameV2, NativeReplayCensusSequenceV2,
+    NativeReplayFrameSequenceCustodyReadbackV2,
+};
 use crate::owner::native_replay_scheduling_v2::NativeReplayFrameCensusRefusalV2;
 use crate::owner::native_replay_scheduling_v2::{
     NativeReplayFrameSequenceCustodyRecordV2, NativeReplayFrameSequenceCustodyRefusalV2,
@@ -7385,36 +7388,62 @@ async fn native_replay_successor_frame_oracle(owner: &MarketDataOwnerPostgres) {
         .commit_pit_initial(successor, &successor_basis, &clock(40, 1))
         .await
         .expect("successor frame");
+    let third = same_scope_successor_pit_proposal(&source, 61, 50);
+    let third_basis = basis(&third);
+    let third = owner
+        .commit_pit_initial(third, &third_basis, &clock(40, 1))
+        .await
+        .expect("third frame");
 
     let first_identity = first.fact().snapshot_identity();
     let successor_identity = successor.fact().snapshot_identity();
+    let third_identity = third.fact().snapshot_identity();
     assert_ne!(first_identity, successor_identity);
+    assert_ne!(successor_identity, third_identity);
+    let frame =
+        |commit: &PitSnapshotCommitAggregate, frame_time_ns: u64| NativeReplayCensusFrameV2 {
+            snapshot_identity: commit.fact().snapshot_identity(),
+            snapshot_fact_digest: commit.fact().digest(),
+            frame_time_ns,
+        };
 
-    // The Owner names the successor and its frame time; nothing offered either.
+    // A window holding a third frame is a longer sequence, not an unavailable profile. The Owner
+    // names every frame and its time; nothing offered any of them.
     assert_eq!(
         owner
-            .resolve_native_replay_successor_frame_v2(scope, first_identity, 100, 0, 100)
+            .resolve_native_replay_census_sequence_v2(scope, first_identity, 100, 0, 100)
             .await,
-        Ok(NativeReplaySuccessorFrameV2 {
-            snapshot_identity: successor_identity,
-            snapshot_fact_digest: successor.fact().digest(),
-            // The successor's own event-effective coordinate, not a caller-chosen bound.
-            frame_time_ns: 30,
+        Ok(NativeReplayCensusSequenceV2 {
+            consumed: vec![frame(&first, 20), frame(&successor, 30)],
+            // The bounding frame's own event-effective coordinate, not a caller-chosen bound.
+            bounding_successor: frame(&third, 50),
         })
     );
 
-    // A window that excludes the successor yields no two-frame profile.
+    // Narrowing the window to two frames consumes one and keeps the other as its bound, which is
+    // what this resolver returned for every window before it returned a sequence.
     assert_eq!(
         owner
-            .resolve_native_replay_successor_frame_v2(scope, first_identity, 100, 0, 30)
+            .resolve_native_replay_census_sequence_v2(scope, first_identity, 100, 0, 40)
             .await,
-        Err(NativeReplayFrameCensusRefusalV2::EligibleFrameCountIsNotTwo)
+        Ok(NativeReplayCensusSequenceV2 {
+            consumed: vec![frame(&first, 20)],
+            bounding_successor: frame(&successor, 30),
+        })
     );
 
-    // The census decides which frame is first; naming the successor is not agreement.
+    // A window with nothing to bound the first frame consumes nothing.
     assert_eq!(
         owner
-            .resolve_native_replay_successor_frame_v2(scope, successor_identity, 100, 0, 100)
+            .resolve_native_replay_census_sequence_v2(scope, first_identity, 100, 0, 30)
+            .await,
+        Err(NativeReplayFrameCensusRefusalV2::EligibleFrameCountIsBelowTwo)
+    );
+
+    // The census decides which frame is first; naming a later one is not agreement.
+    assert_eq!(
+        owner
+            .resolve_native_replay_census_sequence_v2(scope, successor_identity, 100, 0, 100)
             .await,
         Err(NativeReplayFrameCensusRefusalV2::FirstFrameIsNotTheSealedRequestFrame)
     );
@@ -7422,7 +7451,7 @@ async fn native_replay_successor_frame_oracle(owner: &MarketDataOwnerPostgres) {
     // Observation after the sealed decision cut is inadmissible however eligible it looks.
     assert_eq!(
         owner
-            .resolve_native_replay_successor_frame_v2(scope, first_identity, 39, 0, 100)
+            .resolve_native_replay_census_sequence_v2(scope, first_identity, 39, 0, 100)
             .await,
         Err(NativeReplayFrameCensusRefusalV2::ObservationAfterDecisionCut)
     );
@@ -7430,9 +7459,9 @@ async fn native_replay_successor_frame_oracle(owner: &MarketDataOwnerPostgres) {
     // Another scope's census says nothing about this one.
     assert_eq!(
         owner
-            .resolve_native_replay_successor_frame_v2(d(99), first_identity, 100, 0, 100)
+            .resolve_native_replay_census_sequence_v2(d(99), first_identity, 100, 0, 100)
             .await,
-        Err(NativeReplayFrameCensusRefusalV2::EligibleFrameCountIsNotTwo)
+        Err(NativeReplayFrameCensusRefusalV2::EligibleFrameCountIsBelowTwo)
     );
 }
 

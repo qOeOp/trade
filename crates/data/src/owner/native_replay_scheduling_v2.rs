@@ -9,6 +9,8 @@
     reason = "the frame verifier is reserved for the unavailable durable V2 sequence issuer"
 )]
 
+use std::collections::BTreeSet;
+
 use sha2::{Digest, Sha256};
 use vibe_model::{
     data::{BarType, Data},
@@ -778,7 +780,7 @@ pub enum NativeReplayFrameCensusRefusalV2 {
     /// The census does not agree that the sealed request's frame is the first in this window.
     FirstFrameIsNotTheSealedRequestFrame,
     ObservationAfterDecisionCut,
-    EligibleFrameCountIsNotTwo,
+    EligibleFrameCountIsBelowTwo,
     DuplicateFrameIdentity,
     AmbiguousCorrectionBranch,
     SkippedEligibleFrame,
@@ -787,21 +789,49 @@ pub enum NativeReplayFrameCensusRefusalV2 {
     LiquidityDoesNotPrecedeSuccessorBar,
 }
 
-/// Admits the bounded two-frame profile, or refuses with the exact reason.
+/// The frames one request window admits, in canonical order.
+///
+/// The last admitted frame is not consumed. It is there to bound the liquidity of the frame before
+/// it, which is the whole reason a pair needed a second frame, so the type keeps the two apart
+/// rather than leaving a consumer to remember which one it may run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdmittedNativeReplayFrameSequenceV2<'a> {
+    consumed: Vec<&'a NativeReplayFrameCensusCandidateV2>,
+    bounding_successor: &'a NativeReplayFrameCensusCandidateV2,
+}
+
+impl<'a> AdmittedNativeReplayFrameSequenceV2<'a> {
+    /// The frames a run consumes, in canonical order. Never empty.
+    #[must_use]
+    pub fn consumed(&self) -> &[&'a NativeReplayFrameCensusCandidateV2] {
+        &self.consumed
+    }
+
+    /// The frame that bounds the last consumed frame's liquidity and is never itself consumed.
+    #[must_use]
+    pub const fn bounding_successor(&self) -> &'a NativeReplayFrameCensusCandidateV2 {
+        self.bounding_successor
+    }
+}
+
+/// Admits the window's frame sequence, or refuses with the exact reason.
 ///
 /// The caller supplies no frame list of its own: this reads a census Market Data resolved for the
-/// sealed request window and decision cut. A third eligible frame makes the profile unavailable
-/// rather than truncating it to the first two.
+/// sealed request window and decision cut. A window holding more than two eligible frames is a
+/// longer sequence rather than an unavailable profile, because refusing it was only ever a refusal
+/// to silently truncate, and admitting all of them truncates nothing. Every other rule is what it
+/// was: each one held between the two frames of a pair, and each one now holds between every
+/// neighbouring pair, so a longer window admits nothing a pair would not have.
 ///
 /// # Errors
 ///
 /// Returns the exact [`NativeReplayFrameCensusRefusalV2`] for the first violated admission rule.
-pub fn admit_two_frame_census_v2(
+pub fn admit_frame_census_v2(
     request_decision_cut_ns: u64,
     window_start_ns: u64,
     window_end_ns_exclusive: u64,
     census: &[NativeReplayFrameCensusCandidateV2],
-) -> Result<[&NativeReplayFrameCensusCandidateV2; 2], NativeReplayFrameCensusRefusalV2> {
+) -> Result<AdmittedNativeReplayFrameSequenceV2<'_>, NativeReplayFrameCensusRefusalV2> {
     if census
         .iter()
         .any(|frame| frame.observed_decision_cut_ns > request_decision_cut_ns)
@@ -824,33 +854,47 @@ pub fn admit_two_frame_census_v2(
     }) {
         return Err(NativeReplayFrameCensusRefusalV2::AmbiguousCorrectionBranch);
     }
+    let mut identities = BTreeSet::new();
 
-    let [first, second] = match eligible.as_slice() {
-        [first, second] => [*first, *second],
-        _ => return Err(NativeReplayFrameCensusRefusalV2::EligibleFrameCountIsNotTwo),
-    };
-
-    if first.snapshot_identity == second.snapshot_identity {
+    // Distinctness is asked of the whole sequence, not only of neighbours: two frames sharing an
+    // identity are the same frame counted twice however far apart the census puts them.
+    if eligible
+        .iter()
+        .any(|frame| !identities.insert(frame.snapshot_identity))
+    {
         return Err(NativeReplayFrameCensusRefusalV2::DuplicateFrameIdentity);
     }
 
-    if second.frame_ordinal != first.frame_ordinal + 1 {
-        return Err(NativeReplayFrameCensusRefusalV2::SkippedEligibleFrame);
-    }
+    for pair in eligible.windows(2) {
+        let (first, second) = (pair[0], pair[1]);
 
-    if second.frame_time_ns <= first.frame_time_ns {
-        return Err(NativeReplayFrameCensusRefusalV2::NonIncreasingEventOrder);
-    }
+        if second.frame_ordinal != first.frame_ordinal + 1 {
+            return Err(NativeReplayFrameCensusRefusalV2::SkippedEligibleFrame);
+        }
 
-    if first.scope_digest != second.scope_digest {
-        return Err(NativeReplayFrameCensusRefusalV2::ScopeMismatch);
-    }
+        if second.frame_time_ns <= first.frame_time_ns {
+            return Err(NativeReplayFrameCensusRefusalV2::NonIncreasingEventOrder);
+        }
 
-    if first.last_liquidity_event_ns >= second.first_bar_event_ns {
-        return Err(NativeReplayFrameCensusRefusalV2::LiquidityDoesNotPrecedeSuccessorBar);
-    }
+        if first.scope_digest != second.scope_digest {
+            return Err(NativeReplayFrameCensusRefusalV2::ScopeMismatch);
+        }
 
-    Ok([first, second])
+        if first.last_liquidity_event_ns >= second.first_bar_event_ns {
+            return Err(NativeReplayFrameCensusRefusalV2::LiquidityDoesNotPrecedeSuccessorBar);
+        }
+    }
+    let Some((bounding_successor, consumed)) = eligible.split_last() else {
+        return Err(NativeReplayFrameCensusRefusalV2::EligibleFrameCountIsBelowTwo);
+    };
+
+    if consumed.is_empty() {
+        return Err(NativeReplayFrameCensusRefusalV2::EligibleFrameCountIsBelowTwo);
+    }
+    Ok(AdmittedNativeReplayFrameSequenceV2 {
+        consumed: consumed.to_vec(),
+        bounding_successor,
+    })
 }
 
 /// Domain separator for the per-frame Quote liquidity EVENT receipt.
@@ -1165,34 +1209,104 @@ mod frame_census_tests {
 
     fn admit(
         census: &[NativeReplayFrameCensusCandidateV2],
-    ) -> Result<[&NativeReplayFrameCensusCandidateV2; 2], NativeReplayFrameCensusRefusalV2> {
-        admit_two_frame_census_v2(CUT, WINDOW_START, WINDOW_END, census)
+    ) -> Result<AdmittedNativeReplayFrameSequenceV2<'_>, NativeReplayFrameCensusRefusalV2> {
+        admit_frame_census_v2(CUT, WINDOW_START, WINDOW_END, census)
+    }
+
+    fn ordinals(sequence: &AdmittedNativeReplayFrameSequenceV2<'_>) -> (Vec<u64>, u64) {
+        (
+            sequence
+                .consumed()
+                .iter()
+                .map(|frame| frame.frame_ordinal)
+                .collect(),
+            sequence.bounding_successor().frame_ordinal,
+        )
     }
 
     fn pair() -> Vec<NativeReplayFrameCensusCandidateV2> {
         vec![frame(7, 0x20, 1_100), frame(8, 0x30, 1_500)]
     }
 
+    fn run(ordinals: &[(u64, u8, u64)]) -> Vec<NativeReplayFrameCensusCandidateV2> {
+        ordinals
+            .iter()
+            .map(|(ordinal, seed, frame_time_ns)| frame(*ordinal, *seed, *frame_time_ns))
+            .collect()
+    }
+
     #[rstest]
     fn a_dense_in_window_pair_is_admitted_in_event_order() {
         let census = pair();
-        let [first, second] = admit(&census).expect("bounded two-frame profile");
+        let sequence = admit(&census).expect("bounded frame sequence");
 
-        assert_eq!(first.frame_ordinal, 7);
-        assert_eq!(second.frame_ordinal, 8);
-        assert!(first.last_liquidity_event_ns < second.first_bar_event_ns);
+        assert_eq!(ordinals(&sequence), (vec![7], 8));
+        assert!(
+            sequence.consumed()[0].last_liquidity_event_ns
+                < sequence.bounding_successor().first_bar_event_ns
+        );
+    }
+
+    /// A window holding more frames is a longer sequence, and the last one still only bounds.
+    #[rstest]
+    fn a_longer_window_consumes_every_frame_but_the_bounding_successor() {
+        let census = run(&[
+            (7, 0x20, 1_100),
+            (8, 0x30, 1_400),
+            (9, 0x40, 1_700),
+            (10, 0x50, 1_900),
+        ]);
+        let sequence = admit(&census).expect("bounded frame sequence");
+
+        assert_eq!(ordinals(&sequence), (vec![7, 8, 9], 10));
     }
 
     #[rstest]
     #[case::none(vec![])]
     #[case::one(vec![frame(7, 0x20, 1_100)])]
-    #[case::three(vec![frame(7, 0x20, 1_100), frame(8, 0x30, 1_400), frame(9, 0x40, 1_700)])]
-    fn only_exactly_two_eligible_frames_admit_the_bounded_profile(
+    fn a_window_with_nothing_to_bound_the_first_frame_consumes_nothing(
         #[case] census: Vec<NativeReplayFrameCensusCandidateV2>,
     ) {
         assert_eq!(
             admit(&census),
-            Err(NativeReplayFrameCensusRefusalV2::EligibleFrameCountIsNotTwo)
+            Err(NativeReplayFrameCensusRefusalV2::EligibleFrameCountIsBelowTwo)
+        );
+    }
+
+    /// Every neighbouring pair is checked, not only the first: an admissible opening pair vouches
+    /// for nothing that comes after it.
+    #[rstest]
+    fn a_defect_after_an_admissible_opening_pair_still_refuses() {
+        let mut gapped = run(&[(7, 0x20, 1_100), (8, 0x30, 1_400), (10, 0x40, 1_700)]);
+        assert_eq!(
+            admit(&gapped),
+            Err(NativeReplayFrameCensusRefusalV2::SkippedEligibleFrame)
+        );
+
+        gapped[2].frame_ordinal = 9;
+        gapped[2].scope_digest = digest(0x77);
+        assert_eq!(
+            admit(&gapped),
+            Err(NativeReplayFrameCensusRefusalV2::ScopeMismatch)
+        );
+
+        let mut overlapping = run(&[(7, 0x20, 1_100), (8, 0x30, 1_400), (9, 0x40, 1_700)]);
+        overlapping[1].last_liquidity_event_ns = overlapping[2].first_bar_event_ns;
+        assert_eq!(
+            admit(&overlapping),
+            Err(NativeReplayFrameCensusRefusalV2::LiquidityDoesNotPrecedeSuccessorBar)
+        );
+    }
+
+    /// Distinctness is asked of the whole sequence, not only of neighbours.
+    #[rstest]
+    fn one_identity_repeated_far_apart_is_still_one_frame_counted_twice() {
+        let mut repeated = run(&[(7, 0x20, 1_100), (8, 0x30, 1_400), (9, 0x40, 1_700)]);
+        repeated[2].snapshot_identity = repeated[0].snapshot_identity;
+
+        assert_eq!(
+            admit(&repeated),
+            Err(NativeReplayFrameCensusRefusalV2::DuplicateFrameIdentity)
         );
     }
 
@@ -1236,7 +1350,7 @@ mod frame_census_tests {
         let census = vec![frame(7, 0x20, 1_100), frame(8, 0x30, WINDOW_END)];
         assert_eq!(
             admit(&census),
-            Err(NativeReplayFrameCensusRefusalV2::EligibleFrameCountIsNotTwo)
+            Err(NativeReplayFrameCensusRefusalV2::EligibleFrameCountIsBelowTwo)
         );
 
         // ...while its inclusive start is inside it.
@@ -1255,7 +1369,7 @@ mod frame_census_tests {
     }
 
     #[rstest]
-    fn both_frames_must_hold_the_same_scope() {
+    fn neighbouring_frames_must_hold_the_same_scope() {
         let mut moved = frame(8, 0x30, 1_500);
         moved.scope_digest = digest(0x77);
         let census = vec![frame(7, 0x20, 1_100), moved];
@@ -1279,7 +1393,7 @@ mod frame_census_tests {
     }
 
     #[rstest]
-    fn two_frames_can_never_share_one_snapshot_identity() {
+    fn neighbouring_frames_can_never_share_one_snapshot_identity() {
         let mut duplicate = frame(8, 0x20, 1_500);
         duplicate.correction_branch_digest = digest(0x02);
         let census = vec![frame(7, 0x20, 1_100), duplicate];

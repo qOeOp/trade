@@ -1415,27 +1415,29 @@ Market Semantics, source frontier, and correction frontier all equal that same b
 duplicate, overlapping, reordered, or corrupt candidates return no frame or schedule readback. The caller supplies
 no schedule locator, account scope, latest selector, raw row, SQL, pool, credential, or replacement store.
 
-**TARGET / NOT_ADMITTED, Native Replay two-frame sequence V2:** the existing initial-frame
+**TARGET / NOT_ADMITTED, Native Replay frame sequence V2:** the existing initial-frame
 resolver, `StrategyInputUniverseFrameReceipt` V1, BAR schedule readbacks and
 `NativeReplaySchedulingReadbackV1` keep their exact bytes and single-frame meaning. The additive
 Owner-issued `NativeReplayFrameSequenceReadbackV2` is a move-only, request-bound capability. Its
-initial V2 profile contains exactly two complete two-member BAR frames with their own
-Owner-verified Quote EVENT liquidity: the first is the exact independently re-resolved
-initial V1 frame; the second is issued from a distinct Owner-verified PIT
+V2 profile contains the sealed window's whole sequence of complete two-member BAR frames with their
+own Owner-verified Quote EVENT liquidity: the first is the exact independently re-resolved
+initial V1 frame; every later one is issued from a distinct Owner-verified PIT
 snapshot and observation batch, never from copied values or a test successor. Market Data alone
 resolves the complete eligible frame census for the sealed request window and decision cut. It
-admits this profile only when that census has exactly two frames with distinct identities and
-strictly increasing canonical event order, with no skipped eligible frame. Each frame carries its
+admits this profile only when that census holds at least two frames with distinct identities and
+strictly increasing canonical event order, with no skipped eligible frame. A run consumes every
+frame but the last, which is there to bound the liquidity of the one before it, so a window
+holding a single frame consumes none and a longer window is a longer run rather than a refusal. Each frame carries its
 own exact PIT snapshot/fact, batch, trigger, frame, source/correction lineage, native scheduling
 and liquidity EVENT receipt identities. Each liquidity receipt seals the exact Owner-verified
 Quote row digests, bid/ask prices and sizes, event/initialization times and member order from
 that frame's PIT cut; the V2 sequence digest binds both complete frame/schedule/liquidity
-receipt sets in canonical order and the request identity/window. All first-frame liquidity
-EVENTs must precede the second frame's first BAR in native schedule order. Both frames
+receipt sets in canonical order and the request identity/window. Every frame's liquidity
+EVENTs must precede the next frame's first BAR in native schedule order. All frames
 retain the same canonical two-member universe, Design/role set, Instrument Master cut, timeframe,
-venue and account scope. Market Data verifies the second frame's successor relationship and
-half-open validity against the first and rejects ambiguous correction branches or observation
-after the request decision cut.
+venue and account scope. Market Data verifies each frame's successor relationship and
+half-open validity against the one before it and rejects ambiguous correction branches or
+observation after the request decision cut.
 
 The resolver accepts only the sealed request-derived first-cut coordinates and Owner-authenticated
 Plan roles; it reads the second cut and both native schedules from its own exact historical
@@ -1448,11 +1450,13 @@ response-loss recovery re-resolves and re-verifies the whole sequence and return
 historical bytes, while changed meaning conflicts without writing. Market Data does not issue
 an R&D binding, Backtest Result, synthetic exit signal or trading order.
 
-This V2 target requires a new complete request-window frame census and exact historical readback.
-The existing PIT correction lineage records revisions of one request; it is not a time-successor
-index and cannot prove the second frame or the absence of skipped frames. The current initial-frame
-resolver and QuoteTick projection do not themselves issue a second frame or a separate liquidity
-receipt.
+This V2 target's request-window frame census exists: every PIT snapshot fact commit takes the next
+dense frame ordinal inside its scope, and the window readback and sequence resolver read it back in
+that order. What the target lacks is a caller. The existing PIT correction lineage records
+revisions of one request; it is not a time-successor index and cannot prove a later frame or the
+absence of skipped frames, which is why the census is its own table rather than a reuse of that
+lineage. The current initial-frame resolver and QuoteTick projection do not themselves issue a
+later frame or a separate liquidity receipt.
 
 In the CURRENT/PARTIAL BAR schedule path, only a custody-verified readback may authorize the additive immutable
 `TimeframeProjectionReceiptV1` keyed by the exact V1 binding-receipt digest. Its existing canonical bytes and domain
