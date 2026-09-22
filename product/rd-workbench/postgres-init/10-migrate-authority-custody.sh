@@ -3,6 +3,7 @@ set -eu
 
 : "${RD_FACT_WRITER_DB_PASSWORD:?set RD_FACT_WRITER_DB_PASSWORD}"
 : "${MARKET_DATA_OWNER_DB_PASSWORD:?set MARKET_DATA_OWNER_DB_PASSWORD}"
+: "${MARKET_DATA_READER_DB_PASSWORD:?set MARKET_DATA_READER_DB_PASSWORD}"
 : "${INSTRUMENT_OWNER_DB_PASSWORD:?set INSTRUMENT_OWNER_DB_PASSWORD}"
 : "${REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD:?set REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD}"
 case "${SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE:-0}" in
@@ -19,6 +20,7 @@ psql --set=ON_ERROR_STOP=1 --host "${POSTGRES_HOST:-postgres}" --username postgr
   --set=rd_password="$RD_OWNER_DB_PASSWORD" \
   --set=fact_writer_password="$RD_FACT_WRITER_DB_PASSWORD" \
   --set=market_data_owner_password="$MARKET_DATA_OWNER_DB_PASSWORD" \
+  --set=market_data_reader_password="$MARKET_DATA_READER_DB_PASSWORD" \
   --set=catalog_admin_password="$REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD" \
   --set=issuer_password="$OPERATOR_AUTHORIZATION_DB_PASSWORD" \
   --set=qualification_password="$QUALIFICATION_OWNER_DB_PASSWORD" \
@@ -74,7 +76,17 @@ ALTER ROLE backtest_custodian NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPL
 ALTER ROLE rd_owner LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'rd_password';
 ALTER ROLE rd_fact_writer LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'fact_writer_password';
 ALTER ROLE replay_policy_catalog_admin_writer LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'catalog_admin_password';
-ALTER ROLE market_data_reader LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+-- Given a password, like every other LOGIN role here. It was the only one without one, and
+-- `MARKET_DATA_RD_ROLE_SET_DATABASE_URL` - which `main.rs` requires unconditionally - has to
+-- authenticate as exactly this role. A LOGIN role with `rolpassword IS NULL` cannot, so that URL
+-- could not be produced from anything this repository ships: the deployment answered
+-- `fe_sendauth: no password supplied`.
+--
+-- The chain never noticed because its fixtures mint the credential themselves. One sets a
+-- password on the real role but reads it from `MARKET_DATA_RD_ROLE_SET_TEST_DATABASE_URL`, and
+-- the rest create a differently named role, `vibe_test_role_market_data_reader`. So the gate was
+-- green on a credential the deployment path does not issue.
+ALTER ROLE market_data_reader LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'market_data_reader_password';
 ALTER ROLE operator_authorization_owner NOLOGIN;
 ALTER ROLE operator_authorization_writer LOGIN PASSWORD :'issuer_password';
 ALTER ROLE qualification_owner NOLOGIN;

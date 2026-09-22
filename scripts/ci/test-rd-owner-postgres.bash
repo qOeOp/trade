@@ -870,7 +870,7 @@ check_market_data_principal_bootstrap_order() {
     return 1
   fi
   rg -Fq "ALTER ROLE market_data_owner LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'market_data_owner_password';" "$migration"
-  rg -Fq 'ALTER ROLE market_data_reader LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;' "$migration"
+  rg -Fq "ALTER ROLE market_data_reader LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'market_data_reader_password';" "$migration"
   bootstrap_line="$(rg -n '00-create-rd-owner\.sh' "${BASH_SOURCE[0]}" | tail -1 | cut -d: -f1)"
   materializer_line="$(rg -n -- '--materialize-schema' "${BASH_SOURCE[0]}" | tail -1 | cut -d: -f1)"
   test "$bootstrap_line" -lt "$materializer_line"
@@ -1257,6 +1257,7 @@ run_authority_migration_for_database() {
     --env "RD_OWNER_DB_PASSWORD=${test_password}" \
     --env "RD_FACT_WRITER_DB_PASSWORD=${test_password}" \
     --env "MARKET_DATA_OWNER_DB_PASSWORD=${test_password}" \
+    --env "MARKET_DATA_READER_DB_PASSWORD=${test_password}" \
     --env "REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD=${test_password}" \
     --env "OPERATOR_AUTHORIZATION_DB_PASSWORD=${test_password}" \
     --env "QUALIFICATION_OWNER_DB_PASSWORD=${test_password}" \
@@ -1686,6 +1687,7 @@ docker exec --interactive \
   --env "RD_OWNER_DB_PASSWORD=${test_password}" \
   --env "RD_FACT_WRITER_DB_PASSWORD=${test_password}" \
   --env "MARKET_DATA_OWNER_DB_PASSWORD=${test_password}" \
+  --env "MARKET_DATA_READER_DB_PASSWORD=${test_password}" \
   --env "REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD=${test_password}" \
   --env "OPERATOR_AUTHORIZATION_DB_PASSWORD=${test_password}" \
   --env "QUALIFICATION_OWNER_DB_PASSWORD=${test_password}" \
@@ -1780,6 +1782,7 @@ docker exec --interactive \
   --env "RD_OWNER_DB_PASSWORD=${test_password}" \
   --env "RD_FACT_WRITER_DB_PASSWORD=${test_password}" \
   --env "MARKET_DATA_OWNER_DB_PASSWORD=${test_password}" \
+  --env "MARKET_DATA_READER_DB_PASSWORD=${test_password}" \
   --env "REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD=${test_password}" \
   --env "OPERATOR_AUTHORIZATION_DB_PASSWORD=${test_password}" \
   --env "QUALIFICATION_OWNER_DB_PASSWORD=${test_password}" \
