@@ -574,6 +574,25 @@ for named_gate in scripts/ci/test-plan.sh scripts/ci/test-rd-owner-postgres.bash
     exit 1
   fi
 done
+# The chain's own summary must be printed before the server log, never after it. That dump is
+# unbounded - 270157 lines on run 35703938333 - and a hosted log is truncated, so a summary printed
+# after it reaches nobody: on that run the line naming entry 28 was gone from the log entirely while
+# the dump that had buried it was kept. `|| true` on both, so an absent side is reported below
+# rather than ending this script inside a command substitution.
+chain_script="$repo_root/scripts/ci/test-rd-owner-postgres.bash"
+chain_summary_line="$(grep -n 'ordered chain stopped at entry' "$chain_script" | head -1 | cut -d: -f1 || true)"
+chain_dump_line="$(grep -n 'postgres server log (chain container)' "$chain_script" | head -1 | cut -d: -f1 || true)"
+if [[ -z "$chain_summary_line" || -z "$chain_dump_line" ]]; then
+  echo "test-rd-owner-postgres.bash no longer prints both the chain summary and the server log, so" >&2
+  echo "their order cannot be read: summary='$chain_summary_line' dump='$chain_dump_line'." >&2
+  exit 1
+fi
+if [[ "$chain_summary_line" -ge "$chain_dump_line" ]]; then
+  echo "test-rd-owner-postgres.bash prints its chain summary at line $chain_summary_line, after the" >&2
+  echo "unbounded server log at line $chain_dump_line. A truncated hosted log keeps the dump and" >&2
+  echo "drops the one line that says which entry stopped the run." >&2
+  exit 1
+fi
 grep -Fq 'rust-cache-workspace-crates: "true"' "$build_workflow"
 grep -Fq 'rust-doctests-linux-x86:' "$build_workflow"
 rust_tests_block="$(sed -n '/^  rust-tests-linux-x86:/,/^  quality:/p' "$build_workflow")"

@@ -1463,6 +1463,15 @@ cleanup() {
     keep_chain_record "$chain_position"
   fi
 
+  # The one line a person reads first, printed here rather than next to the `exit` at the end of this
+  # function, because everything between the two is unbounded. The server log dumped below ran to
+  # 270157 lines on run 35703938333 and the hosted log is truncated, so the summary that used to sit
+  # at the end did not survive: the line naming entry 28 was gone while the dump that buried it was
+  # kept. Nothing unbounded may be printed before the sentence that says where the run stopped.
+  if [[ "$primary_status" -ne 0 && "$chain_position" -gt 0 && "$chain_completed" != true ]]; then
+    echo "ordered chain stopped at entry ${chain_position}/${chain_entry_count} (${chain_entry_label}); $((chain_position - 1)) passed before it." >&2
+  fi
+
   if [[ -n "$nextest_archive_file" ]] &&
     ! rm -f -- "$nextest_archive_file"; then
     cleanup_failed=true
@@ -1556,9 +1565,6 @@ cleanup() {
   fi
 
   if [[ "$primary_status" -ne 0 ]]; then
-    if [[ "$chain_position" -gt 0 && "$chain_completed" != true ]]; then
-      echo "ordered chain stopped at entry ${chain_position}/${chain_entry_count} (${chain_entry_label}); $((chain_position - 1)) passed before it." >&2
-    fi
     exit "$primary_status"
   fi
   if [[ "$cleanup_failed" == true ]]; then
