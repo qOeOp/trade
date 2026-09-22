@@ -3686,15 +3686,22 @@ DECLARE
   hinted_binding_locators jsonb;
   locked_head jsonb;
 BEGIN
-  IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF;
+  -- A bare NULL from here now means one thing only: this STRICT function short-circuited on a
+  -- NULL argument and never ran. Everything else names itself, and a refusal raised by the
+  -- Operator Authorization lock travels up unchanged rather than collapsing into this one -
+  -- naming it here would report that an inner call refused, not why it refused.
+  IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN jsonb_build_object('schema_version', 1, 'refusal', 'ISOLATION_NOT_READ_COMMITTED'); END IF;
 
   SELECT * INTO hinted_admission
   FROM public.product_edge_request_admissions_v1
   WHERE request_identity=requested_request_identity;
-  IF NOT FOUND
-     OR hinted_admission.admission_identity<>requested_admission_identity
-     OR hinted_admission.admission_digest<>requested_admission_digest
-  THEN RETURN NULL; END IF;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'REQUEST_ADMISSION_UNKNOWN');
+  ELSIF hinted_admission.admission_identity<>requested_admission_identity THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'ADMISSION_IDENTITY_MISMATCH');
+  ELSIF hinted_admission.admission_digest<>requested_admission_digest THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'ADMISSION_DIGEST_MISMATCH');
+  END IF;
 
   SELECT COALESCE(jsonb_agg(jsonb_build_object(
       'binding_identity', binding.binding_identity,
@@ -3723,7 +3730,14 @@ BEGIN
       requirement.authorization_identity,
       requirement.issuance_receipt_identity
     ) INTO authorization_envelope;
-    IF authorization_envelope IS NULL THEN RETURN NULL; END IF;
+    IF authorization_envelope IS NULL THEN
+      RETURN jsonb_build_object('schema_version', 1, 'refusal', 'AUTHORIZATION_LOCATOR_NULL',
+        'authorization_identity', requirement.authorization_identity);
+    ELSIF authorization_envelope->>'refusal' IS NOT NULL THEN
+      RETURN jsonb_build_object('schema_version', 1, 'refusal', authorization_envelope->>'refusal',
+        'refused_by', 'operator_authorization_api.lock_current_authorization_v1',
+        'authorization_identity', requirement.authorization_identity);
+    END IF;
     authorization_envelopes := authorization_envelopes || jsonb_build_array(jsonb_build_object(
       'authorization_identity', requirement.authorization_identity,
       'issuance_receipt_identity', requirement.issuance_receipt_identity,
@@ -3738,7 +3752,11 @@ BEGIN
   FROM public.product_edge_request_admissions_v1
   WHERE request_identity=requested_request_identity
   FOR SHARE;
-  IF NOT FOUND OR to_jsonb(locked_admission)<>to_jsonb(hinted_admission) THEN RETURN NULL; END IF;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'ADMISSION_ROW_ABSENT_UNDER_LOCK');
+  ELSIF to_jsonb(locked_admission)<>to_jsonb(hinted_admission) THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'ADMISSION_CHANGED_UNDER_LOCK');
+  END IF;
 
   PERFORM binding.binding_identity
   FROM public.product_edge_deployment_bindings_v1 binding
