@@ -1,9 +1,11 @@
-//! Additive, structural R&D binding for an Owner-sealed two-frame Native Replay sequence.
+//! Additive, structural R&D binding for an Owner-sealed Native Replay frame sequence.
 //!
 //! This module has no caller-facing constructor or deserializer. `VerifiedOwnerSequenceV2` is
 //! minted from one move-only Market Data `NativeReplayFrameSequenceReadbackV2` and nothing else,
 //! so no R&D caller can assert a second PIT cut, frame, schedule or liquidity EVENT.
 //! A structurally valid digest is never an Owner readback or durable R&D custody by itself.
+
+use std::collections::BTreeSet;
 
 use sha2::{Digest, Sha256};
 use sqlx::{Postgres, Row, Transaction};
@@ -16,19 +18,26 @@ use vibe_data::owner::native_replay_scheduling_v2::{
 use crate::native_replay_execution_input_binding_v1::NativeReplayExecutionInputBindingReadbackV1;
 
 const SCHEMA_VERSION: u16 = 2;
-const FRAME_COUNT: usize = 2;
+/// A sequence needs a frame after the last one it consumes, so two is the shortest there is.
+const MIN_FRAME_COUNT: usize = 2;
 const MEMBER_COUNT: usize = 2;
 const SEQUENCE_DOMAIN: &[u8] = b"rd.native-replay-execution-input-sequence.v2\0";
 const BINDING_DOMAIN: &[u8] = b"rd.native-replay-execution-input-binding.v2\0";
 const RECEIPT_DOMAIN: &[u8] = b"rd.native-replay-execution-input-binding-receipt.v2\0";
 const OUTBOX_DOMAIN: &[u8] = b"rd.native-replay-execution-input-binding-outbox.v2\0";
 
-/// Fixed canonical sizes. The V2 layout has no variable-length member, so recovery reads exact
-/// offsets rather than trusting a length field carried by the stored bytes themselves.
+/// Fixed canonical sizes. A frame is fixed width and the layout has no other variable-length
+/// member, so the only thing that varies is how many frames follow. Recovery reads the stored
+/// frame count and then requires the byte length to be exactly what that count implies, so the
+/// count is cross-checked against the bytes rather than trusted by them.
 const FRAME_DIGEST_COUNT: usize = 13;
 const FRAME_BYTES: usize = FRAME_DIGEST_COUNT * 32 + 16;
-const SEQUENCE_BYTES: usize = 32 * 3 + FRAME_COUNT * FRAME_BYTES;
-const CANONICAL_BYTES: usize = 5 + 32 + SEQUENCE_BYTES;
+const SEQUENCE_HEADER_BYTES: usize = 32 * 3;
+const CANONICAL_HEADER_BYTES: usize = 5 + 32;
+
+const fn canonical_bytes_for(frame_count: usize) -> usize {
+    CANONICAL_HEADER_BYTES + SEQUENCE_HEADER_BYTES + frame_count * FRAME_BYTES
+}
 
 /// One complete Owner-verified BAR frame and its native schedule and liquidity receipts.
 ///
@@ -57,7 +66,7 @@ struct VerifiedFrameV2 {
 #[derive(Debug)]
 pub(crate) struct VerifiedOwnerSequenceV2 {
     owner_sequence_digest: [u8; 32],
-    frames: [VerifiedFrameV2; FRAME_COUNT],
+    frames: Vec<VerifiedFrameV2>,
 }
 
 /// R&D-side domains. Each names one R&D coordinate derived from Owner-sealed constituents; none
@@ -94,17 +103,11 @@ impl VerifiedOwnerSequenceV2 {
         }
         let owner_sequence_digest = *sequence.sequence_digest().as_bytes();
         // Consume the Owner token: the caller cannot keep it and offer a second reading.
-        //
-        // The Owner issues the window's whole sequence; this binding's canonical bytes still fix
-        // `FRAME_COUNT` frames, so a longer sequence is refused here rather than narrowed to the
-        // frames that happen to fit. Narrowing would bind a meaning the Owner never sealed.
-        let Ok(frames): Result<[NativeReplayFrameEvidenceV2; FRAME_COUNT], _> =
-            sequence.into_frames().try_into()
-        else {
-            return Err(NativeReplayExecutionInputBindingErrorV2::Unavailable);
-        };
-        let [first, second] = frames;
-        let frames = [verified_frame(&first)?, verified_frame(&second)?];
+        let frames = sequence
+            .into_frames()
+            .iter()
+            .map(verified_frame)
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(Self {
             owner_sequence_digest,
             frames,
@@ -197,7 +200,7 @@ pub struct NativeReplayExecutionInputBindingV2 {
     v1_binding_digest: [u8; 32],
     owner_sequence_digest: [u8; 32],
     sequence_digest: [u8; 32],
-    frames: [VerifiedFrameV2; FRAME_COUNT],
+    frames: Vec<VerifiedFrameV2>,
     binding_identity: [u8; 32],
     canonical_bytes: Vec<u8>,
 }
@@ -233,15 +236,17 @@ impl NativeReplayExecutionInputBindingV2 {
         &self.canonical_bytes
     }
 
-    /// The Owner-sealed BAR/EVENT order boundaries of both frames, in canonical frame order.
+    /// The Owner-sealed BAR/EVENT order boundaries of every frame, in canonical frame order.
     ///
     /// Each entry is `(first_bar_order, last_liquidity_event_order)`. This is the whole of what a
     /// consumer needs to bind an executed frame to the sealed sequence, so the frame coordinates
     /// themselves stay private and cannot be reassembled into a frame the Owner never sealed.
     #[must_use]
-    pub fn frame_orders(&self) -> [(u64, u64); FRAME_COUNT] {
+    pub fn frame_orders(&self) -> Vec<(u64, u64)> {
         self.frames
+            .iter()
             .map(|frame| (frame.first_bar_order, frame.last_liquidity_event_order))
+            .collect()
     }
 
     /// Compare a stored candidate against newly verified V1 and Owner constituents.
@@ -304,11 +309,11 @@ impl NativeReplayExecutionInputBindingReadbackV2 {
 
 #[derive(Debug, Error)]
 pub enum NativeReplayExecutionInputBindingErrorV2 {
-    #[error("two-frame Native Replay execution-input binding unavailable")]
+    #[error("Native Replay execution-input binding unavailable")]
     Unavailable,
-    #[error("two-frame Native Replay execution-input binding custody conflict")]
+    #[error("Native Replay execution-input binding custody conflict")]
     Conflict,
-    #[error("two-frame Native Replay execution-input binding storage unavailable: {0}")]
+    #[error("Native Replay execution-input binding storage unavailable: {0}")]
     Storage(#[source] sqlx::Error),
 }
 
@@ -363,23 +368,51 @@ fn seal_meaning(
     // token, and consuming it here is what makes sealing the one place it can be spent.
     let VerifiedOwnerSequenceV2 {
         owner_sequence_digest,
-        frames: [first, second],
+        frames,
     } = owner;
 
     if v1_binding_identity == [0; 32]
         || v1_binding_identity != v1_binding_digest
         || owner_sequence_digest == [0; 32]
-        || first.frame_identity == second.frame_identity
-        || first.pit_cut_identity == second.pit_cut_identity
-        || !valid_frame(&first)
-        || !valid_frame(&second)
-        || first.last_liquidity_event_order >= second.first_bar_order
+        || frames.len() < MIN_FRAME_COUNT
+        || !frames.iter().all(valid_frame)
+    {
+        return Err(NativeReplayExecutionInputBindingErrorV2::Unavailable);
+    }
+    let mut identities = BTreeSet::new();
+
+    // Distinctness is asked of the whole sequence: two frames repeating one identity or one PIT
+    // cut are one frame counted twice however far apart the sequence puts them.
+    if frames
+        .iter()
+        .any(|frame| !identities.insert((frame.frame_identity, frame.pit_cut_identity)))
+        || frames
+            .iter()
+            .map(|frame| frame.frame_identity)
+            .collect::<BTreeSet<_>>()
+            .len()
+            != frames.len()
+        || frames
+            .iter()
+            .map(|frame| frame.pit_cut_identity)
+            .collect::<BTreeSet<_>>()
+            .len()
+            != frames.len()
     {
         return Err(NativeReplayExecutionInputBindingErrorV2::Unavailable);
     }
 
-    let frames = [first, second];
-    let mut sequence_bytes = Vec::with_capacity(32 * 3 + 2 * (32 * 13 + 16));
+    // A frame's liquidity closes before the next frame's first BAR, at every step rather than
+    // only across the one pair a two-frame sequence could hold.
+    if frames
+        .windows(2)
+        .any(|pair| pair[0].last_liquidity_event_order >= pair[1].first_bar_order)
+    {
+        return Err(NativeReplayExecutionInputBindingErrorV2::Unavailable);
+    }
+    let frame_count = u8::try_from(frames.len())
+        .map_err(|_| NativeReplayExecutionInputBindingErrorV2::Unavailable)?;
+    let mut sequence_bytes = Vec::with_capacity(SEQUENCE_HEADER_BYTES + frames.len() * FRAME_BYTES);
     sequence_bytes.extend_from_slice(&v1_binding_identity);
     sequence_bytes.extend_from_slice(&v1_binding_digest);
     sequence_bytes.extend_from_slice(&owner_sequence_digest);
@@ -391,7 +424,7 @@ fn seal_meaning(
     let mut canonical_bytes = Vec::with_capacity(5 + 32 + sequence_bytes.len());
     canonical_bytes.extend_from_slice(&SCHEMA_VERSION.to_le_bytes());
     canonical_bytes.extend_from_slice(&0u16.to_le_bytes());
-    canonical_bytes.push(FRAME_COUNT as u8);
+    canonical_bytes.push(frame_count);
     canonical_bytes.extend_from_slice(&sequence_digest);
     canonical_bytes.extend_from_slice(&sequence_bytes);
     let binding_identity = digest(BINDING_DOMAIN, &canonical_bytes);
@@ -705,10 +738,12 @@ fn outbox_payload_for(
 fn recover_binding_v2(
     bytes: &[u8],
 ) -> Result<NativeReplayExecutionInputBindingV2, NativeReplayExecutionInputBindingErrorV2> {
-    if bytes.len() != CANONICAL_BYTES
+    let frame_count = usize::from(*bytes.get(4).unwrap_or(&0));
+
+    if bytes.len() != canonical_bytes_for(frame_count)
+        || frame_count < MIN_FRAME_COUNT
         || bytes[0..2] != SCHEMA_VERSION.to_le_bytes()
         || bytes[2..4] != 0u16.to_le_bytes()
-        || usize::from(bytes[4]) != FRAME_COUNT
     {
         return Err(NativeReplayExecutionInputBindingErrorV2::Unavailable);
     }
@@ -718,7 +753,9 @@ fn recover_binding_v2(
     let v1_binding_identity = cursor.digest()?;
     let v1_binding_digest = cursor.digest()?;
     let owner_sequence_digest = cursor.digest()?;
-    let frames = [cursor.frame()?, cursor.frame()?];
+    let frames = (0..frame_count)
+        .map(|_| cursor.frame())
+        .collect::<Result<Vec<_>, _>>()?;
 
     // The stored digests are claims; recomputing them is what makes the readback a recovery.
     if digest(SEQUENCE_DOMAIN, &bytes[sequence_start..]) != sequence_digest
@@ -832,8 +869,19 @@ mod tests {
     fn owner() -> VerifiedOwnerSequenceV2 {
         VerifiedOwnerSequenceV2 {
             owner_sequence_digest: d(50),
-            frames: [frame(1, 10, 19), frame(21, 20, 29)],
+            frames: vec![frame(1, 10, 19), frame(21, 20, 29)],
         }
+    }
+
+    fn owner_sequence(frames: Vec<VerifiedFrameV2>) -> VerifiedOwnerSequenceV2 {
+        VerifiedOwnerSequenceV2 {
+            owner_sequence_digest: d(50),
+            frames,
+        }
+    }
+
+    fn three_frames() -> Vec<VerifiedFrameV2> {
+        vec![frame(1, 10, 19), frame(21, 20, 29), frame(41, 30, 39)]
     }
 
     #[rstest]
@@ -898,13 +946,67 @@ mod tests {
         ));
     }
 
+    /// A longer sequence seals, recovers, and says its own length in its bytes.
+    #[rstest]
+    fn a_sequence_longer_than_a_pair_seals_and_recovers() {
+        let sealed = seal_meaning(d(60), d(60), owner_sequence(three_frames())).unwrap();
+
+        assert_eq!(sealed.canonical_bytes().len(), canonical_bytes_for(3));
+        assert_eq!(usize::from(sealed.canonical_bytes()[4]), 3);
+        assert_eq!(sealed.frame_orders(), vec![(10, 19), (20, 29), (30, 39)]);
+        assert_eq!(
+            recover_binding_v2(sealed.canonical_bytes()).unwrap(),
+            sealed
+        );
+        assert_ne!(
+            sealed.binding_identity,
+            seal_meaning(d(60), d(60), owner())
+                .unwrap()
+                .binding_identity
+        );
+    }
+
+    /// A count the bytes do not carry is refused, so a stored length can never be taken on trust.
+    #[rstest]
+    fn a_frame_count_the_bytes_do_not_carry_is_refused() {
+        let sealed = seal_meaning(d(60), d(60), owner_sequence(three_frames())).unwrap();
+        let mut understated = sealed.canonical_bytes().to_vec();
+        understated[4] = 2;
+        assert!(recover_binding_v2(&understated).is_err());
+
+        let mut overstated = sealed.canonical_bytes().to_vec();
+        overstated[4] = 4;
+        assert!(recover_binding_v2(&overstated).is_err());
+
+        let mut below_minimum = sealed.canonical_bytes().to_vec();
+        below_minimum.truncate(canonical_bytes_for(1));
+        below_minimum[4] = 1;
+        assert!(recover_binding_v2(&below_minimum).is_err());
+    }
+
+    /// The rules read every frame, not only the pair a two-frame sequence could hold.
+    #[rstest]
+    fn a_defect_past_the_opening_pair_still_refuses() {
+        let mut overlapping = three_frames();
+        overlapping[1].last_liquidity_event_order = overlapping[2].first_bar_order;
+        assert!(seal_meaning(d(60), d(60), owner_sequence(overlapping)).is_err());
+
+        let mut repeated = three_frames();
+        repeated[2].pit_cut_identity = repeated[0].pit_cut_identity;
+        assert!(seal_meaning(d(60), d(60), owner_sequence(repeated)).is_err());
+
+        let mut single = three_frames();
+        single.truncate(1);
+        assert!(seal_meaning(d(60), d(60), owner_sequence(single)).is_err());
+    }
+
     /// Recovery must rebuild the exact binding from stored bytes alone.
     #[rstest]
     fn stored_canonical_bytes_recover_to_the_same_binding() {
         let sealed = seal_meaning(d(60), d(60), owner()).unwrap();
         let recovered = recover_binding_v2(sealed.canonical_bytes()).unwrap();
         assert_eq!(recovered, sealed);
-        assert_eq!(sealed.canonical_bytes().len(), CANONICAL_BYTES);
+        assert_eq!(sealed.canonical_bytes().len(), canonical_bytes_for(2));
     }
 
     fn stored_rows_for(binding: &NativeReplayExecutionInputBindingV2) -> StoredRowsV2 {
