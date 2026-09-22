@@ -86,8 +86,8 @@ mod tests {
     /// attribute goes.
     ///
     /// The name says `store_error` and means it. A cause discarded by an inline
-    /// `map_err(|_| ...)` is not covered and is not located: there are 735 of those in this
-    /// crate's production code, 116 of them inside these same eleven files. They are not one
+    /// `map_err(|_| ...)` is not covered and is not located: there are about 1,600 of those in
+    /// this crate's production code, 116 of them inside these same eleven files. They are not one
     /// chokepoint and cannot be routed like one - each is its own question about whether the
     /// variant it returns is even the right refusal - so they are a different change, and this
     /// assertion is deliberately not named as though it had already made it.
