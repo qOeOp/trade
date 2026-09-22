@@ -1,11 +1,12 @@
-//! Strategy Factory composition of the Owner inputs available before native Replay materialization.
+//! Strategy Factory composition of the Owner inputs a native Replay execution is built from.
 //!
-//! Market Data currently seals identities and dependency cuts, but does not expose the canonical
-//! native instrument projection or ordered observation values required to construct Nautilus
-//! `InstrumentAny`, `BarType`, and `Data`. This module therefore issues the strongest honest
-//! production capability available now: a move-only, request-bound prerequisite cut containing
-//! the verified profile authority and every retained Owner readback. It cannot be presented to the
-//! EVENT consumer as an execution bundle.
+//! This module has two entry points because a caller can hold the Owner readbacks without yet
+//! holding the values a run consumes. `prepare_native_replay_execution_prerequisites_v2` stops at
+//! a move-only, request-bound prerequisite cut: the verified profile authority and every retained
+//! Owner readback, which is not an execution bundle and cannot be presented to the EVENT consumer
+//! as one. `compose_native_replay_execution_bundle_v2` goes on, because Market Data does expose
+//! the canonical native projection: `NativeReplaySchedulingReadbackV1` releases the `BarType` and
+//! ordered `Data` of its window, and the two-member public terms materialize the `InstrumentAny`.
 
 use strategy_factory_program_sdk::lifecycle_v2::TARGET_SET_MEMBER_COUNT;
 use thiserror::Error;
@@ -89,8 +90,6 @@ pub enum NativeReplayExecutionPrerequisitesErrorV2 {
     OwnerBindingUnavailable,
     #[error("Native Replay execution profile authority is unavailable")]
     ProfileAuthorityUnavailable,
-    #[error("Market Data has not issued a native Instrument projection")]
-    NativeInstrumentProjectionUnavailable,
     #[error("Market Data has not issued canonical ordered native scheduling data")]
     NativeSchedulingDataUnavailable,
     #[error("Native Replay execution bundle composition is unavailable")]
@@ -144,8 +143,9 @@ where
 ///
 /// A successful return proves the exact request, Composer Design, Replay window, PIT cut,
 /// Universe/Instrument dependency, two-member Instrument Master cut, and private economic terms.
-/// It deliberately does not return `ReplayTargetSetExecutionBundleV1`: the two missing native
-/// Market Data projections are represented by explicit terminal prerequisites below.
+/// It deliberately does not return `ReplayTargetSetExecutionBundleV1`, because a caller that holds
+/// these readbacks has not yet resolved the window's native scheduling; that is the step
+/// `compose_native_replay_execution_bundle_v2` takes, from this same cut.
 pub fn prepare_native_replay_execution_prerequisites_v2(
     preparation: NativeReplayPreparationInputsV2,
     replay_cut: ResolvedReplayCompositionCutV1,
@@ -172,14 +172,6 @@ pub fn prepare_native_replay_execution_prerequisites_v2(
         instrument_master,
         profile_authority,
     })
-}
-
-/// Reports the first missing Owner capability needed to turn this cut into an execution bundle.
-#[must_use]
-pub const fn native_execution_bundle_prerequisite_v2(
-    _: &NativeReplayExecutionPrerequisitesV2,
-) -> NativeReplayExecutionPrerequisitesErrorV2 {
-    NativeReplayExecutionPrerequisitesErrorV2::NativeInstrumentProjectionUnavailable
 }
 
 fn validate_available_owner_bindings(
@@ -348,18 +340,5 @@ mod tests {
         let second = BindingDigest::from_untrusted_bytes([2; 32]);
         assert!(exact_content_matches(first, second, first, second));
         assert!(!exact_content_matches(first, second, second, first));
-    }
-
-    #[rstest::rstest]
-    fn native_projection_remains_an_explicit_fail_closed_boundary() {
-        assert_eq!(
-            NativeReplayExecutionPrerequisitesErrorV2::NativeInstrumentProjectionUnavailable
-                .to_string(),
-            "Market Data has not issued a native Instrument projection"
-        );
-        assert_ne!(
-            NativeReplayExecutionPrerequisitesErrorV2::NativeInstrumentProjectionUnavailable,
-            NativeReplayExecutionPrerequisitesErrorV2::NativeSchedulingDataUnavailable
-        );
     }
 }
