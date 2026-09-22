@@ -299,7 +299,7 @@ pub enum NativeReplayExecutionInputBindingErrorV2 {
     Unavailable,
     #[error("two-frame Native Replay execution-input binding custody conflict")]
     Conflict,
-    #[error("two-frame Native Replay execution-input binding storage unavailable")]
+    #[error("two-frame Native Replay execution-input binding storage unavailable: {0}")]
     Storage(#[source] sqlx::Error),
 }
 

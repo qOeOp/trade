@@ -295,16 +295,22 @@ fn owner_error(error: &MarketDataRepairPostgresErrorV1, action_identity: &str) -
             "INVALID_MARKET_DATA_REPAIR_REQUEST_LOCATORS",
             action_identity,
         ),
-        MarketDataRepairPostgresErrorV1::Request(
+        // Four reasons a repair request is not admitted, one code. These variants carry no
+        // payload, so nothing is discarded except the variant's own name - which is the whole
+        // answer to "why was it not admitted".
+        error @ MarketDataRepairPostgresErrorV1::Request(
             MarketDataRepairRequestErrorV1::WrongRepairTarget
             | MarketDataRepairRequestErrorV1::CustodyMismatch
             | MarketDataRepairRequestErrorV1::DefectProofUnavailable
             | MarketDataRepairRequestErrorV1::MarketDataSourceMismatch,
-        ) => rejection(
-            StatusCode::CONFLICT,
-            "MARKET_DATA_REPAIR_REQUEST_NOT_ADMITTED",
-            action_identity,
-        ),
+        ) => {
+            tracing::warn!(%error, %action_identity, "market data repair request not admitted");
+            rejection(
+                StatusCode::CONFLICT,
+                "MARKET_DATA_REPAIR_REQUEST_NOT_ADMITTED",
+                action_identity,
+            )
+        }
         MarketDataRepairPostgresErrorV1::Request(
             MarketDataRepairRequestErrorV1::TimeEvidenceUnavailable,
         ) => rejection(
@@ -312,12 +318,17 @@ fn owner_error(error: &MarketDataRepairPostgresErrorV1, action_identity: &str) -
             "SHARED_TIME_EVIDENCE_UNAVAILABLE",
             action_identity,
         ),
-        MarketDataRepairPostgresErrorV1::Request(MarketDataRepairRequestErrorV1::Encoding(_))
-        | MarketDataRepairPostgresErrorV1::Unavailable(_) => rejection(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "MARKET_DATA_REPAIR_REQUEST_OWNER_UNAVAILABLE",
-            action_identity,
-        ),
+        error @ (MarketDataRepairPostgresErrorV1::Request(
+            MarketDataRepairRequestErrorV1::Encoding(_),
+        )
+        | MarketDataRepairPostgresErrorV1::Unavailable(_)) => {
+            tracing::warn!(%error, %action_identity, "market data repair Owner unavailable");
+            rejection(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "MARKET_DATA_REPAIR_REQUEST_OWNER_UNAVAILABLE",
+                action_identity,
+            )
+        }
     }
 }
 
