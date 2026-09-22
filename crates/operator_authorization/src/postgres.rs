@@ -1240,6 +1240,60 @@ async fn ensure_read_committed(
     Ok(())
 }
 
+/// Map a named refusal from `operator_authorization_api` onto this crate's vocabulary.
+///
+/// That boundary is `SECURITY DEFINER` so this process cannot read
+/// `operator_authorization_private` itself. A cause the function does not name is a
+/// cause nothing here can recover, which is why the lock names each one instead of
+/// answering every question with the same NULL.
+///
+/// Returns `None` for an accepting envelope. A bare NULL never reaches this: the
+/// function is `STRICT`, so NULL means it short-circuited on a NULL argument and
+/// never ran, which the caller reports as a malformed locator.
+fn authorization_refusal(
+    envelope: &serde_json::Value,
+    locator: &OperatorAuthorizationLocatorV1,
+) -> Option<OperatorAuthorizationError> {
+    let refusal = envelope.get("refusal")?.as_str()?;
+    Some(match refusal {
+        "ISOLATION_NOT_READ_COMMITTED" => unavailable_for(
+            Reason::IsolationNotReadCommitted,
+            Subject::Authorization,
+            &locator.authorization_identity,
+        ),
+        "AUTHORIZATION_IDENTITY_UNKNOWN" => unavailable_for(
+            Reason::Missing,
+            Subject::Authorization,
+            &locator.authorization_identity,
+        ),
+        "ISSUANCE_RECEIPT_IDENTITY_MISMATCH" => unavailable_for(
+            Reason::LocatorMismatch,
+            Subject::Authorization,
+            &locator.issuance_receipt_identity,
+        ),
+        // The head is the pointer and the frontier is what it points at, so an absent
+        // head and an absent frontier are different repairs and name different subjects.
+        "REVOCATION_HEAD_MISSING" => unavailable_for(
+            Reason::Missing,
+            Subject::Head,
+            &locator.authorization_identity,
+        ),
+        "REVOCATION_FRONTIER_MISSING" => unavailable_for(
+            Reason::Missing,
+            Subject::Frontier,
+            &locator.authorization_identity,
+        ),
+        // A code this binary does not know means the deployed migration is ahead of it.
+        // Reporting it as malformed keeps the refusal visible rather than treating an
+        // unrecognised envelope as an accepting one.
+        _ => unavailable_for(
+            Reason::Malformed,
+            Subject::Authorization,
+            &locator.authorization_identity,
+        ),
+    })
+}
+
 pub async fn resolve_authorization_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     locator: &OperatorAuthorizationLocatorV1,
@@ -1254,17 +1308,18 @@ pub async fn resolve_authorization_in_transaction(
     .fetch_one(&mut **transaction)
     .await
     .map_err(storage)?;
-    let evidence = parse_untrusted_authorization_envelope_v1(
-        envelope.ok_or_else(|| {
-            unavailable_for(
-                Reason::Missing,
-                Subject::Authorization,
-                &locator.authorization_identity,
-            )
-        })?,
-        locator,
-        mode,
-    )?;
+    let envelope = envelope.ok_or_else(|| {
+        unavailable_for(
+            Reason::Malformed,
+            Subject::Authorization,
+            &locator.authorization_identity,
+        )
+    })?;
+
+    if let Some(refusal) = authorization_refusal(&envelope, locator) {
+        return Err(refusal);
+    }
+    let evidence = parse_untrusted_authorization_envelope_v1(envelope, locator, mode)?;
     Ok(OperatorAuthorizationReadbackV1 {
         issuance_receipt: evidence.issuance_receipt,
         frontier: evidence.frontier,

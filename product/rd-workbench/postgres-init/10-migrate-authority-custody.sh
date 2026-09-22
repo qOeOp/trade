@@ -3405,13 +3405,26 @@ DECLARE
   head operator_authorization_private.operator_authorization_revocation_heads_v1%ROWTYPE;
   current_frontier operator_authorization_private.operator_authorization_revocation_frontiers_v1%ROWTYPE;
 BEGIN
-  IF current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF;
+  -- A bare NULL now means one thing only: this STRICT function short-circuited on a NULL
+  -- argument and never ran. Every other refusal names itself, because the caller cannot read
+  -- these tables - the boundary is SECURITY DEFINER precisely so that it cannot - and a cause
+  -- this function does not name is a cause the caller has no way to recover.
+  IF current_setting('transaction_isolation') <> 'read committed' THEN RETURN jsonb_build_object('schema_version', 1, 'refusal', 'ISOLATION_NOT_READ_COMMITTED'); END IF;
   SELECT * INTO issuance FROM operator_authorization_private.operator_authorization_issuances_v1 WHERE authorization_identity = requested_authorization_identity FOR SHARE;
-  IF NOT FOUND OR issuance.receipt_json->>'receipt_identity' <> requested_issuance_receipt_identity THEN RETURN NULL; END IF;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'AUTHORIZATION_IDENTITY_UNKNOWN');
+  END IF;
+  IF issuance.receipt_json->>'receipt_identity' <> requested_issuance_receipt_identity THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'ISSUANCE_RECEIPT_IDENTITY_MISMATCH');
+  END IF;
   SELECT * INTO head FROM operator_authorization_private.operator_authorization_revocation_heads_v1 WHERE scope_digest = issuance.scope_digest FOR SHARE;
-  IF NOT FOUND THEN RETURN NULL; END IF;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'REVOCATION_HEAD_MISSING');
+  END IF;
   SELECT * INTO current_frontier FROM operator_authorization_private.operator_authorization_revocation_frontiers_v1 WHERE frontier_identity = head.frontier_identity AND scope_digest = issuance.scope_digest FOR SHARE;
-  IF NOT FOUND THEN RETURN NULL; END IF;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'REVOCATION_FRONTIER_MISSING');
+  END IF;
   PERFORM 1 FROM operator_authorization_private.operator_authorization_issuances_v1 scope_issuance WHERE scope_issuance.scope_digest = issuance.scope_digest FOR SHARE;
   PERFORM 1 FROM operator_authorization_private.operator_authorization_revocation_frontiers_v1 frontier WHERE frontier.scope_digest = issuance.scope_digest FOR SHARE;
   PERFORM 1 FROM operator_authorization_private.operator_authorization_owner_outbox_v1 outbox WHERE outbox.aggregate_identity IN (SELECT scope_issuance.authorization_identity FROM operator_authorization_private.operator_authorization_issuances_v1 scope_issuance WHERE scope_issuance.scope_digest = issuance.scope_digest) OR outbox.aggregate_identity IN (SELECT frontier.frontier_identity FROM operator_authorization_private.operator_authorization_revocation_frontiers_v1 frontier WHERE frontier.scope_digest = issuance.scope_digest) FOR SHARE;
@@ -3747,15 +3760,22 @@ DECLARE
   hinted_binding_locators jsonb;
   locked_head jsonb;
 BEGIN
-  IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF;
+  -- A bare NULL from here now means one thing only: this STRICT function short-circuited on a
+  -- NULL argument and never ran. Everything else names itself, and a refusal raised by the
+  -- Operator Authorization lock travels up unchanged rather than collapsing into this one -
+  -- naming it here would report that an inner call refused, not why it refused.
+  IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN jsonb_build_object('schema_version', 1, 'refusal', 'ISOLATION_NOT_READ_COMMITTED'); END IF;
 
   SELECT * INTO hinted_admission
   FROM public.product_edge_request_admissions_v1
   WHERE request_identity=requested_request_identity;
-  IF NOT FOUND
-     OR hinted_admission.admission_identity<>requested_admission_identity
-     OR hinted_admission.admission_digest<>requested_admission_digest
-  THEN RETURN NULL; END IF;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'REQUEST_ADMISSION_UNKNOWN');
+  ELSIF hinted_admission.admission_identity<>requested_admission_identity THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'ADMISSION_IDENTITY_MISMATCH');
+  ELSIF hinted_admission.admission_digest<>requested_admission_digest THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'ADMISSION_DIGEST_MISMATCH');
+  END IF;
 
   SELECT COALESCE(jsonb_agg(jsonb_build_object(
       'binding_identity', binding.binding_identity,
@@ -3784,7 +3804,14 @@ BEGIN
       requirement.authorization_identity,
       requirement.issuance_receipt_identity
     ) INTO authorization_envelope;
-    IF authorization_envelope IS NULL THEN RETURN NULL; END IF;
+    IF authorization_envelope IS NULL THEN
+      RETURN jsonb_build_object('schema_version', 1, 'refusal', 'AUTHORIZATION_LOCATOR_NULL',
+        'authorization_identity', requirement.authorization_identity);
+    ELSIF authorization_envelope->>'refusal' IS NOT NULL THEN
+      RETURN jsonb_build_object('schema_version', 1, 'refusal', authorization_envelope->>'refusal',
+        'refused_by', 'operator_authorization_api.lock_current_authorization_v1',
+        'authorization_identity', requirement.authorization_identity);
+    END IF;
     authorization_envelopes := authorization_envelopes || jsonb_build_array(jsonb_build_object(
       'authorization_identity', requirement.authorization_identity,
       'issuance_receipt_identity', requirement.issuance_receipt_identity,
@@ -3799,7 +3826,11 @@ BEGIN
   FROM public.product_edge_request_admissions_v1
   WHERE request_identity=requested_request_identity
   FOR SHARE;
-  IF NOT FOUND OR to_jsonb(locked_admission)<>to_jsonb(hinted_admission) THEN RETURN NULL; END IF;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'ADMISSION_ROW_ABSENT_UNDER_LOCK');
+  ELSIF to_jsonb(locked_admission)<>to_jsonb(hinted_admission) THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'ADMISSION_CHANGED_UNDER_LOCK');
+  END IF;
 
   PERFORM binding.binding_identity
   FROM public.product_edge_deployment_bindings_v1 binding
@@ -4105,20 +4136,44 @@ DECLARE
   operator_authorization_envelope jsonb;
   product_edge_envelope jsonb;
 BEGIN
-  IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF;
+  -- A bare NULL from here now means one thing only: this STRICT function short-circuited on a
+  -- NULL argument and never ran. The two locks this composes are asked to name their own
+  -- refusals; whatever they name travels up unchanged, so the caller reads the cause rather
+  -- than the fact that some inner call said no.
+  IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN jsonb_build_object('schema_version', 1, 'refusal', 'ISOLATION_NOT_READ_COMMITTED'); END IF;
 
   SELECT operator_authorization_api.lock_current_portfolio_resource_grant_v1(
     requested_grant_identity,
     requested_grant_receipt_identity
   ) INTO operator_authorization_envelope;
-  IF operator_authorization_envelope IS NULL THEN RETURN NULL; END IF;
+  -- The Portfolio resource grant lock is generated from the shared grant template in
+  -- `crates/operator_authorization/src/postgres/grant.rs`, which still answers every one of its
+  -- causes with a bare NULL. Until it names them this reports only that it refused; the branch
+  -- below already forwards a named refusal, so it starts carrying the cause the day it has one.
+  IF operator_authorization_envelope IS NULL THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'PORTFOLIO_GRANT_LOCK_REFUSED',
+      'refused_by', 'operator_authorization_api.lock_current_portfolio_resource_grant_v1');
+  ELSIF operator_authorization_envelope->>'refusal' IS NOT NULL THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', operator_authorization_envelope->>'refusal',
+      'refused_by', COALESCE(operator_authorization_envelope->>'refused_by', 'operator_authorization_api.lock_current_portfolio_resource_grant_v1'));
+  END IF;
 
   SELECT product_edge_api.lock_downstream_admission_v1(
     requested_request_identity,
     requested_admission_identity,
     requested_admission_digest
   ) INTO product_edge_envelope;
-  IF product_edge_envelope IS NULL THEN RETURN NULL; END IF;
+  IF product_edge_envelope IS NULL THEN
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', 'DOWNSTREAM_ADMISSION_LOCATOR_NULL',
+      'refused_by', 'product_edge_api.lock_downstream_admission_v1');
+  ELSIF product_edge_envelope->>'refusal' IS NOT NULL THEN
+    -- Keep the raiser the inner envelope already named. Overwriting it with the callee this
+    -- layer happens to have called would report the last hop instead of where the cause came
+    -- from, which is the information the caller cannot reconstruct.
+    RETURN jsonb_build_object('schema_version', 1, 'refusal', product_edge_envelope->>'refusal',
+      'refused_by', COALESCE(product_edge_envelope->>'refused_by', 'product_edge_api.lock_downstream_admission_v1'),
+      'authorization_identity', product_edge_envelope->>'authorization_identity');
+  END IF;
 
   RETURN pg_catalog.jsonb_build_object(
     'operator_authorization', operator_authorization_envelope,

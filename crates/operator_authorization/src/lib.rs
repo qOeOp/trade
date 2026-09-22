@@ -990,6 +990,11 @@ pub enum OperatorAuthorizationSubjectKindV1 {
     Authorization,
     /// A revocation frontier, by `frontier_identity`.
     Frontier,
+    /// A revocation head, by the `scope_digest` it is keyed on.
+    ///
+    /// Distinct from [`Self::Frontier`]: the head is the pointer, the frontier
+    /// is what it points at, and either can be absent without the other.
+    Head,
     /// A scope history, by `scope_digest`.
     Scope,
     /// A Portfolio resource grant, by `grant_identity`.
@@ -1007,6 +1012,7 @@ impl OperatorAuthorizationSubjectKindV1 {
         match self {
             Self::Authorization => "authorization",
             Self::Frontier => "frontier",
+            Self::Head => "revocation head",
             Self::Scope => "scope",
             Self::Grant => "grant",
             Self::Resource => "resource",
