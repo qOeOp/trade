@@ -366,7 +366,7 @@ impl ReplayTargetSetExecutionBundleV1 {
         self.census.native_materialization_digest()
     }
 
-    /// Binds this executable bundle to one Owner-sealed two-frame Native Replay sequence.
+    /// Binds this executable bundle to one Owner-sealed Native Replay frame sequence.
     ///
     /// Without this there is no binding point between the frame and the fills it produces: the
     /// bundle's frame time is only checked against the request window's start bound, which is a
@@ -381,7 +381,7 @@ impl ReplayTargetSetExecutionBundleV1 {
         &self,
         v2: &NativeReplayExecutionInputBindingReadbackV2,
     ) -> anyhow::Result<()> {
-        verify_scheduling_data_against_sealed_frames(&self.data, v2.binding().frame_orders())
+        verify_scheduling_data_against_sealed_frames(&self.data, &v2.binding().frame_orders())
     }
 
     /// Consumes one Owner-issued dual-profile authority and admits an exact complete execution.
@@ -694,18 +694,23 @@ fn digest_census(census: &ReplayTargetSetExecutionCensusV1) -> anyhow::Result<[u
     Ok(hasher.finalize().into())
 }
 
-/// Checks executed scheduling data against the Owner's sealed two-frame order boundaries.
+/// Checks executed scheduling data against the Owner's sealed frame order boundaries.
 ///
-/// Separated from the bundle so the ordering rule can be exercised on its own: it is the rule,
-/// not the surrounding fixture, that decides whether a fill belongs to a sealed frame.
+/// The sealed sequence's last frame is not executed: it is there so the frame before it has
+/// something its liquidity must close before. Everything ahead of it is a frame a run consumes, so
+/// an executed BAR must be one of their first-BAR orders and an executed EVENT must fall inside
+/// one of their liquidity windows.
 fn verify_scheduling_data_against_sealed_frames(
     data: &[Data],
-    frame_orders: [(u64, u64); 2],
+    frame_orders: &[(u64, u64)],
 ) -> anyhow::Result<()> {
-    let [
-        (first_bar_order, last_liquidity_event_order),
-        (successor_bar_order, _),
-    ] = frame_orders;
+    let Some((_, consumed)) = frame_orders.split_last() else {
+        anyhow::bail!("sealed sequence carries no frame for an execution to bind to");
+    };
+    anyhow::ensure!(
+        !consumed.is_empty(),
+        "sealed sequence has nothing to bound the frame an execution would consume"
+    );
     let bars: Vec<u64> = data
         .iter()
         .filter_map(|value| match value {
@@ -725,19 +730,22 @@ fn verify_scheduling_data_against_sealed_frames(
         "executed bundle carries no BAR or no EVENT to bind to the sealed sequence"
     );
     anyhow::ensure!(
-        bars.iter().all(|order| *order == first_bar_order),
-        "executed bundle BAR frame is not the sealed sequence's first frame"
-    );
-    anyhow::ensure!(
-        events
+        bars.iter().all(|order| consumed
             .iter()
-            .all(|order| *order > first_bar_order && *order <= last_liquidity_event_order),
-        "executed bundle EVENT falls outside its sealed frame"
+            .any(|(first_bar_order, _)| first_bar_order == order)),
+        "executed bundle BAR frame is not one the sealed sequence consumes"
     );
-    // "All first-frame liquidity EVENTs must precede the second frame's first BAR."
     anyhow::ensure!(
-        last_liquidity_event_order < successor_bar_order,
-        "sealed first-frame liquidity does not precede the successor frame's first BAR"
+        events.iter().all(|order| consumed.iter().any(
+            |(first_bar_order, last_liquidity_event_order)| order > first_bar_order
+                && order <= last_liquidity_event_order
+        )),
+        "executed bundle EVENT falls outside every sealed frame"
+    );
+    // "All of a frame's liquidity EVENTs must precede the next frame's first BAR."
+    anyhow::ensure!(
+        frame_orders.windows(2).all(|pair| pair[0].1 < pair[1].0),
+        "sealed frame liquidity does not precede the next frame's first BAR"
     );
     Ok(())
 }
@@ -923,6 +931,49 @@ mod tests {
         ))
     }
 
+    fn member_bar(bar_type: BarType, size: &str, instant: u64) -> Data {
+        Data::Bar(Bar::new(
+            bar_type,
+            Price::from("186.41"),
+            Price::from("188.00"),
+            Price::from("185.00"),
+            Price::from("187.25"),
+            Quantity::from(size),
+            instant.into(),
+            instant.into(),
+        ))
+    }
+
+    /// A run consumes every frame but the last, so a BAR at a later consumed frame binds too, and
+    /// a BAR at the bounding frame does not bind at all.
+    #[rstest::rstest]
+    fn an_executed_run_binds_to_every_frame_the_sequence_consumes() {
+        let (instruments, bar_types, mut data) = scheduling_fixture();
+
+        for (ordinal, size) in ["100", "100.0"].into_iter().enumerate() {
+            data.push(member_bar(bar_types[ordinal], size, FRAME_TIME + 10));
+        }
+        data.push(quote(&instruments[0], FRAME_TIME + 11, "100"));
+        data.push(quote(&instruments[1], FRAME_TIME + 12, "100.0"));
+        let sealed = [
+            (FRAME_TIME, FRAME_TIME + 2),
+            (FRAME_TIME + 10, FRAME_TIME + 12),
+            (FRAME_TIME + 20, FRAME_TIME + 22),
+        ];
+        verify_scheduling_data_against_sealed_frames(&data, &sealed).unwrap();
+
+        // The last sealed frame bounds the one before it and is never itself consumed.
+        let mut beyond = data.clone();
+        beyond.push(member_bar(bar_types[0], "100", FRAME_TIME + 20));
+        assert!(verify_scheduling_data_against_sealed_frames(&beyond, &sealed).is_err());
+
+        // A sequence with nothing to bound its only frame binds no execution.
+        assert!(
+            verify_scheduling_data_against_sealed_frames(&data, &[(FRAME_TIME, FRAME_TIME + 2)])
+                .is_err()
+        );
+    }
+
     /// The executed frame must be the sealed one, and its fills must stay inside it.
     #[rstest::rstest]
     fn executed_schedule_binds_only_to_its_own_sealed_frame() {
@@ -931,13 +982,13 @@ mod tests {
             (FRAME_TIME, FRAME_TIME + 2),
             (FRAME_TIME + 3, FRAME_TIME + 5),
         ];
-        verify_scheduling_data_against_sealed_frames(&data, sealed).unwrap();
+        verify_scheduling_data_against_sealed_frames(&data, &sealed).unwrap();
 
         // A different sealed first frame does not accept these fills.
         assert!(
             verify_scheduling_data_against_sealed_frames(
                 &data,
-                [
+                &[
                     (FRAME_TIME + 1, FRAME_TIME + 2),
                     (FRAME_TIME + 3, FRAME_TIME + 5)
                 ],
@@ -948,7 +999,7 @@ mod tests {
         assert!(
             verify_scheduling_data_against_sealed_frames(
                 &data,
-                [
+                &[
                     (FRAME_TIME, FRAME_TIME + 1),
                     (FRAME_TIME + 3, FRAME_TIME + 5)
                 ],
@@ -959,7 +1010,7 @@ mod tests {
         assert!(
             verify_scheduling_data_against_sealed_frames(
                 &data,
-                [
+                &[
                     (FRAME_TIME, FRAME_TIME + 2),
                     (FRAME_TIME + 2, FRAME_TIME + 5)
                 ],
@@ -967,8 +1018,8 @@ mod tests {
             .is_err()
         );
         // A bundle with no EVENT has nothing to bind.
-        assert!(verify_scheduling_data_against_sealed_frames(&data[0..2], sealed).is_err());
-        assert!(verify_scheduling_data_against_sealed_frames(&[], sealed).is_err());
+        assert!(verify_scheduling_data_against_sealed_frames(&data[0..2], &sealed).is_err());
+        assert!(verify_scheduling_data_against_sealed_frames(&[], &[]).is_err());
     }
 
     #[rstest::rstest]
