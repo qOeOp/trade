@@ -204,6 +204,8 @@ mod exploratory_replay;
 mod iteration_analysis;
 mod iteration_decision;
 mod iteration_result_admission;
+#[cfg(test)]
+mod log_capture;
 mod market_data_pit;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 mod market_data_repair;
@@ -2751,7 +2753,18 @@ fn product_edge_error(error: &ProductEdgeError, request_identity: &str, v2: bool
     let status = match error {
         ProductEdgeError::ConflictingReplay => StatusCode::CONFLICT,
         ProductEdgeError::InvalidProposal(_) => StatusCode::BAD_REQUEST,
-        ProductEdgeError::Unavailable(_) | ProductEdgeError::Storage(_) => {
+        // These two collapse into one status, and this response carries no rejection code at
+        // all - it answers with `unresolved_result`, which names the request and nothing else.
+        // So the log is the only place the cause can survive, and until now it did not: the `_`
+        // was the whole answer. A deployment bring-up spent a pass on a 503 from here with
+        // nothing in the response or the log to say whether the authority or the store was the
+        // one unavailable.
+        ProductEdgeError::Unavailable(detail) => {
+            tracing::warn!(%detail, %request_identity, "Product Edge authority unavailable");
+            StatusCode::SERVICE_UNAVAILABLE
+        }
+        ProductEdgeError::Storage(detail) => {
+            tracing::warn!(%detail, %request_identity, "Product Edge storage unavailable");
             StatusCode::SERVICE_UNAVAILABLE
         }
     };
@@ -2779,11 +2792,31 @@ fn artifact_product_edge_error(
             "PRODUCT_EDGE_REQUEST_REJECTED",
             ArtifactBuildResultV1::submitted_or_unknown(build_request_identity, attempt_identity),
         ),
-        ProductEdgeError::Unavailable(_) | ProductEdgeError::Storage(_) => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "OWNER_OUTCOME_UNKNOWN",
-            ArtifactBuildResultV1::submitted_or_unknown(build_request_identity, attempt_identity),
-        ),
+        // `OWNER_OUTCOME_UNKNOWN` is what the caller is told, and it is accurate: the outcome
+        // is unknown to them either way. Which of the two made it unknown is not, and that is
+        // what the log now carries.
+        ProductEdgeError::Unavailable(detail) => {
+            tracing::warn!(%detail, %build_request_identity, "Product Edge authority unavailable");
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "OWNER_OUTCOME_UNKNOWN",
+                ArtifactBuildResultV1::submitted_or_unknown(
+                    build_request_identity,
+                    attempt_identity,
+                ),
+            )
+        }
+        ProductEdgeError::Storage(detail) => {
+            tracing::warn!(%detail, %build_request_identity, "Product Edge storage unavailable");
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "OWNER_OUTCOME_UNKNOWN",
+                ArtifactBuildResultV1::submitted_or_unknown(
+                    build_request_identity,
+                    attempt_identity,
+                ),
+            )
+        }
     };
     let mut response = (status, Json(result)).into_response();
     insert_rejection_code(&mut response, code);
@@ -2844,6 +2877,9 @@ mod tests {
         OperatorAuthorizationIssuerPostgresV1, OperatorAuthorizationScopeV1,
     };
     use vibe_product_edge::{AgentOperationManifestProposalV1, ProductEdgeBootstrapProposalV1};
+    use vibe_product_edge::{
+        ProductEdgeSubjectKindV1, ProductEdgeUnavailableReasonV1, ProductEdgeUnavailableV1,
+    };
     #[cfg(all(
         feature = "sealed-artifact-source-browser-acceptance",
         feature = "sealed-source-intake-acceptance"
@@ -5039,5 +5075,74 @@ mod tests {
         ));
         assert_eq!(concrete.preflight_calls.load(Ordering::SeqCst), 1);
         assert_eq!(product_edge_admission_calls.load(Ordering::SeqCst), 0);
+    }
+
+    /// This response carries no rejection code at all, so the log is the only place the cause survives.
+    #[rstest]
+    #[case::authority(
+        ProductEdgeError::Unavailable(ProductEdgeUnavailableV1::about(
+            ProductEdgeUnavailableReasonV1::Missing,
+            ProductEdgeSubjectKindV1::Admission,
+            "product-edge-authority",
+        )),
+        "product-edge-authority",
+        "Product Edge authority unavailable"
+    )]
+    #[case::storage(
+        ProductEdgeError::Storage("product-edge-storage".to_string()),
+        "product-edge-storage",
+        "Product Edge storage unavailable",
+    )]
+    fn an_unresolved_result_names_its_cause_in_the_log(
+        #[case] error: ProductEdgeError,
+        #[case] detail: &str,
+        #[case] message: &str,
+    ) {
+        let (response, written) =
+            crate::log_capture::capture(|| product_edge_error(&error, "request-1", false));
+
+        assert_eq!(
+            response.status(),
+            StatusCode::SERVICE_UNAVAILABLE,
+            "{written}"
+        );
+        assert!(written.contains("WARN"), "{written}");
+        assert!(written.contains(detail), "{written}");
+        assert!(written.contains(message), "{written}");
+    }
+
+    /// `OWNER_OUTCOME_UNKNOWN` is one code for both causes; the log is where they come apart.
+    #[rstest]
+    #[case::authority(
+        ProductEdgeError::Unavailable(ProductEdgeUnavailableV1::about(
+            ProductEdgeUnavailableReasonV1::Missing,
+            ProductEdgeSubjectKindV1::Admission,
+            "artifact-build-authority",
+        )),
+        "artifact-build-authority",
+        "Product Edge authority unavailable"
+    )]
+    #[case::storage(
+        ProductEdgeError::Storage("artifact-build-storage".to_string()),
+        "artifact-build-storage",
+        "Product Edge storage unavailable",
+    )]
+    fn an_unknown_artifact_outcome_names_its_cause_in_the_log(
+        #[case] error: ProductEdgeError,
+        #[case] detail: &str,
+        #[case] message: &str,
+    ) {
+        let (response, written) = crate::log_capture::capture(|| {
+            artifact_product_edge_error(&error, "build-1", "attempt-1")
+        });
+
+        assert_eq!(
+            response.status(),
+            StatusCode::SERVICE_UNAVAILABLE,
+            "{written}"
+        );
+        assert!(written.contains("WARN"), "{written}");
+        assert!(written.contains(detail), "{written}");
+        assert!(written.contains(message), "{written}");
     }
 }
