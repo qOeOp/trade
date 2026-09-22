@@ -112,6 +112,18 @@ an admission as invalid:
   `/v2/exploratory-replay/execution-input-bindings`, `/v3/exploratory-replay-requests/composer-backed`, and the
   four `/_sealed-acceptance/v1/develop-composer/*` routes. An acceptance route is never evidence of a production
   capability, and the sealed features exist to keep that distinction mechanical rather than remembered.
+- **CURRENT - the deployed Source Intake pipeline stops after admission:** `SourceIntakeEnvironmentPort` has two
+  implementations. `SealedSourceIntakeEnvironmentV1` sits behind `sealed-source-intake-acceptance`, which the image
+  above does not build, so the one that ships is `ProductionEnvironmentV1` in
+  `crates/strategy_factory/src/source_intake/owner.rs`. It implements `terminal_preflight`, `admit` and
+  `resolve_terminal`. `resolve_policy` answers `Ok(None)` unconditionally, which `SourceIntakeWorkflowV1::run`
+  turns into `PolicyUnavailable`, and the nine stages after it - `commit_binding` through `commit_terminal` - are
+  unconditional `Err(Unavailable)`. A deployed Owner therefore admits a source intake request and acquires
+  nothing: measured by sending one, the answer is `503 OWNER_OUTCOME_UNKNOWN`. The route states that as
+  `SUBMITTED_OR_UNKNOWN` with `RESOLVE_SAME_REQUEST`, the state reserved for a transport whose outcome is
+  genuinely unknown, and here the outcome is known and resolving the same request cannot change it. Which stages
+  are still missing is not kept here: `UNIMPLEMENTED_PRODUCTION_STAGES` in that module lists them, and a guard
+  fails if the list and the code disagree. Read the list, not this paragraph, for the current count.
 - **CURRENT - one read-only operation is reachable only through the write API:** the Dashboard's operation
   registry declares eleven Owner routes, and ten are `GET`. The eleventh,
   `research_goal.legacy_quarantine_read.v1`, declares `effect_set: []` and resolves to
