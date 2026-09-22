@@ -780,6 +780,145 @@ pub enum BacktestResultCustodyErrorV2 {
     Unavailable,
     #[error("Backtest Replay V2 result custody storage unavailable: {0}")]
     Storage(String),
+    #[error("Backtest Replay V2 result custody refused the read: {0}")]
+    Refused(BacktestReadbackRefusalV1),
+}
+
+/// Why one `backtest_owner_api` readback answered nothing.
+///
+/// A caller outside the Backtest Owner holds no `SELECT` on the tables behind these functions, so a
+/// cause the function does not name is a cause nobody downstream can recover. Every one of these
+/// used to be the same `NULL`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BacktestReadbackRefusalV1 {
+    /// The exploratory Result row does not exist for this locator.
+    ExploratoryResultAbsent,
+    /// The Result exists and its receipt does not.
+    ExploratoryReceiptAbsent,
+    /// The Result and receipt exist and the outbox event does not.
+    ExploratoryOutboxAbsent,
+    /// The aggregate exists and its semantic trace does not.
+    SemanticTraceAbsent,
+    /// The aggregate exists and its outcome evidence does not.
+    OutcomeEvidenceAbsent,
+    /// The outcome evidence exists and its receipt does not.
+    OutcomeEvidenceReceiptAbsent,
+    /// The outcome evidence and receipt exist and the outbox event does not.
+    OutcomeEvidenceOutboxAbsent,
+    /// The calling session is not the one this function answers.
+    SessionUserRejected,
+    /// The function is not running as the custodian that owns its tables.
+    DefinerContextRejected,
+    /// The calling transaction is not serializable.
+    TransactionIsolationRejected,
+    /// No protected Result aggregate matches this locator.
+    ProtectedResultAbsent,
+    /// More than one protected Result aggregate matches this locator.
+    ProtectedResultAmbiguous,
+    /// A protected Result column could not be projected.
+    ProtectedResultMalformed,
+    /// No protected attempt frontier aggregate matches this locator.
+    ProtectedFrontierAbsent,
+    /// More than one protected attempt frontier aggregate matches this locator.
+    ProtectedFrontierAmbiguous,
+    /// A protected attempt frontier column could not be projected.
+    ProtectedFrontierMalformed,
+}
+
+impl BacktestReadbackRefusalV1 {
+    /// Returns the exact wire code the `backtest_owner_api` function writes.
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::ExploratoryResultAbsent => "EXPLORATORY_RESULT_ABSENT",
+            Self::ExploratoryReceiptAbsent => "EXPLORATORY_RECEIPT_ABSENT",
+            Self::ExploratoryOutboxAbsent => "EXPLORATORY_OUTBOX_ABSENT",
+            Self::SemanticTraceAbsent => "SEMANTIC_TRACE_ABSENT",
+            Self::OutcomeEvidenceAbsent => "OUTCOME_EVIDENCE_ABSENT",
+            Self::OutcomeEvidenceReceiptAbsent => "OUTCOME_EVIDENCE_RECEIPT_ABSENT",
+            Self::OutcomeEvidenceOutboxAbsent => "OUTCOME_EVIDENCE_OUTBOX_ABSENT",
+            Self::SessionUserRejected => "SESSION_USER_REJECTED",
+            Self::DefinerContextRejected => "DEFINER_CONTEXT_REJECTED",
+            Self::TransactionIsolationRejected => "TRANSACTION_ISOLATION_REJECTED",
+            Self::ProtectedResultAbsent => "PROTECTED_RESULT_ABSENT",
+            Self::ProtectedResultAmbiguous => "PROTECTED_RESULT_AMBIGUOUS",
+            Self::ProtectedResultMalformed => "PROTECTED_RESULT_MALFORMED",
+            Self::ProtectedFrontierAbsent => "PROTECTED_FRONTIER_ABSENT",
+            Self::ProtectedFrontierAmbiguous => "PROTECTED_FRONTIER_AMBIGUOUS",
+            Self::ProtectedFrontierMalformed => "PROTECTED_FRONTIER_MALFORMED",
+        }
+    }
+
+    /// Every refusal this vocabulary publishes, in wire order.
+    pub const ALL: [Self; 16] = [
+        Self::ExploratoryResultAbsent,
+        Self::ExploratoryReceiptAbsent,
+        Self::ExploratoryOutboxAbsent,
+        Self::SemanticTraceAbsent,
+        Self::OutcomeEvidenceAbsent,
+        Self::OutcomeEvidenceReceiptAbsent,
+        Self::OutcomeEvidenceOutboxAbsent,
+        Self::SessionUserRejected,
+        Self::DefinerContextRejected,
+        Self::TransactionIsolationRejected,
+        Self::ProtectedResultAbsent,
+        Self::ProtectedResultAmbiguous,
+        Self::ProtectedResultMalformed,
+        Self::ProtectedFrontierAbsent,
+        Self::ProtectedFrontierAmbiguous,
+        Self::ProtectedFrontierMalformed,
+    ];
+
+    /// Whether the refusal says a row is simply not there.
+    ///
+    /// A caller that answered "not found" before this vocabulary existed keeps answering it for
+    /// exactly these, and now says which row was missing.
+    #[must_use]
+    pub const fn is_absent(self) -> bool {
+        matches!(
+            self,
+            Self::ExploratoryResultAbsent
+                | Self::ExploratoryReceiptAbsent
+                | Self::ExploratoryOutboxAbsent
+                | Self::SemanticTraceAbsent
+                | Self::OutcomeEvidenceAbsent
+                | Self::OutcomeEvidenceReceiptAbsent
+                | Self::OutcomeEvidenceOutboxAbsent
+                | Self::ProtectedResultAbsent
+                | Self::ProtectedFrontierAbsent
+        )
+    }
+}
+
+impl std::fmt::Display for BacktestReadbackRefusalV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.code())
+    }
+}
+
+/// Reads one refusal envelope, or returns the aggregate for the caller to validate.
+///
+/// # Errors
+///
+/// Returns [`BacktestResultCustodyErrorV2::Refused`] when the function named a cause, and
+/// [`BacktestResultCustodyErrorV2::Storage`] when it wrote a `refusal` this build does not publish,
+/// because an unrecognized code is a contract drift rather than an absence.
+pub(crate) fn refusal_of(
+    value: &serde_json::Value,
+) -> Result<Option<BacktestReadbackRefusalV1>, BacktestResultCustodyErrorV2> {
+    let Some(code) = value.get("refusal") else {
+        return Ok(None);
+    };
+    let code = code
+        .as_str()
+        .ok_or_else(|| BacktestResultCustodyErrorV2::Storage("refusal is not a string".into()))?;
+    BacktestReadbackRefusalV1::ALL
+        .into_iter()
+        .find(|refusal| refusal.code() == code)
+        .map(Some)
+        .ok_or_else(|| {
+            BacktestResultCustodyErrorV2::Storage(format!("unpublished refusal code {code}"))
+        })
 }
 
 /// Move-only positive Backtest custody readback.
@@ -971,9 +1110,16 @@ pub async fn resolve_exploratory_replay_result_v2(
     .fetch_one(&mut **transaction)
     .await
     .map_err(|e| storage(&e))?;
-    envelope
-        .map(|value| validate_envelope(value, locator))
-        .transpose()
+    let Some(value) = envelope else {
+        // The function is STRICT, so a bare NULL now means only that a NULL argument short-circuited
+        // it without executing. Every cause it decides for itself arrives as a named refusal.
+        return Ok(None);
+    };
+
+    if let Some(refusal) = refusal_of(&value)? {
+        return Err(BacktestResultCustodyErrorV2::Refused(refusal));
+    }
+    validate_envelope(value, locator).map(Some)
 }
 
 /// Resolves one complete native outcome aggregate under the caller's existing R&D transaction.
@@ -1002,9 +1148,16 @@ pub async fn resolve_exploratory_replay_result_v3(
     .fetch_one(&mut **transaction)
     .await
     .map_err(|e| storage(&e))?;
-    envelope
-        .map(|value| validate_outcome_envelope(value, locator))
-        .transpose()
+    let Some(value) = envelope else {
+        // The function is STRICT, so a bare NULL now means only that a NULL argument short-circuited
+        // it without executing. Every cause it decides for itself arrives as a named refusal.
+        return Ok(None);
+    };
+
+    if let Some(refusal) = refusal_of(&value)? {
+        return Err(BacktestResultCustodyErrorV2::Refused(refusal));
+    }
+    validate_outcome_envelope(value, locator).map(Some)
 }
 
 /// Validates the exact append-only writer topology in the supplied Backtest transaction.

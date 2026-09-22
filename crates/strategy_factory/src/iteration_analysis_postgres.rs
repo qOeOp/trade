@@ -2109,6 +2109,9 @@ fn map_backtest_custody_error(
             unavailable("Backtest Result custody is unavailable")
         }
         BacktestResultCustodyErrorV2::Storage(message) => storage(message),
+        BacktestResultCustodyErrorV2::Refused(refusal) => unavailable(format!(
+            "Backtest Result custody refused the read: {refusal}"
+        )),
     }
 }
 

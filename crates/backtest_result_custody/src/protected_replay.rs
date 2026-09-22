@@ -288,7 +288,14 @@ pub async fn resolve_protected_replay_result_for_qualification_in_transaction(
     .fetch_one(&mut **transaction)
     .await
     .map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
-    let Some(value) = value else { return Ok(None) };
+    let Some(value) = value else {
+        // STRICT short-circuit only: every cause the function decides for itself is now named.
+        return Ok(None);
+    };
+
+    if let Some(refusal) = crate::refusal_of(&value)? {
+        return Err(BacktestResultCustodyErrorV2::Refused(refusal));
+    }
     let envelope: LockedEnvelopeV1 =
         serde_json::from_value(value).map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
     if envelope.schema_version != 1 {
@@ -352,7 +359,14 @@ pub async fn resolve_protected_replay_result_v2_for_qualification_in_transaction
     .fetch_one(&mut **transaction)
     .await
     .map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
-    let Some(value) = value else { return Ok(None) };
+    let Some(value) = value else {
+        // STRICT short-circuit only: every cause the function decides for itself is now named.
+        return Ok(None);
+    };
+
+    if let Some(refusal) = crate::refusal_of(&value)? {
+        return Err(BacktestResultCustodyErrorV2::Refused(refusal));
+    }
     let envelope: LockedEnvelopeV1 =
         serde_json::from_value(value).map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
     if envelope.schema_version != 1 {
@@ -416,7 +430,14 @@ pub async fn resolve_protected_replay_result_v3_for_qualification_in_transaction
     .fetch_one(&mut **transaction)
     .await
     .map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
-    let Some(value) = value else { return Ok(None) };
+    let Some(value) = value else {
+        // STRICT short-circuit only: every cause the function decides for itself is now named.
+        return Ok(None);
+    };
+
+    if let Some(refusal) = crate::refusal_of(&value)? {
+        return Err(BacktestResultCustodyErrorV2::Refused(refusal));
+    }
     let envelope: LockedEnvelopeV1 =
         serde_json::from_value(value).map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
     if envelope.schema_version != 1 {
@@ -479,7 +500,14 @@ pub async fn resolve_protected_replay_attempt_frontier_for_qualification_in_tran
     .fetch_one(&mut **transaction)
     .await
     .map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
-    let Some(value) = value else { return Ok(None) };
+    let Some(value) = value else {
+        // STRICT short-circuit only: every cause the function decides for itself is now named.
+        return Ok(None);
+    };
+
+    if let Some(refusal) = crate::refusal_of(&value)? {
+        return Err(BacktestResultCustodyErrorV2::Refused(refusal));
+    }
     let envelope: LockedFrontierEnvelopeV1 =
         serde_json::from_value(value).map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
     if envelope.schema_version != 1 {

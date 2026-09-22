@@ -828,6 +828,18 @@ async fn read_diagnosis_gate(
             "EXPLORATORY_DIAGNOSIS_GATE_UNAVAILABLE",
             &request_identity,
         ),
+        // The Owner named which row it could not answer with. A missing row keeps the 404 it
+        // always had and now says which one; anything else is the Owner refusing to answer at all,
+        // which is a 503 rather than a not-found.
+        Err(ResearchExploratoryDiagnosisGateErrorV1::Refused(refusal)) => rejection(
+            if refusal.is_absent() {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::SERVICE_UNAVAILABLE
+            },
+            refusal.code(),
+            &request_identity,
+        ),
     }
 }
 
