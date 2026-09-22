@@ -195,15 +195,27 @@ set +e
 # after admitting its own binding, and a cut read across another admission is a cut for a head that
 # has already moved. `--no-capture` implies a single test thread today, but stating it keeps that
 # an intent rather than a consequence of an unrelated flag.
+# `MARKET_DATA_E2E_SWEEP=1` runs the year-long daily sweep instead of the three single-coordinate
+# proofs, so a consumer can rebuild the series without this script's default set. It replaces rather
+# than adds: the sweep and the daily proof name the same member, and admitting one member twice in
+# one database fails with `PredecessorUnavailable`. The database this provisions is disposable, which
+# is the point - the Owner re-validates every lineage on every commit, so a store that is kept makes
+# every later snapshot slower for every writer.
+if [[ -n "${MARKET_DATA_E2E_SWEEP:-}" ]]; then
+  selection='test(=market_data_answers_one_year_of_daily_perpetual_coordinates)'
+else
+  selection='test(=market_data_answers_one_frozen_request_without_a_credential)
+    + test(=market_data_answers_one_frozen_perpetual_request_without_a_credential)
+    + test(=market_data_answers_one_frozen_daily_perpetual_request_without_a_credential)'
+fi
+
 cargo nextest run --manifest-path crates/adapters/binance/Cargo.toml \
   --test market_data_end_to_end \
   --cargo-profile "${CARGO_CI_PROFILE:-nextest}" \
   --run-ignored all \
   --no-capture \
   --test-threads 1 \
-  -E 'test(=market_data_answers_one_frozen_request_without_a_credential)
-    + test(=market_data_answers_one_frozen_perpetual_request_without_a_credential)
-    + test(=market_data_answers_one_frozen_daily_perpetual_request_without_a_credential)'
+  -E "$selection"
 test_status=$?
 set -e
 
