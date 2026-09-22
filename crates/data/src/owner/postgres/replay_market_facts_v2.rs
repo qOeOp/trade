@@ -1884,13 +1884,32 @@ impl ReplayCompositionOwnerV1 {
             let (isolation, read_only, session_user): (String, String, String) = sqlx::query_as(
                 "SELECT pg_catalog.current_setting('transaction_isolation'),
                         pg_catalog.current_setting('transaction_read_only'),
-                        pg_catalog.session_user",
+                        session_user",
             )
             .fetch_one(&mut *reader_transaction)
             .await
-            .map_err(|_| StrategyInputBindingAdmissionErrorV1::StoreUnavailable)?;
+            .map_err(|e| {
+                // Nothing at compile time says this string is valid SQL. The first version of it
+                // wrote `pg_catalog.session_user`, which PostgreSQL parses as a column of a table
+                // named `pg_catalog`: the whole statement failed, this arm discarded the error,
+                // and the chain reported `StoreUnavailable` from a connection that was in fact
+                // perfectly healthy - the exact shape of discarded cause this call now refuses to
+                // produce downstream.
+                crate::owner::storage_diagnostic::refused_by_store(
+                    "strategy_input_binding.design_intent.call_context_probe",
+                    &e,
+                );
+                StrategyInputBindingAdmissionErrorV1::StoreUnavailable
+            })?;
 
             if isolation != "repeatable read" || read_only != "on" {
+                crate::owner::storage_diagnostic::refused_by_store(
+                    "strategy_input_binding.design_intent.reader_transaction_mode",
+                    &format!(
+                        "the R&D role-intent reader must run repeatable read and read only, not \
+                         {isolation} and read_only={read_only}"
+                    ),
+                );
                 return Err(StrategyInputBindingAdmissionErrorV1::StoreUnavailable);
             }
 
