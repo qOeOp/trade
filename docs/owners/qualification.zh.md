@@ -134,7 +134,7 @@ Qualification 的其余部分并不排在它后面：attempt frontier、候选�
 
   但让那一臂走不到的不是这两条。本台账此前记的是这两条，并且记着第二份 basis 会由第一份用过的那个
   `load_or_create_basis_in_transaction` 自己写出来。那是读代码读出来的，不是驱动出来的，而驱动它就推翻了它。
-  `second_request_under_one_principal_is_refused_before_the_lineage_advances`
+  `second_request_under_one_principal_resolves_through_the_frontier_arm`
   供上了此前缺的那个配置（一个 deployment、一个 principal、一个 authorized scope、两个请求，各自一份准入），
   而第二份 basis 并没有被写出来。第二个请求撞上的是那个函数的 `head_lineage == lineage_digest` 分支，
   而那一支是为「创建了 head 的那个请求的重放」写的：它拿收到的请求身份去查 basis-stage 托管，

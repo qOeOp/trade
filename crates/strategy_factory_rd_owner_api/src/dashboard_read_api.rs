@@ -852,14 +852,25 @@ pub async fn read_source_intake(
 
     match owner.read_source_intake(&request_identity).await {
         Ok(Some(terminal)) => (StatusCode::OK, Json(terminal)).into_response(),
-        Ok(None)
-        | Err(
-            SourceIntakeOwnerErrorV1::PolicyUnavailable | SourceIntakeOwnerErrorV1::ResponseLost,
-        ) => source_intake_unknown(
+        Ok(None) => source_intake_unknown(
             StatusCode::ACCEPTED,
             "OWNER_OUTCOME_UNKNOWN",
             &request_identity,
         ),
+        // The same code as `Ok(None)`, and rightly so: the caller polls again either way. But
+        // "no terminal yet" and "the policy is unavailable" and "the response was lost" are
+        // three different states, and merged into one arm a reader could not tell which.
+        Err(
+            error @ (SourceIntakeOwnerErrorV1::PolicyUnavailable
+            | SourceIntakeOwnerErrorV1::ResponseLost),
+        ) => {
+            tracing::warn!(?error, request_identity = %&request_identity, "source intake outcome unknown");
+            source_intake_unknown(
+                StatusCode::ACCEPTED,
+                "OWNER_OUTCOME_UNKNOWN",
+                &request_identity,
+            )
+        }
         Err(SourceIntakeOwnerErrorV1::Conflict) => source_intake_unknown(
             StatusCode::CONFLICT,
             "CONFLICTING_SEMANTICS_FOR_REQUEST_IDENTITY",

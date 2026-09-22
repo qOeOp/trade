@@ -232,7 +232,7 @@ pub enum NativeReplayExecutionInputBindingErrorV1 {
     Unavailable,
     #[error("Native Replay execution-input binding custody conflict")]
     Conflict,
-    #[error("Native Replay execution-input binding storage unavailable")]
+    #[error("Native Replay execution-input binding storage unavailable: {0}")]
     Storage(#[source] sqlx::Error),
 }
 

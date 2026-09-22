@@ -103,7 +103,7 @@ pub struct ResearchBoundedFeatureProgramFreezeReceiptV1 {
 #[derive(Debug, Error)]
 pub enum ResearchBoundedFeatureProgramOwnerErrorV1 {
     /// R&D Owner storage did not answer.
-    #[error("R&D Owner storage is unavailable")]
+    #[error("R&D Owner storage is unavailable: {0}")]
     Storage(#[from] sqlx::Error),
     /// The declared Design does not match currently accepted Research custody.
     #[error("the declared Design does not match current accepted Research custody")]
@@ -208,7 +208,7 @@ pub struct ResearchBoundedFeatureProgramLoweringV1 {
 #[derive(Debug, Error)]
 pub enum ResearchBoundedFeatureProgramLoweringErrorV1 {
     /// R&D Owner storage did not answer.
-    #[error("R&D Owner storage is unavailable")]
+    #[error("R&D Owner storage is unavailable: {0}")]
     Storage(#[from] sqlx::Error),
     /// No joint freeze exists for this Research identity, or its stored bytes no longer verify.
     #[error("no verifiable joint freeze is readable for this Research identity")]

@@ -2725,7 +2725,36 @@ async fn load_or_create_basis_in_transaction(
             ));
         }
 
-        if head_lineage == lineage_digest {
+        // The head is keyed by `principal_scope_key` and the lineage is resolved from
+        // `(principal, scope)`, so neither names a request. `head_lineage == lineage_digest`
+        // therefore means only that *some* request of this principal and scope committed a basis
+        // at this lineage. The replay branch at the top of this function is the one that means
+        // *this* request did, and it always returns.
+        //
+        // Without the check below, a second request of the same principal and scope - a normal
+        // thing, and the state a failed submit leaves behind, because the basis commits a whole
+        // transaction before the nineteen paths that can still refuse - took this branch and was
+        // answered `R&D basis-stage custody missing`. That named a store defect for what is an
+        // ordinary new request, and it was the only outcome this branch could produce: the
+        // custody load reads `rd_independence_bases_v1` on `request_identity`, the same table and
+        // key the replay branch above has already found empty, so it could only return `None`.
+        //
+        // The branch is kept rather than deleted because it fails toward refusing. A head that
+        // does name this request here cannot be constructed today - reaching this line means this
+        // request has no basis row, and the head's `basis_identity` references one - so this is a
+        // corruption guard, not a reachable path. If storage ever does present that, answering it
+        // by writing a second basis would be worse than refusing.
+        let head_request_identity: Option<String> = sqlx::query_scalar(
+            "SELECT request_identity FROM rd_independence_bases_v1 WHERE basis_identity = $1",
+        )
+        .bind(&head_basis)
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(|e| storage(&e))?;
+
+        if head_lineage == lineage_digest
+            && head_request_identity.as_deref() == Some(request.request_identity.as_str())
+        {
             let existing = load_basis_stage_custody_for_request_in_transaction(
                 transaction,
                 &request.request_identity,
@@ -5504,7 +5533,7 @@ pub(crate) mod tests {
     /// cannot notice.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[ignore = "requires the ordered canonical Owner PostgreSQL gate"]
-    async fn second_request_under_one_principal_is_refused_before_the_lineage_advances() {
+    async fn second_request_under_one_principal_resolves_through_the_frontier_arm() {
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
         let operator_authorization_database_url = test_database
             .database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter)
