@@ -12,6 +12,7 @@ use axum::{
     routing::post,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use sha2::{Digest, Sha256};
 use vibe_product_edge::ProductEdgePostgresOwnerV1;
 use vibe_strategy_factory::source_intake::{
@@ -769,7 +770,7 @@ async fn submit_decoded(
     let request_identity = parse_request_identity(&body);
 
     if !authorized(&headers, &state.token_digest) {
-        return unknown_response(
+        return refusal_response(
             StatusCode::FORBIDDEN,
             "UNAUTHORIZED_PRODUCT_EDGE",
             &request_identity,
@@ -778,7 +779,7 @@ async fn submit_decoded(
     let request = match decode(&body) {
         Some(request) => request,
         None => {
-            return unknown_response(
+            return refusal_response(
                 StatusCode::BAD_REQUEST,
                 "MALFORMED_TYPED_REQUEST",
                 &request_identity,
@@ -787,7 +788,7 @@ async fn submit_decoded(
     };
 
     if request.validate().is_err() {
-        return unknown_response(
+        return refusal_response(
             StatusCode::BAD_REQUEST,
             "MALFORMED_TYPED_REQUEST",
             &request.request_identity,
@@ -804,7 +805,7 @@ async fn resolve(
     body: Bytes,
 ) -> Response {
     if !authorized(&headers, &state.token_digest) {
-        return unknown_response(
+        return refusal_response(
             StatusCode::FORBIDDEN,
             "UNAUTHORIZED_PRODUCT_EDGE",
             &request_identity,
@@ -813,7 +814,7 @@ async fn resolve(
 
     if !valid_identity(&request_identity) || serde_json::from_slice::<EmptyObjectV1>(&body).is_err()
     {
-        return unknown_response(
+        return refusal_response(
             StatusCode::BAD_REQUEST,
             "MALFORMED_TYPED_REQUEST",
             &request_identity,
@@ -831,7 +832,7 @@ async fn readback(
     headers: HeaderMap,
 ) -> Response {
     if !authorized(&headers, &state.token_digest) {
-        return unknown_response(
+        return refusal_response(
             StatusCode::FORBIDDEN,
             "UNAUTHORIZED_PRODUCT_EDGE",
             &request_identity,
@@ -839,7 +840,7 @@ async fn readback(
     }
 
     if !valid_identity(&request_identity) {
-        return unknown_response(
+        return refusal_response(
             StatusCode::BAD_REQUEST,
             "MALFORMED_TYPED_REQUEST",
             &request_identity,
@@ -876,12 +877,12 @@ fn owner_response(
                 request_identity,
             )
         }
-        Err(SourceIntakeOwnerErrorV1::Conflict) => unknown_response(
+        Err(SourceIntakeOwnerErrorV1::Conflict) => refusal_response(
             StatusCode::CONFLICT,
             "CONFLICTING_SEMANTICS_FOR_REQUEST_IDENTITY",
             request_identity,
         ),
-        Err(SourceIntakeOwnerErrorV1::Invalid) => unknown_response(
+        Err(SourceIntakeOwnerErrorV1::Invalid) => refusal_response(
             StatusCode::BAD_REQUEST,
             "MALFORMED_TYPED_REQUEST",
             request_identity,
@@ -894,6 +895,35 @@ fn owner_response(
     }
 }
 
+/// Answers a refusal this Owner decided for itself, naming the code that decided it.
+///
+/// `unknown_response` below is for the opposite case and used to serve both. Its body says
+/// `SUBMITTED_OR_UNKNOWN` with `RESOLVE_SAME_REQUEST`, which is the contract's state for a
+/// transport whose outcome is not known. A token this Owner rejected, a body it could not decode
+/// and an identity it found conflicting are all outcomes it does know, and none of them changes
+/// when the same request is resolved again - so a caller following that advice loops forever on
+/// something no retry can fix. Nine of the twelve sites were in that position.
+///
+/// The shape matches the seven sibling `rejection` helpers in this crate, which all carry
+/// `"error": code`.
+fn refusal_response(status: StatusCode, code: &str, request_identity: &str) -> Response {
+    let mut response = (
+        status,
+        Json(json!({ "request_identity": request_identity, "error": code })),
+    )
+        .into_response();
+
+    if let Ok(value) = code.parse() {
+        response.headers_mut().insert("x-rd-rejection-code", value);
+    }
+    response
+}
+
+/// Answers an outcome this Owner genuinely does not know, which is what its body states.
+///
+/// Reserved for the three sites where that is true: the Owner accepted and has no terminal yet,
+/// a policy or response was lost, and the store was unreachable. In each of those, resolving the
+/// same request is the action that can change the answer.
 fn unknown_response(status: StatusCode, code: &str, request_identity: &str) -> Response {
     let mut response = (
         status,
@@ -1342,5 +1372,102 @@ mod tests {
             crate::log_capture::capture(|| super::owner_response(Ok(None), "request-1"));
         assert_eq!(quiet.status(), StatusCode::ACCEPTED, "{silence}");
         assert!(silence.is_empty(), "Ok(None) must stay silent: {silence}");
+    }
+}
+
+#[cfg(test)]
+mod answer_shape_tests {
+    use rstest::rstest;
+
+    /// A status this Owner decided for itself must never answer `SUBMITTED_OR_UNKNOWN`.
+    ///
+    /// That body tells the caller to resolve the same request. It is true of an outcome the Owner
+    /// does not know, and false of one it decided: a rejected token, a body that did not decode
+    /// and a conflicting identity do not change on a retry, so a caller following the advice
+    /// loops on something no retry can fix. Nine of the twelve sites were in that position before
+    /// this split.
+    #[rstest]
+    fn no_locally_decided_status_claims_an_unknown_outcome() {
+        let source = include_str!("source_intake.rs");
+        // Assembled, so this test's own text is not one of the sites it reads.
+        let unknown = ["unknown_", "response("].concat();
+        let refusal = ["refusal_", "response("].concat();
+        let decided = [
+            "StatusCode::FORBIDDEN",
+            "StatusCode::BAD_REQUEST",
+            "StatusCode::CONFLICT",
+        ];
+
+        let mut unknown_sites = 0_usize;
+        let mut refusal_sites = 0_usize;
+
+        for (at, needle) in source
+            .match_indices(&unknown)
+            .map(|hit| (hit.0, unknown.as_str()))
+            .chain(
+                source
+                    .match_indices(&refusal)
+                    .map(|hit| (hit.0, refusal.as_str())),
+            )
+        {
+            // The definitions and the doc comments above them are not call sites.
+            let line_start = source[..at].rfind('\n').map_or(0, |index| index + 1);
+            let line = &source[line_start..at];
+
+            if line.contains("fn ") || line.trim_start().starts_with("///") {
+                continue;
+            }
+
+            // To the call's own closing parenthesis, by matching them. An earlier version of
+            // this test looked for `);`, which a call that is the tail expression of a block does
+            // not have - so the window ran on into the following match arms and read their status
+            // codes as this call's. It reported a real site as a violation.
+            let open = at + needle.len() - 1;
+            let mut depth = 0_usize;
+            let mut close = source.len();
+
+            for (offset, character) in source[open..].char_indices() {
+                match character {
+                    '(' => depth += 1,
+                    ')' => {
+                        depth -= 1;
+
+                        if depth == 0 {
+                            close = open + offset;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            assert!(depth == 0, "a call never closes: {}", &source[at..close]);
+            let call = &source[at..close];
+            let locally_decided = decided.iter().any(|status| call.contains(status));
+
+            if needle == unknown {
+                unknown_sites += 1;
+                assert!(
+                    !locally_decided,
+                    "a status this Owner decided for itself answers SUBMITTED_OR_UNKNOWN:\n{call}"
+                );
+            } else {
+                refusal_sites += 1;
+                assert!(
+                    locally_decided,
+                    "a refusal shape answers a status the Owner did not decide:\n{call}"
+                );
+            }
+        }
+
+        // Both buckets must be populated, or one of the two assertions above is vacuous and the
+        // test would pass on a file that had lost every site of one kind.
+        assert_eq!(
+            unknown_sites, 3,
+            "the genuinely-unknown sites are the two 202s and the 503"
+        );
+        assert_eq!(
+            refusal_sites, 9,
+            "the locally decided sites are three 403s, five 400s and one 409"
+        );
     }
 }
