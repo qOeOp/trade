@@ -4900,6 +4900,24 @@ mod tests {
         };
 
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+
+        // The Market Data admissions are composed from the environment and the chain exports
+        // neither URL, so without these the binding admission is absent and the route that admits
+        // this Design would answer 503 about its own configuration rather than about the Design.
+        // The entry before this one sets the same two for the same reason.
+        unsafe {
+            env::set_var(
+                "MARKET_DATA_OWNER_DATABASE_URL",
+                test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner),
+            );
+        }
+        unsafe {
+            env::set_var(
+                "MARKET_DATA_RD_ROLE_SET_DATABASE_URL",
+                test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataReader),
+            );
+        }
+
         let rd_pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(2)
             .connect(test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner))
