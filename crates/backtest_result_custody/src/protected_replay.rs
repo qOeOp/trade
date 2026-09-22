@@ -28,11 +28,14 @@ const FRONTIER_OUTBOX_STORAGE_DOMAIN: &str =
 const FUNCTION_SOURCE: &str = r#"
 DECLARE locked jsonb;
 BEGIN
-  IF session_user <> 'qualification_writer'
-     OR current_user <> 'backtest_custodian'
-     OR pg_catalog.current_setting('transaction_isolation') <> 'serializable'
-  THEN
-    RETURN NULL;
+  IF session_user <> 'qualification_writer' THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','SESSION_USER_REJECTED');
+  END IF;
+  IF current_user <> 'backtest_custodian' THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','DEFINER_CONTEXT_REJECTED');
+  END IF;
+  IF pg_catalog.current_setting('transaction_isolation') <> 'serializable' THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','TRANSACTION_ISOLATION_REJECTED');
   END IF;
   SELECT pg_catalog.jsonb_build_object(
            'schema_version',1,
@@ -61,8 +64,13 @@ BEGIN
      AND outbox.result_digest=result.result_digest
    FOR SHARE OF result,receipt,outbox;
   RETURN locked;
-EXCEPTION WHEN no_data_found OR too_many_rows OR data_exception THEN
-  RETURN NULL;
+EXCEPTION
+  WHEN no_data_found THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','PROTECTED_RESULT_ABSENT');
+  WHEN too_many_rows THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','PROTECTED_RESULT_AMBIGUOUS');
+  WHEN data_exception THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','PROTECTED_RESULT_MALFORMED');
 END
 "#;
 #[allow(
@@ -73,11 +81,14 @@ END
 const FRONTIER_FUNCTION_SOURCE: &str = r#"
 DECLARE locked jsonb;
 BEGIN
-  IF session_user <> 'qualification_writer'
-     OR current_user <> 'backtest_custodian'
-     OR pg_catalog.current_setting('transaction_isolation') <> 'serializable'
-  THEN
-    RETURN NULL;
+  IF session_user <> 'qualification_writer' THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','SESSION_USER_REJECTED');
+  END IF;
+  IF current_user <> 'backtest_custodian' THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','DEFINER_CONTEXT_REJECTED');
+  END IF;
+  IF pg_catalog.current_setting('transaction_isolation') <> 'serializable' THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','TRANSACTION_ISOLATION_REJECTED');
   END IF;
   SELECT pg_catalog.jsonb_build_object(
            'schema_version',1,
@@ -106,8 +117,13 @@ BEGIN
      AND outbox.request_set_digest=frontier.request_set_digest
    FOR SHARE OF frontier,receipt,outbox;
   RETURN locked;
-EXCEPTION WHEN no_data_found OR too_many_rows OR data_exception THEN
-  RETURN NULL;
+EXCEPTION
+  WHEN no_data_found THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','PROTECTED_FRONTIER_ABSENT');
+  WHEN too_many_rows THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','PROTECTED_FRONTIER_AMBIGUOUS');
+  WHEN data_exception THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version',1,'refusal','PROTECTED_FRONTIER_MALFORMED');
 END
 "#;
 
@@ -272,7 +288,18 @@ pub async fn resolve_protected_replay_result_for_qualification_in_transaction(
     .fetch_one(&mut **transaction)
     .await
     .map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
-    let Some(value) = value else { return Ok(None) };
+    let Some(value) = value else {
+        // STRICT short-circuit only: every cause the function decides for itself is now named.
+        return Ok(None);
+    };
+
+    if let Some(refusal) = crate::refusal_of(&value)? {
+        return if refusal.addresses_no_row() {
+            Ok(None)
+        } else {
+            Err(BacktestResultCustodyErrorV2::Refused(refusal))
+        };
+    }
     let envelope: LockedEnvelopeV1 =
         serde_json::from_value(value).map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
     if envelope.schema_version != 1 {
@@ -336,7 +363,18 @@ pub async fn resolve_protected_replay_result_v2_for_qualification_in_transaction
     .fetch_one(&mut **transaction)
     .await
     .map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
-    let Some(value) = value else { return Ok(None) };
+    let Some(value) = value else {
+        // STRICT short-circuit only: every cause the function decides for itself is now named.
+        return Ok(None);
+    };
+
+    if let Some(refusal) = crate::refusal_of(&value)? {
+        return if refusal.addresses_no_row() {
+            Ok(None)
+        } else {
+            Err(BacktestResultCustodyErrorV2::Refused(refusal))
+        };
+    }
     let envelope: LockedEnvelopeV1 =
         serde_json::from_value(value).map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
     if envelope.schema_version != 1 {
@@ -400,7 +438,18 @@ pub async fn resolve_protected_replay_result_v3_for_qualification_in_transaction
     .fetch_one(&mut **transaction)
     .await
     .map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
-    let Some(value) = value else { return Ok(None) };
+    let Some(value) = value else {
+        // STRICT short-circuit only: every cause the function decides for itself is now named.
+        return Ok(None);
+    };
+
+    if let Some(refusal) = crate::refusal_of(&value)? {
+        return if refusal.addresses_no_row() {
+            Ok(None)
+        } else {
+            Err(BacktestResultCustodyErrorV2::Refused(refusal))
+        };
+    }
     let envelope: LockedEnvelopeV1 =
         serde_json::from_value(value).map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
     if envelope.schema_version != 1 {
@@ -463,7 +512,18 @@ pub async fn resolve_protected_replay_attempt_frontier_for_qualification_in_tran
     .fetch_one(&mut **transaction)
     .await
     .map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
-    let Some(value) = value else { return Ok(None) };
+    let Some(value) = value else {
+        // STRICT short-circuit only: every cause the function decides for itself is now named.
+        return Ok(None);
+    };
+
+    if let Some(refusal) = crate::refusal_of(&value)? {
+        return if refusal.addresses_no_row() {
+            Ok(None)
+        } else {
+            Err(BacktestResultCustodyErrorV2::Refused(refusal))
+        };
+    }
     let envelope: LockedFrontierEnvelopeV1 =
         serde_json::from_value(value).map_err(|_| BacktestResultCustodyErrorV2::Unavailable)?;
     if envelope.schema_version != 1 {

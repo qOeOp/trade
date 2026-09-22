@@ -7,7 +7,8 @@ use vibe_backtest_owner_contracts::{
     OpaqueIdentityV2, ReconciliationAtomDtoV2, ReplayNamespaceV2, ReplayTerminalV2,
 };
 use vibe_backtest_result_custody::{
-    ExploratoryReplayResultReceiptReferenceV1, LockedExploratoryReplayResultV2,
+    BacktestReadbackRefusalV1, ExploratoryReplayResultReceiptReferenceV1,
+    LockedExploratoryReplayResultV2,
 };
 use vibe_data::owner::source_binding::BindingDigest;
 use vibe_product_edge::{ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionReadbackV1};
@@ -701,6 +702,13 @@ impl ResearchExploratoryDiagnosisGateProjectionV1 {
 pub enum ResearchExploratoryDiagnosisGateErrorV1 {
     #[error("exploratory diagnosis-gate Owner facts are unavailable")]
     Unavailable,
+    /// The Backtest Owner answered, and named why it answered nothing.
+    ///
+    /// This is distinct from [`Self::Unavailable`] because the caller holds no `SELECT` on the
+    /// tables behind the Owner's readback: a cause the Owner does not name is a cause this side
+    /// cannot recover.
+    #[error("exploratory diagnosis-gate readback was refused: {0}")]
+    Refused(BacktestReadbackRefusalV1),
     #[error("exploratory diagnosis-gate evidence is invalid")]
     InvalidEvidence,
     #[error("exploratory diagnosis-gate storage is unavailable: {0}")]

@@ -2059,6 +2059,9 @@ impl PostgresResearchGoalOwnerV1 {
                 crate::BacktestResultCustodyErrorV2::Storage(message) => {
                     ResearchExploratoryDiagnosisGateErrorV1::Storage(message)
                 }
+                crate::BacktestResultCustodyErrorV2::Refused(refusal) => {
+                    ResearchExploratoryDiagnosisGateErrorV1::Refused(refusal)
+                }
             })?
             .ok_or(ResearchExploratoryDiagnosisGateErrorV1::Unavailable)?;
             let gate = crate::iteration_decision::gate_locked_exploratory_result_v1(

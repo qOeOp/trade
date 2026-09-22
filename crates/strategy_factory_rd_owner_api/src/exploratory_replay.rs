@@ -828,6 +828,15 @@ async fn read_diagnosis_gate(
             "EXPLORATORY_DIAGNOSIS_GATE_UNAVAILABLE",
             &request_identity,
         ),
+        // A locator that addresses no row never reaches here: that is an empty result and keeps
+        // the 404 above. Everything that does reach here is an aggregate the Owner holds and
+        // cannot answer with, which is a 503 that now says which row was the problem instead of
+        // one code standing for seven situations.
+        Err(ResearchExploratoryDiagnosisGateErrorV1::Refused(refusal)) => rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            refusal.code(),
+            &request_identity,
+        ),
     }
 }
 

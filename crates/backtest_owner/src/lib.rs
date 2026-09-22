@@ -1173,6 +1173,35 @@ mod tests {
         .try_get(0)
         .expect("boolean ACL");
         assert!(acl);
+
+        // The assertion above is exactly why the readback has to name its causes: `rd_owner` holds
+        // EXECUTE and no table privilege, so a cause the function does not name is a cause R&D
+        // cannot recover. This drives the one such cause production can reach.
+        let absent: Option<serde_json::Value> = sqlx::query_scalar(
+            "SELECT backtest_owner_api.resolve_exploratory_replay_result_v2($1,$2,$3)",
+        )
+        .bind("exploratory-result-that-was-never-written")
+        .bind("request-that-was-never-written")
+        .bind("attempt-that-was-never-written")
+        .fetch_one(rd_pool)
+        .await
+        .expect("the absent locator is answered");
+        assert_eq!(
+            absent
+                .expect("the function answers with an envelope, not NULL")
+                .get("refusal")
+                .and_then(serde_json::Value::as_str),
+            Some("EXPLORATORY_RESULT_ABSENT")
+        );
+
+        // The six deeper refusals this function and its V3 sibling publish - the missing receipt,
+        // outbox event, semantic trace, outcome evidence, its receipt and its outbox event - are
+        // not reachable from here, and the reason is a property rather than an oversight: custody
+        // commits an aggregate whole, which `postgres_result_mid_commit_failure_rolls_back_every_
+        // aggregate_row` proves, so no committed Result can be missing one of its siblings. They
+        // are driven against a scratch database where partial custody can be written, and they
+        // stay named here so a future partial write says which row it was missing rather than
+        // answering the same NULL as an unknown identity.
     }
 
     #[tokio::test]
@@ -1990,6 +2019,87 @@ mod tests {
             .rollback()
             .await
             .expect("release Qualification locks");
+
+        // Every refusal this function decides for itself that production can reach, driven. The
+        // caller holds no SELECT on the tables behind it - the 42501 assertions below are what say
+        // so - and these all used to be the same NULL, which is one sentence at the caller.
+        //
+        // Both probes run in transactions that are rolled back, because the ordered chain keeps
+        // using this database after this entry.
+        let refusal = |envelope: Option<serde_json::Value>| -> String {
+            envelope
+                .expect("the function answers with an envelope, not NULL")
+                .get("refusal")
+                .and_then(serde_json::Value::as_str)
+                .expect("a refusal envelope names its cause")
+                .to_owned()
+        };
+        let call = "SELECT backtest_owner_api.resolve_protected_replay_result_v1($1,$2,$3)";
+
+        let mut absent_probe = qualification_pool
+            .begin()
+            .await
+            .expect("refusal probe transaction");
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *absent_probe)
+            .await
+            .expect("serializable refusal probe");
+        let absent: Option<serde_json::Value> = sqlx::query_scalar(call)
+            .bind("protected-result-that-was-never-written")
+            .bind(&request.request_identity)
+            .bind(attempt_identity)
+            .fetch_one(&mut *absent_probe)
+            .await
+            .expect("the absent locator is answered");
+        assert_eq!(refusal(absent), "PROTECTED_RESULT_ABSENT");
+
+        // The accepting locator answers with no refusal at all in the same probe, so a function
+        // rewritten to refuse everything could not pass the assertion above.
+        let accepted: Option<serde_json::Value> = sqlx::query_scalar(call)
+            .bind(&result_identity)
+            .bind(&request.request_identity)
+            .bind(attempt_identity)
+            .fetch_one(&mut *absent_probe)
+            .await
+            .expect("the committed locator is answered");
+        let accepted = accepted.expect("the committed aggregate is answered");
+        assert!(accepted.get("refusal").is_none(), "{accepted}");
+        assert_eq!(accepted["schema_version"], 1);
+        absent_probe
+            .rollback()
+            .await
+            .expect("release refusal probe locks");
+
+        // The isolation refusal needs its own transaction, because the level is fixed at BEGIN.
+        let mut isolation_probe = qualification_pool
+            .begin()
+            .await
+            .expect("isolation refusal probe transaction");
+        let isolation: Option<serde_json::Value> = sqlx::query_scalar(call)
+            .bind(&result_identity)
+            .bind(&request.request_identity)
+            .bind(attempt_identity)
+            .fetch_one(&mut *isolation_probe)
+            .await
+            .expect("the read committed caller is answered");
+        assert_eq!(refusal(isolation), "TRANSACTION_ISOLATION_REJECTED");
+        isolation_probe
+            .rollback()
+            .await
+            .expect("release isolation probe locks");
+
+        // Four refusals this function publishes are not constructible here, and each names the
+        // invariant that keeps production away from it rather than being left unexplained:
+        //
+        // - SESSION_USER_REJECTED and DEFINER_CONTEXT_REJECTED: `qualification_writer` is the only
+        //   role granted EXECUTE, and the function is owned by `backtest_custodian`, so a caller
+        //   that is neither reaches 42501 instead of the guard. The loop below is that evidence.
+        // - PROTECTED_RESULT_AMBIGUOUS: `result_identity` is the primary key of all three joined
+        //   relations and the join is `USING(result_identity)`, so the query returns at most one
+        //   row and `too_many_rows` cannot be raised.
+        // - PROTECTED_RESULT_MALFORMED: the projection uses only `jsonb_build_object`, `replace`,
+        //   `encode` and `chr`, none of which raise `data_exception` on the NOT NULL `bytea` and
+        //   `text` columns they read.
 
         for (pool, sql) in [
             (
