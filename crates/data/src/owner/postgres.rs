@@ -704,7 +704,9 @@ impl MarketDataOwnerPostgres {
         .bind(window_start)
         .bind(window_end)
         .bind(record.first_snapshot_identity().as_bytes().as_slice())
-        .bind(record.second_snapshot_identity().as_bytes().as_slice())
+        // The column keeps the name it had while a sequence was a pair; what it holds is the
+        // sequence's last frame, which is the same cut whenever the sequence is two frames long.
+        .bind(record.last_snapshot_identity().as_bytes().as_slice())
         .bind(record.sequence_bytes())
         .bind(record.receipt_identity().as_bytes().as_slice())
         .bind(record.receipt_bytes())

@@ -1,12 +1,14 @@
-//! Verified ingredients for a future two-frame native Replay sequence.
+//! Verified ingredients for a native Replay frame sequence, and the sequence they make.
 //!
 //! One frame can be checked against an Owner-verified PIT batch and the unchanged V1 native
-//! scheduling seal. A positive sequence cannot be issued until Market Data has a durable,
-//! request-window-complete frame census and sequence receipt/outbox readback.
+//! scheduling seal, and a sequence can be issued from frames that are already verified. The
+//! durable request-window frame census those frames would be enumerated from exists, and so does
+//! the sequence receipt/outbox custody. What has no caller is the step between them: nothing
+//! resolves a window's census rows into the frame evidence this module's issuer takes.
 
 #![allow(
     dead_code,
-    reason = "the frame verifier is reserved for the unavailable durable V2 sequence issuer"
+    reason = "the frame verifier and issuer wait for the resolver that would feed them"
 )]
 
 use std::collections::BTreeSet;
@@ -74,7 +76,7 @@ impl NativeReplayQuoteLiquidityEvidenceV2 {
 
 /// One complete two-member BAR/Quote frame, verified from one exact Owner PIT batch.
 ///
-/// This is deliberately a frame ingredient, not a two-frame sequence capability or a persisted
+/// This is deliberately a frame ingredient, not a sequence capability or a persisted
 /// receipt. The constructor remains Owner-local and consumes the V1 scheduling seal.
 #[derive(Debug)]
 pub struct NativeReplayFrameEvidenceV2 {
@@ -172,7 +174,7 @@ impl NativeReplayFrameEvidenceV2 {
     }
 }
 
-/// Checks one real frame without claiming a complete two-frame request census.
+/// Checks one real frame without claiming a complete request-window census.
 ///
 /// Both inputs are move-only or Owner-verified. The V1 seal supplies native price/quantity
 /// conversion, schedule validation, and exact `[BAR0, BAR1, QUOTE0, QUOTE1]` selection. This
@@ -354,25 +356,27 @@ fn exact_rows<'a, const N: usize>(
         .map_err(|_| NativeReplaySchedulingErrorV1::FieldCensusMismatch)
 }
 
-/// Why a pair of verified frames cannot become a sequence.
+/// Why verified frames cannot become a sequence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeReplayFrameSequenceRefusalV2 {
-    /// The pair does not hold one canonical universe, timeframe and window between them.
+    /// Fewer than two frames: nothing bounds the liquidity of the frame a run would consume.
+    SequenceCannotBoundItsLastFrame,
+    /// The frames do not hold one canonical universe, timeframe and window between them.
     FramesDoNotShareTheirRequestShape,
-    /// The successor repeats the first frame's PIT cut.
+    /// A frame repeats an earlier frame's PIT cut.
     SuccessorRepeatsTheFirstCut,
-    /// The successor does not advance canonical event order.
+    /// A frame does not advance canonical event order.
     NonIncreasingEventOrder,
-    /// A first-frame liquidity EVENT does not precede the successor's first BAR.
+    /// A frame's liquidity EVENT does not precede the next frame's first BAR.
     LiquidityDoesNotPrecedeSuccessorBar,
 }
 
-/// The Owner-issued, move-only, request-bound two-frame sequence.
+/// The Owner-issued, move-only, request-bound frame sequence.
 ///
-/// `docs/owners/market-data.md` names this capability and fixes its shape: exactly two complete
-/// two-member BAR frames, each with its own Owner-verified Quote liquidity, the first being the
-/// independently re-resolved initial V1 frame and the second issued from a distinct Owner-verified
-/// PIT snapshot and observation batch.
+/// `docs/owners/market-data.md` names this capability and fixes its shape: the window's complete
+/// two-member BAR frames, never fewer than two, each with its own Owner-verified Quote liquidity,
+/// the first being the independently re-resolved initial V1 frame and every later one issued from
+/// a distinct Owner-verified PIT snapshot and observation batch.
 ///
 /// It is move-only on purpose - no `Clone`, no `Deserialize`. A sequence cannot be copied into a
 /// second consumer or reconstructed from transported bytes; it is handed over once, by the Owner
@@ -387,11 +391,17 @@ pub struct NativeReplayFrameSequenceReadbackV2 {
     window_start_ns: u64,
     window_end_ns_exclusive: u64,
     sealed: SealedNativeReplayFrameSequenceV2,
-    frames: [NativeReplayFrameEvidenceV2; 2],
+    frames: Vec<NativeReplayFrameEvidenceV2>,
 }
 
 impl NativeReplayFrameSequenceReadbackV2 {
     /// Issues the sequence, or refuses with the exact cross-frame rule that failed.
+    ///
+    /// Each frame arrives with the census ordinal it was committed at, paired rather than in a
+    /// second list, so a sequence whose ordinals do not line up with its frames cannot be spelled.
+    /// Every rule here held between the two frames of a pair and holds between every neighbouring
+    /// pair, except distinctness, which is asked of the whole sequence: two frames repeating one
+    /// PIT cut are one frame counted twice however far apart the window puts them.
     ///
     /// # Errors
     ///
@@ -400,46 +410,70 @@ impl NativeReplayFrameSequenceReadbackV2 {
         request_identity: BindingDigest,
         v1_binding_identity: BindingDigest,
         window_start_ns: u64,
-        frames: [NativeReplayFrameEvidenceV2; 2],
-        frame_ordinals: [u64; 2],
+        frames: Vec<(NativeReplayFrameEvidenceV2, u64)>,
     ) -> Result<Self, NativeReplayFrameSequenceRefusalV2> {
-        let [first, second] = &frames;
-        if first.member_instruments() != second.member_instruments()
-            || first.window_end_ns_exclusive() != second.window_end_ns_exclusive()
-            || first.bar_types() != second.bar_types()
-        {
-            return Err(NativeReplayFrameSequenceRefusalV2::FramesDoNotShareTheirRequestShape);
+        let Some(((first, _), rest)) = frames.split_first() else {
+            return Err(NativeReplayFrameSequenceRefusalV2::SequenceCannotBoundItsLastFrame);
+        };
+
+        if rest.is_empty() {
+            return Err(NativeReplayFrameSequenceRefusalV2::SequenceCannotBoundItsLastFrame);
         }
 
-        if first.snapshot_identity() == second.snapshot_identity()
-            || first.snapshot_fact_digest() == second.snapshot_fact_digest()
-            || first.observation_batch_digest() == second.observation_batch_digest()
+        if rest.iter().any(|(frame, _)| {
+            frame.member_instruments() != first.member_instruments()
+                || frame.window_end_ns_exclusive() != first.window_end_ns_exclusive()
+                || frame.bar_types() != first.bar_types()
+        }) {
+            return Err(NativeReplayFrameSequenceRefusalV2::FramesDoNotShareTheirRequestShape);
+        }
+        let mut cuts = BTreeSet::new();
+
+        if frames.iter().any(|(frame, _)| {
+            !cuts.insert((
+                frame.snapshot_identity(),
+                frame.snapshot_fact_digest(),
+                frame.observation_batch_digest(),
+            ))
+        }) || frames.len()
+            != frames
+                .iter()
+                .map(|(frame, _)| frame.snapshot_identity())
+                .collect::<BTreeSet<_>>()
+                .len()
         {
             return Err(NativeReplayFrameSequenceRefusalV2::SuccessorRepeatsTheFirstCut);
         }
 
-        if second.frame_time_ns() <= first.frame_time_ns() {
-            return Err(NativeReplayFrameSequenceRefusalV2::NonIncreasingEventOrder);
-        }
-        // "All first-frame liquidity EVENTs must precede the second frame's first BAR."
-        if first
-            .liquidity()
-            .iter()
-            .any(|member| member.event_time_ns() >= second.frame_time_ns())
-        {
-            return Err(NativeReplayFrameSequenceRefusalV2::LiquidityDoesNotPrecedeSuccessorBar);
-        }
+        for pair in frames.windows(2) {
+            let (earlier, later) = (&pair[0].0, &pair[1].0);
 
+            if later.frame_time_ns() <= earlier.frame_time_ns() {
+                return Err(NativeReplayFrameSequenceRefusalV2::NonIncreasingEventOrder);
+            }
+
+            // "All of a frame's liquidity EVENTs must precede the next frame's first BAR."
+            if earlier
+                .liquidity()
+                .iter()
+                .any(|member| member.event_time_ns() >= later.frame_time_ns())
+            {
+                return Err(
+                    NativeReplayFrameSequenceRefusalV2::LiquidityDoesNotPrecedeSuccessorBar,
+                );
+            }
+        }
         let window_end_ns_exclusive = first.window_end_ns_exclusive();
+        let sealed_frames = frames
+            .iter()
+            .map(|(frame, ordinal)| sequence_frame(frame, *ordinal))
+            .collect::<Vec<_>>();
         let sealed = seal_native_replay_frame_sequence_v2(
             v1_binding_identity,
             request_identity,
             window_start_ns,
             window_end_ns_exclusive,
-            &[
-                sequence_frame(first, frame_ordinals[0]),
-                sequence_frame(second, frame_ordinals[1]),
-            ],
+            &sealed_frames,
         );
         Ok(Self {
             request_identity,
@@ -447,7 +481,7 @@ impl NativeReplayFrameSequenceReadbackV2 {
             window_start_ns,
             window_end_ns_exclusive,
             sealed,
-            frames,
+            frames: frames.into_iter().map(|(frame, _)| frame).collect(),
         })
     }
 
@@ -478,13 +512,13 @@ impl NativeReplayFrameSequenceReadbackV2 {
     }
 
     #[must_use]
-    pub const fn frames(&self) -> &[NativeReplayFrameEvidenceV2; 2] {
+    pub fn frames(&self) -> &[NativeReplayFrameEvidenceV2] {
         &self.frames
     }
 
     /// Hands the frames on. The sequence is consumed, never shared.
     #[must_use]
-    pub fn into_frames(self) -> [NativeReplayFrameEvidenceV2; 2] {
+    pub fn into_frames(self) -> Vec<NativeReplayFrameEvidenceV2> {
         self.frames
     }
 }
@@ -503,7 +537,7 @@ fn sequence_frame(
     }
 }
 
-/// Domain separator for the V2 two-frame sequence digest.
+/// Domain separator for the V2 frame sequence digest.
 const FRAME_SEQUENCE_DIGEST_DOMAIN_V2: &[u8] = b"market-data.native-replay-frame-sequence.v2\0";
 
 /// The sealed constituents of one frame, in the order the sequence commits to them.
@@ -525,17 +559,18 @@ pub struct NativeReplaySequenceFrameV2 {
 /// `docs/owners/market-data.md` requires it to bind "both complete frame/schedule/liquidity
 /// receipt sets in canonical order and the request identity/window".
 ///
-/// Frame order is part of the sealed meaning: the same two frames transposed seal differently, so
-/// a sequence cannot be reinterpreted by reordering what it contains. The distinct PIT cuts are
-/// committed per frame rather than as a set, so moving a receipt from one cut to the other cannot
-/// preserve the digest.
+/// Frame order is part of the sealed meaning: the same frames transposed seal differently, so
+/// a sequence cannot be reinterpreted by reordering what it contains. The frame count is sealed
+/// ahead of the frames, so a longer sequence can never be read as a shorter one with trailing
+/// bytes. The distinct PIT cuts are committed per frame rather than as a set, so moving a receipt
+/// from one cut to another cannot preserve the digest.
 #[must_use]
 pub fn seal_native_replay_frame_sequence_v2(
     v1_binding_identity: BindingDigest,
     request_identity: BindingDigest,
     window_start_ns: u64,
     window_end_ns_exclusive: u64,
-    frames: &[NativeReplaySequenceFrameV2; 2],
+    frames: &[NativeReplaySequenceFrameV2],
 ) -> SealedNativeReplayFrameSequenceV2 {
     let mut bytes = Vec::new();
     bytes.extend_from_slice(FRAME_SEQUENCE_DIGEST_DOMAIN_V2);
@@ -604,7 +639,7 @@ pub struct NativeReplayFrameSequenceCustodyRecordV2 {
     window_start_ns: u64,
     window_end_ns_exclusive: u64,
     first_snapshot_identity: BindingDigest,
-    second_snapshot_identity: BindingDigest,
+    last_snapshot_identity: BindingDigest,
     sequence_bytes: Vec<u8>,
     receipt_identity: BindingDigest,
     receipt_bytes: Vec<u8>,
@@ -616,7 +651,13 @@ impl NativeReplayFrameSequenceCustodyRecordV2 {
     /// Derives the custody record from an issued sequence.
     #[must_use]
     pub fn seal(sequence: &NativeReplayFrameSequenceReadbackV2) -> Self {
-        let [first, second] = sequence.frames();
+        let frames = sequence.frames();
+        // The locator is the window's two ends. Every frame between them is in the sealed bytes,
+        // so the record never has to grow a column per frame to stay exact. An issued sequence is
+        // never shorter than two frames, so these are always two different cuts.
+        let (Some(first), Some(last)) = (frames.first(), frames.last()) else {
+            unreachable!("an issued sequence is never empty")
+        };
         let (window_start_ns, window_end_ns_exclusive) = sequence.window();
         Self::seal_from_parts(
             sequence.sealed(),
@@ -625,7 +666,7 @@ impl NativeReplayFrameSequenceCustodyRecordV2 {
             window_start_ns,
             window_end_ns_exclusive,
             first.snapshot_identity(),
-            second.snapshot_identity(),
+            last.snapshot_identity(),
         )
     }
 
@@ -638,7 +679,7 @@ impl NativeReplayFrameSequenceCustodyRecordV2 {
         window_start_ns: u64,
         window_end_ns_exclusive: u64,
         first_snapshot_identity: BindingDigest,
-        second_snapshot_identity: BindingDigest,
+        last_snapshot_identity: BindingDigest,
     ) -> Self {
         let sequence_identity = sealed.sequence_digest();
         let mut receipt_bytes = Vec::new();
@@ -649,7 +690,7 @@ impl NativeReplayFrameSequenceCustodyRecordV2 {
         receipt_bytes.extend_from_slice(&window_start_ns.to_be_bytes());
         receipt_bytes.extend_from_slice(&window_end_ns_exclusive.to_be_bytes());
         receipt_bytes.extend_from_slice(first_snapshot_identity.as_bytes());
-        receipt_bytes.extend_from_slice(second_snapshot_identity.as_bytes());
+        receipt_bytes.extend_from_slice(last_snapshot_identity.as_bytes());
         let receipt_identity =
             BindingDigest::from_untrusted_bytes(Sha256::digest(&receipt_bytes).into());
 
@@ -667,7 +708,7 @@ impl NativeReplayFrameSequenceCustodyRecordV2 {
             window_start_ns,
             window_end_ns_exclusive,
             first_snapshot_identity,
-            second_snapshot_identity,
+            last_snapshot_identity,
             sequence_bytes: sealed.canonical_bytes().to_vec(),
             receipt_identity,
             receipt_bytes,
@@ -707,8 +748,10 @@ impl NativeReplayFrameSequenceCustodyRecordV2 {
     }
 
     #[must_use]
-    pub const fn second_snapshot_identity(&self) -> BindingDigest {
-        self.second_snapshot_identity
+    /// The last frame's PIT cut. Storage calls this column `second_snapshot_identity`, which was
+    /// its exact meaning while a sequence was a pair and is its last frame now.
+    pub const fn last_snapshot_identity(&self) -> BindingDigest {
+        self.last_snapshot_identity
     }
 
     #[must_use]
@@ -746,7 +789,7 @@ pub enum NativeReplayFrameSequenceCustodyRefusalV2 {
     SequenceConflict,
 }
 
-/// One eligible frame offered to the two-frame census for a sealed request window.
+/// One eligible frame offered to the census for a sealed request window.
 ///
 /// `frame_ordinal` is the scope-dense position Market Data assigns when it commits the frame's
 /// PIT cut. Density is what proves "no skipped eligible frame": the existing correction lineage
@@ -769,7 +812,7 @@ pub struct NativeReplayFrameCensusCandidateV2 {
     pub last_liquidity_event_ns: u64,
 }
 
-/// Why a candidate set cannot become a two-frame profile.
+/// Why a candidate set cannot become an admitted sequence.
 ///
 /// Every variant is a refusal to issue, never a truncation: the bounded V2 profile is unavailable
 /// rather than silently narrowed.
@@ -1177,6 +1220,187 @@ mod quote_liquidity_receipt_tests {
         ] {
             assert_ne!(base.receipt_digest(), moved.receipt_digest());
         }
+    }
+}
+
+#[cfg(test)]
+mod frame_sequence_tests {
+    use rstest::rstest;
+    use vibe_model::{
+        data::BarSpecification,
+        enums::{AggregationSource, BarAggregation, PriceType},
+    };
+
+    use super::*;
+
+    const WINDOW_START: u64 = 1_000;
+    const WINDOW_END: u64 = 2_000;
+
+    fn digest(seed: u8) -> BindingDigest {
+        BindingDigest::from_untrusted_bytes([seed; 32])
+    }
+
+    fn instruments() -> [InstrumentId; 2] {
+        [
+            InstrumentId::from("AAA-PERP.SIM"),
+            InstrumentId::from("BBB-PERP.SIM"),
+        ]
+    }
+
+    fn bar_types() -> [BarType; 2] {
+        instruments().map(|instrument| {
+            BarType::new(
+                instrument,
+                BarSpecification::new(1, BarAggregation::Minute, PriceType::Last),
+                AggregationSource::External,
+            )
+        })
+    }
+
+    fn liquidity_member(
+        instrument: InstrumentId,
+        seed: u8,
+        event_time_ns: u64,
+    ) -> NativeReplayQuoteLiquidityEvidenceV2 {
+        NativeReplayQuoteLiquidityEvidenceV2 {
+            instrument,
+            row_digests: [
+                digest(seed),
+                digest(seed.wrapping_add(1)),
+                digest(seed.wrapping_add(2)),
+                digest(seed.wrapping_add(3)),
+            ],
+            values: [(101, 2), (103, 2), (5, 0), (7, 0)],
+            event_time_ns,
+            initialization_time_ns: event_time_ns,
+        }
+    }
+
+    /// One already-verified frame.
+    ///
+    /// `issue` takes frames the Owner has verified and checks only what holds between them, so
+    /// these are written rather than resolved: what a resolver adds is the inside of a frame, and
+    /// no rule here reads it. A fixture that resolved them would prove the resolver, not this.
+    fn frame(seed: u8, frame_time_ns: u64) -> NativeReplayFrameEvidenceV2 {
+        let [first, second] = instruments();
+        let liquidity = [
+            liquidity_member(first, seed, frame_time_ns + 1),
+            liquidity_member(second, seed.wrapping_add(4), frame_time_ns + 2),
+        ];
+        let liquidity_receipt = NativeReplayQuoteLiquidityReceiptV2::seal(
+            digest(seed),
+            digest(seed.wrapping_add(1)),
+            digest(seed.wrapping_add(2)),
+            frame_time_ns,
+            WINDOW_END,
+            &liquidity,
+        );
+        NativeReplayFrameEvidenceV2 {
+            snapshot_identity: digest(seed),
+            snapshot_fact_digest: digest(seed.wrapping_add(1)),
+            observation_batch_digest: digest(seed.wrapping_add(2)),
+            source_frontier_digest: digest(0xA0),
+            correction_frontier_digest: digest(0xA1),
+            scheduling_receipt_digest_v1: digest(seed.wrapping_add(3)),
+            member_instruments: instruments(),
+            frame_time_ns,
+            window_end_ns_exclusive: WINDOW_END,
+            bar_row_digests: [[digest(seed); 5], [digest(seed.wrapping_add(1)); 5]],
+            liquidity,
+            liquidity_receipt,
+            bar_types: bar_types(),
+            data: Vec::new(),
+        }
+    }
+
+    fn run(specs: &[(u8, u64, u64)]) -> Vec<(NativeReplayFrameEvidenceV2, u64)> {
+        specs
+            .iter()
+            .map(|(seed, frame_time_ns, ordinal)| (frame(*seed, *frame_time_ns), *ordinal))
+            .collect()
+    }
+
+    fn issue(
+        frames: Vec<(NativeReplayFrameEvidenceV2, u64)>,
+    ) -> Result<NativeReplayFrameSequenceReadbackV2, NativeReplayFrameSequenceRefusalV2> {
+        NativeReplayFrameSequenceReadbackV2::issue(digest(0x01), digest(0x02), WINDOW_START, frames)
+    }
+
+    fn three() -> Vec<(NativeReplayFrameEvidenceV2, u64)> {
+        run(&[(0x20, 1_100, 7), (0x40, 1_400, 8), (0x60, 1_700, 9)])
+    }
+
+    #[rstest]
+    fn a_sequence_longer_than_a_pair_is_issued_and_seals_its_own_order() {
+        let sequence = issue(three()).expect("a dense in-window sequence");
+
+        assert_eq!(sequence.frames().len(), 3);
+        assert_eq!(sequence.window(), (WINDOW_START, WINDOW_END));
+        assert_ne!(sequence.sequence_digest(), digest(0));
+
+        // The same three PIT cuts, each at a different position in the window, seal differently:
+        // a sequence cannot be reinterpreted by reordering what it contains.
+        let transposed = issue(run(&[(0x20, 1_100, 7), (0x60, 1_400, 8), (0x40, 1_700, 9)]))
+            .expect("a dense in-window sequence");
+        assert_ne!(sequence.sequence_digest(), transposed.sequence_digest());
+    }
+
+    #[rstest]
+    #[case::none(vec![])]
+    #[case::one(run(&[(0x20, 1_100, 7)]))]
+    fn a_sequence_with_nothing_to_bound_its_last_frame_is_refused(
+        #[case] frames: Vec<(NativeReplayFrameEvidenceV2, u64)>,
+    ) {
+        assert_eq!(
+            issue(frames).err(),
+            Some(NativeReplayFrameSequenceRefusalV2::SequenceCannotBoundItsLastFrame)
+        );
+    }
+
+    /// The rules read every frame, not only the opening pair.
+    #[rstest]
+    fn a_third_frame_that_leaves_the_request_shape_is_refused() {
+        let mut frames = three();
+        frames[2].0.window_end_ns_exclusive = WINDOW_END + 1;
+
+        assert_eq!(
+            issue(frames).err(),
+            Some(NativeReplayFrameSequenceRefusalV2::FramesDoNotShareTheirRequestShape)
+        );
+    }
+
+    #[rstest]
+    fn a_pit_cut_repeated_far_apart_is_one_frame_counted_twice() {
+        let mut frames = three();
+        frames[2].0.snapshot_identity = frames[0].0.snapshot_identity;
+
+        assert_eq!(
+            issue(frames).err(),
+            Some(NativeReplayFrameSequenceRefusalV2::SuccessorRepeatsTheFirstCut)
+        );
+    }
+
+    #[rstest]
+    fn canonical_event_order_must_advance_at_every_step() {
+        let mut frames = three();
+        frames[2].0.frame_time_ns = frames[1].0.frame_time_ns;
+
+        assert_eq!(
+            issue(frames).err(),
+            Some(NativeReplayFrameSequenceRefusalV2::NonIncreasingEventOrder)
+        );
+    }
+
+    #[rstest]
+    fn liquidity_must_precede_the_next_frames_bar_at_every_step() {
+        let mut frames = three();
+        let successor_bar = frames[2].0.frame_time_ns;
+        frames[1].0.liquidity[1].event_time_ns = successor_bar;
+
+        assert_eq!(
+            issue(frames).err(),
+            Some(NativeReplayFrameSequenceRefusalV2::LiquidityDoesNotPrecedeSuccessorBar)
+        );
     }
 }
 
