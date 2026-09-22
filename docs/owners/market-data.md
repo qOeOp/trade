@@ -1733,18 +1733,28 @@ instrument-class rejection.
   scope and snapshot/correction rule. **TARGET:** direct `BACKTEST_OWNER_V1` Instrument Master resolution supplies
   the sealed fact/cut readback; actual consumption and Run Result must repeat the exact snapshot, selection,
   Instrument Master fact/cut and every frozen execution identity.
-  **A series costs one venue round trip per bar, and this is structural rather than an implementation
-  detail.** A PIT snapshot is one as-of cut, so N bars are N frozen requests and N retrievals; nothing in this
-  path amortises a window into one call. **Measured 2026-09-22** on `BTCUSDT.BINANCE` at `1M`: 512 consecutive
-  coordinates produced 512 distinct bars and 512 distinct sealed snapshots, strictly consecutive with no gap and
-  no repeat, in 767.8 s. That figure is 1.50 s per bar, but it carries **two** round trips per coordinate because
-  the run also probed the venue separately to witness which bar each coordinate resolved to; a consumer that only
-  submits would make one, so the production shape is nearer 0.75 s per bar - **inferred by halving, not measured.**
-  **Extrapolating that rate** - and it is an extrapolation, valid only while per-bar cost stays flat and the venue
-  does not rate-limit - one year of `1M` bars is 525,600 retrievals, or roughly 4.6 to 9.1 days of wall clock,
-  while one year of daily bars is 365 retrievals and completes in minutes. **So this path serves a bounded window
-  and does not serve a long minute-resolution history**, and a consumer planning the latter needs a different
-  supply shape rather than a longer timeout.
+  **Measured 2026-09-22, and the first version of this paragraph got the shape wrong.** A PIT snapshot is
+  one as-of cut, so N bars are N frozen requests. On `BTCUSDT.BINANCE` at `1M`, 512 consecutive coordinates
+  produced 512 distinct bars and 512 distinct sealed snapshots, strictly consecutive with no gap and no repeat,
+  in 767.8 s. Reading back which bar each coordinate resolved to is a second venue round trip and is what makes
+  that statement sayable at all; the same 512 coordinates without it took 655.4 s, and the timings below are
+  measured from those witness-free runs. What dominates the clock is **not** the venue: removing half the round
+  trips saved 15%, and all SQL execution together accounted for 1.2% of a 256-coordinate run.
+  The cost grows with **what the store already holds**. Within one 256-coordinate run the per-coordinate cost
+  rose from 0.131 s over the first eighth to 1.182 s over the last. `validate_owner_history_custody` walks every
+  lineage in the store on every commit, and every snapshot opens its own lineage, so commit number n re-validates
+  n lineages at six statements each: 101,509 iterations and 609,054 statements at N=256, which fills the measured
+  clock. Total cost is therefore quadratic. Three witness-free runs - 64, 256 and 512 coordinates in 12.1 s,
+  169.2 s and 655.4 s - fit **t is about 0.033 N plus 0.0024 N squared seconds** on the measuring host to within
+  0.7%, while the simpler `0.0025 N squared` passes through the 512 point exactly and underestimates 64 by 15%.
+  Extrapolating that curve - an extrapolation, and one that assumes a store starting empty - **one year of daily
+  bars is roughly five and a half minutes, and one year of minute bars is roughly twenty-two years**, not the
+  days a linear reading of the first measurement suggested. One year of daily coordinates has since been run and
+  took 336.5 s, but with the witness probe and on another instrument and timeframe, so it corroborates the order
+  of magnitude without testing the curve at a controlled point. The practical consequences are that a bounded
+  window of a few hundred coordinates is cheap, a long minute-resolution history is not reachable by this path at
+  all, and **a store that is never reset makes every later snapshot slower for every writer**, so accumulating
+  snapshots in a shared chain database spends a budget that never returns.
 - To [Scanner](./scanner/): the exact PIT Market Snapshot requested by published activation conditions.
 - To [Runtime](./runtime/): live market streams and instrument updates carrying the same Market Semantics
   Compatibility identity consumed by the generation's Strategy Artifact and historical evidence.

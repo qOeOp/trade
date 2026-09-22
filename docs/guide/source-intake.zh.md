@@ -92,6 +92,21 @@ binding；冲突重放必须拒绝。
 receipt 和 readback。类别不匹配是 identity conflict，不是准确重放。验收 endpoint 必须使用非公开 fixture
 身份，绝不能伪装成 `api.openalex.org`；fixture 结果永远不是 live-provider 证据。
 
+**CURRENT - 生产的政策解析还缺什么，这是读出来的而不是扫出来的。**
+`SourceIntakePolicyEvidencePort` 把五个 policy locator 加一个 shared-time head 变成
+`SourceIntakePolicyEvidenceV1` 的四十四个字段。这件事的两半都只存在于
+`sealed-source-intake-research-acceptance` 之后:决定*哪些*政策适用的那个查询，
+把每一个 locator 都填成 `SEALED_` 常量;而解析它们的那个端口调用一个 fixture 构造函数，
+再用字面量覆盖掉 shared-time 字段。这个端口完全没有生产实现，它的另一个实现在
+`#[cfg(test)]` 模块里。
+
+把两半分开读，缺口就不是一整块了。重放路径上 locator 是有来源的:已存的 acquisition binding
+带着每一条政策的 identity 与 version，而密封查询构造函数的文档注释写明了让这件事安全的规则，
+binding 只是不可信的 locator 源，端口仍然要重新解析并封印每一个被引用的事实。**首次**采集则没有
+来源。`AgentOperationManifestProposalV1` 是最像能承载它们的东西，而它不承载:它绑定的是操作、
+允许与禁止的 effect、一个 capability policy 摘要和一个有效期窗口，那是 effect 授权而不是采集政策。
+所以生产实现要回答的第一个问题不是怎么解析一个 locator，而是首次采集的 locator 究竟从哪里来。
+
 一个 Source Intake Owner orchestrator 拥有完整生命周期：
 
 `admission → sealed/live policy → binding commit → durable claim/start → move-only permit → provider execution → retrieval time → atomic terminal`

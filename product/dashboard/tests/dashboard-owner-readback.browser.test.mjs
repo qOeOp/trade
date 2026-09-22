@@ -33,8 +33,21 @@ const browserExecutable = process.env.DASHBOARD_STRATEGY_VIEWER_BROWSER_EXECUTAB
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 const sessionLoginToken = "owner-readback-browser-test-login-token-v1";
 const sessionHmacKey = "owner-readback-browser-test-hmac-key-v1";
+// Budget for the short subprocess probes that establish which tree this run is talking about.
+//
+// It is generous on purpose. Each is a process spawn, and `status --porcelain` stats the whole
+// worktree, on a runner simultaneously running Chrome, Next, two Rust services and PostgreSQL. A
+// tight budget there fails on load rather than on a dirty tree: an outcome with nothing to do with
+// what this test checks, which then fails the whole ordered chain and reports itself as a bare
+// `spawnSync git ETIMEDOUT` naming no invariant. A genuinely dirty tree answers immediately, so a
+// larger budget costs a passing run nothing and only buys a loaded one the time to answer.
+const SUBPROCESS_PROBE_TIMEOUT_MS = 120_000;
+
 const browserVersion = browserAcceptance
-  ? execFileSync(browserExecutable, ["--version"], { encoding: "utf8", timeout: 5_000 }).trim()
+  ? execFileSync(browserExecutable, ["--version"], {
+      encoding: "utf8",
+      timeout: SUBPROCESS_PROBE_TIMEOUT_MS,
+    }).trim()
   : "";
 const IDENTITY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u;
 const SHA256 = /^sha256:[0-9a-f]{64}$/u;
@@ -74,17 +87,40 @@ async function ownerJson(url, token) {
   return { status: response.status, body, text };
 }
 
+// Reports which invariant went unproven, because the spawn failure alone does not say.
+function gitProbe(args, invariant) {
+  try {
+    return execFileSync("git", args, {
+      cwd: dashboardRoot,
+      encoding: "utf8",
+      timeout: SUBPROCESS_PROBE_TIMEOUT_MS,
+    });
+  } catch (cause) {
+    throw new Error(
+      `git ${args.join(" ")} did not answer, so this run cannot show that ${invariant}: ${cause.message}`,
+      { cause },
+    );
+  }
+}
+
 test(browserAcceptance
   ? `browser acceptance reads every admitted Owner surface from ${acceptanceCandidate} with ${browserVersion}`
   : "Dashboard Owner readback browser acceptance requires the R&D Owner chain runtime",
 { skip: !browserAcceptance, timeout: 20 * 60_000 }, async (t) => {
+  // These three assertions verify no Owner surface. They are what makes this test's own name true:
+  // it reports the commit it read every admitted surface from, and that sentence is a claim about a
+  // tree nobody ran unless HEAD is that commit and the worktree is unmodified. Deleting them would
+  // not make the acceptance weaker at reading Owners; it would make its result name the wrong tree.
   assert.match(acceptanceCandidate, /^[0-9a-f]{40}$/u);
-  assert.equal(execFileSync("git", ["rev-parse", "HEAD"], {
-    cwd: dashboardRoot, encoding: "utf8", timeout: 5_000,
-  }).trim(), acceptanceCandidate);
-  assert.equal(execFileSync("git", ["status", "--porcelain"], {
-    cwd: dashboardRoot, encoding: "utf8", timeout: 5_000,
-  }), "");
+  assert.equal(
+    gitProbe(["rev-parse", "HEAD"], "the tree under test is the candidate commit").trim(),
+    acceptanceCandidate,
+  );
+  assert.equal(
+    gitProbe(["status", "--porcelain"], "the worktree is unmodified"),
+    "",
+    "this acceptance names one commit, so an edited worktree would report a tree nobody ran",
+  );
 
   const readApiUrl = process.env.RD_DASHBOARD_OWNER_READ_API_URL ?? "";
   const readApiToken = process.env.RD_DASHBOARD_OWNER_READ_API_TOKEN ?? "";
