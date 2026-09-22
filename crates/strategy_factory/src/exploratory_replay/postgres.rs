@@ -965,6 +965,36 @@ struct CanonicalStorageRecordV2 {
     mirror: serde_json::Value,
 }
 
+/// The `SELECTOR_RESOLVER_SOURCE_V2` section of the cutover migration, kept as one constant so the parity
+/// test can compare it. It was marked in the migration but compared by nothing.
+const SELECTOR_RESOLVER_SOURCE_V2: &str = "
+        DECLARE stored_receipt_identity text;
+        DECLARE stored_seal_digest text;
+        DECLARE storage jsonb;
+        BEGIN
+          SELECT v2_receipt_json->>'receipt_identity',v2_seal_digest
+            INTO STRICT stored_receipt_identity,stored_seal_digest
+            FROM public.rd_sealed_exploratory_replay_requests_v1
+           WHERE request_identity=requested_request_identity
+             AND request_schema_version=2
+             AND frozen_json->>'request_schema_version'='2'
+             AND v2_meaning_digest=requested_meaning_digest
+           FOR SHARE;
+          IF stored_receipt_identity IS NULL OR stored_seal_digest IS NULL THEN RETURN NULL; END IF;
+          storage := rd_owner_api.resolve_native_replay_source_storage_v2(
+            requested_request_identity,requested_meaning_digest,
+            stored_receipt_identity,stored_seal_digest
+          );
+          IF storage IS NULL OR storage->>'custody_state'='CORRUPT_PARTIAL' THEN RETURN NULL; END IF;
+          RETURN storage->'replay';
+        EXCEPTION WHEN no_data_found OR too_many_rows THEN RETURN NULL;
+        END
+        ";
+
+/// The `MARKET_DATA_LOCK_SOURCE_V1` section of the cutover migration, kept as one constant so the parity
+/// test can compare it. It was marked in the migration but compared by nothing.
+const MARKET_DATA_LOCK_SOURCE_V1: &str = "DECLARE result jsonb; BEGIN IF session_user <> 'market_data_owner' OR current_user <> 'rd_exploratory_replay_api_owner' OR pg_catalog.current_setting('transaction_isolation') <> 'serializable' THEN RETURN NULL; END IF; result := rd_owner_api.verify_exploratory_replay_request_internal_v3(requested_request_identity,requested_meaning_digest,requested_receipt_identity,requested_seal_digest); IF result IS NOT NULL THEN RETURN result; END IF; RETURN rd_owner_api.verify_exploratory_replay_request_internal_v2(requested_request_identity,requested_meaning_digest,requested_receipt_identity,requested_seal_digest); END";
+
 pub(crate) const NATIVE_SOURCE_STORAGE_SOURCE_V2: &str = "
         DECLARE base jsonb;
         DECLARE sealed record;
@@ -1995,38 +2025,14 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
     .execute(&mut *publication)
     .await
     .map_err(storage)?;
-    sqlx::query(
-        "
-        CREATE FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "CREATE FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(
           requested_request_identity text,
           requested_meaning_digest text
         ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY INVOKER
         SET search_path = pg_catalog
-        AS $function$
-        DECLARE stored_receipt_identity text;
-        DECLARE stored_seal_digest text;
-        DECLARE storage jsonb;
-        BEGIN
-          SELECT v2_receipt_json->>'receipt_identity',v2_seal_digest
-            INTO STRICT stored_receipt_identity,stored_seal_digest
-            FROM public.rd_sealed_exploratory_replay_requests_v1
-           WHERE request_identity=requested_request_identity
-             AND request_schema_version=2
-             AND frozen_json->>'request_schema_version'='2'
-             AND v2_meaning_digest=requested_meaning_digest
-           FOR SHARE;
-          IF stored_receipt_identity IS NULL OR stored_seal_digest IS NULL THEN RETURN NULL; END IF;
-          storage := rd_owner_api.resolve_native_replay_source_storage_v2(
-            requested_request_identity,requested_meaning_digest,
-            stored_receipt_identity,stored_seal_digest
-          );
-          IF storage IS NULL OR storage->>'custody_state'='CORRUPT_PARTIAL' THEN RETURN NULL; END IF;
-          RETURN storage->'replay';
-        EXCEPTION WHEN no_data_found OR too_many_rows THEN RETURN NULL;
-        END
-        $function$
-        ",
-    )
+        AS $function${SELECTOR_RESOLVER_SOURCE_V2}$function$"
+    )))
     .execute(&mut *publication)
     .await
     .map_err(storage)?;
@@ -2057,18 +2063,16 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
     .execute(&mut *publication)
     .await
     .map_err(storage)?;
-    sqlx::query(
-        "
-        CREATE FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "CREATE FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(
           requested_request_identity text,
           requested_meaning_digest text,
           requested_receipt_identity text,
           requested_seal_digest text
         ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
         SET search_path = pg_catalog
-        AS $function$DECLARE result jsonb; BEGIN IF session_user <> 'market_data_owner' OR current_user <> 'rd_exploratory_replay_api_owner' OR pg_catalog.current_setting('transaction_isolation') <> 'serializable' THEN RETURN NULL; END IF; result := rd_owner_api.verify_exploratory_replay_request_internal_v3(requested_request_identity,requested_meaning_digest,requested_receipt_identity,requested_seal_digest); IF result IS NOT NULL THEN RETURN result; END IF; RETURN rd_owner_api.verify_exploratory_replay_request_internal_v2(requested_request_identity,requested_meaning_digest,requested_receipt_identity,requested_seal_digest); END$function$
-        ",
-    )
+        AS $function${MARKET_DATA_LOCK_SOURCE_V1}$function$"
+    )))
     .execute(&mut *publication)
     .await
     .map_err(storage)?;
@@ -5049,10 +5053,10 @@ mod source_tests {
 
     use super::{
         CanonicalStorageRecordV2, INTERNAL_VERIFY_SOURCE_V1, INTERNAL_VERIFY_SOURCE_V2,
-        INTERNAL_VERIFY_SOURCE_V3, NATIVE_SOURCE_STORAGE_SOURCE_V2,
-        StoredHistoricalReplayDispositionV1, StoredHistoricalReplayOperationV1,
-        StoredHistoricalReplayRejectionReceiptV1, StoredReceiptV2,
-        canonical_storage_record_matches, validate_historical_rejection_v1,
+        INTERNAL_VERIFY_SOURCE_V3, MARKET_DATA_LOCK_SOURCE_V1, NATIVE_SOURCE_STORAGE_SOURCE_V2,
+        SELECTOR_RESOLVER_SOURCE_V2, StoredHistoricalReplayDispositionV1,
+        StoredHistoricalReplayOperationV1, StoredHistoricalReplayRejectionReceiptV1,
+        StoredReceiptV2, canonical_storage_record_matches, validate_historical_rejection_v1,
     };
     use crate::exploratory_replay::{
         HistoricalExploratoryReplayChannelV1, HistoricalExploratoryReplayRejectionSelectorV1,
@@ -5064,7 +5068,7 @@ mod source_tests {
 
     #[rstest::rstest]
     fn authenticated_internal_verifier_sources_equal_migration_prosrc() {
-        for (marker, source) in [
+        let compared = [
             ("INTERNAL_VERIFY_SOURCE_V1", INTERNAL_VERIFY_SOURCE_V1),
             ("INTERNAL_VERIFY_SOURCE_V2", INTERNAL_VERIFY_SOURCE_V2),
             ("INTERNAL_VERIFY_SOURCE_V3", INTERNAL_VERIFY_SOURCE_V3),
@@ -5072,9 +5076,37 @@ mod source_tests {
                 "NATIVE_SOURCE_STORAGE_SOURCE_V2",
                 NATIVE_SOURCE_STORAGE_SOURCE_V2,
             ),
-        ] {
+            ("SELECTOR_RESOLVER_SOURCE_V2", SELECTOR_RESOLVER_SOURCE_V2),
+            ("MARKET_DATA_LOCK_SOURCE_V1", MARKET_DATA_LOCK_SOURCE_V1),
+        ];
+
+        for (marker, source) in compared {
             assert_eq!(migration_prosrc(marker), source, "{marker} drifted");
         }
+
+        // The list above is an enumeration, and an enumeration that misses a member does not say
+        // so - it just keeps passing. Two members were missing until now: the migration marked
+        // `SELECTOR_RESOLVER_SOURCE_V2` and `MARKET_DATA_LOCK_SOURCE_V1` with BEGIN/END, which
+        // reads as "this section is guarded", and no Rust file mentioned either name. Both
+        // definitions happened to still agree, so nothing had gone wrong yet and nothing would
+        // have reported it when it did.
+        //
+        // So the list must now account for every marked section, and a seventh marker fails here
+        // rather than being silently unguarded.
+        let mut marked: Vec<&str> = AUTHORITY_MIGRATION
+            .match_indices("\n-- BEGIN ")
+            .map(|(at, needle)| {
+                let rest = &AUTHORITY_MIGRATION[at + needle.len()..];
+                &rest[..rest.find('\n').expect("a marker line ends")]
+            })
+            .collect();
+        marked.sort_unstable();
+        let mut listed: Vec<&str> = compared.iter().map(|(marker, _)| *marker).collect();
+        listed.sort_unstable();
+        assert_eq!(
+            marked, listed,
+            "every BEGIN/END section in the cutover migration must be compared here"
+        );
     }
 
     #[rstest::rstest]
