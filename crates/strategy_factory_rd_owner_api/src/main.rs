@@ -4868,11 +4868,13 @@ mod tests {
         use tower::ServiceExt;
         use vibe_strategy_factory::{
             bounded_feature_program_v1::BoundedFeaturePredicateV1,
+            rd_bounded_feature_program_postgres_v1::{
+                PostgresResearchBoundedFeatureProgramOwnerV1, ResearchAuthoringFactsV1,
+            },
             single_threshold_authoring_v1::{
                 SingleThresholdAuthoringRequestV1, SingleThresholdChannelV1,
                 SingleThresholdOutcomeV1, author_single_threshold_program_v1,
             },
-            strategy_design_v2::StrategyDesignV2,
         };
 
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
@@ -4883,28 +4885,67 @@ mod tests {
             .await
             .unwrap();
 
-        let frozen: Option<(String, Vec<u8>, Vec<u8>)> = sqlx::query_as(
-            "SELECT request_identity, design_bytes, design_identity
-               FROM public.rd_bounded_feature_program_freezes_v1
-              ORDER BY committed_at_epoch_ms DESC
-              LIMIT 1",
+        let token = "rd-owner-api-authored-design-test";
+        let token_digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
+        let owner = Arc::new(
+            PostgresResearchBoundedFeatureProgramOwnerV1::connect(
+                test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+            )
+            .await
+            .unwrap(),
+        );
+
+        // A Research identity accepts exactly one freeze, and answers every later, different
+        // Design with JOINT_FREEZE_CHANGED_MEANING. This entry freezes, so it needs an accepted
+        // custody that has not frozen yet - reading the identities off an already frozen Design,
+        // as this entry first did, can only ever reach that conflict.
+        //
+        // Acceptance is necessary and not sufficient: the authoring facts also require the Intent
+        // to be frozen and the custody to be current at the read cut. Those conditions are not
+        // restated here, because `read_research_authoring_facts_v1` already enforces them on the
+        // freeze path's own parser, and a copy of them in this query would be a second statement
+        // of the same rule that drifts. Candidates are taken in bulk and the accessor decides.
+        let candidates: Vec<String> = sqlx::query_scalar(
+            "SELECT r.request_identity
+               FROM public.rd_research_request_receipts_v1 r
+              WHERE r.receipt_json->>'disposition'='ACCEPTED'
+                AND NOT EXISTS (
+                      SELECT 1
+                        FROM public.rd_bounded_feature_program_freezes_v1 f
+                       WHERE f.request_identity = r.request_identity)
+              ORDER BY r.committed_at_epoch_ms DESC
+              LIMIT 32",
         )
-        .fetch_optional(&rd_pool)
+        .fetch_all(&rd_pool)
         .await
         .unwrap();
-        // Zero rows is a statement about the entries before this one, not about this route.
-        let (locator, committed_design_bytes, committed_design_identity) = frozen.expect(
-            "an earlier ordered entry must have committed a freeze: this entry borrows its Research \
-             identities rather than minting a Research request, so no rows means that entry did not run",
+        // Zero rows is a statement about the entries before this one, not about these routes.
+        assert!(
+            !candidates.is_empty(),
+            "no accepted Research custody is without a freeze, so this entry has nothing it is \
+             allowed to freeze: that is about the entries before this one, not about these routes",
         );
-        let committed: StrategyDesignV2 = serde_json::from_slice(&committed_design_bytes)
-            .expect("the stored Design bytes are the canonical Design");
+        let mut chosen: Option<(String, ResearchAuthoringFactsV1)> = None;
+
+        for candidate in &candidates {
+            if let Ok(facts) = owner.read_research_authoring_facts_v1(candidate).await {
+                chosen = Some((candidate.clone(), facts));
+                break;
+            }
+        }
+        let (locator, facts) = chosen.unwrap_or_else(|| {
+            panic!(
+                "none of the {} accepted, unfrozen Research identities carries current authoring \
+                 facts: acceptance alone does not make custody current",
+                candidates.len(),
+            )
+        });
 
         let (authored, meaning) =
             author_single_threshold_program_v1(&SingleThresholdAuthoringRequestV1 {
-                research_request_identity: committed.research_request_identity,
-                intent_identity: committed.intent_identity,
-                intent_digest: committed.intent_digest,
+                research_request_identity: facts.research_request_identity,
+                intent_identity: facts.intent_identity,
+                intent_digest: facts.intent_digest,
                 channel: SingleThresholdChannelV1 {
                     role_semantic_id: "research.input.close.daily.v1".to_owned(),
                     instrument: "AAPL".to_owned(),
@@ -4929,27 +4970,10 @@ mod tests {
                 // accepted Research custody and the falsifier is the fourth: an authored one
                 // publishes (that route derives the role intent from three identities) and then
                 // refuses at declare with RESEARCH_CUSTODY_MISMATCH.
-                falsifier: committed.falsifier.clone(),
+                falsifier: facts.falsifier.clone(),
             })
             .expect("the authoring surface must author this statement");
 
-        // Without this the route could answer 200 for the fixture's own Design and the run would
-        // read as though an authored one had been accepted.
-        assert_ne!(
-            serde_json::to_vec(&authored).unwrap(),
-            committed_design_bytes,
-            "the authored Design must differ from the fixture Design this entry borrowed identities from",
-        );
-
-        let token = "rd-owner-api-authored-design-test";
-        let token_digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
-        let owner = Arc::new(
-            vibe_strategy_factory::rd_bounded_feature_program_postgres_v1::PostgresResearchBoundedFeatureProgramOwnerV1::connect(
-                test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
-            )
-            .await
-            .unwrap(),
-        );
         let bindings = composed_market_data_binding_admission(&test_database).await;
         let app =
             bounded_feature_program::router(owner, token_digest).merge(market_data_pit::router(
@@ -5026,26 +5050,16 @@ mod tests {
             .get("design_identity")
             .expect("the published role intent names the Design it published")
             .clone();
-        // Both sides must be the same shape before they are compared, or the inequality below holds
-        // for every input and asserts nothing: a digest rendered as a string could never equal one
-        // rendered as bytes, and the entry would pass whichever Design was published.
+        // A shape check rather than a comparison against another Design. This entry no longer
+        // borrows a frozen Design's identities, so there is no second digest to be unequal to;
+        // what the published intent names is settled at the end, by the bytes the freeze stores.
         let published_bytes = published_design_identity
             .as_array()
             .expect("a published design identity is a byte array");
         assert_eq!(
             published_bytes.len(),
-            committed_design_identity.len(),
-            "the two design identities are not the same shape, so comparing them proves nothing",
-        );
-        assert_eq!(
-            published_bytes.len(),
             32,
             "a design identity is a 32-byte digest",
-        );
-        assert_ne!(
-            serde_json::to_string(&published_design_identity).unwrap(),
-            serde_json::to_string(&committed_design_identity).unwrap(),
-            "the published intent names the frozen fixture Design, not the authored one: {body}",
         );
         assert!(
             published
@@ -5072,13 +5086,23 @@ mod tests {
             "the authored Design's roles must resolve to Owner-held snapshots: {body}",
         );
 
-        // Counted immediately before the declaration, because the assertion below is that this
-        // Design adds one - a replay of an already frozen Design answers 200 and adds none.
-        let freezes_before: i64 =
-            sqlx::query_scalar("SELECT count(*) FROM public.rd_bounded_feature_program_freezes_v1")
-                .fetch_one(&rd_pool)
-                .await
-                .unwrap();
+        // Counted for this Research identity rather than for the table, because other ordered
+        // entries commit freezes of their own and a whole-table delta would be their count as
+        // much as this one's. Zero here is also what makes the declaration below a first freeze
+        // rather than a replay: a replay answers 200 and adds none.
+        let freezes_before: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM public.rd_bounded_feature_program_freezes_v1
+              WHERE request_identity = $1",
+        )
+        .bind(&locator)
+        .fetch_one(&rd_pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            freezes_before, 0,
+            "the selected Research identity already has a freeze, so this entry would be asserting \
+             a replay rather than a first freeze",
+        );
         let (status, body) = post(
             app,
             "/v1/bounded-feature-programs/declare",
@@ -5095,32 +5119,34 @@ mod tests {
             "declaring the authored Design must assemble and freeze it: {body}",
         );
 
-        let freezes_after: i64 =
-            sqlx::query_scalar("SELECT count(*) FROM public.rd_bounded_feature_program_freezes_v1")
-                .fetch_one(&rd_pool)
-                .await
-                .unwrap();
-        assert_eq!(
-            freezes_after,
-            freezes_before + 1,
-            "an authored Design that was never frozen before must commit one freeze, not rejoin one",
-        );
-
-        // The count alone would also be satisfied by a freeze of some other Design committed by
-        // this call, so the newest stored Design bytes are compared against what was authored.
-        let newest_design_bytes: Vec<u8> = sqlx::query_scalar(
-            "SELECT design_bytes
-               FROM public.rd_bounded_feature_program_freezes_v1
-              ORDER BY committed_at_epoch_ms DESC
-              LIMIT 1",
+        let freezes_after: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM public.rd_bounded_feature_program_freezes_v1
+              WHERE request_identity = $1",
         )
+        .bind(&locator)
         .fetch_one(&rd_pool)
         .await
         .unwrap();
         assert_eq!(
-            newest_design_bytes,
+            freezes_after, 1,
+            "an authored Design on an unfrozen Research identity must commit exactly one freeze",
+        );
+
+        // The count alone would also be satisfied by a freeze of some other Design committed by
+        // this call, so the newest stored Design bytes are compared against what was authored.
+        let stored_design_bytes: Vec<u8> = sqlx::query_scalar(
+            "SELECT design_bytes
+               FROM public.rd_bounded_feature_program_freezes_v1
+              WHERE request_identity = $1",
+        )
+        .bind(&locator)
+        .fetch_one(&rd_pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            stored_design_bytes,
             serde_json::to_vec(&authored).unwrap(),
-            "the committed freeze must hold the Design this entry authored",
+            "the freeze this entry committed must hold the Design this entry authored",
         );
     }
 
