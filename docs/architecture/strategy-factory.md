@@ -649,47 +649,49 @@ canonical Result bytes after the coordinator acknowledges the Result, all 28 evi
 trace; an unacknowledged submission remains unavailable. This admission grants no disposable PostgreSQL acceptance,
 deployed or running service, production invocation, Paper/Live execution, or trading.
 
-**TARGET / NOT_ADMITTED, Owner-sealed two-frame Native Replay V2:** the existing
+**TARGET / NOT_ADMITTED, Owner-sealed Native Replay frame sequence V2:** the existing
 `NativeReplayExecutionInputBindingV1`, its single universe frame, native scheduling receipt,
 28-component observation package, execution bundle, request and Result identities remain
 byte-for-byte unchanged. A separate `NativeReplayExecutionInputBindingV2` may bind one already
-sealed Exploratory Replay request to exactly two complete, independently Owner-sealed universe
-frames and their native BAR plus Quote EVENT liquidity schedules. This bounded profile
-applies only when the request window contains exactly those two eligible frames. The first frame
-must equal the independently re-resolved V1 initial frame. Market Data alone derives the complete
-eligible two-frame sequence within the
-request's half-open replay window and decision cut; a third eligible frame makes this bounded V2
-profile unavailable rather than silently truncating it. The two frames have distinct identities,
-strictly increasing canonical event order and no eligible frame between them; each retains its own
+sealed Exploratory Replay request to the window's whole sequence of complete, independently
+Owner-sealed universe frames and their native BAR plus Quote EVENT liquidity schedules. This
+profile applies only when the request window contains that dense sequence of eligible frames, never
+fewer than two. The first frame must equal the independently re-resolved V1 initial frame. Market
+Data alone derives the complete eligible sequence within the
+request's half-open replay window and decision cut; a gap in it makes this V2
+profile unavailable rather than silently truncating it, and a longer window is a longer sequence
+rather than a refusal. A run consumes every frame but the last, which is there to bound the
+liquidity of the one before it. The frames have distinct identities,
+strictly increasing canonical event order and no eligible frame between neighbours; each retains its own
 PIT snapshot/fact, observation-batch, trigger, frame, native scheduling and liquidity EVENT receipt
 identities. Each liquidity receipt binds the Owner-verified Quote row digests, source cut,
 bid/ask prices and sizes, event/initialization times and member order consumed by the real Sim
-Exchange; a BAR receipt alone cannot authorize a fill. Both frames must bind the same request,
+Exchange; a BAR receipt alone cannot authorize a fill. Every frame must bind the same request,
 Plan/Design role schema, two canonical members, universe selection, Instrument
 Master cut, BAR timeframe, venue and account scope, and the instrument/economic terms must be
-valid at both frame times. Market Data verifies each frame's source and correction lineage at its
+valid at every frame time. Market Data verifies each frame's source and correction lineage at its
 own cut and their valid successor relationship. The caller cannot provide
-the second snapshot, frame time, member values, schedule, event order or a frame list.
+a later snapshot, frame time, member values, schedule, event order or a frame list.
 
 R&D issues V2 binding, deterministic receipt and outbox atomically only after exact-locator
-readback of the V1 binding and both Market Data frame/scheduling capabilities. The V2 meaning
-includes the V1 binding identity, both ordered frame, native scheduling and liquidity EVENT
-receipt digests, their distinct PIT cuts and a domain-separated sequence digest covering all of
+readback of the V1 binding and every Market Data frame/scheduling capability. The V2 meaning
+includes the V1 binding identity, every ordered frame, native scheduling and liquidity EVENT
+receipt digest, their distinct PIT cuts and a domain-separated sequence digest covering all of
 them. Exact request/V2-locator retry or response-loss recovery returns the same stored bytes after
 re-verifying every constituent;
-changed meaning conflicts with zero append. Native preparation independently re-resolves both
-Owner cuts, proves byte-for-byte equality to the stored V2 binding, and then constructs a
+changed meaning conflicts with zero append. Native preparation independently re-resolves every
+Owner cut, proves byte-for-byte equality to the stored V2 binding, and then constructs a
 move-only V2 execution bundle. The bundle validates two complete BAR signals and their later
-Owner-verified Quote EVENT liquidity for each frame. The first frame's final liquidity
-EVENT must precede the second frame's first BAR. Strict cross-frame temporal order and the request
+Owner-verified Quote EVENT liquidity for each frame. Each frame's final liquidity
+EVENT must precede the next frame's first BAR. Strict cross-frame temporal order and the request
 window are checked before ProgramHost or Backtest state changes. A V1 binding is never upgraded by interpretation,
 and an unavailable V2 constituent never falls back to V1 or a test-issued successor frame.
 
 Backtest V2 result custody binds the exact V2 binding and sequence digest, each consumed frame's
-identity and ordinal, both native schedules and liquidity EVENT receipts, the canonical target set
+identity and ordinal, every native schedule and liquidity EVENT receipt, the canonical target set
 and actual fill evidence for each frame, and the canonical Backtest Result bytes. Its versioned evidence package includes
 the unchanged V1 constituent set plus the ordered V2 frame-sequence evidence; a V1 28-component
-package alone cannot attest a two-frame run. A round-trip closure is present only if actual Sim
+package alone cannot attest a run over a sequence. A round-trip closure is present only if actual Sim
 EVENT fills entered and then exited every member, the run ended flat, and its own canonical Result
 reports those positions closed. The closure digest binds that Result digest, V2 sequence digest
 and exact fill/position facts. Entry-only, rejected, partially filled or still-open runs never
