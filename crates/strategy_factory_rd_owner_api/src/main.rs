@@ -4840,9 +4840,13 @@ mod tests {
     /// a freeze that `bounded_feature_program_six_role_bar_fixture_v1` committed, and that fixture
     /// exists only under `cfg(all(test, feature = "sealed-strategy-input-acceptance"))`.
     ///
-    /// The Research identities are taken from custody rather than invented, because
-    /// `derive_design_role_intent_v1` refuses a Design whose three identities disagree with the
-    /// Research request it names. What is new here is the Design, not the Research.
+    /// Everything the Research custody owns is taken from it rather than invented, and the two
+    /// routes disagree about how much that is. `derive_design_role_intent_v1` compares three
+    /// identities, so publication accepts a Design that carries its own falsifier;
+    /// `freeze_research_bounded_feature_program_v1` compares four, the fourth being the falsifier,
+    /// so the same Design is refused at declare with `RESEARCH_CUSTODY_MISMATCH`. Authoring one
+    /// field freely is enough to pass the first route and fail the second. What is new here is the
+    /// Design, not the Research.
     ///
     /// The authored channel is the daily close of `AAPL` because the binding admission resolves
     /// every role against this Owner's own PIT custody at the decision cut, and the only coordinates
@@ -4921,8 +4925,11 @@ mod tests {
                     target_variant_semantic_id: "kernel.target.position.v1".to_owned(),
                     target_position_units: 0,
                 },
-                falsifier: "the channel never crosses the threshold in the admitted window"
-                    .to_owned(),
+                // From custody, not invented. The freeze compares four fields against the
+                // accepted Research custody and the falsifier is the fourth: an authored one
+                // publishes (that route derives the role intent from three identities) and then
+                // refuses at declare with RESEARCH_CUSTODY_MISMATCH.
+                falsifier: committed.falsifier.clone(),
             })
             .expect("the authoring surface must author this statement");
 
