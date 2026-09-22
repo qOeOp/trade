@@ -4995,6 +4995,22 @@ mod tests {
         let published_design_identity = published
             .get("design_identity")
             .expect("the published role intent names the Design it published");
+        // Both sides must be the same shape before they are compared, or the inequality below holds
+        // for every input and asserts nothing: a digest rendered as a string could never equal one
+        // rendered as bytes, and the entry would pass whichever Design was published.
+        let published_bytes = published_design_identity
+            .as_array()
+            .expect("a published design identity is a byte array");
+        assert_eq!(
+            published_bytes.len(),
+            committed_design_identity.len(),
+            "the two design identities are not the same shape, so comparing them proves nothing",
+        );
+        assert_eq!(
+            published_bytes.len(),
+            32,
+            "a design identity is a 32-byte digest",
+        );
         assert_ne!(
             serde_json::to_string(published_design_identity).unwrap(),
             serde_json::to_string(&committed_design_identity).unwrap(),
