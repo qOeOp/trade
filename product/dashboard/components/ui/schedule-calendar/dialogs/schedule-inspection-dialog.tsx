@@ -30,6 +30,13 @@ export function ScheduleInspectionDialog({ inspection, groupIndex, page, onGroup
   if (!inspection) return null;
   const selected = inspection.groups[groupIndex];
   const close = () => {
+    // Withdraw the inspection only for a close that actually closed this dialog. A close event can
+    // reach a dialog that is still open - a queued one delivered after a reopen is one way, and any
+    // dispatched event is another - and acting on it unmounts a dialog nobody closed. The opening
+    // side already declines to act when the element disagrees with the state (`current.open` above);
+    // this is the same check on the way out.
+    if (dialog.current?.open) return;
+
     onClose();
     if (!transitioningToRun.current) window.requestAnimationFrame(() => returnFocus.current?.focus());
     transitioningToRun.current = false;
