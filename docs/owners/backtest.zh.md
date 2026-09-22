@@ -95,6 +95,15 @@
   不是零，于是「取不到的数」与「挣到的零」保持可区分。有序链路为
   `owner_postgres_v4_moves_through_program_host_and_real_backtest` 打印这份报告，而该条目只喂一根 BAR，
   因此报告的是一次什么都没成交的运行。没有生产调用方读这份报告，也没有任何 Owner 消费它。
+- **TARGET - 保护经济测量的生产驱动方：**
+  `derive_protected_economic_measurement_v1` 与 `produce_and_commit_protected_replay_result_v3` 都是完整实现，
+  且都没有生产调用方；而这是被写下来的设计，不是缺口：[Qualification](./qualification/)
+  陈述了谁可以驱动一次保护评估，也陈述了有序闸门是 eligibility 终态的唯一驱动方。因此建一个生产驱动方，
+  等于改掉那份文档陈述的一条界限，需要先取得用户授权。本行刻意不重复那条界限的措辞，因为同一事实的第二份副本
+  会在只改一处时漂掉；去那里读它。有两件事值得记在这里，免得将来的驱动方重新发现：
+  `crates/backtest_owner/src/protected_replay.rs` 里的校验器会拒绝这样一个结果：它的格子可适用且不带执行缺陷，
+  却没有随附一份封印测量，所以测量是前置条件而不是附加物；以及探索路径是分开的，
+  因此这里的任何一条都不阻塞一份探索 Run Result 报告。
 - **TARGET - `REPAIR_VALIDATION` 请求与结果：** 不存在任何实现。`REPAIR_VALIDATION` 与
   `RepairValidation` 不出现在 `crates/` 或 `product/` 下的任何文件里。
 - **TARGET - `SIMULATOR` 与 `BACKTEST_OPERATIONAL` 原生 repair：** 不存在 Backtest 的 repair 面。四个 Backtest
