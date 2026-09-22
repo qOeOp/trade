@@ -146,18 +146,46 @@ absent is a proof, and each absence was measured rather than assumed.
   arm twenty times and the `FRONTIER` arm never, so nothing has ever produced that resolution, its stored encoding,
   or a source-frontier identity and digest. Until something does, taking the genesis arm and having no other arm to
   take are the same observation. Driving the other arm needs a second Research request under one principal and
-  authorized scope, and what stands in the way is neither this Owner's reach nor R&D's willingness to write a
-  basis. The second basis is written by the same `load_or_create_basis_in_transaction` the first one used, on the
-  production path the gate has already taken twenty times. What the gate has never had is two requests sharing a
-  principal: every entry bootstraps its own admission under `admin-{suffix}`, so each carries a principal of its
-  own and every scope has seen exactly one request. That is a property of the corpus, not of the production path.
-  Underneath it sits a second condition that is a property of the production path: a scope's first authorization
-  is a genesis and every later one must be a successor, so two admissions sharing a scope need
-  `issue_successor`, and the admission bootstrap issues only `issue_genesis`. Both conditions were measured by
-  driving them: two admissions under one suffix are refused as a conflicting replay because the authorization
-  identity is keyed on the suffix, one admission cannot serve two requests because an admission is bound to the
-  request identity it was issued for, and two admissions under one principal are refused because the scope
-  already has a genesis.
+  authorized scope. The gate had never had two requests sharing a principal, because every entry bootstraps its
+  own admission under `admin-{suffix}`, so each carries a principal of its own and every scope has seen exactly
+  one request. That is a property of the corpus, not of the production path, and underneath it sits a condition
+  that is a property of the production path: a scope's first authorization is a genesis and every later one must
+  be a successor, so two admissions sharing a scope need `issue_successor`, and the admission bootstrap issues
+  only `issue_genesis`. Both were measured by driving them: two admissions under one suffix are refused as a
+  conflicting replay because the authorization identity is keyed on the suffix, one admission cannot serve two
+  requests because an admission is bound to the request identity it was issued for, and two admissions under one
+  principal are refused because the scope already has a genesis.
+
+  Those two are not what keeps the arm unreached. This ledger previously recorded that they were, and that the
+  second basis would be written by the same `load_or_create_basis_in_transaction` the first one used. That was
+  read off the code rather than driven, and driving it refutes it. `second_request_under_one_principal_is_refused_before_the_lineage_advances`
+  supplies exactly the missing configuration - one deployment, one principal, one authorized scope, two requests,
+  each with an admission of its own - and no second basis is written. The second request meets that function's
+  `head_lineage == lineage_digest` branch, which is written for a replay of the request that created the head: it
+  looks up basis-stage custody under the request identity it was handed, finds none for a request it has not
+  seen, and refuses with `Owner storage unavailable: R&D basis-stage custody missing`. The `FRONTIER` arm sits
+  past that branch and is reached only once the lineage has advanced, which needs the first request to complete.
+  **The arm is reached.** On the ordered gate both requests are `Accepted`, the second writes a basis of its
+  own, one principal carries two protected-feedback projections, and the second projection's resolution state
+  is `FRONTIER` (owner-chains 35654451152, 190 passed, 94 entries). Until that run nothing had ever produced
+  that resolution, its stored encoding, or a source-frontier identity and digest, so taking the genesis arm and
+  having no other arm to take were the same observation; they are now distinguishable.
+
+  An earlier draft of this paragraph said the opposite twice, and both errors came from the same place. It said
+  no second basis is written, and that the first request cannot complete because no Catalog V3 head is
+  published so the arm's precondition is an operator action. Both were measured on a four-entry local subset
+  that had skipped entry 69, `catalog_v3_bootstrap_publishes_the_head_the_owner_reads_and_formation_binds`,
+  which publishes the head before this entry runs. The skipped-upstream artefact did not announce itself as
+  one: its recorded symptom is a panic on a line reading an upstream table, and this refusal instead read as a
+  clean domain conclusion.
+
+  Neither refusal reaches the caller as an error. Both are returned as `Ok(unresolved_result_v2(..))`, one of the
+  twenty-eight such returns `product_edge_postgres.rs` carries, so `submit_v2` answers `SubmittedOrUnknown` with
+  `next_legal_action = ResolveSameRequestIdentity` and the reason goes only to a `tracing::warn!` that the gate
+  installs no subscriber for. A caller asserting on `Result::is_ok` sees a submission it has every reason to read
+  as accepted. The entry above therefore asserts on the resolution and on the store, never on `Ok`, and it is
+  written to fail when this improves: whatever lets the lineage advance turns it red, and that red is the signal
+  to rewrite it as an assertion about the arm rather than about the refusal.
 - **Response-cut rollback.** Driving it needs a create or a renewal, so it needs a current frontier that is absent
   or expired. Aging a projection's `valid_through_epoch_ms` desynchronizes it from the canonical row the readback
   verifies, which fails as `Qualification admission envelope projection mismatch`, so the Owner forbids the only

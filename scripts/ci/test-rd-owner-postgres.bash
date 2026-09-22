@@ -110,6 +110,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::frozen_program_replays_over_http_to_the_same_joint_freeze'
   'vibe-strategy-factory|trial_family_owner|intent_lookup_does_not_lock_a_receipt_it_does_not_return'
   'vibe-strategy-factory|vibe_strategy_factory|postgres_error_message::postgres_tests::owner_storage_errors_carry_the_detail_postgres_sent'
+  'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::second_request_under_one_principal_is_refused_before_the_lineage_advances'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
@@ -152,8 +153,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 93 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all 93 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 94 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all 94 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -258,7 +259,8 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[89]}" != *'|tests::frozen_program_replays_over_http_to_the_same_joint_freeze' ]] ||
     [[ "${rd_owner_postgres_tests[90]}" != *'|intent_lookup_does_not_lock_a_receipt_it_does_not_return' ]] ||
     [[ "${rd_owner_postgres_tests[91]}" != *'|postgres_error_message::postgres_tests::owner_storage_errors_carry_the_detail_postgres_sent' ]] ||
-    [[ "${rd_owner_postgres_tests[92]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[92]}" != *'|product_edge_postgres::tests::second_request_under_one_principal_is_refused_before_the_lineage_advances' ]] ||
+    [[ "${rd_owner_postgres_tests[93]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
@@ -376,7 +378,7 @@ for line in array_body.splitlines():
     entries.append(tuple(fields))
 # The count lives in one place. Writing it into the message as well lets the two drift, and the
 # drifted form reads as nonsense the moment it fires: "must contain 92 entries, found 92".
-expected_entries = 93
+expected_entries = 94
 if len(entries) != expected_entries:
     raise SystemExit(
         f"ERROR: ordered PostgreSQL test literal must contain {expected_entries} entries, found {len(entries)}."
@@ -502,7 +504,7 @@ if invocation != expected_invocation:
     )
 PY
   if ! rg -Uq \
-    "strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody'.*\n[[:space:]]+\[\[.*successor_artifact_enters_exploratory_replay_with_exact_owner_custody'.*\n[[:space:]]+\[\[.*analysis_request_completion_resolve_restart_and_tamper_are_atomic'.*\n[[:space:]]+\[\[.*positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic'.*\n[[:space:]]+\[\[.*test_binary.*trial_family_owner'.*\n[[:space:]]+\[\[.*test_name.*artifact_build_postgres::postgres_freshness_tests::\*.*\n[[:space:]]+\[\[.*test_binary.*source_intake'.*\n[[:space:]]+\[\[.*test_binary.*vibe_qualification'.*\n[[:space:]]+\[\[.*postgres_protected_v3_results_and_attempt_frontiers_close_every_terminal_lineage'.*\n[[:space:]]+RUST_MIN_STACK=16777216.*\n[[:space:]]+cargo nextest run" \
+    "strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody'.*\n[[:space:]]+\[\[.*successor_artifact_enters_exploratory_replay_with_exact_owner_custody'.*\n[[:space:]]+\[\[.*analysis_request_completion_resolve_restart_and_tamper_are_atomic'.*\n[[:space:]]+\[\[.*positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic'.*\n[[:space:]]+\[\[.*test_binary.*trial_family_owner'.*\n[[:space:]]+\[\[.*test_name.*artifact_build_postgres::postgres_freshness_tests::\*.*\n[[:space:]]+\[\[.*test_binary.*source_intake'.*\n[[:space:]]+\[\[.*test_binary.*vibe_qualification'.*\n[[:space:]]+\[\[.*postgres_protected_v3_results_and_attempt_frontiers_close_every_terminal_lineage'.*\n[[:space:]]+\[\[.*second_request_under_one_principal_is_refused_before_the_lineage_advances'.*\n[[:space:]]+RUST_MIN_STACK=16777216.*\n[[:space:]]+cargo nextest run" \
     "${BASH_SOURCE[0]}"; then
     echo "ERROR: large composed acceptances must use their admitted test-thread stack." >&2
     return 1
@@ -3263,7 +3265,8 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
     [[ "$test_name" == artifact_build_postgres::postgres_freshness_tests::* ]] ||
     [[ "$test_binary" == 'source_intake' ]] ||
     [[ "$test_binary" == 'vibe_qualification' ]] ||
-    [[ "$test_name" == 'tests::postgres_protected_v3_results_and_attempt_frontiers_close_every_terminal_lineage' ]]; then
+    [[ "$test_name" == 'tests::postgres_protected_v3_results_and_attempt_frontiers_close_every_terminal_lineage' ]] ||
+    [[ "$test_name" == 'product_edge_postgres::tests::second_request_under_one_principal_is_refused_before_the_lineage_advances' ]]; then
     RUST_MIN_STACK=16777216 \
       cargo nextest run \
       --archive-file "$nextest_archive_file" \
