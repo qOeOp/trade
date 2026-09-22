@@ -1464,10 +1464,21 @@ cleanup() {
   fi
 
   # The one line a person reads first, printed here rather than next to the `exit` at the end of this
-  # function, because everything between the two is unbounded. The server log dumped below ran to
-  # 270157 lines on run 35703938333 and the hosted log is truncated, so the summary that used to sit
-  # at the end did not survive: the line naming entry 28 was gone while the dump that buried it was
-  # kept. Nothing unbounded may be printed before the sentence that says where the run stopped.
+  # function, because everything between the two is unbounded: the server log dumped below ran to
+  # 270157 lines on run 35703938333.
+  #
+  # GitHub keeps all of it - the raw job log holds 297380 lines and the summary sits at line 286933 -
+  # but the commands people actually read one job with do not. Measured on that run:
+  #
+  #   gh api repos/<repo>/actions/jobs/<id>/logs   297380 lines   summary present
+  #   gh run view <run> --log                      119412 lines   summary absent
+  #   gh run view <run> --job <id> --log            78108 lines   summary absent
+  #
+  # Two of the three drop it, and nothing in what they return says anything was dropped. Printing the
+  # summary after an unbounded dump therefore makes it readable only by someone who already knows
+  # which of the three to reach for, and that knowledge is exactly what a person diagnosing a red
+  # chain does not have. Printed here it survives all three. Nothing unbounded may come before the
+  # sentence that says where the run stopped.
   if [[ "$primary_status" -ne 0 && "$chain_position" -gt 0 && "$chain_completed" != true ]]; then
     echo "ordered chain stopped at entry ${chain_position}/${chain_entry_count} (${chain_entry_label}); $((chain_position - 1)) passed before it." >&2
   fi

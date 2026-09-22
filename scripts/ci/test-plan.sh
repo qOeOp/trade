@@ -575,10 +575,13 @@ for named_gate in scripts/ci/test-plan.sh scripts/ci/test-rd-owner-postgres.bash
   fi
 done
 # The chain's own summary must be printed before the server log, never after it. That dump is
-# unbounded - 270157 lines on run 35703938333 - and a hosted log is truncated, so a summary printed
-# after it reaches nobody: on that run the line naming entry 28 was gone from the log entirely while
-# the dump that had buried it was kept. `|| true` on both, so an absent side is reported below
-# rather than ending this script inside a command substitution.
+# unbounded - 270157 lines on run 35703938333 - and while GitHub keeps the whole job log, two of the
+# three commands people read one with return a silently shortened copy: measured on that run, the raw
+# jobs/<id>/logs API gave 297380 lines and held the summary, `gh run view --log` gave 119412 and
+# `gh run view --job <id> --log` gave 78108, and neither of those two held it. A summary printed
+# after the dump is therefore readable only by someone who already knows which command to use.
+# `|| true` on both greps, so an absent side is reported below rather than ending this script inside
+# a command substitution.
 chain_script="$repo_root/scripts/ci/test-rd-owner-postgres.bash"
 chain_summary_line="$(grep -n 'ordered chain stopped at entry' "$chain_script" | head -1 | cut -d: -f1 || true)"
 chain_dump_line="$(grep -n 'postgres server log (chain container)' "$chain_script" | head -1 | cut -d: -f1 || true)"
