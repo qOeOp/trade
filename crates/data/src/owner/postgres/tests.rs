@@ -7414,7 +7414,7 @@ async fn native_replay_successor_frame_oracle(owner: &MarketDataOwnerPostgres) {
             .resolve_native_replay_census_sequence_v2(scope, first_identity, 100, 0, 100)
             .await,
         Ok(NativeReplayCensusSequenceV2 {
-            consumed: vec![frame(&first, 20), frame(&successor, 30)],
+            consumed: vec![frame(&first, 10), frame(&successor, 30)],
             // The bounding frame's own event-effective coordinate, not a caller-chosen bound.
             bounding_successor: frame(&third, 50),
         })
@@ -7427,7 +7427,7 @@ async fn native_replay_successor_frame_oracle(owner: &MarketDataOwnerPostgres) {
             .resolve_native_replay_census_sequence_v2(scope, first_identity, 100, 0, 40)
             .await,
         Ok(NativeReplayCensusSequenceV2 {
-            consumed: vec![frame(&first, 20)],
+            consumed: vec![frame(&first, 10)],
             bounding_successor: frame(&successor, 30),
         })
     );
