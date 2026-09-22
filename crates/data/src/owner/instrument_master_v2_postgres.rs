@@ -1,5 +1,7 @@
 //! Durable PostgreSQL custody for public Instrument Master V2 facts and fixed Backtest cuts.
 
+use std::fmt::Debug;
+
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 
@@ -52,15 +54,15 @@ impl InstrumentMasterV2PostgresOwner {
             sqlx::query(statement)
                 .execute(&pool)
                 .await
-                .map_err(store_error)?;
+                .map_err(|cause| store_error(&cause))?;
         }
         let database: String = sqlx::query_scalar("SELECT current_database()")
             .fetch_one(&pool)
             .await
-            .map_err(store_error)?;
+            .map_err(|cause| store_error(&cause))?;
         let generation = generation_identity(&database);
         sqlx::query("INSERT INTO market_data_instrument_master_v2.state(singleton,store_generation_identity,append_sequence) VALUES(TRUE,$1,0) ON CONFLICT(singleton) DO NOTHING")
-            .bind(generation.as_slice()).execute(&pool).await.map_err(store_error)?;
+            .bind(generation.as_slice()).execute(&pool).await.map_err(|cause| store_error(&cause))?;
         let owner = Self { pool };
         owner.assert_acl().await?;
         Ok(owner)
@@ -83,7 +85,7 @@ impl InstrumentMasterV2PostgresOwner {
         let chain = decode_chain(rows)?;
         if let Some(existing) = chain.iter().find(|item| item.identity() == fact.identity()) {
             if existing.canonical_bytes() == fact.canonical_bytes() {
-                tx.commit().await.map_err(store_error)?;
+                tx.commit().await.map_err(|cause| store_error(&cause))?;
                 return Ok(());
             }
             return Err(InstrumentMasterCustodyErrorV2::IdentityConflict);
@@ -104,12 +106,12 @@ impl InstrumentMasterV2PostgresOwner {
             .bind(fact.owner_observation_time_ns().to_be_bytes().as_slice())
             .bind(fact.canonical_bytes())
             .bind(custody.as_slice())
-            .execute(&mut *tx).await.map_err(classify_insert)?;
+            .execute(&mut *tx).await.map_err(|cause| classify_insert(&cause))?;
 
         if result.rows_affected() != 1 {
             return Err(InstrumentMasterCustodyErrorV2::StoreUnavailable);
         }
-        tx.commit().await.map_err(store_error)
+        tx.commit().await.map_err(|cause| store_error(&cause))
     }
 
     /// Resolves the sealed two-member Universe Selection and atomically appends its cut,
@@ -155,7 +157,7 @@ impl InstrumentMasterV2PostgresOwner {
                 && readback.cut().universe_selection_outbox_identity()
                     == selection.outbox_identity()
             {
-                tx.commit().await.map_err(store_error)?;
+                tx.commit().await.map_err(|cause| store_error(&cause))?;
                 return Ok(readback);
             }
             return Err(InstrumentMasterCustodyErrorV2::RequestConflict);
@@ -180,9 +182,11 @@ impl InstrumentMasterV2PostgresOwner {
             [first, second],
         )?;
         let state = sqlx::query("SELECT store_generation_identity,append_sequence FROM market_data_instrument_master_v2.state WHERE singleton FOR UPDATE")
-            .fetch_one(&mut *tx).await.map_err(store_error)?;
+            .fetch_one(&mut *tx).await.map_err(|cause| store_error(&cause))?;
         let generation = row_digest(&state, "store_generation_identity")?;
-        let prior: i64 = state.try_get("append_sequence").map_err(store_error)?;
+        let prior: i64 = state
+            .try_get("append_sequence")
+            .map_err(|cause| store_error(&cause))?;
         let append_sequence = u64::try_from(prior)
             .ok()
             .and_then(|value| value.checked_add(1))
@@ -196,20 +200,20 @@ impl InstrumentMasterV2PostgresOwner {
             .bind(cut.request_binding_digest().as_bytes().as_slice()).bind(i64::try_from(cut.decision_cut()).map_err(|_| InstrumentMasterCustodyErrorV2::InvalidRequest)?)
             .bind(cut.members()[0].fact().identity().as_bytes().as_slice()).bind(cut.members()[1].fact().identity().as_bytes().as_slice())
             .bind(cut.canonical_bytes()).bind(sequence).bind(custody.as_slice())
-            .execute(&mut *tx).await.map_err(classify_insert)?;
+            .execute(&mut *tx).await.map_err(|cause| classify_insert(&cause))?;
         sqlx::query("INSERT INTO market_data_instrument_master_v2.receipts(receipt_identity,cut_identity,receipt_bytes,append_sequence,custody_digest) VALUES($1,$2,$3,$4,$5)")
             .bind(receipt.identity().as_bytes().as_slice()).bind(cut.identity().as_bytes().as_slice())
             .bind(receipt.canonical_bytes()).bind(sequence).bind(custody.as_slice())
-            .execute(&mut *tx).await.map_err(classify_insert)?;
+            .execute(&mut *tx).await.map_err(|cause| classify_insert(&cause))?;
         sqlx::query("INSERT INTO market_data_instrument_master_v2.outbox(outbox_identity,cut_identity,receipt_identity,payload_bytes,append_sequence,custody_digest) VALUES($1,$2,$3,$4,$5,$6)")
             .bind(receipt.outbox_identity().as_bytes().as_slice()).bind(cut.identity().as_bytes().as_slice())
             .bind(receipt.identity().as_bytes().as_slice()).bind(receipt.canonical_bytes()).bind(sequence).bind(custody.as_slice())
-            .execute(&mut *tx).await.map_err(classify_insert)?;
+            .execute(&mut *tx).await.map_err(|cause| classify_insert(&cause))?;
         sqlx::query("UPDATE market_data_instrument_master_v2.state SET append_sequence=$1 WHERE singleton AND append_sequence=$2")
-            .bind(sequence).bind(prior).execute(&mut *tx).await.map_err(store_error)?;
+            .bind(sequence).bind(prior).execute(&mut *tx).await.map_err(|cause| store_error(&cause))?;
         assert_complete_ledger(&mut tx).await?;
         let readback = InstrumentMasterReadbackV2::from_parts(cut, receipt)?;
-        tx.commit().await.map_err(store_error)?;
+        tx.commit().await.map_err(|cause| store_error(&cause))?;
         Ok(readback)
     }
 
@@ -222,11 +226,15 @@ impl InstrumentMasterV2PostgresOwner {
         &self,
         locator: InstrumentMasterCutLocatorV2,
     ) -> Result<InstrumentMasterReadbackV2, InstrumentMasterCustodyErrorV2> {
-        let mut tx = self.pool.begin().await.map_err(store_error)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|cause| store_error(&cause))?;
         sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
             .execute(&mut *tx)
             .await
-            .map_err(store_error)?;
+            .map_err(|cause| store_error(&cause))?;
         lock_all(&mut tx).await?;
         assert_acl_in_transaction(&mut tx).await?;
         assert_complete_ledger(&mut tx).await?;
@@ -235,10 +243,10 @@ impl InstrumentMasterV2PostgresOwner {
             .bind(locator.request_binding_digest().as_bytes().as_slice())
             .bind(locator.cut_identity().as_bytes().as_slice())
             .bind(locator.receipt_identity().as_bytes().as_slice())
-            .fetch_optional(&mut *tx).await.map_err(store_error)?
+            .fetch_optional(&mut *tx).await.map_err(|cause| store_error(&cause))?
             .ok_or(InstrumentMasterCustodyErrorV2::UnknownLocator)?;
         let readback = decode_cut_row(&mut tx, row).await?;
-        tx.commit().await.map_err(store_error)?;
+        tx.commit().await.map_err(|cause| store_error(&cause))?;
         Ok(readback)
     }
 
@@ -252,11 +260,15 @@ impl InstrumentMasterV2PostgresOwner {
         request_identity: &str,
     ) -> Result<InstrumentMasterReadbackV2, InstrumentMasterCustodyErrorV2> {
         let request_identity = native_replay_request_identity_v2(request_identity)?;
-        let mut tx = self.pool.begin().await.map_err(store_error)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|cause| store_error(&cause))?;
         sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
             .execute(&mut *tx)
             .await
-            .map_err(store_error)?;
+            .map_err(|cause| store_error(&cause))?;
         lock_all(&mut tx).await?;
         assert_acl_in_transaction(&mut tx).await?;
         assert_complete_ledger(&mut tx).await?;
@@ -264,30 +276,38 @@ impl InstrumentMasterV2PostgresOwner {
             .await?
             .ok_or(InstrumentMasterCustodyErrorV2::UnknownLocator)?;
         let readback = decode_cut_row(&mut tx, row).await?;
-        tx.commit().await.map_err(store_error)?;
+        tx.commit().await.map_err(|cause| store_error(&cause))?;
         Ok(readback)
     }
 
     async fn serializable(
         &self,
     ) -> Result<Transaction<'_, Postgres>, InstrumentMasterCustodyErrorV2> {
-        let mut tx = self.pool.begin().await.map_err(store_error)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|cause| store_error(&cause))?;
         sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
             .execute(&mut *tx)
             .await
-            .map_err(store_error)?;
+            .map_err(|cause| store_error(&cause))?;
         sqlx::query("SELECT pg_advisory_xact_lock($1)")
             .bind(ADVISORY_LOCK_KEY)
             .execute(&mut *tx)
             .await
-            .map_err(store_error)?;
+            .map_err(|cause| store_error(&cause))?;
         Ok(tx)
     }
 
     async fn assert_acl(&self) -> Result<(), InstrumentMasterCustodyErrorV2> {
-        let mut tx = self.pool.begin().await.map_err(store_error)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|cause| store_error(&cause))?;
         assert_acl_in_transaction(&mut tx).await?;
-        tx.rollback().await.map_err(store_error)
+        tx.rollback().await.map_err(|cause| store_error(&cause))
     }
 }
 
@@ -329,9 +349,11 @@ async fn load_chain_ending_at(
     identity: BindingDigest,
 ) -> Result<InstrumentMasterFactV2, InstrumentMasterCustodyErrorV2> {
     let row = sqlx::query("SELECT canonical_identity FROM market_data_instrument_master_v2.facts WHERE fact_identity=$1")
-        .bind(identity.as_bytes().as_slice()).fetch_optional(&mut **tx).await.map_err(store_error)?
+        .bind(identity.as_bytes().as_slice()).fetch_optional(&mut **tx).await.map_err(|cause| store_error(&cause))?
         .ok_or(InstrumentMasterCustodyErrorV2::MissingFact)?;
-    let canonical: String = row.try_get("canonical_identity").map_err(store_error)?;
+    let canonical: String = row
+        .try_get("canonical_identity")
+        .map_err(|cause| store_error(&cause))?;
     decode_chain(load_fact_rows(tx, &canonical).await?)?
         .into_iter()
         .find(|fact| fact.identity() == identity)
@@ -343,7 +365,7 @@ async fn load_fact_rows(
     canonical: &str,
 ) -> Result<Vec<sqlx::postgres::PgRow>, InstrumentMasterCustodyErrorV2> {
     sqlx::query("SELECT fact_identity,predecessor_fact_identity,correction_sequence,owner_observation_ns,fact_bytes,custody_digest FROM market_data_instrument_master_v2.facts WHERE canonical_identity=$1 ORDER BY correction_sequence")
-        .bind(canonical).fetch_all(&mut **tx).await.map_err(store_error)
+        .bind(canonical).fetch_all(&mut **tx).await.map_err(|cause| store_error(&cause))
 }
 
 fn decode_chain(
@@ -351,7 +373,9 @@ fn decode_chain(
 ) -> Result<Vec<InstrumentMasterFactV2>, InstrumentMasterCustodyErrorV2> {
     let mut chain = Vec::with_capacity(rows.len());
     for row in rows {
-        let bytes: Vec<u8> = row.try_get("fact_bytes").map_err(store_error)?;
+        let bytes: Vec<u8> = row
+            .try_get("fact_bytes")
+            .map_err(|cause| store_error(&cause))?;
         let fact = InstrumentMasterFactV2::from_canonical_bytes(&bytes, chain.last())
             .map_err(|_| InstrumentMasterCustodyErrorV2::ChainMismatch)?;
 
@@ -360,17 +384,17 @@ fn decode_chain(
                 != fact.predecessor_fact_digest()
             || row
                 .try_get::<i64, _>("correction_sequence")
-                .map_err(store_error)?
+                .map_err(|cause| store_error(&cause))?
                 != i64::try_from(fact.correction_sequence())
                     .map_err(|_| InstrumentMasterCustodyErrorV2::ChainMismatch)?
             || row
                 .try_get::<Vec<u8>, _>("owner_observation_ns")
-                .map_err(store_error)?
+                .map_err(|cause| store_error(&cause))?
                 .as_slice()
                 != fact.owner_observation_time_ns().to_be_bytes()
             || row
                 .try_get::<Vec<u8>, _>("custody_digest")
-                .map_err(store_error)?
+                .map_err(|cause| store_error(&cause))?
                 .as_slice()
                 != fact_custody(&fact)
         {
@@ -386,7 +410,7 @@ async fn load_cut_by_request(
     request: BindingDigest,
 ) -> Result<Option<sqlx::postgres::PgRow>, InstrumentMasterCustodyErrorV2> {
     sqlx::query("SELECT c.*,r.receipt_identity,r.receipt_bytes,r.append_sequence AS receipt_append_sequence,o.outbox_identity,o.payload_bytes,o.append_sequence AS outbox_append_sequence,r.custody_digest AS receipt_custody_digest,o.custody_digest AS outbox_custody_digest,s.store_generation_identity,s.append_sequence AS state_append_sequence FROM market_data_instrument_master_v2.cuts c JOIN market_data_instrument_master_v2.receipts r ON r.cut_identity=c.cut_identity JOIN market_data_instrument_master_v2.outbox o ON o.cut_identity=c.cut_identity CROSS JOIN market_data_instrument_master_v2.state s WHERE s.singleton AND c.request_identity=$1")
-        .bind(request.as_bytes().as_slice()).fetch_optional(&mut **tx).await.map_err(store_error)
+        .bind(request.as_bytes().as_slice()).fetch_optional(&mut **tx).await.map_err(|cause| store_error(&cause))
 }
 
 async fn decode_cut_row(
@@ -395,9 +419,13 @@ async fn decode_cut_row(
 ) -> Result<InstrumentMasterReadbackV2, InstrumentMasterCustodyErrorV2> {
     let first = load_chain_ending_at(tx, row_digest(&row, "first_fact_identity")?).await?;
     let second = load_chain_ending_at(tx, row_digest(&row, "second_fact_identity")?).await?;
-    let cut_bytes: Vec<u8> = row.try_get("cut_bytes").map_err(store_error)?;
+    let cut_bytes: Vec<u8> = row
+        .try_get("cut_bytes")
+        .map_err(|cause| store_error(&cause))?;
     let cut = InstrumentMasterCutV2::parse_with_facts(&cut_bytes, [first, second])?;
-    let receipt_bytes: Vec<u8> = row.try_get("receipt_bytes").map_err(store_error)?;
+    let receipt_bytes: Vec<u8> = row
+        .try_get("receipt_bytes")
+        .map_err(|cause| store_error(&cause))?;
     let receipt = InstrumentMasterCutReceiptV2::parse(&receipt_bytes)?;
     let custody = cut_custody(&cut, &receipt);
     if row_digest(&row, "cut_identity")? != cut.identity()
@@ -407,42 +435,42 @@ async fn decode_cut_row(
         || row_digest(&row, "outbox_identity")? != receipt.outbox_identity()
         || row
             .try_get::<Vec<u8>, _>("payload_bytes")
-            .map_err(store_error)?
+            .map_err(|cause| store_error(&cause))?
             != receipt_bytes
         || row
             .try_get::<Vec<u8>, _>("custody_digest")
-            .map_err(store_error)?
+            .map_err(|cause| store_error(&cause))?
             .as_slice()
             != custody
         || row
             .try_get::<Vec<u8>, _>("receipt_custody_digest")
-            .map_err(store_error)?
+            .map_err(|cause| store_error(&cause))?
             .as_slice()
             != custody
         || row
             .try_get::<Vec<u8>, _>("outbox_custody_digest")
-            .map_err(store_error)?
+            .map_err(|cause| store_error(&cause))?
             .as_slice()
             != custody
         || row_digest(&row, "store_generation_identity")? != receipt.store_generation_identity()
         || row
             .try_get::<i64, _>("append_sequence")
-            .map_err(store_error)?
+            .map_err(|cause| store_error(&cause))?
             != i64::try_from(receipt.append_sequence())
                 .map_err(|_| InstrumentMasterCustodyErrorV2::CrossSpliced)?
         || row
             .try_get::<i64, _>("receipt_append_sequence")
-            .map_err(store_error)?
+            .map_err(|cause| store_error(&cause))?
             != i64::try_from(receipt.append_sequence())
                 .map_err(|_| InstrumentMasterCustodyErrorV2::CrossSpliced)?
         || row
             .try_get::<i64, _>("outbox_append_sequence")
-            .map_err(store_error)?
+            .map_err(|cause| store_error(&cause))?
             != i64::try_from(receipt.append_sequence())
                 .map_err(|_| InstrumentMasterCustodyErrorV2::CrossSpliced)?
         || row
             .try_get::<i64, _>("state_append_sequence")
-            .map_err(store_error)?
+            .map_err(|cause| store_error(&cause))?
             < i64::try_from(receipt.append_sequence())
                 .map_err(|_| InstrumentMasterCustodyErrorV2::CrossSpliced)?
     {
@@ -455,7 +483,7 @@ async fn lock_all(
     tx: &mut Transaction<'_, Postgres>,
 ) -> Result<(), InstrumentMasterCustodyErrorV2> {
     sqlx::query("LOCK TABLE market_data_instrument_master_v2.state,market_data_instrument_master_v2.facts,market_data_instrument_master_v2.cuts,market_data_instrument_master_v2.receipts,market_data_instrument_master_v2.outbox IN SHARE ROW EXCLUSIVE MODE")
-        .execute(&mut **tx).await.map_err(store_error)?;
+        .execute(&mut **tx).await.map_err(|cause| store_error(&cause))?;
     Ok(())
 }
 
@@ -463,7 +491,7 @@ async fn assert_complete_ledger(
     tx: &mut Transaction<'_, Postgres>,
 ) -> Result<(), InstrumentMasterCustodyErrorV2> {
     let corrupt: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM market_data_instrument_master_v2.cuts c FULL JOIN market_data_instrument_master_v2.receipts r ON r.cut_identity=c.cut_identity FULL JOIN market_data_instrument_master_v2.outbox o ON o.cut_identity=c.cut_identity WHERE c.cut_identity IS NULL OR r.receipt_identity IS NULL OR o.outbox_identity IS NULL OR c.append_sequence<>r.append_sequence OR c.append_sequence<>o.append_sequence) OR (SELECT append_sequence FROM market_data_instrument_master_v2.state WHERE singleton)<>(SELECT COUNT(*) FROM market_data_instrument_master_v2.cuts) OR EXISTS(SELECT 1 FROM market_data_instrument_master_v2.cuts c CROSS JOIN market_data_instrument_master_v2.state s WHERE s.singleton AND (c.append_sequence<1 OR c.append_sequence>s.append_sequence))")
-        .fetch_one(&mut **tx).await.map_err(store_error)?;
+        .fetch_one(&mut **tx).await.map_err(|cause| store_error(&cause))?;
 
     if corrupt {
         Err(InstrumentMasterCustodyErrorV2::CrossSpliced)
@@ -476,7 +504,7 @@ async fn assert_acl_in_transaction(
     tx: &mut Transaction<'_, Postgres>,
 ) -> Result<(), InstrumentMasterCustodyErrorV2> {
     let admitted: bool = sqlx::query_scalar("SELECT pg_get_userbyid(n.nspowner)=current_user AND NOT has_schema_privilege('public',n.oid,'USAGE') AND (SELECT COUNT(*)=5 AND bool_and(pg_get_userbyid(c.relowner)=current_user) FROM pg_class c WHERE c.relnamespace=n.oid AND c.relkind='r' AND c.relname IN ('state','facts','cuts','receipts','outbox')) AND NOT EXISTS(SELECT 1 FROM pg_class c CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) a WHERE c.relnamespace=n.oid AND c.relname IN ('state','facts','cuts','receipts','outbox') AND a.grantee<>c.relowner) FROM pg_namespace n WHERE n.nspname='market_data_instrument_master_v2'")
-        .fetch_one(&mut **tx).await.map_err(store_error)?;
+        .fetch_one(&mut **tx).await.map_err(|cause| store_error(&cause))?;
 
     if admitted {
         Ok(())
@@ -489,7 +517,7 @@ fn row_digest(
     row: &sqlx::postgres::PgRow,
     name: &str,
 ) -> Result<BindingDigest, InstrumentMasterCustodyErrorV2> {
-    let bytes: Vec<u8> = row.try_get(name).map_err(store_error)?;
+    let bytes: Vec<u8> = row.try_get(name).map_err(|cause| store_error(&cause))?;
     let bytes: [u8; 32] = bytes
         .try_into()
         .map_err(|_| InstrumentMasterCustodyErrorV2::CrossSpliced)?;
@@ -501,7 +529,7 @@ fn row_optional_digest(
     name: &str,
 ) -> Result<Option<BindingDigest>, InstrumentMasterCustodyErrorV2> {
     row.try_get::<Option<Vec<u8>>, _>(name)
-        .map_err(store_error)?
+        .map_err(|cause| store_error(&cause))?
         .map(|bytes| {
             bytes
                 .try_into()
@@ -530,10 +558,13 @@ fn hash(domain: &[u8], bytes: &[u8]) -> [u8; 32] {
     h.update(bytes);
     h.finalize().into()
 }
-fn store_error(_: sqlx::Error) -> InstrumentMasterCustodyErrorV2 {
+#[track_caller]
+fn store_error(cause: &impl Debug) -> InstrumentMasterCustodyErrorV2 {
+    crate::owner::storage_diagnostic::refused_by_store_at(cause);
     InstrumentMasterCustodyErrorV2::StoreUnavailable
 }
-fn classify_insert(error: sqlx::Error) -> InstrumentMasterCustodyErrorV2 {
+#[track_caller]
+fn classify_insert(error: &sqlx::Error) -> InstrumentMasterCustodyErrorV2 {
     if error
         .as_database_error()
         .and_then(sqlx::error::DatabaseError::code)

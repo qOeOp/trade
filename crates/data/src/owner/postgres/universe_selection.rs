@@ -10,6 +10,7 @@
 )]
 
 use std::collections::BTreeSet;
+use std::fmt::Debug;
 
 use sqlx::{Postgres, Row, Transaction};
 
@@ -47,7 +48,7 @@ pub(super) async fn install_universe_selection_schema_v1(
         sqlx::query(*statement)
             .execute(&mut **transaction)
             .await
-            .map_err(store_error)?;
+            .map_err(|cause| store_error(&cause))?;
     }
     Ok(())
 }
@@ -62,7 +63,7 @@ pub(super) async fn persist_historical_membership_frontier_v1(
     }
     advisory_lock(transaction, eligible_frontier).await?;
     let created = sqlx::query("INSERT INTO market_data_private.historical_membership_frontiers_v1(eligible_frontier) VALUES($1) ON CONFLICT(eligible_frontier) DO NOTHING")
-        .bind(eligible_frontier.as_bytes().as_slice()).execute(&mut **transaction).await.map_err(store_error)?
+        .bind(eligible_frontier.as_bytes().as_slice()).execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?
         .rows_affected() == 1;
     let mut facts = proposals
         .into_iter()
@@ -89,7 +90,7 @@ pub(super) async fn persist_historical_membership_frontier_v1(
 
     let stored_manifest: Vec<Vec<u8>> = sqlx::query_scalar(
         "SELECT member_key FROM market_data_private.historical_membership_manifest_v1 WHERE eligible_frontier=$1 ORDER BY ordinal FOR SHARE",
-    ).bind(eligible_frontier.as_bytes().as_slice()).fetch_all(&mut **transaction).await.map_err(store_error)?;
+    ).bind(eligible_frontier.as_bytes().as_slice()).fetch_all(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
 
     if !created
         && member_keys
@@ -103,7 +104,7 @@ pub(super) async fn persist_historical_membership_frontier_v1(
         for (index, member_key) in member_keys.iter().enumerate() {
             sqlx::query("INSERT INTO market_data_private.historical_membership_manifest_v1(eligible_frontier,ordinal,member_key) VALUES($1,$2,$3)")
                 .bind(eligible_frontier.as_bytes().as_slice()).bind(i64::try_from(index + 1).map_err(|_| UniverseSelectionErrorV1::CapacityExceeded)?)
-                .bind(member_key).execute(&mut **transaction).await.map_err(store_error)?;
+                .bind(member_key).execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
         }
     }
 
@@ -114,7 +115,7 @@ pub(super) async fn persist_historical_membership_frontier_v1(
     for fact in facts {
         if let Some(predecessor) = fact.predecessor_identity() {
             let prior: Option<(Vec<u8>, Vec<u8>, Vec<u8>)> = sqlx::query_as("SELECT eligible_frontier,member_key,instrument FROM market_data_private.historical_membership_facts_v1 WHERE fact_identity=$1 FOR SHARE")
-                .bind(predecessor.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(store_error)?;
+                .bind(predecessor.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
             if prior.is_none_or(|(frontier, member, instrument)| {
                 frontier != eligible_frontier.as_bytes().as_slice()
                     || member != fact.member_key()
@@ -124,7 +125,7 @@ pub(super) async fn persist_historical_membership_frontier_v1(
             }
         }
         let existing: Option<Vec<u8>> = sqlx::query_scalar("SELECT fact_bytes FROM market_data_private.historical_membership_facts_v1 WHERE fact_identity=$1 FOR UPDATE")
-            .bind(fact.identity().as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(store_error)?;
+            .bind(fact.identity().as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
         if let Some(bytes) = existing {
             if bytes != fact.canonical_bytes() {
                 return Err(UniverseSelectionErrorV1::RequestConflict);
@@ -134,15 +135,15 @@ pub(super) async fn persist_historical_membership_frontier_v1(
                 .bind(fact.identity().as_bytes().as_slice()).bind(eligible_frontier.as_bytes().as_slice())
                 .bind(fact.member_key()).bind(fact.instrument()).bind(fact.predecessor_identity().map(|value| value.as_bytes().to_vec()))
                 .bind(extract_decision_cut(fact.canonical_bytes())?).bind(extract_owner_observation(fact.canonical_bytes())?.to_string())
-                .bind(fact.canonical_bytes()).execute(&mut **transaction).await.map_err(store_error)?;
+                .bind(fact.canonical_bytes()).execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
         }
         let head: Option<Vec<u8>> = sqlx::query_scalar("SELECT fact_identity FROM market_data_private.historical_membership_heads_v1 WHERE eligible_frontier=$1 AND member_key=$2 FOR UPDATE")
-            .bind(eligible_frontier.as_bytes().as_slice()).bind(fact.member_key()).fetch_optional(&mut **transaction).await.map_err(store_error)?;
+            .bind(eligible_frontier.as_bytes().as_slice()).bind(fact.member_key()).fetch_optional(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
         match head {
             None if fact.predecessor_identity().is_none() => {
                 sqlx::query("INSERT INTO market_data_private.historical_membership_heads_v1(eligible_frontier,member_key,fact_identity) VALUES($1,$2,$3)")
                     .bind(eligible_frontier.as_bytes().as_slice()).bind(fact.member_key()).bind(fact.identity().as_bytes().as_slice())
-                    .execute(&mut **transaction).await.map_err(store_error)?;
+                    .execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
             }
             Some(head)
                 if fact
@@ -151,7 +152,7 @@ pub(super) async fn persist_historical_membership_frontier_v1(
             {
                 sqlx::query("UPDATE market_data_private.historical_membership_heads_v1 SET fact_identity=$3 WHERE eligible_frontier=$1 AND member_key=$2")
                     .bind(eligible_frontier.as_bytes().as_slice()).bind(fact.member_key()).bind(fact.identity().as_bytes().as_slice())
-                    .execute(&mut **transaction).await.map_err(store_error)?;
+                    .execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
             }
             Some(head) if head == fact.identity().as_bytes().as_slice() => {}
             _ => return Err(UniverseSelectionErrorV1::RequestConflict),
@@ -177,12 +178,12 @@ pub(super) async fn resolve_universe_selection_in_transaction_v1(
     }
     let expected_member_keys: Vec<Vec<u8>> = sqlx::query_scalar(
         "SELECT member_key FROM market_data_private.historical_membership_manifest_v1 WHERE eligible_frontier=$1 ORDER BY ordinal FOR SHARE",
-    ).bind(request.eligible_instrument_frontier().as_bytes().as_slice()).fetch_all(&mut **transaction).await.map_err(store_error)?;
+    ).bind(request.eligible_instrument_frontier().as_bytes().as_slice()).fetch_all(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     let fact_bytes: Vec<Vec<u8>> = sqlx::query_scalar(
         "SELECT fact_bytes FROM market_data_private.historical_membership_facts_v1 WHERE eligible_frontier=$1 ORDER BY member_key,decision_cut,fact_identity FOR SHARE",
-    ).bind(request.eligible_instrument_frontier().as_bytes().as_slice()).fetch_all(&mut **transaction).await.map_err(store_error)?;
+    ).bind(request.eligible_instrument_frontier().as_bytes().as_slice()).fetch_all(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     let frontier_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM market_data_private.historical_membership_frontiers_v1 WHERE eligible_frontier=$1)")
-        .bind(request.eligible_instrument_frontier().as_bytes().as_slice()).fetch_one(&mut **transaction).await.map_err(store_error)?;
+        .bind(request.eligible_instrument_frontier().as_bytes().as_slice()).fetch_one(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
 
     if !frontier_exists {
         return Err(UniverseSelectionErrorV1::UnknownIdentity);
@@ -196,12 +197,12 @@ pub(super) async fn resolve_universe_selection_in_transaction_v1(
     let database: String = sqlx::query_scalar("SELECT current_database()")
         .fetch_one(&mut **transaction)
         .await
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
     let generation = codec::digest(codec::STORE_GENERATION_DOMAIN, database.as_bytes());
     sqlx::query("INSERT INTO market_data_private.universe_selection_state_v1(singleton,store_generation_identity,append_sequence) VALUES(TRUE,$1,0) ON CONFLICT(singleton) DO NOTHING")
-        .bind(generation.as_bytes().as_slice()).execute(&mut **transaction).await.map_err(store_error)?;
+        .bind(generation.as_bytes().as_slice()).execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     let sequence: i64 = sqlx::query_scalar("UPDATE market_data_private.universe_selection_state_v1 SET append_sequence=append_sequence+1 WHERE singleton AND store_generation_identity=$1 RETURNING append_sequence")
-        .bind(generation.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(store_error)?
+        .bind(generation.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(|cause| store_error(&cause))?
         .ok_or(UniverseSelectionErrorV1::StoreUntrusted)?;
     let sequence = u64::try_from(sequence).map_err(|_| UniverseSelectionErrorV1::StoreUntrusted)?;
     let readback = issue_universe_selection_readback_v1(request, membership, generation, sequence)?;
@@ -209,15 +210,15 @@ pub(super) async fn resolve_universe_selection_in_transaction_v1(
     sqlx::query("INSERT INTO market_data_private.universe_selection_records_v1(selection_identity,request_identity,request_meaning_digest,record_bytes) VALUES($1,$2,$3,$4)")
         .bind(readback.record().identity().as_bytes().as_slice()).bind(request.request_identity().as_bytes().as_slice())
         .bind(request.request_meaning_digest().as_bytes().as_slice()).bind(readback.record().canonical_bytes())
-        .execute(&mut **transaction).await.map_err(store_error)?;
+        .execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     sqlx::query("INSERT INTO market_data_private.universe_selection_receipts_v1(request_identity,request_meaning_digest,selection_identity,receipt_identity,receipt_bytes,append_sequence) VALUES($1,$2,$3,$4,$5,$6)")
         .bind(request.request_identity().as_bytes().as_slice()).bind(request.request_meaning_digest().as_bytes().as_slice())
         .bind(readback.record().identity().as_bytes().as_slice()).bind(readback.receipt().identity().as_bytes().as_slice())
         .bind(readback.receipt().canonical_bytes()).bind(i64::try_from(sequence).map_err(|_| UniverseSelectionErrorV1::CapacityExceeded)?)
-        .execute(&mut **transaction).await.map_err(store_error)?;
+        .execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     sqlx::query("INSERT INTO market_data_private.universe_selection_outbox_v1(outbox_identity,request_identity,receipt_bytes) VALUES($1,$2,$3)")
         .bind(readback.outbox_identity().as_bytes().as_slice()).bind(request.request_identity().as_bytes().as_slice())
-        .bind(readback.receipt().canonical_bytes()).execute(&mut **transaction).await.map_err(store_error)?;
+        .bind(readback.receipt().canonical_bytes()).execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     Ok(readback)
 }
 
@@ -242,27 +243,45 @@ async fn load_readback(
 ) -> Result<Option<UniverseSelectionReadbackV1>, UniverseSelectionErrorV1> {
     let row = if lock {
         sqlx::query("SELECT r.request_meaning_digest,r.selection_identity,r.record_bytes,c.receipt_identity,c.receipt_bytes,o.outbox_identity,o.receipt_bytes AS outbox_receipt_bytes FROM market_data_private.universe_selection_records_v1 r JOIN market_data_private.universe_selection_receipts_v1 c ON c.request_identity=r.request_identity JOIN market_data_private.universe_selection_outbox_v1 o ON o.request_identity=r.request_identity WHERE r.request_identity=$1 FOR UPDATE OF r,c,o")
-            .bind(request_identity.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(store_error)?
+            .bind(request_identity.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(|cause| store_error(&cause))?
     } else {
         sqlx::query("SELECT r.request_meaning_digest,r.selection_identity,r.record_bytes,c.receipt_identity,c.receipt_bytes,o.outbox_identity,o.receipt_bytes AS outbox_receipt_bytes FROM market_data_private.universe_selection_records_v1 r JOIN market_data_private.universe_selection_receipts_v1 c ON c.request_identity=r.request_identity JOIN market_data_private.universe_selection_outbox_v1 o ON o.request_identity=r.request_identity WHERE r.request_identity=$1")
-            .bind(request_identity.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(store_error)?
+            .bind(request_identity.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(|cause| store_error(&cause))?
     };
     let Some(row) = row else {
         let partial: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM market_data_private.universe_selection_records_v1 WHERE request_identity=$1) OR EXISTS(SELECT 1 FROM market_data_private.universe_selection_receipts_v1 WHERE request_identity=$1) OR EXISTS(SELECT 1 FROM market_data_private.universe_selection_outbox_v1 WHERE request_identity=$1)")
-            .bind(request_identity.as_bytes().as_slice()).fetch_one(&mut **transaction).await.map_err(store_error)?;
+            .bind(request_identity.as_bytes().as_slice()).fetch_one(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
         return if partial {
             Err(UniverseSelectionErrorV1::StoreUntrusted)
         } else {
             Ok(None)
         };
     };
-    let meaning = digest_from_row(row.try_get("request_meaning_digest").map_err(store_error)?)?;
-    let selection = digest_from_row(row.try_get("selection_identity").map_err(store_error)?)?;
-    let record_bytes: Vec<u8> = row.try_get("record_bytes").map_err(store_error)?;
-    let receipt_identity = digest_from_row(row.try_get("receipt_identity").map_err(store_error)?)?;
-    let receipt_bytes: Vec<u8> = row.try_get("receipt_bytes").map_err(store_error)?;
-    let outbox_identity = digest_from_row(row.try_get("outbox_identity").map_err(store_error)?)?;
-    let outbox_receipt: Vec<u8> = row.try_get("outbox_receipt_bytes").map_err(store_error)?;
+    let meaning = digest_from_row(
+        row.try_get("request_meaning_digest")
+            .map_err(|cause| store_error(&cause))?,
+    )?;
+    let selection = digest_from_row(
+        row.try_get("selection_identity")
+            .map_err(|cause| store_error(&cause))?,
+    )?;
+    let record_bytes: Vec<u8> = row
+        .try_get("record_bytes")
+        .map_err(|cause| store_error(&cause))?;
+    let receipt_identity = digest_from_row(
+        row.try_get("receipt_identity")
+            .map_err(|cause| store_error(&cause))?,
+    )?;
+    let receipt_bytes: Vec<u8> = row
+        .try_get("receipt_bytes")
+        .map_err(|cause| store_error(&cause))?;
+    let outbox_identity = digest_from_row(
+        row.try_get("outbox_identity")
+            .map_err(|cause| store_error(&cause))?,
+    )?;
+    let outbox_receipt: Vec<u8> = row
+        .try_get("outbox_receipt_bytes")
+        .map_err(|cause| store_error(&cause))?;
     let readback = decode_readback_v1(&record_bytes, &receipt_bytes, outbox_identity)?;
     if readback.record().request_identity() != request_identity
         || readback.record().request_meaning_digest() != meaning
@@ -301,7 +320,7 @@ async fn advisory_lock(
         .bind(key)
         .execute(&mut **transaction)
         .await
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
     Ok(())
 }
 
@@ -313,7 +332,9 @@ fn digest_from_row(bytes: Vec<u8>) -> Result<BindingDigest, UniverseSelectionErr
     ))
 }
 
-fn store_error(_: sqlx::Error) -> UniverseSelectionErrorV1 {
+#[track_caller]
+fn store_error(cause: &impl Debug) -> UniverseSelectionErrorV1 {
+    crate::owner::storage_diagnostic::refused_by_store_at(cause);
     UniverseSelectionErrorV1::StoreUnavailable
 }
 

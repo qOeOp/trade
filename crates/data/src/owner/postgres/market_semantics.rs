@@ -49,7 +49,7 @@ pub(super) async fn install_market_semantics_schema_v1(
         sqlx::query(*statement)
             .execute(&mut **transaction)
             .await
-            .map_err(store_error)?;
+            .map_err(|cause| store_error(&cause))?;
     }
     Ok(())
 }
@@ -145,7 +145,7 @@ async fn append_market_semantics_in_transaction_v1(
 
     let head_bytes: Option<Vec<u8>> = sqlx::query_scalar(
         "SELECT f.fact_bytes FROM market_data_private.market_semantics_heads_v1 h JOIN market_data_private.market_semantics_facts_v1 f ON f.fact_identity=h.fact_identity WHERE h.compatibility_scope_identity=$1 FOR UPDATE OF h,f",
-    ).bind(proposal.compatibility_scope_identity.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(store_error)?;
+    ).bind(proposal.compatibility_scope_identity.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     let predecessor = head_bytes
         .as_deref()
         .map(crate::owner::market_semantics::codec::decode_fact)
@@ -169,12 +169,12 @@ async fn append_market_semantics_in_transaction_v1(
     let database: String = sqlx::query_scalar("SELECT current_database()")
         .fetch_one(&mut **transaction)
         .await
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
     let generation = store_generation(&database);
     sqlx::query("INSERT INTO market_data_private.market_semantics_state_v1(singleton,store_generation_identity,append_sequence) VALUES(TRUE,$1,0) ON CONFLICT(singleton) DO NOTHING")
-        .bind(generation.as_bytes().as_slice()).execute(&mut **transaction).await.map_err(store_error)?;
+        .bind(generation.as_bytes().as_slice()).execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     let sequence: i64 = sqlx::query_scalar("UPDATE market_data_private.market_semantics_state_v1 SET append_sequence=append_sequence+1 WHERE singleton AND store_generation_identity=$1 RETURNING append_sequence")
-        .bind(generation.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(store_error)?
+        .bind(generation.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(|cause| store_error(&cause))?
         .ok_or(MarketSemanticsErrorV1::StoreUntrusted)?;
     let sequence = u64::try_from(sequence).map_err(|_| MarketSemanticsErrorV1::StoreUntrusted)?;
     let readback = issue_readback_v1(fact, cut, generation, sequence, proposal.stable_correlation)?;
@@ -247,7 +247,7 @@ pub(super) async fn resolve_market_semantics_scope_for_rd_strategy_input_v1(
         .bind(compatibility_scope_identity.as_bytes().as_slice())
         .execute(&mut **transaction)
         .await
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
     resolve_market_semantics_scope_with_lock_v1(
         transaction,
         compatibility_scope_identity,
@@ -280,14 +280,16 @@ async fn resolve_market_semantics_scope_with_lock_v1(
         .bind(compatibility_scope_identity.as_bytes().as_slice())
         .fetch_all(&mut **transaction)
         .await
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
     let mut selected: Option<(
         crate::owner::market_semantics::MarketSemanticsFactV1,
         BindingDigest,
     )> = None;
 
     for row in rows {
-        let fact_bytes: Vec<u8> = row.try_get("fact_bytes").map_err(store_error)?;
+        let fact_bytes: Vec<u8> = row
+            .try_get("fact_bytes")
+            .map_err(|cause| store_error(&cause))?;
         let fact = crate::owner::market_semantics::codec::decode_fact(&fact_bytes)?;
         if fact.compatibility_scope_identity != compatibility_scope_identity
             || fact.decision_cut > decision_cut
@@ -343,27 +345,27 @@ async fn persist_readback(
         .bind(fact.effective_until_ns.map(|value| value.to_string())).bind(fact.owner_observation_ns.to_string())
         .bind(i64::try_from(fact.decision_cut).map_err(|_| MarketSemanticsErrorV1::CapacityExceeded)?)
         .bind(fact.correction_identity.as_bytes().as_slice()).bind(fact.canonical_bytes())
-        .execute(&mut **transaction).await.map_err(store_error)?;
+        .execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     let stored: Vec<u8> = sqlx::query_scalar("SELECT fact_bytes FROM market_data_private.market_semantics_facts_v1 WHERE fact_identity=$1 FOR UPDATE")
-        .bind(fact.identity().as_bytes().as_slice()).fetch_one(&mut **transaction).await.map_err(store_error)?;
+        .bind(fact.identity().as_bytes().as_slice()).fetch_one(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     if stored != fact.canonical_bytes() {
         return Err(MarketSemanticsErrorV1::StoreUntrusted);
     }
     sqlx::query("INSERT INTO market_data_private.market_semantics_heads_v1(compatibility_scope_identity,fact_identity) VALUES($1,$2) ON CONFLICT(compatibility_scope_identity) DO UPDATE SET fact_identity=EXCLUDED.fact_identity")
         .bind(fact.compatibility_scope_identity().as_bytes().as_slice()).bind(fact.identity().as_bytes().as_slice())
-        .execute(&mut **transaction).await.map_err(store_error)?;
+        .execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     sqlx::query("INSERT INTO market_data_private.market_semantics_cuts_v1(request_identity,request_meaning_digest,cut_identity,cut_bytes) VALUES($1,$2,$3,$4)")
         .bind(readback.cut().request_identity.as_bytes().as_slice()).bind(readback.cut().request_meaning_digest.as_bytes().as_slice())
         .bind(readback.cut().identity().as_bytes().as_slice()).bind(readback.cut().canonical_bytes())
-        .execute(&mut **transaction).await.map_err(store_error)?;
+        .execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     sqlx::query("INSERT INTO market_data_private.market_semantics_receipts_v1(request_identity,fact_identity,receipt_identity,receipt_bytes,readback_identity,readback_bytes,append_sequence) VALUES($1,$2,$3,$4,$5,$6,$7)")
         .bind(readback.cut().request_identity.as_bytes().as_slice()).bind(fact.identity().as_bytes().as_slice()).bind(readback.receipt().identity().as_bytes().as_slice())
         .bind(readback.receipt().canonical_bytes()).bind(readback.identity().as_bytes().as_slice()).bind(readback.canonical_bytes())
         .bind(i64::try_from(readback.receipt().append_sequence).map_err(|_| MarketSemanticsErrorV1::CapacityExceeded)?)
-        .execute(&mut **transaction).await.map_err(store_error)?;
+        .execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     sqlx::query("INSERT INTO market_data_private.market_semantics_outbox_v1(outbox_identity,request_identity,payload) VALUES($1,$2,$3)")
         .bind(readback.outbox_identity().as_bytes().as_slice()).bind(readback.cut().request_identity.as_bytes().as_slice())
-        .bind(readback.receipt().canonical_bytes()).execute(&mut **transaction).await.map_err(store_error)?;
+        .bind(readback.receipt().canonical_bytes()).execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     Ok(())
 }
 
@@ -375,48 +377,56 @@ async fn load_readback(
 ) -> Result<Option<MarketSemanticsReadbackV1>, MarketSemanticsErrorV1> {
     let row = if rd_owner {
         sqlx::query("SELECT * FROM market_data_rd_api.lock_market_semantics_readback_for_strategy_input_v1($1)")
-            .bind(request.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(store_error)?
+            .bind(request.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(|cause| store_error(&cause))?
     } else if lock {
         sqlx::query("SELECT c.request_meaning_digest,c.cut_identity,c.cut_bytes,r.receipt_identity,r.receipt_bytes,r.readback_identity,r.readback_bytes,r.append_sequence,o.outbox_identity,o.payload FROM market_data_private.market_semantics_cuts_v1 c JOIN market_data_private.market_semantics_receipts_v1 r ON r.request_identity=c.request_identity JOIN market_data_private.market_semantics_outbox_v1 o ON o.request_identity=c.request_identity WHERE c.request_identity=$1 FOR UPDATE OF c,r,o")
-            .bind(request.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(store_error)?
+            .bind(request.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(|cause| store_error(&cause))?
     } else {
         sqlx::query("SELECT c.request_meaning_digest,c.cut_identity,c.cut_bytes,r.receipt_identity,r.receipt_bytes,r.readback_identity,r.readback_bytes,r.append_sequence,o.outbox_identity,o.payload FROM market_data_private.market_semantics_cuts_v1 c JOIN market_data_private.market_semantics_receipts_v1 r ON r.request_identity=c.request_identity JOIN market_data_private.market_semantics_outbox_v1 o ON o.request_identity=c.request_identity WHERE c.request_identity=$1")
-            .bind(request.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(store_error)?
+            .bind(request.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(|cause| store_error(&cause))?
     };
     let Some(row) = row else {
         if rd_owner {
             return Err(MarketSemanticsErrorV1::StoreUntrusted);
         }
         let partial: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM market_data_private.market_semantics_cuts_v1 WHERE request_identity=$1) OR EXISTS(SELECT 1 FROM market_data_private.market_semantics_receipts_v1 WHERE request_identity=$1) OR EXISTS(SELECT 1 FROM market_data_private.market_semantics_outbox_v1 WHERE request_identity=$1)")
-            .bind(request.as_bytes().as_slice()).fetch_one(&mut **transaction).await.map_err(store_error)?;
+            .bind(request.as_bytes().as_slice()).fetch_one(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
         return if partial {
             Err(MarketSemanticsErrorV1::StoreUntrusted)
         } else {
             Ok(None)
         };
     };
-    let readback_bytes: Vec<u8> = row.try_get("readback_bytes").map_err(store_error)?;
+    let readback_bytes: Vec<u8> = row
+        .try_get("readback_bytes")
+        .map_err(|cause| store_error(&cause))?;
     let readback = decode_and_verify_readback_v1(&readback_bytes)?;
     let [fact] = readback.facts() else {
         return Err(MarketSemanticsErrorV1::StoreUntrusted);
     };
     let stored_fact: Option<Vec<u8>> = if rd_owner {
-        Some(row.try_get("stored_fact_bytes").map_err(store_error)?)
+        Some(
+            row.try_get("stored_fact_bytes")
+                .map_err(|cause| store_error(&cause))?,
+        )
     } else {
         sqlx::query_scalar("SELECT fact_bytes FROM market_data_private.market_semantics_facts_v1 WHERE fact_identity=$1")
-            .bind(fact.identity().as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(store_error)?
+            .bind(fact.identity().as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(|cause| store_error(&cause))?
     };
     let state: Option<(Vec<u8>, i64)> = if rd_owner {
         Some((
             row.try_get("store_generation_identity")
-                .map_err(store_error)?,
-            row.try_get("state_append_sequence").map_err(store_error)?,
+                .map_err(|cause| store_error(&cause))?,
+            row.try_get("state_append_sequence")
+                .map_err(|cause| store_error(&cause))?,
         ))
     } else {
         sqlx::query_as("SELECT store_generation_identity,append_sequence FROM market_data_private.market_semantics_state_v1 WHERE singleton")
-            .fetch_optional(&mut **transaction).await.map_err(store_error)?
+            .fetch_optional(&mut **transaction).await.map_err(|cause| store_error(&cause))?
     };
-    let stored_sequence: i64 = row.try_get("append_sequence").map_err(store_error)?;
+    let stored_sequence: i64 = row
+        .try_get("append_sequence")
+        .map_err(|cause| store_error(&cause))?;
     let exact = readback.cut().request_identity == request
         && row_bytes(&row, "request_meaning_digest")?
             == readback.cut().request_meaning_digest.as_bytes()
@@ -446,7 +456,7 @@ async fn reject_ambiguous_overlap(
     fact: &crate::owner::market_semantics::MarketSemanticsFactV1,
 ) -> Result<(), MarketSemanticsErrorV1> {
     let rows: Vec<Vec<u8>> = sqlx::query_scalar("SELECT fact_bytes FROM market_data_private.market_semantics_facts_v1 WHERE compatibility_scope_identity=$1 FOR SHARE")
-        .bind(fact.compatibility_scope_identity().as_bytes().as_slice()).fetch_all(&mut **transaction).await.map_err(store_error)?;
+        .bind(fact.compatibility_scope_identity().as_bytes().as_slice()).fetch_all(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
 
     for bytes in rows {
         let prior = crate::owner::market_semantics::codec::decode_fact(&bytes)?;
@@ -479,12 +489,12 @@ pub(super) async fn register_market_semantics_registry_entry_v1(
         .bind(entry.canonical_bytes())
         .execute(&mut **transaction)
         .await
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
     let row = sqlx::query("SELECT registry_key_bytes,record_identity,record_bytes FROM market_data_private.market_semantics_registry_v1 WHERE registry_key_identity=$1 FOR UPDATE")
         .bind(entry.key().identity().as_bytes().as_slice())
         .fetch_one(&mut **transaction)
         .await
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
     let stored = decode_registry_entry(&row_bytes(&row, "record_bytes")?)?;
     if row_bytes(&row, "registry_key_bytes")? != entry.key().canonical_bytes()
         || row_bytes(&row, "record_identity")? != entry.identity().as_bytes()
@@ -503,7 +513,7 @@ async fn load_registry_entry(
         .bind(key.identity().as_bytes().as_slice())
         .fetch_all(&mut **transaction)
         .await
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
     let [row] = rows.as_slice() else {
         return Err(MarketSemanticsErrorV1::UnauthenticatedInput);
     };
@@ -569,12 +579,12 @@ async fn advisory_lock(
         .bind(identity.as_bytes().as_slice())
         .execute(&mut **transaction)
         .await
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
     Ok(())
 }
 
 fn row_bytes(row: &sqlx::postgres::PgRow, name: &str) -> Result<Vec<u8>, MarketSemanticsErrorV1> {
-    row.try_get(name).map_err(store_error)
+    row.try_get(name).map_err(|cause| store_error(&cause))
 }
 
 fn row_digest(
@@ -594,7 +604,9 @@ fn store_generation(database: &str) -> MarketSemanticsIdentity {
     MarketSemanticsIdentity::from_untrusted_bytes(*hasher.finalize().as_bytes())
 }
 
-fn store_error(_: impl Debug) -> MarketSemanticsErrorV1 {
+#[track_caller]
+fn store_error(cause: &impl Debug) -> MarketSemanticsErrorV1 {
+    crate::owner::storage_diagnostic::refused_by_store_at(cause);
     MarketSemanticsErrorV1::StoreUnavailable
 }
 

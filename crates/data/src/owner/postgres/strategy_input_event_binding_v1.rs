@@ -1178,16 +1178,18 @@ async fn decode_stored(
     let request_seal_digest = row_bytes(&row, "request_seal_digest")?;
     let replay_start_event_ns = row
         .try_get::<String, _>("replay_start_event_ns_text")
-        .map_err(store_error)?
+        .map_err(|cause| store_error(&cause))?
         .parse::<i128>()
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
     let replay_end_event_ns_exclusive = row
         .try_get::<String, _>("replay_end_event_ns_exclusive_text")
-        .map_err(store_error)?
+        .map_err(|cause| store_error(&cause))?
         .parse::<i128>()
-        .map_err(store_error)?;
-    let selected_event_ordinal =
-        from_i64_usize(row.try_get("selected_event_ordinal").map_err(store_error)?)?;
+        .map_err(|cause| store_error(&cause))?;
+    let selected_event_ordinal = from_i64_usize(
+        row.try_get("selected_event_ordinal")
+            .map_err(|cause| store_error(&cause))?,
+    )?;
     let binding_identity = row_digest(&row, "binding_identity")?;
     let receipt_identity = row_digest(&row, "receipt_identity")?;
     let readback_identity = row_digest(&row, "readback_identity")?;
@@ -1200,7 +1202,10 @@ async fn decode_stored(
     let source_digest = row_digest(&row, "source_digest")?;
     let corpus_digest = row_digest(&row, "corpus_digest")?;
     let census_digest = row_digest(&row, "census_digest")?;
-    let event_count = from_i64_usize(row.try_get("event_count").map_err(store_error)?)?;
+    let event_count = from_i64_usize(
+        row.try_get("event_count")
+            .map_err(|cause| store_error(&cause))?,
+    )?;
     let binding_bytes = row_bytes(&row, "binding_bytes")?;
     let receipt_bytes = row_bytes(&row, "receipt_bytes")?;
     let readback_bytes = row_bytes(&row, "readback_bytes")?;
@@ -1333,13 +1338,26 @@ async fn load_census(
         .map_err(|_| StrategyInputEventBindingErrorV1::StoreUnavailable)?;
     let mut events = Vec::with_capacity(rows.len());
     for (expected, row) in rows.into_iter().enumerate() {
-        if from_i64_usize(row.try_get("event_ordinal").map_err(store_error)?)? != expected {
+        if from_i64_usize(
+            row.try_get("event_ordinal")
+                .map_err(|cause| store_error(&cause))?,
+        )? != expected
+        {
             return Err(StrategyInputEventBindingErrorV1::StoreUnavailable);
         }
         events.push(PreparedEventV1 {
-            logical_time: from_i64_u64(row.try_get("logical_time").map_err(store_error)?)?,
-            event_time: from_i64_u64(row.try_get("event_time").map_err(store_error)?)?,
-            owner_sequence: from_i64_u64(row.try_get("owner_sequence").map_err(store_error)?)?,
+            logical_time: from_i64_u64(
+                row.try_get("logical_time")
+                    .map_err(|cause| store_error(&cause))?,
+            )?,
+            event_time: from_i64_u64(
+                row.try_get("event_time")
+                    .map_err(|cause| store_error(&cause))?,
+            )?,
+            owner_sequence: from_i64_u64(
+                row.try_get("owner_sequence")
+                    .map_err(|cause| store_error(&cause))?,
+            )?,
             event_identity: row_bytes(&row, "event_identity")?
                 .try_into()
                 .map_err(|_| StrategyInputEventBindingErrorV1::StoreUnavailable)?,
@@ -1417,7 +1435,7 @@ async fn verify_contract(
     let topology_is_exact: bool = sqlx::query_scalar(VERIFY_TOPOLOGY_V1)
         .fetch_one(&mut **transaction)
         .await
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
 
     if !topology_is_exact {
         crate::owner::storage_diagnostic::refused_by_store(
@@ -1429,7 +1447,7 @@ async fn verify_contract(
     let trusted_search_path: String = sqlx::query_scalar(TRUSTED_DEPARSE_SEARCH_PATH_V1)
         .fetch_one(&mut **transaction)
         .await
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
 
     if trusted_search_path != "pg_catalog" {
         crate::owner::storage_diagnostic::refused_by_store(
@@ -1443,14 +1461,15 @@ async fn verify_contract(
     )
     .fetch_all(&mut **transaction)
     .await
-    .map_err(store_error)?;
+    .map_err(|cause| store_error(&cause))?;
     let checks = check_rows
         .iter()
         .map(|row| {
             Ok((
                 row.try_get::<String, _>("table_name")
-                    .map_err(store_error)?,
-                row.try_get::<String, _>("predicate").map_err(store_error)?,
+                    .map_err(|cause| store_error(&cause))?,
+                row.try_get::<String, _>("predicate")
+                    .map_err(|cause| store_error(&cause))?,
             ))
         })
         .collect::<Result<Vec<_>, StrategyInputEventBindingErrorV1>>()?;
@@ -1483,7 +1502,7 @@ async fn verify_contract(
         .bind(table)
         .fetch_one(&mut **transaction)
         .await
-        .map_err(store_error)?;
+        .map_err(|cause| store_error(&cause))?;
 
         if signature.as_deref() != Some(expected) {
             crate::owner::storage_diagnostic::refused_by_store(
@@ -1494,9 +1513,9 @@ async fn verify_contract(
         }
     }
     let binding_source: String = sqlx::query_scalar("SELECT prosrc FROM pg_catalog.pg_proc WHERE oid=pg_catalog.to_regprocedure('market_data_private.resolve_strategy_input_event_binding_v1(bytea)')")
-        .fetch_one(&mut **transaction).await.map_err(store_error)?;
+        .fetch_one(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     let census_source: String = sqlx::query_scalar("SELECT prosrc FROM pg_catalog.pg_proc WHERE oid=pg_catalog.to_regprocedure('market_data_private.resolve_strategy_input_event_binding_census_v1(bytea)')")
-        .fetch_one(&mut **transaction).await.map_err(store_error)?;
+        .fetch_one(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
 
     if binding_source.trim() != RESOLVE_BINDING_SOURCE_V1
         || census_source.trim() != RESOLVE_CENSUS_SOURCE_V1
@@ -1672,7 +1691,7 @@ fn row_bytes(
     row: &sqlx::postgres::PgRow,
     column: &str,
 ) -> Result<Vec<u8>, StrategyInputEventBindingErrorV1> {
-    row.try_get(column).map_err(store_error)
+    row.try_get(column).map_err(|cause| store_error(&cause))
 }
 
 fn row_digest(
@@ -1717,7 +1736,9 @@ fn map_insert(error: sqlx::Error) -> StrategyInputEventBindingErrorV1 {
     }
 }
 
-fn store_error(_: impl Debug) -> StrategyInputEventBindingErrorV1 {
+#[track_caller]
+fn store_error(cause: &impl Debug) -> StrategyInputEventBindingErrorV1 {
+    crate::owner::storage_diagnostic::refused_by_store_at(cause);
     StrategyInputEventBindingErrorV1::StoreUnavailable
 }
 
@@ -1731,7 +1752,7 @@ async fn advisory_lock(
     .bind(request_identity)
     .execute(&mut **transaction)
     .await
-    .map_err(store_error)?;
+    .map_err(|cause| store_error(&cause))?;
     Ok(())
 }
 
@@ -1748,9 +1769,10 @@ mod tests {
     /// `StoreUnavailable` a dropped connection returns - so a reader was sent to the network while
     /// the schema was what moved. This pins that every one of them now names its own coordinate.
     ///
-    /// Scoped to this one function on purpose. The rest of the file still discards causes through
-    /// `store_error`, which is a different fault - a cause not stated, rather than a wrong one
-    /// asserted - and belongs to its own change.
+    /// Scoped to this one function on purpose. Elsewhere in the file a cause reaches
+    /// `store_error`, which records where it was refused and then drops it. That is a different
+    /// fault - a cause not stated, rather than a wrong one asserted - and
+    /// `every_discarded_store_cause_is_located` pins it.
     #[rstest]
     fn every_contract_refusal_names_the_part_that_drifted() {
         let source = include_str!("strategy_input_event_binding_v1.rs");
