@@ -1581,26 +1581,45 @@ fn successor_intent_owner_error_with(
     reject: fn(StatusCode, &str, &str) -> Response,
 ) -> Response {
     match error {
-        SuccessorResearchIntentPostgresErrorV1::InvalidLocator
+        // A malformed locator and a rejected proposal are the caller's to fix either way, but
+        // they are not the same mistake and the proposal's own reason was discarded here.
+        error @ (SuccessorResearchIntentPostgresErrorV1::InvalidLocator
         | SuccessorResearchIntentPostgresErrorV1::Intent(
             SuccessorResearchIntentErrorV1::Invalid(_),
-        ) => reject(
-            StatusCode::BAD_REQUEST,
-            "INVALID_SUCCESSOR_RESEARCH_INTENT_PROPOSAL",
-            correlation_identity,
-        ),
-        SuccessorResearchIntentPostgresErrorV1::TrialFamily(_)
+        )) => {
+            tracing::warn!(
+                %error,
+                %correlation_identity,
+                "successor research intent proposal refused"
+            );
+            reject(
+                StatusCode::BAD_REQUEST,
+                "INVALID_SUCCESSOR_RESEARCH_INTENT_PROPOSAL",
+                correlation_identity,
+            )
+        }
+        // Six variants behind one code. The caller acts on "unavailable" either way; a reader
+        // needs to know whether it was the trial family, the research custody, the decision, the
+        // encoding, Product Edge or the store, and that was discarded at the arm.
+        error @ (SuccessorResearchIntentPostgresErrorV1::TrialFamily(_)
         | SuccessorResearchIntentPostgresErrorV1::ResearchCustody(_)
         | SuccessorResearchIntentPostgresErrorV1::Decision(_)
         | SuccessorResearchIntentPostgresErrorV1::Intent(
             SuccessorResearchIntentErrorV1::Encoding(_),
         )
         | SuccessorResearchIntentPostgresErrorV1::ProductEdge(_)
-        | SuccessorResearchIntentPostgresErrorV1::Storage(_) => reject(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "SUCCESSOR_RESEARCH_INTENT_OWNER_UNAVAILABLE",
-            correlation_identity,
-        ),
+        | SuccessorResearchIntentPostgresErrorV1::Storage(_)) => {
+            tracing::warn!(
+                %error,
+                %correlation_identity,
+                "successor research intent Owner unavailable"
+            );
+            reject(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "SUCCESSOR_RESEARCH_INTENT_OWNER_UNAVAILABLE",
+                correlation_identity,
+            )
+        }
     }
 }
 
@@ -1677,16 +1696,20 @@ fn owner_error_with(
             "CANDIDATE_COMPARISON_NOT_APPLICABLE",
             correlation_identity,
         ),
-        IterationDecisionPostgresErrorV1::TrialFamily(_)
+        // Six variants behind one code, same shape as the successor-intent mapper above.
+        error @ (IterationDecisionPostgresErrorV1::TrialFamily(_)
         | IterationDecisionPostgresErrorV1::Backtest(_)
         | IterationDecisionPostgresErrorV1::ResearchCustody(_)
         | IterationDecisionPostgresErrorV1::Decision(_)
         | IterationDecisionPostgresErrorV1::RepairAction(_)
-        | IterationDecisionPostgresErrorV1::Storage(_) => reject(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "ITERATION_DECISION_OWNER_UNAVAILABLE",
-            correlation_identity,
-        ),
+        | IterationDecisionPostgresErrorV1::Storage(_)) => {
+            tracing::warn!(%error, %correlation_identity, "iteration decision Owner unavailable");
+            reject(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "ITERATION_DECISION_OWNER_UNAVAILABLE",
+                correlation_identity,
+            )
+        }
     }
 }
 
@@ -1909,7 +1932,7 @@ fn correlated_rejection(
 
 #[cfg(test)]
 mod tests {
-    use vibe_strategy_factory::product_edge::ResearchSourceV1;
+    use vibe_strategy_factory::product_edge::{ResearchGoalOwnerError, ResearchSourceV1};
 
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -3457,5 +3480,35 @@ mod tests {
             .expect("router response");
         assert_eq!(not_applicable.status(), StatusCode::CONFLICT);
         assert_eq!(owner.calls.load(Ordering::SeqCst), 1);
+    }
+
+    /// Six variants keep one code; the log is where they come apart.
+    #[rstest::rstest]
+    #[case::storage(
+        IterationDecisionPostgresErrorV1::Storage("decision-store-said-this".to_string()),
+        "decision-store-said-this"
+    )]
+    #[case::research_custody(
+        IterationDecisionPostgresErrorV1::ResearchCustody(
+            ResearchGoalOwnerError::ConflictingReplay
+        ),
+        "Research Intent custody"
+    )]
+    fn an_unavailable_iteration_decision_names_which_one_in_the_log(
+        #[case] error: IterationDecisionPostgresErrorV1,
+        #[case] distinguishing: &str,
+    ) {
+        let (response, written) = crate::log_capture::capture(|| {
+            super::repair_action_resolution_owner_error(&error, "action-request-1")
+        });
+
+        assert_eq!(
+            response.status(),
+            StatusCode::SERVICE_UNAVAILABLE,
+            "{written}"
+        );
+        assert!(written.contains("WARN"), "{written}");
+        assert!(written.contains("action-request-1"), "{written}");
+        assert!(written.contains(distinguishing), "{written}");
     }
 }

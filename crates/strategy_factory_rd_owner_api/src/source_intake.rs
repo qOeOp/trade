@@ -857,14 +857,25 @@ fn owner_response(
 ) -> Response {
     match result {
         Ok(Some(terminal)) => (StatusCode::OK, Json(terminal)).into_response(),
-        Ok(None)
-        | Err(
-            SourceIntakeOwnerErrorV1::PolicyUnavailable | SourceIntakeOwnerErrorV1::ResponseLost,
-        ) => unknown_response(
+        Ok(None) => unknown_response(
             StatusCode::ACCEPTED,
             "OWNER_OUTCOME_UNKNOWN",
             request_identity,
         ),
+        // The same code as `Ok(None)`, and rightly so: the caller polls again either way. But
+        // "no terminal yet" and "the policy is unavailable" and "the response was lost" are
+        // three different states, and merged into one arm a reader could not tell which.
+        Err(
+            error @ (SourceIntakeOwnerErrorV1::PolicyUnavailable
+            | SourceIntakeOwnerErrorV1::ResponseLost),
+        ) => {
+            tracing::warn!(?error, request_identity = %request_identity, "source intake outcome unknown");
+            unknown_response(
+                StatusCode::ACCEPTED,
+                "OWNER_OUTCOME_UNKNOWN",
+                request_identity,
+            )
+        }
         Err(SourceIntakeOwnerErrorV1::Conflict) => unknown_response(
             StatusCode::CONFLICT,
             "CONFLICTING_SEMANTICS_FOR_REQUEST_IDENTITY",
@@ -1308,5 +1319,28 @@ mod tests {
         assert!(source.contains(".execute(&mut *transaction)"));
         assert!(source.contains("relation family is partial or malformed"));
         assert!(source.contains("transaction\n        .commit()"));
+    }
+
+    /// `Ok(None)` and the two refusals answer the same way; only the log tells them apart.
+    #[rstest]
+    #[case::policy(SourceIntakeOwnerErrorV1::PolicyUnavailable, "PolicyUnavailable")]
+    #[case::lost(SourceIntakeOwnerErrorV1::ResponseLost, "ResponseLost")]
+    fn an_unknown_source_intake_outcome_names_its_cause(
+        #[case] refusal: SourceIntakeOwnerErrorV1,
+        #[case] distinguishing: &str,
+    ) {
+        let (response, written) =
+            crate::log_capture::capture(|| super::owner_response(Err(refusal), "request-1"));
+
+        assert_eq!(response.status(), StatusCode::ACCEPTED, "{written}");
+        assert!(written.contains("WARN"), "{written}");
+        assert!(written.contains(distinguishing), "{written}");
+
+        // The control: the ordinary "no terminal yet" answers identically and says nothing,
+        // so a reader seeing this line knows something actually refused.
+        let (quiet, silence) =
+            crate::log_capture::capture(|| super::owner_response(Ok(None), "request-1"));
+        assert_eq!(quiet.status(), StatusCode::ACCEPTED, "{silence}");
+        assert!(silence.is_empty(), "Ok(None) must stay silent: {silence}");
     }
 }
