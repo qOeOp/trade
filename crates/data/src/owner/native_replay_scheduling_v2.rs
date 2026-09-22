@@ -22,12 +22,14 @@ use vibe_model::{
 use super::{
     bar_schedule::BarScheduleReadbackV1,
     native_replay_scheduling_v1::{
-        NativeReplaySchedulingErrorV1, seal_native_replay_scheduling_v1,
+        NativeReplayInitialMarketRequestV1, NativeReplaySchedulingErrorV1,
+        NativeReplaySchedulingResolverV1, seal_native_replay_scheduling_v1,
     },
     pit_snapshot::{
         VerifiedPitObservation, VerifiedPitObservationBatch, authority::canonical_observation_bytes,
     },
     source_binding::BindingDigest,
+    strategy_input_binding::StrategyInputUniverseFrameReceipt,
 };
 
 const BAR_FIELDS: [&str; 5] = ["OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"];
@@ -789,6 +791,86 @@ pub enum NativeReplayFrameSequenceCustodyRefusalV2 {
     SequenceConflict,
 }
 
+/// One frame of an admitted census sequence, as the coordinates a resolver reads it back by.
+///
+/// These are exactly the columns a census row holds. A resolver takes them and nothing else per
+/// frame, so it cannot resolve a frame the census did not name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NativeReplaySequenceCoordinateV2 {
+    pub snapshot_identity: BindingDigest,
+    pub snapshot_fact_digest: BindingDigest,
+    pub frame_time_ns: u64,
+    pub frame_ordinal: u64,
+}
+
+/// Why an admitted census sequence could not be resolved into an issued one.
+///
+/// The two halves stay apart because they fail for unrelated reasons: one frame's Owner cut is
+/// unreadable, or the frames read back fine and do not form a sequence between them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeReplaySequenceResolveRefusalV2 {
+    /// One frame's Owner cut, schedules or evidence could not be resolved.
+    Frame(NativeReplaySchedulingErrorV1),
+    /// The frames resolved, and what holds between them does not.
+    Sequence(NativeReplayFrameSequenceRefusalV2),
+}
+
+/// Resolves the frames an admitted census sequence names into the sequence they make.
+///
+/// This is the step between a census and an issued sequence, and it adds no authority of its own:
+/// every frame is read back through the Owner's existing single-frame resolver, from one request
+/// the window fixes and the per-frame coordinates the census supplies. The universe receipts come
+/// back alongside the sequence because a consumer needs one per frame it runs, and re-resolving
+/// them separately would let a second reading disagree with the one that was sealed.
+///
+/// # Errors
+///
+/// Returns the first frame that could not be read back, or the rule the frames break between them.
+pub async fn resolve_native_replay_frame_sequence_v2<R>(
+    resolver: &R,
+    window_request: &NativeReplayInitialMarketRequestV1,
+    coordinates: &[NativeReplaySequenceCoordinateV2],
+    request_identity: BindingDigest,
+    v1_binding_identity: BindingDigest,
+    window_start_ns: u64,
+) -> Result<
+    (
+        Vec<StrategyInputUniverseFrameReceipt>,
+        NativeReplayFrameSequenceReadbackV2,
+    ),
+    NativeReplaySequenceResolveRefusalV2,
+>
+where
+    R: NativeReplaySchedulingResolverV1 + ?Sized,
+{
+    let mut universe_frames = Vec::with_capacity(coordinates.len());
+    let mut frames = Vec::with_capacity(coordinates.len());
+
+    for coordinate in coordinates {
+        let readback = resolver
+            .resolve_native_replay_initial_market_inputs_v1(&window_request.for_frame(
+                coordinate.snapshot_identity,
+                coordinate.snapshot_fact_digest,
+                coordinate.frame_time_ns,
+            ))
+            .await
+            .map_err(NativeReplaySequenceResolveRefusalV2::Frame)?;
+        let (universe_frame, evidence) = readback
+            .into_frame_evidence_v2()
+            .map_err(NativeReplaySequenceResolveRefusalV2::Frame)?;
+        universe_frames.push(universe_frame);
+        frames.push((evidence, coordinate.frame_ordinal));
+    }
+    let sequence = NativeReplayFrameSequenceReadbackV2::issue(
+        request_identity,
+        v1_binding_identity,
+        window_start_ns,
+        frames,
+    )
+    .map_err(NativeReplaySequenceResolveRefusalV2::Sequence)?;
+    Ok((universe_frames, sequence))
+}
+
 /// One eligible frame offered to the census for a sealed request window.
 ///
 /// `frame_ordinal` is the scope-dense position Market Data assigns when it commits the frame's
@@ -1220,6 +1302,201 @@ mod quote_liquidity_receipt_tests {
         ] {
             assert_ne!(base.receipt_digest(), moved.receipt_digest());
         }
+    }
+}
+
+#[cfg(test)]
+mod frame_sequence_resolver_tests {
+    use std::sync::Mutex;
+
+    use rstest::rstest;
+
+    use super::*;
+    use crate::owner::native_replay_scheduling_v1::{
+        NativeReplayInitialMarketReadbackV1, NativeReplaySchedulingReadbackV1,
+        UntrustedNativeReplaySchedulingRequestV1,
+        tests::{frame_readback, window_request},
+    };
+
+    const WINDOW_START: u64 = 100;
+    const WINDOW_END: u64 = 2_000;
+
+    fn digest(seed: u8) -> BindingDigest {
+        BindingDigest::from_untrusted_bytes([seed; 32])
+    }
+
+    fn block_on<F: std::future::Future>(future: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("a current-thread runtime")
+            .block_on(future)
+    }
+
+    /// Stands in for the Owner's single-frame resolver and records what it was asked for.
+    ///
+    /// The seed of each readback is the first byte of the snapshot identity the request carries,
+    /// so a resolver that asked for the wrong cut would hand back the wrong frame rather than the
+    /// same frame under a different name.
+    struct RecordingResolver {
+        seen: Mutex<Vec<NativeReplayInitialMarketRequestV1>>,
+        unreadable_at: Option<usize>,
+    }
+
+    impl RecordingResolver {
+        fn new() -> Self {
+            Self {
+                seen: Mutex::new(Vec::new()),
+                unreadable_at: None,
+            }
+        }
+
+        fn unreadable_at(index: usize) -> Self {
+            Self {
+                seen: Mutex::new(Vec::new()),
+                unreadable_at: Some(index),
+            }
+        }
+    }
+
+    impl crate::owner::native_replay_scheduling_v1::resolver_seal::Sealed for RecordingResolver {}
+
+    #[async_trait::async_trait]
+    impl NativeReplaySchedulingResolverV1 for RecordingResolver {
+        async fn resolve_native_replay_initial_market_inputs_v1(
+            &self,
+            request: &NativeReplayInitialMarketRequestV1,
+        ) -> Result<NativeReplayInitialMarketReadbackV1, NativeReplaySchedulingErrorV1> {
+            let index = {
+                let mut seen = self.seen.lock().expect("the recorder is not poisoned");
+                seen.push(request.clone());
+                seen.len() - 1
+            };
+
+            if self.unreadable_at == Some(index) {
+                return Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable);
+            }
+            Ok(frame_readback(
+                request.snapshot_identity().as_bytes()[0],
+                request.frame_time_ns(),
+                request.window_end_ns_exclusive(),
+            ))
+        }
+
+        async fn resolve_native_replay_scheduling_v1(
+            &self,
+            _request: &UntrustedNativeReplaySchedulingRequestV1,
+        ) -> Result<NativeReplaySchedulingReadbackV1, NativeReplaySchedulingErrorV1> {
+            Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)
+        }
+    }
+
+    fn coordinate(
+        seed: u8,
+        frame_time_ns: u64,
+        frame_ordinal: u64,
+    ) -> NativeReplaySequenceCoordinateV2 {
+        NativeReplaySequenceCoordinateV2 {
+            snapshot_identity: digest(seed),
+            snapshot_fact_digest: digest(seed.wrapping_add(1)),
+            frame_time_ns,
+            frame_ordinal,
+        }
+    }
+
+    fn three() -> Vec<NativeReplaySequenceCoordinateV2> {
+        vec![
+            coordinate(0x20, WINDOW_START, 7),
+            coordinate(0x40, WINDOW_START + 200, 8),
+            coordinate(0x60, WINDOW_START + 400, 9),
+        ]
+    }
+
+    fn resolve(
+        resolver: &RecordingResolver,
+        coordinates: &[NativeReplaySequenceCoordinateV2],
+    ) -> Result<
+        (
+            Vec<StrategyInputUniverseFrameReceipt>,
+            NativeReplayFrameSequenceReadbackV2,
+        ),
+        NativeReplaySequenceResolveRefusalV2,
+    > {
+        block_on(resolve_native_replay_frame_sequence_v2(
+            resolver,
+            &window_request(WINDOW_START, WINDOW_END),
+            coordinates,
+            digest(0x01),
+            digest(0x02),
+            WINDOW_START,
+        ))
+    }
+
+    #[rstest]
+    fn a_census_sequence_resolves_into_the_sequence_it_names() {
+        let resolver = RecordingResolver::new();
+        let coordinates = three();
+        let (universe_frames, sequence) =
+            resolve(&resolver, &coordinates).expect("the census sequence resolves");
+
+        assert_eq!(universe_frames.len(), 3);
+        assert_eq!(sequence.frames().len(), 3);
+        assert_eq!(sequence.window(), (WINDOW_START, WINDOW_END));
+        let seen = resolver.seen.lock().expect("the recorder is not poisoned");
+        assert_eq!(seen.len(), 3);
+
+        // Only what the census supplies moved between requests; the window fixed the rest once.
+        for (request, coordinate) in seen.iter().zip(&coordinates) {
+            assert_eq!(request.snapshot_identity(), coordinate.snapshot_identity);
+            assert_eq!(
+                request.snapshot_fact_digest(),
+                coordinate.snapshot_fact_digest
+            );
+            assert_eq!(request.frame_time_ns(), coordinate.frame_time_ns);
+            assert_eq!(
+                *request,
+                window_request(WINDOW_START, WINDOW_END).for_frame(
+                    coordinate.snapshot_identity,
+                    coordinate.snapshot_fact_digest,
+                    coordinate.frame_time_ns,
+                )
+            );
+        }
+    }
+
+    #[rstest]
+    fn a_frame_the_owner_cannot_read_back_refuses_as_that_frame() {
+        let resolver = RecordingResolver::unreadable_at(1);
+
+        assert_eq!(
+            resolve(&resolver, &three()).err(),
+            Some(NativeReplaySequenceResolveRefusalV2::Frame(
+                NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable
+            ))
+        );
+        // It stopped at the frame that failed rather than reading the rest of the window.
+        assert_eq!(
+            resolver
+                .seen
+                .lock()
+                .expect("the recorder is not poisoned")
+                .len(),
+            2
+        );
+    }
+
+    #[rstest]
+    fn frames_that_do_not_form_a_sequence_refuse_as_a_sequence() {
+        let resolver = RecordingResolver::new();
+        let mut backwards = three();
+        backwards[2].frame_time_ns = backwards[1].frame_time_ns;
+
+        assert_eq!(
+            resolve(&resolver, &backwards).err(),
+            Some(NativeReplaySequenceResolveRefusalV2::Sequence(
+                NativeReplayFrameSequenceRefusalV2::NonIncreasingEventOrder
+            ))
+        );
     }
 }
 
