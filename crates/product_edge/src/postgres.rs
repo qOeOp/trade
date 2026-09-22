@@ -7529,6 +7529,17 @@ mod tests {
         pool
     }
 
+    /// The `refusal` an `*_api` lock named, or `None` when it accepted.
+    ///
+    /// `None` also covers a bare NULL, which these `STRICT` functions return only when an
+    /// argument was NULL and the body never ran.
+    fn named_refusal(envelope: Option<serde_json::Value>) -> Option<String> {
+        envelope?
+            .get("refusal")?
+            .as_str()
+            .map(std::string::ToString::to_string)
+    }
+
     async fn exercise_portfolio_read_policy_consumer(
         test_database: &CanonicalOwnerPostgresTestDatabaseV1,
     ) {
@@ -7918,6 +7929,164 @@ mod tests {
             custody.source_owner_result(),
             PortfolioSourceOwnerResolveResultV1::SourceOwnerResolveUnavailable
         );
+
+        // Each refusal the three locks name is driven here, beside the accepting resolve
+        // above. That accepting case is the control: without it a lock rewritten to refuse
+        // every input would satisfy every assertion below. Each drive runs in its own
+        // transaction and rolls back, because this database is never reset.
+        //
+        // The boundary is `SECURITY DEFINER` so a consumer cannot read the tables behind
+        // it. A cause these functions do not name is a cause nobody downstream can recover,
+        // which is why each one is asserted by name rather than by "it refused".
+        let authorization_locator = authorization.locator();
+        let mut oa_refusals = oa_pool.begin().await.unwrap();
+
+        assert_eq!(
+            named_refusal(
+                sqlx::query_scalar(
+                    "SELECT operator_authorization_api.lock_current_authorization_v1($1,$2)"
+                )
+                .bind(&authorization_locator.authorization_identity)
+                .bind(&authorization_locator.issuance_receipt_identity)
+                .fetch_one(&mut *oa_refusals)
+                .await
+                .unwrap()
+            ),
+            None,
+            "the locator this fixture issued must be accepted"
+        );
+        assert_eq!(
+            named_refusal(
+                sqlx::query_scalar(
+                    "SELECT operator_authorization_api.lock_current_authorization_v1($1,$2)"
+                )
+                .bind("no-such-authorization")
+                .bind(&authorization_locator.issuance_receipt_identity)
+                .fetch_one(&mut *oa_refusals)
+                .await
+                .unwrap()
+            ),
+            Some("AUTHORIZATION_IDENTITY_UNKNOWN".to_string())
+        );
+        assert_eq!(
+            named_refusal(
+                sqlx::query_scalar(
+                    "SELECT operator_authorization_api.lock_current_authorization_v1($1,$2)"
+                )
+                .bind(&authorization_locator.authorization_identity)
+                .bind("no-such-receipt")
+                .fetch_one(&mut *oa_refusals)
+                .await
+                .unwrap()
+            ),
+            Some("ISSUANCE_RECEIPT_IDENTITY_MISMATCH".to_string()),
+            "an unknown authorization and a known one under the wrong receipt are different \
+             repairs and were the same NULL"
+        );
+        oa_refusals.rollback().await.unwrap();
+
+        let mut pe_refusals = pe_pool.begin().await.unwrap();
+
+        assert_eq!(
+            named_refusal(
+                sqlx::query_scalar(
+                    "SELECT product_edge_api.lock_downstream_admission_v1($1,$2,$3)"
+                )
+                .bind(&request.admission.request_identity)
+                .bind(&request.admission.admission_identity)
+                .bind(&request.admission.admission_digest)
+                .fetch_one(&mut *pe_refusals)
+                .await
+                .unwrap()
+            ),
+            None,
+            "the admission this fixture admitted must be accepted"
+        );
+        assert_eq!(
+            named_refusal(
+                sqlx::query_scalar(
+                    "SELECT product_edge_api.lock_downstream_admission_v1($1,$2,$3)"
+                )
+                .bind("no-such-request")
+                .bind(&request.admission.admission_identity)
+                .bind(&request.admission.admission_digest)
+                .fetch_one(&mut *pe_refusals)
+                .await
+                .unwrap()
+            ),
+            Some("REQUEST_ADMISSION_UNKNOWN".to_string())
+        );
+        assert_eq!(
+            named_refusal(
+                sqlx::query_scalar(
+                    "SELECT product_edge_api.lock_downstream_admission_v1($1,$2,$3)"
+                )
+                .bind(&request.admission.request_identity)
+                .bind("no-such-admission")
+                .bind(&request.admission.admission_digest)
+                .fetch_one(&mut *pe_refusals)
+                .await
+                .unwrap()
+            ),
+            Some("ADMISSION_IDENTITY_MISMATCH".to_string())
+        );
+        assert_eq!(
+            named_refusal(
+                sqlx::query_scalar(
+                    "SELECT product_edge_api.lock_downstream_admission_v1($1,$2,$3)"
+                )
+                .bind(&request.admission.request_identity)
+                .bind(&request.admission.admission_identity)
+                .bind(format!("sha256:{}", "0".repeat(64)))
+                .fetch_one(&mut *pe_refusals)
+                .await
+                .unwrap()
+            ),
+            Some("ADMISSION_DIGEST_MISMATCH".to_string()),
+            "a wrong admission identity and a wrong digest are different stale locators and \
+             were the same NULL"
+        );
+        assert_eq!(
+            named_refusal(
+                sqlx::query_scalar(
+                    "SELECT product_edge_api.lock_portfolio_read_policy_v1($1,$2,$3,$4,$5)"
+                )
+                .bind("no-such-grant")
+                .bind(&request.grant.issuance_receipt_identity)
+                .bind(&request.admission.request_identity)
+                .bind(&request.admission.admission_identity)
+                .bind(&request.admission.admission_digest)
+                .fetch_one(&mut *pe_refusals)
+                .await
+                .unwrap()
+            ),
+            Some("PORTFOLIO_GRANT_LOCK_REFUSED".to_string())
+        );
+        pe_refusals.rollback().await.unwrap();
+
+        // The isolation guard refuses outright rather than reading at guarantees it was not
+        // written for, and it is the one refusal that needs a transaction of its own.
+        let mut wrong_isolation = pe_pool.begin().await.unwrap();
+
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            .execute(&mut *wrong_isolation)
+            .await
+            .unwrap();
+        assert_eq!(
+            named_refusal(
+                sqlx::query_scalar(
+                    "SELECT product_edge_api.lock_downstream_admission_v1($1,$2,$3)"
+                )
+                .bind(&request.admission.request_identity)
+                .bind(&request.admission.admission_identity)
+                .bind(&request.admission.admission_digest)
+                .fetch_one(&mut *wrong_isolation)
+                .await
+                .unwrap()
+            ),
+            Some("ISOLATION_NOT_READ_COMMITTED".to_string())
+        );
+        wrong_isolation.rollback().await.unwrap();
 
         let distinct_revoke = {
             let issuer = Arc::clone(&issuer);
