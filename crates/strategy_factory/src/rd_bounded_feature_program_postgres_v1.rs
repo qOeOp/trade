@@ -161,6 +161,27 @@ fn owner_error(
 }
 
 /// One lowered first-party source file.
+/// The custody facts a proposer must restate in a Design it authors.
+///
+/// Exactly the four that `freeze_research_bounded_feature_program_v1` compares an authored Design
+/// against. Not the Design, not the channels, and not the custody's ten other fields:
+/// `docs/owners/rd.md` says the Owner derives no Design, and this exports what an author needs to
+/// derive one rather than the derivation.
+///
+/// `every_authoring_fact_is_one_the_freeze_compares` holds this set to that comparison, so a
+/// comparison that grows a fifth field cannot leave this type quietly insufficient.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResearchAuthoringFactsV1 {
+    /// The Research request the authored Design answers.
+    pub research_request_identity: BindingDigest,
+    /// The Research Intent identity the request carries.
+    pub intent_identity: BindingDigest,
+    /// The Research Intent digest the request carries.
+    pub intent_digest: BindingDigest,
+    /// The falsifiable statement the Intent froze, restated verbatim by the author.
+    pub falsifier: String,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ResearchBoundedFeatureSourceFileV1 {
     /// Path inside the generated crate.
@@ -328,6 +349,66 @@ impl PostgresResearchBoundedFeatureProgramOwnerV1 {
     /// [`ResearchBoundedFeatureProgramOwnerErrorV1::Conflict`] when this Design was already
     /// published with different meaning, and
     /// [`ResearchBoundedFeatureProgramOwnerErrorV1::Unavailable`] when the store does not answer.
+    /// Reads the four custody facts a proposer must restate in an authored Design.
+    ///
+    /// Resolved through the same call the freeze path uses, at the same read cut, so the facts an
+    /// author is given and the facts its Design is later compared against cannot come from two
+    /// places. That also carries the custody's own limits without restating them: an authority
+    /// that is not available at this cut, and a Research view that is not `IntentFrozen`, are
+    /// refused by `from_verified` here exactly as they are refused there.
+    ///
+    /// # Errors
+    ///
+    /// `ResearchCustody` when the locator names no currently accepted custody, or names one this
+    /// read cut is outside. `Unavailable` when the store did not answer.
+    pub async fn read_research_authoring_facts_v1(
+        &self,
+        research_request_locator: &str,
+    ) -> Result<ResearchAuthoringFactsV1, ResearchBoundedFeatureProgramOwnerErrorV1> {
+        let read_cut_epoch_ms = (self.clock)();
+        let mut transaction = self.pool.begin().await?;
+        let verified = match Box::pin(
+            crate::rd_owner_postgres_custody::admit_research_v2_custody_read_only_in_transaction(
+                &mut transaction,
+                research_request_locator,
+            ),
+        )
+        .await
+        {
+            Ok(Some(verified)) => verified,
+            Ok(None) => {
+                transaction.rollback().await?;
+                return Err(ResearchBoundedFeatureProgramOwnerErrorV1::ResearchCustody);
+            }
+            Err(_) => {
+                transaction.rollback().await?;
+                return Err(ResearchBoundedFeatureProgramOwnerErrorV1::Unavailable);
+            }
+        };
+
+        let custody = match CurrentResearchDevelopCustodyV2::from_verified(
+            &verified,
+            research_request_locator,
+            read_cut_epoch_ms,
+        ) {
+            Ok(custody) => custody,
+            Err(_) => {
+                transaction.rollback().await?;
+                return Err(ResearchBoundedFeatureProgramOwnerErrorV1::ResearchCustody);
+            }
+        };
+
+        // Nothing is written, and the read took no lock it has to hold.
+        transaction.rollback().await?;
+
+        Ok(ResearchAuthoringFactsV1 {
+            research_request_identity: custody.research_request_identity(),
+            intent_identity: custody.intent_identity(),
+            intent_digest: custody.intent_digest(),
+            falsifier: custody.falsifier().to_owned(),
+        })
+    }
+
     pub async fn publish_design_role_intent(
         &self,
         research_request_locator: &str,
@@ -595,4 +676,76 @@ fn hex_lower(bytes: &[u8]) -> String {
             let _ = write!(text, "{byte:02x}");
             text
         })
+}
+
+#[cfg(test)]
+mod authoring_facts_tests {
+    use rstest::rstest;
+
+    /// What this type exports is exactly what the freeze compares an authored Design against.
+    ///
+    /// The type exists so a proposer outside this crate can restate those values. If the
+    /// comparison grows a field this type does not carry, an author following it produces a Design
+    /// that is refused, and the refusal names custody rather than the missing fact. If this type
+    /// carries a field the comparison does not read, it asks an author for something no decision
+    /// depends on. Both directions are held here.
+    #[rstest]
+    fn every_authoring_fact_is_one_the_freeze_compares() {
+        let freeze = include_str!("rd_bounded_feature_program_v1.rs");
+        let here = include_str!("rd_bounded_feature_program_postgres_v1.rs");
+
+        // Assembled, so this test's own text is not part of what it reads.
+        let comparison_start = ["fn freeze_research_bounded_feature", "_program_v1("].concat();
+        let refusal = [
+            "ResearchBoundedFeatureProgramFreezeErrorV1",
+            "::ResearchCustody",
+        ]
+        .concat();
+        let body = freeze
+            .split_once(comparison_start.as_str())
+            .expect("the freeze function is in that module")
+            .1;
+        let guard = body
+            .split_once(refusal.as_str())
+            .expect("the custody comparison refuses under its own name")
+            .0;
+
+        let mut compared: Vec<&str> = guard
+            .match_indices("custody.")
+            .filter_map(|(at, needle)| {
+                let rest = &guard[at + needle.len()..];
+                let name = rest.split('(').next()?;
+                name.chars()
+                    .all(|c| c.is_ascii_lowercase() || c == '_')
+                    .then_some(name)
+            })
+            .collect();
+        compared.sort_unstable();
+        compared.dedup();
+
+        let declared_start = ["pub struct ResearchAuthoring", "FactsV1 {"].concat();
+        let declared_block = here
+            .split_once(declared_start.as_str())
+            .expect("the authoring facts type is declared here")
+            .1
+            .split_once('}')
+            .expect("its declaration closes")
+            .0;
+        let mut declared: Vec<&str> = declared_block
+            .lines()
+            .filter_map(|line| line.trim().strip_prefix("pub "))
+            .filter_map(|rest| rest.split(':').next())
+            .map(str::trim)
+            .collect();
+        declared.sort_unstable();
+
+        assert!(
+            !compared.is_empty(),
+            "the comparison reader found no custody accessor, so this test proves nothing"
+        );
+        assert_eq!(
+            declared, compared,
+            "what an author is given and what the freeze compares must be one set"
+        );
+    }
 }
