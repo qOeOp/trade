@@ -208,6 +208,36 @@ impl NativeReplayInitialMarketRequestV1 {
         }
     }
 
+    /// Derives the same request for another frame of the same window.
+    ///
+    /// Only what a census row supplies moves: which PIT cut the frame is, and the instant it sits
+    /// at. Everything the window fixes once - the universe, the roles, the members, where the
+    /// window ends - is carried over rather than re-supplied, so a caller resolving a sequence
+    /// cannot quietly resolve two different requests and call the result one sequence.
+    #[must_use]
+    pub fn for_frame(
+        &self,
+        snapshot_identity: BindingDigest,
+        snapshot_fact_digest: BindingDigest,
+        frame_time_ns: u64,
+    ) -> Self {
+        Self {
+            snapshot_identity,
+            snapshot_fact_digest,
+            research_request_identity: self.research_request_identity,
+            strategy_design_identity: self.strategy_design_identity,
+            universe_selection_identity: self.universe_selection_identity,
+            universe_selection_digest: self.universe_selection_digest,
+            instrument_master_digest: self.instrument_master_digest,
+            source_binding_lineage_root: self.source_binding_lineage_root,
+            market_semantics_identity: self.market_semantics_identity,
+            roles: self.roles.clone(),
+            member_instruments: self.member_instruments,
+            frame_time_ns,
+            window_end_ns_exclusive: self.window_end_ns_exclusive,
+        }
+    }
+
     #[must_use]
     pub const fn snapshot_identity(&self) -> BindingDigest {
         self.snapshot_identity
@@ -388,6 +418,41 @@ impl NativeReplayInitialMarketReadbackV1 {
         [BarScheduleReadbackV1; TARGET_SET_MEMBER_COUNT],
     ) {
         (self.universe_frame, self.schedules)
+    }
+
+    /// Converts the same freshly resolved Owner cut into this frame's V2 evidence.
+    ///
+    /// The batch and schedules never leave the Owner: they are spent here, which is why the
+    /// evidence a caller receives cannot be re-derived from anything it holds.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Owner cut cannot form one exact frame's evidence.
+    pub fn into_frame_evidence_v2(
+        self,
+    ) -> Result<
+        (
+            StrategyInputUniverseFrameReceipt,
+            super::native_replay_scheduling_v2::NativeReplayFrameEvidenceV2,
+        ),
+        NativeReplaySchedulingErrorV1,
+    > {
+        let Self {
+            batch,
+            universe_frame,
+            schedules,
+            member_instruments,
+            frame_time_ns,
+            window_end_ns_exclusive,
+        } = self;
+        let evidence = super::native_replay_scheduling_v2::verify_native_replay_frame_evidence_v2(
+            batch,
+            schedules,
+            member_instruments,
+            frame_time_ns,
+            window_end_ns_exclusive,
+        )?;
+        Ok((universe_frame, evidence))
     }
 
     /// Converts the same freshly resolved Owner cut into the native scheduling capability.
@@ -993,7 +1058,7 @@ fn hash_text(hasher: &mut Sha256, value: &str) -> Result<(), NativeReplaySchedul
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::owner::{
         bar_schedule::{BarScheduleCutV1, BarScheduleFactV1, BarScheduleReceiptV1},
@@ -1074,6 +1139,19 @@ mod tests {
         rows
     }
 
+    fn bar_rows_at(instrument: &str, event: u64, drift: i128) -> Vec<VerifiedPitObservation> {
+        [
+            ("OPEN", 10_000 + drift, 2),
+            ("HIGH", 10_100 + drift, 2),
+            ("LOW", 9_900 + drift, 2),
+            ("CLOSE", 10_050 + drift, 2),
+            ("VOLUME", 1_000, 0),
+        ]
+        .into_iter()
+        .map(|(field, mantissa, scale)| row(instrument, "BAR", "1M", field, mantissa, scale, event))
+        .collect()
+    }
+
     fn batch(rows: Vec<VerifiedPitObservation>) -> VerifiedPitObservationBatch {
         VerifiedPitObservationBatch {
             request_identity: digest(10),
@@ -1114,6 +1192,14 @@ mod tests {
     }
 
     fn schedule(instrument: &str, identity: u8) -> BarScheduleReadbackV1 {
+        schedule_at(instrument, identity, 100)
+    }
+
+    pub(crate) fn schedule_at(
+        instrument: &str,
+        identity: u8,
+        cut_effective_instant: u64,
+    ) -> BarScheduleReadbackV1 {
         let fact_identity = digest(identity);
         let cut_identity = digest(identity + 20);
         let fact = BarScheduleFactV1 {
@@ -1136,7 +1222,7 @@ mod tests {
             market_semantics_identity: digest(7),
             schedule_source_frontier: digest(4),
             schedule_correction_frontier: digest(8),
-            cut_effective_instant: 100,
+            cut_effective_instant: i128::from(cut_effective_instant),
             canonical_bytes: vec![identity],
             identity: fact_identity,
         };
@@ -1166,6 +1252,126 @@ mod tests {
             canonical_bytes: vec![identity + 3],
             identity: digest(identity + 22),
         }
+    }
+
+    /// One complete Owner readback for a frame at `frame_time_ns`, through the real issue path.
+    ///
+    /// The issuer runs rather than being bypassed, so a fixture cannot hand a consumer a readback
+    /// the Owner would have refused. Each frame carries its own snapshot identity, which is what
+    /// makes a sequence of them distinct cuts rather than one cut named several times.
+    pub(crate) fn frame_readback(
+        seed: u8,
+        frame_time_ns: u64,
+        window_end_ns_exclusive: u64,
+    ) -> NativeReplayInitialMarketReadbackV1 {
+        let first = InstrumentId::from("AAA-PERP.SIM");
+        let second = InstrumentId::from("BBB-PERP.SIM");
+        let mut rows = Vec::new();
+
+        for instrument in ["AAA-PERP.SIM", "BBB-PERP.SIM"] {
+            rows.extend(bar_rows_at(instrument, frame_time_ns, i128::from(seed)));
+        }
+
+        for (ordinal, instrument) in ["AAA-PERP.SIM", "BBB-PERP.SIM"].into_iter().enumerate() {
+            let quote_event = frame_time_ns + 1 + u64::try_from(ordinal).unwrap();
+
+            for (field, mantissa, scale) in [
+                ("BID_PRICE", 10_000, 2),
+                ("ASK_PRICE", 10_001, 2),
+                ("BID_SIZE", 100, 0),
+                ("ASK_SIZE", 100, 0),
+            ] {
+                rows.push(row(
+                    instrument,
+                    "QUOTE",
+                    "TICK",
+                    field,
+                    mantissa,
+                    scale,
+                    quote_event,
+                ));
+            }
+        }
+        let mut verified = batch(rows);
+        verified.snapshot_identity = digest(seed);
+        verified.fact_digest = digest(seed.wrapping_add(1));
+        let selection = crate::owner::strategy_input_binding::derive_universe_selection(&verified)
+            .expect("derived Owner selection");
+        let selection_identity = selection.selection_identity();
+        let selection_digest = selection.selection_digest();
+        verified.universe_selection_digest = selection_digest;
+
+        for candidate in &mut verified.observations {
+            candidate.universe_selection_digest = selection_digest;
+        }
+        let request = NativeReplayInitialMarketRequestV1::new(
+            digest(seed),
+            digest(seed.wrapping_add(1)),
+            digest(20),
+            digest(21),
+            selection_identity,
+            selection_digest,
+            digest(5),
+            digest(14),
+            digest(7),
+            vec![NativeReplayInitialUniverseRoleV1::new(
+                digest(23),
+                MarketDataFieldSemantic::BarClosePrice,
+                StrategyInputChannel::Market,
+                "1M".to_string(),
+                StrategyInputUnit::Price,
+                2,
+            )],
+            [first, second],
+            frame_time_ns,
+            window_end_ns_exclusive,
+        );
+        issue_native_replay_initial_market_readback_v1(
+            verified,
+            [
+                schedule_at("AAA-PERP.SIM", 40, frame_time_ns),
+                schedule_at("BBB-PERP.SIM", 41, frame_time_ns),
+            ],
+            &request,
+        )
+        .expect("exact initial Market Data readback")
+    }
+
+    pub(crate) fn window_request(
+        frame_time_ns: u64,
+        window_end_ns_exclusive: u64,
+    ) -> NativeReplayInitialMarketRequestV1 {
+        let mut rows = rows_for("AAA-PERP.SIM", 101);
+        rows.extend(rows_for("BBB-PERP.SIM", 102));
+        let mut verified = batch(rows);
+        let selection = crate::owner::strategy_input_binding::derive_universe_selection(&verified)
+            .expect("derived Owner selection");
+        verified.universe_selection_digest = selection.selection_digest();
+        NativeReplayInitialMarketRequestV1::new(
+            digest(0),
+            digest(0),
+            digest(20),
+            digest(21),
+            selection.selection_identity(),
+            selection.selection_digest(),
+            digest(5),
+            digest(14),
+            digest(7),
+            vec![NativeReplayInitialUniverseRoleV1::new(
+                digest(23),
+                MarketDataFieldSemantic::BarClosePrice,
+                StrategyInputChannel::Market,
+                "1M".to_string(),
+                StrategyInputUnit::Price,
+                2,
+            )],
+            [
+                InstrumentId::from("AAA-PERP.SIM"),
+                InstrumentId::from("BBB-PERP.SIM"),
+            ],
+            frame_time_ns,
+            window_end_ns_exclusive,
+        )
     }
 
     #[rstest::rstest]
