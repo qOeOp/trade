@@ -119,6 +119,25 @@ capability policy digest and a validity window, which is effect authority rather
 policy. So the first question a production implementation answers is not how to resolve a locator
 but where a first acquisition's locators come from at all.
 
+**CURRENT - rights and retention are two families here and one structure in Market Data, and that is
+deliberate.** `SourceIntakePolicyEvidenceV1` carries `rights_basis_identity` with its own
+`effective_at` and `valid_through` and an `acquisition_scope`, and separately
+`retention_policy_identity` with its own `effective_at`, `valid_through` and `retention_scope`.
+Market Data's `UntrustedLicensePolicy` carries `use_scope`, `redistribution_scope`,
+`retention_policy` and `redaction_policy` as four free strings, and no window field on either side
+of that structure.
+
+The reason to keep two families is one Source Intake needs and a free string cannot state: **a
+research source can be acquirable until one date and deletable only by another, and the two limits
+can point in opposite directions.** One string holding a retention basis cannot express a pair of
+independent windows, so fusing them would lose a limit this Owner has to honour.
+
+What Market Data does instead is recorded here as its own fact rather than as a reason for this
+choice: its rights are a re-observable state - granted, revoked, denied, or unresolved - so a
+withdrawal arrives as a new admission rather than as a date passing. Whether one shape should
+eventually serve both is open; it is recorded now so that a later alignment starts from the
+measurement rather than rediscovering the difference.
+
 One Source Intake Owner orchestrator owns the complete lifecycle:
 
 `admission → sealed/live policy → binding commit → durable claim/start → move-only permit → provider execution → retrieval time → atomic terminal`

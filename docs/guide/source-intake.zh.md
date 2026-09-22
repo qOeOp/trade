@@ -107,6 +107,22 @@ binding 只是不可信的 locator 源，端口仍然要重新解析并封印每
 允许与禁止的 effect、一个 capability policy 摘要和一个有效期窗口，那是 effect 授权而不是采集政策。
 所以生产实现要回答的第一个问题不是怎么解析一个 locator，而是首次采集的 locator 究竟从哪里来。
 
+**CURRENT - rights 与 retention 在这里是两族、在 Market Data 是一个结构，而这是有意的。**
+`SourceIntakePolicyEvidenceV1` 带着 `rights_basis_identity` 及其自己的 `effective_at`、
+`valid_through` 与一个 `acquisition_scope`，另外分开带着 `retention_policy_identity`
+及其自己的 `effective_at`、`valid_through` 与 `retention_scope`。Market Data 的
+`UntrustedLicensePolicy` 则把 `use_scope`、`redistribution_scope`、`retention_policy`、
+`redaction_policy` 作为四个自由字符串携带，那个结构的两侧都没有任何窗口字段。
+
+保持两族的理由是 Source Intake 需要、而一个自由字符串陈述不了的一件事：**一份研究来源可以
+"可采集至某一日期"而"须于另一日期前删除"，两条期限的方向可以相反。** 一个承载留存基础的字符串
+表达不了一对互相独立的窗口，所以融合会丢掉这个 Owner 必须遵守的一条限制。
+
+Market Data 的做法记在这里是作为它自己的事实，而不是作为本选择的理由：它那边的 rights 是一个
+可重新观测的状态，granted、revoked、denied 或 unresolved，所以一次撤销是以一次新的准入到达的，
+不是某个日期到了。将来是否该由一种形状同时服务两边，这一点是开着的；现在把它记下来，是为了让
+将来的对齐从测量开始，而不是重新发现这个差异。
+
 一个 Source Intake Owner orchestrator 拥有完整生命周期：
 
 `admission → sealed/live policy → binding commit → durable claim/start → move-only permit → provider execution → retrieval time → atomic terminal`
