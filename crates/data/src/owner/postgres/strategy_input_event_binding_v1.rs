@@ -1772,7 +1772,7 @@ mod tests {
     /// Scoped to this one function on purpose. Elsewhere in the file a cause reaches
     /// `store_error`, which records where it was refused and then drops it. That is a different
     /// fault - a cause not stated, rather than a wrong one asserted - and
-    /// `every_discarded_store_cause_is_located` pins it.
+    /// `every_cause_that_reaches_store_error_is_located` pins it.
     #[rstest]
     fn every_contract_refusal_names_the_part_that_drifted() {
         let source = include_str!("strategy_input_event_binding_v1.rs");

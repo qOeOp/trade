@@ -45,7 +45,7 @@ pub(crate) fn refused_by_store(coordinate: &'static str, cause: &impl Display) {
 /// between here and it must carry `#[track_caller]`, and the call must be a real call. Passing
 /// `store_error` to `map_err` as a function value is not one; the location then resolves inside
 /// `core`, which names no boundary at all. That failure compiles and still logs, so it is checked
-/// in source by `every_discarded_store_cause_is_located` rather than left to be noticed.
+/// in source by `every_cause_that_reaches_store_error_is_located` rather than left to be noticed.
 ///
 /// Clippy guards the other direction at no cost: `clippy::redundant_closure` does not fire on a
 /// closure that wraps a `#[track_caller]` function, so if the attribute is ever dropped, every one
@@ -84,8 +84,15 @@ mod tests {
     /// and keeping the closures - needs no check here: `clippy::redundant_closure` exempts
     /// `#[track_caller]` functions and only those, so it fires on every site the moment the
     /// attribute goes.
+    ///
+    /// The name says `store_error` and means it. A cause discarded by an inline
+    /// `map_err(|_| ...)` is not covered and is not located: there are 735 of those in this
+    /// crate's production code, 116 of them inside these same eleven files. They are not one
+    /// chokepoint and cannot be routed like one - each is its own question about whether the
+    /// variant it returns is even the right refusal - so they are a different change, and this
+    /// assertion is deliberately not named as though it had already made it.
     #[rstest]
-    fn every_discarded_store_cause_is_located() {
+    fn every_cause_that_reaches_store_error_is_located() {
         // Assembled so this assertion's own source does not contain the shape it forbids.
         let by_value = ["map_err(", "store_error)"].concat();
         let by_value_classified = ["map_err(", "classify_insert)"].concat();
