@@ -3234,8 +3234,9 @@ pub mod lifecycle_v2 {
         pub protection: ProtectionProposalV1,
     }
 
-    /// Unused member slots hold a copy of the last member and take no part in equality or encoding.
-    #[derive(Clone, Copy, Debug)]
+    /// Unused member slots hold a copy of the last member and take no part in equality, encoding,
+    /// or `Debug` output.
+    #[derive(Clone, Copy)]
     pub struct InstrumentTargetSetV2 {
         pub sequence: u64,
         members: [MemberTargetV2; TARGET_SET_MAX_MEMBER_COUNT],
@@ -3249,6 +3250,19 @@ pub mod lifecycle_v2 {
     }
 
     impl Eq for InstrumentTargetSetV2 {}
+
+    impl core::fmt::Debug for InstrumentTargetSetV2 {
+        fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            formatter
+                .debug_struct(stringify!(InstrumentTargetSetV2))
+                .field("sequence", &self.sequence)
+                .field("members", &self.members())
+                .finish()
+        }
+    }
+
+    // The member count is stored as a `u8`.
+    const _: () = assert!(TARGET_SET_MAX_MEMBER_COUNT <= u8::MAX as usize);
 
     impl InstrumentTargetSetV2 {
         pub fn new(sequence: u64, members: &[MemberTargetV2]) -> Result<Self, TargetSetFaultV2> {

@@ -37,6 +37,10 @@ pub(crate) const fn is_admitted_member_count(count: usize) -> bool {
 }
 
 /// One value per target-set member, in member order.
+///
+/// The type bounds the count only. Member order is the caller's invariant, exactly as it was for
+/// the array this replaces: every constructor here builds values in canonical member order, and
+/// in-place mutation through `DerefMut` can replace a member but must not reorder them.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct BoundedMembers<T>(Vec<T>);
 
@@ -128,6 +132,34 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for BoundedMembers<T> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         Self::new(Vec::deserialize(deserializer)?).map_err(de::Error::custom)
     }
+}
+
+/// Asserts that each named byte string still has the length and SHA-256 recorded for it.
+///
+/// The member-count widening must not move any two-member byte layout. Each expected value was read
+/// by running the same probe on the pre-widening tree `769b50286`, twice, with identical output;
+/// a mismatch here means a two-member preimage changed, not that the pin is stale.
+#[cfg(test)]
+pub(crate) fn assert_two_member_bytes_unchanged(
+    actual: &[(&str, &[u8])],
+    expected: &[(&str, usize, &str)],
+) {
+    let actual = actual
+        .iter()
+        .map(|(name, bytes)| {
+            let digest = <sha2::Sha256 as sha2::Digest>::digest(bytes);
+            let hex = digest
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>();
+            ((*name).to_owned(), bytes.len(), hex)
+        })
+        .collect::<Vec<_>>();
+    let expected = expected
+        .iter()
+        .map(|(name, len, hex)| ((*name).to_owned(), *len, (*hex).to_owned()))
+        .collect::<Vec<_>>();
+    assert_eq!(actual, expected);
 }
 
 #[cfg(test)]

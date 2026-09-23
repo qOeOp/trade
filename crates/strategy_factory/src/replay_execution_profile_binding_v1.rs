@@ -1678,4 +1678,21 @@ mod tests {
             ));
         }
     }
+
+    /// The execution-profile binding digest over two members, pinned from the pre-widening tree.
+    #[rstest]
+    fn two_member_profile_binding_digest_is_unchanged_by_the_member_count_widening() {
+        let (economic, runner, family, request, provenance) = fixtures();
+        let binding =
+            bind_replay_execution_profiles_v1(&family, &request, &economic, &runner, provenance)
+                .unwrap();
+        crate::target_set_members::assert_two_member_bytes_unchanged(
+            &[("profile_binding_digest", &binding.binding_digest())],
+            &[(
+                "profile_binding_digest",
+                32,
+                "d38ff437ae935f1936097f416c59fbc846ae0e567e6371c58c60c4a22ae747fc",
+            )],
+        );
+    }
 }

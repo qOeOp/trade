@@ -1961,3 +1961,95 @@ fn u32_leb(bytes: &mut Vec<u8>, mut value: u32) {
         }
     }
 }
+
+/// The Owner-issued authority and every execution-bundle digest over a two-member run, pinned from
+/// the pre-widening tree: the profile binding, native materialization, frame sequence, scheduling
+/// data, and census digests.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn two_member_execution_bundle_digests_are_unchanged_by_the_member_count_widening() {
+    let mut instruments = instruments();
+    for instrument in &mut instruments {
+        let instrument = crypto_perpetual_mut(instrument);
+        instrument.maker_fee = rust_decimal::Decimal::new(2, 4);
+        instrument.taker_fee = rust_decimal::Decimal::new(4, 4);
+        instrument.margin_init = rust_decimal::Decimal::new(1, 1);
+        instrument.margin_maint = rust_decimal::Decimal::new(5, 2);
+    }
+    let (plan, artifact, frame) = fixture().unwrap();
+    let admitted = admit_market_data_universe_program_event_v2(&plan, &frame).unwrap();
+    let time = admitted.envelope().order_key.logical_time_ns;
+    let authority = owner_replay_execution_profile_binding_fixture_v1(
+        &plan,
+        &artifact,
+        &frame,
+        ReplayWindowV2 {
+            start_event_ns: time,
+            end_event_ns_exclusive: time + 3,
+        },
+    );
+    let authority_digest = authority.authority_digest();
+    let (bar_types, data) = request_execution_schedule(&instruments, time);
+    let capability = ReplayTargetSetExecutionBundleV1::new_with_native_instruments_for_test(
+        authority,
+        plan,
+        artifact,
+        vec![frame],
+        StrategyId::from("TARGET-SET-PROFILE-EVENT-001"),
+        "target-set-profile-event".into(),
+        instruments,
+        bar_types,
+        data,
+        &[time],
+    )
+    .unwrap();
+    let census = &capability.census;
+    crate::target_set_members::assert_two_member_bytes_unchanged(
+        &[
+            ("owner_authority_digest", &authority_digest),
+            (
+                "execution_profile_binding_digest",
+                &census.execution_profile_binding_digest(),
+            ),
+            (
+                "native_materialization_digest",
+                &census.native_materialization_digest(),
+            ),
+            ("frame_sequence_digest", &census.frame_sequence_digest()),
+            ("scheduling_data_digest", &census.scheduling_data_digest()),
+            ("census_digest", &census.census_digest()),
+        ],
+        &[
+            (
+                "owner_authority_digest",
+                32,
+                "0e3c192a8de3e492a9f4600fc958485185c84cc3586e6914b005533158d877ca",
+            ),
+            (
+                "execution_profile_binding_digest",
+                32,
+                "fa773a0b4c5372d89b4164e8b1e865537645045035de83772d615c0f6e0e6d04",
+            ),
+            (
+                "native_materialization_digest",
+                32,
+                "92cb6b55801e451ac8881fd38150bb5f02b22148ec3769f7fe0a504febd724a1",
+            ),
+            (
+                "frame_sequence_digest",
+                32,
+                "73fd8ac3875ec58384a5b6db5b2d99d8cd5ef2ed52098328a084abc13c468f98",
+            ),
+            (
+                "scheduling_data_digest",
+                32,
+                "9706efbc97d7954eb20ecdc449dff6979da37d6ef63bcbf587a72fd93f30ffa6",
+            ),
+            (
+                "census_digest",
+                32,
+                "59398f8b58ec2729f922df25185e6ea9571f7ac2460227644e99f4f374949ea5",
+            ),
+        ],
+    );
+}

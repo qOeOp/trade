@@ -1330,4 +1330,41 @@ mod tests {
         wrong_request.request_identity = "another-request".into();
         assert!(recover_rows(&wrong_request).is_err());
     }
+
+    /// The persisted binding, receipt, and outbox bytes of a two-member binding, pinned from the
+    /// pre-widening tree so the count-carrying member loop cannot move them.
+    #[rstest::rstest]
+    fn two_member_binding_bytes_are_unchanged_by_the_member_count_widening() {
+        let prepared = prepare_rows(verified(), 17).expect("prepared");
+        crate::target_set_members::assert_two_member_bytes_unchanged(
+            &[
+                ("binding", &prepared.binding.canonical_bytes),
+                ("binding_identity", &prepared.binding.binding_identity),
+                ("receipt", &prepared.receipt.canonical_bytes),
+                ("outbox", &prepared.outbox.canonical_bytes),
+            ],
+            &[
+                (
+                    "binding",
+                    1_360,
+                    "254e097b6cc18a7e8cc930d2e9f894cfae4c81738ba352e1d30eb20ea9e7f743",
+                ),
+                (
+                    "binding_identity",
+                    32,
+                    "5b7c8145ac6bd524ab61c25f728a721e993c55253b104fcd39ec017ffe05b652",
+                ),
+                (
+                    "receipt",
+                    74,
+                    "292103c8ba0416e80ee7b33d4610fd72bc2fe718930ab5b5e97f6cabcfbfa082",
+                ),
+                (
+                    "outbox",
+                    77,
+                    "79c3e711a24820839a0b881b8b4f04eaf9fb368efd4602d9e7801670cccb5f8f",
+                ),
+            ],
+        );
+    }
 }

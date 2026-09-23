@@ -1659,4 +1659,26 @@ mod tests {
             },
         }
     }
+
+    /// The round-trip closure digest over two members, pinned from the pre-widening tree.
+    #[rstest::rstest]
+    fn two_member_round_trip_closure_digest_is_unchanged_by_the_member_count_widening() {
+        let closure = round_trip_closure(
+            &closed_trace(),
+            &round_trip_fills(),
+            &member_instruments(),
+            &closed_census(),
+            [77; 32],
+        )
+        .unwrap()
+        .expect("a complete round trip");
+        crate::target_set_members::assert_two_member_bytes_unchanged(
+            &[("round_trip_closure_digest", &closure.closure_digest())],
+            &[(
+                "round_trip_closure_digest",
+                32,
+                "c71878fd4bbf0a9e76d08791d4af22ea3500e3571df141f5dd87a1251e3f5696",
+            )],
+        );
+    }
 }
