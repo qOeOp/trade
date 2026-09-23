@@ -1438,7 +1438,7 @@ impl PostgresResearchGoalOwnerV1 {
                 .await
                 .map_err(|e| storage(&e))?;
         }
-        migrate_trial_family(pool)
+        migrate_trial_family(pool, admitted)
             .await
             .map_err(|e| trial_family_storage(&e))?;
         crate::exploratory_replay::postgres::migrate(pool, admitted)

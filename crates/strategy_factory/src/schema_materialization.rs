@@ -92,6 +92,15 @@ pub(crate) struct PreCutoverMaterializationAdmitted {
     _gate_only: (),
 }
 
+#[cfg(test)]
+impl PreCutoverMaterializationAdmitted {
+    /// For a test that migrates its own disposable database directly. Absent from every non-test
+    /// build, so it cannot stand in for the gate anywhere a report could be reading.
+    pub(crate) fn for_a_disposable_test_database() -> Self {
+        Self { _gate_only: () }
+    }
+}
+
 pub(crate) async fn pre_cutover_materialization_is_admitted(
     pool: &PgPool,
 ) -> Result<Option<PreCutoverMaterializationAdmitted>, sqlx::Error> {
