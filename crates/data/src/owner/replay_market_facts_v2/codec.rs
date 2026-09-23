@@ -261,10 +261,6 @@ pub(super) fn digest(domain: &[u8], bytes: &[u8]) -> BindingDigest {
     BindingDigest::from_untrusted_bytes(*hasher.finalize().as_bytes())
 }
 
-#[allow(
-    dead_code,
-    reason = "used by Owner-private issuance once the TARGET canonical-store resolver is connected"
-)]
 pub(super) fn valid_adjustment(value: ReplayPriceAdjustmentV2) -> bool {
     matches!(
         value,
@@ -274,10 +270,6 @@ pub(super) fn valid_adjustment(value: ReplayPriceAdjustmentV2) -> bool {
     )
 }
 
-#[allow(
-    dead_code,
-    reason = "used by Owner-private issuance once the TARGET canonical-store resolver is connected"
-)]
 pub(super) fn valid_timestamp_basis(value: ReplayTimestampBasisV2) -> bool {
     matches!(
         value,

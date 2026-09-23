@@ -194,7 +194,7 @@ pub(crate) async fn read_research_bounded_feature_program_in_transaction_v1(
 /// Rechecks an immutable BFP freeze after Research has advanced beyond IntentFrozen. The caller
 /// supplies Research reconstructed from the authenticated original View preimage and current
 /// Owner custody; this port still rereads the freeze and outbox by exact locator.
-#[allow(
+#[expect(
     dead_code,
     reason = "durable BFP readback awaits its tagged V3 build and durable Composer consumer"
 )]

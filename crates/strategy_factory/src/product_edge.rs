@@ -1089,10 +1089,6 @@ impl ValidatedResearchGoalRequestV2 {
 
 /// Crate-private `PARTIAL` output that has passed the existing canonical
 /// Research V2 field validator. It contains no accepted Research fact.
-#[allow(
-    dead_code,
-    reason = "PARTIAL Source Intake ancestry awaits durable R&D Owner composition"
-)]
 pub(crate) struct PartialSourceIntakeResearchAdmissionInputV1 {
     validated: ValidatedResearchGoalRequestV2,
     ancestry_evidence_identity: String,
@@ -1118,10 +1114,6 @@ impl PartialSourceIntakeResearchAdmissionInputV1 {
 
 /// Assemble sealed Source Intake ancestry through the existing canonical
 /// Research V2 validator. This performs no Research admission or write.
-#[allow(
-    dead_code,
-    reason = "PARTIAL Source Intake ancestry awaits durable R&D Owner composition"
-)]
 pub(crate) fn assemble_partial_source_intake_research_admission_input(
     proposal: UnsourcedResearchProposalV1,
     ancestry: crate::source_intake::VerifiedSourceIntakeResearchAncestryV1,
