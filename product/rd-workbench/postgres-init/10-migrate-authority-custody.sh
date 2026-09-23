@@ -1685,7 +1685,7 @@ CREATE OR REPLACE FUNCTION backtest_owner_api.resolve_protected_replay_result_v1
   p_request_identity text,
   p_attempt_identity text
 ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE locked jsonb;
 BEGIN
@@ -1742,7 +1742,7 @@ CREATE OR REPLACE FUNCTION backtest_owner_api.resolve_protected_replay_attempt_f
   p_frontier_identity text,
   p_frontier_digest text
 ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE locked jsonb;
 BEGIN
