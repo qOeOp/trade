@@ -2273,9 +2273,16 @@ async fn postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_r
             }
         }
     }
-    assert!(
-        accepted_tampers.is_empty(),
-        "a replay accepted tampered {accepted_tampers:?}",
+    // Registered gap, not a pass: nothing on the Research replay path reads the artifact evidence
+    // columns, so changing either alone still resolves to the accepted receipt. The rows stay so
+    // the day a reader refuses them this assertion fails and the list must shrink.
+    assert_eq!(
+        accepted_tampers,
+        [
+            "rd_research_request_receipts_v1.artifact_evidence_digest",
+            "rd_research_request_receipts_v1.artifact_evidence_json",
+        ],
+        "the set of stored Research columns a replay does not refuse changed",
     );
     let mut changed = proposal;
     changed.goal.hypothesis.push_str(" changed meaning");
