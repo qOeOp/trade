@@ -278,6 +278,40 @@ impl DevelopPluginBuildReceiptV3 {
         bytes: &[u8],
         capsule: &PreparedDevelopPluginCapsuleV3,
     ) -> Result<Self, DevelopPluginBuildTerminalV3> {
+        let receipt = Self::decode_canonical(bytes)?;
+        receipt.validate_for(capsule)?;
+        Ok(receipt)
+    }
+
+    /// Parses receipt bytes read back from Composer custody, where no capsule is at hand.
+    ///
+    /// It checks what the bytes can prove about themselves: the V3 schema, canonical encoding,
+    /// and a `receipt_digest` recomputed over the body. Binding to a capsule stays
+    /// `parse_canonical_for`'s job; the Composer store bound the receipt to its artifact when it
+    /// committed it, under the identity the caller compares with [`Self::receipt_digest`].
+    pub(crate) fn parse_stored(bytes: &[u8]) -> Result<Self, DevelopPluginBuildTerminalV3> {
+        let receipt = Self::decode_canonical(bytes)?;
+        if receipt.receipt_tag != RECEIPT_TAG
+            || receipt.schema_version != RECEIPT_SCHEMA_VERSION
+            || receipt.receipt_digest != receipt_digest(&receipt)
+        {
+            return Err(DevelopPluginBuildTerminalV3::invalid_receipt(
+                "receipt.stored",
+                "stored V3 receipt bytes do not carry the V3 tag or their own digest",
+            ));
+        }
+        Ok(receipt)
+    }
+
+    pub(crate) const fn receipt_digest(&self) -> BindingDigest {
+        self.receipt_digest
+    }
+
+    pub(crate) const fn joint_freeze_digest(&self) -> BindingDigest {
+        self.joint_freeze_digest
+    }
+
+    fn decode_canonical(bytes: &[u8]) -> Result<Self, DevelopPluginBuildTerminalV3> {
         let receipt: Self = durable_decode(bytes).map_err(|_| {
             DevelopPluginBuildTerminalV3::invalid_receipt(
                 "receipt.codec",
@@ -291,7 +325,6 @@ impl DevelopPluginBuildReceiptV3 {
                 "V3 receipt bytes are not canonical",
             ));
         }
-        receipt.validate_for(capsule)?;
         Ok(receipt)
     }
 
@@ -1566,6 +1599,53 @@ mod tests {
                 &capsule
             )
             .is_err()
+        );
+    }
+
+    #[rstest::rstest]
+    fn stored_receipt_bytes_yield_the_freeze_they_carry() {
+        let receipt = fixture_receipt(&fixture_capsule());
+        let stored = DevelopPluginBuildReceiptV3::parse_stored(&receipt.canonical_bytes())
+            .expect("a committed V3 receipt parses without its capsule");
+
+        assert_eq!(stored.receipt_digest(), receipt.receipt_digest);
+        assert_eq!(stored.joint_freeze_digest(), receipt.joint_freeze_digest);
+    }
+
+    #[rstest::rstest]
+    #[case::freeze_changed_under_the_old_digest(|receipt: &mut DevelopPluginBuildReceiptV3| {
+        receipt.joint_freeze_digest = digest(99);
+    })]
+    #[case::cross_tag(|receipt: &mut DevelopPluginBuildReceiptV3| {
+        receipt.receipt_tag = "V2".to_owned();
+        receipt.receipt_digest = receipt_digest(receipt);
+    })]
+    #[case::other_schema(|receipt: &mut DevelopPluginBuildReceiptV3| {
+        receipt.schema_version = 2;
+        receipt.receipt_digest = receipt_digest(receipt);
+    })]
+    fn stored_receipt_bytes_that_do_not_prove_themselves_are_refused(
+        #[case] mutate: fn(&mut DevelopPluginBuildReceiptV3),
+    ) {
+        let mut receipt = fixture_receipt(&fixture_capsule());
+        mutate(&mut receipt);
+
+        assert_eq!(
+            DevelopPluginBuildReceiptV3::parse_stored(&receipt.canonical_bytes())
+                .map_err(|terminal| terminal.coordinate),
+            Err("receipt.stored".to_owned())
+        );
+    }
+
+    #[rstest::rstest]
+    fn stored_receipt_bytes_with_trailing_bytes_are_refused() {
+        let mut bytes = fixture_receipt(&fixture_capsule()).canonical_bytes();
+        bytes.push(b'\n');
+
+        assert_eq!(
+            DevelopPluginBuildReceiptV3::parse_stored(&bytes)
+                .map_err(|terminal| terminal.coordinate),
+            Err("receipt.codec".to_owned())
         );
     }
 
