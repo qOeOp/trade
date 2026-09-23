@@ -5191,7 +5191,7 @@ CREATE OR REPLACE FUNCTION composer_owner_api.resolve_develop_composer_locator_f
 )
 RETURNS TABLE (request_identity text, operation_receipt_identity bytea)
 LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path = pg_catalog AS $composer_replay_locator$BEGIN
+SET search_path = pg_catalog, pg_temp AS $composer_replay_locator$BEGIN
   IF SESSION_USER<>'rd_owner' OR CURRENT_USER<>'composer_owner' THEN RAISE EXCEPTION 'R&D Owner required' USING ERRCODE='42501'; END IF;
   RETURN QUERY
   SELECT role_set.request_identity,role_set.operation_receipt_identity

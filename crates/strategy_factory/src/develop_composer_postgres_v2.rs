@@ -739,7 +739,7 @@ pub(crate) async fn resolve_develop_composer_locator_for_replay_v2_in_transactio
             AND procedure.proisstrict
             AND procedure.proretset
             AND procedure.prokind='f'
-            AND procedure.proconfig=ARRAY['search_path=pg_catalog']::text[]
+            AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[]
             AND procedure.proargtypes='25 17 17 17'::pg_catalog.oidvector
             AND procedure.proargnames=ARRAY['p_artifact_locator','p_artifact_identity','p_canonical_plan_digest','p_design_digest','request_identity','operation_receipt_identity']::text[]
             AND pg_catalog.pg_get_userbyid(procedure.proowner)='composer_owner'

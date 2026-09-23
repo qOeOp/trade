@@ -18,6 +18,55 @@ use vibe_strategy_factory::{
 };
 use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
+/// Every Composer Owner API routine runs as its owner, so each one searches `pg_catalog` and then
+/// `pg_temp` last; a routine that leaves `pg_temp` out searches it first.
+#[rstest]
+fn composer_owner_api_routines_search_pg_temp_last() {
+    let migration =
+        include_str!("../../../product/rd-workbench/postgres-init/10-migrate-authority-custody.sh");
+    let routines = migration
+        .split("CREATE OR REPLACE FUNCTION composer_owner_api.")
+        .skip(1)
+        .map(|definition| {
+            let name = definition.split('(').next().expect("routine name");
+            let header = definition
+                .split(" AS $")
+                .next()
+                .filter(|header| header.len() < definition.len())
+                .unwrap_or_else(|| panic!("{name} has no dollar-quoted body"));
+            assert!(
+                header.contains("SECURITY DEFINER"),
+                "{name} is not SECURITY DEFINER"
+            );
+            let search_path = header
+                .split("SET search_path = ")
+                .nth(1)
+                .unwrap_or_else(|| panic!("{name} sets no search_path"))
+                .trim();
+            (name, search_path)
+        })
+        .collect::<Vec<_>>();
+
+    // The two sealed reads are among them, so the split reached real definitions.
+    assert!(
+        routines
+            .iter()
+            .any(|(name, _)| *name == "lock_accepted_develop_composer_v2")
+    );
+    assert!(
+        routines
+            .iter()
+            .any(|(name, _)| *name == "resolve_develop_composer_locator_for_replay_v2")
+    );
+    assert_eq!(
+        routines
+            .iter()
+            .filter(|(_, search_path)| *search_path != "pg_catalog, pg_temp")
+            .collect::<Vec<_>>(),
+        Vec::<&(&str, &str)>::new()
+    );
+}
+
 #[rstest]
 fn postgres_contract_uses_one_advisory_lock_private_bytea_and_no_json_authority() {
     let source = include_str!("../src/develop_composer_postgres_v2.rs");
