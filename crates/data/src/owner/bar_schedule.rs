@@ -315,6 +315,12 @@ impl std::error::Error for BarScheduleError {}
 /// `instrument_master_at_event` is the Owner's cut taken at the BAR's own instant; the schedule is
 /// refused unless both resolve this instrument to the same fact. A caller whose BAR is at the shared
 /// cut's instant passes the same readback twice.
+///
+/// The at-BAR cut is bound to the BAR's instant and observed no earlier than the shared cut on the
+/// same Instrument Master clock. Its observation time is not yet tied to the frame's own decision
+/// point: the PIT market clock is a different clock, so a cut observed after the shared one but
+/// before the frame could still miss a later correction. That is closed when the frame resolver
+/// resolves this cut from Owner custody itself instead of receiving it.
 pub(crate) fn prepare_bar_schedule_commit_v1(
     proposal: UntrustedBarScheduleProposalV1,
     binding: &StrategyInputBindingReceipt,
@@ -433,8 +439,17 @@ pub(super) mod authority {
         // the schedule is refused rather than resting on the definition it replaced. The interval
         // check below cannot see that case: a corrected fact keeps its interval, and still contains
         // the instant. Deleting this comparison lets a schedule silently use a superseded master.
-        if instrument_master.cut().effective_instant() > event
-            || instrument_master_at_event.cut().effective_instant() != event
+        let shared_cut = instrument_master.cut();
+        let at_event_cut = instrument_master_at_event.cut();
+
+        // A cut at the BAR observed before the shared one could predate a correction and agree with
+        // the shared cut for the wrong reason. The two observations compare directly: the
+        // Instrument Master authority only lets a cut hold facts admitted on its own clock, so two
+        // cuts that hold the same fact - the only case this comparison lets through - are on the
+        // same clock. A separate clock-identity check could never refuse anything on its own.
+        if shared_cut.effective_instant() > event
+            || at_event_cut.effective_instant() != event
+            || at_event_cut.owner_observation < shared_cut.owner_observation
         {
             return Err(BarScheduleError::InstrumentMasterMismatch);
         }

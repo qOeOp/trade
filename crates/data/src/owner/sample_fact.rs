@@ -2796,10 +2796,31 @@ pub(crate) mod tests {
         // cut offered in its place can predate the correction and agree with the shared one.
         let before_bar = window_master_cut(&chain, 5, 80);
         assert_eq!(
-            prepare_bar_schedule_commit_v1(proposal, &binding, &batch, &shared, &before_bar)
-                .unwrap_err(),
+            prepare_bar_schedule_commit_v1(
+                proposal.clone(),
+                &binding,
+                &batch,
+                &shared,
+                &before_bar
+            )
+            .unwrap_err(),
             BarScheduleError::InstrumentMasterMismatch,
             "a cut taken before the BAR cannot stand in for the one at it"
+        );
+
+        // A cut at the BAR observed before the shared cut predates both corrections here, so it
+        // resolves the original fact and agrees with the shared cut; only the observation order
+        // can refuse it.
+        let observed_early = window_master_cut(&chain, 10, 55);
+        assert_eq!(
+            observed_early.cut().resolutions[0].fact_digest,
+            original.digest()
+        );
+        assert_eq!(
+            prepare_bar_schedule_commit_v1(proposal, &binding, &batch, &shared, &observed_early)
+                .unwrap_err(),
+            BarScheduleError::InstrumentMasterMismatch,
+            "a cut at the BAR observed before the shared cut cannot vouch for it"
         );
     }
 
