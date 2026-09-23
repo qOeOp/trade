@@ -279,6 +279,22 @@ impl InstrumentMasterCutV1 {
     pub const fn effective_instant(&self) -> i128 {
         self.effective_instant
     }
+
+    /// Whether every fact `other` can see is one this cut can see as well.
+    ///
+    /// A fact is visible to a cut by exactly these coordinates (`authority::observable`): the same
+    /// clock, a head sequence and a decision cut no later than the cut's, and fact times no later
+    /// than the cut's Owner observation. So this cut observes at least what `other` does when it is
+    /// on the same clock and is no earlier on each of the other three. Cuts on different clocks are
+    /// not ordered, and never compare as observing at least one another. The rule lives here, beside
+    /// the one it mirrors, so the two cannot drift apart.
+    pub(crate) fn observes_at_least(&self, other: &Self) -> bool {
+        self.clock.clock_identity == other.clock.clock_identity
+            && self.clock.clock_epoch == other.clock.clock_epoch
+            && self.clock.monotonic_sequence >= other.clock.monotonic_sequence
+            && self.decision_cut >= other.decision_cut
+            && self.owner_observation >= other.owner_observation
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

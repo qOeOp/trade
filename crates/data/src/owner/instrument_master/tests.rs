@@ -146,6 +146,55 @@ fn readback_for(proposal: InstrumentMasterFactProposalV1) -> super::InstrumentMa
     build_readback(&receipt).unwrap()
 }
 
+/// Cuts on different clocks are not ordered: identical sequence, decision cut and observation on
+/// another clock still do not make one cut observe what the other does.
+#[rstest]
+fn cuts_on_different_clocks_do_not_observe_at_least_one_another() {
+    let here = readback_for(proposal("AAPL", None, 55, 6));
+    let elsewhere_head = build_head_fact(
+        &MarketDataClockAdmission {
+            cut_kind: MarketDataClockCutKind::MarketDataAsOf,
+            clock_identity: "ZYXWVUTSRQPONMLKJIHGFEDCBA987654".into(),
+            clock_epoch: "abcdefghijklmnopqrstuvwxyzABCDEF".into(),
+            monotonic_sequence: 1,
+            wall_observed: 60,
+            decision_cut: 60,
+            valid_through: 100,
+            restart_continuity_digest: d(90),
+            uncertainty_bound: 1,
+            skew_bound: 2,
+            comparison_rule: MarketDataClockComparisonRule::ExclusiveValidThrough,
+        },
+        None,
+    )
+    .unwrap();
+    let fact = build_fact(proposal("AAPL", None, 55, 6), &elsewhere_head.handoff, None).unwrap();
+    let elsewhere = build_cut(
+        &request("AAPL", 59, &elsewhere_head),
+        vec!["AAPL".into()],
+        std::slice::from_ref(&fact),
+        fact.clock.clone(),
+    )
+    .unwrap();
+
+    assert!(here.cut().observes_at_least(here.cut()));
+    assert_eq!(
+        (
+            elsewhere.clock.monotonic_sequence,
+            elsewhere.decision_cut,
+            elsewhere.owner_observation
+        ),
+        (
+            here.cut().clock.monotonic_sequence,
+            here.cut().decision_cut,
+            here.cut().owner_observation
+        ),
+        "only the clock differs"
+    );
+    assert!(!here.cut().observes_at_least(&elsewhere));
+    assert!(!elsewhere.observes_at_least(here.cut()));
+}
+
 #[rstest]
 fn canonical_fact_codec_is_domain_separated_strict_and_complete() {
     let clock = head(1, 60, 100);

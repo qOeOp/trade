@@ -1680,8 +1680,8 @@ pub(crate) mod tests {
             InstrumentMasterReadbackV1, InstrumentMasterResolution, InstrumentMasterScopeV1,
             InstrumentVenueSourceMapping, UntrustedInstrumentMasterRequestV1,
             authority::{
-                build_cut, build_fact, build_readback, build_receipt, select_facts,
-                validate_fact_graph,
+                build_cut, build_fact, build_readback, build_receipt, clock_projection,
+                select_facts, validate_fact_graph,
             },
         },
         pit_snapshot::{
@@ -2588,14 +2588,19 @@ pub(crate) mod tests {
 
     /// The Instrument Master clock every fact and cut in the window tests is admitted under.
     fn window_master_clock() -> ClockHeadFact {
+        window_master_head(2, 90)
+    }
+
+    /// One head of that clock: `sequence` on its monotonic counter, observed and cut at `wall`.
+    fn window_master_head(sequence: u64, wall: u64) -> ClockHeadFact {
         build_head_fact(
             &MarketDataClockAdmission {
                 cut_kind: MarketDataClockCutKind::MarketDataAsOf,
                 clock_identity: "12345678901234567890123456789012".into(),
                 clock_epoch: "abcdefghijklmnopqrstuvwxyzABCDEF".into(),
-                monotonic_sequence: 2,
-                wall_observed: 90,
-                decision_cut: 90,
+                monotonic_sequence: sequence,
+                wall_observed: wall,
+                decision_cut: wall,
                 valid_through: 120,
                 restart_continuity_digest: d(90),
                 uncertainty_bound: 1,
@@ -2614,6 +2619,23 @@ pub(crate) mod tests {
         predecessor: Option<&InstrumentMasterFactV1>,
         effective_from: i128,
         observed: i128,
+    ) -> InstrumentMasterFactV1 {
+        window_master_fact_on(
+            batch,
+            predecessor,
+            effective_from,
+            observed,
+            &window_master_clock(),
+        )
+    }
+
+    /// [`window_master_fact`], recorded under `head` rather than the default one.
+    fn window_master_fact_on(
+        batch: &VerifiedPitObservationBatch,
+        predecessor: Option<&InstrumentMasterFactV1>,
+        effective_from: i128,
+        observed: i128,
+        head: &ClockHeadFact,
     ) -> InstrumentMasterFactV1 {
         let proposal = InstrumentMasterFactProposalV1 {
             canonical_identity: "AAPL.XNAS".into(),
@@ -2656,7 +2678,7 @@ pub(crate) mod tests {
             correction_publication: observed - 1,
             owner_observation: observed,
         };
-        build_fact(proposal, &window_master_clock().handoff, None).expect("admitted master fact")
+        build_fact(proposal, &head.handoff, None).expect("admitted master fact")
     }
 
     /// The Owner's cut of `facts` at `effective_instant`, as observed at `observation`: the same
@@ -2666,8 +2688,23 @@ pub(crate) mod tests {
         effective_instant: i128,
         observation: i128,
     ) -> InstrumentMasterReadbackV1 {
-        let clock = window_master_clock();
-        let fact_clock = facts[0].clock.clone();
+        window_master_cut_on(
+            facts,
+            effective_instant,
+            observation,
+            &window_master_clock(),
+        )
+    }
+
+    /// [`window_master_cut`], taken under `head`: the cut's clock is that head's projection, so
+    /// what the cut can see is decided by the head it was built on.
+    fn window_master_cut_on(
+        facts: &[InstrumentMasterFactV1],
+        effective_instant: i128,
+        observation: i128,
+        clock: &ClockHeadFact,
+    ) -> InstrumentMasterReadbackV1 {
+        let fact_clock = clock_projection(&clock.handoff, None).expect("head projection");
         let request = UntrustedInstrumentMasterRequestV1 {
             request_identity: d(u8::try_from(effective_instant + observation).expect("small")),
             request_meaning_digest: d(41),
@@ -2821,6 +2858,86 @@ pub(crate) mod tests {
                 .unwrap_err(),
             BarScheduleError::InstrumentMasterMismatch,
             "a cut at the BAR observed before the shared cut cannot vouch for it"
+        );
+    }
+
+    /// The cut offered as "at the BAR" has to see at least everything the shared cut could see.
+    ///
+    /// A fact is visible to a cut by three coordinates (`observable` in the Instrument Master
+    /// authority): the clock head's sequence, the decision cut, and the Owner observation. Each case
+    /// puts the at-BAR cut behind the shared cut on exactly one of them, and records the correction
+    /// on a head that only that coordinate hides from it; the other two are no lower. Such a cut
+    /// misses the correction, resolves the superseded fact, and agrees with the shared cut for the
+    /// wrong reason - so it must be refused.
+    #[rstest]
+    #[case::behind_on_the_clock_sequence((30, 90), 80, (40, 85), 70)]
+    #[case::behind_on_the_decision_cut((60, 80), 80, (40, 85), 70)]
+    #[case::behind_on_the_observation((50, 90), 73, (40, 85), 74)]
+    fn an_at_bar_master_cut_must_observe_at_least_what_the_shared_cut_did(
+        #[case] at_bar_head: (u64, u64),
+        #[case] at_bar_observation: i128,
+        #[case] correction_head: (u64, u64),
+        #[case] correction_observed: i128,
+    ) {
+        let proposal = UntrustedBarScheduleProposalV1 {
+            canonical_instrument: "AAPL.XNAS".into(),
+            predecessor_fact_digest: None,
+            effective_from: 1,
+            effective_until: Some(100),
+            kind: BarScheduleKindV1::FixedInterval,
+            step: 5,
+            unit: BarScheduleUnitV1::Minute,
+            anchor_identity: d(70),
+            label: BarScheduleLabelV1::IntervalClose,
+            completion: BarScheduleCompletionV1::CompleteOnly,
+        };
+        let seed = batch(bar_row(10, 3), 30);
+        let original = window_master_fact_on(&seed, None, 1, 50, &window_master_head(10, 60));
+        let corrected = window_master_fact_on(
+            &seed,
+            Some(&original),
+            8,
+            correction_observed,
+            &window_master_head(correction_head.0, correction_head.1),
+        );
+        let chain = [original.clone(), corrected.clone()];
+        let shared_head = window_master_head(50, 90);
+        let shared = window_master_cut_on(&chain, 5, 75, &shared_head);
+        assert_eq!(
+            shared.cut().resolutions[0].fact_digest,
+            original.digest(),
+            "the correction takes effect at 8, after the shared cut's instant"
+        );
+        let batch = bar_resting_on(&shared);
+        let binding =
+            bind_strategy_input_role(&bar_request(&batch), &batch).expect("sealed BAR binding");
+
+        // A cut at the BAR that sees what the shared cut sees resolves the correction, and is refused.
+        let seeing = window_master_cut_on(&chain, 10, 80, &shared_head);
+        assert_eq!(seeing.cut().resolutions[0].fact_digest, corrected.digest());
+        assert_eq!(
+            prepare_bar_schedule_commit_v1(proposal.clone(), &binding, &batch, &shared, &seeing)
+                .unwrap_err(),
+            BarScheduleError::InstrumentMasterNotCurrentAtEvent
+        );
+
+        // The same BAR, with the at-BAR cut behind on one coordinate: it cannot see the correction.
+        let behind = window_master_cut_on(
+            &chain,
+            10,
+            at_bar_observation,
+            &window_master_head(at_bar_head.0, at_bar_head.1),
+        );
+        assert_eq!(
+            behind.cut().resolutions[0].fact_digest,
+            original.digest(),
+            "the lagging coordinate hides the correction from the at-BAR cut"
+        );
+        assert_eq!(
+            prepare_bar_schedule_commit_v1(proposal, &binding, &batch, &shared, &behind)
+                .unwrap_err(),
+            BarScheduleError::InstrumentMasterMismatch,
+            "an at-BAR cut that observes less than the shared cut cannot vouch for it"
         );
     }
 

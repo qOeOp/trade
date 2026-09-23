@@ -316,8 +316,8 @@ impl std::error::Error for BarScheduleError {}
 /// refused unless both resolve this instrument to the same fact. A caller whose BAR is at the shared
 /// cut's instant passes the same readback twice.
 ///
-/// The at-BAR cut is bound to the BAR's instant and observed no earlier than the shared cut on the
-/// same Instrument Master clock. Its observation time is not yet tied to the frame's own decision
+/// The at-BAR cut is bound to the BAR's instant and observes at least what the shared cut does on
+/// the same Instrument Master clock (head sequence, decision cut and Owner observation). Its observation time is not yet tied to the frame's own decision
 /// point: the PIT market clock is a different clock, so a cut observed after the shared one but
 /// before the frame could still miss a later correction. That is closed when the frame resolver
 /// resolves this cut from Owner custody itself instead of receiving it.
@@ -442,14 +442,14 @@ pub(super) mod authority {
         let shared_cut = instrument_master.cut();
         let at_event_cut = instrument_master_at_event.cut();
 
-        // A cut at the BAR observed before the shared one could predate a correction and agree with
-        // the shared cut for the wrong reason. The two observations compare directly: the
-        // Instrument Master authority only lets a cut hold facts admitted on its own clock, so two
-        // cuts that hold the same fact - the only case this comparison lets through - are on the
-        // same clock. A separate clock-identity check could never refuse anything on its own.
+        // A cut at the BAR that observes less than the shared one - an older clock head, an earlier
+        // decision cut, or an earlier Owner observation - can miss a correction the shared cut could
+        // see, resolve the superseded fact, and agree with the shared cut for the wrong reason. It
+        // has to see at least what the shared cut saw, on every coordinate a fact becomes visible
+        // by; comparing the observation alone let an older head through.
         if shared_cut.effective_instant() > event
             || at_event_cut.effective_instant() != event
-            || at_event_cut.owner_observation < shared_cut.owner_observation
+            || !at_event_cut.observes_at_least(shared_cut)
         {
             return Err(BarScheduleError::InstrumentMasterMismatch);
         }
