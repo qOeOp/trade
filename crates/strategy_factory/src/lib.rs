@@ -140,9 +140,9 @@ pub mod native_replay_execution_bundle_owner_v2;
     reason = "T139 binding issuer awaits the T140 typed Owner-readback adapter"
 )]
 pub mod native_replay_execution_input_binding_v1;
-#[allow(
+#[expect(
     dead_code,
-    reason = "the two-frame binding awaits the typed Market Data Owner sequence capability"
+    reason = "every piece exists but nothing calls the issuing entry point; `expect` rather than `allow` so the day a caller lands, the compiler reports this attribute instead of leaving a stale justification in place"
 )]
 pub mod native_replay_execution_input_binding_v2;
 pub mod native_replay_execution_preparation_resolver_v2;
