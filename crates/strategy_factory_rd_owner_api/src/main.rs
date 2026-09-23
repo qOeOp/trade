@@ -5215,6 +5215,101 @@ mod tests {
         bindings
     }
 
+    /// Runs the production Composer on a Design this repository authored, to a durable Artifact.
+    ///
+    /// The entry before this one authors a Design, carries it through publication and binding
+    /// admission, and freezes it. Nothing then ran it. The chain's only Composer RUN is
+    /// `frozen_program_runs_the_production_composer_to_a_durable_artifact`, which drives the same
+    /// production code from `bounded_feature_program_six_role_bar_fixture_v1` behind
+    /// `sealed-strategy-input-acceptance`: the production path was covered, its production input
+    /// was not.
+    ///
+    /// The freeze is found by the Design's own shape rather than by ordering. Ordering would pick
+    /// whatever froze last, and entries after the authoring one commit freezes of their own; the
+    /// authored program declares exactly one input role, the daily close of `AAPL`, while every
+    /// other frozen Design in this database carries the fixture's six. Exactly one match is
+    /// asserted, so a second authored Design later would fail here rather than silently pick one.
+    ///
+    /// `Success` is asserted rather than `Ok`. A Research request with no verifiable joint freeze
+    /// returns a terminal disposition and writes nothing, so the call returns `Ok` for five of the
+    /// six dispositions and `.is_ok()` would hold for every refusal this entry exists to rule out.
+    ///
+    /// The Artifact's `design_digest` is then compared against the one stored on the freeze row.
+    /// `Success` alone would also be the answer of a run that built the fixture's Artifact, and
+    /// both digests are the Owner's own, derived from canonical bytes this crate cannot reproduce.
+    ///
+    /// It costs two real compiler invocations, so it sits immediately before the destructive
+    /// drain, for the same reason the fixture run does: the most expensive entry with the least
+    /// history behind it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "requires the ordered chain's PostgreSQL, the freeze an earlier entry commits, and the pinned local wasm compiler"]
+    async fn the_authored_frozen_program_runs_the_production_composer() {
+        use vibe_strategy_factory::strategy_design_v2::StrategyDesignV2;
+
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let rd_pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(2)
+            .connect(test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner))
+            .await
+            .unwrap();
+
+        let frozen: Vec<(String, Vec<u8>, Vec<u8>)> = sqlx::query_as(
+            "SELECT request_identity, design_bytes, design_digest
+               FROM public.rd_bounded_feature_program_freezes_v1",
+        )
+        .fetch_all(&rd_pool)
+        .await
+        .unwrap();
+        let mut authored: Vec<(String, Vec<u8>)> = frozen
+            .into_iter()
+            .filter_map(|(locator, design_bytes, design_digest)| {
+                let design: StrategyDesignV2 = serde_json::from_slice(&design_bytes).ok()?;
+                let single_authored_role = design.inputs.len() == 1
+                    && design.inputs[0].semantic_id == "research.input.close.daily.v1"
+                    && design.inputs[0].instrument == "AAPL";
+                single_authored_role.then_some((locator, design_digest))
+            })
+            .collect();
+        // Zero is a statement about the entry that authors and freezes, not about the Composer.
+        assert_eq!(
+            authored.len(),
+            1,
+            "expected exactly one authored single-role freeze to run, found {}: with none there is \
+             nothing this entry can run, and with several it would be picking one arbitrarily",
+            authored.len(),
+        );
+        let (locator, stored_design_digest) = authored.pop().expect("the single authored freeze");
+
+        let composer =
+            vibe_strategy_factory::source_research_composer_postgres_v2::PostgresSourceResearchComposerProductionV2::connect(
+                test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+                test_database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+            )
+            .await
+            .expect("the production Composer opens against its two R&D roles");
+
+        let response = Box::pin(composer.run_bounded_feature_program(&locator))
+            .await
+            .expect("the R&D transaction completes");
+        assert_eq!(
+            response.disposition,
+            DevelopComposerOperationDispositionV2::Success,
+            "the authored frozen program must compose to an Artifact: {:?} at {:?}",
+            response.reason,
+            response.coordinate,
+        );
+
+        let artifact = response
+            .artifact
+            .as_ref()
+            .expect("a successful Composer operation carries its Artifact");
+        assert_eq!(
+            artifact.design_digest.as_bytes().as_slice(),
+            stored_design_digest.as_slice(),
+            "the Artifact must be built from the authored Design this entry selected",
+        );
+    }
+
     fn bearer_headers(token: &str) -> HeaderMap {
         let mut headers = HeaderMap::new();
         headers.insert(
