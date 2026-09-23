@@ -204,10 +204,10 @@ done
 # Every SECURITY DEFINER routine, in every database the chain materialized, must search pg_temp last
 # and name no schema another role can create in; scripts/ci/check-security-definer-search-path.sql
 # holds the rule and the shrinking list of routines that do not meet it yet.
-for guard_database in $(docker exec "$container" psql -U postgres -d postgres -Atqc "SELECT datname FROM pg_catalog.pg_database WHERE NOT datistemplate AND datallowconn ORDER BY 1"); do
-  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
-    --username postgres --dbname "$guard_database" \
-    < "$repository_root/scripts/ci/check-security-definer-search-path.sql"
+guard_databases=(postgres)
+for ((guard_ordinal = 1; guard_ordinal <= ${#market_data_owner_postgres_tests[@]}; guard_ordinal++)); do
+  guard_databases+=("${database_prefix}_${guard_ordinal}")
 done
+bash "$repository_root/scripts/ci/run-security-definer-guard.bash" "$container" "${guard_databases[@]}"
 
 exit 0
