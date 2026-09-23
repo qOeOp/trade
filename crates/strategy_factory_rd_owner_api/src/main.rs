@@ -4678,35 +4678,7 @@ mod tests {
 
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
 
-        // The Market Data admissions are composed from the environment and the chain exports
-        // neither URL, so both would be absent and the routes would answer 503 without saying the
-        // answer was about configuration. The roles are pinned in SQL rather than by convention:
-        // the composer cut lock refuses any `session_user` outside
-        // ('market_data_reader','market_data_owner'), and the reader's connect checks sixteen ACL
-        // flags exactly, including that it reaches a published intent only through a function and
-        // holds no direct table privilege. A wrong role fails the way a missing URL does.
-        unsafe {
-            env::set_var(
-                "MARKET_DATA_OWNER_DATABASE_URL",
-                test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner),
-            );
-        }
-        unsafe {
-            env::set_var(
-                "MARKET_DATA_RD_ROLE_SET_DATABASE_URL",
-                test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataReader),
-            );
-        }
-
-        let bindings = bootstrap_market_data_strategy_input_bindings()
-            .await
-            .unwrap();
-        // Asserted before any request, so a configuration answer cannot arrive as a 503 and be
-        // read as the Owner's answer about this Design.
-        assert!(
-            bindings.is_some(),
-            "the strategy input binding admission must be composed before its routes are driven",
-        );
+        let bindings = composed_market_data_binding_admission(&test_database).await;
 
         let rd_pool =
             sqlx::PgPool::connect(test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner))
@@ -4858,7 +4830,8 @@ mod tests {
         );
     }
 
-    /// Publishes a Design this repository authored, not one an acceptance fixture committed.
+    /// Carries a Design this repository authored, not one an acceptance fixture committed, through
+    /// the three routes that publish it, bind it and freeze it.
     ///
     /// `POST /v1/strategy-designs/publish-role-intent` had never been called by anything. The route
     /// is mounted and alive, and `author_single_threshold_program_v1` produces exactly the body it
@@ -4867,56 +4840,115 @@ mod tests {
     /// a freeze that `bounded_feature_program_six_role_bar_fixture_v1` committed, and that fixture
     /// exists only under `cfg(all(test, feature = "sealed-strategy-input-acceptance"))`.
     ///
-    /// The Research identities are taken from custody rather than invented, because
-    /// `derive_design_role_intent_v1` refuses a Design whose three identities disagree with the
-    /// Research request it names. What is new here is the Design, not the Research.
+    /// Everything the Research custody owns is taken from it rather than invented, and the two
+    /// routes disagree about how much that is. `derive_design_role_intent_v1` compares three
+    /// identities, so publication accepts a Design that carries its own falsifier;
+    /// `freeze_research_bounded_feature_program_v1` compares four, the fourth being the falsifier,
+    /// so the same Design is refused at declare with `RESEARCH_CUSTODY_MISMATCH`. Authoring one
+    /// field freely is enough to pass the first route and fail the second. What is new here is the
+    /// Design, not the Research.
+    ///
+    /// The authored channel is the daily close of `AAPL` because the binding admission resolves
+    /// every role against this Owner's own PIT custody at the decision cut, and the only coordinates
+    /// the ordered chain supplies are the six that
+    /// `prepare_owner_bar_joined_cut_acceptance_basis_v1` commits at entry 32 - `MARKET`, `BAR`,
+    /// scale 2, on that instrument. A freely chosen coordinate is refused with
+    /// `STRATEGY_INPUT_SNAPSHOT_UNAVAILABLE`, which would be a true statement about what the chain
+    /// stocks and no statement at all about the route under test.
+    ///
+    /// The declaration is asserted to add exactly one freeze rather than to answer 200. A Design
+    /// that was already frozen rejoins its freeze and also answers 200, so the count is what
+    /// separates a first declaration from a replay, and the stored bytes are compared against what
+    /// was authored because some other Design's freeze would satisfy the count too.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[ignore = "requires the ordered chain's PostgreSQL and a Research request an earlier entry commits"]
-    async fn an_authored_design_publishes_its_role_intent_over_http() {
+    async fn an_authored_design_is_published_bound_and_frozen_over_http() {
         use axum::body::Body;
         use axum::extract::Request;
         use tower::ServiceExt;
         use vibe_strategy_factory::{
             bounded_feature_program_v1::BoundedFeaturePredicateV1,
+            rd_bounded_feature_program_postgres_v1::{
+                PostgresResearchBoundedFeatureProgramOwnerV1, ResearchAuthoringFactsV1,
+            },
             single_threshold_authoring_v1::{
                 SingleThresholdAuthoringRequestV1, SingleThresholdChannelV1,
                 SingleThresholdOutcomeV1, author_single_threshold_program_v1,
             },
-            strategy_design_v2::StrategyDesignV2,
         };
 
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+
         let rd_pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(2)
             .connect(test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner))
             .await
             .unwrap();
 
-        let frozen: Option<(String, Vec<u8>, Vec<u8>)> = sqlx::query_as(
-            "SELECT request_identity, design_bytes, design_identity
-               FROM public.rd_bounded_feature_program_freezes_v1
-              ORDER BY committed_at_epoch_ms DESC
-              LIMIT 1",
+        let token = "rd-owner-api-authored-design-test";
+        let token_digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
+        let owner = Arc::new(
+            PostgresResearchBoundedFeatureProgramOwnerV1::connect(
+                test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+            )
+            .await
+            .unwrap(),
+        );
+
+        // A Research identity accepts exactly one freeze, and answers every later, different
+        // Design with JOINT_FREEZE_CHANGED_MEANING. This entry freezes, so it needs an accepted
+        // custody that has not frozen yet - reading the identities off an already frozen Design,
+        // as this entry first did, can only ever reach that conflict.
+        //
+        // Acceptance is necessary and not sufficient: the authoring facts also require the Intent
+        // to be frozen and the custody to be current at the read cut. Those conditions are not
+        // restated here, because `read_research_authoring_facts_v1` already enforces them on the
+        // freeze path's own parser, and a copy of them in this query would be a second statement
+        // of the same rule that drifts. Candidates are taken in bulk and the accessor decides.
+        let candidates: Vec<String> = sqlx::query_scalar(
+            "SELECT r.request_identity
+               FROM public.rd_research_request_receipts_v1 r
+              WHERE r.receipt_json->>'disposition'='ACCEPTED'
+                AND NOT EXISTS (
+                      SELECT 1
+                        FROM public.rd_bounded_feature_program_freezes_v1 f
+                       WHERE f.request_identity = r.request_identity)
+              ORDER BY r.committed_at_epoch_ms DESC
+              LIMIT 32",
         )
-        .fetch_optional(&rd_pool)
+        .fetch_all(&rd_pool)
         .await
         .unwrap();
-        // Zero rows is a statement about the entries before this one, not about this route.
-        let (locator, committed_design_bytes, committed_design_identity) = frozen.expect(
-            "an earlier ordered entry must have committed a freeze: this entry borrows its Research \
-             identities rather than minting a Research request, so no rows means that entry did not run",
+        // Zero rows is a statement about the entries before this one, not about these routes.
+        assert!(
+            !candidates.is_empty(),
+            "no accepted Research custody is without a freeze, so this entry has nothing it is \
+             allowed to freeze: that is about the entries before this one, not about these routes",
         );
-        let committed: StrategyDesignV2 = serde_json::from_slice(&committed_design_bytes)
-            .expect("the stored Design bytes are the canonical Design");
+        let mut chosen: Option<(String, ResearchAuthoringFactsV1)> = None;
 
-        let (authored, _meaning) =
+        for candidate in &candidates {
+            if let Ok(facts) = owner.read_research_authoring_facts_v1(candidate).await {
+                chosen = Some((candidate.clone(), facts));
+                break;
+            }
+        }
+        let (locator, facts) = chosen.unwrap_or_else(|| {
+            panic!(
+                "none of the {} accepted, unfrozen Research identities carries current authoring \
+                 facts: acceptance alone does not make custody current",
+                candidates.len(),
+            )
+        });
+
+        let (authored, meaning) =
             author_single_threshold_program_v1(&SingleThresholdAuthoringRequestV1 {
-                research_request_identity: committed.research_request_identity,
-                intent_identity: committed.intent_identity,
-                intent_digest: committed.intent_digest,
+                research_request_identity: facts.research_request_identity,
+                intent_identity: facts.intent_identity,
+                intent_digest: facts.intent_digest,
                 channel: SingleThresholdChannelV1 {
                     role_semantic_id: "research.input.close.daily.v1".to_owned(),
-                    instrument: "BTCUSDT-PERP.BINANCE".to_owned(),
+                    instrument: "AAPL".to_owned(),
                     field_semantic_id: "MARKET_DATA.BAR.CLOSE.PRICE.V1".to_owned(),
                     timeframe: "1D".to_owned(),
                     unit: "PRICE".to_owned(),
@@ -4934,53 +4966,74 @@ mod tests {
                     target_variant_semantic_id: "kernel.target.position.v1".to_owned(),
                     target_position_units: 0,
                 },
-                falsifier: "the channel never crosses the threshold in the admitted window"
-                    .to_owned(),
+                // From custody, not invented. The freeze compares four fields against the
+                // accepted Research custody and the falsifier is the fourth: an authored one
+                // publishes (that route derives the role intent from three identities) and then
+                // refuses at declare with RESEARCH_CUSTODY_MISMATCH.
+                falsifier: facts.falsifier.clone(),
             })
             .expect("the authoring surface must author this statement");
 
-        // Without this the route could answer 200 for the fixture's own Design and the run would
-        // read as though an authored one had been accepted.
-        assert_ne!(
-            serde_json::to_vec(&authored).unwrap(),
-            committed_design_bytes,
-            "the authored Design must differ from the fixture Design this entry borrowed identities from",
-        );
-
-        let token = "rd-owner-api-authored-design-test";
-        let token_digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
-        let owner = Arc::new(
-            vibe_strategy_factory::rd_bounded_feature_program_postgres_v1::PostgresResearchBoundedFeatureProgramOwnerV1::connect(
-                test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
-            )
-            .await
-            .unwrap(),
-        );
-        let app = bounded_feature_program::router(owner, token_digest);
-
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/v1/strategy-designs/publish-role-intent")
-                    .header("authorization", format!("Bearer {token}"))
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        serde_json::json!({
-                            "research_request_locator": locator,
-                            "design": authored,
-                        })
-                        .to_string(),
-                    ))
+        let bindings = composed_market_data_binding_admission(&test_database).await;
+        let app =
+            bounded_feature_program::router(owner, token_digest).merge(market_data_pit::router(
+                bootstrap_market_data_pit_intake().await.unwrap(),
+                bootstrap_market_data_source_binding_admission()
+                    .await
                     .unwrap(),
-            )
-            .await
-            .unwrap();
-        let status = response.status();
-        let body = axum::body::to_bytes(response.into_body(), 1 << 20)
-            .await
-            .map(|b| String::from_utf8_lossy(&b).into_owned())
-            .unwrap_or_default();
+                bootstrap_market_data_universe_selection().await.unwrap(),
+                bindings,
+                bootstrap_market_data_instrument_master_admission()
+                    .await
+                    .unwrap(),
+                bootstrap_market_data_market_semantics_admission()
+                    .await
+                    .unwrap(),
+                token_digest,
+            ));
+
+        let post =
+            async |app: Router, path: &str, body: serde_json::Value| -> (StatusCode, String) {
+                let response = app
+                    .oneshot(
+                        Request::builder()
+                            .method("POST")
+                            .uri(path)
+                            .header("authorization", format!("Bearer {token}"))
+                            .header("content-type", "application/json")
+                            .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                let status = response.status();
+                // The rejection code is a header, not a body field, and it is the only part that
+                // says which refusal this is: two different 409s are spelled identically in the
+                // body.
+                let code = response
+                    .headers()
+                    .get("x-rd-rejection-code")
+                    .and_then(|value| value.to_str().ok())
+                    .unwrap_or("-")
+                    .to_owned();
+                let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .unwrap();
+                (
+                    status,
+                    format!("[{code}] {}", String::from_utf8_lossy(&bytes)),
+                )
+            };
+
+        let (status, body) = post(
+            app.clone(),
+            "/v1/strategy-designs/publish-role-intent",
+            serde_json::json!({
+                "research_request_locator": locator,
+                "design": authored,
+            }),
+        )
+        .await;
         assert_eq!(
             status,
             StatusCode::OK,
@@ -4991,30 +5044,22 @@ mod tests {
         // Design it already had. The published intent must name the authored Design, so its identity
         // is compared against the frozen one whose Research identities this entry borrowed.
         let published: serde_json::Value =
-            serde_json::from_str(&body).expect("the published role intent is JSON");
+            serde_json::from_str(body.split_once("] ").expect("the code prefix").1)
+                .expect("the published role intent is JSON");
         let published_design_identity = published
             .get("design_identity")
-            .expect("the published role intent names the Design it published");
-        // Both sides must be the same shape before they are compared, or the inequality below holds
-        // for every input and asserts nothing: a digest rendered as a string could never equal one
-        // rendered as bytes, and the entry would pass whichever Design was published.
+            .expect("the published role intent names the Design it published")
+            .clone();
+        // A shape check rather than a comparison against another Design. This entry no longer
+        // borrows a frozen Design's identities, so there is no second digest to be unequal to;
+        // what the published intent names is settled at the end, by the bytes the freeze stores.
         let published_bytes = published_design_identity
             .as_array()
             .expect("a published design identity is a byte array");
         assert_eq!(
             published_bytes.len(),
-            committed_design_identity.len(),
-            "the two design identities are not the same shape, so comparing them proves nothing",
-        );
-        assert_eq!(
-            published_bytes.len(),
             32,
             "a design identity is a 32-byte digest",
-        );
-        assert_ne!(
-            serde_json::to_string(published_design_identity).unwrap(),
-            serde_json::to_string(&committed_design_identity).unwrap(),
-            "the published intent names the frozen fixture Design, not the authored one: {body}",
         );
         assert!(
             published
@@ -5023,6 +5068,151 @@ mod tests {
                 .is_some_and(|roles| !roles.is_empty()),
             "a published role intent with no roles describes no Design: {body}",
         );
+
+        // Publishing proves the Design is well formed and names its Research. It does not prove this
+        // Owner can bind it: that route resolves every role against its own PIT custody at the
+        // decision cut and refuses a coordinate it does not hold, which is why the authored channel
+        // is the daily close of the instrument the ordered chain's basis supplies rather than a
+        // coordinate chosen freely.
+        let (status, body) = post(
+            app.clone(),
+            "/v1/market-data/strategy-input-bindings/from-design-intent",
+            serde_json::json!({ "design_identity": published_design_identity }),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "the authored Design's roles must resolve to Owner-held snapshots: {body}",
+        );
+
+        // Counted for this Research identity rather than for the table, because other ordered
+        // entries commit freezes of their own and a whole-table delta would be their count as
+        // much as this one's. Zero here is also what makes the declaration below a first freeze
+        // rather than a replay: a replay answers 200 and adds none.
+        let freezes_before: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM public.rd_bounded_feature_program_freezes_v1
+              WHERE request_identity = $1",
+        )
+        .bind(&locator)
+        .fetch_one(&rd_pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            freezes_before, 0,
+            "the selected Research identity already has a freeze, so this entry would be asserting \
+             a replay rather than a first freeze",
+        );
+        let (status, body) = post(
+            app,
+            "/v1/bounded-feature-programs/declare",
+            serde_json::json!({
+                "research_request_locator": locator,
+                "design": authored,
+                "meaning": meaning,
+            }),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "declaring the authored Design must assemble and freeze it: {body}",
+        );
+
+        let freezes_after: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM public.rd_bounded_feature_program_freezes_v1
+              WHERE request_identity = $1",
+        )
+        .bind(&locator)
+        .fetch_one(&rd_pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            freezes_after, 1,
+            "an authored Design on an unfrozen Research identity must commit exactly one freeze",
+        );
+
+        // The count alone would also be satisfied by a freeze of some other Design committed by
+        // this call, so the stored Design is compared against the one this entry published.
+        //
+        // By identity rather than by bytes. The Owner stores the canonical Design, and
+        // `serde_json::to_vec` of the authored value is not that: canonicalization sorts
+        // `reactions`, `plugins` and each node's `output_port_ids`, so the two encodings differ in
+        // order while being the same Design, and comparing them failed while everything it was
+        // meant to check was correct. The canonicalizer is `pub(crate)`, so this crate cannot
+        // reproduce those bytes, and hand-rolling an order-insensitive comparison here would be a
+        // second, weaker statement of the Owner's own notion of Design equality. The identity is
+        // that notion: it is derived from the canonical bytes, the publication reported it for the
+        // Design this entry authored, and the freeze row carries it for the Design it committed.
+        let stored_design_identity: Vec<u8> = sqlx::query_scalar(
+            "SELECT design_identity
+               FROM public.rd_bounded_feature_program_freezes_v1
+              WHERE request_identity = $1",
+        )
+        .bind(&locator)
+        .fetch_one(&rd_pool)
+        .await
+        .unwrap();
+        let published_identity_bytes: Vec<u8> = published_bytes
+            .iter()
+            .map(|byte| {
+                u8::try_from(byte.as_u64().expect("a digest byte is a JSON number"))
+                    .expect("a digest byte fits in u8")
+            })
+            .collect();
+        assert_eq!(
+            stored_design_identity.len(),
+            32,
+            "a stored design identity is a 32-byte digest",
+        );
+        assert_eq!(
+            stored_design_identity, published_identity_bytes,
+            "the freeze this entry committed must hold the Design this entry published",
+        );
+    }
+
+    /// Composes the Market Data binding admission the ordered chain's entries drive their routes
+    /// with, and refuses to hand back one that is absent.
+    ///
+    /// The admission is composed from the environment and the chain exports neither URL, so an
+    /// entry that omits them receives `None`, and its routes then answer 503 about their own
+    /// configuration rather than about the Design under test.
+    ///
+    /// The two variables and the check that they worked live in one function because separating
+    /// them is how they came apart: an entry took the assertion from its neighbour without the
+    /// block three hundred lines above that makes it hold, and failed on the assertion rather than
+    /// on the omission. The comment there predicted that failure exactly and did not prevent it,
+    /// because code is copied upward and comments are not read upward. Here the assertion cannot
+    /// be taken without the setup.
+    ///
+    /// The roles are pinned in SQL rather than by convention: the composer cut lock refuses any
+    /// `session_user` outside ('market_data_reader','market_data_owner'), and the reader's connect
+    /// checks sixteen ACL flags exactly, including that it reaches a published intent only through
+    /// a function and holds no direct table privilege. A wrong role fails the way a missing URL
+    /// does.
+    async fn composed_market_data_binding_admission(
+        test_database: &CanonicalOwnerPostgresTestDatabaseV1,
+    ) -> Option<Arc<dyn StrategyInputBindingAdmissionV1>> {
+        unsafe {
+            env::set_var(
+                "MARKET_DATA_OWNER_DATABASE_URL",
+                test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner),
+            );
+        }
+        unsafe {
+            env::set_var(
+                "MARKET_DATA_RD_ROLE_SET_DATABASE_URL",
+                test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataReader),
+            );
+        }
+        let bindings = bootstrap_market_data_strategy_input_bindings()
+            .await
+            .unwrap();
+        assert!(
+            bindings.is_some(),
+            "the strategy input binding admission must be composed before its routes are driven",
+        );
+        bindings
     }
 
     fn bearer_headers(token: &str) -> HeaderMap {
