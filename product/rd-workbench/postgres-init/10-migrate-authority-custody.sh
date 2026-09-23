@@ -5213,7 +5213,7 @@ GRANT EXECUTE ON FUNCTION composer_owner_api.resolve_develop_composer_locator_fo
 CREATE OR REPLACE FUNCTION composer_owner_api.resolve_artifact_build_receipts_v1(p_artifact_identity bytea)
 RETURNS TABLE (ordinal integer, receipt_tag integer, receipt_identity bytea, build_attempt_identity bytea, capsule_identity bytea, canonical_bytes bytea)
 LANGUAGE plpgsql STRICT STABLE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path = pg_catalog AS $composer_artifact_build_receipts$BEGIN
+SET search_path = pg_catalog, pg_temp AS $composer_artifact_build_receipts$BEGIN
   IF SESSION_USER<>'rd_owner' OR CURRENT_USER<>'composer_owner' THEN RAISE EXCEPTION 'R&D Owner required' USING ERRCODE='42501'; END IF;
   IF NOT EXISTS (SELECT 1 FROM composer_private.rd_develop_artifacts_v2 artifact WHERE artifact.artifact_identity=p_artifact_identity) THEN
     RAISE EXCEPTION 'Composer artifact is absent' USING ERRCODE='P0002';

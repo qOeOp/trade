@@ -961,7 +961,7 @@ pub async fn resolve_artifact_build_receipts_v1_in_transaction(
             AND procedure.proisstrict
             AND procedure.proretset
             AND procedure.prokind='f'
-            AND procedure.proconfig=ARRAY['search_path=pg_catalog']::text[]
+            AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[]
             AND procedure.proargtypes='17'::pg_catalog.oidvector
             AND procedure.proargnames=ARRAY['p_artifact_identity','ordinal','receipt_tag','receipt_identity','build_attempt_identity','capsule_identity','canonical_bytes']::text[]
             AND pg_catalog.pg_get_userbyid(procedure.proowner)='composer_owner'

@@ -279,27 +279,20 @@ impl DevelopPluginBuildReceiptV3 {
         capsule: &PreparedDevelopPluginCapsuleV3,
     ) -> Result<Self, DevelopPluginBuildTerminalV3> {
         let receipt = Self::decode_canonical(bytes)?;
+        receipt.validate_self()?;
         receipt.validate_for(capsule)?;
         Ok(receipt)
     }
 
     /// Parses receipt bytes read back from Composer custody, where no capsule is at hand.
     ///
-    /// It checks what the bytes can prove about themselves: the V3 schema, canonical encoding,
-    /// and a `receipt_digest` recomputed over the body. Binding to a capsule stays
-    /// `parse_canonical_for`'s job; the Composer store bound the receipt to its artifact when it
-    /// committed it, under the identity the caller compares with [`Self::receipt_digest`].
+    /// It checks canonical encoding and the receipt's own tag, schema and digest. The binding to a
+    /// capsule and the execution profile stay `parse_canonical_for`'s: the digest covers them,
+    /// and the Composer store checked them against the capsule when it committed the receipt,
+    /// under the identity the caller compares with [`Self::receipt_digest`].
     pub(crate) fn parse_stored(bytes: &[u8]) -> Result<Self, DevelopPluginBuildTerminalV3> {
         let receipt = Self::decode_canonical(bytes)?;
-        if receipt.receipt_tag != RECEIPT_TAG
-            || receipt.schema_version != RECEIPT_SCHEMA_VERSION
-            || receipt.receipt_digest != receipt_digest(&receipt)
-        {
-            return Err(DevelopPluginBuildTerminalV3::invalid_receipt(
-                "receipt.stored",
-                "stored V3 receipt bytes do not carry the V3 tag or their own digest",
-            ));
-        }
+        receipt.validate_self()?;
         Ok(receipt)
     }
 
@@ -328,14 +321,26 @@ impl DevelopPluginBuildReceiptV3 {
         Ok(receipt)
     }
 
+    /// The checks a receipt answers on its own, shared by the build-time and read-back parses.
+    fn validate_self(&self) -> Result<(), DevelopPluginBuildTerminalV3> {
+        if self.receipt_tag != RECEIPT_TAG
+            || self.schema_version != RECEIPT_SCHEMA_VERSION
+            || self.receipt_digest != receipt_digest(self)
+        {
+            return Err(DevelopPluginBuildTerminalV3::invalid_receipt(
+                "receipt.self",
+                "V3 receipt does not carry the V3 tag and schema, or does not reproduce its own digest",
+            ));
+        }
+        Ok(())
+    }
+
     fn validate_for(
         &self,
         capsule: &PreparedDevelopPluginCapsuleV3,
     ) -> Result<(), DevelopPluginBuildTerminalV3> {
         let expected = &capsule.value;
-        let bindings_match = self.receipt_tag == RECEIPT_TAG
-            && self.schema_version == RECEIPT_SCHEMA_VERSION
-            && self.capsule_digest == capsule.digest
+        let bindings_match = self.capsule_digest == capsule.digest
             && self.plugin_semantic_id == expected.plugin_semantic_id
             && self.manifest_digest == expected.manifest_digest
             && self.joint_freeze_digest == expected.joint_freeze_digest
@@ -388,10 +393,10 @@ impl DevelopPluginBuildReceiptV3 {
                         )
                 });
 
-        if !execution_profile_matches || self.receipt_digest != receipt_digest(self) {
+        if !execution_profile_matches {
             return Err(DevelopPluginBuildTerminalV3::invalid_receipt(
                 "receipt.execution",
-                "V3 receipt execution or digest evidence is invalid",
+                "V3 receipt execution evidence is invalid",
             ));
         }
         Ok(())
@@ -1624,16 +1629,25 @@ mod tests {
         receipt.schema_version = 2;
         receipt.receipt_digest = receipt_digest(receipt);
     })]
-    fn stored_receipt_bytes_that_do_not_prove_themselves_are_refused(
+    fn a_receipt_that_does_not_prove_itself_is_refused_at_build_and_at_readback(
         #[case] mutate: fn(&mut DevelopPluginBuildReceiptV3),
     ) {
-        let mut receipt = fixture_receipt(&fixture_capsule());
+        let capsule = fixture_capsule();
+        let mut receipt = fixture_receipt(&capsule);
         mutate(&mut receipt);
+        let bytes = receipt.canonical_bytes();
 
         assert_eq!(
-            DevelopPluginBuildReceiptV3::parse_stored(&receipt.canonical_bytes())
-                .map_err(|terminal| terminal.coordinate),
-            Err("receipt.stored".to_owned())
+            (
+                DevelopPluginBuildReceiptV3::parse_canonical_for(&bytes, &capsule)
+                    .map_err(|terminal| terminal.coordinate),
+                DevelopPluginBuildReceiptV3::parse_stored(&bytes)
+                    .map_err(|terminal| terminal.coordinate),
+            ),
+            (
+                Err("receipt.self".to_owned()),
+                Err("receipt.self".to_owned())
+            )
         );
     }
 
