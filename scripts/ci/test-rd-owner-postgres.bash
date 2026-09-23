@@ -127,6 +127,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-qualification|vibe_qualification|postgres::postgres_tests::an_orphaned_projection_names_itself_rather_than_the_caller_request'
   'vibe-qualification|vibe_qualification|postgres::postgres_tests::an_eligibility_fact_window_is_derived_and_its_lineage_is_enforced_by_storage'
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::the_authored_frozen_program_runs_the_production_composer'
+  'vibe-strategy-factory|vibe_strategy_factory|iteration_decision_postgres::postgres_acceptance_tests::backtest_run_report_postgres_acceptance_tests::backtest_run_report_reads_back_every_point_a_real_run_committed'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
@@ -169,8 +170,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 99 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all 99 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 100 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all 100 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -281,7 +282,8 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[95]}" != *'|postgres::postgres_tests::an_orphaned_projection_names_itself_rather_than_the_caller_request' ]] ||
     [[ "${rd_owner_postgres_tests[96]}" != *'|postgres::postgres_tests::an_eligibility_fact_window_is_derived_and_its_lineage_is_enforced_by_storage' ]] ||
     [[ "${rd_owner_postgres_tests[97]}" != *'|tests::the_authored_frozen_program_runs_the_production_composer' ]] ||
-    [[ "${rd_owner_postgres_tests[98]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[98]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::backtest_run_report_postgres_acceptance_tests::backtest_run_report_reads_back_every_point_a_real_run_committed' ]] ||
+    [[ "${rd_owner_postgres_tests[99]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
@@ -399,7 +401,7 @@ for line in array_body.splitlines():
     entries.append(tuple(fields))
 # The count lives in one place. Writing it into the message as well lets the two drift, and the
 # drifted form reads as nonsense the moment it fires: "must contain 92 entries, found 92".
-expected_entries = 99
+expected_entries = 100
 if len(entries) != expected_entries:
     raise SystemExit(
         f"ERROR: ordered PostgreSQL test literal must contain {expected_entries} entries, found {len(entries)}."
@@ -525,7 +527,7 @@ if invocation != expected_invocation:
     )
 PY
   if ! rg -Uq \
-    "strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody'.*\n[[:space:]]+\[\[.*successor_artifact_enters_exploratory_replay_with_exact_owner_custody'.*\n[[:space:]]+\[\[.*analysis_request_completion_resolve_restart_and_tamper_are_atomic'.*\n[[:space:]]+\[\[.*positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic'.*\n[[:space:]]+\[\[.*test_binary.*trial_family_owner'.*\n[[:space:]]+\[\[.*test_name.*artifact_build_postgres::postgres_freshness_tests::\*.*\n[[:space:]]+\[\[.*test_binary.*source_intake'.*\n[[:space:]]+\[\[.*test_binary.*vibe_qualification'.*\n[[:space:]]+\[\[.*postgres_protected_v3_results_and_attempt_frontiers_close_every_terminal_lineage'.*\n[[:space:]]+\[\[.*second_request_under_one_principal_resolves_through_the_frontier_arm'.*\n[[:space:]]+RUST_MIN_STACK=16777216.*\n[[:space:]]+cargo nextest run" \
+    "strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody'.*\n[[:space:]]+\[\[.*successor_artifact_enters_exploratory_replay_with_exact_owner_custody'.*\n[[:space:]]+\[\[.*analysis_request_completion_resolve_restart_and_tamper_are_atomic'.*\n[[:space:]]+\[\[.*backtest_run_report_reads_back_every_point_a_real_run_committed'.*\n[[:space:]]+\[\[.*positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic'.*\n[[:space:]]+\[\[.*test_binary.*trial_family_owner'.*\n[[:space:]]+\[\[.*test_name.*artifact_build_postgres::postgres_freshness_tests::\*.*\n[[:space:]]+\[\[.*test_binary.*source_intake'.*\n[[:space:]]+\[\[.*test_binary.*vibe_qualification'.*\n[[:space:]]+\[\[.*postgres_protected_v3_results_and_attempt_frontiers_close_every_terminal_lineage'.*\n[[:space:]]+\[\[.*second_request_under_one_principal_resolves_through_the_frontier_arm'.*\n[[:space:]]+RUST_MIN_STACK=16777216.*\n[[:space:]]+cargo nextest run" \
     "${BASH_SOURCE[0]}"; then
     echo "ERROR: large composed acceptances must use their admitted test-thread stack." >&2
     return 1
@@ -3475,6 +3477,7 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
   elif [[ "$test_name" == 'tests::strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody' ]] ||
     [[ "$test_name" == 'iteration_decision_postgres::postgres_acceptance_tests::successor_artifact_enters_exploratory_replay_with_exact_owner_custody' ]] ||
     [[ "$test_name" == 'iteration_decision_postgres::postgres_acceptance_tests::iteration_analysis_postgres_acceptance_tests::analysis_request_completion_resolve_restart_and_tamper_are_atomic' ]] ||
+    [[ "$test_name" == 'iteration_decision_postgres::postgres_acceptance_tests::backtest_run_report_postgres_acceptance_tests::backtest_run_report_reads_back_every_point_a_real_run_committed' ]] ||
     [[ "$test_name" == 'iteration_decision_postgres::postgres_acceptance_tests::positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic' ]] ||
     [[ "$test_binary" == 'trial_family_owner' ]] ||
     [[ "$test_name" == artifact_build_postgres::postgres_freshness_tests::* ]] ||
