@@ -28,6 +28,7 @@ mod tests {
     use async_trait::async_trait;
     use axum::http::{HeaderValue, header::AUTHORIZATION};
     use sqlx::Row;
+    use tokio::net::TcpListener;
     use vibe_strategy_factory::{
         artifact_build::{
             ArtifactBuildResultV1, ArtifactDirectoryCompletenessV1, ArtifactDirectoryReadbackV1,
@@ -59,6 +60,7 @@ mod tests {
         http::{HeaderMap, StatusCode},
     };
     use sha2::{Digest, Sha256};
+    use vibe_strategy_factory::ExploratoryReplayResultLocatorV2;
     use vibe_strategy_factory::{
         BacktestResultCustodyErrorV2,
         artifact_build::{
@@ -83,16 +85,18 @@ mod tests {
         },
     };
     use vibe_strategy_factory_rd_owner_api::dashboard_read_api::{
-        ApiState, ArtifactDirectoryQueryV1, ExploratoryReplayHistoricalRejectionOwnerPortV1,
+        self as dashboard_read_api, ApiState, ArtifactDirectoryQueryV1, BACKTEST_RUN_ABSENT_V1,
+        BacktestRunReportAnswerV1, BacktestRunReportOwnerPortV1, DashboardReadApiConfigV1,
+        ExploratoryReplayHistoricalRejectionOwnerPortV1,
         ExploratoryReplayHistoricalRejectionQueryV1, ExploratoryReplayReadbackOwnerPortV2,
         ExploratoryReplayReadbackQueryV2, ExploratoryReplayResultPathV2,
         ExploratoryReplayResultQueryV2, ExploratoryReplayResultReadbackOwnerPortV2,
         ResearchDirectoryQueryV1, UnavailableDashboardJourneyReadbackV1,
         UnavailableHistoricalCustodyV1, read_artifact, read_artifact_directory,
-        read_artifact_source, read_develop_composer, read_exploratory_replay,
-        read_exploratory_replay_historical_rejection, read_exploratory_replay_result,
-        read_formation_catalog, read_historical_custodies, read_iteration_timeline,
-        read_research_directory, read_research_v2, read_source_intake,
+        read_artifact_source, read_backtest_run_report, read_develop_composer,
+        read_exploratory_replay, read_exploratory_replay_historical_rejection,
+        read_exploratory_replay_result, read_formation_catalog, read_historical_custodies,
+        read_iteration_timeline, read_research_directory, read_research_v2, read_source_intake,
     };
 
     #[derive(Default)]
@@ -201,6 +205,39 @@ mod tests {
         readback_calls: AtomicUsize,
         result_calls: AtomicUsize,
         historical_rejection_calls: AtomicUsize,
+    }
+
+    struct RecordingRunReport {
+        answer: BacktestRunReportAnswerV1,
+        locators: Mutex<Vec<(String, String, String)>>,
+    }
+
+    impl RecordingRunReport {
+        fn answering(answer: BacktestRunReportAnswerV1) -> Arc<Self> {
+            Arc::new(Self {
+                answer,
+                locators: Mutex::new(Vec::new()),
+            })
+        }
+
+        fn locators(&self) -> Vec<(String, String, String)> {
+            self.locators.lock().unwrap().clone()
+        }
+    }
+
+    #[async_trait]
+    impl BacktestRunReportOwnerPortV1 for RecordingRunReport {
+        async fn read_backtest_run_report(
+            &self,
+            locator: ExploratoryReplayResultLocatorV2<'_>,
+        ) -> BacktestRunReportAnswerV1 {
+            self.locators.lock().unwrap().push((
+                locator.result_identity.to_owned(),
+                locator.request_identity.to_owned(),
+                locator.attempt_identity.to_owned(),
+            ));
+            self.answer.clone()
+        }
     }
 
     #[derive(Default)]
@@ -346,6 +383,7 @@ mod tests {
             exploratory_replay_result_readback: Arc::new(RecordingReplay::default()),
             exploratory_replay_historical_rejection_readback: Arc::new(RecordingReplay::default()),
             historical_custody: Arc::new(UnavailableHistoricalCustodyV1),
+            backtest_run_report: RecordingRunReport::answering(BacktestRunReportAnswerV1::Absent),
             token_digest: Sha256::digest(b"test-token").into(),
         }
     }
@@ -826,6 +864,102 @@ mod tests {
         assert_eq!(replay.result_calls.load(Ordering::SeqCst), 1);
     }
 
+    async fn run_report(
+        answer: BacktestRunReportAnswerV1,
+        request_identity: &str,
+        headers: HeaderMap,
+    ) -> (StatusCode, Vec<u8>, Vec<(String, String, String)>) {
+        let owner = RecordingRunReport::answering(answer);
+        let mut api = state(
+            Arc::new(RecordingArtifact::default()),
+            Arc::new(RecordingResearch::default()),
+            Arc::new(RecordingSourceIntake::default()),
+        );
+        api.backtest_run_report = owner.clone();
+        let response = read_backtest_run_report(
+            State(api),
+            Path(ExploratoryReplayResultPathV2 {
+                result_identity: "result-1".to_owned(),
+            }),
+            Query(ExploratoryReplayResultQueryV2 {
+                request_identity: request_identity.to_owned(),
+                attempt_identity: "attempt-1".to_owned(),
+            }),
+            headers,
+        )
+        .await;
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), 1 << 20)
+            .await
+            .unwrap()
+            .to_vec();
+        (status, body, owner.locators())
+    }
+
+    #[tokio::test]
+    async fn run_report_asks_the_owner_only_for_an_authorized_exact_locator() {
+        let report = BacktestRunReportAnswerV1::Report(b"{}".to_vec());
+        let (status, _, locators) = run_report(report.clone(), "request-1", HeaderMap::new()).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(locators.is_empty());
+
+        let (status, _, locators) = run_report(report.clone(), " request-1", headers()).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(locators.is_empty());
+
+        let (_, _, locators) = run_report(report, "request-1", headers()).await;
+        assert_eq!(
+            locators,
+            vec![(
+                "result-1".to_owned(),
+                "request-1".to_owned(),
+                "attempt-1".to_owned()
+            )]
+        );
+    }
+
+    #[tokio::test]
+    async fn run_report_relays_each_owner_answer_and_adds_nothing() {
+        let projection = br#"{"state":"EMPTY","run":{"result_identity":"result-1"}}"#.to_vec();
+        let (status, body, _) = run_report(
+            BacktestRunReportAnswerV1::Report(projection.clone()),
+            "request-1",
+            headers(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, projection);
+
+        for (answer, expected_status, reason) in [
+            (
+                BacktestRunReportAnswerV1::Absent,
+                StatusCode::NOT_FOUND,
+                BACKTEST_RUN_ABSENT_V1,
+            ),
+            (
+                BacktestRunReportAnswerV1::Refused("NON_FINITE_VALUE"),
+                StatusCode::SERVICE_UNAVAILABLE,
+                "NON_FINITE_VALUE",
+            ),
+        ] {
+            let (status, body, _) = run_report(answer, "request-1", headers()).await;
+            assert_eq!(status, expected_status);
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+                serde_json::json!({ "state": "UNAVAILABLE", "reason": reason })
+            );
+        }
+
+        let (status, body, _) = run_report(
+            BacktestRunReportAnswerV1::Unavailable,
+            "request-1",
+            headers(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert!(body.is_empty(), "no Owner answer means no reason to relay");
+    }
+
     #[tokio::test]
     async fn historical_replay_rejection_requires_auth_and_exact_selector() {
         let replay = Arc::new(RecordingReplay::default());
@@ -930,5 +1064,251 @@ mod tests {
         )
         .await;
         assert_eq!(cross_spliced.status(), StatusCode::NOT_FOUND);
+    }
+
+    /// One exploratory result and the selector the `/backtest` workbench opens it with.
+    struct OpenableResult {
+        result_identity: String,
+        request_identity: String,
+        meaning_digest: String,
+        attempt_identity: String,
+    }
+
+    /// Asks the production handlers whether the workbench can open this result: the request
+    /// readback first, then the result readback. The report mounts only beneath an opened result,
+    /// so a run neither of these answers is a run the page cannot reach.
+    async fn workbench_opens(
+        api: &ApiState,
+        candidate: &OpenableResult,
+    ) -> (StatusCode, StatusCode) {
+        let request = read_exploratory_replay(
+            State(api.clone()),
+            Query(ExploratoryReplayReadbackQueryV2 {
+                request_identity: candidate.request_identity.clone(),
+                meaning_digest: candidate.meaning_digest.clone(),
+            }),
+            headers(),
+        )
+        .await
+        .status();
+        let result = read_exploratory_replay_result(
+            State(api.clone()),
+            Path(ExploratoryReplayResultPathV2 {
+                result_identity: candidate.result_identity.clone(),
+            }),
+            Query(ExploratoryReplayResultQueryV2 {
+                request_identity: candidate.request_identity.clone(),
+                attempt_identity: candidate.attempt_identity.clone(),
+            }),
+            headers(),
+        )
+        .await
+        .status();
+        (request, result)
+    }
+
+    async fn report_relation_counts(pool: &sqlx::PgPool, rd_pool: &sqlx::PgPool) -> [i64; 3] {
+        let count = |sql: &'static str, pool: &sqlx::PgPool| {
+            let pool = pool.clone();
+            async move {
+                sqlx::query_scalar::<_, i64>(sql)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap()
+            }
+        };
+        [
+            count(
+                "SELECT COUNT(*) FROM public.backtest_replay_results_v2",
+                pool,
+            )
+            .await,
+            count(
+                "SELECT COUNT(*) FROM public.backtest_native_replay_outcome_evidence_v1",
+                pool,
+            )
+            .await,
+            count(
+                "SELECT COUNT(*) FROM public.rd_sealed_exploratory_replay_requests_v1",
+                rd_pool,
+            )
+            .await,
+        ]
+    }
+
+    /// Full-route acceptance of the single-run report on `/backtest`, through the production read
+    /// API composition, a production Dashboard build and a real browser.
+    ///
+    /// It proves the unavailable state from a real Owner reason: a result the workbench can open,
+    /// committed without outcome evidence, for which the Backtest Owner answers
+    /// `OUTCOME_EVIDENCE_ABSENT`. It then opens the run the preceding chain entry committed from a
+    /// real engine run and asserts what that run renders today. That run's engine bytes are real, but
+    /// its input is constructed quotes and it reached custody through a test writer, not through a
+    /// production-produced run. This entry must follow that one.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "requires the ordered chain's committed run report, Dashboard dependencies and Chrome acceptance admission"]
+    async fn backtest_run_report_browser_acceptance_reads_the_owner_answer() {
+        if std::env::var("DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE").as_deref() != Ok("1") {
+            return;
+        }
+        let browser_executable = std::env::var("DASHBOARD_STRATEGY_VIEWER_BROWSER_EXECUTABLE")
+            .expect("explicit browser executable is required");
+        let acceptance_candidate = std::env::var("DASHBOARD_STRATEGY_VIEWER_ACCEPTANCE_CANDIDATE")
+            .expect("exact committed Dashboard candidate is required");
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let mutation = test_database.mutation();
+        let backtest_pool = mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner);
+        let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+
+        let run_rows = sqlx::query(
+            "SELECT result_identity, request_identity, request_meaning_digest, attempt_identity
+               FROM public.backtest_native_replay_outcome_evidence_v1
+              WHERE attempt_identity LIKE 'backtest-attempt-run-report-%'",
+        )
+        .fetch_all(backtest_pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            run_rows.len(),
+            1,
+            "the preceding chain entry commits exactly one run for the report"
+        );
+        let openable = |row: &sqlx::postgres::PgRow| OpenableResult {
+            result_identity: row.try_get("result_identity").unwrap(),
+            request_identity: row.try_get("request_identity").unwrap(),
+            meaning_digest: row.try_get("request_meaning_digest").unwrap(),
+            attempt_identity: row.try_get("attempt_identity").unwrap(),
+        };
+        let run = openable(&run_rows[0]);
+
+        // Composed exactly as the binary composes it, with the read API's own credential.
+        let read_token = "rd-dashboard-read-run-report-acceptance";
+        let api = dashboard_read_api::compose_state(&DashboardReadApiConfigV1 {
+            owner_database_url: test_database
+                .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+                .to_string(),
+            token: read_token.to_string(),
+            source_intake: None,
+            bind: String::new(),
+        })
+        .await
+        .unwrap();
+        let mut probe = api.clone();
+        probe.token_digest = Sha256::digest(b"test-token").into();
+
+        // Two layers stand between the page and the report. Each is asserted on its own, so a run
+        // the page cannot reach names the layer that stopped it instead of reading as a report
+        // that did not appear.
+        let (request_layer, result_layer) = workbench_opens(&probe, &run).await;
+        assert_eq!(
+            request_layer,
+            StatusCode::OK,
+            "layer 1: the request readback does not open the committed run's request"
+        );
+        assert_eq!(
+            result_layer,
+            StatusCode::OK,
+            "layer 2: the result readback does not open the committed run's result"
+        );
+
+        // A result the workbench opens but that carries no outcome evidence, so the Owner itself
+        // answers why it has no report.
+        let without_evidence = sqlx::query(
+            "SELECT result.result_identity, result.request_identity,
+                    result.request_meaning_digest, result.attempt_identity
+               FROM public.backtest_replay_results_v2 result
+              WHERE NOT EXISTS (
+                    SELECT 1 FROM public.backtest_native_replay_outcome_evidence_v1 evidence
+                     WHERE evidence.result_identity = result.result_identity)
+              ORDER BY result.result_identity",
+        )
+        .fetch_all(backtest_pool)
+        .await
+        .unwrap();
+        let mut refused = None;
+
+        for row in &without_evidence {
+            let candidate = openable(row);
+            if workbench_opens(&probe, &candidate).await == (StatusCode::OK, StatusCode::OK) {
+                refused = Some(candidate);
+                break;
+            }
+        }
+        let refused = refused.unwrap_or_else(|| {
+            panic!(
+                "none of the {} results committed without outcome evidence opens in the workbench, \
+                 so no real Owner refusal is reachable from the page",
+                without_evidence.len()
+            )
+        });
+
+        let before = report_relation_counts(backtest_pool, rd_pool).await;
+        let read_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let read_address = read_listener.local_addr().unwrap();
+        let read_server = tokio::spawn(async move {
+            axum::serve(read_listener, dashboard_read_api::router(api)).await
+        });
+        let preview_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let preview_port = preview_listener.local_addr().unwrap().port();
+        drop(preview_listener);
+        let dashboard_root =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../product/dashboard");
+        let mut browser = std::process::Command::new("node");
+        browser
+            .arg("--test")
+            .arg("tests/backtest-run-report.browser.test.mjs")
+            .current_dir(&dashboard_root)
+            .env("DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE", "1")
+            .env(
+                "DASHBOARD_STRATEGY_VIEWER_ACCEPTANCE_CANDIDATE",
+                acceptance_candidate,
+            )
+            .env(
+                "DASHBOARD_STRATEGY_VIEWER_BROWSER_EXECUTABLE",
+                browser_executable,
+            )
+            .env(
+                "DASHBOARD_RUN_REPORT_PREVIEW_PORT",
+                preview_port.to_string(),
+            )
+            .env(
+                "RD_DASHBOARD_OWNER_READ_API_URL",
+                format!("http://{read_address}/"),
+            )
+            .env("RD_DASHBOARD_OWNER_READ_API_TOKEN", read_token);
+
+        for (prefix, selected) in [("RUN", &run), ("REFUSED", &refused)] {
+            browser
+                .env(
+                    format!("DASHBOARD_RUN_REPORT_{prefix}_RESULT_IDENTITY"),
+                    &selected.result_identity,
+                )
+                .env(
+                    format!("DASHBOARD_RUN_REPORT_{prefix}_REQUEST_IDENTITY"),
+                    &selected.request_identity,
+                )
+                .env(
+                    format!("DASHBOARD_RUN_REPORT_{prefix}_MEANING_DIGEST"),
+                    &selected.meaning_digest,
+                )
+                .env(
+                    format!("DASHBOARD_RUN_REPORT_{prefix}_ATTEMPT_IDENTITY"),
+                    &selected.attempt_identity,
+                );
+        }
+        // Waiting on the child off the worker pool keeps both workers serving the page's reads.
+        let browser_status = tokio::task::spawn_blocking(move || browser.status())
+            .await
+            .expect("the browser acceptance wait joins")
+            .unwrap();
+        read_server.abort();
+        let _ = read_server.await;
+
+        let after = report_relation_counts(backtest_pool, rd_pool).await;
+        assert!(browser_status.success());
+        assert_eq!(
+            after, before,
+            "reading the report wrote to an Owner relation"
+        );
     }
 }

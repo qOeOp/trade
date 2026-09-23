@@ -205,6 +205,17 @@ committed bytes. Where no run in the ordered chain can produce the available sta
 recorded as not constructible today with the reason, and no fixture stands in for it. Component tests
 and static rendering alone still establish neither live data nor deployed-browser acceptance.
 
+The authenticated read API route is exactly
+`GET /v1/backtest-run-reports/{result_identity}?request_identity={request_identity}&attempt_identity={attempt_identity}`,
+keyed by the same three-field locator the `/backtest` result lookup already holds. It reads the Backtest
+Owner projection inside one R&D Owner transaction that is always rolled back. A report answers `200` with
+the projection exactly as the Owner serialized it. An absent run answers `404` and an Owner refusal answers
+`503`, each with an envelope that carries `state: UNAVAILABLE` and the reason and nothing else: the absent
+run's reason is `BACKTEST_RUN_ABSENT`, a refusal's is the Owner's own code, and the refusal's sentence stays
+in the log. The Dashboard BFF binds the three identities without normalization and relays that answer. It
+names a reason of its own only for a leg that failed before any Owner answer arrived, or for a report this
+contract refuses.
+
 ## Bounded admission: Exploratory Replay request and result readback
 
 `ExploratoryReplayReadbackWorkbench` is the exact `P` surface for `/backtest`. It is an

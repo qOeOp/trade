@@ -142,6 +142,30 @@ impl PostgresExploratoryReplayReadbackOwnerV2 {
             .map_err(|_| crate::BacktestResultCustodyErrorV2::Unavailable)?;
         result
     }
+
+    /// Reads one committed run's report through the Backtest Owner's run-report read.
+    ///
+    /// Like the result read above, the transaction is always rolled back and this adapter exposes
+    /// no mutation method. A transaction that cannot begin or end is the Owner's custody being
+    /// unreadable, so it is named as that refusal rather than as a new one.
+    pub async fn resolve_backtest_run_report_v1(
+        &self,
+        locator: crate::ExploratoryReplayResultLocatorV2<'_>,
+    ) -> Result<
+        Option<crate::backtest_run_report_read_v1::BacktestRunReportProjectionV1>,
+        crate::backtest_run_report_read_v1::BacktestRunReportRefusalV1,
+    > {
+        use crate::backtest_run_report_read_v1::{
+            BacktestRunReportRefusalV1, resolve_backtest_run_report_v1,
+        };
+
+        let unavailable =
+            |e: sqlx::Error| BacktestRunReportRefusalV1::OutcomeEvidenceUnavailable(e.to_string());
+        let mut transaction = self.pool.begin().await.map_err(unavailable)?;
+        let report = resolve_backtest_run_report_v1(&mut transaction, locator).await;
+        transaction.rollback().await.map_err(unavailable)?;
+        report
+    }
 }
 
 impl PostgresResearchReadbackOwnerV1 {
