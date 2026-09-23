@@ -1092,8 +1092,9 @@ selection/master/semantics/lineage 任一拼接，
 binding contract，不声称 compiler、shared kernel、ProgramHost、Backtest、Paper、Live 或生产成熟度。
 
 **TARGET / IMPLEMENTATION_ADMITTED，单成员 universe：** 上述 Owner-binding、`InstrumentMasterCutV2` cut、经济条款解析、
-Native Replay scheduling 与 frame sequence 在保留双成员形态（其行为与字节不变）的同时，也准入准确含一个成员的
-universe；cut 本来就编码了成员数。这一准入及其用户授权依据，与单成员 target-set 纵向切片一起记录在 Strategy Factory
+Native Replay scheduling 与 frame sequence 在保留双成员形态的同时，也准入准确含一个成员的 universe；准入单成员
+不改变任何双成员的行为或字节，cut 本来就编码了成员数。V1 scheduling receipt 因 quote cut 而发生的改变是另一项
+改动，记在 quote cut 段落。这一准入及其用户授权依据，与单成员 target-set 纵向切片一起记录在 Strategy Factory
 架构文档中。对于 Replay 初次组装，由固定的 Market Data writer 在 replay-composition issuance 期间通过 `issue_cut`
 签发 cut，key 按上文 cut issuance 段落所述。在实现改动落地之前，这里的内容都不是 current。
 

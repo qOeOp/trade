@@ -1172,7 +1172,9 @@ shared-kernel, ProgramHost, Backtest, Paper, Live, or production maturity.
 
 **TARGET / IMPLEMENTATION_ADMITTED, one-member universe:** the Owner-binding above, the `InstrumentMasterCutV2`
 cut, economic-terms resolution, Native Replay scheduling and the frame sequence also admit a universe of exactly one
-member, alongside the two-member form, which keeps its behaviour and bytes; the cut already encodes its member count.
+member, alongside the two-member form; admitting one member changes no two-member behaviour or byte, and the cut
+already encodes its member count. The separate change the quote cut makes to the V1 scheduling receipt is recorded
+with the quote cut paragraph.
 The admission and the user's authority for it are recorded with the one-member target-set vertical in the Strategy
 Factory architecture. For initial Replay composition, the fixed Market Data writer issues the cut through
 `issue_cut` during replay-composition issuance, keyed as the cut-issuance paragraph above states. Nothing here is
