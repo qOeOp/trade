@@ -4527,8 +4527,7 @@ impl PitObservationSourceV1 for ScopeFaithfulObservationSourceV1 {
 /// requires the quote strictly after the bar. This client supplies exactly that shape - a quote
 /// later than the bar, in the same snapshot - so the production commit path can say whether a
 /// snapshot may hold it. It cannot, which is why a frame's liquidity now comes from a quote cut of
-/// its own. With
-/// `quote_offset == 0` it is the control: the same rows, nothing out of time.
+/// its own. With `quote_offset == 0` it is the control: the same rows, nothing out of time.
 struct QuoteAfterBarObservationSourceV1 {
     quote_offset: u64,
 }
@@ -5133,8 +5132,10 @@ async fn production_pit_mint_postgres_oracle_v1(
     // Can one production snapshot hold a quote later than its own bar? The frame design as first
     // written in `docs/owners/market-data.md` needed it: each frame's liquidity came from the
     // frame's own PIT cut and had to follow the bar, and `into_frame_evidence_v2` requires the quote
-    // strictly after it. This measurement is why the design now takes it from a separate quote cut. The production commit path refuses: every row has to carry the request's one
-    // `event_effective`, so a snapshot is one instant and cannot hold anything later than itself.
+    // strictly after it. The production commit path refuses: every row has to carry the request's
+    // one `event_effective`, so a snapshot is one instant and cannot hold anything later than
+    // itself. This measurement is why the design now takes a frame's quotes from a separate quote
+    // cut.
     //
     // Measured two-sided on 2026-09-23 against this path. With the same rows and only the quote's
     // event time changed, the quote on the bar's instant minted `Available` and the quote one step
