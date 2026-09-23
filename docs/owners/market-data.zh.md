@@ -1569,6 +1569,39 @@ custody、response-loss 或 admission 任一失败时，V4 receipt、readback、
 只消费该 V4 JOINED_CUT locator/readback。该合同不声称 implementation、migration、registered product
 composition、production startup/write、ProgramHost、Backtest、deployment、runtime 或 trading authority。
 
+**TARGET / IMPLEMENTATION_ADMITTED，universe-frame sample projection：** `StrategyInputUniverseSampleProjectionV1`
+为一个 universe frame 的每个（member, role）值提供 bounded feature program 读取的 Owner sample coordinate。它是
+additive 的：V1 receipt、V2/V3/V4 projection、`SampleFactV1`、`SampleReceiptV1` 与 coordinate codec 均不改变。
+它的 subject 是一个 `StrategyInputUniverseFrameReceipt` 的准确 digest，即 ProgramHost 为该帧接纳的那个
+receipt，绝不是 host 无法与之比较的 digest。它为该帧每个（member, role）值各含一个 component，严格按 member
+ordinal、再按 input-role identity 排序，并穷尽该帧；缺失、多余或重复的一对都不产生 projection。component 携带
+member ordinal、member key 与 instrument、input-role identity、universe member binding digest、value receipt
+digest、该帧的 trigger digest、timeframe-projection receipt digest、sample identity、原生 `SampleReceiptV1`
+digest、coordinate digest 与 308 字节 coordinate。coordinate 是未改变的现有 codec（schema `1`，domain
+`strategy.input.sample-coordinate.v1\0`）；其 binding 字段承载 universe member binding digest，因为 universe
+member 没有 static binding receipt。universe member 的 sample 就是同一行在 exact-instrument binding 下签发的
+那个与 role 无关的 `SampleFactV1`；只有它的 `TimeframeProjectionReceiptV1` 在 exact binding 绑定其 receipt
+digest 的位置绑定 member binding digest。
+
+其 canonical bytes 依次为：schema `u16LE = 1`、reserved-zero `u16LE`、subject `[u8; 32]`、正的 component count
+`u32LE`，然后每个 component 依次为 member ordinal `u8`、带长度前缀（`u16LE`）的 member key 与 instrument，以及
+input-role、member-binding、value-receipt、trigger、timeframe-projection、sample-identity、sample-receipt 与
+coordinate digest（各 `[u8; 32]`），最后是 308 字节 coordinate。其 identity 是对
+`market-data.universe-sample-projection-receipt.v1\0 || canonical bytes` 取 SHA-256。
+
+固定 Market Data writer 通过一个 Owner operation 签发 projection；R&D 调用时只传已封存 Replay request
+identity、该 request 的 composition binding locator，以及签哪些帧：request 的首帧，或其 window 消费的全部帧。
+在一个 Market Data transaction 中，它解析每帧经 Owner 验证的 batch（对 window 按上文规则从 frame census 取，所以
+调用方不点名任何帧列表），从 composition binding 已认证的 composer role set 取 Design 与 role set（所以调用方
+不点名任何 role），经产生 host 所接纳之帧的同一 binding 重新导出每帧的 universe frame，提交或复用每个
+（member, role）的 sample 与 timeframe projection（BAR role 取该 member 在该帧的 schedule），并存储每个
+projection 的 receipt、exact-subject readback 与 outbox。一个 window 的 projection 在这一次调用中签发，所以
+持锁的 R&D transaction 无论 window 多长都只做一次跨库调用。request key 与其签发时的 binding 一并记录，同一 key
+下的另一 binding 按名拒绝且零写入；准确 retry 以零 append 返回已存字节。该 operation 从不回调 R&D。R&D 在解析
+帧之前调用它，并在 host 附加之前双向比较每个 projection 的（member, role）集合与其 Plan 的 role 表。
+exact-subject resolver 按 universe-frame digest 读取一个 projection。目前已建成：无；该合同已准入建造，不声称
+production startup 或 write、deployment、runtime 或 trading authority。
+
 已接纳 correction 是 immutable successor，同时具有准确 series predecessor 与 correction predecessor。
 它创建新的 `SampleFactV1`、`SampleReceiptV1`、`sample_identity` 与 coordinate，并让 sample clock 准确推进
 一次，即使其 value bytes 与 predecessor 相等。它绝不 rewrite、replace、mask、replay 或追溯推进 predecessor
