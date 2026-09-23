@@ -21,6 +21,7 @@ use vibe_model::{
 };
 
 use super::{
+    ADMITTED_UNIVERSE_MEMBER_COUNTS,
     bar_schedule::{
         BarScheduleCompletionV1, BarScheduleKindV1, BarScheduleLabelV1, BarScheduleReadbackV1,
         BarScheduleUnitV1, UntrustedBarScheduleLocatorV1,
@@ -38,7 +39,6 @@ use super::{
 };
 
 const RECEIPT_DOMAIN_V1: &[u8] = b"market-data.native-replay-scheduling-readback.v1\0";
-const TARGET_SET_MEMBER_COUNT: usize = 2;
 const BAR_FIELDS: [&str; 5] = ["OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"];
 const QUOTE_FIELDS: [&str; 4] = ["BID_PRICE", "ASK_PRICE", "BID_SIZE", "ASK_SIZE"];
 
@@ -46,11 +46,11 @@ const QUOTE_FIELDS: [&str; 4] = ["BID_PRICE", "ASK_PRICE", "BID_SIZE", "ASK_SIZE
 #[derive(Debug)]
 pub struct NativeReplaySchedulingReadbackV1 {
     observation_batch_digest: BindingDigest,
-    bar_schedule_digests: [BindingDigest; TARGET_SET_MEMBER_COUNT],
-    member_instruments: [InstrumentId; TARGET_SET_MEMBER_COUNT],
+    bar_schedule_digests: Vec<BindingDigest>,
+    member_instruments: Vec<InstrumentId>,
     frame_time_ns: u64,
     window_end_ns_exclusive: u64,
-    bar_types: [BarType; TARGET_SET_MEMBER_COUNT],
+    bar_types: Vec<BarType>,
     data: Vec<Data>,
     receipt_digest: BindingDigest,
 }
@@ -61,14 +61,16 @@ impl NativeReplaySchedulingReadbackV1 {
         self.observation_batch_digest
     }
 
+    /// One schedule digest per member, in member order.
     #[must_use]
-    pub const fn bar_schedule_digests(&self) -> [BindingDigest; TARGET_SET_MEMBER_COUNT] {
-        self.bar_schedule_digests
+    pub fn bar_schedule_digests(&self) -> Vec<BindingDigest> {
+        self.bar_schedule_digests.clone()
     }
 
+    /// The universe's one or two members, in canonical order.
     #[must_use]
-    pub const fn member_instruments(&self) -> [InstrumentId; TARGET_SET_MEMBER_COUNT] {
-        self.member_instruments
+    pub fn member_instruments(&self) -> Vec<InstrumentId> {
+        self.member_instruments.clone()
     }
 
     #[must_use]
@@ -88,7 +90,7 @@ impl NativeReplaySchedulingReadbackV1 {
 
     /// Consumes the authority and releases the already-fixed native schedule to its bundle.
     #[must_use]
-    pub fn into_native_schedule(self) -> ([BarType; TARGET_SET_MEMBER_COUNT], Vec<Data>) {
+    pub fn into_native_schedule(self) -> (Vec<BarType>, Vec<Data>) {
         (self.bar_types, self.data)
     }
 }
@@ -103,6 +105,8 @@ pub enum NativeReplaySchedulingErrorV1 {
     FieldCensusMismatch,
     #[error("native Replay scheduling event order is unavailable")]
     EventOrderUnavailable,
+    #[error("a Design with exact-instrument roles does not run under an Owner universe")]
+    ExactInstrumentRolesUnderOwnerUniverse,
     #[error("native Replay scheduling value is not exactly representable")]
     NativeRepresentation,
 }
@@ -114,15 +118,28 @@ pub enum NativeReplaySchedulingErrorV1 {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UntrustedNativeReplaySchedulingRequestV1 {
     pit_locator: UntrustedPitSnapshotLocator,
-    schedule_locators: [UntrustedBarScheduleLocatorV1; TARGET_SET_MEMBER_COUNT],
-    member_instruments: [InstrumentId; TARGET_SET_MEMBER_COUNT],
+    schedule_locators: Vec<UntrustedBarScheduleLocatorV1>,
+    member_instruments: Vec<InstrumentId>,
     frame_time_ns: u64,
     window_end_ns_exclusive: u64,
+}
+
+/// The scope a Plan declared for one role.
+///
+/// An Owner universe answers `UniverseMembers` roles only. A Design whose roles name one exact
+/// instrument does not run under it: the Market Data read refuses it with
+/// `ExactInstrumentRolesUnderOwnerUniverse`, as the R&D side does, rather than quietly reading the
+/// universe in the instrument's place.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NativeReplayRoleScopeV1 {
+    UniverseMembers,
+    ExactInstrument,
 }
 
 /// One Plan-declared universe role carried into the fixed initial-composition Owner read.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NativeReplayInitialUniverseRoleV1 {
+    declared_scope: NativeReplayRoleScopeV1,
     input_role_identity: BindingDigest,
     field_semantic: MarketDataFieldSemantic,
     channel: StrategyInputChannel,
@@ -142,6 +159,7 @@ impl NativeReplayInitialUniverseRoleV1 {
         scale: u8,
     ) -> Self {
         Self {
+            declared_scope: NativeReplayRoleScopeV1::UniverseMembers,
             input_role_identity,
             field_semantic,
             channel,
@@ -149,6 +167,14 @@ impl NativeReplayInitialUniverseRoleV1 {
             unit,
             scale,
         }
+    }
+
+    /// The same role with the scope its Plan declared. [`Self::new`] builds a `UniverseMembers`
+    /// role; a caller carrying a Plan's roles through unfiltered states each role's own scope here.
+    #[must_use]
+    pub const fn with_declared_scope(mut self, declared_scope: NativeReplayRoleScopeV1) -> Self {
+        self.declared_scope = declared_scope;
+        self
     }
 }
 
@@ -168,7 +194,7 @@ pub struct NativeReplayInitialMarketRequestV1 {
     source_binding_lineage_root: BindingDigest,
     market_semantics_identity: BindingDigest,
     roles: Vec<NativeReplayInitialUniverseRoleV1>,
-    member_instruments: [InstrumentId; TARGET_SET_MEMBER_COUNT],
+    member_instruments: Vec<InstrumentId>,
     frame_time_ns: u64,
     window_end_ns_exclusive: u64,
 }
@@ -187,7 +213,7 @@ impl NativeReplayInitialMarketRequestV1 {
         source_binding_lineage_root: BindingDigest,
         market_semantics_identity: BindingDigest,
         roles: Vec<NativeReplayInitialUniverseRoleV1>,
-        member_instruments: [InstrumentId; TARGET_SET_MEMBER_COUNT],
+        member_instruments: Vec<InstrumentId>,
         frame_time_ns: u64,
         window_end_ns_exclusive: u64,
     ) -> Self {
@@ -232,7 +258,7 @@ impl NativeReplayInitialMarketRequestV1 {
             source_binding_lineage_root: self.source_binding_lineage_root,
             market_semantics_identity: self.market_semantics_identity,
             roles: self.roles.clone(),
-            member_instruments: self.member_instruments,
+            member_instruments: self.member_instruments.clone(),
             frame_time_ns,
             window_end_ns_exclusive: self.window_end_ns_exclusive,
         }
@@ -249,8 +275,8 @@ impl NativeReplayInitialMarketRequestV1 {
     }
 
     #[must_use]
-    pub const fn member_instruments(&self) -> [InstrumentId; TARGET_SET_MEMBER_COUNT] {
-        self.member_instruments
+    pub fn member_instruments(&self) -> Vec<InstrumentId> {
+        self.member_instruments.clone()
     }
 
     #[must_use]
@@ -280,8 +306,8 @@ impl NativeReplayInitialMarketRequestV1 {
 pub struct NativeReplayInitialMarketReadbackV1 {
     batch: VerifiedPitObservationBatch,
     universe_frame: StrategyInputUniverseFrameReceipt,
-    schedules: [BarScheduleReadbackV1; TARGET_SET_MEMBER_COUNT],
-    member_instruments: [InstrumentId; TARGET_SET_MEMBER_COUNT],
+    schedules: Vec<BarScheduleReadbackV1>,
+    member_instruments: Vec<InstrumentId>,
     frame_time_ns: u64,
     window_end_ns_exclusive: u64,
 }
@@ -399,7 +425,7 @@ impl NativeReplayInitialMarketReadbackV1 {
     }
 
     #[must_use]
-    pub const fn schedules(&self) -> &[BarScheduleReadbackV1; TARGET_SET_MEMBER_COUNT] {
+    pub fn schedules(&self) -> &[BarScheduleReadbackV1] {
         &self.schedules
     }
 
@@ -415,7 +441,7 @@ impl NativeReplayInitialMarketReadbackV1 {
         self,
     ) -> (
         StrategyInputUniverseFrameReceipt,
-        [BarScheduleReadbackV1; TARGET_SET_MEMBER_COUNT],
+        Vec<BarScheduleReadbackV1>,
     ) {
         (self.universe_frame, self.schedules)
     }
@@ -445,10 +471,16 @@ impl NativeReplayInitialMarketReadbackV1 {
             frame_time_ns,
             window_end_ns_exclusive,
         } = self;
+        // The V2 frame evidence is still written for two members; it is rewritten for any count
+        // with the quote cut, and until then a one-member cut has no V2 evidence.
         let evidence = super::native_replay_scheduling_v2::verify_native_replay_frame_evidence_v2(
             batch,
-            schedules,
-            member_instruments,
+            schedules
+                .try_into()
+                .map_err(|_| NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?,
+            member_instruments
+                .try_into()
+                .map_err(|_| NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?,
             frame_time_ns,
             window_end_ns_exclusive,
         )?;
@@ -509,17 +541,17 @@ pub(crate) fn market_data_repair_source_from_verified_batch(
 
 impl UntrustedNativeReplaySchedulingRequestV1 {
     #[must_use]
-    pub const fn new(
+    pub fn new(
         pit_locator: UntrustedPitSnapshotLocator,
-        schedule_locators: [UntrustedBarScheduleLocatorV1; TARGET_SET_MEMBER_COUNT],
-        member_instruments: [InstrumentId; TARGET_SET_MEMBER_COUNT],
+        schedule_locators: impl Into<Vec<UntrustedBarScheduleLocatorV1>>,
+        member_instruments: impl Into<Vec<InstrumentId>>,
         frame_time_ns: u64,
         window_end_ns_exclusive: u64,
     ) -> Self {
         Self {
             pit_locator,
-            schedule_locators,
-            member_instruments,
+            schedule_locators: schedule_locators.into(),
+            member_instruments: member_instruments.into(),
             frame_time_ns,
             window_end_ns_exclusive,
         }
@@ -531,15 +563,13 @@ impl UntrustedNativeReplaySchedulingRequestV1 {
     }
 
     #[must_use]
-    pub const fn schedule_locators(
-        &self,
-    ) -> &[UntrustedBarScheduleLocatorV1; TARGET_SET_MEMBER_COUNT] {
+    pub fn schedule_locators(&self) -> &[UntrustedBarScheduleLocatorV1] {
         &self.schedule_locators
     }
 
     #[must_use]
-    pub const fn member_instruments(&self) -> [InstrumentId; TARGET_SET_MEMBER_COUNT] {
-        self.member_instruments
+    pub fn member_instruments(&self) -> Vec<InstrumentId> {
+        self.member_instruments.clone()
     }
 
     #[must_use]
@@ -573,11 +603,24 @@ pub trait NativeReplaySchedulingResolverV1: resolver_seal::Sealed + Send + Sync 
 
 pub(crate) fn issue_native_replay_initial_market_readback_v1(
     batch: VerifiedPitObservationBatch,
-    schedules: [BarScheduleReadbackV1; TARGET_SET_MEMBER_COUNT],
+    schedules: impl Into<Vec<BarScheduleReadbackV1>>,
     request: &NativeReplayInitialMarketRequestV1,
 ) -> Result<NativeReplayInitialMarketReadbackV1, NativeReplaySchedulingErrorV1> {
+    let schedules = schedules.into();
+    // Checked before any role's scope is replaced by the universe below: an Owner universe answers
+    // `UniverseMembers` roles, and reading it for a role that names one exact instrument would hand
+    // that role another instrument's values.
+    if request
+        .roles
+        .iter()
+        .any(|role| role.declared_scope != NativeReplayRoleScopeV1::UniverseMembers)
+    {
+        return Err(NativeReplaySchedulingErrorV1::ExactInstrumentRolesUnderOwnerUniverse);
+    }
+
     if request.roles.is_empty()
-        || request.member_instruments[0] >= request.member_instruments[1]
+        || !canonical_members(&request.member_instruments)
+        || schedules.len() != request.member_instruments.len()
         || request.frame_time_ns >= request.window_end_ns_exclusive
         || batch.snapshot_identity() != request.snapshot_identity
         || batch.fact_digest() != request.snapshot_fact_digest
@@ -638,10 +681,10 @@ pub(crate) fn issue_native_replay_initial_market_readback_v1(
     let members = universe_frame.selection().members();
     if universe_frame.selection().selection_identity() != request.universe_selection_identity
         || universe_frame.selection().selection_digest() != request.universe_selection_digest
-        || members.len() != TARGET_SET_MEMBER_COUNT
+        || members.len() != request.member_instruments.len()
         || !members
             .iter()
-            .zip(request.member_instruments)
+            .zip(&request.member_instruments)
             .all(|(member, instrument)| member.instrument() == instrument.to_string())
     {
         return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
@@ -650,7 +693,7 @@ pub(crate) fn issue_native_replay_initial_market_readback_v1(
         batch,
         universe_frame,
         schedules,
-        member_instruments: request.member_instruments,
+        member_instruments: request.member_instruments.clone(),
         frame_time_ns: request.frame_time_ns,
         window_end_ns_exclusive: request.window_end_ns_exclusive,
     })
@@ -722,56 +765,57 @@ pub(crate) fn native_replay_schedule_matches_request_v1(
 )]
 pub fn seal_native_replay_scheduling_v1(
     batch: VerifiedPitObservationBatch,
-    schedules: [BarScheduleReadbackV1; TARGET_SET_MEMBER_COUNT],
-    member_instruments: [InstrumentId; TARGET_SET_MEMBER_COUNT],
+    schedules: impl Into<Vec<BarScheduleReadbackV1>>,
+    member_instruments: impl Into<Vec<InstrumentId>>,
     frame_time_ns: u64,
     window_end_ns_exclusive: u64,
 ) -> Result<NativeReplaySchedulingReadbackV1, NativeReplaySchedulingErrorV1> {
-    if member_instruments[0] >= member_instruments[1] || frame_time_ns >= window_end_ns_exclusive {
+    let schedules = schedules.into();
+    let member_instruments = member_instruments.into();
+
+    if !canonical_members(&member_instruments)
+        || schedules.len() != member_instruments.len()
+        || frame_time_ns >= window_end_ns_exclusive
+    {
         return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
     }
+    let bar_types = schedules
+        .iter()
+        .zip(&member_instruments)
+        .map(|(schedule, instrument)| {
+            validated_bar_type(schedule, &batch, *instrument, frame_time_ns)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut data = Vec::with_capacity(member_instruments.len() * 2);
 
-    let bar_types = [
-        validated_bar_type(&schedules[0], &batch, member_instruments[0], frame_time_ns)?,
-        validated_bar_type(&schedules[1], &batch, member_instruments[1], frame_time_ns)?,
-    ];
-    let first_bar = project_bar(
-        &batch,
-        member_instruments[0],
-        bar_types[0],
-        frame_time_ns,
-        &schedule_timeframe(schedules[0].fact()),
-    )?;
-    let second_bar = project_bar(
-        &batch,
-        member_instruments[1],
-        bar_types[1],
-        frame_time_ns,
-        &schedule_timeframe(schedules[1].fact()),
-    )?;
-    let first_quote = project_first_quote(
-        &batch,
-        member_instruments[0],
-        frame_time_ns,
-        window_end_ns_exclusive,
-    )?;
-    let second_quote = project_first_quote(
-        &batch,
-        member_instruments[1],
-        first_quote.ts_event.as_u64(),
-        window_end_ns_exclusive,
-    )?;
-    let data = vec![
-        Data::Bar(first_bar),
-        Data::Bar(second_bar),
-        Data::Quote(first_quote),
-        Data::Quote(second_quote),
-    ];
-    let bar_schedule_digests = schedules.each_ref().map(BarScheduleReadbackV1::digest);
+    for ((schedule, instrument), bar_type) in
+        schedules.iter().zip(&member_instruments).zip(&bar_types)
+    {
+        data.push(Data::Bar(project_bar(
+            &batch,
+            *instrument,
+            *bar_type,
+            frame_time_ns,
+            &schedule_timeframe(schedule.fact()),
+        )?));
+    }
+    // Each member's Quote is its first complete one after the member before it, in member order.
+    let mut after_event_ns = frame_time_ns;
+
+    for instrument in &member_instruments {
+        let quote =
+            project_first_quote(&batch, *instrument, after_event_ns, window_end_ns_exclusive)?;
+        after_event_ns = quote.ts_event.as_u64();
+        data.push(Data::Quote(quote));
+    }
+    let bar_schedule_digests = schedules
+        .iter()
+        .map(BarScheduleReadbackV1::digest)
+        .collect::<Vec<_>>();
     let receipt_digest = digest_receipt(
         batch.digest(),
-        bar_schedule_digests,
-        member_instruments,
+        &bar_schedule_digests,
+        &member_instruments,
         frame_time_ns,
         window_end_ns_exclusive,
         &data,
@@ -1024,16 +1068,35 @@ fn native_raw(row: &VerifiedPitObservation) -> Result<i128, NativeReplayScheduli
         .map_err(|_| NativeReplaySchedulingErrorV1::NativeRepresentation)
 }
 
+/// Whether `members` is an admitted universe in canonical order: one member or two, strictly
+/// ascending, so no instrument appears twice.
+fn canonical_members(members: &[InstrumentId]) -> bool {
+    ADMITTED_UNIVERSE_MEMBER_COUNTS.contains(&members.len())
+        && members.windows(2).all(|pair| pair[0] < pair[1])
+}
+
 fn digest_receipt(
     batch_digest: BindingDigest,
-    schedule_digests: [BindingDigest; TARGET_SET_MEMBER_COUNT],
-    instruments: [InstrumentId; TARGET_SET_MEMBER_COUNT],
+    schedule_digests: &[BindingDigest],
+    instruments: &[InstrumentId],
     frame_time_ns: u64,
     window_end_ns_exclusive: u64,
     data: &[Data],
 ) -> Result<BindingDigest, NativeReplaySchedulingErrorV1> {
     let mut hasher = Sha256::new();
     hasher.update(RECEIPT_DOMAIN_V1);
+
+    // The members are hashed without a count, and a two-member receipt keeps the bytes it always
+    // had. Any other count states itself here, so no receipt over one member can share a preimage
+    // with one over two.
+    if instruments.len() != 2 {
+        hasher.update(b"members\0");
+        hasher.update(
+            u64::try_from(instruments.len())
+                .map_err(|_| NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?
+                .to_be_bytes(),
+        );
+    }
     hasher.update(batch_digest.as_bytes());
     for digest in schedule_digests {
         hasher.update(digest.as_bytes());
@@ -1394,7 +1457,7 @@ pub(crate) mod tests {
                 StrategyInputUnit::Price,
                 2,
             )],
-            [first, second],
+            vec![first, second],
             frame_time_ns,
             window_end_ns_exclusive,
         );
@@ -1436,7 +1499,7 @@ pub(crate) mod tests {
                 StrategyInputUnit::Price,
                 2,
             )],
-            [
+            vec![
                 InstrumentId::from("AAA-PERP.SIM"),
                 InstrumentId::from("BBB-PERP.SIM"),
             ],
@@ -1513,6 +1576,131 @@ pub(crate) mod tests {
         );
     }
 
+    /// A two-member receipt keeps the bytes it had before one-member universes were admitted. The
+    /// digest below is what `main` sealed for this fixture before the change (tree `18091e6ca`).
+    #[rstest::rstest]
+    fn a_two_member_receipt_keeps_its_bytes() {
+        let mut rows = rows_for("AAA-PERP.SIM", 101);
+        rows.extend(rows_for("BBB-PERP.SIM", 102));
+        let readback = seal_native_replay_scheduling_v1(
+            batch(rows),
+            vec![schedule("AAA-PERP.SIM", 40), schedule("BBB-PERP.SIM", 41)],
+            vec![
+                InstrumentId::from("AAA-PERP.SIM"),
+                InstrumentId::from("BBB-PERP.SIM"),
+            ],
+            100,
+            200,
+        )
+        .unwrap();
+        let pinned = "edc17ccfd279ff8e64cccb43fc9aea61c89c48df60fdb8a4df1c0df568a1d71c";
+        let expected = (0..pinned.len())
+            .step_by(2)
+            .map(|at| u8::from_str_radix(&pinned[at..at + 2], 16).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            readback.receipt_digest().as_bytes().as_slice(),
+            expected.as_slice()
+        );
+    }
+
+    /// The receipt hashes its members with no count. Two members hash exactly as they always did;
+    /// any other count states itself first, so a one-member receipt never shares a preimage shape
+    /// with a two-member one. Checked against the layout itself, not only against a pinned value.
+    #[rstest::rstest]
+    fn only_a_non_two_member_receipt_states_its_member_count() {
+        let untagged = |schedule_digests: &[BindingDigest], instruments: &[InstrumentId]| {
+            let mut hasher = Sha256::new();
+            hasher.update(RECEIPT_DOMAIN_V1);
+            hasher.update(digest(9).as_bytes());
+            for schedule_digest in schedule_digests {
+                hasher.update(schedule_digest.as_bytes());
+            }
+
+            for instrument in instruments {
+                hash_text(&mut hasher, &instrument.to_string()).unwrap();
+            }
+            hasher.update(100_u64.to_be_bytes());
+            hasher.update(200_u64.to_be_bytes());
+            BindingDigest::from_untrusted_bytes(hasher.finalize().into())
+        };
+        let two_digests = [digest(40), digest(41)];
+        let two = [
+            InstrumentId::from("AAA-PERP.SIM"),
+            InstrumentId::from("BBB-PERP.SIM"),
+        ];
+        assert_eq!(
+            digest_receipt(digest(9), &two_digests, &two, 100, 200, &[]).unwrap(),
+            untagged(&two_digests, &two),
+            "two members hash exactly as before"
+        );
+        assert_ne!(
+            digest_receipt(digest(9), &two_digests[..1], &two[..1], 100, 200, &[]).unwrap(),
+            untagged(&two_digests[..1], &two[..1]),
+            "one member states its count"
+        );
+    }
+
+    #[rstest::rstest]
+    fn seals_a_one_member_bar_then_quote_schedule() {
+        let member = InstrumentId::from("AAA-PERP.SIM");
+        let readback = seal_native_replay_scheduling_v1(
+            batch(rows_for("AAA-PERP.SIM", 101)),
+            vec![schedule("AAA-PERP.SIM", 40)],
+            vec![member],
+            100,
+            200,
+        )
+        .expect("a one-member schedule");
+
+        assert_eq!(readback.member_instruments(), [member]);
+        assert_eq!(readback.bar_schedule_digests().len(), 1);
+        let (bar_types, data) = readback.into_native_schedule();
+        assert_eq!(bar_types.len(), 1);
+        assert!(matches!(data.as_slice(), [Data::Bar(_), Data::Quote(_)]));
+    }
+
+    /// Members are an admitted universe in canonical order or nothing: none, three, a repeated or
+    /// a reordered member, and a schedule list of another length, are all refused.
+    #[rstest::rstest]
+    fn seals_only_an_admitted_canonical_member_list() {
+        let a = InstrumentId::from("AAA-PERP.SIM");
+        let b = InstrumentId::from("BBB-PERP.SIM");
+        let c = InstrumentId::from("CCC-PERP.SIM");
+        let mut rows = rows_for("AAA-PERP.SIM", 101);
+        rows.extend(rows_for("BBB-PERP.SIM", 102));
+        rows.extend(rows_for("CCC-PERP.SIM", 103));
+        let seal = |schedules: Vec<BarScheduleReadbackV1>, members: Vec<InstrumentId>| {
+            seal_native_replay_scheduling_v1(batch(rows.clone()), schedules, members, 100, 200)
+                .map(|_| ())
+        };
+        let one = || schedule("AAA-PERP.SIM", 40);
+        let two = || vec![schedule("AAA-PERP.SIM", 40), schedule("BBB-PERP.SIM", 41)];
+
+        for (schedules, members) in [
+            (Vec::new(), Vec::new()),
+            (
+                vec![
+                    schedule("AAA-PERP.SIM", 40),
+                    schedule("BBB-PERP.SIM", 41),
+                    schedule("CCC-PERP.SIM", 42),
+                ],
+                vec![a, b, c],
+            ),
+            (vec![one(), one()], vec![a, a]),
+            (
+                vec![schedule("BBB-PERP.SIM", 41), schedule("AAA-PERP.SIM", 40)],
+                vec![b, a],
+            ),
+            (two(), vec![a]),
+        ] {
+            assert_eq!(
+                seal(schedules, members),
+                Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)
+            );
+        }
+    }
+
     #[rstest::rstest]
     fn seals_exact_two_bar_then_two_quote_schedule() {
         let first = InstrumentId::from("AAA-PERP.SIM");
@@ -1577,7 +1765,7 @@ pub(crate) mod tests {
                 StrategyInputUnit::Price,
                 2,
             )],
-            [first, second],
+            vec![first, second],
             100,
             200,
         );
@@ -1597,6 +1785,57 @@ pub(crate) mod tests {
         assert_eq!(source.source_binding_fact_digest(), digest(19));
         assert_eq!(source.pit_snapshot_identity(), digest(12));
         assert_eq!(source.pit_snapshot_fact_digest(), digest(13));
+    }
+
+    /// A Design whose roles name one exact instrument does not run under an Owner universe. The
+    /// read refuses it by name before it would replace the role's scope with the universe's.
+    #[rstest::rstest]
+    fn an_exact_instrument_role_is_refused_under_an_owner_universe() {
+        let first = InstrumentId::from("AAA-PERP.SIM");
+        let second = InstrumentId::from("BBB-PERP.SIM");
+        let mut rows = rows_for("AAA-PERP.SIM", 101);
+        rows.extend(rows_for("BBB-PERP.SIM", 102));
+        let batch = batch(rows);
+        let selection = crate::owner::strategy_input_binding::derive_universe_selection(&batch)
+            .expect("derived Owner selection");
+        let role = |scope| {
+            NativeReplayInitialUniverseRoleV1::new(
+                digest(23),
+                MarketDataFieldSemantic::BarClosePrice,
+                StrategyInputChannel::Market,
+                "1M".to_string(),
+                StrategyInputUnit::Price,
+                2,
+            )
+            .with_declared_scope(scope)
+        };
+        let request = NativeReplayInitialMarketRequestV1::new(
+            digest(12),
+            digest(13),
+            digest(20),
+            digest(21),
+            selection.selection_identity(),
+            selection.selection_digest(),
+            digest(5),
+            digest(14),
+            digest(7),
+            vec![
+                role(NativeReplayRoleScopeV1::UniverseMembers),
+                role(NativeReplayRoleScopeV1::ExactInstrument),
+            ],
+            vec![first, second],
+            100,
+            200,
+        );
+        assert_eq!(
+            issue_native_replay_initial_market_readback_v1(
+                batch,
+                vec![schedule("AAA-PERP.SIM", 40), schedule("BBB-PERP.SIM", 41)],
+                &request,
+            )
+            .unwrap_err(),
+            NativeReplaySchedulingErrorV1::ExactInstrumentRolesUnderOwnerUniverse
+        );
     }
 
     #[rstest::rstest]

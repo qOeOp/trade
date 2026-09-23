@@ -3816,6 +3816,15 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
   disarm_chain_entry_watchdog
 done
 
+# Every SECURITY DEFINER routine, in every database the chain materialized, must search pg_temp last
+# and name no schema another role can create in; scripts/ci/check-security-definer-search-path.sql
+# holds the rule and the shrinking list of routines that do not meet it yet.
+for guard_database in $(docker exec "$container" psql -U postgres -d postgres -Atqc "SELECT datname FROM pg_catalog.pg_database WHERE NOT datistemplate AND datallowconn ORDER BY 1"); do
+  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$guard_database" \
+    < "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-security-definer-search-path.sql"
+done
+
 legacy_replay_fingerprint_after="$(legacy_replay_fingerprint)"
 readonly legacy_replay_fingerprint_after
 if [[ "$legacy_replay_fingerprint_after" != "$legacy_replay_fingerprint_before" ]]; then
