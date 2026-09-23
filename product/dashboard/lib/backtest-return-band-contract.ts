@@ -62,10 +62,19 @@ function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): 
   return Object.keys(value).sort().join("|") === keys.join("|");
 }
 
+// RFC3339 with exactly nine fractional digits and a `Z` offset, the one definition
+// `docs/guide/dashboard.md` gives canonical UTC. A `Date` round trip cannot express it: `Date` holds
+// milliseconds, so the check used to accept only `.000Z`, and a projection in the documented form
+// failed closed on every point and drew nothing under a generic reason.
+const CANONICAL_UTC = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{9}Z$/u;
+
 function isCanonicalTimestamp(value: unknown): value is string {
-  if (typeof value !== "string" || value.length === 0) return false;
-  const epoch = Date.parse(value);
-  return Number.isFinite(epoch) && new Date(epoch).toISOString() === value;
+  if (typeof value !== "string" || !CANONICAL_UTC.test(value)) return false;
+  // The shape does not reject a date that does not exist. Its millisecond prefix does: `Date`
+  // normalizes 2025-02-30 to a different day, so the round trip no longer returns the same text.
+  const milliseconds = `${value.slice(0, 23)}Z`;
+  const epoch = Date.parse(milliseconds);
+  return Number.isFinite(epoch) && new Date(epoch).toISOString() === milliseconds;
 }
 
 function isFiniteNumber(value: unknown): value is number {
@@ -93,12 +102,12 @@ function isValuePoint(value: unknown): value is BacktestReturnValuePoint {
     && isFiniteNumber(point.value);
 }
 
+// Compared as text, not through `Date.parse`. Canonical timestamps are fixed width, so their order as
+// strings is their order in time, and unlike `Date.parse` it keeps the nanoseconds: two points a
+// nanosecond apart parse to the same millisecond and would read as a repeated timestamp.
 function isStrictlyOrdered(points: readonly { at: string }[]): boolean {
-  let previous = -Infinity;
-  for (const point of points) {
-    const current = Date.parse(point.at);
-    if (current <= previous) return false;
-    previous = current;
+  for (let index = 1; index < points.length; index += 1) {
+    if (points[index - 1].at >= points[index].at) return false;
   }
   return true;
 }
