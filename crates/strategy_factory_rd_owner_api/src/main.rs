@@ -5407,6 +5407,52 @@ mod tests {
             .await
             .expect("the production Composer opens against its two R&D roles");
 
+        // Acceptance gate 6 (product-edge.md), on the production Composer's own path: the Research
+        // input's source-ancestry evidence digest changed alone, to a different well-formed sha256,
+        // must leave the Composer unavailable. Its admission checks only that the digest is
+        // well formed; the Research lock it takes next (`lock_current_research_for_artifact_v1`)
+        // re-reads the ancestry through the Source Intake handoff and holds the digest to the
+        // Research request's recorded source cut. Restored, the entry goes on exactly as before.
+        let original_ancestry_digest: String = sqlx::query_scalar(
+            "SELECT source_ancestry_evidence_digest FROM public.rd_research_request_receipts_v1
+              WHERE request_identity=$1 AND source_ancestry_evidence_digest IS NOT NULL",
+        )
+        .bind(&locator)
+        .fetch_one(&rd_pool)
+        .await
+        .expect("the authored Research carries a source-ancestry evidence digest");
+        let tampered = sqlx::query(
+            "UPDATE public.rd_research_request_receipts_v1
+                SET source_ancestry_evidence_digest='sha256:'||encode(sha256('stored-tamper'::bytea),'hex')
+              WHERE request_identity=$1",
+        )
+        .bind(&locator)
+        .execute(&rd_pool)
+        .await
+        .expect("change the source-ancestry evidence digest")
+        .rows_affected();
+        assert_eq!(
+            tampered, 1,
+            "the digest change must touch exactly the authored Research"
+        );
+        let refused = Box::pin(composer.run_bounded_feature_program(&locator)).await;
+        assert!(
+            !matches!(
+                &refused,
+                Ok(response) if response.disposition == DevelopComposerOperationDispositionV2::Success
+            ),
+            "the production Composer composed over a changed source-ancestry evidence digest: {refused:?}",
+        );
+        sqlx::query(
+            "UPDATE public.rd_research_request_receipts_v1 SET source_ancestry_evidence_digest=$2
+              WHERE request_identity=$1",
+        )
+        .bind(&locator)
+        .bind(&original_ancestry_digest)
+        .execute(&rd_pool)
+        .await
+        .expect("restore the source-ancestry evidence digest");
+
         let response = Box::pin(composer.run_bounded_feature_program(&locator))
             .await
             .expect("the R&D transaction completes");
