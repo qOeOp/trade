@@ -1,0 +1,370 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join, resolve } from "node:path";
+import test from "node:test";
+import { fileURLToPath } from "node:url";
+
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import ts from "typescript";
+
+import {
+  BACKTEST_RUN_REPORT_IDENTITY_MISMATCH,
+  INVALID_BACKTEST_RUN_REPORT_PROJECTION,
+  normalizeBacktestRunReport,
+} from "../lib/backtest-run-report-contract.ts";
+
+const RUN = "backtest-result-7";
+
+const run = {
+  result_identity: RUN,
+  request_identity: "exploratory-replay-request-7",
+  attempt_identity: "attempt-1",
+};
+
+const strategy = {
+  family: "SINGLE_THRESHOLD_V1",
+  channel: {
+    role_semantic_id: "research.input.close.daily.v1",
+    instrument: "AAPL",
+    field_semantic_id: "MARKET_DATA.BAR.CLOSE.PRICE.V1",
+    timeframe: "1D",
+    unit: "PRICE",
+    scale: 2,
+  },
+  threshold: "100.00",
+  comparison: "GREATER",
+  when_true: {
+    position_intent_semantic_id: "kernel.position.enter.v1",
+    target_variant_semantic_id: "kernel.target.position.v1",
+    target_position_units: 1,
+  },
+  otherwise: {
+    position_intent_semantic_id: "kernel.position.exit.v1",
+    target_variant_semantic_id: "kernel.target.position.v1",
+    target_position_units: 0,
+  },
+  falsifier: "the channel never crosses the threshold in the admitted window",
+};
+
+const dataWindow = {
+  instrument: "AAPL",
+  granularity: "1D",
+  start: "2025-01-01T00:00:00.000000000Z",
+  end: "2025-01-03T00:00:00.000000000Z",
+  snapshot_count: 3,
+  cut_identity: "cut-2025-01-03",
+};
+
+const fills = [
+  { at: "2025-01-02T14:30:00.000000000Z", side: "BUY", price: "187.25", quantity: "2.0" },
+  { at: "2025-01-02T20:00:00.000000000Z", side: "SELL", price: "188", quantity: "2" },
+];
+
+const available = {
+  state: "AVAILABLE",
+  reason: null,
+  run,
+  engine_result_digest: `blake3:${"a".repeat(64)}`,
+  strategy,
+  data_window: dataWindow,
+  series: [
+    { at: "2025-01-01T00:00:00.000000000Z", value: 100_000 },
+    { at: "2025-01-02T00:00:00.000000000Z", value: 100_450.5 },
+    { at: "2025-01-03T00:00:00.000000000Z", value: 99_800 },
+  ],
+  net_return: -0.002,
+  max_drawdown: -0.00647,
+  fill_count: 2,
+  fills,
+};
+
+// A run can open and close a position between two equity snapshots, so it can list fills while
+// having no observation points. Its fills are facts; it is empty only in the series.
+const emptyWithFills = {
+  ...available,
+  state: "EMPTY",
+  series: [],
+  net_return: null,
+  max_drawdown: null,
+};
+
+const unavailable = {
+  state: "UNAVAILABLE",
+  reason: "OUTCOME_EVIDENCE_UNAVAILABLE",
+  run: null,
+  engine_result_digest: null,
+  strategy: null,
+  data_window: null,
+  series: [],
+  net_return: null,
+  max_drawdown: null,
+  fill_count: null,
+  fills: [],
+};
+
+const invalid = { state: "unavailable", reason: INVALID_BACKTEST_RUN_REPORT_PROJECTION };
+
+function without(value, key) {
+  const copy = { ...value };
+  delete copy[key];
+  return copy;
+}
+
+test("the three wire states normalize to the report's own states", () => {
+  const report = normalizeBacktestRunReport(available, RUN);
+  assert.equal(report.state, "available");
+  assert.equal(report.net_return, -0.002);
+  assert.equal(report.series.length, 3);
+
+  assert.deepEqual(normalizeBacktestRunReport(unavailable, RUN), {
+    state: "unavailable",
+    reason: "OUTCOME_EVIDENCE_UNAVAILABLE",
+  });
+});
+
+test("empty means no points, and still lists the run's fills", () => {
+  const report = normalizeBacktestRunReport(emptyWithFills, RUN);
+  assert.equal(report.state, "empty");
+  assert.deepEqual(report.series, []);
+  assert.equal(report.net_return, null);
+  assert.equal(report.max_drawdown, null);
+  assert.equal(report.fills.length, 2);
+});
+
+test("the state is stated, and must agree with the result", () => {
+  for (const contradiction of [
+    { ...emptyWithFills, series: available.series },
+    { ...emptyWithFills, net_return: 0.01 },
+    { ...emptyWithFills, max_drawdown: -0.01 },
+    { ...available, series: [] },
+    { ...available, net_return: null },
+    { ...available, max_drawdown: null },
+    { ...available, state: "available" },
+    { ...available, state: "PARTIAL" },
+    { ...available, state: undefined },
+  ]) {
+    assert.deepEqual(normalizeBacktestRunReport(contradiction, RUN), invalid);
+  }
+});
+
+test("a missing or renamed key is a fault, never a legitimately absent value", () => {
+  const renamed = { ...without(available, "net_return"), netReturn: available.net_return };
+  for (const faulty of [
+    without(available, "net_return"),
+    without(emptyWithFills, "max_drawdown"),
+    renamed,
+    { ...available, stats: { sharpe: 1.2 } },
+    { ...available, strategy: without(strategy, "falsifier") },
+    { ...available, data_window: without(dataWindow, "cut_identity") },
+    { ...available, run: { ...run, extra: "x" } },
+  ]) {
+    assert.deepEqual(normalizeBacktestRunReport(faulty, RUN), invalid);
+  }
+});
+
+test("a response for another run is refused under its own reason", () => {
+  assert.deepEqual(normalizeBacktestRunReport(available, "backtest-result-8"), {
+    state: "unavailable",
+    reason: BACKTEST_RUN_REPORT_IDENTITY_MISMATCH,
+  });
+});
+
+test("an unavailable projection carries its reason and no positive fact", () => {
+  for (const faulty of [
+    { ...unavailable, reason: "" },
+    { ...unavailable, reason: null },
+    { ...unavailable, run },
+    { ...unavailable, series: available.series },
+    { ...unavailable, fills },
+    { ...unavailable, fill_count: 0 },
+  ]) {
+    assert.deepEqual(normalizeBacktestRunReport(faulty, RUN), invalid);
+  }
+  assert.deepEqual(normalizeBacktestRunReport({ ...available, reason: "SHOULD_NOT_BE_HERE" }, RUN), invalid);
+});
+
+test("time is canonical UTC everywhere it appears, and the series is strictly ordered", () => {
+  const millisecond = "2025-01-01T00:00:00.000Z";
+  for (const faulty of [
+    { ...available, series: [{ ...available.series[0], at: millisecond }, ...available.series.slice(1)] },
+    { ...available, fills: [{ ...fills[0], at: millisecond }, fills[1]] },
+    { ...available, data_window: { ...dataWindow, start: millisecond } },
+    { ...available, data_window: { ...dataWindow, start: dataWindow.end, end: dataWindow.start } },
+    { ...available, series: [available.series[1], available.series[0], available.series[2]] },
+    { ...available, series: [available.series[0], available.series[0]] },
+  ]) {
+    assert.deepEqual(normalizeBacktestRunReport(faulty, RUN), invalid);
+  }
+
+  const oneNanosecondApart = {
+    ...available,
+    series: [
+      { at: "2025-01-01T00:00:00.000000001Z", value: 1 },
+      { at: "2025-01-01T00:00:00.000000002Z", value: 2 },
+    ],
+  };
+  assert.equal(normalizeBacktestRunReport(oneNanosecondApart, RUN).state, "available");
+});
+
+test("every number is finite and every count agrees with what it counts", () => {
+  for (const faulty of [
+    { ...available, net_return: Number.NaN },
+    { ...available, max_drawdown: Number.POSITIVE_INFINITY },
+    { ...available, series: [{ ...available.series[0], value: Number.NaN }] },
+    { ...available, fill_count: 3 },
+    { ...available, data_window: { ...dataWindow, snapshot_count: -1 } },
+    { ...available, data_window: { ...dataWindow, snapshot_count: 1.5 } },
+  ]) {
+    assert.deepEqual(normalizeBacktestRunReport(faulty, RUN), invalid);
+  }
+});
+
+test("prices and quantities are plain decimals, and are kept exactly as given", () => {
+  const report = normalizeBacktestRunReport(available, RUN);
+  assert.equal(report.fills[0].quantity, "2.0");
+  assert.equal(report.fills[1].quantity, "2");
+  assert.equal(report.fills[1].price, "188");
+
+  const negativePrice = { ...available, fills: [{ ...fills[0], price: "-1.50" }, fills[1]] };
+  assert.equal(normalizeBacktestRunReport(negativePrice, RUN).fills[0].price, "-1.50");
+
+  for (const [field, text] of [
+    ["quantity", "-2"],
+    ["quantity", "+2"],
+    ["price", "1e3"],
+    ["price", "+187.25"],
+    ["price", "1,000.00"],
+    ["price", "187."],
+    ["price", ".25"],
+    ["price", 187.25],
+  ]) {
+    const faulty = { ...available, fills: [{ ...fills[0], [field]: text }, fills[1]] };
+    assert.deepEqual(normalizeBacktestRunReport(faulty, RUN), invalid, `${field}=${text}`);
+  }
+  assert.deepEqual(normalizeBacktestRunReport({ ...available, fills: [{ ...fills[0], side: "SHORT" }, fills[1]] }, RUN), invalid);
+});
+
+test("the strategy is stated only for the admitted single-threshold family", () => {
+  assert.deepEqual(
+    normalizeBacktestRunReport({ ...available, strategy: { ...strategy, family: "BOUNDED_FEATURE_V1" } }, RUN),
+    invalid,
+  );
+  assert.deepEqual(
+    normalizeBacktestRunReport({ ...available, strategy: { ...strategy, threshold: "1e2" } }, RUN),
+    invalid,
+  );
+});
+
+test("anything that is not a projection object fails closed", () => {
+  for (const value of [null, undefined, "AVAILABLE", 7, [], [available]]) {
+    assert.deepEqual(normalizeBacktestRunReport(value, RUN), invalid);
+  }
+});
+
+// Renders the real component and its real dependencies, compiled from source. A stubbed FactGroup or
+// UnavailableState would only prove the stub, so nothing here is replaced except CSS class names.
+const root = fileURLToPath(new URL("../", import.meta.url));
+const requireExternal = createRequire(import.meta.url);
+
+function compileModule(path, cache) {
+  if (cache.has(path)) return cache.get(path).exports;
+  const module = { exports: {} };
+  cache.set(path, module);
+  const { outputText } = ts.transpileModule(readFileSync(path, "utf8"), {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      jsx: ts.JsxEmit.ReactJSX,
+      target: ts.ScriptTarget.ES2022,
+      esModuleInterop: true,
+    },
+  });
+  const load = (specifier) => {
+    if (specifier.endsWith(".module.css")) {
+      return { __esModule: true, default: new Proxy({}, { get: (_, key) => String(key) }) };
+    }
+    if (!specifier.startsWith(".") && !specifier.startsWith("@/")) return requireExternal(specifier);
+    const base = specifier.startsWith("@/") ? join(root, specifier.slice(2)) : resolve(dirname(path), specifier);
+    const target = [base, `${base}.tsx`, `${base}.ts`].find((candidate) => {
+      try {
+        return readFileSync(candidate) && /\.tsx?$/u.test(candidate);
+      } catch {
+        return false;
+      }
+    });
+    if (!target) throw new Error(`Unresolved ${specifier} from ${path}`);
+    return compileModule(target, cache);
+  };
+  new Function("require", "exports", "module", outputText)(load, module.exports, module);
+  return module.exports;
+}
+
+const { BacktestRunReport } = compileModule(join(root, "components/backtest-run-report.tsx"), new Map());
+const render = (report) => renderToStaticMarkup(React.createElement(BacktestRunReport, { report }));
+// The text of every body cell, in order, with the markup inside each cell stripped.
+const cellTexts = (html) => [...html.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gu)]
+  .map((match) => match[1].replace(/<[^>]+>/gu, ""));
+
+test("loading shows the three fact groups as skeletons and nothing else", () => {
+  const html = render({ state: "loading" });
+  assert.match(html, /data-ui="backtest-run-report"/u);
+  assert.match(html, /data-state="loading"/u);
+  assert.match(html, /aria-busy="true"/u);
+  assert.match(html, /Loading backtest report/u);
+  assert.doesNotMatch(html, /unavailable-state|Net return|<table/u);
+});
+
+test("unavailable names the Owner's reason and shows no positive fact", () => {
+  const html = render(normalizeBacktestRunReport(unavailable, RUN));
+  assert.match(html, /data-state="unavailable"/u);
+  assert.match(html, /class="unavailable-state"/u);
+  assert.match(html, /<code>OUTCOME_EVIDENCE_UNAVAILABLE<\/code>/u);
+  assert.doesNotMatch(html, /Strategy|Data window|Net return|<table|<polyline|aria-busy/u);
+});
+
+test("a projection that fails the contract renders as unavailable for that reason", () => {
+  const html = render(normalizeBacktestRunReport({ ...available, fill_count: 9 }, RUN));
+  assert.match(html, /data-state="unavailable"/u);
+  assert.match(html, new RegExp(`<code>${INVALID_BACKTEST_RUN_REPORT_PROJECTION}</code>`, "u"));
+});
+
+test("available answers all four questions from the stated values", () => {
+  const html = render(normalizeBacktestRunReport(available, RUN));
+  assert.match(html, /data-state="available"/u);
+  for (const heading of ["Strategy", "Data window", "Result"]) {
+    assert.match(html, new RegExp(`<h3>${heading}</h3>`, "u"));
+  }
+  assert.match(html, /100\.00/u);
+  assert.match(html, /the channel never crosses the threshold/u);
+  assert.match(html, /cut-2025-01-03/u);
+  assert.match(html, /<polyline /u);
+  assert.match(html, /3 observations/u);
+  assert.match(html, />-0\.002</u);
+  assert.match(html, />-0\.00647</u);
+  assert.doesNotMatch(html, /No equity observations|%/u);
+});
+
+test("empty lists the run's fills and says only what is missing", () => {
+  const html = render(normalizeBacktestRunReport(emptyWithFills, RUN));
+  assert.match(html, /data-state="empty"/u);
+  assert.match(html, /No equity observations/u);
+  assert.doesNotMatch(html, /<polyline|<circle|unavailable-state/u);
+  assert.deepEqual(cellTexts(html).filter((text) => text === "BUY" || text === "SELL"), ["BUY", "SELL"]);
+  assert.match(html, /<h3>Strategy<\/h3>/u);
+});
+
+test("fills are shown exactly as the projection wrote them", () => {
+  const html = render(normalizeBacktestRunReport(available, RUN));
+  assert.deepEqual(cellTexts(html), [
+    "2025-01-02T14:30:00.000000000Z", "BUY", "187.25", "2.0",
+    "2025-01-02T20:00:00.000000000Z", "SELL", "188", "2",
+  ]);
+});
+
+test("a single observation is drawn as a point, not an empty path", () => {
+  const html = render(normalizeBacktestRunReport({ ...available, series: [available.series[0]] }, RUN));
+  assert.match(html, /<circle /u);
+  assert.doesNotMatch(html, /<polyline/u);
+  assert.match(html, /1 observations/u);
+});

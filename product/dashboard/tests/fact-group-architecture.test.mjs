@@ -8,6 +8,7 @@ const consumers = [
   "components/source-intake-readback-workbench.tsx",
   "components/develop-composer-readback-workbench.tsx",
   "components/exploratory-replay-readback-workbench.tsx",
+  "components/backtest-run-report.tsx",
 ];
 
 test("FactGroup is the domain-neutral readback fact composition", async () => {
