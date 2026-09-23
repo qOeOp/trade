@@ -133,6 +133,9 @@ jobs:
       # until cancelled by hand, and a cancelled job keeps neither log nor artifact (run 35900267592).
       # The step ceiling fires first so the `always()` upload below still runs; the job ceiling is
       # the last resort. Each entry also has its own wall clock in the chain script.
+      # These expire: the chain keeps growing (101 entries on 2026-09-24). When the rolling p90 of the
+      # R&D step passes 55 minutes, or the Market Data step's passes 10, re-measure the same way and
+      # raise both ceilings to about twice the new figures.
       - name: Run the isolated PostgreSQL Owner chain
         timeout-minutes: ${{ matrix.chain.step-timeout-minutes }}
         run: make ${{ matrix.chain.make }}

@@ -1595,7 +1595,9 @@ fi
 # the slowest entry measured - 135.8s, entry 28, the most any entry took across 25 chain records of
 # 2026-09-22..23 - and stays above nextest's own ten-minute stop (`slow-timeout`, 120s x 5), so a
 # hung test is still named by nextest and only what nextest cannot see reaches this.
-# CHAIN_ENTRY_WALL_CLOCK_SECONDS lowers it to make the watchdog fire on purpose.
+# This expires as entries grow slower: when any entry routinely passes 450s, re-measure from the
+# chain records and raise it. CHAIN_ENTRY_WALL_CLOCK_SECONDS lowers it to make the watchdog fire on
+# purpose.
 # shellcheck source=scripts/ci/chain-entry-watchdog.bash
 source "$(dirname "${BASH_SOURCE[0]}")/chain-entry-watchdog.bash"
 readonly chain_entry_wall_clock_seconds="${CHAIN_ENTRY_WALL_CLOCK_SECONDS:-900}"
