@@ -15,9 +15,7 @@ use vibe_data::owner::{
     instrument_economic_terms_v1::InstrumentEconomicTermsReadbackV1,
     instrument_master::{InstrumentMasterReadbackV1, verify_instrument_master_readback},
     instrument_master_v2::ValidatedCryptoPerpetualPublicTermsV2,
-    native_replay_scheduling_v1::{
-        NativeReplaySchedulingResolverV1, UntrustedNativeReplaySchedulingRequestV1,
-    },
+    native_replay_scheduling_v1::UntrustedNativeReplaySchedulingRequestV1,
     native_replay_scheduling_v2::NativeReplayFrameSequenceReadbackV2,
     replay_market_facts_v2::{
         ReplayCompositionBindingReadbackV1, ReplayMarketDependencyKindV2,
@@ -103,7 +101,7 @@ pub enum NativeReplayExecutionPrerequisitesErrorV2 {
 /// complete PIT batch and both BAR schedules before Strategy Factory can consume its move-only
 /// native scheduling readback together with the already-bound profile authority.
 #[allow(clippy::too_many_arguments)]
-pub async fn compose_native_replay_execution_bundle_v2<R>(
+pub async fn compose_native_replay_execution_bundle_v2(
     prerequisites: NativeReplayExecutionPrerequisitesV2,
     scheduling_request: &UntrustedNativeReplaySchedulingRequestV1,
     universe_frames: Vec<StrategyInputUniverseFrameReceipt>,
@@ -113,10 +111,7 @@ pub async fn compose_native_replay_execution_bundle_v2<R>(
     strategy_id: StrategyId,
     run_id: String,
     public_terms: [ValidatedCryptoPerpetualPublicTermsV2; TARGET_SET_MEMBER_COUNT],
-) -> Result<ReplayTargetSetExecutionBundleV1, NativeReplayExecutionPrerequisitesErrorV2>
-where
-    R: NativeReplaySchedulingResolverV1 + ?Sized,
-{
+) -> Result<ReplayTargetSetExecutionBundleV1, NativeReplayExecutionPrerequisitesErrorV2> {
     let request_window = prerequisites.profile_authority.request_window();
     if scheduling_request.frame_time_ns() != request_window.start_event_ns
         || scheduling_request.window_end_ns_exclusive() != request_window.end_event_ns_exclusive
