@@ -265,6 +265,15 @@ history; it says nothing about whether the path has ever run in some other envir
   relabeled as research evidence. R&D alone commits the D-only Repair Disposition.
 - To [Qualification](./qualification/): sealed Protected Run Results that repeat every consumed execution-defining identity for exact equality checking, plus complete consumed-input evidence only.
 - To Product Edge: read-only exploratory Run Result views only; protected requests, measurements, results, and holdout details are never projected.
+- To the Dashboard: the result readback carries the canonical result bytes and nothing derived from them.
+`OwnerBacktestReportV1` in `crates/strategy_factory/src/owner_backtest_report_v1.rs` reads those bytes into
+executions, a return series, net return and maximum drawdown, and `BacktestReturnBand` is an admitted read-only
+presentation atom for `/backtest` and `/backtest/compare`, but no Owner read surface carries a return series
+between them: the `exploratory_replay_result.shadow_read.v2` entry in
+`product/dashboard/lib/operation-registry.ts` permits `terminal`, `reconciliation_summary`,
+`diagnostic_summary` and `semantic_trace_presence`, and no economic field. Both ends are complete and unwired
+rather than each half-built, so a reader who finds no caller for either has measured the state rather than
+missed one.
 
 ## Rejections and prohibitions
 
