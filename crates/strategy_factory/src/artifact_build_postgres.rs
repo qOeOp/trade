@@ -3367,6 +3367,9 @@ mod postgres_freshness_tests {
     #[tokio::test]
     #[ignore = "requires an explicitly supplied read-only attempt-custody database URL"]
     async fn stored_attempt_catalog_is_exactly_classifiable_without_writes() {
+        // It connects without admission, so it installs the collector admission would have.
+        vibe_testkit::postgres::collect_warnings_into_test_log()
+            .expect("the ordered chain's warning collector should install");
         let database_url = std::env::var("RD_OWNER_CLASSIFICATION_DATABASE_URL")
             .expect("RD_OWNER_CLASSIFICATION_DATABASE_URL must be explicitly supplied");
         let pool = sqlx::postgres::PgPoolOptions::new()

@@ -1,3 +1,4 @@
+import { announcedOwnerReadBudgetMsV1 } from "./operation-registry.ts";
 import { createHash } from "node:crypto";
 
 import { dedicatedDashboardReadApiTargetV1 } from "./owner-api-target.ts";
@@ -286,13 +287,14 @@ export async function readArtifactHistoricalGatewayV1({
   if (!url || !target.token) {
     return unavailable(buildRequestIdentity, attemptIdentity, "OWNER_CONFIGURATION_UNAVAILABLE", 503);
   }
+  const budgetMs = announcedOwnerReadBudgetMsV1("rd artifact readback", 8_000);
   const startedAtMs = performance.now();
   try {
     const response = await fetcher(url, {
       method: "GET",
       headers: { authorization: `Bearer ${target.token}` },
       cache: "no-store",
-      signal: AbortSignal.timeout(8_000),
+      signal: AbortSignal.timeout(budgetMs),
     });
     if (!response.ok) {
       return unavailable(buildRequestIdentity, attemptIdentity, "OWNER_RESPONSE_UNAVAILABLE", response.status >= 500 ? 503 : 502);
@@ -326,7 +328,7 @@ export async function readArtifactHistoricalGatewayV1({
     // evidence rather than another sighting.
     const elapsedMs = Math.round(performance.now() - startedAtMs);
     const detail = cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause);
-    console.error(`rd artifact readback: Owner read failed after ${elapsedMs}ms against an 8000ms budget: ${detail}`);
+    console.error(`rd artifact readback: Owner read failed after ${elapsedMs}ms against its ${budgetMs}ms budget: ${detail}`);
     return unavailable(buildRequestIdentity, attemptIdentity, "OWNER_TRANSPORT_UNAVAILABLE", 503);
   }
 }
