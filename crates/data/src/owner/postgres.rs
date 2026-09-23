@@ -165,6 +165,11 @@ use super::{
         MarketSemanticsAdmissionV1, MarketSemanticsFactSubmissionV1,
         sealed::Sealed as MarketSemanticsAdmissionSealed,
     },
+    native_replay_quote_cut_v2::{
+        NativeReplayCutCoordinatesV2, NativeReplayCutKindV2, NativeReplayQuoteCutCandidateV2,
+        NativeReplayQuoteCutRefusalV2, classify_native_replay_cut_v2,
+        select_native_replay_quote_cut_v2, verify_native_replay_quote_cut_v2,
+    },
     observation_census::{
         ObservationCensusErrorV1, ObservationCensusReadbackV1, ObservationCensusResolverV1,
         StrategyInputJoinedCutOwnerResolverV1, StrategyInputJoinedCutReadbackV1,
@@ -322,6 +327,11 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     // fails closed on it rather than choosing.
     "CREATE TABLE IF NOT EXISTS market_data_private.pit_role_coordinate_index_v1 (instrument TEXT NOT NULL CHECK (instrument <> ''), channel TEXT NOT NULL CHECK (channel <> ''), data_kind TEXT NOT NULL CHECK (data_kind <> ''), field TEXT NOT NULL CHECK (field <> ''), timeframe TEXT NOT NULL CHECK (timeframe <> ''), value_scale SMALLINT NOT NULL CHECK (value_scale >= 0 AND value_scale <= 255), decision_cut BIGINT NOT NULL CHECK (decision_cut > 0), lineage_root BYTEA NOT NULL CHECK (octet_length(lineage_root) = 32), lineage_version BIGINT NOT NULL CHECK (lineage_version > 0), snapshot_identity BYTEA NOT NULL REFERENCES market_data_private.pit_snapshot_facts_v1(snapshot_identity), PRIMARY KEY(instrument,channel,data_kind,field,timeframe,value_scale,decision_cut,lineage_root))",
     "CREATE TABLE IF NOT EXISTS market_data_private.native_replay_frame_census_v2 (scope_digest BYTEA NOT NULL CHECK (octet_length(scope_digest) = 32), frame_ordinal BIGINT NOT NULL CHECK (frame_ordinal > 0), snapshot_identity BYTEA NOT NULL UNIQUE REFERENCES market_data_private.pit_snapshot_facts_v1(snapshot_identity) ON DELETE RESTRICT, snapshot_fact_digest BYTEA NOT NULL CHECK (octet_length(snapshot_fact_digest) = 32), event_effective_ns BIGINT NOT NULL CHECK (event_effective_ns >= 0), decision_cut_ns BIGINT NOT NULL CHECK (decision_cut_ns >= 0), correction_branch_digest BYTEA NOT NULL CHECK (octet_length(correction_branch_digest) = 32), PRIMARY KEY (scope_digest, frame_ordinal))",
+    // A quote cut is a PIT snapshot whose verified batch holds Quote rows and nothing else. It is
+    // not a frame and takes no frame ordinal: a frame's liquidity is the one quote cut strictly
+    // between its BAR and its bound, which the resolver finds by scope and event time.
+    "CREATE TABLE IF NOT EXISTS market_data_private.native_replay_quote_cut_census_v2 (snapshot_identity BYTEA PRIMARY KEY REFERENCES market_data_private.pit_snapshot_facts_v1(snapshot_identity) ON DELETE RESTRICT, scope_digest BYTEA NOT NULL CHECK (octet_length(scope_digest) = 32), snapshot_fact_digest BYTEA NOT NULL CHECK (octet_length(snapshot_fact_digest) = 32), event_effective_ns BIGINT NOT NULL CHECK (event_effective_ns >= 0), decision_cut_ns BIGINT NOT NULL CHECK (decision_cut_ns >= 0), correction_branch_digest BYTEA NOT NULL CHECK (octet_length(correction_branch_digest) = 32))",
+    "CREATE INDEX IF NOT EXISTS native_replay_quote_cut_census_v2_by_scope_and_time ON market_data_private.native_replay_quote_cut_census_v2 (scope_digest, event_effective_ns)",
     "CREATE TABLE IF NOT EXISTS market_data_private.native_replay_frame_sequences_v2 (sequence_identity BYTEA PRIMARY KEY CHECK (octet_length(sequence_identity) = 32), request_identity BYTEA NOT NULL UNIQUE CHECK (octet_length(request_identity) = 32), v1_binding_identity BYTEA NOT NULL CHECK (octet_length(v1_binding_identity) = 32), window_start_ns BIGINT NOT NULL CHECK (window_start_ns >= 0), window_end_ns_exclusive BIGINT NOT NULL CHECK (window_end_ns_exclusive > window_start_ns), first_snapshot_identity BYTEA NOT NULL CHECK (octet_length(first_snapshot_identity) = 32), second_snapshot_identity BYTEA NOT NULL CHECK (octet_length(second_snapshot_identity) = 32), sequence_bytes BYTEA NOT NULL CHECK (octet_length(sequence_bytes) > 0), receipt_identity BYTEA NOT NULL UNIQUE CHECK (octet_length(receipt_identity) = 32), receipt_bytes BYTEA NOT NULL CHECK (octet_length(receipt_bytes) > 0), CHECK (first_snapshot_identity <> second_snapshot_identity))",
     "CREATE TABLE IF NOT EXISTS market_data_private.native_replay_frame_sequence_outbox_v2 (outbox_identity BYTEA PRIMARY KEY CHECK (octet_length(outbox_identity) = 32), sequence_identity BYTEA NOT NULL UNIQUE REFERENCES market_data_private.native_replay_frame_sequences_v2(sequence_identity) ON DELETE RESTRICT, payload_digest BYTEA NOT NULL CHECK (octet_length(payload_digest) = 32), payload BYTEA NOT NULL CHECK (octet_length(payload) > 0))",
     "CREATE OR REPLACE FUNCTION market_data_private.native_replay_frame_sequence_append_only() RETURNS trigger LANGUAGE plpgsql AS $native_replay_frame_sequence_append_only$ BEGIN RAISE EXCEPTION 'native replay frame sequence custody is append-only'; END $native_replay_frame_sequence_append_only$",
@@ -630,6 +640,61 @@ impl MarketDataOwnerPostgres {
             consumed: consumed.iter().map(frame).collect(),
             bounding_successor: frame(successor),
         })
+    }
+
+    /// Resolves the one quote cut a frame takes its liquidity from, from Owner custody alone.
+    ///
+    /// `docs/owners/market-data.md` takes a frame's liquidity from its quote cut: an Owner-verified
+    /// snapshot strictly after the frame's BAR cut and strictly before `bound_ns_exclusive` - the
+    /// next frame's BAR cut, or the window's end for the last one. The caller names no quote cut:
+    /// the census is searched in the frame's own scope, exactly one must lie in the interval, and
+    /// its batch is read back and verified here before it is compared with the frame's.
+    ///
+    /// # Errors
+    ///
+    /// Returns the exact [`NativeReplayQuoteCutRefusalV2`] for the first violated rule.
+    pub(crate) async fn resolve_native_replay_quote_cut_v2(
+        &self,
+        frame: &VerifiedPitObservationBatch,
+        bound_ns_exclusive: u64,
+        request_decision_cut_ns: u64,
+    ) -> Result<VerifiedPitObservationBatch, NativeReplayQuoteCutRefusalV2> {
+        let frame_coordinates = NativeReplayCutCoordinatesV2::of(frame);
+        let mut transaction = self
+            .pool
+            .begin_with("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .await
+            .map_err(|_| NativeReplayQuoteCutRefusalV2::CustodyUnavailable)?;
+        let candidates = load_native_replay_quote_cut_census_v2(
+            &mut transaction,
+            frame_coordinates.scope_digest,
+            frame_coordinates.event_effective_ns,
+            bound_ns_exclusive,
+        )
+        .await
+        .map_err(|_| NativeReplayQuoteCutRefusalV2::CustodyUnavailable)?;
+        let chosen = select_native_replay_quote_cut_v2(
+            &candidates,
+            frame_coordinates.event_effective_ns,
+            bound_ns_exclusive,
+            request_decision_cut_ns,
+        )?;
+        let quote_cut = load_verified_observation_batch(
+            &mut transaction,
+            chosen.snapshot_identity,
+            chosen.snapshot_fact_digest,
+        )
+        .await
+        .map_err(|_| NativeReplayQuoteCutRefusalV2::CustodyUnavailable)?;
+        verify_native_replay_quote_cut_v2(
+            &frame_coordinates,
+            &NativeReplayCutCoordinatesV2::of(&quote_cut),
+        )?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| NativeReplayQuoteCutRefusalV2::CustodyUnavailable)?;
+        Ok(quote_cut)
     }
 
     /// Commits the sealed V2 sequence's receipt and outbox atomically, or refuses without writing.
@@ -5905,6 +5970,25 @@ async fn persist_pit(
         insert_pit_observation_batch(&mut transaction, &aggregate, batch, fault).await?;
     }
 
+    // Which Native Replay census a snapshot joins is decided by the rows this transaction just
+    // verified and wrote - never by the requester's scope claim, which names a scope but cannot
+    // say whether a snapshot is a frame or the quotes that follow one. Only an available snapshot
+    // can have a verified batch read back, so only one can join either census.
+    let rows = batch
+        .as_ref()
+        .filter(|_| aggregate.fact().disposition() == PitSnapshotDisposition::Available)
+        .map_or(&[][..], PreparedPitObservationBatch::rows);
+
+    match classify_native_replay_cut_v2(rows) {
+        NativeReplayCutKindV2::Frame => {
+            admit_native_replay_frame_census(&mut transaction, aggregate.fact()).await?;
+        }
+        NativeReplayCutKindV2::QuoteCut => {
+            admit_native_replay_quote_cut_census(&mut transaction, aggregate.fact()).await?;
+        }
+        NativeReplayCutKindV2::Neither => {}
+    }
+
     // The R0 record is derived from rows this transaction just wrote and resolves them back
     // through the same locked reads a later caller would use, so a snapshot that cannot carry its
     // own observation evidence never commits at all.
@@ -6280,6 +6364,71 @@ async fn admit_native_replay_frame_census(
     Ok(())
 }
 
+async fn admit_native_replay_quote_cut_census(
+    transaction: &mut Transaction<'_, Postgres>,
+    fact: &PitSnapshotFact,
+) -> Result<(), PitSnapshotError> {
+    let time = &fact.request().time_evidence;
+    let event_effective = i64::try_from(time.event_effective.value)
+        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    let decision_cut = i64::try_from(time.decision_cut.value)
+        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    sqlx::query(
+        "INSERT INTO market_data_private.native_replay_quote_cut_census_v2(snapshot_identity,scope_digest,snapshot_fact_digest,event_effective_ns,decision_cut_ns,correction_branch_digest) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (snapshot_identity) DO NOTHING",
+    )
+    .bind(fact.snapshot_identity().as_bytes().as_slice())
+    .bind(fact.request().scope_digest.as_bytes().as_slice())
+    .bind(fact.digest().as_bytes().as_slice())
+    .bind(event_effective)
+    .bind(decision_cut)
+    .bind(fact.lineage_root().as_bytes().as_slice())
+    .execute(&mut **transaction)
+    .await
+    .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    Ok(())
+}
+
+/// Reads the quote cut census for `scope_digest` in `(after_ns, before_ns_exclusive)`.
+///
+/// The range only narrows the index scan. `select_native_replay_quote_cut_v2` applies the interval
+/// rule again and is what the tests pin: widening this predicate changes no answer, because every
+/// row it lets through is filtered there.
+async fn load_native_replay_quote_cut_census_v2(
+    transaction: &mut Transaction<'_, Postgres>,
+    scope_digest: BindingDigest,
+    after_ns: u64,
+    before_ns_exclusive: u64,
+) -> Result<Vec<NativeReplayQuoteCutCandidateV2>, PitSnapshotError> {
+    let after = i64::try_from(after_ns).map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    let before =
+        i64::try_from(before_ns_exclusive).map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    let rows = sqlx::query(
+        "SELECT snapshot_identity,snapshot_fact_digest,event_effective_ns,decision_cut_ns FROM market_data_private.native_replay_quote_cut_census_v2 WHERE scope_digest=$1 AND event_effective_ns>$2 AND event_effective_ns<$3 ORDER BY event_effective_ns,snapshot_identity",
+    )
+    .bind(scope_digest.as_bytes().as_slice())
+    .bind(after)
+    .bind(before)
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    rows.iter()
+        .map(|row| {
+            let nanos = |column: &str| -> Result<u64, PitSnapshotError> {
+                let value: i64 = row
+                    .try_get(column)
+                    .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+                u64::try_from(value).map_err(|_| PitSnapshotError::PersistenceUnavailable)
+            };
+            Ok(NativeReplayQuoteCutCandidateV2 {
+                snapshot_identity: census_digest(row, "snapshot_identity")?,
+                snapshot_fact_digest: census_digest(row, "snapshot_fact_digest")?,
+                event_effective_ns: nanos("event_effective_ns")?,
+                decision_cut_ns: nanos("decision_cut_ns")?,
+            })
+        })
+        .collect()
+}
+
 async fn admit_pit_lineage_census(
     transaction: &mut Transaction<'_, Postgres>,
     lineage_root: BindingDigest,
@@ -6332,7 +6481,6 @@ async fn insert_pit(
     .execute(&mut **transaction)
     .await
     .map_err(|e| map_pit_insert_error(&e))?;
-    admit_native_replay_frame_census(transaction, fact).await?;
 
     if fault == PostgresCommitFault::AfterFactBeforeOutbox {
         return Err(PitSnapshotError::CommitInterrupted);
@@ -7894,7 +8042,28 @@ async fn load_verified_observation_batch_from_pool(
     // `PersistenceUnavailable`, with the cause discarded one line from where it was produced. The
     // snapshot this isolation level already provides is what a read-only consumer needs; the lock
     // was protecting a write that does not happen here.
-    let aggregate = load_pit(&mut transaction, snapshot_identity, false, false)
+    let batch =
+        load_verified_observation_batch(&mut transaction, snapshot_identity, expected_fact_digest)
+            .await?;
+    transaction
+        .commit()
+        .await
+        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    Ok(batch)
+}
+
+/// Reads one snapshot's verified observation batch inside the caller's read-only transaction.
+///
+/// The caller names the cut by identity and states the digest it expects; an identity that has
+/// since been corrected would otherwise resolve to a revision the caller never named. Both loads
+/// read without locking, because PostgreSQL refuses `SELECT ... FOR UPDATE` in a `READ ONLY`
+/// transaction and a reader has no write to protect.
+async fn load_verified_observation_batch(
+    transaction: &mut Transaction<'_, Postgres>,
+    snapshot_identity: BindingDigest,
+    expected_fact_digest: BindingDigest,
+) -> Result<VerifiedPitObservationBatch, PitSnapshotError> {
+    let aggregate = load_pit(transaction, snapshot_identity, false, false)
         .await
         .map_err(|_| PitSnapshotError::PersistenceUnavailable)?
         .ok_or(PitSnapshotError::LocatorMismatch)?;
@@ -7902,11 +8071,11 @@ async fn load_verified_observation_batch_from_pool(
     if aggregate.fact().digest() != expected_fact_digest {
         return Err(PitSnapshotError::LocatorMismatch);
     }
-    let stored = load_pit_observation_batch(&mut transaction, &aggregate, false)
+    let stored = load_pit_observation_batch(transaction, &aggregate, false)
         .await
         .map_err(|_| PitSnapshotError::PersistenceUnavailable)?
         .ok_or(PitSnapshotError::LocatorMismatch)?;
-    let batch = verify_observation_batch(
+    verify_observation_batch(
         &aggregate,
         stored.source_binding_identity,
         stored.source_binding_lineage_root,
@@ -7915,12 +8084,7 @@ async fn load_verified_observation_batch_from_pool(
         &stored.bytes,
         &stored.rows,
     )
-    .map_err(|_| PitSnapshotError::LocatorMismatch)?;
-    transaction
-        .commit()
-        .await
-        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
-    Ok(batch)
+    .map_err(|_| PitSnapshotError::LocatorMismatch)
 }
 
 #[async_trait::async_trait]
