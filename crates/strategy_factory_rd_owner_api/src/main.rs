@@ -5436,6 +5436,7 @@ mod tests {
             "the digest change must touch exactly the authored Research"
         );
         let refused = Box::pin(composer.run_bounded_feature_program(&locator)).await;
+        eprintln!("stored tamper source_ancestry_evidence_digest: {refused:?}");
         assert!(
             !matches!(
                 &refused,

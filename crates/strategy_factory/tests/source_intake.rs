@@ -2210,6 +2210,8 @@ async fn postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_r
         ),
     ];
 
+    let mut accepted_tampers = Vec::new();
+
     for (column, guard, tamper, restore) in research_tampers {
         for (statement, action) in [(tamper, "tamper"), (restore, "restore")] {
             if let Some((table, trigger)) = guard {
@@ -2249,10 +2251,17 @@ async fn postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_r
                 .await;
 
             if action == "tamper" {
-                assert!(
-                    !matches!(&replayed, Ok(resolved) if resolved.resolution() == ProductEdgeResolution::Accepted),
-                    "a replay accepted tampered {column}",
-                );
+                // Every cell is reported before the test fails, so one run names each refusal.
+                let outcome = match &replayed {
+                    Ok(resolved) => format!("Ok({:?})", resolved.resolution()),
+                    Err(e) => format!("Err({e:?})"),
+                };
+                eprintln!("stored tamper {column}: {outcome}");
+
+                if matches!(&replayed, Ok(resolved) if resolved.resolution() == ProductEdgeResolution::Accepted)
+                {
+                    accepted_tampers.push(column);
+                }
             } else {
                 let replay =
                     replayed.unwrap_or_else(|e| panic!("replay after restoring {column}: {e:?}"));
@@ -2264,6 +2273,10 @@ async fn postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_r
             }
         }
     }
+    assert!(
+        accepted_tampers.is_empty(),
+        "a replay accepted tampered {accepted_tampers:?}",
+    );
     let mut changed = proposal;
     changed.goal.hypothesis.push_str(" changed meaning");
     assert!(matches!(
