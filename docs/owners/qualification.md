@@ -279,6 +279,10 @@ evidence.
   measurement, which repeats the metric identity and digest, the unit and the scale of the frozen
   `ProtectedEconomicPolicyBundleV1` this Owner sealed with the request set; a measurement that does not repeat
   them exactly is not a measurement of the sealed policy and closes the attempt.
+- The exploratory path's Run Result is not an input to this Owner, and that is the design rather than a gap.
+  This Owner evaluates only the results of its own protected requests, because an Eligibility Fact is what a
+  qualification becomes, and a result this Owner did not request carries no frozen protected policy for it to be
+  measured against. An exploratory Run Result is a report for a researcher to read.
 - Operator Authorization is the upstream of the deployment-authorized terminal. What
   it must issue, and why this handoff is TARGET, is stated once under Eligibility terminal status and is not
   repeated here.
@@ -291,6 +295,12 @@ Candidate handoff has none: every call of `submit_candidate_intake_v1` outside t
 acceptance test module. Backtest cannot perform its half of the economic measurement in production, because it
 has no admitted read of the frozen metric reference: not of the R&D plan, whose only sealed read returns native
 replay source storage, and not of `qualification_protected_economic_policy_bundles_v1`, whose grant is revoked.
+The separation from the exploratory path is closed on three layers, measured rather than assumed. No source of
+this Owner names `backtest_replay_results_v2`, `backtest_replay_result_receipts_v1`, or
+`resolve_exploratory_replay_result_v2`/`_v3`, while `backtest_protected_replay_results_v1` is named four times.
+`EXECUTE` on both exploratory resolvers is granted to `rd_owner` alone, where the protected counterpart is
+granted to `qualification_writer`. And `backtest_replay_results_v2` has six readers, none of them this Owner, so
+its absence here is a boundary rather than a dead relation.
 The ordered gate reaches the measurement only because the gate step reads the Candidate under this Owner's own
 role, which is fixture discovery, not a path Backtest has. Closing that gap needs a handoff of the frozen metric and
 coverage-policy references, with the unit and the scale, that Backtest may actually read - inside the request set

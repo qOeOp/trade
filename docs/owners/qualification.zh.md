@@ -234,6 +234,10 @@ Executable provenance 是独立的效果边界。Qualification 记录实际使�
 - [Backtest](./backtest/) 返回请求的保护 Run Result 和消费输入回执，每个实际消费执行字段必须与请求字段完全相等。
   该 Result 携带保护经济测量，它重复本 Owner 随请求集合封存的那份冻结 `ProtectedEconomicPolicyBundleV1`
   的度量身份与摘要 单位与标度；不能逐项重复它们的测量就不是对被封存政策的测量，该次尝试因此关闭。
+- 探索路径的 Run Result 不是本 Owner 的输入，这是设计而不是缺口。
+  本 Owner 只评估它自己那些保护请求的结果，因为 Eligibility Fact 是一次 qualification 变成的东西，
+  而一份本 Owner 没有请求过的结果不携带可供衡量它的冻结保护政策。
+  探索 Run Result 是给研究者读的报告。
 - Operator Authorization 是需要部署授权的终端的上游。它必须签发什么
   以及这条交接为何是 TARGET，在 Eligibility 终端状态一节已述一次，此处不重复。
 - 已提交证据变化可以触发重评，唤醒通道不能替代读取 Owner 事实。
@@ -244,7 +248,13 @@ Executable provenance 是独立的效果边界。Qualification 记录实际使�
 本 Owner 之外每一处 `submit_candidate_intake_v1` 调用都位于一个密封验收测试模块里。
 Backtest 在生产中无法完成经济测量中属于它的那一半，因为它没有任何已准入的途径读到冻结的度量引用：
 读不到 R&D 的 plan，那条唯一的密封读返回的是原生重放源存储；也读不到
-`qualification_protected_economic_policy_bundles_v1`，它的授权已被撤销。有序门禁之所以能走到测量，
+`qualification_protected_economic_policy_bundles_v1`，它的授权已被撤销。与探索路径的分离在三层上都是封闭的，这是实测不是假定。本 Owner 的源码没有任何一处提到
+`backtest_replay_results_v2` `backtest_replay_result_receipts_v1` 或
+`resolve_exploratory_replay_result_v2`/`_v3`，而 `backtest_protected_replay_results_v1` 被提到四次。
+两个探索解析函数的 `EXECUTE` 只授予 `rd_owner`，而对应的保护函数授予 `qualification_writer`。
+并且 `backtest_replay_results_v2` 有六个读取者，其中没有本 Owner，
+所以它在这里的缺席是一条边界而不是一张死表。
+有序门禁之所以能走到测量，
 是因为门禁步骤以本 Owner 自己的角色读取 Candidate，那是夹具发现，不是 Backtest 拥有的路径。
 补上这个缺口需要一条 Backtest 真正读得到的交接，携带冻结的度量与覆盖策略引用以及单位与标度 - 放进请求
 集合的封存里，或者作为一条密封的 `qualification_api` 读 - 而这是跨 Owner 的契约变更，不是一条证明。
