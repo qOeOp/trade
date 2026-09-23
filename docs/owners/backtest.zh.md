@@ -223,6 +223,14 @@ production write、provider effect、Paper、Live 或交易权威。
   只有 R&D 能提交 D-only Repair Disposition。
 - 向 [Qualification](./qualification/) 只返回逐项重复实际消费执行身份以供完全相等校验的密封 Protected Run Result 和完整消费输入证据。
 - 只向 Product Edge 提供只读探索 Run Result 视图；保护请求 测量 结果和 holdout 细节永不投影。
+- 向 Dashboard 只交出规范结果字节本身，不交出任何由它派生的量。
+`OwnerBacktestReportV1`（在 `crates/strategy_factory/src/owner_backtest_report_v1.rs`）把这些字节读成
+executions、收益序列、净收益与最大回撤，`BacktestReturnBand` 是 `/backtest` 与 `/backtest/compare`
+的已准入只读呈现原子，但两者之间没有任何 Owner 读面承载收益序列：
+`exploratory_replay_result.shadow_read.v2` 条目（在
+`product/dashboard/lib/operation-registry.ts` 里）只允许 `terminal`、`reconciliation_summary`、
+`diagnostic_summary` 与 `semantic_trace_presence`，不含任何经济字段。两端都是完整而未接线，
+不是各自建了一半；所以找不到调用方的读者量到的是状态，不是漏看。
 
 ## 拒绝和禁止事项
 
