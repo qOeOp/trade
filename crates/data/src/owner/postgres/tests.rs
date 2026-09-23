@@ -1934,6 +1934,57 @@ fn instrument_fact(
     }
 }
 
+/// The same instrument fact, with the three values a bar schedule has to agree with supplied.
+///
+/// `instrument_fact` fixes the semantics identity and both frontiers at `d(84)`/`d(85)`/`d(86)`.
+/// A schedule prepared from a batch has to see the *batch's* values in the master fact, and those
+/// come from the source binding this Owner actually committed - `d(3)` and `d(4)` for the binding
+/// this supply uses. Hardcoding them in two places is the same fact written twice, and the pair
+/// only agree by coincidence today.
+fn instrument_fact_bound_to(
+    identity: &str,
+    market_semantics_identity: BindingDigest,
+    source_frontier: BindingDigest,
+    correction_frontier: BindingDigest,
+    observation: i128,
+) -> InstrumentMasterFactProposalV1 {
+    let mut proposal = instrument_fact(identity, None, 0);
+    proposal.market_semantics_identity = market_semantics_identity;
+    proposal.source_frontier = source_frontier;
+    proposal.correction_frontier = correction_frontier;
+    // `instrument_fact` observes at 99, which suits `instrument_clock`'s head at 100 and is past
+    // the wall observation of a clock at 40. The Owner refuses a fact observed after its own clock
+    // saw the world, so the observation belongs to the caller's clock rather than to the fixture.
+    //
+    // The three coordinates beneath it move with it. Each must be at or before the observation, so
+    // lowering the observation alone leaves a fact claiming it was retrieved after it was observed.
+    proposal.owner_observation = observation;
+    proposal.provider_available = observation - 3;
+    proposal.correction_publication = observation - 2;
+    proposal.retrieval = observation - 1;
+    proposal
+}
+
+/// The same instrument request, carrying the values the fact above was bound to.
+fn instrument_request_bound_to(
+    identity: u8,
+    scope: InstrumentMasterScopeV1,
+    locator: UntrustedClockHeadLocator,
+    market_semantics_identity: BindingDigest,
+    source_frontier: BindingDigest,
+    correction_frontier: BindingDigest,
+    observation: i128,
+) -> UntrustedInstrumentMasterRequestV1 {
+    let mut request = instrument_request(identity, scope, locator);
+    request.market_semantics_identity = market_semantics_identity;
+    request.source_frontier = source_frontier;
+    request.correction_frontier = correction_frontier;
+    request.effective_instant = observation;
+    request.owner_observation = observation;
+    request.decision_cut = u64::try_from(observation).expect("a non-negative observation");
+    request
+}
+
 fn instrument_request(
     identity: u8,
     scope: InstrumentMasterScopeV1,
@@ -7572,6 +7623,64 @@ async fn native_replay_two_member_frame_supply_oracle(owner: &MarketDataOwnerPos
         )
         .await
         .expect("source binding for the two-member frame supply");
+
+    // One Instrument Master covering both members, not one per member. A frame carries a single
+    // `instrument_master_digest` for all its members, so two exactly-scoped masters would give two
+    // digests and at most one member's schedule could ever match - the contradiction #882 resolved
+    // by following the `UniverseSelectionRecord` scope the Owner already issues.
+    //
+    // The semantics identity and both frontiers come from the binding this supply actually
+    // committed rather than from the fixture's constants, because the schedule compares the
+    // master's copy against the batch's and the two constants agree only by coincidence.
+    // This oracle's clock observes at 40, and a fact may not be observed after its own clock was.
+    let observation: i128 = 40;
+    let semantics = d(84);
+    let source_frontier = source.receipt().locator().source_frontier.digest;
+    let correction_frontier = source.receipt().locator().correction_frontier.digest;
+    let clock_locator = owner
+        .current_clock_head_locator_v1()
+        .await
+        .expect("the Owner names its own clock head");
+
+    for instrument in ["AAPL.XNAS", "MSFT.XNAS"] {
+        owner
+            .append_instrument_master_fact(
+                instrument_fact_bound_to(
+                    instrument,
+                    semantics,
+                    source_frontier,
+                    correction_frontier,
+                    observation,
+                ),
+                &clock_locator,
+            )
+            .await
+            .expect("an Instrument Master fact for each member");
+    }
+    let membership = TestUniverseMembership {
+        identity: d(150),
+        members: vec!["AAPL.XNAS".into(), "MSFT.XNAS".into()],
+    };
+    let master = owner
+        .resolve_instrument_master(
+            &instrument_request_bound_to(
+                151,
+                InstrumentMasterScopeV1::UniverseSelectionRecord(d(150)),
+                clock_locator.clone(),
+                semantics,
+                source_frontier,
+                correction_frontier,
+                observation,
+            ),
+            Some(&membership),
+        )
+        .await
+        .expect("one master covering both members");
+    assert_eq!(
+        master.cut().expected_members(),
+        &["AAPL.XNAS".to_owned(), "MSFT.XNAS".to_owned()],
+        "the master the schedules will rest on covers both members of the frame"
+    );
 
     // Its own scope, not the one the census oracles above already filled. The census is keyed by
     // scope and this database is never reset between oracles, so reusing `d(21)` would have this
