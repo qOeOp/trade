@@ -1089,6 +1089,7 @@ fn hash_text(hasher: &mut Sha256, value: &str) -> Result<(), NativeReplaySchedul
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use crate::owner::pit_snapshot::UnverifiedBatchFieldsForTest;
     use crate::owner::{
         bar_schedule::{BarScheduleCutV1, BarScheduleFactV1, BarScheduleReceiptV1},
         pit_snapshot::{
@@ -1182,7 +1183,7 @@ pub(crate) mod tests {
     }
 
     fn batch(rows: Vec<VerifiedPitObservation>) -> VerifiedPitObservationBatch {
-        VerifiedPitObservationBatch {
+        VerifiedPitObservationBatch::from_fields_for_test(UnverifiedBatchFieldsForTest {
             request_identity: digest(10),
             request_digest: digest(11),
             correlation_identity: digest(18),
@@ -1217,7 +1218,7 @@ pub(crate) mod tests {
             },
             digest: digest(16),
             observations: rows.into_boxed_slice(),
-        }
+        })
     }
 
     fn schedule(instrument: &str, identity: u8) -> BarScheduleReadbackV1 {
@@ -1321,18 +1322,21 @@ pub(crate) mod tests {
                 ));
             }
         }
-        let mut verified = batch(rows);
-        verified.snapshot_identity = digest(seed);
-        verified.fact_digest = digest(seed.wrapping_add(1));
+        let verified = batch(rows).edit_for_test(|fields| {
+            fields.snapshot_identity = digest(seed);
+            fields.fact_digest = digest(seed.wrapping_add(1));
+        });
         let selection = crate::owner::strategy_input_binding::derive_universe_selection(&verified)
             .expect("derived Owner selection");
         let selection_identity = selection.selection_identity();
         let selection_digest = selection.selection_digest();
-        verified.universe_selection_digest = selection_digest;
+        let verified = verified.edit_for_test(|fields| {
+            fields.universe_selection_digest = selection_digest;
 
-        for candidate in &mut verified.observations {
-            candidate.universe_selection_digest = selection_digest;
-        }
+            for candidate in &mut fields.observations {
+                candidate.universe_selection_digest = selection_digest;
+            }
+        });
         let request = NativeReplayInitialMarketRequestV1::new(
             digest(seed),
             digest(seed.wrapping_add(1)),
@@ -1372,10 +1376,9 @@ pub(crate) mod tests {
     ) -> NativeReplayInitialMarketRequestV1 {
         let mut rows = rows_for("AAA-PERP.SIM", 101);
         rows.extend(rows_for("BBB-PERP.SIM", 102));
-        let mut verified = batch(rows);
+        let verified = batch(rows);
         let selection = crate::owner::strategy_input_binding::derive_universe_selection(&verified)
             .expect("derived Owner selection");
-        verified.universe_selection_digest = selection.selection_digest();
         NativeReplayInitialMarketRequestV1::new(
             digest(0),
             digest(0),
@@ -1505,15 +1508,18 @@ pub(crate) mod tests {
         let second = InstrumentId::from("BBB-PERP.SIM");
         let mut rows = rows_for("AAA-PERP.SIM", 101);
         rows.extend(rows_for("BBB-PERP.SIM", 102));
-        let mut batch = batch(rows);
+        let batch = batch(rows);
         let selection = crate::owner::strategy_input_binding::derive_universe_selection(&batch)
             .expect("derived Owner selection");
         let selection_identity = selection.selection_identity();
         let selection_digest = selection.selection_digest();
-        batch.universe_selection_digest = selection_digest;
-        for row in &mut batch.observations {
-            row.universe_selection_digest = selection_digest;
-        }
+        let batch = batch.edit_for_test(|fields| {
+            fields.universe_selection_digest = selection_digest;
+
+            for row in &mut fields.observations {
+                row.universe_selection_digest = selection_digest;
+            }
+        });
         let request = NativeReplayInitialMarketRequestV1::new(
             digest(12),
             digest(13),

@@ -1667,6 +1667,7 @@ impl<'a> Decoder<'a> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use crate::owner::pit_snapshot::UnverifiedBatchFieldsForTest;
     use crate::owner::{
         bar_schedule::{
             BarScheduleCompletionV1, BarScheduleError, BarScheduleKindV1, BarScheduleLabelV1,
@@ -1751,7 +1752,7 @@ pub(crate) mod tests {
         let row = rows
             .first()
             .expect("a fixture batch carries at least one row");
-        VerifiedPitObservationBatch {
+        VerifiedPitObservationBatch::from_fields_for_test(UnverifiedBatchFieldsForTest {
             request_identity: d(1),
             request_digest: d(2),
             correlation_identity: d(21),
@@ -1786,7 +1787,7 @@ pub(crate) mod tests {
             },
             digest: d(5 + fact),
             observations: rows.into_boxed_slice(),
-        }
+        })
     }
 
     fn request(batch: &VerifiedPitObservationBatch) -> UntrustedStrategyInputBindingRequest {
@@ -2201,10 +2202,11 @@ pub(crate) mod tests {
         row.instrument_master_digest = instrument_master_digest;
         row.source_frontier_digest = source_frontier;
         row.correction_frontier_digest = correction_frontier;
-        let mut batch = batch(row, 30);
-        batch.instrument_master_digest = instrument_master_digest;
-        batch.source_frontier_digest = source_frontier;
-        batch.correction_frontier_digest = correction_frontier;
+        let batch = batch(row, 30).edit_for_test(|fields| {
+            fields.instrument_master_digest = instrument_master_digest;
+            fields.source_frontier_digest = source_frontier;
+            fields.correction_frontier_digest = correction_frontier;
+        });
         let binding =
             bind_strategy_input_role(&bar_request(&batch), &batch).expect("foreign BAR binding");
         let instrument_master = instrument_master_readback_with_lineage(
@@ -2758,8 +2760,9 @@ pub(crate) mod tests {
         )
         .expect("first sample");
 
-        let mut second_batch = batch(bar_row(10, 3), 30);
-        second_batch.observations[0].timeframe = "free-label-B".into();
+        let second_batch = batch(bar_row(10, 3), 30).edit_for_test(|fields| {
+            fields.observations[0].timeframe = "free-label-B".into();
+        });
         let mut second_request = bar_request(&second_batch);
         second_request.timeframe = "free-label-B".into();
         let second_binding = bind_strategy_input_role(&second_request, &second_batch)
