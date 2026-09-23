@@ -11562,6 +11562,8 @@ dependencies = [
  "sqlx",
  "tempfile",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
  "url",
  "ustr",
  "vibe-common",

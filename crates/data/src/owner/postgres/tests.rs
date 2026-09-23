@@ -8,6 +8,7 @@ use super::{
     NativeReplayCensusFrameV2, NativeReplayCensusSequenceV2,
     NativeReplayFrameSequenceCustodyReadbackV2,
 };
+use crate::owner::native_replay_quote_cut_v2::NativeReplayQuoteCutRefusalV2;
 use crate::owner::native_replay_scheduling_v2::NativeReplayFrameCensusRefusalV2;
 use crate::owner::native_replay_scheduling_v2::{
     NativeReplayFrameSequenceCustodyRecordV2, NativeReplayFrameSequenceCustodyRefusalV2,
@@ -480,6 +481,24 @@ fn two_member_observation_batch(
     source: &SourceBindingCommit,
     proposal: &UntrustedPitSnapshotProposal,
 ) -> UntrustedPitObservationBatchProposal {
+    observation_batch_of(
+        source,
+        proposal,
+        &[("AAPL", "AAPL.XNAS"), ("MSFT", "MSFT.XNAS")],
+        &["BAR", "QUOTE"],
+    )
+}
+
+/// A batch of `kinds` rows - five BAR fields, four QUOTE fields, or both - for each of `members`
+/// (member key, instrument), at the proposal's own cut and in the shape the Owner admits.
+///
+/// The member count is whatever the caller passes: one member and two are built the same way.
+fn observation_batch_of(
+    source: &SourceBindingCommit,
+    proposal: &UntrustedPitSnapshotProposal,
+    members: &[(&str, &str)],
+    kinds: &[&str],
+) -> UntrustedPitObservationBatchProposal {
     let request = &proposal.request;
     let correction_publication = request
         .time_evidence
@@ -488,12 +507,12 @@ fn two_member_observation_batch(
         .expect("a batch-carrying request states its correction-publication coordinate")
         .value;
     let locator = source.receipt().locator();
-    let mut rows = Vec::with_capacity(18);
+    let mut rows = Vec::new();
 
     // Member key and instrument are different things: the key names a slot in the universe, the
     // instrument is an `InstrumentId` and must carry its venue. The native replay request matches
     // `member_instruments` against these rows, and an unqualified symbol panics on the way in.
-    for (member, instrument) in [("AAPL", "AAPL.XNAS"), ("MSFT", "MSFT.XNAS")] {
+    for &(member, instrument) in members {
         let bar = [
             ("OPEN", 10_001_i128, 2_u8),
             ("HIGH", 10_103, 2),
@@ -510,8 +529,10 @@ fn two_member_observation_batch(
         ]
         .map(|(field, mantissa, scale)| ("QUOTE", "TICK", field, mantissa, scale));
 
-        for (data_kind, timeframe, field, value_mantissa, value_scale) in
-            bar.into_iter().chain(quote)
+        for (data_kind, timeframe, field, value_mantissa, value_scale) in bar
+            .into_iter()
+            .chain(quote)
+            .filter(|(data_kind, ..)| kinds.contains(data_kind))
         {
             rows.push(UntrustedPitObservation {
                 symbolic_key: format!("{member}.{field}.{timeframe}"),
@@ -1226,6 +1247,7 @@ async fn sample_projection_postgres_oracle_v3(owner_url: &str, reader_url: &str,
         &fixture.binding,
         &fixture.batch,
         &fixture.instrument_master,
+        &fixture.instrument_master,
     )
     .expect("prepared BAR schedule");
     let before_schedule: (i64, i64, i64) = sqlx::query_as(
@@ -1373,6 +1395,7 @@ async fn sample_projection_postgres_oracle_v3(owner_url: &str, reader_url: &str,
         successor_proposal,
         &fixture.binding,
         &fixture.batch,
+        &fixture.instrument_master,
         &fixture.instrument_master,
     )
     .expect("same BAR shape with successor schedule custody");
@@ -4520,6 +4543,66 @@ impl PitObservationSourceV1 for ScopeFaithfulObservationSourceV1 {
     }
 }
 
+/// A Data Client that answers a bar at the issued instant and a quote `quote_offset` after it.
+///
+/// The frame design as first written in `docs/owners/market-data.md` took each frame's liquidity
+/// from the frame's own PIT cut, preceding the next frame's first bar, and `into_frame_evidence_v2`
+/// requires the quote strictly after the bar. This client supplies exactly that shape - a quote
+/// later than the bar, in the same snapshot - so the production commit path can say whether a
+/// snapshot may hold it. It cannot, which is why a frame's liquidity now comes from a quote cut of
+/// its own. With `quote_offset == 0` it is the control: the same rows, nothing out of time.
+struct QuoteAfterBarObservationSourceV1 {
+    quote_offset: u64,
+}
+
+#[async_trait::async_trait]
+impl PitObservationSourceV1 for QuoteAfterBarObservationSourceV1 {
+    async fn observe(
+        &self,
+        scope: &PitObservationScopeV1,
+    ) -> Result<Vec<VendorObservationV1>, PitObservationSourceErrorV1> {
+        let row = |symbolic_key: &str,
+                   data_kind: &str,
+                   timeframe: &str,
+                   field: &str,
+                   value_mantissa: i128,
+                   event_effective: u64| VendorObservationV1 {
+            symbolic_key: symbolic_key.into(),
+            member_key: "AAPL".into(),
+            instrument: "AAPL".into(),
+            channel: "MARKET".into(),
+            data_kind: data_kind.into(),
+            timeframe: timeframe.into(),
+            field: field.into(),
+            value_mantissa,
+            value_scale: 2,
+            event_effective,
+            provider_available: scope.provider_available(),
+            retrieval: scope.retrieval(),
+            correction_publication: scope.correction_publication(),
+        };
+        // Strictly ascending by symbolic key, which the canonical batch requires.
+        Ok(vec![
+            row(
+                "AAPL.BID_PRICE.TICK",
+                "QUOTE",
+                "TICK",
+                "BID_PRICE",
+                12_341,
+                scope.event_effective() + self.quote_offset,
+            ),
+            row(
+                "AAPL.CLOSE.1M",
+                "BAR",
+                "1M",
+                "CLOSE",
+                12_345,
+                scope.event_effective(),
+            ),
+        ])
+    }
+}
+
 /// A Data Client that cannot reach its provider.
 struct UnavailableObservationSourceV1;
 
@@ -4957,6 +5040,7 @@ async fn production_pit_mint_postgres_oracle_v1(
         PitSnapshotDisposition::Available,
         "a frozen request alone mints AVAILABLE once the Owner retrieves its own observations"
     );
+
     // Market Semantics: Operations states one fact about the binding, and the Owner derives the
     // scope, the registry key and every coordinate from the snapshot it just committed.
     let semantics_submission = |adjustment: &str| {
@@ -5067,6 +5151,33 @@ async fn production_pit_mint_postgres_oracle_v1(
             .await,
         Err(PitSnapshotError::ObservationBatchUnavailable),
         "an unreachable provider fails closed instead of minting an empty snapshot"
+    );
+    // Can one production snapshot hold a quote later than its own bar? The frame design as first
+    // written in `docs/owners/market-data.md` needed it: each frame's liquidity came from the
+    // frame's own PIT cut and had to follow the bar, and `into_frame_evidence_v2` requires the quote
+    // strictly after it. The production commit path refuses: every row has to carry the request's
+    // one `event_effective`, so a snapshot is one instant and cannot hold anything later than
+    // itself. This measurement is why the design now takes a frame's quotes from a separate quote
+    // cut.
+    //
+    // Measured two-sided on 2026-09-23 against this path. With the same rows and only the quote's
+    // event time changed, the quote on the bar's instant minted `Available` and the quote one step
+    // after it was refused with `InvalidObservationBatch`; every other coordinate was lawful in both,
+    // so the refusal is the event time and nothing else. Only the refusing half stays in the suite:
+    // the control mints a snapshot, and `run_postgres_owner_scenario` later asserts an absolute
+    // count of snapshot facts that a stray mint would break. A refused commit rolls back whole.
+    assert_eq!(
+        owner
+            .commit_pit_initial_from_request_v1(
+                request_only(221),
+                &QuoteAfterBarObservationSourceV1 { quote_offset: 1 },
+                &universe_locator,
+                clock,
+            )
+            .await
+            .unwrap_err(),
+        PitSnapshotError::InvalidObservationBatch,
+        "a production snapshot cannot hold a quote later than its own bar"
     );
 }
 
@@ -7446,7 +7557,358 @@ async fn run_postgres_owner_scenario() {
     Box::pin(native_replay_successor_frame_oracle(&census_owner)).await;
     Box::pin(native_replay_frame_sequence_custody_oracle(&census_owner)).await;
     Box::pin(native_replay_two_member_frame_supply_oracle(&census_owner)).await;
+    Box::pin(native_replay_quote_cut_census_oracle(&census_owner)).await;
     admin.close().await;
+}
+
+/// A frame takes its liquidity from its own quote cut, and the Owner tells the two apart by the
+/// batch it verified.
+///
+/// Every snapshot here is committed through the Owner's own path, in scopes no other oracle uses.
+/// A frame (BAR rows) takes an ordinal; a quote cut (Quote rows only) takes none and lands in the
+/// quote cut census; a snapshot without rows lands in neither. Resolution then names the quote cut
+/// for a frame from custody alone, and refuses every way of not having exactly one that serves it.
+async fn native_replay_quote_cut_census_oracle(owner: &MarketDataOwnerPostgres) {
+    const BTC: (&str, &str) = ("BTCUSDT", "BTCUSDT-PERP.BINANCE");
+    const ETH: (&str, &str) = ("ETHUSDT", "ETHUSDT-PERP.BINANCE");
+    let source = owner
+        .commit_source_initial(
+            source_proposal(10, 40),
+            OwnerSourceBindingDecision {
+                blockers: BTreeSet::new(),
+            },
+            &clock(40, 1),
+        )
+        .await
+        .expect("source binding for the quote cut census");
+    let commit = async |scope: BindingDigest,
+                        correlation_byte: u8,
+                        time: u64,
+                        members: &[(&str, &str)],
+                        kinds: &[&str]| {
+        let mut proposal = pit_proposal_at(&source, correlation_byte, scope, time);
+        let observation = observation_batch_of(&source, &proposal, members, kinds);
+        proposal.evidence.normalized_records_digest =
+            derive_observation_batch_digest(&observation).unwrap();
+        refresh_request_claims(&mut proposal.request);
+        let basis = basis(&proposal);
+        owner
+            .commit_pit_initial_with_observation_batch(proposal, observation, &basis, &clock(40, 1))
+            .await
+            .expect("a snapshot the Owner admits")
+    };
+    let verified = async |commit: &PitSnapshotCommitAggregate| {
+        super::load_verified_observation_batch_from_pool(
+            owner.pool(),
+            commit.fact().snapshot_identity(),
+            commit.fact().digest(),
+        )
+        .await
+        .expect("the Owner reads back what it admitted")
+    };
+    let census_rows = async |table: &str, scope: BindingDigest| -> Vec<Vec<u8>> {
+        let query = match table {
+            "native_replay_frame_census_v2" => {
+                "SELECT snapshot_identity FROM market_data_private.native_replay_frame_census_v2 WHERE scope_digest=$1 ORDER BY event_effective_ns"
+            }
+            "native_replay_quote_cut_census_v2" => {
+                "SELECT snapshot_identity FROM market_data_private.native_replay_quote_cut_census_v2 WHERE scope_digest=$1 ORDER BY event_effective_ns"
+            }
+            other => panic!("no census table {other}"),
+        };
+        sqlx::query_scalar(query)
+            .bind(scope.as_bytes().as_slice())
+            .fetch_all(owner.pool())
+            .await
+            .unwrap()
+    };
+    let identity =
+        |commit: &PitSnapshotCommitAggregate| commit.fact().snapshot_identity().as_bytes().to_vec();
+
+    let scope = d(150);
+    let frame = commit(scope, 80, 10, &[BTC], &["BAR"]).await;
+    let quote_cut = commit(scope, 81, 15, &[BTC], &["QUOTE"]).await;
+    // Another requester declaring this scope, on an Instrument Master of its own, inside the
+    // frame's interval. It is a quote cut and it is in the census; it is not this frame's.
+    let foreign_quote_cut = {
+        let mut proposal = pit_proposal_at(&source, 86, scope, 14);
+        proposal.request.instrument_master_digest = d(98);
+        let observation = observation_batch_of(&source, &proposal, &[BTC], &["QUOTE"]);
+        proposal.evidence.normalized_records_digest =
+            derive_observation_batch_digest(&observation).unwrap();
+        refresh_request_claims(&mut proposal.request);
+        let basis = basis(&proposal);
+        owner
+            .commit_pit_initial_with_observation_batch(proposal, observation, &basis, &clock(40, 1))
+            .await
+            .expect("a quote cut on another Instrument Master")
+    };
+    let mut rowless = pit_proposal_at(&source, 82, scope, 12);
+    refresh_request_claims(&mut rowless.request);
+    let rowless_basis = basis(&rowless);
+    let rowless = owner
+        .commit_pit_initial(rowless, &rowless_basis, &clock(40, 1))
+        .await
+        .expect("a snapshot without rows");
+
+    assert_eq!(
+        census_rows("native_replay_frame_census_v2", scope).await,
+        vec![identity(&frame)],
+        "only the snapshot holding BAR rows is a frame"
+    );
+    assert_eq!(
+        census_rows("native_replay_quote_cut_census_v2", scope).await,
+        vec![identity(&foreign_quote_cut), identity(&quote_cut)],
+        "the Quote-only snapshots are quote cuts, and the one without rows is in neither census"
+    );
+    assert_ne!(identity(&rowless), identity(&quote_cut));
+
+    let frame_batch = verified(&frame).await;
+    let resolved = owner
+        .resolve_native_replay_quote_cut_v2(&frame_batch, 20, 40)
+        .await
+        .expect("the frame's one quote cut");
+    assert_eq!(
+        resolved.snapshot_identity(),
+        quote_cut.fact().snapshot_identity(),
+        "the quote cut on another Instrument Master in the same interval is set aside"
+    );
+    assert!(
+        resolved
+            .observations()
+            .iter()
+            .all(|row| row.data_kind() == "QUOTE" && row.instrument() == BTC.1),
+        "the resolved batch is the Owner's own verified Quote rows for the frame's member"
+    );
+    assert_eq!(
+        owner
+            .resolve_native_replay_quote_cut_v2(&frame_batch, 15, 40)
+            .await
+            .unwrap_err(),
+        NativeReplayQuoteCutRefusalV2::QuoteCutMissing,
+        "the bound is exclusive: a quote cut on the next frame's instant is not this frame's"
+    );
+    assert_eq!(
+        owner
+            .resolve_native_replay_quote_cut_v2(&frame_batch, 20, 39)
+            .await
+            .unwrap_err(),
+        NativeReplayQuoteCutRefusalV2::QuoteCutMissing,
+        "a quote cut the Owner could not yet see at the decision cut is not one it has"
+    );
+
+    let second_quote_cut = commit(scope, 83, 17, &[BTC], &["QUOTE"]).await;
+    assert_eq!(
+        owner
+            .resolve_native_replay_quote_cut_v2(&frame_batch, 20, 40)
+            .await
+            .unwrap_err(),
+        NativeReplayQuoteCutRefusalV2::AmbiguousQuoteCut,
+        "two quote cuts in one interval: the census does not choose"
+    );
+    assert_eq!(
+        owner
+            .resolve_native_replay_quote_cut_v2(&frame_batch, 16, 40)
+            .await
+            .map(|batch| batch.snapshot_identity()),
+        Ok(quote_cut.fact().snapshot_identity()),
+        "a narrower interval holds exactly one again"
+    );
+    assert_ne!(
+        second_quote_cut.fact().snapshot_identity(),
+        quote_cut.fact().snapshot_identity()
+    );
+
+    // A quote cut for another instrument is in the census and in the interval, and still cannot
+    // serve this frame: its member would trade without liquidity.
+    let other_scope = d(151);
+    let btc_frame = commit(other_scope, 84, 10, &[BTC], &["BAR"]).await;
+    commit(other_scope, 85, 15, &[ETH], &["QUOTE"]).await;
+    assert_eq!(
+        owner
+            .resolve_native_replay_quote_cut_v2(&verified(&btc_frame).await, 20, 40)
+            .await
+            .unwrap_err(),
+        NativeReplayQuoteCutRefusalV2::MemberMismatch
+    );
+
+    // Corrected quote cuts. A correction may move a quote cut's event time or its Source Binding,
+    // so what a lineage offers a frame is its latest correction the Owner could see at the decision
+    // cut, asked only then whether it serves the frame; a lineage whose latest correction does not
+    // offers nothing, and never its superseded original. Every original is committed first,
+    // because the corrections advance the Source Binding and the clock.
+    let original_quote_cut = async |scope: BindingDigest, correlation_byte: u8, time: u64| {
+        let mut proposal = pit_proposal_at(&source, correlation_byte, scope, time);
+        let observation = observation_batch_of(&source, &proposal, &[BTC], &["QUOTE"]);
+        proposal.evidence.normalized_records_digest =
+            derive_observation_batch_digest(&observation).unwrap();
+        refresh_request_claims(&mut proposal.request);
+        let basis = basis(&proposal);
+        let committed = owner
+            .commit_pit_initial_with_observation_batch(
+                proposal.clone(),
+                observation,
+                &basis,
+                &clock(40, 1),
+            )
+            .await
+            .expect("an original quote cut");
+        (proposal, committed)
+    };
+    let same_instant = d(152);
+    let moved_out = d(153);
+    let moved_in = d(154);
+    let rebound = d(155);
+    let mut frames = Vec::new();
+
+    for (scope, correlation_byte) in [
+        (same_instant, 87),
+        (moved_out, 88),
+        (moved_in, 89),
+        (rebound, 90),
+    ] {
+        frames.push(commit(scope, correlation_byte, 10, &[BTC], &["BAR"]).await);
+    }
+    let (same_instant_proposal, same_instant_original) =
+        original_quote_cut(same_instant, 91, 15).await;
+    let (moved_out_proposal, moved_out_original) = original_quote_cut(moved_out, 92, 15).await;
+    let (moved_in_proposal, moved_in_original) = original_quote_cut(moved_in, 93, 5).await;
+    let (rebound_proposal, rebound_original) = original_quote_cut(rebound, 94, 15).await;
+
+    let successor = owner
+        .commit_source_successor(
+            source.receipt().locator(),
+            source_proposal(12, 50),
+            OwnerSourceBindingDecision {
+                blockers: BTreeSet::new(),
+            },
+            &clock(50, 2),
+        )
+        .await
+        .expect("a corrected Source Binding in the same lineage");
+    let other_lineage = owner
+        .commit_source_initial(
+            source_proposal(14, 50),
+            OwnerSourceBindingDecision {
+                blockers: BTreeSet::new(),
+            },
+            &clock(50, 2),
+        )
+        .await
+        .expect("a Source Binding of another lineage");
+    assert_ne!(
+        other_lineage.fact().lineage_root(),
+        successor.fact().lineage_root()
+    );
+    let correct = async |original_proposal: &UntrustedPitSnapshotProposal,
+                         original: &PitSnapshotCommitAggregate,
+                         source: &SourceBindingCommit,
+                         event: u64| {
+        let mut proposal = pit_correction(original_proposal, source);
+        proposal.request.time_evidence.event_effective =
+            UntrustedEventEffectiveTime::from_untrusted(
+                event,
+                TEST_CLOCK_IDENTITY_V1,
+                TEST_CLOCK_EPOCH_V1,
+            );
+        proposal.evidence.source_frontier = source.receipt().locator().source_frontier.clone();
+        proposal.evidence.correction_frontier =
+            source.receipt().locator().correction_frontier.clone();
+        let observation = observation_batch_of(source, &proposal, &[BTC], &["QUOTE"]);
+        proposal.evidence.normalized_records_digest =
+            derive_observation_batch_digest(&observation).unwrap();
+        refresh_request_claims(&mut proposal.request);
+        let basis = basis_at(&proposal, &clock(50, 2));
+        let correction = owner
+            .commit_pit_correction_with_observation_batch(
+                original.receipt().locator(),
+                proposal,
+                observation,
+                &basis,
+                &clock(50, 2),
+            )
+            .await?;
+        assert_eq!(
+            correction.fact().lineage_root(),
+            original.fact().lineage_root(),
+            "one correction lineage"
+        );
+        Ok::<_, PitSnapshotError>(correction)
+    };
+    let same_instant_correction = correct(
+        &same_instant_proposal,
+        &same_instant_original,
+        &successor,
+        15,
+    )
+    .await
+    .expect("a correction on the quote cut's own instant");
+    let moved_out_correction = correct(&moved_out_proposal, &moved_out_original, &successor, 25)
+        .await
+        .expect("a correction that moves the quote cut later");
+    let moved_in_correction = correct(&moved_in_proposal, &moved_in_original, &successor, 15)
+        .await
+        .expect("a correction that moves the quote cut into the interval");
+    // (c) A correction cannot move a quote cut onto another Source Binding lineage: the Owner
+    // admits a correction only on the exact successor of its original's binding
+    // (`validate_source_binding_successor`, pinned without a database by
+    // `correction_rejects_a_different_source_binding_lineage_without_write`). So that shape never
+    // reaches the census; the selection rule would still refuse it
+    // (`a_superseded_original_is_never_the_frames_quote_cut`), and here the original simply stays
+    // its lineage's latest.
+    assert!(
+        correct(&rebound_proposal, &rebound_original, &other_lineage, 15)
+            .await
+            .is_err(),
+        "(c) the Owner refuses a correction onto another Source Binding lineage"
+    );
+
+    let resolve = async |frame: &PitSnapshotCommitAggregate, decision_cut: u64| {
+        owner
+            .resolve_native_replay_quote_cut_v2(&verified(frame).await, 20, decision_cut)
+            .await
+            .map(|batch| batch.snapshot_identity())
+    };
+    let snapshot = |commit: &PitSnapshotCommitAggregate| commit.fact().snapshot_identity();
+
+    assert_eq!(
+        resolve(&frames[0], 50).await,
+        Ok(snapshot(&same_instant_correction)),
+        "the correction stands for its lineage"
+    );
+    assert_eq!(
+        resolve(&frames[0], 45).await,
+        Ok(snapshot(&same_instant_original)),
+        "a correction the Owner could not yet see leaves the original"
+    );
+    assert_eq!(
+        resolve(&frames[1], 50).await,
+        Err(NativeReplayQuoteCutRefusalV2::QuoteCutMissing),
+        "(a) a correction moved past the bound takes its lineage with it; the original it replaced \
+         is not the frame's quote cut"
+    );
+    assert_ne!(
+        snapshot(&moved_out_correction),
+        snapshot(&moved_out_original)
+    );
+    assert_eq!(
+        resolve(&frames[1], 45).await,
+        Ok(snapshot(&moved_out_original))
+    );
+    assert_eq!(
+        resolve(&frames[2], 50).await,
+        Ok(snapshot(&moved_in_correction)),
+        "(b) a correction moved into the interval brings its lineage with it"
+    );
+    assert_eq!(
+        resolve(&frames[2], 45).await,
+        Err(NativeReplayQuoteCutRefusalV2::QuoteCutMissing)
+    );
+    assert_eq!(
+        resolve(&frames[3], 50).await,
+        Ok(snapshot(&rebound_original)),
+        "(c) with the correction refused, the original is still its lineage's latest"
+    );
 }
 
 /// A snapshot proposal at its own cut, with every time coordinate moved together.
@@ -7460,9 +7922,20 @@ fn two_member_pit_proposal(
     correlation_byte: u8,
     frame_time: u64,
 ) -> UntrustedPitSnapshotProposal {
+    pit_proposal_at(source, correlation_byte, TWO_MEMBER_FRAME_SCOPE, frame_time)
+}
+
+/// [`two_member_pit_proposal`] in any scope: a snapshot at `frame_time` whose time coordinates all
+/// move together, so that it can carry an observation batch.
+fn pit_proposal_at(
+    source: &SourceBindingCommit,
+    correlation_byte: u8,
+    scope: BindingDigest,
+    frame_time: u64,
+) -> UntrustedPitSnapshotProposal {
     let mut value = pit_proposal(source);
     value.request.correlation_identity = d(correlation_byte);
-    value.request.scope_digest = TWO_MEMBER_FRAME_SCOPE;
+    value.request.scope_digest = scope;
     value.request.time_evidence.event_effective = UntrustedEventEffectiveTime::from_untrusted(
         frame_time,
         TEST_CLOCK_IDENTITY_V1,
@@ -7695,24 +8168,27 @@ async fn native_replay_successor_frame_oracle(owner: &MarketDataOwnerPostgres) {
         .expect("source binding for the frame census");
     let scope = d(21);
 
-    let first = pit_proposal(&source);
-    let first_basis = basis(&first);
-    let first = owner
-        .commit_pit_initial(first, &first_basis, &clock(40, 1))
-        .await
-        .expect("first frame");
-    let successor = same_scope_successor_pit_proposal(&source, 60, 30);
-    let successor_basis = basis(&successor);
-    let successor = owner
-        .commit_pit_initial(successor, &successor_basis, &clock(40, 1))
-        .await
-        .expect("successor frame");
-    let third = same_scope_successor_pit_proposal(&source, 61, 50);
-    let third_basis = basis(&third);
-    let third = owner
-        .commit_pit_initial(third, &third_basis, &clock(40, 1))
-        .await
-        .expect("third frame");
+    // A frame is a snapshot whose verified batch holds BAR rows: the census reads that from the
+    // rows the Owner wrote, so a snapshot without them takes no ordinal. One member is enough - the
+    // census never counts members.
+    let commit_frame = async |correlation_byte: u8, frame_time: u64| {
+        let mut proposal = pit_proposal_at(&source, correlation_byte, scope, frame_time);
+        let observation =
+            observation_batch_of(&source, &proposal, &[("AAPL", "AAPL.XNAS")], &["BAR"]);
+        proposal.evidence.normalized_records_digest =
+            derive_observation_batch_digest(&observation).unwrap();
+        refresh_request_claims(&mut proposal.request);
+        let basis = basis(&proposal);
+        owner
+            .commit_pit_initial_with_observation_batch(proposal, observation, &basis, &clock(40, 1))
+            .await
+            .expect("a frame the Owner admits")
+    };
+    // Frame times sit at or before the clock's decision cut of 40 with every row coordinate:
+    // the fourth one is `frame_time + 3`.
+    let first = commit_frame(60, 10).await;
+    let successor = commit_frame(61, 20).await;
+    let third = commit_frame(62, 30).await;
 
     let first_identity = first.fact().snapshot_identity();
     let successor_identity = successor.fact().snapshot_identity();
@@ -7733,9 +8209,9 @@ async fn native_replay_successor_frame_oracle(owner: &MarketDataOwnerPostgres) {
             .resolve_native_replay_census_sequence_v2(scope, first_identity, 100, 0, 100)
             .await,
         Ok(NativeReplayCensusSequenceV2 {
-            consumed: vec![frame(&first, 10), frame(&successor, 30)],
+            consumed: vec![frame(&first, 10), frame(&successor, 20)],
             // The bounding frame's own event-effective coordinate, not a caller-chosen bound.
-            bounding_successor: frame(&third, 50),
+            bounding_successor: frame(&third, 30),
         })
     );
 
@@ -7743,18 +8219,18 @@ async fn native_replay_successor_frame_oracle(owner: &MarketDataOwnerPostgres) {
     // what this resolver returned for every window before it returned a sequence.
     assert_eq!(
         owner
-            .resolve_native_replay_census_sequence_v2(scope, first_identity, 100, 0, 40)
+            .resolve_native_replay_census_sequence_v2(scope, first_identity, 100, 0, 25)
             .await,
         Ok(NativeReplayCensusSequenceV2 {
             consumed: vec![frame(&first, 10)],
-            bounding_successor: frame(&successor, 30),
+            bounding_successor: frame(&successor, 20),
         })
     );
 
     // A window with nothing to bound the first frame consumes nothing.
     assert_eq!(
         owner
-            .resolve_native_replay_census_sequence_v2(scope, first_identity, 100, 0, 30)
+            .resolve_native_replay_census_sequence_v2(scope, first_identity, 100, 0, 20)
             .await,
         Err(NativeReplayFrameCensusRefusalV2::EligibleFrameCountIsBelowTwo)
     );

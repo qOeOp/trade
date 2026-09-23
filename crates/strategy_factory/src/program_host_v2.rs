@@ -9,7 +9,7 @@ use strategy_factory_program_sdk::lifecycle_v1::{
     TargetStateV1, UnsealedGuestProposalV1,
 };
 use strategy_factory_program_sdk::lifecycle_v2::{
-    InstrumentTargetSetV2, MemberTargetV2, TARGET_SET_BYTES, TARGET_SET_MEMBER_COUNT,
+    InstrumentKeyV2, InstrumentTargetSetV2, MemberTargetV2, TARGET_SET_BYTES,
 };
 use thiserror::Error;
 #[cfg(feature = "isolated-event-replay-acceptance")]
@@ -30,6 +30,7 @@ use vibe_data::owner::{
     },
 };
 
+use crate::target_set_members::{BoundedMembers, is_admitted_member_count};
 use crate::{
     artifact_v2::{StrategyArtifactModuleV2, StrategyArtifactV2, StrategyArtifactV2Error},
     bounded_feature_program_v1::BOUNDED_FEATURE_NUMERIC_FAILURE_V1,
@@ -413,7 +414,7 @@ enum EvaluatedProposalV2 {
     Members(InstrumentTargetSetV2),
 }
 
-/// Host-owned, non-committed exactly-two-member Backtest proposal.
+/// Host-owned, non-committed member target-set Backtest proposal.
 ///
 /// The contained host is a scratch clone. Callers may inspect only the canonical target set and
 /// current member checkpoints. Only the Backtest adapter can seal the snapshot-bound
@@ -429,7 +430,7 @@ pub(crate) struct PreparedBacktestTargetSetV2 {
     input_binding_digest: BindingDigest,
     source_binding_lineage: Option<SourceBindingLineageVersionV2>,
     target_set: InstrumentTargetSetV2,
-    traces: Option<[SemanticTraceV1; TARGET_SET_MEMBER_COUNT]>,
+    traces: Option<BoundedMembers<SemanticTraceV1>>,
 }
 
 impl PreparedBacktestTargetSetV2 {
@@ -454,13 +455,20 @@ impl PreparedBacktestTargetSetV2 {
             self.target_set,
         )?;
 
-        if self.traces.is_some() || self.admissions.len() != TARGET_SET_MEMBER_COUNT {
+        let member_count = self.target_set.member_count();
+        // The loop below zips kernels, admissions and grid targets, and a zip stops at the shortest:
+        // every one must cover exactly the target set's members or a member would go unreconciled.
+        if self.traces.is_some()
+            || self.admissions.len() != member_count
+            || self.scratch.member_kernels.len() != member_count
+            || grid_targets.len() != member_count
+        {
             return Err(ProgramHostV2Error::Checkpoint);
         }
         let strategy_digest = strategy_state_digest(&self.scratch.strategy_state);
         let plugin_digest = plugin_state_digest(&self.scratch.plugin_state);
         let proposal_plan = self.scratch.plan.clone();
-        let mut traces = [SemanticTraceV1::default(); TARGET_SET_MEMBER_COUNT];
+        let mut traces = Vec::with_capacity(member_count);
 
         for (index, ((member, admission), grid_target)) in self
             .scratch
@@ -470,7 +478,7 @@ impl PreparedBacktestTargetSetV2 {
             .zip(grid_targets)
             .enumerate()
         {
-            let mut target = self.target_set.members[index];
+            let mut target = self.target_set.members()[index];
             match target.target {
                 lifecycle_v1::TargetProposalV1::Position(units)
                 | lifecycle_v1::TargetProposalV1::RebalancePosition { units, .. } => {
@@ -504,11 +512,13 @@ impl PreparedBacktestTargetSetV2 {
             let EnvelopeAdmissionV1::ProposalRequired(admitted) = admission else {
                 return Err(ProgramHostV2Error::Checkpoint);
             };
-            traces[index] = member
-                .kernel
-                .apply_admitted(admitted, Some(proposal))
-                .map_err(ProgramHostV2Error::Kernel)?
-                .trace;
+            traces.push(
+                member
+                    .kernel
+                    .apply_admitted(admitted, Some(proposal))
+                    .map_err(ProgramHostV2Error::Kernel)?
+                    .trace,
+            );
         }
         self.scratch.pending_target_set = Some(BoundTargetSetV2 {
             selection_identity: target_set_selection_identity(&self.scratch.plan),
@@ -524,12 +534,13 @@ impl PreparedBacktestTargetSetV2 {
         }
         self.scratch.checkpoint = self.scratch.encode_checkpoint()?;
         self.scratch.validate_checkpoint_roundtrip()?;
-        self.traces = Some(traces);
+        self.traces =
+            Some(BoundedMembers::new(traces).map_err(|_| ProgramHostV2Error::Checkpoint)?);
         Ok(self)
     }
 
-    pub(crate) fn member_traces(&self) -> Option<[SemanticTraceV1; TARGET_SET_MEMBER_COUNT]> {
-        self.traces
+    pub(crate) fn member_traces(&self) -> Option<BoundedMembers<SemanticTraceV1>> {
+        self.traces.clone()
     }
 
     pub(crate) const fn prepared_identity(&self) -> BindingDigest {
@@ -1458,7 +1469,7 @@ pub(crate) fn issue_backtest_universe_successor_for_test(
     plan: &StrategyPlanV2,
     frame: &StrategyInputUniverseFrameReceipt,
     logical_time_ns: u64,
-    member_open_close: [[i128; 2]; TARGET_SET_MEMBER_COUNT],
+    member_open_close: &[[i128; 2]],
 ) -> Result<AdmittedProgramEventV2, ProgramHostV2Error> {
     let mut event = admit_market_data_universe_program_event_v2(plan, frame)?;
     let prior = event.envelope.order_key;
@@ -1700,7 +1711,7 @@ impl ProgramHostV2 {
         self.apply_event(&event)
     }
 
-    /// Admits and applies one complete Owner-sealed exactly-two-member frame.
+    /// Admits and applies one complete Owner-sealed universe frame.
     pub fn apply_market_data_universe_event(
         &mut self,
         frame: &StrategyInputUniverseFrameReceipt,
@@ -1739,13 +1750,13 @@ impl ProgramHostV2 {
                         .is_some_and(|prior| lineage.version < *prior)
             })
             || event.envelope.order_key.kind != lifecycle_v1::LifecycleKind::Bar
-            || self.member_kernels.len() != TARGET_SET_MEMBER_COUNT
+            || !is_admitted_member_count(self.member_kernels.len())
         {
             return Err(ProgramHostV2Error::InputCoverage);
         }
         let input_map =
             self.validate_inputs(event.envelope, &event.inputs, event.input_join_identity)?;
-        let mut admissions = Vec::with_capacity(TARGET_SET_MEMBER_COUNT);
+        let mut admissions = Vec::with_capacity(self.member_kernels.len());
 
         for member in &self.member_kernels {
             let admission = member
@@ -1758,11 +1769,8 @@ impl ProgramHostV2 {
             admissions.push(admission);
         }
         let mut scratch = self.clone_for_scratch();
-        let EvaluatedProposalV2::Members(target_set) =
-            scratch.evaluate(event.envelope, &input_map)?
-        else {
-            return Err(ProgramHostV2Error::InputCoverage);
-        };
+        let proposal = scratch.evaluate(event.envelope, &input_map)?;
+        let target_set = scratch.member_target_set_of(&proposal)?;
         scratch.validate_member_target_set(event, target_set)?;
         let prepared_identity = backtest_prepared_target_set_identity(
             self.checkpoint.digest,
@@ -1788,7 +1796,7 @@ impl ProgramHostV2 {
     pub(crate) fn commit_prepared_backtest_target_set(
         &mut self,
         prepared: PreparedBacktestTargetSetV2,
-    ) -> Result<[SemanticTraceV1; TARGET_SET_MEMBER_COUNT], ProgramHostV2Error> {
+    ) -> Result<BoundedMembers<SemanticTraceV1>, ProgramHostV2Error> {
         if self.checkpoint.digest != prepared.base_checkpoint_digest
             || self.host_identity != prepared.host_identity
             || !Rc::ptr_eq(&self.host_instance_token, &prepared.host_instance_token)
@@ -2018,11 +2026,8 @@ impl ProgramHostV2 {
         }
 
         let target_set = if proposal_required {
-            let EvaluatedProposalV2::Members(target_set) =
-                scratch.evaluate(event.envelope, inputs)?
-            else {
-                return Err(ProgramHostV2Error::InputCoverage);
-            };
+            let proposal = scratch.evaluate(event.envelope, inputs)?;
+            let target_set = scratch.member_target_set_of(&proposal)?;
             scratch.validate_member_target_set(event, target_set)?;
             Some(target_set)
         } else {
@@ -2045,7 +2050,12 @@ impl ProgramHostV2 {
                     &proposal_plan,
                     event.envelope,
                     &member.instrument,
-                    target_set.ok_or(ProgramHostV2Error::InputCoverage)?.members[index],
+                    target_set
+                        .ok_or(ProgramHostV2Error::InputCoverage)?
+                        .members()
+                        .get(index)
+                        .copied()
+                        .ok_or(ProgramHostV2Error::InputCoverage)?,
                     strategy_digest,
                     plugin_digest,
                 )?)
@@ -2084,12 +2094,35 @@ impl ProgramHostV2 {
         Ok(trace)
     }
 
+    /// Returns the member target set a universe reaction proposed, lifting a single-instrument
+    /// proposal under a one-member universe.
+    fn member_target_set_of(
+        &self,
+        proposal: &EvaluatedProposalV2,
+    ) -> Result<InstrumentTargetSetV2, ProgramHostV2Error> {
+        match *proposal {
+            EvaluatedProposalV2::Members(target_set) => Ok(target_set),
+            EvaluatedProposalV2::Single(proposal) => lift_single_instrument_proposal(
+                &self
+                    .member_kernels
+                    .iter()
+                    .map(|member| member.instrument.as_str())
+                    .collect::<Vec<_>>(),
+                self.pending_target_set
+                    .map(|pending| pending.target_set.sequence),
+                proposal,
+            ),
+        }
+    }
+
     fn validate_member_target_set(
         &self,
         event: &AdmittedProgramEventV2,
         target_set: InstrumentTargetSetV2,
     ) -> Result<(), ProgramHostV2Error> {
-        if self.member_kernels.len() != TARGET_SET_MEMBER_COUNT
+        // Kernels and members are zipped below; unequal lengths would leave a member unchecked.
+        if !is_admitted_member_count(self.member_kernels.len())
+            || self.member_kernels.len() != target_set.member_count()
             || self
                 .pending_target_set
                 .is_some_and(|prior| target_set.sequence <= prior.target_set.sequence)
@@ -2097,7 +2130,7 @@ impl ProgramHostV2 {
             return Err(ProgramHostV2Error::InputCoverage);
         }
 
-        for (member, target) in self.member_kernels.iter().zip(target_set.members) {
+        for (member, target) in self.member_kernels.iter().zip(target_set.members()) {
             if member.instrument.as_bytes() != target.instrument.as_bytes() {
                 return Err(ProgramHostV2Error::InputCoverage);
             }
@@ -2190,10 +2223,9 @@ impl ProgramHostV2 {
             return Err(ProgramHostV2Error::InputCoverage);
         }
         let universe = self.plan.universe_selection().is_some();
-        let expected_len = if universe {
-            declared.len().saturating_mul(TARGET_SET_MEMBER_COUNT)
-        } else {
-            declared.len()
+        let expected_len = match self.plan.universe_selection() {
+            Some(selection) => declared.len().saturating_mul(selection.members().len()),
+            None => declared.len(),
         };
 
         if inputs.len() != expected_len {
@@ -2456,7 +2488,8 @@ impl ProgramHostV2 {
                 },
             )?;
 
-            if value.value_type() != ValueTypeV2::Bytes || value.bytes().len() != TARGET_SET_BYTES {
+            // `decode` fixes the length by the member count the encoding names.
+            if value.value_type() != ValueTypeV2::Bytes {
                 return Err(ProgramHostV2Error::Type(
                     "proposal.member_target_set".into(),
                 ));
@@ -2758,7 +2791,7 @@ impl ProgramHostV2 {
         cursor += 2;
 
         if member_count != self.member_kernels.len()
-            || !matches!(member_count, 0 | TARGET_SET_MEMBER_COUNT)
+            || !(member_count == 0 || is_admitted_member_count(member_count))
         {
             return Err(ProgramHostV2Error::Checkpoint);
         }
@@ -2792,7 +2825,7 @@ impl ProgramHostV2 {
                 let frame_identity = BindingDigest::from_untrusted_bytes(read_array(rest, 32)?);
                 let capability_identity =
                     BindingDigest::from_untrusted_bytes(read_array(rest, 64)?);
-                let target_set = InstrumentTargetSetV2::decode(&rest[96..])
+                let target_set = InstrumentTargetSetV2::decode_slot(&rest[96..])
                     .map_err(|_| ProgramHostV2Error::Checkpoint)?;
 
                 if selection_identity != target_set_selection_identity(&self.plan)
@@ -3323,6 +3356,38 @@ fn member_intent_identity(
     hasher.update(instrument.as_bytes());
     let digest: [u8; 32] = hasher.finalize().into();
     digest[..16].try_into().expect("fixed digest prefix")
+}
+
+/// Lifts a single-instrument proposal into the one-member target set of a one-member universe.
+///
+/// The Plan admits a single-instrument proposal only under a one-member universe, so any other
+/// member count is refused here as well. The sole member takes the proposal's position, target,
+/// reconciliation units, and protection; the set takes the sequence after the pending set's, or 1
+/// when none is pending. The result is the canonical value a plugin proposing that set would give.
+pub(crate) fn lift_single_instrument_proposal(
+    member_instruments: &[&str],
+    pending_sequence: Option<u64>,
+    proposal: lifecycle_v1::ProposalV1,
+) -> Result<InstrumentTargetSetV2, ProgramHostV2Error> {
+    let [instrument] = member_instruments else {
+        return Err(ProgramHostV2Error::InputCoverage);
+    };
+    let sequence = pending_sequence
+        .map_or(Some(1), |sequence| sequence.checked_add(1))
+        .ok_or(ProgramHostV2Error::InputCoverage)?;
+    let instrument = InstrumentKeyV2::new(instrument.as_bytes())
+        .map_err(|_| ProgramHostV2Error::InputCoverage)?;
+    InstrumentTargetSetV2::new(
+        sequence,
+        &[MemberTargetV2 {
+            instrument,
+            position: proposal.position,
+            target: proposal.target,
+            reconciliation_target_units: proposal.reconciliation_target_units,
+            protection: proposal.protection,
+        }],
+    )
+    .map_err(|_| ProgramHostV2Error::Graph("proposal.member_target_set.lift".into()))
 }
 
 fn target_set_selection_identity(plan: &StrategyPlanV2) -> BindingDigest {

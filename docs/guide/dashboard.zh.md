@@ -443,7 +443,7 @@ readback 的 phase 是 `EXPLORATION_ACTIVE` 的请求，在任何部署镜像上
 读取方要求一份 schema 3 视图，其 `composer_artifact` 恰好携带十项 Composer 事实：从 artifact locator 与
 identity digest，经 family binding receipt，直到 census frontier digest。只有 composer-backed 的 replay commit
 才产出它们，而那条 route 位于 `sealed-source-intake-composer-acceptance` 之后；没有任何部署镜像启用该特性，
-有序链路也无法加上它。未设门的 v2 replay commit 写出的视图没有 Composer artifact 可供描述，
+有序链路只在验收构建里编译它。未设门的 v2 replay commit 写出的视图没有 Composer artifact 可供描述，
 因此无论它声明哪个 schema version，都满足不了那个读取方。
 
 这道界在部署镜像里出现一条产出 Composer artifact 的路径时解除，而那正是 Composer readback 今天报为

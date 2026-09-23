@@ -1089,6 +1089,7 @@ fn hash_text(hasher: &mut Sha256, value: &str) -> Result<(), NativeReplaySchedul
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use crate::owner::pit_snapshot::UnverifiedBatchFieldsForTest;
     use crate::owner::{
         bar_schedule::{BarScheduleCutV1, BarScheduleFactV1, BarScheduleReceiptV1},
         pit_snapshot::{
@@ -1182,7 +1183,7 @@ pub(crate) mod tests {
     }
 
     fn batch(rows: Vec<VerifiedPitObservation>) -> VerifiedPitObservationBatch {
-        VerifiedPitObservationBatch {
+        VerifiedPitObservationBatch::from_fields_for_test(UnverifiedBatchFieldsForTest {
             request_identity: digest(10),
             request_digest: digest(11),
             correlation_identity: digest(18),
@@ -1217,7 +1218,7 @@ pub(crate) mod tests {
             },
             digest: digest(16),
             observations: rows.into_boxed_slice(),
-        }
+        })
     }
 
     fn schedule(instrument: &str, identity: u8) -> BarScheduleReadbackV1 {
@@ -1228,6 +1229,45 @@ pub(crate) mod tests {
         instrument: &str,
         identity: u8,
         cut_effective_instant: u64,
+    ) -> BarScheduleReadbackV1 {
+        schedule_bound(
+            instrument,
+            identity,
+            cut_effective_instant,
+            [digest(5), digest(7), digest(4), digest(8)],
+        )
+    }
+
+    /// A schedule that shares `batch`'s Instrument Master, Market Semantics and both frontiers and is
+    /// cut at the batch's own instant, so a seal over that batch gets past every schedule check.
+    pub(crate) fn schedule_bound_to_batch(
+        instrument: &str,
+        identity: u8,
+        batch: &VerifiedPitObservationBatch,
+    ) -> BarScheduleReadbackV1 {
+        schedule_bound(
+            instrument,
+            identity,
+            batch.time_evidence().event_effective.value,
+            [
+                batch.instrument_master_digest(),
+                batch.market_semantics_identity(),
+                batch.source_frontier_digest(),
+                batch.correction_frontier_digest(),
+            ],
+        )
+    }
+
+    fn schedule_bound(
+        instrument: &str,
+        identity: u8,
+        cut_effective_instant: u64,
+        [
+            instrument_master,
+            market_semantics,
+            source_frontier,
+            correction_frontier,
+        ]: [BindingDigest; 4],
     ) -> BarScheduleReadbackV1 {
         let fact_identity = digest(identity);
         let cut_identity = digest(identity + 20);
@@ -1245,12 +1285,12 @@ pub(crate) mod tests {
             time_zone_identity: digest(33),
             label: BarScheduleLabelV1::IntervalClose,
             completion: BarScheduleCompletionV1::CompleteOnly,
-            instrument_master_digest: digest(5),
+            instrument_master_digest: instrument_master,
             instrument_master_fact_digest: digest(identity + 40),
             instrument_master_cut_digest: digest(34),
-            market_semantics_identity: digest(7),
-            schedule_source_frontier: digest(4),
-            schedule_correction_frontier: digest(8),
+            market_semantics_identity: market_semantics,
+            schedule_source_frontier: source_frontier,
+            schedule_correction_frontier: correction_frontier,
             cut_effective_instant: i128::from(cut_effective_instant),
             canonical_bytes: vec![identity],
             identity: fact_identity,
@@ -1261,12 +1301,12 @@ pub(crate) mod tests {
                 fact_digest: fact_identity,
                 canonical_instrument: instrument.to_owned(),
                 effective_instant: 100,
-                instrument_master_digest: digest(5),
+                instrument_master_digest: instrument_master,
                 instrument_master_fact_digest: digest(identity + 40),
                 instrument_master_cut_digest: digest(34),
-                market_semantics_identity: digest(7),
-                source_frontier: digest(4),
-                correction_frontier: digest(8),
+                market_semantics_identity: market_semantics,
+                source_frontier,
+                correction_frontier,
                 canonical_bytes: vec![identity + 1],
                 identity: cut_identity,
             },
@@ -1321,18 +1361,21 @@ pub(crate) mod tests {
                 ));
             }
         }
-        let mut verified = batch(rows);
-        verified.snapshot_identity = digest(seed);
-        verified.fact_digest = digest(seed.wrapping_add(1));
+        let verified = batch(rows).edit_for_test(|fields| {
+            fields.snapshot_identity = digest(seed);
+            fields.fact_digest = digest(seed.wrapping_add(1));
+        });
         let selection = crate::owner::strategy_input_binding::derive_universe_selection(&verified)
             .expect("derived Owner selection");
         let selection_identity = selection.selection_identity();
         let selection_digest = selection.selection_digest();
-        verified.universe_selection_digest = selection_digest;
+        let verified = verified.edit_for_test(|fields| {
+            fields.universe_selection_digest = selection_digest;
 
-        for candidate in &mut verified.observations {
-            candidate.universe_selection_digest = selection_digest;
-        }
+            for candidate in &mut fields.observations {
+                candidate.universe_selection_digest = selection_digest;
+            }
+        });
         let request = NativeReplayInitialMarketRequestV1::new(
             digest(seed),
             digest(seed.wrapping_add(1)),
@@ -1372,10 +1415,9 @@ pub(crate) mod tests {
     ) -> NativeReplayInitialMarketRequestV1 {
         let mut rows = rows_for("AAA-PERP.SIM", 101);
         rows.extend(rows_for("BBB-PERP.SIM", 102));
-        let mut verified = batch(rows);
+        let verified = batch(rows);
         let selection = crate::owner::strategy_input_binding::derive_universe_selection(&verified)
             .expect("derived Owner selection");
-        verified.universe_selection_digest = selection.selection_digest();
         NativeReplayInitialMarketRequestV1::new(
             digest(0),
             digest(0),
@@ -1505,15 +1547,18 @@ pub(crate) mod tests {
         let second = InstrumentId::from("BBB-PERP.SIM");
         let mut rows = rows_for("AAA-PERP.SIM", 101);
         rows.extend(rows_for("BBB-PERP.SIM", 102));
-        let mut batch = batch(rows);
+        let batch = batch(rows);
         let selection = crate::owner::strategy_input_binding::derive_universe_selection(&batch)
             .expect("derived Owner selection");
         let selection_identity = selection.selection_identity();
         let selection_digest = selection.selection_digest();
-        batch.universe_selection_digest = selection_digest;
-        for row in &mut batch.observations {
-            row.universe_selection_digest = selection_digest;
-        }
+        let batch = batch.edit_for_test(|fields| {
+            fields.universe_selection_digest = selection_digest;
+
+            for row in &mut fields.observations {
+                row.universe_selection_digest = selection_digest;
+            }
+        });
         let request = NativeReplayInitialMarketRequestV1::new(
             digest(12),
             digest(13),

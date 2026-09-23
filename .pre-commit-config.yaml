@@ -34,6 +34,12 @@ repos:
     rev: v0.11.0.1
     hooks:
       - id: shellcheck
+        # Follow `source` directives whatever else is in the run. Without this, shellcheck follows a
+        # sourced file only when that file is also one of its inputs, so the verdict depended on
+        # the file set: `--all-files` (CI) passed while a commit touching only the sourcing script
+        # failed SC1091 - four files did, linted alone. A `source=` path that does not exist still
+        # fails either way.
+        args: ["--external-sources"]
   - repo: https://github.com/google/yamlfmt
     rev: v0.21.0
     hooks:
@@ -152,6 +158,15 @@ repos:
             scripts/ci/check-docker-toolchain-pins\.bash
           )$
         pass_filenames: false
+      - id: rd-workbench-check
+        name: check R&D deployment package
+        description: >-
+          Runs the deployment package check CI runs, which pins text in postgres-init and reads Owner
+          sources, so a change it refuses is refused at commit rather than forty minutes later
+        entry: bash product/rd-workbench/scripts/check.sh
+        language: system
+        files: ^(product/rd-workbench/|crates/|scripts/ci/test-rd-owner-postgres\.bash$)
+        pass_filenames: false
       - id: check-feature-gate-coverage
         name: check feature gate coverage
         description: Names Cargo features that gate code no job compiles, and fails on a new one
@@ -186,6 +201,13 @@ repos:
         entry: bash scripts/ci/test-rust-toolchain.bash
         language: system
         files: ^(rust-toolchain\.toml|scripts/rust-toolchain\.sh|scripts/ci/test-rust-toolchain\.bash)$
+        pass_filenames: false
+      - id: test-owner-chain-lock
+        name: test Owner chain machine lock
+        description: A second local Owner chain is refused and named; a dead holder releases the lock
+        entry: bash scripts/ci/test-owner-chain-lock.bash
+        language: system
+        files: ^scripts/ci/(owner-chain-lock|test-owner-chain-lock)\.bash$
         pass_filenames: false
       - id: check-miri-toolchain
         name: check Miri toolchain
@@ -487,6 +509,34 @@ repos:
         entry: python3 -B scripts/production-producer-check_mutations.py
         language: system
         files: ^(\.pre-commit-config\.yaml|scripts/production-producer-check(_test|_mutations)?\.py)$
+        pass_filenames: false
+      - id: test-flattened-error-variants
+        name: test flattened-error-variants calibration
+        description: Proves the error-flow walk still classifies each kind of edge both ways
+        entry: python3 -B scripts/flattened-error-variants_test.py
+        language: system
+        files: >-
+          (?x)^(
+
+            \.pre-commit-config\.yaml|
+            scripts/production-producer-check\.py|
+            scripts/flattened-error-variants(_test|_mutations)?\.py
+
+          )$
+        pass_filenames: false
+      - id: test-flattened-error-variants-mutations
+        name: test flattened-error-variants mutations
+        description: Reintroduces each defect the calibration claims to catch and watches it be caught
+        entry: python3 -B scripts/flattened-error-variants_mutations.py
+        language: system
+        files: >-
+          (?x)^(
+
+            \.pre-commit-config\.yaml|
+            scripts/production-producer-check\.py|
+            scripts/flattened-error-variants(_test|_mutations)?\.py
+
+          )$
         pass_filenames: false
       - id: check-markdown-tables
         name: normalize markdown table padding

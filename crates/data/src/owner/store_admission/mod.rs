@@ -3716,6 +3716,7 @@ mod tests {
             &seed.binding,
             &seed.batch,
             &seed.instrument_master,
+            &seed.instrument_master,
         )
         .expect("prepared BAR schedule");
         let committed = owner

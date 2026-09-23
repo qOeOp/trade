@@ -3,6 +3,9 @@
 use std::{
     env,
     fmt::{Debug, Display},
+    fs::OpenOptions,
+    io::Write,
+    sync::{Mutex, OnceLock},
 };
 
 use sqlx::{PgPool, postgres::PgPoolOptions};
@@ -61,6 +64,56 @@ const CANONICAL_OWNER_TEST_URLS: [(&str, &str); CanonicalOwnerTestRoleV1::COUNT]
     ("SCANNER_OWNER_TEST_DATABASE_URL", "scanner_writer"),
 ];
 
+/// Names the file a test process writes its `WARN`-and-above events into.
+///
+/// Owner code reports why it refused through `tracing` - `refused_by_store` and its peers, several
+/// hundred call sites - and a test process has no subscriber unless one is installed, so every one of
+/// those events is dropped. The ordered chain sets this per entry and keeps the file beside the
+/// entry's record. Unset, nothing is installed and nothing changes.
+pub const TEST_LOG_FILE_ENV: &str = "VIBE_TEST_LOG_FILE";
+
+/// The first line an admitted test writes into [`TEST_LOG_FILE_ENV`] when its warnings are collected.
+///
+/// A missing or empty file says nothing about whether the code under test warned; this line says the
+/// collector was there, so a file holding only this line is a quiet entry rather than a blind one.
+pub const TEST_LOG_COLLECTING_MARKER: &str =
+    "vibe-testkit: collecting WARN and above for this test process";
+
+/// Installs one process-wide subscriber that appends `WARN` and above to [`TEST_LOG_FILE_ENV`].
+///
+/// Admission is where every Owner PostgreSQL proof enters, so this is called there rather than from
+/// each test. It runs once per process and returns the first outcome to every later caller.
+fn collect_warnings_into_test_log() -> Result<(), DedicatedPostgresTestDatabaseError> {
+    static INSTALLED: OnceLock<Result<(), DedicatedPostgresTestDatabaseError>> = OnceLock::new();
+    *INSTALLED.get_or_init(|| {
+        let Some(path) = env::var_os(TEST_LOG_FILE_ENV) else {
+            return Ok(());
+        };
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .map_err(|_| DedicatedPostgresTestDatabaseError::TestLogUnavailable)?;
+        let writer = file
+            .try_clone()
+            .map_err(|_| DedicatedPostgresTestDatabaseError::TestLogUnavailable)?;
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(Mutex::new(writer))
+            .with_ansi(false)
+            .with_max_level(tracing::Level::WARN)
+            .finish();
+        // Another global subscriber means these warnings went somewhere else. Say so in the file
+        // instead of writing the marker, so the entry reads as unobserved rather than as quiet.
+        let first_line = if tracing::subscriber::set_global_default(subscriber).is_ok() {
+            TEST_LOG_COLLECTING_MARKER
+        } else {
+            "vibe-testkit: another global subscriber was already set; this process's warnings are not here"
+        };
+        writeln!(file, "{first_line}")
+            .map_err(|_| DedicatedPostgresTestDatabaseError::TestLogUnavailable)
+    })
+}
+
 /// A stable, credential-redacting failure from dedicated test-database admission.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DedicatedPostgresTestDatabaseError {
@@ -100,6 +153,9 @@ pub enum DedicatedPostgresTestDatabaseError {
     MarkerMismatch,
     /// The connected role could create or mutate the marker.
     MarkerNotImmutable,
+    /// `VIBE_TEST_LOG_FILE` named a file this process could not open or write, so the
+    /// warnings the caller asked to collect would have been dropped without a word.
+    TestLogUnavailable,
 }
 
 impl Display for DedicatedPostgresTestDatabaseError {
@@ -124,6 +180,12 @@ impl Display for DedicatedPostgresTestDatabaseError {
             }
             Self::CrossOwnerDatabaseMismatch => {
                 formatter.write_str("cross-owner test URLs do not identify one database")
+            }
+            Self::TestLogUnavailable => {
+                write!(
+                    formatter,
+                    "{TEST_LOG_FILE_ENV} names a file that cannot be written"
+                )
             }
             Self::ConnectionUnavailable(name) => {
                 write!(
@@ -274,6 +336,7 @@ impl CanonicalOwnerPostgresTestDatabaseV1 {
     /// Returns an error when the fixed role URLs do not identify the same guarded disposable
     /// database, the marker cannot be verified, or any role has privileged capabilities.
     pub async fn admit() -> Result<Self, DedicatedPostgresTestDatabaseError> {
+        collect_warnings_into_test_log()?;
         let expected_database = env::var(EXPECTED_DATABASE_ENV).map_err(|_| {
             DedicatedPostgresTestDatabaseError::MissingEnvironment(EXPECTED_DATABASE_ENV)
         })?;
@@ -482,6 +545,7 @@ impl DedicatedPostgresTestDatabase {
     pub async fn admit_cross_owner(
         test_database_url_envs: &[&'static str],
     ) -> Result<Self, DedicatedPostgresTestDatabaseError> {
+        collect_warnings_into_test_log()?;
         let values = EnvironmentValues::read(test_database_url_envs)?;
         let targets = validate_environment(&values)?;
         let mut admitted_pool = None;

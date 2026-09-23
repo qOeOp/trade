@@ -4,6 +4,8 @@
 //! callers cannot splice otherwise valid facts; the typed Owner-readback adapter mints it in this
 //! module before this persistence boundary can be reached.
 
+use std::collections::BTreeSet;
+
 use sha2::{Digest, Sha256};
 use sqlx::{Postgres, Row, Transaction};
 use thiserror::Error;
@@ -22,10 +24,10 @@ use crate::{
     native_replay_preparation_inputs_v2::NativeReplayPreparationInputsV2,
     replay_execution_profile_binding_v1::OwnerIssuedReplayExecutionProfileBindingV1,
     strategy_plan_v2::StrategyPlanV2,
+    target_set_members::{BoundedMembers, is_admitted_member_count},
 };
 
 const SCHEMA_VERSION: u16 = 1;
-const MEMBER_COUNT: usize = 2;
 const BINDING_DOMAIN: &[u8] = b"rd.native-replay-execution-input-binding.v1\0";
 const RECEIPT_DOMAIN: &[u8] = b"rd.native-replay-execution-input-binding-receipt.v1\0";
 const OUTBOX_DOMAIN: &[u8] = b"rd.native-replay-execution-input-binding-outbox.v1\0";
@@ -61,7 +63,7 @@ pub struct NativeReplayExecutionInputBindingV1 {
     execution_profile_seals: ExecutionProfileSealLocatorsV1,
     public_instrument_master_cut: InstrumentMasterCutLocatorBindingV1,
     universe_frame_receipt: ExactOwnerLocatorV1,
-    members: [NativeReplayExecutionInputMemberV1; MEMBER_COUNT],
+    members: BoundedMembers<NativeReplayExecutionInputMemberV1>,
     binding_identity: [u8; 32],
     binding_digest: [u8; 32],
     canonical_bytes: Vec<u8>,
@@ -89,8 +91,11 @@ impl NativeReplayExecutionInputBindingV1 {
     }
 
     #[must_use]
-    pub fn member_keys(&self) -> [&str; MEMBER_COUNT] {
-        [&self.members[0].member_key, &self.members[1].member_key]
+    pub fn member_keys(&self) -> Vec<&str> {
+        self.members
+            .iter()
+            .map(|member| member.member_key.as_str())
+            .collect()
     }
 }
 
@@ -208,7 +213,7 @@ impl NativeReplayExecutionInputBindingReadbackV1 {
     pub(crate) fn instrument_economic_terms_locators(
         &self,
     ) -> Result<
-        [InstrumentEconomicTermsLocatorV1; MEMBER_COUNT],
+        BoundedMembers<InstrumentEconomicTermsLocatorV1>,
         NativeReplayExecutionInputBindingErrorV1,
     > {
         let locator = |member: &NativeReplayExecutionInputMemberV1| {
@@ -218,10 +223,7 @@ impl NativeReplayExecutionInputBindingReadbackV1 {
             )
             .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)
         };
-        Ok([
-            locator(&self.binding.members[0])?,
-            locator(&self.binding.members[1])?,
-        ])
+        self.binding.members.try_map(locator)
     }
 }
 
@@ -248,7 +250,7 @@ pub(crate) struct VerifiedNativeReplayExecutionInputConstituentsV1 {
     execution_profile_seals: ExecutionProfileSealLocatorsV1,
     public_instrument_master_cut: InstrumentMasterCutLocatorBindingV1,
     universe_frame_receipt: ExactOwnerLocatorV1,
-    members: [NativeReplayExecutionInputMemberV1; MEMBER_COUNT],
+    members: BoundedMembers<NativeReplayExecutionInputMemberV1>,
 }
 
 /// Verifies the complete typed Owner readback set and atomically persists its R&D binding.
@@ -264,9 +266,9 @@ pub(crate) async fn issue_native_replay_execution_input_binding_from_owner_readb
     plan: &StrategyPlanV2,
     artifact: &StrategyArtifactV2,
     instrument_master: &InstrumentMasterReadbackV2,
-    instrument_terms: [&InstrumentEconomicTermsReadbackV1; MEMBER_COUNT],
+    instrument_terms: &[&InstrumentEconomicTermsReadbackV1],
     universe_frame: &StrategyInputUniverseFrameReceipt,
-    schedules: [&BarScheduleReadbackV1; MEMBER_COUNT],
+    schedules: &[&BarScheduleReadbackV1],
 ) -> Result<NativeReplayExecutionInputBindingReadbackV1, NativeReplayExecutionInputBindingErrorV1> {
     let verified = verify_owner_readbacks(
         preparation,
@@ -295,9 +297,9 @@ pub(crate) fn verify_re_resolved_native_replay_execution_inputs_v1(
     plan: &StrategyPlanV2,
     artifact: &StrategyArtifactV2,
     instrument_master: &InstrumentMasterReadbackV2,
-    instrument_terms: [&InstrumentEconomicTermsReadbackV1; MEMBER_COUNT],
+    instrument_terms: &[&InstrumentEconomicTermsReadbackV1],
     universe_frame: &StrategyInputUniverseFrameReceipt,
-    schedules: [&BarScheduleReadbackV1; MEMBER_COUNT],
+    schedules: &[&BarScheduleReadbackV1],
 ) -> Result<(), NativeReplayExecutionInputBindingErrorV1> {
     let verified = verify_owner_readbacks(
         preparation,
@@ -559,7 +561,11 @@ fn prepare_rows(
     );
     writer.instrument_master_cut_locator(verified.public_instrument_master_cut);
     writer.locator(verified.universe_frame_receipt);
-    writer.u16(MEMBER_COUNT as u16);
+    writer.u16(
+        u16::try_from(verified.members.len())
+            .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)?,
+    );
+
     for member in &verified.members {
         writer.text(&member.member_key)?;
         writer.text(&member.public_instrument_identity)?;
@@ -645,10 +651,15 @@ fn recover_rows(
     };
     let public_instrument_master_cut = decoder.instrument_master_cut_locator()?;
     let universe_frame_receipt = decoder.locator()?;
-    if decoder.u16()? as usize != MEMBER_COUNT {
+    let member_count = usize::from(decoder.u16()?);
+    if !is_admitted_member_count(member_count) {
         return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
     }
-    let members = [decoder.member()?, decoder.member()?];
+    let members = (0..member_count)
+        .map(|_| decoder.member())
+        .collect::<Result<Vec<_>, _>>()?;
+    let members = BoundedMembers::new(members)
+        .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
     decoder.finish()?;
     let binding_identity = array(&rows.binding_identity)?;
     let binding_digest = array(&rows.binding_digest)?;
@@ -727,9 +738,17 @@ fn validate_verified(
         || !valid_named(&verified.strategy_plan)
         || !valid_instrument_master_cut_locator(verified.public_instrument_master_cut)
         || !valid_locator(verified.universe_frame_receipt)
-        || verified.members[0].member_key >= verified.members[1].member_key
-        || verified.members[0].public_instrument_identity
-            == verified.members[1].public_instrument_identity
+        || verified
+            .members
+            .windows(2)
+            .any(|pair| pair[0].member_key >= pair[1].member_key)
+        || verified
+            .members
+            .iter()
+            .map(|member| &member.public_instrument_identity)
+            .collect::<BTreeSet<_>>()
+            .len()
+            != verified.members.len()
         || !verified.members.iter().all(valid_member)
     {
         return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
@@ -756,9 +775,9 @@ fn verify_owner_readbacks(
     plan: &StrategyPlanV2,
     artifact: &StrategyArtifactV2,
     instrument_master: &InstrumentMasterReadbackV2,
-    instrument_terms: [&InstrumentEconomicTermsReadbackV1; MEMBER_COUNT],
+    instrument_terms: &[&InstrumentEconomicTermsReadbackV1],
     universe_frame: &StrategyInputUniverseFrameReceipt,
-    schedules: [&BarScheduleReadbackV1; MEMBER_COUNT],
+    schedules: &[&BarScheduleReadbackV1],
 ) -> Result<
     VerifiedNativeReplayExecutionInputConstituentsV1,
     NativeReplayExecutionInputBindingErrorV1,
@@ -798,8 +817,13 @@ fn verify_owner_readbacks(
             .module_bytes()
             .eq(artifact_modules.iter().map(|bytes| bytes.as_ref()))
         || artifact.validate_for_plan(plan).is_err()
-        || selection.members().len() != MEMBER_COUNT
-        || selection.members()[0].member_key() >= selection.members()[1].member_key()
+        || !is_admitted_member_count(selection.members().len())
+        || selection
+            .members()
+            .windows(2)
+            .any(|pair| pair[0].member_key() >= pair[1].member_key())
+        || instrument_terms.len() != selection.members().len()
+        || schedules.len() != selection.members().len()
         || plan_selection.selection_identity().as_bytes() != &request_universe_identity
         || plan_selection.selection_digest().as_bytes() != &request_universe_digest
         || selection.selection_identity() != plan_selection.selection_identity()
@@ -821,12 +845,12 @@ fn verify_owner_readbacks(
     if instrument_master.cut().request_identity()
         != native_replay_request_identity_v2(request.request_identity.as_str())
             .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)?
-        || cut_members.len() != MEMBER_COUNT
+        || cut_members.len() != selection.members().len()
     {
         return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
     }
-    let mut members = Vec::with_capacity(MEMBER_COUNT);
-    for index in 0..MEMBER_COUNT {
+    let mut members = Vec::with_capacity(cut_members.len());
+    for index in 0..cut_members.len() {
         let selected = &selection.members()[index];
         let public_fact = cut_members[index].fact();
         let economic = instrument_terms[index];
@@ -877,11 +901,13 @@ fn verify_owner_readbacks(
         });
     }
 
-    if members[0].account_scope_identity != members[1].account_scope_identity {
+    if members
+        .windows(2)
+        .any(|pair| pair[0].account_scope_identity != pair[1].account_scope_identity)
+    {
         return Err(NativeReplayExecutionInputBindingErrorV1::Unavailable);
     }
-    let members: [NativeReplayExecutionInputMemberV1; MEMBER_COUNT] = members
-        .try_into()
+    let members = BoundedMembers::new(members)
         .map_err(|_| NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
     let master_locator = instrument_master.locator();
     Ok(VerifiedNativeReplayExecutionInputConstituentsV1 {
@@ -1229,10 +1255,11 @@ mod tests {
             },
             public_instrument_master_cut: instrument_master_locator(11),
             universe_frame_receipt: locator(13),
-            members: [
+            members: BoundedMembers::try_from([
                 member("AAPL", "AAPL.XNAS", 20),
                 member("MSFT", "MSFT.XNAS", 40),
-            ],
+            ])
+            .unwrap(),
         }
     }
     fn stored(readback: &NativeReplayExecutionInputBindingReadbackV1) -> StoredRowsV1 {
@@ -1302,5 +1329,42 @@ mod tests {
         let mut wrong_request = stored(&prepared);
         wrong_request.request_identity = "another-request".into();
         assert!(recover_rows(&wrong_request).is_err());
+    }
+
+    /// The persisted binding, receipt, and outbox bytes of a two-member binding, pinned from the
+    /// pre-widening tree so the count-carrying member loop cannot move them.
+    #[rstest::rstest]
+    fn two_member_binding_bytes_are_unchanged_by_the_member_count_widening() {
+        let prepared = prepare_rows(verified(), 17).expect("prepared");
+        crate::target_set_members::assert_two_member_bytes_unchanged(
+            &[
+                ("binding", &prepared.binding.canonical_bytes),
+                ("binding_identity", &prepared.binding.binding_identity),
+                ("receipt", &prepared.receipt.canonical_bytes),
+                ("outbox", &prepared.outbox.canonical_bytes),
+            ],
+            &[
+                (
+                    "binding",
+                    1_360,
+                    "254e097b6cc18a7e8cc930d2e9f894cfae4c81738ba352e1d30eb20ea9e7f743",
+                ),
+                (
+                    "binding_identity",
+                    32,
+                    "5b7c8145ac6bd524ab61c25f728a721e993c55253b104fcd39ec017ffe05b652",
+                ),
+                (
+                    "receipt",
+                    74,
+                    "292103c8ba0416e80ee7b33d4610fd72bc2fe718930ab5b5e97f6cabcfbfa082",
+                ),
+                (
+                    "outbox",
+                    77,
+                    "79c3e711a24820839a0b881b8b4f04eaf9fb368efd4602d9e7801670cccb5f8f",
+                ),
+            ],
+        );
     }
 }

@@ -290,6 +290,9 @@ pub enum BarScheduleError {
     UnsupportedDataKind,
     AmbiguousInstrumentMaster,
     InstrumentMasterMismatch,
+    /// The Instrument Master fact this schedule rests on is not the one the Owner resolves for its
+    /// instrument at the BAR's own instant: the master was corrected between its cut and the BAR.
+    InstrumentMasterNotCurrentAtEvent,
     EffectiveIntervalMismatch,
     UnsupportedSchedule,
     InvalidCanonicalBytes,
@@ -307,13 +310,31 @@ impl Display for BarScheduleError {
 impl std::error::Error for BarScheduleError {}
 
 /// Prepares an append only after exact BAR, Instrument Master, cut, interval, and frontier checks.
+///
+/// `instrument_master` is the cut the schedule rests on, which a window of frames shares.
+/// `instrument_master_at_event` is the Owner's cut taken at the BAR's own instant; the schedule is
+/// refused unless both resolve this instrument to the same fact. A caller whose BAR is at the shared
+/// cut's instant passes the same readback twice.
+///
+/// The at-BAR cut is bound to the BAR's instant and observes at least what the shared cut does on
+/// the same Instrument Master clock (head sequence, decision cut and Owner observation). Its observation time is not yet tied to the frame's own decision
+/// point: the PIT market clock is a different clock, so a cut observed after the shared one but
+/// before the frame could still miss a later correction. That is closed when the frame resolver
+/// resolves this cut from Owner custody itself instead of receiving it.
 pub(crate) fn prepare_bar_schedule_commit_v1(
     proposal: UntrustedBarScheduleProposalV1,
     binding: &StrategyInputBindingReceipt,
     batch: &VerifiedPitObservationBatch,
     instrument_master: &InstrumentMasterReadbackV1,
+    instrument_master_at_event: &InstrumentMasterReadbackV1,
 ) -> Result<PreparedBarScheduleCommitV1, BarScheduleError> {
-    authority::prepare(proposal, binding, batch, instrument_master)
+    authority::prepare(
+        proposal,
+        binding,
+        batch,
+        instrument_master,
+        instrument_master_at_event,
+    )
 }
 
 /// Returns the only element matching `predicate`.
@@ -343,6 +364,7 @@ pub(super) mod authority {
         binding: &StrategyInputBindingReceipt,
         batch: &VerifiedPitObservationBatch,
         instrument_master: &InstrumentMasterReadbackV1,
+        instrument_master_at_event: &InstrumentMasterReadbackV1,
     ) -> Result<PreparedBarScheduleCommitV1, BarScheduleError> {
         let projection = project_sample_fact_v1(binding, batch)
             .map_err(|_| BarScheduleError::InstrumentMasterMismatch)?;
@@ -407,8 +429,37 @@ pub(super) mod authority {
             return Err(BarScheduleError::InstrumentMasterMismatch);
         }
 
-        if instrument_master.cut().effective_instant() != event {
+        // A window of frames shares one Instrument Master cut (`docs/owners/market-data.md`, "All
+        // frames retain the same ... Instrument Master cut"), so this BAR may sit after that cut but
+        // never before it: a cut later than the BAR would read the master's future.
+        //
+        // Sitting after it is only sound if the master did not change in between. The cut the Owner
+        // takes at this BAR's own instant has to resolve this instrument to the very fact the shared
+        // cut holds; a correction observed or effective between the two resolves to a successor, and
+        // the schedule is refused rather than resting on the definition it replaced. The interval
+        // check below cannot see that case: a corrected fact keeps its interval, and still contains
+        // the instant. Deleting this comparison lets a schedule silently use a superseded master.
+        let shared_cut = instrument_master.cut();
+        let at_event_cut = instrument_master_at_event.cut();
+
+        // A cut at the BAR that observes less than the shared one - an older clock head, an earlier
+        // decision cut, or an earlier Owner observation - can miss a correction the shared cut could
+        // see, resolve the superseded fact, and agree with the shared cut for the wrong reason. It
+        // has to see at least what the shared cut saw, on every coordinate a fact becomes visible
+        // by; comparing the observation alone let an older head through.
+        if shared_cut.effective_instant() > event
+            || at_event_cut.effective_instant() != event
+            || !at_event_cut.observes_at_least(shared_cut)
+        {
             return Err(BarScheduleError::InstrumentMasterMismatch);
+        }
+        let current = exactly_one(
+            instrument_master_at_event.cut().resolutions.as_slice(),
+            |resolution| resolution.canonical_identity == row.instrument(),
+        )?;
+
+        if current.fact_digest != resolution.fact_digest {
+            return Err(BarScheduleError::InstrumentMasterNotCurrentAtEvent);
         }
 
         if !contains(proposal.effective_from, proposal.effective_until, event)

@@ -1091,6 +1091,13 @@ selection/master/semantics/lineage 任一拼接，
 以及 caller `InstrumentSet` scope 都不产生 positive selection 或 frame。该状态仅表示当前 Owner-local
 binding contract，不声称 compiler、shared kernel、ProgramHost、Backtest、Paper、Live 或生产成熟度。
 
+**TARGET / IMPLEMENTATION_ADMITTED，单成员 universe：** 上述 Owner-binding、`InstrumentMasterCutV2` cut、经济条款解析、
+Native Replay scheduling 与 frame sequence 在保留双成员形态的同时，也准入准确含一个成员的 universe；准入单成员
+不改变任何双成员的行为或字节，cut 本来就编码了成员数。V1 scheduling receipt 因 quote cut 而发生的改变是另一项
+改动，记在 quote cut 段落。这一准入及其用户授权依据，与单成员 target-set 纵向切片一起记录在 Strategy Factory
+架构文档中。对于 Replay 初次组装，由固定的 Market Data writer 在 replay-composition issuance 期间通过 `issue_cut`
+签发 cut，key 按上文 cut issuance 段落所述。在实现改动落地之前，这里的内容都不是 current。
+
 **TARGET，durable Strategy Input Binding Registry：** Market Data 拥有 write-once、validated binding
 declaration；每份 declaration 以准确 PIT request、`StrategyDesignV2` 与 typed input role 为 key。R&D 只能提供 Owner-authenticated Design/role intent，绝不提供或选择 member、frame 或 binding
 digest。在一个 Market Data Owner transaction 中，registration 通过原生 authority 解析 PIT Snapshot、
@@ -1310,8 +1317,12 @@ frontier、effective containment 或 Instrument Master mismatch。
 结构 `BarScheduleCutV1` canonical bytes 按顺序为：schema `u16LE = 1`、reserved-zero `u16LE`、fact digest
 `[u8; 32]`、同一 canonical-instrument variable bytes、effective instant `i128LE`，随后是 Instrument Master
 readback/fact/cut digest、Market Semantics identity、source frontier 与 correction frontier，均为
-`[u8; 32]`。effective instant 必须等于 selected BAR row 的 event-effective instant 与 Instrument Master cut
-effective instant，且 schedule fact 与 Instrument Master fact 的 effective interval 都必须包含它。当前结构
+`[u8; 32]`。effective instant 必须等于 selected BAR row 的 event-effective instant；Instrument Master cut 的
+effective instant 不得晚于它，且 schedule fact 与 Instrument Master fact 的 effective interval 都必须包含它。Owner
+在该时刻所取 cut 为该 instrument 解析出的 Instrument Master fact，必须按 fact identity 等于 schedule 的 Instrument
+Master cut 所持有的那份，否则拒绝该 schedule。一个帧窗口共用一个 Instrument Master cut，正是这项比较让其后的 BAR
+能以那个 cut 为依据：在 cut 与某个 BAR 之间生效或被观察到的更正会解析为后继 fact，从而拒绝该 BAR 的 schedule，而被
+取代的 fact 的 interval 仍包含该 BAR，区间检查拦不住它。当前结构
 codec 不编码 interval open/close 或 Owner observation/decision-cut coordinate；这些 predicate 保持
 TARGET/PENDING，不能从该 cut 推断。cut identity 与 digest 是
 `market-data.bar-schedule-cut.v1\0 || canonical cut bytes` 的同一 SHA-256。
@@ -1347,8 +1358,12 @@ Owner 验证的 PIT snapshot/batch，不得复制数值或使用测试 successor
 除最后一帧以外的每一帧，最后那帧只用来给它前一帧的流动性划界，所以窗口里只有一帧时一帧也不消费，而更长的
 窗口是更长的一次运行而不是一次拒绝。每帧各自保存 PIT
 cut、batch、trigger、frame、source/correction lineage、BAR schedule 和 Quote EVENT 流动性 receipt，
-后者绑定原始 Quote row digest、bid/ask 价量、事件和初始化时间及成员顺序。sequence digest 覆盖这些证据、
-请求身份、窗口与准确顺序。各帧必须共用 canonical universe、Design/role set、Instrument Master cut、
+后者绑定原始 Quote row digest、bid/ask 价量、事件和初始化时间及成员顺序，取自该帧的报价 cut：一份独立的、
+经 Owner 验证的 PIT snapshot，其时刻严格晚于本帧 BAR cut、严格早于下一帧的 BAR cut。一份 PIT snapshot
+只有一个时刻，所以跟在 BAR 之后的 Quote 不可能放进那个 BAR 的 cut。报价 cut 不是帧：它不取 frame 序号，
+每个被消费的帧与其后继之间恰有一个。其中两个成员的 Quote 共用它的时刻并按 canonical 成员顺序排列，Backtest
+对 `ts_init` 相同的元素按原顺序消费。sequence digest 覆盖这些证据、请求身份、窗口与准确顺序。每帧的流动性
+EVENT 在 native schedule 顺序中必须先于下一帧的第一个 BAR。各帧必须共用 canonical universe、Design/role set、Instrument Master cut、
 timeframe、venue 与 account scope，并逐一校验半开有效期和相邻时间关系。
 
 Resolver 只接收由封存请求推导的首帧坐标与 Owner 认证的 Plan roles；其后每个 PIT cut、历史 schedule 和
@@ -1358,9 +1373,21 @@ pool 或替代 resolver。缺失、多出、重复、部分、乱序、跨请求
 原字节，意义冲突零写入。Market Data 不签发 R&D binding、Backtest Result、合成出场信号或交易指令。
 
 这个目标所需的请求窗口 frame census 已经存在：每次 PIT snapshot fact 提交都会在其 scope 内取下一个稠密
-frame 序号，窗口读回与序列解析按同一顺序读出它。今天缺的是调用方。现有 PIT correction lineage
+frame 序号，窗口读回与序列解析按同一顺序读出它。今天缺的是调用方，而且如本段末尾所记，光有调用方还不够。只有核验过的 batch 含 BAR 行的 snapshot 才取
+frame 序号；只含 Quote 行的是报价 cut，记入它自己的 census，永不取序号；两者都不是的不进任何 census。
+Owner 凭自己核验过的 batch 判定这一点，而不是凭请求方的 scope 声明，并且只从那份 census 为帧解析报价
+cut。每个报价 cut 的 correction lineage 先归约为它在请求的 decision cut 时可见的最新更正；必须恰好有一个这样的
+更正严格位于帧的 BAR 与其上界之间，与帧共用 scope、Instrument Master、universe selection、Market Semantics 与
+Source Binding lineage，并且报价的成员恰好是帧的成员。最新更正不能服务该帧的 lineage 什么也不提供，永不退回到
+被那次更正取代的版本。census 按请求方声明的 scope
+分区，所以在帧的全部坐标上都相同的第二个报价 cut 会与第一个冲突并使该帧被拒：这是拒绝服务，永远不会把一个
+Owner 未为它核验的报价 cut 交给它。上界是下一帧的 BAR cut；今天由 resolver 的调用方给出，从 frame census
+推导它属于序列解析器。现有 PIT correction lineage
 记录的是同一请求的修正版本，不是时间后继索引，也不能证明无漏帧，census 因此是一张独立的表而不是对它的
-复用；现有首帧 resolver 与 QuoteTick 投影本身不签发后续帧或独立流动性 receipt。
+复用；现有首帧 resolver 与 QuoteTick 投影本身不签发后续帧或独立流动性 receipt。现有 V1 native scheduling
+seal 还从 BAR 自己的 batch 中取严格晚于 BAR 的 Quote，而经 Owner 验证的 batch 不会含两个时刻，所以按现状它在
+Owner 托管数据上不可达。V2 帧证据的每一帧都经同一个 V1 seal 封存，所以在两者都改为从该帧报价 cut 取 Quote
+之前，V2 序列出于同样原因在 Owner 托管数据上不可达。
 
 在 CURRENT/PARTIAL BAR schedule 路径中，只有具备 custody verification 的 readback 才能授权以准确 V1
 binding-receipt digest 为键的新增 immutable `TimeframeProjectionReceiptV1`。其既有 canonical bytes 与 domain

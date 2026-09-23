@@ -1974,6 +1974,7 @@ pub(crate) mod tests {
             &fixture.binding,
             &fixture.batch,
             &fixture.instrument_master,
+            &fixture.instrument_master,
         )
         .expect("valid BAR schedule");
         let receipt = bar_schedule_authority::build_receipt(

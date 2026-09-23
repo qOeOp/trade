@@ -2757,7 +2757,8 @@ fn resolve_reference(
                     ));
                 }
                 ValueRefV2::UniverseMemberInput { member_ordinal, .. }
-                    if *member_ordinal >= lifecycle_v2::TARGET_SET_MEMBER_COUNT as u8
+                    if usize::from(*member_ordinal)
+                        >= lifecycle_v2::TARGET_SET_MAX_MEMBER_COUNT
                         || validation.input_scopes.get(input_id.as_str())
                             != Some(&&InputScopeV2::UniverseMembers) =>
                 {
@@ -3231,8 +3232,8 @@ fn compile_canonical(
             .map(|member| member.instrument.as_str())
             .collect::<BTreeSet<_>>();
 
-        if selection.members.len() != lifecycle_v2::TARGET_SET_MEMBER_COUNT
-            || selected.len() != lifecycle_v2::TARGET_SET_MEMBER_COUNT
+        if !crate::target_set_members::is_admitted_member_count(selection.members.len())
+            || selected.len() != selection.members.len()
             || selection.market_semantics_identity == BindingDigest::from_untrusted_bytes([0; 32])
             || selection.source_binding_lineage_root == BindingDigest::from_untrusted_bytes([0; 32])
         {
@@ -3243,9 +3244,12 @@ fn compile_canonical(
         }
     }
 
-    if let Err(value) =
-        validate_universe_target_set_contract(&canonical, universe_selection.is_some())
-    {
+    if let Err(value) = validate_universe_target_set_contract(
+        &canonical,
+        universe_selection
+            .as_ref()
+            .map(|selection| selection.members.len()),
+    ) {
         return value;
     }
     let shared_kernel = universe_selection.is_some();
@@ -3364,10 +3368,18 @@ fn compile_canonical(
     }))
 }
 
+/// Checks a universe Design against the member count of the Owner selection it is compiled with.
+///
+/// `member_count` is `None` for a Design compiled without an Owner universe. Under a universe every
+/// BAR/EVENT reaction consumes each declared role at every member ordinal and no other, so the
+/// Design's ordinals are exactly the Owner universe's. A reaction proposes one complete member
+/// target set; under a one-member universe it may instead propose for a single instrument, which
+/// the host lifts into the one-member target set.
 fn validate_universe_target_set_contract(
     design: &CanonicalDesignV2,
-    is_universe: bool,
+    member_count: Option<usize>,
 ) -> Result<(), StrategyCompilationV2> {
+    let is_universe = member_count.is_some();
     if is_universe {
         let fields = design
             .inputs
@@ -3403,21 +3415,26 @@ fn validate_universe_target_set_contract(
             continue;
         };
 
-        if proposal.member_target_set.is_some() != is_universe {
-            return Err(if is_universe {
-                refinement(
+        let target_set = proposal.member_target_set.is_some();
+        match member_count {
+            None if target_set => {
+                return Err(unsupported(
                     &format!("reactions.{:?}.proposal.member_target_set", reaction.kind),
-                    "the exact two-member vertical requires one complete instrument target set",
-                )
-            } else {
-                unsupported(
+                    "member target sets require an Owner-bound universe",
+                ));
+            }
+            Some(count) if !target_set && count != 1 => {
+                return Err(refinement(
                     &format!("reactions.{:?}.proposal.member_target_set", reaction.kind),
-                    "member target sets require the exact two-member Owner-bound universe",
-                )
-            });
+                    "a universe of more than one member requires one complete instrument target set",
+                ));
+            }
+            _ => {}
         }
 
-        if is_universe && matches!(reaction.kind, LifecycleKindV2::Bar | LifecycleKindV2::Event) {
+        if let Some(member_count) = member_count
+            && matches!(reaction.kind, LifecycleKindV2::Bar | LifecycleKindV2::Event)
+        {
             let mut coordinates = BTreeSet::new();
 
             for node in &reaction.nodes {
@@ -3431,21 +3448,24 @@ fn validate_universe_target_set_contract(
                     }
                 }
             }
+            let ordinals = u8::try_from(member_count).map_err(|_| {
+                unsupported(
+                    "universe_selection",
+                    "Owner universe member count overflows",
+                )
+            })?;
             let expected = design
                 .inputs
                 .iter()
                 .flat_map(|input| {
-                    [
-                        (input.semantic_id.as_str(), 0_u8),
-                        (input.semantic_id.as_str(), 1_u8),
-                    ]
+                    (0..ordinals).map(|ordinal| (input.semantic_id.as_str(), ordinal))
                 })
                 .collect::<BTreeSet<_>>();
 
             if coordinates != expected {
                 return Err(unsupported(
                     &format!("reactions.{:?}.inputs", reaction.kind),
-                    "a universe reaction must consume every declared role for both Owner-canonical members",
+                    "a universe reaction must consume every declared role for every Owner-canonical member",
                 ));
             }
         }
@@ -3828,6 +3848,15 @@ fn refinement(coordinate: &str, reason: &str) -> StrategyCompilationV2 {
         coordinate: coordinate.to_owned(),
         reason: reason.to_owned(),
     })
+}
+
+/// Runs the universe target-set contract on a canonicalized Design for a given Owner member count.
+#[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
+pub(crate) fn validate_universe_target_set_contract_for_test(
+    design: StrategyDesignV2,
+    member_count: Option<usize>,
+) -> Result<(), StrategyCompilationV2> {
+    validate_universe_target_set_contract(&canonicalize(design)?, member_count)
 }
 
 #[cfg(test)]
