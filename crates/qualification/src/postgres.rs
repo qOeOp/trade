@@ -8997,10 +8997,16 @@ mod postgres_tests {
         // projection's age. Everything below starts from what it returned, so freshness is a
         // property of this entry's own timing, not of how long the entries before it took.
         //
-        // A renewal is a write this entry cannot undo: it appends a successor projection and its
-        // event and advances the head, and that custody is append-only. It is the state a late
-        // consumer of this lineage would leave in production, and the lineage is this entry's
-        // alone (see above), so no later entry reads it as genesis.
+        // On a slow run this is a deliberate write, not residue: the renewal appends a legitimate
+        // successor projection and its outbox event and advances the head, and that custody is
+        // append-only, so the entry cannot clean it up. It is the state a late consumer of this
+        // lineage leaves in production. Only this entry reads the lineage by name (`git grep -F
+        // inadequate-plan` at 8c81c5d71: the other hit is where the name is produced). The one
+        // later entry that reads whatever projection row sorts first,
+        // `an_orphaned_projection_names_itself_rather_than_the_caller_request`, holds for a
+        // successor too: its tamper is caught while each row's basis is loaded, before anything
+        // reads the resolution, and a renewed history passes its accept control, as the replays
+        // below show.
         let projection = owner
             .resolve_or_create_for_basis(&locator)
             .await
