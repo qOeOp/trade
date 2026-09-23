@@ -18,6 +18,7 @@ use vibe_data::owner::{
     native_replay_scheduling_v1::{
         NativeReplaySchedulingResolverV1, UntrustedNativeReplaySchedulingRequestV1,
     },
+    native_replay_scheduling_v2::NativeReplayFrameSequenceReadbackV2,
     replay_market_facts_v2::{
         ReplayCompositionBindingReadbackV1, ReplayMarketDependencyKindV2,
         ReplayMarketFactsReadbackV2, ResolvedReplayCompositionCutV1,
@@ -105,10 +106,10 @@ pub enum NativeReplayExecutionPrerequisitesErrorV2 {
 pub async fn compose_native_replay_execution_bundle_v2<R>(
     prerequisites: NativeReplayExecutionPrerequisitesV2,
     scheduling_request: &UntrustedNativeReplaySchedulingRequestV1,
-    scheduling_resolver: &R,
+    universe_frames: Vec<StrategyInputUniverseFrameReceipt>,
+    sequence: NativeReplayFrameSequenceReadbackV2,
     plan: StrategyPlanV2,
     artifact: StrategyArtifactV2,
-    universe_frame: StrategyInputUniverseFrameReceipt,
     strategy_id: StrategyId,
     run_id: String,
     public_terms: [ValidatedCryptoPerpetualPublicTermsV2; TARGET_SET_MEMBER_COUNT],
@@ -122,19 +123,15 @@ where
     {
         return Err(NativeReplayExecutionPrerequisitesErrorV2::OwnerBindingUnavailable);
     }
-    let scheduling = scheduling_resolver
-        .resolve_native_replay_scheduling_v1(scheduling_request)
-        .await
-        .map_err(|_| NativeReplayExecutionPrerequisitesErrorV2::NativeSchedulingDataUnavailable)?;
     ReplayTargetSetExecutionBundleV1::new(
         prerequisites.into_profile_authority(),
         plan,
         artifact,
-        universe_frame,
+        universe_frames,
         strategy_id,
         run_id,
         public_terms,
-        scheduling,
+        sequence,
     )
     .map_err(|_| NativeReplayExecutionPrerequisitesErrorV2::ExecutionBundleUnavailable)
 }
