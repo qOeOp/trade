@@ -700,26 +700,31 @@ Binding、Universe Selection 与 `StrategyInputUniverseFrameV1`；第一语料�
 durable declaration registry 准入 `UniverseSelection` scope 的 declaration。每条都对照 PIT batch、其 Source
 Binding 与 frontier、batch 所指名且经 Owner 验证的 Universe Selection、batch 层面的 Instrument Master coordinate，
 以及 Market Semantics 除单一 instrument 的 Instrument Master coordinate 之外的全部字段校验；其 Owner binding
-digest 是 Market Data 自行导出的该 role 在该 batch 上的 universe frame 的 digest。universe Design 在
+digest 是 Market Data 自行导出的该 role 在该 batch 上的 universe frame 的 digest。该逐 role 的 digest 不是 Replay
+frontier 携带的 universe frame，后者由 Market Data 在 Design 的完整 role set 上导出：declaration 的 digest 标明单个
+role 绑定到了什么，frontier 的 frame 是 R&D 读作 `resolved_owner_inputs` 的值，两者之间不做任何比较。universe Design 在
 composition 时没有可绑定的 Instrument Master 权威：它的 Instrument Master 是 R&D 首次为 native execution 绑定该
-已封存 request 时，Market Data 签发的按 request 定键的 V2 cut。因此 universe role 的 Instrument Master 校验迁移
-到该 cut：cut 解析每个 member 的 fact chain，initial Owner inputs 拒绝 member 与 selection 不一致的 cut
-（`native_replay_initial_owner_inputs_v1`）；在两个检查点之间，任何 binding、fact 或读者都不得把 Instrument
-Master 字段声称或传递为已校验。「member 的 Instrument Master 不符，或 member 集合与 selection 不符，会在 initial
-binding 被按名拒绝」由驱动该 binding 的首条正向 native Replay 链路条目（F）断言。
+已封存 request 时，Market Data 签发的按 request 定键的 V2 cut。因此 universe role 的 Instrument Master 校验迁移到该
+cut 的签发 `issue_cut_for_bound_replay_v1`：它从恢复出的 selection 自身的 included membership 取 member，所以 member
+集合按构造就是 selection 的；它在 selection 的 owner observation 时刻解析每个 member 的 Instrument Master V2 fact
+chain，该时刻没有 fact 的 member（`MissingFact`）或无法校验的 chain（`ChainMismatch`）会让签发按名拒绝且零写入。随后
+Strategy Factory 的 initial Owner inputs（`resolve_native_replay_initial_owner_inputs_v1`）拒绝 member 与 Plan 的
+selection 不一致的 cut。在两个检查点之间，任何 binding、fact 或读者都不得把 Instrument Master 字段声称或传递为已校验。
+「selection 的某个 member 没有可校验的 Instrument Master fact 时签发按名拒绝且零写入」由 composition binding 以
+universe-member binding 驱动该签发的 Postgres 证明断言。
 
 R&D 从 binding 及其 Replay facts 读取的内容，以及在 universe-member 形状下各自的来源：
 
-| R&D 读取                                  | 第一语料                                            | universe‑member 形状                                                     |
-| ----------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------ |
-| `resolved_owner_inputs`                   | observation census 的 identity 与 digest            | universe frame receipt digest（BLAKE3，identity 等于 digest）            |
-| `universe_selection`                      | Universe Selection dependency                       | 同一个 Universe Selection dependency                                     |
-| binding locator                           | binding record                                      | 同一个 binding record                                                    |
-| market data scope digest（`pit_scope`）   | 解析出的 composition cut，取自 PIT request 的 scope | 同一来源                                                                 |
-| PIT snapshot、window、request identity    | Replay facts header                                 | 同一个 header                                                            |
-| Replay facts identity 与 receipt identity | Replay facts                                        | 同一来源                                                                 |
-| Design identity、非空 role set            | binding record                                      | binding record；role set 绝不为空                                        |
-| Instrument Master 校验                    | registry，逐个 exact instrument                     | composition 时不绑定；在 initial binding 由按 request 定键的 V2 cut 校验 |
+| R&D 读取                                  | 第一语料                                            | universe‑member 形状                                                               |
+| ----------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `resolved_owner_inputs`                   | observation census 的 identity 与 digest            | 完整 role set 上的 universe frame receipt digest（BLAKE3，identity 等于 digest）   |
+| `universe_selection`                      | Universe Selection dependency                       | 同一个 Universe Selection dependency                                               |
+| binding locator                           | binding record                                      | 同一个 binding record                                                              |
+| market data scope digest（`pit_scope`）   | 解析出的 composition cut，取自 PIT request 的 scope | 同一来源                                                                           |
+| PIT snapshot、window、request identity    | Replay facts header                                 | 同一个 header                                                                      |
+| Replay facts identity 与 receipt identity | Replay facts                                        | 同一来源                                                                           |
+| Design identity、非空 role set            | binding record                                      | binding record；role set 绝不为空                                                  |
+| Instrument Master 校验                    | registry，逐个 exact instrument                     | composition 时不绑定；按 request 定键的 cut 签发时校验每个 member 的 V2 fact chain |
 
 exact-instrument 第一语料经 Instrument Master V1 解析其 instrument，而 V1 projection 无法构造原生 crypto
 perpetual（`require_complete_native_crypto_perpetual_construction` 恒拒绝），所以任何 exact-instrument 形状都无法

@@ -746,28 +746,34 @@ first corpus keeps its seven-kind frontier.
 The durable declaration registry admits `UniverseSelection`-scoped declarations. Each is checked against the PIT
 batch, its Source Binding and frontiers, the Owner-verified Universe Selection the batch names, the batch-level
 Instrument Master coordinate and every Market Semantics field except the single-instrument Instrument Master
-coordinate, and its Owner binding digest is the digest of that role's universe frame over the batch, which Market
-Data derives itself. A universe Design has no Instrument Master authority to bind at composition time: its
-Instrument Master is the request-keyed V2 cut Market Data issues when R&D first binds the sealed request for native
-execution. Instrument Master verification for universe roles therefore moves to that cut - the cut resolves each
-member's fact chain, and the initial Owner inputs refuse a cut whose members are not the selection's
-(`native_replay_initial_owner_inputs_v1`) - and between the two checkpoints no binding, fact or reader may claim or
-pass on an Instrument Master field as verified. That a member's Instrument Master or the member set mismatching the
-selection is refused by name at the initial binding is asserted by the first positive native Replay chain entry
-(F), which drives that binding.
+coordinate, and its Owner binding digest is the digest of that role's universe frame over the batch, which Market Data
+derives itself. That per-role digest is not the universe frame the Replay frontier carries, which Market Data derives
+over the Design's complete role set: the declaration's digest names what one role was bound to, the frontier's frame
+is what R&D reads as `resolved_owner_inputs`, and nothing compares the two. A universe Design has no Instrument Master
+authority to bind at composition time: its Instrument Master is the request-keyed V2 cut Market Data issues when R&D
+first binds the sealed request for native execution. Instrument Master verification for universe roles therefore moves
+to that cut's issuance, `issue_cut_for_bound_replay_v1`. It takes the members from the recovered selection's own
+included membership, so the member set is the selection's by construction, and resolves each member's Instrument
+Master V2 fact chain at the selection's owner observation time; a member with no fact at that time (`MissingFact`) or
+a chain that does not verify (`ChainMismatch`) refuses the issuance by name with zero writes. Strategy Factory's
+initial Owner inputs (`resolve_native_replay_initial_owner_inputs_v1`) then refuse a cut whose members disagree with
+the Plan's selection. Between the two checkpoints no binding, fact or reader may claim or pass on an Instrument Master
+field as verified. That a selection member without a verifiable Instrument Master fact refuses the issuance by name
+with zero writes is asserted by the composition binding's Postgres proof that drives that issuance from a
+universe-member binding.
 
 What R&D reads from a binding and its Replay facts, and where each comes from in the universe-member shape:
 
-| Read by R&D                                | First corpus                                         | Universe‑member shape                                                     |
-| ------------------------------------------ | ---------------------------------------------------- | ------------------------------------------------------------------------- |
-| `resolved_owner_inputs`                    | observation census identity and digest               | universe frame receipt digest (BLAKE3, identity equal to digest)          |
-| `universe_selection`                       | Universe Selection dependency                        | the same Universe Selection dependency                                    |
-| binding locator                            | binding record                                       | the same binding record                                                   |
-| market data scope digest (`pit_scope`)     | resolved composition cut, from the PIT request scope | the same                                                                  |
-| PIT snapshot, window, request identity     | Replay facts header                                  | the same header                                                           |
-| Replay facts identity and receipt identity | Replay facts                                         | the same                                                                  |
-| Design identity, non‑empty role set        | binding record                                       | binding record; the role set is never empty                               |
-| Instrument Master verification             | registry, per exact instrument                       | not bound at composition; the request‑keyed V2 cut at the initial binding |
+| Read by R&D                                | First corpus                                         | Universe‑member shape                                                                       |
+| ------------------------------------------ | ---------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `resolved_owner_inputs`                    | observation census identity and digest               | universe frame receipt digest over the complete role set (BLAKE3, identity equal to digest) |
+| `universe_selection`                       | Universe Selection dependency                        | the same Universe Selection dependency                                                      |
+| binding locator                            | binding record                                       | the same binding record                                                                     |
+| market data scope digest (`pit_scope`)     | resolved composition cut, from the PIT request scope | the same                                                                                    |
+| PIT snapshot, window, request identity     | Replay facts header                                  | the same header                                                                             |
+| Replay facts identity and receipt identity | Replay facts                                         | the same                                                                                    |
+| Design identity, non‑empty role set        | binding record                                       | binding record; the role set is never empty                                                 |
+| Instrument Master verification             | registry, per exact instrument                       | not bound at composition; each member's V2 fact chain when the request‑keyed cut is issued  |
 
 The exact-instrument first corpus resolves its instrument through Instrument Master V1, whose projection cannot
 construct a native crypto perpetual (`require_complete_native_crypto_perpetual_construction` always refuses), so no
