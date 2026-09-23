@@ -62,9 +62,17 @@ survived to the table below were then read by hand, and 7 of them are not constr
 | `program_host_sim_event_canonical_result_digest_for_test` | observe  | a digest of its argument                                                                     |
 | `target_sysroot_digest_for_test`                          | observe  | a digest of a path                                                                           |
 
-The rule tests *what type comes back*. The question is *whether a value was made*, and a borrowed
-view of existing state, a digest of an argument, and a validated pass-through all come back as
-non-unit types. **19 mechanical, 12 after hand reading**; every one of the 12 below was read.
+**The rule is about the shape of the answer; the question is about the shape of the work.** It tests
+*what type comes back*. The question is *whether a value was made*, and a borrowed view of existing
+state, a digest of an argument and a validated pass-through all come back as non-unit types.
+`anyhow::Result<()>` slipping the `Result<(), E>` pattern is one symptom of that mismatch, not its
+cause: widen the pattern to both spellings of `Result` and `state_pair_for_test` still returns
+`(&[u8], &[u8])` and still gets through.
+
+**So anyone rebuilding this step should key it on traces of construction  -  a struct literal, a
+`::new`, an `INSERT`  -  and not on the return type.** That rule would still be wrong sometimes, but
+it would be wrong about the right question. **19 mechanical, 12 after hand reading**; every one of
+the 12 below was read.
 
 **This step is a correction.** The first version of this census skipped it and treated every
 `for_test` name as a constructor. Re-judging the 23 rows it published, 5 were not constructors:
