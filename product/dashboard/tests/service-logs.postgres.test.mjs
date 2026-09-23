@@ -362,6 +362,22 @@ test(testName, { skip: !url }, async () => {
       { instance_identity: workerIdentity, instance_kind: "worker", host_ref: null },
     ]);
 
+    // The current view is cut at the database's time, the clock these log rows were stamped with. A
+    // cut from a browser clock ahead of the database is refused outright, and one behind it hides the
+    // newest rows, which is why the page asks for the current view instead of sending its clock.
+    const beforeCurrent = (await pool.query("SELECT clock_timestamp() AS at")).rows[0].at;
+    const current = await gateway.read({ range: "24h", pageSize: 20 });
+    const afterCurrent = (await pool.query("SELECT clock_timestamp() AS at")).rows[0].at;
+    assert.ok(Date.parse(current.filter_cut.observed_at) >= beforeCurrent.getTime());
+    assert.ok(Date.parse(current.filter_cut.observed_at) <= afterCurrent.getTime());
+    await assert.rejects(gateway.read({
+      observedAt: new Date(afterCurrent.getTime() + 3_600_000).toISOString(), range: "24h", pageSize: 20,
+    }), { message: "SERVICE_LOG_QUERY_INVALID" });
+    const newest = Math.max(...first.entries.map(({ observed_at }) => Date.parse(observed_at)));
+    const behind = await gateway.read({ observedAt: new Date(newest - 1).toISOString(), range: "24h", pageSize: 20 });
+    assert.equal(behind.entries.some(({ observed_at }) => Date.parse(observed_at) === newest), false);
+    assert.equal(first.entries.some(({ observed_at }) => Date.parse(observed_at) === newest), true);
+
     const second = await gateway.read(inputFromCut(first.filter_cut, {
       pageSize: 20,
       cursor: first.next_cursor,
