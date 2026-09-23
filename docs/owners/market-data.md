@@ -61,6 +61,17 @@ never runs in CI.
   What remains is reach: it is crate-private, no deployed binary constructs it, and no request intake exists, so
   the acceptance mint in `crates/data/src/owner/postgres/bar_joined_cut_acceptance_v1.rs` is still the only caller
   outside the chain. Cleared by an Owner composition root and the request intake named in `B3` and `B4`.
+  **Ninety-two entries on this path are compiled but unreachable in a default build.** They report
+  dead under `cargo check` and not under `cargo clippy --all-targets`, so every caller they have is a
+  test target or a non-default feature. Measured at `d9d1fea84` by running both with
+  `RUSTFLAGS="--force-warn dead_code"` and `--workspace --keep-going`, then keeping the entries
+  present in the first and absent from the second. They sit in eleven files, and the `validate_*`,
+  `insert_*` and `lock_*` entries in `postgres.rs` are consecutive steps of one write path rather
+  than scattered leftovers. **This reading cannot see a caller behind a non-default feature**,
+  because neither build enables one: six of the ninety-two are reached from
+  `sealed-strategy-input-acceptance`, so no entry may be read as "nothing calls it", only as
+  "nothing in a default build calls it". **When the figure stops matching, rerun those two commands
+  rather than trusting it** - it moves the moment a caller lands, which is what clearing `B1` means.
 - **`B2` no production writer for the declaration store.** `register_strategy_input_binding_declaration_v1` has the
   same single non-test caller as `B1`, so `resolve_pit_request_for_strategy_design_v1` returns `UnknownDeclaration`
   for every production Design and the Composer seam in
