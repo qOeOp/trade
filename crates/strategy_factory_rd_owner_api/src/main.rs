@@ -996,7 +996,10 @@ async fn read_sealed_develop_composer_for_acceptance(
             "module_bytes_digests": readback.module_bytes_digests(),
         }))
         .into_response(),
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        Err(e) => {
+            tracing::warn!(error = %e, request_identity = %operation.request_identity, "Sealed Develop Composer read unavailable");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
     }
 }
 
@@ -1024,7 +1027,10 @@ async fn run_develop_composer_with_acceptance_control(
         .await
     {
         Ok(response) => composer_operation_response(response),
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        Err(e) => {
+            tracing::warn!(error = %e, research_request_locator = %request.research_request_locator, "Develop Composer acceptance run unavailable");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
     }
 }
 
@@ -1053,7 +1059,10 @@ async fn resolve_develop_composer_with_acceptance_tamper(
         .await
     {
         Ok(response) => composer_operation_response(response),
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        Err(e) => {
+            tracing::warn!(error = %e, %request_identity, "Develop Composer acceptance resolve unavailable");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
     }
 }
 
@@ -1093,7 +1102,10 @@ async fn issue_replay_composition(
                 response.canonical_bytes().to_vec(),
             )
                 .into_response(),
-            Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+            Err(e) => {
+                tracing::warn!(error = %e, "Replay composition issuance unavailable");
+                StatusCode::SERVICE_UNAVAILABLE.into_response()
+            }
         }
     }
 }
@@ -1128,7 +1140,10 @@ async fn resolve_replay_composition(
                 response.canonical_bytes().to_vec(),
             )
                 .into_response(),
-            Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+            Err(e) => {
+                tracing::warn!(error = %e, "Replay composition issuance recovery unavailable");
+                StatusCode::SERVICE_UNAVAILABLE.into_response()
+            }
         }
     }
 }
@@ -1166,10 +1181,13 @@ async fn run_develop_composer(
             .await
         {
             Ok(response) => composer_operation_response(response),
-            Err(_) => composer_response(
-                StatusCode::SERVICE_UNAVAILABLE,
-                default_unavailable_response(&request.research_request_locator),
-            ),
+            Err(e) => {
+                tracing::warn!(error = %e, research_request_locator = %request.research_request_locator, "Bounded feature program Composer run unavailable");
+                composer_response(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    default_unavailable_response(&request.research_request_locator),
+                )
+            }
         }
     }
 
@@ -1221,10 +1239,13 @@ async fn run_develop_composer(
                 }
                 response
             }
-            Err(_) => composer_response(
-                StatusCode::SERVICE_UNAVAILABLE,
-                default_unavailable_response(&request.research_request_locator),
-            ),
+            Err(e) => {
+                tracing::warn!(error = %e, research_request_locator = %request.research_request_locator, "Develop Composer run unavailable");
+                composer_response(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    default_unavailable_response(&request.research_request_locator),
+                )
+            }
         }
     }
 }
@@ -1245,7 +1266,10 @@ async fn project_develop_composer_request(
         .await
     {
         Ok(projection) => (StatusCode::OK, Json(projection)).into_response(),
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        Err(e) => {
+            tracing::warn!(error = %e, research_request_locator = %request.research_request_locator, "Develop Composer request projection unavailable");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
     }
 }
 
@@ -1341,10 +1365,13 @@ async fn read_develop_composer(
     {
         match state.develop_composer.resolve(&request_identity).await {
             Ok(response) => composer_operation_response(response),
-            Err(_) => composer_response(
-                StatusCode::SERVICE_UNAVAILABLE,
-                default_unavailable_response(&request_identity),
-            ),
+            Err(e) => {
+                tracing::warn!(error = %e, %request_identity, "Develop Composer read unavailable");
+                composer_response(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    default_unavailable_response(&request_identity),
+                )
+            }
         }
     }
 }
@@ -1644,22 +1671,14 @@ async fn submit_v2(State(state): State<ApiState>, headers: HeaderMap, body: Byte
     };
     let request_identity = operation.request_identity.clone();
 
-    match state
-        .owner
-        .preflight_request_identity(&request_identity)
-        .await
-    {
-        Ok(ResearchRequestIdentityPreflightV1::LegacyQuarantined) | Err(_) => {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(unresolved_result_v2(&request_identity)),
-            )
-                .into_response();
-        }
-        Ok(
-            ResearchRequestIdentityPreflightV1::Vacant
-            | ResearchRequestIdentityPreflightV1::Current,
-        ) => {}
+    if let Some(refusal) = research_preflight_refusal(
+        state
+            .owner
+            .preflight_request_identity(&request_identity)
+            .await,
+        &request_identity,
+    ) {
+        return refusal;
     }
     let admission = match admit_product_edge_request(
         &state,
@@ -1704,22 +1723,14 @@ async fn resolve_v2(
         );
     }
 
-    match state
-        .owner
-        .preflight_request_identity(&request_identity)
-        .await
-    {
-        Ok(ResearchRequestIdentityPreflightV1::LegacyQuarantined) | Err(_) => {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(unresolved_result_v2(&request_identity)),
-            )
-                .into_response();
-        }
-        Ok(
-            ResearchRequestIdentityPreflightV1::Vacant
-            | ResearchRequestIdentityPreflightV1::Current,
-        ) => {}
+    if let Some(refusal) = research_preflight_refusal(
+        state
+            .owner
+            .preflight_request_identity(&request_identity)
+            .await,
+        &request_identity,
+    ) {
+        return refusal;
     }
     let admission = match state
         .product_edge
@@ -2251,7 +2262,10 @@ async fn read_artifact_directory(
     {
         Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
         Err(ArtifactBuildError::Candidate(_)) => StatusCode::BAD_REQUEST.into_response(),
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        Err(e) => {
+            tracing::warn!(error = %e, "Artifact directory read unavailable");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
     }
 }
 
@@ -2289,7 +2303,10 @@ async fn read_research_directory(
         .await
     {
         Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        Err(e) => {
+            tracing::warn!(error = %e, "Research directory read unavailable");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
     }
 }
 
@@ -2306,13 +2323,24 @@ async fn read_research_v2(
         return StatusCode::BAD_REQUEST.into_response();
     }
 
-    match state
-        .research_readback_owner
-        .read_research_v2(&request_identity)
-        .await
-    {
+    read_research_v2_through(state.research_readback_owner.as_ref(), &request_identity).await
+}
+
+/// Answers one authorized, well-formed Research readback through the Owner port.
+///
+/// Split from the handler so the refusal can be driven through the port alone: `ApiState` holds
+/// two Postgres Owners that only an async `connect` can build, and `preflight_then_admit_artifact_request`
+/// is the precedent for taking the port rather than the state.
+async fn read_research_v2_through(
+    owner: &dyn ResearchReadbackOwnerPortV1,
+    request_identity: &str,
+) -> Response {
+    match owner.read_research_v2(request_identity).await {
         Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        Err(e) => {
+            tracing::warn!(error = %e, %request_identity, "Research readback unavailable");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
     }
 }
 
@@ -2445,13 +2473,23 @@ where
             ArtifactRequestIdentityPreflightV1::Vacant
             | ArtifactRequestIdentityPreflightV1::Current,
         ) => {}
-        Ok(ArtifactRequestIdentityPreflightV1::LegacyTerminalQuarantined) | Err(_) => {
+        Ok(ArtifactRequestIdentityPreflightV1::LegacyTerminalQuarantined) => {
             return Err((
                 ProductEdgeError::unavailable_for(
                     vibe_product_edge::ProductEdgeUnavailableReasonV1::DownstreamCustodyMismatch,
                     vibe_product_edge::ProductEdgeSubjectKindV1::Request,
                     build_request_identity,
                 ),
+                build_request_identity.to_string(),
+                attempt_identity.to_string(),
+            ));
+        }
+        // The caller sees the same `OWNER_OUTCOME_UNKNOWN` either way; what differs is the log. A
+        // store failure reported as `DownstreamCustodyMismatch` names a custody problem that was
+        // never observed and discards the error that was.
+        Err(e) => {
+            return Err((
+                ProductEdgeError::Storage(e.to_string()),
                 build_request_identity.to_string(),
                 attempt_identity.to_string(),
             ));
@@ -2644,6 +2682,38 @@ fn owner_error(error: &ResearchGoalOwnerError, request_identity: &str) -> Respon
             "OWNER_UNAVAILABLE",
             request_identity,
         ),
+    }
+}
+
+/// Answers a research request identity preflight, or returns `None` when the request may proceed.
+///
+/// A store failure and a legacy-quarantined identity are different answers. The quarantined
+/// identity is a fact about the request, established by reading it. A failed preflight is a fact
+/// about the store, reached before the request was read at all, so it gets the same
+/// `OWNER_UNAVAILABLE` that `submit_v2` and `resolve_v2` each give for a store failure later in
+/// their own paths. Folding the two together answered a store failure with the legacy-quarantine
+/// result, `SUBMITTED_OR_UNKNOWN` and `RESOLVE_SAME_REQUEST_IDENTITY`: a statement about the request
+/// that nothing had established.
+fn research_preflight_refusal(
+    preflight: Result<ResearchRequestIdentityPreflightV1, ResearchGoalOwnerError>,
+    request_identity: &str,
+) -> Option<Response> {
+    match preflight {
+        Ok(
+            ResearchRequestIdentityPreflightV1::Vacant
+            | ResearchRequestIdentityPreflightV1::Current,
+        ) => None,
+        Ok(ResearchRequestIdentityPreflightV1::LegacyQuarantined) => Some(
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(unresolved_result_v2(request_identity)),
+            )
+                .into_response(),
+        ),
+        Err(e) => {
+            tracing::warn!(error = %e, %request_identity, "Research request identity preflight unavailable");
+            Some(owner_error_v2(&e, request_identity))
+        }
     }
 }
 
@@ -2916,6 +2986,7 @@ mod tests {
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
     use super::*;
+    use vibe_strategy_factory::product_edge::ResearchGoalOwnerResultV2;
 
     #[rstest]
     fn composer_startup_uses_two_owner_urls_without_preissued_native_join() {
@@ -5451,8 +5522,44 @@ mod tests {
         assert_eq!(value["next_legal_action"], "RESOLVE_SAME_ATTEMPT_IDENTITY");
     }
 
+    struct FailingResearchReadbackOwner(&'static str);
+
+    #[async_trait]
+    impl ResearchReadbackOwnerPortV1 for FailingResearchReadbackOwner {
+        async fn read_research_v2(
+            &self,
+            _request_identity: &str,
+        ) -> Result<ResearchGoalOwnerResultV2, ResearchGoalOwnerError> {
+            Err(ResearchGoalOwnerError::Storage(self.0.to_string()))
+        }
+    }
+
+    /// The 503 is unchanged and says nothing, so the log is the only place the store's own error
+    /// survives. The capture subscriber is thread-local, so the future runs on this thread.
+    #[rstest]
+    fn research_readback_store_failure_keeps_its_503_and_logs_the_cause() {
+        let owner = FailingResearchReadbackOwner("readback store down");
+        let (response, written) = crate::log_capture::capture(|| {
+            tokio::runtime::Builder::new_current_thread()
+                .build()
+                .expect("current-thread runtime")
+                .block_on(read_research_v2_through(
+                    &owner,
+                    "research-request-readback",
+                ))
+        });
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert!(
+            written.contains("Research readback unavailable"),
+            "{written}"
+        );
+        assert!(written.contains("readback store down"), "{written}");
+        assert!(written.contains("research-request-readback"), "{written}");
+    }
+
     struct MockArtifactBuildOwner {
-        preflight: ArtifactRequestIdentityPreflightV1,
+        preflight: Result<ArtifactRequestIdentityPreflightV1, String>,
         preflight_calls: AtomicUsize,
     }
 
@@ -5464,7 +5571,7 @@ mod tests {
             _attempt_identity: &str,
         ) -> Result<ArtifactRequestIdentityPreflightV1, ArtifactBuildError> {
             self.preflight_calls.fetch_add(1, Ordering::SeqCst);
-            Ok(self.preflight)
+            self.preflight.clone().map_err(ArtifactBuildError::Storage)
         }
 
         async fn prepare(
@@ -5522,7 +5629,7 @@ mod tests {
     #[tokio::test]
     async fn legacy_collision_stops_before_product_edge_admission_through_owner_port() {
         let concrete = Arc::new(MockArtifactBuildOwner {
-            preflight: ArtifactRequestIdentityPreflightV1::LegacyTerminalQuarantined,
+            preflight: Ok(ArtifactRequestIdentityPreflightV1::LegacyTerminalQuarantined),
             preflight_calls: AtomicUsize::new(0),
         });
         let artifact_owner: Arc<dyn ArtifactBuildOwnerPort> = concrete.clone();
@@ -5539,12 +5646,101 @@ mod tests {
         )
         .await;
 
-        assert!(matches!(
-            result,
-            Err((ProductEdgeError::Unavailable(_), _, _))
-        ));
+        let Err((ProductEdgeError::Unavailable(detail), _, _)) = result else {
+            panic!("a legacy collision must refuse as unavailable, was {result:?}");
+        };
+        assert_eq!(
+            detail.reason(),
+            &ProductEdgeUnavailableReasonV1::DownstreamCustodyMismatch
+        );
         assert_eq!(concrete.preflight_calls.load(Ordering::SeqCst), 1);
         assert_eq!(product_edge_admission_calls.load(Ordering::SeqCst), 0);
+    }
+
+    /// The response is the same for both refusals, so the only thing that can be wrong is which
+    /// error reaches the log. A store failure must reach it as storage, carrying its own text.
+    #[tokio::test]
+    async fn artifact_preflight_store_failure_is_storage_not_a_custody_mismatch() {
+        let concrete = Arc::new(MockArtifactBuildOwner {
+            preflight: Err("preflight store down".to_string()),
+            preflight_calls: AtomicUsize::new(0),
+        });
+        let artifact_owner: Arc<dyn ArtifactBuildOwnerPort> = concrete.clone();
+        let product_edge_admission_calls = AtomicUsize::new(0);
+
+        let result = preflight_then_admit_artifact_request(
+            artifact_owner.as_ref(),
+            "artifact-build-request-store",
+            "artifact-build-attempt-store",
+            || async {
+                product_edge_admission_calls.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            },
+        )
+        .await;
+
+        let Err((ProductEdgeError::Storage(detail), build_request_identity, attempt_identity)) =
+            result
+        else {
+            panic!("a store failure must refuse as storage, was {result:?}");
+        };
+        assert!(detail.contains("preflight store down"), "{detail}");
+        assert_eq!(build_request_identity, "artifact-build-request-store");
+        assert_eq!(attempt_identity, "artifact-build-attempt-store");
+        assert_eq!(concrete.preflight_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(product_edge_admission_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[rstest]
+    #[case::vacant(ResearchRequestIdentityPreflightV1::Vacant)]
+    #[case::current(ResearchRequestIdentityPreflightV1::Current)]
+    fn research_preflight_lets_a_vacant_or_current_identity_proceed(
+        #[case] preflight: ResearchRequestIdentityPreflightV1,
+    ) {
+        assert!(research_preflight_refusal(Ok(preflight), "research-request").is_none());
+    }
+
+    #[tokio::test]
+    async fn research_preflight_keeps_the_legacy_quarantine_answer() {
+        let response = research_preflight_refusal(
+            Ok(ResearchRequestIdentityPreflightV1::LegacyQuarantined),
+            "research-request-legacy",
+        )
+        .expect("a legacy-quarantined identity must be refused");
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert!(response.headers().get("x-rd-rejection-code").is_none());
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(value["resolution"], "SUBMITTED_OR_UNKNOWN");
+        assert_eq!(value["next_legal_action"], "RESOLVE_SAME_REQUEST_IDENTITY");
+        assert_eq!(value["request_identity"], "research-request-legacy");
+    }
+
+    #[rstest]
+    fn research_preflight_store_failure_is_owner_unavailable_and_logs_its_cause() {
+        let (response, written) = crate::log_capture::capture(|| {
+            research_preflight_refusal(
+                Err(ResearchGoalOwnerError::Storage(
+                    "research preflight store down".to_string(),
+                )),
+                "research-request-store",
+            )
+        });
+        let response = response.expect("a store failure must be refused");
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            response.headers().get("x-rd-rejection-code").unwrap(),
+            "OWNER_UNAVAILABLE"
+        );
+        assert!(
+            written.contains("research preflight store down"),
+            "{written}"
+        );
+        assert!(written.contains("research-request-store"), "{written}");
     }
 
     /// This response carries no rejection code at all, so the log is the only place the cause survives.
