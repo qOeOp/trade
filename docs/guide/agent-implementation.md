@@ -179,6 +179,15 @@ because a wrong reading here lands inside the legal range of the answer rather t
   target configuration, though - converting three that tests use produced three unfulfilled
   expectations and five errors under `--all-targets` while `cargo check` stayed green, which is
   exactly where a test is the only caller.
+- **`check:i18n:structure` says that something differs without saying what or where.** Its
+  extractors are not alike. Strong emphasis and inline code are compared by count, so their failures
+  name two numbers that point at the edit. The protected Markdown skeleton is compared as one
+  serialized value, so its failure always reads `(English 1, Chinese 1)`: those are the counts of
+  skeletons, not of differences. A Chinese page that wraps an inline code span across a line break
+  changes that value while every count still matches, which is how a page can fail with strong
+  emphasis at 12 against 12 and inline code at 112 against 112. Calling
+  `protectedMarkdownSkeleton()` on both files and reporting the first differing line of the
+  serialized result turns the failure back into a location.
 
 ## Why the old guides stay outside product authority
 
