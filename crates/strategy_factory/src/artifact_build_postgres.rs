@@ -729,8 +729,25 @@ impl PostgresArtifactBuildOwnerV1 {
         self.clock.read(transaction).await.map_err(storage)
     }
 
-    /// The attempt's verified custody and a cut read in the same transaction, after it is admitted.
     async fn read_attempt_custody(
+        &self,
+        build_request_identity: &str,
+    ) -> Result<Option<VerifiedAttemptCustodyV1>, ArtifactBuildError> {
+        let mut transaction = self.pool.begin().await.map_err(storage)?;
+        let custody = Box::pin(admit_attempt_custody_in_transaction(
+            &mut transaction,
+            build_request_identity,
+        ))
+        .await?;
+        transaction.commit().await.map_err(storage)?;
+        Ok(custody)
+    }
+
+    /// The attempt's verified custody and a cut read in the same transaction, after it is admitted.
+    ///
+    /// A separate read from [`Self::read_attempt_custody`], because a caller that does not project
+    /// a result has no use for the cut and must not spend a clock reading on it.
+    async fn read_attempt_custody_with_cut(
         &self,
         build_request_identity: &str,
     ) -> Result<Option<(VerifiedAttemptCustodyV1, u64)>, ArtifactBuildError> {
@@ -1131,8 +1148,10 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
             .as_ref()
             .is_some_and(|value| value.resolution != ArtifactBuildResolution::Prepared)
         {
-            return match Box::pin(self.read_attempt_custody(&request.build_request_identity))
-                .await?
+            return match Box::pin(
+                self.read_attempt_custody_with_cut(&request.build_request_identity),
+            )
+            .await?
             {
                 Some((custody, read_cut)) => result_from_verified(custody, read_cut),
                 None => Ok(unknown_result(
@@ -1141,7 +1160,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
                 )),
             };
         }
-        let (custody, _) = Box::pin(self.read_attempt_custody(&request.build_request_identity))
+        let custody = Box::pin(self.read_attempt_custody(&request.build_request_identity))
             .await?
             .ok_or_else(|| ArtifactBuildError::Storage("prepared attempt missing".to_string()))?;
         let intent = custody.intent.clone();
@@ -1597,8 +1616,10 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
             .as_ref()
             .is_some_and(|value| value.resolution != ArtifactBuildResolution::Prepared)
         {
-            return match Box::pin(self.read_attempt_custody(&request.build_request_identity))
-                .await?
+            return match Box::pin(
+                self.read_attempt_custody_with_cut(&request.build_request_identity),
+            )
+            .await?
             {
                 Some((custody, read_cut)) => result_from_verified(custody, read_cut),
                 None => Ok(unknown_result(
@@ -1617,7 +1638,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
         admission: &ProductEdgeAdmissionLocatorV1,
     ) -> Result<ArtifactBuildResultV1, ArtifactBuildError> {
         let Some((custody, read_cut)) =
-            Box::pin(self.read_attempt_custody(build_request_identity)).await?
+            Box::pin(self.read_attempt_custody_with_cut(build_request_identity)).await?
         else {
             return Ok(unknown_result(build_request_identity, attempt_identity));
         };
