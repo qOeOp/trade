@@ -70,6 +70,9 @@ mod postgres_tests {
     #[tokio::test]
     #[ignore = "requires an admitted R&D Owner test database URL"]
     async fn owner_storage_errors_carry_the_detail_postgres_sent() {
+        // It connects without admission, so it installs the collector admission would have.
+        vibe_testkit::postgres::collect_warnings_into_test_log()
+            .expect("the ordered chain's warning collector should install");
         let url = std::env::var("RD_OWNER_TEST_DATABASE_URL")
             .expect("RD_OWNER_TEST_DATABASE_URL: this test asserts nothing without a server");
         let pool = sqlx::postgres::PgPoolOptions::new()
