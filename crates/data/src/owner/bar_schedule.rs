@@ -356,6 +356,13 @@ pub(super) mod authority {
         // this instrument is a member. A containment check beside this one could only fire on a
         // cut the Owner cannot issue, and a refusal that cannot fire reads as protection while
         // providing none. Selecting the fact by identity is what binds this schedule to this row.
+        // THIS IS WHERE THIS SCHEDULE IS BOUND TO THIS INSTRUMENT. `exactly_one` returns an
+        // element that satisfies its predicate or no element at all, so a fact and a resolution
+        // that come back from here already carry `row.instrument()` as their canonical identity.
+        // Nothing downstream re-checks that, and nothing should: two disjuncts below used to, and
+        // neither could ever be true. Anyone widening these predicates is removing the binding,
+        // not loosening a filter that something else still enforces.
+        //
         // Pick this instrument's fact and resolution rather than requiring the master to carry
         // exactly one of each. The Instrument Master authority already admits a
         // `UniverseSelectionRecord` scope with any number of members and guarantees one fact and
@@ -382,9 +389,7 @@ pub(super) mod authority {
                     _
                 )
             )
-            || resolution.canonical_identity != row.instrument()
             || resolution.fact_digest != master_fact.digest()
-            || master_fact.canonical_identity() != row.instrument()
             || instrument_master.digest() != batch.instrument_master_digest()
             || row.instrument_master_digest() != batch.instrument_master_digest()
             || master_fact.market_semantics_identity() != row.market_semantics_identity()
