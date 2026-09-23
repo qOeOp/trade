@@ -97,8 +97,26 @@ Qualification 的其余部分并不排在它后面：attempt frontier、候选�
 - **TARGET - Eligibility State：** 该模块拥有 `INELIGIBLE` `QUALIFIED` `EXPIRED` 与 `REVOKED`，其中只有前两个有实现。
   `EligibilityState::Expired` 与 `::Revoked`（在 `crates/strategy_governance/src/model.rs`）在全仓没有任何生产者，
   `QualificationPublicStatusV1` 的五个变体里没有这两个，本 Owner 的 `qualification_*_v1` 表里没有任何以到期或撤销
-  命名的关系，也不存在阻止前驱复活的后继链。消费者类型存在于 Governance，而每一个
+  命名的关系。消费者类型存在于 Governance，而每一个
   `UntrustedEligibilityReadback` 都构造在该 crate 自己的测试里，所以读端口的形状在场，而两侧都从未写过这样一条事实。
+
+  现在已经有一条后继链阻止前驱复活。一份 Eligibility Fact 绑定它的前驱和它自己的半开窗口，
+  且 `predecessor_eligibility_identity` 是 UNIQUE，所以一份 Fact 至多被继任一次。本 Owner 为当前
+  Eligibility State 发布的性质里仍有两项不可得，把是哪两项说出来正是记录它们的意义。经济条件版本
+  无需新的生产：一份 Fact 交叉绑定保护决策政策身份与版本，而 `ProtectedEconomicPolicyBundleV1`
+  携带同一对，所以引用其 Fact 的 State 就拥有它。已评估的成本与容量模型版本则完全没有产出者。
+  `cost_model_identity` `slippage_model_identity` 与 `capacity_model_identity` 由 Candidate Intake
+  以裸字符串供给，旁边既无版本也无摘要，而同一结构里别的身份确实带摘要，所以这是一处缺席而不是
+  一个未被读到的字段。它的供给方是 Candidate Intake，判定它到位的判据是那三者旁边出现版本或摘要。
+  一个只可能为 NULL 的列被刻意不加，因为下游读到 NULL 时无法区分没有版本的模型、没有算出一个的记录，
+  以及可能无权看见它的读者。
+
+  过期与撤销不是 Fact 行。一份 Fact 交叉绑定一个确切的 Protected Replay Request 与一个确切的
+  `TERMINAL_RESULT` Protected Run Result，而一次过期两者皆无，所以它满足不了 Fact 之所以为 Fact 的条件。
+  它们的关系正是上面记录为缺失的那一个。Operator Authorization 已经用
+  `operator_authorization_revocation_frontiers_v1` 与 `operator_authorization_revocation_heads_v1`
+  解过同一形状，那一对是应当遵循的形状而不是重新设计。本 Owner 今天刻意不建撤销前沿，
+  理由是没有任何消费方，不是这个形状不好。
 - **TARGET - 需要部署授权的终端：** `DEPLOYMENT_STORE_ADMISSION_MODE` 保持 `disabled`，它在等什么记录在上文
   Eligibility 终端状态 一节。
 - **CURRENT，且永久不可证 - 特定事故 Owner 重建：** 机器已合入，即 `crates/qualification/src/recovery.rs`，
