@@ -18,14 +18,23 @@ frequently belongs to the item before it.
 
 This answers one symbol at a time, and that is the usage it holds up under. Callers and
 producers are matched by name, so a name carried by more than one declaration collects all
-of them and the tool says so rather than guessing; over a list, those unattributable rows
-are the result. Measured by another lane over 31 lead symbols from a dead-code census:
-9 could not be attributed - 8 declared more than once, 1 not found - which is 29%, and the
-batch was abandoned for a compiler-based classification instead.
+of them and the tool says so rather than guessing; over a list, those rows are the result.
+
+Another lane ran 31 lead symbols from a dead-code census through it and abandoned the batch
+for a compiler-based classification. Counted from their logs rather than from the report
+they first wrote:
+
+    22  attributable
+     6  name declared more than once     - 19%, and the reason they stopped
+     2  outside what this models         - a const and an enum variant
+     1  never queried                    - their own omission, not a property of the tool
+    --
+    31
 
 So: use it to answer a symbol you are already asking about, and before using it over a
-list, run the list and read the warning rate first. A rate that would be a healthy caveat
-on a single answer is a third of a batch with no answer at all.
+list, run the list and read the two rates separately. Ambiguity and being asked about the
+wrong kind of symbol have different repairs, and adding them together overstates the first
+while hiding the second.
 
 Usage:
     scripts/production-producer-check.py SourceIntakeRetrievalTimeEvidenceV1
@@ -165,6 +174,7 @@ def occurrences(rev, name):
     declaration_re = re.compile(
         rf"(^|{NOT_WORD})(fn|struct|enum|trait|const|static|type|mod|use) +{name}\b",
     )
+
     own, other = 0, 0
     for line in git("grep", "-n", name, rev, "--", "*.rs").split("\n"):
         if not line.strip():
@@ -298,6 +308,25 @@ def bare_name_files(rev, name):
     return len([line for line in git("grep", "-l", name, rev, "--", "*.rs").split("\n") if line])
 
 
+MODELLED = ("fn", "struct", "enum", "trait", "type")
+
+
+def declaration_kind(rev, name):
+    """
+    Return the keyword that declares `name`, or None if nothing declares it.
+
+    A const, a static and an enum variant are none of the things this tool models, and
+    saying so is different from saying the search failed.
+
+    """
+    pattern = rf"(^|{NOT_WORD})(fn|struct|enum|trait|const|static|type) +{name}{NOT_WORD}"
+    for _path, _lineno, text in grep(rev, pattern):
+        match = re.search(rf"(fn|struct|enum|trait|const|static|type) +{name}{NOT_WORD}", text)
+        if match:
+            return match.group(1)
+    return None
+
+
 def looks_like_type(name):
     return name[:1].isupper()
 
@@ -328,10 +357,28 @@ def report(rev, name, indent=""):
     for path, lineno, _gate, text in production:
         print(f"{indent}    production caller  {path}:{lineno}  {text[:60]}")
     if mentions and not sites and not production and not other:
-        print(
-            f"{indent}  WARNING: {mentions} mention(s) outside the declaration, and no pattern"
-            f" matched any of them.\n{indent}  That is a broken search, not an absent producer.",
-        )
+        kind = declaration_kind(rev, name)
+        if kind is not None and kind not in MODELLED:
+            # Its own domain limit, not a defect: producers and callers are not defined
+            # for a constant, and reporting a broken search here sends the reader looking
+            # for a pattern that was never missing.
+            print(
+                f"{indent}  This name declares a `{kind}`. Producers and callers are defined"
+                f" for types and\n{indent}  functions; for a {kind} the {mentions} mention(s)"
+                f" above are its uses, and that is all\n{indent}  this tool can say about it.",
+            )
+        elif kind is None:
+            print(
+                f"{indent}  Nothing declares this name as a fn, struct, enum, trait or type."
+                f"\n{indent}  If it is an enum variant, a macro or a field, this tool does not"
+                f" model it; if it\n{indent}  should be one of the five, the {mentions} mention(s)"
+                f" above are a broken search.",
+            )
+        else:
+            print(
+                f"{indent}  WARNING: {mentions} mention(s) outside the declaration, and no pattern"
+                f" matched any of them.\n{indent}  That is a broken search, not an absent producer.",
+            )
     if declarations and not mentions:
         print(f"{indent}  Declared here and mentioned nowhere else at this rev.")
     if declarations > 1:
