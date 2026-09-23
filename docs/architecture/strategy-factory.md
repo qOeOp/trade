@@ -155,7 +155,9 @@ The maturity boundary is explicit:
   the Design. A Design with `EXACT_INSTRUMENT` roles stays refused under an Owner universe, by a named refusal,
   `ExactInstrumentRolesUnderOwnerUniverse`, which the implementing change introduces. The universe vertical's input contract of exactly one fixed `OPEN` and one
   fixed `CLOSE` member role is unchanged; the single-threshold authoring surface gains a universe-member form whose
-  channel is the member's daily close and which carries the fixed open role. That form consumes each role at member
+  channel is the member's daily close and which carries the fixed open role, as a carried input its program never
+  reads. The authoring request names its form in a required `scope`, so a request without one is refused rather than
+  read as the exact-instrument form. That form consumes each role at member
   ordinal 0 only, and its bounded feature program still emits a single-instrument proposal: under a one-member
   universe the host lifts that proposal into the one-member canonical target set, so the vertical still commits one
   canonical target set and only its producer moves from the plugin to the host. The single-threshold report family and
@@ -270,6 +272,13 @@ unreachable nodes, cycles, forward references, duplicate IDs, implicit casts, im
 unbounded windows, or a bound inconsistent with the manifest are `UNSUPPORTED` before source generation. Canonical
 sorting is by schema-defined byte keys, never source order, map iteration, locale, platform, enum ordinal, or
 caller-provided digest. Re-canonicalizing canonical bytes must be byte-identical.
+
+Every declared input is read. The one exception is an input the program lists in `carried_input_role_ids`: a
+role the Design requires and the program has no use for. A carried input keeps its value and coordinate ports and
+its binding, and the host passes it like any other input. A graph that reads a carried input, as a value, as a
+coordinate, or as the clock a node advances on, is refused as `CarriedInputRead`. An input that is neither read
+nor listed is still refused, so the exemption comes from the declaration alone. The list is absent from the
+canonical bytes when it is empty, so a program without carried inputs keeps its bytes.
 
 For every catalog row with the `AvailableFixedAndCoordinate` output rule, the value and its provenance coordinate
 form one atomic pair. Only the value projection may be referenced; referencing it atomically consumes the
@@ -804,6 +813,18 @@ derived port ID, coordinate-source semantic ID, port ordinal, static binding, co
 update clock. Plan may project that source only from the exact Owner-verified coordinate projection; neither Plan
 nor Host may accept caller-provided or reconstructed coordinate bytes. Existing Designs without this tagged source
 retain byte-identical V2 meaning.
+
+A universe-member role uses the member counterparts of both bindings: `UniverseMemberInput` for its value and
+`UniverseMemberSampleCoordinate` for its coordinate, each naming the member ordinal, under the same source semantic
+and port ID rules. A bounded feature program emits a single-instrument proposal, so it reads a universe only when the
+Owner universe has exactly one member, and only at ordinal 0. Its static binding for such a role is the Owner binding
+of that role at that member. A universe of any other size is refused by name and is never bound to its first member.
+The Plan's role-binding row carries the member ordinal, which an exact-instrument row omits so that its Plan bytes do
+not change, and the Host resolves the coordinate at that role and ordinal. CURRENT_PARTIAL: the Design variant, the
+Plan projection, BFP preparation and Host resolution are implemented and proven at unit level. No Owner projection
+carries a universe frame's member coordinates yet. That projection is Market Data's universe-frame sample projection,
+which is not yet specified, and until it exists the Host refuses a universe frame for a BFP Plan at input admission,
+because the frame's coordinates are missing.
 
 The one generic `ProgramHostV2` extends its existing Owner-event evidence adapter, not its graph opcode set or
 runtime, to retain the Owner-verified projection's exact coordinate bytes and resolve that Plan-bound metadata
