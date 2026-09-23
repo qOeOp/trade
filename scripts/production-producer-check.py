@@ -39,9 +39,16 @@ one batch of 31 real symbols and the rates are the tool's behaviour on them.
 Reachability is transitive and a caller count is not. A cluster of functions that call
 only each other reports a production caller for every member, and every one of those
 callers is itself unreachable; the whole of
-`native_replay_execution_input_binding_v2.rs` is one - 39 dead_code spans under
-`RUSTFLAGS="--force-warn dead_code" cargo check -p vibe-strategy-factory --lib`, while this
-tool answers "1 production caller" for a function in it. Each caller is therefore printed
+`native_replay_execution_input_binding_v2.rs` is one. At 8839abe8b, on a clean tree, under
+
+    CARGO_BUILD_WARNINGS=warn RUSTFLAGS="--force-warn dead_code" \
+      cargo check -p vibe-strategy-factory --lib --message-format=json
+
+that file carries 38 dead_code diagnostics and 41 primary spans (44 including secondary),
+which is the module; this tool answers "1 production caller" for a function in it. The rev
+and the command belong with the number because it was first reported here as 39, measured
+in a second worktree that was 123 commits behind - `cargo` takes no rev, so which tree it
+read does not appear in the command. Each caller is therefore printed
 with its own host's count, so the cluster is visible, but nothing here computes a transitive
 closure: for `pub(crate)` and narrower items the compiler's dead_code set answers the
 question this cannot, and for `pub` items it is the other way round, since the compiler
