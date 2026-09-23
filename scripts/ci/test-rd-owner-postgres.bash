@@ -2929,8 +2929,23 @@ SELECT (
       FROM clones
       CROSS JOIN roles
      WHERE NOT pg_catalog.has_database_privilege(roles.role_name,clones.database_name,'CONNECT')
-        OR pg_catalog.has_database_privilege(roles.role_name,clones.database_name,'CREATE')
-        OR pg_catalog.has_database_privilege(roles.role_name,clones.database_name,'TEMPORARY')
+  )
+  -- CREATE and TEMPORARY are refused to every login role, not to the list above: a role added later
+  -- is covered without being named. TEMPORARY is what lets a caller put a relation or a type in
+  -- pg_temp, which a SECURITY DEFINER routine whose search_path does not end in pg_temp resolves
+  -- first. A role counts with every role it can SET ROLE to, because has_database_privilege does
+  -- not follow a membership granted WITH INHERIT FALSE.
+  AND NOT EXISTS (
+    SELECT 1
+      FROM pg_catalog.pg_database database_entry
+      CROSS JOIN pg_catalog.pg_roles login_role
+      JOIN pg_catalog.pg_roles reachable
+        ON pg_catalog.pg_has_role(login_role.oid,reachable.oid,'SET')
+     WHERE pg_catalog.pg_get_userbyid(database_entry.datdba)='rd_database_owner'
+       AND login_role.rolcanlogin
+       AND NOT login_role.rolsuper
+       AND (pg_catalog.has_database_privilege(reachable.oid,database_entry.oid,'CREATE')
+         OR pg_catalog.has_database_privilege(reachable.oid,database_entry.oid,'TEMPORARY'))
   )
 )::int AS cloned_database_custody_ok
 \gset
