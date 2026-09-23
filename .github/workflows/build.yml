@@ -308,6 +308,14 @@ jobs:
               --skip cargo-machete
           fi
 
+      - name: Lint the ordered chain's sealed feature union
+        # The workspace clippy above never enables a sealed acceptance feature, so code the ordered
+        # chain compiles behind one is otherwise linted by nothing. Same job, profile and target dir as
+        # that clippy, so only the sealed crates and their dependents are rechecked; this job has slack
+        # before the chain and rust-test jobs finish, so it stays off the critical path.
+        if: needs.plan.outputs.run-full-pre-commit == 'true'
+        run: bash scripts/ci/check-sealed-feature-clippy.bash
+
       - name: Verify capnp schemas are up-to-date
         if: needs.plan.outputs.run-capnp-check == 'true'
         run: make check-capnp-schemas
