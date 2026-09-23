@@ -228,7 +228,7 @@ impl StrategyRegistryPostgresV1 {
                 committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms > 0))",
             "CREATE OR REPLACE FUNCTION governance_api.read_current_execution_scope_v1(scope_identity text) \
              RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER \
-             SET search_path = pg_catalog, governance_private AS $$ \
+             SET search_path = pg_catalog, governance_private, pg_temp AS $$ \
                 SELECT jsonb_build_object( \
                     'scope_identity', scope.scope_identity, \
                     'scope_digest', scope.scope_digest, \
