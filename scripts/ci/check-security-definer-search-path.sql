@@ -16,7 +16,6 @@ BEGIN
   WITH exception_list(routine_name, search_path) AS (VALUES
     ('backtest_owner_api.resolve_protected_replay_attempt_frontier_v1', 'pg_catalog'),
     ('backtest_owner_api.resolve_protected_replay_result_v1', 'pg_catalog'),
-    ('composer_owner_api.resolve_develop_composer_locator_for_replay_v2', 'pg_catalog'),
     ('execution_api.read_current_paper_adapter_binding_v1', 'pg_catalog, execution_private'),
     ('execution_api.read_paper_account_opening_fact_v1', 'pg_catalog, execution_private'),
     ('governance_api.read_current_execution_scope_v1', 'pg_catalog, governance_private'),
@@ -90,6 +89,8 @@ BEGIN
     ('qualification_api.public_status_expected_opaque_reference_v1', 'pg_catalog'),
     ('qualification_api.public_status_native_source_is_custodied_v1', 'pg_catalog'),
     ('qualification_api.read_public_status_v1', 'pg_catalog'),
+    ('rd_owner_api.canonical_source_intake_custody_v1', 'pg_catalog, public, pg_temp'),
+    ('rd_owner_api.guard_source_intake_binding_v1', 'pg_catalog, public, pg_temp'),
     ('rd_owner_api.lock_artifact_invocation_reservation_v1', 'pg_catalog'),
     ('rd_owner_api.lock_current_research_for_artifact_v1', 'pg_catalog'),
     ('rd_owner_api.lock_current_successor_research_for_artifact_v1', 'pg_catalog'),
@@ -100,9 +101,11 @@ BEGIN
     ('rd_owner_api.lock_market_data_repair_request_v1', 'pg_catalog'),
     ('rd_owner_api.lock_ready_for_selection_for_qualification_v1', 'pg_catalog'),
     ('rd_owner_api.lock_source_acquisition_binding_v1', 'pg_catalog'),
+    ('rd_owner_api.lock_source_intake_research_handoff_v1', 'pg_catalog, public, rd_owner_api, pg_temp'),
     ('rd_owner_api.lock_source_invocation_reservation_v1', 'pg_catalog'),
     ('rd_owner_api.peek_current_research_for_artifact_v1', 'pg_catalog'),
     ('rd_owner_api.peek_current_successor_research_for_artifact_v1', 'pg_catalog'),
+    ('rd_owner_api.peek_source_intake_research_handoff_v1', 'pg_catalog, public, rd_owner_api, pg_temp'),
     ('rd_owner_api.resolve_design_role_intent_for_market_data_v1', 'pg_catalog'),
     ('rd_owner_api.resolve_native_replay_source_storage_v2', 'pg_catalog'),
     ('scanner_api.read_terminal_receipt_v1', 'pg_catalog')
@@ -126,21 +129,27 @@ BEGIN
       CROSS JOIN LATERAL pg_catalog.unnest(pg_catalog.string_to_array(routines.search_path, ','))
         WITH ORDINALITY AS item(value, position)
   ), creatable_items AS (
-    SELECT DISTINCT path_items.oid, path_items.schema_name
+    SELECT path_items.oid,
+           path_items.schema_name,
+           CASE WHEN namespace.oid IS NULL THEN 'does not exist'
+                ELSE 'creatable by ' || pg_catalog.string_agg(DISTINCT login_role.rolname, ', ' ORDER BY login_role.rolname)
+           END AS reason
       FROM path_items
       JOIN routines ON routines.oid=path_items.oid
       LEFT JOIN pg_catalog.pg_namespace namespace ON namespace.nspname=path_items.schema_name
+      LEFT JOIN pg_catalog.pg_roles login_role
+        ON namespace.oid IS NOT NULL
+       AND login_role.rolcanlogin
+       AND NOT login_role.rolsuper
+       AND EXISTS (
+         SELECT 1
+           FROM pg_catalog.pg_roles reachable
+          WHERE pg_catalog.pg_has_role(login_role.oid, reachable.oid, 'SET')
+            AND reachable.oid<>routines.proowner
+            AND pg_catalog.has_schema_privilege(reachable.oid, namespace.oid, 'CREATE'))
      WHERE path_items.schema_name NOT IN ('pg_catalog','pg_temp')
-       AND (namespace.oid IS NULL
-         OR EXISTS (
-           SELECT 1
-             FROM pg_catalog.pg_roles login_role
-             JOIN pg_catalog.pg_roles reachable
-               ON pg_catalog.pg_has_role(login_role.oid, reachable.oid, 'SET')
-            WHERE login_role.rolcanlogin
-              AND NOT login_role.rolsuper
-              AND reachable.oid<>routines.proowner
-              AND pg_catalog.has_schema_privilege(reachable.oid, namespace.oid, 'CREATE')))
+     GROUP BY path_items.oid, path_items.schema_name, namespace.oid
+    HAVING namespace.oid IS NULL OR pg_catalog.count(login_role.oid)>0
   ), assessed AS (
     SELECT routines.routine_name,
            routines.search_path,
@@ -152,7 +161,7 @@ BEGIN
                                  AND path_items.schema_name='pg_temp') THEN 'search_path does not end in pg_temp'
              WHEN EXISTS (SELECT 1 FROM creatable_items WHERE creatable_items.oid=routines.oid)
                THEN 'search_path names a schema a role other than the owner can create in, or one that does not exist: '
-                 || (SELECT pg_catalog.string_agg(creatable_items.schema_name, ', ' ORDER BY creatable_items.schema_name)
+                 || (SELECT pg_catalog.string_agg(creatable_items.schema_name || ' (' || creatable_items.reason || ')', '; ' ORDER BY creatable_items.schema_name)
                        FROM creatable_items WHERE creatable_items.oid=routines.oid)
            END AS failure,
            pg_catalog.count(*) OVER (PARTITION BY routines.routine_name) AS same_name_count
