@@ -4779,6 +4779,9 @@ pub(crate) mod tests {
     #[tokio::test]
     #[ignore = "requires a fresh isolated four-role PostgreSQL topology"]
     async fn fresh_rd_owner_migrates_before_qualification_writer_validates() {
+        // It connects without admission, so it installs the collector admission would have.
+        vibe_testkit::postgres::collect_warnings_into_test_log()
+            .expect("the ordered chain's warning collector should install");
         let rd_database_url =
             std::env::var("RD_OWNER_FRESH_TEST_DATABASE_URL").expect("fresh rd_owner URL");
         let qualification_database_url =

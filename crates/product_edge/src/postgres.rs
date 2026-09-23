@@ -134,6 +134,66 @@ fn unavailable_for(reason: Reason, kind: Subject, identity: &str) -> ProductEdge
     ProductEdgeError::unavailable_for(reason, kind, identity)
 }
 
+/// Refuses a research intent whose window does not hold at `cut_epoch_ms`, and says which part.
+///
+/// Four conditions answer to one reason, `WINDOW_NOT_CURRENT`, because they share a repair: the
+/// caller asked at a cut outside the research intent's window. They do not share a cause, and they
+/// do not share a clock: `owner_cut_epoch_ms` is the database's `clock_timestamp()` while
+/// `cut_epoch_ms` is this process's clock, so the refusal carries the conditions that held and every
+/// value they compared. The reason, the subject and the outward disposition are unchanged.
+fn research_window_refusal(
+    locked: &LockedCurrentResearchEnvelopeV1,
+    source_authorization: &OperatorAuthorizationReadbackV1,
+    cut_epoch_ms: u64,
+    intent_identity: &str,
+) -> Option<ProductEdgeError> {
+    let evidence = &locked.evidence;
+    let within_source_window = cut_epoch_ms >= source_authorization.not_before_epoch_ms()
+        && cut_epoch_ms < source_authorization.valid_through_epoch_ms();
+    let held = [
+        (
+            locked.owner_cut_epoch_ms > cut_epoch_ms,
+            "owner_cut_after_cut",
+        ),
+        (
+            evidence.projection_at_epoch_ms > cut_epoch_ms,
+            "projection_after_cut",
+        ),
+        (
+            cut_epoch_ms >= evidence.valid_through_epoch_ms,
+            "research_view_expired",
+        ),
+        (!within_source_window, "source_authorization_outside_window"),
+        (
+            within_source_window && !source_authorization.is_current_at(cut_epoch_ms),
+            "source_authorization_revoked",
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(holds, name)| holds.then_some(name))
+    .collect::<Vec<_>>();
+
+    if held.is_empty() {
+        return None;
+    }
+    Some(ProductEdgeError::Unavailable(
+        crate::ProductEdgeUnavailableV1::about(
+            Reason::WindowNotCurrent,
+            Subject::ResearchIntent,
+            intent_identity,
+        )
+        .with_cause(format!(
+            "{} at cut {cut_epoch_ms}: owner_cut {}, projection_at {}, valid_through {}, source authorization [{}, {})",
+            held.join(","),
+            locked.owner_cut_epoch_ms,
+            evidence.projection_at_epoch_ms,
+            evidence.valid_through_epoch_ms,
+            source_authorization.not_before_epoch_ms(),
+            source_authorization.valid_through_epoch_ms(),
+        )),
+    ))
+}
+
 /// Why the admission's original authorization, read at the current cut, no
 /// longer authorizes a first mutation: either it is not current any more or
 /// its meaning drifted from what the admission sealed.
@@ -2829,16 +2889,13 @@ impl ProductEdgePostgresOwnerV1 {
             // has moved outside its window, a lineage that does not join, and an authorization
             // that is not the one the source was admitted under. Only the last is about the
             // caller's own authority; the first is about when it asked.
-            if locked.owner_cut_epoch_ms > final_cut
-                || evidence.projection_at_epoch_ms > final_cut
-                || final_cut >= evidence.valid_through_epoch_ms
-                || !source_authorization.is_current_at(final_cut)
-            {
-                return Err(unavailable_for(
-                    Reason::WindowNotCurrent,
-                    Subject::ResearchIntent,
-                    &evidence.intent_identity,
-                ));
+            if let Some(refusal) = research_window_refusal(
+                locked,
+                source_authorization,
+                final_cut,
+                &evidence.intent_identity,
+            ) {
+                return Err(refusal);
             }
 
             if !same_or_immediate {
@@ -3274,16 +3331,13 @@ impl ProductEdgePostgresOwnerV1 {
 
         // The same three repairs as the read path above, split the same way: when it asked,
         // whether the lineage joins, and which authority it asked under.
-        if locked_research.owner_cut_epoch_ms > write_cut
-            || locked_research.evidence.projection_at_epoch_ms > write_cut
-            || write_cut >= locked_research.evidence.valid_through_epoch_ms
-            || !source_authorization.is_current_at(write_cut)
-        {
-            return Err(unavailable_for(
-                Reason::WindowNotCurrent,
-                Subject::ResearchIntent,
-                &research_evidence.intent_identity,
-            ));
+        if let Some(refusal) = research_window_refusal(
+            &locked_research,
+            source_authorization,
+            write_cut,
+            &research_evidence.intent_identity,
+        ) {
+            return Err(refusal);
         }
 
         if !same_or_immediate {
@@ -8271,6 +8325,10 @@ mod tests {
         assert_eq!(after_distinct_revoke.1, after_bound_revoke.1);
     }
 
+    /// How long `expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows` gives its
+    /// setup before the objects it creates expire. See the comment at its use.
+    const RECOVERY_PRE_EXPIRY_BUDGET_MS: u64 = 5_000;
+
     #[tokio::test]
     #[ignore = "requires the disposable canonical OA/PE PostgreSQL topology"]
     async fn expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows() {
@@ -8283,7 +8341,15 @@ mod tests {
         .unwrap();
         let suffix = unique_suffix();
         let now = now_ms().unwrap();
-        let expiry = now.saturating_add(500);
+        // What this entry tests is recovery after expiry, so the expiry itself is not negotiable.
+        // The time before it is only the budget for creating everything that will expire: the
+        // manifests, the authorization and the binding each refuse a validity that has already
+        // passed, so the whole setup must commit inside this budget. At 500 ms a loaded machine
+        // overran it and the binding was refused as `InvalidProposal("binding validity")`, which
+        // reads as a defect and is only a slow machine. Product Edge reads its own clock, so the
+        // expiry cannot be moved by the test; the budget is therefore set an order of magnitude
+        // above a normal setup, and an overrun below is named as one.
+        let expiry = now.saturating_add(RECOVERY_PRE_EXPIRY_BUDGET_MS);
         let successor_expiry = expiry.saturating_add(600_000);
         let principal = format!("recovery-principal-{suffix}");
         let deployment = format!("recovery-deployment-{suffix}");
@@ -8421,7 +8487,14 @@ mod tests {
         .fetch_one(pe_pool)
         .await
         .unwrap();
-        let remaining = expiry.saturating_sub(now_ms().unwrap());
+        let setup_done = now_ms().unwrap();
+        assert!(
+            setup_done < expiry,
+            "setup took {} ms, past the {RECOVERY_PRE_EXPIRY_BUDGET_MS} ms budget before expiry; \
+             the machine is too slow for this entry, not the recovery wrong",
+            setup_done.saturating_sub(now)
+        );
+        let remaining = expiry.saturating_sub(setup_done);
         tokio::time::sleep(Duration::from_millis(remaining.saturating_add(25))).await;
 
         let ordinary_authorization = OperatorAuthorizationSuccessorIssuanceProposalV1 {
