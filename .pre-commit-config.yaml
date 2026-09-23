@@ -34,6 +34,9 @@ repos:
     rev: v0.11.0.1
     hooks:
       - id: shellcheck
+        # Follow `source` so a script is checked the same whether or not the file it sources is
+        # also staged; without it a commit touching only the sourcing script fails SC1091.
+        args: [-x]
   - repo: https://github.com/google/yamlfmt
     rev: v0.21.0
     hooks:
