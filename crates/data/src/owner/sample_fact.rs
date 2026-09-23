@@ -2552,6 +2552,113 @@ pub(crate) mod tests {
         );
     }
 
+    /// Rescopes a single-member readback to a universe that also carries `second`.
+    ///
+    /// The Instrument Master authority admits this shape already: a `UniverseSelectionRecord` scope
+    /// takes any number of members, with one fact and one resolution for each.
+    fn universe_scoped_master(
+        base: InstrumentMasterReadbackV1,
+        second: &str,
+    ) -> InstrumentMasterReadbackV1 {
+        let mut widened = base;
+        let mut other = widened.facts[0].clone();
+        other.proposal.canonical_identity = second.into();
+        other.identity = d(130);
+        widened.cut.scope = InstrumentMasterScopeV1::UniverseSelectionRecord(d(131));
+        widened.cut.expected_members.push(second.to_owned());
+        widened.cut.resolutions.push(InstrumentMasterResolution {
+            canonical_identity: second.into(),
+            fact_digest: other.digest(),
+        });
+        widened.facts.push(other);
+        widened
+    }
+
+    /// A schedule prepares against a master that covers a universe, not only against one scoped to
+    /// a single instrument.
+    ///
+    /// Both rules below are real and they were mutually unsatisfiable. A frame reads one batch for
+    /// all its members and requires each member's schedule to carry that batch's one
+    /// `instrument_master_digest`; this function used to require each schedule's master to be
+    /// `ExactInstrument`-scoped to that member. Two exactly-scoped masters have two digests, so at
+    /// most one member of a two-member frame could ever have a schedule that validated.
+    ///
+    /// Nothing reported it because nothing had asked: `commit_prepared_bar_schedule_v1` has no
+    /// caller in a default build, so the contract's own consistency had no evidence either way.
+    ///
+    /// What the widening keeps is every per-instrument binding - the proposal, the binding locator,
+    /// the resolution, and the fact all still have to name this row's instrument. What it drops is
+    /// the demand that the master name *only* this instrument.
+    #[rstest]
+    fn a_schedule_prepares_against_a_master_that_covers_a_universe() {
+        let batch = batch(bar_row(10, 3), 30);
+        let binding =
+            bind_strategy_input_role(&bar_request(&batch), &batch).expect("sealed BAR binding");
+        let exact = instrument_master_readback(
+            "AAPL.XNAS",
+            batch.market_semantics_identity(),
+            batch.correction_frontier_digest(),
+        );
+        let proposal = UntrustedBarScheduleProposalV1 {
+            canonical_instrument: "AAPL.XNAS".into(),
+            predecessor_fact_digest: None,
+            effective_from: 1,
+            effective_until: Some(100),
+            kind: BarScheduleKindV1::FixedInterval,
+            step: 5,
+            unit: BarScheduleUnitV1::Minute,
+            anchor_identity: d(70),
+            label: BarScheduleLabelV1::IntervalClose,
+            completion: BarScheduleCompletionV1::CompleteOnly,
+        };
+        let exactly_scoped =
+            prepare_bar_schedule_commit_v1(proposal.clone(), &binding, &batch, &exact)
+                .expect("the single-instrument case still prepares");
+
+        let universe = universe_scoped_master(exact, "MSFT.XNAS");
+        let widened = prepare_bar_schedule_commit_v1(proposal.clone(), &binding, &batch, &universe)
+            .expect("a universe-scoped master carrying this instrument prepares the same schedule");
+        assert_eq!(
+            widened.fact.digest(),
+            exactly_scoped.fact.digest(),
+            "widening the master's scope does not change the schedule this row produces"
+        );
+
+        // The member has to be in the universe. A master that covers someone else is not a master
+        // for this row, and the scope alone must not be what admits it.
+        let elsewhere = universe_scoped_master(
+            instrument_master_readback(
+                "MSFT.XNAS",
+                batch.market_semantics_identity(),
+                batch.correction_frontier_digest(),
+            ),
+            "IBM.XNAS",
+        );
+        assert_eq!(
+            prepare_bar_schedule_commit_v1(proposal.clone(), &binding, &batch, &elsewhere)
+                .unwrap_err(),
+            BarScheduleError::InstrumentMasterMismatch,
+            "a universe that does not carry this instrument is refused"
+        );
+
+        // Two facts for one instrument leaves no way to say which one this schedule rests on.
+        let mut ambiguous = universe_scoped_master(
+            instrument_master_readback(
+                "AAPL.XNAS",
+                batch.market_semantics_identity(),
+                batch.correction_frontier_digest(),
+            ),
+            "MSFT.XNAS",
+        );
+        let duplicate = ambiguous.facts[0].clone();
+        ambiguous.facts.push(duplicate);
+        assert_eq!(
+            prepare_bar_schedule_commit_v1(proposal, &binding, &batch, &ambiguous).unwrap_err(),
+            BarScheduleError::AmbiguousInstrumentMaster,
+            "uniqueness is still required, it is just no longer uniqueness of the whole master"
+        );
+    }
+
     #[rstest]
     fn sealed_bar_schedule_replays_exact_bytes_and_enforces_half_open_cuts() {
         let batch = batch(bar_row(10, 3), 30);
