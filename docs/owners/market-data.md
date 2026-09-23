@@ -1475,9 +1475,13 @@ an R&D binding, Backtest Result, synthetic exit signal or trading order.
 This V2 target's request-window frame census exists: every PIT snapshot fact commit takes the next
 dense frame ordinal inside its scope, and the window readback and sequence resolver read it back in
 that order. What the target lacks is a caller, and a caller alone would not be enough, as the end
-of this paragraph records. The census also admits every commit today, so the
-rule above that a quote cut takes no frame ordinal is not built yet; the Owner has to tell a
-quote cut from a frame by its own verified batch, never by the requester's scope claim. The
+of this paragraph records. Only a snapshot whose verified batch holds BAR rows takes a frame
+ordinal; one holding Quote rows and nothing else is a quote cut, recorded in a census of its own
+and never given an ordinal; one holding neither joins no census. The Owner reads this from the
+batch it verified, never from the requester's scope claim, and resolves a frame's quote cut from
+that census alone: exactly one quote cut strictly between the frame's BAR and its bound, on the
+frame's scope, Instrument Master, universe selection, Market Semantics and Source Binding lineage,
+quoting exactly the frame's members. The
 existing PIT correction lineage records
 revisions of one request; it is not a time-successor index and cannot prove a later frame or the
 absence of skipped frames, which is why the census is its own table rather than a reuse of that
