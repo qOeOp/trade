@@ -11,10 +11,10 @@
 //!
 //! The report contract says the strategy statement and the data window come from upstream rather
 //! than from the backtest result, and a canonical result contains neither. So the read is three
-//! reads in one transaction the report opens as `REPEATABLE READ, READ ONLY`: the outcome readback,
-//! the replay request the run answered, and the Design and program frozen under the Design that
-//! request names. `READ ONLY` is what keeps row locks off this path, by having PostgreSQL refuse
-//! them.
+//! reads in one transaction the report opens as `SERIALIZABLE, READ ONLY, DEFERRABLE`: the outcome
+//! readback, the replay request the run answered, and the Design and program frozen under the
+//! Design that request names. `READ ONLY` is what keeps row locks off this path, by having
+//! PostgreSQL refuse them.
 //!
 //! The strategy is stated only for the admitted single-threshold family, and only when authoring
 //! the statement read back from the frozen pair reproduces that pair's canonical program exactly
@@ -118,6 +118,10 @@ pub enum BacktestRunReportRefusalV1 {
     /// The report's read-only transaction could not be opened or closed.
     #[error("the report's read-only transaction is unavailable: {0}")]
     ReadTransactionUnavailable(String),
+    /// No safe snapshot became available within the report's bound: concurrent serializable
+    /// writers were still open when it ran out.
+    #[error("no safe snapshot within {0} ms")]
+    ReportSnapshotUnavailable(u64),
     /// The replay request the run answered could not be read back from R&D custody.
     #[error("the run's replay request is unavailable: {0}")]
     ReplayRequestUnavailable(String),
@@ -152,6 +156,7 @@ impl BacktestRunReportRefusalV1 {
         match self {
             Self::OutcomeEvidenceUnavailable(_)
             | Self::ReadTransactionUnavailable(_)
+            | Self::ReportSnapshotUnavailable(_)
             | Self::ReplayRequestUnavailable(_)
             | Self::FrozenDesignUnavailable => false,
             Self::OutcomeEvidenceRefused(_)
@@ -179,6 +184,7 @@ impl BacktestRunReportRefusalV1 {
             Self::UnknownSide(_) => "UNKNOWN_SIDE",
             Self::DecimalNotPlain { .. } => "DECIMAL_NOT_PLAIN",
             Self::ReadTransactionUnavailable(_) => "READ_TRANSACTION_UNAVAILABLE",
+            Self::ReportSnapshotUnavailable(_) => "REPORT_SNAPSHOT_UNAVAILABLE",
             Self::ReplayRequestUnavailable(_) => "REPLAY_REQUEST_UNAVAILABLE",
             Self::ReplayRequestV3NotYetReported => "REPLAY_REQUEST_V3_NOT_YET_REPORTED",
             Self::FrozenDesignUnavailable => "FROZEN_DESIGN_UNAVAILABLE",
@@ -340,12 +346,13 @@ pub fn canonical_utc_v1(nanos: u64) -> String {
 
 /// Reads one committed run's report through the R&D Owner pool.
 ///
-/// Three reads, all in one transaction this function opens as `REPEATABLE READ, READ ONLY`: the
-/// run's outcome readback from Backtest custody, the replay request it answered, and the Design
-/// and program frozen under the Design that request names. `REPEATABLE READ` gives the three one
-/// snapshot. `READ ONLY` makes PostgreSQL refuse any row lock on this path, so a read that locks
-/// fails on its first call and names itself, instead of holding a lock until the report returns.
-/// A shared row lock held on a read path is what deadlocked the Dashboard read in entry 28.
+/// Three reads, all in one transaction this function opens as `SERIALIZABLE, READ ONLY,
+/// DEFERRABLE` (see `begin_report_read_v1` for why not `REPEATABLE READ`): the run's outcome
+/// readback from Backtest custody, the replay request it answered, and the Design and program
+/// frozen under the Design that request names. The three share one safe snapshot. `READ ONLY` makes
+/// PostgreSQL refuse any row lock on this path, so a read that locks fails on its first call and
+/// names itself, instead of holding a lock until the report returns. A shared row lock held on a
+/// read path is what deadlocked the Dashboard read in entry 28.
 ///
 /// # Errors
 ///
@@ -358,7 +365,7 @@ pub async fn resolve_backtest_run_report_v1(
     pool: &sqlx::PgPool,
     locator: ExploratoryReplayResultLocatorV2<'_>,
 ) -> Result<Option<BacktestRunReportProjectionV1>, BacktestRunReportRefusalV1> {
-    let mut transaction = begin_report_read_v1(pool).await?;
+    let mut transaction = begin_report_read_v1(pool, REPORT_STATEMENT_TIMEOUT_MS_V1).await?;
     let report = read_report_in_transaction(&mut transaction, locator).await;
     // Nothing a read-only transaction did can need keeping, and a refusal is still a completed
     // read, so the transaction ends the same way on every path.
@@ -369,21 +376,51 @@ pub async fn resolve_backtest_run_report_v1(
     report
 }
 
-/// Opens the report's `REPEATABLE READ, READ ONLY` transaction.
+/// How long the report waits for a safe snapshot, and how long any one of its statements may run.
+///
+/// The three reads take well under a second in the ordered chain; the bound is there so that a
+/// report never hangs the page that asked for it, not to be reached.
+pub(crate) const REPORT_STATEMENT_TIMEOUT_MS_V1: u64 = 5_000;
+
+/// Opens the report's `SERIALIZABLE, READ ONLY, DEFERRABLE` transaction.
 ///
 /// `SET TRANSACTION` must be the transaction's first statement, which is why the report opens its
 /// own rather than taking one from its caller.
+///
+/// Not `REPEATABLE READ`. The request read goes through
+/// `rd_owner_api.resolve_native_replay_source_storage_v2`, which returns nothing unless
+/// `transaction_isolation` is `read committed` or `serializable`: its helpers fence the request with
+/// an advisory lock, and under `REPEATABLE READ` the snapshot is taken before that fence, so waiting
+/// on it would not make a writer's commit visible. `SERIALIZABLE` keeps that rule and still gives
+/// the three reads one snapshot. `READ ONLY` makes PostgreSQL refuse any row lock, and `DEFERRABLE`
+/// waits for a snapshot no concurrent serializable writer can invalidate, so the read never aborts
+/// with a serialization failure. That wait happens on the first statement, which is why one is run
+/// here: a timeout on it is named as the snapshot being unavailable, not as a failed read.
 pub(crate) async fn begin_report_read_v1(
     pool: &sqlx::PgPool,
+    statement_timeout_ms: u64,
 ) -> Result<sqlx::Transaction<'static, sqlx::Postgres>, BacktestRunReportRefusalV1> {
     let unavailable =
         |e: sqlx::Error| BacktestRunReportRefusalV1::ReadTransactionUnavailable(e.to_string());
     let mut transaction = pool.begin().await.map_err(unavailable)?;
-    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE, READ ONLY, DEFERRABLE")
         .execute(&mut *transaction)
         .await
         .map_err(unavailable)?;
-    Ok(transaction)
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SET LOCAL statement_timeout = {statement_timeout_ms}"
+    )))
+    .execute(&mut *transaction)
+    .await
+    .map_err(unavailable)?;
+
+    match sqlx::query("SELECT 1").execute(&mut *transaction).await {
+        Ok(_) => Ok(transaction),
+        Err(e) if e.as_database_error().and_then(|e| e.code()).as_deref() == Some("57014") => Err(
+            BacktestRunReportRefusalV1::ReportSnapshotUnavailable(statement_timeout_ms),
+        ),
+        Err(e) => Err(unavailable(e)),
+    }
 }
 
 /// The report's three reads inside a transaction the caller opened with [`begin_report_read_v1`].
@@ -1319,6 +1356,7 @@ mod tests {
         BacktestRunReportRefusalV1::ReadTransactionUnavailable(String::new()),
         false
     )]
+    #[case(BacktestRunReportRefusalV1::ReportSnapshotUnavailable(0), false)]
     #[case(
         BacktestRunReportRefusalV1::ReplayRequestUnavailable(String::new()),
         false
@@ -1374,6 +1412,7 @@ mod tests {
             }
             .code(),
             BacktestRunReportRefusalV1::ReadTransactionUnavailable(String::new()).code(),
+            BacktestRunReportRefusalV1::ReportSnapshotUnavailable(0).code(),
             BacktestRunReportRefusalV1::ReplayRequestUnavailable(String::new()).code(),
             BacktestRunReportRefusalV1::ReplayRequestV3NotYetReported.code(),
             BacktestRunReportRefusalV1::FrozenDesignUnavailable.code(),

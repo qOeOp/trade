@@ -281,8 +281,11 @@ history; it says nothing about whether the path has ever run in some other envir
     legitimately hold non-finite values. The strategy and the data window are not in a backtest result,
     so they come from upstream: the replay request the run answered, and the Design and program
     frozen under the Design it names. All three reads run in one transaction the report opens as
-    `REPEATABLE READ, READ ONLY`, so they share one snapshot and PostgreSQL refuses any row lock on
-    the path. The request is read through `rd_owner_api.read_exploratory_replay_request_v2`, which
+    `SERIALIZABLE, READ ONLY, DEFERRABLE`: a safe snapshot the three share, with the request storage
+    function's isolation rule kept (it answers only under `read committed` or `serializable`, because
+    under `repeatable read` its snapshot predates its request fence), and PostgreSQL refusing any row
+    lock on the path. Waiting for that snapshot is bounded, and a report that runs out of time is
+    refused as `REPORT_SNAPSHOT_UNAVAILABLE` rather than left waiting. The request is read through `rd_owner_api.read_exploratory_replay_request_v2`, which
     takes none; `resolve_exploratory_replay_request_v2` keeps its lock for the caller that writes
     afterwards and reads through the same function. The strategy is stated only
     for the admitted single-threshold family, and only when authoring the statement read back from that

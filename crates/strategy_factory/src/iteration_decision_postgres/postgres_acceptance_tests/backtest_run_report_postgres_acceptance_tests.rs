@@ -5,7 +5,8 @@ use super::{
     *,
 };
 use crate::backtest_run_report_read_v1::{
-    BacktestRunReportStateV1, begin_report_read_v1, read_report_in_transaction,
+    BacktestRunReportStateV1, REPORT_STATEMENT_TIMEOUT_MS_V1, begin_report_read_v1,
+    read_report_in_transaction,
     report_test_support_v1::{
         assert_series_reads_back_every_counted_point, run_multi_day_round_trip_v1,
     },
@@ -82,9 +83,9 @@ async fn backtest_run_report_reads_back_every_point_a_real_run_committed() {
         request_identity: &request_identity,
         attempt_identity: &attempt_identity,
     };
-    // The result half, read the way the report reads it: in its `REPEATABLE READ, READ ONLY`
-    // transaction, where PostgreSQL refuses any row lock.
-    let mut transaction = begin_report_read_v1(rd_pool)
+    // The result half, read the way the report reads it: in its `SERIALIZABLE, READ ONLY,
+    // DEFERRABLE` transaction, where PostgreSQL refuses any row lock.
+    let mut transaction = begin_report_read_v1(rd_pool, REPORT_STATEMENT_TIMEOUT_MS_V1)
         .await
         .expect("the report's read-only transaction");
     let read = resolve_backtest_run_result_v1(&mut transaction, locator)
@@ -92,9 +93,17 @@ async fn backtest_run_report_reads_back_every_point_a_real_run_committed() {
         .expect("the committed run's result")
         .expect("a committed run behind the address");
     transaction.rollback().await.expect("R&D read rollback");
+    let started = std::time::Instant::now();
     let refused = resolve_backtest_run_report_v1(rd_pool, locator)
         .await
         .expect_err("a run outside the family has no report");
+    // The bound on the snapshot wait is set against this, so it is printed where a reader of the
+    // chain log can compare the two.
+    eprintln!(
+        "backtest run report read took {} ms against a bound of {} ms",
+        started.elapsed().as_millis(),
+        REPORT_STATEMENT_TIMEOUT_MS_V1
+    );
     let absent = resolve_backtest_run_report_v1(
         rd_pool,
         ExploratoryReplayResultLocatorV2 {
@@ -107,6 +116,7 @@ async fn backtest_run_report_reads_back_every_point_a_real_run_committed() {
     .expect("an address with no run is an empty answer, not a refusal");
     assert_eq!(absent, None);
     assert_the_report_read_holds_only_what_it_names(rd_pool, locator).await;
+    assert_the_snapshot_wait_is_bounded_and_named(rd_pool).await;
     assert_request_reads_without_a_lock_and_the_locking_read_still_holds_it(
         rd_pool,
         &request_identity,
@@ -156,7 +166,7 @@ async fn assert_request_reads_without_a_lock_and_the_locking_read_still_holds_it
     request_identity: &str,
     meaning_digest: &str,
 ) {
-    let mut read_only = begin_report_read_v1(rd_pool)
+    let mut read_only = begin_report_read_v1(rd_pool, REPORT_STATEMENT_TIMEOUT_MS_V1)
         .await
         .expect("a read-only transaction");
     let lock_free: Option<serde_json::Value> =
@@ -234,7 +244,7 @@ async fn assert_the_report_read_holds_only_what_it_names(
     rd_pool: &PgPool,
     locator: ExploratoryReplayResultLocatorV2<'_>,
 ) {
-    let mut transaction = begin_report_read_v1(rd_pool)
+    let mut transaction = begin_report_read_v1(rd_pool, REPORT_STATEMENT_TIMEOUT_MS_V1)
         .await
         .expect("the report's read-only transaction");
     let refusal = read_report_in_transaction(&mut transaction, locator)
@@ -265,9 +275,7 @@ async fn assert_the_report_read_holds_only_what_it_names(
         .filter(|(locktype, mode, _)| {
             !matches!(
                 (locktype.as_str(), mode.as_str()),
-                ("relation", "AccessShareLock")
-                    | ("virtualxid", "ExclusiveLock")
-                    | ("transactionid", "ExclusiveLock")
+                ("relation", "AccessShareLock") | ("virtualxid" | "transactionid", "ExclusiveLock")
             )
         })
         .collect::<Vec<_>>();
@@ -275,4 +283,42 @@ async fn assert_the_report_read_holds_only_what_it_names(
         unexpected.is_empty(),
         "the report read holds locks beyond plain reads: {unexpected:?}"
     );
+}
+
+/// A report that cannot get a safe snapshot in time is refused under its own name, and gets one
+/// as soon as nothing stands in the way.
+///
+/// `DEFERRABLE` waits while a serializable transaction that may write is open, so one is held open
+/// here, having taken its snapshot and written nothing. The control is the same call after it ends:
+/// without it, a report that always timed out would pass the first half.
+async fn assert_the_snapshot_wait_is_bounded_and_named(rd_pool: &PgPool) {
+    let bound_ms = 500;
+    let mut writer = rd_pool.begin().await.expect("a serializable writer");
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        .execute(&mut *writer)
+        .await
+        .expect("serializable isolation");
+    sqlx::query("SELECT 1")
+        .execute(&mut *writer)
+        .await
+        .expect("the writer takes its snapshot");
+
+    let started = std::time::Instant::now();
+    let refusal = begin_report_read_v1(rd_pool, bound_ms)
+        .await
+        .expect_err("no safe snapshot while a serializable writer is open");
+    let waited = started.elapsed().as_millis();
+    assert_eq!(refusal.code(), "REPORT_SNAPSHOT_UNAVAILABLE", "{refusal}");
+    assert!(
+        waited >= u128::from(bound_ms),
+        "refused after {waited} ms, before its {bound_ms} ms bound"
+    );
+
+    writer.rollback().await.expect("the writer ends");
+    begin_report_read_v1(rd_pool, bound_ms)
+        .await
+        .expect("a safe snapshot once no serializable writer is open")
+        .rollback()
+        .await
+        .expect("read-only rollback");
 }
