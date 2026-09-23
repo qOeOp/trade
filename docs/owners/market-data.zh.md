@@ -1365,9 +1365,10 @@ pool 或替代 resolver。缺失、多出、重复、部分、乱序、跨请求
 frame 序号，窗口读回与序列解析按同一顺序读出它。今天缺的是调用方，而且如本段末尾所记，光有调用方还不够。只有核验过的 batch 含 BAR 行的 snapshot 才取
 frame 序号；只含 Quote 行的是报价 cut，记入它自己的 census，永不取序号；两者都不是的不进任何 census。
 Owner 凭自己核验过的 batch 判定这一点，而不是凭请求方的 scope 声明，并且只从那份 census 为帧解析报价
-cut。在严格位于帧的 BAR 与其上界之间、与帧共用 scope、Instrument Master、universe selection、Market Semantics
-与 Source Binding lineage、且在请求的 decision cut 时可见的报价 cut 中，必须恰好剩下一条 correction lineage；
-它在该时刻可见的最新更正就是该帧的报价 cut，并且报价的成员必须恰好是帧的成员。census 按请求方声明的 scope
+cut。每个报价 cut 的 correction lineage 先归约为它在请求的 decision cut 时可见的最新更正；必须恰好有一个这样的
+更正严格位于帧的 BAR 与其上界之间，与帧共用 scope、Instrument Master、universe selection、Market Semantics 与
+Source Binding lineage，并且报价的成员恰好是帧的成员。最新更正不能服务该帧的 lineage 什么也不提供，永不退回到
+被那次更正取代的版本。census 按请求方声明的 scope
 分区，所以在帧的全部坐标上都相同的第二个报价 cut 会与第一个冲突并使该帧被拒：这是拒绝服务，永远不会把一个
 Owner 未为它核验的报价 cut 交给它。上界是下一帧的 BAR cut；今天由 resolver 的调用方给出，从 frame census
 推导它属于序列解析器。现有 PIT correction lineage
