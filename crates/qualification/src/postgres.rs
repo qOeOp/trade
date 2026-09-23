@@ -8914,9 +8914,6 @@ mod postgres_tests {
         };
         let scope_key =
             principal_scope_key(&locator.principal, &locator.request_scope).expect("scope key");
-        // Taken before this entry writes anything, so a row it disturbs cannot already be inside
-        // the baseline.
-        let schema_before = qualification_schema_row_counts(&owner.pool).await;
         let own_counts = |pool: PgPool, basis_identity: String, scope_key: String| async move {
             // This entry writes into custody the gate shares, so "nothing was written" is proved
             // by this basis's own counts before and after, never by a global emptiness.
@@ -8941,54 +8938,115 @@ mod postgres_tests {
         assert_eq!(before, (1, 1, 1));
 
         // Qualification already holds this basis's projection: R&D obtained it through the sealed
-        // admission API while forming the TrialFamily policy. A resolve is therefore an exact
-        // replay that writes nothing. Neither the create nor the renewal path is reachable from
-        // *this* entry, because this basis already has its frontier, and a projection's stored
-        // validity cannot be aged without breaking the canonical row it is part of; the
-        // response-cut rollback stays unproven here by construction.
-        let projection = owner
-            .resolve_for_basis(&locator)
-            .await
-            .expect("stored projection readback")
-            .expect("R&D-admitted projection");
-        assert_eq!(projection.basis_identity(), locator.basis_identity);
-        assert_eq!(projection.principal(), locator.principal);
-        // The create branch did run, earlier in this gate, and this is where its committed shape
-        // is read back. `GENESIS_EMPTY` is written by that branch alone - `resolution_name` maps
-        // exactly two variants - and the branch fixes the rest of the shape with it: sequence
-        // zero, the canonical genesis cut, and no source frontier. Asserting the four together
-        // fails if a renewal ever reaches this lineage, and fails if the genesis constants drift.
+        // admission API while forming the TrialFamily policy, several entries earlier. Its shape is
+        // read here from custody before this entry resolves anything, so what is read is the row the
+        // create branch committed, however long ago that was.
+        let mut read = owner.pool.begin().await.expect("read transaction");
+        let genesis = verify_scope_history_in_transaction(
+            &mut read,
+            &locator.principal,
+            &locator.request_scope,
+            &scope_key,
+        )
+        .await
+        .expect("verified scope history")
+        .projection_for_basis(&locator.basis_identity)
+        .cloned()
+        .expect("R&D-admitted projection");
+        read.rollback().await.expect("read rollback");
+        assert_eq!(genesis.basis_identity(), locator.basis_identity);
+        assert_eq!(genesis.principal(), locator.principal);
+        // `GENESIS_EMPTY` is written by the create branch alone - `resolution_name` maps exactly
+        // two variants - and the branch fixes the rest of the shape with it: sequence zero, the
+        // canonical genesis cut, and no source frontier. Asserting the four together fails if a
+        // renewal had already reached this lineage, and fails if the genesis constants drift.
         // What it does not prove is the branch's condition, that a frontier commits only on an
         // empty history; driving that needs an entry whose own basis has none.
         assert_eq!(
-            projection.resolution(),
+            genesis.resolution(),
             ProtectedFeedbackResolutionV1::GenesisEmpty
         );
-        assert_eq!(projection.source_sequence(), 0);
+        assert_eq!(genesis.source_sequence(), 0);
         assert_eq!(
-            projection.source_cut(),
+            genesis.source_cut(),
             "qualification-protected-feedback-cut-v1-0"
         );
         assert_eq!(
             (
-                projection.source_frontier_identity(),
-                projection.source_frontier_digest()
+                genesis.source_frontier_identity(),
+                genesis.source_frontier_digest()
             ),
             (None, None)
         );
-        assert!(
-            verify_projection_freshness(&projection, projection.projection_at_epoch_ms()).is_ok()
-        );
-        assert!(
-            verify_projection_freshness(&projection, projection.valid_through_epoch_ms()).is_err()
+        assert!(verify_projection_freshness(&genesis, genesis.projection_at_epoch_ms()).is_ok());
+        assert!(verify_projection_freshness(&genesis, genesis.valid_through_epoch_ms()).is_err());
+        assert_eq!(
+            genesis.valid_through_epoch_ms(),
+            genesis.projection_at_epoch_ms() + PROJECTION_VALIDITY_MS
         );
         assert_eq!(
-            projection.valid_through_epoch_ms(),
-            projection.projection_at_epoch_ms() + PROJECTION_VALIDITY_MS
+            genesis.receipt().committed_at_epoch_ms(),
+            genesis.projection_at_epoch_ms()
         );
+
+        // A projection is fresh for `PROJECTION_VALIDITY_MS` from when it was projected, and this
+        // one was projected several entries ago. On a fast run it is still fresh; on a slow one it
+        // has expired, and `resolve_for_basis` then refuses it as stale rather than renewing it.
+        // Only `resolve_or_create_for_basis` renews, so that is the first resolve: it replays a
+        // fresh projection and renews an expired one, both the Owner's correct answer for the
+        // projection's age. Everything below starts from what it returned, so freshness is a
+        // property of this entry's own timing, not of how long the entries before it took.
+        //
+        // A renewal is a write this entry cannot undo: it appends a successor projection and its
+        // event and advances the head, and that custody is append-only. It is the state a late
+        // consumer of this lineage would leave in production, and the lineage is this entry's
+        // alone (see above), so no later entry reads it as genesis.
+        let projection = owner
+            .resolve_or_create_for_basis(&locator)
+            .await
+            .expect("stored or renewed projection");
+        assert_eq!(projection.basis_identity(), locator.basis_identity);
+        if projection.projection_identity() == genesis.projection_identity() {
+            eprintln!("entry 84: the stored projection was still fresh and was replayed");
+        } else {
+            // The renewal branch is reached only on a slow run, so when it is, its shape is
+            // asserted: a successor of the genesis projection at the same source cut.
+            eprintln!("entry 84: the stored projection had expired and was renewed");
+            assert_eq!(
+                projection.resolution(),
+                ProtectedFeedbackResolutionV1::Frontier
+            );
+            assert_eq!(
+                (
+                    projection.source_frontier_identity(),
+                    projection.source_frontier_digest()
+                ),
+                (
+                    Some(genesis.projection_identity()),
+                    Some(genesis.projection_digest())
+                )
+            );
+            assert_eq!(projection.source_sequence(), genesis.source_sequence());
+            assert_eq!(projection.source_cut(), genesis.source_cut());
+            assert!(projection.projection_at_epoch_ms() >= genesis.valid_through_epoch_ms());
+        }
+        // The baselines for everything below are taken after that resolve and before anything
+        // else this entry writes, so a row the tampering disturbs cannot already be inside them.
+        let schema_before = qualification_schema_row_counts(&owner.pool).await;
+        let before = own_counts(
+            owner.pool.clone(),
+            locator.basis_identity.clone(),
+            scope_key.clone(),
+        )
+        .await;
+
+        // A fresh stored projection resolves as an exact replay that writes nothing.
         assert_eq!(
-            projection.receipt().committed_at_epoch_ms(),
-            projection.projection_at_epoch_ms()
+            owner
+                .resolve_for_basis(&locator)
+                .await
+                .expect("exact replay"),
+            Some(projection.clone())
         );
         assert_eq!(
             owner
