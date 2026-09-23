@@ -1,3 +1,4 @@
+import { announcedOwnerReadBudgetMsV1 } from "./operation-registry.ts";
 import { dashboardReadApiTargetV1 } from "./owner-api-target.ts";
 
 const IDENTITY = /^[A-Za-z0-9._:/-]{1,192}$/u;
@@ -295,13 +296,14 @@ export async function readArtifactDirectoryGatewayV1({
   if (!endpoint || !configuredTarget.token) {
     return { status: 503, projection: unavailable("OWNER_CONFIGURATION_UNAVAILABLE") };
   }
+  const budgetMs = announcedOwnerReadBudgetMsV1("rd artifact directory", 8_000);
   const startedAtMs = performance.now();
   try {
     const response = await fetcher(endpoint, {
       method: "GET",
       headers: { authorization: `Bearer ${configuredTarget.token}` },
       cache: "no-store",
-      signal: AbortSignal.timeout(8_000),
+      signal: AbortSignal.timeout(budgetMs),
     });
     if (!response.ok) {
       return { status: response.status >= 500 ? 503 : 502, projection: unavailable("OWNER_RESPONSE_UNAVAILABLE") };
@@ -336,7 +338,7 @@ export async function readArtifactDirectoryGatewayV1({
     // evidence rather than another sighting.
     const elapsedMs = Math.round(performance.now() - startedAtMs);
     const detail = cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause);
-    console.error(`rd artifact directory: Owner read failed after ${elapsedMs}ms against an 8000ms budget: ${detail}`);
+    console.error(`rd artifact directory: Owner read failed after ${elapsedMs}ms against its ${budgetMs}ms budget: ${detail}`);
     return { status: 503, projection: unavailable("OWNER_TRANSPORT_UNAVAILABLE") };
   }
 }

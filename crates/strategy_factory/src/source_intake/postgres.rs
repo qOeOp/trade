@@ -1514,7 +1514,7 @@ pub const SOURCE_INTAKE_MIGRATION_SQL_V1: &[&str] = &[
     "REVOKE ALL ON FUNCTION rd_owner_api.valid_source_intake_started_custody_v1(text,text,text,jsonb) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer",
     "CREATE OR REPLACE FUNCTION rd_owner_api.guard_source_intake_binding_v1()
       RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
-      SET search_path = pg_catalog, public, pg_temp
+      SET search_path = pg_catalog, pg_temp
       AS $function$
       BEGIN
         IF OLD.request_identity IS DISTINCT FROM NEW.request_identity
@@ -2140,7 +2140,7 @@ pub const SOURCE_INTAKE_MIGRATION_SQL_V1: &[&str] = &[
     "REVOKE ALL ON FUNCTION rd_owner_api.valid_source_intake_receipt_v1(jsonb,text,text,text,text,text,smallint,text,text,bigint) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer",
     "CREATE OR REPLACE FUNCTION rd_owner_api.canonical_source_intake_custody_v1(p_request_identity text)
       RETURNS jsonb LANGUAGE sql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
-      SET search_path = pg_catalog, public, pg_temp
+      SET search_path = pg_catalog, pg_temp
       AS $function$
         SELECT pg_catalog.jsonb_build_object(
           'request_identity', binding.request_identity,
@@ -2401,7 +2401,7 @@ pub const SOURCE_INTAKE_MIGRATION_SQL_V1: &[&str] = &[
     "CREATE OR REPLACE FUNCTION rd_owner_api.peek_source_intake_research_handoff_v1(
         p_request_identity text, p_attempt_identity text, p_terminal_receipt_identity text
       ) RETURNS jsonb LANGUAGE sql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
-      SET search_path = pg_catalog, public, rd_owner_api, pg_temp
+      SET search_path = pg_catalog, pg_temp
       AS $function$
         WITH canonical AS (
           SELECT rd_owner_api.canonical_source_intake_custody_v1(p_request_identity) AS readback
@@ -2451,7 +2451,7 @@ pub const SOURCE_INTAKE_MIGRATION_SQL_V1: &[&str] = &[
     "CREATE OR REPLACE FUNCTION rd_owner_api.lock_source_intake_research_handoff_v1(
         p_request_identity text, p_attempt_identity text, p_terminal_receipt_identity text
       ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-      SET search_path = pg_catalog, public, rd_owner_api, pg_temp
+      SET search_path = pg_catalog, pg_temp
       AS $function$
       DECLARE locked_count bigint; sealed jsonb;
       BEGIN

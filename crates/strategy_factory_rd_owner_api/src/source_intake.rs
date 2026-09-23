@@ -196,17 +196,17 @@ const SOURCE_INTAKE_TRIGGERS: &[&str] = &[
 
 #[cfg(feature = "sealed-source-intake-acceptance")]
 const SOURCE_INTAKE_FUNCTIONS: &[&str] = &[
-    "canonical_source_intake_custody_v1(p_request_identity text):sha256:d618a88a05af0093d80c98e88e7afd7d837b775aed1b0b217de5e3448dfc974d",
+    "canonical_source_intake_custody_v1(p_request_identity text):sha256:4f43edbb0285b3886e3067ed922ed6227f605715a3f17eec6aad841fd92b144f",
     "canonical_source_intake_json_v1(value jsonb):sha256:b3185f61e85a078561715e19731bfa3df39e3094b79de27d965557e64a66f752",
     "derive_openalex_location_rights_v1(body jsonb, normalized_doi text):sha256:efbbac64af335f77495f8451dc2c4e5576f5c57e9503adc0e1b50608a37b56bc",
     "derive_source_acquisition_binding_digest_v1(binding jsonb):sha256:7d7ecf12fbf44ab2400eb85b9c0e7514b94d9b0bc183e1fdfff931bb15b57b2f",
     "derive_source_acquisition_binding_identity_v1(binding jsonb):sha256:50ac581ff3df6f5fdec314f26b97be96ca1c4e3e149aebd55f085c2ea1a4c39c",
     "derive_source_intake_identity_v1(domain text, parts text[]):sha256:5671c21fc16e9a13d8dc7660dd9907ee158dcfa8255f781a41816285acf584a6",
-    "guard_source_intake_binding_v1():sha256:a683fe44f274359212ebe59f0330c34e363320fb50a3531812792c26fcf748e1",
+    "guard_source_intake_binding_v1():sha256:b9c5e4f79096867a2dc0fb95c5b16eaa79d8b273cd5010840c0296395c9caeb7",
     "lock_source_acquisition_binding_v1(requested_request_identity text, requested_binding_identity text):sha256:5d6306fca914efdd571484a11c4829d39f0a9f753fe7e5f6b5d8372f37f35432",
-    "lock_source_intake_research_handoff_v1(p_request_identity text, p_attempt_identity text, p_terminal_receipt_identity text):sha256:463401c90894fc90aa9cf3896c97769e55e70806413694b236c8f5ec823d777a",
+    "lock_source_intake_research_handoff_v1(p_request_identity text, p_attempt_identity text, p_terminal_receipt_identity text):sha256:dbec894a31d12cbf76c2ffc3055c80cbe923bcf5222dc39cc5236950a0767fc3",
     "lock_source_invocation_reservation_v1(requested_request_identity text, requested_attempt_identity text, requested_claim_identity text, requested_reservation_identity text, requested_reservation_digest text):sha256:1b7a70730728bd17f8bd30a2da643b45a99b49c54d2efa6b37b189e31567e71b",
-    "peek_source_intake_research_handoff_v1(p_request_identity text, p_attempt_identity text, p_terminal_receipt_identity text):sha256:2bf65882d3e21c55ce2fd4b87453dd92083a4385f48f9255b4f16c9a6332d51d",
+    "peek_source_intake_research_handoff_v1(p_request_identity text, p_attempt_identity text, p_terminal_receipt_identity text):sha256:4c685a6656658e6ba3f5d678dbd33d672e04873bf060269a5e7ff482b3da47f0",
     "read_source_intake_v1(p_request_identity text):sha256:5a78137904b52b5ddcef44972258f2891543b518ddc3db0237ef806a9e5d06e7",
     "reject_source_intake_terminal_mutation_v1():sha256:65ad5e17503b71a3c9cc21ff03ecaad79e3ccb630a3b223c667dfbcb9d622ab2",
     "valid_source_intake_binding_contract_v1(binding jsonb):sha256:89046fb02f9bad6dc3bf297c52d31d7fefb0e7ef0a55d26e69f040a44917f547",
