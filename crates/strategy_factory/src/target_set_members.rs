@@ -83,6 +83,15 @@ impl<T, const N: usize> TryFrom<[T; N]> for BoundedMembers<T> {
     }
 }
 
+/// Owner readbacks may carry their members as a `Vec`; the count is checked the same way.
+impl<T> TryFrom<Vec<T>> for BoundedMembers<T> {
+    type Error = MemberCountOutOfRange;
+
+    fn try_from(values: Vec<T>) -> Result<Self, Self::Error> {
+        Self::new(values)
+    }
+}
+
 impl<T> Deref for BoundedMembers<T> {
     type Target = [T];
 
@@ -185,6 +194,18 @@ mod tests {
                 "count {count}"
             );
         }
+    }
+
+    #[rstest]
+    fn an_array_and_a_vec_of_the_same_members_convert_alike() {
+        assert_eq!(
+            BoundedMembers::try_from([3_u8, 5]),
+            BoundedMembers::try_from(vec![3_u8, 5])
+        );
+        assert_eq!(
+            BoundedMembers::try_from(vec![7_u8; TARGET_SET_MAX_MEMBER_COUNT + 1]),
+            Err(MemberCountOutOfRange(TARGET_SET_MAX_MEMBER_COUNT + 1))
+        );
     }
 
     #[rstest]
