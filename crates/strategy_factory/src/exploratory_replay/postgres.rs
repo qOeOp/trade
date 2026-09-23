@@ -1300,7 +1300,13 @@ pub(crate) async fn require_runtime_relation_name_census(pool: &PgPool) -> Resul
     Ok(())
 }
 
-pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerError> {
+/// Alters relations the Backtest run report reads under the topology fence, without taking the
+/// fence; `admitted` is why that cannot interleave with a readback. See
+/// [`crate::schema_materialization::PreCutoverMaterializationAdmitted`].
+pub(crate) async fn migrate(
+    pool: &PgPool,
+    _admitted: &crate::schema_materialization::PreCutoverMaterializationAdmitted,
+) -> Result<(), ExploratoryReplayOwnerError> {
     let mut migration = pool.begin().await.map_err(storage)?;
     sqlx::query(
         "

@@ -989,11 +989,12 @@ impl PostgresResearchGoalOwnerV1 {
             .connect(database_url)
             .await
             .map_err(|e| storage(&e))?;
-        if crate::schema_materialization::pre_cutover_materialization_is_admitted(&pool)
-            .await
-            .map_err(|e| storage(&e))?
+        if let Some(admitted) =
+            crate::schema_materialization::pre_cutover_materialization_is_admitted(&pool)
+                .await
+                .map_err(|e| storage(&e))?
         {
-            Self::migrate_rd_storage(&pool).await?;
+            Self::migrate_rd_storage(&pool, &admitted).await?;
             Self::verify_public_relation_shapes(&pool, true).await
         } else {
             Self::verify_public_relation_shapes(&pool, false).await?;
@@ -1045,7 +1046,10 @@ impl PostgresResearchGoalOwnerV1 {
         Ok(owner)
     }
 
-    async fn migrate_rd_storage(pool: &PgPool) -> Result<(), ResearchGoalOwnerError> {
+    async fn migrate_rd_storage(
+        pool: &PgPool,
+        admitted: &crate::schema_materialization::PreCutoverMaterializationAdmitted,
+    ) -> Result<(), ResearchGoalOwnerError> {
         require_rd_owner_api_schema(pool)
             .await
             .map_err(|e| storage(&e))?;
@@ -1437,7 +1441,7 @@ impl PostgresResearchGoalOwnerV1 {
         migrate_trial_family(pool)
             .await
             .map_err(|e| trial_family_storage(&e))?;
-        crate::exploratory_replay::postgres::migrate(pool)
+        crate::exploratory_replay::postgres::migrate(pool, admitted)
             .await
             .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
         crate::complex_strategy_develop_evaluation::migrate(pool)

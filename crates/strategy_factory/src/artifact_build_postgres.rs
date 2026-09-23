@@ -322,7 +322,8 @@ impl PostgresArtifactBuildOwnerV1 {
         let materialization =
             crate::schema_materialization::pre_cutover_materialization_is_admitted(&pool)
                 .await
-                .map_err(storage)?;
+                .map_err(storage)?
+                .is_some();
         let owner = Self {
             pool,
             database_endpoint_resource_fingerprint,

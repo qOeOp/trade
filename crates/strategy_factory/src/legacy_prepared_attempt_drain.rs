@@ -140,9 +140,10 @@ impl DrainFamilyCensusV1 {
 }
 
 pub(crate) async fn materialize_family(pool: &PgPool) -> Result<(), ArtifactBuildError> {
-    if !crate::schema_materialization::pre_cutover_materialization_is_admitted(pool)
+    if crate::schema_materialization::pre_cutover_materialization_is_admitted(pool)
         .await
         .map_err(|e| storage(&e))?
+        .is_none()
     {
         return Err(unavailable(
             "legacy PREPARED drain family cannot be materialized outside the explicit pre-cutover phase",
