@@ -97,8 +97,7 @@ BEGIN
     ('rd_owner_api.peek_current_research_for_artifact_v1', 'pg_catalog'),
     ('rd_owner_api.peek_current_successor_research_for_artifact_v1', 'pg_catalog'),
     ('rd_owner_api.resolve_design_role_intent_for_market_data_v1', 'pg_catalog'),
-    ('rd_owner_api.resolve_native_replay_source_storage_v2', 'pg_catalog'),
-    ('scanner_api.read_terminal_receipt_v1', 'pg_catalog')
+    ('rd_owner_api.resolve_native_replay_source_storage_v2', 'pg_catalog')
   ), routines AS (
     SELECT procedure.oid,
            procedure.proowner,

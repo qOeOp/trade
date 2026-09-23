@@ -113,7 +113,7 @@ impl ScannerTerminalReceiptCustodyV1 {
             format!(
                 "CREATE OR REPLACE FUNCTION {READ_FUNCTION}(p_attempt_key BYTEA) \
                  RETURNS TABLE(attempt_key BYTEA, canonical_bytes BYTEA) \
-                 LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ \
+                 LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog, pg_temp AS $function$ \
                  SELECT r.attempt_key, r.canonical_bytes FROM {RECEIPTS_TABLE} r \
                  WHERE r.attempt_key = p_attempt_key $function$"
             ),
