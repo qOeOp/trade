@@ -113,17 +113,30 @@ because a wrong reading here lands inside the legal range of the answer rather t
 - **`sysctl vm.swapusage` reports used swap that does not fall** when memory pressure is relieved on
   macOS: pages already written out are not reclaimed, so the figure stays near its peak on a machine
   that is no longer under pressure. `vm_stat`'s free page count moves with the actual state.
-- **`.gitignore` hides 61 tracked source files from `rg`.** `*.sh` is ignored with seven `!`
-  exceptions, so `git ls-files '*.sh'` lists 80 files while `rg --files` sees 19, and
-  `rg --files product/rd-workbench/postgres-init/` lists none at all - the directory holding every
-  `CREATE TABLE`, migration and `GRANT`. One pattern returned 0 walking the tree and 9 under
-  `--no-ignore`. `git check-ignore` cannot predict this: an ignore rule does not apply to a tracked
-  file, so git correctly answers "not ignored", while ripgrep filters its walk by the ignore text
-  without consulting tracked state. The two disagree about what "ignored" means. `git grep`,
-  `grep -rn`, `rg --no-ignore`, or `rg <pattern> $(git ls-files '*.sh')` each answer the question;
-  `rg --files <dir> | wc -l` says whether a zero was searched for. A negative claim from a walk is
-  worth recording with the command that produced it, the way a count is worth recording with its
-  revision.
+- **`rg` does not see 179 of this repository's 6145 tracked files, for two independent reasons.**
+  Ninety-nine sit under a dotted path, which ripgrep skips by default: all 21 of
+  `.github/workflows`, nine of `.github/actions`, five of `.docker`. Seventy-nine are excluded by
+  `.gitignore` while still being tracked, which ripgrep also skips: 28 under `scripts/ci`, the
+  `postgres-init` scripts holding every `CREATE TABLE`, migration and `GRANT`, and about 45 test
+  fixtures. One file needs both switches. Searching one string that appears twice shows why a
+  single switch is not the fix:
+
+  ```text
+  rg -l <pattern> .              0    both reasons hide both hits
+  rg -l <pattern> .github/       1    naming a dotted path defeats the first reason
+  rg -l --hidden <pattern> .     1    defeats the first, not the second
+  rg -l --no-ignore <pattern> .  1    defeats the second, not the first
+  rg -l -uu <pattern> .          2
+  git grep -l <pattern>          2
+  ```
+
+  `git check-ignore` predicts only the second reason, and not even reliably: an ignore rule does
+  not apply to a tracked file, so git correctly answers "not ignored" while ripgrep filters its
+  walk by the ignore text without consulting tracked state. `git grep` and `rg -uu` answer the
+  question; `rg --files <dir> | wc -l` says whether a zero was searched for. A negative claim from
+  a walk is worth recording with the command that produced it, the way a count is worth recording
+  with its revision - and a claim that no workflow, CI script or migration mentions something is
+  worth re-running, because those three are exactly what a default walk cannot read.
 
 - **`scripts/ci/test-rd-owner-postgres.bash` exits 1 on a non-Linux host.** A local ordered-chain run
   is therefore a modified copy, and which modification was made decides what the run means: changing
