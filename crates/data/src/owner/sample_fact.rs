@@ -2744,9 +2744,7 @@ pub(crate) mod tests {
     fn bar_resting_on(shared: &InstrumentMasterReadbackV1) -> VerifiedPitObservationBatch {
         let mut row = bar_row(10, 3);
         row.instrument_master_digest = shared.digest();
-        let mut batch = batch(row, 30);
-        batch.instrument_master_digest = shared.digest();
-        batch
+        batch(row, 30).edit_for_test(|fields| fields.instrument_master_digest = shared.digest())
     }
 
     /// A window of frames shares one Instrument Master cut, so a BAR may sit after that cut - but
