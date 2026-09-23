@@ -139,11 +139,13 @@ R&D 内的 Develop 能力返回内容寻址 Strategy Artifact 和 Build Receipt�
   原话为："我会把执行链的成员数从「恰好 2」放宽到支持 1 个，这是文档里写着的有界切片，放宽要改文档但不移除任何性质"。
   单品种策略是一份角色使用 `UniverseMembers` scope 的 Design，运行在单成员的 Owner-sealed universe 上；instrument 由
   Market Data universe selection 在请求时选定，而不是由 Design 选定。角色为 `EXACT_INSTRUMENT` 的 Design 在 Owner
-  universe 下仍被拒绝，现在由具名拒绝 `ExactInstrumentRolesUnderOwnerUniverse` 给出。universe 纵向切片的输入契约（准确
+  universe 下仍被拒绝，由实现改动引入的具名拒绝 `ExactInstrumentRolesUnderOwnerUniverse` 给出。universe 纵向切片的输入契约（准确
   一个固定 `OPEN` 与一个固定 `CLOSE` member role）不变；single-threshold 编写面新增 universe-member 形态，其 channel
-  是该成员的日线收盘价，并携带固定的 open role。target-set schema version、codec 与语义 identity 均不变：成员数本来就
-  被编码，因此双成员 target set 与所有既有 plan identity 的字节都不变。在实现改动落地并更新上面的 CURRENT 陈述之前，
-  这里的内容都不是 current。
+  是该成员的日线收盘价，并携带固定的 open role；在首个正例运行之前，single-threshold 报告族及其 data window
+  所指的 instrument 扩展到该形态。target-set schema version 与语义 identity 均不变，所有双成员原像的字节都不变：
+  target-set codec 与 Instrument Master cut 本来就编码了成员数，而 V1 scheduling receipt digest 与 ProgramHost
+  target-set 快照 digest 对成员做哈希时不带数量，因此那里的单成员原像以不改变双成员字节的方式做 domain 分隔。
+  在实现改动落地并更新上面的 CURRENT 陈述之前，这里的内容都不是 current。
 - **TARGET / NOT_ADMITTED：** Paper 与 Live 只有在各自 Owner adapter 存在且被另行接纳后，才消费
   相同 plan、Artifact、事件排序、checkpoint schema、内核和语义 trace 契约。本文不声称当前已有
   Paper 或 Live 等价性、应用、外部写入或交易能力。

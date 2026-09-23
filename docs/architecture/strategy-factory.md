@@ -151,13 +151,16 @@ The maturity boundary is explicit:
   support one; it is a bounded slice written in these documents; widening it changes the documents and removes no
   property". A single-instrument strategy is a Design whose roles use `UniverseMembers` scope, run against a
   one-member Owner-sealed universe; the Market Data universe selection chooses the instrument at request time, not
-  the Design. A Design with `EXACT_INSTRUMENT` roles stays refused under an Owner universe, now by the named refusal
-  `ExactInstrumentRolesUnderOwnerUniverse`. The universe vertical's input contract of exactly one fixed `OPEN` and one
+  the Design. A Design with `EXACT_INSTRUMENT` roles stays refused under an Owner universe, by a named refusal,
+  `ExactInstrumentRolesUnderOwnerUniverse`, which the implementing change introduces. The universe vertical's input contract of exactly one fixed `OPEN` and one
   fixed `CLOSE` member role is unchanged; the single-threshold authoring surface gains a universe-member form whose
-  channel is the member's daily close and which carries the fixed open role. The target-set schema version, codec
-  and semantic identities do not change: the member count is already encoded, so a two-member target set and every
-  existing plan identity keep their bytes. Nothing here is current until the implementing changes land and update
-  the CURRENT statement above.
+  channel is the member's daily close and which carries the fixed open role; the single-threshold report family and
+  the instrument its data window names extend to that form before the first positive run. The target-set schema
+  version and semantic identities do not change, and every two-member preimage keeps its bytes: the target-set codec
+  and the Instrument Master cut already encode their member count, while the V1 scheduling receipt digest and the
+  ProgramHost target-set snapshot digest hash their members without a count, so a one-member preimage there is
+  domain-separated in a way that leaves the two-member bytes unchanged. Nothing here is current until the
+  implementing changes land and update the CURRENT statement above.
 - **TARGET / NOT_ADMITTED:** Paper and Live consume the same plan, Artifact, event ordering, checkpoint schema,
   kernel and semantic-trace contract only after their Owner adapters exist and are separately admitted. No current
   Paper or Live equivalence, application, external write, or trading capability is claimed here.
