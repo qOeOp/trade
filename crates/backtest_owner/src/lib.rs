@@ -22,6 +22,7 @@ mod sealed {
     pub trait Sealed {}
 }
 
+mod canonical_diagnostic;
 pub mod native_replay;
 pub mod native_replay_evidence_custody;
 pub mod outcome_evidence;

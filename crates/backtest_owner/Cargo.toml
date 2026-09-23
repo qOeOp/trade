@@ -18,6 +18,7 @@ serde_json = { workspace = true }
 sha2 = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
+tracing = { workspace = true }
 vibe-backtest = { workspace = true }
 vibe-backtest-owner-contracts = { workspace = true }
 vibe-backtest-result-custody = { workspace = true }
@@ -28,6 +29,7 @@ vibe-strategy-factory = { workspace = true }
 anyhow = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true }
+tracing-subscriber = { workspace = true }
 trybuild = { workspace = true }
 # The ordered PostgreSQL gate binds protected V3 Results to the Market Data sealed-acceptance
 # Shared Time chain, and this crate takes the feature only for its tests.

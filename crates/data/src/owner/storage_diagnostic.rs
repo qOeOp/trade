@@ -14,6 +14,16 @@
 //! digest, a rejected claim - is a decision the Owner made and already names itself; it is not
 //! reported here.
 
+//!
+//! ## Three channels, not one
+//!
+//! This is the first of three. The R&D Owner's `storage_diagnostic` in `vibe-strategy-factory` is
+//! scoped to a refusal the response does not name; the Backtest Owner's `canonical_diagnostic` is
+//! scoped to a failure of that Owner's own canonical form. Neither rule holds here and this one
+//! holds in neither of theirs. The shared part is about seven lines of `tracing`; the unshared
+//! part is the scope rule, and an Owner that took the mechanism from a shared crate would take a
+//! scope decision it never made.
+
 use std::fmt::{Debug, Display};
 
 /// Records why a fail-closed storage boundary refused, then discards the cause.
