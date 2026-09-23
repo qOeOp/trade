@@ -518,6 +518,11 @@ impl VerifiedPitObservation {
 /// Private fields and the absence of `Deserialize` make this value unconstructible from caller
 /// bytes. Member selection is safe only after the complete canonical batch has been verified.
 ///
+/// Outside tests the only way to obtain one is `authority::verify_observation_batch`, and nothing
+/// can change it afterwards: what a consumer reads is exactly what was verified. Tests build and
+/// edit unverified batches through `UnverifiedBatchFieldsForTest`, which does not exist in any
+/// other build.
+///
 /// ```compile_fail
 /// use vibe_data::owner::pit_snapshot::VerifiedPitObservationBatch;
 ///
@@ -525,6 +530,31 @@ impl VerifiedPitObservation {
 /// ```
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct VerifiedPitObservationBatch {
+    request_identity: BindingDigest,
+    request_digest: BindingDigest,
+    correlation_identity: BindingDigest,
+    scope_digest: BindingDigest,
+    snapshot_identity: BindingDigest,
+    fact_digest: BindingDigest,
+    source_binding_identity: BindingDigest,
+    source_binding_fact_digest: BindingDigest,
+    source_binding_lineage_root: BindingDigest,
+    source_binding_lineage_version: u64,
+    source_frontier_digest: BindingDigest,
+    correction_frontier_digest: BindingDigest,
+    instrument_master_digest: BindingDigest,
+    universe_selection_digest: BindingDigest,
+    market_semantics_identity: BindingDigest,
+    time_evidence: UntrustedPitSnapshotTimeEvidence,
+    digest: BindingDigest,
+    observations: Box<[VerifiedPitObservation]>,
+}
+
+/// Every field of a [`VerifiedPitObservationBatch`], open for a test to build or edit one without
+/// verification. It exists only in test builds.
+#[cfg(test)]
+#[derive(Clone, Debug)]
+pub(crate) struct UnverifiedBatchFieldsForTest {
     pub(crate) request_identity: BindingDigest,
     pub(crate) request_digest: BindingDigest,
     pub(crate) correlation_identity: BindingDigest,
@@ -543,6 +573,103 @@ pub struct VerifiedPitObservationBatch {
     pub(crate) time_evidence: UntrustedPitSnapshotTimeEvidence,
     pub(crate) digest: BindingDigest,
     pub(crate) observations: Box<[VerifiedPitObservation]>,
+}
+
+#[cfg(test)]
+impl VerifiedPitObservationBatch {
+    /// Builds a batch from `fields` without verifying anything.
+    pub(crate) fn from_fields_for_test(fields: UnverifiedBatchFieldsForTest) -> Self {
+        let UnverifiedBatchFieldsForTest {
+            request_identity,
+            request_digest,
+            correlation_identity,
+            scope_digest,
+            snapshot_identity,
+            fact_digest,
+            source_binding_identity,
+            source_binding_fact_digest,
+            source_binding_lineage_root,
+            source_binding_lineage_version,
+            source_frontier_digest,
+            correction_frontier_digest,
+            instrument_master_digest,
+            universe_selection_digest,
+            market_semantics_identity,
+            time_evidence,
+            digest,
+            observations,
+        } = fields;
+        Self {
+            request_identity,
+            request_digest,
+            correlation_identity,
+            scope_digest,
+            snapshot_identity,
+            fact_digest,
+            source_binding_identity,
+            source_binding_fact_digest,
+            source_binding_lineage_root,
+            source_binding_lineage_version,
+            source_frontier_digest,
+            correction_frontier_digest,
+            instrument_master_digest,
+            universe_selection_digest,
+            market_semantics_identity,
+            time_evidence,
+            digest,
+            observations,
+        }
+    }
+
+    /// Returns this batch with `edit` applied to its fields, without verifying the result.
+    #[must_use]
+    pub(crate) fn edit_for_test(
+        self,
+        edit: impl FnOnce(&mut UnverifiedBatchFieldsForTest),
+    ) -> Self {
+        let Self {
+            request_identity,
+            request_digest,
+            correlation_identity,
+            scope_digest,
+            snapshot_identity,
+            fact_digest,
+            source_binding_identity,
+            source_binding_fact_digest,
+            source_binding_lineage_root,
+            source_binding_lineage_version,
+            source_frontier_digest,
+            correction_frontier_digest,
+            instrument_master_digest,
+            universe_selection_digest,
+            market_semantics_identity,
+            time_evidence,
+            digest,
+            observations,
+        } = self;
+        let mut fields = UnverifiedBatchFieldsForTest {
+            request_identity,
+            request_digest,
+            correlation_identity,
+            scope_digest,
+            snapshot_identity,
+            fact_digest,
+            source_binding_identity,
+            source_binding_fact_digest,
+            source_binding_lineage_root,
+            source_binding_lineage_version,
+            source_frontier_digest,
+            correction_frontier_digest,
+            instrument_master_digest,
+            universe_selection_digest,
+            market_semantics_identity,
+            time_evidence,
+            digest,
+            observations,
+        };
+        edit(&mut fields);
+        Self::from_fields_for_test(fields)
+    }
 }
 
 impl VerifiedPitObservationBatch {
