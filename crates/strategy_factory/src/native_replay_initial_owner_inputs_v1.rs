@@ -105,9 +105,7 @@ where
                 .parse::<InstrumentId>()
                 .map_err(|_| NativeReplayInitialOwnerInputsErrorV1::Unavailable)
         })
-        .collect::<Result<Vec<_>, _>>()?
-        .try_into()
-        .map_err(|_| NativeReplayInitialOwnerInputsErrorV1::Unavailable)?;
+        .collect::<Result<Vec<_>, _>>()?;
     let request = NativeReplayInitialMarketRequestV1::new(
         BindingDigest::from_untrusted_bytes(snapshot_identity),
         BindingDigest::from_untrusted_bytes(snapshot_fact_digest),
