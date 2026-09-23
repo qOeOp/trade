@@ -3798,19 +3798,19 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
   fi
 done
 
-# Every SECURITY DEFINER routine, in every database the chain materialized, must search pg_temp last
-# and name no schema another role can create in; scripts/ci/check-security-definer-search-path.sql
-# holds the rule and the shrinking list of routines that do not meet it yet.
-bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/run-security-definer-guard.bash" "$container" \
-  postgres "$test_database" "$catalog_admin_database" "$origin_current_database" \
-  "$legacy_replay_database" "$program_host_acceptance_database" "$composer_sealed_read_database"
-
 legacy_replay_fingerprint_after="$(legacy_replay_fingerprint)"
 readonly legacy_replay_fingerprint_after
 if [[ "$legacy_replay_fingerprint_after" != "$legacy_replay_fingerprint_before" ]]; then
   echo "ERROR: legacy exploratory Replay table data or catalog changed." >&2
   exit 1
 fi
+
+# Every SECURITY DEFINER routine, in every database the chain materialized, must search pg_temp last
+# and name no schema another role can create in; scripts/ci/check-security-definer-search-path.sql
+# holds the rule and the shrinking list of routines that do not meet it yet.
+bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/run-security-definer-guard.bash" "$container" \
+  postgres "$test_database" "$catalog_admin_database" "$origin_current_database" \
+  "$legacy_replay_database" "$program_host_acceptance_database" "$composer_sealed_read_database"
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$test_database" << 'SQL'
