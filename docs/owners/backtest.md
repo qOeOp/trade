@@ -284,7 +284,14 @@ history; it says nothing about whether the path has ever run in some other envir
     for the admitted single-threshold family, and only when authoring the statement read back from that
     frozen pair reproduces the pair's canonical program exactly; any other run is refused as a whole
     for that named reason. The family carries no version, so a program an earlier author froze and the
-    current author no longer reproduces is refused the same way. The data window is the channel's instrument and timeframe, the request's
+    current author no longer reproduces is refused the same way. A run inside the family is refused too, as
+    `STRATEGY_NOT_ANCHORED_TO_RUN`, until the frozen program can be anchored to the artifact the run
+    executed: the request names a Design, not the program its artifact was built from. The anchor is
+    the artifact's Composer build receipt carrying the freeze's `joint_freeze_digest`, and a V2 build,
+    which carries none, can never meet it. Those receipts are in Composer custody, and the only
+    Composer Owner API function the R&D Owner may call that returns them is Composer's commit cut,
+    which locks rows for update. A lock-free Composer read of an artifact's build receipts is the
+    follow-up that lets an in-family run be stated; until it exists, every in-family run is refused. The data window is the channel's instrument and timeframe, the request's
     window with an exclusive end, the number of PIT snapshots the request binds, and that snapshot's
     identity as the cut.
 

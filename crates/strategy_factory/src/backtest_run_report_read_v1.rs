@@ -17,7 +17,11 @@
 //! The strategy is stated only for the admitted single-threshold family, and only when authoring
 //! the statement read back from the frozen pair reproduces that pair's canonical program exactly
 //! (`recover_single_threshold_request_v1`). A run outside the family is refused as a whole,
-//! because the report answers four questions or none. The data window is the channel's instrument
+//! because the report answers four questions or none.
+//!
+//! A run inside the family is also refused today, as `STRATEGY_NOT_ANCHORED_TO_RUN`. The request
+//! names a Design, not the program its artifact was built from, and nothing the R&D Owner can read
+//! without a lock ties the two together; see `anchor_frozen_program_to_run`. The data window is the channel's instrument
 //! and timeframe with the request's window, its PIT snapshot count and that snapshot's identity.
 //!
 //! It does not carry the statistics maps. They legitimately hold `NaN` (an average winner when
@@ -118,6 +122,10 @@ pub enum BacktestRunReportRefusalV1 {
     /// statement of its strategy exists.
     #[error("no Owner statement of strategy exists for this program family")]
     NoStrategyStatementForFamily,
+    /// The run's program is in the family, but nothing proves it is the program the run's
+    /// artifact was built from, so stating it could describe a strategy the run did not execute.
+    #[error("the frozen program cannot be anchored to the artifact this run executed")]
+    StrategyNotAnchoredToRun,
 }
 
 impl BacktestRunReportRefusalV1 {
@@ -136,6 +144,7 @@ impl BacktestRunReportRefusalV1 {
             Self::ReplayRequestUnavailable(_) => "REPLAY_REQUEST_UNAVAILABLE",
             Self::FrozenDesignUnavailable => "FROZEN_DESIGN_UNAVAILABLE",
             Self::NoStrategyStatementForFamily => "NO_STRATEGY_STATEMENT_FOR_FAMILY",
+            Self::StrategyNotAnchoredToRun => "STRATEGY_NOT_ANCHORED_TO_RUN",
         }
     }
 }
@@ -403,6 +412,7 @@ async fn resolve_strategy_and_window(
             .ok_or(BacktestRunReportRefusalV1::NoStrategyStatementForFamily)?;
     let authored = recover_single_threshold_request_v1(&design, &program)
         .ok_or(BacktestRunReportRefusalV1::NoStrategyStatementForFamily)?;
+    anchor_frozen_program_to_run(request)?;
 
     // Typed on purpose. The request binds one PIT snapshot today; when it binds several, this
     // field changes type and the annotation stops compiling, instead of `from_ref` quietly
@@ -426,6 +436,32 @@ async fn resolve_strategy_and_window(
         falsifier: authored.falsifier,
     };
     Ok((strategy, data_window))
+}
+
+/// Proves the frozen program is the one the run's artifact was built from, or refuses.
+///
+/// The request names its Design, and the freeze table holds one program per Design, but a Design
+/// does not decide which program a run executed: the artifact does. Composer seals a V3 plugin
+/// build to the joint freeze it was built from, and the anchor is that build receipt's
+/// `joint_freeze_digest` equalling the freeze row's. A V2 build carries no joint freeze at all,
+/// and Composer accepts one for any Design, so an artifact built that way can never be anchored.
+///
+/// The build receipts live in Composer custody, and no Composer Owner API function lets the R&D
+/// Owner read them without locking: the only one it may call, `lock_accepted_develop_composer_v2`,
+/// is Composer's commit cut and takes a row lock for update, which a report must not take on a
+/// read path. Until a lock-free read exists, nothing can prove the anchor, so every run is
+/// refused here rather than stated from its Design alone. Stating a strategy the run did not
+/// execute is the error this report exists to rule out.
+///
+/// It takes the request because the anchor it will check is the request's `artifact`.
+///
+/// # Errors
+///
+/// Always [`BacktestRunReportRefusalV1::StrategyNotAnchoredToRun`] today.
+const fn anchor_frozen_program_to_run(
+    _request: &ReplayRequestDtoV2,
+) -> Result<(), BacktestRunReportRefusalV1> {
+    Err(BacktestRunReportRefusalV1::StrategyNotAnchoredToRun)
 }
 
 /// Writes a fixed-point coefficient as a plain decimal with exactly `scale` fractional digits.
@@ -1132,6 +1168,10 @@ mod tests {
                 value: String::new(),
             }
             .code(),
+            BacktestRunReportRefusalV1::ReplayRequestUnavailable(String::new()).code(),
+            BacktestRunReportRefusalV1::FrozenDesignUnavailable.code(),
+            BacktestRunReportRefusalV1::NoStrategyStatementForFamily.code(),
+            BacktestRunReportRefusalV1::StrategyNotAnchoredToRun.code(),
             BacktestRunReportStateV1::Available.code(),
             BacktestRunReportStateV1::Empty.code(),
         ];
