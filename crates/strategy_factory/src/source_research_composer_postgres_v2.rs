@@ -2905,6 +2905,10 @@ mod tests {
     }
 
     impl DevelopComposerA0BuildPortV2 for OrderedA0BuilderV2 {
+        #[expect(
+            clippy::panic_in_result_fn,
+            reason = "the assertion is this double's ordering probe; a terminal would read as a Composer refusal"
+        )]
         fn build(
             &mut self,
             manifest: &PluginManifestV2,
@@ -3049,25 +3053,24 @@ mod tests {
 
     #[rstest::rstest]
     fn sealed_a2_request_gate_rejects_all_same_identity_binding_mutations() {
-        let sealed = sealed_source_research_composer_request_v2();
-        assert!(SealedSourceResearchComposerBindingOwnerV2::read_for_run(&sealed).is_ok());
-
         fn assert_rejected(
             sealed: &DevelopComposerRunRequestV2,
-            mutated: DevelopComposerRunRequestV2,
+            mutated: &DevelopComposerRunRequestV2,
         ) {
             assert_eq!(mutated.request_identity, sealed.request_identity);
-            let rejection = SealedSourceResearchComposerBindingOwnerV2::read_for_run(&mutated)
-                .err()
-                .expect("same-identity mutation must fail at the Binding Owner");
+            let rejection = SealedSourceResearchComposerBindingOwnerV2::read_for_run(mutated)
+                .expect_err("same-identity mutation must fail at the Binding Owner");
             assert_eq!(rejection.coordinate, "market_data_binding");
         }
+
+        let sealed = sealed_source_research_composer_request_v2();
+        assert!(SealedSourceResearchComposerBindingOwnerV2::read_for_run(&sealed).is_ok());
 
         macro_rules! assert_binding_mutation_rejected {
             ($field:ident, $value:expr) => {{
                 let mut mutated = sealed.clone();
                 mutated.binding_requests[0].$field = $value;
-                assert_rejected(&sealed, mutated);
+                assert_rejected(&sealed, &mutated);
             }};
         }
 
@@ -3101,11 +3104,11 @@ mod tests {
 
         let mut duplicated_role = sealed.clone();
         duplicated_role.binding_requests[1] = duplicated_role.binding_requests[0].clone();
-        assert_rejected(&sealed, duplicated_role);
+        assert_rejected(&sealed, &duplicated_role);
 
         let mut reordered_roles = sealed.clone();
         reordered_roles.binding_requests.swap(0, 1);
-        assert_rejected(&sealed, reordered_roles);
+        assert_rejected(&sealed, &reordered_roles);
     }
 
     #[rstest::rstest]

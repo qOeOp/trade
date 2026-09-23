@@ -1164,6 +1164,14 @@ GRANT SELECT ON TABLE
   public.rd_trial_family_members_v1,
   public.rd_successor_research_intents_v1
 TO rd_exploratory_replay_api_owner;
+-- Only a build with `sealed-source-intake-composer-acceptance` materializes this relation, so it
+-- is granted when present. Its migration grants nothing: materialization verifies every public
+-- relation with no runtime reader yet, and runtime readers arrive here, at cutover, as above.
+DO $view_transitions_v3$ BEGIN
+  IF pg_catalog.to_regclass('public.rd_research_view_transitions_v3') IS NOT NULL THEN
+    GRANT SELECT ON TABLE public.rd_research_view_transitions_v3 TO rd_exploratory_replay_api_owner;
+  END IF;
+END $view_transitions_v3$;
 REVOKE ALL ON TABLE
   public.rd_sealed_exploratory_replay_requests_v1,
   public.rd_owner_outbox_v1,
