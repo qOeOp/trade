@@ -198,7 +198,15 @@ impl MarketDataFieldSemantic {
             .find(|semantic| semantic.identity() == identity)
     }
 
-    pub(crate) const fn data_kind(self) -> &'static str {
+    /// The Owner data kind this semantic is carried on.
+    ///
+    /// Public because it decides which runtime lifecycle may consume an input: `strategy_plan_v2`
+    /// maps `BAR` to a `Bar` reaction and the rest to `Event`, and refuses a Design whose
+    /// consuming reaction disagrees. An authoring surface outside this crate therefore has to know
+    /// it before it can emit a Design that composes, and the alternatives are worse - matching on
+    /// the variants would be a second copy of this mapping that goes stale the next time one is
+    /// added, and splitting the identity string would be a second copy of the identity format.
+    pub const fn data_kind(self) -> &'static str {
         match self {
             Self::BarOpenPrice
             | Self::BarHighPrice
