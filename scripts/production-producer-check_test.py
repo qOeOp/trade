@@ -17,13 +17,19 @@ Run: python3 -B scripts/production-producer-check_test.py
 """
 
 import importlib.util
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
 
 
-TOOL = Path(__file__).with_name("production-producer-check.py")
+# Overridable so that the mutation harness can point these same cases at a deliberately
+# broken copy of the tool and watch them fail.
+TOOL = Path(
+    os.environ.get("PRODUCTION_PRODUCER_CHECK_TOOL")
+    or Path(__file__).with_name("production-producer-check.py"),
+)
 
 spec = importlib.util.spec_from_file_location("production_producer_check", TOOL)
 ppc = importlib.util.module_from_spec(spec)

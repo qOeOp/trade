@@ -458,7 +458,14 @@ repos:
         description: Proves the producer and caller searches still answer both ways, not just one
         entry: python3 -B scripts/production-producer-check_test.py
         language: system
-        files: ^(\.pre-commit-config\.yaml|scripts/production-producer-check(_test)?\.py)$
+        files: ^(\.pre-commit-config\.yaml|scripts/production-producer-check(_test|_mutations)?\.py)$
+        pass_filenames: false
+      - id: test-production-producer-check-mutations
+        name: test production-producer-check mutations
+        description: Reintroduces each defect the calibration claims to catch and watches it be caught
+        entry: python3 -B scripts/production-producer-check_mutations.py
+        language: system
+        files: ^(\.pre-commit-config\.yaml|scripts/production-producer-check(_test|_mutations)?\.py)$
         pass_filenames: false
       - id: check-markdown-tables
         name: normalize markdown table padding
