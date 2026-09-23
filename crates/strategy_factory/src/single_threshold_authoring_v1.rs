@@ -998,4 +998,48 @@ mod tests {
             )),
         );
     }
+
+    /// The exact-instrument form's output, pinned byte for byte.
+    ///
+    /// A universe-member form is being added beside this one, and it shares the builders below.
+    /// Every run already authored in this form is recognised by authoring it again and comparing
+    /// bytes, so a change here that no test notices silently moves every earlier run out of the
+    /// family. The Design is pinned by the identity and digest it canonicalizes to; the meaning,
+    /// which has no canonical form of its own until it is assembled against receipts and a
+    /// catalog, is pinned by the SHA-256 of its serialized bytes. The assembled program is not
+    /// pinned here: its bytes also carry the catalog and SDK digests, which change for reasons
+    /// that are not this form's. If a change to this form is intended, these values change with a
+    /// sentence saying why.
+    #[rstest]
+    fn the_exact_instrument_form_keeps_its_bytes_and_identity() {
+        let (design, meaning) =
+            author_single_threshold_program_v1(&request()).expect("the request is authorable");
+        let StrategyDesignPreparationV2::Prepared {
+            design_identity,
+            design_digest,
+        } = prepare_strategy_design_v2(&design)
+        else {
+            panic!("an authored Design canonicalizes");
+        };
+        let meaning_bytes = serde_json::to_vec(&meaning).expect("the meaning serialises");
+        let hex = |bytes: &[u8]| {
+            bytes
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        };
+
+        assert_eq!(
+            (
+                hex(design_identity.as_bytes()),
+                hex(design_digest.as_bytes()),
+                hex(&<sha2::Sha256 as sha2::Digest>::digest(&meaning_bytes)),
+            ),
+            (
+                "726d4aff67eb718382b790353c43011739ede0073048afd9c7bc8dbed2465d28".to_owned(),
+                "4725d44ade0ad56f07f3a47beffb25b373eaf52b7d1af347c48c39d05ee1a05f".to_owned(),
+                "f10012aea9be5dc29cbf37a32ed12ef76682fe908b26f575b3d83f8ba25b0daa".to_owned(),
+            ),
+        );
+    }
 }
