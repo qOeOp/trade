@@ -41,6 +41,15 @@ list, run the list and read the two rates separately. Ambiguity and being asked 
 wrong kind of symbol have different repairs, and adding them together overstates the first
 while hiding the second.
 
+The compiler-based classification that replaced that batch is worth naming, because it is
+the better instrument whenever the question is about a set rather than a symbol: diff the
+`dead_code` primary spans of two builds that differ in exactly one variable. It answers
+every member at once, has no ambiguity to report, and does not depend on how anything is
+spelled. Two cautions, both measured while it was used: read the spans from
+`--message-format=json`, because `short` folds one implementation's dead members into a
+single line and prints none of their names; and change one variable at a time, because
+`--all-targets` also turns on whatever features dev-dependencies ask for.
+
 Usage:
     scripts/production-producer-check.py SourceIntakeRetrievalTimeEvidenceV1
     scripts/production-producer-check.py commit_source_intake_success_terminal_in_transaction
