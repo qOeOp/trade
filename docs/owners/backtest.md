@@ -283,7 +283,8 @@ history; it says nothing about whether the path has ever run in some other envir
     answered, and the Design and program frozen under the Design it names. The strategy is stated only
     for the admitted single-threshold family, and only when authoring the statement read back from that
     frozen pair reproduces the pair's canonical program exactly; any other run is refused as a whole
-    for that named reason. The data window is the channel's instrument and timeframe, the request's
+    for that named reason. The family carries no version, so a program an earlier author froze and the
+    current author no longer reproduces is refused the same way. The data window is the channel's instrument and timeframe, the request's
     window with an exclusive end, the number of PIT snapshots the request binds, and that snapshot's
     identity as the cut.
 

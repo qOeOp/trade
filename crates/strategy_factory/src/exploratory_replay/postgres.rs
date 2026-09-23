@@ -3328,14 +3328,24 @@ pub(crate) async fn resolve_for_rd_v2(
 /// [`resolve_for_rd_v2`] inside the caller's R&D transaction, so a read that joins the request to
 /// other R&D custody sees one snapshot of both.
 ///
-/// It is the same Owner API call and the same decoding. It does not consult the Composer V3
-/// custody that `resolve_for_rd_v2` checks first under `sealed-source-intake-composer-acceptance`,
-/// because that custody exists only in that acceptance build; a request only it holds reads as
-/// absent here.
+/// It makes the same lookups in the same order as the pool read, including the Composer V3
+/// custody that exists only under `sealed-source-intake-composer-acceptance`, so the two cannot
+/// give different answers for one selector in any build.
 pub(crate) async fn resolve_for_rd_in_transaction_v2(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     selector: &ExploratoryReplayRecoverySelectorV2,
 ) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError> {
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    if let Some(result) = resolve_composer_v3_read_result_in_transaction(
+        transaction,
+        &selector.request_identity,
+        &selector.meaning_digest,
+        None,
+    )
+    .await?
+    {
+        return Ok(result);
+    }
     resolve_selector_v2(&mut **transaction, selector).await
 }
 
@@ -3370,13 +3380,33 @@ async fn resolve_composer_v3_read_result(
         .execute(&mut *transaction)
         .await
         .map_err(storage)?;
+    let result = resolve_composer_v3_read_result_in_transaction(
+        &mut transaction,
+        request_identity,
+        meaning_digest,
+        exact_locator,
+    )
+    .await?;
+    transaction.commit().await.map_err(storage)?;
+    Ok(result)
+}
+
+/// The Composer V3 lookup inside a transaction the caller owns, so a caller that reads other R&D
+/// custody in the same transaction resolves a Composer V3 request exactly as the pool read does.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+async fn resolve_composer_v3_read_result_in_transaction(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    request_identity: &str,
+    meaning_digest: &str,
+    exact_locator: Option<&ExploratoryReplayRequestLocatorV2>,
+) -> Result<Option<ExploratoryReplayReadResultV2>, ExploratoryReplayOwnerError> {
     let row = sqlx::query(
         "SELECT source_kind,v2_receipt_json,v2_seal_digest,v2_meaning_digest \
          FROM public.rd_sealed_exploratory_replay_requests_v1 \
          WHERE request_identity=$1 FOR SHARE",
     )
     .bind(request_identity)
-    .fetch_optional(&mut *transaction)
+    .fetch_optional(&mut **transaction)
     .await
     .map_err(storage)?;
     let Some(row) = row else {
@@ -3406,12 +3436,9 @@ async fn resolve_composer_v3_read_result(
     if exact_locator.is_some_and(|expected| expected != &locator) {
         return Ok(Some(unavailable_result_v2(request_identity)));
     }
-    let readback = composer_readback_v3::resolve_composer_v3_by_locator_in_transaction(
-        &mut transaction,
-        &locator,
-    )
-    .await?;
-    transaction.commit().await.map_err(storage)?;
+    let readback =
+        composer_readback_v3::resolve_composer_v3_by_locator_in_transaction(transaction, &locator)
+            .await?;
     Ok(Some(match readback {
         Some(readback) => ExploratoryReplayReadResultV2 {
             projection: projection_v2(request_identity, ExploratoryReplayAvailabilityV1::Available),
