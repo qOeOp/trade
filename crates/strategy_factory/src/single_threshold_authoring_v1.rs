@@ -31,6 +31,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use vibe_data::owner::source_binding::BindingDigest;
+use vibe_data::owner::strategy_input_binding::MarketDataFieldSemantic;
 
 use crate::{
     bounded_feature_program_derivation_v1::{
@@ -66,7 +67,11 @@ const PLUGIN_STATE_CELL: &str = "research.state.bfp.v1";
 /// Plugin state ports. The post port is named by the bounded ABI, not by this module.
 const PLUGIN_STATE_PRE_PORT: &str = "plugin.state.pre.v1";
 const PLUGIN_STATE_POST_PORT: &str = "plugin.state.post.v1";
-/// The compute node the BAR and EVENT reactions both call.
+/// The compute node the consuming reaction calls.
+///
+/// One of these two is bounded and the other is empty, decided by the input's Owner data kind.
+/// Both were bounded until the Composer refused the result: a Bar-triggered and an Event-triggered
+/// consumer of the same role contradict each other for every possible input.
 const BAR_NODE: &str = "research.node.bfp.bar.v1";
 const EVENT_NODE: &str = "research.node.bfp.event.v1";
 /// The one graph node: the channel compared against the threshold.
@@ -161,6 +166,14 @@ pub enum SingleThresholdAuthoringErrorV1 {
         "both sides of the threshold propose the same frame, so the comparison cannot change a proposal"
     )]
     IndistinguishableOutcomes,
+    /// The declared field semantic is not one the Owner resolves.
+    ///
+    /// The Owner's data kind decides which lifecycle may consume the input, so a semantic the
+    /// Owner cannot resolve leaves that undecidable. Refusing here rather than guessing keeps the
+    /// authored Design from being one the Composer must reject later, where the refusal would read
+    /// as a fault of the program rather than of the request.
+    #[error("channel.field_semantic_id {0} is not a field semantic this Owner resolves")]
+    UnknownFieldSemantic(String),
 }
 
 /// Authors one single-threshold program: the Design it needs and the meaning a proposer declares.
@@ -212,7 +225,19 @@ pub fn author_single_threshold_program_v1(
         return Err(SingleThresholdAuthoringErrorV1::IndistinguishableOutcomes);
     }
 
-    let design = design_for(request);
+    // The Owner's data kind decides which lifecycle may consume this input. `strategy_plan_v2`
+    // maps BAR to Bar and QUOTE/TRADE/REFERENCE/ECONOMIC/SCALAR to Event, then requires the
+    // consuming reaction's kind to equal it. This surface emitted both a Bar-triggered and an
+    // Event-triggered consumer of the same role, which is refused for every possible input:
+    // whichever kind the binding carries, the other reaction contradicts it.
+    let semantic = MarketDataFieldSemantic::from_identity(&request.channel.field_semantic_id)
+        .ok_or_else(|| {
+            SingleThresholdAuthoringErrorV1::UnknownFieldSemantic(
+                request.channel.field_semantic_id.clone(),
+            )
+        })?;
+    let bar_triggered = semantic.data_kind() == "BAR";
+    let design = design_for(request, bar_triggered);
     let meaning = meaning_for(request);
     Ok((design, meaning))
 }
@@ -241,7 +266,10 @@ fn input_role(request: &SingleThresholdAuthoringRequestV1) -> InputRoleV2 {
     }
 }
 
-fn design_for(request: &SingleThresholdAuthoringRequestV1) -> StrategyDesignV2 {
+fn design_for(
+    request: &SingleThresholdAuthoringRequestV1,
+    bar_triggered: bool,
+) -> StrategyDesignV2 {
     let input = input_role(request);
     let coordinate_port = coordinate_port_id(strategy_input_role_identity_v2(&input));
     let role = input.semantic_id.clone();
@@ -301,8 +329,16 @@ fn design_for(request: &SingleThresholdAuthoringRequestV1) -> StrategyDesignV2 {
         }],
         reactions: vec![
             empty_reaction(LifecycleKindV2::Start),
-            bounded_reaction(LifecycleKindV2::Bar, BAR_NODE, &role, &coordinate_port),
-            bounded_reaction(LifecycleKindV2::Event, EVENT_NODE, &role, &coordinate_port),
+            if bar_triggered {
+                bounded_reaction(LifecycleKindV2::Bar, BAR_NODE, &role, &coordinate_port)
+            } else {
+                empty_reaction(LifecycleKindV2::Bar)
+            },
+            if bar_triggered {
+                empty_reaction(LifecycleKindV2::Event)
+            } else {
+                bounded_reaction(LifecycleKindV2::Event, EVENT_NODE, &role, &coordinate_port)
+            },
             empty_reaction(LifecycleKindV2::Fill),
             empty_reaction(LifecycleKindV2::Timer),
             empty_reaction(LifecycleKindV2::Stop),

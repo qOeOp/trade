@@ -126,6 +126,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-qualification|vibe_qualification|postgres::postgres_tests::sealed_request_reads_name_the_admission_they_refused'
   'vibe-qualification|vibe_qualification|postgres::postgres_tests::an_orphaned_projection_names_itself_rather_than_the_caller_request'
   'vibe-qualification|vibe_qualification|postgres::postgres_tests::an_eligibility_fact_window_is_derived_and_its_lineage_is_enforced_by_storage'
+  'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::the_authored_frozen_program_runs_the_production_composer'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
@@ -168,8 +169,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 98 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all 98 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 99 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all 99 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -279,7 +280,8 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[94]}" != *'|postgres::postgres_tests::sealed_request_reads_name_the_admission_they_refused' ]] ||
     [[ "${rd_owner_postgres_tests[95]}" != *'|postgres::postgres_tests::an_orphaned_projection_names_itself_rather_than_the_caller_request' ]] ||
     [[ "${rd_owner_postgres_tests[96]}" != *'|postgres::postgres_tests::an_eligibility_fact_window_is_derived_and_its_lineage_is_enforced_by_storage' ]] ||
-    [[ "${rd_owner_postgres_tests[97]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[97]}" != *'|tests::the_authored_frozen_program_runs_the_production_composer' ]] ||
+    [[ "${rd_owner_postgres_tests[98]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
@@ -397,7 +399,7 @@ for line in array_body.splitlines():
     entries.append(tuple(fields))
 # The count lives in one place. Writing it into the message as well lets the two drift, and the
 # drifted form reads as nonsense the moment it fires: "must contain 92 entries, found 92".
-expected_entries = 98
+expected_entries = 99
 if len(entries) != expected_entries:
     raise SystemExit(
         f"ERROR: ordered PostgreSQL test literal must contain {expected_entries} entries, found {len(entries)}."
