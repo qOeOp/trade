@@ -622,6 +622,50 @@ if ! grep -Fq 'Acceptance is' "$chain_linux_gate"; then
   exit 1
 fi
 
+# `quality` must skip a run the ready gate did not admit as full, and must still be `always()` for
+# every run it did. Both halves matter and they pull in opposite directions, so each is pinned.
+#
+# Without `always()` the job stops aggregating the moment anything it waits on fails, which is the
+# only situation it exists for. Without the run-full condition it runs on a draft pull request's
+# opening run, finds every job it aggregates skipped, and reports that as a failure - a red that
+# takes three and a half minutes to appear and stays for the hour the real run needs. Two sessions
+# read that red on two different pull requests on 2026-09-22 and acted on it.
+#
+# A skipped `quality` cannot let anything through: the only runs it skips are a draft pull request's,
+# and a draft cannot be merged. Marking it ready starts a run where this condition holds.
+quality_if="$(grep -A 1 '^  quality:' "$build_workflow" | grep -c 'name: quality' || true)"
+if [[ "$quality_if" != "1" ]]; then
+  echo "build.yml no longer declares a job named quality where this check expects it." >&2
+  exit 1
+fi
+# The `if:` line itself, not the block around it. Matching the block passed while `always()` sat
+# only in the comment explaining why it has to be there: the sentence written to justify the
+# condition satisfied the check for the condition, and removing the condition changed nothing.
+quality_if_line="$(sed -n '/^  quality:/,/^    steps:/p' "$build_workflow" | grep '^    if: ' || true)"
+if [[ -z "$quality_if_line" ]]; then
+  echo "build.yml's quality job has no if: line, so it runs on every run including the ones the" >&2
+  echo "ready gate refused." >&2
+  exit 1
+fi
+if [[ "$quality_if_line" != *"always()"* ]]; then
+  echo "build.yml's quality job is no longer always(), so it stops aggregating exactly when" >&2
+  echo "something it waits on fails - which is the case it exists to report." >&2
+  exit 1
+fi
+if [[ "$quality_if_line" != *"needs.ready-gate.outputs.run-full == 'true'"* ]]; then
+  echo "build.yml's quality job runs on a run the ready gate did not admit as full. Every job it" >&2
+  echo "aggregates is skipped there, so it reports that nothing as a failure: a red that appears" >&2
+  echo "in minutes and outlives the real run, on a draft pull request, which is how the" >&2
+  echo "documentation says to open one." >&2
+  exit 1
+fi
+# The author still has to be told how to get a full run; ready-gate says it without failing anything.
+if ! grep -Fq 'needs-full-ready: move the PR to Draft, then mark it Ready' "$build_workflow"; then
+  echo "build.yml no longer tells the author how to turn a partial run into a full one." >&2
+  echo "Skipping quality removes the red that used to say it, so the notice must stay." >&2
+  exit 1
+fi
+
 grep -Fq 'rust-cache-workspace-crates: "true"' "$build_workflow"
 grep -Fq 'rust-doctests-linux-x86:' "$build_workflow"
 rust_tests_block="$(sed -n '/^  rust-tests-linux-x86:/,/^  quality:/p' "$build_workflow")"
