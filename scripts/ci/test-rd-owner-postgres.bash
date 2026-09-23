@@ -1421,6 +1421,55 @@ if ! command -v timeout > /dev/null 2>&1; then
   exit 1
 fi
 
+# Entry 28 drives the Dashboard in a real browser only when three sealed inputs are present. Without
+# them it returns in a few milliseconds and reports PASS, so a chain that never touched a browser
+# goes green and says nothing about it. Measured twice on two trees: 0.011s locally against 136.78s
+# on CI, and locally it is the fastest of all ninety-nine entries - three times faster than the one
+# below it, which does a single string assertion. That reading alone rules out starting Next.js and
+# Chrome; no comparison with CI is needed to see it.
+#
+# Only the first of the three is silent. The test reads the other two with `.expect(...)`, so their
+# absence already panics and names itself. Checking all three here buys exactly two things: the
+# failure arrives before the entry runs rather than a hundred and thirty seconds into it, and a run
+# missing several is told about all of them at once. It is not new coverage for those two.
+#
+# One check, two readers. What differs is only what happens after it, never what it looks for: a
+# preflight must carry on and record that this entry covered nothing, because `--fail-fast` would
+# otherwise turn a local run of ninety-eight real entries into twenty-seven. The gate must refuse,
+# because there the inputs are installed by .github/actions/dashboard-browser-acceptance and their
+# absence means that step did not do its job.
+sealed_browser_inputs_absent() {
+  local -a absent=()
+  [[ "${DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE:-}" == "1" ]] ||
+    absent+=("DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE (must be exactly 1)")
+  [[ -n "${DASHBOARD_STRATEGY_VIEWER_BROWSER_EXECUTABLE:-}" ]] ||
+    absent+=("DASHBOARD_STRATEGY_VIEWER_BROWSER_EXECUTABLE")
+  [[ -n "${DASHBOARD_STRATEGY_VIEWER_ACCEPTANCE_CANDIDATE:-}" ]] ||
+    absent+=("DASHBOARD_STRATEGY_VIEWER_ACCEPTANCE_CANDIDATE")
+  [[ "${#absent[@]}" -gt 0 ]] || return 0
+  printf '%s\n' "${absent[@]}"
+}
+
+check_sealed_browser_inputs() {
+  local absent
+  absent="$(sealed_browser_inputs_absent)"
+  [[ -n "$absent" ]] || return 0
+  if [[ "${RD_OWNER_CHAIN_LOCAL_PREFLIGHT:-}" == "1" ]]; then
+    echo "=== The Dashboard browser acceptance will NOT run this round. Absent: ===" >&2
+    while read -r name; do echo "===   $name" >&2; done <<< "$absent"
+    echo "=== Entry 28 returns in milliseconds and reports PASS, covering nothing. ===" >&2
+    echo "=== A green chain this round covers every entry except that one. ===" >&2
+    return 0
+  fi
+  echo "ERROR: the sealed Dashboard browser acceptance inputs are absent:" >&2
+  while read -r name; do echo "       $name" >&2; done <<< "$absent"
+  echo "       Entry 28 would return in milliseconds and report PASS, so this chain would go" >&2
+  echo "       green while the Dashboard browser acceptance ran nothing at all." >&2
+  echo "       .github/actions/dashboard-browser-acceptance sets all three." >&2
+  return 1
+}
+check_sealed_browser_inputs
+
 readonly postgres_image="public.ecr.aws/docker/library/postgres:16.4-alpine@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c"
 suffix="$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')-$$"
 readonly suffix

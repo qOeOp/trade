@@ -666,6 +666,40 @@ if ! grep -Fq 'needs-full-ready: move the PR to Draft, then mark it Ready' "$bui
   exit 1
 fi
 
+# Entry 28 is the only entry whose work depends on inputs the chain script does not itself produce,
+# and without them it reports PASS in eleven milliseconds. The check that says so must exist, must
+# name all three inputs, and must behave differently in a preflight than in the gate - carrying on
+# there, refusing here. Each is pinned, because each fails silently if it is dropped: a missing
+# check restores the eleven-millisecond green, a check naming fewer inputs sends the reader after
+# the wrong one, and a check that refuses in a preflight turns ninety-eight real entries into
+# twenty-seven under `--fail-fast`.
+chain_script="$repo_root/scripts/ci/test-rd-owner-postgres.bash"
+for sealed_input in DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE \
+  DASHBOARD_STRATEGY_VIEWER_BROWSER_EXECUTABLE \
+  DASHBOARD_STRATEGY_VIEWER_ACCEPTANCE_CANDIDATE; do
+  if ! grep -Fq "$sealed_input" "$chain_script"; then
+    echo "test-rd-owner-postgres.bash does not check for $sealed_input before running the chain." >&2
+    echo "Entry 28 returns in milliseconds and reports PASS when it is absent, so the chain goes" >&2
+    echo "green having driven no browser at all." >&2
+    exit 1
+  fi
+done
+if ! grep -q 'check_sealed_browser_inputs$' "$chain_script"; then
+  echo "test-rd-owner-postgres.bash defines the sealed-input check and never calls it." >&2
+  exit 1
+fi
+sealed_check_block="$(sed -n '/^check_sealed_browser_inputs() {/,/^}/p' "$chain_script")"
+if [[ "$sealed_check_block" != *'RD_OWNER_CHAIN_LOCAL_PREFLIGHT'* ]]; then
+  echo "the sealed-input check treats a preflight and the gate alike. A preflight must carry on" >&2
+  echo "and record that entry 28 covered nothing; --fail-fast would otherwise cut the run short." >&2
+  exit 1
+fi
+if [[ "$sealed_check_block" != *'return 1'* ]]; then
+  echo "the sealed-input check never refuses, so the gate would accept a chain whose browser" >&2
+  echo "acceptance ran nothing." >&2
+  exit 1
+fi
+
 grep -Fq 'rust-cache-workspace-crates: "true"' "$build_workflow"
 grep -Fq 'rust-doctests-linux-x86:' "$build_workflow"
 rust_tests_block="$(sed -n '/^  rust-tests-linux-x86:/,/^  quality:/p' "$build_workflow")"
