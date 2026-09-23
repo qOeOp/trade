@@ -4,13 +4,13 @@ use super::{
     MissingNativeCryptoPerpetualOwnerFieldV1, UntrustedInstrumentMasterRequestV1,
     V1StructuralPublicTermsField, V1StructuralPublicTermsProjectionError,
     authority::{
-        build_cut, build_fact, build_readback, build_receipt, clock_projection, decode_cut,
-        decode_fact, observable, select_facts, validate_fact_graph,
+        build_cut, build_fact, build_readback, build_receipt, decode_cut, decode_fact, observable,
+        select_facts, validate_fact_graph,
     },
     codec,
 };
 use crate::owner::{
-    shared_time_evidence::build_head_fact,
+    shared_time_evidence::{ClockHeadFact, build_head_fact},
     source_binding::{
         BindingDigest, MarketDataClockAdmission, MarketDataClockComparisonRule,
         MarketDataClockCutKind,
@@ -22,7 +22,7 @@ fn d(value: u8) -> BindingDigest {
     BindingDigest::from_untrusted_bytes([value; 32])
 }
 
-fn head(sequence: u64, wall: u64, valid: u64) -> super::super::shared_time_evidence::ClockHeadFact {
+fn head(sequence: u64, wall: u64, valid: u64) -> ClockHeadFact {
     build_head_fact(
         &MarketDataClockAdmission {
             cut_kind: MarketDataClockCutKind::MarketDataAsOf,
@@ -146,53 +146,98 @@ fn readback_for(proposal: InstrumentMasterFactProposalV1) -> super::InstrumentMa
     build_readback(&receipt).unwrap()
 }
 
+/// One clock head per `(sequence, decision_cut)` base, each also in variants that move exactly one
+/// other clock coordinate away from its default: wall time past the decision cut, validity, restart
+/// continuity, skew bound, uncertainty bound, clock identity and clock epoch.
+///
+/// Every coordinate a head carries takes two values somewhere in the grid, and each is varied on its
+/// own rather than derived from another one: a grid where wall time follows the decision cut could
+/// never show a wall-time condition going wrong.
+fn visibility_grid_heads(bases: &[(u64, u64)]) -> Vec<ClockHeadFact> {
+    const CLOCK: &str = "12345678901234567890123456789012";
+    const OTHER_CLOCK: &str = "ZYXWVUTSRQPONMLKJIHGFEDCBA987654";
+    const EPOCH: &str = "abcdefghijklmnopqrstuvwxyzABCDEF";
+    const OTHER_EPOCH: &str = "FEDCBAzyxwvutsrqponmlkjihgfedcba";
+    // (wall after cut, valid after wall, continuity, skew, uncertainty, clock, epoch)
+    let variants = [
+        (0, 30, 90, 2, 1, CLOCK, EPOCH),
+        (10, 30, 90, 2, 1, CLOCK, EPOCH),
+        (0, 40, 90, 2, 1, CLOCK, EPOCH),
+        (0, 30, 91, 2, 1, CLOCK, EPOCH),
+        (0, 30, 90, 3, 1, CLOCK, EPOCH),
+        (0, 30, 90, 2, 0, CLOCK, EPOCH),
+        (0, 30, 90, 2, 1, OTHER_CLOCK, EPOCH),
+        (0, 30, 90, 2, 1, CLOCK, OTHER_EPOCH),
+    ];
+    let mut heads = Vec::new();
+
+    for &(sequence, decision_cut) in bases {
+        for (wall_after, valid_after, continuity, skew, uncertainty, clock, epoch) in variants {
+            let wall = decision_cut + wall_after;
+            heads.push(
+                build_head_fact(
+                    &MarketDataClockAdmission {
+                        cut_kind: MarketDataClockCutKind::MarketDataAsOf,
+                        clock_identity: clock.into(),
+                        clock_epoch: epoch.into(),
+                        monotonic_sequence: sequence,
+                        wall_observed: wall,
+                        decision_cut,
+                        valid_through: wall + valid_after,
+                        restart_continuity_digest: d(continuity),
+                        uncertainty_bound: uncertainty,
+                        skew_bound: skew,
+                        comparison_rule: MarketDataClockComparisonRule::ExclusiveValidThrough,
+                    },
+                    None,
+                )
+                .expect("every grid head is complete"),
+            );
+        }
+    }
+    heads
+}
+
 /// `observes_at_least` is what lets one cut stand in for another's knowledge, so it has to imply
 /// visibility exactly as `observable` defines it: whenever `shared` can see a fact and `at_bar`
-/// observes at least what `shared` does, `at_bar` sees that fact too. Checked over every pairing of
-/// a grid of fact heads and observations against a grid of cut heads and observations; the grid
-/// must also contain pairs where dominance fails and a fact really is missed, or it could not tell a
-/// correct comparison from an empty one. The heads vary every clock coordinate, including ones
-/// `observable` ignores today (`valid_through`), so a condition added there on any of them is caught.
+/// observes at least what `shared` does, `at_bar` sees that fact too.
+///
+/// Checked over every fact and every pair of cuts from `visibility_grid_heads`, with fact times that
+/// trail the Owner observation both together and independently. The grid must also contain a
+/// non-dominant cut that really misses a fact, or it could not tell a correct comparison from an
+/// empty one. A condition added to `observable` on a coordinate this grid varies turns it red; one
+/// on a coordinate it does not vary would not, so a new clock or fact field belongs in the grid too.
 #[rstest]
 fn observes_at_least_implies_seeing_every_fact_the_other_cut_sees() {
-    let base = build_fact(
-        proposal("AAPL", None, 40, 6),
-        &head(1, 50, 120).handoff,
-        None,
-    )
-    .unwrap();
     let mut facts = Vec::new();
 
-    for (sequence, wall) in [(1, 70), (3, 70), (1, 85), (3, 85)] {
-        for valid in [110, 120] {
-            for observed in [50, 65, 70] {
-                facts.push(
-                    build_fact(
-                        proposal("AAPL", None, observed, 6),
-                        &head(sequence, wall, valid).handoff,
-                        None,
-                    )
-                    .unwrap(),
-                );
+    for head in visibility_grid_heads(&[(1, 70), (3, 70), (1, 85), (3, 85)]) {
+        for observed in [50, 65, 70] {
+            // (provider available, retrieval, correction publication) lags behind the observation
+            for (available, retrieval, publication) in [(3, 2, 1), (0, 3, 0)] {
+                let mut proposal = proposal("AAPL", None, observed, 6);
+                proposal.provider_available = observed - available;
+                proposal.retrieval = observed - retrieval;
+                proposal.correction_publication = observed - publication;
+                facts.push(build_fact(proposal, &head.handoff, None).expect("grid fact"));
             }
         }
     }
     let mut cuts = Vec::new();
 
-    for (sequence, wall) in [(2, 70), (4, 70), (2, 90), (4, 90)] {
-        for (valid, observed) in [110, 120]
-            .into_iter()
-            .flat_map(|valid| [55, 68, 75].map(|observed| (valid, observed)))
-        {
-            let clock = head(sequence, wall, valid);
+    for head in visibility_grid_heads(&[(2, 70), (4, 70), (2, 90), (4, 90)]) {
+        // `build_cut` needs a fact of its own, admitted on its own head; it is never the one tested.
+        let held = build_fact(proposal("AAPL", None, 40, 6), &head.handoff, None).unwrap();
+
+        for observed in [55, 68, 75] {
             cuts.push(
                 build_cut(
-                    &request("AAPL", observed, &clock),
+                    &request("AAPL", observed, &head),
                     vec!["AAPL".into()],
-                    std::slice::from_ref(&base),
-                    clock_projection(&clock.handoff, None).unwrap(),
+                    std::slice::from_ref(&held),
+                    held.clock.clone(),
                 )
-                .unwrap(),
+                .expect("grid cut"),
             );
         }
     }
@@ -204,12 +249,14 @@ fn observes_at_least_implies_seeing_every_fact_the_other_cut_sees() {
 
     for shared in &cuts {
         for at_bar in &cuts {
+            let dominates = at_bar.observes_at_least(shared);
+
             for fact in &facts {
                 if !sees(fact, shared) {
                     continue;
                 }
 
-                if at_bar.observes_at_least(shared) {
+                if dominates {
                     assert!(
                         sees(fact, at_bar),
                         "a cut that observes at least another must see every fact the other sees"

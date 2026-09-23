@@ -290,8 +290,8 @@ impl InstrumentMasterCutV1 {
     ///
     /// Sitting beside `observable` does not keep the two in step by itself. What does is
     /// `observes_at_least_implies_seeing_every_fact_the_other_cut_sees`, which checks the implication
-    /// over an enumerated grid: a coordinate added to `observable` and varied there, but not here,
-    /// turns it red.
+    /// over an enumerated grid: a condition added to `observable` on any coordinate that grid varies
+    /// turns it red, so a new clock or fact field has to be added to the grid as well.
     pub(crate) fn observes_at_least(&self, other: &Self) -> bool {
         self.clock.clock_identity == other.clock.clock_identity
             && self.clock.clock_epoch == other.clock.clock_epoch
