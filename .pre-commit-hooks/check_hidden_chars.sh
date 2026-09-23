@@ -15,7 +15,8 @@
 # - Long strings: MINIMAL, SPECIFIC exclusions only
 # - All exclusions must be explicitly documented and reviewable
 # - Changes to exclusions should come only from trusted maintainers
-set -e
+set -Ee
+trap 'echo "$(basename "${BASH_SOURCE[0]}"):${LINENO}: this check failed: ${BASH_COMMAND}" >&2' ERR
 
 # Get files passed by pre-commit, or all relevant files if none passed
 # Filter out this script itself to avoid detecting its own search patterns

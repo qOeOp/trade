@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Locks the resolved Jiff feature policy for Rust-only and Python-extension builds.
 
-set -euo pipefail
+set -Eeuo pipefail
+trap 'echo "$(basename "${BASH_SOURCE[0]}"):${LINENO}: this check failed: ${BASH_COMMAND}" >&2' ERR
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$REPO_ROOT"

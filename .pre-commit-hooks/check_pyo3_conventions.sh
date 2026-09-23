@@ -4,7 +4,8 @@
 # - Adapter stub metadata must use the public adapter package path
 # - Standard Python exceptions must use error helper functions
 
-set -euo pipefail
+set -Eeuo pipefail
+trap 'echo "$(basename "${BASH_SOURCE[0]}"):${LINENO}: this check failed: ${BASH_COMMAND}" >&2' ERR
 
 # Exit cleanly if ripgrep is not installed
 if ! command -v rg &> /dev/null; then

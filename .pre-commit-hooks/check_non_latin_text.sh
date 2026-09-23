@@ -2,7 +2,8 @@
 # Check for non-Latin script characters (CJK, Cyrillic, Arabic, etc.) in source files
 # Uses perl for cross-platform compatibility (works on macOS and Linux)
 
-set -e
+set -Ee
+trap 'echo "$(basename "${BASH_SOURCE[0]}"):${LINENO}: this check failed: ${BASH_COMMAND}" >&2' ERR
 
 # Check if perl is available
 if ! command -v perl &> /dev/null; then

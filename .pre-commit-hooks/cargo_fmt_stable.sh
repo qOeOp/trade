@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
+trap 'echo "$(basename "${BASH_SOURCE[0]}"):${LINENO}: this check failed: ${BASH_COMMAND}" >&2' ERR
 
 # Run cargo fmt while forcing rustfmt to read an empty config
 # to avoid nightly-only options in the repository rustfmt.toml.

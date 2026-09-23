@@ -3,7 +3,8 @@
 # 1. Only import anyhow::Context (use anyhow::bail!, anyhow::Result, etc. fully qualified)
 # 2. Use anyhow::bail!(...) instead of return Err(anyhow::anyhow!(...))
 
-set -euo pipefail
+set -Eeuo pipefail
+trap 'echo "$(basename "${BASH_SOURCE[0]}"):${LINENO}: this check failed: ${BASH_COMMAND}" >&2' ERR
 
 # Exit cleanly if ripgrep is not installed
 if ! command -v rg &> /dev/null; then
