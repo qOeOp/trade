@@ -261,7 +261,7 @@ pub struct BacktestRunStrategyV1 {
     /// Always [`SINGLE_THRESHOLD_FAMILY_V1`]: a run outside the family has no statement at all.
     pub family: &'static str,
     /// The one Market Data channel the program reads, which is also its decision clock.
-    pub channel: SingleThresholdChannelV1,
+    pub channel: BacktestRunChannelV1,
     /// The threshold as a plain decimal in the channel's unit, at the channel's scale.
     pub threshold: String,
     /// How the channel is compared against the threshold, e.g. `GREATER`.
@@ -272,6 +272,29 @@ pub struct BacktestRunStrategyV1 {
     pub otherwise: SingleThresholdOutcomeV1,
     /// The statement the program can be wrong about.
     pub falsifier: String,
+}
+
+/// The channel a run's program read, resolved to what it read rather than how it was authored.
+///
+/// The report states the channel in its own type, not as the authoring request's channel. An
+/// authoring form can name a channel indirectly - a universe member, whose instrument the run's
+/// universe selects - and the report states the instrument the run read. Serializing the authoring
+/// type here would also make every change to how a channel is authored a change to this report's
+/// wire shape, which the Dashboard checks key by key.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct BacktestRunChannelV1 {
+    /// Identifier the Design and the graph both use for this role.
+    pub role_semantic_id: String,
+    /// Instrument the channel was read for.
+    pub instrument: String,
+    /// Market Data fact the channel carries.
+    pub field_semantic_id: String,
+    /// Bar timeframe.
+    pub timeframe: String,
+    /// Unit of the channel's value.
+    pub unit: String,
+    /// Fixed-point scale of the channel's value.
+    pub scale: u8,
 }
 
 /// The one strategy family this report can state.
@@ -537,9 +560,10 @@ async fn resolve_strategy_and_window(
     // field changes type and the annotation stops compiling, instead of `from_ref` quietly
     // counting one collection as one snapshot.
     let snapshots: &[ContentIdentityV2] = std::slice::from_ref(&request.pit_snapshot);
+    let channel = resolved_channel(authored.channel);
     let data_window = BacktestRunDataWindowV1 {
-        instrument: authored.channel.instrument.clone(),
-        granularity: authored.channel.timeframe.clone(),
+        instrument: channel.instrument.clone(),
+        granularity: channel.timeframe.clone(),
         start: canonical_utc_v1(request.window.start_event_ns),
         end_exclusive: canonical_utc_v1(request.window.end_event_ns_exclusive),
         snapshot_count: u64::try_from(snapshots.len()).unwrap_or(u64::MAX),
@@ -547,14 +571,34 @@ async fn resolve_strategy_and_window(
     };
     let strategy = BacktestRunStrategyV1 {
         family: SINGLE_THRESHOLD_FAMILY_V1,
-        threshold: fixed_point_decimal(authored.threshold_coefficient, authored.channel.scale),
-        channel: authored.channel,
+        threshold: fixed_point_decimal(authored.threshold_coefficient, channel.scale),
+        channel,
         comparison: authored.comparison,
         when_true: authored.when_true,
         otherwise: authored.otherwise,
         falsifier: authored.falsifier,
     };
     Ok((strategy, data_window))
+}
+
+/// The channel the run read, from the channel its request authored.
+fn resolved_channel(authored: SingleThresholdChannelV1) -> BacktestRunChannelV1 {
+    let SingleThresholdChannelV1 {
+        role_semantic_id,
+        instrument,
+        field_semantic_id,
+        timeframe,
+        unit,
+        scale,
+    } = authored;
+    BacktestRunChannelV1 {
+        role_semantic_id,
+        instrument,
+        field_semantic_id,
+        timeframe,
+        unit,
+        scale,
+    }
 }
 
 /// Proves the frozen program is the one the run's artifact was built from, or refuses.
@@ -1089,7 +1133,7 @@ mod tests {
         };
         BacktestRunStrategyV1 {
             family: SINGLE_THRESHOLD_FAMILY_V1,
-            channel: SingleThresholdChannelV1 {
+            channel: BacktestRunChannelV1 {
                 role_semantic_id: "research.input.close.daily.v1".to_owned(),
                 instrument: "BTCUSDT-PERP.BINANCE".to_owned(),
                 field_semantic_id: "MARKET_DATA.BAR.CLOSE.PRICE.V1".to_owned(),
@@ -1181,6 +1225,9 @@ mod tests {
                 "when_true"
             ]
         );
+        // The Dashboard's contract checks this key set exactly (`CHANNEL_KEYS`), so a channel
+        // stated in any other shape - an authoring scope tag, a universe member's roles - is
+        // refused there even when this Owner answers.
         assert_eq!(
             keys(&available["strategy"]["channel"]),
             [

@@ -298,7 +298,10 @@ history; it says nothing about whether the path has ever run in some other envir
     which carries none, can never meet it. Those receipts are in Composer custody, and the only
     Composer Owner API function the R&D Owner may call that returns them,
     `lock_accepted_develop_composer_v2`, takes a table-level SHARE lock that blocks Composer's writers. A lock-free Composer read of an artifact's build receipts is the
-    follow-up that lets an in-family run be stated; until it exists, every in-family run is refused. The data window is the channel's instrument and timeframe, the request's
+    follow-up that lets an in-family run be stated; until it exists, every in-family run is refused. The channel is
+    stated as the run read it - role, instrument, fact, timeframe, unit and scale - and not in the form
+    its request authored it, so an authoring form that names the instrument indirectly still yields
+    those six fields, and a change to how a channel is authored does not change this handoff. The data window is the channel's instrument and timeframe, the request's
     window with an exclusive end, the number of PIT snapshots the request binds, and that snapshot's
     identity as the cut.
 
