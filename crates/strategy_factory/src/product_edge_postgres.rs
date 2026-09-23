@@ -390,8 +390,7 @@ fn decode_current_research_artifact_readback(
 ) -> Result<CurrentResearchArtifactReadbackV1, ResearchGoalOwnerError> {
     let readback: CurrentResearchArtifactReadbackV1 =
         serde_json::from_value(value.clone()).map_err(json_storage)?;
-    if &serde_json::to_value(&readback).map_err(json_storage)? != value
-        || readback.owner_cut_epoch_ms.is_some() != locked
+    if readback.owner_cut_epoch_ms.is_some() != locked
         || readback.evidence.schema_version != 1
         || current_research_artifact_evidence_digest(&readback.evidence)?
             != readback.evidence_digest
