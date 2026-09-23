@@ -490,7 +490,10 @@ fn two_member_observation_batch(
     let locator = source.receipt().locator();
     let mut rows = Vec::with_capacity(18);
 
-    for member in ["AAPL", "MSFT"] {
+    // Member key and instrument are different things: the key names a slot in the universe, the
+    // instrument is an `InstrumentId` and must carry its venue. The native replay request matches
+    // `member_instruments` against these rows, and an unqualified symbol panics on the way in.
+    for (member, instrument) in [("AAPL", "AAPL.XNAS"), ("MSFT", "MSFT.XNAS")] {
         let bar = [
             ("OPEN", 10_001_i128, 2_u8),
             ("HIGH", 10_103, 2),
@@ -513,7 +516,7 @@ fn two_member_observation_batch(
             rows.push(UntrustedPitObservation {
                 symbolic_key: format!("{member}.{field}.{timeframe}"),
                 member_key: member.to_owned(),
-                instrument: member.to_owned(),
+                instrument: instrument.to_owned(),
                 channel: "MARKET".into(),
                 data_kind: data_kind.into(),
                 timeframe: timeframe.into(),
@@ -7483,6 +7486,63 @@ fn two_member_pit_proposal(
     );
     refresh_request_claims(&mut value.request);
     value
+}
+
+/// What a native replay request needs in order to name one committed two-member snapshot.
+///
+/// Only the two snapshot fields are Owner-derived here. The rest are the coordinates the proposal
+/// carried, which is enough to *name* a snapshot and deliberately not enough to resolve a frame
+/// from it: a proof about what happens before the snapshot verifies never reaches the fields that
+/// would matter afterwards.
+pub(crate) struct NativeReplayTwoMemberSnapshotFixtureV1 {
+    pub(crate) snapshot_identity: BindingDigest,
+    pub(crate) snapshot_fact_digest: BindingDigest,
+    pub(crate) universe_selection_digest: BindingDigest,
+    pub(crate) instrument_master_digest: BindingDigest,
+    pub(crate) source_binding_lineage_root: BindingDigest,
+    pub(crate) market_semantics_identity: BindingDigest,
+    pub(crate) frame_time_ns: u64,
+}
+
+/// Commits one two-member snapshot into a freshly materialized store and names it.
+///
+/// The batch is the real one: two members, five BAR and four QUOTE fields each, canonicalized and
+/// accepted by the Owner. Consumers outside this module cannot reach the helpers that build it,
+/// and reproducing them would reproduce the four rules the Owner enforces on the way in.
+pub(crate) async fn native_replay_two_member_snapshot_fixture_v1(
+    owner: &MarketDataOwnerPostgres,
+) -> NativeReplayTwoMemberSnapshotFixtureV1 {
+    let source = owner
+        .commit_source_initial(
+            source_proposal(10, 40),
+            OwnerSourceBindingDecision {
+                blockers: BTreeSet::new(),
+            },
+            &clock(40, 1),
+        )
+        .await
+        .expect("source binding for the two-member snapshot");
+    let frame_time_ns = 10;
+    let mut proposal = two_member_pit_proposal(&source, 80, frame_time_ns);
+    let observation = two_member_observation_batch(&source, &proposal);
+    proposal.evidence.normalized_records_digest =
+        derive_observation_batch_digest(&observation).unwrap();
+    refresh_request_claims(&mut proposal.request);
+    let basis = basis(&proposal);
+    let commit = owner
+        .commit_pit_initial_with_observation_batch(proposal, observation, &basis, &clock(40, 1))
+        .await
+        .expect("a two-member snapshot the Owner admits");
+    let fact = commit.fact();
+    NativeReplayTwoMemberSnapshotFixtureV1 {
+        snapshot_identity: fact.snapshot_identity(),
+        snapshot_fact_digest: fact.digest(),
+        universe_selection_digest: fact.request().universe_selection_digest,
+        instrument_master_digest: fact.request().instrument_master_digest,
+        source_binding_lineage_root: fact.source_binding_lineage_root(),
+        market_semantics_identity: fact.request().market_semantics_identity,
+        frame_time_ns,
+    }
 }
 
 /// The scope this oracle owns. The frame census is keyed by scope and shared across every oracle in
