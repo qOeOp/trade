@@ -162,9 +162,11 @@ The maturity boundary is explicit:
   the instrument its data window names extend to that form before the first positive run. The target-set schema
   version and semantic identities do not change, and admitting one member changes no two-member preimage: the target-set codec
   and the Instrument Master cut already encode their member count, while the V1 scheduling receipt digest and the
-  ProgramHost target-set snapshot digest hash their members without a count, so a one-member preimage there is
-  domain-separated in a way that leaves the two-member bytes unchanged. Nothing here is current until the
-  implementing changes land and update the CURRENT statement above.
+  Strategy Factory digests that hash their members without a count (the Backtest target-set snapshot, execution-profile
+  binding, native materialization, execution census and round-trip closure digests) hash any other member count under a
+  domain that names the count, so the two-member domain and bytes stay unchanged. A lifted one-member target set takes
+  the sequence after the pending set's, or 1 when none is pending. Nothing here is current until the implementing
+  changes land and update the CURRENT statement above.
 - **TARGET / NOT_ADMITTED:** Paper and Live consume the same plan, Artifact, event ordering, checkpoint schema,
   kernel and semantic-trace contract only after their Owner adapters exist and are separately admitted. No current
   Paper or Live equivalence, application, external write, or trading capability is claimed here.

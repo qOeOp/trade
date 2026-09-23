@@ -34,7 +34,7 @@ use crate::{
     },
     replay_runner_operational_profile_v1::ReplayRunnerOperationalProfileV1,
     strategy_plan_v2::StrategyPlanV2,
-    target_set_members::{BoundedMembers, is_admitted_member_count},
+    target_set_members::{BoundedMembers, is_admitted_member_count, update_member_count_domain},
 };
 
 const SCHEDULING_DIGEST_DOMAIN_V1: &[u8] = b"strategy-factory.replay-target-set-scheduling.v1\0";
@@ -327,7 +327,7 @@ impl ReplayTargetSetExecutionCensusV1 {
     }
 }
 
-/// Opaque move-only capability for one exact request and one complete two-member execution.
+/// Opaque move-only capability for one exact request and one complete target-set execution.
 ///
 /// ```compile_fail
 /// use vibe_strategy_factory::replay_target_set_execution_bundle_v1::ReplayTargetSetExecutionBundleV1;
@@ -798,7 +798,11 @@ fn digest_frame_sequence(
 
 fn digest_census(census: &ReplayTargetSetExecutionCensusV1) -> anyhow::Result<[u8; 32]> {
     let mut hasher = Sha256::new();
-    hasher.update(CENSUS_DIGEST_DOMAIN_V1);
+    update_member_count_domain(
+        &mut hasher,
+        CENSUS_DIGEST_DOMAIN_V1,
+        census.member_instruments.len(),
+    );
 
     for value in [
         census.request_locator.request_identity.as_str(),

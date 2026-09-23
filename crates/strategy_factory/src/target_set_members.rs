@@ -15,6 +15,32 @@ use strategy_factory_program_sdk::lifecycle_v2::{
     TARGET_SET_MAX_MEMBER_COUNT, TARGET_SET_MIN_MEMBER_COUNT,
 };
 
+/// The member count whose digest preimages were written before any other count was admitted.
+const UNCOUNTED_MEMBER_COUNT: usize = 2;
+
+/// Starts a digest over `member_count` members, one after another and without a count, under `domain`.
+///
+/// Such digests were written when every set had two members, so a two-member preimage keeps exactly its
+/// original domain and bytes. Any other count hashes the domain's name, `.member-count`, a NUL, and the
+/// count, so preimages over different member counts never share a domain. Every `domain` ends in NUL,
+/// which is what makes the two forms differ at a fixed byte rather than by chance.
+pub(crate) fn update_member_count_domain(
+    hasher: &mut sha2::Sha256,
+    domain: &[u8],
+    member_count: usize,
+) {
+    use sha2::Digest;
+
+    debug_assert_eq!(domain.last(), Some(&0), "digest domains end in NUL");
+    if member_count == UNCOUNTED_MEMBER_COUNT {
+        hasher.update(domain);
+    } else {
+        hasher.update(&domain[..domain.len().saturating_sub(1)]);
+        hasher.update(b".member-count\0");
+        hasher.update((member_count as u64).to_be_bytes());
+    }
+}
+
 /// A member count outside the admitted range.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MemberCountOutOfRange(pub usize);
@@ -216,5 +242,30 @@ mod tests {
             serde_json::to_vec(&members).unwrap(),
             serde_json::to_vec(&array).unwrap()
         );
+    }
+
+    #[rstest]
+    fn two_members_keep_their_domain_and_any_other_count_names_itself() {
+        use sha2::{Digest, Sha256};
+
+        const DOMAIN: &[u8] = b"strategy-factory.example.v1\0";
+        let started = |member_count| {
+            let mut hasher = Sha256::new();
+            update_member_count_domain(&mut hasher, DOMAIN, member_count);
+            hasher.update(b"members");
+            hasher.finalize()
+        };
+        let mut plain = Sha256::new();
+        plain.update(DOMAIN);
+        plain.update(b"members");
+
+        assert_eq!(started(2), plain.finalize());
+        assert_ne!(started(1), started(2));
+
+        let mut named = Sha256::new();
+        named.update(b"strategy-factory.example.v1.member-count\0");
+        named.update(1_u64.to_be_bytes());
+        named.update(b"members");
+        assert_eq!(started(1), named.finalize());
     }
 }

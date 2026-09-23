@@ -65,7 +65,7 @@ use crate::{
         ReplayRunnerOperationalProfileV1, ReplayRunnerOptionalSubsystemV1,
         ReplayRunnerSerializationEncodingV1,
     },
-    target_set_members::BoundedMembers,
+    target_set_members::{BoundedMembers, update_member_count_domain},
 };
 
 /// Exact native layout and inactive-float contract implemented by this adapter.
@@ -917,7 +917,7 @@ fn materialization_digest(
 ) -> Result<[u8; 32], ReplayNativeExecutionProfileErrorV1> {
     let terms = binding.instrument_terms();
     let mut hasher = Sha256::new();
-    hasher.update(MATERIALIZATION_DIGEST_DOMAIN_V1);
+    update_member_count_domain(&mut hasher, MATERIALIZATION_DIGEST_DOMAIN_V1, terms.len());
     hash_bytes(&mut hasher, REPLAY_NATIVE_ENGINE_PROFILE_ID_V1.as_bytes())?;
     hasher.update(binding.binding_digest());
     hasher.update(binding.economic_configuration_digest());

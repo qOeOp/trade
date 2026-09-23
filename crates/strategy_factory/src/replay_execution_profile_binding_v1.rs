@@ -21,7 +21,7 @@ use crate::{
         InstrumentEconomicTermsBindingV1, ReplayEconomicConfigurationV1,
     },
     replay_runner_operational_profile_v1::ReplayRunnerOperationalProfileV1,
-    target_set_members::BoundedMembers,
+    target_set_members::{BoundedMembers, update_member_count_domain},
     trial_family::{TrialFamilyReadbackV1, verify_family},
 };
 
@@ -980,7 +980,11 @@ pub fn bind_replay_execution_profiles_v1(
     }
 
     let mut hasher = Sha256::new();
-    hasher.update(PROFILE_BINDING_DIGEST_DOMAIN_V1);
+    update_member_count_domain(
+        &mut hasher,
+        PROFILE_BINDING_DIGEST_DOMAIN_V1,
+        instrument_context.len(),
+    );
     encode_bytes(&mut hasher, request.request_identity.as_bytes())?;
     hasher.update(request.request_meaning_digest);
     encode_bytes(&mut hasher, family.trial_family_identity.as_bytes())?;
@@ -1693,6 +1697,40 @@ mod tests {
                 32,
                 "d38ff437ae935f1936097f416c59fbc846ae0e567e6371c58c60c4a22ae747fc",
             )],
+        );
+    }
+
+    #[rstest]
+    fn a_one_member_binding_binds_the_primary_instrument_under_its_own_domain() {
+        // Provenance is move-only, so each binding takes a fresh fixture and keeps one member.
+        let only = |ordinal: usize| {
+            let (economic, runner, family, request, provenance) = fixtures();
+            let member = provenance.into_vec().swap_remove(ordinal);
+            bind_replay_execution_profiles_v1(
+                &family,
+                &request,
+                &economic,
+                &runner,
+                BoundedMembers::new(vec![member]).unwrap(),
+            )
+        };
+        let (economic, runner, family, request, provenance) = fixtures();
+        let two =
+            bind_replay_execution_profiles_v1(&family, &request, &economic, &runner, provenance)
+                .unwrap();
+        let one = only(0).unwrap();
+
+        assert_eq!(one.instrument_terms().len(), 1);
+        assert_eq!(
+            one.instrument_terms()[0].instrument_identity,
+            economic.input().instrument_terms.instrument_identity
+        );
+        assert_ne!(one.binding_digest(), two.binding_digest());
+
+        // The profile's primary instrument must be the member; a lone non-primary member is refused.
+        assert_eq!(
+            only(1),
+            Err(ReplayExecutionProfileBindingErrorV1::InstrumentTermsProvenanceMismatch)
         );
     }
 }

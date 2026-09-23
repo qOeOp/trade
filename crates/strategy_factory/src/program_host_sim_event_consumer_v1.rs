@@ -42,7 +42,7 @@ use crate::{
     replay_target_set_execution_bundle_v1::{
         ReplayTargetSetExecutionBundleV1, ReplayTargetSetExecutionCensusV1,
     },
-    target_set_members::BoundedMembers,
+    target_set_members::{BoundedMembers, update_member_count_domain},
 };
 
 const CANONICAL_RESULT_DOMAIN: &[u8] = b"strategy.program-host.sim-event.result.v1\0";
@@ -820,7 +820,7 @@ fn round_trip_closure_digest(
     members: &[ProgramHostSimEventMemberRoundTripV1],
 ) -> [u8; 32] {
     let mut hasher = Sha256::new();
-    hasher.update(ROUND_TRIP_CLOSURE_DOMAIN);
+    update_member_count_domain(&mut hasher, ROUND_TRIP_CLOSURE_DOMAIN, members.len());
     hasher.update(canonical_result_digest);
     hasher.update((target_set_count as u64).to_le_bytes());
 
@@ -1679,6 +1679,37 @@ mod tests {
                 32,
                 "c71878fd4bbf0a9e76d08791d4af22ea3500e3571df141f5dd87a1251e3f5696",
             )],
+        );
+    }
+
+    #[rstest::rstest]
+    fn a_one_member_round_trip_closes_over_that_member_alone() {
+        let mut trace = closed_trace();
+        trace.final_member_grid_units = Some(BoundedMembers::try_from([0]).unwrap());
+        let closure = round_trip_closure(
+            &trace,
+            &round_trip_fills(),
+            &["AAPL.XNAS".to_owned()],
+            &closed_census(),
+            [77; 32],
+        )
+        .unwrap()
+        .expect("a complete one-member round trip");
+
+        assert_eq!(closure.members().len(), 1);
+        assert_eq!(closure.members()[0].instrument(), "AAPL.XNAS");
+        assert!(closure.closure_is_exact());
+
+        // A position census for two members does not close a one-member run.
+        assert!(
+            round_trip_closure(
+                &closed_trace(),
+                &round_trip_fills(),
+                &["AAPL.XNAS".to_owned()],
+                &closed_census(),
+                [77; 32],
+            )
+            .is_err()
         );
     }
 }
