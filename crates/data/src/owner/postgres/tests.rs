@@ -456,6 +456,88 @@ fn same_scope_successor_pit_proposal(
     value
 }
 
+/// One frame of real observations for a two-member universe, in the shape the Owner admits.
+///
+/// Five constraints decide this shape and none of them is a preference. `derive_universe_selection`
+/// refuses any batch that does not carry exactly two member keys. The native replay projections read
+/// five BAR fields and four QUOTE fields for each member, so a frame that resolves is eighteen rows.
+/// A row whose scale is non-zero may not have a mantissa ending in zero, because one price with two
+/// spellings is one fact with two digests. Every row's own four time coordinates must be
+/// non-decreasing in the order event, provider, correction, retrieval. And the rows must be strictly
+/// ascending by `(symbolic_key, member_key)`.
+///
+/// The batch fixture beside this one is a single member and six BAR fields, and the in-memory
+/// scheduling tests build `VerifiedPitObservation` values directly with mantissas like `10_000@2` -
+/// which is to say they skip the canonicalization that rejects exactly that. Neither shape could
+/// have reached this path, which is why it had never been asked a question by a database.
+fn two_member_observation_batch(
+    source: &SourceBindingCommit,
+    proposal: &UntrustedPitSnapshotProposal,
+) -> UntrustedPitObservationBatchProposal {
+    let request = &proposal.request;
+    let correction_publication = request
+        .time_evidence
+        .correction_publication
+        .as_ref()
+        .expect("a batch-carrying request states its correction-publication coordinate")
+        .value;
+    let locator = source.receipt().locator();
+    let mut rows = Vec::with_capacity(18);
+
+    for member in ["AAPL", "MSFT"] {
+        let bar = [
+            ("OPEN", 10_001_i128, 2_u8),
+            ("HIGH", 10_103, 2),
+            ("LOW", 9_907, 2),
+            ("CLOSE", 10_051, 2),
+            ("VOLUME", 1_000, 0),
+        ]
+        .map(|(field, mantissa, scale)| ("BAR", "1M", field, mantissa, scale));
+        let quote = [
+            ("BID_PRICE", 10_049_i128, 2_u8),
+            ("ASK_PRICE", 10_053, 2),
+            ("BID_SIZE", 100, 0),
+            ("ASK_SIZE", 100, 0),
+        ]
+        .map(|(field, mantissa, scale)| ("QUOTE", "TICK", field, mantissa, scale));
+
+        for (data_kind, timeframe, field, value_mantissa, value_scale) in
+            bar.into_iter().chain(quote)
+        {
+            rows.push(UntrustedPitObservation {
+                symbolic_key: format!("{member}.{field}.{timeframe}"),
+                member_key: member.to_owned(),
+                instrument: member.to_owned(),
+                channel: "MARKET".into(),
+                data_kind: data_kind.into(),
+                timeframe: timeframe.into(),
+                field: field.into(),
+                value_mantissa,
+                value_scale,
+                // Exactly the request's four coordinates, because a PIT snapshot is one as-of cut
+                // rather than a series: `validate_observation_against_claims` compares each of them
+                // for equality, so a row that carried its own chain would be a different cut.
+                event_effective: request.time_evidence.event_effective.value,
+                provider_available: request.time_evidence.provider_available.value,
+                correction_publication,
+                retrieval: request.time_evidence.retrieval.value,
+                source_binding_identity: source.fact().binding_id(),
+                source_frontier_digest: proposal.evidence.source_frontier.digest,
+                instrument_master_digest: request.instrument_master_digest,
+                universe_selection_digest: request.universe_selection_digest,
+                market_semantics_identity: request.market_semantics_identity,
+                correction_stream_identity: locator.correction_frontier.stream_identity.clone(),
+                correction_sequence: locator.correction_frontier.sequence,
+                correction_frontier_digest: proposal.evidence.correction_frontier.digest,
+            });
+        }
+    }
+    rows.sort_by(|left, right| {
+        (&left.symbolic_key, &left.member_key).cmp(&(&right.symbolic_key, &right.member_key))
+    });
+    UntrustedPitObservationBatchProposal { rows }
+}
+
 fn basis(value: &UntrustedPitSnapshotProposal) -> TestOnlyCanonicalBasisResolver {
     basis_at(value, &clock(40, 1))
 }
@@ -7354,7 +7436,155 @@ async fn run_postgres_owner_scenario() {
     let census_owner = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
     Box::pin(native_replay_successor_frame_oracle(&census_owner)).await;
     Box::pin(native_replay_frame_sequence_custody_oracle(&census_owner)).await;
+    Box::pin(native_replay_two_member_frame_supply_oracle(&census_owner)).await;
     admin.close().await;
+}
+
+/// A snapshot proposal at its own cut, with every time coordinate moved together.
+///
+/// `same_scope_successor_pit_proposal` moves only `event_effective`, which is enough for a commit
+/// that carries no observations and impossible for one that does: a row must repeat all four of the
+/// request's coordinates, and they must stay ordered and at or before the decision cut. Advancing
+/// one of four leaves a request no batch can satisfy.
+fn two_member_pit_proposal(
+    source: &SourceBindingCommit,
+    correlation_byte: u8,
+    frame_time: u64,
+) -> UntrustedPitSnapshotProposal {
+    let mut value = pit_proposal(source);
+    value.request.correlation_identity = d(correlation_byte);
+    value.request.scope_digest = TWO_MEMBER_FRAME_SCOPE;
+    value.request.time_evidence.event_effective = UntrustedEventEffectiveTime::from_untrusted(
+        frame_time,
+        TEST_CLOCK_IDENTITY_V1,
+        TEST_CLOCK_EPOCH_V1,
+    );
+    value.request.time_evidence.provider_available = UntrustedProviderAvailableTime::from_untrusted(
+        frame_time + 1,
+        TEST_CLOCK_IDENTITY_V1,
+        TEST_CLOCK_EPOCH_V1,
+    );
+    value.request.time_evidence.correction_publication =
+        Some(UntrustedCorrectionPublicationTime::from_untrusted(
+            frame_time + 2,
+            TEST_CLOCK_IDENTITY_V1,
+            TEST_CLOCK_EPOCH_V1,
+        ));
+    value.request.time_evidence.retrieval = UntrustedRetrievalTime::from_untrusted(
+        frame_time + 3,
+        TEST_CLOCK_IDENTITY_V1,
+        TEST_CLOCK_EPOCH_V1,
+    );
+    refresh_request_claims(&mut value.request);
+    value
+}
+
+/// The scope this oracle owns. The frame census is keyed by scope and shared across every oracle in
+/// one database run, so a scope is a supply boundary rather than a label.
+const TWO_MEMBER_FRAME_SCOPE: BindingDigest = BindingDigest::from_untrusted_bytes([211; 32]);
+
+/// A frame census built from batches a universe can actually be bound from.
+///
+/// Every other census proof in this module commits snapshots whose observation batch is one member
+/// and six BAR fields. That batch reaches the census table - the census is written on every snapshot
+/// commit and never looks at members - so the sequence resolver has always had rows to answer with,
+/// and has never once been answered from a batch a frame could be resolved out of. The two are not
+/// the same question, and only the second one is on the path to a replay.
+///
+/// So this commits the supply instead: two snapshots in one scope, each carrying two members with
+/// the five BAR and four QUOTE fields the native replay projections read, and asks the census for
+/// the sequence over them. What it proves is that the Owner accepts this shape and orders it, which
+/// is the half of the path that does not depend on reaching the frame resolver.
+async fn native_replay_two_member_frame_supply_oracle(owner: &MarketDataOwnerPostgres) {
+    let source = owner
+        .commit_source_initial(
+            source_proposal(10, 40),
+            OwnerSourceBindingDecision {
+                blockers: BTreeSet::new(),
+            },
+            &clock(40, 1),
+        )
+        .await
+        .expect("source binding for the two-member frame supply");
+
+    // Its own scope, not the one the census oracles above already filled. The census is keyed by
+    // scope and this database is never reset between oracles, so reusing `d(21)` would have this
+    // sequence answer with their frames as well as its own - and the assertion would have been
+    // written around whatever came back.
+    let commit = async |correlation_byte: u8, frame_time: u64| {
+        let mut proposal = two_member_pit_proposal(&source, correlation_byte, frame_time);
+        let observation = two_member_observation_batch(&source, &proposal);
+        proposal.evidence.normalized_records_digest =
+            derive_observation_batch_digest(&observation).unwrap();
+        refresh_request_claims(&mut proposal.request);
+        let basis = basis(&proposal);
+        owner
+            .commit_pit_initial_with_observation_batch(proposal, observation, &basis, &clock(40, 1))
+            .await
+            .expect("a two-member snapshot the Owner admits")
+    };
+
+    // Frame times, not arbitrary: every row coordinate must land at or before the decision
+    // cut this oracle's clock fixes at 40, and the fourth coordinate is `frame_time + 3`.
+    let first = commit(70, 10).await;
+    let second = commit(71, 20).await;
+    let third = commit(72, 30).await;
+    assert_ne!(
+        first.fact().snapshot_identity(),
+        second.fact().snapshot_identity()
+    );
+
+    // What the Owner stored, not what the proposal said. Without this the oracle would pass on the
+    // single-member batch every other census proof commits: the census is written on every snapshot
+    // and never looks at members, so ordering alone cannot tell the two batches apart. Binding a
+    // universe from the readback is the next step and needs the resolver arm that is still behind
+    // `cfg(not(test))`.
+    let members: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT member_key FROM market_data_private.pit_observation_rows_v1 WHERE snapshot_identity=$1 ORDER BY member_key",
+    )
+    .bind(first.fact().snapshot_identity().as_bytes().as_slice())
+    .fetch_all(owner.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        members,
+        ["AAPL", "MSFT"],
+        "the Owner stored exactly the two members a universe selection admits"
+    );
+    let rows: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM market_data_private.pit_observation_rows_v1 WHERE snapshot_identity=$1",
+    )
+    .bind(first.fact().snapshot_identity().as_bytes().as_slice())
+    .fetch_one(owner.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        rows, 18,
+        "five BAR and four QUOTE fields for each of two members"
+    );
+
+    let frame =
+        |commit: &PitSnapshotCommitAggregate, frame_time_ns: u64| NativeReplayCensusFrameV2 {
+            snapshot_identity: commit.fact().snapshot_identity(),
+            snapshot_fact_digest: commit.fact().digest(),
+            frame_time_ns,
+        };
+    assert_eq!(
+        owner
+            .resolve_native_replay_census_sequence_v2(
+                TWO_MEMBER_FRAME_SCOPE,
+                first.fact().snapshot_identity(),
+                100,
+                0,
+                100
+            )
+            .await,
+        Ok(NativeReplayCensusSequenceV2 {
+            consumed: vec![frame(&first, 10), frame(&second, 20)],
+            bounding_successor: frame(&third, 30),
+        }),
+        "the census orders the two-member snapshots it was given"
+    );
 }
 
 /// The successor frame comes out of Owner custody, or the profile is unavailable.
