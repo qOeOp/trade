@@ -1055,23 +1055,32 @@ fn candidate_request(
     })
 }
 
-/// Reads a candidate channel out of a Design's roles: one role is the exact-instrument form, two
-/// are the universe-member form.
+/// Reads a candidate channel out of a Design's roles, by the scope each role declares.
+///
+/// The form is decided by that declaration, not inferred from how many roles there are: one
+/// `ExactInstrument` role is the exact-instrument form, and two `UniverseMembers` roles reading
+/// `CLOSE` and `OPEN` are the universe-member form. A Design of two exact-instrument roles is
+/// neither, so it is outside the family here rather than read as a universe member.
 ///
 /// The universe form's two roles are told apart by their field, never by position: a Design's
 /// canonical form orders its roles by the ids the author chose, so the `CLOSE` role comes first
 /// only when its id happens to sort first.
 fn candidate_channel(design: &StrategyDesignV2) -> Option<SingleThresholdChannelV1> {
     match design.inputs.as_slice() {
-        [input] => Some(SingleThresholdChannelV1::ExactInstrument {
-            role_semantic_id: input.semantic_id.clone(),
-            instrument: input.instrument.clone(),
-            field_semantic_id: input.field_semantic_id.clone(),
-            timeframe: input.timeframe.clone(),
-            unit: input.unit.clone(),
-            scale: input.scale,
-        }),
-        [first, second] => {
+        [input] if input.scope == InputScopeV2::ExactInstrument => {
+            Some(SingleThresholdChannelV1::ExactInstrument {
+                role_semantic_id: input.semantic_id.clone(),
+                instrument: input.instrument.clone(),
+                field_semantic_id: input.field_semantic_id.clone(),
+                timeframe: input.timeframe.clone(),
+                unit: input.unit.clone(),
+                scale: input.scale,
+            })
+        }
+        [first, second]
+            if first.scope == InputScopeV2::UniverseMembers
+                && second.scope == InputScopeV2::UniverseMembers =>
+        {
             let role_reading = |field: &str| match (
                 first.field_semantic_id == field,
                 second.field_semantic_id == field,
@@ -1583,6 +1592,43 @@ mod tests {
             recover_single_threshold_request_v1(&stored, &program),
             Some(expected)
         );
+    }
+
+    /// The channel's form is read from the scope each role declares. A Design of two
+    /// exact-instrument roles that read `CLOSE` and `OPEN` is the shape an exact form carrying a
+    /// second role would take; read by role count it would be guessed a universe member, and it is
+    /// outside the family instead. So are mixed scopes and a single universe-member role.
+    #[rstest]
+    #[case::one_exact_role(|_: &mut StrategyDesignV2| {}, false, Some("EXACT"))]
+    #[case::two_universe_roles(|_: &mut StrategyDesignV2| {}, true, Some("UNIVERSE"))]
+    #[case::two_exact_roles(|d: &mut StrategyDesignV2| for role in &mut d.inputs {
+        role.scope = InputScopeV2::ExactInstrument;
+        role.instrument = "BTCUSDT-PERP.BINANCE".to_owned();
+    }, true, None)]
+    #[case::mixed_scopes(|d: &mut StrategyDesignV2| {
+        d.inputs[0].scope = InputScopeV2::ExactInstrument;
+        d.inputs[0].instrument = "BTCUSDT-PERP.BINANCE".to_owned();
+    }, true, None)]
+    #[case::one_universe_role(|d: &mut StrategyDesignV2| d.inputs.truncate(1), true, None)]
+    fn the_channel_form_is_read_from_each_roles_declared_scope(
+        #[case] change: fn(&mut StrategyDesignV2),
+        #[case] universe: bool,
+        #[case] expected: Option<&str>,
+    ) {
+        let request = if universe {
+            universe_request()
+        } else {
+            request()
+        };
+        let (mut design, _) =
+            author_single_threshold_program_v1(&request).expect("the request is authorable");
+        change(&mut design);
+
+        let form = candidate_channel(&design).map(|channel| match channel {
+            SingleThresholdChannelV1::ExactInstrument { .. } => "EXACT",
+            SingleThresholdChannelV1::UniverseMember { .. } => "UNIVERSE",
+        });
+        assert_eq!(form, expected);
     }
 
     /// The authored Design is one the universe contract admits for a one-member universe, and is
