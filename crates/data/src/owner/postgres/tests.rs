@@ -440,6 +440,12 @@ fn distinct_pit_proposal(
 /// This is the sibling lineage `docs/owners/market-data.md` says the correction lineage cannot
 /// see: same scope, unrelated root, later in canonical event order. It is a genuinely committed
 /// Owner snapshot, not a copy of the first with its values moved.
+///
+/// It advances `event_effective` and nothing else, so it cannot carry an observation batch. Every
+/// row must repeat all four of the request's time coordinates and they must stay ordered, and a
+/// request whose event coordinate has moved past its own provider coordinate is one no batch can
+/// satisfy. A commit that carries no observations never asks. Use `two_member_pit_proposal` when
+/// the snapshot carries rows.
 fn same_scope_successor_pit_proposal(
     source: &SourceBindingCommit,
     correlation_byte: u8,
