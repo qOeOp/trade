@@ -758,13 +758,16 @@ selection is refused by name at the initial binding is asserted by the first pos
 
 What R&D reads from a binding and its Replay facts, and where each comes from in the universe-member shape:
 
-| Read by R&D                                   | First corpus                           | Universe‑member shape                                                     |
-| --------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------- |
-| `resolved_owner_inputs`                       | observation census identity and digest | universe frame receipt digest (BLAKE3, identity equal to digest)          |
-| `universe_selection`                          | Universe Selection dependency          | the same Universe Selection dependency                                    |
-| PIT scope, snapshot, window, request identity | Replay facts header                    | the same header                                                           |
-| Design identity, non‑empty role set           | binding record                         | binding record; the role set is never empty                               |
-| Instrument Master verification                | registry, per exact instrument         | not bound at composition; the request‑keyed V2 cut at the initial binding |
+| Read by R&D                                | First corpus                                         | Universe‑member shape                                                     |
+| ------------------------------------------ | ---------------------------------------------------- | ------------------------------------------------------------------------- |
+| `resolved_owner_inputs`                    | observation census identity and digest               | universe frame receipt digest (BLAKE3, identity equal to digest)          |
+| `universe_selection`                       | Universe Selection dependency                        | the same Universe Selection dependency                                    |
+| binding locator                            | binding record                                       | the same binding record                                                   |
+| market data scope digest (`pit_scope`)     | resolved composition cut, from the PIT request scope | the same                                                                  |
+| PIT snapshot, window, request identity     | Replay facts header                                  | the same header                                                           |
+| Replay facts identity and receipt identity | Replay facts                                         | the same                                                                  |
+| Design identity, non‑empty role set        | binding record                                       | binding record; the role set is never empty                               |
+| Instrument Master verification             | registry, per exact instrument                       | not bound at composition; the request‑keyed V2 cut at the initial binding |
 
 The exact-instrument first corpus resolves its instrument through Instrument Master V1, whose projection cannot
 construct a native crypto perpetual (`require_complete_native_crypto_perpetual_construction` always refuses), so no
@@ -1757,8 +1760,8 @@ gives each (member, role) value of one universe frame the Owner sample coordinat
 is additive: no V1 receipt, V2, V3 or V4 projection, `SampleFactV1`, `SampleReceiptV1` or coordinate codec changes.
 Its subject is the exact digest of one `StrategyInputUniverseFrameReceipt`, the receipt a ProgramHost admits for
 that frame, never a digest the host cannot compare with it. It holds one component per (member, role) value of that
-frame, strictly ordered by member ordinal and then input-role identity, exhausting the frame; a missing, extra or
-duplicated pair produces no projection. A component carries the member ordinal, member key and instrument, the
+frame, strictly ordered by member ordinal - the selection's canonical member order, which a frame's values follow -
+and then input-role identity, exhausting the frame; a missing, extra or duplicated pair produces no projection. A component carries the member ordinal, member key and instrument, the
 input-role identity, the universe member binding digest, the value receipt digest, the frame's trigger digest, the
 timeframe-projection receipt digest, the sample identity, the native `SampleReceiptV1` digest, the coordinate digest
 and the 308 coordinate bytes. The coordinate is the existing codec unchanged (schema `1`, domain
@@ -1767,7 +1770,16 @@ universe member has no static binding receipt. A universe member's sample is the
 an exact-instrument binding of the same row issues; only its `TimeframeProjectionReceiptV1` binds the member binding
 digest where an exact binding binds its receipt digest.
 
-Its canonical bytes are, in order: schema `u16LE = 1`, reserved-zero `u16LE`, subject `[u8; 32]`, positive component
+A BAR frame's projection also binds the schedule each member's BAR role was read under. Its schedule-dependency
+set digest is SHA-256 over `market-data.universe-sample-projection-schedule-set.v1\0`, the component count `u32LE`,
+and per component in order the member ordinal `u8`, input-role identity and that member's BAR schedule readback
+identity (`[u8; 32]` each). It is required, never optional, for a BAR frame and absent for an EVENT frame, and it is
+part of the projection's identity, so the same frame read under another schedule is another projection; a
+timeframe-projection receipt binds the timeframe but not the schedule, so without it a schedule change would leave
+the admitted event's identity unchanged.
+
+Its canonical bytes are, in order: schema `u16LE = 1`, reserved-zero `u16LE`, subject `[u8; 32]`, frame lifecycle
+`u8` (`1` EVENT, `2` BAR), for a BAR frame the schedule-dependency set digest `[u8; 32]`, positive component
 count `u32LE`, then per component the member ordinal `u8`, length-prefixed (`u16LE`) member key and instrument, and
 the input-role, member-binding, value-receipt, trigger, timeframe-projection, sample-identity, sample-receipt and
 coordinate digests (`[u8; 32]` each) followed by the 308 coordinate bytes. Its identity is SHA-256 over
@@ -1784,8 +1796,9 @@ each projection's receipt, exact-subject readback and outbox. A window's project
 so an R&D transaction that holds locks makes one cross-database call however long the window is. The request key
 is recorded with the binding it was issued under, and another binding under that key is refused by name with zero
 writes; an exact retry returns the stored bytes with zero append. The operation never calls R&D. R&D calls it
-before it resolves the frames, and compares each projection's (member, role) set with its Plan's role table in both
-directions before a host attaches it. The exact-subject resolver reads one projection by its universe-frame
+before it resolves the frames. A host attaches a projection only when its (member, role) set equals both the
+admitted frame's value set and the Plan's role table, and refuses it otherwise; any comparison R&D makes earlier is
+an early refusal, not that guarantee. The exact-subject resolver reads one projection by its universe-frame
 digest. Built so far: nothing; the contract is admitted to be built, and it claims no production startup or write,
 deployment, runtime or trading authority.
 

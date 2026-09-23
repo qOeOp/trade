@@ -710,13 +710,16 @@ binding 被按名拒绝」由驱动该 binding 的首条正向 native Replay 链
 
 R&D 从 binding 及其 Replay facts 读取的内容，以及在 universe-member 形状下各自的来源：
 
-| R&D 读取                                      | 第一语料                                 | universe‑member 形状                                                     |
-| --------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------ |
-| `resolved_owner_inputs`                       | observation census 的 identity 与 digest | universe frame receipt digest（BLAKE3，identity 等于 digest）            |
-| `universe_selection`                          | Universe Selection dependency            | 同一个 Universe Selection dependency                                     |
-| PIT scope、snapshot、window、request identity | Replay facts header                      | 同一个 header                                                            |
-| Design identity、非空 role set                | binding record                           | binding record；role set 绝不为空                                        |
-| Instrument Master 校验                        | registry，逐个 exact instrument          | composition 时不绑定；在 initial binding 由按 request 定键的 V2 cut 校验 |
+| R&D 读取                                  | 第一语料                                            | universe‑member 形状                                                     |
+| ----------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------ |
+| `resolved_owner_inputs`                   | observation census 的 identity 与 digest            | universe frame receipt digest（BLAKE3，identity 等于 digest）            |
+| `universe_selection`                      | Universe Selection dependency                       | 同一个 Universe Selection dependency                                     |
+| binding locator                           | binding record                                      | 同一个 binding record                                                    |
+| market data scope digest（`pit_scope`）   | 解析出的 composition cut，取自 PIT request 的 scope | 同一来源                                                                 |
+| PIT snapshot、window、request identity    | Replay facts header                                 | 同一个 header                                                            |
+| Replay facts identity 与 receipt identity | Replay facts                                        | 同一来源                                                                 |
+| Design identity、非空 role set            | binding record                                      | binding record；role set 绝不为空                                        |
+| Instrument Master 校验                    | registry，逐个 exact instrument                     | composition 时不绑定；在 initial binding 由按 request 定键的 V2 cut 校验 |
 
 exact-instrument 第一语料经 Instrument Master V1 解析其 instrument，而 V1 projection 无法构造原生 crypto
 perpetual（`require_complete_native_crypto_perpetual_construction` 恒拒绝），所以任何 exact-instrument 形状都无法
@@ -1615,7 +1618,7 @@ composition、production startup/write、ProgramHost、Backtest、deployment、r
 additive 的：V1 receipt、V2/V3/V4 projection、`SampleFactV1`、`SampleReceiptV1` 与 coordinate codec 均不改变。
 它的 subject 是一个 `StrategyInputUniverseFrameReceipt` 的准确 digest，即 ProgramHost 为该帧接纳的那个
 receipt，绝不是 host 无法与之比较的 digest。它为该帧每个（member, role）值各含一个 component，严格按 member
-ordinal、再按 input-role identity 排序，并穷尽该帧；缺失、多余或重复的一对都不产生 projection。component 携带
+ordinal（即 selection 的 canonical member 顺序，也是帧内值遵循的顺序）、再按 input-role identity 排序，并穷尽该帧；缺失、多余或重复的一对都不产生 projection。component 携带
 member ordinal、member key 与 instrument、input-role identity、universe member binding digest、value receipt
 digest、该帧的 trigger digest、timeframe-projection receipt digest、sample identity、原生 `SampleReceiptV1`
 digest、coordinate digest 与 308 字节 coordinate。coordinate 是未改变的现有 codec（schema `1`，domain
@@ -1624,7 +1627,15 @@ member 没有 static binding receipt。universe member 的 sample 就是同一�
 那个与 role 无关的 `SampleFactV1`；只有它的 `TimeframeProjectionReceiptV1` 在 exact binding 绑定其 receipt
 digest 的位置绑定 member binding digest。
 
-其 canonical bytes 依次为：schema `u16LE = 1`、reserved-zero `u16LE`、subject `[u8; 32]`、正的 component count
+BAR 帧的 projection 还绑定每个 member 的 BAR role 读取时所依据的 schedule。其 schedule-dependency set digest 是对
+`market-data.universe-sample-projection-schedule-set.v1\0`、component count `u32LE`，以及按顺序每个 component 的
+member ordinal `u8`、input-role identity 与该 member 的 BAR schedule readback identity（各 `[u8; 32]`）取
+SHA-256。它对 BAR 帧是必填、绝非可选，对 EVENT 帧则不存在，并且是 projection identity 的一部分，所以同一帧在另一
+schedule 下读取就是另一个 projection；timeframe-projection receipt 只绑定 timeframe 而不绑定 schedule，若无此项，
+schedule 改变不会改变被接纳事件的 identity。
+
+其 canonical bytes 依次为：schema `u16LE = 1`、reserved-zero `u16LE`、subject `[u8; 32]`、帧 lifecycle `u8`
+（`1` EVENT，`2` BAR）、对 BAR 帧为 schedule-dependency set digest `[u8; 32]`、正的 component count
 `u32LE`，然后每个 component 依次为 member ordinal `u8`、带长度前缀（`u16LE`）的 member key 与 instrument，以及
 input-role、member-binding、value-receipt、trigger、timeframe-projection、sample-identity、sample-receipt 与
 coordinate digest（各 `[u8; 32]`），最后是 308 字节 coordinate。其 identity 是对
@@ -1639,7 +1650,8 @@ identity、该 request 的 composition binding locator，以及签哪些帧：re
 projection 的 receipt、exact-subject readback 与 outbox。一个 window 的 projection 在这一次调用中签发，所以
 持锁的 R&D transaction 无论 window 多长都只做一次跨库调用。request key 与其签发时的 binding 一并记录，同一 key
 下的另一 binding 按名拒绝且零写入；准确 retry 以零 append 返回已存字节。该 operation 从不回调 R&D。R&D 在解析
-帧之前调用它，并在 host 附加之前双向比较每个 projection 的（member, role）集合与其 Plan 的 role 表。
+帧之前调用它。host 只有在 projection 的（member, role）集合同时等于所接纳帧的值集合与 Plan 的 role 表时才附加它，
+否则拒绝；R&D 更早做的任何比较都只是提前拒绝，不是这条性质的保证。
 exact-subject resolver 按 universe-frame digest 读取一个 projection。目前已建成：无；该合同已准入建造，不声称
 production startup 或 write、deployment、runtime 或 trading authority。
 
