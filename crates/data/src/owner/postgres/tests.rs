@@ -1941,17 +1941,27 @@ fn instrument_fact(
 /// come from the source binding this Owner actually committed - `d(3)` and `d(4)` for the binding
 /// this supply uses. Hardcoding them in two places is the same fact written twice, and the pair
 /// only agree by coincidence today.
-fn instrument_fact_bound_to(
-    identity: &str,
+/// The three values a bar schedule compares between a master fact and the batch it rests on.
+///
+/// They travel together because a schedule refuses unless all three agree, and they are carried
+/// rather than fixed because the batch's copies come from the source binding the caller actually
+/// committed. Fixing them in the fixture is the same fact written twice.
+#[derive(Clone, Copy)]
+struct ScheduleBoundValues {
     market_semantics_identity: BindingDigest,
     source_frontier: BindingDigest,
     correction_frontier: BindingDigest,
+}
+
+fn instrument_fact_bound_to(
+    identity: &str,
+    bound: ScheduleBoundValues,
     observation: i128,
 ) -> InstrumentMasterFactProposalV1 {
     let mut proposal = instrument_fact(identity, None, 0);
-    proposal.market_semantics_identity = market_semantics_identity;
-    proposal.source_frontier = source_frontier;
-    proposal.correction_frontier = correction_frontier;
+    proposal.market_semantics_identity = bound.market_semantics_identity;
+    proposal.source_frontier = bound.source_frontier;
+    proposal.correction_frontier = bound.correction_frontier;
     // `instrument_fact` observes at 99, which suits `instrument_clock`'s head at 100 and is past
     // the wall observation of a clock at 40. The Owner refuses a fact observed after its own clock
     // saw the world, so the observation belongs to the caller's clock rather than to the fixture.
@@ -1970,16 +1980,18 @@ fn instrument_request_bound_to(
     identity: u8,
     scope: InstrumentMasterScopeV1,
     locator: UntrustedClockHeadLocator,
-    market_semantics_identity: BindingDigest,
-    source_frontier: BindingDigest,
-    correction_frontier: BindingDigest,
+    bound: ScheduleBoundValues,
+    effective_instant: i128,
     observation: i128,
 ) -> UntrustedInstrumentMasterRequestV1 {
     let mut request = instrument_request(identity, scope, locator);
-    request.market_semantics_identity = market_semantics_identity;
-    request.source_frontier = source_frontier;
-    request.correction_frontier = correction_frontier;
-    request.effective_instant = observation;
+    request.market_semantics_identity = bound.market_semantics_identity;
+    request.source_frontier = bound.source_frontier;
+    request.correction_frontier = bound.correction_frontier;
+    // The instant a cut answers for and the moment the Owner observed it are different things. A
+    // bar schedule requires `cut.effective_instant == row.event_effective`, so the instant belongs
+    // to the frame; the observation has to stay at or before the clock's wall observation.
+    request.effective_instant = effective_instant;
     request.owner_observation = observation;
     request.decision_cut = u64::try_from(observation).expect("a non-negative observation");
     request
@@ -7635,8 +7647,11 @@ async fn native_replay_two_member_frame_supply_oracle(owner: &MarketDataOwnerPos
     // This oracle's clock observes at 40, and a fact may not be observed after its own clock was.
     let observation: i128 = 40;
     let semantics = d(84);
-    let source_frontier = source.receipt().locator().source_frontier.digest;
-    let correction_frontier = source.receipt().locator().correction_frontier.digest;
+    let bound = ScheduleBoundValues {
+        market_semantics_identity: semantics,
+        source_frontier: source.receipt().locator().source_frontier.digest,
+        correction_frontier: source.receipt().locator().correction_frontier.digest,
+    };
     let clock_locator = owner
         .current_clock_head_locator_v1()
         .await
@@ -7645,13 +7660,7 @@ async fn native_replay_two_member_frame_supply_oracle(owner: &MarketDataOwnerPos
     for instrument in ["AAPL.XNAS", "MSFT.XNAS"] {
         owner
             .append_instrument_master_fact(
-                instrument_fact_bound_to(
-                    instrument,
-                    semantics,
-                    source_frontier,
-                    correction_frontier,
-                    observation,
-                ),
+                instrument_fact_bound_to(instrument, bound, observation),
                 &clock_locator,
             )
             .await
@@ -7661,49 +7670,62 @@ async fn native_replay_two_member_frame_supply_oracle(owner: &MarketDataOwnerPos
         identity: d(150),
         members: vec!["AAPL.XNAS".into(), "MSFT.XNAS".into()],
     };
-    let master = owner
-        .resolve_instrument_master(
-            &instrument_request_bound_to(
-                151,
-                InstrumentMasterScopeV1::UniverseSelectionRecord(d(150)),
-                clock_locator.clone(),
-                semantics,
-                source_frontier,
-                correction_frontier,
-                observation,
-            ),
-            Some(&membership),
-        )
-        .await
-        .expect("one master covering both members");
-    assert_eq!(
-        master.cut().expected_members(),
-        &["AAPL.XNAS".to_owned(), "MSFT.XNAS".to_owned()],
-        "the master the schedules will rest on covers both members of the frame"
-    );
+    // One master cut per frame, not one for the whole supply. A bar schedule requires
+    // `cut.effective_instant == row.event_effective`, so a cut answers for one instant and a frame
+    // at another instant needs its own. The facts above are per instrument and are admitted once.
+    let master_at = async |request_byte: u8, frame_time: u64| {
+        let master = owner
+            .resolve_instrument_master(
+                &instrument_request_bound_to(
+                    request_byte,
+                    InstrumentMasterScopeV1::UniverseSelectionRecord(d(150)),
+                    clock_locator.clone(),
+                    bound,
+                    i128::from(frame_time),
+                    observation,
+                ),
+                Some(&membership),
+            )
+            .await
+            .expect("one master covering both members at this frame's instant");
+        assert_eq!(
+            master.cut().expected_members(),
+            &["AAPL.XNAS".to_owned(), "MSFT.XNAS".to_owned()],
+            "the master the schedules rest on covers both members of the frame"
+        );
+        master
+    };
 
     // Its own scope, not the one the census oracles above already filled. The census is keyed by
     // scope and this database is never reset between oracles, so reusing `d(21)` would have this
     // sequence answer with their frames as well as its own - and the assertion would have been
     // written around whatever came back.
-    let commit = async |correlation_byte: u8, frame_time: u64| {
+    let commit = async |correlation_byte: u8, request_byte: u8, frame_time: u64| {
+        let master = master_at(request_byte, frame_time).await;
         let mut proposal = two_member_pit_proposal(&source, correlation_byte, frame_time);
+        // The snapshot names the master its members' schedules will be compared against. A
+        // schedule checks its master's digest and semantics against the batch's, so declaring an
+        // arbitrary digest here would make every schedule for this frame unpreparable - and the
+        // refusal would name the schedule rather than the snapshot that misnamed its master.
+        proposal.request.instrument_master_digest = master.digest();
+        proposal.request.market_semantics_identity = semantics;
         let observation = two_member_observation_batch(&source, &proposal);
         proposal.evidence.normalized_records_digest =
             derive_observation_batch_digest(&observation).unwrap();
         refresh_request_claims(&mut proposal.request);
         let basis = basis(&proposal);
-        owner
+        let commit = owner
             .commit_pit_initial_with_observation_batch(proposal, observation, &basis, &clock(40, 1))
             .await
-            .expect("a two-member snapshot the Owner admits")
+            .expect("a two-member snapshot the Owner admits");
+        (commit, master)
     };
 
     // Frame times, not arbitrary: every row coordinate must land at or before the decision
     // cut this oracle's clock fixes at 40, and the fourth coordinate is `frame_time + 3`.
-    let first = commit(70, 10).await;
-    let second = commit(71, 20).await;
-    let third = commit(72, 30).await;
+    let (first, first_master) = commit(70, 151, 10).await;
+    let (second, _) = commit(71, 152, 20).await;
+    let (third, _) = commit(72, 153, 30).await;
     assert_ne!(
         first.fact().snapshot_identity(),
         second.fact().snapshot_identity()
@@ -7759,6 +7781,78 @@ async fn native_replay_two_member_frame_supply_oracle(owner: &MarketDataOwnerPos
         bound,
         [("AAPL", "AAPL.XNAS"), ("MSFT", "MSFT.XNAS")],
         "the universe the Owner derives from its own readback names both members and their venues"
+    );
+
+    // One bar schedule per member, prepared from the batch the Owner read back and committed to the
+    // store the frame resolver will read them from. This is the half of the supply that had never
+    // existed: `commit_prepared_bar_schedule_v1` has no caller in a default build, and the only
+    // callers anywhere fed it a master and a batch built in memory.
+    for (instrument, role) in [("AAPL.XNAS", 200_u8), ("MSFT.XNAS", 201)] {
+        let request = UntrustedStrategyInputBindingRequest {
+            research_request_identity: d(198),
+            strategy_design_identity: d(199),
+            input_role_identity: d(role),
+            scope: UntrustedStrategyInputScope::ExactInstrument {
+                instrument: instrument.into(),
+            },
+            field_semantic: MarketDataFieldSemantic::BarClosePrice,
+            channel: StrategyInputChannel::Market,
+            timeframe: "1M".into(),
+            unit: StrategyInputUnit::Price,
+            scale: 2,
+            pit_request_identity: readback.request_identity(),
+            pit_request_digest: readback.request_digest(),
+            snapshot_identity: readback.snapshot_identity(),
+            snapshot_fact_digest: readback.fact_digest(),
+            observation_batch_digest: readback.digest(),
+            source_binding_identity: readback.source_binding_identity(),
+            source_frontier_digest: readback.source_frontier_digest(),
+            correction_frontier_digest: readback.correction_frontier_digest(),
+            instrument_master_digest: readback.instrument_master_digest(),
+            universe_selection_digest: readback.universe_selection_digest(),
+            market_semantics_identity: readback.market_semantics_identity(),
+            decision_cut: readback.time_evidence().decision_cut.value,
+        };
+        let binding =
+            crate::owner::strategy_input_binding::bind_strategy_input_role(&request, &readback)
+                .expect("a BAR role binds against the readback");
+        let prepared = crate::owner::bar_schedule::prepare_bar_schedule_commit_v1(
+            crate::owner::bar_schedule::UntrustedBarScheduleProposalV1 {
+                canonical_instrument: instrument.into(),
+                predecessor_fact_digest: None,
+                effective_from: 1,
+                effective_until: Some(100),
+                kind: BarScheduleKindV1::FixedInterval,
+                step: 1,
+                unit: BarScheduleUnitV1::Minute,
+                anchor_identity: d(202),
+                label: BarScheduleLabelV1::IntervalClose,
+                completion: BarScheduleCompletionV1::CompleteOnly,
+            },
+            &binding,
+            &readback,
+            &first_master,
+        )
+        .expect("a schedule prepares against the universe-scoped master");
+        owner
+            .commit_prepared_bar_schedule_v1(&prepared)
+            .await
+            .expect("the Owner commits this member's schedule");
+    }
+
+    // What the store holds, not what the commit returned. A commit that did not error is not a
+    // schedule the frame resolver can find: it reads candidates back by canonical instrument, so
+    // that is the shape asserted here.
+    let stored: Vec<String> = sqlx::query_scalar(
+        "SELECT canonical_instrument FROM market_data_private.bar_schedule_facts_v1 ORDER BY canonical_instrument",
+    )
+    .fetch_all(owner.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        stored,
+        ["AAPL.XNAS", "MSFT.XNAS"],
+        "both members of the frame have a bar schedule the resolver can find by instrument"
     );
 
     let frame =
