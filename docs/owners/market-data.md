@@ -61,17 +61,23 @@ never runs in CI.
   What remains is reach: it is crate-private, no deployed binary constructs it, and no request intake exists, so
   the acceptance mint in `crates/data/src/owner/postgres/bar_joined_cut_acceptance_v1.rs` is still the only caller
   outside the chain. Cleared by an Owner composition root and the request intake named in `B3` and `B4`.
-  **Ninety-two entries on this path are compiled but unreachable in a default build.** They report
-  dead under `cargo check` and not under `cargo clippy --all-targets`, so every caller they have is a
-  test target or a non-default feature. Measured at `d9d1fea84` by running both with
-  `RUSTFLAGS="--force-warn dead_code"` and `--workspace --keep-going`, then keeping the entries
-  present in the first and absent from the second. They sit in eleven files, and the `validate_*`,
-  `insert_*` and `lock_*` entries in `postgres.rs` are consecutive steps of one write path rather
-  than scattered leftovers. **This reading cannot see a caller behind a non-default feature**,
-  because neither build enables one: six of the ninety-two are reached from
-  `sealed-strategy-input-acceptance`, so no entry may be read as "nothing calls it", only as
-  "nothing in a default build calls it". **When the figure stops matching, rerun those two commands
-  rather than trusting it** - it moves the moment a caller lands, which is what clearing `B1` means.
+  **163 entries on this path are compiled but unreachable in a default build, and every one of them
+  is reached only from the sealed acceptance module.** Measured at `877781213` with
+  `RUSTFLAGS="--force-warn dead_code"` and `--message-format=json`, keying every `dead_code` primary
+  span by file and line. A default `cargo check --workspace` reports all 163 dead; adding
+  `--features vibe-data/sealed-strategy-input-acceptance` brings all 163 back to life; and
+  `cargo clippy -p vibe-data --all-targets` without that feature wakes none of them, so not one
+  entry has a `cfg(test)` caller. They sit in eleven files, and the `validate_*`, `insert_*` and
+  `lock_*` entries in `postgres.rs` are consecutive steps of one write path rather than scattered
+  leftovers. **Two earlier readings of this figure were wrong, both in the reassuring direction.**
+  It read 92 because `--message-format=short` folds one implementation's dead members into a single
+  `multiple associated items are never used` line and drops their names, and because that line's
+  anchor moves between builds, which admitted five entries that are dead on both sides. It read
+  "six behind a non-default feature" because the two builds compared differed in two variables at
+  once: `crates/qualification` and `crates/backtest_owner` take
+  `sealed-strategy-input-acceptance` in `[dev-dependencies]`, so `--all-targets` turns it on while
+  plain `cargo check` leaves it off. **When the figure stops matching, rerun those builds rather
+  than trusting it** - it moves the moment a caller lands, which is what clearing `B1` means.
 - **`B2` no production writer for the declaration store.** `register_strategy_input_binding_declaration_v1` has the
   same single non-test caller as `B1`, so `resolve_pit_request_for_strategy_design_v1` returns `UnknownDeclaration`
   for every production Design and the Composer seam in

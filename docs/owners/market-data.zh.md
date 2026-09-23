@@ -53,15 +53,20 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   入口，因此链路之外唯一的调用者仍是
   `crates/data/src/owner/postgres/bar_joined_cut_acceptance_v1.rs` 里的验收铸造。解除条件：一个 Owner 装配根，
   以及 `B3`、`B4` 点名的请求入口。
-  **这条路径上有九十二个条目在默认构建里编译得到却不可达。** 它们被 `cargo check` 报为死码，而不被
-  `cargo clippy --all-targets` 报，所以它们的每一个调用者要么是测试目标，要么在非默认 feature 门后。
-  测量于 `d9d1fea84`：两条命令都带 `RUSTFLAGS="--force-warn dead_code"` 与 `--workspace --keep-going`，
-  取"在第一条里出现、在第二条里消失"的条目。它们分布在十一个文件里，而 `postgres.rs` 中的
-  `validate_*`、`insert_*` 与 `lock_*` 条目是同一条写路径上前后相接的环节，不是散落的残留。
-  **这个读数看不见任何非默认 feature 门后的调用者**，因为两个构建都不启用它：九十二条里有六条是从
-  `sealed-strategy-input-acceptance` 触达的，所以任何一条都不能读作"没人调用它"，只能读作"默认构建
-  里没人调用它"。**当这个数不再吻合时，重跑那两条命令而不是相信它** - 它在有调用者落地的那一刻就会
-  变，而那正是解除 `B1` 的含义。
+  **这条路径上有 163 个条目在默认构建里编译得到却不可达，而且每一个都只从密封验收模块触达。**
+  测量于 `877781213`：带 `RUSTFLAGS="--force-warn dead_code"` 与 `--message-format=json`，按文件与
+  行号对每一条 `dead_code` 的 primary span 取键。默认的 `cargo check --workspace` 把 163 条全报为死；
+  加上 `--features vibe-data/sealed-strategy-input-acceptance` 后 163 条全部复活；而不带该 feature 的
+  `cargo clippy -p vibe-data --all-targets` 一条都唤不活，所以没有任何一条有 `cfg(test)` 调用者。
+  它们分布在十一个文件里，而 `postgres.rs` 中的 `validate_*`、`insert_*` 与 `lock_*` 条目是同一条
+  写路径上前后相接的环节，不是散落的残留。**这个数此前的两次读法都是错的，而且都朝着令人安心的方向错。**
+  读成 92 是因为 `--message-format=short` 把一个实现里的整簇死成员折成一行
+  `multiple associated items are never used` 并丢掉它们的名字，又因为这一行的锚点会在两次构建之间
+  漂移，放进了五条在两侧都已是死码的条目。读成"六条在非默认 feature 门后"是因为被比较的两个构建
+  同时变了两个量：`crates/qualification` 与 `crates/backtest_owner` 在 `[dev-dependencies]` 里带上
+  `sealed-strategy-input-acceptance`，于是 `--all-targets` 会把它打开，而裸 `cargo check` 不会。
+  **当这个数不再吻合时，重跑那几条命令而不是相信它** - 它在有调用者落地的那一刻就会变，
+  而那正是解除 `B1` 的含义。
 - **`B2` 声明存储在生产无写入者。** `register_strategy_input_binding_declaration_v1` 与 `B1` 共用同一个唯一非测试调用
   点，于是 `resolve_pit_request_for_strategy_design_v1` 对每一个生产 Design 都返回 `UnknownDeclaration`，
   `crates/strategy_factory/src/source_research_composer_postgres_v2.rs` 中的 Composer 接缝恒定 fail closed。解除条件：
