@@ -165,7 +165,9 @@ projection states them beside it, so a reader looking for a threshold inside a c
 result will not find one. The result is an equity or return series plus net return, maximum drawdown
 and fill count, each a named field the Owner validates rather than a lookup into an untyped map, so
 a renamed key fails to `unavailable` instead of rendering as absent. Each fill carries a canonical UTC timestamp, side, price
-and quantity. Points are strictly ordered, so equal adjacent timestamps fail closed rather than
+and quantity. Price and quantity are plain decimal strings at the instrument's precision and are shown
+exactly as given: trailing zeros are kept and none are added, a price may be negative, a quantity
+never carries a sign, and neither uses an exponent or digit grouping. Points are strictly ordered, so equal adjacent timestamps fail closed rather than
 render. Every numeric value is finite, so `NaN` and infinity fail closed rather than reaching an
 axis. Unknown keys, malformed ordering, mismatched series, stale carried values or non-canonical
 time fail closed to zero report data. The browser derives nothing: it does not synthesize returns,
@@ -173,11 +175,28 @@ compute a drawdown the projection did not state, or infer a fill the projection 
 
 `loading`, `unavailable`, valid `empty` and `available` are four distinct states, and the projection
 expresses them distinctly: an empty series must not stand for both a run that produced no points and
-a read that could not be answered. This surface performs no Backtest dispatch, selection commit,
-comparison judgment, Owner resolve, provider call or business write, and it establishes no S3
-deployment availability, executor cutover or real-trading authority. No Dashboard route or admitted
-Backtest Owner resolver currently supplies its positive projection, so component tests and static
-rendering do not establish live data or deployed-browser acceptance.
+a read that could not be answered. The projection names its state rather than leaving it to be
+inferred from an empty array. `empty` means the series has no points and both net return and maximum
+drawdown are null; fills may still be listed, because a run can open and close a position between two
+equity snapshots and a fill is a fact regardless. `available` means the series has points and both
+quantities are stated. Net return and maximum drawdown are always present as keys and null only in
+`empty`, so a missing key is always a fault. A run whose strategy is outside the admitted
+single-threshold family is `unavailable` for a named reason, that no Owner statement of strategy
+exists for this program family, rather than under a generic code.
+
+This surface performs no Backtest dispatch, selection commit, comparison judgment, Owner resolve,
+provider call or business write, and it establishes no S3 deployment availability, executor cutover or
+real-trading authority.
+
+Its admission extends to one `/backtest` read route that feeds it, the page that mounts it, and
+full-route acceptance, conditioned on the Backtest Owner projection that supplies this report. The
+route relays that projection's answer and adds nothing: when the Owner answers `unavailable`, the
+route does too, for the Owner's own reason. Acceptance proves two states separately. An unavailable
+projection renders the unavailable state, and the acceptance waits for that state's specific element
+rather than for an empty body or a message. An available projection renders the report from real
+committed bytes. Where no run in the ordered chain can produce the available state, that state is
+recorded as not constructible today with the reason, and no fixture stands in for it. Component tests
+and static rendering alone still establish neither live data nor deployed-browser acceptance.
 
 ## Bounded admission: Exploratory Replay request and result readback
 

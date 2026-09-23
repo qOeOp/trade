@@ -131,17 +131,27 @@ Trading 树并未 vendor 进本仓库，也未被检索，因此本节不对该�
 投影显式携带的 `cut_identity` 给出，而不是由浏览器从时间戳对齐推断。策略陈述,以及粒度、快照数与 `cut_identity`,都不来自回测结果:它们由 run 从上游携带,
 投影在其旁陈述,因此到规范回测结果里去找阈值的读者将找不到。结果是权益或收益序列,加上净收益、
 最大回撤与成交次数,每一项都是 Owner 校验过的具名字段,而不是对无类型 map 的按键查找,
-因此键名被改会 fail 到 `unavailable`,而不是渲染成缺失。每一笔成交携带 canonical UTC 时间戳、方向、价格与数量。point 严格按时间排序，
+因此键名被改会 fail 到 `unavailable`,而不是渲染成缺失。每一笔成交携带 canonical UTC 时间戳、方向、价格与数量。价格与数量是按品种精度书写的普通十进制字符串，原样显示：尾随的 0 保留、也不补 0，价格可以为负，数量永不带符号，两者都不用指数形式或千分位。point 严格按时间排序，
 因此相邻时间戳相等时 fail closed 而不是渲染。每一个数值都是有限的，因此 `NaN` 与无穷 fail closed
 而不是到达坐标轴。未知字段、错误顺序、series 失配、携带陈旧值或非 canonical 时间全部 fail closed 为零
 报告数据。浏览器不派生任何东西：它不合成收益、不计算投影未陈述的回撤、不推断投影未列出的成交。
 
 `loading`、`unavailable`、合法 `empty` 与 `available` 是四种独立状态，且投影必须把它们区分表达：空序列
-不得同时代表「这次运行没有产出 point」与「这次读取无法被回答」。本表面不执行 Backtest dispatch、
-selection commit、comparison judgment、Owner resolve、provider call 或业务写，也不建立 S3 deployment
-availability、executor cutover 或 real-trading authority。当前没有 Dashboard route 或已准入 Backtest
-Owner resolver 为它提供正向投影，因此组件测试与静态渲染不能建立 live data 或 deployed-browser
-acceptance。
+不得同时代表「这次运行没有产出 point」与「这次读取无法被回答」。投影直接陈述它的状态，而不是留给调用方
+从空数组推断。`empty` 表示序列没有 point，且净收益与最大回撤都为 null；成交仍可列出，因为一次运行可以在
+两个权益快照之间开仓又平仓，而成交无论如何都是事实。`available` 表示序列有 point 且两个量都已陈述。净收益
+与最大回撤作为键恒在，只在 `empty` 时为 null，因此缺一个键永远是故障。策略不在已准入单阈值族内的运行是
+`unavailable`，理由具名为「该程序族不存在 Owner 对策略的陈述」，而不是一个通用码。
+
+本表面不执行 Backtest dispatch、selection commit、comparison judgment、Owner resolve、provider call
+或业务写，也不建立 S3 deployment availability、executor cutover 或 real-trading authority。
+
+它的准入扩展到一条喂它的 `/backtest` 读路由、挂载它的页面，以及全路由验收，前提是为本报告提供数据的
+Backtest Owner 投影存在。该路由原样转达投影的回答、不添加任何东西：Owner 回答 `unavailable` 时路由也同样
+回答，理由用 Owner 自己的。验收分别证明两种状态。不可用的投影渲染不可用状态，验收等待该状态的具体元素，
+而不是等一个空 body 或一段文案。可用的投影从真实已提交的字节渲染报告。若有序链路中没有任何运行能产生
+可用状态，就把该状态记为「今天不可构造」并给出理由，不用夹具顶替。仅有组件测试与静态渲染，仍然既不能
+建立 live data，也不能建立 deployed-browser acceptance。
 
 ## 有界准入：Exploratory Replay 请求与结果回读
 
