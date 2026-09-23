@@ -1651,7 +1651,7 @@ impl ReplayCompositionOwnerV1 {
             .await
             .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
             if stored_request_bytes != request_bytes {
-                return Err(ReplayCompositionBindingErrorV1::DigestMismatch);
+                return Err(ReplayCompositionBindingErrorV1::IssuanceIdentityConflict);
             }
             return Ok(response);
         }
@@ -2724,7 +2724,7 @@ async fn recover_issuance_in_transaction(
     .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?
     .ok_or(ReplayCompositionBindingErrorV1::UnknownBinding)?;
     if digest_column(&row, "request_meaning_digest")? != locator.request_meaning_digest() {
-        return Err(ReplayCompositionBindingErrorV1::DigestMismatch);
+        return Err(ReplayCompositionBindingErrorV1::IssuanceIdentityConflict);
     }
     let binding_locator = ReplayCompositionBindingLocatorV1::from_untrusted(
         digest_column(&row, "binding_identity")?,
@@ -3490,25 +3490,60 @@ fn map_admission_reader_error(
         ReplayCompositionBindingErrorV1::PriceAdjustmentUnknown => {
             StrategyInputBindingAdmissionErrorV1::BindingUnavailable
         }
-        _ => StrategyInputBindingAdmissionErrorV1::StoreUnavailable,
+        // Raised only by issuance and recovery, which this reader never calls. Named so that it is
+        // classified by its meaning - an identity reused for a different request - if it ever
+        // reaches here, rather than reported as the store being unreachable.
+        ReplayCompositionBindingErrorV1::IssuanceIdentityConflict => {
+            StrategyInputBindingAdmissionErrorV1::RequestConflict
+        }
+        // Listed rather than left to a wildcard, so that a variant added later cannot become a
+        // store failure without someone deciding that it is one.
+        ReplayCompositionBindingErrorV1::NonCanonicalOrder
+        | ReplayCompositionBindingErrorV1::DependencyMismatch
+        | ReplayCompositionBindingErrorV1::UnknownBinding
+        | ReplayCompositionBindingErrorV1::AmbiguousBinding
+        | ReplayCompositionBindingErrorV1::LegacyUnbound
+        | ReplayCompositionBindingErrorV1::ReplayV2Unavailable => {
+            StrategyInputBindingAdmissionErrorV1::StoreUnavailable
+        }
     }
 }
 
-/// Maps a failed issuance insert onto the one failure that is about the request.
+/// PostgreSQL's default names for the three unique constraints of
+/// `market_data_private.replay_composition_issuances_v1`. `map_issuance_insert_error` reads them,
+/// so renaming a constraint changes that mapping; the ordered chain reads the live names back from
+/// `pg_constraint` and fails if they drift from these.
+pub(crate) const ISSUANCE_IDENTITY_CONSTRAINT: &str = "replay_composition_issuances_v1_pkey";
+pub(crate) const ISSUANCE_MEANING_CONSTRAINT: &str =
+    "replay_composition_issuances_v1_request_meaning_digest_key";
+pub(crate) const ISSUANCE_BINDING_CONSTRAINT: &str =
+    "replay_composition_issuances_v1_binding_identity_key";
+
+/// Maps a failed issuance insert by the constraint that refused it.
 ///
-/// A unique violation on the issuance identity means another transaction stored that identity
-/// first, which is the conflict `DigestMismatch` has always reported here. Every other failure of
-/// this write - a lost connection, a serialization failure, a constraint this write should never
-/// meet - is the store's, and reporting it as a digest mismatch told a reader to look at the
-/// request for a fault in the database.
+/// The three unique constraints mean different things. The identity is locked and checked before
+/// this write, so a unique violation on it is two sends of the same identity racing; the loser is
+/// answered as unavailable, and its retry reaches the identity check, which knows the stored
+/// request and says exactly whether this one conflicts or is the same. The meaning and binding are
+/// not checked first, and the binding and market facts writes before this one accept identical
+/// content, so a violation there is deterministic: this request is already stored under another
+/// identity. That is `IssuanceIdentityConflict`, because a retry would meet it every time.
+///
+/// Anything else is the store's, including a unique violation on a constraint this does not name:
+/// a constraint added later is not a statement about the caller until someone decides it is.
 fn map_issuance_insert_error(error: &sqlx::Error) -> ReplayCompositionBindingErrorV1 {
-    if error
+    let constraint = error
         .as_database_error()
-        .is_some_and(sqlx::error::DatabaseError::is_unique_violation)
-    {
-        ReplayCompositionBindingErrorV1::DigestMismatch
-    } else {
-        ReplayCompositionBindingErrorV1::ReplayV2Unavailable
+        .filter(|database| database.is_unique_violation())
+        .and_then(sqlx::error::DatabaseError::constraint);
+    match constraint {
+        Some(ISSUANCE_MEANING_CONSTRAINT | ISSUANCE_BINDING_CONSTRAINT) => {
+            ReplayCompositionBindingErrorV1::IssuanceIdentityConflict
+        }
+        // Two sends of the same identity racing; the retry reaches the identity check.
+        Some(ISSUANCE_IDENTITY_CONSTRAINT) => ReplayCompositionBindingErrorV1::ReplayV2Unavailable,
+        // A constraint added later, or not a unique violation at all.
+        Some(_) | None => ReplayCompositionBindingErrorV1::ReplayV2Unavailable,
     }
 }
 
@@ -3521,25 +3556,31 @@ mod issuance_insert_error_tests {
 
     use super::*;
 
-    /// A database error of one chosen kind, because only PostgreSQL itself can raise a real one.
+    /// A database error of one chosen kind and constraint, because only PostgreSQL can raise a
+    /// real one. The kind is copied out variant by variant: `ErrorKind` derives neither `Clone` nor
+    /// `Copy`, and it is `#[non_exhaustive]`.
     #[derive(Debug)]
-    struct KindOnly(ErrorKind);
+    struct Refusal(ErrorKind, Option<&'static str>);
 
-    impl Display for KindOnly {
+    impl Display for Refusal {
         fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(formatter, "{:?}", self.0)
+            write!(formatter, "{:?} on {:?}", self.0, self.1)
         }
     }
 
-    impl Error for KindOnly {}
+    impl Error for Refusal {}
 
-    impl DatabaseError for KindOnly {
+    impl DatabaseError for Refusal {
         fn message(&self) -> &'static str {
             "database error of a chosen kind"
         }
 
         fn code(&self) -> Option<Cow<'_, str>> {
             None
+        }
+
+        fn constraint(&self) -> Option<&str> {
+            self.1
         }
 
         fn as_error(&self) -> &(dyn Error + Send + Sync + 'static) {
@@ -3566,24 +3607,52 @@ mod issuance_insert_error_tests {
     }
 
     #[rstest]
-    #[case::unique_violation(
+    #[case::identity_race(
         ErrorKind::UniqueViolation,
-        ReplayCompositionBindingErrorV1::DigestMismatch
-    )]
-    #[case::foreign_key_violation(
-        ErrorKind::ForeignKeyViolation,
+        Some(ISSUANCE_IDENTITY_CONSTRAINT),
         ReplayCompositionBindingErrorV1::ReplayV2Unavailable
     )]
-    #[case::check_violation(
+    #[case::request_under_another_identity(
+        ErrorKind::UniqueViolation,
+        Some(ISSUANCE_MEANING_CONSTRAINT),
+        ReplayCompositionBindingErrorV1::IssuanceIdentityConflict
+    )]
+    #[case::binding_under_another_identity(
+        ErrorKind::UniqueViolation,
+        Some(ISSUANCE_BINDING_CONSTRAINT),
+        ReplayCompositionBindingErrorV1::IssuanceIdentityConflict
+    )]
+    #[case::unnamed_constraint(
+        ErrorKind::UniqueViolation,
+        Some("replay_composition_issuances_v1_added_later_key"),
+        ReplayCompositionBindingErrorV1::ReplayV2Unavailable
+    )]
+    #[case::no_constraint(
+        ErrorKind::UniqueViolation,
+        None,
+        ReplayCompositionBindingErrorV1::ReplayV2Unavailable
+    )]
+    #[case::check_on_a_named_constraint(
         ErrorKind::CheckViolation,
+        Some(ISSUANCE_MEANING_CONSTRAINT),
         ReplayCompositionBindingErrorV1::ReplayV2Unavailable
     )]
-    #[case::other(ErrorKind::Other, ReplayCompositionBindingErrorV1::ReplayV2Unavailable)]
-    fn a_database_refusal_is_a_mismatch_only_when_the_identity_is_taken(
+    #[case::foreign_key(
+        ErrorKind::ForeignKeyViolation,
+        None,
+        ReplayCompositionBindingErrorV1::ReplayV2Unavailable
+    )]
+    #[case::other(
+        ErrorKind::Other,
+        None,
+        ReplayCompositionBindingErrorV1::ReplayV2Unavailable
+    )]
+    fn an_issuance_refusal_follows_the_constraint_that_raised_it(
         #[case] kind: ErrorKind,
+        #[case] constraint: Option<&'static str>,
         #[case] expected: ReplayCompositionBindingErrorV1,
     ) {
-        let error = sqlx::Error::Database(Box::new(KindOnly(kind)));
+        let error = sqlx::Error::Database(Box::new(Refusal(kind, constraint)));
         assert_eq!(map_issuance_insert_error(&error), expected);
     }
 
@@ -3603,6 +3672,60 @@ mod issuance_insert_error_tests {
 mod composer_facade_tests {
     use super::*;
     use rstest::rstest;
+
+    /// The six variants that used to reach a wildcard are pinned to the answer the wildcard gave, so
+    /// listing them changed nothing; the one new variant is pinned to its own meaning.
+    #[rstest]
+    #[case::incomplete(
+        ReplayCompositionBindingErrorV1::IncompleteComposition,
+        StrategyInputBindingAdmissionErrorV1::UnknownAuthenticatedDesign
+    )]
+    #[case::invalid(
+        ReplayCompositionBindingErrorV1::InvalidRequest,
+        StrategyInputBindingAdmissionErrorV1::UnknownAuthenticatedDesign
+    )]
+    #[case::digest(
+        ReplayCompositionBindingErrorV1::DigestMismatch,
+        StrategyInputBindingAdmissionErrorV1::AuthenticatedDesignUntrusted
+    )]
+    #[case::price_adjustment(
+        ReplayCompositionBindingErrorV1::PriceAdjustmentUnknown,
+        StrategyInputBindingAdmissionErrorV1::BindingUnavailable
+    )]
+    #[case::identity_conflict(
+        ReplayCompositionBindingErrorV1::IssuanceIdentityConflict,
+        StrategyInputBindingAdmissionErrorV1::RequestConflict
+    )]
+    #[case::non_canonical(
+        ReplayCompositionBindingErrorV1::NonCanonicalOrder,
+        StrategyInputBindingAdmissionErrorV1::StoreUnavailable
+    )]
+    #[case::dependency(
+        ReplayCompositionBindingErrorV1::DependencyMismatch,
+        StrategyInputBindingAdmissionErrorV1::StoreUnavailable
+    )]
+    #[case::unknown_binding(
+        ReplayCompositionBindingErrorV1::UnknownBinding,
+        StrategyInputBindingAdmissionErrorV1::StoreUnavailable
+    )]
+    #[case::ambiguous(
+        ReplayCompositionBindingErrorV1::AmbiguousBinding,
+        StrategyInputBindingAdmissionErrorV1::StoreUnavailable
+    )]
+    #[case::legacy(
+        ReplayCompositionBindingErrorV1::LegacyUnbound,
+        StrategyInputBindingAdmissionErrorV1::StoreUnavailable
+    )]
+    #[case::unavailable(
+        ReplayCompositionBindingErrorV1::ReplayV2Unavailable,
+        StrategyInputBindingAdmissionErrorV1::StoreUnavailable
+    )]
+    fn every_reader_failure_has_a_named_admission_answer(
+        #[case] error: ReplayCompositionBindingErrorV1,
+        #[case] expected: StrategyInputBindingAdmissionErrorV1,
+    ) {
+        assert_eq!(map_admission_reader_error(error), expected);
+    }
 
     #[rstest]
     fn composer_reads_use_only_the_exact_owner_facade() {
