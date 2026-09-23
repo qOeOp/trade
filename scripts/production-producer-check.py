@@ -16,6 +16,17 @@ Gates are read from the chain of enclosing `impl` / `mod` / `fn` blocks and from
 `mod x;` declaration in the parent file, because the nearest attribute above a line
 frequently belongs to the item before it.
 
+This answers one symbol at a time, and that is the usage it holds up under. Callers and
+producers are matched by name, so a name carried by more than one declaration collects all
+of them and the tool says so rather than guessing; over a list, those unattributable rows
+are the result. Measured by another lane over 31 lead symbols from a dead-code census:
+9 could not be attributed - 8 declared more than once, 1 not found - which is 29%, and the
+batch was abandoned for a compiler-based classification instead.
+
+So: use it to answer a symbol you are already asking about, and before using it over a
+list, run the list and read the warning rate first. A rate that would be a healthy caveat
+on a single answer is a third of a batch with no answer at all.
+
 Usage:
     scripts/production-producer-check.py SourceIntakeRetrievalTimeEvidenceV1
     scripts/production-producer-check.py commit_source_intake_success_terminal_in_transaction
