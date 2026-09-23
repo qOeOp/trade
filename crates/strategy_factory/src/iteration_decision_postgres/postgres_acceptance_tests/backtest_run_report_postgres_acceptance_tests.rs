@@ -5,7 +5,7 @@ use super::{
     *,
 };
 use crate::backtest_run_report_read_v1::{
-    BacktestRunReportStateV1, begin_report_read_v1,
+    BacktestRunReportStateV1, begin_report_read_v1, read_report_in_transaction,
     report_test_support_v1::{
         assert_series_reads_back_every_counted_point, run_multi_day_round_trip_v1,
     },
@@ -106,6 +106,7 @@ async fn backtest_run_report_reads_back_every_point_a_real_run_committed() {
     .await
     .expect("an address with no run is an empty answer, not a refusal");
     assert_eq!(absent, None);
+    assert_the_report_read_holds_only_what_it_names(rd_pool, locator).await;
     assert_request_reads_without_a_lock_and_the_locking_read_still_holds_it(
         rd_pool,
         &request_identity,
@@ -220,4 +221,58 @@ async fn assert_request_reads_without_a_lock_and_the_locking_read_still_holds_it
     try_update(rd_pool.clone())
         .await
         .expect("the row is free once the locking read's transaction ends");
+}
+
+/// Reads the locks this backend holds after the report's reads, before its transaction ends.
+///
+/// `READ ONLY` refuses row locks and nothing else: a table lock and an advisory lock are both
+/// accepted in a read-only transaction. So the report's lock-free claim is checked here against
+/// what PostgreSQL says the backend holds, not against what the transaction mode refuses. Every
+/// relation lock must be `AccessShareLock`, the lock a plain read takes and one no writer waits
+/// on, and anything that is not a relation lock or the transaction's own identity is listed.
+async fn assert_the_report_read_holds_only_what_it_names(
+    rd_pool: &PgPool,
+    locator: ExploratoryReplayResultLocatorV2<'_>,
+) {
+    let mut transaction = begin_report_read_v1(rd_pool)
+        .await
+        .expect("the report's read-only transaction");
+    let refusal = read_report_in_transaction(&mut transaction, locator)
+        .await
+        .expect_err("the run is outside the family");
+    assert_eq!(refusal.code(), "NO_STRATEGY_STATEMENT_FOR_FAMILY");
+    let held: Vec<(String, String, Option<String>)> = sqlx::query_as(
+        "SELECT locktype, mode, relation::pg_catalog.regclass::text
+           FROM pg_catalog.pg_locks
+          WHERE pid = pg_catalog.pg_backend_pid()
+          ORDER BY locktype, mode, relation::pg_catalog.regclass::text",
+    )
+    .fetch_all(&mut *transaction)
+    .await
+    .expect("this backend's locks");
+    transaction.rollback().await.expect("read-only rollback");
+
+    let relation_locks = held
+        .iter()
+        .filter(|(locktype, _, _)| locktype == "relation")
+        .count();
+    assert!(
+        relation_locks > 0,
+        "the probe sees the reads' own locks: {held:?}"
+    );
+    let unexpected = held
+        .iter()
+        .filter(|(locktype, mode, _)| {
+            !matches!(
+                (locktype.as_str(), mode.as_str()),
+                ("relation", "AccessShareLock")
+                    | ("virtualxid", "ExclusiveLock")
+                    | ("transactionid", "ExclusiveLock")
+            )
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        unexpected.is_empty(),
+        "the report read holds locks beyond plain reads: {unexpected:?}"
+    );
 }

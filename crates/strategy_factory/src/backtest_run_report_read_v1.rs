@@ -386,7 +386,8 @@ pub(crate) async fn begin_report_read_v1(
     Ok(transaction)
 }
 
-async fn read_report_in_transaction(
+/// The report's three reads inside a transaction the caller opened with [`begin_report_read_v1`].
+pub(crate) async fn read_report_in_transaction(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     locator: ExploratoryReplayResultLocatorV2<'_>,
 ) -> Result<Option<BacktestRunReportProjectionV1>, BacktestRunReportRefusalV1> {
@@ -528,8 +529,8 @@ async fn resolve_strategy_and_window(
 ///
 /// The build receipts live in Composer custody, and no Composer Owner API function lets the R&D
 /// Owner read them without locking: the only one it may call, `lock_accepted_develop_composer_v2`,
-/// is Composer's commit cut and takes a row lock for update, which a report must not take on a
-/// read path. Until a lock-free read exists, nothing can prove the anchor, so every run is
+/// takes a table-level SHARE lock on Composer custody, which blocks Composer's writers for as long
+/// as the caller's transaction runs, and a report must not hold that on a read path. Until a lock-free read exists, nothing can prove the anchor, so every run is
 /// refused here rather than stated from its Design alone. Stating a strategy the run did not
 /// execute is the error this report exists to rule out.
 ///
@@ -1269,6 +1270,8 @@ mod tests {
         let forbidden = [
             "FOR SHARE",
             "FOR UPDATE",
+            "LOCK TABLE",
+            "pg_advisory",
             "resolve_exploratory_replay_request_v2",
             "resolve_for_rd_v2",
             "lock_accepted_develop_composer",

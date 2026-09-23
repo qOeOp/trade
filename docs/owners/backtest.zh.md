@@ -244,7 +244,8 @@ production write、provider effect、Paper、Live 或交易权威。
     `STRATEGY_NOT_ANCHORED_TO_RUN`，直到冻结程序能锚定到该次运行实际执行的 artifact：请求点名的是
     Design，而不是其 artifact 构建所依据的程序。锚点是 artifact 的 Composer 构建回执带有该冻结的
     `joint_freeze_digest`；V2 构建不带这个值，因此永远满足不了。那些回执在 Composer 托管里，而 R&D Owner
-    能调用、又能返回它们的唯一一个 Composer Owner API 函数是 Composer 的提交切面，它以更新锁锁行。一个
+    能调用、又能返回它们的唯一一个 Composer Owner API 函数 `lock_accepted_develop_composer_v2` 取表级 SHARE 锁，
+    会挡住 Composer 的写者。一个
     不上锁、读取 artifact 构建回执的 Composer 读取是让族内运行得以陈述的后续事项；在它存在之前，所有族内
     运行都被拒绝。数据窗口是通道的品种与时间粒度、请求的时间
     窗口（结束端不含）、请求绑定的 PIT 快照个数，以及以该快照身份作为的切面。
