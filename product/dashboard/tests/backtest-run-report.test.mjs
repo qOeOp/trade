@@ -17,10 +17,15 @@ import {
 
 const RUN = "backtest-result-7";
 
-const run = {
+const LOCATOR = {
   result_identity: RUN,
   request_identity: "exploratory-replay-request-7",
   attempt_identity: "attempt-1",
+};
+
+const run = {
+  ...LOCATOR,
+  engine_result_digest: `blake3:${"a".repeat(64)}`,
 };
 
 const strategy = {
@@ -64,9 +69,7 @@ const fills = [
 
 const available = {
   state: "AVAILABLE",
-  reason: null,
   run,
-  engine_result_digest: `blake3:${"a".repeat(64)}`,
   strategy,
   data_window: dataWindow,
   series: [
@@ -90,19 +93,8 @@ const emptyWithFills = {
   max_drawdown: null,
 };
 
-const unavailable = {
-  state: "UNAVAILABLE",
-  reason: "OUTCOME_EVIDENCE_UNAVAILABLE",
-  run: null,
-  engine_result_digest: null,
-  strategy: null,
-  data_window: null,
-  series: [],
-  net_return: null,
-  max_drawdown: null,
-  fill_count: null,
-  fills: [],
-};
+// The route's envelope around the Owner's refusal code: the reason and nothing else.
+const unavailable = { state: "UNAVAILABLE", reason: "OUTCOME_EVIDENCE_UNAVAILABLE" };
 
 const invalid = { state: "unavailable", reason: INVALID_BACKTEST_RUN_REPORT_PROJECTION };
 
@@ -113,19 +105,19 @@ function without(value, key) {
 }
 
 test("the three wire states normalize to the report's own states", () => {
-  const report = normalizeBacktestRunReport(available, RUN);
+  const report = normalizeBacktestRunReport(available, LOCATOR);
   assert.equal(report.state, "available");
   assert.equal(report.net_return, -0.002);
   assert.equal(report.series.length, 3);
 
-  assert.deepEqual(normalizeBacktestRunReport(unavailable, RUN), {
+  assert.deepEqual(normalizeBacktestRunReport(unavailable, LOCATOR), {
     state: "unavailable",
     reason: "OUTCOME_EVIDENCE_UNAVAILABLE",
   });
 });
 
 test("empty means no points, and still lists the run's fills", () => {
-  const report = normalizeBacktestRunReport(emptyWithFills, RUN);
+  const report = normalizeBacktestRunReport(emptyWithFills, LOCATOR);
   assert.equal(report.state, "empty");
   assert.deepEqual(report.series, []);
   assert.equal(report.net_return, null);
@@ -145,7 +137,7 @@ test("the state is stated, and must agree with the result", () => {
     { ...available, state: "PARTIAL" },
     { ...available, state: undefined },
   ]) {
-    assert.deepEqual(normalizeBacktestRunReport(contradiction, RUN), invalid);
+    assert.deepEqual(normalizeBacktestRunReport(contradiction, LOCATOR), invalid);
   }
 });
 
@@ -159,16 +151,22 @@ test("a missing or renamed key is a fault, never a legitimately absent value", (
     { ...available, strategy: without(strategy, "falsifier") },
     { ...available, data_window: without(dataWindow, "cut_identity") },
     { ...available, run: { ...run, extra: "x" } },
+    { ...available, run: without(run, "engine_result_digest") },
+    { ...without(available, "run"), run: without(run, "engine_result_digest"), engine_result_digest: run.engine_result_digest },
+    { ...available, run: { ...run, engine_result_digest: `sha256:${"a".repeat(64)}` } },
+    { ...available, run: { ...run, engine_result_digest: `blake3:${"A".repeat(64)}` } },
   ]) {
-    assert.deepEqual(normalizeBacktestRunReport(faulty, RUN), invalid);
+    assert.deepEqual(normalizeBacktestRunReport(faulty, LOCATOR), invalid);
   }
 });
 
 test("a response for another run is refused under its own reason", () => {
-  assert.deepEqual(normalizeBacktestRunReport(available, "backtest-result-8"), {
-    state: "unavailable",
-    reason: BACKTEST_RUN_REPORT_IDENTITY_MISMATCH,
-  });
+  for (const key of Object.keys(LOCATOR)) {
+    assert.deepEqual(normalizeBacktestRunReport(available, { ...LOCATOR, [key]: "another-run" }), {
+      state: "unavailable",
+      reason: BACKTEST_RUN_REPORT_IDENTITY_MISMATCH,
+    }, key);
+  }
 });
 
 test("an unavailable projection carries its reason and no positive fact", () => {
@@ -179,10 +177,11 @@ test("an unavailable projection carries its reason and no positive fact", () => 
     { ...unavailable, series: available.series },
     { ...unavailable, fills },
     { ...unavailable, fill_count: 0 },
+    { ...unavailable, run: null, series: [], fills: [] },
   ]) {
-    assert.deepEqual(normalizeBacktestRunReport(faulty, RUN), invalid);
+    assert.deepEqual(normalizeBacktestRunReport(faulty, LOCATOR), invalid);
   }
-  assert.deepEqual(normalizeBacktestRunReport({ ...available, reason: "SHOULD_NOT_BE_HERE" }, RUN), invalid);
+  assert.deepEqual(normalizeBacktestRunReport({ ...available, reason: "SHOULD_NOT_BE_HERE" }, LOCATOR), invalid);
 });
 
 test("time is canonical UTC everywhere it appears, and the series is strictly ordered", () => {
@@ -195,7 +194,7 @@ test("time is canonical UTC everywhere it appears, and the series is strictly or
     { ...available, series: [available.series[1], available.series[0], available.series[2]] },
     { ...available, series: [available.series[0], available.series[0]] },
   ]) {
-    assert.deepEqual(normalizeBacktestRunReport(faulty, RUN), invalid);
+    assert.deepEqual(normalizeBacktestRunReport(faulty, LOCATOR), invalid);
   }
 
   const oneNanosecondApart = {
@@ -205,7 +204,7 @@ test("time is canonical UTC everywhere it appears, and the series is strictly or
       { at: "2025-01-01T00:00:00.000000002Z", value: 2 },
     ],
   };
-  assert.equal(normalizeBacktestRunReport(oneNanosecondApart, RUN).state, "available");
+  assert.equal(normalizeBacktestRunReport(oneNanosecondApart, LOCATOR).state, "available");
 });
 
 test("every number is finite and every count agrees with what it counts", () => {
@@ -217,18 +216,18 @@ test("every number is finite and every count agrees with what it counts", () => 
     { ...available, data_window: { ...dataWindow, snapshot_count: -1 } },
     { ...available, data_window: { ...dataWindow, snapshot_count: 1.5 } },
   ]) {
-    assert.deepEqual(normalizeBacktestRunReport(faulty, RUN), invalid);
+    assert.deepEqual(normalizeBacktestRunReport(faulty, LOCATOR), invalid);
   }
 });
 
 test("prices and quantities are plain decimals, and are kept exactly as given", () => {
-  const report = normalizeBacktestRunReport(available, RUN);
+  const report = normalizeBacktestRunReport(available, LOCATOR);
   assert.equal(report.fills[0].quantity, "2.0");
   assert.equal(report.fills[1].quantity, "2");
   assert.equal(report.fills[1].price, "188");
 
   const negativePrice = { ...available, fills: [{ ...fills[0], price: "-1.50" }, fills[1]] };
-  assert.equal(normalizeBacktestRunReport(negativePrice, RUN).fills[0].price, "-1.50");
+  assert.equal(normalizeBacktestRunReport(negativePrice, LOCATOR).fills[0].price, "-1.50");
 
   for (const [field, text] of [
     ["quantity", "-2"],
@@ -241,25 +240,25 @@ test("prices and quantities are plain decimals, and are kept exactly as given", 
     ["price", 187.25],
   ]) {
     const faulty = { ...available, fills: [{ ...fills[0], [field]: text }, fills[1]] };
-    assert.deepEqual(normalizeBacktestRunReport(faulty, RUN), invalid, `${field}=${text}`);
+    assert.deepEqual(normalizeBacktestRunReport(faulty, LOCATOR), invalid, `${field}=${text}`);
   }
-  assert.deepEqual(normalizeBacktestRunReport({ ...available, fills: [{ ...fills[0], side: "SHORT" }, fills[1]] }, RUN), invalid);
+  assert.deepEqual(normalizeBacktestRunReport({ ...available, fills: [{ ...fills[0], side: "SHORT" }, fills[1]] }, LOCATOR), invalid);
 });
 
 test("the strategy is stated only for the admitted single-threshold family", () => {
   assert.deepEqual(
-    normalizeBacktestRunReport({ ...available, strategy: { ...strategy, family: "BOUNDED_FEATURE_V1" } }, RUN),
+    normalizeBacktestRunReport({ ...available, strategy: { ...strategy, family: "BOUNDED_FEATURE_V1" } }, LOCATOR),
     invalid,
   );
   assert.deepEqual(
-    normalizeBacktestRunReport({ ...available, strategy: { ...strategy, threshold: "1e2" } }, RUN),
+    normalizeBacktestRunReport({ ...available, strategy: { ...strategy, threshold: "1e2" } }, LOCATOR),
     invalid,
   );
 });
 
 test("anything that is not a projection object fails closed", () => {
   for (const value of [null, undefined, "AVAILABLE", 7, [], [available]]) {
-    assert.deepEqual(normalizeBacktestRunReport(value, RUN), invalid);
+    assert.deepEqual(normalizeBacktestRunReport(value, LOCATOR), invalid);
   }
 });
 
@@ -316,7 +315,7 @@ test("loading shows the three fact groups as skeletons and nothing else", () => 
 });
 
 test("unavailable names the Owner's reason and shows no positive fact", () => {
-  const html = render(normalizeBacktestRunReport(unavailable, RUN));
+  const html = render(normalizeBacktestRunReport(unavailable, LOCATOR));
   assert.match(html, /data-state="unavailable"/u);
   assert.match(html, /class="unavailable-state"/u);
   assert.match(html, /<code>OUTCOME_EVIDENCE_UNAVAILABLE<\/code>/u);
@@ -324,13 +323,13 @@ test("unavailable names the Owner's reason and shows no positive fact", () => {
 });
 
 test("a projection that fails the contract renders as unavailable for that reason", () => {
-  const html = render(normalizeBacktestRunReport({ ...available, fill_count: 9 }, RUN));
+  const html = render(normalizeBacktestRunReport({ ...available, fill_count: 9 }, LOCATOR));
   assert.match(html, /data-state="unavailable"/u);
   assert.match(html, new RegExp(`<code>${INVALID_BACKTEST_RUN_REPORT_PROJECTION}</code>`, "u"));
 });
 
 test("available answers all four questions from the stated values", () => {
-  const html = render(normalizeBacktestRunReport(available, RUN));
+  const html = render(normalizeBacktestRunReport(available, LOCATOR));
   assert.match(html, /data-state="available"/u);
   for (const heading of ["Strategy", "Data window", "Result"]) {
     assert.match(html, new RegExp(`<h3>${heading}</h3>`, "u"));
@@ -348,7 +347,7 @@ test("available answers all four questions from the stated values", () => {
 });
 
 test("empty lists the run's fills and says only what is missing", () => {
-  const html = render(normalizeBacktestRunReport(emptyWithFills, RUN));
+  const html = render(normalizeBacktestRunReport(emptyWithFills, LOCATOR));
   assert.match(html, /data-state="empty"/u);
   assert.match(html, /No observations/u);
   assert.doesNotMatch(html, /<polyline|<circle|unavailable-state/u);
@@ -357,7 +356,7 @@ test("empty lists the run's fills and says only what is missing", () => {
 });
 
 test("fills are shown exactly as the projection wrote them", () => {
-  const html = render(normalizeBacktestRunReport(available, RUN));
+  const html = render(normalizeBacktestRunReport(available, LOCATOR));
   assert.deepEqual(cellTexts(html), [
     "2025-01-02T14:30:00.000000000Z", "BUY", "187.25", "2.0",
     "2025-01-02T20:00:00.000000000Z", "SELL", "188", "2",
@@ -365,7 +364,7 @@ test("fills are shown exactly as the projection wrote them", () => {
 });
 
 test("a single observation is drawn as a point, not an empty path", () => {
-  const html = render(normalizeBacktestRunReport({ ...available, series: [available.series[0]] }, RUN));
+  const html = render(normalizeBacktestRunReport({ ...available, series: [available.series[0]] }, LOCATOR));
   assert.match(html, /<circle /u);
   assert.doesNotMatch(html, /<polyline/u);
   assert.match(html, /1 observations/u);
@@ -376,9 +375,9 @@ test("no state states or implies an equity return", () => {
   // and the projection does not yet say which. Until it does, no rendered word may claim equity.
   for (const report of [
     { state: "loading" },
-    normalizeBacktestRunReport(unavailable, RUN),
-    normalizeBacktestRunReport(emptyWithFills, RUN),
-    normalizeBacktestRunReport(available, RUN),
+    normalizeBacktestRunReport(unavailable, LOCATOR),
+    normalizeBacktestRunReport(emptyWithFills, LOCATOR),
+    normalizeBacktestRunReport(available, LOCATOR),
   ]) {
     assert.doesNotMatch(render(report), /equity/iu, report.state);
   }

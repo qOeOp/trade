@@ -8,10 +8,16 @@ export const BACKTEST_RUN_REPORT_IDENTITY_MISMATCH = "BACKTEST_RUN_REPORT_IDENTI
 
 export type BacktestRunReportSide = "BUY" | "SELL";
 
-export type BacktestRunReportRun = Readonly<{
+// The three fields that locate one run: the same selector the `/backtest` result lookup holds.
+export type BacktestRunReportLocator = Readonly<{
   result_identity: string;
   request_identity: string;
   attempt_identity: string;
+}>;
+
+// The run's locator, and the digest of the canonical result the Owner committed for it.
+export type BacktestRunReportRun = BacktestRunReportLocator & Readonly<{
+  engine_result_digest: string;
 }>;
 
 export type BacktestRunReportOutcome = Readonly<{
@@ -57,7 +63,6 @@ export type BacktestRunReportFill = Readonly<{
 
 type BacktestRunReportFacts = Readonly<{
   run: BacktestRunReportRun;
-  engine_result_digest: string;
   strategy: BacktestRunReportStrategy;
   data_window: BacktestRunReportDataWindow;
   fill_count: number;
@@ -82,22 +87,23 @@ export type BacktestRunReport =
     max_drawdown: number;
   }>);
 
-// The key set is constant across states, so a key that is missing or renamed is always a fault rather
-// than something that could be read as a legitimately absent value.
+// Each state has one exact key set, so a key that is missing or renamed is always a fault rather than
+// something that could be read as a legitimately absent value. `AVAILABLE` and `EMPTY` are the Owner's
+// projection as the route relayed it; `UNAVAILABLE` is the route's envelope around the Owner's reason.
 const PROJECTION_KEYS = [
   "data_window",
-  "engine_result_digest",
   "fill_count",
   "fills",
   "max_drawdown",
   "net_return",
-  "reason",
   "run",
   "series",
   "state",
   "strategy",
 ];
-const RUN_KEYS = ["attempt_identity", "request_identity", "result_identity"];
+const UNAVAILABLE_KEYS = ["reason", "state"];
+const RUN_KEYS = ["attempt_identity", "engine_result_digest", "request_identity", "result_identity"];
+const RUN_IDENTITY_KEYS = ["attempt_identity", "request_identity", "result_identity"] as const;
 const STRATEGY_KEYS = ["channel", "comparison", "falsifier", "family", "otherwise", "threshold", "when_true"];
 const CHANNEL_KEYS = ["field_semantic_id", "instrument", "role_semantic_id", "scale", "timeframe", "unit"];
 const OUTCOME_KEYS = ["position_intent_semantic_id", "target_position_units", "target_variant_semantic_id"];
@@ -141,7 +147,9 @@ function isCount(value: unknown): value is number {
 function isRun(value: unknown): value is BacktestRunReportRun {
   return isRecord(value)
     && hasExactKeys(value, RUN_KEYS)
-    && RUN_KEYS.every((key) => isNonEmptyString(value[key]));
+    && RUN_IDENTITY_KEYS.every((key) => isNonEmptyString(value[key]))
+    && typeof value.engine_result_digest === "string"
+    && ENGINE_RESULT_DIGEST.test(value.engine_result_digest);
 }
 
 function isOutcome(value: unknown): value is BacktestRunReportOutcome {
@@ -182,6 +190,16 @@ function isDataWindow(value: unknown): value is BacktestRunReportDataWindow {
     && isNonEmptyString(value.cut_identity);
 }
 
+// An unavailable answer carries its reason and nothing else, so no positive fact can ride along.
+export function isBacktestRunReportUnavailableEnvelope(
+  value: unknown,
+): value is Readonly<{ state: "UNAVAILABLE"; reason: string }> {
+  return isRecord(value)
+    && hasExactKeys(value, UNAVAILABLE_KEYS)
+    && value.state === "UNAVAILABLE"
+    && isNonEmptyString(value.reason);
+}
+
 function isPoint(value: unknown): value is BacktestRunReportPoint {
   return isRecord(value)
     && hasExactKeys(value, POINT_KEYS)
@@ -200,42 +218,30 @@ function isFill(value: unknown): value is BacktestRunReportFill {
     && UNSIGNED_DECIMAL.test(value.quantity);
 }
 
-function isUnavailable(candidate: Record<string, unknown>): boolean {
-  return isNonEmptyString(candidate.reason)
-    && candidate.run === null
-    && candidate.engine_result_digest === null
-    && candidate.strategy === null
-    && candidate.data_window === null
-    && Array.isArray(candidate.series) && candidate.series.length === 0
-    && candidate.net_return === null
-    && candidate.max_drawdown === null
-    && candidate.fill_count === null
-    && Array.isArray(candidate.fills) && candidate.fills.length === 0;
-}
-
 /**
  * Normalizes one Dashboard projection of a single run, or fails it closed.
  *
- * `requestedRunIdentity` is the run the page asked for. A projection naming any other run is refused
- * under its own reason, so a response routed to the wrong request cannot render as the right one.
+ * `requested` is the run the page asked for. A projection naming any other run, even one differing
+ * only in its request or attempt, is refused under its own reason, so a response routed to the wrong
+ * request cannot render as the right one.
  */
 export function normalizeBacktestRunReport(
   value: unknown,
-  requestedRunIdentity: string,
+  requested: BacktestRunReportLocator,
 ): BacktestRunReport {
-  if (!isRecord(value) || !hasExactKeys(value, PROJECTION_KEYS)) return unavailableBacktestRunReport();
+  if (!isRecord(value)) return unavailableBacktestRunReport();
 
   if (value.state === "UNAVAILABLE") {
-    return isUnavailable(value)
-      ? { state: "unavailable", reason: value.reason as string }
+    return isBacktestRunReportUnavailableEnvelope(value)
+      ? { state: "unavailable", reason: value.reason }
       : unavailableBacktestRunReport();
   }
-  if (value.state !== "AVAILABLE" && value.state !== "EMPTY") return unavailableBacktestRunReport();
+  if ((value.state !== "AVAILABLE" && value.state !== "EMPTY") || !hasExactKeys(value, PROJECTION_KEYS)) {
+    return unavailableBacktestRunReport();
+  }
 
-  if (value.reason !== null
-    || !isRun(value.run)
-    || typeof value.engine_result_digest !== "string"
-    || !ENGINE_RESULT_DIGEST.test(value.engine_result_digest)
+  const run = value.run;
+  if (!isRun(run)
     || !isStrategy(value.strategy)
     || !isDataWindow(value.data_window)
     || !Array.isArray(value.series)
@@ -248,13 +254,12 @@ export function normalizeBacktestRunReport(
     || value.fill_count !== value.fills.length) {
     return unavailableBacktestRunReport();
   }
-  if (value.run.result_identity !== requestedRunIdentity) {
+  if (RUN_IDENTITY_KEYS.some((key) => run[key] !== requested[key])) {
     return unavailableBacktestRunReport(BACKTEST_RUN_REPORT_IDENTITY_MISMATCH);
   }
 
   const facts = {
-    run: value.run,
-    engine_result_digest: value.engine_result_digest,
+    run,
     strategy: value.strategy,
     data_window: value.data_window,
     fill_count: value.fill_count,

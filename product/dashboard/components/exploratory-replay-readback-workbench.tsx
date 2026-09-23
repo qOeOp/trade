@@ -18,6 +18,7 @@ import {
   encodeExploratoryReplayOpaqueIdentityV2,
   validExploratoryReplayOpaqueIdentityV2,
 } from "../lib/exploratory-replay-identity";
+import { BacktestRunReportReadback } from "./backtest-run-report-readback";
 import { EmptyState, UnavailableState } from "./ui/evidence-strip";
 import { FactGroup, FactGroupGrid, FactGroupSkeletonGrid, FactItem } from "./ui/fact-group";
 import { FilterButton } from "./ui/filter-toolbar";
@@ -564,7 +565,23 @@ export function ExploratoryReplayReadbackWorkbench({
               {resultStatus === "loading" ? (
                 <FactGroupSkeletonGrid aria-label="Loading Replay result" titles={["Result"]} />
               ) : resultStatus === "available" && resultProjection ? (
-                <AvailableResult projection={resultProjection} />
+                <>
+                  <AvailableResult projection={resultProjection} />
+                  {/* The report is its own admitted surface, mounted only for the result this lookup
+                      opened and keyed by that result's full locator. */}
+                  <BacktestRunReportReadback
+                    key={[
+                      resultProjection.resultIdentity,
+                      resultProjection.requestIdentity,
+                      resultProjection.attemptIdentity,
+                    ].join("\u0000")}
+                    locator={{
+                      result_identity: resultProjection.resultIdentity,
+                      request_identity: resultProjection.requestIdentity,
+                      attempt_identity: resultProjection.attemptIdentity,
+                    }}
+                  />
+                </>
               ) : resultStatus === "unavailable" ? (
                 <UnavailableState
                   density="compact"

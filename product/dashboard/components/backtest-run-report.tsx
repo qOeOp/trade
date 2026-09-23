@@ -72,7 +72,7 @@ export function BacktestRunReport({ report }: { report: BacktestRunReportProject
               </FactItem>
               <FactItem label="Fills">{report.fill_count}</FactItem>
               <FactItem label="Run" mono>{report.run.result_identity}</FactItem>
-              <FactItem label="Engine result" mono>{report.engine_result_digest}</FactItem>
+              <FactItem label="Engine result" mono>{report.run.engine_result_digest}</FactItem>
             </FactGroup>
           </FactGroupGrid>
           {report.state === "available" ? (
