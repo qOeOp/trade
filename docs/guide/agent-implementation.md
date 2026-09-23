@@ -138,6 +138,16 @@ because a wrong reading here lands inside the legal range of the answer rather t
   with its revision - and a claim that no workflow, CI script or migration mentions something is
   worth re-running, because those three are exactly what a default walk cannot read.
 
+- **`\b` and `\s` are not POSIX ERE, and every `-E` engine here drops them silently.**
+  `git grep -cE '\bBindingDigest\b'` matches in no file while the same word without the boundaries
+  matches in 143. The partial case is the dangerous one: `git grep -cE '^\s*pub fn'` returns 540
+  files and `'^[[:space:]]*pub fn'` returns 1503, so
+  **the broken pattern returns a number large enough to look like an answer**.
+  `grep -E` and ugrep's ERE mode drop them the same way; the
+  bracket classes `[[:space:]]`, `[[:alnum:]]` and an explicit `(^|[^A-Za-z0-9_])` are what those
+  engines read. Two lanes hit this independently on the same day, once with a zero that happened to
+  be the right answer, which only its positive control exposed.
+
 - **`scripts/ci/test-rd-owner-postgres.bash` exits 1 on a non-Linux host.** A local ordered-chain run
   is therefore a modified copy, and which modification was made decides what the run means: changing
   the comparison keeps the container, the databases, the role grants and every earlier entry, while
