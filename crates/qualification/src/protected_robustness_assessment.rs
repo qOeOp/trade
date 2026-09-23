@@ -204,6 +204,17 @@ pub(crate) struct ProtectedEligibilityFactV1 {
     holdout_closure_disposition: HoldoutClosureDispositionV1,
     holdout_treatment_policy_identity: String,
     holdout_treatment_policy_digest: String,
+    /// `None` on an initial Fact; on a renewal it names the Fact this one supersedes. Storage keeps it
+    /// UNIQUE, so a Fact can be superseded at most once and the lineage stays linear, which makes
+    /// "the predecessor can never be current again" a property of the storage rather than of a check
+    /// somebody has to remember to write.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    predecessor_eligibility_identity: Option<String>,
+    /// Half-open `[effective_from_epoch_ms, valid_through_epoch_ms)`. The closing edge is not a
+    /// constant: a qualification may not outlive the evidence it rests on, so it is the
+    /// `valid_through` of the assessment-stage Time Evidence this Fact binds.
+    effective_from_epoch_ms: u64,
+    valid_through_epoch_ms: u64,
     committed_at_epoch_ms: u64,
 }
 
@@ -1017,6 +1028,9 @@ fn form_ineligible_fact(
         holdout_closure_disposition: treatment.closure_disposition(),
         holdout_treatment_policy_identity: treatment.identity().to_string(),
         holdout_treatment_policy_digest: treatment.digest().to_string(),
+        predecessor_eligibility_identity: None,
+        effective_from_epoch_ms: committed_at_epoch_ms,
+        valid_through_epoch_ms: assessment.assessment_time_evidence.valid_through,
         committed_at_epoch_ms,
     };
     eligibility.eligibility_digest = canonical_digest(
@@ -1061,6 +1075,11 @@ fn form_ineligible_fact(
                 eligibility.holdout_closure_disposition,
                 &eligibility.holdout_treatment_policy_identity,
                 &eligibility.holdout_treatment_policy_digest,
+            ),
+            (
+                &eligibility.predecessor_eligibility_identity,
+                eligibility.effective_from_epoch_ms,
+                eligibility.valid_through_epoch_ms,
             ),
             eligibility.committed_at_epoch_ms,
         ),
@@ -1155,6 +1174,9 @@ fn form_qualified_fact(
         holdout_closure_disposition: treatment.closure_disposition(),
         holdout_treatment_policy_identity: treatment.identity().to_string(),
         holdout_treatment_policy_digest: treatment.digest().to_string(),
+        predecessor_eligibility_identity: None,
+        effective_from_epoch_ms: committed_at_epoch_ms,
+        valid_through_epoch_ms: assessment.assessment_time_evidence.valid_through,
         committed_at_epoch_ms,
     };
     eligibility.eligibility_digest = canonical_digest(
@@ -1200,6 +1222,11 @@ fn form_qualified_fact(
                 eligibility.holdout_closure_disposition,
                 &eligibility.holdout_treatment_policy_identity,
                 &eligibility.holdout_treatment_policy_digest,
+            ),
+            (
+                &eligibility.predecessor_eligibility_identity,
+                eligibility.effective_from_epoch_ms,
+                eligibility.valid_through_epoch_ms,
             ),
             eligibility.committed_at_epoch_ms,
         ),
@@ -1409,6 +1436,18 @@ impl ProtectedAssessmentInvalidDispositionReceiptV2 {
 }
 
 impl ProtectedEligibilityFactV1 {
+    pub(crate) fn predecessor_eligibility_identity(&self) -> Option<&str> {
+        self.predecessor_eligibility_identity.as_deref()
+    }
+
+    pub(crate) fn effective_from_epoch_ms(&self) -> u64 {
+        self.effective_from_epoch_ms
+    }
+
+    pub(crate) fn valid_through_epoch_ms(&self) -> u64 {
+        self.valid_through_epoch_ms
+    }
+
     pub(crate) fn as_json(&self) -> Result<serde_json::Value, QualificationOwnerError> {
         serde_json::to_value(self).map_err(|e| unavailable(&e.to_string()))
     }
