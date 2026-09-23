@@ -108,7 +108,8 @@ admitted set requires changing this document first.
   second implementation of it. Net return and maximum drawdown are absent rather than zero when a run recorded
   no returns, so an unavailable number and an earned zero stay distinguishable. The ordered chain prints the
   report for `owner_postgres_v4_moves_through_program_host_and_real_backtest`, which feeds one BAR and so
-  reports a run that executed nothing. No production caller reads the report and no Owner consumes it.
+  reports a run that executed nothing. No production caller reads the report and no Owner consumes it; the
+  Dashboard's run report handoff below reads it from committed custody.
 - **TARGET - production driver for the protected economic measurement:**
   `derive_protected_economic_measurement_v1` and `produce_and_commit_protected_replay_result_v3` are complete
   implementations with no production caller, and that is the documented design rather than a gap:
@@ -265,15 +266,32 @@ history; it says nothing about whether the path has ever run in some other envir
   relabeled as research evidence. R&D alone commits the D-only Repair Disposition.
 - To [Qualification](./qualification/): sealed Protected Run Results that repeat every consumed execution-defining identity for exact equality checking, plus complete consumed-input evidence only.
 - To Product Edge: read-only exploratory Run Result views only; protected requests, measurements, results, and holdout details are never projected.
-- To the Dashboard: the result readback carries the canonical result bytes and nothing derived from them.
-`OwnerBacktestReportV1` in `crates/strategy_factory/src/owner_backtest_report_v1.rs` reads those bytes into
-executions, a return series, net return and maximum drawdown, and `BacktestReturnBand` is an admitted read-only
-presentation atom for `/backtest` and `/backtest/compare`, but no Owner read surface carries a return series
-between them: the `exploratory_replay_result.shadow_read.v2` entry in
-`product/dashboard/lib/operation-registry.ts` permits `terminal`, `reconciliation_summary`,
-`diagnostic_summary` and `semantic_trace_presence`, and no economic field. Both ends are complete and unwired
-rather than each half-built, so a reader who finds no caller for either has measured the state rather than
-missed one.
+- To the Dashboard, two handoffs, and each carries only what it names:
+  - The result readback, `resolve_exploratory_replay_result_v3` behind
+    `exploratory_replay_result.shadow_read.v2`, carries the canonical result bytes and nothing derived from
+    them. Its entry in `product/dashboard/lib/operation-registry.ts` permits `terminal`,
+    `reconciliation_summary`, `diagnostic_summary` and `semantic_trace_presence`, and no economic field.
+  - The run report, `resolve_backtest_run_report_v1` in
+    `crates/strategy_factory/src/backtest_run_report_read_v1.rs`, carries the named `BacktestRunReport` result
+    fields that `OwnerBacktestReportV1` derives from those same committed bytes: the run's result, request and
+    attempt identities with the engine-result digest its outcome evidence binds, an Owner-decided state
+    (`AVAILABLE` or `EMPTY`), every return observation the run recorded in canonical UTC, net return, maximum
+    drawdown, and every execution with its side and with price and quantity exactly as the engine wrote them.
+    It carries no statistics map, because those legitimately hold non-finite values, and no strategy
+    statement, instrument or data window, because none of those is in a backtest result. It reads under the
+    caller's R&D transaction so the reads that supply those upstream fields can share it.
+
+  The series is not one point per bar: portfolio returns are daily, and a run whose portfolio snapshots
+  span fewer than two UTC days falls back to one return per closed position. Every series value, the net
+  return and the maximum drawdown are fractions, where 0.01 is one percent, and that is all this handoff
+  states about them.
+  It does not say which return they measure. A daily point is an equity return, a closed-position point is a
+  price return that ignores position size, and nothing in the handoff yet carries which of the two a run
+  produced. So no consumer may present these numbers as an equity return until the handoff carries that
+  basis, read back from the canonical result. The run
+  report has no HTTP caller yet. Its PostgreSQL proof reads back a real engine run, but that run reaches
+  custody through the acceptance module's own writer rather than through `run_exploratory_replay_v2`, which
+  no ordered-chain entry drives.
 
 ## Rejections and prohibitions
 
