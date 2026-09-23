@@ -1,4 +1,5 @@
-# Sourced by test-rd-owner-postgres.bash. One local Owner chain per machine.
+# Sourced by scripts/ci/test-rd-owner-postgres.bash and crates/data/tests/run_market_data_owner_postgres.bash.
+# One local Owner chain per machine, whichever chain it is.
 #
 # Several lanes share one machine, and when their chains overlapped the load average sat near 100
 # and reached 250. Entries whose assertions carry a time window then failed for load alone - entry
