@@ -226,6 +226,7 @@ pub(crate) fn six_role_bar_bounded_feature_meaning_v1(
             max_source_bytes: 262_144,
             max_wasm_bytes: 1_048_576,
         },
+        carried_input_role_ids: vec![],
     }
 }
 

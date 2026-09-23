@@ -334,7 +334,7 @@ stored_cases!(
     )
 );
 
-const FAMILY_SQL: &str = r#"
+const FAMILY_SQL: &str = "
 SELECT family,row_value FROM (
  SELECT 'source_binding' family,to_jsonb(t)::text row_value FROM public.rd_source_intake_bindings_v1 t
  UNION ALL SELECT 'source_receipt',to_jsonb(t)::text FROM public.rd_source_intake_receipts_v1 t
@@ -357,9 +357,9 @@ SELECT family,row_value FROM (
  UNION ALL SELECT 'native',to_jsonb(t)::text FROM composer_private.rd_develop_strategy_design_native_joins_v1 t
  UNION ALL SELECT 'composer_outbox',to_jsonb(t)::text FROM composer_private.rd_develop_outbox_v2 t
 ) rows ORDER BY family,row_value
-"#;
+";
 
-const CATALOG_SQL: &str = r#"
+const CATALOG_SQL: &str = "
 SELECT row_value FROM (
  SELECT concat_ws('|',n.nspname,c.relname,c.relkind,c.relpersistence,c.relowner,c.relacl::text) row_value
  FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
@@ -369,7 +369,7 @@ SELECT row_value FROM (
  FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_class c ON c.oid=t.tgrelid JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
  WHERE n.nspname IN ('public','composer_private') AND (c.relname LIKE 'rd_source_%' OR c.relname LIKE 'rd_research_%' OR c.relname LIKE 'rd_develop_%' OR c.relname='rd_owner_outbox_v1')
 ) facts ORDER BY row_value
-"#;
+";
 
 const CENSUS_SQL: &str = "SELECT ARRAY[(SELECT count(*) FROM public.rd_research_request_receipts_v1),(SELECT count(*) FROM composer_private.rd_develop_designs_v2),(SELECT count(*) FROM composer_private.rd_develop_plans_v2),(SELECT count(*) FROM composer_private.rd_develop_artifacts_v2),(SELECT count(*) FROM composer_private.rd_develop_artifact_modules_v2),(SELECT count(*) FROM composer_private.rd_develop_build_receipts_v2),(SELECT count(*) FROM composer_private.rd_develop_artifact_build_receipt_uses_v2),(SELECT count(*) FROM composer_private.rd_develop_composer_receipts_v2),(SELECT count(*) FROM composer_private.rd_develop_host_receipts_v2),(SELECT count(*) FROM composer_private.rd_develop_operations_v2),(SELECT count(*) FROM composer_private.rd_develop_strategy_design_role_set_attestations_v1),(SELECT count(*) FROM composer_private.rd_develop_strategy_design_native_joins_v1),(SELECT count(*) FROM composer_private.rd_develop_outbox_v2)]::text[]";
 
@@ -488,7 +488,7 @@ BEGIN
             case.label(), sql_literal(&capture), sql_literal(case.mutate_sql()), sql_literal(&restore),
             sql_literal(&format!("SELECT ARRAY[value] FROM ({}) selected(value)", case.selected_sql()))));
     }
-    sql.push_str(r#"
+    sql.push_str("
     ELSE RAISE EXCEPTION 'invalid stored-tamper selector' USING ERRCODE='22023';
     END CASE;
   ELSIF selector<>'' OR row_key<>'' THEN
@@ -520,7 +520,7 @@ BEGIN
     GET DIAGNOSTICS affected=ROW_COUNT;
     IF affected<>1 THEN RAISE EXCEPTION 'restore must delete exactly one preimage'; END IF;
   WHEN 'selected' THEN RETURN QUERY EXECUTE selected_sql USING row_key;
-"#);
+");
 
     for (operation, statement) in [
         (
