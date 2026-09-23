@@ -1310,8 +1310,12 @@ frontier、effective containment 或 Instrument Master mismatch。
 结构 `BarScheduleCutV1` canonical bytes 按顺序为：schema `u16LE = 1`、reserved-zero `u16LE`、fact digest
 `[u8; 32]`、同一 canonical-instrument variable bytes、effective instant `i128LE`，随后是 Instrument Master
 readback/fact/cut digest、Market Semantics identity、source frontier 与 correction frontier，均为
-`[u8; 32]`。effective instant 必须等于 selected BAR row 的 event-effective instant 与 Instrument Master cut
-effective instant，且 schedule fact 与 Instrument Master fact 的 effective interval 都必须包含它。当前结构
+`[u8; 32]`。effective instant 必须等于 selected BAR row 的 event-effective instant；Instrument Master cut 的
+effective instant 不得晚于它，且 schedule fact 与 Instrument Master fact 的 effective interval 都必须包含它。Owner
+在该时刻所取 cut 为该 instrument 解析出的 Instrument Master fact，必须按 fact identity 等于 schedule 的 Instrument
+Master cut 所持有的那份，否则拒绝该 schedule。一个帧窗口共用一个 Instrument Master cut，正是这项比较让其后的 BAR
+能以那个 cut 为依据：在 cut 与某个 BAR 之间生效或被观察到的更正会解析为后继 fact，从而拒绝该 BAR 的 schedule，而被
+取代的 fact 的 interval 仍包含该 BAR，区间检查拦不住它。当前结构
 codec 不编码 interval open/close 或 Owner observation/decision-cut coordinate；这些 predicate 保持
 TARGET/PENDING，不能从该 cut 推断。cut identity 与 digest 是
 `market-data.bar-schedule-cut.v1\0 || canonical cut bytes` 的同一 SHA-256。

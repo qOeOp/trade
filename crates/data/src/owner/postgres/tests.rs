@@ -1226,6 +1226,7 @@ async fn sample_projection_postgres_oracle_v3(owner_url: &str, reader_url: &str,
         &fixture.binding,
         &fixture.batch,
         &fixture.instrument_master,
+        &fixture.instrument_master,
     )
     .expect("prepared BAR schedule");
     let before_schedule: (i64, i64, i64) = sqlx::query_as(
@@ -1373,6 +1374,7 @@ async fn sample_projection_postgres_oracle_v3(owner_url: &str, reader_url: &str,
         successor_proposal,
         &fixture.binding,
         &fixture.batch,
+        &fixture.instrument_master,
         &fixture.instrument_master,
     )
     .expect("same BAR shape with successor schedule custody");

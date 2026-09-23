@@ -1675,15 +1675,24 @@ pub(crate) mod tests {
             prepare_bar_schedule_commit_v1,
         },
         instrument_master::{
-            ClockProjection, InstrumentClass, InstrumentDecimal, InstrumentMasterCutV1,
-            InstrumentMasterFactProposalV1, InstrumentMasterFactV1, InstrumentMasterReadbackV1,
-            InstrumentMasterResolution, InstrumentMasterScopeV1, InstrumentVenueSourceMapping,
+            BACKTEST_OWNER_V1, ClockProjection, InstrumentClass, InstrumentDecimal,
+            InstrumentMasterCutV1, InstrumentMasterFactProposalV1, InstrumentMasterFactV1,
+            InstrumentMasterReadbackV1, InstrumentMasterResolution, InstrumentMasterScopeV1,
+            InstrumentVenueSourceMapping, UntrustedInstrumentMasterRequestV1,
+            authority::{
+                build_cut, build_fact, build_readback, build_receipt, clock_projection,
+                select_facts, validate_fact_graph,
+            },
         },
         pit_snapshot::{
             UntrustedCorrectionPublicationTime, UntrustedEventEffectiveTime,
             UntrustedPitSnapshotTimeEvidence, UntrustedProviderAvailableTime,
             UntrustedRetrievalTime, UntrustedSnapshotDecisionCut, VerifiedPitObservation,
             VerifiedPitObservationBatch,
+        },
+        shared_time_evidence::{ClockHeadFact, build_head_fact},
+        source_binding::{
+            MarketDataClockAdmission, MarketDataClockComparisonRule, MarketDataClockCutKind,
         },
         strategy_input_binding::{
             MarketDataFieldSemantic, StrategyInputChannel, StrategyInputEventFrameReceipt,
@@ -1994,6 +2003,7 @@ pub(crate) mod tests {
             binding,
             batch,
             master,
+            master,
         )
         .map_err(|e| match e {
             BarScheduleError::AmbiguousInstrumentMaster => {
@@ -2230,6 +2240,7 @@ pub(crate) mod tests {
             &binding,
             &batch,
             &instrument_master,
+            &instrument_master,
         )
         .expect("internally consistent foreign BAR schedule")
     }
@@ -2245,6 +2256,7 @@ pub(crate) mod tests {
             fixture.schedule_proposal,
             &fixture.binding,
             &fixture.batch,
+            &fixture.instrument_master,
             &fixture.instrument_master,
         )
         .and_then(|prepared| {
@@ -2574,6 +2586,361 @@ pub(crate) mod tests {
         widened
     }
 
+    /// The Instrument Master clock every fact and cut in the window tests is admitted under.
+    fn window_master_clock() -> ClockHeadFact {
+        window_master_head(2, 90)
+    }
+
+    /// One head of that clock: `sequence` on its monotonic counter, observed and cut at `wall`.
+    fn window_master_head(sequence: u64, wall: u64) -> ClockHeadFact {
+        build_head_fact(
+            &MarketDataClockAdmission {
+                cut_kind: MarketDataClockCutKind::MarketDataAsOf,
+                clock_identity: "12345678901234567890123456789012".into(),
+                clock_epoch: "abcdefghijklmnopqrstuvwxyzABCDEF".into(),
+                monotonic_sequence: sequence,
+                wall_observed: wall,
+                decision_cut: wall,
+                valid_through: 120,
+                restart_continuity_digest: d(90),
+                uncertainty_bound: 1,
+                skew_bound: 2,
+                comparison_rule: MarketDataClockComparisonRule::ExclusiveValidThrough,
+            },
+            None,
+        )
+        .expect("window master clock")
+    }
+
+    /// One `AAPL.XNAS` Instrument Master fact, admitted by the real authority, whose frontiers are
+    /// the ones `batch` carries.
+    fn window_master_fact(
+        batch: &VerifiedPitObservationBatch,
+        predecessor: Option<&InstrumentMasterFactV1>,
+        effective_from: i128,
+        observed: i128,
+    ) -> InstrumentMasterFactV1 {
+        window_master_fact_on(
+            batch,
+            predecessor,
+            effective_from,
+            observed,
+            &window_master_clock(),
+        )
+    }
+
+    /// [`window_master_fact`], recorded under `head` rather than the default one.
+    fn window_master_fact_on(
+        batch: &VerifiedPitObservationBatch,
+        predecessor: Option<&InstrumentMasterFactV1>,
+        effective_from: i128,
+        observed: i128,
+        head: &ClockHeadFact,
+    ) -> InstrumentMasterFactV1 {
+        let proposal = InstrumentMasterFactProposalV1 {
+            canonical_identity: "AAPL.XNAS".into(),
+            predecessor_fact_digest: predecessor.map(InstrumentMasterFactV1::digest),
+            mappings: vec![InstrumentVenueSourceMapping {
+                venue_identity: "XNAS".into(),
+                source_identity: "SIP".into(),
+                source_instrument: b"AAPL".to_vec(),
+            }],
+            instrument_class: InstrumentClass::Equity,
+            base_currency: Some("USD".into()),
+            quote_currency: None,
+            settlement_currency: Some("USD".into()),
+            margin_currency: None,
+            price_increment: InstrumentDecimal {
+                mantissa: 1,
+                scale: 2,
+            },
+            quantity_increment: InstrumentDecimal {
+                mantissa: 1,
+                scale: 0,
+            },
+            contract_multiplier: InstrumentDecimal {
+                mantissa: 1,
+                scale: 0,
+            },
+            calendar_identity: "XNYS-CALENDAR-V1".into(),
+            session_identity: "XNYS-REGULAR-V1".into(),
+            time_zone_identity: "America/New_York".into(),
+            lifecycle_frontier: d(36),
+            corporate_action_frontier: d(37),
+            historical_membership_frontier: d(38),
+            market_semantics_identity: batch.market_semantics_identity(),
+            source_frontier: batch.source_frontier_digest(),
+            correction_frontier: batch.correction_frontier_digest(),
+            effective_from,
+            effective_until: Some(100),
+            provider_available: observed - 3,
+            retrieval: observed - 2,
+            correction_publication: observed - 1,
+            owner_observation: observed,
+        };
+        build_fact(proposal, &head.handoff, None).expect("admitted master fact")
+    }
+
+    /// The Owner's cut of `facts` at `effective_instant`, as observed at `observation`: the same
+    /// select, cut, receipt and readback steps the Owner runs in `resolve_instrument_master_inner`.
+    fn window_master_cut(
+        facts: &[InstrumentMasterFactV1],
+        effective_instant: i128,
+        observation: i128,
+    ) -> InstrumentMasterReadbackV1 {
+        window_master_cut_on(
+            facts,
+            effective_instant,
+            observation,
+            &window_master_clock(),
+        )
+    }
+
+    /// [`window_master_cut`], taken under `head`: the cut's clock is that head's projection, so
+    /// what the cut can see is decided by the head it was built on.
+    fn window_master_cut_on(
+        facts: &[InstrumentMasterFactV1],
+        effective_instant: i128,
+        observation: i128,
+        clock: &ClockHeadFact,
+    ) -> InstrumentMasterReadbackV1 {
+        let fact_clock = clock_projection(&clock.handoff, None).expect("head projection");
+        let request = UntrustedInstrumentMasterRequestV1 {
+            request_identity: d(u8::try_from(effective_instant + observation).expect("small")),
+            request_meaning_digest: d(41),
+            consumer_role: BACKTEST_OWNER_V1.into(),
+            scope: InstrumentMasterScopeV1::ExactInstrument("AAPL.XNAS".into()),
+            effective_instant,
+            owner_observation: observation,
+            decision_cut: clock.handoff.decision_cut(),
+            clock_head: clock.handoff.locator().clone(),
+            lifecycle_frontier: d(36),
+            corporate_action_frontier: d(37),
+            historical_membership_frontier: d(38),
+            market_semantics_identity: facts[0].market_semantics_identity(),
+            source_frontier: facts[0].source_frontier(),
+            correction_frontier: facts[0].correction_frontier(),
+            stable_correlation: d(42),
+        };
+        let members = vec!["AAPL.XNAS".to_owned()];
+        validate_fact_graph(facts).expect("one correction chain");
+        let selected = select_facts(
+            facts,
+            &members,
+            effective_instant,
+            observation,
+            request.decision_cut,
+            &fact_clock,
+        )
+        .expect("the Owner resolves this instrument");
+        let cut = build_cut(&request, members, &selected, fact_clock).expect("Owner cut");
+        let receipt = build_receipt(&request, &selected, &cut, d(30), 7).expect("Owner receipt");
+        build_readback(&receipt).expect("Owner readback")
+    }
+
+    /// A BAR at 10, its batch and rows declaring `shared` as their Instrument Master.
+    fn bar_resting_on(shared: &InstrumentMasterReadbackV1) -> VerifiedPitObservationBatch {
+        let mut row = bar_row(10, 3);
+        row.instrument_master_digest = shared.digest();
+        let mut batch = batch(row, 30);
+        batch.instrument_master_digest = shared.digest();
+        batch
+    }
+
+    /// A window of frames shares one Instrument Master cut, so a BAR may sit after that cut - but
+    /// only while the master is unchanged, which is proven, not assumed.
+    ///
+    /// Every master here comes out of the real authority (`build_fact`, `select_facts`, `build_cut`,
+    /// `build_receipt`, `build_readback`). The corrected cases keep the superseded fact's interval
+    /// containing the BAR, so the interval check passes and the only thing that can refuse them is
+    /// the comparison against the cut taken at the BAR's own instant.
+    #[rstest]
+    #[case::correction_effective_inside_the_window(8, 70)]
+    #[case::correction_observed_after_the_shared_cut(1, 70)]
+    fn a_schedule_after_its_shared_master_cut_rests_only_on_an_unchanged_master(
+        #[case] correction_effective_from: i128,
+        #[case] correction_observed: i128,
+    ) {
+        let proposal = UntrustedBarScheduleProposalV1 {
+            canonical_instrument: "AAPL.XNAS".into(),
+            predecessor_fact_digest: None,
+            effective_from: 1,
+            effective_until: Some(100),
+            kind: BarScheduleKindV1::FixedInterval,
+            step: 5,
+            unit: BarScheduleUnitV1::Minute,
+            anchor_identity: d(70),
+            label: BarScheduleLabelV1::IntervalClose,
+            completion: BarScheduleCompletionV1::CompleteOnly,
+        };
+        let seed = batch(bar_row(10, 3), 30);
+        let original = window_master_fact(&seed, None, 1, 50);
+        let shared = window_master_cut(std::slice::from_ref(&original), 5, 60);
+        let batch = bar_resting_on(&shared);
+        let binding =
+            bind_strategy_input_role(&bar_request(&batch), &batch).expect("sealed BAR binding");
+
+        // Unchanged master: the BAR at 10 rests on the cut taken at 5.
+        let at_bar = window_master_cut(std::slice::from_ref(&original), 10, 80);
+        prepare_bar_schedule_commit_v1(proposal.clone(), &binding, &batch, &shared, &at_bar)
+            .expect("a BAR after an unchanged shared cut prepares");
+
+        // (a) A shared cut after the BAR would read the master's future.
+        let future = window_master_cut(std::slice::from_ref(&original), 15, 60);
+        let future_batch = bar_resting_on(&future);
+        let future_binding = bind_strategy_input_role(&bar_request(&future_batch), &future_batch)
+            .expect("sealed BAR binding");
+        assert_eq!(
+            prepare_bar_schedule_commit_v1(
+                proposal.clone(),
+                &future_binding,
+                &future_batch,
+                &future,
+                &at_bar,
+            )
+            .unwrap_err(),
+            BarScheduleError::InstrumentMasterMismatch,
+            "(a) a shared cut later than the BAR is look-ahead"
+        );
+
+        // (b) The master is corrected between the shared cut and the BAR.
+        let corrected = window_master_fact(
+            &seed,
+            Some(&original),
+            correction_effective_from,
+            correction_observed,
+        );
+        let chain = [original.clone(), corrected.clone()];
+        let at_bar = window_master_cut(&chain, 10, 80);
+        assert_eq!(at_bar.cut().resolutions[0].fact_digest, corrected.digest());
+        assert_eq!(
+            window_master_cut(&chain, 5, 60).digest(),
+            shared.digest(),
+            "the shared cut itself still resolves the original fact"
+        );
+        assert!(
+            original.effective_from() <= 10 && original.effective_until() > Some(10),
+            "the superseded fact still contains the BAR, so only the comparison can refuse it"
+        );
+        assert_eq!(
+            prepare_bar_schedule_commit_v1(proposal.clone(), &binding, &batch, &shared, &at_bar)
+                .unwrap_err(),
+            BarScheduleError::InstrumentMasterNotCurrentAtEvent,
+            "(b) a schedule cannot rest on a master corrected before its BAR"
+        );
+
+        // The comparison is only worth anything against a cut at the BAR's own instant; an earlier
+        // cut offered in its place can predate the correction and agree with the shared one.
+        let before_bar = window_master_cut(&chain, 5, 80);
+        assert_eq!(
+            prepare_bar_schedule_commit_v1(
+                proposal.clone(),
+                &binding,
+                &batch,
+                &shared,
+                &before_bar
+            )
+            .unwrap_err(),
+            BarScheduleError::InstrumentMasterMismatch,
+            "a cut taken before the BAR cannot stand in for the one at it"
+        );
+
+        // A cut at the BAR observed before the shared cut predates both corrections here, so it
+        // resolves the original fact and agrees with the shared cut; only the observation order
+        // can refuse it.
+        let observed_early = window_master_cut(&chain, 10, 55);
+        assert_eq!(
+            observed_early.cut().resolutions[0].fact_digest,
+            original.digest()
+        );
+        assert_eq!(
+            prepare_bar_schedule_commit_v1(proposal, &binding, &batch, &shared, &observed_early)
+                .unwrap_err(),
+            BarScheduleError::InstrumentMasterMismatch,
+            "a cut at the BAR observed before the shared cut cannot vouch for it"
+        );
+    }
+
+    /// The cut offered as "at the BAR" has to see at least everything the shared cut could see.
+    ///
+    /// A fact is visible to a cut by three coordinates (`observable` in the Instrument Master
+    /// authority): the clock head's sequence, the decision cut, and the Owner observation. Each case
+    /// puts the at-BAR cut behind the shared cut on exactly one of them, and records the correction
+    /// on a head that only that coordinate hides from it; the other two are no lower. Such a cut
+    /// misses the correction, resolves the superseded fact, and agrees with the shared cut for the
+    /// wrong reason - so it must be refused.
+    #[rstest]
+    #[case::behind_on_the_clock_sequence((30, 90), 80, (40, 85), 70)]
+    #[case::behind_on_the_decision_cut((60, 80), 80, (40, 85), 70)]
+    #[case::behind_on_the_observation((50, 90), 73, (40, 85), 74)]
+    fn an_at_bar_master_cut_must_observe_at_least_what_the_shared_cut_did(
+        #[case] at_bar_head: (u64, u64),
+        #[case] at_bar_observation: i128,
+        #[case] correction_head: (u64, u64),
+        #[case] correction_observed: i128,
+    ) {
+        let proposal = UntrustedBarScheduleProposalV1 {
+            canonical_instrument: "AAPL.XNAS".into(),
+            predecessor_fact_digest: None,
+            effective_from: 1,
+            effective_until: Some(100),
+            kind: BarScheduleKindV1::FixedInterval,
+            step: 5,
+            unit: BarScheduleUnitV1::Minute,
+            anchor_identity: d(70),
+            label: BarScheduleLabelV1::IntervalClose,
+            completion: BarScheduleCompletionV1::CompleteOnly,
+        };
+        let seed = batch(bar_row(10, 3), 30);
+        let original = window_master_fact_on(&seed, None, 1, 50, &window_master_head(10, 60));
+        let corrected = window_master_fact_on(
+            &seed,
+            Some(&original),
+            8,
+            correction_observed,
+            &window_master_head(correction_head.0, correction_head.1),
+        );
+        let chain = [original.clone(), corrected.clone()];
+        let shared_head = window_master_head(50, 90);
+        let shared = window_master_cut_on(&chain, 5, 75, &shared_head);
+        assert_eq!(
+            shared.cut().resolutions[0].fact_digest,
+            original.digest(),
+            "the correction takes effect at 8, after the shared cut's instant"
+        );
+        let batch = bar_resting_on(&shared);
+        let binding =
+            bind_strategy_input_role(&bar_request(&batch), &batch).expect("sealed BAR binding");
+
+        // A cut at the BAR that sees what the shared cut sees resolves the correction, and is refused.
+        let seeing = window_master_cut_on(&chain, 10, 80, &shared_head);
+        assert_eq!(seeing.cut().resolutions[0].fact_digest, corrected.digest());
+        assert_eq!(
+            prepare_bar_schedule_commit_v1(proposal.clone(), &binding, &batch, &shared, &seeing)
+                .unwrap_err(),
+            BarScheduleError::InstrumentMasterNotCurrentAtEvent
+        );
+
+        // The same BAR, with the at-BAR cut behind on one coordinate: it cannot see the correction.
+        let behind = window_master_cut_on(
+            &chain,
+            10,
+            at_bar_observation,
+            &window_master_head(at_bar_head.0, at_bar_head.1),
+        );
+        assert_eq!(
+            behind.cut().resolutions[0].fact_digest,
+            original.digest(),
+            "the lagging coordinate hides the correction from the at-BAR cut"
+        );
+        assert_eq!(
+            prepare_bar_schedule_commit_v1(proposal, &binding, &batch, &shared, &behind)
+                .unwrap_err(),
+            BarScheduleError::InstrumentMasterMismatch,
+            "an at-BAR cut that observes less than the shared cut cannot vouch for it"
+        );
+    }
+
     /// A schedule prepares against a master that covers a universe, not only against one scoped to
     /// a single instrument.
     ///
@@ -2612,12 +2979,18 @@ pub(crate) mod tests {
             completion: BarScheduleCompletionV1::CompleteOnly,
         };
         let exactly_scoped =
-            prepare_bar_schedule_commit_v1(proposal.clone(), &binding, &batch, &exact)
+            prepare_bar_schedule_commit_v1(proposal.clone(), &binding, &batch, &exact, &exact)
                 .expect("the single-instrument case still prepares");
 
         let universe = universe_scoped_master(exact, "MSFT.XNAS");
-        let widened = prepare_bar_schedule_commit_v1(proposal.clone(), &binding, &batch, &universe)
-            .expect("a universe-scoped master carrying this instrument prepares the same schedule");
+        let widened = prepare_bar_schedule_commit_v1(
+            proposal.clone(),
+            &binding,
+            &batch,
+            &universe,
+            &universe,
+        )
+        .expect("a universe-scoped master carrying this instrument prepares the same schedule");
         assert_eq!(
             widened.fact.digest(),
             exactly_scoped.fact.digest(),
@@ -2635,8 +3008,14 @@ pub(crate) mod tests {
             "IBM.XNAS",
         );
         assert_eq!(
-            prepare_bar_schedule_commit_v1(proposal.clone(), &binding, &batch, &elsewhere)
-                .unwrap_err(),
+            prepare_bar_schedule_commit_v1(
+                proposal.clone(),
+                &binding,
+                &batch,
+                &elsewhere,
+                &elsewhere
+            )
+            .unwrap_err(),
             BarScheduleError::InstrumentMasterMismatch,
             "a universe that does not carry this instrument is refused"
         );
@@ -2653,7 +3032,8 @@ pub(crate) mod tests {
         let duplicate = ambiguous.facts[0].clone();
         ambiguous.facts.push(duplicate);
         assert_eq!(
-            prepare_bar_schedule_commit_v1(proposal, &binding, &batch, &ambiguous).unwrap_err(),
+            prepare_bar_schedule_commit_v1(proposal, &binding, &batch, &ambiguous, &ambiguous)
+                .unwrap_err(),
             BarScheduleError::AmbiguousInstrumentMaster,
             "uniqueness is still required, it is just no longer uniqueness of the whole master"
         );
@@ -2681,8 +3061,9 @@ pub(crate) mod tests {
             label: BarScheduleLabelV1::IntervalClose,
             completion: BarScheduleCompletionV1::CompleteOnly,
         };
-        let prepared = prepare_bar_schedule_commit_v1(proposal.clone(), &binding, &batch, &master)
-            .expect("prepared schedule");
+        let prepared =
+            prepare_bar_schedule_commit_v1(proposal.clone(), &binding, &batch, &master, &master)
+                .expect("prepared schedule");
         let receipt =
             bar_schedule_authority::build_receipt(&prepared.fact, &prepared.cut, d(71), 1)
                 .expect("stored receipt");
@@ -2697,7 +3078,7 @@ pub(crate) mod tests {
         let mut schedule_boundary = proposal.clone();
         schedule_boundary.effective_until = Some(10);
         assert_eq!(
-            prepare_bar_schedule_commit_v1(schedule_boundary, &binding, &batch, &master)
+            prepare_bar_schedule_commit_v1(schedule_boundary, &binding, &batch, &master, &master)
                 .unwrap_err(),
             BarScheduleError::EffectiveIntervalMismatch
         );
@@ -2708,8 +3089,14 @@ pub(crate) mod tests {
         );
         master_boundary.facts[0].proposal.effective_until = Some(10);
         assert_eq!(
-            prepare_bar_schedule_commit_v1(proposal.clone(), &binding, &batch, &master_boundary)
-                .unwrap_err(),
+            prepare_bar_schedule_commit_v1(
+                proposal.clone(),
+                &binding,
+                &batch,
+                &master_boundary,
+                &master_boundary
+            )
+            .unwrap_err(),
             BarScheduleError::EffectiveIntervalMismatch
         );
         let mut cut_splice = instrument_master_readback(
@@ -2719,7 +3106,8 @@ pub(crate) mod tests {
         );
         cut_splice.cut.effective_instant = 11;
         assert_eq!(
-            prepare_bar_schedule_commit_v1(proposal, &binding, &batch, &cut_splice).unwrap_err(),
+            prepare_bar_schedule_commit_v1(proposal, &binding, &batch, &cut_splice, &cut_splice)
+                .unwrap_err(),
             BarScheduleError::InstrumentMasterMismatch
         );
     }
