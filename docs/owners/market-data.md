@@ -1403,9 +1403,14 @@ rejects instrument, Market Semantics, frontier, effective-containment, or Instru
 The structural `BarScheduleCutV1` canonical bytes are schema `u16LE = 1`, reserved-zero `u16LE`, fact digest
 `[u8; 32]`, the same canonical-instrument variable bytes, effective instant `i128LE`, then Instrument Master
 readback, fact, and cut digests, Market Semantics identity, source frontier, and correction frontier, all `[u8; 32]`
-in that order. The effective instant must equal the selected BAR row's event-effective instant and the Instrument
-Master cut effective instant, and both the schedule fact and Instrument Master fact effective intervals must contain
-it. The current structural codec does not encode interval open/close or Owner observation/decision-cut coordinates;
+in that order. The effective instant must equal the selected BAR row's event-effective instant. The Instrument
+Master cut's effective instant must not be later than it, and both the schedule fact and Instrument Master fact
+effective intervals must contain it. The Instrument Master fact that governs the instrument at that instant, as the
+Owner resolves it at a cut taken at that instant, must be the fact the schedule's Instrument Master cut holds, compared
+by fact identity; otherwise the schedule is refused. A window of frames shares one Instrument Master cut, and this
+comparison is what lets its later BARs rest on that cut: a correction effective or observed between the cut and a BAR
+resolves to a successor fact and refuses that BAR's schedule, while the superseded fact's interval still contains the
+BAR and cannot. The current structural codec does not encode interval open/close or Owner observation/decision-cut coordinates;
 those predicates remain TARGET/PENDING rather than inferred from this cut. Cut identity and digest are the same
 SHA-256 over `market-data.bar-schedule-cut.v1\0 || canonical cut bytes`.
 
