@@ -11424,6 +11424,7 @@ dependencies = [
  "tracing-subscriber",
  "vibe-backtest-owner",
  "vibe-backtest-owner-contracts",
+ "vibe-backtest-result-custody",
  "vibe-binance",
  "vibe-core",
  "vibe-data",

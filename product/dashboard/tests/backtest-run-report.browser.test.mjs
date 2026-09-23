@@ -158,20 +158,16 @@ test(browserAcceptance
 
   // What the Owner answers for each, read through the read API before any browser runs, so every
   // browser assertion below compares against the Owner's own answer rather than a constant.
-  // Which code the Owner gives depends on which of its checks the result fails first, so this asserts
-  // that the code is the Owner's own and not one the read API or the Dashboard names, and the page
-  // below must render exactly it. Measured 2026-09-23: `SEMANTIC_TRACE_ABSENT`, because the result
-  // chosen carries neither a semantic trace nor outcome evidence and the trace is checked first.
+  // The chain read this code from Backtest custody's named refusal of this result, so it is the
+  // Owner's judgement and not a transport or storage failure. Which code it is depends on which check
+  // the result fails first, so none is written here. Measured 2026-09-23: `SEMANTIC_TRACE_ABSENT`,
+  // because the result chosen carries neither a semantic trace nor outcome evidence.
+  const refusedOwnerCode = required("DASHBOARD_RUN_REPORT_REFUSED_OWNER_CODE", /^[A-Z][A-Z0-9_]*$/u);
   const refusedAnswer = await readApi(reportQuery(refused), readApiUrl, readApiToken);
-  assert.equal(refusedAnswer.status, 503, JSON.stringify(refusedAnswer));
-  assert.deepEqual(Object.keys(refusedAnswer.body).sort(), ["reason", "state"]);
-  assert.equal(refusedAnswer.body.state, "UNAVAILABLE");
-  assert.match(refusedAnswer.body.reason, /^[A-Z][A-Z0-9_]*$/u);
-  assert.doesNotMatch(
-    refusedAnswer.body.reason,
-    /^(?:OWNER_|INVALID_|BACKTEST_RUN_REPORT_|BACKTEST_RUN_ABSENT$)/u,
-    "a result committed without outcome evidence is refused under the Owner's own code",
-  );
+  assert.deepEqual(refusedAnswer, {
+    status: 503,
+    body: { state: "UNAVAILABLE", reason: refusedOwnerCode },
+  }, "the read API relays the Owner's refusal under the Owner's own code");
   const runAnswer = await readApi(reportQuery(run), readApiUrl, readApiToken);
   assert.equal(runAnswer.status, 200);
   const { engine_result_digest: engineResultDigest, ...runLocator } = runAnswer.body.run;

@@ -59,8 +59,9 @@ mod tests {
         extract::{Path, Query, State},
         http::{HeaderMap, StatusCode},
     };
+    use rstest::rstest;
     use sha2::{Digest, Sha256};
-    use vibe_strategy_factory::ExploratoryReplayResultLocatorV2;
+    use vibe_backtest_result_custody::BacktestReadbackRefusalV1;
     use vibe_strategy_factory::{
         BacktestResultCustodyErrorV2,
         artifact_build::{
@@ -83,6 +84,10 @@ mod tests {
             HistoricalCustodyCompletenessV1, HistoricalCustodyErrorV1,
             HistoricalCustodyOwnerPortV1, HistoricalCustodyQuarantineV1,
         },
+    };
+    use vibe_strategy_factory::{
+        ExploratoryReplayResultLocatorV2,
+        backtest_run_report_read_v1::{BacktestRunReportProjectionV1, BacktestRunReportRefusalV1},
     };
     use vibe_strategy_factory_rd_owner_api::dashboard_read_api::{
         self as dashboard_read_api, ApiState, ArtifactDirectoryQueryV1, BACKTEST_RUN_ABSENT_V1,
@@ -1066,6 +1071,50 @@ mod tests {
         assert_eq!(cross_spliced.status(), StatusCode::NOT_FOUND);
     }
 
+    /// The code under which Backtest custody itself refused a run's report, or `None` when the
+    /// answer is anything else.
+    ///
+    /// Only custody's named refusal is the Owner's judgement. A report, an absent run, a failed
+    /// transaction or storage read (`OUTCOME_EVIDENCE_UNAVAILABLE`), and a projection fault are not,
+    /// so an acceptance that took any of those as "the Owner refused" would go green on a database
+    /// hiccup.
+    fn custody_refusal_code(
+        answer: &Result<Option<BacktestRunReportProjectionV1>, BacktestRunReportRefusalV1>,
+    ) -> Option<&'static str> {
+        match answer {
+            Err(BacktestRunReportRefusalV1::OutcomeEvidenceRefused(refusal)) => {
+                Some(refusal.code())
+            }
+            _ => None,
+        }
+    }
+
+    #[rstest]
+    fn only_custodys_named_refusal_counts_as_the_owners_code() {
+        let named = Err(BacktestRunReportRefusalV1::OutcomeEvidenceRefused(
+            BacktestReadbackRefusalV1::SemanticTraceAbsent,
+        ));
+        assert_eq!(custody_refusal_code(&named), Some("SEMANTIC_TRACE_ABSENT"));
+
+        // Negative controls: each of these reaches the page as a code, and none is custody's own.
+        for answer in [
+            Err(BacktestRunReportRefusalV1::OutcomeEvidenceUnavailable(
+                "storage unavailable".to_owned(),
+            )),
+            Err(BacktestRunReportRefusalV1::EngineResultNoncanonical(
+                "truncated".to_owned(),
+            )),
+            Err(BacktestRunReportRefusalV1::NonFiniteValue("net_return")),
+            Ok(None),
+        ] {
+            assert_eq!(custody_refusal_code(&answer), None, "{answer:?}");
+        }
+        assert_eq!(
+            BacktestRunReportRefusalV1::OutcomeEvidenceUnavailable(String::new()).code(),
+            "OUTCOME_EVIDENCE_UNAVAILABLE"
+        );
+    }
+
     /// One exploratory result and the selector the `/backtest` workbench opens it with.
     struct OpenableResult {
         result_identity: String,
@@ -1211,8 +1260,15 @@ mod tests {
             "layer 2: the result readback does not open the committed run's result"
         );
 
-        // A result the workbench opens but that carries no outcome evidence, so the Owner itself
-        // answers why it has no report.
+        // A result the workbench opens but that carries no outcome evidence, and that the Backtest
+        // Owner's custody itself refuses by name. The expected code is read from the Owner here, so
+        // the browser is held to the Owner's own judgement rather than to a list of codes that are
+        // not the Dashboard's: a storage or connection failure also yields a code outside that list.
+        let owner = PostgresExploratoryReplayReadbackOwnerV2::connect(
+            test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+        )
+        .await
+        .unwrap();
         let without_evidence = sqlx::query(
             "SELECT result.result_identity, result.request_identity,
                     result.request_meaning_digest, result.attempt_identity
@@ -1229,15 +1285,27 @@ mod tests {
 
         for row in &without_evidence {
             let candidate = openable(row);
-            if workbench_opens(&probe, &candidate).await == (StatusCode::OK, StatusCode::OK) {
-                refused = Some(candidate);
+            if workbench_opens(&probe, &candidate).await != (StatusCode::OK, StatusCode::OK) {
+                continue;
+            }
+            let answer = owner
+                .resolve_backtest_run_report_v1(ExploratoryReplayResultLocatorV2 {
+                    result_identity: &candidate.result_identity,
+                    request_identity: &candidate.request_identity,
+                    attempt_identity: &candidate.attempt_identity,
+                })
+                .await;
+
+            if let Some(code) = custody_refusal_code(&answer) {
+                refused = Some((candidate, code));
                 break;
             }
         }
-        let refused = refused.unwrap_or_else(|| {
+        let (refused, refused_code) = refused.unwrap_or_else(|| {
             panic!(
-                "none of the {} results committed without outcome evidence opens in the workbench, \
-                 so no real Owner refusal is reachable from the page",
+                "none of the {} results committed without outcome evidence both opens in the \
+                 workbench and is refused by name by Backtest custody, so no real Owner refusal \
+                 is reachable from the page",
                 without_evidence.len()
             )
         });
@@ -1275,7 +1343,8 @@ mod tests {
                 "RD_DASHBOARD_OWNER_READ_API_URL",
                 format!("http://{read_address}/"),
             )
-            .env("RD_DASHBOARD_OWNER_READ_API_TOKEN", read_token);
+            .env("RD_DASHBOARD_OWNER_READ_API_TOKEN", read_token)
+            .env("DASHBOARD_RUN_REPORT_REFUSED_OWNER_CODE", refused_code);
 
         for (prefix, selected) in [("RUN", &run), ("REFUSED", &refused)] {
             browser
