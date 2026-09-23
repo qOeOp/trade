@@ -338,7 +338,7 @@ impl CapacityScopePostgresV1 {
                 committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms > 0))",
             "CREATE OR REPLACE FUNCTION portfolio_api.read_bound_capacity_scope_v1(request_identity text) \
              RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER \
-             SET search_path = pg_catalog, portfolio_private AS $$ \
+             SET search_path = pg_catalog, portfolio_private, pg_temp AS $$ \
                 SELECT readback.readback_json \
                   FROM portfolio_private.portfolio_capacity_scope_bound_readbacks_v1 readback \
                   JOIN portfolio_private.portfolio_capacity_scope_registry_heads_v1 head \
@@ -347,7 +347,7 @@ impl CapacityScopePostgresV1 {
              $$",
             "CREATE OR REPLACE FUNCTION portfolio_api.read_current_capacity_view_v1(scope_identity text, at_epoch_ms bigint) \
              RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER \
-             SET search_path = pg_catalog, portfolio_private AS $$ \
+             SET search_path = pg_catalog, portfolio_private, pg_temp AS $$ \
                 SELECT view_record.view_json \
                   FROM portfolio_private.portfolio_capacity_views_v1 view_record \
                  WHERE view_record.capacity_scope_identity = read_current_capacity_view_v1.scope_identity \
@@ -370,7 +370,7 @@ impl CapacityScopePostgresV1 {
             // "no fact at this coordinate" and not "expired".
             "CREATE OR REPLACE FUNCTION portfolio_api.capacity_view_expired_at_v1(scope_identity text, at_epoch_ms bigint) \
              RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER \
-             SET search_path = pg_catalog, portfolio_private AS $$ \
+             SET search_path = pg_catalog, portfolio_private, pg_temp AS $$ \
                 SELECT EXISTS ( \
                   SELECT 1 \
                     FROM portfolio_private.portfolio_capacity_views_v1 view_record \
