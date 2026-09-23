@@ -3931,7 +3931,7 @@ BEGIN
       AND procedure.proisstrict
       AND procedure.provolatile = 's'
       AND procedure.proparallel = 's'
-      AND procedure.proconfig = ARRAY['search_path=pg_catalog']
+      AND procedure.proconfig = ARRAY['search_path=pg_catalog, pg_temp']
   ) THEN
     RAISE EXCEPTION 'Qualification public status API metadata mismatch';
   END IF;
@@ -3948,7 +3948,7 @@ BEGIN
       AND procedure.proisstrict
       AND procedure.provolatile = 's'
       AND procedure.proparallel = 's'
-      AND procedure.proconfig = ARRAY['search_path=pg_catalog']
+      AND procedure.proconfig = ARRAY['search_path=pg_catalog, pg_temp']
   ) THEN
     RAISE EXCEPTION 'Qualification public status native-custody validator metadata mismatch';
   END IF;
@@ -4112,7 +4112,7 @@ BEGIN
       AND procedure.proisstrict
       AND procedure.provolatile = 'v'
       AND procedure.proparallel = 'u'
-      AND procedure.proconfig = ARRAY['search_path=pg_catalog']
+      AND procedure.proconfig = ARRAY['search_path=pg_catalog, pg_temp']
   )
      OR NOT pg_catalog.has_schema_privilege('backtest_owner', 'qualification_api', 'USAGE')
      OR NOT pg_catalog.has_function_privilege(
@@ -4136,7 +4136,7 @@ BEGIN
       AND procedure.proisstrict
       AND procedure.provolatile = 'v'
       AND procedure.proparallel = 'u'
-      AND procedure.proconfig = ARRAY['search_path=pg_catalog']
+      AND procedure.proconfig = ARRAY['search_path=pg_catalog, pg_temp']
   )
      OR NOT pg_catalog.has_function_privilege(
        'backtest_owner',
