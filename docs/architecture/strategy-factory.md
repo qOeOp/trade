@@ -154,7 +154,10 @@ The maturity boundary is explicit:
   the Design. A Design with `EXACT_INSTRUMENT` roles stays refused under an Owner universe, by a named refusal,
   `ExactInstrumentRolesUnderOwnerUniverse`, which the implementing change introduces. The universe vertical's input contract of exactly one fixed `OPEN` and one
   fixed `CLOSE` member role is unchanged; the single-threshold authoring surface gains a universe-member form whose
-  channel is the member's daily close and which carries the fixed open role; the single-threshold report family and
+  channel is the member's daily close and which carries the fixed open role. That form consumes each role at member
+  ordinal 0 only, and its bounded feature program still emits a single-instrument proposal: under a one-member
+  universe the host lifts that proposal into the one-member canonical target set, so the vertical still commits one
+  canonical target set and only its producer moves from the plugin to the host. The single-threshold report family and
   the instrument its data window names extend to that form before the first positive run. The target-set schema
   version and semantic identities do not change, and every two-member preimage keeps its bytes: the target-set codec
   and the Instrument Master cut already encode their member count, while the V1 scheduling receipt digest and the

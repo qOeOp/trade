@@ -141,7 +141,9 @@ R&D 内的 Develop 能力返回内容寻址 Strategy Artifact 和 Build Receipt�
   Market Data universe selection 在请求时选定，而不是由 Design 选定。角色为 `EXACT_INSTRUMENT` 的 Design 在 Owner
   universe 下仍被拒绝，由实现改动引入的具名拒绝 `ExactInstrumentRolesUnderOwnerUniverse` 给出。universe 纵向切片的输入契约（准确
   一个固定 `OPEN` 与一个固定 `CLOSE` member role）不变；single-threshold 编写面新增 universe-member 形态，其 channel
-  是该成员的日线收盘价，并携带固定的 open role；在首个正例运行之前，single-threshold 报告族及其 data window
+  是该成员的日线收盘价，并携带固定的 open role。该形态只在成员序号 0 上消费每个 role，其 bounded feature program
+  仍产出单品种 proposal：在单成员 universe 下，host 把该 proposal 提升为单成员规范 target set，因此该纵向切片仍只提交
+  一份规范 target set，只是其产出者从插件移到了 host。在首个正例运行之前，single-threshold 报告族及其 data window
   所指的 instrument 扩展到该形态。target-set schema version 与语义 identity 均不变，所有双成员原像的字节都不变：
   target-set codec 与 Instrument Master cut 本来就编码了成员数，而 V1 scheduling receipt digest 与 ProgramHost
   target-set 快照 digest 对成员做哈希时不带数量，因此那里的单成员原像以不改变双成员字节的方式做 domain 分隔。
