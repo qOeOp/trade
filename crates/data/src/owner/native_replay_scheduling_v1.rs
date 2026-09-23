@@ -670,6 +670,42 @@ pub(crate) fn issue_native_replay_initial_market_readback_v1(
         reason = "the production PostgreSQL resolver is disabled in unit tests"
     )
 )]
+/// Picks the one candidate schedule of an instrument that this frame's request admits.
+///
+/// Shared by every build on purpose: which candidate a frame selects, and the refusal when two
+/// would do, are the same question whether a test asks it or a deployment does. Two matching
+/// candidates are refused rather than ordered between, because the census that produced them
+/// carries no preference and inventing one here would make the frame depend on a row order.
+///
+/// # Errors
+///
+/// Returns unavailable when no candidate matches, and a binding mismatch when two do.
+pub(crate) fn select_native_replay_schedule_v1(
+    candidates: Vec<BarScheduleReadbackV1>,
+    batch: &VerifiedPitObservationBatch,
+    instrument: InstrumentId,
+    timeframe: &str,
+    frame_time_ns: u64,
+) -> Result<BarScheduleReadbackV1, NativeReplaySchedulingErrorV1> {
+    let mut matches = candidates.into_iter().filter(|schedule| {
+        native_replay_schedule_matches_request_v1(
+            schedule,
+            batch,
+            instrument,
+            timeframe,
+            frame_time_ns,
+        )
+    });
+    let selected = matches
+        .next()
+        .ok_or(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+
+    if matches.next().is_some() {
+        return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
+    }
+    Ok(selected)
+}
+
 pub(crate) fn native_replay_schedule_matches_request_v1(
     schedule: &BarScheduleReadbackV1,
     batch: &VerifiedPitObservationBatch,
@@ -1372,6 +1408,74 @@ pub(crate) mod tests {
             frame_time_ns,
             window_end_ns_exclusive,
         )
+    }
+
+    /// A window with one matching schedule selects it; none and two are both refusals.
+    ///
+    /// Two matching candidates are the case worth pinning: the resolver reads every schedule an
+    /// instrument holds, so a second one that also fits this frame is ambiguity the census cannot
+    /// resolve. Taking the first would make the frame depend on the order rows came back in.
+    #[rstest::rstest]
+    fn one_candidate_schedule_is_selected_and_two_are_refused() {
+        let mut rows = rows_for("AAA-PERP.SIM", 101);
+        rows.extend(rows_for("BBB-PERP.SIM", 102));
+        let verified = batch(rows);
+        let instrument = InstrumentId::from("AAA-PERP.SIM");
+        let matching_digest = schedule_at("AAA-PERP.SIM", 40, 100).digest();
+
+        assert_eq!(
+            select_native_replay_schedule_v1(
+                vec![schedule_at("AAA-PERP.SIM", 40, 100)],
+                &verified,
+                instrument,
+                "1M",
+                100,
+            )
+            .map(|selected| selected.digest()),
+            Ok(matching_digest)
+        );
+
+        // A schedule cut at another instant is not this frame's, so the window has none.
+        assert_eq!(
+            select_native_replay_schedule_v1(
+                vec![schedule_at("AAA-PERP.SIM", 40, 160)],
+                &verified,
+                instrument,
+                "1M",
+                100,
+            )
+            .err(),
+            Some(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)
+        );
+
+        // Two distinct schedules that both fit cannot be chosen between.
+        assert_eq!(
+            select_native_replay_schedule_v1(
+                vec![
+                    schedule_at("AAA-PERP.SIM", 40, 100),
+                    schedule_at("AAA-PERP.SIM", 42, 100),
+                ],
+                &verified,
+                instrument,
+                "1M",
+                100,
+            )
+            .err(),
+            Some(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)
+        );
+
+        // Another member's schedule never matches this member's frame.
+        assert_eq!(
+            select_native_replay_schedule_v1(
+                vec![schedule_at("BBB-PERP.SIM", 41, 100)],
+                &verified,
+                instrument,
+                "1M",
+                100,
+            )
+            .err(),
+            Some(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)
+        );
     }
 
     #[rstest::rstest]

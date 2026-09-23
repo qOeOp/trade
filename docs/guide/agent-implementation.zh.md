@@ -102,6 +102,16 @@ accepted、rejected、unknown、replay 语义。
   `gh pr merge --squash --body-file` 可以在合并那一刻替换掉那段信息，不需要 force push。
 - **`sysctl vm.swapusage` 报出的已用交换在内存压力缓解后不会回落**：macOS 不回收已经换出的页，
   所以在一台已经不紧张的机器上，这个数仍然停在接近峰值的位置。`vm_stat` 的空闲页计数会随真实状态变化。
+- **`.gitignore` 让 61 个被跟踪的源文件对 `rg` 隐形。** `*.sh` 被忽略，只有七条 `!` 例外，于是
+  `git ls-files '*.sh'` 列出 80 个文件而 `rg --files` 只看见 19 个，
+  `rg --files product/rd-workbench/postgres-init/` 一个也列不出：那个目录装着全部
+  `CREATE TABLE`、迁移与 `GRANT`。同一个模式走目录得 0 命中，加 `--no-ignore` 得 9 命中。
+  `git check-ignore` 预测不了这件事：忽略规则对已跟踪文件不生效，所以 git 正确地答「不忽略」，
+  而 ripgrep 只按忽略文本过滤它的遍历，不查跟踪状态。两者对「忽略」的定义不同。
+  `git grep`、`grep -rn`、`rg --no-ignore`，或 `rg <pattern> $(git ls-files '*.sh')` 都能回答这个问题；
+  `rg --files <dir> | wc -l` 则说明这个零是在几个文件里搜出来的。一条来自遍历的否定断言值得连同
+  产生它的那条命令一起记下来，就像一个计数值得连同它的修订号一起记下来。
+
 - **`scripts/ci/test-rd-owner-postgres.bash` 在非 Linux 宿主上以状态 1 退出。** 所以本机跑一轮有序链路
   必然是跑一份改过的副本，而改了哪里决定了那一轮意味着什么：换掉比较对象会保留容器、数据库、
   角色授权以及它前面的每一个条目，而直接调用测试二进制则把这些全部跳过。后者的失败不是那个条目的失败。
