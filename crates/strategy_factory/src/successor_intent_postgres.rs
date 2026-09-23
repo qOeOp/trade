@@ -1274,21 +1274,12 @@ fn valid_identity(value: &str) -> bool {
     is_valid_iteration_decision_locator_v1(value)
 }
 
-/// The R&D Owner's clock: `pg_catalog.clock_timestamp()`, read inside the Owner's own transaction.
-///
-/// A successor research view's `projection_at` and `valid_through` are stamped from it, and the Owner's lock
-/// and Product Edge compare their own cuts, taken from the same database clock, with those stamps.
-/// A process clock here would put two clocks on either side of those comparisons.
 async fn owner_clock_epoch_ms_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<u64, SuccessorResearchIntentPostgresErrorV1> {
-    let value: i64 = sqlx::query_scalar(
-        "SELECT pg_catalog.floor(EXTRACT(epoch FROM pg_catalog.clock_timestamp()) * 1000)::bigint",
-    )
-    .fetch_one(&mut **transaction)
-    .await
-    .map_err(storage)?;
-    u64::try_from(value).map_err(storage)
+    crate::rd_owner_clock::owner_clock_epoch_ms_in_transaction(transaction)
+        .await
+        .map_err(storage)
 }
 
 fn storage_digest(domain: &str, bytes: &[u8]) -> String {

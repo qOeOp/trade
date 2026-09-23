@@ -4148,21 +4148,12 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
     }
 }
 
-/// The R&D Owner's clock: `pg_catalog.clock_timestamp()`, read inside the Owner's own transaction.
-///
-/// A research view's `projection_at` and `valid_through` are stamped from it, and the Owner's lock
-/// and Product Edge compare their own cuts, taken from the same database clock, with those stamps.
-/// A process clock here would put two clocks on either side of those comparisons.
 async fn owner_clock_epoch_ms_in_transaction(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<u64, ResearchGoalOwnerError> {
-    let value: i64 = sqlx::query_scalar(
-        "SELECT pg_catalog.floor(EXTRACT(epoch FROM pg_catalog.clock_timestamp()) * 1000)::bigint",
-    )
-    .fetch_one(&mut **transaction)
-    .await
-    .map_err(|e| storage(&e))?;
-    u64::try_from(value).map_err(json_storage)
+    crate::rd_owner_clock::owner_clock_epoch_ms_in_transaction(transaction)
+        .await
+        .map_err(|e| storage(&e))
 }
 
 fn current_epoch_ms() -> Result<u64, ResearchGoalOwnerError> {
@@ -5361,7 +5352,7 @@ pub(crate) mod tests {
         // committed freeze and its outbox event untouched when it refuses.
         let composition_root = crate::rd_bounded_feature_program_postgres_v1::PostgresResearchBoundedFeatureProgramOwnerV1::with_clock(
             owner.pool.clone(),
-            std::sync::Arc::new(move || read_cut),
+            crate::rd_owner_clock::RdOwnerClockV1::fixed(move || read_cut),
         );
 
         // The one statement this Owner can make about a Design without a program. It is what opens
@@ -5954,7 +5945,7 @@ pub(crate) mod tests {
         };
         let composition_root = PostgresResearchBoundedFeatureProgramOwnerV1::with_clock(
             owner.pool.clone(),
-            std::sync::Arc::new(move || read_cut),
+            crate::rd_owner_clock::RdOwnerClockV1::fixed(move || read_cut),
         );
 
         // Nothing has attested this Design, and nothing can: the Composer operation that would
@@ -6003,7 +5994,7 @@ pub(crate) mod tests {
         let replay_cut = read_cut - 1;
         let replay_root = PostgresResearchBoundedFeatureProgramOwnerV1::with_clock(
             owner.pool.clone(),
-            std::sync::Arc::new(move || replay_cut),
+            crate::rd_owner_clock::RdOwnerClockV1::fixed(move || replay_cut),
         );
         let replayed = replay_root
             .declare(declaration)
