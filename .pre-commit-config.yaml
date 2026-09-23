@@ -34,6 +34,12 @@ repos:
     rev: v0.11.0.1
     hooks:
       - id: shellcheck
+        # Follow `source` directives whatever else is in the run. Without this, shellcheck follows a
+        # sourced file only when that file is also one of its inputs, so the verdict depended on
+        # the file set: `--all-files` (CI) passed while a commit touching only the sourcing script
+        # failed SC1091 - four files did, linted alone. A `source=` path that does not exist still
+        # fails either way.
+        args: ["--external-sources"]
   - repo: https://github.com/google/yamlfmt
     rev: v0.21.0
     hooks:
