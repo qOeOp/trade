@@ -182,6 +182,71 @@ pub(crate) fn derive_bounded_feature_program_proposal_v1(
     meaning: &BoundedFeatureProgramMeaningV1,
     bindings: &VerifiedStrategyInputBindingsV2,
 ) -> Result<BoundedFeatureProgramProposalV1, BoundedFeatureProgramDerivationErrorV1> {
+    assemble_proposal(
+        design,
+        DerivedProvenanceV1 {
+            catalog_semantic_version: catalog.semantic_version(),
+            // The catalog's semantic digest, which is what canonical verification compares
+            // against. `identity()` is a different value and a proposal carrying it is rejected
+            // at freeze time.
+            catalog_digest: BindingDigest::from_untrusted_bytes(catalog.semantic_digest()),
+            first_party_sdk_source_digest: first_party_bfp_sdk_source_digest_v1(),
+        },
+        meaning,
+        |role_identity| bindings.receipt_digest_for_role(role_identity),
+    )
+}
+
+/// Redeclares `meaning` against a program the Owner already froze.
+///
+/// Every field a proposer does not decide is taken from `frozen` rather than derived again: its
+/// catalog version and digest, its first-party SDK digest, and each input role's binding receipt.
+/// What changes is only the declared half. Preparing the result therefore reproduces `frozen`'s
+/// canonical bytes exactly when `meaning` is the meaning `frozen` was declared with, whatever
+/// order its collections were written in, because both go through the one canonicalization.
+///
+/// # Errors
+///
+/// Returns the same errors as [`derive_bounded_feature_program_proposal_v1`], with
+/// [`BoundedFeatureProgramDerivationErrorV1::MissingBindingReceipt`] for a role `frozen` holds no
+/// receipt for.
+pub(crate) fn redeclare_frozen_bounded_feature_program_v1(
+    design: &StrategyDesignV2,
+    frozen: &BoundedFeatureProgramProposalV1,
+    meaning: &BoundedFeatureProgramMeaningV1,
+) -> Result<BoundedFeatureProgramProposalV1, BoundedFeatureProgramDerivationErrorV1> {
+    assemble_proposal(
+        design,
+        DerivedProvenanceV1 {
+            catalog_semantic_version: frozen.catalog_semantic_version,
+            catalog_digest: frozen.catalog_digest,
+            first_party_sdk_source_digest: frozen.first_party_sdk_source_digest,
+        },
+        meaning,
+        |role_identity| {
+            frozen
+                .inputs
+                .iter()
+                .find(|input| input.input_role_identity == role_identity)
+                .map(|input| input.static_binding_receipt_digest)
+        },
+    )
+}
+
+/// The provenance fields of a proposal that are neither meaning nor Design.
+#[derive(Clone, Copy)]
+struct DerivedProvenanceV1 {
+    catalog_semantic_version: u16,
+    catalog_digest: BindingDigest,
+    first_party_sdk_source_digest: BindingDigest,
+}
+
+fn assemble_proposal(
+    design: &StrategyDesignV2,
+    provenance: DerivedProvenanceV1,
+    meaning: &BoundedFeatureProgramMeaningV1,
+    receipt_for_role: impl Fn(BindingDigest) -> Option<BindingDigest>,
+) -> Result<BoundedFeatureProgramProposalV1, BoundedFeatureProgramDerivationErrorV1> {
     let (design_identity, design_digest) = match prepare_strategy_design_v2(design) {
         StrategyDesignPreparationV2::Prepared {
             design_identity,
@@ -214,13 +279,12 @@ pub(crate) fn derive_bounded_feature_program_proposal_v1(
                 )
             })?;
         let input_role_identity = strategy_input_role_identity_v2(role);
-        let static_binding_receipt_digest = bindings
-            .receipt_digest_for_role(input_role_identity)
-            .ok_or_else(|| {
-            BoundedFeatureProgramDerivationErrorV1::MissingBindingReceipt(
-                input.role_semantic_id.clone(),
-            )
-        })?;
+        let static_binding_receipt_digest =
+            receipt_for_role(input_role_identity).ok_or_else(|| {
+                BoundedFeatureProgramDerivationErrorV1::MissingBindingReceipt(
+                    input.role_semantic_id.clone(),
+                )
+            })?;
 
         inputs.push(BoundedFeatureInputV1 {
             owner_semantic_id: MARKET_DATA_OWNER_SEMANTIC_ID_V1.to_owned(),
@@ -259,11 +323,9 @@ pub(crate) fn derive_bounded_feature_program_proposal_v1(
         // The version actually assembled against, not a constant. The catalog is published per
         // semantic version, so a proposal that named a fixed one would claim a provenance it might
         // not have.
-        catalog_semantic_version: catalog.semantic_version(),
-        // The catalog's semantic digest, which is what canonical verification compares against.
-        // `identity()` is a different value and a proposal carrying it is rejected at freeze time.
-        catalog_digest: BindingDigest::from_untrusted_bytes(catalog.semantic_digest()),
-        first_party_sdk_source_digest: first_party_bfp_sdk_source_digest_v1(),
+        catalog_semantic_version: provenance.catalog_semantic_version,
+        catalog_digest: provenance.catalog_digest,
+        first_party_sdk_source_digest: provenance.first_party_sdk_source_digest,
         inputs,
         constants: meaning.constants.clone(),
         state_cells: meaning.state_cells.clone(),

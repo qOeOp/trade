@@ -36,18 +36,20 @@ use vibe_data::owner::strategy_input_binding::MarketDataFieldSemantic;
 use crate::{
     bounded_feature_program_derivation_v1::{
         BoundedFeatureGraphBoundsV1, BoundedFeatureInputMeaningV1, BoundedFeatureProgramMeaningV1,
+        redeclare_frozen_bounded_feature_program_v1,
     },
     bounded_feature_program_v1::{
         BOUNDED_FEATURE_NUMERIC_FAILURE_V1, BOUNDED_FEATURE_PLUGIN_ABI_V1,
         BOUNDED_FEATURE_PROPOSAL_OUTPUT_PORTS_V1, BoundedFeatureAvailabilityV1,
         BoundedFeatureClockV1, BoundedFeatureConstantV1, BoundedFeatureConstantValueV1,
         BoundedFeatureInputBindingV1, BoundedFeatureNodeV1, BoundedFeatureOutputPortV1,
-        BoundedFeatureParametersV1, BoundedFeaturePredicateV1,
+        BoundedFeatureParametersV1, BoundedFeaturePredicateV1, BoundedFeatureProgramProposalV1,
         BoundedFeatureProposalDecisionBranchV1, BoundedFeatureProposalDecisionTableV1,
         BoundedFeatureProposalFrameV1, BoundedFeatureTerminalConversionV1,
         BoundedFeatureTerminalOutputV1, BoundedFeatureValueRefV1, BoundedFeatureValueTypeV1,
         BoundedFeatureWarmupContractV1, BoundedFeatureWarmupPostStateV1,
-        OWNER_SAMPLE_COORDINATE_SOURCE_V1, coordinate_port_id, manifest_width,
+        CanonicalBoundedFeatureProgramV1, OWNER_SAMPLE_COORDINATE_SOURCE_V1, coordinate_port_id,
+        manifest_width, prepare_bounded_feature_program_v1,
     },
     strategy_design_v2::{
         CapabilityDeclarationV2, ComputeNodeV2, InputFactClassV2, InputRoleV2, InputScopeV2,
@@ -779,6 +781,117 @@ impl DesignRoleIntentProposalV1 {
     }
 }
 
+/// Recovers the author's request from a Design and a program the Owner froze, or `None` when the
+/// pair is not exactly what this family authors.
+///
+/// Membership is decided by authoring, not by a second reading of the family's shape. A candidate
+/// request is read out of the pair leniently and then authored again, and the pair belongs to the
+/// family only when that reproduces the stored program's canonical bytes, which bind the stored
+/// Design's identity and digest as well. A candidate that is wrong in any field therefore fails
+/// closed instead of stating a strategy the program does not run, and a later change to how this
+/// family authors cannot leave a stale recognizer behind, because there is no recognizer apart
+/// from the author.
+///
+/// A program frozen by an earlier version of this author that the current one no longer
+/// reproduces is outside the family by this test. That is the honest answer: the statement this
+/// returns is one the current author would turn back into exactly that program.
+pub(crate) fn recover_single_threshold_request_v1(
+    design: &StrategyDesignV2,
+    frozen: &CanonicalBoundedFeatureProgramV1,
+) -> Option<SingleThresholdAuthoringRequestV1> {
+    let candidate = candidate_request(design, frozen.program())?;
+    let (authored_design, authored_meaning) =
+        author_single_threshold_program_v1(&candidate).ok()?;
+
+    // One comparison covers both halves. The redeclared program is assembled against the authored
+    // Design, so it carries that Design's identity and digest; its canonical bytes equal the
+    // frozen program's only if the authored Design is also the frozen one. A separate Design
+    // comparison was written first and removed after mutation showed nothing depended on it.
+    let redeclared = redeclare_frozen_bounded_feature_program_v1(
+        &authored_design,
+        frozen.program(),
+        &authored_meaning,
+    )
+    .ok()?;
+    let reprepared = prepare_bounded_feature_program_v1(redeclared, &authored_design).ok()?;
+    (reprepared.canonical_bytes() == frozen.canonical_bytes()).then_some(candidate)
+}
+
+/// Reads a candidate request out of a Design and program by the ids this family writes.
+///
+/// Nothing here is a judgement that the pair is in the family. Every field is only a guess until
+/// [`recover_single_threshold_request_v1`] authors it again and compares.
+fn candidate_request(
+    design: &StrategyDesignV2,
+    program: &BoundedFeatureProgramProposalV1,
+) -> Option<SingleThresholdAuthoringRequestV1> {
+    let [input] = design.inputs.as_slice() else {
+        return None;
+    };
+    let constant = |constant_id: &str| {
+        program
+            .constants
+            .iter()
+            .find(|constant| constant.constant_id == constant_id)
+            .map(|constant| &constant.value)
+    };
+    let BoundedFeatureConstantValueV1::FixedI128 { coefficient, .. } = constant(THRESHOLD)? else {
+        return None;
+    };
+    let comparison = program
+        .nodes
+        .iter()
+        .find(|node| node.node_id == COMPARISON_NODE)
+        .and_then(|node| match &node.parameters {
+            BoundedFeatureParametersV1::ComparisonPredicate { predicate } => Some(*predicate),
+            _ => None,
+        })?;
+    let outcome = |position: &str, target: &str, target_position: &str| {
+        let (
+            BoundedFeatureConstantValueV1::PositionIntentV1 {
+                semantic_id: position_intent_semantic_id,
+            },
+            BoundedFeatureConstantValueV1::TargetVariantV1 {
+                semantic_id: target_variant_semantic_id,
+            },
+            BoundedFeatureConstantValueV1::I64 {
+                value: target_position_units,
+            },
+        ) = (
+            constant(position)?,
+            constant(target)?,
+            constant(target_position)?,
+        )
+        else {
+            return None;
+        };
+        Some(SingleThresholdOutcomeV1 {
+            position_intent_semantic_id: position_intent_semantic_id.clone(),
+            target_variant_semantic_id: target_variant_semantic_id.clone(),
+            target_position_units: *target_position_units,
+        })
+    };
+
+    Some(SingleThresholdAuthoringRequestV1 {
+        research_request_identity: design.research_request_identity,
+        intent_identity: design.intent_identity,
+        intent_digest: design.intent_digest,
+        channel: SingleThresholdChannelV1 {
+            role_semantic_id: input.semantic_id.clone(),
+            instrument: input.instrument.clone(),
+            field_semantic_id: input.field_semantic_id.clone(),
+            timeframe: input.timeframe.clone(),
+            unit: input.unit.clone(),
+            scale: input.scale,
+        },
+        threshold_coefficient: *coefficient,
+        comparison,
+        when_true: outcome(TRUE_POSITION, TRUE_TARGET, TRUE_TARGET_POSITION)?,
+        otherwise: outcome(FALSE_POSITION, FALSE_TARGET, FALSE_TARGET_POSITION)?,
+        falsifier: design.falsifier.clone(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
@@ -899,6 +1012,87 @@ mod tests {
 
         prepare_bounded_feature_program_v1(proposal, &design)
             .unwrap_or_else(|e| panic!("the assembled proposal does not prepare: {e}"));
+    }
+
+    /// Freezes a Design and meaning the way the Owner does: derive against Owner custody, then
+    /// prepare, which is where canonical ordering and every judgement happens.
+    fn frozen(
+        design: &StrategyDesignV2,
+        meaning: &BoundedFeatureProgramMeaningV1,
+    ) -> CanonicalBoundedFeatureProgramV1 {
+        let proposal = derive_bounded_feature_program_proposal_v1(
+            design,
+            PrimitiveCatalogV1::verify().expect("a published catalog verifies"),
+            meaning,
+            &bindings(design),
+        )
+        .unwrap_or_else(|e| panic!("meaning does not assemble: {e}"));
+        prepare_bounded_feature_program_v1(proposal, design)
+            .unwrap_or_else(|e| panic!("the assembled proposal does not prepare: {e}"))
+    }
+
+    fn authored(
+        request: &SingleThresholdAuthoringRequestV1,
+    ) -> (StrategyDesignV2, CanonicalBoundedFeatureProgramV1) {
+        let (design, meaning) =
+            author_single_threshold_program_v1(request).expect("the request is authorable");
+        let program = frozen(&design, &meaning);
+        (design, program)
+    }
+
+    /// Every declared field is read out of the frozen pair, not assumed: each case differs from
+    /// the base request in one field, and the statement read back must differ in that field too.
+    #[rstest]
+    #[case::base(|_: &mut SingleThresholdAuthoringRequestV1| {})]
+    #[case::threshold(|r: &mut SingleThresholdAuthoringRequestV1| r.threshold_coefficient = -12_345)]
+    #[case::comparison(|r: &mut SingleThresholdAuthoringRequestV1| r.comparison = BoundedFeaturePredicateV1::LessOrEqual)]
+    #[case::scale(|r: &mut SingleThresholdAuthoringRequestV1| r.channel.scale = 4)]
+    #[case::instrument(|r: &mut SingleThresholdAuthoringRequestV1| r.channel.instrument = "ETHUSDT-PERP.BINANCE".to_owned())]
+    #[case::timeframe(|r: &mut SingleThresholdAuthoringRequestV1| r.channel.timeframe = "1H".to_owned())]
+    #[case::when_true(|r: &mut SingleThresholdAuthoringRequestV1| r.when_true.target_position_units = 3)]
+    #[case::otherwise(|r: &mut SingleThresholdAuthoringRequestV1| r.otherwise.position_intent_semantic_id = "kernel.position.hold.v1".to_owned())]
+    #[case::falsifier(|r: &mut SingleThresholdAuthoringRequestV1| r.falsifier = "a different statement to be wrong about".to_owned())]
+    fn a_frozen_authored_program_states_the_request_it_was_authored_from(
+        #[case] change: fn(&mut SingleThresholdAuthoringRequestV1),
+    ) {
+        let mut expected = request();
+        change(&mut expected);
+        let (design, program) = authored(&expected);
+
+        assert_eq!(
+            recover_single_threshold_request_v1(&design, &program),
+            Some(expected)
+        );
+    }
+
+    /// A program whose declared fields all read back cleanly, but which fixes a terminal this
+    /// family never varies, is not in the family. Reading alone would state a strategy for it;
+    /// authoring again is what refuses.
+    #[rstest]
+    fn a_program_the_family_would_not_author_has_no_statement() {
+        let (design, mut meaning) =
+            author_single_threshold_program_v1(&request()).expect("the request is authorable");
+        let weight = meaning
+            .constants
+            .iter_mut()
+            .find(|constant| constant.constant_id == TARGET_WEIGHT)
+            .expect("the family declares a target weight");
+        weight.value = BoundedFeatureConstantValueV1::I32 { value: 7 };
+        let program = frozen(&design, &meaning);
+
+        assert_eq!(recover_single_threshold_request_v1(&design, &program), None);
+    }
+
+    /// The same for the Design half: a Design the family would not write, carrying a program the
+    /// family would, is not in the family either.
+    #[rstest]
+    fn a_design_the_family_would_not_author_has_no_statement() {
+        let (mut design, meaning) =
+            author_single_threshold_program_v1(&request()).expect("the request is authorable");
+        design.resources.max_dependency_edges = 255;
+        let program = frozen(&design, &meaning);
+
+        assert_eq!(recover_single_threshold_request_v1(&design, &program), None);
     }
 
     /// The Design half must canonicalize on its own, which is what gives the pair an identity.

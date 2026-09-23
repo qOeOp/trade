@@ -9,7 +9,7 @@ use crate::backtest_run_report_read_v1::{
     report_test_support_v1::{
         assert_series_reads_back_every_counted_point, run_multi_day_round_trip_v1,
     },
-    resolve_backtest_run_report_v1,
+    resolve_backtest_run_report_v1, resolve_backtest_run_result_v1,
 };
 
 /// Reads one real run's report back through the R&D role and checks every point against the bytes
@@ -19,6 +19,14 @@ use crate::backtest_run_report_read_v1::{
 /// nothing about the series is written down in advance. What this test does not exercise is the
 /// production writer: the run reaches custody through this module's own writer rather than through
 /// `run_exploratory_replay_v2`, because no ordered-chain entry can drive that writer today.
+///
+/// The run's request comes from the repair harness, whose program is a fixture and not one the
+/// single-threshold family authors, so the whole report is refused for a named reason while its
+/// result half still reads back. A run inside the family is not constructible in this chain
+/// today: no entry composes a replay request from an authored Design, and the one that runs the
+/// Composer on an authored Design stops at the Artifact. The positive case is proven below the
+/// database instead, by authoring, freezing and reading back in
+/// `single_threshold_authoring_v1`.
 #[tokio::test]
 #[ignore = "requires the canonical disposable R&D and Backtest Owner PostgreSQL topology"]
 async fn backtest_run_report_reads_back_every_point_a_real_run_committed() {
@@ -75,10 +83,13 @@ async fn backtest_run_report_reads_back_every_point_a_real_run_committed() {
         attempt_identity: &attempt_identity,
     };
     let mut transaction = rd_pool.begin().await.expect("R&D read transaction");
-    let report = resolve_backtest_run_report_v1(&mut transaction, locator)
+    let read = resolve_backtest_run_result_v1(&mut transaction, locator)
         .await
-        .expect("the committed run's report")
+        .expect("the committed run's result")
         .expect("a committed run behind the address");
+    let refused = resolve_backtest_run_report_v1(&mut transaction, locator)
+        .await
+        .expect_err("a run outside the family has no report");
     let absent = resolve_backtest_run_report_v1(
         &mut transaction,
         ExploratoryReplayResultLocatorV2 {
@@ -91,6 +102,9 @@ async fn backtest_run_report_reads_back_every_point_a_real_run_committed() {
     .expect("an address with no run is an empty answer, not a refusal");
     transaction.rollback().await.expect("R&D read rollback");
     assert_eq!(absent, None);
+    // This code is decided only after the replay request read back: a request that did not would
+    // have been refused as `REPLAY_REQUEST_UNAVAILABLE` first.
+    assert_eq!(refused.code(), "NO_STRATEGY_STATEMENT_FOR_FAMILY");
 
     // Count from what custody holds, read by the Backtest Owner, not from what the test handed it.
     let (committed, bound_digest): (Vec<u8>, String) = sqlx::query_as(
@@ -101,19 +115,19 @@ async fn backtest_run_report_reads_back_every_point_a_real_run_committed() {
     .await
     .expect("committed outcome evidence");
     assert_eq!(committed, engine_result_bytes);
-    assert_series_reads_back_every_counted_point(&report, &committed);
+    assert_series_reads_back_every_counted_point(&read.result.series, &committed);
 
-    assert_eq!(report.state, BacktestRunReportStateV1::Available);
-    assert_eq!(report.run.result_identity, result_identity);
-    assert_eq!(report.run.request_identity, request_identity);
-    assert_eq!(report.run.attempt_identity, attempt_identity);
-    assert_eq!(report.run.engine_result_digest, bound_digest);
+    assert_eq!(read.result.state, BacktestRunReportStateV1::Available);
+    assert_eq!(read.run.result_identity, result_identity);
+    assert_eq!(read.run.request_identity, request_identity);
+    assert_eq!(read.run.attempt_identity, attempt_identity);
+    assert_eq!(read.run.engine_result_digest, bound_digest);
     let committed_fills = serde_json::from_slice::<serde_json::Value>(&committed)
         .expect("committed engine JSON")["fills"]
         .as_array()
         .expect("committed fills")
         .len();
     assert!(committed_fills > 0, "the real run must have traded");
-    assert_eq!(report.fills.len(), committed_fills);
-    assert_eq!(report.fill_count, committed_fills as u64);
+    assert_eq!(read.result.fills.len(), committed_fills);
+    assert_eq!(read.result.fill_count, committed_fills as u64);
 }

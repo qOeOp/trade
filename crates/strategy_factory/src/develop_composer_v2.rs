@@ -1046,7 +1046,7 @@ fn receipt_digest(receipt: &DevelopComposerReceiptV2) -> BindingDigest {
     )
 }
 
-fn parse_digest_suffix(value: &str, prefix: &str) -> Option<BindingDigest> {
+pub(crate) fn parse_digest_suffix(value: &str, prefix: &str) -> Option<BindingDigest> {
     let hex = value.strip_prefix(prefix)?;
     if hex.len() != 64 {
         return None;

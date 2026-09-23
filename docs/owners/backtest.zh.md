@@ -230,12 +230,15 @@ production write、provider effect、Paper、Live 或交易权威。
     里的条目只允许 `terminal`、`reconciliation_summary`、`diagnostic_summary` 与
     `semantic_trace_presence`，不含任何经济字段。
   - 运行报告，即 `crates/strategy_factory/src/backtest_run_report_read_v1.rs` 里的
-    `resolve_backtest_run_report_v1`，承载 `OwnerBacktestReportV1` 从同一份已提交字节派生出的
-    `BacktestRunReport` 具名结果字段：该次运行的 result、request 与 attempt 身份，以及其结果证据所绑定的
-    引擎结果摘要；由 Owner 判定的状态（`AVAILABLE` 或 `EMPTY`）；该次运行记录的每一个收益观测，时间为
-    规范 UTC；净收益；最大回撤；以及每一笔成交的方向，价格与数量按引擎写出的原样给出。它不承载统计量
-    映射，因为那些映射合法地含有非有限值；也不承载策略陈述、品种或数据窗口，因为回测结果里没有这些。
-    它在调用方的 R&D 事务里读，使提供那些上游字段的读取能共用同一事务。
+    `resolve_backtest_run_report_v1`，承载 `BacktestRunReport` 的具名字段。运行产出的部分是
+    `OwnerBacktestReportV1` 从同一份已提交字节派生出的：该次运行的 result、request 与 attempt 身份，以及其
+    结果证据所绑定的引擎结果摘要；由 Owner 判定的状态（`AVAILABLE` 或 `EMPTY`）；该次运行记录的每一个
+    收益观测，时间为规范 UTC；净收益；最大回撤；以及每一笔成交的方向，价格与数量按引擎写出的原样给出。
+    它不承载统计量映射，因为那些映射合法地含有非有限值。策略与数据窗口不在回测结果里，所以取自上游，并在
+    调用方同一个 R&D 事务里读：该次运行所回应的 replay 请求，以及冻结在该请求所指 Design 之下的 Design 与
+    程序。策略只对已准入的单阈值族陈述，而且只有当把从那对冻结值读回的陈述重新编写一遍、能逐字节复现该对
+    的规范程序时才陈述；任何其他运行都以这个具名理由整体拒绝。数据窗口是通道的品种与时间粒度、请求的时间
+    窗口（结束端不含）、请求绑定的 PIT 快照个数，以及以该快照身份作为的切面。
 
   序列不是每根 bar 一个点：组合收益按日计算，组合快照跨不到两个 UTC 日的运行退回为每个已平仓位一个收益。
   序列中的每个值、净收益与最大回撤都是分数，0.01 即百分之一，这条交接对它们只陈述这一点。它不说明它们
@@ -243,7 +246,8 @@ production write、provider effect、Paper、Live 或交易权威。
   产出的是哪一种。因此在交接携带从规范结果读回的这一依据之前，任何消费方都不得把这些数呈现为权益收益。
   运行报告目前没有 HTTP 调用方。它的 PostgreSQL 证明读回的是一次真实的引擎运行，但
   那次运行是经验收模块自己的写入进入托管的，而不是经 `run_exploratory_replay_v2`；后者没有任何有序链路
-  条目驱动。
+  条目驱动。而且它的程序在族外，所以链路证明的是整体拒绝与结果那一半。族内的运行在链路里今天不可构造：
+  没有任何条目从编写出的 Design 组出 replay 请求。
 
 ## 拒绝和禁止事项
 

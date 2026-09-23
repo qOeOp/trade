@@ -3322,20 +3322,40 @@ pub(crate) async fn resolve_for_rd_v2(
     {
         return Ok(result);
     }
+    resolve_selector_v2(rd_pool, selector).await
+}
+
+/// [`resolve_for_rd_v2`] inside the caller's R&D transaction, so a read that joins the request to
+/// other R&D custody sees one snapshot of both.
+///
+/// It is the same Owner API call and the same decoding. It does not consult the Composer V3
+/// custody that `resolve_for_rd_v2` checks first under `sealed-source-intake-composer-acceptance`,
+/// because that custody exists only in that acceptance build; a request only it holds reads as
+/// absent here.
+pub(crate) async fn resolve_for_rd_in_transaction_v2(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    selector: &ExploratoryReplayRecoverySelectorV2,
+) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError> {
+    resolve_selector_v2(&mut **transaction, selector).await
+}
+
+async fn resolve_selector_v2<'c>(
+    executor: impl sqlx::PgExecutor<'c>,
+    selector: &ExploratoryReplayRecoverySelectorV2,
+) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError> {
     let value: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT rd_owner_api.resolve_exploratory_replay_request_v2($1,$2)")
             .bind(&selector.request_identity)
             .bind(&selector.meaning_digest)
-            .fetch_one(rd_pool)
+            .fetch_one(executor)
             .await
             .map_err(storage)?;
-    let result = decode_v2_read_result(
+    decode_v2_read_result(
         &selector.request_identity,
         &selector.meaning_digest,
         None,
         value,
-    )?;
-    Ok(result)
+    )
 }
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]

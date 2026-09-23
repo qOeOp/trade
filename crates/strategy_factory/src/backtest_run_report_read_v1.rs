@@ -1,22 +1,24 @@
-//! The Backtest Owner's read of one committed run's economics, for `BacktestRunReport`.
+//! The read of one committed run's `BacktestRunReport`: its strategy, its data, and its result.
 //!
 //! A committed exploratory run already persists the engine's canonical result beside its outcome
 //! evidence, and that evidence already binds the exact bytes by digest and length. This module
-//! reads those bytes back through the Owner's own outcome readback, projects them into the named
-//! result fields the Dashboard report contract asks for, and carries the run identity and the
-//! bytes' digest with them, so a consumer can tell which committed result a number came from.
+//! reads those bytes back through the Backtest Owner's outcome readback and projects them into the
+//! named result fields the Dashboard report contract asks for. It adds no second computation:
+//! `OwnerBacktestReportV1` already reads a canonical result into a return series, net return,
+//! maximum drawdown and executions.
 //!
-//! It adds no second computation. `OwnerBacktestReportV1` already reads a canonical result into a
-//! return series, net return, maximum drawdown and executions; this is the read surface that had
-//! been missing between that computation and the report that renders it.
+//! ## Where each half comes from
 //!
-//! ## What the projection carries, and what it does not
+//! The report contract says the strategy statement and the data window come from upstream rather
+//! than from the backtest result, and a canonical result contains neither. So the read is three
+//! reads in the caller's one R&D transaction: the outcome readback, the replay request the run
+//! answered, and the Design and program frozen under the Design that request names.
 //!
-//! It carries only what a canonical backtest result contains: the observed series, net return,
-//! maximum drawdown, and every execution. The report contract states that the strategy statement,
-//! the instrument, the granularity, the snapshot count and the cut identity come from upstream
-//! rather than from the backtest result, so none of them appears here, and a reader looking for a
-//! threshold in this projection will not find one.
+//! The strategy is stated only for the admitted single-threshold family, and only when authoring
+//! the statement read back from the frozen pair reproduces that pair's canonical program exactly
+//! (`recover_single_threshold_request_v1`). A run outside the family is refused as a whole,
+//! because the report answers four questions or none. The data window is the channel's instrument
+//! and timeframe with the request's window, its PIT snapshot count and that snapshot's identity.
 //!
 //! It does not carry the statistics maps. They legitimately hold `NaN` (an average winner when
 //! there was no winning trade), and the report contract requires every numeric value to be finite.
@@ -54,23 +56,38 @@
 use serde::Serialize;
 use thiserror::Error;
 use vibe_backtest::result::CanonicalBacktestResult;
+use vibe_backtest_owner_contracts::{ContentIdentityV2, ReplayRequestDtoV2};
 use vibe_backtest_result_custody::{
     BacktestReadbackRefusalV1, BacktestResultCustodyErrorV2, ExploratoryReplayResultLocatorV2,
-    LockedExploratoryReplayResultV3,
 };
 use vibe_core::{UnixNanos, datetime::unix_nanos_to_iso8601};
 
 use crate::{
+    bounded_feature_program_v1::BoundedFeaturePredicateV1,
+    develop_composer_v2::parse_digest_suffix,
+    exploratory_replay::{
+        ExploratoryReplayRecoverySelectorV2, postgres::resolve_for_rd_in_transaction_v2,
+    },
     owner_backtest_report_v1::{OwnerBacktestFillV1, OwnerBacktestReportV1},
+    rd_bounded_feature_program_v1::read_frozen_design_program_in_transaction_v1,
     rd_owner_postgres_custody::resolve_exploratory_replay_outcome_for_rd_in_transaction,
+    single_threshold_authoring_v1::{
+        SingleThresholdChannelV1, SingleThresholdOutcomeV1, recover_single_threshold_request_v1,
+    },
 };
 
 /// Why a committed run's report could not be read.
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
 pub enum BacktestRunReportRefusalV1 {
     /// The Backtest Owner answered and named why it could not answer with this run. Its code is the
-    /// Owner's own, such as `OUTCOME_EVIDENCE_ABSENT` for a result committed without outcome
-    /// evidence, so the cause reaches the consumer rather than a generic refusal.
+    /// Owner's own, passed through so the cause reaches the consumer rather than a generic refusal:
+    /// `OUTCOME_EVIDENCE_ABSENT` when a result, its receipt, outbox and semantic trace are committed
+    /// but its outcome evidence is not.
+    ///
+    /// When more than one piece is missing, the code names the first the readback finds missing,
+    /// and that order is not a contract. A result with neither a semantic trace nor outcome
+    /// evidence answers `SEMANTIC_TRACE_ABSENT` today; a consumer must not rely on which of several
+    /// missing pieces is named.
     #[error("the Backtest Owner refused the outcome readback: {0}")]
     OutcomeEvidenceRefused(BacktestReadbackRefusalV1),
     /// The Backtest Owner's custody could not be read at all.
@@ -91,6 +108,16 @@ pub enum BacktestRunReportRefusalV1 {
     /// An execution's price or quantity is not a plain decimal the report can display as written.
     #[error("execution {field} {value} is not a plain decimal")]
     DecimalNotPlain { field: &'static str, value: String },
+    /// The replay request the run answered could not be read back from R&D custody.
+    #[error("the run's replay request is unavailable: {0}")]
+    ReplayRequestUnavailable(String),
+    /// The frozen Design the request names could not be read, or did not verify.
+    #[error("the run's frozen Design is unavailable")]
+    FrozenDesignUnavailable,
+    /// The run's program is not one the admitted single-threshold family authors, so no Owner
+    /// statement of its strategy exists.
+    #[error("no Owner statement of strategy exists for this program family")]
+    NoStrategyStatementForFamily,
 }
 
 impl BacktestRunReportRefusalV1 {
@@ -106,6 +133,9 @@ impl BacktestRunReportRefusalV1 {
             Self::DuplicateSeriesTime(_) => "DUPLICATE_SERIES_TIME",
             Self::UnknownSide(_) => "UNKNOWN_SIDE",
             Self::DecimalNotPlain { .. } => "DECIMAL_NOT_PLAIN",
+            Self::ReplayRequestUnavailable(_) => "REPLAY_REQUEST_UNAVAILABLE",
+            Self::FrozenDesignUnavailable => "FROZEN_DESIGN_UNAVAILABLE",
+            Self::NoStrategyStatementForFamily => "NO_STRATEGY_STATEMENT_FOR_FAMILY",
         }
     }
 }
@@ -168,13 +198,67 @@ pub struct BacktestRunReportFillV1 {
     pub quantity: String,
 }
 
-/// The named result fields of one committed run, for `BacktestRunReport`.
+/// The strategy a run executed, as the admitted single-threshold family states it.
 ///
-/// This type's serialization is the wire shape: field names as written here, absent quantities as
-/// `null` rather than omitted, and every number finite, so a consumer never has to define it.
+/// Every field is read back from the frozen Design and program and then proven by authoring them
+/// again, so this is the statement the program runs, not a description of it.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct BacktestRunStrategyV1 {
+    /// Always [`SINGLE_THRESHOLD_FAMILY_V1`]: a run outside the family has no statement at all.
+    pub family: &'static str,
+    /// The one Market Data channel the program reads, which is also its decision clock.
+    pub channel: SingleThresholdChannelV1,
+    /// The threshold as a plain decimal in the channel's unit, at the channel's scale.
+    pub threshold: String,
+    /// How the channel is compared against the threshold, e.g. `GREATER`.
+    pub comparison: BoundedFeaturePredicateV1,
+    /// What the program proposes when the comparison holds.
+    pub when_true: SingleThresholdOutcomeV1,
+    /// What it proposes otherwise.
+    pub otherwise: SingleThresholdOutcomeV1,
+    /// The statement the program can be wrong about.
+    pub falsifier: String,
+}
+
+/// The one strategy family this report can state.
+pub const SINGLE_THRESHOLD_FAMILY_V1: &str = "SINGLE_THRESHOLD_V1";
+
+/// The data a run consumed, as its replay request bound it.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct BacktestRunDataWindowV1 {
+    /// The channel's instrument.
+    pub instrument: String,
+    /// The channel's bar timeframe.
+    pub granularity: String,
+    /// Canonical UTC of the window's first event.
+    pub start: String,
+    /// Canonical UTC of the window's end. The end is exclusive: no event at this instant is in
+    /// the window.
+    pub end_exclusive: String,
+    /// How many PIT snapshots the request binds.
+    pub snapshot_count: u64,
+    /// The identity of the PIT snapshot the request binds, which is the data cut the run consumed.
+    pub cut_identity: String,
+}
+
+/// One committed run's `BacktestRunReport`: which run, what strategy, on which data, and what it
+/// produced.
+///
+/// This type's serialization is the wire shape: one flat object, field names as written here,
+/// absent quantities as `null` rather than omitted, and every number finite, so a consumer never
+/// has to define it.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct BacktestRunReportProjectionV1 {
     pub run: BacktestRunIdentityV1,
+    pub strategy: BacktestRunStrategyV1,
+    pub data_window: BacktestRunDataWindowV1,
+    #[serde(flatten)]
+    pub result: BacktestRunResultV1,
+}
+
+/// What a run produced, read from its committed canonical result.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct BacktestRunResultV1 {
     /// Decided by the Owner from the series, so a consumer never infers it.
     pub state: BacktestRunReportStateV1,
     /// Every observation the run recorded, strictly ordered by time.
@@ -206,18 +290,85 @@ pub fn canonical_utc_v1(nanos: u64) -> String {
     unix_nanos_to_iso8601(UnixNanos::from(nanos))
 }
 
-/// Projects one committed run's outcome readback into its report fields.
+/// Reads one committed run's report under the caller's R&D transaction.
+///
+/// Three reads, all in that one transaction: the run's outcome readback from Backtest custody,
+/// the replay request it answered, and the frozen Design and program that request names. The
+/// strategy and data window are therefore stated from the same snapshot of custody as the result.
 ///
 /// # Errors
 ///
-/// Returns the refusal naming the first thing the committed bytes do not supply in the shape the
-/// report contract requires. No partial projection is produced.
-pub fn project_backtest_run_report_v1(
-    locked: &LockedExploratoryReplayResultV3,
-) -> Result<BacktestRunReportProjectionV1, BacktestRunReportRefusalV1> {
+/// Returns the refusal naming why the read could not be answered. `Ok(None)` is an address with no
+/// committed run behind it, which is an empty result rather than a refusal. A run whose program is
+/// outside the single-threshold family is refused as a whole with
+/// [`BacktestRunReportRefusalV1::NoStrategyStatementForFamily`]: the report answers four questions
+/// or none.
+pub async fn resolve_backtest_run_report_v1(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    locator: ExploratoryReplayResultLocatorV2<'_>,
+) -> Result<Option<BacktestRunReportProjectionV1>, BacktestRunReportRefusalV1> {
+    let Some(read) = resolve_backtest_run_result_v1(transaction, locator).await? else {
+        return Ok(None);
+    };
+    let request = resolve_for_rd_in_transaction_v2(
+        transaction,
+        &ExploratoryReplayRecoverySelectorV2 {
+            request_identity: read.run.request_identity.clone(),
+            meaning_digest: read.request_meaning_digest,
+        },
+    )
+    .await
+    .map_err(|e| BacktestRunReportRefusalV1::ReplayRequestUnavailable(e.to_string()))?;
+    let request = request.readback().ok_or_else(|| {
+        BacktestRunReportRefusalV1::ReplayRequestUnavailable(
+            "no sealed request at the meaning the outcome evidence binds".to_owned(),
+        )
+    })?;
+    let (strategy, data_window) =
+        resolve_strategy_and_window(transaction, request.request().as_dto()).await?;
+
+    Ok(Some(BacktestRunReportProjectionV1 {
+        run: read.run,
+        strategy,
+        data_window,
+        result: read.result,
+    }))
+}
+
+/// The result half of one run's report, with what the other half needs to find its request.
+pub(crate) struct BacktestRunResultReadV1 {
+    pub(crate) run: BacktestRunIdentityV1,
+    pub(crate) request_meaning_digest: String,
+    pub(crate) result: BacktestRunResultV1,
+}
+
+/// Reads only what a run produced, from Backtest custody, under the caller's R&D transaction.
+///
+/// It is the first of [`resolve_backtest_run_report_v1`]'s reads, separate so that what a run
+/// produced can be read and proven for a run whose strategy this report cannot state.
+///
+/// # Errors
+///
+/// The same outcome and engine-result refusals as [`resolve_backtest_run_report_v1`].
+pub(crate) async fn resolve_backtest_run_result_v1(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    locator: ExploratoryReplayResultLocatorV2<'_>,
+) -> Result<Option<BacktestRunResultReadV1>, BacktestRunReportRefusalV1> {
+    let Some(locked) =
+        resolve_exploratory_replay_outcome_for_rd_in_transaction(transaction, locator)
+            .await
+            .map_err(|e| match e {
+                BacktestResultCustodyErrorV2::Refused(refusal) => {
+                    BacktestRunReportRefusalV1::OutcomeEvidenceRefused(refusal)
+                }
+                other => BacktestRunReportRefusalV1::OutcomeEvidenceUnavailable(other.to_string()),
+            })?
+    else {
+        return Ok(None);
+    };
     let evidence = locked.outcome_evidence();
-    project_engine_result_v1(
-        BacktestRunIdentityV1 {
+    Ok(Some(BacktestRunResultReadV1 {
+        run: BacktestRunIdentityV1 {
             result_identity: evidence.result_identity.as_str().to_owned(),
             request_identity: evidence.request_identity.as_str().to_owned(),
             attempt_identity: evidence.attempt_identity.as_str().to_owned(),
@@ -227,38 +378,76 @@ pub fn project_backtest_run_report_v1(
                 .as_str()
                 .to_owned(),
         },
-        locked.engine_canonical_result_bytes(),
-    )
+        request_meaning_digest: evidence.request_meaning_digest.as_str().to_owned(),
+        result: project_engine_result_v1(locked.engine_canonical_result_bytes())?,
+    }))
 }
 
-/// Reads one committed run's report under the caller's R&D transaction.
-///
-/// # Errors
-///
-/// Returns the refusal naming why the read could not be answered. `Ok(None)` is an address with no
-/// committed run behind it, which is an empty result rather than a refusal.
-pub async fn resolve_backtest_run_report_v1(
+/// States the strategy and data window of the run a replay request describes.
+async fn resolve_strategy_and_window(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    locator: ExploratoryReplayResultLocatorV2<'_>,
-) -> Result<Option<BacktestRunReportProjectionV1>, BacktestRunReportRefusalV1> {
-    let locked = resolve_exploratory_replay_outcome_for_rd_in_transaction(transaction, locator)
-        .await
-        .map_err(|e| match e {
-            BacktestResultCustodyErrorV2::Refused(refusal) => {
-                BacktestRunReportRefusalV1::OutcomeEvidenceRefused(refusal)
-            }
-            other => BacktestRunReportRefusalV1::OutcomeEvidenceUnavailable(other.to_string()),
-        })?;
-    locked
-        .as_ref()
-        .map(project_backtest_run_report_v1)
-        .transpose()
+    request: &ReplayRequestDtoV2,
+) -> Result<(BacktestRunStrategyV1, BacktestRunDataWindowV1), BacktestRunReportRefusalV1> {
+    // Composer-backed requests name their Design as `sha256:` identity and digest. A Design named
+    // any other way was not frozen with a bounded program, so no program of this family exists.
+    let (Some(design_identity), Some(design_digest)) = (
+        parse_digest_suffix(request.strategy_design.identity.as_str(), "sha256:"),
+        parse_digest_suffix(request.strategy_design.digest.as_str(), "sha256:"),
+    ) else {
+        return Err(BacktestRunReportRefusalV1::NoStrategyStatementForFamily);
+    };
+    let (design, program) =
+        read_frozen_design_program_in_transaction_v1(transaction, design_identity, design_digest)
+            .await
+            .map_err(|_| BacktestRunReportRefusalV1::FrozenDesignUnavailable)?
+            .ok_or(BacktestRunReportRefusalV1::NoStrategyStatementForFamily)?;
+    let authored = recover_single_threshold_request_v1(&design, &program)
+        .ok_or(BacktestRunReportRefusalV1::NoStrategyStatementForFamily)?;
+
+    // Typed on purpose. The request binds one PIT snapshot today; when it binds several, this
+    // field changes type and the annotation stops compiling, instead of `from_ref` quietly
+    // counting one collection as one snapshot.
+    let snapshots: &[ContentIdentityV2] = std::slice::from_ref(&request.pit_snapshot);
+    let data_window = BacktestRunDataWindowV1 {
+        instrument: authored.channel.instrument.clone(),
+        granularity: authored.channel.timeframe.clone(),
+        start: canonical_utc_v1(request.window.start_event_ns),
+        end_exclusive: canonical_utc_v1(request.window.end_event_ns_exclusive),
+        snapshot_count: u64::try_from(snapshots.len()).unwrap_or(u64::MAX),
+        cut_identity: request.pit_snapshot.identity.as_str().to_owned(),
+    };
+    let strategy = BacktestRunStrategyV1 {
+        family: SINGLE_THRESHOLD_FAMILY_V1,
+        threshold: fixed_point_decimal(authored.threshold_coefficient, authored.channel.scale),
+        channel: authored.channel,
+        comparison: authored.comparison,
+        when_true: authored.when_true,
+        otherwise: authored.otherwise,
+        falsifier: authored.falsifier,
+    };
+    Ok((strategy, data_window))
+}
+
+/// Writes a fixed-point coefficient as a plain decimal with exactly `scale` fractional digits.
+///
+/// Exact for every `i128`, which a conversion through a decimal type with a narrower mantissa is
+/// not, and in the same plain form the report uses for prices.
+fn fixed_point_decimal(coefficient: i128, scale: u8) -> String {
+    let digits = coefficient.unsigned_abs().to_string();
+    let scale = usize::from(scale);
+    let digits = format!("{digits:0>width$}", width = scale + 1);
+    let (whole, fraction) = digits.split_at(digits.len() - scale);
+    let sign = if coefficient < 0 { "-" } else { "" };
+    if fraction.is_empty() {
+        format!("{sign}{whole}")
+    } else {
+        format!("{sign}{whole}.{fraction}")
+    }
 }
 
 fn project_engine_result_v1(
-    run: BacktestRunIdentityV1,
     engine_result_bytes: &[u8],
-) -> Result<BacktestRunReportProjectionV1, BacktestRunReportRefusalV1> {
+) -> Result<BacktestRunResultV1, BacktestRunReportRefusalV1> {
     let canonical = CanonicalBacktestResult::from_slice(engine_result_bytes)
         .map_err(|e| BacktestRunReportRefusalV1::EngineResultNoncanonical(format!("{e:#}")))?;
     let report = OwnerBacktestReportV1::from_canonical_result(&canonical)
@@ -287,8 +476,7 @@ fn project_engine_result_v1(
         BacktestRunReportStateV1::Available
     };
 
-    Ok(BacktestRunReportProjectionV1 {
-        run,
+    Ok(BacktestRunResultV1 {
         state,
         series,
         net_return: report.net_return,
@@ -489,7 +677,7 @@ pub(crate) mod report_test_support_v1 {
     /// It is one function so that the mutations proven against the unit test prove this comparison
     /// wherever it runs, rather than a copy of it.
     pub(crate) fn assert_series_reads_back_every_counted_point(
-        projection: &super::BacktestRunReportProjectionV1,
+        series: &[super::BacktestRunReportPointV1],
         engine_result_bytes: &[u8],
     ) {
         let expected = independently_counted_points(engine_result_bytes);
@@ -498,8 +686,7 @@ pub(crate) mod report_test_support_v1 {
             "a dropped point is only visible when the run recorded at least two, it recorded {}",
             expected.len()
         );
-        let read_back = projection
-            .series
+        let read_back = series
             .iter()
             .map(|point| (instant_of(&point.at), point.value))
             .collect::<Vec<_>>();
@@ -603,15 +790,14 @@ mod tests {
     #[rstest]
     fn a_real_multi_day_run_projects_every_point_it_recorded_and_nothing_else() {
         let bytes = engine_bytes();
-        let projection = project_engine_result_v1(run(), &bytes).expect("report projection");
+        let result = project_engine_result_v1(&bytes).expect("result projection");
 
-        assert_eq!(projection.run, run());
-        assert_eq!(projection.state, BacktestRunReportStateV1::Available);
-        assert_series_reads_back_every_counted_point(&projection, &bytes);
-        assert!(projection.net_return.is_some_and(f64::is_finite));
-        assert!(projection.max_drawdown.is_some_and(|value| value <= 0.0));
-        assert!(!projection.fills.is_empty(), "the run must have traded");
-        assert_eq!(projection.fill_count, projection.fills.len() as u64);
+        assert_eq!(result.state, BacktestRunReportStateV1::Available);
+        assert_series_reads_back_every_counted_point(&result.series, &bytes);
+        assert!(result.net_return.is_some_and(f64::is_finite));
+        assert!(result.max_drawdown.is_some_and(|value| value <= 0.0));
+        assert!(!result.fills.is_empty(), "the run must have traded");
+        assert_eq!(result.fill_count, result.fills.len() as u64);
     }
 
     #[rstest]
@@ -621,13 +807,13 @@ mod tests {
         document["statistics"]["returns_series"] = serde_json::json!([]);
         let bytes = serde_json::to_vec(&document).expect("edited engine bytes");
 
-        let projection = project_engine_result_v1(run(), &bytes).expect("report projection");
+        let result = project_engine_result_v1(&bytes).expect("result projection");
 
-        assert_eq!(projection.state, BacktestRunReportStateV1::Empty);
-        assert!(projection.series.is_empty());
-        assert_eq!(projection.net_return, None);
-        assert_eq!(projection.max_drawdown, None);
-        assert!(!projection.fills.is_empty());
+        assert_eq!(result.state, BacktestRunReportStateV1::Empty);
+        assert!(result.series.is_empty());
+        assert_eq!(result.net_return, None);
+        assert_eq!(result.max_drawdown, None);
+        assert!(!result.fills.is_empty());
     }
 
     #[rstest]
@@ -636,7 +822,7 @@ mod tests {
         bytes.push(b' ');
 
         assert_eq!(
-            project_engine_result_v1(run(), &bytes)
+            project_engine_result_v1(&bytes)
                 .expect_err("trailing byte")
                 .code(),
             "ENGINE_RESULT_NONCANONICAL"
@@ -740,21 +926,58 @@ mod tests {
         assert_eq!(instant_of(at), nanos);
     }
 
+    fn strategy() -> BacktestRunStrategyV1 {
+        let outcome = |position: &str, units| SingleThresholdOutcomeV1 {
+            position_intent_semantic_id: position.to_owned(),
+            target_variant_semantic_id: "kernel.target.position.v1".to_owned(),
+            target_position_units: units,
+        };
+        BacktestRunStrategyV1 {
+            family: SINGLE_THRESHOLD_FAMILY_V1,
+            channel: SingleThresholdChannelV1 {
+                role_semantic_id: "research.input.close.daily.v1".to_owned(),
+                instrument: "BTCUSDT-PERP.BINANCE".to_owned(),
+                field_semantic_id: "MARKET_DATA.BAR.CLOSE.PRICE.V1".to_owned(),
+                timeframe: "1D".to_owned(),
+                unit: "PRICE".to_owned(),
+                scale: 2,
+            },
+            threshold: fixed_point_decimal(10_000, 2),
+            comparison: BoundedFeaturePredicateV1::Greater,
+            when_true: outcome("kernel.position.enter.v1", 1),
+            otherwise: outcome("kernel.position.exit.v1", 0),
+            falsifier: "the channel never crosses the threshold".to_owned(),
+        }
+    }
+
+    fn data_window() -> BacktestRunDataWindowV1 {
+        BacktestRunDataWindowV1 {
+            instrument: "BTCUSDT-PERP.BINANCE".to_owned(),
+            granularity: "1D".to_owned(),
+            start: canonical_utc_v1(1_704_067_200_000_000_000),
+            end_exclusive: canonical_utc_v1(1_704_412_800_000_000_000),
+            snapshot_count: 1,
+            cut_identity: format!("sha256:{}", "c".repeat(64)),
+        }
+    }
+
     #[rstest]
     fn the_wire_shape_is_the_owner_s_and_keeps_absent_quantities_as_null() {
         let mut document: serde_json::Value =
             serde_json::from_slice(&engine_bytes()).expect("engine JSON");
-        let available = serde_json::to_value(
-            project_engine_result_v1(run(), &serde_json::to_vec(&document).expect("bytes"))
-                .expect("available projection"),
-        )
-        .expect("available wire value");
+        let projection = |document: &serde_json::Value| {
+            serde_json::to_value(BacktestRunReportProjectionV1 {
+                run: run(),
+                strategy: strategy(),
+                data_window: data_window(),
+                result: project_engine_result_v1(&serde_json::to_vec(document).expect("bytes"))
+                    .expect("result projection"),
+            })
+            .expect("wire value")
+        };
+        let available = projection(&document);
         document["statistics"]["returns_series"] = serde_json::json!([]);
-        let empty = serde_json::to_value(
-            project_engine_result_v1(run(), &serde_json::to_vec(&document).expect("bytes"))
-                .expect("empty projection"),
-        )
-        .expect("empty wire value");
+        let empty = projection(&document);
 
         // Sorted, so the comparison does not depend on whether `serde_json` preserves order in
         // whichever feature set this build unified.
@@ -768,7 +991,9 @@ mod tests {
             keys.sort();
             keys
         };
+        // One flat object: the result half is flattened into it, not nested under a key.
         let expected = [
+            "data_window",
             "fill_count",
             "fills",
             "max_drawdown",
@@ -776,6 +1001,7 @@ mod tests {
             "run",
             "series",
             "state",
+            "strategy",
         ];
         assert_eq!(keys(&available), expected);
         assert_eq!(keys(&empty), expected);
@@ -786,6 +1012,51 @@ mod tests {
                 "engine_result_digest",
                 "request_identity",
                 "result_identity"
+            ]
+        );
+        assert_eq!(
+            keys(&available["strategy"]),
+            [
+                "channel",
+                "comparison",
+                "falsifier",
+                "family",
+                "otherwise",
+                "threshold",
+                "when_true"
+            ]
+        );
+        assert_eq!(
+            keys(&available["strategy"]["channel"]),
+            [
+                "field_semantic_id",
+                "instrument",
+                "role_semantic_id",
+                "scale",
+                "timeframe",
+                "unit"
+            ]
+        );
+        assert_eq!(
+            keys(&available["strategy"]["when_true"]),
+            [
+                "position_intent_semantic_id",
+                "target_position_units",
+                "target_variant_semantic_id"
+            ]
+        );
+        assert_eq!(available["strategy"]["family"], "SINGLE_THRESHOLD_V1");
+        assert_eq!(available["strategy"]["comparison"], "GREATER");
+        assert_eq!(available["strategy"]["threshold"], "100.00");
+        assert_eq!(
+            keys(&available["data_window"]),
+            [
+                "cut_identity",
+                "end_exclusive",
+                "granularity",
+                "instrument",
+                "snapshot_count",
+                "start"
             ]
         );
         assert_eq!(keys(&available["series"][0]), ["at", "value"]);
@@ -802,6 +1073,23 @@ mod tests {
         assert!(empty["net_return"].is_null());
         assert!(empty["max_drawdown"].is_null());
         assert_eq!(empty["series"], serde_json::json!([]));
+    }
+
+    #[rstest]
+    #[case(10_000, 2, "100.00")]
+    #[case(-12_345, 2, "-123.45")]
+    #[case(5, 3, "0.005")]
+    #[case(-5, 3, "-0.005")]
+    #[case(0, 2, "0.00")]
+    #[case(-7, 0, "-7")]
+    #[case(i128::MIN, 0, "-170141183460469231731687303715884105728")]
+    #[case(i128::MAX, 38, "1.70141183460469231731687303715884105727")]
+    fn a_threshold_is_written_exactly_at_its_scale(
+        #[case] coefficient: i128,
+        #[case] scale: u8,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(fixed_point_decimal(coefficient, scale), expected);
     }
 
     #[rstest]
