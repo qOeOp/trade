@@ -5308,6 +5308,24 @@ mod tests {
             stored_design_digest.as_slice(),
             "the Artifact must be built from the authored Design this entry selected",
         );
+        // A disposition and an Artifact projection are what the call returned; a receipt is what
+        // it committed. Without this the entry would accept a Success that wrote nothing.
+        assert!(
+            response.receipt_identity.is_some(),
+            "a successful Composer operation must carry the receipt it committed",
+        );
+
+        // Replaying the same locator must resolve the operation already committed rather than
+        // build a second Artifact for one frozen meaning. This is also what distinguishes a
+        // durable commit from a call that merely answered: a response that can be resolved again,
+        // identically, came from storage.
+        let replay = Box::pin(composer.run_bounded_feature_program(&locator))
+            .await
+            .expect("the replay transaction completes");
+        assert_eq!(
+            replay, response,
+            "replaying one frozen meaning must resolve the committed operation, not compose again",
+        );
     }
 
     fn bearer_headers(token: &str) -> HeaderMap {
