@@ -43,7 +43,6 @@ LINTED = {"ffi", "python", "high-precision", "defi", "arrow", "capnp", "display"
 EXPECTED_UNCOVERED = {
     # Sealed acceptances no CI feature string turns on, directly or through another crate's
     # feature list. Cargo is asked for that, so an entry here that becomes reachable fails below.
-    "sealed-source-intake-composer-acceptance": "sealed acceptance named by no --features string",
     "isolated-event-replay-acceptance": "sealed acceptance named by no --features string",
     # Named only by workflows that do not run here.
     "turmoil": "nightly-tests.yml only; every job there is upstream-guarded",
