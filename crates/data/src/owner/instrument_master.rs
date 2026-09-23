@@ -286,8 +286,12 @@ impl InstrumentMasterCutV1 {
     /// clock, a head sequence and a decision cut no later than the cut's, and fact times no later
     /// than the cut's Owner observation. So this cut observes at least what `other` does when it is
     /// on the same clock and is no earlier on each of the other three. Cuts on different clocks are
-    /// not ordered, and never compare as observing at least one another. The rule lives here, beside
-    /// the one it mirrors, so the two cannot drift apart.
+    /// not ordered, and never compare as observing at least one another.
+    ///
+    /// Sitting beside `observable` does not keep the two in step by itself. What does is
+    /// `observes_at_least_implies_seeing_every_fact_the_other_cut_sees`, which checks the implication
+    /// over an enumerated grid: a coordinate added to `observable` and varied there, but not here,
+    /// turns it red.
     pub(crate) fn observes_at_least(&self, other: &Self) -> bool {
         self.clock.clock_identity == other.clock.clock_identity
             && self.clock.clock_epoch == other.clock.clock_epoch

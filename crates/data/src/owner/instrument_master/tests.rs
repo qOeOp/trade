@@ -4,8 +4,8 @@ use super::{
     MissingNativeCryptoPerpetualOwnerFieldV1, UntrustedInstrumentMasterRequestV1,
     V1StructuralPublicTermsField, V1StructuralPublicTermsProjectionError,
     authority::{
-        build_cut, build_fact, build_readback, build_receipt, decode_cut, decode_fact,
-        select_facts, validate_fact_graph,
+        build_cut, build_fact, build_readback, build_receipt, clock_projection, decode_cut,
+        decode_fact, observable, select_facts, validate_fact_graph,
     },
     codec,
 };
@@ -144,6 +144,88 @@ fn readback_for(proposal: InstrumentMasterFactProposalV1) -> super::InstrumentMa
     .unwrap();
     let receipt = build_receipt(&request, std::slice::from_ref(&fact), &cut, d(30), 7).unwrap();
     build_readback(&receipt).unwrap()
+}
+
+/// `observes_at_least` is what lets one cut stand in for another's knowledge, so it has to imply
+/// visibility exactly as `observable` defines it: whenever `shared` can see a fact and `at_bar`
+/// observes at least what `shared` does, `at_bar` sees that fact too. Checked over every pairing of
+/// a grid of fact heads and observations against a grid of cut heads and observations; the grid
+/// must also contain pairs where dominance fails and a fact really is missed, or it could not tell a
+/// correct comparison from an empty one. The heads vary every clock coordinate, including ones
+/// `observable` ignores today (`valid_through`), so a condition added there on any of them is caught.
+#[rstest]
+fn observes_at_least_implies_seeing_every_fact_the_other_cut_sees() {
+    let base = build_fact(
+        proposal("AAPL", None, 40, 6),
+        &head(1, 50, 120).handoff,
+        None,
+    )
+    .unwrap();
+    let mut facts = Vec::new();
+
+    for (sequence, wall) in [(1, 70), (3, 70), (1, 85), (3, 85)] {
+        for valid in [110, 120] {
+            for observed in [50, 65, 70] {
+                facts.push(
+                    build_fact(
+                        proposal("AAPL", None, observed, 6),
+                        &head(sequence, wall, valid).handoff,
+                        None,
+                    )
+                    .unwrap(),
+                );
+            }
+        }
+    }
+    let mut cuts = Vec::new();
+
+    for (sequence, wall) in [(2, 70), (4, 70), (2, 90), (4, 90)] {
+        for (valid, observed) in [110, 120]
+            .into_iter()
+            .flat_map(|valid| [55, 68, 75].map(|observed| (valid, observed)))
+        {
+            let clock = head(sequence, wall, valid);
+            cuts.push(
+                build_cut(
+                    &request("AAPL", observed, &clock),
+                    vec!["AAPL".into()],
+                    std::slice::from_ref(&base),
+                    clock_projection(&clock.handoff, None).unwrap(),
+                )
+                .unwrap(),
+            );
+        }
+    }
+    let sees = |fact, cut: &super::InstrumentMasterCutV1| {
+        observable(fact, cut.owner_observation, cut.decision_cut, &cut.clock)
+    };
+    let mut implied = 0;
+    let mut missed_without_dominance = 0;
+
+    for shared in &cuts {
+        for at_bar in &cuts {
+            for fact in &facts {
+                if !sees(fact, shared) {
+                    continue;
+                }
+
+                if at_bar.observes_at_least(shared) {
+                    assert!(
+                        sees(fact, at_bar),
+                        "a cut that observes at least another must see every fact the other sees"
+                    );
+                    implied += 1;
+                } else if !sees(fact, at_bar) {
+                    missed_without_dominance += 1;
+                }
+            }
+        }
+    }
+    assert!(implied > 0, "the grid exercised the implication");
+    assert!(
+        missed_without_dominance > 0,
+        "the grid contains a cut that is not dominant and does miss a fact"
+    );
 }
 
 /// Cuts on different clocks are not ordered: identical sequence, decision cut and observation on
