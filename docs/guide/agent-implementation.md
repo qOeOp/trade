@@ -113,6 +113,18 @@ because a wrong reading here lands inside the legal range of the answer rather t
 - **`sysctl vm.swapusage` reports used swap that does not fall** when memory pressure is relieved on
   macOS: pages already written out are not reclaimed, so the figure stays near its peak on a machine
   that is no longer under pressure. `vm_stat`'s free page count moves with the actual state.
+- **`.gitignore` hides 61 tracked source files from `rg`.** `*.sh` is ignored with seven `!`
+  exceptions, so `git ls-files '*.sh'` lists 80 files while `rg --files` sees 19, and
+  `rg --files product/rd-workbench/postgres-init/` lists none at all - the directory holding every
+  `CREATE TABLE`, migration and `GRANT`. One pattern returned 0 walking the tree and 9 under
+  `--no-ignore`. `git check-ignore` cannot predict this: an ignore rule does not apply to a tracked
+  file, so git correctly answers "not ignored", while ripgrep filters its walk by the ignore text
+  without consulting tracked state. The two disagree about what "ignored" means. `git grep`,
+  `grep -rn`, `rg --no-ignore`, or `rg <pattern> $(git ls-files '*.sh')` each answer the question;
+  `rg --files <dir> | wc -l` says whether a zero was searched for. A negative claim from a walk is
+  worth recording with the command that produced it, the way a count is worth recording with its
+  revision.
+
 - **`scripts/ci/test-rd-owner-postgres.bash` exits 1 on a non-Linux host.** A local ordered-chain run
   is therefore a modified copy, and which modification was made decides what the run means: changing
   the comparison keeps the container, the databases, the role grants and every earlier entry, while
