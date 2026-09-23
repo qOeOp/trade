@@ -287,11 +287,15 @@ grep -Fq 'initial_frontier_storage_bytes BYTEA' "$package_dir/postgres-init/10-m
 grep -Fq 'v2_request_storage_digest TEXT' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'canonical_payload_storage_digest TEXT' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'canonical_envelope_storage_digest TEXT' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
-grep -Fq 'RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
-# No search_path check here: a file-wide `grep -Fq 'SET search_path = pg_catalog'` passed while any
-# one routine in the file kept that text (57 did in 10-migrate), so it could not see one routine
-# losing or changing its path. scripts/ci/check-security-definer-search-path.sql proves the property
-# per routine in every database the ordered chains materialize.
+# No header or search_path grep here. File-wide substrings of `RETURNS jsonb ... SECURITY DEFINER`
+# and `SET search_path = pg_catalog` passed while any routine in the file kept that text (15 and 57
+# did), so they could not see one routine lose either. Each routine they sat beside has its catalog
+# row asserted exactly (owner, SECURITY DEFINER, STRICT, VOLATILE, PARALLEL UNSAFE,
+# `search_path=pg_catalog`): product_edge_api.lock_downstream_admission_v1 by the ordered chain's
+# `genesis_admission_claim_cutover_and_revocation_are_canonical` (crates/product_edge/src/postgres.rs),
+# rd_owner_api.resolve_native_replay_source_storage_v2 at runtime by `validate_backtest_binding_v2`
+# (crates/strategy_factory/src/exploratory_replay/postgres.rs). Every SECURITY DEFINER routine's path
+# is held by scripts/ci/check-security-definer-search-path.sql.
 grep -Fq 'CREATE OR REPLACE FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "pg_catalog.convert_from(replay_outbox.canonical_envelope_bytes,'UTF8')::pg_catalog.jsonb <>" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'GRANT EXECUTE ON FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(text,text,text,text) TO rd_owner, backtest_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
@@ -367,9 +371,9 @@ grep -Fq 'GRANT USAGE ON SCHEMA rd_owner_api TO product_edge_owner' "$package_di
 grep -Fq 'CREATE OR REPLACE FUNCTION rd_owner_api.lock_source_acquisition_binding_v1(' "$package_dir/../../crates/strategy_factory/src/source_intake/postgres.rs"
 grep -Fq 'CREATE OR REPLACE FUNCTION rd_owner_api.lock_source_invocation_reservation_v1(' "$package_dir/../../crates/strategy_factory/src/source_intake/postgres.rs"
 grep -Fq 'CREATE OR REPLACE FUNCTION rd_owner_api.lock_current_research_for_artifact_v1(' "$package_dir/../../crates/strategy_factory/src/product_edge_postgres.rs"
-grep -Fq 'RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER' "$package_dir/../../crates/strategy_factory/src/product_edge_postgres.rs"
-# No search_path check here either (4 routines in product_edge_postgres.rs carried the text); see
-# the note above the 10-migrate checks.
+# Same for lock_current_research_for_artifact_v1 (the substrings matched 2 and 4 routines in
+# product_edge_postgres.rs): its catalog row is asserted exactly by the ordered chain's
+# `fresh_rd_owner_migrates_before_qualification_writer_validates`.
 grep -Fq 'GRANT EXECUTE ON FUNCTION rd_owner_api.lock_current_research_for_artifact_v1(text,text,text) TO product_edge_owner' "$package_dir/../../crates/strategy_factory/src/product_edge_postgres.rs"
 grep -Fq '.admit_artifact_build_request(' "$package_dir/../../crates/strategy_factory_rd_owner_api/src/main.rs"
 grep -Fq '|| hinted_admission.request.operation != ARTIFACT_BUILD_OPERATION_V1' "$package_dir/../../crates/product_edge/src/postgres.rs"
