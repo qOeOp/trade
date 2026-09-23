@@ -598,7 +598,7 @@ pub async fn register_owner_bar_joined_cut_declarations_from_role_intent_v1(
             .get(ordinal)
             .ok_or(BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryReadback)?;
 
-        if declaration.binding() != expected {
+        if declaration.exact_binding() != Some(expected) {
             return Err(BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryReadback);
         }
         transaction
@@ -657,7 +657,12 @@ pub async fn complete_owner_bar_joined_cut_acceptance_fixture_v1(
             .commit()
             .await
             .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryStore)?;
-        registered_bindings.push(declaration.binding().clone());
+        registered_bindings.push(
+            declaration
+                .exact_binding()
+                .ok_or(BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryReadback)?
+                .clone(),
+        );
     }
 
     if registered_bindings != input_bindings {

@@ -24,10 +24,11 @@ use crate::owner::{
         StrategyInputBindingReceipt, StrategyInputBindingUnavailable,
         StrategyInputCustodyDeclarationV1, StrategyInputCustodyReadbackV1,
         StrategyInputCustodyUnavailableV1, StrategyInputEventFrameReceipt,
-        UntrustedStrategyInputBindingRequest, UntrustedStrategyInputCustodyClaimV1,
-        UntrustedStrategyInputScope, bind_strategy_input_event_frame, bind_strategy_input_role,
-        canonical_strategy_input_custody_roles_v1, codec, request_matches_authenticated_role_v1,
-        seal_strategy_input_custody_v1,
+        StrategyInputUniverseFrameReceipt, UntrustedStrategyInputBindingRequest,
+        UntrustedStrategyInputCustodyClaimV1, UntrustedStrategyInputScope,
+        bind_strategy_input_event_frame, bind_strategy_input_role,
+        bind_strategy_input_universe_frame, canonical_strategy_input_custody_roles_v1, codec,
+        request_matches_authenticated_role_v1, seal_strategy_input_custody_v1,
     },
     universe_selection::{UniverseSelectionReadbackV1, authority::decode_readback_v1},
 };
@@ -115,6 +116,27 @@ pub(super) fn validate_authenticated_role_coverage_v1(
     {
         return Err(StrategyInputBindingRegistryErrorV1::StrategyDesignRoleSetUnavailable);
     }
+    // A role set cannot name a universe, so the requests must agree on one among themselves: a
+    // Design reads one kind of scope, and every universe role of it reads the same selection.
+    let exact = requests.iter().filter(|request| {
+        matches!(
+            request.scope,
+            UntrustedStrategyInputScope::ExactInstrument { .. }
+        )
+    });
+    let universes = requests
+        .iter()
+        .filter_map(|request| match request.scope {
+            UntrustedStrategyInputScope::UniverseSelection { selection_identity } => {
+                Some((selection_identity, request.universe_selection_digest))
+            }
+            _ => None,
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+
+    if (exact.count() != 0 && !universes.is_empty()) || universes.len() > 1 {
+        return Err(StrategyInputBindingRegistryErrorV1::StrategyDesignRoleSetUnavailable);
+    }
     let mut identities = requests
         .iter()
         .map(|request| request.input_role_identity)
@@ -136,7 +158,26 @@ pub(super) fn validate_authenticated_role_coverage_v1(
 pub(super) struct StrategyInputBindingDeclarationReadbackV1 {
     request: UntrustedStrategyInputBindingRequest,
     request_meaning_digest: BindingDigest,
-    binding: StrategyInputBindingReceipt,
+    binding: DeclaredStrategyInputBindingV1,
+}
+
+/// What Market Data bound a declaration to, derived by the Owner from the request's PIT batch.
+///
+/// An exact-instrument role binds to its one row. A universe-member role binds to its value for
+/// every member of the selection at the cut - the role's universe frame - because it has no single
+/// row to bind. Either way the stored declaration keeps only the digest.
+pub(super) enum DeclaredStrategyInputBindingV1 {
+    ExactInstrument(StrategyInputBindingReceipt),
+    UniverseMembers(StrategyInputUniverseFrameReceipt),
+}
+
+impl DeclaredStrategyInputBindingV1 {
+    pub(super) const fn digest(&self) -> BindingDigest {
+        match self {
+            Self::ExactInstrument(binding) => binding.digest(),
+            Self::UniverseMembers(frame) => frame.digest(),
+        }
+    }
 }
 
 impl StrategyInputBindingDeclarationReadbackV1 {
@@ -148,8 +189,18 @@ impl StrategyInputBindingDeclarationReadbackV1 {
         self.request_meaning_digest
     }
 
-    pub(super) const fn binding(&self) -> &StrategyInputBindingReceipt {
-        &self.binding
+    /// The digest of what Market Data bound this declaration to, for either scope.
+    pub(super) const fn binding_digest(&self) -> BindingDigest {
+        self.binding.digest()
+    }
+
+    /// The exact-instrument binding, or nothing for a universe-member declaration: the paths that
+    /// join single rows into an event frame have no row to take from a universe role.
+    pub(super) const fn exact_binding(&self) -> Option<&StrategyInputBindingReceipt> {
+        match &self.binding {
+            DeclaredStrategyInputBindingV1::ExactInstrument(binding) => Some(binding),
+            DeclaredStrategyInputBindingV1::UniverseMembers(_) => None,
+        }
     }
 }
 
@@ -633,18 +684,22 @@ async fn reread_persisted_strategy_input_custody_with_mode_v1(
         .map_err(|e| map_custody_error(&e))?;
     let bindings = declarations
         .iter()
-        .map(|declaration| declaration.binding().clone())
-        .collect::<Vec<_>>();
+        .map(|declaration| declaration.exact_binding().cloned())
+        .collect::<Option<Vec<_>>>()
+        .ok_or(StrategyInputCustodyUnavailableV1::RoleCoverageMismatch)?;
     let frame = bind_strategy_input_event_frame(&bindings, &batch)
         .map_err(|_| StrategyInputCustodyUnavailableV1::FrameUnavailable)?;
     let sealed = declarations
         .iter()
-        .map(|declaration| StrategyInputCustodyDeclarationV1 {
-            request: declaration.request(),
-            request_meaning_digest: declaration.request_meaning_digest(),
-            binding: declaration.binding(),
+        .map(|declaration| {
+            Some(StrategyInputCustodyDeclarationV1 {
+                request: declaration.request(),
+                request_meaning_digest: declaration.request_meaning_digest(),
+                binding: declaration.exact_binding()?,
+            })
         })
-        .collect::<Vec<_>>();
+        .collect::<Option<Vec<_>>>()
+        .ok_or(StrategyInputCustodyUnavailableV1::RoleCoverageMismatch)?;
     seal_strategy_input_custody_v1(claim, &sealed, &frame)
 }
 
@@ -687,7 +742,7 @@ fn map_custody_error(
 async fn resolve_and_bind(
     transaction: &mut Transaction<'_, Postgres>,
     request: &UntrustedStrategyInputBindingRequest,
-) -> Result<StrategyInputBindingReceipt, StrategyInputBindingRegistryErrorV1> {
+) -> Result<DeclaredStrategyInputBindingV1, StrategyInputBindingRegistryErrorV1> {
     resolve_and_bind_with_mode(transaction, request, DependencyReadModeV1::LockRows).await
 }
 
@@ -702,7 +757,7 @@ async fn resolve_and_bind_with_mode(
     transaction: &mut Transaction<'_, Postgres>,
     request: &UntrustedStrategyInputBindingRequest,
     mode: DependencyReadModeV1,
-) -> Result<StrategyInputBindingReceipt, StrategyInputBindingRegistryErrorV1> {
+) -> Result<DeclaredStrategyInputBindingV1, StrategyInputBindingRegistryErrorV1> {
     let batch = resolve_native_pit(transaction, request, mode).await?;
     let universe =
         resolve_native_universe(transaction, request.universe_selection_digest, mode).await?;
@@ -713,18 +768,61 @@ async fn resolve_and_bind_with_mode(
     let [semantics_fact] = semantics.facts() else {
         return Err(StrategyInputBindingRegistryErrorV1::MarketSemanticsUnavailable);
     };
-    let instrument =
-        validate_native_instrument_master(transaction, request, &batch, semantics_fact).await?;
-    validate_native_market_semantics(request, &batch, instrument, semantics_fact)?;
-    bind_strategy_input_role(request, &batch)
-        .map_err(StrategyInputBindingRegistryErrorV1::BindingUnavailable)
+
+    match &request.scope {
+        UntrustedStrategyInputScope::ExactInstrument { .. } => {
+            let instrument =
+                validate_native_instrument_master(transaction, request, &batch, semantics_fact)
+                    .await?;
+            validate_native_market_semantics(request, &batch, semantics_fact)?;
+
+            if !market_semantics_instrument_coordinate_matches(
+                instrument,
+                request.instrument_master_digest,
+                semantics_fact.instrument_master_readback_digest,
+                semantics_fact.instrument_master_fact_digest,
+                semantics_fact.instrument_master_cut_digest,
+            ) {
+                return Err(StrategyInputBindingRegistryErrorV1::MarketSemanticsUnavailable);
+            }
+            bind_strategy_input_role(request, &batch)
+                .map(DeclaredStrategyInputBindingV1::ExactInstrument)
+                .map_err(StrategyInputBindingRegistryErrorV1::BindingUnavailable)
+        }
+        UntrustedStrategyInputScope::UniverseSelection { .. } => {
+            // A universe role binds no Instrument Master at composition time: its members' facts
+            // are the request-keyed V2 cut Market Data issues over the selection's own membership
+            // when R&D first binds the sealed request for native execution. Only the batch-level
+            // coordinate is checked here; the per-instrument check moves to that cut, and nothing
+            // between the two may present an Instrument Master field as verified.
+            if request.instrument_master_digest != batch.instrument_master_digest() {
+                return Err(
+                    StrategyInputBindingRegistryErrorV1::InstrumentMasterBatchDigestUnavailable,
+                );
+            }
+            validate_native_market_semantics(request, &batch, semantics_fact)?;
+            bind_strategy_input_universe_frame(std::slice::from_ref(request), &batch)
+                .map(DeclaredStrategyInputBindingV1::UniverseMembers)
+                .map_err(StrategyInputBindingRegistryErrorV1::BindingUnavailable)
+        }
+        UntrustedStrategyInputScope::InstrumentSet { .. } => {
+            Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterScopeUnavailable)
+        }
+    }
 }
 
+/// Re-derives an exact-instrument binding without locking; a universe-member request has no
+/// single-row binding and is refused.
 pub(super) async fn rederive_strategy_input_binding_read_only_v1(
     transaction: &mut Transaction<'_, Postgres>,
     request: &UntrustedStrategyInputBindingRequest,
 ) -> Result<StrategyInputBindingReceipt, StrategyInputBindingRegistryErrorV1> {
-    resolve_and_bind_with_mode(transaction, request, DependencyReadModeV1::ReadOnly).await
+    match resolve_and_bind_with_mode(transaction, request, DependencyReadModeV1::ReadOnly).await? {
+        DeclaredStrategyInputBindingV1::ExactInstrument(binding) => Ok(binding),
+        DeclaredStrategyInputBindingV1::UniverseMembers(_) => {
+            Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterScopeUnavailable)
+        }
+    }
 }
 
 pub(super) async fn resolve_complete_strategy_input_roles_v1(
@@ -829,8 +927,13 @@ async fn resolve_complete_strategy_input_roles_with_mode_v1(
     let batch = resolve_native_pit(transaction, request, mode).await?;
     let bindings = declarations
         .into_iter()
-        .map(|declaration| declaration.binding)
-        .collect::<Vec<_>>();
+        .map(|declaration| match declaration.binding {
+            DeclaredStrategyInputBindingV1::ExactInstrument(binding) => Ok(binding),
+            DeclaredStrategyInputBindingV1::UniverseMembers(_) => {
+                Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterScopeUnavailable)
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let mut frames = Vec::with_capacity(bindings.len());
     for binding in &bindings {
         frames.push(
@@ -1119,10 +1222,12 @@ async fn resolve_native_market_semantics(
     .map_err(map_market_semantics_error)
 }
 
+/// Checks every Market Semantics field that holds for either scope: compatibility, the exact PIT
+/// cut, its Source Binding and both frontiers. The single-instrument Instrument Master coordinate
+/// is checked by the exact-instrument branch alone.
 fn validate_native_market_semantics(
     request: &UntrustedStrategyInputBindingRequest,
     batch: &VerifiedPitObservationBatch,
-    instrument: NativeInstrumentMasterCoordinateV1,
     fact: &crate::owner::market_semantics::MarketSemanticsFactV1,
 ) -> Result<(), StrategyInputBindingRegistryErrorV1> {
     if fact.compatibility_scope_identity != request.market_semantics_identity
@@ -1131,13 +1236,6 @@ fn validate_native_market_semantics(
         || fact.source_binding_identity != batch.source_binding_identity()
         || fact.source_binding_lineage_root != batch.source_binding_lineage_root()
         || fact.source_binding_lineage_version != batch.source_binding_lineage_version()
-        || !market_semantics_instrument_coordinate_matches(
-            instrument,
-            request.instrument_master_digest,
-            fact.instrument_master_readback_digest,
-            fact.instrument_master_fact_digest,
-            fact.instrument_master_cut_digest,
-        )
         || fact.source_frontier != batch.source_frontier_digest()
         || fact.correction_frontier != batch.correction_frontier_digest()
     {
@@ -1680,6 +1778,74 @@ mod tests {
         second.scale = 5;
         assert_eq!(
             validate_authenticated_role_set_coverage_v1(&role_set, &[request(), second]),
+            Err(StrategyInputBindingRegistryErrorV1::StrategyDesignRoleSetUnavailable)
+        );
+    }
+
+    #[rstest]
+    fn a_design_reads_one_scope_and_its_universe_roles_read_one_selection() {
+        let design = AuthenticatedDesignIdentityV1::from_role_set(&authenticated_role_set());
+        let universe_role = |identity| StrategyDesignRoleEntryV1 {
+            role_identity: identity,
+            semantic_id: format!("role-{identity:?}"),
+            fact_class: "MARKET_DATA".into(),
+            instrument: String::new(),
+            scope: r#"{"kind":"UNIVERSE_MEMBERS"}"#.into(),
+            field_semantic_id: "MARKET_DATA.BAR.CLOSE.PRICE.V1".into(),
+            channel: "MARKET".into(),
+            timeframe: "PT1M".into(),
+            unit: "PRICE".into(),
+            scale: 4,
+            value_type: "I128".into(),
+        };
+        let universe_request = |role, selection| {
+            let mut request = request();
+            request.input_role_identity = role;
+            request.scope = UntrustedStrategyInputScope::UniverseSelection {
+                selection_identity: selection,
+            };
+            request
+        };
+        let roles = [universe_role(d(3)), universe_role(d(16))];
+
+        assert_eq!(
+            validate_authenticated_role_coverage_v1(
+                design,
+                &roles,
+                &[
+                    universe_request(d(3), d(40)),
+                    universe_request(d(16), d(40))
+                ],
+            ),
+            Ok(())
+        );
+        // Two selections, by identity or by the digest the PIT request resolved it to.
+        let mut other_digest = universe_request(d(16), d(40));
+        other_digest.universe_selection_digest = d(41);
+
+        for requests in [
+            [
+                universe_request(d(3), d(40)),
+                universe_request(d(16), d(42)),
+            ],
+            [universe_request(d(3), d(40)), other_digest],
+        ] {
+            assert_eq!(
+                validate_authenticated_role_coverage_v1(design, &roles, &requests),
+                Err(StrategyInputBindingRegistryErrorV1::StrategyDesignRoleSetUnavailable)
+            );
+        }
+        // An exact role and a universe role in one Design, each matching its own attested role.
+        let mixed_roles = [
+            authenticated_role_set().roles[0].clone(),
+            universe_role(d(16)),
+        ];
+        assert_eq!(
+            validate_authenticated_role_coverage_v1(
+                design,
+                &mixed_roles,
+                &[request(), universe_request(d(16), d(40))],
+            ),
             Err(StrategyInputBindingRegistryErrorV1::StrategyDesignRoleSetUnavailable)
         );
     }
