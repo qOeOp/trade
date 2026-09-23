@@ -41,6 +41,16 @@ impl ResolvedNativeReplayExecutionBundleV1 {
     }
 }
 
+/// The single refusal this consumer returns, for any of eighteen distinct failures.
+///
+/// It stays a unit struct on purpose: a caller learns that the bundle is unavailable and nothing
+/// else, and that is the contract. What changes is that the Owner can now say why. Every site that
+/// produces it first records its cause through [`crate::storage_diagnostic::refused_by_store`]
+/// under a coordinate naming the exact stage, so a reader holding this refusal can grep
+/// `native_replay_execution_binding.` and find which of the eighteen it was.
+///
+/// One refusal in this function is deliberately not recorded: a stored V1 binding that is simply
+/// absent is a lookup that found no row, not a refusal, and it has no cause to report.
 #[derive(Debug, Error)]
 #[error("Native Replay execution bundle is unavailable")]
 pub(crate) struct NativeReplayExecutionBindingConsumerErrorV1;
@@ -63,13 +73,25 @@ where
     sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
         .execute(&mut *transaction)
         .await
-        .map_err(|_| NativeReplayExecutionBindingConsumerErrorV1)?;
+        .map_err(|e| {
+            crate::storage_diagnostic::refused_by_store(
+                "native_replay_execution_binding.transaction.set_isolation",
+                &e,
+            );
+            NativeReplayExecutionBindingConsumerErrorV1
+        })?;
     let stored = resolve_native_replay_execution_input_binding_for_request_v1_in_transaction(
         &mut transaction,
         locator,
     )
     .await
-    .map_err(|_| NativeReplayExecutionBindingConsumerErrorV1)?
+    .map_err(|e| {
+        crate::storage_diagnostic::refused_by_store(
+            "native_replay_execution_binding.v1_binding.resolve",
+            &e,
+        );
+        NativeReplayExecutionBindingConsumerErrorV1
+    })?
     .ok_or(NativeReplayExecutionBindingConsumerErrorV1)?;
     let binding_bytes = stored.binding().canonical_bytes().to_vec();
     let preparation = resolve_native_replay_preparation_inputs_v2_in_transaction(
@@ -78,33 +100,73 @@ where
         composer,
     )
     .await
-    .map_err(|_| NativeReplayExecutionBindingConsumerErrorV1)?;
+    .map_err(|e| {
+        crate::storage_diagnostic::refused_by_store(
+            "native_replay_execution_binding.preparation.resolve",
+            &e,
+        );
+        NativeReplayExecutionBindingConsumerErrorV1
+    })?;
     let projected_plan =
         StrategyPlanV2::decode_owner_resolution_projection(preparation.composer().plan_bytes())
-            .map_err(|_| NativeReplayExecutionBindingConsumerErrorV1)?;
+            .map_err(|e| {
+                crate::storage_diagnostic::refused_by_store(
+                    "native_replay_execution_binding.plan.decode_projection",
+                    &e,
+                );
+                NativeReplayExecutionBindingConsumerErrorV1
+            })?;
     let request = preparation.replay().request().as_dto();
     let instrument_master = instrument_master_owner
         .resolve_instrument_master_v2_for_native_replay_request(request.request_identity.as_str())
         .await
-        .map_err(|_| NativeReplayExecutionBindingConsumerErrorV1)?;
-    let economic_locators = stored
-        .instrument_economic_terms_locators()
-        .map_err(|_| NativeReplayExecutionBindingConsumerErrorV1)?;
+        .map_err(|e| {
+            crate::storage_diagnostic::refused_by_store(
+                "native_replay_execution_binding.instrument_master.resolve",
+                &e,
+            );
+            NativeReplayExecutionBindingConsumerErrorV1
+        })?;
+    let economic_locators = stored.instrument_economic_terms_locators().map_err(|e| {
+        crate::storage_diagnostic::refused_by_store(
+            "native_replay_execution_binding.economic_terms.locators",
+            &e,
+        );
+        NativeReplayExecutionBindingConsumerErrorV1
+    })?;
     let first_terms = instrument_terms_owner
         .resolve(economic_locators[0])
         .await
-        .map_err(|_| NativeReplayExecutionBindingConsumerErrorV1)?;
+        .map_err(|e| {
+            crate::storage_diagnostic::refused_by_store(
+                "native_replay_execution_binding.economic_terms.resolve_first",
+                &e,
+            );
+            NativeReplayExecutionBindingConsumerErrorV1
+        })?;
     let second_terms = instrument_terms_owner
         .resolve(economic_locators[1])
         .await
-        .map_err(|_| NativeReplayExecutionBindingConsumerErrorV1)?;
+        .map_err(|e| {
+            crate::storage_diagnostic::refused_by_store(
+                "native_replay_execution_binding.economic_terms.resolve_second",
+                &e,
+            );
+            NativeReplayExecutionBindingConsumerErrorV1
+        })?;
     let terms = [first_terms, second_terms];
     let profile = issue_owner_replay_execution_profile_binding_from_readbacks_v1(
         preparation.family(),
         preparation.replay(),
         [&terms[0], &terms[1]],
     )
-    .map_err(|_| NativeReplayExecutionBindingConsumerErrorV1)?;
+    .map_err(|e| {
+        crate::storage_diagnostic::refused_by_store(
+            "native_replay_execution_binding.profile_authority.issue",
+            &e,
+        );
+        NativeReplayExecutionBindingConsumerErrorV1
+    })?;
     // `market_request` is retained unused for now: it is the input that produced this readback, and
     // the window's whole frame sequence is resolved from it once Market Data supplies the
     // coordinates. Rebuilding it at that point would be the same second-resolution fault the
@@ -116,14 +178,26 @@ where
         market_data,
     )
     .await
-    .map_err(|_| NativeReplayExecutionBindingConsumerErrorV1)?;
+    .map_err(|e| {
+        crate::storage_diagnostic::refused_by_store(
+            "native_replay_execution_binding.market_inputs.resolve",
+            &e,
+        );
+        NativeReplayExecutionBindingConsumerErrorV1
+    })?;
     let plan = StrategyPlanV2::parse_and_revalidate_durable_with_owner_universe(
         preparation.composer().plan_bytes(),
         market.universe_frame(),
         projected_plan.research_request_identity(),
         projected_plan.design_identity(),
     )
-    .map_err(|_| NativeReplayExecutionBindingConsumerErrorV1)?;
+    .map_err(|e| {
+        crate::storage_diagnostic::refused_by_store(
+            "native_replay_execution_binding.plan.revalidate_with_universe",
+            &e,
+        );
+        NativeReplayExecutionBindingConsumerErrorV1
+    })?;
     let artifact = StrategyArtifactV2::parse_and_revalidate_durable(
         preparation.composer().artifact_package_bytes(),
         preparation
@@ -133,7 +207,13 @@ where
             .collect(),
         &plan,
     )
-    .map_err(|_| NativeReplayExecutionBindingConsumerErrorV1)?;
+    .map_err(|e| {
+        crate::storage_diagnostic::refused_by_store(
+            "native_replay_execution_binding.artifact.revalidate",
+            &e,
+        );
+        NativeReplayExecutionBindingConsumerErrorV1
+    })?;
     verify_re_resolved_native_replay_execution_inputs_v1(
         &stored,
         &preparation,
@@ -145,24 +225,49 @@ where
         market.universe_frame(),
         [&market.schedules()[0], &market.schedules()[1]],
     )
-    .map_err(|_| NativeReplayExecutionBindingConsumerErrorV1)?;
+    .map_err(|e| {
+        crate::storage_diagnostic::refused_by_store(
+            "native_replay_execution_binding.re_resolution.verify",
+            &e,
+        );
+        NativeReplayExecutionBindingConsumerErrorV1
+    })?;
     let public_terms = [
         instrument_master.cut().members()[0]
             .fact()
             .validate_native_crypto_perpetual_public_terms()
-            .map_err(|_| NativeReplayExecutionBindingConsumerErrorV1)?,
+            .map_err(|e| {
+                crate::storage_diagnostic::refused_by_store(
+                    "native_replay_execution_binding.public_terms.validate_first",
+                    &e,
+                );
+                NativeReplayExecutionBindingConsumerErrorV1
+            })?,
         instrument_master.cut().members()[1]
             .fact()
             .validate_native_crypto_perpetual_public_terms()
-            .map_err(|_| NativeReplayExecutionBindingConsumerErrorV1)?,
+            .map_err(|e| {
+                crate::storage_diagnostic::refused_by_store(
+                    "native_replay_execution_binding.public_terms.validate_second",
+                    &e,
+                );
+                NativeReplayExecutionBindingConsumerErrorV1
+            })?,
     ];
-    let (universe_frame, scheduling) = market
-        .into_execution_parts()
-        .map_err(|_| NativeReplayExecutionBindingConsumerErrorV1)?;
-    transaction
-        .commit()
-        .await
-        .map_err(|_| NativeReplayExecutionBindingConsumerErrorV1)?;
+    let (universe_frame, scheduling) = market.into_execution_parts().map_err(|e| {
+        crate::storage_diagnostic::refused_by_store(
+            "native_replay_execution_binding.market_inputs.into_execution_parts",
+            &e,
+        );
+        NativeReplayExecutionBindingConsumerErrorV1
+    })?;
+    transaction.commit().await.map_err(|e| {
+        crate::storage_diagnostic::refused_by_store(
+            "native_replay_execution_binding.transaction.commit",
+            &e,
+        );
+        NativeReplayExecutionBindingConsumerErrorV1
+    })?;
     let execution = ReplayTargetSetExecutionBundleV1::new_from_single_frame_v1(
         profile,
         plan,
@@ -173,7 +278,13 @@ where
         public_terms,
         scheduling,
     )
-    .map_err(|_| NativeReplayExecutionBindingConsumerErrorV1)?;
+    .map_err(|e| {
+        crate::storage_diagnostic::refused_by_store(
+            "native_replay_execution_binding.execution_bundle.compose",
+            &e,
+        );
+        NativeReplayExecutionBindingConsumerErrorV1
+    })?;
     let design_bytes = preparation.composer().design_bytes().to_vec();
     let plan_bytes = preparation.composer().plan_bytes().to_vec();
     let artifact_bytes = preparation.composer().artifact_package_bytes().to_vec();
