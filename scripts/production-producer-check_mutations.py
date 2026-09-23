@@ -55,6 +55,13 @@ def producers(module, rev, name):
 
 MUTATIONS = [
     {
+        "label": "every symbol is taken for something the tool models",
+        "old": '    pattern = rf"(^|{NOT_WORD})(fn|struct|enum|trait|const|static|type) +{name}{NOT_WORD}"',
+        "new": '    pattern = rf"(?!x)x{name}"',
+        "probe": lambda m, rev: m.declaration_kind(rev, "TIME_ZONE_DOMAIN"),
+        "expect": "a const was not recognised as one",
+    },
+    {
         # `\s` would be the truer defect, but whether it matches is a property of the
         # platform's regex library - glibc takes it, BSD does not - so a mutation built on
         # it moves a reading on one machine and none on the other. What the calibration has
