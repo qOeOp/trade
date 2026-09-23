@@ -9,7 +9,7 @@ use strategy_factory_program_sdk::lifecycle_v1::{
     TargetStateV1, UnsealedGuestProposalV1,
 };
 use strategy_factory_program_sdk::lifecycle_v2::{
-    InstrumentTargetSetV2, MemberTargetV2, TARGET_SET_BYTES,
+    InstrumentKeyV2, InstrumentTargetSetV2, MemberTargetV2, TARGET_SET_BYTES,
 };
 use thiserror::Error;
 #[cfg(feature = "isolated-event-replay-acceptance")]
@@ -414,7 +414,7 @@ enum EvaluatedProposalV2 {
     Members(InstrumentTargetSetV2),
 }
 
-/// Host-owned, non-committed exactly-two-member Backtest proposal.
+/// Host-owned, non-committed member target-set Backtest proposal.
 ///
 /// The contained host is a scratch clone. Callers may inspect only the canonical target set and
 /// current member checkpoints. Only the Backtest adapter can seal the snapshot-bound
@@ -1711,7 +1711,7 @@ impl ProgramHostV2 {
         self.apply_event(&event)
     }
 
-    /// Admits and applies one complete Owner-sealed exactly-two-member frame.
+    /// Admits and applies one complete Owner-sealed universe frame.
     pub fn apply_market_data_universe_event(
         &mut self,
         frame: &StrategyInputUniverseFrameReceipt,
@@ -1769,11 +1769,8 @@ impl ProgramHostV2 {
             admissions.push(admission);
         }
         let mut scratch = self.clone_for_scratch();
-        let EvaluatedProposalV2::Members(target_set) =
-            scratch.evaluate(event.envelope, &input_map)?
-        else {
-            return Err(ProgramHostV2Error::InputCoverage);
-        };
+        let proposal = scratch.evaluate(event.envelope, &input_map)?;
+        let target_set = scratch.member_target_set_of(&proposal)?;
         scratch.validate_member_target_set(event, target_set)?;
         let prepared_identity = backtest_prepared_target_set_identity(
             self.checkpoint.digest,
@@ -2029,11 +2026,8 @@ impl ProgramHostV2 {
         }
 
         let target_set = if proposal_required {
-            let EvaluatedProposalV2::Members(target_set) =
-                scratch.evaluate(event.envelope, inputs)?
-            else {
-                return Err(ProgramHostV2Error::InputCoverage);
-            };
+            let proposal = scratch.evaluate(event.envelope, inputs)?;
+            let target_set = scratch.member_target_set_of(&proposal)?;
             scratch.validate_member_target_set(event, target_set)?;
             Some(target_set)
         } else {
@@ -2098,6 +2092,27 @@ impl ProgramHostV2 {
         let trace = first_trace.ok_or(ProgramHostV2Error::Checkpoint)?;
         *self = scratch;
         Ok(trace)
+    }
+
+    /// Returns the member target set a universe reaction proposed, lifting a single-instrument
+    /// proposal under a one-member universe.
+    fn member_target_set_of(
+        &self,
+        proposal: &EvaluatedProposalV2,
+    ) -> Result<InstrumentTargetSetV2, ProgramHostV2Error> {
+        match *proposal {
+            EvaluatedProposalV2::Members(target_set) => Ok(target_set),
+            EvaluatedProposalV2::Single(proposal) => lift_single_instrument_proposal(
+                &self
+                    .member_kernels
+                    .iter()
+                    .map(|member| member.instrument.as_str())
+                    .collect::<Vec<_>>(),
+                self.pending_target_set
+                    .map(|pending| pending.target_set.sequence),
+                proposal,
+            ),
+        }
     }
 
     fn validate_member_target_set(
@@ -3341,6 +3356,38 @@ fn member_intent_identity(
     hasher.update(instrument.as_bytes());
     let digest: [u8; 32] = hasher.finalize().into();
     digest[..16].try_into().expect("fixed digest prefix")
+}
+
+/// Lifts a single-instrument proposal into the one-member target set of a one-member universe.
+///
+/// The Plan admits a single-instrument proposal only under a one-member universe, so any other
+/// member count is refused here as well. The sole member takes the proposal's position, target,
+/// reconciliation units, and protection; the set takes the sequence after the pending set's, or 1
+/// when none is pending. The result is the canonical value a plugin proposing that set would give.
+pub(crate) fn lift_single_instrument_proposal(
+    member_instruments: &[&str],
+    pending_sequence: Option<u64>,
+    proposal: lifecycle_v1::ProposalV1,
+) -> Result<InstrumentTargetSetV2, ProgramHostV2Error> {
+    let [instrument] = member_instruments else {
+        return Err(ProgramHostV2Error::InputCoverage);
+    };
+    let sequence = pending_sequence
+        .map_or(Some(1), |sequence| sequence.checked_add(1))
+        .ok_or(ProgramHostV2Error::InputCoverage)?;
+    let instrument = InstrumentKeyV2::new(instrument.as_bytes())
+        .map_err(|_| ProgramHostV2Error::InputCoverage)?;
+    InstrumentTargetSetV2::new(
+        sequence,
+        &[MemberTargetV2 {
+            instrument,
+            position: proposal.position,
+            target: proposal.target,
+            reconciliation_target_units: proposal.reconciliation_target_units,
+            protection: proposal.protection,
+        }],
+    )
+    .map_err(|_| ProgramHostV2Error::Graph("proposal.member_target_set.lift".into()))
 }
 
 fn target_set_selection_identity(plan: &StrategyPlanV2) -> BindingDigest {

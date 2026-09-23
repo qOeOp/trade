@@ -3177,7 +3177,7 @@ pub mod lifecycle_v2 {
     pub const TARGET_SET_SCHEMA_VERSION: u16 = 2;
     pub const TARGET_SET_CODEC_VERSION: u16 = 2;
     /// Fewest members a set may carry.
-    pub const TARGET_SET_MIN_MEMBER_COUNT: usize = 2;
+    pub const TARGET_SET_MIN_MEMBER_COUNT: usize = 1;
     /// Most members a set may carry; also the member capacity of the fixed checkpoint slot.
     pub const TARGET_SET_MAX_MEMBER_COUNT: usize = 2;
     pub const MAX_INSTRUMENT_KEY_BYTES: usize = 64;
@@ -5166,6 +5166,101 @@ mod tests {
                 Err(KernelFaultV1::InvalidCheckpoint)
             );
             assert_eq!(initialized.checkpoint().encode(), unchanged);
+        }
+    }
+
+    mod target_set_v2 {
+        use super::lifecycle_v1::{PositionIntentV1, ProtectionProposalV1, TargetProposalV1};
+        use super::lifecycle_v2::*;
+        use super::*;
+
+        fn member(instrument: &[u8], units: i64) -> MemberTargetV2 {
+            MemberTargetV2 {
+                instrument: InstrumentKeyV2::new(instrument).unwrap(),
+                position: PositionIntentV1::Enter,
+                target: TargetProposalV1::Position(units),
+                reconciliation_target_units: Some(units),
+                protection: ProtectionProposalV1::Keep,
+            }
+        }
+
+        #[rstest]
+        fn one_member_set_encodes_its_count_and_round_trips_exactly() {
+            let set = InstrumentTargetSetV2::new(3, &[member(b"BTCUSDT-PERP.BINANCE", 5)]).unwrap();
+            let slot = set.encode().unwrap();
+            let used = target_set_encoded_bytes(1);
+
+            assert_eq!(set.member_count(), 1);
+            assert_eq!(set.encoded_len(), used);
+            assert_eq!(u16::from_le_bytes([slot[8], slot[9]]), 1);
+            assert!(slot[used..].iter().all(|byte| *byte == 0));
+            assert_eq!(InstrumentTargetSetV2::decode(&slot[..used]).unwrap(), set);
+            assert_eq!(InstrumentTargetSetV2::decode_slot(&slot).unwrap(), set);
+        }
+
+        #[rstest]
+        fn decode_takes_only_the_length_its_count_names() {
+            let slot = InstrumentTargetSetV2::new(3, &[member(b"BTCUSDT-PERP.BINANCE", 5)])
+                .unwrap()
+                .encode()
+                .unwrap();
+
+            // The whole slot is one encoding plus padding, not a one-member encoding.
+            assert_eq!(
+                InstrumentTargetSetV2::decode(&slot),
+                Err(TargetSetFaultV2::NonCanonicalEncoding)
+            );
+            assert_eq!(
+                InstrumentTargetSetV2::decode(&slot[..target_set_encoded_bytes(1) - 1]),
+                Err(TargetSetFaultV2::NonCanonicalEncoding)
+            );
+        }
+
+        #[rstest]
+        fn slot_padding_must_be_zero() {
+            let mut slot = InstrumentTargetSetV2::new(3, &[member(b"BTCUSDT-PERP.BINANCE", 5)])
+                .unwrap()
+                .encode()
+                .unwrap();
+            slot[TARGET_SET_BYTES - 1] = 1;
+
+            assert_eq!(
+                InstrumentTargetSetV2::decode_slot(&slot),
+                Err(TargetSetFaultV2::NonCanonicalEncoding)
+            );
+        }
+
+        #[rstest]
+        #[case(0)]
+        #[case(TARGET_SET_MAX_MEMBER_COUNT + 1)]
+        fn unadmitted_counts_are_refused(#[case] count: usize) {
+            let members = [
+                member(b"AAPL.XNAS", 1),
+                member(b"MSFT.XNAS", 2),
+                member(b"QQQ.XNAS", 3),
+            ];
+            assert!(count <= members.len());
+
+            assert_eq!(
+                InstrumentTargetSetV2::new(1, &members[..count]),
+                Err(TargetSetFaultV2::InvalidCoverage)
+            );
+        }
+
+        #[rstest]
+        fn a_two_member_slot_is_not_read_as_a_one_member_set() {
+            let mut slot =
+                InstrumentTargetSetV2::new(4, &[member(b"AAPL.XNAS", 1), member(b"MSFT.XNAS", 2)])
+                    .unwrap()
+                    .encode()
+                    .unwrap();
+            slot[8..10].copy_from_slice(&1_u16.to_le_bytes());
+
+            // The second member now sits in what a one-member set requires to be padding.
+            assert_eq!(
+                InstrumentTargetSetV2::decode_slot(&slot),
+                Err(TargetSetFaultV2::NonCanonicalEncoding)
+            );
         }
     }
 }
