@@ -159,6 +159,20 @@ repos:
         language: system
         files: ^(crates/|product/|scripts/ci/check-feature-gate-coverage\.py$|Makefile$|\.github/workflows/)
         pass_filenames: false
+      - id: test-feature-gate-coverage
+        name: test feature gate coverage resolution
+        description: Proves the guard asks Cargo what CI compiles instead of reading the strings
+        entry: python3 scripts/ci/test_check_feature_gate_coverage.py
+        language: system
+        files: >-
+          (?x)^(
+
+            \.pre-commit-config\.yaml|
+            Makefile|
+            scripts/ci/(check-feature-gate-coverage|test_check_feature_gate_coverage)\.py|
+            \.github/workflows/.*\.yml
+          )$
+        pass_filenames: false
       - id: check-source-canary
         name: check source canary
         description: Ensures reachability probes separate a refused runner address from a dead source
