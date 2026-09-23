@@ -9,6 +9,14 @@ frame is not, and that is the part that is missing.
 
 This counts how far that shape reaches. Measured at `d6e4ea597` on a clean tree.
 
+**It counts proofs, not modules, and the reason is in the repository.** `crates/strategy_factory`'s
+Source Intake module contributes two ordered chain entries. One of them constructs a sealed
+environment whose `commit_terminal` calls the production terminal writers, with zero `_for_test`
+call sites in its 473-line body. The other uses the replay constructors six times and the
+production writers zero times. Same module, same chain, adjacent entries, opposite answers. A
+per-module verdict would have to pick one of those two and would be wrong about the other. The
+worked form of that pair is below, under *What a passing check looks like*.
+
 ## What was counted
 
 **Step one: the sample.** A function defined in a production module  -  a file under a crate's
@@ -163,7 +171,10 @@ answer and a hand reading disagreed, and one because the hand reading was the wr
 `rewrite_outbox_request_identity_for_test` does return a `Vec<u8>` and is a constructor. Those three
 were found in the 28 definitions that were read by hand  -  the 23 the first version published and
 five drawn as check points  -  so the rate they imply, 3 in 28, describes the hand-read set and
-cannot be extended to the 67 that were not read. The count of 55 constructors carries an unknown
+cannot be extended to the 67 that were not read. It is also a *biased* hand-read set: those 28 are
+exactly the definitions that had already drawn attention, and a misjudgement rate measured on the
+rows someone already looked at is normally lower than the rate among the rows nobody did. So 3 in
+28 is not merely un-extendable  -  extending it would understate. The count of 55 constructors carries an unknown
 error; what it does not carry is the class of error the first version had, where the question was
 asked of functions that produce nothing.
 
