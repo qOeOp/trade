@@ -628,10 +628,22 @@ canonical Result bytes；单帧 V1 的 28 项证据不能证明一次序列运�
 那一步不按事件时间过滤，所以一个 batch 里若还有同一角色的后一个时刻，就有两条精确匹配的行，于是根本绑不出
 universe frame；`a_batch_holding_a_second_instant_of_one_role_binds_no_frame` 测的正是这件事。若干个 BAR
 时刻的窗口因此就是同样数量的快照、universe frame 与原生调度封印，而消费端本来就是这样读的：target-set
-ProgramHost 策略按时刻索引待配对的 BAR 与 Owner frame，两个映射都排空之前不肯收尾。从今天到一次真实价格
-序列上的运行，中间隔着的是帧序列模块自己写明的东西，一份持久的、覆盖完整请求窗口的 frame census，以及一份
-sequence receipt/outbox readback，再加上那个序列自己的 `FRAME_COUNT`，它等于二。把原生调度封印改成从一个
-batch 里投影出整个窗口，也不是绕过去的路：这样一条序列所需要的那些 frame，从它出身的那个 batch 里绑不出来。
+ProgramHost 策略按时刻索引待配对的 BAR 与 Owner frame，两个映射都排空之前不肯收尾。本段曾列为「还缺」的 frame census、窗口
+readback 与 sequence resolver 今天都已存在，而那个序列自己的 `MIN_FRAME_COUNT` 是二这个下限，不是固定的条数。
+把原生调度封印改成从一个 batch 里投影出整个窗口，也不是绕过去的路：这样一条序列所需要的那些 frame，
+从它出身的那个 batch 里绑不出来。
+
+**今天一次运行被钉在一帧上的位置：**
+`ReplayTargetSetExecutionBundleV1::new_from_single_frame_v1` 有一个生产调用方，在
+`native_replay_execution_binding_consumer_v1.rs` 里，那一处调用就是一次运行不再是一帧的地方。
+它旁边那个 N 帧构造器恰好只有一个调用点，在
+`compose_native_replay_execution_bundle_v2` 内部，而后者一个调用方都没有；
+`native_replay_execution_input_binding_v2` 的每一个条目在默认库构建里都是死的。在那里做替换
+需要第二个 `StrategyInputUniverseFrameReceipt`；该收据只有一个构造点，在
+`bind_strategy_input_universe_frame` 里，而它吃一个 `VerifiedPitObservationBatch`。所以第二帧
+不只是没人写，而是在 Market Data 提交第二份批次之前不可构造，并且
+`pit_snapshot/sealed_acceptance.rs` 带着 `compile_fail` doctest，断言即使打开 acceptance feature，
+反序列化与结构体字面量都伪造不出它。
 
 **TARGET / NOT_ADMITTED，BAR FRAME 与 JOINED_CUT composition：** additive
 `StrategyInputSampleProjectionV4` 是唯一可在完整 native join 中组合 BAR component 的 projection。

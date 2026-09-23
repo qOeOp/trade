@@ -706,12 +706,23 @@ holds a later instant of the same role offers two exact rows and binds no univer
 `a_batch_holding_a_second_instant_of_one_role_binds_no_frame` measures exactly that. A window of
 several BAR instants is therefore that many snapshots, universe frames and native scheduling seals,
 and the consumer already reads it that way: the target-set ProgramHost strategy keys pending BARs
-and Owner frames by instant and refuses to finish until both are exhausted. What stands between
-here and a run over a real price series is what the frame-sequence module states about itself, a
-durable request-window-complete frame census and a sequence receipt/outbox readback, together with
-that sequence's own `FRAME_COUNT`, which is two. Generalizing the native scheduling seal to project
-a whole window out of one batch is not a way around either: the frames such a series needs cannot
-be bound from the batch it came from.
+and Owner frames by instant and refuses to finish until both are exhausted. The frame census, the window readback and the sequence
+resolver this paragraph once listed as missing now exist, and the sequence's own
+`MIN_FRAME_COUNT` is a floor of two rather than a fixed count. Generalizing the native scheduling
+seal to project a whole window out of one batch is not a way around either: the frames such a
+series needs cannot be bound from the batch it came from.
+
+**Where a run is pinned to one frame today:**
+`ReplayTargetSetExecutionBundleV1::new_from_single_frame_v1` has one production caller, in
+`native_replay_execution_binding_consumer_v1.rs`, and that one call is where a run stops being one
+frame. The N-frame constructor beside it has exactly one call site, inside
+`compose_native_replay_execution_bundle_v2`, which has no caller at all, and every item of
+`native_replay_execution_input_binding_v2` is dead in a default library build. What a substitution
+there needs is a second `StrategyInputUniverseFrameReceipt`; that receipt has one construction site,
+in `bind_strategy_input_universe_frame`, which takes a `VerifiedPitObservationBatch`. A second frame
+is therefore not merely unwritten but unconstructible until Market Data commits a second batch, and
+`pit_snapshot/sealed_acceptance.rs` carries `compile_fail` doctests asserting that neither
+deserialization nor a struct literal forges one even with the acceptance feature on.
 
 **TARGET / NOT_ADMITTED, BAR FRAME and JOINED_CUT composition:** the additive
 `StrategyInputSampleProjectionV4` is the only projection that may compose BAR components across a complete
