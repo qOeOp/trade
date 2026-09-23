@@ -996,7 +996,10 @@ async fn read_sealed_develop_composer_for_acceptance(
             "module_bytes_digests": readback.module_bytes_digests(),
         }))
         .into_response(),
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        Err(e) => {
+            tracing::warn!(error = %e, request_identity = %operation.request_identity, "Sealed Develop Composer read unavailable");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
     }
 }
 
@@ -1024,7 +1027,10 @@ async fn run_develop_composer_with_acceptance_control(
         .await
     {
         Ok(response) => composer_operation_response(response),
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        Err(e) => {
+            tracing::warn!(error = %e, research_request_locator = %request.research_request_locator, "Develop Composer acceptance run unavailable");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
     }
 }
 
@@ -1053,7 +1059,10 @@ async fn resolve_develop_composer_with_acceptance_tamper(
         .await
     {
         Ok(response) => composer_operation_response(response),
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        Err(e) => {
+            tracing::warn!(error = %e, %request_identity, "Develop Composer acceptance resolve unavailable");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
     }
 }
 
@@ -1093,7 +1102,10 @@ async fn issue_replay_composition(
                 response.canonical_bytes().to_vec(),
             )
                 .into_response(),
-            Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+            Err(e) => {
+                tracing::warn!(error = %e, "Replay composition issuance unavailable");
+                StatusCode::SERVICE_UNAVAILABLE.into_response()
+            }
         }
     }
 }
@@ -1128,7 +1140,10 @@ async fn resolve_replay_composition(
                 response.canonical_bytes().to_vec(),
             )
                 .into_response(),
-            Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+            Err(e) => {
+                tracing::warn!(error = %e, "Replay composition issuance recovery unavailable");
+                StatusCode::SERVICE_UNAVAILABLE.into_response()
+            }
         }
     }
 }
@@ -1166,10 +1181,13 @@ async fn run_develop_composer(
             .await
         {
             Ok(response) => composer_operation_response(response),
-            Err(_) => composer_response(
-                StatusCode::SERVICE_UNAVAILABLE,
-                default_unavailable_response(&request.research_request_locator),
-            ),
+            Err(e) => {
+                tracing::warn!(error = %e, research_request_locator = %request.research_request_locator, "Bounded feature program Composer run unavailable");
+                composer_response(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    default_unavailable_response(&request.research_request_locator),
+                )
+            }
         }
     }
 
@@ -1221,10 +1239,13 @@ async fn run_develop_composer(
                 }
                 response
             }
-            Err(_) => composer_response(
-                StatusCode::SERVICE_UNAVAILABLE,
-                default_unavailable_response(&request.research_request_locator),
-            ),
+            Err(e) => {
+                tracing::warn!(error = %e, research_request_locator = %request.research_request_locator, "Develop Composer run unavailable");
+                composer_response(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    default_unavailable_response(&request.research_request_locator),
+                )
+            }
         }
     }
 }
@@ -1245,7 +1266,10 @@ async fn project_develop_composer_request(
         .await
     {
         Ok(projection) => (StatusCode::OK, Json(projection)).into_response(),
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        Err(e) => {
+            tracing::warn!(error = %e, research_request_locator = %request.research_request_locator, "Develop Composer request projection unavailable");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
     }
 }
 
@@ -1341,10 +1365,13 @@ async fn read_develop_composer(
     {
         match state.develop_composer.resolve(&request_identity).await {
             Ok(response) => composer_operation_response(response),
-            Err(_) => composer_response(
-                StatusCode::SERVICE_UNAVAILABLE,
-                default_unavailable_response(&request_identity),
-            ),
+            Err(e) => {
+                tracing::warn!(error = %e, %request_identity, "Develop Composer read unavailable");
+                composer_response(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    default_unavailable_response(&request_identity),
+                )
+            }
         }
     }
 }
@@ -2235,7 +2262,10 @@ async fn read_artifact_directory(
     {
         Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
         Err(ArtifactBuildError::Candidate(_)) => StatusCode::BAD_REQUEST.into_response(),
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        Err(e) => {
+            tracing::warn!(error = %e, "Artifact directory read unavailable");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
     }
 }
 
@@ -2273,7 +2303,10 @@ async fn read_research_directory(
         .await
     {
         Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        Err(e) => {
+            tracing::warn!(error = %e, "Research directory read unavailable");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
     }
 }
 
@@ -2290,13 +2323,24 @@ async fn read_research_v2(
         return StatusCode::BAD_REQUEST.into_response();
     }
 
-    match state
-        .research_readback_owner
-        .read_research_v2(&request_identity)
-        .await
-    {
+    read_research_v2_through(state.research_readback_owner.as_ref(), &request_identity).await
+}
+
+/// Answers one authorized, well-formed Research readback through the Owner port.
+///
+/// Split from the handler so the refusal can be driven through the port alone: `ApiState` holds
+/// two Postgres Owners that only an async `connect` can build, and `preflight_then_admit_artifact_request`
+/// is the precedent for taking the port rather than the state.
+async fn read_research_v2_through(
+    owner: &dyn ResearchReadbackOwnerPortV1,
+    request_identity: &str,
+) -> Response {
+    match owner.read_research_v2(request_identity).await {
         Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        Err(e) => {
+            tracing::warn!(error = %e, %request_identity, "Research readback unavailable");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
     }
 }
 
@@ -2942,6 +2986,7 @@ mod tests {
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
     use super::*;
+    use vibe_strategy_factory::product_edge::ResearchGoalOwnerResultV2;
 
     #[rstest]
     fn composer_startup_uses_two_owner_urls_without_preissued_native_join() {
@@ -5475,6 +5520,42 @@ mod tests {
         assert_eq!(value["attempt_identity"], "attempt-1");
         assert_eq!(value["owner_receipt"], serde_json::Value::Null);
         assert_eq!(value["next_legal_action"], "RESOLVE_SAME_ATTEMPT_IDENTITY");
+    }
+
+    struct FailingResearchReadbackOwner(&'static str);
+
+    #[async_trait]
+    impl ResearchReadbackOwnerPortV1 for FailingResearchReadbackOwner {
+        async fn read_research_v2(
+            &self,
+            _request_identity: &str,
+        ) -> Result<ResearchGoalOwnerResultV2, ResearchGoalOwnerError> {
+            Err(ResearchGoalOwnerError::Storage(self.0.to_string()))
+        }
+    }
+
+    /// The 503 is unchanged and says nothing, so the log is the only place the store's own error
+    /// survives. The capture subscriber is thread-local, so the future runs on this thread.
+    #[rstest]
+    fn research_readback_store_failure_keeps_its_503_and_logs_the_cause() {
+        let owner = FailingResearchReadbackOwner("readback store down");
+        let (response, written) = crate::log_capture::capture(|| {
+            tokio::runtime::Builder::new_current_thread()
+                .build()
+                .expect("current-thread runtime")
+                .block_on(read_research_v2_through(
+                    &owner,
+                    "research-request-readback",
+                ))
+        });
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert!(
+            written.contains("Research readback unavailable"),
+            "{written}"
+        );
+        assert!(written.contains("readback store down"), "{written}");
+        assert!(written.contains("research-request-readback"), "{written}");
     }
 
     struct MockArtifactBuildOwner {
