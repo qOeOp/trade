@@ -216,6 +216,11 @@ def producer_sites(rev, name):
         rf"(^|{NOT_WORD}){name}{SPACE}*\{{"
         rf"|(^|{NOT_WORD}){name}::[a-z_]+{SPACE}*\("
         rf"|->{SPACE}*(anyhow::)?(Result<)?{SPACE}*{name}(<|{SPACE}|,|>|$)"
+        # A value decoded into an annotated binding or a turbofish is produced there too,
+        # and a type whose only production producer is a decode has none by the three
+        # patterns above - which reads as a finding rather than as a missing spelling.
+        rf"|:{SPACE}*(crate::)?([a-z_]+::)*{name}{SPACE}*="
+        rf"|::<[^>]*{name}[^>]*>"
     )
     out = []
     for path, lineno, text in grep(rev, pattern):

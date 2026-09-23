@@ -116,6 +116,19 @@ def main():
         "admit_market_data_universe_program_event_v2: 0 production callers, so that branch never fired",
     )
 
+    # A value produced by decoding into an annotated binding, against one that has no such
+    # site. A type whose only production producer is a decode looks producerless to a search
+    # that only knows struct literals, associated functions and return types.
+    decoded_total, decoded_ungated = producers("SourceIntakeResearchAncestryProposalV1")
+    check(
+        decoded_total > 0,
+        "SourceIntakeResearchAncestryProposalV1: no producer sites found at all",
+    )
+    check(
+        decoded_ungated > 0,
+        "a type produced only by an ungated decode was read as having no ungated producer",
+    )
+
     # A `mod x;` gated in the parent file. Nothing inside sealed_acceptance.rs says it is
     # gated; reading the file alone answers "ungated" for every item in it.
     sealed_total, sealed_ungated = producers("SealedAcceptanceProtectedEvaluationSharedTimeV1")
@@ -197,7 +210,7 @@ def main():
         )
         return 1
     print(
-        f"production-producer-check calibration passed at {REV[:9]}: 19 checks, both directions exercised",
+        f"production-producer-check calibration passed at {REV[:9]}: 21 checks, both directions exercised",
     )
     return 0
 
