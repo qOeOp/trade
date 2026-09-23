@@ -5,6 +5,7 @@ import { isCanonicalUtc, isStrictlyOrderedUtc } from "./canonical-utc.ts";
 
 export const INVALID_BACKTEST_RUN_REPORT_PROJECTION = "INVALID_BACKTEST_RUN_REPORT_PROJECTION";
 export const BACKTEST_RUN_REPORT_IDENTITY_MISMATCH = "BACKTEST_RUN_REPORT_IDENTITY_MISMATCH";
+export const BACKTEST_RUN_REPORT_KEYS_MISSING = "BACKTEST_RUN_REPORT_KEYS_MISSING";
 
 export type BacktestRunReportSide = "BUY" | "SELL";
 
@@ -26,6 +27,17 @@ export type BacktestRunReportOutcome = Readonly<{
   target_position_units: number;
 }>;
 
+export const BACKTEST_RUN_REPORT_COMPARISONS = [
+  "LESS",
+  "LESS_OR_EQUAL",
+  "EQUAL",
+  "NOT_EQUAL",
+  "GREATER_OR_EQUAL",
+  "GREATER",
+] as const;
+
+export type BacktestRunReportComparison = typeof BACKTEST_RUN_REPORT_COMPARISONS[number];
+
 export type BacktestRunReportStrategy = Readonly<{
   family: "SINGLE_THRESHOLD_V1";
   channel: Readonly<{
@@ -37,7 +49,7 @@ export type BacktestRunReportStrategy = Readonly<{
     scale: number;
   }>;
   threshold: string;
-  comparison: string;
+  comparison: BacktestRunReportComparison;
   when_true: BacktestRunReportOutcome;
   otherwise: BacktestRunReportOutcome;
   falsifier: string;
@@ -47,7 +59,7 @@ export type BacktestRunReportDataWindow = Readonly<{
   instrument: string;
   granularity: string;
   start: string;
-  end: string;
+  end_exclusive: string;
   snapshot_count: number;
   cut_identity: string;
 }>;
@@ -107,7 +119,7 @@ const RUN_IDENTITY_KEYS = ["attempt_identity", "request_identity", "result_ident
 const STRATEGY_KEYS = ["channel", "comparison", "falsifier", "family", "otherwise", "threshold", "when_true"];
 const CHANNEL_KEYS = ["field_semantic_id", "instrument", "role_semantic_id", "scale", "timeframe", "unit"];
 const OUTCOME_KEYS = ["position_intent_semantic_id", "target_position_units", "target_variant_semantic_id"];
-const DATA_WINDOW_KEYS = ["cut_identity", "end", "granularity", "instrument", "snapshot_count", "start"];
+const DATA_WINDOW_KEYS = ["cut_identity", "end_exclusive", "granularity", "instrument", "snapshot_count", "start"];
 const POINT_KEYS = ["at", "value"];
 const FILL_KEYS = ["at", "price", "quantity", "side"];
 
@@ -116,6 +128,8 @@ const FILL_KEYS = ["at", "price", "quantity", "side"];
 const SIGNED_DECIMAL = /^-?[0-9]+(\.[0-9]+)?$/u;
 const UNSIGNED_DECIMAL = /^[0-9]+(\.[0-9]+)?$/u;
 const ENGINE_RESULT_DIGEST = /^blake3:[0-9a-f]{64}$/u;
+const CUT_IDENTITY = /^(?:sha256|blake3):[0-9a-f]{64}$/u;
+const MAX_SCALE = 255;
 const MAX_POINTS = 5_000;
 
 export function unavailableBacktestRunReport(
@@ -161,6 +175,14 @@ function isOutcome(value: unknown): value is BacktestRunReportOutcome {
     && Number.isSafeInteger(value.target_position_units);
 }
 
+// The threshold is the authored coefficient at the channel's scale: exactly `scale` fractional
+// digits, trailing zeros kept, and no decimal point at all at scale zero.
+function isThresholdAtScale(value: unknown, scale: number): value is string {
+  if (typeof value !== "string" || !SIGNED_DECIMAL.test(value)) return false;
+  const point = value.indexOf(".");
+  return scale === 0 ? point < 0 : point >= 0 && value.length - point - 1 === scale;
+}
+
 function isStrategy(value: unknown): value is BacktestRunReportStrategy {
   if (!isRecord(value) || !hasExactKeys(value, STRATEGY_KEYS)) return false;
   const channel = value.channel;
@@ -170,9 +192,9 @@ function isStrategy(value: unknown): value is BacktestRunReportStrategy {
     && ["role_semantic_id", "instrument", "field_semantic_id", "timeframe", "unit"]
       .every((key) => isNonEmptyString(channel[key]))
     && isCount(channel.scale)
-    && typeof value.threshold === "string"
-    && SIGNED_DECIMAL.test(value.threshold)
-    && isNonEmptyString(value.comparison)
+    && channel.scale <= MAX_SCALE
+    && isThresholdAtScale(value.threshold, channel.scale)
+    && BACKTEST_RUN_REPORT_COMPARISONS.includes(value.comparison as BacktestRunReportComparison)
     && isOutcome(value.when_true)
     && isOutcome(value.otherwise)
     && isNonEmptyString(value.falsifier);
@@ -184,10 +206,12 @@ function isDataWindow(value: unknown): value is BacktestRunReportDataWindow {
     && isNonEmptyString(value.instrument)
     && isNonEmptyString(value.granularity)
     && isCanonicalUtc(value.start)
-    && isCanonicalUtc(value.end)
-    && value.start <= value.end
+    && isCanonicalUtc(value.end_exclusive)
+    && value.start < value.end_exclusive
     && isCount(value.snapshot_count)
-    && isNonEmptyString(value.cut_identity);
+    && value.snapshot_count >= 1
+    && typeof value.cut_identity === "string"
+    && CUT_IDENTITY.test(value.cut_identity);
 }
 
 // An unavailable answer carries its reason and nothing else, so no positive fact can ride along.
@@ -218,6 +242,16 @@ function isFill(value: unknown): value is BacktestRunReportFill {
     && UNSIGNED_DECIMAL.test(value.quantity);
 }
 
+// A projection that carries no key the contract does not know, and lacks some it requires, is one
+// whose statement has not been delivered yet rather than a malformed one. It is refused all the same,
+// under a reason that names what is missing, so the two cannot be read as the same fault.
+function missingKeysReason(value: Record<string, unknown>): string {
+  const keys = Object.keys(value);
+  if (keys.some((key) => !PROJECTION_KEYS.includes(key))) return INVALID_BACKTEST_RUN_REPORT_PROJECTION;
+  const missing = PROJECTION_KEYS.filter((key) => !keys.includes(key));
+  return `${BACKTEST_RUN_REPORT_KEYS_MISSING}: ${missing.join(", ")}`;
+}
+
 /**
  * Normalizes one Dashboard projection of a single run, or fails it closed.
  *
@@ -236,9 +270,8 @@ export function normalizeBacktestRunReport(
       ? { state: "unavailable", reason: value.reason }
       : unavailableBacktestRunReport();
   }
-  if ((value.state !== "AVAILABLE" && value.state !== "EMPTY") || !hasExactKeys(value, PROJECTION_KEYS)) {
-    return unavailableBacktestRunReport();
-  }
+  if (value.state !== "AVAILABLE" && value.state !== "EMPTY") return unavailableBacktestRunReport();
+  if (!hasExactKeys(value, PROJECTION_KEYS)) return unavailableBacktestRunReport(missingKeysReason(value));
 
   const run = value.run;
   if (!isRun(run)

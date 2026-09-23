@@ -11,6 +11,7 @@ import ts from "typescript";
 
 import {
   BACKTEST_RUN_REPORT_IDENTITY_MISMATCH,
+  BACKTEST_RUN_REPORT_KEYS_MISSING,
   INVALID_BACKTEST_RUN_REPORT_PROJECTION,
   normalizeBacktestRunReport,
 } from "../lib/backtest-run-report-contract.ts";
@@ -57,9 +58,9 @@ const dataWindow = {
   instrument: "AAPL",
   granularity: "1D",
   start: "2025-01-01T00:00:00.000000000Z",
-  end: "2025-01-03T00:00:00.000000000Z",
-  snapshot_count: 3,
-  cut_identity: "cut-2025-01-03",
+  end_exclusive: "2025-01-04T00:00:00.000000000Z",
+  snapshot_count: 1,
+  cut_identity: `sha256:${"c".repeat(64)}`,
 };
 
 const fills = [
@@ -143,9 +144,11 @@ test("the state is stated, and must agree with the result", () => {
 
 test("a missing or renamed key is a fault, never a legitimately absent value", () => {
   const renamed = { ...without(available, "net_return"), netReturn: available.net_return };
+  // Missing at the top level is still a fault; it is only named (see the test below).
+  for (const missing of [without(available, "net_return"), without(emptyWithFills, "max_drawdown")]) {
+    assert.equal(normalizeBacktestRunReport(missing, LOCATOR).state, "unavailable");
+  }
   for (const faulty of [
-    without(available, "net_return"),
-    without(emptyWithFills, "max_drawdown"),
     renamed,
     { ...available, stats: { sharpe: 1.2 } },
     { ...available, strategy: without(strategy, "falsifier") },
@@ -190,7 +193,8 @@ test("time is canonical UTC everywhere it appears, and the series is strictly or
     { ...available, series: [{ ...available.series[0], at: millisecond }, ...available.series.slice(1)] },
     { ...available, fills: [{ ...fills[0], at: millisecond }, fills[1]] },
     { ...available, data_window: { ...dataWindow, start: millisecond } },
-    { ...available, data_window: { ...dataWindow, start: dataWindow.end, end: dataWindow.start } },
+    { ...available, data_window: { ...dataWindow, start: dataWindow.end_exclusive, end_exclusive: dataWindow.start } },
+    { ...available, data_window: { ...dataWindow, end_exclusive: dataWindow.start } },
     { ...available, series: [available.series[1], available.series[0], available.series[2]] },
     { ...available, series: [available.series[0], available.series[0]] },
   ]) {
@@ -215,6 +219,8 @@ test("every number is finite and every count agrees with what it counts", () => 
     { ...available, fill_count: 3 },
     { ...available, data_window: { ...dataWindow, snapshot_count: -1 } },
     { ...available, data_window: { ...dataWindow, snapshot_count: 1.5 } },
+    { ...available, data_window: { ...dataWindow, snapshot_count: 0 } },
+    { ...available, data_window: { ...dataWindow, cut_identity: "cut-2025-01-03" } },
   ]) {
     assert.deepEqual(normalizeBacktestRunReport(faulty, LOCATOR), invalid);
   }
@@ -243,6 +249,64 @@ test("prices and quantities are plain decimals, and are kept exactly as given", 
     assert.deepEqual(normalizeBacktestRunReport(faulty, LOCATOR), invalid, `${field}=${text}`);
   }
   assert.deepEqual(normalizeBacktestRunReport({ ...available, fills: [{ ...fills[0], side: "SHORT" }, fills[1]] }, LOCATOR), invalid);
+});
+
+test("a projection missing only required keys is refused under a reason that names them", () => {
+  // The Owner's result-only projection: a statement it has not delivered yet is not a malformed one.
+  const resultOnly = without(without(available, "strategy"), "data_window");
+  assert.deepEqual(normalizeBacktestRunReport(resultOnly, LOCATOR), {
+    state: "unavailable",
+    reason: `${BACKTEST_RUN_REPORT_KEYS_MISSING}: data_window, strategy`,
+  });
+  assert.deepEqual(normalizeBacktestRunReport(without(emptyWithFills, "net_return"), LOCATOR), {
+    state: "unavailable",
+    reason: `${BACKTEST_RUN_REPORT_KEYS_MISSING}: net_return`,
+  });
+  // A key the contract does not know is a malformed projection, whatever else is missing.
+  assert.deepEqual(normalizeBacktestRunReport({ ...resultOnly, stats: {} }, LOCATOR), invalid);
+  assert.deepEqual(
+    normalizeBacktestRunReport({ ...without(available, "strategy"), strategy_v2: strategy }, LOCATOR),
+    invalid,
+  );
+});
+
+test("the threshold is stated at exactly the channel's scale", () => {
+  const at = (threshold, scale) => normalizeBacktestRunReport({
+    ...available,
+    strategy: { ...strategy, threshold, channel: { ...strategy.channel, scale } },
+  }, LOCATOR).state;
+  assert.equal(at("100.00", 2), "available");
+  assert.equal(at("-0.50", 2), "available");
+  assert.equal(at("100", 0), "available");
+  for (const [threshold, scale] of [["100.0", 2], ["100", 2], ["100.000", 2], ["100.00", 0], ["100.", 0]]) {
+    assert.equal(at(threshold, scale), "unavailable", `${threshold} at scale ${scale}`);
+  }
+  assert.equal(at("1", 256), "unavailable");
+});
+
+test("the comparison is one of the six the single-threshold family states", () => {
+  for (const comparison of ["LESS", "LESS_OR_EQUAL", "EQUAL", "NOT_EQUAL", "GREATER_OR_EQUAL", "GREATER"]) {
+    const report = normalizeBacktestRunReport({ ...available, strategy: { ...strategy, comparison } }, LOCATOR);
+    assert.equal(report.state, "available", comparison);
+  }
+  for (const comparison of ["ABOVE", "greater", ""]) {
+    assert.deepEqual(
+      normalizeBacktestRunReport({ ...available, strategy: { ...strategy, comparison } }, LOCATOR),
+      invalid,
+      comparison,
+    );
+  }
+});
+
+test("a target position is refused where JSON can no longer state it exactly", () => {
+  const withUnits = (units) => normalizeBacktestRunReport({
+    ...available,
+    strategy: { ...strategy, when_true: { ...strategy.when_true, target_position_units: units } },
+  }, LOCATOR).state;
+  assert.equal(withUnits(2 ** 53 - 1), "available");
+  assert.equal(withUnits(-(2 ** 53 - 1)), "available");
+  assert.equal(withUnits(2 ** 53), "unavailable");
+  assert.equal(withUnits(-(2 ** 53)), "unavailable");
 });
 
 test("the strategy is stated only for the admitted single-threshold family", () => {
@@ -336,7 +400,8 @@ test("available answers all four questions from the stated values", () => {
   }
   assert.match(html, /100\.00/u);
   assert.match(html, /the channel never crosses the threshold/u);
-  assert.match(html, /cut-2025-01-03/u);
+  assert.match(html, /<dt>End \(exclusive\)<\/dt><dd class="mono" title="2025-01-04T00:00:00\.000000000Z">/u);
+  assert.match(html, new RegExp(dataWindow.cut_identity, "u"));
   assert.match(html, /<polyline /u);
   assert.match(html, /3 observations/u);
   assert.match(html, />-0\.002</u);

@@ -159,13 +159,16 @@ Positive rendering accepts only one exact, bounded Owner-projected `run_identity
 given as the admitted single-threshold family states it: channel, threshold, comparison, both-side
 actions and falsifier. Canonical UTC means RFC3339 with exactly nine fractional digits and a
 `Z` offset, so no truncation decision is delegated and no offset form is accepted. The data window
-is given as instrument, granularity, canonical UTC start and end, snapshot count, and an explicit `cut_identity` that the projection carries rather than the
-browser inferring from timestamp alignment. Neither the strategy statement nor the granularity, snapshot count
+is given as instrument, granularity, a canonical UTC start and an exclusive end `end_exclusive`, the
+first instant outside the window, the snapshot count, and an explicit `cut_identity` that the projection
+carries rather than the browser inferring from timestamp alignment. Neither the strategy statement nor the granularity, snapshot count
 and `cut_identity` comes from the backtest result: the run carries them from upstream and the
 projection states them beside it, so a reader looking for a threshold inside a canonical backtest
 result will not find one. The result is a return series plus net return, maximum drawdown
 and fill count, each a named field the Owner validates rather than a lookup into an untyped map, so
-a renamed key fails to `unavailable` instead of rendering as absent. Every value in the series, and net
+a renamed key fails to `unavailable` instead of rendering as absent. A projection that lacks required keys
+and carries none the contract does not know is `unavailable` under a reason naming the missing keys, so a
+statement not yet delivered is not read as a malformed one. Every value in the series, and net
 return and maximum drawdown, is a fraction, where 0.01 is one percent. The canonical result can build
 the series on either of two bases and the projection does not yet say which, so the report states
 these values as fractions and names no base: nothing it shows, whether a label, a tooltip or

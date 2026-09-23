@@ -1140,8 +1140,8 @@ mod tests {
     /// API composition, a production Dashboard build and a real browser.
     ///
     /// It proves the unavailable state from a real Owner reason: a result the workbench can open,
-    /// committed without outcome evidence, for which the Backtest Owner answers
-    /// `OUTCOME_EVIDENCE_ABSENT`. It then opens the run the preceding chain entry committed from a
+    /// committed without outcome evidence, which the Backtest Owner refuses under its own code. It
+    /// then opens the run the preceding chain entry committed from a
     /// real engine run and asserts what that run renders today. That run's engine bytes are real, but
     /// its input is constructed quotes and it reached custody through a test writer, not through a
     /// production-produced run. This entry must follow that one.

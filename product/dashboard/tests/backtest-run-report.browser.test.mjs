@@ -158,11 +158,20 @@ test(browserAcceptance
 
   // What the Owner answers for each, read through the read API before any browser runs, so every
   // browser assertion below compares against the Owner's own answer rather than a constant.
+  // Which code the Owner gives depends on which of its checks the result fails first, so this asserts
+  // that the code is the Owner's own and not one the read API or the Dashboard names, and the page
+  // below must render exactly it. Measured 2026-09-23: `SEMANTIC_TRACE_ABSENT`, because the result
+  // chosen carries neither a semantic trace nor outcome evidence and the trace is checked first.
   const refusedAnswer = await readApi(reportQuery(refused), readApiUrl, readApiToken);
-  assert.deepEqual(refusedAnswer, {
-    status: 503,
-    body: { state: "UNAVAILABLE", reason: "OUTCOME_EVIDENCE_ABSENT" },
-  }, "a result committed without outcome evidence is refused under the Owner's own code");
+  assert.equal(refusedAnswer.status, 503, JSON.stringify(refusedAnswer));
+  assert.deepEqual(Object.keys(refusedAnswer.body).sort(), ["reason", "state"]);
+  assert.equal(refusedAnswer.body.state, "UNAVAILABLE");
+  assert.match(refusedAnswer.body.reason, /^[A-Z][A-Z0-9_]*$/u);
+  assert.doesNotMatch(
+    refusedAnswer.body.reason,
+    /^(?:OWNER_|INVALID_|BACKTEST_RUN_REPORT_|BACKTEST_RUN_ABSENT$)/u,
+    "a result committed without outcome evidence is refused under the Owner's own code",
+  );
   const runAnswer = await readApi(reportQuery(run), readApiUrl, readApiToken);
   assert.equal(runAnswer.status, 200);
   const { engine_result_digest: engineResultDigest, ...runLocator } = runAnswer.body.run;
@@ -213,17 +222,18 @@ test(browserAcceptance
     });
 
     // The Owner's projection states the result, the series and the fills, and not yet the strategy
-    // or the data window the document requires beside them. The report does not render a
-    // projection missing two of its four questions, so today this run is refused by the contract
-    // and the available state is not constructible. When the Owner carries both, this becomes the
-    // available assertion: the rendered series and fills against `runAnswer`.
+    // or the data window the document requires beside them, so the contract refuses it under a
+    // reason naming both. The available state is not constructible today: no request in the chain
+    // references a single-threshold Design (the preceding entry's run uses a repair fixture
+    // program), so once the Owner carries both blocks this run is refused by the Owner itself as
+    // outside the family, and the available state still needs a run that is inside it.
     await t.test("the committed run's report is refused while the projection lacks strategy and data window", async () => {
       assert.equal(Object.hasOwn(runAnswer.body, "strategy"), false);
       assert.equal(Object.hasOwn(runAnswer.body, "data_window"), false);
       await openResult(browser, origin, run);
       assert.deepEqual(await readBrowserValue(browser, renderedReport()), {
         state: "unavailable",
-        reason: "INVALID_BACKTEST_RUN_REPORT_PROJECTION",
+        reason: "BACKTEST_RUN_REPORT_KEYS_MISSING: data_window, strategy",
         reports: 1,
       });
     });

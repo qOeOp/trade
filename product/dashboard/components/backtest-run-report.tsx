@@ -56,7 +56,7 @@ export function BacktestRunReport({ report }: { report: BacktestRunReportProject
               <FactItem label="Instrument">{report.data_window.instrument}</FactItem>
               <FactItem label="Granularity">{report.data_window.granularity}</FactItem>
               <FactItem label="Start" mono>{report.data_window.start}</FactItem>
-              <FactItem label="End" mono>{report.data_window.end}</FactItem>
+              <FactItem label="End (exclusive)" mono>{report.data_window.end_exclusive}</FactItem>
               <FactItem label="Snapshots">{report.data_window.snapshot_count}</FactItem>
               <FactItem label="Cut" mono>{report.data_window.cut_identity}</FactItem>
             </FactGroup>

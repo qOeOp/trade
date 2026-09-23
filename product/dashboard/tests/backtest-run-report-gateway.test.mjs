@@ -7,6 +7,7 @@ import ts from "typescript";
 
 import {
   BACKTEST_RUN_REPORT_IDENTITY_MISMATCH,
+  BACKTEST_RUN_REPORT_KEYS_MISSING,
   INVALID_BACKTEST_RUN_REPORT_PROJECTION,
 } from "../lib/backtest-run-report-contract.ts";
 import {
@@ -61,9 +62,9 @@ function report() {
       instrument: "AAPL",
       granularity: "1D",
       start: "2025-01-01T00:00:00.000000000Z",
-      end: "2025-01-02T00:00:00.000000000Z",
-      snapshot_count: 2,
-      cut_identity: "cut-1",
+      end_exclusive: "2025-01-03T00:00:00.000000000Z",
+      snapshot_count: 1,
+      cut_identity: `sha256:${"c".repeat(64)}`,
     },
     series: [
       { at: "2025-01-01T00:00:00.000000000Z", value: 0 },
@@ -135,8 +136,10 @@ test("a report the contract refuses is not relayed, and the refusal names why", 
   // Today's Owner shape: no strategy and no data window, so no report can be stated from it.
   assert.deepEqual((await read(200, resultOnly())).body, {
     state: "UNAVAILABLE",
-    reason: INVALID_BACKTEST_RUN_REPORT_PROJECTION,
+    reason: `${BACKTEST_RUN_REPORT_KEYS_MISSING}: data_window, strategy`,
   });
+  const malformed = await read(200, { ...report(), stats: {} });
+  assert.deepEqual(malformed.body, { state: "UNAVAILABLE", reason: INVALID_BACKTEST_RUN_REPORT_PROJECTION });
   const otherRun = report();
   otherRun.run = { ...otherRun.run, attempt_identity: "another-attempt" };
   const mismatch = await read(200, otherRun);
