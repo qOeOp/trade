@@ -273,19 +273,11 @@ pub struct UntrustedMarketDataAsOf {
     pub valid_through: u64,
 }
 
-#[allow(
-    dead_code,
-    reason = "the canonical clock is constructed only by the test-only Owner until composition exists"
-)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(crate) enum MarketDataClockCutKind {
     MarketDataAsOf,
 }
 
-#[allow(
-    dead_code,
-    reason = "the canonical clock is constructed only by the test-only Owner until composition exists"
-)]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(crate) enum MarketDataClockComparisonRule {
     ExclusiveValidThrough,
@@ -306,10 +298,6 @@ pub(crate) struct MarketDataClockAdmission {
     pub(crate) comparison_rule: MarketDataClockComparisonRule,
 }
 
-#[allow(
-    dead_code,
-    reason = "the canonical clock is validated only by the test-only Owner until composition exists"
-)]
 impl MarketDataClockAdmission {
     pub(crate) fn is_complete(&self) -> bool {
         self.cut_kind == MarketDataClockCutKind::MarketDataAsOf
