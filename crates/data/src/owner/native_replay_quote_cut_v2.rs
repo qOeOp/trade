@@ -91,20 +91,20 @@ pub(crate) enum NativeReplayQuoteCutRefusalV2 {
 /// Picks the one quote cut on `frame`'s coordinates in `(frame BAR, bound_ns_exclusive)`, as the
 /// Owner could see the census at the request's decision cut.
 ///
-/// A candidate on other coordinates is not this frame's, and is set aside before uniqueness is
-/// asked. The census is partitioned by the scope a requester declared, so without this a quote cut
-/// another requester committed under the same scope but on its own Instrument Master, universe
-/// selection, Market Semantics or Source Binding lineage would make a lawful frame ambiguous. A
-/// collision on every one of those coordinates still does: that refuses the frame (a denial of
-/// service) and can never hand it a quote cut the Owner did not verify for it.
+/// Each quote cut's correction lineage is first reduced to what the Owner could see at the decision
+/// cut: its latest correction observed by then, the rule PIT corrections follow everywhere else. A
+/// correction may move a quote cut's event time or its Source Binding, so only then is that latest
+/// correction asked whether it serves this frame. A lineage whose latest correction does not
+/// contributes nothing: it never falls back to the version its correction replaced, which is how a
+/// frame would otherwise be handed a superseded quote. `candidates` must therefore hold every
+/// version of each lineage it holds any version of, not only the versions inside the interval.
 ///
-/// A candidate observed after the decision cut is not yet visible and is set aside. Within one
-/// quote cut's correction lineage the latest visible correction stands for the lineage, the same
-/// rule PIT corrections follow everywhere else, so a corrected quote cut resolves to its correction
-/// and one corrected only after the cut resolves to its original. Two lineages left are ambiguous.
-///
-/// The census query already bounds the interval; the rules are applied again here so that they
-/// are stated, and tested, in one place rather than trusted to a `WHERE` clause.
+/// Serving this frame means lying strictly inside the interval and sharing the frame's scope,
+/// Instrument Master, universe selection, Market Semantics and Source Binding lineage. The census is
+/// partitioned by the scope a requester declared, so without the coordinates a quote cut another
+/// requester committed under the same scope would make a lawful frame ambiguous. A collision on
+/// every coordinate still does: that refuses the frame (a denial of service) and can never hand it a
+/// quote cut the Owner did not verify for it. More than one lineage left is ambiguous.
 ///
 /// # Errors
 ///
@@ -118,16 +118,10 @@ pub(crate) fn select_native_replay_quote_cut_v2<'a>(
     let mut latest_by_lineage =
         BTreeMap::<BindingDigest, &'a NativeReplayQuoteCutCandidateV2>::new();
 
-    for candidate in candidates.iter().filter(|candidate| {
-        candidate.event_effective_ns > frame.event_effective_ns
-            && candidate.event_effective_ns < bound_ns_exclusive
-            && candidate.decision_cut_ns <= request_decision_cut_ns
-            && candidate.scope_digest == frame.scope_digest
-            && candidate.instrument_master_digest == frame.instrument_master_digest
-            && candidate.universe_selection_digest == frame.universe_selection_digest
-            && candidate.market_semantics_identity == frame.market_semantics_identity
-            && candidate.source_binding_lineage_root == frame.source_binding_lineage_root
-    }) {
+    for candidate in candidates
+        .iter()
+        .filter(|candidate| candidate.decision_cut_ns <= request_decision_cut_ns)
+    {
         latest_by_lineage
             .entry(candidate.correction_lineage_root)
             .and_modify(|latest| {
@@ -137,9 +131,17 @@ pub(crate) fn select_native_replay_quote_cut_v2<'a>(
             })
             .or_insert(candidate);
     }
-    let mut lineages = latest_by_lineage.into_values();
+    let mut serving = latest_by_lineage.into_values().filter(|latest| {
+        latest.event_effective_ns > frame.event_effective_ns
+            && latest.event_effective_ns < bound_ns_exclusive
+            && latest.scope_digest == frame.scope_digest
+            && latest.instrument_master_digest == frame.instrument_master_digest
+            && latest.universe_selection_digest == frame.universe_selection_digest
+            && latest.market_semantics_identity == frame.market_semantics_identity
+            && latest.source_binding_lineage_root == frame.source_binding_lineage_root
+    });
 
-    match (lineages.next(), lineages.next()) {
+    match (serving.next(), serving.next()) {
         (None, _) => Err(NativeReplayQuoteCutRefusalV2::QuoteCutMissing),
         (Some(only), None) => Ok(only),
         (Some(_), Some(_)) => Err(NativeReplayQuoteCutRefusalV2::AmbiguousQuoteCut),
@@ -394,6 +396,57 @@ mod tests {
             select_native_replay_quote_cut_v2(&census, &frame_at(10), 20, 45),
             Ok(&census[0]),
             "a correction the Owner could not yet see leaves the original"
+        );
+    }
+
+    /// A correction that moves a quote cut into this frame's interval brings the lineage with it,
+    /// though its original lay outside.
+    #[rstest]
+    fn a_correction_moved_into_the_interval_is_the_frames_quote_cut() {
+        let original = candidate(5, 30);
+        let mut correction = candidate(15, 40);
+        correction.correction_lineage_root = original.correction_lineage_root;
+        correction.correction_lineage_version = 2;
+        let census = [original, correction];
+
+        assert_eq!(
+            select_native_replay_quote_cut_v2(&census, &frame_at(10), 20, 50),
+            Ok(&census[1])
+        );
+        assert_eq!(
+            select_native_replay_quote_cut_v2(&census, &frame_at(10), 20, 35),
+            Err(NativeReplayQuoteCutRefusalV2::QuoteCutMissing),
+            "before the correction was visible, the lineage was outside the interval"
+        );
+    }
+
+    /// A correction that moves a quote cut out of this frame's reach takes the lineage with it: the
+    /// original it replaced is not this frame's quote cut either, however well it would fit.
+    #[rstest]
+    #[case::moved_past_the_bound(|cut: &mut NativeReplayQuoteCutCandidateV2| cut.event_effective_ns = 25)]
+    #[case::moved_to_another_source_lineage(
+        |cut: &mut NativeReplayQuoteCutCandidateV2| cut.source_binding_lineage_root = d(94)
+    )]
+    fn a_superseded_original_is_never_the_frames_quote_cut(
+        #[case] correction_moves: fn(&mut NativeReplayQuoteCutCandidateV2),
+    ) {
+        let original = candidate(15, 30);
+        let mut correction = candidate(15, 40);
+        correction.snapshot_identity = d(115);
+        correction.correction_lineage_root = original.correction_lineage_root;
+        correction.correction_lineage_version = 2;
+        correction_moves(&mut correction);
+        let census = [original, correction];
+
+        assert_eq!(
+            select_native_replay_quote_cut_v2(&census, &frame_at(10), 20, 50),
+            Err(NativeReplayQuoteCutRefusalV2::QuoteCutMissing),
+            "the visible correction no longer serves the frame, and its original is replaced"
+        );
+        assert_eq!(
+            select_native_replay_quote_cut_v2(&census, &frame_at(10), 20, 35),
+            Ok(&census[0]),
+            "before the correction was visible, the original is the lineage"
         );
     }
 

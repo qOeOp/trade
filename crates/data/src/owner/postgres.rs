@@ -332,6 +332,7 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     // between its BAR and its bound, which the resolver finds by scope and event time.
     "CREATE TABLE IF NOT EXISTS market_data_private.native_replay_quote_cut_census_v2 (snapshot_identity BYTEA PRIMARY KEY REFERENCES market_data_private.pit_snapshot_facts_v1(snapshot_identity) ON DELETE RESTRICT, scope_digest BYTEA NOT NULL CHECK (octet_length(scope_digest) = 32), snapshot_fact_digest BYTEA NOT NULL CHECK (octet_length(snapshot_fact_digest) = 32), event_effective_ns BIGINT NOT NULL CHECK (event_effective_ns >= 0), decision_cut_ns BIGINT NOT NULL CHECK (decision_cut_ns >= 0), instrument_master_digest BYTEA NOT NULL CHECK (octet_length(instrument_master_digest) = 32), universe_selection_digest BYTEA NOT NULL CHECK (octet_length(universe_selection_digest) = 32), market_semantics_identity BYTEA NOT NULL CHECK (octet_length(market_semantics_identity) = 32), source_binding_lineage_root BYTEA NOT NULL CHECK (octet_length(source_binding_lineage_root) = 32), correction_lineage_root BYTEA NOT NULL CHECK (octet_length(correction_lineage_root) = 32), correction_lineage_version BIGINT NOT NULL CHECK (correction_lineage_version > 0))",
     "CREATE INDEX IF NOT EXISTS native_replay_quote_cut_census_v2_by_scope_and_time ON market_data_private.native_replay_quote_cut_census_v2 (scope_digest, event_effective_ns)",
+    "CREATE INDEX IF NOT EXISTS native_replay_quote_cut_census_v2_by_lineage ON market_data_private.native_replay_quote_cut_census_v2 (correction_lineage_root, correction_lineage_version)",
     "CREATE TABLE IF NOT EXISTS market_data_private.native_replay_frame_sequences_v2 (sequence_identity BYTEA PRIMARY KEY CHECK (octet_length(sequence_identity) = 32), request_identity BYTEA NOT NULL UNIQUE CHECK (octet_length(request_identity) = 32), v1_binding_identity BYTEA NOT NULL CHECK (octet_length(v1_binding_identity) = 32), window_start_ns BIGINT NOT NULL CHECK (window_start_ns >= 0), window_end_ns_exclusive BIGINT NOT NULL CHECK (window_end_ns_exclusive > window_start_ns), first_snapshot_identity BYTEA NOT NULL CHECK (octet_length(first_snapshot_identity) = 32), second_snapshot_identity BYTEA NOT NULL CHECK (octet_length(second_snapshot_identity) = 32), sequence_bytes BYTEA NOT NULL CHECK (octet_length(sequence_bytes) > 0), receipt_identity BYTEA NOT NULL UNIQUE CHECK (octet_length(receipt_identity) = 32), receipt_bytes BYTEA NOT NULL CHECK (octet_length(receipt_bytes) > 0), CHECK (first_snapshot_identity <> second_snapshot_identity))",
     "CREATE TABLE IF NOT EXISTS market_data_private.native_replay_frame_sequence_outbox_v2 (outbox_identity BYTEA PRIMARY KEY CHECK (octet_length(outbox_identity) = 32), sequence_identity BYTEA NOT NULL UNIQUE REFERENCES market_data_private.native_replay_frame_sequences_v2(sequence_identity) ON DELETE RESTRICT, payload_digest BYTEA NOT NULL CHECK (octet_length(payload_digest) = 32), payload BYTEA NOT NULL CHECK (octet_length(payload) > 0))",
     "CREATE OR REPLACE FUNCTION market_data_private.native_replay_frame_sequence_append_only() RETURNS trigger LANGUAGE plpgsql AS $native_replay_frame_sequence_append_only$ BEGIN RAISE EXCEPTION 'native replay frame sequence custody is append-only'; END $native_replay_frame_sequence_append_only$",
@@ -6403,11 +6404,14 @@ async fn admit_native_replay_quote_cut_census(
     Ok(())
 }
 
-/// Reads the quote cut census for `scope_digest` in `(after_ns, before_ns_exclusive)`.
+/// Reads every version of each quote cut correction lineage that has any version in `scope_digest`
+/// and `(after_ns, before_ns_exclusive)`.
 ///
-/// The range only narrows the index scan. `select_native_replay_quote_cut_v2` applies the interval
-/// rule again and is what the tests pin: widening this predicate changes no answer, because every
-/// row it lets through is filtered there.
+/// Whole lineages, not the rows in the interval: a correction may move a quote cut's event time,
+/// and `select_native_replay_quote_cut_v2` must see a lineage's latest correction to know whether
+/// the lineage still serves the frame. Loading only the interval would hide a correction that
+/// moved out of it and leave its superseded original looking current. The interval only chooses
+/// which lineages to read; the rules are applied in the pure function, which is what the tests pin.
 async fn load_native_replay_quote_cut_census_v2(
     transaction: &mut Transaction<'_, Postgres>,
     scope_digest: BindingDigest,
@@ -6418,7 +6422,7 @@ async fn load_native_replay_quote_cut_census_v2(
     let before =
         i64::try_from(before_ns_exclusive).map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
     let rows = sqlx::query(
-        "SELECT snapshot_identity,snapshot_fact_digest,scope_digest,event_effective_ns,decision_cut_ns,instrument_master_digest,universe_selection_digest,market_semantics_identity,source_binding_lineage_root,correction_lineage_root,correction_lineage_version FROM market_data_private.native_replay_quote_cut_census_v2 WHERE scope_digest=$1 AND event_effective_ns>$2 AND event_effective_ns<$3 ORDER BY event_effective_ns,snapshot_identity",
+        "SELECT snapshot_identity,snapshot_fact_digest,scope_digest,event_effective_ns,decision_cut_ns,instrument_master_digest,universe_selection_digest,market_semantics_identity,source_binding_lineage_root,correction_lineage_root,correction_lineage_version FROM market_data_private.native_replay_quote_cut_census_v2 WHERE correction_lineage_root IN (SELECT correction_lineage_root FROM market_data_private.native_replay_quote_cut_census_v2 WHERE scope_digest=$1 AND event_effective_ns>$2 AND event_effective_ns<$3) ORDER BY correction_lineage_root,correction_lineage_version,snapshot_identity",
     )
     .bind(scope_digest.as_bytes().as_slice())
     .bind(after)

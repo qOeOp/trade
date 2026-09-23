@@ -7730,27 +7730,49 @@ async fn native_replay_quote_cut_census_oracle(owner: &MarketDataOwnerPostgres) 
         NativeReplayQuoteCutRefusalV2::MemberMismatch
     );
 
-    // A corrected quote cut: its original and its correction are both in the interval, in one
-    // correction lineage. The latest correction the Owner could see at the decision cut stands for
-    // the lineage. This runs last because the correction advances the Source Binding and the clock.
-    let corrected_scope = d(152);
-    let corrected_frame = commit(corrected_scope, 87, 10, &[BTC], &["BAR"]).await;
-    let mut original_proposal = pit_proposal_at(&source, 88, corrected_scope, 15);
-    let original_observation =
-        observation_batch_of(&source, &original_proposal, &[BTC], &["QUOTE"]);
-    original_proposal.evidence.normalized_records_digest =
-        derive_observation_batch_digest(&original_observation).unwrap();
-    refresh_request_claims(&mut original_proposal.request);
-    let original_basis = basis(&original_proposal);
-    let original = owner
-        .commit_pit_initial_with_observation_batch(
-            original_proposal.clone(),
-            original_observation,
-            &original_basis,
-            &clock(40, 1),
-        )
-        .await
-        .expect("the original quote cut");
+    // Corrected quote cuts. A correction may move a quote cut's event time or its Source Binding,
+    // so what a lineage offers a frame is its latest correction the Owner could see at the decision
+    // cut, asked only then whether it serves the frame; a lineage whose latest correction does not
+    // offers nothing, and never its superseded original. Every original is committed first,
+    // because the corrections advance the Source Binding and the clock.
+    let original_quote_cut = async |scope: BindingDigest, correlation_byte: u8, time: u64| {
+        let mut proposal = pit_proposal_at(&source, correlation_byte, scope, time);
+        let observation = observation_batch_of(&source, &proposal, &[BTC], &["QUOTE"]);
+        proposal.evidence.normalized_records_digest =
+            derive_observation_batch_digest(&observation).unwrap();
+        refresh_request_claims(&mut proposal.request);
+        let basis = basis(&proposal);
+        let committed = owner
+            .commit_pit_initial_with_observation_batch(
+                proposal.clone(),
+                observation,
+                &basis,
+                &clock(40, 1),
+            )
+            .await
+            .expect("an original quote cut");
+        (proposal, committed)
+    };
+    let same_instant = d(152);
+    let moved_out = d(153);
+    let moved_in = d(154);
+    let rebound = d(155);
+    let mut frames = Vec::new();
+
+    for (scope, correlation_byte) in [
+        (same_instant, 87),
+        (moved_out, 88),
+        (moved_in, 89),
+        (rebound, 90),
+    ] {
+        frames.push(commit(scope, correlation_byte, 10, &[BTC], &["BAR"]).await);
+    }
+    let (same_instant_proposal, same_instant_original) =
+        original_quote_cut(same_instant, 91, 15).await;
+    let (moved_out_proposal, moved_out_original) = original_quote_cut(moved_out, 92, 15).await;
+    let (moved_in_proposal, moved_in_original) = original_quote_cut(moved_in, 93, 5).await;
+    let (rebound_proposal, rebound_original) = original_quote_cut(rebound, 94, 15).await;
+
     let successor = owner
         .commit_source_successor(
             source.receipt().locator(),
@@ -7761,55 +7783,129 @@ async fn native_replay_quote_cut_census_oracle(owner: &MarketDataOwnerPostgres) 
             &clock(50, 2),
         )
         .await
-        .expect("a corrected Source Binding");
-    let mut correction_proposal = pit_correction(&original_proposal, &successor);
-    correction_proposal.request.time_evidence.event_effective =
-        UntrustedEventEffectiveTime::from_untrusted(
-            15,
-            TEST_CLOCK_IDENTITY_V1,
-            TEST_CLOCK_EPOCH_V1,
-        );
-    correction_proposal.evidence.source_frontier =
-        successor.receipt().locator().source_frontier.clone();
-    correction_proposal.evidence.correction_frontier =
-        successor.receipt().locator().correction_frontier.clone();
-    let correction_observation =
-        observation_batch_of(&successor, &correction_proposal, &[BTC], &["QUOTE"]);
-    correction_proposal.evidence.normalized_records_digest =
-        derive_observation_batch_digest(&correction_observation).unwrap();
-    refresh_request_claims(&mut correction_proposal.request);
-    let correction_basis = basis_at(&correction_proposal, &clock(50, 2));
-    let correction = owner
-        .commit_pit_correction_with_observation_batch(
-            original.receipt().locator(),
-            correction_proposal,
-            correction_observation,
-            &correction_basis,
+        .expect("a corrected Source Binding in the same lineage");
+    let other_lineage = owner
+        .commit_source_initial(
+            source_proposal(14, 50),
+            OwnerSourceBindingDecision {
+                blockers: BTreeSet::new(),
+            },
             &clock(50, 2),
         )
         .await
-        .expect("a correction of the quote cut");
-    assert_eq!(
-        correction.fact().lineage_root(),
-        original.fact().lineage_root(),
-        "one correction lineage"
+        .expect("a Source Binding of another lineage");
+    assert_ne!(
+        other_lineage.fact().lineage_root(),
+        successor.fact().lineage_root()
     );
-    let corrected_frame_batch = verified(&corrected_frame).await;
-    assert_eq!(
-        owner
-            .resolve_native_replay_quote_cut_v2(&corrected_frame_batch, 20, 50)
+    let correct = async |original_proposal: &UntrustedPitSnapshotProposal,
+                         original: &PitSnapshotCommitAggregate,
+                         source: &SourceBindingCommit,
+                         event: u64| {
+        let mut proposal = pit_correction(original_proposal, source);
+        proposal.request.time_evidence.event_effective =
+            UntrustedEventEffectiveTime::from_untrusted(
+                event,
+                TEST_CLOCK_IDENTITY_V1,
+                TEST_CLOCK_EPOCH_V1,
+            );
+        proposal.evidence.source_frontier = source.receipt().locator().source_frontier.clone();
+        proposal.evidence.correction_frontier =
+            source.receipt().locator().correction_frontier.clone();
+        let observation = observation_batch_of(source, &proposal, &[BTC], &["QUOTE"]);
+        proposal.evidence.normalized_records_digest =
+            derive_observation_batch_digest(&observation).unwrap();
+        refresh_request_claims(&mut proposal.request);
+        let basis = basis_at(&proposal, &clock(50, 2));
+        let correction = owner
+            .commit_pit_correction_with_observation_batch(
+                original.receipt().locator(),
+                proposal,
+                observation,
+                &basis,
+                &clock(50, 2),
+            )
+            .await?;
+        assert_eq!(
+            correction.fact().lineage_root(),
+            original.fact().lineage_root(),
+            "one correction lineage"
+        );
+        Ok::<_, PitSnapshotError>(correction)
+    };
+    let same_instant_correction = correct(
+        &same_instant_proposal,
+        &same_instant_original,
+        &successor,
+        15,
+    )
+    .await
+    .expect("a correction on the quote cut's own instant");
+    let moved_out_correction = correct(&moved_out_proposal, &moved_out_original, &successor, 25)
+        .await
+        .expect("a correction that moves the quote cut later");
+    let moved_in_correction = correct(&moved_in_proposal, &moved_in_original, &successor, 15)
+        .await
+        .expect("a correction that moves the quote cut into the interval");
+    // (c) A correction cannot move a quote cut onto another Source Binding lineage: the Owner
+    // admits a correction only on the exact successor of its original's binding
+    // (`validate_source_binding_successor`, pinned without a database by
+    // `correction_rejects_a_different_source_binding_lineage_without_write`). So that shape never
+    // reaches the census; the selection rule would still refuse it
+    // (`a_superseded_original_is_never_the_frames_quote_cut`), and here the original simply stays
+    // its lineage's latest.
+    assert!(
+        correct(&rebound_proposal, &rebound_original, &other_lineage, 15)
             .await
-            .map(|batch| batch.snapshot_identity()),
-        Ok(correction.fact().snapshot_identity()),
+            .is_err(),
+        "(c) the Owner refuses a correction onto another Source Binding lineage"
+    );
+
+    let resolve = async |frame: &PitSnapshotCommitAggregate, decision_cut: u64| {
+        owner
+            .resolve_native_replay_quote_cut_v2(&verified(frame).await, 20, decision_cut)
+            .await
+            .map(|batch| batch.snapshot_identity())
+    };
+    let snapshot = |commit: &PitSnapshotCommitAggregate| commit.fact().snapshot_identity();
+
+    assert_eq!(
+        resolve(&frames[0], 50).await,
+        Ok(snapshot(&same_instant_correction)),
         "the correction stands for its lineage"
     );
     assert_eq!(
-        owner
-            .resolve_native_replay_quote_cut_v2(&corrected_frame_batch, 20, 45)
-            .await
-            .map(|batch| batch.snapshot_identity()),
-        Ok(original.fact().snapshot_identity()),
+        resolve(&frames[0], 45).await,
+        Ok(snapshot(&same_instant_original)),
         "a correction the Owner could not yet see leaves the original"
+    );
+    assert_eq!(
+        resolve(&frames[1], 50).await,
+        Err(NativeReplayQuoteCutRefusalV2::QuoteCutMissing),
+        "(a) a correction moved past the bound takes its lineage with it; the original it replaced \
+         is not the frame's quote cut"
+    );
+    assert_ne!(
+        snapshot(&moved_out_correction),
+        snapshot(&moved_out_original)
+    );
+    assert_eq!(
+        resolve(&frames[1], 45).await,
+        Ok(snapshot(&moved_out_original))
+    );
+    assert_eq!(
+        resolve(&frames[2], 50).await,
+        Ok(snapshot(&moved_in_correction)),
+        "(b) a correction moved into the interval brings its lineage with it"
+    );
+    assert_eq!(
+        resolve(&frames[2], 45).await,
+        Err(NativeReplayQuoteCutRefusalV2::QuoteCutMissing)
+    );
+    assert_eq!(
+        resolve(&frames[3], 50).await,
+        Ok(snapshot(&rebound_original)),
+        "(c) with the correction refused, the original is still its lineage's latest"
     );
 }
 
