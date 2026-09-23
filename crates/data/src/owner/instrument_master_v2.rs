@@ -36,7 +36,7 @@ use vibe_model::types::{
     quantity::{Quantity, QuantityRaw, check_positive_quantity},
 };
 
-use super::source_binding::BindingDigest;
+use super::{ADMITTED_UNIVERSE_MEMBER_COUNTS, source_binding::BindingDigest};
 
 const FACT_SCHEMA_VERSION_V2: u16 = 2;
 const FACT_RESERVED_V2: u16 = 0;
@@ -719,7 +719,7 @@ impl InstrumentMasterCutMemberV2 {
     }
 }
 
-/// Immutable, content-addressed exactly-two-member public V2 cut.
+/// Immutable, content-addressed public V2 cut over one or two distinct members.
 #[derive(Debug, Eq, PartialEq)]
 pub struct InstrumentMasterCutV2 {
     request_identity: BindingDigest,
@@ -728,7 +728,7 @@ pub struct InstrumentMasterCutV2 {
     universe_selection_identity: BindingDigest,
     universe_selection_receipt_identity: BindingDigest,
     universe_selection_outbox_identity: BindingDigest,
-    members: [InstrumentMasterCutMemberV2; 2],
+    members: Vec<InstrumentMasterCutMemberV2>,
     canonical_bytes: Vec<u8>,
     identity: BindingDigest,
 }
@@ -764,8 +764,9 @@ impl InstrumentMasterCutV2 {
         self.universe_selection_outbox_identity
     }
 
+    /// The cut's members in canonical identity order: one or two, never more.
     #[must_use]
-    pub const fn members(&self) -> &[InstrumentMasterCutMemberV2; 2] {
+    pub fn members(&self) -> &[InstrumentMasterCutMemberV2] {
         &self.members
     }
 
@@ -779,12 +780,13 @@ impl InstrumentMasterCutV2 {
         self.identity
     }
 
+    /// Issues a cut over the admitted number of distinct Crypto Perpetual members.
     pub(crate) fn issue(
         request: InstrumentMasterCutRequestV2,
         universe_selection_identity: BindingDigest,
         universe_selection_receipt_identity: BindingDigest,
         universe_selection_outbox_identity: BindingDigest,
-        mut facts: [InstrumentMasterFactV2; 2],
+        mut facts: Vec<InstrumentMasterFactV2>,
     ) -> Result<Self, InstrumentMasterCustodyErrorV2> {
         request.validate()?;
 
@@ -798,8 +800,14 @@ impl InstrumentMasterCutV2 {
         {
             return Err(InstrumentMasterCustodyErrorV2::InvalidUniverseSelection);
         }
+
+        if !ADMITTED_UNIVERSE_MEMBER_COUNTS.contains(&facts.len()) {
+            return Err(InstrumentMasterCustodyErrorV2::InvalidUniverseSelection);
+        }
         facts.sort_by(|left, right| left.canonical_identity().cmp(right.canonical_identity()));
-        if facts[0].canonical_identity() == facts[1].canonical_identity()
+        if facts
+            .windows(2)
+            .any(|pair| pair[0].canonical_identity() == pair[1].canonical_identity())
             || facts
                 .iter()
                 .any(|fact| fact.instrument_class() != PublicInstrumentClassV2::CryptoPerpetual)
@@ -823,7 +831,11 @@ impl InstrumentMasterCutV2 {
         encoder.digest(universe_selection_identity);
         encoder.digest(universe_selection_receipt_identity);
         encoder.digest(universe_selection_outbox_identity);
-        encoder.u32(2);
+        encoder.u32(
+            u32::try_from(facts.len())
+                .map_err(|_| InstrumentMasterCustodyErrorV2::CodecMismatch)?,
+        );
+
         for fact in &facts {
             encoder
                 .string(fact.canonical_identity())
@@ -842,7 +854,10 @@ impl InstrumentMasterCutV2 {
             universe_selection_identity,
             universe_selection_receipt_identity,
             universe_selection_outbox_identity,
-            members: facts.map(|fact| InstrumentMasterCutMemberV2 { fact }),
+            members: facts
+                .into_iter()
+                .map(|fact| InstrumentMasterCutMemberV2 { fact })
+                .collect(),
             canonical_bytes,
             identity,
         })
@@ -850,7 +865,7 @@ impl InstrumentMasterCutV2 {
 
     pub(crate) fn parse_with_facts(
         bytes: &[u8],
-        facts: [InstrumentMasterFactV2; 2],
+        facts: Vec<InstrumentMasterFactV2>,
     ) -> Result<Self, InstrumentMasterCustodyErrorV2> {
         let mut decoder = Decoder::new(bytes);
         if decoder.u16().map_err(custody_codec)? != FACT_SCHEMA_VERSION_V2
@@ -864,12 +879,14 @@ impl InstrumentMasterCutV2 {
         let universe_selection_identity = decoder.digest().map_err(custody_codec)?;
         let universe_selection_receipt_identity = decoder.digest().map_err(custody_codec)?;
         let universe_selection_outbox_identity = decoder.digest().map_err(custody_codec)?;
-        if decoder.u32().map_err(custody_codec)? != 2 {
+        let count = usize::try_from(decoder.u32().map_err(custody_codec)?)
+            .map_err(|_| InstrumentMasterCustodyErrorV2::CodecMismatch)?;
+        if !ADMITTED_UNIVERSE_MEMBER_COUNTS.contains(&count) || facts.len() != count {
             return Err(InstrumentMasterCustodyErrorV2::CodecMismatch);
         }
-        let mut encoded_members = Vec::with_capacity(2);
+        let mut encoded_members = Vec::with_capacity(count);
 
-        for _ in 0..2 {
+        for _ in 0..count {
             let canonical_identity = decoder.string().map_err(custody_codec)?;
             let identity = decoder.digest().map_err(custody_codec)?;
             let fact_bytes = decoder.bytes().map_err(custody_codec)?;
@@ -2052,12 +2069,12 @@ fn decode_bool(decoder: &mut Decoder<'_>) -> Result<bool, InstrumentMasterV2Erro
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use rstest::rstest;
     use vibe_model::types::fixed::FIXED_PRECISION;
 
-    fn id(byte: u8) -> BindingDigest {
+    pub(crate) fn id(byte: u8) -> BindingDigest {
         BindingDigest::from_untrusted_bytes([byte; 32])
     }
 
@@ -2445,7 +2462,11 @@ mod tests {
         );
     }
 
-    fn fact_for(canonical_identity: &str, raw_symbol: &str, seed: u8) -> InstrumentMasterFactV2 {
+    pub(crate) fn fact_for(
+        canonical_identity: &str,
+        raw_symbol: &str,
+        seed: u8,
+    ) -> InstrumentMasterFactV2 {
         let mut input = baseline(complete_terms());
         input.canonical_identity = canonical_identity.to_owned();
         input.raw_symbol = raw_symbol.to_owned();
@@ -2453,6 +2474,65 @@ mod tests {
         input.provenance.source_binding_digest = id(seed + 1);
         input.provenance.raw_payload_digest = id(seed + 2);
         InstrumentMasterFactV2::from_exchange_info_baseline(input).unwrap()
+    }
+
+    /// Admitting one-member cuts changes no two-member byte. The identity below is what `main`
+    /// issued for this cut before the member set was widened (tree `daee7dc73`, 1039 canonical
+    /// bytes); the encoding has always written its member count, and two is still written as two.
+    #[rstest::rstest]
+    fn a_two_member_cut_keeps_the_bytes_it_had_before_one_member_cuts() {
+        let cut = InstrumentMasterCutV2::issue(
+            InstrumentMasterCutRequestV2::new(id(30), 7),
+            id(31),
+            id(32),
+            id(33),
+            vec![
+                fact_for("BTCUSDT-PERP.BINANCE", "BTCUSDT", 10),
+                fact_for("ETHUSDT-PERP.BINANCE", "ETHUSDT", 20),
+            ],
+        )
+        .unwrap();
+        let pinned = "3381df8e624ccdeddc9bb68012b3e1058751b32fa700a6b1a6967a5e6bf38bee";
+        let expected = (0..pinned.len())
+            .step_by(2)
+            .map(|at| u8::from_str_radix(&pinned[at..at + 2], 16).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(cut.identity().as_bytes().as_slice(), expected.as_slice());
+        assert_eq!(cut.canonical_bytes().len(), 1039);
+    }
+
+    #[rstest::rstest]
+    fn a_cut_holds_one_member_or_two_distinct_ones() {
+        let btc = fact_for("BTCUSDT-PERP.BINANCE", "BTCUSDT", 10);
+        let eth = fact_for("ETHUSDT-PERP.BINANCE", "ETHUSDT", 20);
+        let sol = fact_for("SOLUSDT-PERP.BINANCE", "SOLUSDT", 30);
+        let request = InstrumentMasterCutRequestV2::new(id(30), 7);
+        let issue = |facts| InstrumentMasterCutV2::issue(request, id(31), id(32), id(33), facts);
+
+        let one = issue(vec![btc.clone()]).expect("a one-member cut");
+        assert_eq!(one.members().len(), 1);
+        assert_eq!(
+            InstrumentMasterCutV2::parse_with_facts(one.canonical_bytes(), vec![btc.clone()]),
+            Ok(one),
+            "a one-member cut round-trips through its own bytes"
+        );
+        let one_bytes = issue(vec![btc.clone()]).unwrap().canonical_bytes().to_vec();
+        assert_eq!(
+            InstrumentMasterCutV2::parse_with_facts(&one_bytes, vec![btc.clone(), eth.clone()]),
+            Err(InstrumentMasterCustodyErrorV2::CodecMismatch),
+            "the encoded count is the count: two facts cannot read one member's bytes"
+        );
+        assert_ne!(
+            issue(vec![btc.clone()]).unwrap().identity(),
+            issue(vec![eth.clone()]).unwrap().identity()
+        );
+
+        for refused in [vec![], vec![btc.clone(), btc.clone()], vec![btc, eth, sol]] {
+            assert_eq!(
+                issue(refused).unwrap_err(),
+                InstrumentMasterCustodyErrorV2::InvalidUniverseSelection
+            );
+        }
     }
 
     #[rstest::rstest]
@@ -2465,11 +2545,11 @@ mod tests {
             id(31),
             id(32),
             id(33),
-            [eth.clone(), btc.clone()],
+            vec![eth.clone(), btc.clone()],
         )
         .unwrap();
         let reordered =
-            InstrumentMasterCutV2::issue(request, id(31), id(32), id(33), [btc, eth]).unwrap();
+            InstrumentMasterCutV2::issue(request, id(31), id(32), id(33), vec![btc, eth]).unwrap();
 
         assert_eq!(cut.identity(), reordered.identity());
         assert_eq!(
@@ -2487,7 +2567,7 @@ mod tests {
                 id(31),
                 id(32),
                 id(33),
-                [
+                vec![
                     fact_for("BTCUSDT-PERP.BINANCE", "BTCUSDT", 10),
                     fact_for("ETHUSDT-PERP.BINANCE", "ETHUSDT", 20),
                 ],
@@ -2506,20 +2586,20 @@ mod tests {
             id(31),
             id(32),
             id(33),
-            [btc.clone(), eth.clone()],
+            vec![btc.clone(), eth.clone()],
         )
         .unwrap();
 
         assert_eq!(
             InstrumentMasterCutV2::parse_with_facts(
                 cut.canonical_bytes(),
-                [btc.clone(), eth.clone()]
+                vec![btc.clone(), eth.clone()]
             )
             .unwrap(),
             cut
         );
         assert_eq!(
-            InstrumentMasterCutV2::parse_with_facts(cut.canonical_bytes(), [eth, btc]),
+            InstrumentMasterCutV2::parse_with_facts(cut.canonical_bytes(), vec![eth, btc]),
             Err(InstrumentMasterCustodyErrorV2::CodecMismatch)
         );
         let mut changed = cut.canonical_bytes().to_vec();
@@ -2528,7 +2608,7 @@ mod tests {
         assert_eq!(
             InstrumentMasterCutV2::parse_with_facts(
                 &changed,
-                [
+                vec![
                     fact_for("BTCUSDT-PERP.BINANCE", "BTCUSDT", 10),
                     fact_for("ETHUSDT-PERP.BINANCE", "ETHUSDT", 20),
                 ]
@@ -2544,7 +2624,7 @@ mod tests {
             id(31),
             id(32),
             id(33),
-            [
+            vec![
                 fact_for("BTCUSDT-PERP.BINANCE", "BTCUSDT", 10),
                 fact_for("ETHUSDT-PERP.BINANCE", "ETHUSDT", 20),
             ],
