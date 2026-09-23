@@ -1096,8 +1096,9 @@ Native Replay scheduling 与 frame sequence 在保留双成员形态的同时，
 不改变任何双成员的行为或字节，cut 本来就编码了成员数。V1 scheduling receipt 因 quote cut 而发生的改变是另一项
 改动，记在 quote cut 段落。这一准入及其用户授权依据，与单成员 target-set 纵向切片一起记录在 Strategy Factory
 架构文档中。对于 Replay 初次组装，由固定的 Market Data writer 在 replay-composition issuance 期间通过 `issue_cut`
-签发 cut，key 按上文 cut issuance 段落所述。目前已建成：`InstrumentMasterCutV2` cut 及其托管表（既有表就地迁移到新形状）
-与经济条款解析已准入单成员；Owner-binding、Native Replay scheduling 与 frame sequence 尚未准入，`issue_cut` 也还
+签发 cut，key 按上文 cut issuance 段落所述。目前已建成：`InstrumentMasterCutV2` cut 及其托管表（既有表就地迁移到新形状）、
+经济条款解析、Owner-binding 与 V1 native scheduling seal 已准入单成员；V1 scheduling receipt 对双成员 universe 的哈希
+与以前完全相同，其他成员数则额外声明成员数。V2 frame evidence 与 frame sequence 尚未准入单成员，`issue_cut` 也还
 没有生产调用方。
 
 **TARGET，durable Strategy Input Binding Registry：** Market Data 拥有 write-once、validated binding
