@@ -108,10 +108,11 @@ where
         )
         .await
         .map_err(|e| unavailable("native_replay_initial_binding.economic_terms.resolve", &e))?;
+    let term_readbacks = terms.iter().collect::<Vec<_>>();
     let profile = issue_owner_replay_execution_profile_binding_from_readbacks_v1(
         preparation.family(),
         preparation.replay(),
-        [&terms[0], &terms[1]],
+        &term_readbacks,
     )
     .map_err(|e| unavailable("native_replay_initial_binding.profile_authority.issue", &e))?;
     let (_market_request, market) = resolve_native_replay_initial_owner_inputs_v1(
@@ -152,9 +153,9 @@ where
         &plan,
         &artifact,
         &instrument_master,
-        [&terms[0], &terms[1]],
+        &term_readbacks,
         &universe_frame,
-        [&schedules[0], &schedules[1]],
+        &schedules.iter().collect::<Vec<_>>(),
     )
     .await
 }

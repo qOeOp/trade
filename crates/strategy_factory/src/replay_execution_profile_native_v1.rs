@@ -10,7 +10,6 @@ use std::{collections::HashMap, str::FromStr, time::Duration};
 use ahash::AHashMap;
 use rust_decimal::Decimal;
 use sha2::{Digest, Sha256};
-use strategy_factory_program_sdk::lifecycle_v2::TARGET_SET_MEMBER_COUNT;
 use thiserror::Error;
 use vibe_backtest::{
     config::{BacktestEngineConfig, SimulatedVenueConfig},
@@ -66,6 +65,7 @@ use crate::{
         ReplayRunnerOperationalProfileV1, ReplayRunnerOptionalSubsystemV1,
         ReplayRunnerSerializationEncodingV1,
     },
+    target_set_members::BoundedMembers,
 };
 
 /// Exact native layout and inactive-float contract implemented by this adapter.
@@ -90,8 +90,8 @@ const NATIVE_DISABLED_SLIPPAGE_PROBABILITY_V1: f64 = 0.0;
 pub(crate) struct ReplayNativeExecutionProfileV1 {
     engine_config: BacktestEngineConfig,
     venue_config: SimulatedVenueConfig,
-    instrument_ids: [InstrumentId; TARGET_SET_MEMBER_COUNT],
-    instrument_terms: [BoundInstrumentEconomicTermsV1; TARGET_SET_MEMBER_COUNT],
+    instrument_ids: BoundedMembers<InstrumentId>,
+    instrument_terms: BoundedMembers<BoundInstrumentEconomicTermsV1>,
     materialization_digest: [u8; 32],
     #[cfg_attr(not(test), allow(dead_code))]
     fill_seed: u64,
@@ -127,7 +127,7 @@ impl ReplayNativeExecutionProfileV1 {
     /// or margin terms differ. Native configuration or engine registration errors also fail closed.
     pub(crate) fn into_backtest_engine(
         self,
-        instruments: &[InstrumentAny; TARGET_SET_MEMBER_COUNT],
+        instruments: &[InstrumentAny],
     ) -> Result<BacktestEngine, ReplayNativeExecutionProfileErrorV1> {
         self.validate_target_set(instruments)?;
         self.validate_account_scope()?;
@@ -147,10 +147,15 @@ impl ReplayNativeExecutionProfileV1 {
 
     pub(crate) fn validate_target_set(
         &self,
-        instruments: &[InstrumentAny; TARGET_SET_MEMBER_COUNT],
+        instruments: &[InstrumentAny],
     ) -> Result<(), ReplayNativeExecutionProfileErrorV1> {
-        if instruments[0].id() >= instruments[1].id()
-            || instruments.each_ref().map(|instrument| instrument.id()) != self.instrument_ids
+        if instruments
+            .windows(2)
+            .any(|pair| pair[0].id() >= pair[1].id())
+            || !instruments
+                .iter()
+                .map(Instrument::id)
+                .eq(self.instrument_ids.iter().copied())
         {
             return Err(ReplayNativeExecutionProfileErrorV1::InstrumentTermsMismatch);
         }
@@ -201,8 +206,8 @@ impl ReplayNativeExecutionProfileV1 {
         &self,
         data: &[Data],
     ) -> Result<(), ReplayNativeExecutionProfileErrorV1> {
-        let mut signal_time = [None; TARGET_SET_MEMBER_COUNT];
-        let mut event_time = [None; TARGET_SET_MEMBER_COUNT];
+        let mut signal_time = vec![None; self.instrument_ids.len()];
+        let mut event_time = vec![None; self.instrument_ids.len()];
 
         for datum in data {
             let instrument_id = datum.instrument_id();
@@ -250,9 +255,7 @@ impl ReplayNativeExecutionProfileV1 {
         AccountId::from(format!("{}-001", self.venue_config.venue).as_str())
     }
 
-    pub(crate) const fn instrument_terms(
-        &self,
-    ) -> &[BoundInstrumentEconomicTermsV1; TARGET_SET_MEMBER_COUNT] {
+    pub(crate) const fn instrument_terms(&self) -> &BoundedMembers<BoundInstrumentEconomicTermsV1> {
         &self.instrument_terms
     }
 }
@@ -262,14 +265,19 @@ impl ReplayNativeExecutionProfileV1 {
 /// fields between validation and bundle admission.
 pub(crate) fn materialize_crypto_perpetual_target_set_v2(
     binding: &ReplayExecutionProfileBindingV1,
-    public_terms: [ValidatedCryptoPerpetualPublicTermsV2; TARGET_SET_MEMBER_COUNT],
-) -> Result<[InstrumentAny; TARGET_SET_MEMBER_COUNT], ReplayNativeExecutionProfileErrorV1> {
-    let [first, second] = public_terms;
+    public_terms: Vec<ValidatedCryptoPerpetualPublicTermsV2>,
+) -> Result<BoundedMembers<InstrumentAny>, ReplayNativeExecutionProfileErrorV1> {
     let economic_terms = binding.instrument_terms();
-    Ok([
-        materialize_crypto_perpetual_v2(&economic_terms[0], &first)?,
-        materialize_crypto_perpetual_v2(&economic_terms[1], &second)?,
-    ])
+    if public_terms.len() != economic_terms.len() {
+        return Err(ReplayNativeExecutionProfileErrorV1::InstrumentTermsMismatch);
+    }
+    let instruments = economic_terms
+        .iter()
+        .zip(public_terms)
+        .map(|(economic, public)| materialize_crypto_perpetual_v2(economic, &public))
+        .collect::<Result<Vec<_>, _>>()?;
+    BoundedMembers::new(instruments)
+        .map_err(|_| ReplayNativeExecutionProfileErrorV1::InstrumentTermsMismatch)
 }
 
 fn materialize_crypto_perpetual_v2(
@@ -390,14 +398,15 @@ pub(crate) fn materialize_event_replay_execution_profile_v1(
     let symbol = Symbol::new_checked(&economic_input.instrument_terms.instrument_identity)
         .map_err(|_| ReplayNativeExecutionProfileErrorV1::InvalidIdentifier)?;
     let instrument_id = InstrumentId::new(symbol, venue);
-    let instrument_ids = binding.instrument_terms().each_ref().map(|terms| {
+    let instrument_ids = binding.instrument_terms().try_map(|terms| {
         Symbol::new_checked(&terms.instrument_identity)
             .map(|symbol| InstrumentId::new(symbol, venue))
             .map_err(|_| ReplayNativeExecutionProfileErrorV1::InvalidIdentifier)
-    });
-    let [first, second] = instrument_ids;
-    let instrument_ids = [first?, second?];
-    if instrument_ids[0] >= instrument_ids[1] || !instrument_ids.contains(&instrument_id) {
+    })?;
+
+    if instrument_ids.windows(2).any(|pair| pair[0] >= pair[1])
+        || !instrument_ids.contains(&instrument_id)
+    {
         return Err(ReplayNativeExecutionProfileErrorV1::InstrumentTermsMismatch);
     }
     let starting_currency = native_currency(&economic_input.starting_balance_currency)?;
@@ -437,7 +446,7 @@ pub(crate) fn materialize_event_replay_execution_profile_v1(
     let ReplayLiquidationPolicyV1::Disabled = economic_input.liquidation_policy;
 
     let mut leverages = AHashMap::new();
-    for member_id in instrument_ids {
+    for member_id in instrument_ids.iter().copied() {
         leverages.insert(member_id, instrument_leverage);
     }
     let venue_config = SimulatedVenueConfig::builder()
@@ -1042,7 +1051,7 @@ mod tests {
         .unwrap()
     }
 
-    fn matching_instruments() -> [InstrumentAny; TARGET_SET_MEMBER_COUNT] {
+    fn matching_instruments() -> [InstrumentAny; 2] {
         let mut instrument = crypto_perpetual_ethusdt();
         instrument.id = InstrumentId::from("ETHUSDT-PERP.SIM");
         instrument.raw_symbol = Symbol::from("ETHUSDT-PERP");
@@ -1059,11 +1068,8 @@ mod tests {
         ]
     }
 
-    fn event_data(
-        instruments: &[InstrumentAny; TARGET_SET_MEMBER_COUNT],
-        event_time: u64,
-    ) -> Vec<Data> {
-        let bar_types = instruments.each_ref().map(|instrument| {
+    fn event_data(instruments: &[InstrumentAny], event_time: u64) -> Vec<Data> {
+        let bar_types = instruments.iter().map(|instrument| {
             BarType::new(
                 instrument.id(),
                 BarSpecification::new(1, BarAggregation::Day, PriceType::Last),

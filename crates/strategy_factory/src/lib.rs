@@ -267,6 +267,7 @@ pub mod strategy_plan_v2;
 mod strategy_plan_v2_tests;
 mod successor;
 mod successor_research_custody_postgres_v1;
+pub mod target_set_members;
 pub mod trial_family;
 pub mod trial_family_postgres;
 

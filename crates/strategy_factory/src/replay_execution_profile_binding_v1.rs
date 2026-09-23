@@ -6,7 +6,6 @@
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use strategy_factory_program_sdk::lifecycle_v2::TARGET_SET_MEMBER_COUNT;
 use thiserror::Error;
 use vibe_backtest_owner_contracts::ReplayWindowV2;
 use vibe_data::owner::instrument_economic_terms_v1::{
@@ -22,6 +21,7 @@ use crate::{
         InstrumentEconomicTermsBindingV1, ReplayEconomicConfigurationV1,
     },
     replay_runner_operational_profile_v1::ReplayRunnerOperationalProfileV1,
+    target_set_members::BoundedMembers,
     trial_family::{TrialFamilyReadbackV1, verify_family},
 };
 
@@ -329,7 +329,7 @@ pub struct ReplayExecutionProfileBindingV1 {
     economic_configuration_digest: [u8; 32],
     runner_operational_profile_digest: [u8; 32],
     binding_digest: [u8; 32],
-    instrument_terms: [BoundInstrumentEconomicTermsV1; TARGET_SET_MEMBER_COUNT],
+    instrument_terms: BoundedMembers<BoundInstrumentEconomicTermsV1>,
 }
 
 /// Move-only R&D Owner authority for consuming one exact dual-profile Replay request.
@@ -440,9 +440,10 @@ impl OwnerIssuedReplayExecutionProfileBindingV1 {
 
     pub(crate) fn matches_instrument_terms_readbacks(
         &self,
-        readbacks: [&InstrumentEconomicTermsReadbackV1; TARGET_SET_MEMBER_COUNT],
+        readbacks: &[&InstrumentEconomicTermsReadbackV1],
     ) -> bool {
-        readbacks.iter().all(|readback| readback.verify())
+        readbacks.len() == self.execution_profile_binding.instrument_terms.len()
+            && readbacks.iter().all(|readback| readback.verify())
             && self
                 .execution_profile_binding
                 .instrument_terms
@@ -471,7 +472,7 @@ impl OwnerIssuedReplayExecutionProfileBindingV1 {
 pub(crate) fn issue_owner_replay_execution_profile_binding_v1(
     family: &TrialFamilyReadbackV1,
     request: &SealedExploratoryReplayReadbackV2,
-    instrument_terms: [SealedInstrumentEconomicTermsProvenanceV1; TARGET_SET_MEMBER_COUNT],
+    instrument_terms: BoundedMembers<SealedInstrumentEconomicTermsProvenanceV1>,
 ) -> Result<OwnerIssuedReplayExecutionProfileBindingV1, ReplayExecutionProfileBindingErrorV1> {
     verify_family(family)
         .map_err(|_| ReplayExecutionProfileBindingErrorV1::OwnerAuthorityUnavailable)?;
@@ -595,7 +596,7 @@ pub(crate) fn issue_owner_replay_execution_profile_binding_v1(
 pub(crate) fn issue_owner_replay_execution_profile_binding_from_readbacks_v1(
     family: &TrialFamilyReadbackV1,
     request: &SealedExploratoryReplayReadbackV2,
-    instrument_terms: [&InstrumentEconomicTermsReadbackV1; TARGET_SET_MEMBER_COUNT],
+    instrument_terms: &[&InstrumentEconomicTermsReadbackV1],
 ) -> Result<OwnerIssuedReplayExecutionProfileBindingV1, ReplayExecutionProfileBindingErrorV1> {
     let catalog = family
         .root()
@@ -605,28 +606,25 @@ pub(crate) fn issue_owner_replay_execution_profile_binding_from_readbacks_v1(
     let (economic, _) = catalog
         .verify()
         .map_err(|_| ReplayExecutionProfileBindingErrorV1::OwnerAuthorityUnavailable)?;
-    let account_scope_identity = instrument_terms[0]
-        .fact()
-        .input()
-        .account_scope_identity
-        .clone();
+    let first = instrument_terms
+        .first()
+        .ok_or(ReplayExecutionProfileBindingErrorV1::InstrumentTermsProvenanceMismatch)?;
+    let account_scope_identity = first.fact().input().account_scope_identity.clone();
     let context = InstrumentEconomicTermsConsumptionContextV1 {
         venue_identity: &economic.input().venue_identity,
         account_scope_identity: &account_scope_identity,
         event_time_ns: i128::from(request.request().as_dto().window.start_event_ns),
     };
-    let provenance = [
-        seal_target_set_member_instrument_economic_terms_provenance_v1(
-            instrument_terms[0],
-            &economic,
-            context,
-        )?,
-        seal_target_set_member_instrument_economic_terms_provenance_v1(
-            instrument_terms[1],
-            &economic,
-            context,
-        )?,
-    ];
+    let provenance = instrument_terms
+        .iter()
+        .map(|terms| {
+            seal_target_set_member_instrument_economic_terms_provenance_v1(
+                terms, &economic, context,
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let provenance = BoundedMembers::new(provenance)
+        .map_err(|_| ReplayExecutionProfileBindingErrorV1::InstrumentTermsProvenanceMismatch)?;
     issue_owner_replay_execution_profile_binding_v1(family, request, provenance)
 }
 
@@ -642,7 +640,7 @@ pub(crate) fn issue_owner_replay_execution_profile_binding_from_readbacks_v1(
 pub(crate) fn issue_owner_replay_execution_profile_binding_for_test_v1(
     family: &TrialFamilyReadbackV1,
     request: &SealedExploratoryReplayReadbackV2,
-    instrument_terms: [SealedInstrumentEconomicTermsProvenanceV1; TARGET_SET_MEMBER_COUNT],
+    instrument_terms: BoundedMembers<SealedInstrumentEconomicTermsProvenanceV1>,
 ) -> Result<OwnerIssuedReplayExecutionProfileBindingV1, ReplayExecutionProfileBindingErrorV1> {
     issue_owner_replay_execution_profile_binding_v1(family, request, instrument_terms)
 }
@@ -847,7 +845,7 @@ pub(crate) fn owner_replay_execution_profile_binding_fixture_v1(
         issue_sealed_exploratory_replay_readback_with_profiles_for_acceptance_v2(request, &family)
             .expect("sealed Replay Owner fixture");
     let terms = &economic.input().instrument_terms;
-    let provenance = [
+    let provenance = BoundedMembers::try_from([
         instrument_terms_provenance_for_fixture(
             &economic,
             "AAPL".into(),
@@ -874,7 +872,8 @@ pub(crate) fn owner_replay_execution_profile_binding_fixture_v1(
             0,
             i128::MAX,
         ),
-    ];
+    ])
+    .expect("two-member fixture");
     issue_owner_replay_execution_profile_binding_for_test_v1(&family, &request, provenance)
         .expect("Owner-issued dual-profile fixture")
 }
@@ -902,15 +901,11 @@ impl ReplayExecutionProfileBindingV1 {
         self.runner_operational_profile_digest
     }
 
-    pub(crate) fn instrument_terms(
-        &self,
-    ) -> &[BoundInstrumentEconomicTermsV1; TARGET_SET_MEMBER_COUNT] {
+    pub(crate) fn instrument_terms(&self) -> &BoundedMembers<BoundInstrumentEconomicTermsV1> {
         &self.instrument_terms
     }
 
-    pub(crate) fn into_instrument_terms(
-        self,
-    ) -> [BoundInstrumentEconomicTermsV1; TARGET_SET_MEMBER_COUNT] {
+    pub(crate) fn into_instrument_terms(self) -> BoundedMembers<BoundInstrumentEconomicTermsV1> {
         self.instrument_terms
     }
 }
@@ -941,7 +936,7 @@ pub fn bind_replay_execution_profiles_v1(
     request: &ReplayExecutionProfileRequestBindingV1,
     economic: &ReplayEconomicConfigurationV1,
     runner: &ReplayRunnerOperationalProfileV1,
-    instrument_terms: [SealedInstrumentEconomicTermsProvenanceV1; TARGET_SET_MEMBER_COUNT],
+    instrument_terms: BoundedMembers<SealedInstrumentEconomicTermsProvenanceV1>,
 ) -> Result<ReplayExecutionProfileBindingV1, ReplayExecutionProfileBindingErrorV1> {
     validate_schema_and_identity(family, request)?;
     if family.trial_family_identity != request.trial_family_identity
@@ -957,22 +952,29 @@ pub fn bind_replay_execution_profiles_v1(
     {
         return Err(ReplayExecutionProfileBindingErrorV1::ProfileMismatch);
     }
-    let instrument_context =
-        instrument_terms.map(|terms| validate_instrument_terms(economic, terms));
-    let [first, second] = instrument_context;
-    let mut instrument_context = [first?, second?];
+    let mut instrument_context = instrument_terms
+        .into_vec()
+        .into_iter()
+        .map(|terms| validate_instrument_terms(economic, terms))
+        .collect::<Result<Vec<_>, _>>()?;
     instrument_context
         .sort_by(|left, right| left.instrument_identity.cmp(&right.instrument_identity));
-    if instrument_context[0].instrument_identity == instrument_context[1].instrument_identity
+    let instrument_context = BoundedMembers::new(instrument_context)
+        .map_err(|_| ReplayExecutionProfileBindingErrorV1::InstrumentTermsProvenanceMismatch)?;
+    let first = &instrument_context[0];
+    if instrument_context
+        .windows(2)
+        .any(|pair| pair[0].instrument_identity == pair[1].instrument_identity)
         || instrument_context
             .iter()
             .filter(|terms| terms_match_profile_primary(terms, economic).unwrap_or(false))
             .count()
             != 1
-        || instrument_context[0].venue_identity != instrument_context[1].venue_identity
-        || instrument_context[0].quote_currency != instrument_context[1].quote_currency
-        || instrument_context[0].account_scope_identity
-            != instrument_context[1].account_scope_identity
+        || instrument_context.iter().any(|terms| {
+            terms.venue_identity != first.venue_identity
+                || terms.quote_currency != first.quote_currency
+                || terms.account_scope_identity != first.account_scope_identity
+        })
     {
         return Err(ReplayExecutionProfileBindingErrorV1::InstrumentTermsProvenanceMismatch);
     }
@@ -1224,9 +1226,9 @@ fn instrument_terms_digest(
 #[cfg(test)]
 pub(crate) fn instrument_terms_provenance_fixture_v1(
     economic: &ReplayEconomicConfigurationV1,
-) -> [SealedInstrumentEconomicTermsProvenanceV1; TARGET_SET_MEMBER_COUNT] {
+) -> BoundedMembers<SealedInstrumentEconomicTermsProvenanceV1> {
     let terms = &economic.input().instrument_terms;
-    [
+    BoundedMembers::try_from([
         instrument_terms_provenance_for_fixture(
             economic,
             terms.instrument_identity.clone(),
@@ -1253,7 +1255,8 @@ pub(crate) fn instrument_terms_provenance_fixture_v1(
             0,
             i128::MAX,
         ),
-    ]
+    ])
+    .expect("two-member fixture")
 }
 
 #[cfg(test)]
@@ -1377,7 +1380,7 @@ mod tests {
         ReplayRunnerOperationalProfileV1,
         ReplayExecutionProfileFamilyBindingV1,
         ReplayExecutionProfileRequestBindingV1,
-        [SealedInstrumentEconomicTermsProvenanceV1; TARGET_SET_MEMBER_COUNT],
+        BoundedMembers<SealedInstrumentEconomicTermsProvenanceV1>,
     ) {
         let economic = ReplayEconomicConfigurationV1::seal(economic_fixture()).unwrap();
         let runner = ReplayRunnerOperationalProfileV1::seal(runner_fixture()).unwrap();
@@ -1674,5 +1677,22 @@ mod tests {
                 Err(ReplayExecutionProfileBindingErrorV1::InstrumentTermsProvenanceMismatch)
             ));
         }
+    }
+
+    /// The execution-profile binding digest over two members, pinned from the pre-widening tree.
+    #[rstest]
+    fn two_member_profile_binding_digest_is_unchanged_by_the_member_count_widening() {
+        let (economic, runner, family, request, provenance) = fixtures();
+        let binding =
+            bind_replay_execution_profiles_v1(&family, &request, &economic, &runner, provenance)
+                .unwrap();
+        crate::target_set_members::assert_two_member_bytes_unchanged(
+            &[("profile_binding_digest", &binding.binding_digest())],
+            &[(
+                "profile_binding_digest",
+                32,
+                "d38ff437ae935f1936097f416c59fbc846ae0e567e6371c58c60c4a22ae747fc",
+            )],
+        );
     }
 }

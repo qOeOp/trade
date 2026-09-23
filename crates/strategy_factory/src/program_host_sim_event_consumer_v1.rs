@@ -26,9 +26,7 @@ use anyhow::Context;
 use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use strategy_factory_program_sdk::{
-    lifecycle_v1::SemanticTraceV1, lifecycle_v2::TARGET_SET_MEMBER_COUNT,
-};
+use strategy_factory_program_sdk::lifecycle_v1::SemanticTraceV1;
 use vibe_backtest::result::CanonicalBacktestResult;
 use vibe_backtest_owner_contracts::native_replay_trace::{
     ActualFillViewV1, OrderedTraceCensusV1, OrderedTraceFaultV1, OrderedTransitionViewV1,
@@ -44,6 +42,7 @@ use crate::{
     replay_target_set_execution_bundle_v1::{
         ReplayTargetSetExecutionBundleV1, ReplayTargetSetExecutionCensusV1,
     },
+    target_set_members::BoundedMembers,
 };
 
 const CANONICAL_RESULT_DOMAIN: &[u8] = b"strategy.program-host.sim-event.result.v1\0";
@@ -365,7 +364,7 @@ impl ProgramHostSimEventMemberRoundTripV1 {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ProgramHostSimEventRoundTripV1 {
     target_set_count: usize,
-    members: [ProgramHostSimEventMemberRoundTripV1; TARGET_SET_MEMBER_COUNT],
+    members: BoundedMembers<ProgramHostSimEventMemberRoundTripV1>,
     canonical_result_digest: [u8; 32],
     closure_digest: [u8; 32],
 }
@@ -378,9 +377,7 @@ impl ProgramHostSimEventRoundTripV1 {
     }
 
     #[must_use]
-    pub const fn members(
-        &self,
-    ) -> &[ProgramHostSimEventMemberRoundTripV1; TARGET_SET_MEMBER_COUNT] {
+    pub fn members(&self) -> &[ProgramHostSimEventMemberRoundTripV1] {
         &self.members
     }
 
@@ -448,12 +445,12 @@ impl ProgramHostSimEventReadbackV1 {
     }
 
     #[must_use]
-    pub fn instrument_fact_digests(&self) -> [[u8; 32]; TARGET_SET_MEMBER_COUNT] {
+    pub fn instrument_fact_digests(&self) -> Vec<[u8; 32]> {
         self.consumption_census.instrument_fact_digests()
     }
 
     #[must_use]
-    pub fn instrument_receipt_digests(&self) -> [[u8; 32]; TARGET_SET_MEMBER_COUNT] {
+    pub fn instrument_receipt_digests(&self) -> Vec<[u8; 32]> {
         self.consumption_census.instrument_receipt_digests()
     }
 
@@ -538,8 +535,9 @@ impl ProgramHostSimEventReadbackV1 {
         let members = self
             .consumption_census
             .member_instruments()
-            .each_ref()
-            .map(String::as_str);
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
         validate_ordered_semantic_trace_v1(
             &transitions,
             &fills,
@@ -585,7 +583,7 @@ pub fn run_program_host_sim_event_consumer_v1(
         strategy_id,
         plan,
         artifact,
-        instruments.each_ref().map(Instrument::id),
+        instruments.map(Instrument::id),
         bar_types,
         universe_frames,
         Some(account_scope_id),
@@ -669,7 +667,7 @@ struct CanonicalPositionCensusV1 {
 fn round_trip_closure(
     observed: &TargetSetBacktestTraceV2,
     actual_fills: &[ProgramHostSimEventFillReadbackV1],
-    member_instruments: &[String; TARGET_SET_MEMBER_COUNT],
+    member_instruments: &[String],
     canonical_positions: &BTreeMap<String, CanonicalPositionCensusV1>,
     canonical_result_digest: [u8; 32],
 ) -> anyhow::Result<Option<ProgramHostSimEventRoundTripV1>> {
@@ -679,12 +677,17 @@ fn round_trip_closure(
     }
     let final_member_grid_units = observed
         .final_member_grid_units
+        .as_ref()
         .context("Sim EVENT run reduced a native position without reaching its stop boundary")?;
+    anyhow::ensure!(
+        final_member_grid_units.len() == member_instruments.len(),
+        "Sim EVENT run stopped with a member position census that mismatches its members"
+    );
     anyhow::ensure!(
         observed.canonical_target_sets.len() >= 2,
         "Sim EVENT run reduced a native position without consuming an entry and an exit target set"
     );
-    let members = try_map_member(|ordinal| {
+    let members = try_map_member(member_instruments.len(), |ordinal| {
         member_round_trip(
             &member_instruments[ordinal],
             actual_fills,
@@ -814,7 +817,7 @@ fn canonical_result_position_census(
 fn round_trip_closure_digest(
     canonical_result_digest: [u8; 32],
     target_set_count: usize,
-    members: &[ProgramHostSimEventMemberRoundTripV1; TARGET_SET_MEMBER_COUNT],
+    members: &[ProgramHostSimEventMemberRoundTripV1],
 ) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(ROUND_TRIP_CLOSURE_DOMAIN);
@@ -834,9 +837,14 @@ fn round_trip_closure_digest(
 }
 
 fn try_map_member<T>(
-    mut map: impl FnMut(usize) -> anyhow::Result<T>,
-) -> anyhow::Result<[T; TARGET_SET_MEMBER_COUNT]> {
-    Ok([map(0)?, map(1)?])
+    member_count: usize,
+    map: impl FnMut(usize) -> anyhow::Result<T>,
+) -> anyhow::Result<BoundedMembers<T>> {
+    Ok(BoundedMembers::new(
+        (0..member_count)
+            .map(map)
+            .collect::<anyhow::Result<Vec<_>>>()?,
+    )?)
 }
 
 /// Derives the closure a real Sim EVENT run produced, for the focused round-trip acceptance target.
@@ -850,7 +858,7 @@ fn try_map_member<T>(
 )]
 pub(crate) fn program_host_sim_event_round_trip_for_test(
     observed: &TargetSetBacktestTraceV2,
-    member_instruments: &[String; TARGET_SET_MEMBER_COUNT],
+    member_instruments: &[String],
     canonical_result: &[u8],
 ) -> anyhow::Result<Option<ProgramHostSimEventRoundTripV1>> {
     let actual_fills = observed
@@ -1024,11 +1032,11 @@ mod tests {
     fn closed_trace() -> TargetSetBacktestTraceV2 {
         let mut trace = observed("FILLED");
         trace.canonical_target_sets = vec![vec![1], vec![2]];
-        trace.final_member_grid_units = Some([0, 0]);
+        trace.final_member_grid_units = Some(BoundedMembers::try_from([0, 0]).unwrap());
         trace
     }
 
-    fn member_instruments() -> [String; TARGET_SET_MEMBER_COUNT] {
+    fn member_instruments() -> [String; 2] {
         ["AAPL.XNAS".to_owned(), "MSFT.XNAS".to_owned()]
     }
 
@@ -1040,8 +1048,8 @@ mod tests {
                 account_id: "XNAS-001".to_owned(),
                 currency: "USD".to_owned(),
                 equity: "1000000 USD".to_owned(),
-                current_grid_units: [0, 0],
-                derived_grid_targets: [2, 0],
+                current_grid_units: BoundedMembers::try_from([0, 0]).unwrap(),
+                derived_grid_targets: BoundedMembers::try_from([2, 0]).unwrap(),
                 snapshot_identity: [3; 32],
             }],
             native_order_observations: vec![
@@ -1275,7 +1283,7 @@ mod tests {
         };
         let still_holding = {
             let mut trace = closed_trace();
-            trace.final_member_grid_units = Some([0, 1]);
+            trace.final_member_grid_units = Some(BoundedMembers::try_from([0, 1]).unwrap());
             trace
         };
         let single_target_set = {
@@ -1598,11 +1606,16 @@ mod tests {
             frame_count: 1,
             universe_selection_identity: [6; 32],
             universe_selection_digest: [7; 32],
-            member_instruments: ["AAPL.XNAS".to_owned(), "MSFT.XNAS".to_owned()],
-            instrument_terms: [
+            member_instruments: BoundedMembers::try_from([
+                "AAPL.XNAS".to_owned(),
+                "MSFT.XNAS".to_owned(),
+            ])
+            .unwrap(),
+            instrument_terms: BoundedMembers::try_from([
                 test_instrument_census("AAPL", [9; 32], [11; 32]),
                 test_instrument_census("MSFT", [10; 32], [12; 32]),
-            ],
+            ])
+            .unwrap(),
             scheduling_data_digest: [13; 32],
             scheduling_data_count: 4,
             bar_count: 2,
@@ -1645,5 +1658,27 @@ mod tests {
                 scale: 2,
             },
         }
+    }
+
+    /// The round-trip closure digest over two members, pinned from the pre-widening tree.
+    #[rstest::rstest]
+    fn two_member_round_trip_closure_digest_is_unchanged_by_the_member_count_widening() {
+        let closure = round_trip_closure(
+            &closed_trace(),
+            &round_trip_fills(),
+            &member_instruments(),
+            &closed_census(),
+            [77; 32],
+        )
+        .unwrap()
+        .expect("a complete round trip");
+        crate::target_set_members::assert_two_member_bytes_unchanged(
+            &[("round_trip_closure_digest", &closure.closure_digest())],
+            &[(
+                "round_trip_closure_digest",
+                32,
+                "c71878fd4bbf0a9e76d08791d4af22ea3500e3571df141f5dd87a1251e3f5696",
+            )],
+        );
     }
 }

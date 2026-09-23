@@ -609,7 +609,11 @@ def report(rev, command):
         " the variant is separated from the edge by a step that discards it.\n",
     )
     print(f"{NOTE}\n")
-    print(f"Measured at `{rev[:9]}` by regenerating this whole file with:\n")
+    print(
+        f"A snapshot of `{rev[:9]}`, not a live answer: code merged after it is not in this list,"
+        " and variants fixed after it are still in it. Regenerate the whole file before relying"
+        " on it:\n",
+    )
     print(f"```text\n{command}\n```\n")
     print(f"{CALIBRATED}\n")
     print(f"{HISTORY}\n")

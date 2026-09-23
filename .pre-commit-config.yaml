@@ -34,6 +34,12 @@ repos:
     rev: v0.11.0.1
     hooks:
       - id: shellcheck
+        # Follow `source` directives whatever else is in the run. Without this, shellcheck follows a
+        # sourced file only when that file is also one of its inputs, so the verdict depended on
+        # the file set: `--all-files` (CI) passed while a commit touching only the sourcing script
+        # failed SC1091 - four files did, linted alone. A `source=` path that does not exist still
+        # fails either way.
+        args: ["--external-sources"]
   - repo: https://github.com/google/yamlfmt
     rev: v0.21.0
     hooks:
@@ -195,6 +201,13 @@ repos:
         entry: bash scripts/ci/test-rust-toolchain.bash
         language: system
         files: ^(rust-toolchain\.toml|scripts/rust-toolchain\.sh|scripts/ci/test-rust-toolchain\.bash)$
+        pass_filenames: false
+      - id: test-owner-chain-lock
+        name: test Owner chain machine lock
+        description: A second local Owner chain is refused and named; a dead holder releases the lock
+        entry: bash scripts/ci/test-owner-chain-lock.bash
+        language: system
+        files: ^scripts/ci/(owner-chain-lock|test-owner-chain-lock)\.bash$
         pass_filenames: false
       - id: check-miri-toolchain
         name: check Miri toolchain
