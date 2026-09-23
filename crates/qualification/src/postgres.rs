@@ -6250,6 +6250,20 @@ mod postgres_tests {
 
     use super::*;
 
+    /// The Qualification database a PostgreSQL proof here runs against, with the ordered chain's
+    /// warning collector installed first.
+    ///
+    /// These proofs connect directly rather than through testkit admission, which is where the
+    /// collector is otherwise installed, so an entry that read this variable itself was reported as
+    /// not observed and its Owner refusals reached no chain record. Every proof takes its URL from
+    /// here, so a new one is observed without having to remember to be.
+    fn qualification_test_database_url() -> String {
+        vibe_testkit::postgres::collect_warnings_into_test_log()
+            .expect("the ordered chain's warning collector should install");
+        std::env::var("QUALIFICATION_TEST_DATABASE_URL")
+            .expect("explicit disposable Qualification URL")
+    }
+
     /// The two freshness bounds fail in opposite directions, and one name for both pointed the
     /// reader the wrong way in half the cases.
     ///
@@ -6828,8 +6842,7 @@ mod postgres_tests {
     async fn protected_replay_request_is_atomic_retry_exact_and_backtest_sealed() {
         use crate::protected_replay_request::ProtectedReplayRequestProposalV1;
 
-        let qualification_url = std::env::var("QUALIFICATION_TEST_DATABASE_URL")
-            .expect("explicit disposable Qualification URL");
+        let qualification_url = qualification_test_database_url();
         let backtest_url =
             std::env::var("BACKTEST_TEST_DATABASE_URL").expect("explicit disposable Backtest URL");
         let owner = PostgresQualificationOwnerV1::connect(&qualification_url)
@@ -7046,8 +7059,7 @@ mod postgres_tests {
     async fn an_orphaned_projection_names_itself_rather_than_the_caller_request() {
         const ABSENT_BASIS: &str = "rd-independence-basis-v1-that-no-row-carries";
 
-        let qualification_url = std::env::var("QUALIFICATION_TEST_DATABASE_URL")
-            .expect("explicit disposable Qualification URL");
+        let qualification_url = qualification_test_database_url();
         let owner = PostgresQualificationOwnerV1::connect(&qualification_url)
             .await
             .expect("Qualification topology");
@@ -7188,8 +7200,7 @@ mod postgres_tests {
     async fn an_eligibility_fact_window_is_derived_and_its_lineage_is_enforced_by_storage() {
         const FACTS: &str = "public.qualification_eligibility_facts_v1";
 
-        let url = std::env::var("QUALIFICATION_TEST_DATABASE_URL")
-            .expect("explicit disposable Qualification URL");
+        let url = qualification_test_database_url();
         let pool = PgPool::connect(&url).await.expect("Qualification pool");
 
         // The window is populated, half-open, and its closing edge is the evidence the Fact binds.
@@ -7314,8 +7325,7 @@ mod postgres_tests {
             value.and_then(|v| v.get("refusal").and_then(|r| r.as_str().map(str::to_owned)))
         }
 
-        let qualification_url = std::env::var("QUALIFICATION_TEST_DATABASE_URL")
-            .expect("explicit disposable Qualification URL");
+        let qualification_url = qualification_test_database_url();
         let backtest_url =
             std::env::var("BACKTEST_TEST_DATABASE_URL").expect("explicit disposable Backtest URL");
         let qualification = PgPool::connect(&qualification_url)
@@ -7466,8 +7476,7 @@ mod postgres_tests {
     #[ignore = "requires the ordered canonical Owner PostgreSQL gate after protected diagnostic Result custody"]
     async fn diagnostic_protected_attempt_closure_is_atomic_and_creates_no_assessment_or_eligibility()
      {
-        let qualification_url = std::env::var("QUALIFICATION_TEST_DATABASE_URL")
-            .expect("explicit disposable Qualification URL");
+        let qualification_url = qualification_test_database_url();
         let backtest_url =
             std::env::var("BACKTEST_TEST_DATABASE_URL").expect("explicit disposable Backtest URL");
         let owner = PostgresQualificationOwnerV1::connect(&qualification_url)
@@ -7720,8 +7729,7 @@ mod postgres_tests {
     #[tokio::test]
     #[ignore = "requires the ordered canonical Owner PostgreSQL gate after protected Result custody"]
     async fn negative_protected_attempt_closure_is_atomic_retry_exact_and_eligibility_absent() {
-        let qualification_url = std::env::var("QUALIFICATION_TEST_DATABASE_URL")
-            .expect("explicit disposable Qualification URL");
+        let qualification_url = qualification_test_database_url();
         let backtest_url =
             std::env::var("BACKTEST_TEST_DATABASE_URL").expect("explicit disposable Backtest URL");
         let owner = PostgresQualificationOwnerV1::connect(&qualification_url)
@@ -8200,8 +8208,7 @@ mod postgres_tests {
     #[tokio::test]
     #[ignore = "requires the ordered canonical Owner PostgreSQL gate after the READY terminal lineages"]
     async fn protected_replay_request_sets_seal_every_terminal_lineage_and_close_registration() {
-        let qualification_url = std::env::var("QUALIFICATION_TEST_DATABASE_URL")
-            .expect("explicit disposable Qualification URL");
+        let qualification_url = qualification_test_database_url();
         let backtest_url =
             std::env::var("BACKTEST_TEST_DATABASE_URL").expect("explicit disposable Backtest URL");
         let owner = PostgresQualificationOwnerV1::connect(&qualification_url)
@@ -8461,8 +8468,7 @@ mod postgres_tests {
     #[tokio::test]
     #[ignore = "requires the ordered canonical Owner PostgreSQL gate after the sealed Backtest attempt frontiers"]
     async fn protected_assessments_close_every_terminal_once_and_project_public_status() {
-        let qualification_url = std::env::var("QUALIFICATION_TEST_DATABASE_URL")
-            .expect("explicit disposable Qualification URL");
+        let qualification_url = qualification_test_database_url();
         let backtest_url =
             std::env::var("BACKTEST_TEST_DATABASE_URL").expect("explicit disposable Backtest URL");
         let owner = PostgresQualificationOwnerV1::connect(&qualification_url)
@@ -8865,8 +8871,7 @@ mod postgres_tests {
     #[ignore = "requires the ordered canonical Owner PostgreSQL gate after the stale-frontier lineage"]
     async fn protected_feedback_projection_readback_fails_closed_on_corruption_and_writes_nothing()
     {
-        let qualification_url = std::env::var("QUALIFICATION_TEST_DATABASE_URL")
-            .expect("explicit disposable Qualification URL");
+        let qualification_url = qualification_test_database_url();
         let rd_url =
             std::env::var("RD_OWNER_TEST_DATABASE_URL").expect("explicit disposable R&D Owner URL");
         let owner = PostgresQualificationOwnerV1::connect(&qualification_url)
