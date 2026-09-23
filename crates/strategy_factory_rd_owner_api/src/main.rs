@@ -5407,52 +5407,90 @@ mod tests {
             .await
             .expect("the production Composer opens against its two R&D roles");
 
-        // Acceptance gate 6 (product-edge.md), on the production Composer's own path: the Research
-        // input's source-ancestry evidence digest changed alone, to a different well-formed sha256,
-        // must leave the Composer unavailable. Its admission checks only that the digest is
-        // well formed; the Research lock it takes next (`lock_current_research_for_artifact_v1`)
-        // re-reads the ancestry through the Source Intake handoff and holds the digest to the
-        // Research request's recorded source cut. Restored, the entry goes on exactly as before.
-        let original_ancestry_digest: String = sqlx::query_scalar(
-            "SELECT source_ancestry_evidence_digest FROM public.rd_research_request_receipts_v1
-              WHERE request_identity=$1 AND source_ancestry_evidence_digest IS NOT NULL",
-        )
-        .bind(&locator)
-        .fetch_one(&rd_pool)
-        .await
-        .expect("the authored Research carries a source-ancestry evidence digest");
-        let tampered = sqlx::query(
-            "UPDATE public.rd_research_request_receipts_v1
-                SET source_ancestry_evidence_digest='sha256:'||encode(sha256('stored-tamper'::bytea),'hex')
-              WHERE request_identity=$1",
-        )
-        .bind(&locator)
-        .execute(&rd_pool)
-        .await
-        .expect("change the source-ancestry evidence digest")
-        .rows_affected();
-        assert_eq!(
-            tampered, 1,
-            "the digest change must touch exactly the authored Research"
-        );
-        let refused = Box::pin(composer.run_bounded_feature_program(&locator)).await;
-        eprintln!("stored tamper source_ancestry_evidence_digest: {refused:?}");
-        assert!(
-            !matches!(
-                &refused,
-                Ok(response) if response.disposition == DevelopComposerOperationDispositionV2::Success
+        // Acceptance gate 6 (product-edge.md), on the production Composer's own path: each stored
+        // Research column below, changed alone, must leave the Composer without a composition. The
+        // source-ancestry evidence digest (a different well-formed sha256) is held to the request's
+        // recorded source cut when the Research custody is admitted; the artifact evidence and its
+        // digest are re-derived by the artifact readback the Composer's Research lock decodes. The
+        // replay path never reads the artifact evidence, so this entry is where those two are
+        // anchored. Each change is restored, and the entry goes on exactly as before.
+        let (original_ancestry_digest, original_evidence_digest, original_evidence_json): (
+            String,
+            String,
+            String,
+        ) =
+            sqlx::query_as(
+                "SELECT source_ancestry_evidence_digest, artifact_evidence_digest, artifact_evidence_json::text
+               FROM public.rd_research_request_receipts_v1
+              WHERE request_identity=$1 AND source_ancestry_evidence_digest IS NOT NULL
+                AND artifact_evidence_digest IS NOT NULL AND artifact_evidence_json IS NOT NULL",
+            )
+            .bind(&locator)
+            .fetch_one(&rd_pool)
+            .await
+            .expect("the authored Research carries its ancestry and artifact evidence");
+        let research_tampers = [
+            (
+                "source_ancestry_evidence_digest",
+                "UPDATE public.rd_research_request_receipts_v1
+                    SET source_ancestry_evidence_digest='sha256:'||encode(sha256('stored-tamper'::bytea),'hex')
+                  WHERE request_identity=$1",
+                "UPDATE public.rd_research_request_receipts_v1 SET source_ancestry_evidence_digest=$2
+                  WHERE request_identity=$1",
+                &original_ancestry_digest,
             ),
-            "the production Composer composed over a changed source-ancestry evidence digest: {refused:?}",
-        );
-        sqlx::query(
-            "UPDATE public.rd_research_request_receipts_v1 SET source_ancestry_evidence_digest=$2
-              WHERE request_identity=$1",
-        )
-        .bind(&locator)
-        .bind(&original_ancestry_digest)
-        .execute(&rd_pool)
-        .await
-        .expect("restore the source-ancestry evidence digest");
+            (
+                "artifact_evidence_digest",
+                "UPDATE public.rd_research_request_receipts_v1
+                    SET artifact_evidence_digest=artifact_evidence_digest||'-stored-tamper'
+                  WHERE request_identity=$1",
+                "UPDATE public.rd_research_request_receipts_v1 SET artifact_evidence_digest=$2
+                  WHERE request_identity=$1",
+                &original_evidence_digest,
+            ),
+            (
+                "artifact_evidence_json",
+                "UPDATE public.rd_research_request_receipts_v1
+                    SET artifact_evidence_json=artifact_evidence_json||'{\"stored_tamper\":true}'::jsonb
+                  WHERE request_identity=$1",
+                "UPDATE public.rd_research_request_receipts_v1 SET artifact_evidence_json=$2::jsonb
+                  WHERE request_identity=$1",
+                &original_evidence_json,
+            ),
+        ];
+
+        for (column, tamper, restore, original) in research_tampers {
+            let tampered = sqlx::query(tamper)
+                .bind(&locator)
+                .execute(&rd_pool)
+                .await
+                .unwrap_or_else(|e| panic!("change {column}: {e}"))
+                .rows_affected();
+            assert_eq!(
+                tampered, 1,
+                "changing {column} must touch exactly the authored Research"
+            );
+            let refused = Box::pin(composer.run_bounded_feature_program(&locator)).await;
+            eprintln!("stored tamper {column}: {refused:?}");
+            assert!(
+                !matches!(
+                    &refused,
+                    Ok(response) if response.disposition == DevelopComposerOperationDispositionV2::Success
+                ),
+                "the production Composer composed over a changed {column}: {refused:?}",
+            );
+            let restored = sqlx::query(restore)
+                .bind(&locator)
+                .bind(original)
+                .execute(&rd_pool)
+                .await
+                .unwrap_or_else(|e| panic!("restore {column}: {e}"))
+                .rows_affected();
+            assert_eq!(
+                restored, 1,
+                "restoring {column} must touch exactly the authored Research"
+            );
+        }
 
         let response = Box::pin(composer.run_bounded_feature_program(&locator))
             .await
