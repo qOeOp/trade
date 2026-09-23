@@ -6,10 +6,17 @@
 //! it emits is either stated in the request or derived by
 //! `author_single_threshold_program_v1`, which refuses a statement it cannot author.
 //!
-//! It exists because `POST /v1/strategy-designs/publish-role-intent` has never been called. The
-//! route is mounted and alive - a run against a deployed Owner answered `405` to a GET, `403` to a
-//! bad token and `400 MALFORMED_TYPED_REQUEST` to an empty body - and the reason nothing had
-//! reached past that is that its body carries a whole `StrategyDesignV2`, which no tool produced.
+//! It exists because `POST /v1/strategy-designs/publish-role-intent` had never been reached past
+//! its own rejections: the route was mounted and alive - a run against a deployed Owner answered
+//! `405` to a GET, `403` to a bad token and `400 MALFORMED_TYPED_REQUEST` to an empty body - and
+//! nothing got further because its body carries a whole `StrategyDesignV2`, which no tool produced.
+//!
+//! That is no longer where the route stands, and this is why the difference matters to a reader
+//! here. The ordered chain's entry `an_authored_design_publishes_its_role_intent_over_http` authors
+//! a Design through this same surface, asserts it differs from the fixture Design it borrowed
+//! identities from, and posts it to that route against a real Owner store on every round. What has
+//! still never happened is that call against a *deployed* Owner, which is what this binary is for:
+//! the chain proves the body can be authored and accepted, not that anyone has sent one.
 //!
 //! Reads the statement as JSON on stdin, writes both bodies as JSON on stdout:
 //!
