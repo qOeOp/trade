@@ -2149,8 +2149,7 @@ impl PostgresResearchGoalOwnerV1 {
             instrument_terms_owner,
             market_data,
         )
-        .await
-        .map_err(|_| crate::NativeReplayExecutionInputBindingErrorV1::Unavailable)?;
+        .await?;
         transaction
             .commit()
             .await
