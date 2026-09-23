@@ -15,34 +15,54 @@ use vibe_data::owner::native_replay_scheduling_v2::{
     NativeReplayFrameEvidenceV2, NativeReplayFrameSequenceReadbackV2,
 };
 
-use crate::native_replay_execution_input_binding_v1::NativeReplayExecutionInputBindingReadbackV1;
+use crate::{
+    native_replay_execution_input_binding_v1::NativeReplayExecutionInputBindingReadbackV1,
+    target_set_members::{BoundedMembers, is_admitted_member_count},
+};
 
 const SCHEMA_VERSION: u16 = 2;
 /// A sequence needs a frame after the last one it consumes, so two is the shortest there is.
 const MIN_FRAME_COUNT: usize = 2;
-const MEMBER_COUNT: usize = 2;
 const SEQUENCE_DOMAIN: &[u8] = b"rd.native-replay-execution-input-sequence.v2\0";
 const BINDING_DOMAIN: &[u8] = b"rd.native-replay-execution-input-binding.v2\0";
 const RECEIPT_DOMAIN: &[u8] = b"rd.native-replay-execution-input-binding-receipt.v2\0";
 const OUTBOX_DOMAIN: &[u8] = b"rd.native-replay-execution-input-binding-outbox.v2\0";
 
-/// Fixed canonical sizes. A frame is fixed width and the layout has no other variable-length
-/// member, so the only thing that varies is how many frames follow. Recovery reads the stored
-/// frame count and then requires the byte length to be exactly what that count implies, so the
-/// count is cross-checked against the bytes rather than trusted by them.
-const FRAME_DIGEST_COUNT: usize = 13;
-const FRAME_BYTES: usize = FRAME_DIGEST_COUNT * 32 + 16;
+/// Canonical sizes. Every frame has the same width, fixed by the member count: eleven frame-level
+/// digests, one BAR schedule digest per member, and two orders. The member count is not written
+/// into these bytes; it is the V1 binding's, which sealing and verification check against, and a
+/// two-member binding keeps exactly the layout it had when two was the only count.
+///
+/// Recovery reads the stored frame count and derives the member count from the length, which must
+/// divide into that many frames of one admitted width exactly. Neither count is taken on trust.
+const FRAME_LEVEL_DIGEST_COUNT: usize = 11;
 const SEQUENCE_HEADER_BYTES: usize = 32 * 3;
 const CANONICAL_HEADER_BYTES: usize = 5 + 32;
 
-const fn canonical_bytes_for(frame_count: usize) -> usize {
-    CANONICAL_HEADER_BYTES + SEQUENCE_HEADER_BYTES + frame_count * FRAME_BYTES
+const fn frame_bytes_for(member_count: usize) -> usize {
+    (FRAME_LEVEL_DIGEST_COUNT + member_count) * 32 + 16
+}
+
+const fn canonical_bytes_for(frame_count: usize, member_count: usize) -> usize {
+    CANONICAL_HEADER_BYTES + SEQUENCE_HEADER_BYTES + frame_count * frame_bytes_for(member_count)
+}
+
+/// The member count a canonical binding of `len` bytes and `frame_count` frames must have.
+fn member_count_for(len: usize, frame_count: usize) -> Option<usize> {
+    let frames = len.checked_sub(CANONICAL_HEADER_BYTES + SEQUENCE_HEADER_BYTES)?;
+    if frame_count == 0 || frames % frame_count != 0 {
+        return None;
+    }
+    let member_bytes = (frames / frame_count).checked_sub(frame_bytes_for(0))?;
+    (member_bytes % 32 == 0)
+        .then_some(member_bytes / 32)
+        .filter(|count| is_admitted_member_count(*count))
 }
 
 /// One complete Owner-verified BAR frame and its native schedule and liquidity receipts.
 ///
 /// The ordinals refer to the Owner's complete native BAR/EVENT order, not caller timestamps.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct VerifiedFrameV2 {
     pit_cut_identity: [u8; 32],
     pit_cut_receipt_digest: [u8; 32],
@@ -55,7 +75,7 @@ struct VerifiedFrameV2 {
     liquidity_event_identity: [u8; 32],
     liquidity_event_receipt_identity: [u8; 32],
     liquidity_event_receipt_digest: [u8; 32],
-    member_bar_schedule_receipt_digests: [[u8; 32]; MEMBER_COUNT],
+    member_bar_schedule_receipt_digests: BoundedMembers<[u8; 32]>,
     first_bar_order: u64,
     last_liquidity_event_order: u64,
 }
@@ -126,7 +146,14 @@ fn verified_frame(
     let liquidity_event_receipt_digest = *frame.liquidity_receipt().receipt_digest().as_bytes();
 
     let bar_rows = frame.bar_row_digests();
-    let mut member_bar_schedule_receipt_digests = [[0u8; 32]; MEMBER_COUNT];
+    // One BAR row set and one liquidity entry per member, all in member order: a frame whose
+    // collections disagree in length would pair a member with another member's evidence.
+    if frame.member_instruments().len() != bar_rows.len()
+        || frame.liquidity().len() != bar_rows.len()
+    {
+        return Err(NativeReplayExecutionInputBindingErrorV2::Unavailable);
+    }
+    let mut member_bar_schedule_receipt_digests = Vec::with_capacity(bar_rows.len());
 
     for (member, rows) in bar_rows.iter().enumerate() {
         let mut bytes = Vec::with_capacity(32 + 8 + 32 * 5);
@@ -135,8 +162,11 @@ fn verified_frame(
         for row in rows {
             bytes.extend_from_slice(row.as_bytes());
         }
-        member_bar_schedule_receipt_digests[member] = digest(MEMBER_BAR_SCHEDULE_DOMAIN, &bytes);
+        member_bar_schedule_receipt_digests.push(digest(MEMBER_BAR_SCHEDULE_DOMAIN, &bytes));
     }
+    let member_bar_schedule_receipt_digests =
+        BoundedMembers::new(member_bar_schedule_receipt_digests)
+            .map_err(|_| NativeReplayExecutionInputBindingErrorV2::Unavailable)?;
 
     // The frame's own BAR time opens it; its last sealed liquidity EVENT closes it.
     let first_bar_order = frame.frame_time_ns();
@@ -259,6 +289,7 @@ impl NativeReplayExecutionInputBindingV2 {
         let expected = seal_meaning(
             v1.binding().binding_identity(),
             v1.binding().binding_digest(),
+            v1.binding().member_keys().len(),
             owner,
         )?;
 
@@ -332,6 +363,7 @@ pub(crate) fn prepare_binding_from_verified_owner_v2(
     let binding = seal_meaning(
         v1.binding().binding_identity(),
         v1.binding().binding_digest(),
+        v1.binding().member_keys().len(),
         owner,
     )?;
     let mut receipt_bytes = Vec::with_capacity(4 + 32 * 3);
@@ -367,6 +399,7 @@ pub(crate) fn prepare_binding_from_verified_owner_v2(
 fn seal_meaning(
     v1_binding_identity: [u8; 32],
     v1_binding_digest: [u8; 32],
+    v1_member_count: usize,
     owner: VerifiedOwnerSequenceV2,
 ) -> Result<NativeReplayExecutionInputBindingV2, NativeReplayExecutionInputBindingErrorV2> {
     // Destructured whole rather than read field by field: `VerifiedOwnerSequenceV2` is a move-only
@@ -380,7 +413,10 @@ fn seal_meaning(
         || v1_binding_identity != v1_binding_digest
         || owner_sequence_digest == [0; 32]
         || frames.len() < MIN_FRAME_COUNT
-        || !frames.iter().all(valid_frame)
+        || !is_admitted_member_count(v1_member_count)
+        || !frames.iter().all(|frame| {
+            valid_frame(frame) && frame.member_bar_schedule_receipt_digests.len() == v1_member_count
+        })
     {
         return Err(NativeReplayExecutionInputBindingErrorV2::Unavailable);
     }
@@ -417,7 +453,8 @@ fn seal_meaning(
     }
     let frame_count = u8::try_from(frames.len())
         .map_err(|_| NativeReplayExecutionInputBindingErrorV2::Unavailable)?;
-    let mut sequence_bytes = Vec::with_capacity(SEQUENCE_HEADER_BYTES + frames.len() * FRAME_BYTES);
+    let mut sequence_bytes =
+        Vec::with_capacity(SEQUENCE_HEADER_BYTES + frames.len() * frame_bytes_for(v1_member_count));
     sequence_bytes.extend_from_slice(&v1_binding_identity);
     sequence_bytes.extend_from_slice(&v1_binding_digest);
     sequence_bytes.extend_from_slice(&owner_sequence_digest);
@@ -457,13 +494,16 @@ fn valid_frame(frame: &VerifiedFrameV2) -> bool {
         frame.liquidity_event_identity,
         frame.liquidity_event_receipt_identity,
         frame.liquidity_event_receipt_digest,
-        frame.member_bar_schedule_receipt_digests[0],
-        frame.member_bar_schedule_receipt_digests[1],
     ]
     .iter()
+    .chain(&frame.member_bar_schedule_receipt_digests)
     .all(|digest| *digest != [0; 32])
-        && frame.member_bar_schedule_receipt_digests[0]
-            != frame.member_bar_schedule_receipt_digests[1]
+        && frame
+            .member_bar_schedule_receipt_digests
+            .iter()
+            .collect::<BTreeSet<_>>()
+            .len()
+            == frame.member_bar_schedule_receipt_digests.len()
         && frame.first_bar_order < frame.last_liquidity_event_order
 }
 
@@ -480,10 +520,11 @@ fn append_frame(bytes: &mut Vec<u8>, frame: &VerifiedFrameV2) {
         frame.liquidity_event_identity,
         frame.liquidity_event_receipt_identity,
         frame.liquidity_event_receipt_digest,
-        frame.member_bar_schedule_receipt_digests[0],
-        frame.member_bar_schedule_receipt_digests[1],
-    ] {
-        bytes.extend_from_slice(&value);
+    ]
+    .iter()
+    .chain(&frame.member_bar_schedule_receipt_digests)
+    {
+        bytes.extend_from_slice(value);
     }
     bytes.extend_from_slice(&frame.first_bar_order.to_le_bytes());
     bytes.extend_from_slice(&frame.last_liquidity_event_order.to_le_bytes());
@@ -744,8 +785,11 @@ fn recover_binding_v2(
     bytes: &[u8],
 ) -> Result<NativeReplayExecutionInputBindingV2, NativeReplayExecutionInputBindingErrorV2> {
     let frame_count = usize::from(*bytes.get(4).unwrap_or(&0));
+    let Some(member_count) = member_count_for(bytes.len(), frame_count) else {
+        return Err(NativeReplayExecutionInputBindingErrorV2::Unavailable);
+    };
 
-    if bytes.len() != canonical_bytes_for(frame_count)
+    if bytes.len() != canonical_bytes_for(frame_count, member_count)
         || frame_count < MIN_FRAME_COUNT
         || bytes[0..2] != SCHEMA_VERSION.to_le_bytes()
         || bytes[2..4] != 0u16.to_le_bytes()
@@ -759,7 +803,7 @@ fn recover_binding_v2(
     let v1_binding_digest = cursor.digest()?;
     let owner_sequence_digest = cursor.digest()?;
     let frames = (0..frame_count)
-        .map(|_| cursor.frame())
+        .map(|_| cursor.frame(member_count))
         .collect::<Result<Vec<_>, _>>()?;
 
     // The stored digests are claims; recomputing them is what makes the readback a recovery.
@@ -810,7 +854,10 @@ impl Cursor<'_> {
         Ok(u64::from_le_bytes(bytes))
     }
 
-    fn frame(&mut self) -> Result<VerifiedFrameV2, NativeReplayExecutionInputBindingErrorV2> {
+    fn frame(
+        &mut self,
+        member_count: usize,
+    ) -> Result<VerifiedFrameV2, NativeReplayExecutionInputBindingErrorV2> {
         let frame = VerifiedFrameV2 {
             pit_cut_identity: self.digest()?,
             pit_cut_receipt_digest: self.digest()?,
@@ -823,7 +870,12 @@ impl Cursor<'_> {
             liquidity_event_identity: self.digest()?,
             liquidity_event_receipt_identity: self.digest()?,
             liquidity_event_receipt_digest: self.digest()?,
-            member_bar_schedule_receipt_digests: [self.digest()?, self.digest()?],
+            member_bar_schedule_receipt_digests: BoundedMembers::new(
+                (0..member_count)
+                    .map(|_| self.digest())
+                    .collect::<Result<Vec<_>, _>>()?,
+            )
+            .map_err(|_| NativeReplayExecutionInputBindingErrorV2::Unavailable)?,
             first_bar_order: self.order()?,
             last_liquidity_event_order: self.order()?,
         };
@@ -865,7 +917,8 @@ mod tests {
             liquidity_event_identity: d(n + 8),
             liquidity_event_receipt_identity: d(n + 9),
             liquidity_event_receipt_digest: d(n + 10),
-            member_bar_schedule_receipt_digests: [d(n + 11), d(n + 12)],
+            member_bar_schedule_receipt_digests: BoundedMembers::try_from([d(n + 11), d(n + 12)])
+                .unwrap(),
             first_bar_order: bar,
             last_liquidity_event_order: liquidity,
         }
@@ -891,8 +944,8 @@ mod tests {
 
     #[rstest]
     fn ordered_sequence_has_stable_canonical_identity_and_distinct_domains() {
-        let first = seal_meaning(d(60), d(60), owner()).unwrap();
-        let second = seal_meaning(d(60), d(60), owner()).unwrap();
+        let first = seal_meaning(d(60), d(60), 2, owner()).unwrap();
+        let second = seal_meaning(d(60), d(60), 2, owner()).unwrap();
         assert_eq!(first, second);
         assert_eq!(first.canonical_bytes[0..5], [2, 0, 0, 0, 2]);
         assert_ne!(first.sequence_digest, first.binding_identity);
@@ -905,48 +958,48 @@ mod tests {
 
     #[rstest]
     fn altered_v1_or_owner_receipt_changes_identity() {
-        let baseline = seal_meaning(d(60), d(60), owner()).unwrap();
-        assert_ne!(baseline, seal_meaning(d(61), d(61), owner()).unwrap());
+        let baseline = seal_meaning(d(60), d(60), 2, owner()).unwrap();
+        assert_ne!(baseline, seal_meaning(d(61), d(61), 2, owner()).unwrap());
         let mut changed = owner();
         changed.frames[1].liquidity_event_receipt_digest = d(55);
-        assert_ne!(baseline, seal_meaning(d(60), d(60), changed).unwrap());
+        assert_ne!(baseline, seal_meaning(d(60), d(60), 2, changed).unwrap());
         let mut changed = owner();
         changed.owner_sequence_digest = d(51);
-        assert_ne!(baseline, seal_meaning(d(60), d(60), changed).unwrap());
+        assert_ne!(baseline, seal_meaning(d(60), d(60), 2, changed).unwrap());
     }
 
     #[rstest]
     fn missing_duplicate_reordered_or_interleaved_frames_fail_closed() {
         assert!(matches!(
-            seal_meaning([0; 32], [0; 32], owner()),
+            seal_meaning([0; 32], [0; 32], 2, owner()),
             Err(NativeReplayExecutionInputBindingErrorV2::Unavailable)
         ));
         assert!(matches!(
-            seal_meaning(d(60), d(61), owner()),
+            seal_meaning(d(60), d(61), 2, owner()),
             Err(NativeReplayExecutionInputBindingErrorV2::Unavailable)
         ));
         let mut missing = owner();
         missing.frames[1].liquidity_event_receipt_digest = [0; 32];
         assert!(matches!(
-            seal_meaning(d(60), d(60), missing),
+            seal_meaning(d(60), d(60), 2, missing),
             Err(NativeReplayExecutionInputBindingErrorV2::Unavailable)
         ));
         let mut duplicate = owner();
         duplicate.frames[1].frame_identity = duplicate.frames[0].frame_identity;
         assert!(matches!(
-            seal_meaning(d(60), d(60), duplicate),
+            seal_meaning(d(60), d(60), 2, duplicate),
             Err(NativeReplayExecutionInputBindingErrorV2::Unavailable)
         ));
         let mut reordered = owner();
         reordered.frames.swap(0, 1);
         assert!(matches!(
-            seal_meaning(d(60), d(60), reordered),
+            seal_meaning(d(60), d(60), 2, reordered),
             Err(NativeReplayExecutionInputBindingErrorV2::Unavailable)
         ));
         let mut interleaved = owner();
         interleaved.frames[0].last_liquidity_event_order = 20;
         assert!(matches!(
-            seal_meaning(d(60), d(60), interleaved),
+            seal_meaning(d(60), d(60), 2, interleaved),
             Err(NativeReplayExecutionInputBindingErrorV2::Unavailable)
         ));
     }
@@ -954,9 +1007,9 @@ mod tests {
     /// A longer sequence seals, recovers, and says its own length in its bytes.
     #[rstest]
     fn a_sequence_longer_than_a_pair_seals_and_recovers() {
-        let sealed = seal_meaning(d(60), d(60), owner_sequence(three_frames())).unwrap();
+        let sealed = seal_meaning(d(60), d(60), 2, owner_sequence(three_frames())).unwrap();
 
-        assert_eq!(sealed.canonical_bytes().len(), canonical_bytes_for(3));
+        assert_eq!(sealed.canonical_bytes().len(), canonical_bytes_for(3, 2));
         assert_eq!(usize::from(sealed.canonical_bytes()[4]), 3);
         assert_eq!(sealed.frame_orders(), vec![(10, 19), (20, 29), (30, 39)]);
         assert_eq!(
@@ -965,7 +1018,7 @@ mod tests {
         );
         assert_ne!(
             sealed.binding_identity,
-            seal_meaning(d(60), d(60), owner())
+            seal_meaning(d(60), d(60), 2, owner())
                 .unwrap()
                 .binding_identity
         );
@@ -974,7 +1027,7 @@ mod tests {
     /// A count the bytes do not carry is refused, so a stored length can never be taken on trust.
     #[rstest]
     fn a_frame_count_the_bytes_do_not_carry_is_refused() {
-        let sealed = seal_meaning(d(60), d(60), owner_sequence(three_frames())).unwrap();
+        let sealed = seal_meaning(d(60), d(60), 2, owner_sequence(three_frames())).unwrap();
         let mut understated = sealed.canonical_bytes().to_vec();
         understated[4] = 2;
         assert!(recover_binding_v2(&understated).is_err());
@@ -984,7 +1037,7 @@ mod tests {
         assert!(recover_binding_v2(&overstated).is_err());
 
         let mut below_minimum = sealed.canonical_bytes().to_vec();
-        below_minimum.truncate(canonical_bytes_for(1));
+        below_minimum.truncate(canonical_bytes_for(1, 2));
         below_minimum[4] = 1;
         assert!(recover_binding_v2(&below_minimum).is_err());
     }
@@ -994,24 +1047,24 @@ mod tests {
     fn a_defect_past_the_opening_pair_still_refuses() {
         let mut overlapping = three_frames();
         overlapping[1].last_liquidity_event_order = overlapping[2].first_bar_order;
-        assert!(seal_meaning(d(60), d(60), owner_sequence(overlapping)).is_err());
+        assert!(seal_meaning(d(60), d(60), 2, owner_sequence(overlapping)).is_err());
 
         let mut repeated = three_frames();
         repeated[2].pit_cut_identity = repeated[0].pit_cut_identity;
-        assert!(seal_meaning(d(60), d(60), owner_sequence(repeated)).is_err());
+        assert!(seal_meaning(d(60), d(60), 2, owner_sequence(repeated)).is_err());
 
         let mut single = three_frames();
         single.truncate(1);
-        assert!(seal_meaning(d(60), d(60), owner_sequence(single)).is_err());
+        assert!(seal_meaning(d(60), d(60), 2, owner_sequence(single)).is_err());
     }
 
     /// Recovery must rebuild the exact binding from stored bytes alone.
     #[rstest]
     fn stored_canonical_bytes_recover_to_the_same_binding() {
-        let sealed = seal_meaning(d(60), d(60), owner()).unwrap();
+        let sealed = seal_meaning(d(60), d(60), 2, owner()).unwrap();
         let recovered = recover_binding_v2(sealed.canonical_bytes()).unwrap();
         assert_eq!(recovered, sealed);
-        assert_eq!(sealed.canonical_bytes().len(), canonical_bytes_for(2));
+        assert_eq!(sealed.canonical_bytes().len(), canonical_bytes_for(2, 2));
     }
 
     fn stored_rows_for(binding: &NativeReplayExecutionInputBindingV2) -> StoredRowsV2 {
@@ -1037,7 +1090,7 @@ mod tests {
 
     #[rstest]
     fn a_complete_consistent_row_set_recovers() {
-        let binding = seal_meaning(d(60), d(60), owner()).unwrap();
+        let binding = seal_meaning(d(60), d(60), 2, owner()).unwrap();
         let rows = stored_rows_for(&binding);
         let readback = recover_rows_v2(&rows).unwrap();
         assert_eq!(readback.binding(), &binding);
@@ -1048,7 +1101,7 @@ mod tests {
     /// A row edited in place must not be able to present itself as issued custody.
     #[rstest]
     fn rows_that_disagree_with_their_own_bytes_fail_closed() {
-        let binding = seal_meaning(d(60), d(60), owner()).unwrap();
+        let binding = seal_meaning(d(60), d(60), 2, owner()).unwrap();
 
         for tamper in [
             (|rows: &mut StoredRowsV2| rows.binding_identity = vec![9; 32])
@@ -1077,7 +1130,7 @@ mod tests {
     /// The decoder reads exact offsets, so a short, long or mislabelled buffer is not a binding.
     #[rstest]
     fn malformed_canonical_bytes_fail_closed() {
-        let sealed = seal_meaning(d(60), d(60), owner()).unwrap();
+        let sealed = seal_meaning(d(60), d(60), 2, owner()).unwrap();
         let good = sealed.canonical_bytes();
 
         let mut short = good.to_vec();
@@ -1114,5 +1167,122 @@ mod tests {
                 Err(NativeReplayExecutionInputBindingErrorV2::Unavailable)
             ));
         }
+    }
+
+    /// Two-member canonical bytes, pinned from before a frame's width followed the member count.
+    #[rstest]
+    fn two_member_v2_binding_bytes_are_unchanged_by_the_member_count_widening() {
+        let two = seal_meaning(d(60), d(60), 2, owner()).unwrap();
+        let three = seal_meaning(d(60), d(60), 2, owner_sequence(three_frames())).unwrap();
+        crate::target_set_members::assert_two_member_bytes_unchanged(
+            &[
+                ("two_frames", two.canonical_bytes()),
+                ("two_frames_identity", &two.binding_identity),
+                ("three_frames", three.canonical_bytes()),
+            ],
+            &[
+                (
+                    "two_frames",
+                    997,
+                    "680cd90aea8c385cc767acd5f5c1c77212f954523727de949b1257b0591a0541",
+                ),
+                (
+                    "two_frames_identity",
+                    32,
+                    "3562beca57a9410812fe723ee557053b27356f0638d2e1e5f2591de6a79f47c8",
+                ),
+                (
+                    "three_frames",
+                    1_429,
+                    "7adb0577a6e7e38250f64bfbee27008112f6bff6130e2f31e8199f51f4fdd25c",
+                ),
+            ],
+        );
+    }
+
+    fn one_member_frames() -> Vec<VerifiedFrameV2> {
+        owner()
+            .frames
+            .into_iter()
+            .map(|mut frame| {
+                frame.member_bar_schedule_receipt_digests =
+                    BoundedMembers::new(vec![frame.member_bar_schedule_receipt_digests[0]])
+                        .unwrap();
+                frame
+            })
+            .collect()
+    }
+
+    /// A one-member binding is one member digest narrower per frame, and recovers from its bytes.
+    #[rstest]
+    fn a_one_member_layout_seals_and_recovers() {
+        let sealed = seal_meaning(d(60), d(60), 1, owner_sequence(one_member_frames())).unwrap();
+
+        assert_eq!(sealed.canonical_bytes().len(), canonical_bytes_for(2, 1));
+        assert_eq!(
+            canonical_bytes_for(2, 2) - canonical_bytes_for(2, 1),
+            2 * 32
+        );
+        assert_eq!(
+            recover_binding_v2(sealed.canonical_bytes()).unwrap(),
+            sealed
+        );
+        assert_ne!(
+            sealed.binding_identity,
+            seal_meaning(d(60), d(60), 2, owner())
+                .unwrap()
+                .binding_identity
+        );
+    }
+
+    /// The frames must carry exactly the V1 binding's members, in either direction.
+    #[rstest]
+    fn frames_must_carry_the_v1_member_count() {
+        assert!(seal_meaning(d(60), d(60), 2, owner_sequence(one_member_frames())).is_err());
+        assert!(seal_meaning(d(60), d(60), 1, owner()).is_err());
+        assert!(seal_meaning(d(60), d(60), 0, owner()).is_err());
+    }
+
+    /// A length that does not divide into the stored frame count at an admitted width is refused.
+    #[rstest]
+    fn a_length_at_no_admitted_member_width_is_refused() {
+        let sealed = seal_meaning(d(60), d(60), 2, owner()).unwrap();
+
+        // One extra member digest per frame would be three members, which is not admitted.
+        let mut widened = sealed.canonical_bytes().to_vec();
+        widened.extend([7; 2 * 32]);
+        assert_eq!(member_count_for(widened.len(), 2), None);
+        assert!(recover_binding_v2(&widened).is_err());
+
+        // A stray digest makes the frames unequal in width.
+        let mut stray = sealed.canonical_bytes().to_vec();
+        stray.extend([7; 32]);
+        assert_eq!(member_count_for(stray.len(), 2), None);
+        assert!(recover_binding_v2(&stray).is_err());
+    }
+
+    /// The derived member count only decides how to parse; it carries no trust. Bytes cut to the
+    /// width of one member parse as one member and are refused by the sequence digest they carry,
+    /// and a self-consistent one-member binding put in a two-member binding's rows is refused by
+    /// the identity those rows store.
+    #[rstest]
+    fn bytes_read_at_another_member_width_are_refused() {
+        let two = seal_meaning(d(60), d(60), 2, owner()).unwrap();
+
+        let mut cut = two.canonical_bytes().to_vec();
+        cut.truncate(canonical_bytes_for(2, 1));
+        assert_eq!(member_count_for(cut.len(), 2), Some(1));
+        assert!(recover_binding_v2(&cut).is_err());
+
+        let one = seal_meaning(d(60), d(60), 1, owner_sequence(one_member_frames())).unwrap();
+        assert!(recover_binding_v2(one.canonical_bytes()).is_ok());
+        // Every frame still parses and is valid; only the digest the bytes claim is wrong.
+        let mut claimed = one.canonical_bytes().to_vec();
+        claimed[5] ^= 1;
+        assert!(recover_binding_v2(&claimed).is_err());
+        let mut rows = stored_rows_for(&two);
+        rows.binding_bytes = one.canonical_bytes().to_vec();
+        assert!(recover_rows_v2(&rows).is_err());
+        assert!(recover_rows_v2(&stored_rows_for(&two)).is_ok());
     }
 }

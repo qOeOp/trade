@@ -700,10 +700,12 @@ rather than a refusal. A run consumes every frame but the last, which is there t
 liquidity of the one before it. The frames have distinct identities,
 strictly increasing canonical event order and no eligible frame between neighbours; each retains its own
 PIT snapshot/fact, observation-batch, trigger, frame, native scheduling and liquidity EVENT receipt
-identities. Each liquidity receipt binds the Owner-verified Quote row digests, source cut,
+identities, and one BAR schedule receipt digest per member. A frame's width therefore follows the
+member count, which the V2 bytes take from the V1 binding rather than repeat; a two-member binding
+keeps exactly its bytes, and recovery derives the count from the stored length. Each liquidity receipt binds the Owner-verified Quote row digests, source cut,
 bid/ask prices and sizes, event/initialization times and member order consumed by the real Sim
 Exchange; a BAR receipt alone cannot authorize a fill. Every frame must bind the same request,
-Plan/Design role schema, two canonical members, universe selection, Instrument
+Plan/Design role schema, canonical members (the V1 binding's members), universe selection, Instrument
 Master cut, BAR timeframe, venue and account scope, and the instrument/economic terms must be
 valid at every frame time. Market Data verifies each frame's source and correction lineage at its
 own cut and their valid successor relationship. The caller cannot provide
