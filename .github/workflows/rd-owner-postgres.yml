@@ -39,6 +39,7 @@ jobs:
   rd-owner-postgres:
     name: R&D Owner PostgreSQL isolated tests
     runs-on: ubuntu-22.04
+    timeout-minutes: 100
     defaults:
       run:
         shell: bash
@@ -86,7 +87,9 @@ jobs:
       - name: Report disk space before Rust tests
         run: bash scripts/ci/report-disk-space.bash "before Rust tests"
 
+      # The same ceiling as the R&D leg of build.yml and owner-chains.yml; the measurement is there.
       - name: Run isolated R&D Owner PostgreSQL tests
+        timeout-minutes: 70
         run: >-
           make cargo-test-rd-owner-postgres-isolated NEXTEST_PROFILE=ci
           EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
