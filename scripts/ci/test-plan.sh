@@ -700,6 +700,43 @@ if [[ "$sealed_check_block" != *'return 1'* ]]; then
   exit 1
 fi
 
+# The chain red-rate report answers a question three filters make easy to answer wrongly, and all
+# three were used wrongly in the two days before it was written. Each is pinned here because each
+# one silently shrinks the answer rather than failing:
+#
+#   a `--status` filter on the listing loses chain failures inside runs whose own conclusion is
+#   `cancelled`; there were two in the first window this was run over.
+#   an `--event` filter loses the scheduled runs, which is where `main`'s own verdict comes from.
+#   printing an aggregate without the per-day split describes an average of regimes - 40%, 12% and
+#   0% on three consecutive days - that the repository was never in.
+#
+# Comment lines are excluded: the script's own header names all three filters in order to say why
+# it does not use them, and a search that counted those would pass on a script that used them.
+chain_report="$repo_root/scripts/ci/report-chain-red-rate.bash"
+chain_report_code="$(grep -v '^[[:space:]]*#' "$chain_report" || true)"
+if [[ -z "$chain_report_code" ]]; then
+  echo "scripts/ci/report-chain-red-rate.bash has no code outside its comments." >&2
+  exit 1
+fi
+for forbidden_filter in --status --event; do
+  if [[ "$chain_report_code" == *"gh run list"*"$forbidden_filter"* ]]; then
+    echo "report-chain-red-rate.bash filters its run listing with $forbidden_filter." >&2
+    echo "A --status filter loses chain failures inside cancelled runs; an --event filter loses" >&2
+    echo "the scheduled runs that carry main's own verdict. Both shrink the answer in silence." >&2
+    exit 1
+  fi
+done
+if [[ "$chain_report_code" != *'.jobs[]'* ]]; then
+  echo "report-chain-red-rate.bash no longer reads the chain job's own conclusion, so it reports" >&2
+  echo "the run's conclusion instead - which is a different question with a smaller answer." >&2
+  exit 1
+fi
+if [[ "$chain_report_code" != *'by day'* ]]; then
+  echo "report-chain-red-rate.bash no longer prints the per-day split. Its aggregate is an average" >&2
+  echo "over whatever regimes the window spans, and quoting it describes no state that existed." >&2
+  exit 1
+fi
+
 grep -Fq 'rust-cache-workspace-crates: "true"' "$build_workflow"
 grep -Fq 'rust-doctests-linux-x86:' "$build_workflow"
 rust_tests_block="$(sed -n '/^  rust-tests-linux-x86:/,/^  quality:/p' "$build_workflow")"
