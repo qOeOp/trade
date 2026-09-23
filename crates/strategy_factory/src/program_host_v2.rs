@@ -348,6 +348,30 @@ impl AdmittedProgramEventV2 {
     pub(crate) fn corrupt_trigger_for_test(&mut self) {
         self.inputs[0].owner_event.trigger_digest = BindingDigest::from_untrusted_bytes([0xa5; 32]);
     }
+
+    /// Moves one role's input to another member ordinal and reseals the event identity, so the
+    /// event reaches input validation instead of being refused for an identity it no longer has.
+    #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
+    pub(crate) fn move_member_ordinal_and_reseal_for_test(
+        &mut self,
+        plan: &StrategyPlanV2,
+        role_semantic_id: &str,
+        member_ordinal: u8,
+    ) {
+        self.inputs
+            .iter_mut()
+            .find(|input| input.role_semantic_id == role_semantic_id)
+            .expect("test role has an input")
+            .member_ordinal = Some(member_ordinal);
+        self.identity = admitted_event_identity(
+            plan,
+            self.envelope,
+            &self.inputs,
+            &self.source_binding_lineages,
+            self.input_join_identity,
+            self.universe_frame,
+        );
+    }
 }
 
 /// Admits one input-free lifecycle event issued by the isolated Backtest composition root.

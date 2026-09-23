@@ -9,7 +9,10 @@ use strategy_factory_program_sdk::lifecycle_v2::{
 use vibe_data::owner::source_binding::BindingDigest;
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 use vibe_data::owner::{
-    sealed_acceptance::issue_strategy_input_universe_frame,
+    sealed_acceptance::{
+        SealedAcceptanceStrategyInputUniverseFrame,
+        issue_single_member_universe_frame_for_owner_lineage, issue_strategy_input_universe_frame,
+    },
     strategy_input_binding::StrategyInputUniverseFrameReceipt,
 };
 
@@ -597,6 +600,20 @@ fn universe_fixture(
     StrategyInputUniverseFrameReceipt,
 ) {
     let frame = issue_strategy_input_universe_frame().expect("fixed Owner universe frame");
+    universe_fixture_with_frame(candidate, body, &frame)
+}
+
+/// Compiles `candidate` against an Owner universe frame the caller issued.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn universe_fixture_with_frame(
+    candidate: super::strategy_design_v2::StrategyDesignV2,
+    body: Option<Vec<u8>>,
+    frame: &SealedAcceptanceStrategyInputUniverseFrame,
+) -> (
+    StrategyPlanV2,
+    StrategyArtifactV2,
+    StrategyInputUniverseFrameReceipt,
+) {
     let manifest = &candidate.plugins[0];
     let body =
         body.unwrap_or_else(|| output_frame(manifest).encode(manifest).unwrap()[96..].to_vec());
@@ -627,7 +644,7 @@ fn universe_fixture(
             .collect(),
     );
     let StrategyCompilationV2::Compiled(plan) =
-        compile_strategy_design_v2_for_universe(candidate, &frame, &[receipt])
+        compile_strategy_design_v2_for_universe(candidate, frame, &[receipt])
     else {
         panic!("actual sealed universe selection compiles")
     };
@@ -1402,4 +1419,73 @@ fn universe_input_ordinals_follow_the_member_count() {
     assert!(!admitted(Some(2), 2));
     assert!(!admitted(None, 2));
     assert!(!admitted(Some(0), 0));
+}
+
+/// Compiles the one-member Design against a one-member Owner universe frame that Market Data issues
+/// through its own derivation and binds to that Design.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn one_member_universe_fixture() -> (
+    StrategyPlanV2,
+    StrategyArtifactV2,
+    StrategyInputUniverseFrameReceipt,
+) {
+    let candidate = one_member_universe_design();
+    let super::strategy_plan_v2::StrategyDesignPreparationV2::Prepared {
+        design_identity, ..
+    } = super::strategy_plan_v2::prepare_strategy_design_v2(&candidate)
+    else {
+        panic!("the one-member Design canonicalizes")
+    };
+    let frame = issue_single_member_universe_frame_for_owner_lineage(
+        candidate.research_request_identity,
+        design_identity,
+    )
+    .expect("one-member Owner universe frame");
+    assert_eq!(frame.frame().selection().members().len(), 1);
+    universe_fixture_with_frame(candidate, None, &frame)
+}
+
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn a_one_member_universe_frame_is_admitted_at_ordinal_zero() {
+    let (plan, artifact, frame) = one_member_universe_fixture();
+    let mut host = ProgramHostV2::new(plan.clone(), artifact).unwrap();
+    host.apply_event(&admitted(&plan, envelope(1, LifecycleKind::Start), None))
+        .unwrap();
+
+    host.apply_market_data_universe_event(&frame).unwrap();
+
+    let target_set = host.canonical_member_target_set().unwrap();
+    assert_eq!(target_set.member_count(), 1);
+    assert_eq!(
+        target_set.members()[0].instrument.as_bytes(),
+        frame.selection().members()[0].instrument().as_bytes()
+    );
+}
+
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn a_one_member_universe_refuses_an_input_at_ordinal_one() {
+    use super::program_host_v2::ProgramHostV2Error;
+
+    let (plan, artifact, frame) = one_member_universe_fixture();
+    let started = || {
+        let mut host = ProgramHostV2::new(plan.clone(), artifact.clone()).unwrap();
+        host.apply_event(&admitted(&plan, envelope(1, LifecycleKind::Start), None))
+            .unwrap();
+        host
+    };
+    let admitted_event = admit_market_data_universe_program_event_v2(&plan, &frame).unwrap();
+
+    // The reseal itself is sound: the same helper keeping ordinal 0 yields an admitted event.
+    let mut kept = admitted_event.clone();
+    kept.move_member_ordinal_and_reseal_for_test(&plan, "research.input.open.v1", 0);
+    assert!(started().apply_event(&kept).is_ok());
+
+    let mut moved = admitted_event;
+    moved.move_member_ordinal_and_reseal_for_test(&plan, "research.input.open.v1", 1);
+    assert!(matches!(
+        started().apply_event(&moved),
+        Err(ProgramHostV2Error::InputCoverage)
+    ));
 }
