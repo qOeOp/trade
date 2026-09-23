@@ -591,7 +591,7 @@ fn classify_insert(error: &sqlx::Error) -> InstrumentMasterCustodyErrorV2 {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[rstest::rstest]
@@ -614,7 +614,7 @@ mod tests {
 
     /// A universe selection readback over `members` (member key, instrument), every one included,
     /// through the Owner's own selection and issuance.
-    fn selection_of(members: &[(&str, &str)]) -> UniverseSelectionReadbackV1 {
+    pub(crate) fn selection_of(members: &[(&str, &str)]) -> UniverseSelectionReadbackV1 {
         use crate::owner::universe_selection::{
             UntrustedUniverseSelectionRequestV1,
             authority::{
