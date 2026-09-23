@@ -7508,7 +7508,11 @@ async fn run_postgres_owner_scenario() {
     let census_owner = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
     Box::pin(native_replay_successor_frame_oracle(&census_owner)).await;
     Box::pin(native_replay_frame_sequence_custody_oracle(&census_owner)).await;
-    Box::pin(native_replay_two_member_frame_supply_oracle(&census_owner)).await;
+    Box::pin(native_replay_two_member_frame_supply_oracle(
+        &census_owner,
+        &owner_url,
+    ))
+    .await;
     admin.close().await;
 }
 
@@ -7610,6 +7614,12 @@ pub(crate) async fn native_replay_two_member_snapshot_fixture_v1(
 
 /// The scope this oracle owns. The frame census is keyed by scope and shared across every oracle in
 /// one database run, so a scope is a supply boundary rather than a label.
+/// The two members every frame of this supply carries, as `(member_key, instrument)`.
+///
+/// A member key names a slot in the universe; an instrument is an `InstrumentId` and carries its
+/// venue. Both the batch rows and the derived selection read this one list.
+const FRAME_MEMBERS: [(&str, &str); 2] = [("AAPL", "AAPL.XNAS"), ("MSFT", "MSFT.XNAS")];
+
 const TWO_MEMBER_FRAME_SCOPE: BindingDigest = BindingDigest::from_untrusted_bytes([211; 32]);
 
 /// A frame census built from batches a universe can actually be bound from.
@@ -7624,7 +7634,14 @@ const TWO_MEMBER_FRAME_SCOPE: BindingDigest = BindingDigest::from_untrusted_byte
 /// the five BAR and four QUOTE fields the native replay projections read, and asks the census for
 /// the sequence over them. What it proves is that the Owner accepts this shape and orders it, which
 /// is the half of the path that does not depend on reaching the frame resolver.
-async fn native_replay_two_member_frame_supply_oracle(owner: &MarketDataOwnerPostgres) {
+async fn native_replay_two_member_frame_supply_oracle(
+    owner: &MarketDataOwnerPostgres,
+    owner_url: &str,
+) {
+    use crate::owner::native_replay_scheduling_v1::{
+        NativeReplayInitialMarketRequestV1, NativeReplayInitialUniverseRoleV1,
+        NativeReplaySchedulingErrorV1, NativeReplaySchedulingResolverV1,
+    };
     let source = owner
         .commit_source_initial(
             source_proposal(10, 40),
@@ -7709,6 +7726,17 @@ async fn native_replay_two_member_frame_supply_oracle(owner: &MarketDataOwnerPos
         // refusal would name the schedule rather than the snapshot that misnamed its master.
         proposal.request.instrument_master_digest = master.digest();
         proposal.request.market_semantics_identity = semantics;
+        // The per-frame readback refuses unless the declared selection digest equals the one the
+        // Owner derives from the members, and that derivation reads the master digest - so it is
+        // computed here from the same inputs rather than guessed or copied.
+        let (_, selection_digest) =
+            crate::owner::strategy_input_binding::universe_selection_identity_v1(
+                master.digest(),
+                source.fact().lineage_root(),
+                semantics,
+                &FRAME_MEMBERS,
+            );
+        proposal.request.universe_selection_digest = selection_digest;
         let observation = two_member_observation_batch(&source, &proposal);
         proposal.evidence.normalized_records_digest =
             derive_observation_batch_digest(&observation).unwrap();
@@ -7724,7 +7752,7 @@ async fn native_replay_two_member_frame_supply_oracle(owner: &MarketDataOwnerPos
     // Frame times, not arbitrary: every row coordinate must land at or before the decision
     // cut this oracle's clock fixes at 40, and the fourth coordinate is `frame_time + 3`.
     let (first, first_master) = commit(70, 151, 10).await;
-    let (second, _) = commit(71, 152, 20).await;
+    let (second, second_master) = commit(71, 152, 20).await;
     let (third, _) = commit(72, 153, 30).await;
     assert_ne!(
         first.fact().snapshot_identity(),
@@ -7733,9 +7761,7 @@ async fn native_replay_two_member_frame_supply_oracle(owner: &MarketDataOwnerPos
 
     // What the Owner stored, not what the proposal said. Without this the oracle would pass on the
     // single-member batch every other census proof commits: the census is written on every snapshot
-    // and never looks at members, so ordering alone cannot tell the two batches apart. Binding a
-    // universe from the readback is the next step and needs the resolver arm that is still behind
-    // `cfg(not(test))`.
+    // and never looks at members, so ordering alone cannot tell the two batches apart.
     let members: Vec<String> = sqlx::query_scalar(
         "SELECT DISTINCT member_key FROM market_data_private.pit_observation_rows_v1 WHERE snapshot_identity=$1 ORDER BY member_key",
     )
@@ -7783,76 +7809,230 @@ async fn native_replay_two_member_frame_supply_oracle(owner: &MarketDataOwnerPos
         "the universe the Owner derives from its own readback names both members and their venues"
     );
 
-    // One bar schedule per member, prepared from the batch the Owner read back and committed to the
-    // store the frame resolver will read them from. This is the half of the supply that had never
-    // existed: `commit_prepared_bar_schedule_v1` has no caller in a default build, and the only
-    // callers anywhere fed it a master and a batch built in memory.
-    for (instrument, role) in [("AAPL.XNAS", 200_u8), ("MSFT.XNAS", 201)] {
-        let request = UntrustedStrategyInputBindingRequest {
-            research_request_identity: d(198),
-            strategy_design_identity: d(199),
-            input_role_identity: d(role),
-            scope: UntrustedStrategyInputScope::ExactInstrument {
-                instrument: instrument.into(),
-            },
-            field_semantic: MarketDataFieldSemantic::BarClosePrice,
-            channel: StrategyInputChannel::Market,
-            timeframe: "1M".into(),
-            unit: StrategyInputUnit::Price,
-            scale: 2,
-            pit_request_identity: readback.request_identity(),
-            pit_request_digest: readback.request_digest(),
-            snapshot_identity: readback.snapshot_identity(),
-            snapshot_fact_digest: readback.fact_digest(),
-            observation_batch_digest: readback.digest(),
-            source_binding_identity: readback.source_binding_identity(),
-            source_frontier_digest: readback.source_frontier_digest(),
-            correction_frontier_digest: readback.correction_frontier_digest(),
-            instrument_master_digest: readback.instrument_master_digest(),
-            universe_selection_digest: readback.universe_selection_digest(),
-            market_semantics_identity: readback.market_semantics_identity(),
-            decision_cut: readback.time_evidence().decision_cut.value,
-        };
-        let binding =
-            crate::owner::strategy_input_binding::bind_strategy_input_role(&request, &readback)
+    // One bar schedule per member per frame, prepared from the batch the Owner read back and
+    // committed to the store the frame resolver reads candidates from. This is the half of the
+    // supply that had never existed: `commit_prepared_bar_schedule_v1` has no caller in a default
+    // build, and the only callers anywhere fed it a master and a batch built in memory.
+    //
+    // A schedule answers for one instant - `validated_bar_type` requires its cut to equal the
+    // frame time - so each frame needs its own, and a later one for the same instrument names the
+    // earlier as its predecessor rather than competing with it for the head.
+    let mut heads: std::collections::BTreeMap<&str, BindingDigest> =
+        std::collections::BTreeMap::new();
+    let mut commit_schedules =
+        async |readback: &VerifiedPitObservationBatch,
+               master: &crate::owner::instrument_master::InstrumentMasterReadbackV1| {
+            for (instrument, role) in [("AAPL.XNAS", 200_u8), ("MSFT.XNAS", 201)] {
+                let request = UntrustedStrategyInputBindingRequest {
+                    research_request_identity: d(198),
+                    strategy_design_identity: d(199),
+                    input_role_identity: d(role),
+                    scope: UntrustedStrategyInputScope::ExactInstrument {
+                        instrument: instrument.into(),
+                    },
+                    field_semantic: MarketDataFieldSemantic::BarClosePrice,
+                    channel: StrategyInputChannel::Market,
+                    timeframe: "1M".into(),
+                    unit: StrategyInputUnit::Price,
+                    scale: 2,
+                    pit_request_identity: readback.request_identity(),
+                    pit_request_digest: readback.request_digest(),
+                    snapshot_identity: readback.snapshot_identity(),
+                    snapshot_fact_digest: readback.fact_digest(),
+                    observation_batch_digest: readback.digest(),
+                    source_binding_identity: readback.source_binding_identity(),
+                    source_frontier_digest: readback.source_frontier_digest(),
+                    correction_frontier_digest: readback.correction_frontier_digest(),
+                    instrument_master_digest: readback.instrument_master_digest(),
+                    universe_selection_digest: readback.universe_selection_digest(),
+                    market_semantics_identity: readback.market_semantics_identity(),
+                    decision_cut: readback.time_evidence().decision_cut.value,
+                };
+                let binding = crate::owner::strategy_input_binding::bind_strategy_input_role(
+                    &request, readback,
+                )
                 .expect("a BAR role binds against the readback");
-        let prepared = crate::owner::bar_schedule::prepare_bar_schedule_commit_v1(
-            crate::owner::bar_schedule::UntrustedBarScheduleProposalV1 {
-                canonical_instrument: instrument.into(),
-                predecessor_fact_digest: None,
-                effective_from: 1,
-                effective_until: Some(100),
-                kind: BarScheduleKindV1::FixedInterval,
-                step: 1,
-                unit: BarScheduleUnitV1::Minute,
-                anchor_identity: d(202),
-                label: BarScheduleLabelV1::IntervalClose,
-                completion: BarScheduleCompletionV1::CompleteOnly,
-            },
-            &binding,
-            &readback,
-            &first_master,
-        )
-        .expect("a schedule prepares against the universe-scoped master");
-        owner
-            .commit_prepared_bar_schedule_v1(&prepared)
-            .await
-            .expect("the Owner commits this member's schedule");
-    }
+                let prepared = crate::owner::bar_schedule::prepare_bar_schedule_commit_v1(
+                    crate::owner::bar_schedule::UntrustedBarScheduleProposalV1 {
+                        canonical_instrument: instrument.into(),
+                        predecessor_fact_digest: heads.get(instrument).copied(),
+                        effective_from: 1,
+                        effective_until: Some(100),
+                        kind: BarScheduleKindV1::FixedInterval,
+                        step: 1,
+                        unit: BarScheduleUnitV1::Minute,
+                        anchor_identity: d(202),
+                        label: BarScheduleLabelV1::IntervalClose,
+                        completion: BarScheduleCompletionV1::CompleteOnly,
+                    },
+                    &binding,
+                    readback,
+                    master,
+                )
+                .expect("a schedule prepares against the universe-scoped master");
+                let committed = owner
+                    .commit_prepared_bar_schedule_v1(&prepared)
+                    .await
+                    .expect("the Owner commits this member's schedule");
+                // The head tracks the schedule *fact*, and the readback's own `digest()` is its receipt
+                // identity - a different value. Naming that as the predecessor is refused as a head
+                // conflict, because it is not the head.
+                heads.insert(instrument, committed.fact().digest());
+            }
+        };
+    let second_readback = super::load_verified_observation_batch_from_pool(
+        owner.pool(),
+        second.fact().snapshot_identity(),
+        second.fact().digest(),
+    )
+    .await
+    .expect("the Owner reads back the second frame's batch");
+    commit_schedules(&readback, &first_master).await;
+    commit_schedules(&second_readback, &second_master).await;
 
     // What the store holds, not what the commit returned. A commit that did not error is not a
-    // schedule the frame resolver can find: it reads candidates back by canonical instrument, so
-    // that is the shape asserted here.
-    let stored: Vec<String> = sqlx::query_scalar(
-        "SELECT canonical_instrument FROM market_data_private.bar_schedule_facts_v1 ORDER BY canonical_instrument",
+    // schedule the frame resolver can find: it reads candidates back by canonical instrument.
+    let stored: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT canonical_instrument, count(*) FROM market_data_private.bar_schedule_facts_v1 GROUP BY canonical_instrument ORDER BY canonical_instrument",
     )
     .fetch_all(owner.pool())
     .await
     .unwrap();
     assert_eq!(
         stored,
-        ["AAPL.XNAS", "MSFT.XNAS"],
-        "both members of the frame have a bar schedule the resolver can find by instrument"
+        [("AAPL.XNAS".to_owned(), 2), ("MSFT.XNAS".to_owned(), 2)],
+        "each member has a schedule for each of the two frames the resolver will be asked about"
+    );
+
+    // Four readings through the real resolver, arranged so each outcome is informative.
+    //
+    // A and B resolve each frame with a request built from that frame's own values: they pass or
+    // fail on the supply alone. C resolves the second frame with the request the sequence resolver
+    // would actually use - the first frame's request, re-targeted by `for_frame`, which swaps the
+    // snapshot, its digest and the frame time and carries everything else over unchanged. D runs
+    // the sequence resolver itself.
+    //
+    // If A and B pass while C and D refuse, the supply is complete for both frames and the only
+    // thing breaking the sequence is what `for_frame` carries over: the Instrument Master digest,
+    // and the selection identity and digest derived from it. A master cut answers for one instant
+    // (`bar_schedule` requires it), so two frames at two instants rest on two masters - while the
+    // window names one.
+    let reader = MarketDataReadPostgres::connect(owner_url)
+        .await
+        .expect("a reader over the same store");
+    let window_for = |commit: &PitSnapshotCommitAggregate,
+                      master: &crate::owner::instrument_master::InstrumentMasterReadbackV1,
+                      frame_time_ns: u64| {
+        let (selection_identity, selection_digest) =
+            crate::owner::strategy_input_binding::universe_selection_identity_v1(
+                master.digest(),
+                source.fact().lineage_root(),
+                semantics,
+                &FRAME_MEMBERS,
+            );
+        NativeReplayInitialMarketRequestV1::new(
+            commit.fact().snapshot_identity(),
+            commit.fact().digest(),
+            d(198),
+            d(199),
+            selection_identity,
+            selection_digest,
+            master.digest(),
+            source.fact().lineage_root(),
+            semantics,
+            vec![NativeReplayInitialUniverseRoleV1::new(
+                d(203),
+                MarketDataFieldSemantic::BarClosePrice,
+                StrategyInputChannel::Market,
+                "1M".into(),
+                StrategyInputUnit::Price,
+                2,
+            )],
+            [FRAME_MEMBERS[0].1.into(), FRAME_MEMBERS[1].1.into()],
+            frame_time_ns,
+            100,
+        )
+    };
+
+    let first_window = window_for(&first, &first_master, 10);
+    reader
+        .resolve_native_replay_initial_market_inputs_v1(&first_window)
+        .await
+        .expect("A: the first frame resolves on its own supply");
+    reader
+        .resolve_native_replay_initial_market_inputs_v1(&window_for(&second, &second_master, 20))
+        .await
+        .expect("B: the second frame resolves on its own supply");
+
+    let carried_over = first_window.for_frame(
+        second.fact().snapshot_identity(),
+        second.fact().digest(),
+        20,
+    );
+    assert!(
+        matches!(
+            reader
+                .resolve_native_replay_initial_market_inputs_v1(&carried_over)
+                .await,
+            Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)
+        ),
+        "C: the second frame refuses the first frame's master once `for_frame` carries it over"
+    );
+    assert_ne!(
+        first_master.digest(),
+        second_master.digest(),
+        "the two frames rest on two masters; C refuses because one window names only one"
+    );
+
+    // D runs the sequence resolver, and it refuses at the *first* frame, not the second, for a
+    // reason none of A, B or C could reach. A, B and C stop at the initial-market readback. The
+    // sequence resolver goes on to `into_frame_evidence_v2`, which projects the native schedule
+    // and requires `frame_time < first_quote.ts_event < second_quote.ts_event < window_end`:
+    // quotes strictly after the bar, and the two members' quotes at two different instants.
+    //
+    // A committed batch cannot supply that. `validate_observation_against_claims` requires every
+    // row's `event_effective` to equal the request's, so a PIT snapshot is one instant - its quotes
+    // sit on the bar, not after it, and both members' quotes sit on the same instant. The only
+    // batches that ever satisfied this projection were built in memory with a quote time chosen
+    // independently of the bar time (`rows_for` in `native_replay_scheduling_v1`'s tests), which is
+    // the one thing the Owner's commit path refuses.
+    //
+    // Recorded as the refusal it is, so the assertion flips the day the contract changes and forces
+    // whoever changes it to say what the sequence now does. Frame ordinals are never read: the
+    // refusal comes before `issue` compares them.
+    let coordinates = [
+        crate::owner::native_replay_scheduling_v2::NativeReplaySequenceCoordinateV2 {
+            snapshot_identity: first.fact().snapshot_identity(),
+            snapshot_fact_digest: first.fact().digest(),
+            frame_time_ns: 10,
+            frame_ordinal: 1,
+        },
+        crate::owner::native_replay_scheduling_v2::NativeReplaySequenceCoordinateV2 {
+            snapshot_identity: second.fact().snapshot_identity(),
+            snapshot_fact_digest: second.fact().digest(),
+            frame_time_ns: 20,
+            frame_ordinal: 2,
+        },
+    ];
+    let sequence =
+        crate::owner::native_replay_scheduling_v2::resolve_native_replay_frame_sequence_v2(
+            &reader,
+            &first_window,
+            &coordinates,
+            d(204),
+            d(205),
+            0,
+        )
+        .await;
+    assert!(
+        matches!(
+            sequence,
+            Err(crate::owner::native_replay_scheduling_v2::NativeReplaySequenceResolveRefusalV2::Frame(
+                NativeReplaySchedulingErrorV1::EventOrderUnavailable
+            ))
+        ),
+        "D: a committed batch cannot supply a quote strictly after its own bar; got {:?}",
+        sequence.as_ref().map(|(frames, _)| frames.len()),
     );
 
     let frame =

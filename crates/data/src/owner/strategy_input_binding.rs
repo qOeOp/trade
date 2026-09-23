@@ -1392,6 +1392,40 @@ pub fn bind_strategy_input_universe_frame(
     })
 }
 
+/// The selection identity and digest a set of members names under one Instrument Master, one
+/// source lineage and one semantics identity.
+///
+/// It reads nothing a batch adds, which is the point of having it apart from
+/// `derive_universe_selection`: a requester has to *declare* this digest in the PIT request, and a
+/// per-frame readback refuses unless the declared value equals the derived one. Without a pure form
+/// the only way to learn the value is to commit a snapshot, read it back, and commit again - or to
+/// copy this encoder, which is the same derivation written twice.
+pub(crate) fn universe_selection_identity_v1(
+    instrument_master_digest: BindingDigest,
+    source_binding_lineage_root: BindingDigest,
+    market_semantics_identity: BindingDigest,
+    members: &[(&str, &str)],
+) -> (BindingDigest, BindingDigest) {
+    let mut static_meaning = Encoder::new(b"VIBE_STRATEGY_INPUT_UNIVERSE_SELECTION_STATIC_V1");
+    static_meaning.digest(instrument_master_digest);
+    static_meaning.digest(source_binding_lineage_root);
+    static_meaning.digest(market_semantics_identity);
+    static_meaning.u64(members.len() as u64);
+    for (member_key, instrument) in members {
+        static_meaning.string(member_key);
+        static_meaning.string(instrument);
+    }
+    let static_meaning = static_meaning.finish();
+    let mut identity_bytes = Encoder::new(b"VIBE_STRATEGY_INPUT_UNIVERSE_SELECTION_IDENTITY_V1");
+    identity_bytes.bytes(&static_meaning);
+    let mut digest_bytes = Encoder::new(b"VIBE_STRATEGY_INPUT_UNIVERSE_SELECTION_DIGEST_V1");
+    digest_bytes.bytes(&static_meaning);
+    (
+        digest(&identity_bytes.finish()),
+        digest(&digest_bytes.finish()),
+    )
+}
+
 pub(crate) fn derive_universe_selection(
     batch: &VerifiedPitObservationBatch,
 ) -> Result<StrategyInputUniverseSelectionReceipt, StrategyInputBindingUnavailable> {
@@ -1438,22 +1472,16 @@ pub(crate) fn derive_universe_selection(
     {
         return Err(StrategyInputBindingUnavailable::InconsistentUniverseMember);
     }
-    let mut static_meaning = Encoder::new(b"VIBE_STRATEGY_INPUT_UNIVERSE_SELECTION_STATIC_V1");
-    static_meaning.digest(batch.instrument_master_digest());
-    static_meaning.digest(batch.source_binding_lineage_root());
-    static_meaning.digest(batch.market_semantics_identity());
-    static_meaning.u64(members.len() as u64);
-    for member in &members {
-        static_meaning.string(member.member_key());
-        static_meaning.string(member.instrument());
-    }
-    let static_meaning = static_meaning.finish();
-    let mut identity_bytes = Encoder::new(b"VIBE_STRATEGY_INPUT_UNIVERSE_SELECTION_IDENTITY_V1");
-    identity_bytes.bytes(&static_meaning);
-    let selection_identity = digest(&identity_bytes.finish());
-    let mut digest_bytes = Encoder::new(b"VIBE_STRATEGY_INPUT_UNIVERSE_SELECTION_DIGEST_V1");
-    digest_bytes.bytes(&static_meaning);
-    let selection_digest = digest(&digest_bytes.finish());
+    let pairs = members
+        .iter()
+        .map(|member| (member.member_key(), member.instrument()))
+        .collect::<Vec<_>>();
+    let (selection_identity, selection_digest) = universe_selection_identity_v1(
+        batch.instrument_master_digest(),
+        batch.source_binding_lineage_root(),
+        batch.market_semantics_identity(),
+        &pairs,
+    );
     let mut receipt_bytes = Encoder::new(b"VIBE_STRATEGY_INPUT_UNIVERSE_SELECTION_RECEIPT_V1");
     receipt_bytes.digest(selection_identity);
     receipt_bytes.digest(selection_digest);
