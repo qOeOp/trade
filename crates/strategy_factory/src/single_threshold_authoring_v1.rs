@@ -965,9 +965,11 @@ mod tests {
         },
         strategy_plan_v2::{
             BfpRoleBindingKindV1, CompilationIssueV2, StrategyCompilationV2,
-            StrategyDesignPreparationV2, prepare_strategy_design_v2,
-            project_bfp_role_bindings_for_test, validate_universe_target_set_contract_for_test,
-            verified_strategy_input_bindings_for_test,
+            StrategyDesignPreparationV2, compile_strategy_design_v2_with_verified_bindings,
+            issue_plugin_implementation_receipt_v2_for_test, prepare_strategy_design_v2,
+            project_bfp_role_bindings_for_test, strategy_input_role_identity_v2,
+            validate_universe_target_set_contract_for_test,
+            verified_strategy_input_bindings_for_test, verified_universe_bindings_for_test,
         },
     };
 
@@ -1516,6 +1518,86 @@ mod tests {
             serde_json::from_value::<SingleThresholdAuthoringRequestV1>(tagged)
                 .expect("the tagged request parses"),
             source,
+        );
+    }
+
+    /// The universe-member pair compiles into a Plan against one-member Owner universe authority,
+    /// the whole way a Plan is compiled, and the Plan binds each role's value and coordinate to the
+    /// Owner binding of that role at the one member.
+    ///
+    /// The authority is Owner-shaped values, not Owner custody; the ordered chain is where custody
+    /// is proven. The control is the same Design against a two-member universe, which does not
+    /// compile, because the vertical then needs a whole target set this program does not emit.
+    #[rstest]
+    fn a_universe_member_pair_compiles_into_a_one_member_plan() {
+        let (design, _) = author_single_threshold_program_v1(&universe_request())
+            .expect("the universe-member request is authorable");
+        let manifest = &design.plugins[0];
+        let receipt = issue_plugin_implementation_receipt_v2_for_test(
+            manifest,
+            digest(71),
+            digest(72),
+            digest(73),
+            digest(74),
+            "strategy.plugin.compute.v2",
+            manifest.abi_version,
+            design
+                .capabilities
+                .iter()
+                .map(|capability| (capability.semantic_id.clone(), capability.version))
+                .collect(),
+        );
+        let compile = |instruments: &[&str]| {
+            compile_strategy_design_v2_with_verified_bindings(
+                design.clone(),
+                verified_universe_bindings_for_test(&design, instruments),
+                std::slice::from_ref(&receipt),
+            )
+        };
+
+        let StrategyCompilationV2::Compiled(plan) = compile(&["BTCUSDT-PERP.BINANCE"]) else {
+            panic!(
+                "the universe-member Design compiles against one member: {:?}",
+                compile(&["BTCUSDT-PERP.BINANCE"])
+            );
+        };
+        let rows = plan.bfp_role_bindings();
+        assert_eq!(
+            rows.len(),
+            4,
+            "a value and a coordinate row for each of two roles"
+        );
+
+        for row in rows {
+            assert_eq!(row.member_ordinal(), Some(0));
+            assert_eq!(
+                Some(row.static_binding_receipt_digest()),
+                plan.universe_binding_digest(
+                    row.input_role_identity(),
+                    "member-0",
+                    "BTCUSDT-PERP.BINANCE"
+                ),
+                "{} binds the Owner binding of its role at the one member",
+                row.input_role_id(),
+            );
+        }
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.input_role_identity())
+                .collect::<std::collections::BTreeSet<_>>(),
+            design
+                .inputs
+                .iter()
+                .map(strategy_input_role_identity_v2)
+                .collect(),
+        );
+
+        assert!(
+            !matches!(
+                compile(&["BTCUSDT-PERP.BINANCE", "ETHUSDT-PERP.BINANCE"]),
+                StrategyCompilationV2::Compiled(_)
+            ),
+            "the same Design does not compile against two members",
         );
     }
 }

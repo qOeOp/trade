@@ -4042,6 +4042,68 @@ pub(crate) fn verified_strategy_input_bindings_for_test(
     }
 }
 
+/// Owner-shaped universe authority for a Design's universe-member roles, without an Owner.
+///
+/// One selection over the given instruments in their order, and one binding per role and member,
+/// each distinct and nonzero. Everything a Plan compiles against is a value here; what the test
+/// does not have is the Owner custody that seals it, which the ordered chain proves separately.
+#[cfg(test)]
+pub(crate) fn verified_universe_bindings_for_test(
+    design: &StrategyDesignV2,
+    instruments: &[&str],
+) -> VerifiedStrategyInputBindingsV2 {
+    let canonical = canonicalize(design.clone()).expect("test Design must canonicalize");
+    let bytes = serde_json::to_vec(&canonical).expect("canonical design");
+    let design_digest = digest(b"strategy.design.v2\0", &bytes);
+    let design_identity = digest(b"strategy.design.identity.v2\0", design_digest.as_bytes());
+    let members = instruments
+        .iter()
+        .enumerate()
+        .map(|(ordinal, instrument)| UniverseMemberProjectionV2 {
+            member_key: format!("member-{ordinal}"),
+            instrument: (*instrument).to_owned(),
+        })
+        .collect::<Vec<_>>();
+    let mut universe_bindings = canonical
+        .inputs
+        .iter()
+        .map(|role| {
+            let input_role_identity = role_identity(role);
+            UniverseRoleBindingProjectionV2 {
+                research_request_identity: canonical.research_request_identity,
+                strategy_design_identity: design_identity,
+                input_role_identity,
+                members: members
+                    .iter()
+                    .map(|member| {
+                        let mut preimage = input_role_identity.as_bytes().to_vec();
+                        preimage.extend_from_slice(member.member_key.as_bytes());
+                        UniverseMemberBindingProjectionV2 {
+                            member_key: member.member_key.clone(),
+                            instrument: member.instrument.clone(),
+                            binding_digest: digest(b"test.universe-member-binding\0", &preimage),
+                        }
+                    })
+                    .collect(),
+            }
+        })
+        .collect::<Vec<_>>();
+    universe_bindings.sort();
+    VerifiedStrategyInputBindingsV2 {
+        projections: vec![],
+        universe_selection: Some(UniverseSelectionProjectionV2 {
+            selection_identity: BindingDigest::from_untrusted_bytes([61; 32]),
+            selection_digest: BindingDigest::from_untrusted_bytes([62; 32]),
+            instrument_master_digest: BindingDigest::from_untrusted_bytes([63; 32]),
+            source_binding_lineage_root: BindingDigest::from_untrusted_bytes([64; 32]),
+            market_semantics_identity: BindingDigest::from_untrusted_bytes([65; 32]),
+            selection_receipt_digest: BindingDigest::from_untrusted_bytes([66; 32]),
+            members,
+        }),
+        universe_bindings,
+    }
+}
+
 /// Projects a Design's BFP role table without compiling a Plan: exact-instrument roles against
 /// their receipts, and universe-member roles against one binding per Owner universe member, in
 /// member order.
