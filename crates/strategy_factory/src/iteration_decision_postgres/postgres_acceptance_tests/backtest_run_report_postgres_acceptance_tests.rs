@@ -203,7 +203,11 @@ async fn assert_request_reads_without_a_lock_and_the_locking_read_still_holds_it
             .fetch_one(&mut *holder)
             .await
             .expect("the locking read answers");
-    assert_eq!(held, lock_free, "both reads answer the same request");
+    assert_eq!(
+        without_owner_cut(held),
+        without_owner_cut(lock_free),
+        "both reads answer the same request"
+    );
     let try_update = |pool: PgPool| async move {
         let mut other = pool.begin().await.expect("another session");
         let outcome = sqlx::query(
@@ -231,6 +235,23 @@ async fn assert_request_reads_without_a_lock_and_the_locking_read_still_holds_it
     try_update(rd_pool.clone())
         .await
         .expect("the row is free once the locking read's transaction ends");
+}
+
+/// Drops the owner cut from one read of the request, after requiring it.
+///
+/// The cut is the instant the storage function answered (`clock_timestamp()`), so two reads a
+/// few milliseconds apart carry different cuts by design. Everything else they return is the
+/// sealed request and must be equal.
+fn without_owner_cut(read: Option<serde_json::Value>) -> serde_json::Value {
+    let mut read = read.expect("the request is found");
+    let cut = read
+        .as_object_mut()
+        .and_then(|fields| fields.remove("owner_cut_epoch_ms"));
+    assert!(
+        cut.as_ref().is_some_and(serde_json::Value::is_u64),
+        "every read names the instant it answered: {cut:?}"
+    );
+    read
 }
 
 /// Reads the locks this backend holds after the report's reads, before its transaction ends.
