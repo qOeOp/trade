@@ -1182,7 +1182,9 @@ FROM market_data_owner, market_data_reader;
 -- is granted when present. Its migration grants nothing: materialization verifies every public
 -- relation with no runtime reader yet, and runtime readers arrive at cutover, as the grant above does.
 -- It stays outside that grant and its matching revoke: `scripts/check/authority.bash` reads the pair
--- as one statement each, and this one is conditional.
+-- as one statement each, and this one is conditional. Unlike those tables it needs no matching
+-- revoke from market_data_owner or market_data_reader: nothing grants it to either. In a deployed
+-- database the switch is unset and the table never exists, so this block does nothing there.
 DO $view_transitions_v3$ BEGIN
   IF pg_catalog.to_regclass('public.rd_research_view_transitions_v3') IS NOT NULL THEN
     GRANT SELECT ON TABLE public.rd_research_view_transitions_v3 TO rd_exploratory_replay_api_owner;

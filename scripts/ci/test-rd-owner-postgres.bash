@@ -964,9 +964,10 @@ check_market_data_principal_bootstrap_order() {
 }
 
 # The chain opens the Composer-backed Replay feature in an acceptance build; the deployed image
-# must not. The deployed binary is built by `Dockerfile.owner` with no `--features`, over a crate
-# whose default feature set is empty, and its database is migrated with the acceptance switch unset.
-# Those three are what keep a wider chain union from reaching a deployed image, so they are pinned
+# must not. The deployment builds two crates that define it - `vibe-strategy-factory-rd-owner-api`
+# in `Dockerfile.owner` and `vibe-strategy-factory` in `Dockerfile.sandbox` - with no `--features`,
+# over default feature sets that are empty, and migrates its database with the acceptance switch
+# unset. Those are what keep a wider chain union from reaching a deployed image, so they are pinned
 # here, next to the union they are the other side of.
 check_composer_acceptance_stays_in_the_chain() {
   local repository_root
@@ -986,20 +987,26 @@ check_composer_acceptance_stays_in_the_chain() {
     echo "ERROR: the Composer acceptance switch no longer follows the chain feature union." >&2
     return 1
   fi
-  local dockerfile="$repository_root/product/rd-workbench/Dockerfile.owner"
-  if ! rg -q -F 'cargo build --locked --release -p vibe-strategy-factory-rd-owner-api' "$dockerfile"; then
-    echo "ERROR: $dockerfile no longer builds vibe-strategy-factory-rd-owner-api the way this check reads it." >&2
-    return 1
-  fi
-  if rg -q -e '--features' -e '--all-features' "$dockerfile"; then
-    echo "ERROR: $dockerfile passes a feature to the deployed build; the chain's acceptance union must not reach it." >&2
-    return 1
-  fi
-  if ! awk '/^\[features\]/{f=1;next} /^\[/{f=0} f && $0=="default = []"{found=1} END{exit !found}' \
-    "$repository_root/crates/strategy_factory_rd_owner_api/Cargo.toml"; then
-    echo "ERROR: vibe-strategy-factory-rd-owner-api must keep an empty default feature set." >&2
-    return 1
-  fi
+  local dockerfile package manifest
+  for dockerfile in Dockerfile.owner:vibe-strategy-factory-rd-owner-api Dockerfile.sandbox:vibe-strategy-factory; do
+    package="${dockerfile#*:}"
+    dockerfile="$repository_root/product/rd-workbench/${dockerfile%%:*}"
+    if ! rg -q -F "cargo build --locked --release -p $package " "$dockerfile"; then
+      echo "ERROR: $dockerfile no longer builds $package the way this check reads it." >&2
+      return 1
+    fi
+    if rg -q -e '--features' -e '--all-features' "$dockerfile"; then
+      echo "ERROR: $dockerfile passes a feature to a deployed build; the chain's acceptance union must not reach it." >&2
+      return 1
+    fi
+  done
+  for manifest in strategy_factory_rd_owner_api strategy_factory; do
+    if ! awk '/^\[features\]/{f=1;next} /^\[/{f=0} f && $0=="default = []"{found=1} END{exit !found}' \
+      "$repository_root/crates/$manifest/Cargo.toml"; then
+      echo "ERROR: crates/$manifest must keep an empty default feature set; a deployed build takes its defaults." >&2
+      return 1
+    fi
+  done
   local deploy_setters
   deploy_setters="$(git -C "$repository_root" grep -l -F SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE -- product/rd-workbench \
     ':!product/rd-workbench/postgres-init/10-migrate-authority-custody.sh' \
