@@ -83,16 +83,16 @@ impl NativeReplayExecutionPrerequisitesV2 {
     }
 }
 
-#[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
+#[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum NativeReplayExecutionPrerequisitesErrorV2 {
     #[error("Native Replay Owner input binding is unavailable")]
     OwnerBindingUnavailable,
-    #[error("Native Replay execution profile authority is unavailable")]
-    ProfileAuthorityUnavailable,
+    #[error("Native Replay execution profile authority is unavailable: {0}")]
+    ProfileAuthorityUnavailable(String),
     #[error("Market Data has not issued canonical ordered native scheduling data")]
     NativeSchedulingDataUnavailable,
-    #[error("Native Replay execution bundle composition is unavailable")]
-    ExecutionBundleUnavailable,
+    #[error("Native Replay execution bundle composition is unavailable: {0}")]
+    ExecutionBundleUnavailable(String),
 }
 
 /// Resolves persistent Market Data scheduling custody and composes the exact Sim execution bundle.
@@ -128,7 +128,12 @@ pub async fn compose_native_replay_execution_bundle_v2(
         public_terms,
         sequence,
     )
-    .map_err(|_| NativeReplayExecutionPrerequisitesErrorV2::ExecutionBundleUnavailable)
+    // `new` returns `anyhow::Result`, so what arrives here is a chain with context, and `{:#}`
+    // keeps the whole chain rather than only its outermost message. This is the one discard on
+    // this path that was throwing away a diagnosis someone had already written.
+    .map_err(|e| {
+        NativeReplayExecutionPrerequisitesErrorV2::ExecutionBundleUnavailable(format!("{e:#}"))
+    })
 }
 
 /// Cross-binds all currently available Owner readbacks and issues the execution-profile authority.
@@ -156,7 +161,9 @@ pub fn prepare_native_replay_execution_prerequisites_v2(
         preparation.replay(),
         [&instrument_terms[0], &instrument_terms[1]],
     )
-    .map_err(|_| NativeReplayExecutionPrerequisitesErrorV2::ProfileAuthorityUnavailable)?;
+    .map_err(|e| {
+        NativeReplayExecutionPrerequisitesErrorV2::ProfileAuthorityUnavailable(e.to_string())
+    })?;
     Ok(NativeReplayExecutionPrerequisitesV2 {
         preparation,
         market_facts,
