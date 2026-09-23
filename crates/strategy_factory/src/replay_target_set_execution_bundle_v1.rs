@@ -366,6 +366,17 @@ impl ReplayTargetSetExecutionBundleV1 {
         self.census.native_materialization_digest()
     }
 
+    /// Returns how many Owner-sealed universe frames this bundle was built from.
+    ///
+    /// It is one for a bundle built through [`Self::new_from_single_frame_v1`] and at least two for
+    /// one built through [`Self::new`], so a caller that wants to state which of the two produced a
+    /// given bundle can read it rather than infer it from an opaque census digest. The census
+    /// already carries the number; only the passthrough was missing.
+    #[must_use]
+    pub const fn frame_count(&self) -> u64 {
+        self.census.frame_count()
+    }
+
     /// Binds this executable bundle to one Owner-sealed Native Replay frame sequence.
     ///
     /// Without this there is no binding point between the frame and the fills it produces: the
