@@ -8325,6 +8325,10 @@ mod tests {
         assert_eq!(after_distinct_revoke.1, after_bound_revoke.1);
     }
 
+    /// How long `expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows` gives its
+    /// setup before the objects it creates expire. See the comment at its use.
+    const RECOVERY_PRE_EXPIRY_BUDGET_MS: u64 = 5_000;
+
     #[tokio::test]
     #[ignore = "requires the disposable canonical OA/PE PostgreSQL topology"]
     async fn expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows() {
@@ -8337,7 +8341,15 @@ mod tests {
         .unwrap();
         let suffix = unique_suffix();
         let now = now_ms().unwrap();
-        let expiry = now.saturating_add(500);
+        // What this entry tests is recovery after expiry, so the expiry itself is not negotiable.
+        // The time before it is only the budget for creating everything that will expire: the
+        // manifests, the authorization and the binding each refuse a validity that has already
+        // passed, so the whole setup must commit inside this budget. At 500 ms a loaded machine
+        // overran it and the binding was refused as `InvalidProposal("binding validity")`, which
+        // reads as a defect and is only a slow machine. Product Edge reads its own clock, so the
+        // expiry cannot be moved by the test; the budget is therefore set an order of magnitude
+        // above a normal setup, and an overrun below is named as one.
+        let expiry = now.saturating_add(RECOVERY_PRE_EXPIRY_BUDGET_MS);
         let successor_expiry = expiry.saturating_add(600_000);
         let principal = format!("recovery-principal-{suffix}");
         let deployment = format!("recovery-deployment-{suffix}");
@@ -8475,7 +8487,14 @@ mod tests {
         .fetch_one(pe_pool)
         .await
         .unwrap();
-        let remaining = expiry.saturating_sub(now_ms().unwrap());
+        let setup_done = now_ms().unwrap();
+        assert!(
+            setup_done < expiry,
+            "setup took {} ms, past the {RECOVERY_PRE_EXPIRY_BUDGET_MS} ms budget before expiry; \
+             the machine is too slow for this entry, not the recovery wrong",
+            setup_done.saturating_sub(now)
+        );
+        let remaining = expiry.saturating_sub(setup_done);
         tokio::time::sleep(Duration::from_millis(remaining.saturating_add(25))).await;
 
         let ordinary_authorization = OperatorAuthorizationSuccessorIssuanceProposalV1 {
