@@ -27,9 +27,10 @@ GUARD = HERE / "check-feature-gate-coverage.py"
 # `vibe-strategy-factory`. No `--features` string anywhere in the repository says this name.
 TRANSITIVELY_ENABLED = "sealed-strategy-input-acceptance"
 
-# Gates 173 cfg sites and is turned on by nothing. If this ever reads as compiled, either CI
-# started compiling it - a change worth noticing - or the resolution below stopped discriminating.
-ENABLED_BY_NOTHING = "sealed-source-intake-composer-acceptance"
+# Turned on by nothing CI builds. If this ever reads as compiled, either CI started compiling it -
+# a change worth noticing, and the reason `sealed-source-intake-composer-acceptance` stopped being
+# this probe when the ordered chain took it - or the resolution below stopped discriminating.
+ENABLED_BY_NOTHING = "isolated-event-replay-acceptance"
 
 
 def load() -> object:

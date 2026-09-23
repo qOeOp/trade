@@ -2757,7 +2757,8 @@ fn resolve_reference(
                     ));
                 }
                 ValueRefV2::UniverseMemberInput { member_ordinal, .. }
-                    if *member_ordinal >= lifecycle_v2::TARGET_SET_MEMBER_COUNT as u8
+                    if usize::from(*member_ordinal)
+                        >= lifecycle_v2::TARGET_SET_MAX_MEMBER_COUNT
                         || validation.input_scopes.get(input_id.as_str())
                             != Some(&&InputScopeV2::UniverseMembers) =>
                 {
@@ -3231,8 +3232,8 @@ fn compile_canonical(
             .map(|member| member.instrument.as_str())
             .collect::<BTreeSet<_>>();
 
-        if selection.members.len() != lifecycle_v2::TARGET_SET_MEMBER_COUNT
-            || selected.len() != lifecycle_v2::TARGET_SET_MEMBER_COUNT
+        if !crate::target_set_members::is_admitted_member_count(selection.members.len())
+            || selected.len() != selection.members.len()
             || selection.market_semantics_identity == BindingDigest::from_untrusted_bytes([0; 32])
             || selection.source_binding_lineage_root == BindingDigest::from_untrusted_bytes([0; 32])
         {

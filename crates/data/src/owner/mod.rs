@@ -62,6 +62,7 @@ use instrument_master_v2_postgres::{
 pub(crate) mod corporate_action;
 pub(crate) mod correction_policy_projection;
 pub(crate) mod market_semantics;
+pub(crate) mod native_replay_quote_cut_v2;
 pub(crate) mod reference_fact_catalog;
 pub(crate) mod reference_fact_coordinates;
 pub(crate) mod session;

@@ -21,7 +21,7 @@ use strategy_factory_program_sdk::{
         LifecycleEnvelopeV1, LifecycleKind, PositionIntentV1, ProtectionStateV1, SemanticTraceV1,
         TargetProposalV1,
     },
-    lifecycle_v2::{InstrumentTargetSetV2, TARGET_SET_MEMBER_COUNT},
+    lifecycle_v2::InstrumentTargetSetV2,
 };
 use vibe_backtest_owner_contracts::native_replay_trace::{
     fill_disposition_name, lifecycle_name, position_intent_name,
@@ -53,6 +53,7 @@ use crate::{
         admit_market_data_universe_program_event_v2,
     },
     strategy_plan_v2::StrategyPlanV2,
+    target_set_members::BoundedMembers,
 };
 
 const RECONCILIATION_SNAPSHOT_DOMAIN: &[u8] = b"strategy.backtest.target-set.snapshot.v2\0";
@@ -93,8 +94,8 @@ pub(crate) struct TargetSetEquitySnapshotObservationV2 {
     pub(crate) account_id: String,
     pub(crate) currency: String,
     pub(crate) equity: String,
-    pub(crate) current_grid_units: [i64; TARGET_SET_MEMBER_COUNT],
-    pub(crate) derived_grid_targets: [i64; TARGET_SET_MEMBER_COUNT],
+    pub(crate) current_grid_units: BoundedMembers<i64>,
+    pub(crate) derived_grid_targets: BoundedMembers<i64>,
     pub(crate) snapshot_identity: [u8; 32],
 }
 
@@ -129,7 +130,7 @@ pub(crate) struct TargetSetBacktestTraceV2 {
     ///
     /// It is recorded from the Backtest cache itself, before the frame-exhaustion check, so a
     /// faulted run still reports what the venue actually held.
-    pub(crate) final_member_grid_units: Option<[i64; TARGET_SET_MEMBER_COUNT]>,
+    pub(crate) final_member_grid_units: Option<BoundedMembers<i64>>,
     pub(crate) venue_atomicity_claimed: bool,
     pub(crate) cold_restart_claimed: bool,
 }
@@ -157,9 +158,9 @@ struct MemberExecutionStateV2 {
 struct BatchSnapshotV2 {
     account_id: AccountId,
     equity: Money,
-    instruments: [InstrumentAny; TARGET_SET_MEMBER_COUNT],
-    prices: [Price; TARGET_SET_MEMBER_COUNT],
-    current_grid_units: [i64; TARGET_SET_MEMBER_COUNT],
+    instruments: BoundedMembers<InstrumentAny>,
+    prices: BoundedMembers<Price>,
+    current_grid_units: BoundedMembers<i64>,
 }
 
 pub(crate) struct BacktestReconciliationCapabilityV2 {
@@ -167,7 +168,7 @@ pub(crate) struct BacktestReconciliationCapabilityV2 {
     prepared_identity: BindingDigest,
     target_set: strategy_factory_program_sdk::lifecycle_v2::InstrumentTargetSetV2,
     snapshot_identity: BindingDigest,
-    derived_grid_targets: [i64; TARGET_SET_MEMBER_COUNT],
+    derived_grid_targets: BoundedMembers<i64>,
     binding_identity: BindingDigest,
 }
 
@@ -177,7 +178,7 @@ impl BacktestReconciliationCapabilityV2 {
         prepared_identity: BindingDigest,
         host_instance_token: &Rc<()>,
         target_set: strategy_factory_program_sdk::lifecycle_v2::InstrumentTargetSetV2,
-    ) -> Result<[i64; TARGET_SET_MEMBER_COUNT], ProgramHostV2Error> {
+    ) -> Result<BoundedMembers<i64>, ProgramHostV2Error> {
         if !Rc::ptr_eq(&self.host_instance_token, host_instance_token)
             || self.prepared_identity != prepared_identity
             || self.target_set != target_set
@@ -186,7 +187,7 @@ impl BacktestReconciliationCapabilityV2 {
                     self.prepared_identity,
                     self.snapshot_identity,
                     self.target_set,
-                    self.derived_grid_targets,
+                    &self.derived_grid_targets,
                 )?
         {
             return Err(ProgramHostV2Error::InputCoverage);
@@ -220,13 +221,13 @@ pub(crate) struct BacktestTargetSetProgramHostStrategyV2 {
     core: StrategyCore,
     plan: StrategyPlanV2,
     host: ProgramHostV2,
-    instrument_ids: [InstrumentId; TARGET_SET_MEMBER_COUNT],
-    bar_types: [BarType; TARGET_SET_MEMBER_COUNT],
+    instrument_ids: BoundedMembers<InstrumentId>,
+    bar_types: BoundedMembers<BarType>,
     expected_account_id: Option<AccountId>,
     universe_frames: BTreeMap<u64, BacktestUniverseFrameV2>,
-    pending_bars: BTreeMap<u64, [Option<Bar>; TARGET_SET_MEMBER_COUNT]>,
+    pending_bars: BTreeMap<u64, BoundedMembers<Option<Bar>>>,
     position_orders: BTreeMap<ClientOrderId, NativeOrderBindingV2>,
-    members: [MemberExecutionStateV2; TARGET_SET_MEMBER_COUNT],
+    members: BoundedMembers<MemberExecutionStateV2>,
     owner_sequence: u64,
     fault_hook: BacktestTargetSetFaultHookV2,
     restore_after_first_terminal_fill: bool,
@@ -240,8 +241,8 @@ impl BacktestTargetSetProgramHostStrategyV2 {
         strategy_id: StrategyId,
         plan: StrategyPlanV2,
         artifact: StrategyArtifactV2,
-        instrument_ids: [InstrumentId; TARGET_SET_MEMBER_COUNT],
-        bar_types: [BarType; TARGET_SET_MEMBER_COUNT],
+        instrument_ids: BoundedMembers<InstrumentId>,
+        bar_types: BoundedMembers<BarType>,
         universe_frames: impl IntoIterator<Item = StrategyInputUniverseFrameReceipt>,
         expected_account_id: Option<AccountId>,
         restore_after_first_terminal_fill: bool,
@@ -249,9 +250,12 @@ impl BacktestTargetSetProgramHostStrategyV2 {
         trace: Rc<RefCell<TargetSetBacktestTraceV2>>,
     ) -> anyhow::Result<Self> {
         anyhow::ensure!(
-            instrument_ids[0] < instrument_ids[1]
-                && bar_types[0].instrument_id() == instrument_ids[0]
-                && bar_types[1].instrument_id() == instrument_ids[1],
+            instrument_ids.windows(2).all(|pair| pair[0] < pair[1])
+                && bar_types.len() == instrument_ids.len()
+                && bar_types
+                    .iter()
+                    .zip(&instrument_ids)
+                    .all(|(bar_type, instrument_id)| bar_type.instrument_id() == *instrument_id),
             "Backtest target-set members must be distinct and canonical"
         );
         let host = ProgramHostV2::new(plan.clone(), artifact)?;
@@ -274,6 +278,7 @@ impl BacktestTargetSetProgramHostStrategyV2 {
             !frames.is_empty(),
             "Backtest target-set corpus has no frames"
         );
+        let members = instrument_ids.map(|_| MemberExecutionStateV2::default());
         Ok(Self {
             core: StrategyCore::new(
                 StrategyConfig::builder()
@@ -289,7 +294,7 @@ impl BacktestTargetSetProgramHostStrategyV2 {
             universe_frames: frames,
             pending_bars: BTreeMap::new(),
             position_orders: BTreeMap::new(),
-            members: std::array::from_fn(|_| MemberExecutionStateV2::default()),
+            members,
             owner_sequence: 20_000,
             fault_hook: BacktestTargetSetFaultHookV2::None,
             restore_after_first_terminal_fill,
@@ -340,8 +345,8 @@ impl BacktestTargetSetProgramHostStrategyV2 {
             );
         }
 
-        for instrument_id in self.instrument_ids {
-            self.cache().try_instrument(&instrument_id)?;
+        for instrument_id in &self.instrument_ids {
+            self.cache().try_instrument(instrument_id)?;
         }
         let envelope = lifecycle_envelope(
             1,
@@ -357,7 +362,7 @@ impl BacktestTargetSetProgramHostStrategyV2 {
         let event = self.host.admit_backtest_lifecycle_event(envelope)?;
         self.apply_host_wide_event(&event)?;
 
-        for bar_type in self.bar_types {
+        for bar_type in self.bar_types.clone() {
             self.subscribe_bars(bar_type, None, None);
         }
         Ok(())
@@ -396,7 +401,11 @@ impl BacktestTargetSetProgramHostStrategyV2 {
             .position(|bar_type| *bar_type == bar.bar_type)
             .context("unbound Backtest target-set BarType")?;
         let time = bar.ts_init.as_u64();
-        let bars = self.pending_bars.entry(time).or_insert([None, None]);
+        let member_count = self.bar_types.len();
+        let bars = self
+            .pending_bars
+            .entry(time)
+            .or_insert_with(|| self.bar_types.map(|_| None));
         anyhow::ensure!(
             bars[ordinal].replace(*bar).is_none(),
             "duplicate member BAR"
@@ -410,17 +419,18 @@ impl BacktestTargetSetProgramHostStrategyV2 {
             .remove(&time)
             .context("complete member BAR batch disappeared")?
             .map(|bar| bar.expect("complete batch checked"));
+        debug_assert_eq!(bars.len(), member_count);
         let frame = self
             .universe_frames
             .remove(&time)
             .context("missing Owner-sealed target-set frame")?;
-        self.apply_complete_frame(&frame, bars)
+        self.apply_complete_frame(&frame, &bars)
     }
 
     fn apply_complete_frame(
         &mut self,
         frame: &BacktestUniverseFrameV2,
-        bars: [Bar; TARGET_SET_MEMBER_COUNT],
+        bars: &BoundedMembers<Bar>,
     ) -> anyhow::Result<()> {
         let admitted = match frame {
             BacktestUniverseFrameV2::Owner(frame) => {
@@ -452,7 +462,7 @@ impl BacktestTargetSetProgramHostStrategyV2 {
         let target_set = prepared.canonical_target_set();
         let snapshot = self.capture_batch_snapshot(bars.map(|bar| bar.close), &prepared)?;
         let capability = snapshot.seal_reconciliation(&prepared, target_set)?;
-        let grid_targets = capability.derived_grid_targets;
+        let grid_targets = capability.derived_grid_targets.clone();
         self.trace
             .borrow_mut()
             .equity_snapshots
@@ -460,17 +470,17 @@ impl BacktestTargetSetProgramHostStrategyV2 {
                 account_id: snapshot.account_id.to_string(),
                 currency: snapshot.equity.currency.to_string(),
                 equity: snapshot.equity.to_string(),
-                current_grid_units: snapshot.current_grid_units,
-                derived_grid_targets: grid_targets,
+                current_grid_units: snapshot.current_grid_units.clone(),
+                derived_grid_targets: grid_targets.clone(),
                 snapshot_identity: *capability.snapshot_identity.as_bytes(),
             });
         let prepared = prepared.reconcile_backtest_capability(capability)?;
         let traces = prepared
             .member_traces()
             .context("reconciled target set omitted member traces")?;
-        let orders = self.prepare_native_orders(&snapshot, &prepared, traces)?;
+        let orders = self.prepare_native_orders(&snapshot, &prepared, &traces)?;
         self.validate_native_order_bindings(&prepared, &orders)?;
-        let residuals = try_map_pair(|ordinal| {
+        let residuals = try_map_members(self.instrument_ids.len(), |ordinal| {
             grid_targets[ordinal]
                 .checked_sub(traces[ordinal].position_after_units)
                 .context("target-set residual overflow")
@@ -538,10 +548,10 @@ impl BacktestTargetSetProgramHostStrategyV2 {
 
     fn capture_batch_snapshot(
         &self,
-        prices: [Price; TARGET_SET_MEMBER_COUNT],
+        prices: BoundedMembers<Price>,
         prepared: &PreparedBacktestTargetSetV2,
     ) -> anyhow::Result<BatchSnapshotV2> {
-        let instruments = try_map_pair(|ordinal| {
+        let instruments = try_map_members(self.instrument_ids.len(), |ordinal| {
             self.cache()
                 .try_instrument(&self.instrument_ids[ordinal])
                 .map_err(anyhow::Error::from)
@@ -571,7 +581,9 @@ impl BacktestTargetSetProgramHostStrategyV2 {
             );
         }
         anyhow::ensure!(
-            self.instrument_ids[0].venue == self.instrument_ids[1].venue,
+            self.instrument_ids
+                .iter()
+                .all(|instrument_id| instrument_id.venue == self.instrument_ids[0].venue),
             "Backtest target-set requires one venue account snapshot"
         );
         let venue = self.instrument_ids[0].venue;
@@ -609,7 +621,7 @@ impl BacktestTargetSetProgramHostStrategyV2 {
             equity.currency == currency && equity.as_decimal() > Decimal::ZERO,
             "Backtest target-set equity is invalid"
         );
-        let current_grid_units = try_map_pair(|ordinal| {
+        let current_grid_units = try_map_members(self.instrument_ids.len(), |ordinal| {
             let units = self.cached_position_grid_units(ordinal, &instruments[ordinal])?;
             anyhow::ensure!(
                 prepared
@@ -632,9 +644,9 @@ impl BacktestTargetSetProgramHostStrategyV2 {
         &self,
         snapshot: &BatchSnapshotV2,
         prepared: &PreparedBacktestTargetSetV2,
-        traces: [SemanticTraceV1; TARGET_SET_MEMBER_COUNT],
-    ) -> anyhow::Result<[Option<PreparedNativeOrderV2>; TARGET_SET_MEMBER_COUNT]> {
-        try_map_pair(|ordinal| {
+        traces: &[SemanticTraceV1],
+    ) -> anyhow::Result<BoundedMembers<Option<PreparedNativeOrderV2>>> {
+        try_map_members(self.instrument_ids.len(), |ordinal| {
             let (_, checkpoint) = prepared
                 .member_checkpoint(ordinal)
                 .context("prepared member checkpoint unavailable")?;
@@ -721,7 +733,7 @@ impl BacktestTargetSetProgramHostStrategyV2 {
     fn validate_native_order_bindings(
         &self,
         prepared: &PreparedBacktestTargetSetV2,
-        orders: &[Option<PreparedNativeOrderV2>; TARGET_SET_MEMBER_COUNT],
+        orders: &[Option<PreparedNativeOrderV2>],
     ) -> anyhow::Result<()> {
         let mut client_order_ids = BTreeSet::new();
 
@@ -1144,10 +1156,10 @@ impl DataActor for BacktestTargetSetProgramHostStrategyV2 {
 
     fn on_stop(&mut self) -> anyhow::Result<()> {
         let result = (|| {
-            for bar_type in self.bar_types {
+            for bar_type in self.bar_types.clone() {
                 self.unsubscribe_bars(bar_type, None, None);
             }
-            let final_member_grid_units = try_map_pair(|ordinal| {
+            let final_member_grid_units = try_map_members(self.instrument_ids.len(), |ordinal| {
                 let instrument = self.cache().try_instrument(&self.instrument_ids[ordinal])?;
                 self.cached_position_grid_units(ordinal, &instrument)
             })?;
@@ -1216,8 +1228,12 @@ impl BatchSnapshotV2 {
         prepared: &PreparedBacktestTargetSetV2,
         target_set: InstrumentTargetSetV2,
     ) -> anyhow::Result<BacktestReconciliationCapabilityV2> {
-        let derived_grid_targets = try_map_pair(|ordinal| {
-            convert_grid_target(target_set.members[ordinal].target, self, ordinal)
+        anyhow::ensure!(
+            target_set.member_count() == self.instruments.len(),
+            "Backtest target-set snapshot does not cover the target set members"
+        );
+        let derived_grid_targets = try_map_members(self.instruments.len(), |ordinal| {
+            convert_grid_target(target_set.members()[ordinal].target, self, ordinal)
         })?;
         let snapshot_identity = self.identity();
         let prepared_identity = prepared.prepared_identity();
@@ -1225,7 +1241,7 @@ impl BatchSnapshotV2 {
             prepared_identity,
             snapshot_identity,
             target_set,
-            derived_grid_targets,
+            &derived_grid_targets,
         )?;
         Ok(BacktestReconciliationCapabilityV2 {
             host_instance_token: prepared.host_instance_token(),
@@ -1247,7 +1263,7 @@ impl BatchSnapshotV2 {
         hash_text(&mut hasher, &self.equity.as_decimal().to_string());
         hasher.update(WEIGHT_FORMULA_V2);
 
-        for ordinal in 0..TARGET_SET_MEMBER_COUNT {
+        for ordinal in 0..self.instruments.len() {
             let instrument = &self.instruments[ordinal];
             hash_text(&mut hasher, &instrument.id().to_string());
             hash_text(&mut hasher, &instrument.quote_currency().to_string());
@@ -1267,7 +1283,7 @@ fn reconciliation_capability_identity(
     prepared_identity: BindingDigest,
     snapshot_identity: BindingDigest,
     target_set: InstrumentTargetSetV2,
-    derived_grid_targets: [i64; TARGET_SET_MEMBER_COUNT],
+    derived_grid_targets: &[i64],
 ) -> Result<BindingDigest, ProgramHostV2Error> {
     let mut hasher = Sha256::new();
     hasher.update(RECONCILIATION_CAPABILITY_DOMAIN);
@@ -1297,23 +1313,31 @@ pub(crate) fn seal_reconciliation_capability_for_test(
     prepared: &PreparedBacktestTargetSetV2,
     account_id: AccountId,
     equity: Money,
-    instruments: [InstrumentAny; TARGET_SET_MEMBER_COUNT],
-    prices: [Price; TARGET_SET_MEMBER_COUNT],
-    current_grid_units: [i64; TARGET_SET_MEMBER_COUNT],
+    instruments: impl Into<Vec<InstrumentAny>>,
+    prices: impl Into<Vec<Price>>,
+    current_grid_units: impl Into<Vec<i64>>,
 ) -> anyhow::Result<BacktestReconciliationCapabilityV2> {
     let target_set = prepared.canonical_target_set();
     BatchSnapshotV2 {
         account_id,
         equity,
-        instruments,
-        prices,
-        current_grid_units,
+        instruments: BoundedMembers::new(instruments.into())?,
+        prices: BoundedMembers::new(prices.into())?,
+        current_grid_units: BoundedMembers::new(current_grid_units.into())?,
     }
     .seal_reconciliation(prepared, target_set)
 }
 
-fn try_map_pair<T>(mut map: impl FnMut(usize) -> anyhow::Result<T>) -> anyhow::Result<[T; 2]> {
-    Ok([map(0)?, map(1)?])
+/// Maps each member ordinal below `member_count`, in member order.
+fn try_map_members<T>(
+    member_count: usize,
+    map: impl FnMut(usize) -> anyhow::Result<T>,
+) -> anyhow::Result<BoundedMembers<T>> {
+    Ok(BoundedMembers::new(
+        (0..member_count)
+            .map(map)
+            .collect::<anyhow::Result<Vec<_>>>()?,
+    )?)
 }
 
 fn exact_grid_units(quantity: Quantity, increment: Quantity) -> anyhow::Result<u64> {

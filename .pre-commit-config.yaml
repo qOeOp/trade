@@ -196,6 +196,13 @@ repos:
         language: system
         files: ^(rust-toolchain\.toml|scripts/rust-toolchain\.sh|scripts/ci/test-rust-toolchain\.bash)$
         pass_filenames: false
+      - id: test-owner-chain-lock
+        name: test Owner chain machine lock
+        description: A second local Owner chain is refused and named; a dead holder releases the lock
+        entry: bash scripts/ci/test-owner-chain-lock.bash
+        language: system
+        files: ^scripts/ci/(owner-chain-lock|test-owner-chain-lock)\.bash$
+        pass_filenames: false
       - id: check-miri-toolchain
         name: check Miri toolchain
         description: Ensures the pinned Miri compiler supports the workspace Rust version
@@ -496,6 +503,34 @@ repos:
         entry: python3 -B scripts/production-producer-check_mutations.py
         language: system
         files: ^(\.pre-commit-config\.yaml|scripts/production-producer-check(_test|_mutations)?\.py)$
+        pass_filenames: false
+      - id: test-flattened-error-variants
+        name: test flattened-error-variants calibration
+        description: Proves the error-flow walk still classifies each kind of edge both ways
+        entry: python3 -B scripts/flattened-error-variants_test.py
+        language: system
+        files: >-
+          (?x)^(
+
+            \.pre-commit-config\.yaml|
+            scripts/production-producer-check\.py|
+            scripts/flattened-error-variants(_test|_mutations)?\.py
+
+          )$
+        pass_filenames: false
+      - id: test-flattened-error-variants-mutations
+        name: test flattened-error-variants mutations
+        description: Reintroduces each defect the calibration claims to catch and watches it be caught
+        entry: python3 -B scripts/flattened-error-variants_mutations.py
+        language: system
+        files: >-
+          (?x)^(
+
+            \.pre-commit-config\.yaml|
+            scripts/production-producer-check\.py|
+            scripts/flattened-error-variants(_test|_mutations)?\.py
+
+          )$
         pass_filenames: false
       - id: check-markdown-tables
         name: normalize markdown table padding

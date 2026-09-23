@@ -195,10 +195,6 @@ pub(super) async fn migrate_composer_research_view_transitions_v3(
         .execute(pool)
         .await
         .map_err(storage)?;
-    sqlx::query("GRANT SELECT ON TABLE public.rd_research_view_transitions_v3 TO rd_exploratory_replay_api_owner")
-        .execute(pool)
-        .await
-        .map_err(storage)?;
     Ok(())
 }
 

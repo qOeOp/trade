@@ -16,9 +16,8 @@ use crate::{
     native_replay_preparation_inputs_v2::NativeReplayPreparationInputsV2,
     strategy_design_v2::{InputFactClassV2, InputScopeV2},
     strategy_plan_v2::{StrategyPlanV2, strategy_input_role_identity_v2},
+    target_set_members::is_admitted_member_count,
 };
-
-const MEMBER_COUNT: usize = 2;
 
 #[derive(Debug, Error)]
 pub(crate) enum NativeReplayInitialOwnerInputsErrorV1 {
@@ -53,7 +52,7 @@ where
 
     if selection.selection_identity().as_bytes() != &request_selection_identity
         || selection.selection_digest().as_bytes() != &request_selection_digest
-        || selection.members().len() != MEMBER_COUNT
+        || !is_admitted_member_count(selection.members().len())
         || !members_agree(
             selection.members().iter().map(|member| member.instrument()),
             master_members

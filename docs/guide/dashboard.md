@@ -522,7 +522,7 @@ deployed image, and that is a boundary rather than a defect. The reader requires
 `composer_artifact` carries exactly ten Composer facts, from the artifact locator and identity digest
 through the family binding receipt to the census frontier digest. Only the composer-backed replay
 commit produces them, and its route sits behind `sealed-source-intake-composer-acceptance`, which no
-deployed image enables and the ordered chain cannot add. The ungated v2 replay commit writes a view
+deployed image enables; the ordered chain compiles it for acceptance only. The ungated v2 replay commit writes a view
 that has no Composer artifact to describe, so it cannot satisfy that reader whatever schema version it
 declares.
 

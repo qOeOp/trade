@@ -278,6 +278,33 @@ impl DevelopPluginBuildReceiptV3 {
         bytes: &[u8],
         capsule: &PreparedDevelopPluginCapsuleV3,
     ) -> Result<Self, DevelopPluginBuildTerminalV3> {
+        let receipt = Self::decode_canonical(bytes)?;
+        receipt.validate_self()?;
+        receipt.validate_for(capsule)?;
+        Ok(receipt)
+    }
+
+    /// Parses receipt bytes read back from Composer custody, where no capsule is at hand.
+    ///
+    /// It checks canonical encoding and the receipt's own tag, schema and digest. The binding to a
+    /// capsule and the execution profile stay `parse_canonical_for`'s: the digest covers them,
+    /// and the Composer store checked them against the capsule when it committed the receipt,
+    /// under the identity the caller compares with [`Self::receipt_digest`].
+    pub(crate) fn parse_stored(bytes: &[u8]) -> Result<Self, DevelopPluginBuildTerminalV3> {
+        let receipt = Self::decode_canonical(bytes)?;
+        receipt.validate_self()?;
+        Ok(receipt)
+    }
+
+    pub(crate) const fn receipt_digest(&self) -> BindingDigest {
+        self.receipt_digest
+    }
+
+    pub(crate) const fn joint_freeze_digest(&self) -> BindingDigest {
+        self.joint_freeze_digest
+    }
+
+    fn decode_canonical(bytes: &[u8]) -> Result<Self, DevelopPluginBuildTerminalV3> {
         let receipt: Self = durable_decode(bytes).map_err(|_| {
             DevelopPluginBuildTerminalV3::invalid_receipt(
                 "receipt.codec",
@@ -291,8 +318,21 @@ impl DevelopPluginBuildReceiptV3 {
                 "V3 receipt bytes are not canonical",
             ));
         }
-        receipt.validate_for(capsule)?;
         Ok(receipt)
+    }
+
+    /// The checks a receipt answers on its own, shared by the build-time and read-back parses.
+    fn validate_self(&self) -> Result<(), DevelopPluginBuildTerminalV3> {
+        if self.receipt_tag != RECEIPT_TAG
+            || self.schema_version != RECEIPT_SCHEMA_VERSION
+            || self.receipt_digest != receipt_digest(self)
+        {
+            return Err(DevelopPluginBuildTerminalV3::invalid_receipt(
+                "receipt.self",
+                "V3 receipt does not carry the V3 tag and schema, or does not reproduce its own digest",
+            ));
+        }
+        Ok(())
     }
 
     fn validate_for(
@@ -300,9 +340,7 @@ impl DevelopPluginBuildReceiptV3 {
         capsule: &PreparedDevelopPluginCapsuleV3,
     ) -> Result<(), DevelopPluginBuildTerminalV3> {
         let expected = &capsule.value;
-        let bindings_match = self.receipt_tag == RECEIPT_TAG
-            && self.schema_version == RECEIPT_SCHEMA_VERSION
-            && self.capsule_digest == capsule.digest
+        let bindings_match = self.capsule_digest == capsule.digest
             && self.plugin_semantic_id == expected.plugin_semantic_id
             && self.manifest_digest == expected.manifest_digest
             && self.joint_freeze_digest == expected.joint_freeze_digest
@@ -355,10 +393,10 @@ impl DevelopPluginBuildReceiptV3 {
                         )
                 });
 
-        if !execution_profile_matches || self.receipt_digest != receipt_digest(self) {
+        if !execution_profile_matches {
             return Err(DevelopPluginBuildTerminalV3::invalid_receipt(
                 "receipt.execution",
-                "V3 receipt execution or digest evidence is invalid",
+                "V3 receipt execution evidence is invalid",
             ));
         }
         Ok(())
@@ -1566,6 +1604,62 @@ mod tests {
                 &capsule
             )
             .is_err()
+        );
+    }
+
+    #[rstest::rstest]
+    fn stored_receipt_bytes_yield_the_freeze_they_carry() {
+        let receipt = fixture_receipt(&fixture_capsule());
+        let stored = DevelopPluginBuildReceiptV3::parse_stored(&receipt.canonical_bytes())
+            .expect("a committed V3 receipt parses without its capsule");
+
+        assert_eq!(stored.receipt_digest(), receipt.receipt_digest);
+        assert_eq!(stored.joint_freeze_digest(), receipt.joint_freeze_digest);
+    }
+
+    #[rstest::rstest]
+    #[case::freeze_changed_under_the_old_digest(|receipt: &mut DevelopPluginBuildReceiptV3| {
+        receipt.joint_freeze_digest = digest(99);
+    })]
+    #[case::cross_tag(|receipt: &mut DevelopPluginBuildReceiptV3| {
+        receipt.receipt_tag = "V2".to_owned();
+        receipt.receipt_digest = receipt_digest(receipt);
+    })]
+    #[case::other_schema(|receipt: &mut DevelopPluginBuildReceiptV3| {
+        receipt.schema_version = 2;
+        receipt.receipt_digest = receipt_digest(receipt);
+    })]
+    fn a_receipt_that_does_not_prove_itself_is_refused_at_build_and_at_readback(
+        #[case] mutate: fn(&mut DevelopPluginBuildReceiptV3),
+    ) {
+        let capsule = fixture_capsule();
+        let mut receipt = fixture_receipt(&capsule);
+        mutate(&mut receipt);
+        let bytes = receipt.canonical_bytes();
+
+        assert_eq!(
+            (
+                DevelopPluginBuildReceiptV3::parse_canonical_for(&bytes, &capsule)
+                    .map_err(|terminal| terminal.coordinate),
+                DevelopPluginBuildReceiptV3::parse_stored(&bytes)
+                    .map_err(|terminal| terminal.coordinate),
+            ),
+            (
+                Err("receipt.self".to_owned()),
+                Err("receipt.self".to_owned())
+            )
+        );
+    }
+
+    #[rstest::rstest]
+    fn stored_receipt_bytes_with_trailing_bytes_are_refused() {
+        let mut bytes = fixture_receipt(&fixture_capsule()).canonical_bytes();
+        bytes.push(b'\n');
+
+        assert_eq!(
+            DevelopPluginBuildReceiptV3::parse_stored(&bytes)
+                .map_err(|terminal| terminal.coordinate),
+            Err("receipt.codec".to_owned())
         );
     }
 

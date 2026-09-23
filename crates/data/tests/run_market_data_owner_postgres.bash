@@ -67,6 +67,15 @@ PRECHECK
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 check_destructive_sql_admission
 
+# The same machine-wide lock as the ordered chain, on the same file: one local Owner chain at a
+# time, whichever it is, taken before the first container. scripts/ci/owner-chain-lock.bash says
+# why. A hosted runner runs one job, so CI does not take it.
+if [[ "${GITHUB_ACTIONS:-}" != "true" ]]; then
+  # shellcheck source=scripts/ci/owner-chain-lock.bash
+  source "${repository_root}/scripts/ci/owner-chain-lock.bash"
+  acquire_owner_chain_lock || exit 1
+fi
+
 container="vibe-md-d1-${PPID}-$$"
 database_prefix="vibe_test_market_data_${PPID}_$$"
 marker_prefix="md-d1-${PPID}-$$"
