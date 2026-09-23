@@ -187,10 +187,13 @@ def main():
         for message in failures:
             print(f"  {message}")
         print(
-            "\nA failure here is either a real change in the repository - in which case the"
-            "\nexpectation above is the thing to update, and the change is worth reading -"
-            "\nor a regression in the tool's search. Tell them apart by running the tool on"
-            "\nthe named symbol and looking at the sites it prints.",
+            "\nThree things produce a failure here, and they are worth telling apart by"
+            "\nrunning the tool on the named symbol and reading the sites it prints:"
+            "\n  the repository really changed - update the expectation, and read the change;"
+            "\n  the tool's search regressed - the sites will be missing or wrong;"
+            "\n  the tool met an input shape it had never met - the sites will look right and"
+            "\n  the count will not. The last one is why these cases are paired: a case that"
+            "\n  has only ever seen one shape cannot be wrong about the other.",
         )
         return 1
     print(
