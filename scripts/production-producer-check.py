@@ -20,16 +20,21 @@ This answers one symbol at a time, and that is the usage it holds up under. Call
 producers are matched by name, so a name carried by more than one declaration collects all
 of them and the tool says so rather than guessing; over a list, those rows are the result.
 
-Another lane ran 31 lead symbols from a dead-code census through it and abandoned the batch
-for a compiler-based classification. Counted from their logs rather than from the report
-they first wrote:
+Another lane ran 31 symbol names taken from this repository's Rust sources through it and
+abandoned the batch for a compiler-based classification. Counted from their logs rather than
+from the report they first wrote:
 
     22  attributable
      6  name declared more than once     - 19%, and the reason they stopped
      2  outside what this models         - a const and an enum variant
-     1  never queried                    - their own omission, not a property of the tool
+     1  never queried                    - the operator's, not a property of the tool
     --
     31
+
+Those four are properties of the names, which is all they are offered as. The list itself
+came from a dead-code census and 45% of its rows paired a name with a line that declares
+something else, so nothing here says anything about that census or about dead code; it is
+one batch of 31 real symbols and the rates are the tool's behaviour on them.
 
 So: use it to answer a symbol you are already asking about, and before using it over a
 list, run the list and read the two rates separately. Ambiguity and being asked about the
