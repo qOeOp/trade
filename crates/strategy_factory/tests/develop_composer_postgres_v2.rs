@@ -533,7 +533,7 @@ const STORED_COLUMN_TAMPERS: &[StoredColumnTamper] = &[
         "UPDATE composer_private.rd_develop_artifact_build_receipt_uses_v2 SET artifact_identity=$2::bytea WHERE artifact_identity=set_byte($2::bytea,0,(get_byte($2::bytea,0)+1)%256) AND ordinal=0",
         Some((
             "23503",
-            "rd_develop_artifact_build_receipt_uses_v2_artifact_identity_fkey",
+            "rd_develop_artifact_build_receipt_uses_v_artifact_identity_fkey",
         )),
     ),
     (
