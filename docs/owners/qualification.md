@@ -113,9 +113,31 @@ rather than repeating it, so there is one place to keep in step.
   the first two have any implementation. `EligibilityState::Expired` and `::Revoked` in
   `crates/strategy_governance/src/model.rs` have no producer anywhere, `QualificationPublicStatusV1` carries five
   variants and neither of those two, no relation named for expiry or revocation exists among this Owner's
-  `qualification_*_v1` tables, and no successor chain prevents predecessor revival. The consumer type exists in
+  `qualification_*_v1` tables. The consumer type exists in
   Governance and every `UntrustedEligibilityReadback` is constructed in that crate's own tests, so the shape of a
   read port is present while nothing on either side has written such a fact.
+
+  A successor chain does now prevent predecessor revival. An Eligibility Fact binds its predecessor and
+  its own half-open window, and `predecessor_eligibility_identity` is UNIQUE, so a Fact can be superseded
+  at most once. Two properties this Owner publishes for the current Eligibility State are still
+  unavailable, and naming which is the point of recording them. The economic-condition version needs no
+  new production: a Fact cross-binds the protected decision-policy identity and version, and
+  `ProtectedEconomicPolicyBundleV1` carries the same pair, so a State that references its Fact has it.
+  The evaluated cost and capacity-model version has no producer at all. `cost_model_identity`,
+  `slippage_model_identity`, and `capacity_model_identity` arrive from Candidate Intake as bare strings
+  with no version and no digest beside them, while other identities in that same structure do carry
+  digests, so this is an absence rather than an unread field. Its supplier is Candidate Intake, and it is
+  in place when a version or a digest appears beside those three. A column that could only hold NULL is
+  deliberately not added, because a downstream NULL cannot distinguish a model with no version from a
+  record that did not compute one from a reader who may not see it.
+
+  Expiry and revocation are not Fact rows. A Fact cross-binds an exact Protected Replay Request and an
+  exact `TERMINAL_RESULT` Protected Run Result, and an expiry has neither, so it cannot satisfy what a
+  Fact is. Their relation is the one recorded as missing above. Operator Authorization has already solved
+  the same shape with `operator_authorization_revocation_frontiers_v1` and
+  `operator_authorization_revocation_heads_v1`, and that pair is the shape to follow rather than design
+  again. A revocation frontier is deliberately not built for this Owner today, and the reason is that
+  nothing consumes one, not that the shape is wrong.
 - **TARGET - the deployment-authorized terminal:** `DEPLOYMENT_STORE_ADMISSION_MODE` stays `disabled`, and what
   it waits for is recorded under Eligibility terminal status above.
 - **CURRENT, and permanently unprovable - Incident-specific Owner reconstruction:** the machinery is merged -
