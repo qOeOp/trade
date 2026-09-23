@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 
 use rstest::rstest;
+use vibe_model::identifiers::InstrumentId;
 
 use super::{
     BindingDigest, PitSnapshotBlocker, PitSnapshotCommitAggregate, PitSnapshotDisposition,
@@ -16,6 +17,9 @@ use super::{
         prepare_initial_aggregate, prepare_observation_batch, refresh_request_claims,
         verify_observation_batch,
     },
+};
+use crate::owner::native_replay_scheduling_v1::{
+    NativeReplaySchedulingErrorV1, seal_native_replay_scheduling_v1, tests::schedule_bound_to_batch,
 };
 use crate::owner::research_pit_terminal::{
     ResearchPitBlocker, ResearchPitDisposition, UntrustedResearchPitTerminalRequest,
@@ -1604,6 +1608,188 @@ fn research_terminal_fixture(
             .expect("license"),
     };
     (pit, source, request)
+}
+
+/// The two members of a native scheduling frame, as the Owner verifies a batch holding both.
+const FRAME_MEMBERS: [&str; 2] = ["AAPL.XNAS", "MSFT.XNAS"];
+
+/// One frame's BAR and Quote rows for both members, sent through the Owner's own admission and the
+/// sole constructor of a verified batch, `verify_observation_batch`.
+///
+/// Every BAR row sits at the snapshot's instant; member `i`'s Quote rows sit `quote_offsets[i]`
+/// after it. Nothing here bypasses verification, so what comes back is what Owner custody can hold.
+fn custody_frame_batch(
+    quote_offsets: [u64; 2],
+) -> Result<super::VerifiedPitObservationBatch, PitSnapshotError> {
+    let source_value = source_proposal(10, 40);
+    let source_identity = derive_binding_id(&source_value);
+    let source = build_stored_aggregate(
+        source_value,
+        OwnerSourceBindingDecision {
+            blockers: BTreeSet::new(),
+        },
+        OwnerLineage {
+            root: source_identity,
+            version: 1,
+            predecessor_binding_id: None,
+            predecessor_fact_digest: None,
+        },
+    );
+    let mut value = proposal(source.commit().receipt().locator());
+    let request = &value.request;
+    let evidence = &value.evidence;
+    let instant = request.time_evidence.event_effective.value;
+    let row = |member: &str, data_kind: &str, timeframe: &str, field: &str, mantissa, scale, at| {
+        let symbol = member.split('.').next().expect("member symbol");
+        VerifiedPitObservation {
+            symbolic_key: format!("{symbol}.{field}.{timeframe}"),
+            member_key: member.to_owned(),
+            instrument: member.to_owned(),
+            channel: "MARKET".to_owned(),
+            data_kind: data_kind.to_owned(),
+            timeframe: timeframe.to_owned(),
+            field: field.to_owned(),
+            value_mantissa: mantissa,
+            value_scale: scale,
+            event_effective: at,
+            provider_available: request.time_evidence.provider_available.value,
+            retrieval: request.time_evidence.retrieval.value,
+            correction_publication: request
+                .time_evidence
+                .correction_publication
+                .as_ref()
+                .expect("correction time")
+                .value,
+            source_binding_identity: source.commit().fact().binding_id(),
+            source_frontier_digest: evidence.source_frontier.digest,
+            instrument_master_digest: request.instrument_master_digest,
+            universe_selection_digest: request.universe_selection_digest,
+            market_semantics_identity: request.market_semantics_identity,
+            correction_stream_identity: evidence.correction_frontier.stream_identity.clone(),
+            correction_sequence: evidence.correction_frontier.sequence,
+            correction_frontier_digest: evidence.correction_frontier.digest,
+        }
+    };
+    let mut rows = Vec::new();
+
+    for (member, offset) in FRAME_MEMBERS.into_iter().zip(quote_offsets) {
+        for (field, mantissa, scale) in [
+            ("OPEN", 12_341, 2),
+            ("HIGH", 12_351, 2),
+            ("LOW", 12_331, 2),
+            ("CLOSE", 12_345, 2),
+            ("VOLUME", 1_000, 0),
+        ] {
+            rows.push(row(member, "BAR", "1M", field, mantissa, scale, instant));
+        }
+
+        for (field, mantissa, scale) in [
+            ("BID_PRICE", 12_341, 2),
+            ("ASK_PRICE", 12_343, 2),
+            ("BID_SIZE", 100, 0),
+            ("ASK_SIZE", 100, 0),
+        ] {
+            rows.push(row(
+                member,
+                "QUOTE",
+                "TICK",
+                field,
+                mantissa,
+                scale,
+                instant + offset,
+            ));
+        }
+    }
+    rows.sort_by(|left, right| {
+        (&left.symbolic_key, &left.member_key).cmp(&(&right.symbolic_key, &right.member_key))
+    });
+    let batch_bytes = canonical_batch_bytes(&rows);
+    let batch_digest = BindingDigest::from_untrusted_bytes(*blake3::hash(&batch_bytes).as_bytes());
+    value.evidence.normalized_records_digest = batch_digest;
+    let basis = canonical_basis_with_clock(&value, &source_clock(40, 1));
+    let pit =
+        prepare_initial_aggregate(value, &basis, source.commit().fact(), &source_clock(40, 1))
+            .expect("the snapshot itself is admitted");
+    verify_observation_batch(
+        &pit,
+        pit.fact().source_binding_identity(),
+        pit.fact().source_binding_lineage_root(),
+        pit.fact().source_binding_lineage_version(),
+        batch_digest,
+        &batch_bytes,
+        &rows
+            .iter()
+            .enumerate()
+            .map(|(offset, row)| ObservedPitObservationNativeRow {
+                ordinal: u64::try_from(offset + 1).expect("bounded fixture ordinal"),
+                symbolic_key: row.symbolic_key.clone(),
+                member_key: row.member_key.clone(),
+                row_bytes: canonical_observation_bytes(row),
+            })
+            .collect::<Vec<_>>(),
+    )
+}
+
+/// The V1 native scheduling seal, as built, cannot run on anything Owner custody holds.
+///
+/// It takes each member's first Quote strictly after the frame's BAR out of the BAR's own batch, and
+/// a verified batch holds exactly one instant. The three cells pin that from both sides:
+///
+/// - A: a frame custody does admit (Quotes on the BAR's instant) has no Quote V1 can take.
+/// - B: the same batch with only the Quotes moved later, edited by hand past verification, seals.
+///   So Quote timing is the only thing stopping A, and nothing else in the fixture is wrong.
+/// - C: exactly those later Quotes, sent through custody, are refused at verification.
+///
+/// This is meant to go red. When V1 takes its Quotes from the frame's liquidity cut, cell A seals
+/// and this test has to be rewritten around the new source; until then it is the record that the
+/// old shape has never had an instance.
+#[rstest]
+fn v1_native_scheduling_is_unreachable_on_owner_custody_as_built() {
+    let members = FRAME_MEMBERS.map(InstrumentId::from);
+    let seal = |batch: super::VerifiedPitObservationBatch| {
+        let frame = batch.time_evidence().event_effective.value;
+        let schedules = [
+            schedule_bound_to_batch(FRAME_MEMBERS[0], 40, &batch),
+            schedule_bound_to_batch(FRAME_MEMBERS[1], 41, &batch),
+        ];
+        seal_native_replay_scheduling_v1(batch, schedules, members, frame, frame + 100).map(|_| ())
+    };
+
+    let custody = custody_frame_batch([0, 0]).expect("custody admits a frame at one instant");
+    assert_eq!(
+        seal(custody.clone()),
+        Err(NativeReplaySchedulingErrorV1::EventOrderUnavailable),
+        "A: a batch custody holds offers V1 no Quote after its BAR"
+    );
+
+    let later = [1, 2];
+    let mut edited = custody;
+    edited.observations = edited
+        .observations
+        .iter()
+        .cloned()
+        .map(|mut row| {
+            if row.data_kind == "QUOTE" {
+                let member = FRAME_MEMBERS
+                    .iter()
+                    .position(|member| *member == row.instrument)
+                    .expect("frame member");
+                row.event_effective += later[member];
+            }
+            row
+        })
+        .collect();
+    assert_eq!(
+        seal(edited),
+        Ok(()),
+        "B: with only the Quotes moved later, the same batch seals"
+    );
+
+    assert_eq!(
+        custody_frame_batch(later).map(|_| ()),
+        Err(PitSnapshotError::InvalidObservationBatch),
+        "C: custody refuses the batch V1 would need"
+    );
 }
 
 fn sealed_replay_fixture(
