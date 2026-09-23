@@ -1740,7 +1740,7 @@ fn custody_frame_batch(
 ///   So Quote timing is the only thing stopping A, and nothing else in the fixture is wrong.
 /// - C: exactly those later Quotes, sent through custody, are refused at verification.
 ///
-/// This is meant to go red. When V1 takes its Quotes from the frame's liquidity cut, cell A seals
+/// This is meant to go red. When V1 takes its Quotes from the frame's quote cut, cell A seals
 /// and this test has to be rewritten around the new source; until then it is the record that the
 /// old shape has never had an instance.
 #[rstest]

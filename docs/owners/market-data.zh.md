@@ -1347,9 +1347,9 @@ Owner 验证的 PIT snapshot/batch，不得复制数值或使用测试 successor
 除最后一帧以外的每一帧，最后那帧只用来给它前一帧的流动性划界，所以窗口里只有一帧时一帧也不消费，而更长的
 窗口是更长的一次运行而不是一次拒绝。每帧各自保存 PIT
 cut、batch、trigger、frame、source/correction lineage、BAR schedule 和 Quote EVENT 流动性 receipt，
-后者绑定原始 Quote row digest、bid/ask 价量、事件和初始化时间及成员顺序，取自该帧的流动性 cut：一份独立的、
+后者绑定原始 Quote row digest、bid/ask 价量、事件和初始化时间及成员顺序，取自该帧的报价 cut：一份独立的、
 经 Owner 验证的 PIT snapshot，其时刻严格晚于本帧 BAR cut、严格早于下一帧的 BAR cut。一份 PIT snapshot
-只有一个时刻，所以跟在 BAR 之后的 Quote 不可能放进那个 BAR 的 cut。流动性 cut 不是帧：它不取 frame 序号，
+只有一个时刻，所以跟在 BAR 之后的 Quote 不可能放进那个 BAR 的 cut。报价 cut 不是帧：它不取 frame 序号，
 每个被消费的帧与其后继之间恰有一个。其中两个成员的 Quote 共用它的时刻并按 canonical 成员顺序排列，Backtest
 对 `ts_init` 相同的元素按原顺序消费。sequence digest 覆盖这些证据、请求身份、窗口与准确顺序。每帧的流动性
 EVENT 在 native schedule 顺序中必须先于下一帧的第一个 BAR。各帧必须共用 canonical universe、Design/role set、Instrument Master cut、
@@ -1362,13 +1362,14 @@ pool 或替代 resolver。缺失、多出、重复、部分、乱序、跨请求
 原字节，意义冲突零写入。Market Data 不签发 R&D binding、Backtest Result、合成出场信号或交易指令。
 
 这个目标所需的请求窗口 frame census 已经存在：每次 PIT snapshot fact 提交都会在其 scope 内取下一个稠密
-frame 序号，窗口读回与序列解析按同一顺序读出它。今天缺的是调用方。census 今天也收录每一次提交，所以上文
-「流动性 cut 不取 frame 序号」的规则尚未建成；Owner 必须凭自己核验过的 batch 区分流动性 cut 与帧，而不是凭
+frame 序号，窗口读回与序列解析按同一顺序读出它。今天缺的是调用方，而且如本段末尾所记，光有调用方还不够。census 今天也收录每一次提交，所以上文
+「报价 cut 不取 frame 序号」的规则尚未建成；Owner 必须凭自己核验过的 batch 区分报价 cut 与帧，而不是凭
 请求方的 scope 声明。现有 PIT correction lineage
 记录的是同一请求的修正版本，不是时间后继索引，也不能证明无漏帧，census 因此是一张独立的表而不是对它的
 复用；现有首帧 resolver 与 QuoteTick 投影本身不签发后续帧或独立流动性 receipt。现有 V1 native scheduling
 seal 还从 BAR 自己的 batch 中取严格晚于 BAR 的 Quote，而经 Owner 验证的 batch 不会含两个时刻，所以按现状它在
-Owner 托管数据上不可达。
+Owner 托管数据上不可达。V2 帧证据的每一帧都经同一个 V1 seal 封存，所以在两者都改为从该帧报价 cut 取 Quote
+之前，V2 序列出于同样原因在 Owner 托管数据上不可达。
 
 在 CURRENT/PARTIAL BAR schedule 路径中，只有具备 custody verification 的 readback 才能授权以准确 V1
 binding-receipt digest 为键的新增 immutable `TimeframeProjectionReceiptV1`。其既有 canonical bytes 与 domain

@@ -4522,10 +4522,12 @@ impl PitObservationSourceV1 for ScopeFaithfulObservationSourceV1 {
 
 /// A Data Client that answers a bar at the issued instant and a quote `quote_offset` after it.
 ///
-/// `docs/owners/market-data.md` has each frame's liquidity come "from that frame's PIT cut" and
-/// precede the next frame's first bar, and `into_frame_evidence_v2` requires the quote strictly
-/// after the bar. This client supplies exactly that shape - a quote later than the bar, in the same
-/// snapshot - so the production commit path can say whether a snapshot may hold it. With
+/// The frame design as first written in `docs/owners/market-data.md` took each frame's liquidity
+/// from the frame's own PIT cut, preceding the next frame's first bar, and `into_frame_evidence_v2`
+/// requires the quote strictly after the bar. This client supplies exactly that shape - a quote
+/// later than the bar, in the same snapshot - so the production commit path can say whether a
+/// snapshot may hold it. It cannot, which is why a frame's liquidity now comes from a quote cut of
+/// its own. With
 /// `quote_offset == 0` it is the control: the same rows, nothing out of time.
 struct QuoteAfterBarObservationSourceV1 {
     quote_offset: u64,
@@ -5128,10 +5130,10 @@ async fn production_pit_mint_postgres_oracle_v1(
         Err(PitSnapshotError::ObservationBatchUnavailable),
         "an unreachable provider fails closed instead of minting an empty snapshot"
     );
-    // Can one production snapshot hold a quote later than its own bar? The frame design in
-    // `docs/owners/market-data.md` needs it: each frame's liquidity comes "from that frame's PIT
-    // cut" and must follow the bar, and `into_frame_evidence_v2` requires the quote strictly after
-    // it. The production commit path refuses: every row has to carry the request's one
+    // Can one production snapshot hold a quote later than its own bar? The frame design as first
+    // written in `docs/owners/market-data.md` needed it: each frame's liquidity came from the
+    // frame's own PIT cut and had to follow the bar, and `into_frame_evidence_v2` requires the quote
+    // strictly after it. This measurement is why the design now takes it from a separate quote cut. The production commit path refuses: every row has to carry the request's one
     // `event_effective`, so a snapshot is one instant and cannot hold anything later than itself.
     //
     // Measured two-sided on 2026-09-23 against this path. With the same rows and only the quote's
