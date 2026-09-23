@@ -1490,6 +1490,15 @@ if ! command -v timeout > /dev/null 2>&1; then
   exit 1
 fi
 
+# One local chain per machine, taken before the first container or build: overlapping chains load
+# the machine until entries with a time window fail for load alone. owner-chain-lock.bash says why
+# and how. A hosted runner runs one job, so CI does not take it.
+if [[ "${GITHUB_ACTIONS:-}" != "true" ]]; then
+  # shellcheck source=scripts/ci/owner-chain-lock.bash
+  source "$(dirname "${BASH_SOURCE[0]}")/owner-chain-lock.bash"
+  acquire_owner_chain_lock || exit 1
+fi
+
 # Entry 28 drives the Dashboard in a real browser only when three sealed inputs are present. Without
 # them it returns in a few milliseconds and reports PASS, so a chain that never touched a browser
 # goes green and says nothing about it. Measured twice on two trees: 0.011s locally against 136.78s
