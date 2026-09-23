@@ -8273,9 +8273,6 @@ pub(super) async fn resolve_native_replay_initial_market_through_admitted_port_v
             request.frame_time_ns(),
         )?);
     }
-    let schedules = schedules
-        .try_into()
-        .map_err(|_| NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
     issue_native_replay_initial_market_readback_v1(batch, schedules, request)
 }
 
@@ -8322,9 +8319,6 @@ async fn resolve_native_replay_initial_market_from_pool_v1(
         .commit()
         .await
         .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
-    let schedules = schedules
-        .try_into()
-        .map_err(|_| NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
     issue_native_replay_initial_market_readback_v1(batch, schedules, request)
 }
 
@@ -8387,17 +8381,18 @@ impl NativeReplaySchedulingResolverV1 for MarketDataReadPostgres {
             .resolve_pit_observation_batch(request.pit_locator())
             .await
             .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
-        let first = self
-            .resolve_bar_schedule_v1(&request.schedule_locators()[0])
-            .await
-            .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
-        let second = self
-            .resolve_bar_schedule_v1(&request.schedule_locators()[1])
-            .await
-            .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+        let mut schedules = Vec::with_capacity(request.schedule_locators().len());
+
+        for locator in request.schedule_locators() {
+            schedules.push(
+                self.resolve_bar_schedule_v1(locator)
+                    .await
+                    .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?,
+            );
+        }
         seal_native_replay_scheduling_v1(
             batch,
-            [first, second],
+            schedules,
             request.member_instruments(),
             request.frame_time_ns(),
             request.window_end_ns_exclusive(),
