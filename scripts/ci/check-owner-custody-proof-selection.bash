@@ -233,6 +233,14 @@ crate_root_of() {
   return 1
 }
 
+# Tracked sources only, and read before the loop so a failed search stops here. `rg` with no path
+# reads standard input when that is not a terminal, so under a caller that leaves it open this hung
+# with no output; it also skipped whatever `.gitignore` hides, and `|| true` turned any failure into
+# an empty list. No match exits 1, which the count below already treats as a broken search.
+if ! ignored_test_sources="$(git grep -l -E '^[[:space:]]*#\[ignore' -- '*.rs')"; then
+  echo "ERROR: searching tracked Rust sources for #[ignore] failed or matched nothing." >&2
+  exit 1
+fi
 while read -r source_file; do
   [ -n "$source_file" ] || continue
   crate_root_of "$source_file" >> "$ignored_crates" || {
@@ -240,7 +248,7 @@ while read -r source_file; do
     echo "       Nothing can select a test that belongs to no package." >&2
     exit 1
   }
-done < <(rg -l '^[[:space:]]*#\[ignore' --type rust 2> /dev/null || true)
+done <<< "$ignored_test_sources"
 sort -u -o "$ignored_crates" "$ignored_crates"
 
 # A zero here means the search broke, not that the repository has no ignored tests: this check

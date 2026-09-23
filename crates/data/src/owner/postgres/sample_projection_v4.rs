@@ -799,6 +799,7 @@ pub(crate) mod tests {
                     binding,
                     batch,
                     instrument,
+                    instrument,
                 )
                 .unwrap();
                 let schedule = owner
@@ -925,6 +926,7 @@ pub(crate) mod tests {
             fixture.schedule_proposal.clone(),
             &fixture.close_binding,
             &fixture.batch,
+            &fixture.instrument_master,
             &fixture.instrument_master,
         )
         .unwrap();

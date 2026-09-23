@@ -1056,7 +1056,7 @@ fn effective_contains(fact: &InstrumentMasterFactV1, instant: i128) -> bool {
             .effective_until
             .is_none_or(|until| instant < until)
 }
-fn observable(
+pub(super) fn observable(
     fact: &InstrumentMasterFactV1,
     observation: i128,
     cut: u64,
