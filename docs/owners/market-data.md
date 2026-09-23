@@ -1448,8 +1448,13 @@ holding a single frame consumes none and a longer window is a longer run rather 
 own exact PIT snapshot/fact, batch, trigger, frame, source/correction lineage, native scheduling
 and liquidity EVENT receipt identities. Each liquidity receipt seals the exact Owner-verified
 Quote row digests, bid/ask prices and sizes, event/initialization times and member order from
-that frame's PIT cut; the V2 sequence digest binds both complete frame/schedule/liquidity
-receipt sets in canonical order and the request identity/window. Every frame's liquidity
+that frame's liquidity cut: an Owner-verified PIT snapshot of its own, whose instant lies strictly
+after the frame's BAR cut and strictly before the next frame's. A PIT snapshot is one instant, so
+the Quotes that follow a BAR cannot sit in that BAR's cut. A liquidity cut is not a frame: it takes
+no frame ordinal, and exactly one lies between each consumed frame and its successor. Both
+members' Quotes in it share its instant and follow canonical member order, which Backtest consumes
+unchanged for elements that share a `ts_init`. The V2 sequence digest binds both complete
+frame/schedule/liquidity receipt sets in canonical order and the request identity/window. Every frame's liquidity
 EVENTs must precede the next frame's first BAR in native schedule order. All frames
 retain the same canonical two-member universe, Design/role set, Instrument Master cut, timeframe,
 venue and account scope. Market Data verifies each frame's successor relationship and
@@ -1469,11 +1474,16 @@ an R&D binding, Backtest Result, synthetic exit signal or trading order.
 
 This V2 target's request-window frame census exists: every PIT snapshot fact commit takes the next
 dense frame ordinal inside its scope, and the window readback and sequence resolver read it back in
-that order. What the target lacks is a caller. The existing PIT correction lineage records
+that order. What the target lacks is a caller. The census also admits every commit today, so the
+rule above that a liquidity cut takes no frame ordinal is not built yet; the Owner has to tell a
+liquidity cut from a frame by its own verified batch, never by the requester's scope claim. The
+existing PIT correction lineage records
 revisions of one request; it is not a time-successor index and cannot prove a later frame or the
 absence of skipped frames, which is why the census is its own table rather than a reuse of that
 lineage. The current initial-frame resolver and QuoteTick projection do not themselves issue a
-later frame or a separate liquidity receipt.
+later frame or a separate liquidity receipt. The current V1 native scheduling seal also takes its
+Quotes from the BAR's own batch, strictly after the BAR, and no Owner-verified batch holds two
+instants, so that seal is unreachable on Owner custody as built.
 
 In the CURRENT/PARTIAL BAR schedule path, only a custody-verified readback may authorize the additive immutable
 `TimeframeProjectionReceiptV1` keyed by the exact V1 binding-receipt digest. Its existing canonical bytes and domain
