@@ -1848,7 +1848,8 @@ docker run \
   "$postgres_image" \
   -c log_lock_waits=on \
   -c deadlock_timeout=1s \
-  -c log_statement=all > /dev/null
+  -c log_statement=all \
+  -c track_functions=all > /dev/null
 container_created=true
 docker run \
   --detach \
@@ -3659,6 +3660,10 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
     chain_completed=true
     echo "=== ordered chain: all ${chain_entry_count} entries passed, ${chain_record_count} recorded"
   fi
+  # PROBE (not for main): cumulative calls of the four source-intake routines after this entry.
+  for probe_database in $(docker exec "$container" psql -U postgres -d postgres -Atqc "SELECT datname FROM pg_catalog.pg_database WHERE NOT datistemplate AND datallowconn ORDER BY 1"); do
+    docker exec "$container" psql -U postgres -d "$probe_database" -AtF'|' -qc "SELECT 'SICALLS', ${chain_position}, pg_catalog.current_database(), funcname, calls FROM pg_catalog.pg_stat_user_functions WHERE schemaname='rd_owner_api' AND funcname IN ('canonical_source_intake_custody_v1','guard_source_intake_binding_v1','lock_source_intake_research_handoff_v1','peek_source_intake_research_handoff_v1')" || true
+  done
 done
 
 legacy_replay_fingerprint_after="$(legacy_replay_fingerprint)"
