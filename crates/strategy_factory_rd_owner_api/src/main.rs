@@ -5133,9 +5133,19 @@ mod tests {
         );
 
         // The count alone would also be satisfied by a freeze of some other Design committed by
-        // this call, so the newest stored Design bytes are compared against what was authored.
-        let stored_design_bytes: Vec<u8> = sqlx::query_scalar(
-            "SELECT design_bytes
+        // this call, so the stored Design is compared against the one this entry published.
+        //
+        // By identity rather than by bytes. The Owner stores the canonical Design, and
+        // `serde_json::to_vec` of the authored value is not that: canonicalization sorts
+        // `reactions`, `plugins` and each node's `output_port_ids`, so the two encodings differ in
+        // order while being the same Design, and comparing them failed while everything it was
+        // meant to check was correct. The canonicalizer is `pub(crate)`, so this crate cannot
+        // reproduce those bytes, and hand-rolling an order-insensitive comparison here would be a
+        // second, weaker statement of the Owner's own notion of Design equality. The identity is
+        // that notion: it is derived from the canonical bytes, the publication reported it for the
+        // Design this entry authored, and the freeze row carries it for the Design it committed.
+        let stored_design_identity: Vec<u8> = sqlx::query_scalar(
+            "SELECT design_identity
                FROM public.rd_bounded_feature_program_freezes_v1
               WHERE request_identity = $1",
         )
@@ -5143,10 +5153,21 @@ mod tests {
         .fetch_one(&rd_pool)
         .await
         .unwrap();
+        let published_identity_bytes: Vec<u8> = published_bytes
+            .iter()
+            .map(|byte| {
+                u8::try_from(byte.as_u64().expect("a digest byte is a JSON number"))
+                    .expect("a digest byte fits in u8")
+            })
+            .collect();
         assert_eq!(
-            stored_design_bytes,
-            serde_json::to_vec(&authored).unwrap(),
-            "the freeze this entry committed must hold the Design this entry authored",
+            stored_design_identity.len(),
+            32,
+            "a stored design identity is a 32-byte digest",
+        );
+        assert_eq!(
+            stored_design_identity, published_identity_bytes,
+            "the freeze this entry committed must hold the Design this entry published",
         );
     }
 
