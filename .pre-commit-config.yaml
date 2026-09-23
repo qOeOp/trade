@@ -274,7 +274,7 @@ repos:
         description: Every Owner custody proof is chain-selected or carries its reason
         entry: bash scripts/ci/check-owner-custody-proof-selection.bash .
         language: system
-        files: "\\.(rs|bash)$"
+        files: "(\\.(rs|bash|sh|ya?ml|toml)$|^Makefile$)"
         pass_filenames: false
       - id: check-vibe-conventions
         name: check vibe conventions

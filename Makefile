@@ -811,6 +811,10 @@ cargo-test-rd-owner-postgres-isolated: check-nextest-installed  #-- Run destruct
 	RD_OWNER_POSTGRES_FEATURES="$(RD_OWNER_POSTGRES_FEATURES)" \
 	bash scripts/ci/test-rd-owner-postgres.bash
 
+.PHONY: report-ignored-test-selection
+report-ignored-test-selection:  #-- Name the selector that runs each #[ignore] test, and those none does
+	bash scripts/ci/check-owner-custody-proof-selection.bash . --report
+
 .PHONY: check-rd-owner-postgres-isolation
 check-rd-owner-postgres-isolation:  #-- Statically verify destructive PostgreSQL test isolation
 	bash scripts/ci/test-rd-owner-postgres.bash --check

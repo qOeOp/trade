@@ -12,10 +12,20 @@
 # proof must carry a reason in the exemption table below, so the next reader sees a decision rather
 # than an oversight.
 
-set -euo pipefail
+set -Eeuo pipefail
 
-if [ "$#" -ne 1 ]; then
-  echo "ERROR: owner custody proof selection check requires one repository root" >&2
+# This check asserts with bare commands in places, and a bare command that fails under `set -e`
+# prints nothing at all - which is the shape this check exists to refuse, one level up. `-E` is what
+# carries the trap into a function body; without it a failure inside one fires no trap at the line
+# or at the call site.
+trap 'echo "check-owner-custody-proof-selection.bash:${LINENO}: this failed: ${BASH_COMMAND}" >&2' ERR
+
+report_only=false
+if [ "${2:-}" = "--report" ]; then
+  report_only=true
+fi
+if [ "$#" -lt 1 ] || [ "$#" -gt 2 ] || { [ "$#" -eq 2 ] && [ "$report_only" != true ]; }; then
+  echo "ERROR: usage: check-owner-custody-proof-selection.bash <repository-root> [--report]" >&2
   exit 1
 fi
 
@@ -51,6 +61,44 @@ readonly owner_crates=(
   crates/portfolio_owner
   crates/strategy_governance
   crates/scanner_custody
+)
+
+# Crates that hold an `#[ignore]` test and are deliberately not custody crates, each with the reason
+# its ignored tests are not chain proofs. This list and `owner_crates` above must together name every
+# crate in the repository that holds one: a crate in neither fails this check.
+#
+# That completeness is the point. `owner_crates` was a hand-written list read as "the crates worth
+# checking", and nothing said what the other crates were. Measured on d154cbced, 50 of the 189
+# ignored tests in this repository live outside it, in 23 crates, and no check looked at any of them
+# - not because anyone decided they needed no check, but because deciding was never required. A new
+# crate inherited that silence on the day it was created.
+#
+# A reason here is about the crate, not the test: what its ignored tests need that CI does not give.
+# Each begins with a tag so the report below can separate a settled decision from a blocked one.
+readonly -A out_of_scope_reason=(
+  ["crates/adapters/betfair"]="dataset: loads curated Betfair market files that are not in this repository"
+  ["crates/adapters/binance"]="venue: reaches Binance, or needs the separately downloaded Binance Vision archive"
+  ["crates/adapters/bitmex"]="slow: a multi-request integration probe, kept out of the per-commit budget"
+  ["crates/adapters/blockchain"]="credential: needs ENVIO_API_TOKEN and live HyperSync access"
+  ["crates/adapters/bybit"]="venue: reaches Bybit's live HTTP and websocket endpoints"
+  ["crates/adapters/databento"]="credential: needs a local DATABENTO_API_KEY read-only probe authority"
+  ["crates/adapters/derive"]="venue: live network calls against api.lyra.finance"
+  ["crates/adapters/dydx"]="defect: the reconnect loop these tests drive is a known open defect, not a harness gap"
+  ["crates/adapters/fred"]="dataset: needs VIBE_FRED_OFFICIAL_DATASET_ROOT to point at an offline official dataset"
+  ["crates/adapters/hyperliquid"]="defect: blocks on a hard-coded timeout that is not injectable yet"
+  ["crates/adapters/scheduled_events"]="dataset: needs externally custodied official snapshot bytes"
+  ["crates/adapters/tardis"]="dataset: one-time dataset curation, deliberately not routine CI"
+  ["crates/backtest"]="dataset: generates the immutable catalog the native repeat proof consumes"
+  ["crates/common"]="defect: both tests document open production defects in the order emulator"
+  ["crates/execution"]="slow: matching-engine scenarios kept out of the per-commit budget"
+  ["crates/infrastructure"]="pending: waiting on PostgreSQL schema completion, specifically the FK constraints"
+  ["crates/live"]="slow: stress scenarios, deliberately not run by default"
+  ["crates/market_data_repair_custody"]="pending: its one proof uses CanonicalOwnerPostgresTestDatabaseV1, so it belongs in a chain; vibe-market-data-repair-custody is not in the chain's nextest archive, so listing it must add the package too"
+  ["crates/model"]="generator: rewrites a generated table in execution.md rather than asserting anything"
+  ["crates/network"]="slow: a continuous seed sweep driven by scripts/soak-network-turmoil.sh"
+  ["crates/persistence"]="slow: a >120s catalog batching regression, run when catalog custody changes"
+  ["crates/risk"]="pending: waiting on the emulator implementation and portfolio state tracking"
+  ["crates/testkit"]="dataset: one-time dataset curation, deliberately not routine CI"
 )
 
 # Proofs no chain selects, each with the reason it stays out. Adding a name here is a decision that
@@ -96,7 +144,8 @@ readonly -A unselected_reason=(
 echo "Checking that every Owner custody proof is selected or explained..."
 
 selected=$(mktemp)
-trap 'rm -f "$selected"' EXIT
+ignored_crates="$(mktemp)"
+trap 'rm -f "$selected" "$ignored_crates"' EXIT
 
 # Read what each chain actually selects, not merely what its text mentions. A name that survives
 # only in a positional assertion or a comment selects nothing.
@@ -164,6 +213,252 @@ if [ "${#stale_exemptions[@]}" -gt 0 ]; then
   exit 1
 fi
 
+# Every crate that holds an `#[ignore]` test must be classified, in `owner_crates` or in
+# `out_of_scope_reason`. Neither list can be complete on its own, and a crate in neither used to be
+# read as "not worth checking" when nothing had ever considered it.
+#
+# Both directions are checked. An unclassified crate fails, so a new crate cannot inherit silence.
+# A classified crate that no longer holds an ignored test also fails, because a reason nobody can
+# reach is the same as no reason, and it is the entry most likely to be left behind by a rename.
+crate_root_of() {
+  local directory
+  directory="$(dirname "$1")"
+  while [ "$directory" != "." ] && [ "$directory" != "/" ]; do
+    if [ -f "$directory/Cargo.toml" ]; then
+      printf '%s\n' "$directory"
+      return 0
+    fi
+    directory="$(dirname "$directory")"
+  done
+  return 1
+}
+
+while read -r source_file; do
+  [ -n "$source_file" ] || continue
+  crate_root_of "$source_file" >> "$ignored_crates" || {
+    echo "ERROR: '$source_file' holds an #[ignore] test and sits under no Cargo.toml." >&2
+    echo "       Nothing can select a test that belongs to no package." >&2
+    exit 1
+  }
+done < <(rg -l '^[[:space:]]*#\[ignore' --type rust 2> /dev/null || true)
+sort -u -o "$ignored_crates" "$ignored_crates"
+
+# A zero here means the search broke, not that the repository has no ignored tests: this check
+# exists because there are 189 of them.
+if [ ! -s "$ignored_crates" ]; then
+  echo "ERROR: no crate in this repository appears to hold an #[ignore] test." >&2
+  echo "       That is the shape a broken search has, not the shape this repository has." >&2
+  exit 1
+fi
+
+unclassified=()
+while read -r crate; do
+  for known in "${owner_crates[@]}"; do
+    [ "$crate" = "$known" ] && continue 2
+  done
+  [ -n "${out_of_scope_reason[$crate]:-}" ] && continue
+  unclassified+=("$crate")
+done < "$ignored_crates"
+if [ "${#unclassified[@]}" -gt 0 ]; then
+  echo "ERROR: these crates hold #[ignore] tests and are in neither list:" >&2
+  for crate in "${unclassified[@]}"; do
+    echo "       $crate" >&2
+  done
+  echo "       Add each to owner_crates, if its ignored tests are Owner custody proofs a chain" >&2
+  echo "       must select, or to out_of_scope_reason with what its ignored tests need that CI" >&2
+  echo "       does not give. Leaving a crate out is not a decision anyone can read later." >&2
+  exit 1
+fi
+
+stale_scope=()
+for crate in "${!out_of_scope_reason[@]}"; do
+  grep -qxF "$crate" "$ignored_crates" || stale_scope+=("$crate")
+done
+if [ "${#stale_scope[@]}" -gt 0 ]; then
+  echo "ERROR: these crates carry a reason for holding unchecked #[ignore] tests, and hold none:" >&2
+  for crate in "${stale_scope[@]}"; do
+    echo "       $crate" >&2
+  done
+  echo "       Remove the entry. A reason that describes nothing outlives what it described." >&2
+  exit 1
+fi
+
+# The tag is what lets a reader separate a settled decision from a blocked one without reading all
+# twenty-three reasons. `pending` and `defect` are the two that should not be permanent.
+untagged=()
+for crate in "${!out_of_scope_reason[@]}"; do
+  case "${out_of_scope_reason[$crate]}" in
+    venue:* | credential:* | dataset:* | slow:* | defect:* | pending:* | generator:*) ;;
+    *) untagged+=("$crate") ;;
+  esac
+done
+if [ "${#untagged[@]}" -gt 0 ]; then
+  echo "ERROR: these out-of-scope reasons carry no recognised tag:" >&2
+  for crate in "${untagged[@]}"; do
+    echo "       $crate: ${out_of_scope_reason[$crate]}" >&2
+  done
+  echo "       Begin each with venue:, credential:, dataset:, slow:, defect:, pending: or" >&2
+  echo "       generator:, so 'never runs here' and 'does not run yet' stay distinguishable." >&2
+  exit 1
+fi
+
+# One extractor, two readers: the gate below and `--report`. Two would drift, and the one that
+# drifted quietly would be the gate.
+#
+# It walks forward from each attribute to the first `fn` rather than reading a fixed context window.
+# `rg -A4` was the window, and three proofs sat further than four lines from their own attribute -
+# `stress_trade_burst` and `stress_cancel_starvation` behind two `cfg_attr` blocks, and
+# `real_v3_owner_build_reaches_composer_program_host_and_durable_abi3_artifact` behind a four-line
+# `cfg`. The last of those is in an Owner crate, and the exemption table below discusses it by name:
+# the check knew the entry and could not see the test.
+#
+# Anchoring on `^[[:space:]]*#\[ignore` also retires the prose problem. A doc comment naming the
+# attribute begins with `///` or `//`, so it never matches, where a substring search did and then
+# took the next unrelated `fn` as a proof.
+#
+# An attribute with no `fn` after it fails rather than being skipped: a proof this cannot resolve is
+# a proof it cannot check, and the two must not look alike.
+ignored_proofs_in() {
+  local crate="$1" file
+  local -a files=()
+  while read -r file; do
+    [ -n "$file" ] && files+=("$file")
+    # One pathspec, not two: git's `*` already crosses `/`, so adding `**/*.rs` beside `*.rs` lists
+    # every nested file twice. `git ls-files` rather than a directory walk, because `.gitignore`
+    # hides tracked files from a walker that reads it - 30 of this repository's 80 tracked `.sh`
+    # files are invisible to `rg` here - and a checker that silently reads fewer files than exist
+    # reports a shorter answer with no sign that it did.
+  done < <(git ls-files -- "$crate/*.rs" 2> /dev/null || true)
+  [ "${#files[@]}" -gt 0 ] || return 0
+  awk '
+    function decl_name(line,   m) {
+      if (match(line, /(^|[^A-Za-z_0-9])fn[[:space:]]+[a-z_0-9]+/) == 0) return ""
+      m = substr(line, RSTART, RLENGTH)
+      sub(/^[^A-Za-z_]*/, "", m)
+      sub(/^fn[[:space:]]+/, "", m)
+      return m
+    }
+    FNR == 1 { pending = 0; depth = 0 }
+    {
+      if (!pending) {
+        if ($0 ~ /^[[:space:]]*#\[ignore/) { pending = FNR; depth = 0 }
+        next
+      }
+      # Blank lines and comments sit between an attribute and its item.
+      if ($0 ~ /^[[:space:]]*$/ || $0 ~ /^[[:space:]]*\/\//) next
+      # An attribute may span lines; follow its brackets rather than counting lines. A fixed window
+      # is wrong in both directions - four lines missed three proofs behind `cfg_attr`, and twelve
+      # reached past an item and took an unrelated `fn`.
+      if (depth > 0 || $0 ~ /^[[:space:]]*#\[/) {
+        n = gsub(/\[/, "[") - gsub(/\]/, "]")
+        depth += n
+        if (depth < 0) depth = 0
+        next
+      }
+      name = decl_name($0)
+      if (name != "") { print name; pending = 0; next }
+      printf "ERROR: %s:%d carries #[ignore] and the next item is not a fn: %s\n", FILENAME, pending, $0 > "/dev/stderr"
+      bad = 1
+      pending = 0
+    }
+    END { if (bad) exit 1 }
+  ' "${files[@]}" | sort -u
+}
+
+if [ "$report_only" = true ]; then
+  # Which selector names each ignored test, for the question this check cannot answer by passing:
+  # "who runs this one today". The sources are enumerated rather than listed, from the files that
+  # invoke `cargo nextest` at all, because a hand-written list of sources is the thing that sent a
+  # reader grepping `scripts/ .github/ Makefile` and concluding from zero hits that nothing ran a
+  # test whose selector sits in `crates/data/tests/run_market_data_owner_postgres.bash`.
+  #
+  # "names" is not "selects": a name can appear in a comment or a positional assertion. The sound
+  # direction is the other one - a name no source mentions is selected by nothing - and that is the
+  # column worth reading.
+  selector_sources="$(mktemp)"
+  ignored_names="$(mktemp)"
+  # `cargo test` as well as `cargo nextest`. Enumerating only the nextest callers missed
+  # `scripts/ci/test-qualification-owner-recovery-postgres.bash`, which selects by exact name through
+  # `cargo test -p ... <name>` and holds no occurrence of the word nextest at all. The control below
+  # is what found that, before the table it produced was read by anyone.
+  #
+  # `if`, not `&&`: a loop body ending in a false `&&` returns non-zero, `pipefail` hands that to the
+  # pipeline, and `set -e` ends the script - which is what the last candidate file not matching did.
+  # This script is excluded from its own source list. It invokes `cargo nextest` only inside a
+  # comment, and its exemption table holds the very names being looked up, so leaving it in would
+  # report every exempted proof as named by a selector.
+  git ls-files -- '*.bash' '*.sh' '*.yml' '*.yaml' '*.toml' 'Makefile' |
+    while read -r candidate; do
+      if [ "$candidate" = "scripts/ci/check-owner-custody-proof-selection.bash" ]; then
+        continue
+      fi
+      if grep -qE 'cargo (nextest|test)' "$candidate" 2> /dev/null; then
+        printf '%s\n' "$candidate"
+      fi
+    done > "$selector_sources"
+  if [ ! -s "$selector_sources" ]; then
+    echo "ERROR: no file in this repository appears to invoke cargo nextest." >&2
+    rm -f "$selector_sources"
+    exit 1
+  fi
+  # Read into an array once. Splitting the file inside the loop would leave `grep` with no file
+  # operands the moment that list were empty, and `grep -q` with no operands reads standard input -
+  # which is the loop's own, so it would block rather than fail.
+  selector_files=()
+  while read -r source; do selector_files+=("$source"); done < "$selector_sources"
+  printf 'selector sources (%s):\n' "${#selector_files[@]}"
+  sed 's/^/  /' "$selector_sources"
+  printf '\n%-11s %-44s %s\n' "STATE" "CRATE" "TEST"
+  named_total=0
+  unnamed_total=0
+  while read -r crate; do
+    while read -r proof; do
+      [ -n "$proof" ] || continue
+      if grep -qF "$proof" -- "${selector_files[@]}" 2> /dev/null; then
+        state=named
+        named_total=$((named_total + 1))
+      else
+        state="NOT NAMED"
+        unnamed_total=$((unnamed_total + 1))
+      fi
+      printf '%s\n' "$proof" >> "$ignored_names"
+      printf '%-11s %-44s %s\n' "$state" "$crate" "$proof"
+    done < <(ignored_proofs_in "$crate")
+  done < "$ignored_crates"
+  printf '\nnamed by some selector source: %s\nnamed by none: %s\n' "$named_total" "$unnamed_total"
+
+  # The instrument has to prove it can see before its zeroes mean anything. Everything the chains
+  # select is, by construction, named by a selector source; if any of it comes back unnamed, the
+  # source enumeration is blind and every "NOT NAMED" above is unreliable rather than informative.
+  #
+  # This is not hypothetical. `.gitignore` in this repository hides 30 of its 80 tracked `.sh` files
+  # from a directory walker that reads it, and the ordered chain's own script is one of the files at
+  # risk. A report built that way lists almost everything as unselected and reads entirely
+  # plausibly. `git check-ignore` cannot predict it either: gitignore does not apply to tracked
+  # files, so git answers "not ignored" for a file ripgrep still skips.
+  blind=0
+  while read -r chain_selected; do
+    [ -n "$chain_selected" ] || continue
+    grep -qxF "$chain_selected" "$ignored_names" || continue
+    if ! grep -qF "$chain_selected" -- "${selector_files[@]}" 2> /dev/null; then
+      [ "$blind" -eq 0 ] && echo "ERROR: the selector sources above cannot see names the chains select:" >&2
+      echo "       $chain_selected" >&2
+      blind=$((blind + 1))
+    fi
+  done < "$selected"
+  if [ "$blind" -gt 0 ]; then
+    echo "       $blind of them. The enumeration is reading fewer files than exist, so every" >&2
+    echo "       'NOT NAMED' row above is unreliable. Check what git ls-files returns for the" >&2
+    echo "       selector scripts before reading any of this as evidence." >&2
+    rm -f "$selector_sources" "$ignored_names"
+    exit 1
+  fi
+  printf 'positive control: %s chain-selected names, all visible to the sources above\n' \
+    "$(grep -c '' "$selected")"
+  rm -f "$selector_sources" "$ignored_names"
+  exit 0
+fi
+
 violations=0
 
 # `owner_crates` is a hand-written list, and a path that does not exist used to be skipped in
@@ -195,39 +490,7 @@ for crate in "${owner_crates[@]}"; do
     echo "       and it carries no reason in check-owner-custody-proof-selection.bash." >&2
     echo "       List it in a chain, or record why it stays out." >&2
     violations=$((violations + 1))
-  done < <(
-    # Only the first `fn` after each attribute is the proof; a later one is a helper nested
-    # inside its body.
-    #
-    # The character class before `fn` admits `:` and `-` as well as whitespace, because a proof
-    # declared at column 0 - one that is not nested inside a `mod` block - has no whitespace there.
-    # What precedes it is `rg`'s own prefix, `path:LINE:` on the matched line and `path-LINE-` on a
-    # context line. Requiring whitespace therefore made indentation decide whether this check could
-    # see a proof at all, and nine of the 119 ignored proofs in the Owner crates were invisible to
-    # it, including the first entry of the Market Data chain leg. None of the nine is presently
-    # unselected, so this widening keeps the check green while giving it the teeth it claims: an
-    # unselected top-level proof used to pass in silence.
-    rg -n -A4 '#\[ignore' "$crate" --type rust 2> /dev/null |
-      awk '
-        /^--$/ { taken = 0; next }
-        /#\[ignore/ {
-          # Prose that names the attribute is not the attribute. A comment mentioning `#[ignore]`
-          # opens a four-line window like a real one, and the next `fn` in it was reported as an
-          # unselected proof even when that function is not ignored at all. Consuming the window
-          # rather than skipping the line is what suppresses it: skipping would leave the
-          # following `fn` to be taken by the untaken-window rule below, which is the bug.
-          if (substr($0, 1, index($0, "#[ignore") - 1) ~ /\/\//) { taken = 1; next }
-          taken = 0
-          next
-        }
-        !taken && /[[:space:]:-]fn [a-z_0-9]+/ {
-          match($0, /fn [a-z_0-9]+/)
-          print substr($0, RSTART + 3, RLENGTH - 3)
-          taken = 1
-        }
-      ' |
-      sort -u
-  )
+  done < <(ignored_proofs_in "$crate")
 done
 
 if [ "$violations" -gt 0 ]; then
