@@ -317,9 +317,14 @@ pub enum NativeReplayExecutionInputBindingErrorV2 {
     Storage(#[source] sqlx::Error),
 }
 
-/// Reserved entry point for an adapter holding both exact, typed Owner readbacks.
-/// There is intentionally no producer of `VerifiedOwnerSequenceV2` until Market Data issues its
-/// complete sequence capability and proves frame zero equals the V1 initial frame.
+/// Entry point for an adapter holding both exact, typed Owner readbacks.
+///
+/// `issue_native_replay_execution_input_binding_v2_in_transaction` below produces the
+/// `VerifiedOwnerSequenceV2` this takes, and Market Data issues the complete sequence it is built
+/// from: `resolve_native_replay_frame_sequence_v2` in `vibe_data`. Both are production code.
+///
+/// What is missing is a caller: nothing in the repository calls that issuing function, so this
+/// path is reachable only from tests. That is the gap to close, and it is on this side.
 pub(crate) fn prepare_binding_from_verified_owner_v2(
     v1: &NativeReplayExecutionInputBindingReadbackV1,
     owner: VerifiedOwnerSequenceV2,

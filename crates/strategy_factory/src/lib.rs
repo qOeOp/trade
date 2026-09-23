@@ -129,10 +129,6 @@ pub use successor_intent_postgres::{
     SuccessorResearchIntentPostgresErrorV1, SuccessorResearchIntentResolutionLocatorV1,
 };
 mod legacy_prepared_attempt_drain;
-#[allow(
-    dead_code,
-    reason = "the binding-governed execution bundle is consumed by the next Native Replay service slice"
-)]
 mod native_replay_execution_binding_consumer_v1;
 pub mod native_replay_execution_bundle_owner_v2;
 #[allow(
@@ -140,21 +136,13 @@ pub mod native_replay_execution_bundle_owner_v2;
     reason = "T139 binding issuer awaits the T140 typed Owner-readback adapter"
 )]
 pub mod native_replay_execution_input_binding_v1;
-#[allow(
+#[expect(
     dead_code,
-    reason = "the two-frame binding awaits the typed Market Data Owner sequence capability"
+    reason = "every piece exists but nothing calls the issuing entry point; `expect` rather than `allow` so the day a caller lands, the compiler reports this attribute instead of leaving a stale justification in place"
 )]
 pub mod native_replay_execution_input_binding_v2;
 pub mod native_replay_execution_preparation_resolver_v2;
-#[allow(
-    dead_code,
-    reason = "the initial issuance operation is called by the R&D Owner API feature composition"
-)]
 mod native_replay_initial_binding_issuance_v1;
-#[allow(
-    dead_code,
-    reason = "the fixed initial Owner-input adapter is consumed by the T145 atomic service composition"
-)]
 mod native_replay_initial_owner_inputs_v1;
 pub mod native_replay_preparation_inputs_v2;
 pub mod native_replay_preparation_owner_v2;
