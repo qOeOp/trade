@@ -15,9 +15,9 @@ import {
 } from "../lib/backtest-return-band-layout.ts";
 
 const bandPoints = [
-  { at: "2025-01-01T00:00:00.000Z", min: -4, q1: -2, median: 0, q3: 2, max: 4 },
-  { at: "2025-02-01T00:00:00.000Z", min: -3, q1: -1, median: 1, q3: 3, max: 5 },
-  { at: "2025-03-01T00:00:00.000Z", min: -2, q1: 0, median: 2, q3: 4, max: 6 },
+  { at: "2025-01-01T00:00:00.000000000Z", min: -4, q1: -2, median: 0, q3: 2, max: 4 },
+  { at: "2025-02-01T00:00:00.000000000Z", min: -3, q1: -1, median: 1, q3: 3, max: 5 },
+  { at: "2025-03-01T00:00:00.000000000Z", min: -2, q1: 0, median: 2, q3: 4, max: 6 },
 ];
 
 const strategy = {
@@ -35,7 +35,7 @@ const benchmark = {
 const available = {
   availability: "available",
   resultIdentity: "sealed-backtest-result-7",
-  observedAt: "2026-09-06T00:00:00.000Z",
+  observedAt: "2026-09-06T00:00:00.000000000Z",
   points: bandPoints,
   strategy,
   benchmark,
@@ -92,7 +92,7 @@ test("malformed ordering, timestamps, and invented visualization fields fail clo
   const duplicate = [bandPoints[0], bandPoints[0]];
   const outsideSeries = {
     ...strategy,
-    points: [{ at: "2024-12-01T00:00:00.000Z", value: 2 }],
+    points: [{ at: "2024-12-01T00:00:00.000000000Z", value: 2 }],
   };
 
   for (const invalid of [
@@ -110,16 +110,57 @@ test("malformed ordering, timestamps, and invented visualization fields fail clo
   }
 });
 
+test("canonical UTC is RFC3339 with exactly nine fractional digits and a Z offset", () => {
+  // The case that used to go silently empty: an Owner emitting the nine-digit form the document
+  // defines had every point fail closed, and the chart drew no data under a generic reason.
+  assert.equal(normalizeBacktestReturnBandProjection(available), available);
+
+  const withAt = (at) => ({
+    ...available,
+    points: [{ ...bandPoints[0], at }],
+    strategy: null,
+    benchmark: null,
+  });
+  for (const at of [
+    "2025-01-01T00:00:00.000Z",
+    "2025-01-01T00:00:00Z",
+    "2025-01-01T00:00:00.000000Z",
+    "2025-01-01T00:00:00.0000000000Z",
+    "2025-01-01T00:00:00.000000000+00:00",
+    "2025-02-30T00:00:00.000000000Z",
+    "2025-01-01 00:00:00.000000000Z",
+  ]) {
+    assert.deepEqual(normalizeBacktestReturnBandProjection(withAt(at)), invalidProjection(), at);
+  }
+});
+
+test("ordering keeps the nanoseconds a millisecond clock drops", () => {
+  // Date.parse truncates to the millisecond, so these two parse to one instant; ordering on it read
+  // a nanosecond step as a duplicate and failed the projection closed.
+  const oneNanosecondApart = [
+    { ...bandPoints[0], at: "2025-01-01T00:00:00.000000001Z" },
+    { ...bandPoints[1], at: "2025-01-01T00:00:00.000000002Z" },
+  ];
+  const projection = { ...available, points: oneNanosecondApart, strategy: null, benchmark: null };
+  assert.equal(normalizeBacktestReturnBandProjection(projection), projection);
+
+  const repeated = [oneNanosecondApart[0], { ...oneNanosecondApart[1], at: oneNanosecondApart[0].at }];
+  assert.deepEqual(
+    normalizeBacktestReturnBandProjection({ ...projection, points: repeated }),
+    invalidProjection(),
+  );
+});
+
 test("time layers preserve short-span month stripes and long-span year dividers", () => {
   assert.deepEqual(buildBacktestMonthLayers(bandPoints), [
     { key: "2025-02", startIndex: 1, endIndex: 1, mode: "stripe" },
   ]);
 
   const multiYear = [
-    { at: "2023-01-01T00:00:00.000Z" },
-    { at: "2023-12-01T00:00:00.000Z" },
-    { at: "2024-01-01T00:00:00.000Z" },
-    { at: "2025-01-01T00:00:00.000Z" },
+    { at: "2023-01-01T00:00:00.000000000Z" },
+    { at: "2023-12-01T00:00:00.000000000Z" },
+    { at: "2024-01-01T00:00:00.000000000Z" },
+    { at: "2025-01-01T00:00:00.000000000Z" },
   ];
   assert.deepEqual(buildBacktestMonthLayers(multiYear), [
     { key: "2024", startIndex: 2, endIndex: 2, mode: "divider" },

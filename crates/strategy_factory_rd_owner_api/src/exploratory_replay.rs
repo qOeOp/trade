@@ -30,6 +30,8 @@ use vibe_data::owner::{
     native_replay_scheduling_v1::NativeReplaySchedulingResolverV1,
 };
 use vibe_product_edge::{ProductEdgeAdmissionRequestV1, ProductEdgeError};
+#[cfg(any(test, feature = "sealed-develop-composer-acceptance"))]
+use vibe_strategy_factory::NativeReplayExecutionInputBindingErrorV1;
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use vibe_strategy_factory::exploratory_replay::{
     ComposerBackedExploratoryReplayProposalV3, EXPLORATORY_REPLAY_MUTATION_EFFECT_V3,
@@ -534,11 +536,7 @@ pub(super) async fn issue_execution_input_binding(
             )
                 .into_response()
         }
-        Err(_) => rejection(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "NATIVE_REPLAY_EXECUTION_INPUT_BINDING_UNAVAILABLE",
-            &request_identity,
-        ),
+        Err(e) => execution_input_binding_error(&e, &request_identity),
     }
 }
 
@@ -1317,6 +1315,37 @@ fn product_edge_error(error: &ProductEdgeError, request_identity: &str) -> Respo
     }
 }
 
+/// A request whose Owner inputs no longer reproduce the binding already issued for it is refused
+/// for good, so it answers `409` rather than a `503` that invites the same retry forever.
+/// `Unavailable` recorded its stage in the R&D Owner before it got here; `Storage` has no such
+/// record, so its detail is logged at the match.
+#[cfg(any(test, feature = "sealed-develop-composer-acceptance"))]
+fn execution_input_binding_error(
+    error: &NativeReplayExecutionInputBindingErrorV1,
+    request_identity: &str,
+) -> Response {
+    match error {
+        NativeReplayExecutionInputBindingErrorV1::Conflict => rejection(
+            StatusCode::CONFLICT,
+            "CONFLICTING_SEMANTICS_FOR_REQUEST_IDENTITY",
+            request_identity,
+        ),
+        NativeReplayExecutionInputBindingErrorV1::Storage(detail) => {
+            tracing::warn!(%detail, %request_identity, "execution-input binding storage unavailable");
+            rejection(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "NATIVE_REPLAY_EXECUTION_INPUT_BINDING_UNAVAILABLE",
+                request_identity,
+            )
+        }
+        NativeReplayExecutionInputBindingErrorV1::Unavailable => rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "NATIVE_REPLAY_EXECUTION_INPUT_BINDING_UNAVAILABLE",
+            request_identity,
+        ),
+    }
+}
+
 fn owner_error(error: &ExploratoryReplayOwnerError, request_identity: &str) -> Response {
     match error {
         ExploratoryReplayOwnerError::ConflictingReplay => rejection(
@@ -1964,6 +1993,34 @@ mod tests {
         assert_eq!(
             owner_error(
                 &ExploratoryReplayOwnerError::Unavailable("storage".into()),
+                "request-1"
+            )
+            .status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+    }
+
+    #[rstest]
+    fn execution_input_binding_conflict_is_not_offered_as_retryable() {
+        assert_eq!(
+            execution_input_binding_error(
+                &NativeReplayExecutionInputBindingErrorV1::Conflict,
+                "request-1"
+            )
+            .status(),
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            execution_input_binding_error(
+                &NativeReplayExecutionInputBindingErrorV1::Unavailable,
+                "request-1"
+            )
+            .status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        assert_eq!(
+            execution_input_binding_error(
+                &NativeReplayExecutionInputBindingErrorV1::Storage(sqlx::Error::PoolTimedOut),
                 "request-1"
             )
             .status(),

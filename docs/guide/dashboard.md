@@ -129,7 +129,8 @@ optional explicit benchmark, and external hover readout. It uses the shared Dash
 tokens, responsive measurement, restrained motion, reduced-motion behavior, and Lucide actions.
 
 Positive rendering accepts only one exact, bounded Owner-projected result identity: canonical UTC
-timestamps, ordered finite quantiles, strictly ordered points, and optional strategy and benchmark
+timestamps (RFC3339 with exactly nine fractional digits and a `Z` offset, the definition the single-run
+report below also uses), ordered finite quantiles, strictly ordered points, and optional strategy and benchmark
 series whose timestamps belong to the same cut. Unknown keys, malformed ordering, mismatched series,
 stale carried values, or non-canonical time fail closed to zero chart data. A benchmark is shown only
 when the projection supplies it explicitly; the browser must never derive a baseline from the band
