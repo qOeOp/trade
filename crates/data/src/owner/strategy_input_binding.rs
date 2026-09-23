@@ -1419,7 +1419,9 @@ pub(crate) fn derive_universe_selection(
         }
     }
 
-    if by_member.len() != 2 {
+    // One member is a single-instrument universe, two the pair. The count is part of the static
+    // meaning hashed below, so a one-member selection never shares an identity with a two-member one.
+    if !super::ADMITTED_UNIVERSE_MEMBER_COUNTS.contains(&by_member.len()) {
         return Err(StrategyInputBindingUnavailable::InvalidUniverseCardinality);
     }
     let members = by_member
@@ -2137,6 +2139,7 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
+    use crate::owner::pit_snapshot::UnverifiedBatchFieldsForTest;
     use crate::owner::pit_snapshot::{
         UntrustedCorrectionPublicationTime, UntrustedEventEffectiveTime,
         UntrustedPitSnapshotTimeEvidence, UntrustedProviderAvailableTime, UntrustedRetrievalTime,
@@ -2223,7 +2226,7 @@ mod tests {
     }
 
     fn batch(rows: Vec<VerifiedPitObservation>) -> VerifiedPitObservationBatch {
-        VerifiedPitObservationBatch {
+        VerifiedPitObservationBatch::from_fields_for_test(UnverifiedBatchFieldsForTest {
             request_identity: d(1),
             request_digest: d(2),
             correlation_identity: d(21),
@@ -2242,7 +2245,7 @@ mod tests {
             time_evidence: time_evidence(),
             digest: d(5),
             observations: rows.into_boxed_slice(),
-        }
+        })
     }
 
     fn issue_frame(
@@ -2559,8 +2562,7 @@ mod tests {
     fn persisted_custody_rejects_a_frame_from_another_observation_cut() {
         let requests = custody_requests();
         let (bindings, _) = custody_evidence(&requests);
-        let mut drifted_batch = custody_batch();
-        drifted_batch.digest = d(90);
+        let drifted_batch = custody_batch().edit_for_test(|fields| fields.digest = d(90));
         let drifted_frame = bind_strategy_input_event_frame(&bindings, &drifted_batch)
             .expect("frame over the same rows");
         assert_eq!(
@@ -2741,7 +2743,6 @@ mod tests {
     fn universe_frame_rejects_missing_duplicate_third_and_inconsistent_members() {
         for rows in [
             Vec::new(),
-            vec![member_row("AAPL.CLOSE", "AAPL", "AAPL.XNAS", "CLOSE")],
             vec![
                 member_row("AAPL.CLOSE", "AAPL", "AAPL.XNAS", "CLOSE"),
                 member_row("MSFT.CLOSE", "MSFT", "MSFT.XNAS", "CLOSE"),
@@ -2780,6 +2781,30 @@ mod tests {
             bind_strategy_input_universe_frame(&requests, &verified),
             Err(StrategyInputBindingUnavailable::NonUniqueResolution)
         );
+    }
+
+    /// One member is a universe of its own: a single-instrument strategy's selection, with an
+    /// identity and digest no two-member selection shares, because the member count is part of
+    /// what both are derived from.
+    #[rstest]
+    fn a_one_member_universe_is_a_selection_of_its_own() {
+        let single = derive_universe_selection(&batch(vec![member_row(
+            "AAPL.CLOSE",
+            "AAPL",
+            "AAPL.XNAS",
+            "CLOSE",
+        )]))
+        .expect("a one-member selection");
+        let pair = derive_universe_selection(&batch(vec![
+            member_row("AAPL.CLOSE", "AAPL", "AAPL.XNAS", "CLOSE"),
+            member_row("MSFT.CLOSE", "MSFT", "MSFT.XNAS", "CLOSE"),
+        ]))
+        .expect("a two-member selection");
+
+        assert_eq!(single.members().len(), 1);
+        assert_eq!(single.members()[0].instrument(), "AAPL.XNAS");
+        assert_ne!(single.selection_identity(), pair.selection_identity());
+        assert_ne!(single.selection_digest(), pair.selection_digest());
     }
 
     #[rstest]
@@ -2857,16 +2882,17 @@ mod tests {
         assert_ne!(first.selection_identity(), second.selection_identity());
         assert_ne!(first.selection_digest(), second.selection_digest());
 
-        let mut renewable_batch = first_batch.clone();
-        renewable_batch.snapshot_identity = d(80);
-        renewable_batch.fact_digest = d(81);
-        renewable_batch.digest = d(82);
-        renewable_batch.source_binding_identity = d(83);
-        renewable_batch.source_binding_lineage_version += 1;
-        renewable_batch.source_frontier_digest = d(84);
-        renewable_batch.correction_frontier_digest = d(85);
-        renewable_batch.time_evidence.decision_cut.value += 1;
-        renewable_batch.observations[0].value_mantissa += 1;
+        let renewable_batch = first_batch.clone().edit_for_test(|fields| {
+            fields.snapshot_identity = d(80);
+            fields.fact_digest = d(81);
+            fields.digest = d(82);
+            fields.source_binding_identity = d(83);
+            fields.source_binding_lineage_version += 1;
+            fields.source_frontier_digest = d(84);
+            fields.correction_frontier_digest = d(85);
+            fields.time_evidence.decision_cut.value += 1;
+            fields.observations[0].value_mantissa += 1;
+        });
         let renewable = derive_universe_selection(&renewable_batch).unwrap();
         assert_eq!(first.selection_identity(), renewable.selection_identity());
         assert_eq!(first.selection_digest(), renewable.selection_digest());
@@ -3228,18 +3254,19 @@ mod tests {
         next_row.correction_sequence += 1;
         next_row.source_frontier_digest = d(70);
         next_row.correction_frontier_digest = d(71);
-        let mut next_batch = batch(vec![next_row]);
-        next_batch.request_identity = d(72);
-        next_batch.request_digest = d(73);
-        next_batch.snapshot_identity = d(74);
-        next_batch.fact_digest = d(75);
-        next_batch.source_binding_identity = d(76);
-        next_batch.source_binding_lineage_version = 2;
-        next_batch.source_frontier_digest = d(70);
-        next_batch.correction_frontier_digest = d(71);
-        next_batch.instrument_master_digest = d(77);
-        next_batch.universe_selection_digest = d(78);
-        next_batch.digest = d(79);
+        let next_batch = batch(vec![next_row]).edit_for_test(|fields| {
+            fields.request_identity = d(72);
+            fields.request_digest = d(73);
+            fields.snapshot_identity = d(74);
+            fields.fact_digest = d(75);
+            fields.source_binding_identity = d(76);
+            fields.source_binding_lineage_version = 2;
+            fields.source_frontier_digest = d(70);
+            fields.correction_frontier_digest = d(71);
+            fields.instrument_master_digest = d(77);
+            fields.universe_selection_digest = d(78);
+            fields.digest = d(79);
+        });
         let mut next_request = first_request;
         next_request.pit_request_identity = next_batch.request_identity();
         next_request.pit_request_digest = next_batch.request_digest();

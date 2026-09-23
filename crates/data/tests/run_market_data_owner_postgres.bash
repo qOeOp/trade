@@ -10,6 +10,8 @@ readonly market_data_owner_postgres_tests=(
   owner::postgres::live_market_stream_v1::tests::postgres_live_channel_head_resumes_and_is_acl_sealed_and_tamper_closed
   owner::store_admission::tests::the_admitted_bar_schedule_order_verifies_before_it_revalidates
   owner::store_admission::tests::a_refused_pit_readback_never_reads_schedule_candidates
+  owner::instrument_master_v2_postgres::tests::postgres_v2_cut_custody_holds_one_or_two_members_and_migrates_a_legacy_table
+  owner::instrument_economic_terms_postgres_v1::tests::postgres_economic_terms_resolve_for_one_member_or_two
 )
 
 # The ordered chain refuses a guarded crate whose test SQL is destructive without dedicated-database
@@ -64,6 +66,15 @@ PRECHECK
 
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 check_destructive_sql_admission
+
+# The same machine-wide lock as the ordered chain, on the same file: one local Owner chain at a
+# time, whichever it is, taken before the first container. scripts/ci/owner-chain-lock.bash says
+# why. A hosted runner runs one job, so CI does not take it.
+if [[ "${GITHUB_ACTIONS:-}" != "true" ]]; then
+  # shellcheck source=scripts/ci/owner-chain-lock.bash
+  source "${repository_root}/scripts/ci/owner-chain-lock.bash"
+  acquire_owner_chain_lock || exit 1
+fi
 
 container="vibe-md-d1-${PPID}-$$"
 database_prefix="vibe_test_market_data_${PPID}_$$"
@@ -188,6 +199,15 @@ for test_selection in "${market_data_owner_postgres_tests[@]}"; do
     echo "  nextest prints 'error: no tests to run' for the second, which means the name is stale" >&2
     exit "$test_status"
   fi
+done
+
+# Every SECURITY DEFINER routine, in every database the chain materialized, must search pg_temp last
+# and name no schema another role can create in; scripts/ci/check-security-definer-search-path.sql
+# holds the rule and the shrinking list of routines that do not meet it yet.
+for guard_database in $(docker exec "$container" psql -U postgres -d postgres -Atqc "SELECT datname FROM pg_catalog.pg_database WHERE NOT datistemplate AND datallowconn ORDER BY 1"); do
+  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$guard_database" \
+    < "$repository_root/scripts/ci/check-security-definer-search-path.sql"
 done
 
 exit 0

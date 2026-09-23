@@ -6,7 +6,6 @@
 //! for appending or replacing instruments or scheduling data.
 
 use sha2::{Digest, Sha256};
-use strategy_factory_program_sdk::lifecycle_v2::TARGET_SET_MEMBER_COUNT;
 use vibe_data::owner::instrument_master_v2::ValidatedCryptoPerpetualPublicTermsV2;
 use vibe_data::owner::native_replay_scheduling_v1::NativeReplaySchedulingReadbackV1;
 use vibe_data::owner::native_replay_scheduling_v2::NativeReplayFrameSequenceReadbackV2;
@@ -35,6 +34,7 @@ use crate::{
     },
     replay_runner_operational_profile_v1::ReplayRunnerOperationalProfileV1,
     strategy_plan_v2::StrategyPlanV2,
+    target_set_members::{BoundedMembers, is_admitted_member_count, update_member_count_domain},
 };
 
 const SCHEDULING_DIGEST_DOMAIN_V1: &[u8] = b"strategy-factory.replay-target-set-scheduling.v1\0";
@@ -192,8 +192,8 @@ pub struct ReplayTargetSetExecutionCensusV1 {
     pub(crate) frame_count: u64,
     pub(crate) universe_selection_identity: [u8; 32],
     pub(crate) universe_selection_digest: [u8; 32],
-    pub(crate) member_instruments: [String; TARGET_SET_MEMBER_COUNT],
-    pub(crate) instrument_terms: [ReplayTargetSetInstrumentCensusV1; TARGET_SET_MEMBER_COUNT],
+    pub(crate) member_instruments: BoundedMembers<String>,
+    pub(crate) instrument_terms: BoundedMembers<ReplayTargetSetInstrumentCensusV1>,
     pub(crate) scheduling_data_digest: [u8; 32],
     pub(crate) scheduling_data_count: u64,
     pub(crate) bar_count: u64,
@@ -276,28 +276,28 @@ impl ReplayTargetSetExecutionCensusV1 {
     }
 
     #[must_use]
-    pub fn member_instruments(&self) -> &[String; TARGET_SET_MEMBER_COUNT] {
+    pub fn member_instruments(&self) -> &[String] {
         &self.member_instruments
     }
 
     #[must_use]
-    pub fn instrument_fact_digests(&self) -> [[u8; 32]; TARGET_SET_MEMBER_COUNT] {
+    pub fn instrument_fact_digests(&self) -> Vec<[u8; 32]> {
         self.instrument_terms
-            .each_ref()
+            .iter()
             .map(ReplayTargetSetInstrumentCensusV1::instrument_fact_digest)
+            .collect()
     }
 
     #[must_use]
-    pub fn instrument_receipt_digests(&self) -> [[u8; 32]; TARGET_SET_MEMBER_COUNT] {
+    pub fn instrument_receipt_digests(&self) -> Vec<[u8; 32]> {
         self.instrument_terms
-            .each_ref()
+            .iter()
             .map(ReplayTargetSetInstrumentCensusV1::instrument_receipt_digest)
+            .collect()
     }
 
     #[must_use]
-    pub const fn instrument_terms(
-        &self,
-    ) -> &[ReplayTargetSetInstrumentCensusV1; TARGET_SET_MEMBER_COUNT] {
+    pub fn instrument_terms(&self) -> &[ReplayTargetSetInstrumentCensusV1] {
         &self.instrument_terms
     }
 
@@ -327,7 +327,7 @@ impl ReplayTargetSetExecutionCensusV1 {
     }
 }
 
-/// Opaque move-only capability for one exact request and one complete two-member execution.
+/// Opaque move-only capability for one exact request and one complete target-set execution.
 ///
 /// ```compile_fail
 /// use vibe_strategy_factory::replay_target_set_execution_bundle_v1::ReplayTargetSetExecutionBundleV1;
@@ -343,8 +343,8 @@ pub struct ReplayTargetSetExecutionBundleV1 {
     pub(crate) account_scope_id: AccountId,
     pub(crate) strategy_id: StrategyId,
     pub(crate) run_id: String,
-    pub(crate) instruments: [InstrumentAny; TARGET_SET_MEMBER_COUNT],
-    pub(crate) bar_types: [BarType; TARGET_SET_MEMBER_COUNT],
+    pub(crate) instruments: BoundedMembers<InstrumentAny>,
+    pub(crate) bar_types: BoundedMembers<BarType>,
     pub(crate) data: Vec<Data>,
     pub(crate) census: ReplayTargetSetExecutionCensusV1,
 }
@@ -422,7 +422,7 @@ impl ReplayTargetSetExecutionBundleV1 {
         universe_frames: Vec<StrategyInputUniverseFrameReceipt>,
         strategy_id: StrategyId,
         run_id: String,
-        public_terms: [ValidatedCryptoPerpetualPublicTermsV2; TARGET_SET_MEMBER_COUNT],
+        public_terms: Vec<ValidatedCryptoPerpetualPublicTermsV2>,
         sequence: NativeReplayFrameSequenceReadbackV2,
     ) -> anyhow::Result<Self> {
         let instruments = materialize_crypto_perpetual_target_set_v2(
@@ -430,7 +430,7 @@ impl ReplayTargetSetExecutionBundleV1 {
             public_terms,
         )?;
         let request_window = authority.request_window();
-        let instrument_ids = instruments.each_ref().map(Instrument::id);
+        let instrument_ids = instruments.map(Instrument::id);
         let (sequence_start_ns, sequence_end_ns_exclusive) = sequence.window();
         anyhow::ensure!(
             sequence_start_ns == request_window.start_event_ns
@@ -442,14 +442,14 @@ impl ReplayTargetSetExecutionBundleV1 {
             !frames.is_empty() && frames.len() == universe_frames.len(),
             "request execution bundle frame sequence and universe receipts do not correspond"
         );
-        let mut bar_types: Option<[BarType; TARGET_SET_MEMBER_COUNT]> = None;
+        let mut bar_types: Option<BoundedMembers<BarType>> = None;
         let mut receipt_digests = Vec::with_capacity(frames.len());
         let mut frame_times = Vec::with_capacity(frames.len());
         let mut data = Vec::new();
 
         for (frame, universe_frame) in frames.into_iter().zip(&universe_frames) {
             anyhow::ensure!(
-                frame.member_instruments() == instrument_ids
+                frame.member_instruments().as_slice() == &*instrument_ids
                     && frame.window_end_ns_exclusive() == request_window.end_event_ns_exclusive
                     && *frame.observation_batch_digest().as_bytes()
                         == *universe_frame
@@ -461,6 +461,7 @@ impl ReplayTargetSetExecutionBundleV1 {
             receipt_digests.push(*frame.scheduling_receipt_digest_v1().as_bytes());
             frame_times.push(frame.frame_time_ns());
             let (frame_bar_types, frame_data) = frame.into_native_schedule();
+            let frame_bar_types = BoundedMembers::try_from(frame_bar_types)?;
 
             if let Some(expected) = &bar_types {
                 anyhow::ensure!(
@@ -507,7 +508,7 @@ impl ReplayTargetSetExecutionBundleV1 {
         universe_frame: StrategyInputUniverseFrameReceipt,
         strategy_id: StrategyId,
         run_id: String,
-        public_terms: [ValidatedCryptoPerpetualPublicTermsV2; TARGET_SET_MEMBER_COUNT],
+        public_terms: Vec<ValidatedCryptoPerpetualPublicTermsV2>,
         scheduling: NativeReplaySchedulingReadbackV1,
     ) -> anyhow::Result<Self> {
         let instruments = materialize_crypto_perpetual_target_set_v2(
@@ -515,9 +516,9 @@ impl ReplayTargetSetExecutionBundleV1 {
             public_terms,
         )?;
         let request_window = authority.request_window();
-        let instrument_ids = instruments.each_ref().map(Instrument::id);
+        let instrument_ids = instruments.map(Instrument::id);
         anyhow::ensure!(
-            scheduling.member_instruments() == instrument_ids
+            scheduling.member_instruments().as_slice() == &*instrument_ids
                 && scheduling.frame_time_ns() == request_window.start_event_ns
                 && scheduling.window_end_ns_exclusive() == request_window.end_event_ns_exclusive
                 && *scheduling.observation_batch_digest().as_bytes()
@@ -530,6 +531,7 @@ impl ReplayTargetSetExecutionBundleV1 {
         let frame_times = vec![scheduling.frame_time_ns()];
         let receipt_digests = vec![*scheduling.receipt_digest().as_bytes()];
         let (bar_types, data) = scheduling.into_native_schedule();
+        let bar_types = BoundedMembers::try_from(bar_types)?;
         Self::new_with_native_instruments(
             authority,
             plan,
@@ -553,8 +555,8 @@ impl ReplayTargetSetExecutionBundleV1 {
         universe_frames: Vec<StrategyInputUniverseFrameReceipt>,
         strategy_id: StrategyId,
         run_id: String,
-        instruments: [InstrumentAny; TARGET_SET_MEMBER_COUNT],
-        bar_types: [BarType; TARGET_SET_MEMBER_COUNT],
+        instruments: BoundedMembers<InstrumentAny>,
+        bar_types: BoundedMembers<BarType>,
         data: Vec<Data>,
         frame_times: &[u64],
         owner_scheduling_receipt_digests: &[[u8; 32]],
@@ -576,11 +578,11 @@ impl ReplayTargetSetExecutionBundleV1 {
                 && universe_frames.len() == owner_scheduling_receipt_digests.len(),
             "request execution bundle frame census does not correspond to its receipts"
         );
-        let instrument_ids = instruments.each_ref().map(Instrument::id);
+        let instrument_ids = instruments.map(Instrument::id);
         let expected_values = plan
             .input_roles()
             .len()
-            .checked_mul(TARGET_SET_MEMBER_COUNT)
+            .checked_mul(instruments.len())
             .ok_or_else(|| anyhow::anyhow!("request execution bundle value census overflows"))?;
         let mut admitted_frame_times = Vec::with_capacity(universe_frames.len());
 
@@ -594,12 +596,12 @@ impl ReplayTargetSetExecutionBundleV1 {
                 "request execution bundle requires every Owner frame to be a complete BAR frame"
             );
             anyhow::ensure!(
-                universe_frame.selection().members().len() == TARGET_SET_MEMBER_COUNT
+                universe_frame.selection().members().len() == instrument_ids.len()
                     && universe_frame
                         .selection()
                         .members()
                         .iter()
-                        .zip(instrument_ids)
+                        .zip(&instrument_ids)
                         .all(|(member, instrument)| member.instrument() == instrument.to_string()),
                 "request execution bundle member set mismatches the Owner universe"
             );
@@ -693,17 +695,14 @@ impl ReplayTargetSetExecutionBundleV1 {
             frame_count: u64::try_from(universe_frames.len())?,
             universe_selection_identity: selection_identity,
             universe_selection_digest: selection_digest,
-            member_instruments: instruments
-                .each_ref()
-                .map(|instrument| instrument.id().to_string()),
+            member_instruments: instruments.map(|instrument| instrument.id().to_string()),
             instrument_terms: native_profile
                 .instrument_terms()
-                .each_ref()
-                .map(ReplayTargetSetInstrumentCensusV1::from),
+                .map(|terms| ReplayTargetSetInstrumentCensusV1::from(terms)),
             scheduling_data_digest,
             scheduling_data_count: u64::try_from(data.len())?,
-            bar_count: u64::try_from(TARGET_SET_MEMBER_COUNT * universe_frames.len())?,
-            event_count: u64::try_from(TARGET_SET_MEMBER_COUNT * universe_frames.len())?,
+            bar_count: u64::try_from(instruments.len() * universe_frames.len())?,
+            event_count: u64::try_from(instruments.len() * universe_frames.len())?,
             census_digest: [0; 32],
         };
         census.census_digest = digest_census(&census)?;
@@ -735,11 +734,13 @@ impl ReplayTargetSetExecutionBundleV1 {
         universe_frames: Vec<StrategyInputUniverseFrameReceipt>,
         strategy_id: StrategyId,
         run_id: String,
-        instruments: [InstrumentAny; TARGET_SET_MEMBER_COUNT],
-        bar_types: [BarType; TARGET_SET_MEMBER_COUNT],
+        instruments: impl Into<Vec<InstrumentAny>>,
+        bar_types: impl Into<Vec<BarType>>,
         data: Vec<Data>,
         frame_times: &[u64],
     ) -> anyhow::Result<Self> {
+        let instruments = BoundedMembers::new(instruments.into())?;
+        let bar_types = BoundedMembers::new(bar_types.into())?;
         let receipt_digests = vec![[0; 32]; frame_times.len()];
         Self::new_with_native_instruments(
             authority,
@@ -797,7 +798,11 @@ fn digest_frame_sequence(
 
 fn digest_census(census: &ReplayTargetSetExecutionCensusV1) -> anyhow::Result<[u8; 32]> {
     let mut hasher = Sha256::new();
-    hasher.update(CENSUS_DIGEST_DOMAIN_V1);
+    update_member_count_domain(
+        &mut hasher,
+        CENSUS_DIGEST_DOMAIN_V1,
+        census.member_instruments.len(),
+    );
 
     for value in [
         census.request_locator.request_identity.as_str(),
@@ -917,16 +922,22 @@ fn verify_scheduling_data_against_sealed_frames(
 
 fn validate_and_digest_scheduling_data(
     data: &[Data],
-    instruments: &[InstrumentAny; TARGET_SET_MEMBER_COUNT],
-    bar_types: &[BarType; TARGET_SET_MEMBER_COUNT],
+    instruments: &[InstrumentAny],
+    bar_types: &[BarType],
     frame_times: &[u64],
     window_start_event_ns: u64,
     window_end_event_ns_exclusive: u64,
 ) -> anyhow::Result<[u8; 32]> {
-    const ROUND_LEN: usize = TARGET_SET_MEMBER_COUNT * 2;
+    let member_count = instruments.len();
+    anyhow::ensure!(
+        is_admitted_member_count(member_count) && bar_types.len() == member_count,
+        "request execution bundle BAR types do not correspond to its target set members"
+    );
+    // One BAR signal per member, then one Quote EVENT per member.
+    let round_len = member_count * 2;
 
     anyhow::ensure!(
-        !frame_times.is_empty() && data.len() == ROUND_LEN * frame_times.len(),
+        !frame_times.is_empty() && data.len() == round_len * frame_times.len(),
         "request execution bundle scheduling data does not carry one complete round per frame"
     );
     anyhow::ensure!(
@@ -940,22 +951,29 @@ fn validate_and_digest_scheduling_data(
     // Every round is checked, not only the first. A rule that reads the head of a paired shape can
     // never see a defect behind it, and the whole point of a series is that there is something
     // behind it.
-    for (round, frame_time) in data.chunks_exact(ROUND_LEN).zip(frame_times) {
-        let [
-            Data::Bar(first_bar),
-            Data::Bar(second_bar),
-            Data::Quote(first_event),
-            Data::Quote(second_event),
-        ] = round
-        else {
+    for (round, frame_time) in data.chunks_exact(round_len).zip(frame_times) {
+        let (bar_signals, quote_events) = round.split_at(member_count);
+        let bars = bar_signals
+            .iter()
+            .map(|value| match value {
+                Data::Bar(bar) => Some(bar),
+                _ => None,
+            })
+            .collect::<Option<Vec<_>>>();
+        let events = quote_events
+            .iter()
+            .map(|value| match value {
+                Data::Quote(event) => Some(event),
+                _ => None,
+            })
+            .collect::<Option<Vec<_>>>();
+        let (Some(bars), Some(events)) = (bars, events) else {
             anyhow::bail!(
-                "request execution bundle requires two canonical BAR signals followed by two Quote EVENTs in every round"
+                "request execution bundle requires one canonical BAR signal per member followed by one Quote EVENT per member in every round"
             );
         };
-        let bars = [first_bar, second_bar];
-        let events = [first_event, second_event];
 
-        for ordinal in 0..TARGET_SET_MEMBER_COUNT {
+        for ordinal in 0..member_count {
             let instrument_id = instruments[ordinal].id();
             anyhow::ensure!(
                 bars[ordinal].bar_type == bar_types[ordinal]
@@ -978,7 +996,9 @@ fn validate_and_digest_scheduling_data(
             );
         }
         anyhow::ensure!(
-            events[0].ts_event < events[1].ts_event,
+            events
+                .windows(2)
+                .all(|pair| pair[0].ts_event < pair[1].ts_event),
             "request execution bundle EVENT order is not canonical"
         );
     }
@@ -1067,11 +1087,7 @@ mod tests {
 
     const FRAME_TIME: u64 = 1_000;
 
-    fn scheduling_fixture() -> (
-        [InstrumentAny; TARGET_SET_MEMBER_COUNT],
-        [BarType; TARGET_SET_MEMBER_COUNT],
-        Vec<Data>,
-    ) {
+    fn scheduling_fixture() -> ([InstrumentAny; 2], [BarType; 2], Vec<Data>) {
         let instruments = instruments();
         let bar_types = instruments.each_ref().map(|instrument| {
             BarType::new(
@@ -1123,12 +1139,7 @@ mod tests {
     const TWO_ROUND_WINDOW_END: u64 = FRAME_TIME + 20;
 
     /// Two complete rounds, so a rule that only reads the first one has somewhere to be wrong.
-    fn two_round_scheduling_fixture() -> (
-        [InstrumentAny; TARGET_SET_MEMBER_COUNT],
-        [BarType; TARGET_SET_MEMBER_COUNT],
-        Vec<Data>,
-        Vec<u64>,
-    ) {
+    fn two_round_scheduling_fixture() -> ([InstrumentAny; 2], [BarType; 2], Vec<Data>, Vec<u64>) {
         let (instruments, bar_types, mut data) = scheduling_fixture();
         data.push(member_bar(bar_types[0], "100", SECOND_FRAME_TIME));
         data.push(member_bar(bar_types[1], "100.0", SECOND_FRAME_TIME));

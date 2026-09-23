@@ -144,6 +144,31 @@ The maturity boundary is explicit:
   not prove
   a cold engine restart, venue atomicity, Paper, Live,
   provider/network, persistence, production readiness, or trading authority.
+- **TARGET / IMPLEMENTATION_ADMITTED, one-member Backtest target-set vertical:** the vertical above also admits a
+  universe of exactly one member, alongside the two-member form; admitting one member changes no two-member behaviour
+  or byte. The
+  user admitted this on 2026-09-24 when choosing crypto perpetuals and single-instrument strategies as the first
+  product scope, in these words (translated): "widen the execution chain's member count from exactly two to also
+  support one; it is a bounded slice written in these documents; widening it changes the documents and removes no
+  property". A single-instrument strategy is a Design whose roles use `UniverseMembers` scope, run against a
+  one-member Owner-sealed universe; the Market Data universe selection chooses the instrument at request time, not
+  the Design. A Design with `EXACT_INSTRUMENT` roles stays refused under an Owner universe, by a named refusal,
+  `ExactInstrumentRolesUnderOwnerUniverse`, which the implementing change introduces. The universe vertical's input contract of exactly one fixed `OPEN` and one
+  fixed `CLOSE` member role is unchanged; the single-threshold authoring surface gains a universe-member form whose
+  channel is the member's daily close and which carries the fixed open role, as a carried input its program never
+  reads. The authoring request names its form in a required `scope`, so a request without one is refused rather than
+  read as the exact-instrument form. That form consumes each role at member
+  ordinal 0 only, and its bounded feature program still emits a single-instrument proposal: under a one-member
+  universe the host lifts that proposal into the one-member canonical target set, so the vertical still commits one
+  canonical target set and only its producer moves from the plugin to the host. The single-threshold report family and
+  the instrument its data window names extend to that form before the first positive run. The target-set schema
+  version and semantic identities do not change, and admitting one member changes no two-member preimage: the target-set codec
+  and the Instrument Master cut already encode their member count, while the V1 scheduling receipt digest and the
+  Strategy Factory digests that hash their members without a count (the Backtest target-set snapshot, execution-profile
+  binding, native materialization, execution census and round-trip closure digests) hash any other member count under a
+  domain that names the count, so the two-member domain and bytes stay unchanged. A lifted one-member target set takes
+  the sequence after the pending set's, or 1 when none is pending. Nothing here is current until the implementing
+  changes land and update the CURRENT statement above.
 - **TARGET / NOT_ADMITTED:** Paper and Live consume the same plan, Artifact, event ordering, checkpoint schema,
   kernel and semantic-trace contract only after their Owner adapters exist and are separately admitted. No current
   Paper or Live equivalence, application, external write, or trading capability is claimed here.
@@ -247,6 +272,13 @@ unreachable nodes, cycles, forward references, duplicate IDs, implicit casts, im
 unbounded windows, or a bound inconsistent with the manifest are `UNSUPPORTED` before source generation. Canonical
 sorting is by schema-defined byte keys, never source order, map iteration, locale, platform, enum ordinal, or
 caller-provided digest. Re-canonicalizing canonical bytes must be byte-identical.
+
+Every declared input is read. The one exception is an input the program lists in `carried_input_role_ids`: a
+role the Design requires and the program has no use for. A carried input keeps its value and coordinate ports and
+its binding, and the host passes it like any other input. A graph that reads a carried input, as a value, as a
+coordinate, or as the clock a node advances on, is refused as `CarriedInputRead`. An input that is neither read
+nor listed is still refused, so the exemption comes from the declaration alone. The list is absent from the
+canonical bytes when it is empty, so a program without carried inputs keeps its bytes.
 
 For every catalog row with the `AvailableFixedAndCoordinate` output rule, the value and its provenance coordinate
 form one atomic pair. Only the value projection may be referenced; referencing it atomically consumes the
@@ -632,7 +664,11 @@ with the complete ordered 28-component observation package. R&D source records p
 Replay-authority bytes; accepted Composer custody provides Design, Plan and Artifact bytes; the independently
 reproduced durable binding provides the remaining resolved-input evidence. The existing Backtest preparation Owner
 accepts this sealed resolver directly and still performs its own request, component and execution-locator
-reconciliation before entering ProgramHost.
+reconciliation before entering ProgramHost. On Owner custody that materialization cannot complete today: it seals
+the frame through the Market Data V1 native scheduling seal, which takes its Quotes strictly after the BAR out of
+the BAR's own one-instant batch, so the resolver stops at
+`native_replay_execution_binding.market_inputs.into_execution_parts` with `EventOrderUnavailable` until the frame
+takes its Quotes from a quote cut of its own.
 
 **IMPLEMENTATION_ADMITTED / NOT_CUT_OVER, production Native Replay entry:** the authenticated R&D API's
 `POST /v2/exploratory-replays` is admitted as a production route; its body carries only the exact sealed request
@@ -664,10 +700,12 @@ rather than a refusal. A run consumes every frame but the last, which is there t
 liquidity of the one before it. The frames have distinct identities,
 strictly increasing canonical event order and no eligible frame between neighbours; each retains its own
 PIT snapshot/fact, observation-batch, trigger, frame, native scheduling and liquidity EVENT receipt
-identities. Each liquidity receipt binds the Owner-verified Quote row digests, source cut,
+identities, and one BAR schedule receipt digest per member. A frame's width therefore follows the
+member count, which the V2 bytes take from the V1 binding rather than repeat; a two-member binding
+keeps exactly its bytes, and recovery derives the count from the stored length. Each liquidity receipt binds the Owner-verified Quote row digests, source cut,
 bid/ask prices and sizes, event/initialization times and member order consumed by the real Sim
 Exchange; a BAR receipt alone cannot authorize a fill. Every frame must bind the same request,
-Plan/Design role schema, two canonical members, universe selection, Instrument
+Plan/Design role schema, canonical members (the V1 binding's members), universe selection, Instrument
 Master cut, BAR timeframe, venue and account scope, and the instrument/economic terms must be
 valid at every frame time. Market Data verifies each frame's source and correction lineage at its
 own cut and their valid successor relationship. The caller cannot provide
@@ -777,6 +815,18 @@ derived port ID, coordinate-source semantic ID, port ordinal, static binding, co
 update clock. Plan may project that source only from the exact Owner-verified coordinate projection; neither Plan
 nor Host may accept caller-provided or reconstructed coordinate bytes. Existing Designs without this tagged source
 retain byte-identical V2 meaning.
+
+A universe-member role uses the member counterparts of both bindings: `UniverseMemberInput` for its value and
+`UniverseMemberSampleCoordinate` for its coordinate, each naming the member ordinal, under the same source semantic
+and port ID rules. A bounded feature program emits a single-instrument proposal, so it reads a universe only when the
+Owner universe has exactly one member, and only at ordinal 0. Its static binding for such a role is the Owner binding
+of that role at that member. A universe of any other size is refused by name and is never bound to its first member.
+The Plan's role-binding row carries the member ordinal, which an exact-instrument row omits so that its Plan bytes do
+not change, and the Host resolves the coordinate at that role and ordinal. CURRENT_PARTIAL: the Design variant, the
+Plan projection, BFP preparation and Host resolution are implemented and proven at unit level. No Owner projection
+carries a universe frame's member coordinates yet. That projection is Market Data's universe-frame sample projection,
+which is not yet specified, and until it exists the Host refuses a universe frame for a BFP Plan at input admission,
+because the frame's coordinates are missing.
 
 The one generic `ProgramHostV2` extends its existing Owner-event evidence adapter, not its graph opcode set or
 runtime, to retain the Owner-verified projection's exact coordinate bytes and resolve that Plan-bound metadata

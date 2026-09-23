@@ -15,7 +15,9 @@ use vibe_indicators_kernel::{
     CatalogUnitRuleV1, PrimitiveCatalogV1, PrimitiveOperationV1, RoundingMode,
 };
 
-use crate::strategy_design_v2::{PluginManifestV2, StrategyDesignV2, ValueRefV2, ValueTypeV2};
+use crate::strategy_design_v2::{
+    InputScopeV2, PluginManifestV2, StrategyDesignV2, ValueRefV2, ValueTypeV2,
+};
 use crate::strategy_plan_v2::{
     StrategyDesignPreparationV2, plugin_manifest_digest, prepare_strategy_design_v2,
     strategy_input_role_identity_v2,
@@ -453,6 +455,16 @@ pub struct BoundedFeatureProgramProposalV1 {
     pub proposal_decision_table: BoundedFeatureProposalDecisionTableV1,
     pub warmup: BoundedFeatureWarmupContractV1,
     pub bounds: BoundedFeatureBoundsV1,
+    /// Declared inputs the program receives and never reads.
+    ///
+    /// Every declared input must otherwise be read, so an input left unread by mistake is refused.
+    /// A Design can still require a role the program has no use for - the universe vertical fixes
+    /// an `OPEN` role beside `CLOSE` - and such a role is named here instead: it keeps its value and
+    /// coordinate ports and its binding, the host passes it, and a graph that reads it is refused.
+    /// Absent from JSON and from the canonical bytes when empty, so a program without one keeps its
+    /// bytes and identity.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub carried_input_role_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -540,6 +552,9 @@ pub enum BoundedFeatureProgramErrorV1 {
     Design,
     #[error("invalid input or manifest port binding")]
     Input,
+    /// The graph reads an input the program declares as carried.
+    #[error("a carried input is received and never read, and the graph reads one")]
+    CarriedInputRead,
     #[error("invalid constant")]
     Constant,
     #[error("unknown or invalid primitive contract")]
@@ -678,6 +693,9 @@ fn canonicalize_collections(
     proposal
         .inputs
         .sort_by_key(|v| (*v.input_role_identity.as_bytes(), v.input_role_id.clone()));
+    proposal
+        .carried_input_role_ids
+        .sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
     proposal
         .constants
         .sort_by(|a, b| a.constant_id.as_bytes().cmp(b.constant_id.as_bytes()));
@@ -945,12 +963,23 @@ fn validate_inputs_and_constants(
             || port.max_bytes != 16
             || !used_manifest_ports.insert(port.semantic_id.as_str())
             || design_invocations.iter().any(|node| {
+                // An exact-instrument role is read as itself, a universe-member role at member 0:
+                // the program emits one instrument's proposal, so it reads one member.
                 !node.input_bindings.iter().any(|binding| {
                     binding.port_id == input.value_port_semantic_id
-                        && matches!(
-                            &binding.source,
-                            ValueRefV2::Input { input_id } if input_id == &input.input_role_id
-                        )
+                        && match (&binding.source, &role.scope) {
+                            (ValueRefV2::Input { input_id }, InputScopeV2::ExactInstrument) => {
+                                input_id == &input.input_role_id
+                            }
+                            (
+                                ValueRefV2::UniverseMemberInput {
+                                    input_id,
+                                    member_ordinal: 0,
+                                },
+                                InputScopeV2::UniverseMembers,
+                            ) => input_id == &input.input_role_id,
+                            _ => false,
+                        }
                 })
             })
         {
@@ -989,6 +1018,20 @@ fn validate_inputs_and_constants(
     }
 
     if used_manifest_ports.len() != manifest.input_ports.len() {
+        return Err(BoundedFeatureProgramErrorV1::Input);
+    }
+
+    // A carried declaration names declared inputs, each once. The collection is already sorted,
+    // so a repeat is adjacent.
+    if proposal
+        .carried_input_role_ids
+        .iter()
+        .any(|role| !role_ids.contains(role.as_str()))
+        || proposal
+            .carried_input_role_ids
+            .windows(2)
+            .any(|pair| pair[0] == pair[1])
+    {
         return Err(BoundedFeatureProgramErrorV1::Input);
     }
     let mut constants = BTreeSet::new();
@@ -1361,11 +1404,33 @@ fn validate_graph(
         }
     }
 
+    // A carried input is received and never read: not as a value, not as a coordinate, and not
+    // as the clock a node advances on. Checked before the unread-input rule below, so a graph that
+    // reads one is refused under that name rather than as some other inconsistency.
+    for role in &proposal.carried_input_role_ids {
+        if consumed.contains_key(&format!("i:{role}"))
+            || consumed.contains_key(&format!("q:{role}"))
+            || proposal.nodes.iter().any(|node| {
+                node.update_clock
+                    .as_ref()
+                    .is_some_and(|clock| clock.role() == role)
+            })
+        {
+            return Err(BoundedFeatureProgramErrorV1::CarriedInputRead);
+        }
+    }
+
+    // Every other input must be read. The exemption is the explicit declaration alone, so an input
+    // left unread without one is still refused.
     for key in values
         .keys()
         .filter(|key| key.starts_with("i:") || key.starts_with("c:"))
     {
-        if !consumed.contains_key(key) {
+        let carried = key
+            .strip_prefix("i:")
+            .is_some_and(|role| proposal.carried_input_role_ids.iter().any(|c| c == role));
+
+        if !carried && !consumed.contains_key(key) {
             return Err(BoundedFeatureProgramErrorV1::State);
         }
     }
@@ -2399,6 +2464,12 @@ fn encode_program(
         BoundedFeatureWarmupPostStateV1::AdvancedCurrentEvent => 1,
     });
     writer.bounds(&program.bounds);
+    // Written only when present, so a program without carried inputs keeps its bytes.
+    if !program.carried_input_role_ids.is_empty() {
+        writer.sequence(&program.carried_input_role_ids, |writer, role| {
+            writer.text(role)
+        })?;
+    }
     Ok(writer.finish())
 }
 
@@ -2914,6 +2985,17 @@ impl<'a> Decoder<'a> {
             },
         };
         let bounds = self.bounds()?;
+        // The encoder writes this section only when it is non-empty, so an empty one written out
+        // is not the canonical form of anything.
+        let carried_input_role_ids = if self.cursor == self.bytes.len() {
+            vec![]
+        } else {
+            let carried = self.sequence(Decoder::text)?;
+            if carried.is_empty() {
+                return Err(BoundedFeatureProgramErrorV1::NonCanonical);
+            }
+            carried
+        };
 
         if self.cursor != self.bytes.len() {
             return Err(BoundedFeatureProgramErrorV1::NonCanonical);
@@ -2938,6 +3020,7 @@ impl<'a> Decoder<'a> {
             proposal_decision_table,
             warmup,
             bounds,
+            carried_input_role_ids,
         })
     }
     fn take(&mut self, length: usize) -> Result<&'a [u8], BoundedFeatureProgramErrorV1> {
@@ -3770,6 +3853,7 @@ pub(crate) mod tests {
                 max_linear_memory_bytes: manifest.max_linear_memory_bytes,
                 max_invocations_per_event: manifest.max_invocations_per_event,
             },
+            carried_input_role_ids: vec![],
         };
         (design, proposal)
     }

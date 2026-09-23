@@ -1,3 +1,4 @@
+import { announcedOwnerReadBudgetMsV1 } from "./operation-registry.ts";
 import { validExploratoryReplayOpaqueIdentityV2 } from "./exploratory-replay-identity.ts";
 import {
   dashboardReadApiTargetV1,
@@ -235,12 +236,13 @@ export async function readExploratoryReplayHistoricalRejectionGatewayV1({
   if (!ownerApiTargetAvailableV1(target) || !endpoint || !target.token) {
     return unavailable(requestIdentity, attemptIdentity, "OWNER_CONFIGURATION_UNAVAILABLE", 503);
   }
+  const budgetMs = announcedOwnerReadBudgetMsV1("exploratory replay historical rejection", 8_000);
   try {
     const response = await fetcher(endpoint, {
       method: "GET",
       headers: { authorization: `Bearer ${target.token}` },
       cache: "no-store",
-      signal: AbortSignal.timeout(8_000),
+      signal: AbortSignal.timeout(budgetMs),
     });
     if (!response.ok) {
       const status = response.status === 404 ? 404 : response.status >= 500 ? 503 : 502;

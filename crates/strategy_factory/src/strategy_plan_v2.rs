@@ -380,6 +380,10 @@ pub(crate) struct BfpRoleBindingProjectionV1 {
     coordinate_digest_rule: OwnerSampleCoordinateDigestRuleV1,
     coordinate_digest_domain: String,
     update_clock_source_semantic_id: String,
+    /// The universe member this role is read at, or `None` for an exact-instrument role. Absent
+    /// from the serialized table when `None`, so an exact-instrument Plan keeps its binding bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    member_ordinal: Option<u8>,
 }
 
 impl BfpRoleBindingProjectionV1 {
@@ -433,6 +437,10 @@ impl BfpRoleBindingProjectionV1 {
 
     pub(crate) fn update_clock_source_semantic_id(&self) -> &str {
         &self.update_clock_source_semantic_id
+    }
+
+    pub(crate) const fn member_ordinal(&self) -> Option<u8> {
+        self.member_ordinal
     }
 }
 
@@ -2384,10 +2392,14 @@ fn reaction_input_ids_v2(reaction: &ReactionGraphV2) -> BTreeSet<String> {
     let mut add = |reference: &ValueRefV2| match reference {
         ValueRefV2::Input { input_id }
         | ValueRefV2::OwnerSampleCoordinate { input_id, .. }
-        | ValueRefV2::UniverseMemberInput { input_id, .. } => {
+        | ValueRefV2::UniverseMemberInput { input_id, .. }
+        | ValueRefV2::UniverseMemberSampleCoordinate { input_id, .. } => {
             ids.insert(input_id.clone());
         }
-        _ => {}
+        ValueRefV2::Parameter { .. }
+        | ValueRefV2::PriorState { .. }
+        | ValueRefV2::LifecycleContext { .. }
+        | ValueRefV2::NodeOutput { .. } => {}
     };
 
     for node in &reaction.nodes {
@@ -2682,7 +2694,26 @@ fn resolve_reference(
         ValueRefV2::OwnerSampleCoordinate {
             input_id,
             source_semantic_id,
+        }
+        | ValueRefV2::UniverseMemberSampleCoordinate {
+            input_id,
+            source_semantic_id,
+            ..
         } => {
+            // The exact form reads an exact-instrument role, the member form a universe-member role
+            // at an ordinal inside the target-set bound; neither reads the other's scope.
+            let scope_admitted = match reference {
+                ValueRefV2::UniverseMemberSampleCoordinate { member_ordinal, .. } => {
+                    usize::from(*member_ordinal) < lifecycle_v2::TARGET_SET_MAX_MEMBER_COUNT
+                        && validation.input_scopes.get(input_id.as_str())
+                            == Some(&&InputScopeV2::UniverseMembers)
+                }
+                _ => {
+                    validation.input_scopes.get(input_id.as_str())
+                        == Some(&&InputScopeV2::ExactInstrument)
+                }
+            };
+
             if coordinate != "reactions.nodes.input" {
                 return Err(unsupported(
                     coordinate,
@@ -2700,8 +2731,7 @@ fn resolve_reference(
             if !matches!(reaction, LifecycleKindV2::Bar | LifecycleKindV2::Event)
                 || validation.input_fact_classes.get(input_id.as_str())
                     != Some(&InputFactClassV2::MarketData)
-                || validation.input_scopes.get(input_id.as_str())
-                    != Some(&&InputScopeV2::ExactInstrument)
+                || !scope_admitted
                 || !validation.inputs.contains_key(input_id.as_str())
                 || source_semantic_id != &owner_sample_coordinate_source_semantic(input_id)
             {
@@ -2757,7 +2787,8 @@ fn resolve_reference(
                     ));
                 }
                 ValueRefV2::UniverseMemberInput { member_ordinal, .. }
-                    if *member_ordinal >= lifecycle_v2::TARGET_SET_MEMBER_COUNT as u8
+                    if usize::from(*member_ordinal)
+                        >= lifecycle_v2::TARGET_SET_MAX_MEMBER_COUNT
                         || validation.input_scopes.get(input_id.as_str())
                             != Some(&&InputScopeV2::UniverseMembers) =>
                 {
@@ -2815,6 +2846,41 @@ fn resolve_reference(
     }
 }
 
+/// The static binding a BFP program folds in for a universe-member role.
+///
+/// A bounded feature program emits a single-instrument proposal, so it reads a universe only when
+/// the universe has exactly one member, and only at that member. Its binding is then the Owner's
+/// binding of that role at that member. A universe of any other size is refused here by name: with
+/// two members, taking the first member's binding would bind the program to one instrument of a
+/// universe it cannot trade, and nothing downstream would notice.
+fn universe_bfp_static_binding(
+    universe_bindings: &[UniverseRoleBindingProjectionV2],
+    input_role_identity: BindingDigest,
+    member_ordinal: u8,
+) -> Result<BindingDigest, StrategyCompilationV2> {
+    let role = universe_bindings
+        .iter()
+        .find(|binding| binding.input_role_identity == input_role_identity)
+        .ok_or_else(|| {
+            unsupported(
+                "universe_bindings",
+                "BFP universe-member role lacks its Owner universe binding",
+            )
+        })?;
+
+    match role.members.as_slice() {
+        [member] if member_ordinal == 0 => Ok(member.binding_digest),
+        [_] => Err(unsupported(
+            "reactions.nodes.input",
+            "a BFP universe-member role is read only at member ordinal 0",
+        )),
+        _ => Err(unsupported(
+            "universe_bindings.members",
+            "a bounded feature program reads a universe only when it has exactly one member",
+        )),
+    }
+}
+
 fn owner_sample_coordinate_source_semantic(input_role_id: &str) -> String {
     format!("{OWNER_SAMPLE_COORDINATE_SOURCE_PREFIX_V1}({input_role_id})")
 }
@@ -2833,6 +2899,7 @@ fn owner_sample_coordinate_port_id(input_role_identity: BindingDigest) -> String
 fn project_bfp_role_bindings(
     design: &CanonicalDesignV2,
     bindings: &[BindingProjectionV2],
+    universe_bindings: &[UniverseRoleBindingProjectionV2],
 ) -> Result<Vec<BfpRoleBindingProjectionV1>, StrategyCompilationV2> {
     let inputs = design
         .inputs
@@ -2858,7 +2925,11 @@ fn project_bfp_role_bindings(
                 || plugin.failure_semantic_id != BFP_NUMERIC_FAILURE_V1
             {
                 if node.input_bindings.iter().any(|binding| {
-                    matches!(binding.source, ValueRefV2::OwnerSampleCoordinate { .. })
+                    matches!(
+                        binding.source,
+                        ValueRefV2::OwnerSampleCoordinate { .. }
+                            | ValueRefV2::UniverseMemberSampleCoordinate { .. }
+                    )
                 }) {
                     return Err(unsupported(
                         "reactions.nodes.input",
@@ -2868,8 +2939,10 @@ fn project_bfp_role_bindings(
                 continue;
             }
 
-            let mut values = BTreeMap::<&str, (&PortContractV2, u16)>::new();
-            let mut coordinates = BTreeMap::<&str, (&PortContractV2, u16, &str)>::new();
+            // Each role's member ordinal travels with its binding: `None` for an exact-instrument
+            // role, `Some` for a universe member. A value and its coordinate must name the same one.
+            let mut values = BTreeMap::<&str, (&PortContractV2, u16, Option<u8>)>::new();
+            let mut coordinates = BTreeMap::<&str, (&PortContractV2, u16, &str, Option<u8>)>::new();
 
             for (ordinal, (binding, port)) in node
                 .input_bindings
@@ -2884,29 +2957,53 @@ fn project_bfp_role_bindings(
                     )
                 })?;
 
-                match &binding.source {
-                    ValueRefV2::Input { input_id } => {
-                        if values.insert(input_id, (port, ordinal)).is_some() {
-                            return Err(unsupported(
-                                "reactions.nodes.input",
-                                "BFP role has more than one value binding in one invocation",
-                            ));
-                        }
-                    }
+                let (value, coordinate) = match &binding.source {
+                    ValueRefV2::Input { input_id } => (Some((input_id, None)), None),
+                    ValueRefV2::UniverseMemberInput {
+                        input_id,
+                        member_ordinal,
+                    } => (Some((input_id, Some(*member_ordinal))), None),
                     ValueRefV2::OwnerSampleCoordinate {
                         input_id,
                         source_semantic_id,
-                    } if coordinates
-                        .insert(input_id, (port, ordinal, source_semantic_id))
-                        .is_some() =>
-                    {
-                        return Err(unsupported(
-                            "reactions.nodes.input",
-                            "BFP role has more than one coordinate binding in one invocation",
-                        ));
-                    }
-                    ValueRefV2::OwnerSampleCoordinate { .. } => {}
-                    _ => {}
+                    } => (None, Some((input_id, source_semantic_id, None))),
+                    ValueRefV2::UniverseMemberSampleCoordinate {
+                        input_id,
+                        member_ordinal,
+                        source_semantic_id,
+                    } => (
+                        None,
+                        Some((input_id, source_semantic_id, Some(*member_ordinal))),
+                    ),
+                    ValueRefV2::Parameter { .. }
+                    | ValueRefV2::PriorState { .. }
+                    | ValueRefV2::LifecycleContext { .. }
+                    | ValueRefV2::NodeOutput { .. } => (None, None),
+                };
+
+                if let Some((input_id, member)) = value
+                    && values
+                        .insert(input_id.as_str(), (port, ordinal, member))
+                        .is_some()
+                {
+                    return Err(unsupported(
+                        "reactions.nodes.input",
+                        "BFP role has more than one value binding in one invocation",
+                    ));
+                }
+
+                if let Some((input_id, source_semantic_id, member)) = coordinate
+                    && coordinates
+                        .insert(
+                            input_id.as_str(),
+                            (port, ordinal, source_semantic_id.as_str(), member),
+                        )
+                        .is_some()
+                {
+                    return Err(unsupported(
+                        "reactions.nodes.input",
+                        "BFP role has more than one coordinate binding in one invocation",
+                    ));
                 }
             }
 
@@ -2926,7 +3023,7 @@ fn project_bfp_role_bindings(
                 ));
             }
 
-            for (input_role_id, (value_port, value_ordinal)) in values {
+            for (input_role_id, (value_port, value_ordinal, member_ordinal)) in values {
                 let input = inputs.get(input_role_id).copied().ok_or_else(|| {
                     unsupported(
                         "reactions.nodes.input",
@@ -2934,22 +3031,34 @@ fn project_bfp_role_bindings(
                     )
                 })?;
                 let input_role_identity = role_identity(input);
-                let (coordinate_port, coordinate_ordinal, coordinate_source) =
+                let (coordinate_port, coordinate_ordinal, coordinate_source, coordinate_member) =
                     coordinates[input_role_id];
                 let expected_source = owner_sample_coordinate_source_semantic(input_role_id);
                 let expected_coordinate_port = owner_sample_coordinate_port_id(input_role_identity);
-                let static_binding_receipt_digest = static_bindings
-                    .get(&input_role_identity)
-                    .copied()
-                    .ok_or_else(|| {
-                        unsupported(
-                            "bindings",
-                            "BFP coordinate role lacks its exact static Owner binding receipt",
-                        )
-                    })?;
+                let static_binding_receipt_digest = match member_ordinal {
+                    None => static_bindings
+                        .get(&input_role_identity)
+                        .copied()
+                        .ok_or_else(|| {
+                            unsupported(
+                                "bindings",
+                                "BFP coordinate role lacks its exact static Owner binding receipt",
+                            )
+                        })?,
+                    Some(member_ordinal) => universe_bfp_static_binding(
+                        universe_bindings,
+                        input_role_identity,
+                        member_ordinal,
+                    )?,
+                };
+                let expected_scope = match member_ordinal {
+                    None => InputScopeV2::ExactInstrument,
+                    Some(_) => InputScopeV2::UniverseMembers,
+                };
 
-                if input.fact_class != InputFactClassV2::MarketData
-                    || input.scope != InputScopeV2::ExactInstrument
+                if coordinate_member != member_ordinal
+                    || input.fact_class != InputFactClassV2::MarketData
+                    || input.scope != expected_scope
                     || input.value_type != ValueTypeV2::I128
                     || value_port.value_type != ValueTypeV2::I128
                     || value_port.max_bytes != 16
@@ -2988,6 +3097,7 @@ fn project_bfp_role_bindings(
                         coordinate_digest_domain: OWNER_SAMPLE_COORDINATE_DIGEST_DOMAIN_V1
                             .to_owned(),
                         update_clock_source_semantic_id: expected_source.clone(),
+                        member_ordinal,
                     };
 
                     match table.insert((input_role_identity, kind), projection.clone()) {
@@ -3231,8 +3341,8 @@ fn compile_canonical(
             .map(|member| member.instrument.as_str())
             .collect::<BTreeSet<_>>();
 
-        if selection.members.len() != lifecycle_v2::TARGET_SET_MEMBER_COUNT
-            || selected.len() != lifecycle_v2::TARGET_SET_MEMBER_COUNT
+        if !crate::target_set_members::is_admitted_member_count(selection.members.len())
+            || selected.len() != selection.members.len()
             || selection.market_semantics_identity == BindingDigest::from_untrusted_bytes([0; 32])
             || selection.source_binding_lineage_root == BindingDigest::from_untrusted_bytes([0; 32])
         {
@@ -3243,19 +3353,23 @@ fn compile_canonical(
         }
     }
 
-    if let Err(value) =
-        validate_universe_target_set_contract(&canonical, universe_selection.is_some())
-    {
+    if let Err(value) = validate_universe_target_set_contract(
+        &canonical,
+        universe_selection
+            .as_ref()
+            .map(|selection| selection.members.len()),
+    ) {
         return value;
     }
     let shared_kernel = universe_selection.is_some();
     let Some(market_semantics_identity) = market_semantics else {
         return refinement("inputs", "at least one exact Owner receipt is required");
     };
-    let bfp_role_bindings = match project_bfp_role_bindings(&canonical, &bindings) {
-        Ok(value) => value,
-        Err(value) => return value,
-    };
+    let bfp_role_bindings =
+        match project_bfp_role_bindings(&canonical, &bindings, &universe_bindings) {
+            Ok(value) => value,
+            Err(value) => return value,
+        };
     let binding_bytes = if bfp_role_bindings.is_empty() {
         serde_json::to_vec(&(&bindings, &universe_bindings)).expect("binding serialization")
     } else {
@@ -3364,10 +3478,43 @@ fn compile_canonical(
     }))
 }
 
+/// Checks a universe Design against the member count of the Owner selection it is compiled with.
+///
+/// `member_count` is `None` for a Design compiled without an Owner universe. Under a universe every
+/// BAR/EVENT reaction consumes each declared role at every member ordinal and no other, so the
+/// Design's ordinals are exactly the Owner universe's. A reaction proposes one complete member
+/// target set; under a one-member universe it may instead propose for a single instrument, which
+/// the host lifts into the one-member target set.
+/// Market Data field of the universe vertical's fixed `OPEN` member role.
+pub(crate) const UNIVERSE_OPEN_FIELD_SEMANTIC_ID_V2: &str = "MARKET_DATA.BAR.OPEN.PRICE.V1";
+/// Market Data field of the universe vertical's fixed `CLOSE` member role.
+pub(crate) const UNIVERSE_CLOSE_FIELD_SEMANTIC_ID_V2: &str = "MARKET_DATA.BAR.CLOSE.PRICE.V1";
+
+/// One of the universe vertical's two fixed member roles: a daily Market Data price at scale 2,
+/// read for each Owner universe member rather than for a named instrument.
+///
+/// The contract below admits exactly these two roles, and the authoring surface emits them from
+/// here, so what an author writes is by construction what the contract admits.
+pub(crate) fn universe_member_role_v2(semantic_id: &str, field_semantic_id: &str) -> InputRoleV2 {
+    InputRoleV2 {
+        semantic_id: semantic_id.to_owned(),
+        fact_class: InputFactClassV2::MarketData,
+        instrument: String::new(),
+        scope: InputScopeV2::UniverseMembers,
+        field_semantic_id: field_semantic_id.to_owned(),
+        channel: "MARKET".to_owned(),
+        timeframe: "1D".to_owned(),
+        unit: "PRICE".to_owned(),
+        scale: 2,
+        value_type: ValueTypeV2::I128,
+    }
+}
+
 fn validate_universe_target_set_contract(
     design: &CanonicalDesignV2,
-    is_universe: bool,
+    member_count: Option<usize>,
 ) -> Result<(), StrategyCompilationV2> {
+    let is_universe = member_count.is_some();
     if is_universe {
         let fields = design
             .inputs
@@ -3378,17 +3525,11 @@ fn validate_universe_target_set_contract(
         if design.inputs.len() != 2
             || fields
                 != BTreeSet::from([
-                    "MARKET_DATA.BAR.OPEN.PRICE.V1",
-                    "MARKET_DATA.BAR.CLOSE.PRICE.V1",
+                    UNIVERSE_OPEN_FIELD_SEMANTIC_ID_V2,
+                    UNIVERSE_CLOSE_FIELD_SEMANTIC_ID_V2,
                 ])
             || design.inputs.iter().any(|input| {
-                input.scope != InputScopeV2::UniverseMembers
-                    || input.fact_class != InputFactClassV2::MarketData
-                    || input.channel != "MARKET"
-                    || input.timeframe != "1D"
-                    || input.unit != "PRICE"
-                    || input.scale != 2
-                    || input.value_type != ValueTypeV2::I128
+                *input != universe_member_role_v2(&input.semantic_id, &input.field_semantic_id)
             })
         {
             return Err(unsupported(
@@ -3403,21 +3544,26 @@ fn validate_universe_target_set_contract(
             continue;
         };
 
-        if proposal.member_target_set.is_some() != is_universe {
-            return Err(if is_universe {
-                refinement(
+        let target_set = proposal.member_target_set.is_some();
+        match member_count {
+            None if target_set => {
+                return Err(unsupported(
                     &format!("reactions.{:?}.proposal.member_target_set", reaction.kind),
-                    "the exact two-member vertical requires one complete instrument target set",
-                )
-            } else {
-                unsupported(
+                    "member target sets require an Owner-bound universe",
+                ));
+            }
+            Some(count) if !target_set && count != 1 => {
+                return Err(refinement(
                     &format!("reactions.{:?}.proposal.member_target_set", reaction.kind),
-                    "member target sets require the exact two-member Owner-bound universe",
-                )
-            });
+                    "a universe of more than one member requires one complete instrument target set",
+                ));
+            }
+            _ => {}
         }
 
-        if is_universe && matches!(reaction.kind, LifecycleKindV2::Bar | LifecycleKindV2::Event) {
+        if let Some(member_count) = member_count
+            && matches!(reaction.kind, LifecycleKindV2::Bar | LifecycleKindV2::Event)
+        {
             let mut coordinates = BTreeSet::new();
 
             for node in &reaction.nodes {
@@ -3431,21 +3577,24 @@ fn validate_universe_target_set_contract(
                     }
                 }
             }
+            let ordinals = u8::try_from(member_count).map_err(|_| {
+                unsupported(
+                    "universe_selection",
+                    "Owner universe member count overflows",
+                )
+            })?;
             let expected = design
                 .inputs
                 .iter()
                 .flat_map(|input| {
-                    [
-                        (input.semantic_id.as_str(), 0_u8),
-                        (input.semantic_id.as_str(), 1_u8),
-                    ]
+                    (0..ordinals).map(|ordinal| (input.semantic_id.as_str(), ordinal))
                 })
                 .collect::<BTreeSet<_>>();
 
             if coordinates != expected {
                 return Err(unsupported(
                     &format!("reactions.{:?}.inputs", reaction.kind),
-                    "a universe reaction must consume every declared role for both Owner-canonical members",
+                    "a universe reaction must consume every declared role for every Owner-canonical member",
                 ));
             }
         }
@@ -3830,6 +3979,15 @@ fn refinement(coordinate: &str, reason: &str) -> StrategyCompilationV2 {
     })
 }
 
+/// Runs the universe target-set contract on a canonicalized Design for a given Owner member count.
+#[cfg(test)]
+pub(crate) fn validate_universe_target_set_contract_for_test(
+    design: StrategyDesignV2,
+    member_count: Option<usize>,
+) -> Result<(), StrategyCompilationV2> {
+    validate_universe_target_set_contract(&canonicalize(design)?, member_count)
+}
+
 #[cfg(test)]
 pub(crate) fn compile_with_binding_projections_for_test(
     design: StrategyDesignV2,
@@ -3882,6 +4040,104 @@ pub(crate) fn verified_strategy_input_bindings_for_test(
         universe_selection: None,
         universe_bindings: vec![],
     }
+}
+
+/// Owner-shaped universe authority for a Design's universe-member roles, without an Owner.
+///
+/// One selection over the given instruments in their order, and one binding per role and member,
+/// each distinct and nonzero. Everything a Plan compiles against is a value here; what the test
+/// does not have is the Owner custody that seals it, which the ordered chain proves separately.
+#[cfg(test)]
+pub(crate) fn verified_universe_bindings_for_test(
+    design: &StrategyDesignV2,
+    instruments: &[&str],
+) -> VerifiedStrategyInputBindingsV2 {
+    let canonical = canonicalize(design.clone()).expect("test Design must canonicalize");
+    let bytes = serde_json::to_vec(&canonical).expect("canonical design");
+    let design_digest = digest(b"strategy.design.v2\0", &bytes);
+    let design_identity = digest(b"strategy.design.identity.v2\0", design_digest.as_bytes());
+    let members = instruments
+        .iter()
+        .enumerate()
+        .map(|(ordinal, instrument)| UniverseMemberProjectionV2 {
+            member_key: format!("member-{ordinal}"),
+            instrument: (*instrument).to_owned(),
+        })
+        .collect::<Vec<_>>();
+    let mut universe_bindings = canonical
+        .inputs
+        .iter()
+        .map(|role| {
+            let input_role_identity = role_identity(role);
+            UniverseRoleBindingProjectionV2 {
+                research_request_identity: canonical.research_request_identity,
+                strategy_design_identity: design_identity,
+                input_role_identity,
+                members: members
+                    .iter()
+                    .map(|member| {
+                        let mut preimage = input_role_identity.as_bytes().to_vec();
+                        preimage.extend_from_slice(member.member_key.as_bytes());
+                        UniverseMemberBindingProjectionV2 {
+                            member_key: member.member_key.clone(),
+                            instrument: member.instrument.clone(),
+                            binding_digest: digest(b"test.universe-member-binding\0", &preimage),
+                        }
+                    })
+                    .collect(),
+            }
+        })
+        .collect::<Vec<_>>();
+    universe_bindings.sort();
+    VerifiedStrategyInputBindingsV2 {
+        projections: vec![],
+        universe_selection: Some(UniverseSelectionProjectionV2 {
+            selection_identity: BindingDigest::from_untrusted_bytes([61; 32]),
+            selection_digest: BindingDigest::from_untrusted_bytes([62; 32]),
+            instrument_master_digest: BindingDigest::from_untrusted_bytes([63; 32]),
+            source_binding_lineage_root: BindingDigest::from_untrusted_bytes([64; 32]),
+            market_semantics_identity: BindingDigest::from_untrusted_bytes([65; 32]),
+            selection_receipt_digest: BindingDigest::from_untrusted_bytes([66; 32]),
+            members,
+        }),
+        universe_bindings,
+    }
+}
+
+/// Projects a Design's BFP role table without compiling a Plan: exact-instrument roles against
+/// their receipts, and universe-member roles against one binding per Owner universe member, in
+/// member order.
+#[cfg(test)]
+pub(crate) fn project_bfp_role_bindings_for_test(
+    design: &StrategyDesignV2,
+    exact: Vec<(InputRoleV2, BindingDigest)>,
+    universe: Vec<(InputRoleV2, Vec<BindingDigest>)>,
+) -> Result<Vec<BfpRoleBindingProjectionV1>, StrategyCompilationV2> {
+    let canonical = canonicalize(design.clone())?;
+    let bytes = serde_json::to_vec(&canonical).expect("canonical design");
+    let design_digest = digest(b"strategy.design.v2\0", &bytes);
+    let design_identity = digest(b"strategy.design.identity.v2\0", design_digest.as_bytes());
+    let bindings = test_binding_projections(&canonical, design_identity, exact);
+    let universe_bindings = universe
+        .into_iter()
+        .map(|(role, members)| UniverseRoleBindingProjectionV2 {
+            research_request_identity: design.research_request_identity,
+            strategy_design_identity: design_identity,
+            input_role_identity: role_identity(&role),
+            members: members
+                .into_iter()
+                .enumerate()
+                .map(
+                    |(ordinal, binding_digest)| UniverseMemberBindingProjectionV2 {
+                        member_key: format!("member-{ordinal}"),
+                        instrument: format!("INSTRUMENT{ordinal}-PERP.TEST"),
+                        binding_digest,
+                    },
+                )
+                .collect(),
+        })
+        .collect::<Vec<_>>();
+    project_bfp_role_bindings(&canonical, &bindings, &universe_bindings)
 }
 
 #[cfg(test)]

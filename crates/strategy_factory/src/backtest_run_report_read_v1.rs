@@ -142,6 +142,11 @@ pub enum BacktestRunReportRefusalV1 {
     /// artifact was built from, so stating it could describe a strategy the run did not execute.
     #[error("the frozen program cannot be anchored to the artifact this run executed")]
     StrategyNotAnchoredToRun,
+    /// The run's program is in the family's universe-member form, whose channel instrument is the
+    /// member the run's universe selected. This report does not read that selection yet, so it
+    /// states no channel and no data window for the run.
+    #[error("the run reads a universe member, whose instrument this report does not read yet")]
+    UniverseMemberNotYetReported,
 }
 
 impl BacktestRunReportRefusalV1 {
@@ -167,7 +172,8 @@ impl BacktestRunReportRefusalV1 {
             | Self::DecimalNotPlain { .. }
             | Self::ReplayRequestV3NotYetReported
             | Self::NoStrategyStatementForFamily
-            | Self::StrategyNotAnchoredToRun => true,
+            | Self::StrategyNotAnchoredToRun
+            | Self::UniverseMemberNotYetReported => true,
         }
     }
 
@@ -190,6 +196,7 @@ impl BacktestRunReportRefusalV1 {
             Self::FrozenDesignUnavailable => "FROZEN_DESIGN_UNAVAILABLE",
             Self::NoStrategyStatementForFamily => "NO_STRATEGY_STATEMENT_FOR_FAMILY",
             Self::StrategyNotAnchoredToRun => "STRATEGY_NOT_ANCHORED_TO_RUN",
+            Self::UniverseMemberNotYetReported => "UNIVERSE_MEMBER_NOT_YET_REPORTED",
         }
     }
 }
@@ -560,7 +567,7 @@ async fn resolve_strategy_and_window(
     // field changes type and the annotation stops compiling, instead of `from_ref` quietly
     // counting one collection as one snapshot.
     let snapshots: &[ContentIdentityV2] = std::slice::from_ref(&request.pit_snapshot);
-    let channel = resolved_channel(authored.channel);
+    let channel = resolved_channel(authored.channel)?;
     let data_window = BacktestRunDataWindowV1 {
         instrument: channel.instrument.clone(),
         granularity: channel.timeframe.clone(),
@@ -582,22 +589,32 @@ async fn resolve_strategy_and_window(
 }
 
 /// The channel the run read, from the channel its request authored.
-fn resolved_channel(authored: SingleThresholdChannelV1) -> BacktestRunChannelV1 {
-    let SingleThresholdChannelV1 {
-        role_semantic_id,
-        instrument,
-        field_semantic_id,
-        timeframe,
-        unit,
-        scale,
-    } = authored;
-    BacktestRunChannelV1 {
-        role_semantic_id,
-        instrument,
-        field_semantic_id,
-        timeframe,
-        unit,
-        scale,
+///
+/// A universe member's instrument is not in the request: the run's universe selected it. Until
+/// this report reads that selection it refuses the form by name rather than state a channel
+/// without an instrument.
+fn resolved_channel(
+    authored: SingleThresholdChannelV1,
+) -> Result<BacktestRunChannelV1, BacktestRunReportRefusalV1> {
+    match authored {
+        SingleThresholdChannelV1::ExactInstrument {
+            role_semantic_id,
+            instrument,
+            field_semantic_id,
+            timeframe,
+            unit,
+            scale,
+        } => Ok(BacktestRunChannelV1 {
+            role_semantic_id,
+            instrument,
+            field_semantic_id,
+            timeframe,
+            unit,
+            scale,
+        }),
+        SingleThresholdChannelV1::UniverseMember { .. } => {
+            Err(BacktestRunReportRefusalV1::UniverseMemberNotYetReported)
+        }
     }
 }
 
@@ -1149,6 +1166,30 @@ mod tests {
         }
     }
 
+    /// An exact-instrument channel is stated field for field; a universe member is refused by name,
+    /// because its instrument is the run's universe selection and not part of the request.
+    #[rstest]
+    fn the_report_states_an_exact_channel_and_refuses_a_universe_member() {
+        let exact = SingleThresholdChannelV1::ExactInstrument {
+            role_semantic_id: "research.input.close.daily.v1".to_owned(),
+            instrument: "BTCUSDT-PERP.BINANCE".to_owned(),
+            field_semantic_id: "MARKET_DATA.BAR.CLOSE.PRICE.V1".to_owned(),
+            timeframe: "1D".to_owned(),
+            unit: "PRICE".to_owned(),
+            scale: 2,
+        };
+        assert_eq!(resolved_channel(exact), Ok(strategy().channel));
+
+        let member = SingleThresholdChannelV1::UniverseMember {
+            close_role_semantic_id: "research.input.close.daily.v1".to_owned(),
+            open_role_semantic_id: "research.input.open.daily.v1".to_owned(),
+        };
+        assert_eq!(
+            resolved_channel(member),
+            Err(BacktestRunReportRefusalV1::UniverseMemberNotYetReported)
+        );
+    }
+
     fn data_window() -> BacktestRunDataWindowV1 {
         BacktestRunDataWindowV1 {
             instrument: "BTCUSDT-PERP.BINANCE".to_owned(),
@@ -1430,6 +1471,7 @@ mod tests {
     #[case(BacktestRunReportRefusalV1::ReplayRequestV3NotYetReported, true)]
     #[case(BacktestRunReportRefusalV1::NoStrategyStatementForFamily, true)]
     #[case(BacktestRunReportRefusalV1::StrategyNotAnchoredToRun, true)]
+    #[case(BacktestRunReportRefusalV1::UniverseMemberNotYetReported, true)]
     fn every_refusal_is_either_a_conclusion_or_a_failure_to_read(
         #[case] refusal: BacktestRunReportRefusalV1,
         #[case] conclusion: bool,
@@ -1510,6 +1552,7 @@ mod tests {
             BacktestRunReportRefusalV1::FrozenDesignUnavailable.code(),
             BacktestRunReportRefusalV1::NoStrategyStatementForFamily.code(),
             BacktestRunReportRefusalV1::StrategyNotAnchoredToRun.code(),
+            BacktestRunReportRefusalV1::UniverseMemberNotYetReported.code(),
             BacktestRunReportStateV1::Available.code(),
             BacktestRunReportStateV1::Empty.code(),
         ];

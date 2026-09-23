@@ -4,7 +4,7 @@ use strategy_factory_program_sdk::lifecycle_v1::{
     ProtectionProposalV1, TargetProposalV1,
 };
 use strategy_factory_program_sdk::lifecycle_v2::{
-    InstrumentKeyV2, InstrumentTargetSetV2, MemberTargetV2,
+    InstrumentKeyV2, InstrumentTargetSetV2, MemberTargetV2, target_set_encoded_bytes,
 };
 use vibe_data::owner::source_binding::BindingDigest;
 #[cfg(feature = "sealed-strategy-input-acceptance")]
@@ -297,14 +297,14 @@ fn two_member_frame_invokes_once_is_causal_canonical_and_restart_equal() {
         "one complete frame invokes one guest"
     );
     let targets = host.canonical_member_target_set().unwrap();
-    assert_eq!(targets.members[0].instrument.as_bytes(), b"AAPL.XNAS");
-    assert_eq!(targets.members[1].instrument.as_bytes(), b"MSFT.XNAS");
+    assert_eq!(targets.members()[0].instrument.as_bytes(), b"AAPL.XNAS");
+    assert_eq!(targets.members()[1].instrument.as_bytes(), b"MSFT.XNAS");
     assert_eq!(
-        targets.members[0].target,
+        targets.members()[0].target,
         TargetProposalV1::Position(18_725)
     );
     assert_eq!(
-        targets.members[1].target,
+        targets.members()[1].target,
         TargetProposalV1::Position(42_115)
     );
     let member_checkpoints = host.member_checkpoints_for_test();
@@ -730,6 +730,49 @@ pub(crate) fn executable_design() -> super::strategy_design_v2::StrategyDesignV2
 }
 
 #[cfg(feature = "sealed-strategy-input-acceptance")]
+/// A single-instrument Design over a one-member universe: its roles use universe-member scope, every
+/// BAR/EVENT reaction reads member ordinal 0 only, and it proposes for a single instrument.
+pub(crate) fn one_member_universe_design() -> super::strategy_design_v2::StrategyDesignV2 {
+    let mut candidate = executable_design();
+    candidate.inputs.retain(|input| {
+        matches!(
+            input.semantic_id.as_str(),
+            "research.input.close.v1" | "research.input.open.v1"
+        )
+    });
+
+    for input in &mut candidate.inputs {
+        input.scope = super::strategy_design_v2::InputScopeV2::UniverseMembers;
+        input.instrument.clear();
+        input.timeframe = "1D".into();
+    }
+
+    for reaction in &mut candidate.reactions {
+        if !matches!(reaction.kind, LifecycleKindV2::Bar | LifecycleKindV2::Event) {
+            continue;
+        }
+
+        for node in &mut reaction.nodes {
+            for binding in &mut node.input_bindings {
+                binding.source = match binding.port_id.as_str() {
+                    "input.close.v1" => ValueRefV2::UniverseMemberInput {
+                        input_id: "research.input.close.v1".into(),
+                        member_ordinal: 0,
+                    },
+                    "input.open.v1" => ValueRefV2::UniverseMemberInput {
+                        input_id: "research.input.open.v1".into(),
+                        member_ordinal: 0,
+                    },
+                    _ => binding.source.clone(),
+                };
+            }
+            node.input_bindings.sort();
+        }
+    }
+    candidate
+}
+
+#[cfg(feature = "sealed-strategy-input-acceptance")]
 pub(crate) fn universe_design() -> super::strategy_design_v2::StrategyDesignV2 {
     let mut candidate = executable_design();
     candidate.inputs.retain(|input| {
@@ -890,7 +933,7 @@ fn universe_target_set(
 ) -> InstrumentTargetSetV2 {
     InstrumentTargetSetV2::new(
         sequence,
-        [
+        &[
             MemberTargetV2 {
                 instrument: InstrumentKeyV2::new(first.as_bytes()).unwrap(),
                 position: PositionIntentV1::Enter,
@@ -1126,4 +1169,223 @@ fn u32_leb(bytes: &mut Vec<u8>, mut value: u32) {
             return;
         }
     }
+}
+
+/// Byte layouts the member-count widening must not move for a two-member set: the SDK encoding of
+/// a fixed pair, and the Plan, target set, and Host checkpoint a real two-member frame produces.
+///
+/// The checkpoint is pinned in both directions. Its bytes are the pre-widening bytes, and restoring
+/// from them reproduces the same checkpoint, target set, and member kernels, so the slot decoder
+/// accepts exactly what the pre-widening encoder wrote.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn two_member_canonical_bytes_are_unchanged_by_the_member_count_widening() {
+    let member = |instrument: &[u8], position, units| MemberTargetV2 {
+        instrument: InstrumentKeyV2::new(instrument).unwrap(),
+        position,
+        target: TargetProposalV1::Position(units),
+        reconciliation_target_units: Some(units),
+        protection: ProtectionProposalV1::Keep,
+    };
+    let fixed = InstrumentTargetSetV2::new(
+        7,
+        &[
+            member(b"MSFT.XNAS", PositionIntentV1::Exit, 0),
+            member(b"AAPL.XNAS", PositionIntentV1::Enter, 3),
+        ],
+    )
+    .unwrap()
+    .encode()
+    .unwrap();
+
+    let (plan, artifact, frame) = universe_fixture(universe_design(), None);
+    let mut host = ProgramHostV2::new(plan.clone(), artifact.clone()).unwrap();
+    host.apply_event(&admitted(&plan, envelope(1, LifecycleKind::Start), None))
+        .unwrap();
+    host.apply_market_data_universe_event(&frame).unwrap();
+    let produced = host
+        .canonical_member_target_set()
+        .unwrap()
+        .encode()
+        .unwrap();
+
+    crate::target_set_members::assert_two_member_bytes_unchanged(
+        &[
+            ("sdk_fixed_pair", &fixed),
+            ("plan_durable", &plan.durable_bytes()),
+            ("plan_digest", plan.canonical_plan_digest().as_bytes()),
+            ("frame_target_set", &produced),
+            ("host_checkpoint", host.checkpoint().canonical_bytes()),
+        ],
+        &[
+            (
+                "sdk_fixed_pair",
+                312,
+                "38d3721ab5fc86886fa86de4a97dbb5e4c00429e07699f76a77d8a84015047c6",
+            ),
+            (
+                "plan_durable",
+                20_142,
+                "bc0036b0fc960c884703d4d8d8cac23022ebaee7804079dec5c17159422e6944",
+            ),
+            (
+                "plan_digest",
+                32,
+                "acc8b86785383b4e2b888f361ac8c66de5f72b3735d529aabf4f1e8b7c400d6a",
+            ),
+            (
+                "frame_target_set",
+                312,
+                "6df70f6cdae4a4714c750d658a8b0562bf056a059c8857d981aa504bd85ee661",
+            ),
+            (
+                "host_checkpoint",
+                3_580,
+                "df04c446b9582f4b60d431f37d3711441c63df7da55c85f7d8256fafe8c29329",
+            ),
+        ],
+    );
+
+    let restored = ProgramHostV2::restore(plan, artifact, host.checkpoint()).unwrap();
+    assert_eq!(restored.checkpoint(), host.checkpoint());
+    assert_eq!(
+        restored.canonical_member_target_set(),
+        host.canonical_member_target_set()
+    );
+    assert_eq!(
+        restored.member_checkpoints_for_test(),
+        host.member_checkpoints_for_test()
+    );
+}
+
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+/// The two-member universe Design with its target-set output removed, so its plugin proposes for a
+/// single instrument while its reactions still read both members.
+fn two_member_single_instrument_design() -> super::strategy_design_v2::StrategyDesignV2 {
+    let mut candidate = universe_design();
+    candidate.plugins[0]
+        .output_ports
+        .retain(|port| port.semantic_id != "proposal.member-target-set.v2");
+
+    for reaction in &mut candidate.reactions {
+        for node in &mut reaction.nodes {
+            node.output_port_ids
+                .retain(|port| port != "proposal.member-target-set.v2");
+        }
+
+        if let Some(proposal) = &mut reaction.proposal {
+            proposal.member_target_set = None;
+        }
+    }
+    candidate
+}
+
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn the_universe_contract_follows_the_owner_member_count() {
+    use super::strategy_plan_v2::validate_universe_target_set_contract_for_test as contract;
+
+    assert_eq!(contract(one_member_universe_design(), Some(1)), Ok(()));
+
+    // A plugin may also propose the one-member set itself.
+    let mut direct = one_member_universe_design();
+    direct.plugins[0].output_ports.push(PortContractV2 {
+        semantic_id: "proposal.member-target-set.v2".into(),
+        value_type: ValueTypeV2::Bytes,
+        max_bytes: strategy_factory_program_sdk::lifecycle_v2::TARGET_SET_BYTES as u32,
+    });
+    direct.plugins[0].output_ports.sort();
+    for reaction in &mut direct.reactions {
+        for node in &mut reaction.nodes {
+            node.output_port_ids
+                .push("proposal.member-target-set.v2".into());
+            node.output_port_ids.sort();
+        }
+
+        if let Some(proposal) = &mut reaction.proposal {
+            proposal.member_target_set = Some(ValueRefV2::NodeOutput {
+                node_id: reaction.nodes[0].semantic_id.clone(),
+                port_id: "proposal.member-target-set.v2".into(),
+            });
+        }
+    }
+    assert_eq!(contract(direct.clone(), Some(1)), Ok(()));
+
+    // Ordinals must be exactly the universe's: a one-member Design leaves a second member unread,
+    // and a two-member Design reads an ordinal a one-member universe does not have.
+    for (design, member_count) in [(direct, 2), (universe_design(), 1)] {
+        assert!(
+            matches!(
+                contract(design, Some(member_count)),
+                Err(StrategyCompilationV2::Unsupported(issue)) if issue.coordinate.ends_with(".inputs")
+            ),
+            "member count {member_count}"
+        );
+    }
+
+    // More than one member requires one complete target set: a single-instrument proposal lifts
+    // only under one member, so it is refused under two whichever ordinals the Design reads.
+    for design in [
+        two_member_single_instrument_design(),
+        one_member_universe_design(),
+    ] {
+        assert!(matches!(
+            contract(design, Some(2)),
+            Err(StrategyCompilationV2::NeedsResearchRefinement(issue))
+                if issue.coordinate.ends_with(".proposal.member_target_set")
+        ));
+    }
+}
+
+#[rstest]
+fn a_lifted_single_instrument_proposal_is_the_one_member_set_a_plugin_would_propose() {
+    use super::program_host_v2::lift_single_instrument_proposal;
+
+    let proposal = lifecycle_v1::ProposalV1 {
+        intent_identity: [1; 16],
+        proposal_digest: [2; 32],
+        position: PositionIntentV1::Enter,
+        target: TargetProposalV1::Position(5),
+        reconciliation_target_units: Some(5),
+        protection: ProtectionProposalV1::Keep,
+        strategy_state_digest: [3; 32],
+        plugin_state_digest: [4; 32],
+    };
+    let direct = |sequence| {
+        InstrumentTargetSetV2::new(
+            sequence,
+            &[MemberTargetV2 {
+                instrument: InstrumentKeyV2::new(b"BTCUSDT-PERP.BINANCE").unwrap(),
+                position: PositionIntentV1::Enter,
+                target: TargetProposalV1::Position(5),
+                reconciliation_target_units: Some(5),
+                protection: ProtectionProposalV1::Keep,
+            }],
+        )
+        .unwrap()
+        .encode()
+        .unwrap()
+    };
+    let lifted = |pending| {
+        lift_single_instrument_proposal(&["BTCUSDT-PERP.BINANCE"], pending, proposal)
+            .unwrap()
+            .encode()
+            .unwrap()
+    };
+
+    // A plugin's set reaches the host as its bytes and is decoded from them; the lifted set must
+    // be that same canonical value, byte for byte.
+    assert_eq!(lifted(None), direct(1));
+    assert_eq!(lifted(Some(7)), direct(8));
+    let decoded = InstrumentTargetSetV2::decode(&direct(1)[..target_set_encoded_bytes(1)]).unwrap();
+    assert_eq!(lifted(None), decoded.encode().unwrap());
+
+    // Only a one-member universe lifts.
+    for members in [&[][..], &["AAPL.XNAS", "MSFT.XNAS"][..]] {
+        assert!(lift_single_instrument_proposal(members, None, proposal).is_err());
+    }
+    assert!(
+        lift_single_instrument_proposal(&["BTCUSDT-PERP.BINANCE"], Some(u64::MAX), proposal)
+            .is_err()
+    );
 }

@@ -301,7 +301,10 @@ history; it says nothing about whether the path has ever run in some other envir
     follow-up that lets an in-family run be stated; until it exists, every in-family run is refused. The channel is
     stated as the run read it - role, instrument, fact, timeframe, unit and scale - and not in the form
     its request authored it, so an authoring form that names the instrument indirectly still yields
-    those six fields, and a change to how a channel is authored does not change this handoff. The data window is the channel's instrument and timeframe, the request's
+    those six fields, and a change to how a channel is authored does not change this handoff. The
+    universe-member form names its instrument only through the run's universe selection, which this
+    report does not read yet, so a run in that form is refused as `UNIVERSE_MEMBER_NOT_YET_REPORTED`
+    rather than stated without an instrument. The data window is the channel's instrument and timeframe, the request's
     window with an exclusive end, the number of PIT snapshots the request binds, and that snapshot's
     identity as the cut.
 

@@ -6,9 +6,8 @@
 //! Owner readback, which is not an execution bundle and cannot be presented to the EVENT consumer
 //! as one. `compose_native_replay_execution_bundle_v2` goes on, because Market Data does expose
 //! the canonical native projection: `NativeReplaySchedulingReadbackV1` releases the `BarType` and
-//! ordered `Data` of its window, and the two-member public terms materialize the `InstrumentAny`.
+//! ordered `Data` of its window, and the members' public terms materialize the `InstrumentAny`.
 
-use strategy_factory_program_sdk::lifecycle_v2::TARGET_SET_MEMBER_COUNT;
 use thiserror::Error;
 use vibe_data::owner::strategy_input_binding::StrategyInputUniverseFrameReceipt;
 use vibe_data::owner::{
@@ -35,6 +34,7 @@ use crate::{
     },
     replay_target_set_execution_bundle_v1::ReplayTargetSetExecutionBundleV1,
     strategy_plan_v2::StrategyPlanV2,
+    target_set_members::is_admitted_member_count,
 };
 
 /// Move-only complete prerequisite cut immediately below native value materialization.
@@ -110,7 +110,7 @@ pub async fn compose_native_replay_execution_bundle_v2(
     artifact: StrategyArtifactV2,
     strategy_id: StrategyId,
     run_id: String,
-    public_terms: [ValidatedCryptoPerpetualPublicTermsV2; TARGET_SET_MEMBER_COUNT],
+    public_terms: Vec<ValidatedCryptoPerpetualPublicTermsV2>,
 ) -> Result<ReplayTargetSetExecutionBundleV1, NativeReplayExecutionPrerequisitesErrorV2> {
     let request_window = prerequisites.profile_authority.request_window();
     if scheduling_request.frame_time_ns() != request_window.start_event_ns
@@ -139,14 +139,15 @@ pub async fn compose_native_replay_execution_bundle_v2(
 /// Cross-binds all currently available Owner readbacks and issues the execution-profile authority.
 ///
 /// A successful return proves the exact request, Composer Design, Replay window, PIT cut,
-/// Universe/Instrument dependency, two-member Instrument Master cut, and private economic terms.
+/// Universe/Instrument dependency, Instrument Master cut of the admitted members, and private
+/// economic terms.
 /// It deliberately does not return `ReplayTargetSetExecutionBundleV1`, because a caller that holds
 /// these readbacks has not yet resolved the window's native scheduling; that is the step
 /// `compose_native_replay_execution_bundle_v2` takes, from this same cut.
 pub fn prepare_native_replay_execution_prerequisites_v2(
     preparation: NativeReplayPreparationInputsV2,
     replay_cut: ResolvedReplayCompositionCutV1,
-    instrument_terms: &[InstrumentEconomicTermsReadbackV1; TARGET_SET_MEMBER_COUNT],
+    instrument_terms: &[InstrumentEconomicTermsReadbackV1],
 ) -> Result<NativeReplayExecutionPrerequisitesV2, NativeReplayExecutionPrerequisitesErrorV2> {
     let (composition, market_facts, instrument_master) = replay_cut.into_parts();
     validate_available_owner_bindings(
@@ -159,7 +160,7 @@ pub fn prepare_native_replay_execution_prerequisites_v2(
     let profile_authority = issue_owner_replay_execution_profile_binding_from_readbacks_v1(
         preparation.family(),
         preparation.replay(),
-        [&instrument_terms[0], &instrument_terms[1]],
+        &instrument_terms.iter().collect::<Vec<_>>(),
     )
     .map_err(|e| {
         NativeReplayExecutionPrerequisitesErrorV2::ProfileAuthorityUnavailable(e.to_string())
@@ -178,7 +179,7 @@ fn validate_available_owner_bindings(
     market_facts: &ReplayMarketFactsReadbackV2,
     composition: &ReplayCompositionBindingReadbackV1,
     instrument_master: &InstrumentMasterReadbackV1,
-    instrument_terms: &[InstrumentEconomicTermsReadbackV1; TARGET_SET_MEMBER_COUNT],
+    instrument_terms: &[InstrumentEconomicTermsReadbackV1],
 ) -> Result<(), NativeReplayExecutionPrerequisitesErrorV2> {
     let request = preparation.replay().request().as_dto();
     let facts = market_facts.facts();
@@ -224,8 +225,9 @@ fn validate_available_owner_bindings(
         || instrument_dependency.digest() != instrument_master.cut().digest()
         || universe_dependency.identity() != expected_universe_identity
         || universe_dependency.digest() != expected_universe_digest
-        || instrument_master.facts().len() != TARGET_SET_MEMBER_COUNT
-        || instrument_master.cut().expected_members().len() != TARGET_SET_MEMBER_COUNT
+        || !is_admitted_member_count(instrument_master.facts().len())
+        || instrument_master.cut().expected_members().len() != instrument_master.facts().len()
+        || instrument_terms.len() != instrument_master.facts().len()
     {
         return Err(NativeReplayExecutionPrerequisitesErrorV2::OwnerBindingUnavailable);
     }

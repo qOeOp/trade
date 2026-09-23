@@ -255,6 +255,16 @@ pub enum ValueRefV2 {
         /// Zero-based position in the Owner-canonical selection member order.
         member_ordinal: u8,
     },
+    /// The Owner sample coordinate of one universe member's value, the universe-member
+    /// counterpart of `OwnerSampleCoordinate` as `UniverseMemberInput` is of `Input`. It is a
+    /// separate variant rather than an ordinal added to `OwnerSampleCoordinate`, so that every
+    /// consumer states whether it accepts a member coordinate instead of inheriting one.
+    UniverseMemberSampleCoordinate {
+        input_id: String,
+        /// Zero-based position in the Owner-canonical selection member order.
+        member_ordinal: u8,
+        source_semantic_id: String,
+    },
     Parameter {
         parameter_id: String,
     },
@@ -341,7 +351,8 @@ pub struct ProposalWiringV2 {
     pub take_profit_ticks: ValueRefV2,
     pub trailing_distance_ticks: ValueRefV2,
     pub trailing_stop_ticks: ValueRefV2,
-    /// Canonical `lifecycle_v2::InstrumentTargetSetV2` bytes for an exactly-two-member frame.
+    /// Canonical `lifecycle_v2::InstrumentTargetSetV2` bytes for a universe frame. A one-member
+    /// universe may omit it and propose for its single instrument, which the host lifts.
     /// Absent on the compatible single-instrument V2 path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub member_target_set: Option<ValueRefV2>,

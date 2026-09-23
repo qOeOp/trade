@@ -51,7 +51,7 @@ use vibe_model::{
     },
     instruments::{
         CryptoPerpetual, Equity, Instrument, InstrumentAny, OptionContract,
-        stubs::{crypto_perpetual_ethusdt, default_fx_ccy},
+        stubs::{crypto_perpetual_ethusdt, currency_pair_btcusdt, default_fx_ccy},
     },
     orders::{Order, OrderAny},
     position::Position,
@@ -1072,6 +1072,112 @@ fn test_add_custom_data_bypasses_market_setup_and_replays_in_order(
     assert_eq!(
         engine.kernel().data_engine.borrow().data_count(),
         data_count_before_run + 4
+    );
+    engine.dispose();
+}
+
+struct QuoteOrderRecorder {
+    core: DataActorCore,
+    instrument_ids: Vec<InstrumentId>,
+    received: Rc<RefCell<Vec<InstrumentId>>>,
+}
+
+impl QuoteOrderRecorder {
+    fn new(instrument_ids: Vec<InstrumentId>, received: Rc<RefCell<Vec<InstrumentId>>>) -> Self {
+        let config = DataActorConfig {
+            actor_id: Some(ActorId::from("QUOTE-ORDER-RECORDER")),
+            ..Default::default()
+        };
+        Self {
+            core: DataActorCore::new(config),
+            instrument_ids,
+            received,
+        }
+    }
+}
+
+vibe_actor!(QuoteOrderRecorder);
+
+impl Debug for QuoteOrderRecorder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct(stringify!(QuoteOrderRecorder)).finish()
+    }
+}
+
+impl DataActor for QuoteOrderRecorder {
+    fn on_start(&mut self) -> anyhow::Result<()> {
+        for instrument_id in self.instrument_ids.clone() {
+            self.subscribe_quotes(instrument_id, None, None);
+        }
+        Ok(())
+    }
+
+    fn on_quote(&mut self, quote: &QuoteTick) -> anyhow::Result<()> {
+        self.received.borrow_mut().push(quote.instrument_id);
+        Ok(())
+    }
+}
+
+// Native Replay hands a frame's two member quotes to the engine in canonical member order and may
+// stamp them with the same `ts_init`. The engine must then consume them in exactly the order it was
+// given: both sorts on the way in (`BacktestEngine::add_data` and `BacktestDataIterator::add_data`)
+// are stable, and the run loop delivers one element at a time. Both input orders are run, so an
+// engine that broke ties by anything the quotes themselves carry (instrument, price) fails one of
+// them. If this goes red, same-instant member quotes are no longer ordered by the Owner that issued
+// them, and the Market Data V2 frame rule that relies on it has to go back to distinct instants.
+#[rstest]
+#[case::canonical_member_order(false)]
+#[case::swapped_member_order(true)]
+fn test_quotes_sharing_ts_init_are_consumed_in_the_order_given(
+    crypto_perpetual_ethusdt: CryptoPerpetual,
+    #[case] swapped: bool,
+) {
+    let config = BacktestEngineConfig {
+        bypass_logging: true,
+        run_analysis: false,
+        ..Default::default()
+    };
+    let mut engine = BacktestEngine::new(config).unwrap();
+    let venue_config = SimulatedVenueConfig::builder()
+        .venue(Venue::from("BINANCE"))
+        .oms_type(OmsType::Netting)
+        .account_type(AccountType::Margin)
+        .book_type(BookType::L1_MBP)
+        .starting_balances(vec![Money::from("1_000_000 USDT")])
+        .build()
+        .unwrap();
+    engine.add_venue(venue_config).unwrap();
+    let second_instrument = InstrumentAny::CurrencyPair(currency_pair_btcusdt());
+    let mut members = [crypto_perpetual_ethusdt.id(), second_instrument.id()];
+    engine
+        .add_instrument(&InstrumentAny::CryptoPerpetual(crypto_perpetual_ethusdt))
+        .unwrap();
+    engine.add_instrument(&second_instrument).unwrap();
+
+    if swapped {
+        members.reverse();
+    }
+    let received = Rc::new(RefCell::new(Vec::new()));
+    engine
+        .add_actor(QuoteOrderRecorder::new(
+            members.to_vec(),
+            Rc::clone(&received),
+        ))
+        .unwrap();
+
+    // Two frames: both members tied at 10, then both tied at 20.
+    let data = vec![
+        quote(members[0], "100.00", "101.00", 10),
+        quote(members[1], "100.00", "101.00", 10),
+        quote(members[0], "100.00", "101.00", 20),
+        quote(members[1], "100.00", "101.00", 20),
+    ];
+    engine.add_data(data, None, true, true).unwrap();
+    engine.run(None, None, None, false).unwrap();
+
+    assert_eq!(
+        *received.borrow(),
+        vec![members[0], members[1], members[0], members[1]]
     );
     engine.dispose();
 }
