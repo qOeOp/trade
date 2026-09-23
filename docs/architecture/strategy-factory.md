@@ -144,6 +144,27 @@ The maturity boundary is explicit:
   not prove
   a cold engine restart, venue atomicity, Paper, Live,
   provider/network, persistence, production readiness, or trading authority.
+- **TARGET / IMPLEMENTATION_ADMITTED, one-member Backtest target-set vertical:** the vertical above also admits a
+  universe of exactly one member, alongside the two-member form; admitting one member changes no two-member behaviour
+  or byte. The
+  user admitted this on 2026-09-24 when choosing crypto perpetuals and single-instrument strategies as the first
+  product scope, in these words (translated): "widen the execution chain's member count from exactly two to also
+  support one; it is a bounded slice written in these documents; widening it changes the documents and removes no
+  property". A single-instrument strategy is a Design whose roles use `UniverseMembers` scope, run against a
+  one-member Owner-sealed universe; the Market Data universe selection chooses the instrument at request time, not
+  the Design. A Design with `EXACT_INSTRUMENT` roles stays refused under an Owner universe, by a named refusal,
+  `ExactInstrumentRolesUnderOwnerUniverse`, which the implementing change introduces. The universe vertical's input contract of exactly one fixed `OPEN` and one
+  fixed `CLOSE` member role is unchanged; the single-threshold authoring surface gains a universe-member form whose
+  channel is the member's daily close and which carries the fixed open role. That form consumes each role at member
+  ordinal 0 only, and its bounded feature program still emits a single-instrument proposal: under a one-member
+  universe the host lifts that proposal into the one-member canonical target set, so the vertical still commits one
+  canonical target set and only its producer moves from the plugin to the host. The single-threshold report family and
+  the instrument its data window names extend to that form before the first positive run. The target-set schema
+  version and semantic identities do not change, and admitting one member changes no two-member preimage: the target-set codec
+  and the Instrument Master cut already encode their member count, while the V1 scheduling receipt digest and the
+  ProgramHost target-set snapshot digest hash their members without a count, so a one-member preimage there is
+  domain-separated in a way that leaves the two-member bytes unchanged. Nothing here is current until the
+  implementing changes land and update the CURRENT statement above.
 - **TARGET / NOT_ADMITTED:** Paper and Live consume the same plan, Artifact, event ordering, checkpoint schema,
   kernel and semantic-trace contract only after their Owner adapters exist and are separately admitted. No current
   Paper or Live equivalence, application, external write, or trading capability is claimed here.
