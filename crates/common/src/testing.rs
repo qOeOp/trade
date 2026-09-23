@@ -85,8 +85,41 @@ where
 ///
 /// Panics if the timeout duration is exceeded without the condition being met.
 #[cfg(feature = "live")]
-pub async fn wait_until_async<F, Fut>(mut condition: F, timeout: Duration)
+pub async fn wait_until_async<F, Fut>(condition: F, timeout: Duration)
 where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = bool>,
+{
+    wait_until_async_labeled(condition, timeout, "condition").await;
+}
+
+/// Waits for `condition`, and says what was being waited for if it never becomes true.
+///
+/// The condition is a closure returning `bool`, so a timeout here has no way to name what it was
+/// waiting for. Without a name, the only thing a reader of a timed-out run can do is run it again.
+/// Callers that pass a name get a failure that points somewhere.
+///
+/// # On choosing `timeout`
+///
+/// This budget is not hang protection - `.config/nextest.toml` terminates a test after five 120s
+/// slow-timeout periods, so a condition that never becomes true is already bounded at ten minutes.
+/// What a tight budget here adds is an assertion about *how fast* the condition becomes true, which
+/// is a performance property, and one that nothing in these tests declares. On a loaded runner an
+/// undeclared performance property is a coin flip: `test_cache_accounts` failed at 3.1s against a
+/// 3.0s budget while waiting for a PostgreSQL row to become visible, and nothing was wrong.
+///
+/// So pick a budget large enough that exceeding it means the condition is genuinely never going to
+/// hold, rather than one that tracks how fast the machine happens to be.
+///
+/// # Panics
+///
+/// Panics if the timeout duration is exceeded without the condition being met.
+#[cfg(feature = "live")]
+pub async fn wait_until_async_labeled<F, Fut>(
+    mut condition: F,
+    timeout: Duration,
+    waiting_for: &str,
+) where
     F: FnMut() -> Fut,
     Fut: Future<Output = bool>,
 {
@@ -99,7 +132,7 @@ where
 
         assert!(
             start_time.elapsed() <= timeout,
-            "Timeout waiting for condition after {:.1}s (limit {:.1}s)",
+            "Timeout waiting for {waiting_for} after {:.1}s (limit {:.1}s)",
             start_time.elapsed().as_secs_f64(),
             timeout.as_secs_f64(),
         );

@@ -14,7 +14,15 @@ mod serial_tests {
     use ahash::AHashMap;
     use bytes::Bytes;
     use ustr::Ustr;
-    use vibe_common::{cache::database::CacheDatabaseAdapter, testing::wait_until_async};
+    use vibe_common::{cache::database::CacheDatabaseAdapter, testing::wait_until_async_labeled};
+
+    /// How long these tests wait for a PostgreSQL write to become visible to a read.
+    ///
+    /// Not hang protection: `.config/nextest.toml` already terminates a test after five 120s
+    /// slow-timeout periods. This bound exists so that exceeding it means the row is never going
+    /// to appear, rather than that the machine was busy. The previous three seconds asserted an
+    /// undeclared performance property and failed at 3.1s on a loaded runner with nothing wrong.
+    const POSTGRES_VISIBILITY_TIMEOUT: Duration = Duration::from_secs(30);
     use vibe_core::UUID4;
     use vibe_infrastructure::sql::{
         cache::{PostgresCacheDatabase, get_pg_cache_database},
@@ -67,13 +75,14 @@ mod serial_tests {
         database.add_currency(&eth).unwrap();
         database.add_currency(&usdt).unwrap();
         database.add_instrument(&crypto_perpetual).unwrap();
-        wait_until_async(
+        wait_until_async_labeled(
             || async {
                 let currencies = database.load_currencies().await.unwrap();
                 let instruments = database.load_instruments().await.unwrap();
                 currencies.len() >= 2 && !instruments.is_empty()
             },
-            Duration::from_secs(3),
+            POSTGRES_VISIBILITY_TIMEOUT,
+            "the currencies and instruments just written to become loadable",
         )
         .await;
 
@@ -115,7 +124,7 @@ mod serial_tests {
 
         // Insert into database and wait
         database.add_order(&market_order, None).unwrap();
-        wait_until_async(
+        wait_until_async_labeled(
             || async {
                 let order = database
                     .load_order(&market_order.client_order_id())
@@ -123,7 +132,8 @@ mod serial_tests {
                     .unwrap();
                 order.is_some()
             },
-            Duration::from_secs(3),
+            POSTGRES_VISIBILITY_TIMEOUT,
+            "the market order just written to become loadable",
         )
         .await;
 
@@ -176,7 +186,7 @@ mod serial_tests {
         database
             .index_order_position(order_1.client_order_id(), position_id)
             .unwrap();
-        wait_until_async(
+        wait_until_async_labeled(
             || async {
                 database
                     .load_order(&order_1.client_order_id())
@@ -190,7 +200,8 @@ mod serial_tests {
                         .is_some()
                     && !database.load_index_order_position().unwrap().is_empty()
             },
-            Duration::from_secs(3),
+            POSTGRES_VISIBILITY_TIMEOUT,
+            "both orders and the order-position index just written to become loadable",
         )
         .await;
 
@@ -273,7 +284,7 @@ mod serial_tests {
         position.apply(&close_fill);
         database.update_position(&position).unwrap();
 
-        wait_until_async(
+        wait_until_async_labeled(
             || async {
                 database
                     .load_position(&position.id)
@@ -281,7 +292,8 @@ mod serial_tests {
                     .unwrap()
                     .is_some_and(|loaded| loaded.events == position.events)
             },
-            Duration::from_secs(3),
+            POSTGRES_VISIBILITY_TIMEOUT,
+            "the position just written to load with its recorded events",
         )
         .await;
 
@@ -312,12 +324,13 @@ mod serial_tests {
 
         // Insert into database and wait
         database.add_account(&account).unwrap();
-        wait_until_async(
+        wait_until_async_labeled(
             || async {
                 let account = database.load_account(&account.id()).await.unwrap();
                 account.is_some()
             },
-            Duration::from_secs(3),
+            POSTGRES_VISIBILITY_TIMEOUT,
+            "the account just written to become loadable",
         )
         .await;
 
@@ -508,12 +521,13 @@ mod serial_tests {
 
         database.add_currency(&eth).unwrap();
 
-        wait_until_async(
+        wait_until_async_labeled(
             || async {
                 let currencies = database.load_currencies().await.unwrap();
                 currencies.contains_key(&eth_key)
             },
-            Duration::from_secs(2),
+            POSTGRES_VISIBILITY_TIMEOUT,
+            "the currency just written to become loadable",
         )
         .await;
 
