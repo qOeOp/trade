@@ -1479,9 +1479,15 @@ of this paragraph records. Only a snapshot whose verified batch holds BAR rows t
 ordinal; one holding Quote rows and nothing else is a quote cut, recorded in a census of its own
 and never given an ordinal; one holding neither joins no census. The Owner reads this from the
 batch it verified, never from the requester's scope claim, and resolves a frame's quote cut from
-that census alone: exactly one quote cut strictly between the frame's BAR and its bound, on the
+that census alone. Among the quote cuts strictly between the frame's BAR and its bound, on the
 frame's scope, Instrument Master, universe selection, Market Semantics and Source Binding lineage,
-quoting exactly the frame's members. The
+and visible at the request's decision cut, exactly one correction lineage must remain; its latest
+visible correction is the frame's quote cut, and it must quote exactly the frame's members. The
+census is keyed by the scope a requester declares, so a second quote cut on every one of a
+frame's coordinates collides with the first and refuses the frame - a denial of service, never a
+quote cut the Owner did not verify for it. The bound is the next frame's BAR cut; today the
+resolver's caller supplies it, and deriving it from the frame census belongs to the sequence
+resolver. The
 existing PIT correction lineage records
 revisions of one request; it is not a time-successor index and cannot prove a later frame or the
 absence of skipped frames, which is why the census is its own table rather than a reuse of that
