@@ -759,11 +759,14 @@ pub(crate) async fn resolve_develop_composer_locator_for_replay_v2_in_transactio
     .bind(REPLAY_LOCATOR_FUNCTION_V2)
     .fetch_optional(&mut **transaction)
     .await
-    .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?
+    .map_err(|e| sealed_read_refused("develop_composer.replay_locator.authority_query", &e))?
     .unwrap_or(false);
 
     if !authority_is_exact || artifact_locator.is_empty() {
-        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+        return Err(sealed_read_refused(
+            "develop_composer.replay_locator.authority",
+            &"the replay locator routine is not exactly the sealed one, or the artifact locator is empty",
+        ));
     }
 
     let row = sqlx::query(
@@ -776,15 +779,24 @@ pub(crate) async fn resolve_develop_composer_locator_for_replay_v2_in_transactio
     .bind(design_digest.as_bytes().as_slice())
     .fetch_optional(&mut **transaction)
     .await
-    .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?
+    .map_err(|e| sealed_read_refused("develop_composer.replay_locator.resolve", &e))?
     .ok_or(DevelopComposerSealedReadErrorV2::Unavailable)?;
     let request_identity = row
         .try_get::<String, _>("request_identity")
-        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
-    let operation_receipt_identity = digest_column(&row, "operation_receipt_identity")
-        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+        .map_err(|e| sealed_read_refused("develop_composer.replay_locator.request_identity", &e))?;
+    let operation_receipt_identity =
+        digest_column(&row, "operation_receipt_identity").map_err(|e| {
+            sealed_read_refused(
+                "develop_composer.replay_locator.operation_receipt_identity",
+                &e,
+            )
+        })?;
+
     if request_identity.is_empty() {
-        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+        return Err(sealed_read_refused(
+            "develop_composer.replay_locator.request_identity_empty",
+            &"the Composer Owner resolved an empty request identity",
+        ));
     }
     Ok(DevelopComposerSealedReadLocatorV2 {
         schema_version: SEALED_READ_SCHEMA_V2,
@@ -798,9 +810,28 @@ pub(crate) async fn resolve_develop_composer_locator_for_replay_v2_in_transactio
 }
 
 /// Uniform fail-closed result for missing, mismatched, corrupt, or unreadable R&D custody.
+///
+/// It stays one unit variant on purpose: a caller learns that the sealed readback is unavailable
+/// and nothing else. The Owner can still say why. Every site that refuses first records its cause
+/// through `sealed_read_refused` under a `develop_composer.` coordinate naming the stage, and the
+/// topology check names which of its six clauses failed, so a reader holding this refusal can find
+/// the site without a two-sided catalog diff.
+///
+/// Two kinds of refusal are deliberately not recorded: a Composer record that is simply absent
+/// is a lookup that found no row, not a refusal; and `from_accepted_response` only projects the
+/// caller's own response, whose shape the caller already holds.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DevelopComposerSealedReadErrorV2 {
     Unavailable,
+}
+
+/// Records why one sealed-read stage refused, then returns the refusal the caller is given.
+pub(crate) fn sealed_read_refused(
+    coordinate: &'static str,
+    cause: &impl Display,
+) -> DevelopComposerSealedReadErrorV2 {
+    crate::storage_diagnostic::refused_by_store(coordinate, cause);
+    DevelopComposerSealedReadErrorV2::Unavailable
 }
 
 impl Display for DevelopComposerSealedReadErrorV2 {
@@ -1011,7 +1042,10 @@ fn seal_readback(
         || !accepted_response_matches_locator(locator, response)
         || record.response_bytes != response.canonical_bytes()
     {
-        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+        return Err(sealed_read_refused(
+            "develop_composer.seal_readback.match",
+            &"the stored record, the accepted response and the locator do not agree",
+        ));
     }
 
     let module_bytes_digests = record
@@ -1223,7 +1257,7 @@ impl DevelopComposerSealedReadPortV2 for SealedDevelopComposerAcceptanceReadPort
             .store
             .begin_read_transaction()
             .await
-            .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+            .map_err(|e| sealed_read_refused("develop_composer.acceptance_read.begin", &e))?;
         let readback = self
             .owner
             .read_accepted_in_transaction(&mut transaction, locator)
@@ -1231,7 +1265,7 @@ impl DevelopComposerSealedReadPortV2 for SealedDevelopComposerAcceptanceReadPort
         transaction
             .commit()
             .await
-            .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+            .map_err(|e| sealed_read_refused("develop_composer.acceptance_read.commit", &e))?;
         Ok(readback)
     }
 }
@@ -1303,21 +1337,27 @@ async fn validate_record_role_set(
 ) -> Result<(), DevelopComposerSealedReadErrorV2> {
     let response: DevelopComposerOperationResponseV2 =
         crate::strategy_plan_v2::durable_decode(&record.response_bytes)
-            .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+            .map_err(|e| sealed_read_refused("develop_composer.role_set.decode_response", &e))?;
     if response.canonical_bytes() != record.response_bytes {
-        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+        return Err(sealed_read_refused(
+            "develop_composer.role_set.response_bytes",
+            &"the stored response does not re-encode to its own bytes",
+        ));
     }
     let expected = project_role_set_from_record(record, &response)
-        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+        .map_err(|e| sealed_read_refused("develop_composer.role_set.project", &e))?;
     let stored = read_role_set_in_transaction(transaction, &expected.composer_locator)
         .await
-        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+        .map_err(|e| sealed_read_refused("develop_composer.role_set.read", &e))?;
 
     if stored.canonical_bytes() != expected.canonical_bytes()
         || stored.receipt_identity() != expected.receipt_identity()
         || stored.receipt_digest() != expected.receipt_digest()
     {
-        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+        return Err(sealed_read_refused(
+            "develop_composer.role_set.match",
+            &"the stored role set differs from the one projected from the record",
+        ));
     }
     Ok(())
 }
@@ -1333,8 +1373,12 @@ pub(crate) async fn read_accepted_in_transaction(
         load_record_via_sealed_routine_in_transaction(transaction, &locator.request_identity)
             .await?
             .ok_or(DevelopComposerSealedReadErrorV2::Unavailable)?;
+
     if !locator_matches_record_keys(locator, &record) {
-        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+        return Err(sealed_read_refused(
+            "develop_composer.read_accepted.locator",
+            &"the stored record keys differ from the locator",
+        ));
     }
     seal_accepted_record(locator, record, locked_evidence)
 }
@@ -1355,8 +1399,12 @@ where
         load_record_via_sealed_routine_in_transaction(transaction, &locator.request_identity)
             .await?
             .ok_or(DevelopComposerSealedReadErrorV2::Unavailable)?;
+
     if !locator_matches_record_keys(locator, &record) {
-        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+        return Err(sealed_read_refused(
+            "develop_composer.read_accepted_for_replay.locator",
+            &"the stored record keys differ from the locator",
+        ));
     }
     let evidence_locator = DevelopComposerDurableEvidenceLocatorV2::from_record(&record);
     let locked_evidence = Box::pin(
@@ -1368,7 +1416,12 @@ where
         ),
     )
     .await
-    .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    .map_err(|e| {
+        sealed_read_refused(
+            "develop_composer.read_accepted_for_replay.lock_evidence",
+            &format!("{e:?}"),
+        )
+    })?;
     let response =
         crate::source_research_composer_postgres_v2::resolve_composer_record_for_replay_in_transaction(
             transaction,
@@ -1378,7 +1431,7 @@ where
             read_cut_epoch_ms,
         )
         .await
-        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+        .map_err(|e| sealed_read_refused("develop_composer.read_accepted_for_replay.resolve_record", &format!("{e:?}")))?;
     seal_readback(locator, record, &response)
 }
 
@@ -1413,7 +1466,10 @@ pub(crate) async fn read_accepted_for_replay_historical_in_transaction(
                     .collect::<String>()
             )
     {
-        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+        return Err(sealed_read_refused(
+            "develop_composer.read_accepted_for_replay_historical.binding",
+            &"the stored record, the locator and the expected Research binding do not agree",
+        ));
     }
     let response = Box::pin(crate::source_research_composer_postgres_v2::resolve_composer_record_for_historical_replay_in_transaction(
         transaction,
@@ -1432,8 +1488,12 @@ fn seal_accepted_record(
     record: StoredDevelopComposerPositiveV2,
     locked_evidence: DevelopComposerLockedEvidenceV2,
 ) -> Result<SealedDevelopComposerReadbackV2, DevelopComposerSealedReadErrorV2> {
-    let response = resolve_positive_record_v2(&record, locked_evidence)
-        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    let response = resolve_positive_record_v2(&record, locked_evidence).map_err(|e| {
+        sealed_read_refused(
+            "develop_composer.seal_accepted_record.resolve",
+            &format!("{e:?}"),
+        )
+    })?;
     seal_readback(locator, record, &response)
 }
 
@@ -1447,11 +1507,20 @@ pub(crate) async fn read_accepted_in_transaction_with_v3_restart(
         load_record_via_sealed_routine_in_transaction(transaction, &locator.request_identity)
             .await?
             .ok_or(DevelopComposerSealedReadErrorV2::Unavailable)?;
+
     if !locator_matches_record_keys(locator, &record) {
-        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+        return Err(sealed_read_refused(
+            "develop_composer.read_accepted_with_v3_restart.locator",
+            &"the stored record keys differ from the locator",
+        ));
     }
     let response = resolve_positive_record_with_v3_restart_v2(&record, locked_evidence, v3_restart)
-        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+        .map_err(|e| {
+            sealed_read_refused(
+                "develop_composer.read_accepted_with_v3_restart.resolve",
+                &format!("{e:?}"),
+            )
+        })?;
     seal_readback(locator, record, &response)
 }
 
@@ -1467,7 +1536,7 @@ async fn load_record_via_sealed_routine_in_transaction(
     .bind(request_identity)
     .fetch_optional(&mut **transaction)
     .await
-    .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?
+    .map_err(|e| sealed_read_refused("develop_composer.sealed_routine.lock", &e))?
     else {
         return Ok(None);
     };
@@ -1514,31 +1583,38 @@ fn decode_record_row(
 ) -> Result<Option<StoredDevelopComposerPositiveV2>, DevelopComposerSealedReadErrorV2> {
     let module_ordinals: Vec<i32> = row
         .try_get("module_ordinals")
-        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+        .map_err(|e| sealed_read_refused("develop_composer.record_row.module_ordinals", &e))?;
     let module_bytes: Vec<Vec<u8>> = row
         .try_get("module_bytes")
-        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+        .map_err(|e| sealed_read_refused("develop_composer.record_row.module_bytes", &e))?;
     exact_ordinal_array(&module_ordinals, module_bytes.len())?;
     let build_ordinals: Vec<i32> = row
         .try_get("build_ordinals")
-        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+        .map_err(|e| sealed_read_refused("develop_composer.record_row.build_ordinals", &e))?;
     let build_receipt_bytes: Vec<Vec<u8>> = row
         .try_get("build_receipt_bytes")
-        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+        .map_err(|e| sealed_read_refused("develop_composer.record_row.build_receipt_bytes", &e))?;
     exact_ordinal_array(&build_ordinals, build_receipt_bytes.len())?;
     let build_receipt_tags_i32: Vec<i32> = row
         .try_get("build_receipt_tags")
-        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+        .map_err(|e| sealed_read_refused("develop_composer.record_row.build_receipt_tags", &e))?;
     let build_receipt_tags = build_receipt_tags_i32
         .into_iter()
-        .map(|tag| u16::try_from(tag).map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable))
+        .map(|tag| {
+            u16::try_from(tag).map_err(|e| {
+                sealed_read_refused("develop_composer.record_row.build_receipt_tag_range", &e)
+            })
+        })
         .collect::<Result<Vec<_>, _>>()?;
 
     if build_receipt_tags.len() != build_receipt_bytes.len()
         || build_receipt_tags.iter().any(|tag| !matches!(tag, 2 | 3))
         || build_receipt_tags.windows(2).any(|tags| tags[0] != tags[1])
     {
-        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+        return Err(sealed_read_refused(
+            "develop_composer.record_row.build_receipt_tag_shape",
+            &"build receipt tags are not one uniform tag of 2 or 3 per receipt",
+        ));
     }
 
     Ok(Some(StoredDevelopComposerPositiveV2 {
@@ -1773,12 +1849,15 @@ async fn verify_composer_read_authority_in_transaction(
     .bind(COMMIT_FUNCTION_V3)
     .fetch_one(&mut **transaction)
     .await
-    .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    .map_err(|e| sealed_read_refused("develop_composer.read_authority.routines_query", &e))?;
     if !authority_is_exact {
-        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+        return Err(sealed_read_refused(
+            "develop_composer.read_authority.routines",
+            &"the sealed read and commit routines are not exactly as materialized",
+        ));
     }
     let column_shape = sqlx::query_scalar::<_, String>("SELECT relation.relname||':'||attribute.attnum||':'||attribute.attname||':'||pg_catalog.format_type(attribute.atttypid,attribute.atttypmod)||':'||attribute.attnotnull||':'||COALESCE(pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid),'') FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=relation.oid AND default_fact.adnum=attribute.attnum WHERE namespace.nspname='composer_private' AND relation.relname=ANY($1) ORDER BY relation.relname,attribute.attnum")
-        .bind(COMPOSER_TABLES_V2.as_slice()).fetch_all(&mut **transaction).await.map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+        .bind(COMPOSER_TABLES_V2.as_slice()).fetch_all(&mut **transaction).await.map_err(|e| sealed_read_refused("develop_composer.read_authority.column_shape_query", &e))?;
     let expected_column_shape = [
         "rd_develop_artifact_build_receipt_uses_v2:1:artifact_identity:bytea:true:",
         "rd_develop_artifact_build_receipt_uses_v2:2:ordinal:integer:true:",
@@ -1841,22 +1920,34 @@ async fn verify_composer_read_authority_in_transaction(
         .map(String::as_str)
         .ne(expected_column_shape)
     {
-        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+        return Err(sealed_read_refused(
+            "develop_composer.read_authority.column_shape",
+            &"the Composer table columns differ from the expected shape",
+        ));
     }
     let dependency_shape_is_exact: bool = sqlx::query_scalar("WITH family AS (SELECT relation.oid,relation.relname FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='composer_private' AND relation.relname=ANY($1)) SELECT (SELECT count(*)=33 AND NOT bool_or((family.relname,constraint_fact.contype::text,pg_catalog.array_to_string(constraint_fact.conkey,' ')) NOT IN (VALUES ('rd_develop_designs_v2','p','1'),('rd_develop_plans_v2','p','1'),('rd_develop_plans_v2','u','2'),('rd_develop_artifacts_v2','p','1'),('rd_develop_artifacts_v2','u','2'),('rd_develop_artifact_modules_v2','p','1 2'),('rd_develop_build_receipts_v2','p','1'),('rd_develop_build_receipts_v2','u','2'),('rd_develop_build_receipts_v2','u','3'),('rd_develop_artifact_build_receipt_uses_v2','p','1 2'),('rd_develop_artifact_build_receipt_uses_v2','u','1 3'),('rd_develop_build_receipts_v3','p','1'),('rd_develop_build_receipts_v3','u','2'),('rd_develop_build_receipts_v3','u','3'),('rd_develop_artifact_build_receipt_uses_v3','p','1 2'),('rd_develop_artifact_build_receipt_uses_v3','u','1 3'),('rd_develop_composer_receipts_v2','p','1'),('rd_develop_host_receipts_v2','p','1'),('rd_develop_operations_v2','p','1'),('rd_develop_operations_v2','u','3'),('rd_develop_operations_v2','u','4'),('rd_develop_operations_v2','u','5'),('rd_develop_strategy_design_role_set_attestations_v1','p','1'),('rd_develop_strategy_design_role_set_attestations_v1','u','3'),('rd_develop_strategy_design_role_set_attestations_v1','u','5'),('rd_develop_strategy_design_role_set_attestations_v1','u','6'),('rd_develop_strategy_design_role_set_attestations_v1','u','8'),('rd_develop_strategy_design_role_set_attestations_v1','u','9'),('rd_develop_strategy_design_role_set_attestations_v1','u','1 2 3 4 5 6 7'),('rd_develop_strategy_design_native_joins_v1','p','1'),('rd_develop_strategy_design_native_joins_v1','u','2'),('rd_develop_strategy_design_native_joins_v1','u','3'),('rd_develop_outbox_v2','p','1'))) FROM pg_catalog.pg_constraint constraint_fact JOIN family ON family.oid=constraint_fact.conrelid WHERE constraint_fact.contype IN ('p','u')) AND (SELECT count(*)=13 AND NOT bool_or((source.relname,pg_catalog.array_to_string(constraint_fact.conkey,' '),target.relname,pg_catalog.array_to_string(constraint_fact.confkey,' ')) NOT IN (VALUES ('rd_develop_plans_v2','2','rd_develop_designs_v2','1'),('rd_develop_artifacts_v2','2','rd_develop_plans_v2','1'),('rd_develop_artifact_modules_v2','1','rd_develop_artifacts_v2','1'),('rd_develop_artifact_build_receipt_uses_v2','1','rd_develop_artifacts_v2','1'),('rd_develop_artifact_build_receipt_uses_v2','3','rd_develop_build_receipts_v2','1'),('rd_develop_artifact_build_receipt_uses_v3','1','rd_develop_artifacts_v2','1'),('rd_develop_artifact_build_receipt_uses_v3','3','rd_develop_build_receipts_v3','1'),('rd_develop_composer_receipts_v2','1','rd_develop_artifacts_v2','1'),('rd_develop_host_receipts_v2','1','rd_develop_artifacts_v2','1'),('rd_develop_operations_v2','5','rd_develop_artifacts_v2','1'),('rd_develop_strategy_design_role_set_attestations_v1','1','rd_develop_operations_v2','1'),('rd_develop_strategy_design_native_joins_v1','1','rd_develop_operations_v2','1'),('rd_develop_outbox_v2','1','rd_develop_operations_v2','1'))) FROM pg_catalog.pg_constraint constraint_fact JOIN family source ON source.oid=constraint_fact.conrelid JOIN family target ON target.oid=constraint_fact.confrelid WHERE constraint_fact.contype='f') AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid IN (SELECT oid FROM family) AND constraint_fact.contype NOT IN ('p','u','f')) AND (SELECT count(*)=33 AND bool_and(index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive AND index_fact.indisunique AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL AND EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conindid=index_fact.indexrelid)) FROM pg_catalog.pg_index index_fact WHERE index_fact.indrelid IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint inbound WHERE inbound.confrelid IN (SELECT oid FROM family) AND inbound.conrelid NOT IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint outbound WHERE outbound.conrelid IN (SELECT oid FROM family) AND outbound.contype='f' AND outbound.confrelid NOT IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_publication_rel publication WHERE publication.prrelid IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite WHERE rewrite.ev_class IN (SELECT oid FROM family) AND rewrite.rulename='_RETURN')")
-        .bind(COMPOSER_TABLES_V2.as_slice()).fetch_one(&mut **transaction).await.map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+        .bind(COMPOSER_TABLES_V2.as_slice()).fetch_one(&mut **transaction).await.map_err(|e| sealed_read_refused("develop_composer.read_authority.dependency_query", &e))?;
     if !dependency_shape_is_exact {
-        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+        return Err(sealed_read_refused(
+            "develop_composer.read_authority.dependency_shape",
+            &"the dependencies on the Composer tables are not exactly the expected ones",
+        ));
     }
     let constraint_options_are_exact: bool = sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact JOIN pg_catalog.pg_class relation ON relation.oid=constraint_fact.conrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='composer_private' AND relation.relname=ANY($1) AND (NOT constraint_fact.convalidated OR constraint_fact.condeferrable OR constraint_fact.condeferred OR constraint_fact.connoinherit<>(constraint_fact.contype IN ('p','u','f')) OR (constraint_fact.contype='f' AND (constraint_fact.confupdtype<>'a' OR constraint_fact.confdeltype<>'a' OR constraint_fact.confmatchtype<>'s'))))")
-        .bind(COMPOSER_TABLES_V2.as_slice()).fetch_one(&mut **transaction).await.map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+        .bind(COMPOSER_TABLES_V2.as_slice()).fetch_one(&mut **transaction).await.map_err(|e| sealed_read_refused("develop_composer.read_authority.constraint_query", &e))?;
     if !constraint_options_are_exact {
-        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+        return Err(sealed_read_refused(
+            "develop_composer.read_authority.constraint_options",
+            &"the Composer constraint options are not exact",
+        ));
     }
     let index_options_are_exact: bool = sqlx::query_scalar("SELECT count(*)=33 AND bool_and(index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive AND index_fact.indisunique AND NOT index_fact.indnullsnotdistinct AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL AND index_method.amname='btree' AND index_relation.relpersistence='p' AND index_relation.reltablespace=0 AND index_relation.reloptions IS NULL AND pg_catalog.pg_get_userbyid(index_relation.relowner)='composer_owner' AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indclass::oid[]) class_oid JOIN pg_catalog.pg_opclass operator_class ON operator_class.oid=class_oid WHERE NOT operator_class.opcdefault) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indoption::smallint[]) option_value WHERE option_value<>0) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indkey::smallint[],index_fact.indcollation::oid[]) key_fact(attnum,collation_oid) JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=index_fact.indrelid AND attribute.attnum=key_fact.attnum WHERE key_fact.collation_oid<>attribute.attcollation)) FROM pg_catalog.pg_index index_fact JOIN pg_catalog.pg_class relation ON relation.oid=index_fact.indrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace JOIN pg_catalog.pg_class index_relation ON index_relation.oid=index_fact.indexrelid JOIN pg_catalog.pg_am index_method ON index_method.oid=index_relation.relam WHERE namespace.nspname='composer_private' AND relation.relname=ANY($1)")
-        .bind(COMPOSER_TABLES_V2.as_slice()).fetch_one(&mut **transaction).await.map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+        .bind(COMPOSER_TABLES_V2.as_slice()).fetch_one(&mut **transaction).await.map_err(|e| sealed_read_refused("develop_composer.read_authority.index_query", &e))?;
     if !index_options_are_exact {
-        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+        return Err(sealed_read_refused(
+            "develop_composer.read_authority.index_options",
+            &"the Composer index options are not exact",
+        ));
     }
     let locator_functions_are_exact: bool = sqlx::query_scalar(
         "WITH required(signature,source) AS (VALUES ($1::text,$2::text),($3::text,$4::text)),
@@ -1902,9 +1993,12 @@ async fn verify_composer_read_authority_in_transaction(
     .bind(COMPOSER_OWNER_API_FUNCTION_COUNT_V2)
     .fetch_one(&mut **transaction)
     .await
-    .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    .map_err(|e| sealed_read_refused("develop_composer.read_authority.locator_functions_query", &e))?;
     if !locator_functions_are_exact {
-        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+        return Err(sealed_read_refused(
+            "develop_composer.read_authority.locator_functions",
+            &"the Composer Owner API routines or their grants are not exact",
+        ));
     }
     Ok(())
 }
@@ -2393,7 +2487,10 @@ fn exact_ordinal_array(
             .enumerate()
             .any(|(expected, actual)| usize::try_from(*actual).ok() != Some(expected))
     {
-        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+        return Err(sealed_read_refused(
+            "develop_composer.record_row.ordinals",
+            &"an ordinal array is not exactly 0..n over its values",
+        ));
     }
     Ok(())
 }
@@ -2403,9 +2500,12 @@ fn sealed_digest_column(
     name: &str,
 ) -> Result<BindingDigest, DevelopComposerSealedReadErrorV2> {
     let bytes = sealed_bytes_column(row, name)?;
-    let bytes: [u8; 32] = bytes
-        .try_into()
-        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    let bytes: [u8; 32] = bytes.try_into().map_err(|_| {
+        sealed_read_refused(
+            "develop_composer.record_row.digest_width",
+            &format!("column {name} is not 32 bytes"),
+        )
+    })?;
     Ok(BindingDigest::from_untrusted_bytes(bytes))
 }
 
@@ -2414,12 +2514,20 @@ fn sealed_digest_array(
     name: &str,
 ) -> Result<Vec<BindingDigest>, DevelopComposerSealedReadErrorV2> {
     row.try_get::<Vec<Vec<u8>>, _>(name)
-        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?
+        .map_err(|e| {
+            sealed_read_refused(
+                "develop_composer.record_row.digest_array",
+                &format!("column {name}: {e}"),
+            )
+        })?
         .into_iter()
         .map(|bytes| {
-            let bytes: [u8; 32] = bytes
-                .try_into()
-                .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+            let bytes: [u8; 32] = bytes.try_into().map_err(|_| {
+                sealed_read_refused(
+                    "develop_composer.record_row.digest_array_width",
+                    &format!("column {name} holds an element that is not 32 bytes"),
+                )
+            })?;
             Ok(BindingDigest::from_untrusted_bytes(bytes))
         })
         .collect()
@@ -2429,8 +2537,12 @@ fn sealed_bytes_column(
     row: &sqlx::postgres::PgRow,
     name: &str,
 ) -> Result<Vec<u8>, DevelopComposerSealedReadErrorV2> {
-    row.try_get(name)
-        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)
+    row.try_get(name).map_err(|e| {
+        sealed_read_refused(
+            "develop_composer.record_row.bytes",
+            &format!("column {name}: {e}"),
+        )
+    })
 }
 
 async fn verify_pool_role(pool: &PgPool, expected_role: &str) -> Result<(), sqlx::Error> {

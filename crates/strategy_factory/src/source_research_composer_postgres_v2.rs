@@ -41,6 +41,7 @@ use crate::develop_composer_operation_v2::{
     DevelopComposerReadbackOwnerErrorV2, DevelopComposerReadbackOwnerPortV2,
 };
 use crate::develop_composer_postgres_v2::PostgresDevelopComposerReadStoreV2;
+use crate::develop_composer_postgres_v2::sealed_read_refused;
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::develop_composer_postgres_v2::{
     DevelopComposerAcceptanceWriteBoundaryV2, PreparedPostgresDevelopComposerRunV2,
@@ -2206,8 +2207,6 @@ async fn lock_historical_research_for_composer_replay_in_transaction(
     expected_exploration: &ResearchExplorationViewV1,
     expected_binding: &ResearchComposerArtifactViewV3,
 ) -> Result<CurrentResearchDevelopCustodyV2, DevelopComposerSealedReadErrorV2> {
-    let unavailable = || DevelopComposerSealedReadErrorV2::Unavailable;
-
     if !composer_exploration_research_view_is_valid_v3(expected_current_view, pre_transition_view)
         || expected_current_view.exploration.as_ref() != Some(expected_exploration)
         || expected_current_view.composer_artifact.as_ref() != Some(expected_binding)
@@ -2215,32 +2214,42 @@ async fn lock_historical_research_for_composer_replay_in_transaction(
         || expected_current_view.projection_at_epoch_ms
             >= pre_transition_view.valid_through_epoch_ms
     {
-        return Err(unavailable());
+        return Err(sealed_read_refused(
+            "develop_composer.historical_research.claimed_views",
+            &"the claimed Research views do not describe one Composer Replay advance",
+        ));
     }
     let transition = crate::exploratory_replay::postgres::composer_readback_v3::read_verified_research_view_transition_v3_in_transaction(
         transaction,
         &expected_exploration.replay_request_identity,
     )
     .await
-    .map_err(|_| unavailable())?
-    .ok_or_else(unavailable)?;
+    .map_err(|e| sealed_read_refused("develop_composer.historical_research.transition.read", &e))?
+    .ok_or(DevelopComposerSealedReadErrorV2::Unavailable)?;
 
     if transition.old_view() != pre_transition_view
         || transition.new_view() != expected_current_view
         || transition.replay_request_identity() != expected_exploration.replay_request_identity
     {
-        return Err(unavailable());
+        return Err(sealed_read_refused(
+            "develop_composer.historical_research.transition.match",
+            &"the stored Research View transition differs from the claimed one",
+        ));
     }
     let read_cut_epoch_ms = expected_current_view.projection_at_epoch_ms;
     let mut matches = Vec::new();
     let successor_locator = successor_intent_locator(locator.intent_identity);
     if let Some(successor) = lock_by_intent_in_transaction(transaction, &successor_locator)
         .await
-        .map_err(|_| unavailable())?
+        .map_err(|e| {
+            sealed_read_refused("develop_composer.historical_research.successor.lock", &e)
+        })?
     {
         let custody = lock_successor_research_view_in_transaction(transaction, &successor)
             .await
-            .map_err(|_| unavailable())?;
+            .map_err(|e| {
+                sealed_read_refused("develop_composer.historical_research.successor.view", &e)
+            })?;
 
         if successor.intent().request_identity() == pre_transition_view.request_identity
             && successor.intent().intent_identity() == pre_transition_view.intent_identity
@@ -2255,7 +2264,9 @@ async fn lock_historical_research_for_composer_replay_in_transaction(
                 successor.intent().trial_family_identity(),
             )
             .await
-            .map_err(|_| unavailable())?;
+            .map_err(|e| {
+                sealed_read_refused("develop_composer.historical_research.successor.family", &e)
+            })?;
             let research = CurrentResearchDevelopCustodyV2::from_verified_successor_with_view(
                 &successor,
                 &custody,
@@ -2263,7 +2274,12 @@ async fn lock_historical_research_for_composer_replay_in_transaction(
                 pre_transition_view,
                 read_cut_epoch_ms,
             )
-            .map_err(|_| unavailable())?;
+            .map_err(|e| {
+                sealed_read_refused(
+                    "develop_composer.historical_research.successor.custody",
+                    &format!("{e:?}"),
+                )
+            })?;
 
             if research.research_request_identity() == locator.research_request_identity
                 && research.intent_identity() == locator.intent_identity
@@ -2275,13 +2291,20 @@ async fn lock_historical_research_for_composer_replay_in_transaction(
 
     let custodies = Box::pin(admit_all_research_custodies_in_transaction(transaction))
         .await
-        .map_err(|_| unavailable())?;
+        .map_err(|e| {
+            sealed_read_refused("develop_composer.historical_research.custodies.admit", &e)
+        })?;
 
     for custody in custodies {
         if durable_research_identities(&custody).is_some_and(|(request, intent)| {
             request == locator.research_request_identity && intent == locator.intent_identity
         }) {
-            let current = custody.view().ok_or_else(unavailable)?;
+            let current = custody.view().ok_or_else(|| {
+                sealed_read_refused(
+                    "develop_composer.historical_research.custody.view",
+                    &"an admitted Research custody carries no View",
+                )
+            })?;
             validate_historical_descendant_view(
                 current,
                 pre_transition_view,
@@ -2289,18 +2312,36 @@ async fn lock_historical_research_for_composer_replay_in_transaction(
             )?;
             lock_current_research_artifact_custody_in_transaction(transaction, &custody)
                 .await
-                .map_err(|_| unavailable())?;
+                .map_err(|e| {
+                    sealed_read_refused(
+                        "develop_composer.historical_research.custody.artifact_lock",
+                        &e,
+                    )
+                })?;
             let research = CurrentResearchDevelopCustodyV2::from_verified_with_view(
                 &custody,
                 &custody.receipt().request_identity,
                 pre_transition_view,
                 read_cut_epoch_ms,
             )
-            .map_err(|_| unavailable())?;
+            .map_err(|e| {
+                sealed_read_refused(
+                    "develop_composer.historical_research.custody.verify",
+                    &format!("{e:?}"),
+                )
+            })?;
             matches.push(research);
         }
     }
-    let [research] = matches.try_into().map_err(|_| unavailable())?;
+    let [research] = matches.try_into().map_err(|unmatched: Vec<_>| {
+        sealed_read_refused(
+            "develop_composer.historical_research.match_count",
+            &format!(
+                "{} Research custodies matched, not exactly one",
+                unmatched.len()
+            ),
+        )
+    })?;
     Ok(research)
 }
 
@@ -2310,14 +2351,21 @@ fn validate_historical_descendant_view(
     original: &ResearchViewV1,
     committed_replay_view: &ResearchViewV1,
 ) -> Result<(), DevelopComposerSealedReadErrorV2> {
-    validate_historical_view(current, original)
-        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    validate_historical_view(current, original).map_err(|e| {
+        sealed_read_refused(
+            "develop_composer.historical_research.descendant_view.validate",
+            &e,
+        )
+    })?;
 
     if current.projection_at_epoch_ms < committed_replay_view.projection_at_epoch_ms
         || (current.projection_at_epoch_ms == committed_replay_view.projection_at_epoch_ms
             && current != committed_replay_view)
     {
-        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+        return Err(sealed_read_refused(
+            "develop_composer.historical_research.descendant_view.order",
+            &"the current Research View precedes, or differs at the same instant from, the committed Replay View",
+        ));
     }
     Ok(())
 }
@@ -2355,7 +2403,6 @@ pub(crate) async fn resolve_composer_record_for_historical_replay_in_transaction
     expected_exploration: &ResearchExplorationViewV1,
     expected_binding: &ResearchComposerArtifactViewV3,
 ) -> Result<DevelopComposerOperationResponseV2, DevelopComposerSealedReadErrorV2> {
-    let unavailable = || DevelopComposerSealedReadErrorV2::Unavailable;
     let locator = DevelopComposerDurableEvidenceLocatorV2::from_record(record);
     let research = Box::pin(lock_historical_research_for_composer_replay_in_transaction(
         transaction,
@@ -2368,7 +2415,12 @@ pub(crate) async fn resolve_composer_record_for_historical_replay_in_transaction
     .await?;
     let frozen = matching_historical_bfp_v3(transaction, &research, &locator).await;
     let bindings = if let Some(frozen) = frozen.as_ref() {
-        bfp_owner_bindings(frozen).map_err(|_| unavailable())?
+        bfp_owner_bindings(frozen).map_err(|e| {
+            sealed_read_refused(
+                "develop_composer.historical_replay.bfp_bindings",
+                &format!("{e:?}"),
+            )
+        })?
     } else {
         SealedSourceResearchComposerBindingOwnerV2
             .lock_for_resolve(
@@ -2377,7 +2429,12 @@ pub(crate) async fn resolve_composer_record_for_historical_replay_in_transaction
                 expected_current_view.projection_at_epoch_ms,
             )
             .await
-            .map_err(|_| unavailable())?
+            .map_err(|e| {
+                sealed_read_refused(
+                    "develop_composer.historical_replay.lock_bindings",
+                    &format!("{e:?}"),
+                )
+            })?
     };
     let locked = DevelopComposerLockedEvidenceV2 { research, bindings };
 
@@ -2387,10 +2444,21 @@ pub(crate) async fn resolve_composer_record_for_historical_replay_in_transaction
             locked,
             &FrozenBfpV3Restart { frozen },
         )
-        .map_err(|_| unavailable())
+        .map_err(|e| {
+            sealed_read_refused(
+                "develop_composer.historical_replay.resolve_v3_restart",
+                &format!("{e:?}"),
+            )
+        })
     } else {
-        crate::develop_composer_operation_v2::resolve_positive_record_v2(record, locked)
-            .map_err(|_| unavailable())
+        crate::develop_composer_operation_v2::resolve_positive_record_v2(record, locked).map_err(
+            |e| {
+                sealed_read_refused(
+                    "develop_composer.historical_replay.resolve",
+                    &format!("{e:?}"),
+                )
+            },
+        )
     }
 }
 
@@ -2446,20 +2514,27 @@ where
         .store
         .durable_evidence_locator(&locator.request_identity)
         .await
-        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?
+        .map_err(|e| {
+            sealed_read_refused("develop_composer.owner_evidence_read.durable_locator", &e)
+        })?
         .ok_or(DevelopComposerSealedReadErrorV2::Unavailable)?;
     let mut transaction = composer
         .store
         .begin_read_transaction()
         .await
-        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+        .map_err(|e| sealed_read_refused("develop_composer.owner_evidence_read.begin", &e))?;
     let locked = Box::pin(composer.lock_resolve_evidence(
         &mut transaction,
         &durable,
         current_read_cut_epoch_ms(),
     ))
     .await
-    .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    .map_err(|e| {
+        sealed_read_refused(
+            "develop_composer.owner_evidence_read.lock_evidence",
+            &format!("{e:?}"),
+        )
+    })?;
     let frozen = matching_current_bfp_v3(
         &mut transaction,
         &locked.research,
@@ -2481,7 +2556,7 @@ where
     transaction
         .commit()
         .await
-        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+        .map_err(|e| sealed_read_refused("develop_composer.owner_evidence_read.commit", &e))?;
     Ok(readback)
 }
 

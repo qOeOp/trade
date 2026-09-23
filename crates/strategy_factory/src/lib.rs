@@ -10,6 +10,7 @@ pub mod artifact_build_postgres;
 pub mod artifact_build_sandbox;
 #[allow(dead_code)]
 pub mod artifact_v2;
+pub mod backtest_run_report_read_v1;
 mod binance_program_application;
 mod binance_program_data;
 pub mod bounded_feature_program_derivation_v1;

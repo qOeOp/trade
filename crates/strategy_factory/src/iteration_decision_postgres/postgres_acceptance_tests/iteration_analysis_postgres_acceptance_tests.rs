@@ -153,7 +153,7 @@ fn canonical_engine_result() -> Vec<u8> {
     .expect("canonical engine result fixture")
 }
 
-fn bind_positive_result_to_owner_outcome(
+pub(super) fn bind_positive_result_to_owner_outcome(
     result: &mut ReplayResultDtoV2,
     replay: &ReplayRequestDtoV2,
     semantic_trace_bytes: &[u8],
@@ -211,7 +211,7 @@ fn exact_result_content_binding(
     }
 }
 
-async fn persist_backtest_outcome_custody(
+pub(super) async fn persist_backtest_outcome_custody(
     pool: &PgPool,
     result: &ReplayResultDtoV2,
     semantic_trace_bytes: &[u8],
