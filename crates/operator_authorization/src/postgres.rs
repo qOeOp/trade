@@ -5042,7 +5042,7 @@ mod tests {
         assert_eq!(
             function_catalog.5,
             Some(vec![
-                "search_path=pg_catalog, operator_authorization_private".to_string()
+                "search_path=pg_catalog, operator_authorization_private, pg_temp".to_string()
             ])
         );
 

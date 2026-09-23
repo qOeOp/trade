@@ -3447,7 +3447,7 @@ REVOKE ALL ON ALL TABLES IN SCHEMA operator_authorization_private FROM PUBLIC, r
 
 CREATE OR REPLACE FUNCTION operator_authorization_api.lock_current_authorization_v1(requested_authorization_identity text, requested_issuance_receipt_identity text)
 RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path = pg_catalog, operator_authorization_private
+SET search_path = pg_catalog, operator_authorization_private, pg_temp
 AS $function$
 DECLARE
   issuance operator_authorization_private.operator_authorization_issuances_v1%ROWTYPE;
@@ -3491,7 +3491,7 @@ GRANT EXECUTE ON FUNCTION operator_authorization_api.lock_current_authorization_
 
 CREATE OR REPLACE FUNCTION operator_authorization_api.resolve_authorization_snapshot_v1(requested_authorization_identity text, requested_issuance_receipt_identity text)
 RETURNS jsonb LANGUAGE plpgsql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
-SET search_path = pg_catalog, operator_authorization_private
+SET search_path = pg_catalog, operator_authorization_private, pg_temp
 AS $function$
 DECLARE
   issuance operator_authorization_private.operator_authorization_issuances_v1%ROWTYPE;
