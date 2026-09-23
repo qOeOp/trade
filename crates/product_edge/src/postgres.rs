@@ -138,9 +138,10 @@ fn unavailable_for(reason: Reason, kind: Subject, identity: &str) -> ProductEdge
 ///
 /// Four conditions answer to one reason, `WINDOW_NOT_CURRENT`, because they share a repair: the
 /// caller asked at a cut outside the research intent's window. They do not share a cause, and they
-/// do not share a clock: `owner_cut_epoch_ms` is the database's `clock_timestamp()` while
-/// `cut_epoch_ms` is this process's clock, so the refusal carries the conditions that held and every
-/// value they compared. The reason, the subject and the outward disposition are unchanged.
+/// share a clock: `owner_cut_epoch_ms`, the projection and the expiry are stamped by the R&D Owner
+/// from the database's `pg_catalog.clock_timestamp()`, and the callers take `cut_epoch_ms` from the
+/// same clock in their own transaction. The refusal carries the conditions that held and every value
+/// they compared. The reason, the subject and the outward disposition are unchanged.
 fn research_window_refusal(
     locked: &LockedCurrentResearchEnvelopeV1,
     source_authorization: &OperatorAuthorizationReadbackV1,
@@ -2759,7 +2760,7 @@ impl ProductEdgePostgresOwnerV1 {
                 &request.request_identity,
             ));
         }
-        let read_cut = now_ms()?;
+        let read_cut = database_now(&mut transaction).await?;
         let binding = load_current_binding(
             &mut transaction,
             &self.deployment_identity,
@@ -2859,7 +2860,7 @@ impl ProductEdgePostgresOwnerV1 {
         // Every canonical lock is now held. Sample one cut immediately before
         // the first write and revalidate every half-open authority window at
         // that exact cut; the same cut is bound into identity and receipt.
-        let final_cut = now_ms()?;
+        let final_cut = database_now(&mut transaction).await?;
         if !authority_windows_are_current_at(
             final_cut,
             binding.valid_from_epoch_ms,
@@ -3266,7 +3267,7 @@ impl ProductEdgePostgresOwnerV1 {
                 &research_evidence.source_admission.request_identity,
             )
         })?;
-        let read_cut = now_ms()?;
+        let read_cut = database_now(&mut transaction).await?;
         let admission = resolve_admission_for_downstream_in_transaction(
             &mut transaction,
             &request.admission,
@@ -3306,7 +3307,7 @@ impl ProductEdgePostgresOwnerV1 {
                 &request.admission.admission_identity,
             ));
         }
-        let write_cut = now_ms()?;
+        let write_cut = database_now(&mut transaction).await?;
         if !admission.authorizes_first_mutation_at(write_cut) {
             return Err(unavailable_for(
                 Reason::PolicyNotCurrent,
@@ -6895,11 +6896,12 @@ fn now_ms() -> Result<u64, ProductEdgeError> {
 async fn database_now(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<u64, ProductEdgeError> {
-    let value: i64 =
-        sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint")
-            .fetch_one(&mut **transaction)
-            .await
-            .map_err(storage)?;
+    let value: i64 = sqlx::query_scalar(
+        "SELECT pg_catalog.floor(EXTRACT(epoch FROM pg_catalog.clock_timestamp()) * 1000)::bigint",
+    )
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(storage)?;
     from_i64(value)
 }
 fn json<T: Serialize>(value: &T) -> Result<serde_json::Value, ProductEdgeError> {
@@ -7001,6 +7003,63 @@ mod tests {
         ProductEdgeManifestBindingV1, STRATEGY_GOVERNANCE_AUDIENCE_V1,
     };
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+
+    /// The process-clock reads a piece of source contains.
+    fn process_clock_reads(body: &str) -> Vec<&'static str> {
+        ["now_ms(", "SystemTime", "current_epoch_ms("]
+            .into_iter()
+            .filter(|read| body.contains(read))
+            .collect()
+    }
+
+    /// The body of the first item after `signature`, up to the next item at the same indentation.
+    fn item_body<'a>(source: &'a str, signature: &str) -> &'a str {
+        let start = source.find(signature).expect("item signature");
+        let rest = &source[start + signature.len()..];
+        let end = [
+            "\n    async fn ",
+            "\n    fn ",
+            "\n    pub ",
+            "\nfn ",
+            "\nasync fn ",
+        ]
+        .into_iter()
+        .filter_map(|next| rest.find(next))
+        .min()
+        .expect("item end");
+        &rest[..end]
+    }
+
+    /// A research window compares the cut with `owner_cut`, which the R&D Owner stamps with the
+    /// database's `clock_timestamp()`, and with a projection and expiry the R&D Owner stamps from
+    /// the same clock. A cut from this process's clock would put two clocks on either side.
+    #[rstest]
+    fn research_window_cuts_come_from_the_owner_transaction_clock() {
+        let source = include_str!("postgres.rs");
+
+        for signature in [
+            "async fn admit_request_inner(",
+            "async fn claim_provider_invocation_inner(",
+        ] {
+            let body = item_body(source, signature);
+            assert!(
+                body.contains("database_now(&mut transaction).await?"),
+                "{signature}"
+            );
+            assert_eq!(process_clock_reads(body), Vec::<&str>::new(), "{signature}");
+        }
+        // The same reading finds the process clock where it is defined.
+        assert_eq!(
+            process_clock_reads(item_body(
+                source,
+                "fn now_ms() -> Result<u64, ProductEdgeError> {"
+            )),
+            ["SystemTime"]
+        );
+        assert!(
+            item_body(source, "async fn database_now(").contains("pg_catalog.clock_timestamp()")
+        );
+    }
 
     #[rstest]
     fn expired_manifest_recovery_schema_preparation_is_exactly_bounded() {
