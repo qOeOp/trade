@@ -1389,3 +1389,17 @@ fn a_lifted_single_instrument_proposal_is_the_one_member_set_a_plugin_would_prop
             .is_err()
     );
 }
+
+/// Universe input ordinals are checked against the universe's own member count: a one-member
+/// universe has only ordinal 0, and a two-member universe has 0 and 1.
+#[rstest]
+fn universe_input_ordinals_follow_the_member_count() {
+    use super::program_host_v2::is_universe_member_ordinal as admitted;
+
+    assert!(admitted(Some(0), 1));
+    assert!(!admitted(Some(1), 1));
+    assert!(admitted(Some(1), 2));
+    assert!(!admitted(Some(2), 2));
+    assert!(!admitted(None, 2));
+    assert!(!admitted(Some(0), 0));
+}
