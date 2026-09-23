@@ -94,7 +94,8 @@
   统计量从收益序列算出它，而不是再写一份它的实现。当一次运行没有记录任何收益时，净收益与最大回撤是缺席而
   不是零，于是「取不到的数」与「挣到的零」保持可区分。有序链路为
   `owner_postgres_v4_moves_through_program_host_and_real_backtest` 打印这份报告，而该条目只喂一根 BAR，
-  因此报告的是一次什么都没成交的运行。没有生产调用方读这份报告，也没有任何 Owner 消费它。
+  因此报告的是一次什么都没成交的运行。没有生产调用方读这份报告，也没有任何 Owner 消费它；
+  下文 Dashboard 的运行报告交接从已提交托管中读它。
 - **TARGET - 保护经济测量的生产驱动方：**
   `derive_protected_economic_measurement_v1` 与 `produce_and_commit_protected_replay_result_v3` 都是完整实现，
   且都没有生产调用方；而这是被写下来的设计，不是缺口：[Qualification](./qualification/)
@@ -223,14 +224,26 @@ production write、provider effect、Paper、Live 或交易权威。
   只有 R&D 能提交 D-only Repair Disposition。
 - 向 [Qualification](./qualification/) 只返回逐项重复实际消费执行身份以供完全相等校验的密封 Protected Run Result 和完整消费输入证据。
 - 只向 Product Edge 提供只读探索 Run Result 视图；保护请求 测量 结果和 holdout 细节永不投影。
-- 向 Dashboard 只交出规范结果字节本身，不交出任何由它派生的量。
-`OwnerBacktestReportV1`（在 `crates/strategy_factory/src/owner_backtest_report_v1.rs`）把这些字节读成
-executions、收益序列、净收益与最大回撤，`BacktestReturnBand` 是 `/backtest` 与 `/backtest/compare`
-的已准入只读呈现原子，但两者之间没有任何 Owner 读面承载收益序列：
-`exploratory_replay_result.shadow_read.v2` 条目（在
-`product/dashboard/lib/operation-registry.ts` 里）只允许 `terminal`、`reconciliation_summary`、
-`diagnostic_summary` 与 `semantic_trace_presence`，不含任何经济字段。两端都是完整而未接线，
-不是各自建了一半；所以找不到调用方的读者量到的是状态，不是漏看。
+- 向 Dashboard 有两条交接，每条只承载它点名的内容：
+  - 结果读回，即 `exploratory_replay_result.shadow_read.v2` 背后的 `resolve_exploratory_replay_result_v3`，
+    只交出规范结果字节本身，不交出任何由它派生的量。它在 `product/dashboard/lib/operation-registry.ts`
+    里的条目只允许 `terminal`、`reconciliation_summary`、`diagnostic_summary` 与
+    `semantic_trace_presence`，不含任何经济字段。
+  - 运行报告，即 `crates/strategy_factory/src/backtest_run_report_read_v1.rs` 里的
+    `resolve_backtest_run_report_v1`，承载 `OwnerBacktestReportV1` 从同一份已提交字节派生出的
+    `BacktestRunReport` 具名结果字段：该次运行的 result、request 与 attempt 身份，以及其结果证据所绑定的
+    引擎结果摘要；由 Owner 判定的状态（`AVAILABLE` 或 `EMPTY`）；该次运行记录的每一个收益观测，时间为
+    规范 UTC；净收益；最大回撤；以及每一笔成交的方向，价格与数量按引擎写出的原样给出。它不承载统计量
+    映射，因为那些映射合法地含有非有限值；也不承载策略陈述、品种或数据窗口，因为回测结果里没有这些。
+    它在调用方的 R&D 事务里读，使提供那些上游字段的读取能共用同一事务。
+
+  序列不是每根 bar 一个点：组合收益按日计算，组合快照跨不到两个 UTC 日的运行退回为每个已平仓位一个收益。
+  序列中的每个值、净收益与最大回撤都是分数，0.01 即百分之一，这条交接对它们只陈述这一点。它不说明它们
+  衡量的是哪种收益：按日的点是权益收益，按平仓的点是忽略仓位大小的价格收益，而交接目前不携带一次运行
+  产出的是哪一种。因此在交接携带从规范结果读回的这一依据之前，任何消费方都不得把这些数呈现为权益收益。
+  运行报告目前没有 HTTP 调用方。它的 PostgreSQL 证明读回的是一次真实的引擎运行，但
+  那次运行是经验收模块自己的写入进入托管的，而不是经 `run_exploratory_replay_v2`；后者没有任何有序链路
+  条目驱动。
 
 ## 拒绝和禁止事项
 

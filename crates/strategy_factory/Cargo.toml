@@ -93,6 +93,7 @@ tracing-subscriber = { workspace = true }
 vibe-operator-authorization = { workspace = true }
 vibe-portfolio = { workspace = true }
 vibe-testkit = { workspace = true, features = ["postgres"] }
+vibe-trading = { workspace = true, features = ["examples"] }
 
 [[bin]]
 name = "strategy-factory-author-role-intent"
