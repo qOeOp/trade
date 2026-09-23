@@ -50,7 +50,7 @@ mod sealed {
         develop_composer_postgres_v2::{
             DevelopComposerSealedReadErrorV2, DevelopComposerSealedReadLocatorV2,
             PostgresDevelopComposerStoreV2, SealedDevelopComposerReadbackV2,
-            read_accepted_in_transaction,
+            read_accepted_in_transaction, sealed_read_refused,
         },
         develop_composer_v2::{CurrentResearchDevelopCustodyV2, DevelopComposerTerminalV2},
         develop_plugin_build_v2::{
@@ -199,12 +199,22 @@ mod sealed {
                 StrategyDesignPreparationV2::Prepared {
                     design_identity, ..
                 } => design_identity,
-                _ => return Err(DevelopComposerSealedReadErrorV2::Unavailable),
+                _ => {
+                    return Err(sealed_read_refused(
+                        "develop_composer.acceptance_fixture.design",
+                        &"the fixed acceptance Design does not prepare",
+                    ));
+                }
             };
             let locked_evidence = self
                 .evidence
                 .lock_and_reread(self.request, design_identity, 1)
-                .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+                .map_err(|e| {
+                    sealed_read_refused(
+                        "develop_composer.acceptance_fixture.evidence",
+                        &format!("{e:?}"),
+                    )
+                })?;
             read_accepted_in_transaction(transaction, locator, locked_evidence).await
         }
     }
