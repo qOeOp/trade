@@ -114,6 +114,20 @@
   要当前数目请读那份清单，不要读这一段。另外，这条路由把它陈述为 `SUBMITTED_OR_UNKNOWN` 加
   `RESOLVE_SAME_REQUEST`，而那个状态是留给传输结果确实未知的情形的；这里结果是已知的，
   重发同一请求改变不了它。
+- **CURRENT - composer-backed 的 Exploratory Replay 请求路径没有准入标签，解除它封印的条件在上游：**
+  `commit_composer_backed_exploratory_replay_request_v3` 及其路由
+  `/v3/exploratory-replay-requests/composer-backed` 只存在于 `sealed-source-intake-composer-acceptance`
+  之下，而上面那个镜像不构建它。本文档、`docs/owners/backtest.md` 与 `docs/architecture/` 都没有把这条
+  路径标成 `TARGET`、`IMPLEMENTATION_ADMITTED` 或任何其他状态，所以它的状态只能从三处陈述读出。上面那条
+  已部署服务的条目说，验收路由从来不是生产能力的证据。`docs/guide/dashboard.md` 说，当某个部署镜像带上
+  一条能产出 Composer artifact 的路径时，这条边界就解除，届时 v2 commit 退役或被这条路径取代。上面那条
+  Source Intake 的条目说，已部署的流水线作为通向任何 Composer artifact 的第一跳，什么都取不到。因此这条
+  路径是在等一个生产侧的产出者而被封住的：既不是没做完，也不是有意不开。不带门的 v2 commit 替代不了它。
+  Native Replay 的准备阶段在查询 Composer 之前就把请求的 `artifact.digest` 当作 `sha256:` 摘要来解析，
+  而 v2 commit 只在这个摘要等于 Artifact Build Owner 的 `blake3:` wasm 摘要时才会成功；请求的
+  `artifact.identity` 也得同时等于 commit 所要求的 Artifact Build `blake3:` 身份，以及准备阶段所要求的
+  Composer `rd-strategy-artifact-v2-` 定位符。没有任何 v2 请求能走到签发。按同一条已部署服务的条目，
+  在有序链路的验收构建里开启这个 feature，不会在生产中准入任何东西。
 - **CURRENT - 有一条只读操作只能经由写 API 触达：** Dashboard 的操作登记表声明了十一条 Owner 路由，
   其中十条是 `GET`。第十一条 `research_goal.legacy_quarantine_read.v1` 声明 `effect_set: []`，
   解析到 `POST /v1/research-goals/{request_identity}/resolve`，它注册在
