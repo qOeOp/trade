@@ -8,7 +8,8 @@ only ever answers "none" proves nothing about the answer "none"; the paired case
 makes the zero mean something.
 
 Each pair also names the defect it pins, all of which were observed producing quiet zeros:
-POSIX ERE has no `\\b` or `\\s`; the nearest attribute above a line often belongs to the
+`\\b` and `\\s` match under glibc and not under BSD, so a pattern using them reads the tree
+in CI and reads nothing on a Mac; the nearest attribute above a line often belongs to the
 item before it; a `mod x;` in the parent file gates a child file that says nothing itself;
 and an item whose signature spans lines opens its block further down.
 

@@ -55,9 +55,14 @@ def producers(module, rev, name):
 
 MUTATIONS = [
     {
-        "label": "POSIX ERE has no `\\s`",
+        # `\s` would be the truer defect, but whether it matches is a property of the
+        # platform's regex library - glibc takes it, BSD does not - so a mutation built on
+        # it moves a reading on one machine and none on the other. What the calibration has
+        # to catch is that the whitespace class stopped matching whitespace, and that is
+        # the same defect on both.
+        "label": "the whitespace class no longer matches whitespace",
         "old": 'SPACE = "[[:space:]]"',
-        "new": 'SPACE = "\\\\s"',
+        "new": 'SPACE = "[[:alpha:]]"',
         "probe": lambda m, rev: producers(m, rev, "SourceIntakeRetrievalTimeEvidenceV1"),
         "expect": "SourceIntakeRetrievalTimeEvidenceV1: 1 ungated producers, expected 0",
     },

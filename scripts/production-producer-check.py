@@ -32,8 +32,12 @@ import subprocess
 import sys
 
 
-# `git grep -E` is POSIX ERE: `\b` and `\s` are not metacharacters there and never
-# match, silently. Every pattern below uses bracket expressions instead.
+# `git grep -E` is POSIX ERE, and whether `\b` and `\s` match there is a property of the
+# platform's regex library rather than of the pattern: glibc takes them as extensions,
+# BSD does not and matches nothing, silently. Measured at git 2.54 on Linux and 2.55 on
+# macOS, same tree, same command: `\b` finds the symbol on the first and not on the
+# second. A pattern validated in CI can therefore return nothing on a developer's machine,
+# so every pattern below uses bracket expressions, which mean the same thing everywhere.
 NOT_WORD = "[^A-Za-z0-9_]"
 SPACE = "[[:space:]]"
 
