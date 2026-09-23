@@ -1164,14 +1164,6 @@ GRANT SELECT ON TABLE
   public.rd_trial_family_members_v1,
   public.rd_successor_research_intents_v1
 TO rd_exploratory_replay_api_owner;
--- Only a build with `sealed-source-intake-composer-acceptance` materializes this relation, so it
--- is granted when present. Its migration grants nothing: materialization verifies every public
--- relation with no runtime reader yet, and runtime readers arrive here, at cutover, as above.
-DO $view_transitions_v3$ BEGIN
-  IF pg_catalog.to_regclass('public.rd_research_view_transitions_v3') IS NOT NULL THEN
-    GRANT SELECT ON TABLE public.rd_research_view_transitions_v3 TO rd_exploratory_replay_api_owner;
-  END IF;
-END $view_transitions_v3$;
 REVOKE ALL ON TABLE
   public.rd_sealed_exploratory_replay_requests_v1,
   public.rd_owner_outbox_v1,
@@ -1186,6 +1178,16 @@ REVOKE ALL ON TABLE
   public.rd_trial_family_members_v1,
   public.rd_successor_research_intents_v1
 FROM market_data_owner, market_data_reader;
+-- Only a build with `sealed-source-intake-composer-acceptance` materializes this relation, so it
+-- is granted when present. Its migration grants nothing: materialization verifies every public
+-- relation with no runtime reader yet, and runtime readers arrive at cutover, as the grant above does.
+-- It stays outside that grant and its matching revoke: `scripts/check/authority.bash` reads the pair
+-- as one statement each, and this one is conditional.
+DO $view_transitions_v3$ BEGIN
+  IF pg_catalog.to_regclass('public.rd_research_view_transitions_v3') IS NOT NULL THEN
+    GRANT SELECT ON TABLE public.rd_research_view_transitions_v3 TO rd_exploratory_replay_api_owner;
+  END IF;
+END $view_transitions_v3$;
 CREATE SCHEMA IF NOT EXISTS backtest_owner_api AUTHORIZATION backtest_custodian;
 ALTER SCHEMA backtest_owner_api OWNER TO backtest_custodian;
 REVOKE ALL ON SCHEMA backtest_owner_api FROM PUBLIC, rd_owner, rd_fact_writer, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner;
