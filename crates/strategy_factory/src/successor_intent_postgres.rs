@@ -1,7 +1,6 @@
 //! PostgreSQL custody for Decision-selected successor Research Intents.
 
 use std::fmt::Display;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -330,7 +329,7 @@ pub(crate) async fn compose_successor_research_intent_v1(
         Some(&request),
     )
     .await?;
-    let admission_cut = current_epoch_ms()?;
+    let admission_cut = owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
     let admission = resolve_admission_for_downstream_in_transaction(
         &mut transaction,
         &request.admission,
@@ -387,7 +386,7 @@ pub(crate) async fn compose_successor_research_intent_v1(
         &decision,
     ))
     .await?;
-    let committed_at_epoch_ms = current_epoch_ms()?;
+    let committed_at_epoch_ms = owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
     if !admission.authorizes_first_mutation_at(committed_at_epoch_ms) {
         return Err(storage(
             "Product Edge successor admission expired before mutation",
@@ -1275,13 +1274,21 @@ fn valid_identity(value: &str) -> bool {
     is_valid_iteration_decision_locator_v1(value)
 }
 
-fn current_epoch_ms() -> Result<u64, SuccessorResearchIntentPostgresErrorV1> {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(storage)?
-        .as_millis()
-        .try_into()
-        .map_err(storage)
+/// The R&D Owner's clock: `pg_catalog.clock_timestamp()`, read inside the Owner's own transaction.
+///
+/// A successor research view's `projection_at` and `valid_through` are stamped from it, and the Owner's lock
+/// and Product Edge compare their own cuts, taken from the same database clock, with those stamps.
+/// A process clock here would put two clocks on either side of those comparisons.
+async fn owner_clock_epoch_ms_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<u64, SuccessorResearchIntentPostgresErrorV1> {
+    let value: i64 = sqlx::query_scalar(
+        "SELECT pg_catalog.floor(EXTRACT(epoch FROM pg_catalog.clock_timestamp()) * 1000)::bigint",
+    )
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    u64::try_from(value).map_err(storage)
 }
 
 fn storage_digest(domain: &str, bytes: &[u8]) -> String {

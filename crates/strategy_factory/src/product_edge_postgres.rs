@@ -3906,7 +3906,7 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
         // custody are all locked. The terminal receipt/Intent/TrialFamily are
         // new writes, so Product Edge must independently re-admit the original
         // request against the current authority at this final write cut.
-        let write_cut = current_epoch_ms()?;
+        let write_cut = owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
         if !admitted_feedback.is_current_at(write_cut)
             || !final_admission.authorizes_first_mutation_at(write_cut)
         {
@@ -4148,6 +4148,23 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
     }
 }
 
+/// The R&D Owner's clock: `pg_catalog.clock_timestamp()`, read inside the Owner's own transaction.
+///
+/// A research view's `projection_at` and `valid_through` are stamped from it, and the Owner's lock
+/// and Product Edge compare their own cuts, taken from the same database clock, with those stamps.
+/// A process clock here would put two clocks on either side of those comparisons.
+async fn owner_clock_epoch_ms_in_transaction(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<u64, ResearchGoalOwnerError> {
+    let value: i64 = sqlx::query_scalar(
+        "SELECT pg_catalog.floor(EXTRACT(epoch FROM pg_catalog.clock_timestamp()) * 1000)::bigint",
+    )
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|e| storage(&e))?;
+    u64::try_from(value).map_err(json_storage)
+}
+
 fn current_epoch_ms() -> Result<u64, ResearchGoalOwnerError> {
     let duration = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -4252,6 +4269,53 @@ pub(crate) mod tests {
             Some("intent_json ->> 'intent_identity'::text")
         );
         assert_eq!(intent.predicate, Some("intent_json IS NOT NULL"));
+    }
+
+    /// The last `let {variable} = ...` before `call` in `source`, without its semicolon.
+    fn last_assignment_before<'a>(source: &'a str, call: &str, variable: &str) -> &'a str {
+        let at = source.find(call).expect("call site");
+        let binding = format!("let {variable} = ");
+        let start = source[..at].rfind(&binding).expect("assignment");
+        let end = source[start..].find(';').expect("statement end");
+        &source[start..start + end]
+    }
+
+    /// A research view's projection and expiry are stamped from the cut `decide_commit_v2`
+    /// receives, and the R&D lock and Product Edge compare their own database-clock cuts with them,
+    /// so that cut comes from the Owner transaction's clock too. The successor intent stamps its
+    /// view the same way and reads no other clock.
+    #[rstest]
+    fn a_research_view_is_stamped_from_the_owner_transaction_clock() {
+        let source = include_str!("product_edge_postgres.rs");
+        assert_eq!(
+            last_assignment_before(source, "let commit = decide_commit_v2(", "write_cut"),
+            "let write_cut = owner_clock_epoch_ms_in_transaction(&mut transaction).await?"
+        );
+        // The same reading names a process-clock cut when that is what precedes the call.
+        assert_eq!(
+            last_assignment_before(
+                "let write_cut = current_epoch_ms()?;\n        let commit = decide_commit_v2(",
+                "let commit = decide_commit_v2(",
+                "write_cut",
+            ),
+            "let write_cut = current_epoch_ms()?"
+        );
+
+        let successor = include_str!("successor_intent_postgres.rs");
+        let runtime = successor
+            .split("#[cfg(test)]")
+            .next()
+            .expect("runtime source");
+
+        for read in ["SystemTime", "current_epoch_ms("] {
+            assert!(!runtime.contains(read), "{read}");
+        }
+        assert_eq!(
+            runtime
+                .matches("owner_clock_epoch_ms_in_transaction(&mut transaction).await?")
+                .count(),
+            2
+        );
     }
 
     struct SequencedSourcePolicyV1 {
