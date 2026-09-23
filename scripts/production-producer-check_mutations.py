@@ -55,6 +55,17 @@ def producers(module, rev, name):
 
 MUTATIONS = [
     {
+        "label": "the enclosing function of a call site is not found",
+        "old": "def enclosing_function(rev, path, lineno):",
+        "new": "def enclosing_function(rev, path, lineno):\n    return None",
+        "probe": lambda m, rev: m.enclosing_function(
+            rev,
+            "crates/strategy_factory/src/native_replay_execution_input_binding_v2.rs",
+            509,
+        ),
+        "expect": "no production caller to inspect",
+    },
+    {
         "label": "every symbol is taken for something the tool models",
         "old": '    pattern = rf"(^|{NOT_WORD})(fn|struct|enum|trait|const|static|type) +{name}{NOT_WORD}"',
         "new": '    pattern = rf"(?!x)x{name}"',

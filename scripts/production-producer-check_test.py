@@ -136,6 +136,33 @@ def main():
         "a type produced only by an ungated decode was read as having no ungated producer",
     )
 
+    # A caller that is itself uncalled. Reachability is transitive and this count is not,
+    # so a cluster of functions calling only each other reports a production caller for
+    # every member; the tool has to expose the host's own count for that to be visible.
+    def host_counts(name):
+        production, _other = ppc.classify_callers(REV, name)
+        out = []
+        for path, lineno, _gate, _text in production:
+            host = ppc.enclosing_function(REV, path, lineno)
+            if host and host != name:
+                out.append(len(ppc.classify_callers(REV, host)[0]))
+        return out
+
+    dead_cluster = host_counts("prepare_binding_from_verified_owner_v2")
+    live_path = host_counts("admit_market_data_universe_program_event_v2")
+    check(
+        len(dead_cluster) > 0,
+        "prepare_binding_from_verified_owner_v2: no production caller to inspect",
+    )
+    check(
+        dead_cluster == [0] * len(dead_cluster),
+        f"prepare_binding_from_verified_owner_v2: host counts {dead_cluster}, expected every host uncalled",
+    )
+    check(
+        any(count > 0 for count in live_path),
+        "no caller with a called host, so that branch never fired",
+    )
+
     # What the tool models, against what it does not. A const and an enum variant are
     # neither a type nor a function, and reporting a broken search for them sends the
     # reader after a pattern that was never missing.
@@ -233,7 +260,7 @@ def main():
         )
         return 1
     print(
-        f"production-producer-check calibration passed at {REV[:9]}: 24 checks, both directions exercised",
+        f"production-producer-check calibration passed at {REV[:9]}: 27 checks, both directions exercised",
     )
     return 0
 
