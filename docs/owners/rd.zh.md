@@ -529,6 +529,7 @@ source cut clock epoch 与半开有效期。
 
 R&D 的时钟是在使用它的 R&D 事务内读取的 `pg_catalog.clock_timestamp()`。Research Intent 的投影时间、
 `valid_through` 与提交时间都由它盖戳，其锁返回的 `owner_cut` 也是；后继 Research Intent 遵循同一规则。
+Artifact 构建、有界特征程序与 Composer 来源研究中其余所有与研究视图比较的 R&D cut 都以同样方式读取，
 Product Edge 用取自同一时钟的 cut 与这些值比较，因此任何研究窗口都不会比较两个时钟。Qualification 以同样
 方式取其 Owner cut。
 

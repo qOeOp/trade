@@ -619,8 +619,10 @@ bytes; changed meaning or changed cuts cannot join. R&D never reads protected pa
 
 R&D's clock is `pg_catalog.clock_timestamp()`, read inside the R&D transaction that uses it. A Research Intent's
 projection time, `valid_through` and commit time are stamped from it, and so is the `owner_cut` its lock returns;
-a successor Research Intent follows the same rule. Product Edge compares cuts it takes from the same clock with
-those values, so no research window compares two clocks. Qualification takes its Owner cut the same way.
+a successor Research Intent follows the same rule. Every other R&D cut compared with a research view, in Artifact
+builds, the bounded feature program and the Composer's source research, is read the same way, and Product Edge
+compares cuts it takes from the same clock with those values, so no research window compares two clocks.
+Qualification takes its Owner cut the same way.
 
 ## Attended D-only repair
 
