@@ -45,7 +45,7 @@ testers = [
   "dep:serde",
   "dep:ustr",
 ]
-postgres = ["dep:sqlx", "dep:url"]
+postgres = ["dep:sqlx", "dep:tracing", "dep:tracing-subscriber", "dep:url"]
 extension-module = [
   "vibe-common/extension-module",
   "vibe-core/extension-module",
@@ -94,6 +94,8 @@ serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 sqlx = { workspace = true, optional = true }
 tokio = { workspace = true }
+tracing = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true, optional = true }
 url = { workspace = true, optional = true }
 ustr = { workspace = true, optional = true }
 

@@ -1775,6 +1775,60 @@ mkdir -p -- "$chain_record_dir"
 # Copies the record nextest just wrote. Called once per entry on the way through, and once more from
 # `cleanup` for the entry that ended the run: without that second call a failing entry would have no
 # record, and "no record" would mean both "never ran" and "ran and failed".
+# Owner code says why it refused through `tracing` - `refused_by_store` and its peers - and a test
+# process drops every such event unless something subscribes. vibe-testkit's admission installs a
+# subscriber that appends WARN and above to VIBE_TEST_LOG_FILE (its `TEST_LOG_FILE_ENV`), which each
+# entry points beside its record. The collector's first line is this marker, so a file without it
+# means the entry was not observed - it never admitted through vibe-testkit, or another subscriber
+# took its events - and it is reported that way rather than counted as quiet.
+readonly chain_log_collecting_marker='vibe-testkit: collecting WARN and above for this test process'
+
+report_collected_warnings() {
+  local position log count collected=0 warned=0
+  local -a unobserved=()
+  for position in $(seq 1 "$chain_entry_count"); do
+    log="$(printf '%s/%03d.log' "$chain_record_dir" "$position")"
+    if [[ ! -f "$log" || "$(head -n 1 -- "$log")" != "$chain_log_collecting_marker" ]]; then
+      unobserved+=("$position")
+      continue
+    fi
+    collected=$((collected + 1))
+    # Events only: the marker line itself says "WARN", and counting it would report every
+    # collected entry as having warned.
+    count="$(tail -n +2 -- "$log" | grep -cE '^[^ ]+ +WARN ' || true)"
+    if [[ "$count" -gt 0 ]]; then
+      warned=$((warned + 1))
+      echo "  entry ${position}: ${count} warning(s), e.g. $(tail -n +2 -- "$log" | grep -m 1 -o 'coordinate="[^"]*"' || echo 'no coordinate field')"
+    fi
+  done
+  echo "=== owner warnings: collected for ${collected}/${chain_entry_count} entries, ${warned} of them warned"
+  if [[ "${#unobserved[@]}" -gt 0 ]]; then
+    echo "    not observed (no collector): ${unobserved[*]}"
+  fi
+}
+
+# The collector's positive control. `durable_owner_is_atomic_restart_exact_and_fail_closed`
+# constructs two refusals on purpose - it installs an extra Composer routine
+# (`tests/develop_composer_owner_v2.rs:149-186`) and flips one bit of a stored Design (:298-319) -
+# and each is reported through `refused_by_store` with its own coordinate. Neither depends on a
+# live defect, so both must appear every round. A missing one means either the collector stopped
+# collecting or that deliberate refusal no longer reports where it did; both need a look, and a
+# chain that passes without either would be reporting quiet entries it cannot see.
+require_collected_positive_control() {
+  local position="$1" log coordinate
+  log="$(printf '%s/%03d.log' "$chain_record_dir" "$position")"
+  if [[ ! -f "$log" || "$(head -n 1 -- "$log")" != "$chain_log_collecting_marker" ]]; then
+    echo "ERROR: entry ${position} ran without the warning collector; ${log} does not begin with its marker." >&2
+    return 1
+  fi
+  for coordinate in develop_composer.read_authority.routines develop_composer.role_set.project; do
+    if ! grep -Fq "coordinate=\"${coordinate}\"" -- "$log"; then
+      echo "ERROR: entry ${position} constructs a refusal reported as ${coordinate}, and ${log} does not hold it." >&2
+      return 1
+    fi
+  done
+}
+
 keep_chain_record() {
   local position="$1"
   [[ -f "$chain_record_source" ]] || return 0
@@ -3461,6 +3515,9 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
   chain_position=$((chain_position + 1))
   chain_entry_label="${test_package} ${test_binary} ${test_name}"
   echo "=== ordered chain entry ${chain_position}/${chain_entry_count}: ${chain_entry_label}"
+  # Absolute: nextest runs each test from its package directory.
+  VIBE_TEST_LOG_FILE="${PWD}/$(printf '%s/%03d.log' "$chain_record_dir" "$chain_position")"
+  export VIBE_TEST_LOG_FILE
   test_filter="package(${test_package}) & binary(${test_binary}) & test(=${test_name})"
   backtest_result_fault=''
   case "$test_name" in
@@ -3626,6 +3683,9 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       -E "$test_filter"
   fi
   keep_chain_record "$chain_position"
+  if [[ "$test_name" == 'durable_owner_is_atomic_restart_exact_and_fail_closed' ]]; then
+    require_collected_positive_control "$chain_position"
+  fi
   if [[ -n "$backtest_result_fault" ]]; then
     restore_backtest_result_fault "$backtest_result_fault"
   fi
@@ -3643,6 +3703,7 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
     fi
     chain_completed=true
     echo "=== ordered chain: all ${chain_entry_count} entries passed, ${chain_record_count} recorded"
+    report_collected_warnings
   fi
 done
 
