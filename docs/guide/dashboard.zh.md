@@ -104,7 +104,7 @@ quantile min/max 与 Q1/Q3 区间、选中策略的墨迹 overlay、月份色带
 reset、回撤顶部纹理、可选的显式 benchmark 及外置 hover readout；同时使用 Dashboard 共享 panel、
 主题 token、响应式测量、克制动画、reduced-motion 行为和 Lucide action。
 
-正向渲染只接受一个精确、有界、Owner 投影的 result identity：canonical UTC 时间戳、有序有限 quantile、
+正向渲染只接受一个精确、有界、Owner 投影的 result identity：canonical UTC 时间戳（RFC3339、恰好九位小数秒、且带 `Z` 偏移，与下文单次运行报告使用同一定义）、有序有限 quantile、
 严格按时间排序的 point，以及时间戳属于同一 cut 的可选 strategy/benchmark series。未知字段、错误顺序、
 series 失配、携带陈旧值或非 canonical 时间全部 fail closed 为零图表数据。只有投影显式提供 benchmark
 时才展示基准；浏览器绝不能从 band median 派生 baseline、合成收益或导入 Vibe mock factor data。
