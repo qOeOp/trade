@@ -3569,6 +3569,18 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
   fi
 done
 
+# PROBE (not for main): print every SECURITY DEFINER routine's search_path in every database.
+for census_database in $(docker exec "$container" psql -U postgres -d postgres -Atqc "SELECT datname FROM pg_catalog.pg_database WHERE NOT datistemplate AND datallowconn ORDER BY 1"); do
+  docker exec "$container" psql -U postgres -d "$census_database" -AtF'|' -qc "
+    SELECT 'SDCENSUS', pg_catalog.current_database(), namespace.nspname, procedure.proname,
+           pg_catalog.pg_get_userbyid(procedure.proowner),
+           COALESCE((SELECT setting FROM pg_catalog.unnest(procedure.proconfig) setting WHERE setting LIKE 'search_path=%'), '<none>')
+      FROM pg_catalog.pg_proc procedure
+      JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace
+     WHERE procedure.prosecdef AND namespace.nspname NOT IN ('pg_catalog','information_schema')
+     ORDER BY 3,4" || echo "SDCENSUS|ERROR|${census_database}"
+done
+
 legacy_replay_fingerprint_after="$(legacy_replay_fingerprint)"
 readonly legacy_replay_fingerprint_after
 if [[ "$legacy_replay_fingerprint_after" != "$legacy_replay_fingerprint_before" ]]; then
