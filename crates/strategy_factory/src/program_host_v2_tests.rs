@@ -297,14 +297,14 @@ fn two_member_frame_invokes_once_is_causal_canonical_and_restart_equal() {
         "one complete frame invokes one guest"
     );
     let targets = host.canonical_member_target_set().unwrap();
-    assert_eq!(targets.members[0].instrument.as_bytes(), b"AAPL.XNAS");
-    assert_eq!(targets.members[1].instrument.as_bytes(), b"MSFT.XNAS");
+    assert_eq!(targets.members()[0].instrument.as_bytes(), b"AAPL.XNAS");
+    assert_eq!(targets.members()[1].instrument.as_bytes(), b"MSFT.XNAS");
     assert_eq!(
-        targets.members[0].target,
+        targets.members()[0].target,
         TargetProposalV1::Position(18_725)
     );
     assert_eq!(
-        targets.members[1].target,
+        targets.members()[1].target,
         TargetProposalV1::Position(42_115)
     );
     let member_checkpoints = host.member_checkpoints_for_test();
@@ -890,7 +890,7 @@ fn universe_target_set(
 ) -> InstrumentTargetSetV2 {
     InstrumentTargetSetV2::new(
         sequence,
-        [
+        &[
             MemberTargetV2 {
                 instrument: InstrumentKeyV2::new(first.as_bytes()).unwrap(),
                 position: PositionIntentV1::Enter,
@@ -1126,4 +1126,91 @@ fn u32_leb(bytes: &mut Vec<u8>, mut value: u32) {
             return;
         }
     }
+}
+
+/// Byte layouts the member-count widening must not move for a two-member set: the SDK encoding of
+/// a fixed pair, and the Plan, target set, and Host checkpoint a real two-member frame produces.
+///
+/// The checkpoint is pinned in both directions. Its bytes are the pre-widening bytes, and restoring
+/// from them reproduces the same checkpoint, target set, and member kernels, so the slot decoder
+/// accepts exactly what the pre-widening encoder wrote.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn two_member_canonical_bytes_are_unchanged_by_the_member_count_widening() {
+    let member = |instrument: &[u8], position, units| MemberTargetV2 {
+        instrument: InstrumentKeyV2::new(instrument).unwrap(),
+        position,
+        target: TargetProposalV1::Position(units),
+        reconciliation_target_units: Some(units),
+        protection: ProtectionProposalV1::Keep,
+    };
+    let fixed = InstrumentTargetSetV2::new(
+        7,
+        &[
+            member(b"MSFT.XNAS", PositionIntentV1::Exit, 0),
+            member(b"AAPL.XNAS", PositionIntentV1::Enter, 3),
+        ],
+    )
+    .unwrap()
+    .encode()
+    .unwrap();
+
+    let (plan, artifact, frame) = universe_fixture(universe_design(), None);
+    let mut host = ProgramHostV2::new(plan.clone(), artifact.clone()).unwrap();
+    host.apply_event(&admitted(&plan, envelope(1, LifecycleKind::Start), None))
+        .unwrap();
+    host.apply_market_data_universe_event(&frame).unwrap();
+    let produced = host
+        .canonical_member_target_set()
+        .unwrap()
+        .encode()
+        .unwrap();
+
+    crate::target_set_members::assert_two_member_bytes_unchanged(
+        &[
+            ("sdk_fixed_pair", &fixed),
+            ("plan_durable", &plan.durable_bytes()),
+            ("plan_digest", plan.canonical_plan_digest().as_bytes()),
+            ("frame_target_set", &produced),
+            ("host_checkpoint", host.checkpoint().canonical_bytes()),
+        ],
+        &[
+            (
+                "sdk_fixed_pair",
+                312,
+                "38d3721ab5fc86886fa86de4a97dbb5e4c00429e07699f76a77d8a84015047c6",
+            ),
+            (
+                "plan_durable",
+                20_142,
+                "bc0036b0fc960c884703d4d8d8cac23022ebaee7804079dec5c17159422e6944",
+            ),
+            (
+                "plan_digest",
+                32,
+                "acc8b86785383b4e2b888f361ac8c66de5f72b3735d529aabf4f1e8b7c400d6a",
+            ),
+            (
+                "frame_target_set",
+                312,
+                "6df70f6cdae4a4714c750d658a8b0562bf056a059c8857d981aa504bd85ee661",
+            ),
+            (
+                "host_checkpoint",
+                3_580,
+                "df04c446b9582f4b60d431f37d3711441c63df7da55c85f7d8256fafe8c29329",
+            ),
+        ],
+    );
+
+    let restored = ProgramHostV2::restore(plan, artifact, host.checkpoint()).unwrap();
+    assert_eq!(restored.checkpoint(), host.checkpoint());
+    assert_eq!(
+        restored.canonical_member_target_set(),
+        host.canonical_member_target_set()
+    );
+    assert_eq!(
+        restored.member_checkpoints_for_test(),
+        host.member_checkpoints_for_test()
+    );
 }

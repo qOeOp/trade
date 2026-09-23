@@ -3158,7 +3158,12 @@ pub mod lifecycle_v1 {
     }
 }
 
-/// Canonical, allocation-free two-member target-set wire contract for the V2 shared kernel.
+/// Canonical, allocation-free target-set wire contract for the V2 shared kernel.
+///
+/// A set carries between `TARGET_SET_MIN_MEMBER_COUNT` and `TARGET_SET_MAX_MEMBER_COUNT` members in strictly
+/// increasing instrument order. Its canonical encoding is exactly `target_set_encoded_bytes(count)` bytes and
+/// names its member count in the header, so every admitted count has one encoding and a set of the maximum
+/// size encodes to the same bytes whether or not smaller sets are admitted.
 ///
 /// The guest supplies only bounded lifecycle decisions. `ProgramHostV2` derives and seals the
 /// selection, frame, capability, program, and state identities before the set can advance runtime
@@ -3171,12 +3176,21 @@ pub mod lifecycle_v2 {
 
     pub const TARGET_SET_SCHEMA_VERSION: u16 = 2;
     pub const TARGET_SET_CODEC_VERSION: u16 = 2;
-    pub const TARGET_SET_MEMBER_COUNT: usize = 2;
+    /// Fewest members a set may carry.
+    pub const TARGET_SET_MIN_MEMBER_COUNT: usize = 2;
+    /// Most members a set may carry; also the member capacity of the fixed checkpoint slot.
+    pub const TARGET_SET_MAX_MEMBER_COUNT: usize = 2;
     pub const MAX_INSTRUMENT_KEY_BYTES: usize = 64;
     pub const TARGET_SET_HEADER_BYTES: usize = 24;
     pub const TARGET_SET_MEMBER_BYTES: usize = 144;
-    pub const TARGET_SET_BYTES: usize =
-        TARGET_SET_HEADER_BYTES + TARGET_SET_MEMBER_COUNT * TARGET_SET_MEMBER_BYTES;
+    /// Encoded length of a set with the maximum member count, and the size of every fixed slot that stores
+    /// one. A smaller set occupies the first `target_set_encoded_bytes(count)` bytes of a slot, zero after.
+    pub const TARGET_SET_BYTES: usize = target_set_encoded_bytes(TARGET_SET_MAX_MEMBER_COUNT);
+
+    /// Canonical encoded length of a set of `member_count` members.
+    pub const fn target_set_encoded_bytes(member_count: usize) -> usize {
+        TARGET_SET_HEADER_BYTES + member_count * TARGET_SET_MEMBER_BYTES
+    }
     pub const TARGET_SET_SEMANTIC_ID: &str = "kernel.target-set.instrument.v2";
     pub const KERNEL_SEMANTICS_ID: &str = "strategy.lifecycle.shared-kernel.v2";
 
@@ -3220,39 +3234,85 @@ pub mod lifecycle_v2 {
         pub protection: ProtectionProposalV1,
     }
 
-    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    /// Unused member slots hold a copy of the last member and take no part in equality, encoding,
+    /// or `Debug` output.
+    #[derive(Clone, Copy)]
     pub struct InstrumentTargetSetV2 {
         pub sequence: u64,
-        pub members: [MemberTargetV2; TARGET_SET_MEMBER_COUNT],
+        members: [MemberTargetV2; TARGET_SET_MAX_MEMBER_COUNT],
+        member_count: u8,
     }
 
+    impl PartialEq for InstrumentTargetSetV2 {
+        fn eq(&self, other: &Self) -> bool {
+            self.sequence == other.sequence && self.members() == other.members()
+        }
+    }
+
+    impl Eq for InstrumentTargetSetV2 {}
+
+    impl core::fmt::Debug for InstrumentTargetSetV2 {
+        fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            formatter
+                .debug_struct(stringify!(InstrumentTargetSetV2))
+                .field("sequence", &self.sequence)
+                .field("members", &self.members())
+                .finish()
+        }
+    }
+
+    // The member count is stored as a `u8`.
+    const _: () = assert!(TARGET_SET_MAX_MEMBER_COUNT <= u8::MAX as usize);
+
     impl InstrumentTargetSetV2 {
-        pub fn new(
-            sequence: u64,
-            mut members: [MemberTargetV2; TARGET_SET_MEMBER_COUNT],
-        ) -> Result<Self, TargetSetFaultV2> {
+        pub fn new(sequence: u64, members: &[MemberTargetV2]) -> Result<Self, TargetSetFaultV2> {
             if sequence == 0 {
                 return Err(TargetSetFaultV2::InvalidSequence);
             }
+            let Some(last) = members.last().copied() else {
+                return Err(TargetSetFaultV2::InvalidCoverage);
+            };
 
-            if members[0].instrument > members[1].instrument {
-                members.swap(0, 1);
+            if members.len() < TARGET_SET_MIN_MEMBER_COUNT
+                || members.len() > TARGET_SET_MAX_MEMBER_COUNT
+            {
+                return Err(TargetSetFaultV2::InvalidCoverage);
             }
-            let value = Self { sequence, members };
+            let mut slots = [last; TARGET_SET_MAX_MEMBER_COUNT];
+            slots[..members.len()].copy_from_slice(members);
+            slots[..members.len()].sort_unstable_by_key(|member| member.instrument);
+            let sorted_last = slots[members.len() - 1];
+            slots[members.len()..].fill(sorted_last);
+            let value = Self::from_sorted(sequence, slots, members.len());
             value.validate()?;
             Ok(value)
         }
 
+        /// Members in canonical, strictly increasing instrument order.
+        pub fn members(&self) -> &[MemberTargetV2] {
+            &self.members[..usize::from(self.member_count)]
+        }
+
+        pub fn member_count(&self) -> usize {
+            usize::from(self.member_count)
+        }
+
+        /// Length of this set's canonical encoding.
+        pub fn encoded_len(&self) -> usize {
+            target_set_encoded_bytes(self.member_count())
+        }
+
+        /// Canonical encoding in a fixed slot: the first `encoded_len()` bytes are the encoding, the rest zero.
         pub fn encode(self) -> Result<[u8; TARGET_SET_BYTES], TargetSetFaultV2> {
             self.validate()?;
             let mut output = [0; TARGET_SET_BYTES];
             output[..4].copy_from_slice(&TARGET_SET_MAGIC);
             output[4..6].copy_from_slice(&TARGET_SET_CODEC_VERSION.to_le_bytes());
             output[6..8].copy_from_slice(&TARGET_SET_SCHEMA_VERSION.to_le_bytes());
-            output[8..10].copy_from_slice(&(TARGET_SET_MEMBER_COUNT as u16).to_le_bytes());
+            output[8..10].copy_from_slice(&(self.member_count() as u16).to_le_bytes());
             output[12..20].copy_from_slice(&self.sequence.to_le_bytes());
 
-            for (index, member) in self.members.iter().enumerate() {
+            for (index, member) in self.members().iter().enumerate() {
                 encode_member(
                     &mut output[TARGET_SET_HEADER_BYTES + index * TARGET_SET_MEMBER_BYTES
                         ..TARGET_SET_HEADER_BYTES + (index + 1) * TARGET_SET_MEMBER_BYTES],
@@ -3262,44 +3322,89 @@ pub mod lifecycle_v2 {
             Ok(output)
         }
 
+        /// Decodes exactly one canonical encoding, whose length is fixed by the member count it names.
         pub fn decode(bytes: &[u8]) -> Result<Self, TargetSetFaultV2> {
-            if bytes.len() != TARGET_SET_BYTES
+            if bytes.len() < TARGET_SET_HEADER_BYTES
                 || bytes[..4] != TARGET_SET_MAGIC
                 || read_u16(bytes, 4)? != TARGET_SET_CODEC_VERSION
                 || read_u16(bytes, 6)? != TARGET_SET_SCHEMA_VERSION
-                || usize::from(read_u16(bytes, 8)?) != TARGET_SET_MEMBER_COUNT
                 || bytes[10..12] != [0; 2]
                 || bytes[20..24] != [0; 4]
             {
                 return Err(TargetSetFaultV2::NonCanonicalEncoding);
             }
+            let member_count = usize::from(read_u16(bytes, 8)?);
+            if !(TARGET_SET_MIN_MEMBER_COUNT..=TARGET_SET_MAX_MEMBER_COUNT).contains(&member_count)
+                || bytes.len() != target_set_encoded_bytes(member_count)
+            {
+                return Err(TargetSetFaultV2::NonCanonicalEncoding);
+            }
             let sequence = read_u64(bytes, 12)?;
-            let members = [
-                decode_member(&bytes[24..168])?,
-                decode_member(&bytes[168..312])?,
-            ];
-            let value = Self { sequence, members };
+            let first =
+                decode_member(&bytes[TARGET_SET_HEADER_BYTES..][..TARGET_SET_MEMBER_BYTES])?;
+            let mut slots = [first; TARGET_SET_MAX_MEMBER_COUNT];
+            for (index, slot) in slots.iter_mut().enumerate().take(member_count).skip(1) {
+                let offset = TARGET_SET_HEADER_BYTES + index * TARGET_SET_MEMBER_BYTES;
+                *slot = decode_member(&bytes[offset..offset + TARGET_SET_MEMBER_BYTES])?;
+            }
+            let sorted_last = slots[member_count - 1];
+            slots[member_count..].fill(sorted_last);
+            let value = Self::from_sorted(sequence, slots, member_count);
             value.validate()?;
             if value
                 .encode()
-                .map_err(|_| TargetSetFaultV2::NonCanonicalEncoding)?
-                != bytes
+                .map_err(|_| TargetSetFaultV2::NonCanonicalEncoding)?[..value.encoded_len()]
+                != *bytes
             {
                 return Err(TargetSetFaultV2::NonCanonicalEncoding);
             }
             Ok(value)
         }
 
+        /// Decodes a fixed slot written by `encode`: one canonical encoding followed only by zero bytes.
+        pub fn decode_slot(slot: &[u8]) -> Result<Self, TargetSetFaultV2> {
+            if slot.len() != TARGET_SET_BYTES {
+                return Err(TargetSetFaultV2::NonCanonicalEncoding);
+            }
+            let member_count = usize::from(read_u16(slot, 8)?);
+            if !(TARGET_SET_MIN_MEMBER_COUNT..=TARGET_SET_MAX_MEMBER_COUNT).contains(&member_count)
+            {
+                return Err(TargetSetFaultV2::NonCanonicalEncoding);
+            }
+            let used = target_set_encoded_bytes(member_count);
+            if slot[used..].iter().any(|byte| *byte != 0) {
+                return Err(TargetSetFaultV2::NonCanonicalEncoding);
+            }
+            Self::decode(&slot[..used])
+        }
+
+        const fn from_sorted(
+            sequence: u64,
+            members: [MemberTargetV2; TARGET_SET_MAX_MEMBER_COUNT],
+            member_count: usize,
+        ) -> Self {
+            Self {
+                sequence,
+                members,
+                member_count: member_count as u8,
+            }
+        }
+
         fn validate(&self) -> Result<(), TargetSetFaultV2> {
             if self.sequence == 0 {
                 return Err(TargetSetFaultV2::InvalidSequence);
             }
-
-            if self.members[0].instrument >= self.members[1].instrument {
+            let members = self.members();
+            if members.len() < TARGET_SET_MIN_MEMBER_COUNT
+                || members.len() > TARGET_SET_MAX_MEMBER_COUNT
+                || members
+                    .windows(2)
+                    .any(|pair| pair[0].instrument >= pair[1].instrument)
+            {
                 return Err(TargetSetFaultV2::InvalidCoverage);
             }
 
-            for member in &self.members {
+            for member in members {
                 validate_target(self.sequence, *member)?;
             }
             Ok(())
