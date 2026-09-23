@@ -826,7 +826,7 @@ pub enum DevelopComposerSealedReadErrorV2 {
 }
 
 /// Records why one sealed-read stage refused, then returns the refusal the caller is given.
-fn sealed_read_refused(
+pub(crate) fn sealed_read_refused(
     coordinate: &'static str,
     cause: &impl Display,
 ) -> DevelopComposerSealedReadErrorV2 {
@@ -2524,7 +2524,7 @@ fn sealed_digest_array(
         .map(|bytes| {
             let bytes: [u8; 32] = bytes.try_into().map_err(|_| {
                 sealed_read_refused(
-                    "develop_composer.record_row.digest_width",
+                    "develop_composer.record_row.digest_array_width",
                     &format!("column {name} holds an element that is not 32 bytes"),
                 )
             })?;
