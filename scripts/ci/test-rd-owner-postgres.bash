@@ -2072,7 +2072,7 @@ GRANT USAGE ON SCHEMA rd_owner_api TO backtest_owner;
 CREATE FUNCTION rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)
 RETURNS jsonb
 LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path=pg_catalog
+SET search_path=pg_catalog, pg_temp
 AS $function$
 DECLARE encoded text;
 BEGIN
@@ -2089,7 +2089,7 @@ GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v1(text,t
 CREATE FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)
 RETURNS jsonb
 LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path=pg_catalog
+SET search_path=pg_catalog, pg_temp
 AS $function$
 DECLARE encoded text;
 BEGIN
@@ -2526,7 +2526,7 @@ BEGIN
   INSERT INTO vibe_test_admin.rd_exploratory_replay_routine_definition_v1(target,definition)
   VALUES (target,pg_catalog.pg_get_functiondef(target_oid));
   IF target='facade' THEN
-    EXECUTE $ddl$CREATE OR REPLACE FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(requested_request_identity text,requested_meaning_digest text,requested_receipt_identity text,requested_seal_digest text) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path=pg_catalog AS $body$BEGIN INSERT INTO vibe_test_admin.rd_exploratory_replay_routine_sentinel_v1 VALUES ('facade'); RETURN NULL; END$body$$ddl$;
+    EXECUTE $ddl$CREATE OR REPLACE FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(requested_request_identity text,requested_meaning_digest text,requested_receipt_identity text,requested_seal_digest text) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path=pg_catalog, pg_temp AS $body$BEGIN INSERT INTO vibe_test_admin.rd_exploratory_replay_routine_sentinel_v1 VALUES ('facade'); RETURN NULL; END$body$$ddl$;
   ELSIF target='v2' THEN
     EXECUTE $ddl$CREATE OR REPLACE FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(requested_request_identity text,requested_meaning_digest text,requested_receipt_identity text,requested_seal_digest text) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY INVOKER SET search_path=pg_catalog AS $body$BEGIN INSERT INTO vibe_test_admin.rd_exploratory_replay_routine_sentinel_v1 VALUES ('v2'); RETURN NULL; END$body$$ddl$;
   ELSE
@@ -4047,7 +4047,7 @@ BEGIN
       AND procedure.proisstrict
       AND procedure.provolatile = 'v'
       AND procedure.proparallel = 'u'
-      AND procedure.proconfig = ARRAY['search_path=pg_catalog']
+      AND procedure.proconfig = ARRAY['search_path=pg_catalog, pg_temp']
   )
   THEN
     RAISE EXCEPTION 'sealed R&D basis API metadata mismatch';
@@ -4065,7 +4065,7 @@ BEGIN
       AND procedure.proisstrict
       AND procedure.provolatile = 'v'
       AND procedure.proparallel = 'u'
-      AND procedure.proconfig = ARRAY['search_path=pg_catalog']
+      AND procedure.proconfig = ARRAY['search_path=pg_catalog, pg_temp']
   )
      OR NOT pg_catalog.has_schema_privilege('backtest_owner', 'rd_owner_api', 'USAGE')
      OR NOT pg_catalog.has_function_privilege(
@@ -4089,7 +4089,7 @@ BEGIN
       AND procedure.proisstrict
       AND procedure.provolatile = 'v'
       AND procedure.proparallel = 'u'
-      AND procedure.proconfig = ARRAY['search_path=pg_catalog']
+      AND procedure.proconfig = ARRAY['search_path=pg_catalog, pg_temp']
   )
      OR NOT pg_catalog.has_function_privilege(
        'backtest_owner',
