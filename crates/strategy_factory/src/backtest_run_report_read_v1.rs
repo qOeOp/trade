@@ -482,6 +482,30 @@ pub(crate) mod report_test_support_v1 {
         .expect("an engine instant is after the epoch")
     }
 
+    /// The one comparison both the unit test and the ordered-chain entry make: every point the
+    /// report carries equals, in order, timestamp and value, a point counted independently from
+    /// `engine_result_bytes`, and there are at least two, so a dropped point cannot hide.
+    ///
+    /// It is one function so that the mutations proven against the unit test prove this comparison
+    /// wherever it runs, rather than a copy of it.
+    pub(crate) fn assert_series_reads_back_every_counted_point(
+        projection: &super::BacktestRunReportProjectionV1,
+        engine_result_bytes: &[u8],
+    ) {
+        let expected = independently_counted_points(engine_result_bytes);
+        assert!(
+            expected.len() >= 2,
+            "a dropped point is only visible when the run recorded at least two, it recorded {}",
+            expected.len()
+        );
+        let read_back = projection
+            .series
+            .iter()
+            .map(|point| (instant_of(&point.at), point.value))
+            .collect::<Vec<_>>();
+        assert_eq!(read_back, expected);
+    }
+
     fn instrument() -> InstrumentAny {
         InstrumentAny::CryptoPerpetual(CryptoPerpetual::new(
             InstrumentId::from(INSTRUMENT),
@@ -543,7 +567,7 @@ mod tests {
 
     use super::{
         report_test_support_v1::{
-            independently_counted_points, instant_of, run_multi_day_round_trip_v1,
+            assert_series_reads_back_every_counted_point, instant_of, run_multi_day_round_trip_v1,
         },
         *,
     };
@@ -579,23 +603,11 @@ mod tests {
     #[rstest]
     fn a_real_multi_day_run_projects_every_point_it_recorded_and_nothing_else() {
         let bytes = engine_bytes();
-        let expected = independently_counted_points(&bytes);
-        assert!(
-            expected.len() >= 2,
-            "the run must record at least two points for a dropped one to be visible, recorded {}",
-            expected.len()
-        );
-
         let projection = project_engine_result_v1(run(), &bytes).expect("report projection");
 
         assert_eq!(projection.run, run());
         assert_eq!(projection.state, BacktestRunReportStateV1::Available);
-        let read_back = projection
-            .series
-            .iter()
-            .map(|point| (instant_of(&point.at), point.value))
-            .collect::<Vec<_>>();
-        assert_eq!(read_back, expected);
+        assert_series_reads_back_every_counted_point(&projection, &bytes);
         assert!(projection.net_return.is_some_and(f64::is_finite));
         assert!(projection.max_drawdown.is_some_and(|value| value <= 0.0));
         assert!(!projection.fills.is_empty(), "the run must have traded");

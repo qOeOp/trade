@@ -7,7 +7,7 @@ use super::{
 use crate::backtest_run_report_read_v1::{
     BacktestRunReportStateV1,
     report_test_support_v1::{
-        independently_counted_points, instant_of, run_multi_day_round_trip_v1,
+        assert_series_reads_back_every_counted_point, run_multi_day_round_trip_v1,
     },
     resolve_backtest_run_report_v1,
 };
@@ -101,18 +101,7 @@ async fn backtest_run_report_reads_back_every_point_a_real_run_committed() {
     .await
     .expect("committed outcome evidence");
     assert_eq!(committed, engine_result_bytes);
-    let expected = independently_counted_points(&committed);
-    assert!(
-        expected.len() >= 2,
-        "a dropped point is only visible when the run recorded at least two, it recorded {}",
-        expected.len()
-    );
-    let read_back = report
-        .series
-        .iter()
-        .map(|point| (instant_of(&point.at), point.value))
-        .collect::<Vec<_>>();
-    assert_eq!(read_back, expected);
+    assert_series_reads_back_every_counted_point(&report, &committed);
 
     assert_eq!(report.state, BacktestRunReportStateV1::Available);
     assert_eq!(report.run.result_identity, result_identity);
