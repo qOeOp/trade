@@ -134,6 +134,66 @@ fn unavailable_for(reason: Reason, kind: Subject, identity: &str) -> ProductEdge
     ProductEdgeError::unavailable_for(reason, kind, identity)
 }
 
+/// Refuses a research intent whose window does not hold at `cut_epoch_ms`, and says which part.
+///
+/// Four conditions answer to one reason, `WINDOW_NOT_CURRENT`, because they share a repair: the
+/// caller asked at a cut outside the research intent's window. They do not share a cause, and they
+/// do not share a clock: `owner_cut_epoch_ms` is the database's `clock_timestamp()` while
+/// `cut_epoch_ms` is this process's clock, so the refusal carries the conditions that held and every
+/// value they compared. The reason, the subject and the outward disposition are unchanged.
+fn research_window_refusal(
+    locked: &LockedCurrentResearchEnvelopeV1,
+    source_authorization: &OperatorAuthorizationReadbackV1,
+    cut_epoch_ms: u64,
+    intent_identity: &str,
+) -> Option<ProductEdgeError> {
+    let evidence = &locked.evidence;
+    let within_source_window = cut_epoch_ms >= source_authorization.not_before_epoch_ms()
+        && cut_epoch_ms < source_authorization.valid_through_epoch_ms();
+    let held = [
+        (
+            locked.owner_cut_epoch_ms > cut_epoch_ms,
+            "owner_cut_after_cut",
+        ),
+        (
+            evidence.projection_at_epoch_ms > cut_epoch_ms,
+            "projection_after_cut",
+        ),
+        (
+            cut_epoch_ms >= evidence.valid_through_epoch_ms,
+            "research_view_expired",
+        ),
+        (!within_source_window, "source_authorization_outside_window"),
+        (
+            within_source_window && !source_authorization.is_current_at(cut_epoch_ms),
+            "source_authorization_revoked",
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(holds, name)| holds.then_some(name))
+    .collect::<Vec<_>>();
+
+    if held.is_empty() {
+        return None;
+    }
+    Some(ProductEdgeError::Unavailable(
+        crate::ProductEdgeUnavailableV1::about(
+            Reason::WindowNotCurrent,
+            Subject::ResearchIntent,
+            intent_identity,
+        )
+        .with_cause(format!(
+            "{} at cut {cut_epoch_ms}: owner_cut {}, projection_at {}, valid_through {}, source authorization [{}, {})",
+            held.join(","),
+            locked.owner_cut_epoch_ms,
+            evidence.projection_at_epoch_ms,
+            evidence.valid_through_epoch_ms,
+            source_authorization.not_before_epoch_ms(),
+            source_authorization.valid_through_epoch_ms(),
+        )),
+    ))
+}
+
 /// Why the admission's original authorization, read at the current cut, no
 /// longer authorizes a first mutation: either it is not current any more or
 /// its meaning drifted from what the admission sealed.
@@ -2829,16 +2889,13 @@ impl ProductEdgePostgresOwnerV1 {
             // has moved outside its window, a lineage that does not join, and an authorization
             // that is not the one the source was admitted under. Only the last is about the
             // caller's own authority; the first is about when it asked.
-            if locked.owner_cut_epoch_ms > final_cut
-                || evidence.projection_at_epoch_ms > final_cut
-                || final_cut >= evidence.valid_through_epoch_ms
-                || !source_authorization.is_current_at(final_cut)
-            {
-                return Err(unavailable_for(
-                    Reason::WindowNotCurrent,
-                    Subject::ResearchIntent,
-                    &evidence.intent_identity,
-                ));
+            if let Some(refusal) = research_window_refusal(
+                locked,
+                source_authorization,
+                final_cut,
+                &evidence.intent_identity,
+            ) {
+                return Err(refusal);
             }
 
             if !same_or_immediate {
@@ -3274,16 +3331,13 @@ impl ProductEdgePostgresOwnerV1 {
 
         // The same three repairs as the read path above, split the same way: when it asked,
         // whether the lineage joins, and which authority it asked under.
-        if locked_research.owner_cut_epoch_ms > write_cut
-            || locked_research.evidence.projection_at_epoch_ms > write_cut
-            || write_cut >= locked_research.evidence.valid_through_epoch_ms
-            || !source_authorization.is_current_at(write_cut)
-        {
-            return Err(unavailable_for(
-                Reason::WindowNotCurrent,
-                Subject::ResearchIntent,
-                &research_evidence.intent_identity,
-            ));
+        if let Some(refusal) = research_window_refusal(
+            &locked_research,
+            source_authorization,
+            write_cut,
+            &research_evidence.intent_identity,
+        ) {
+            return Err(refusal);
         }
 
         if !same_or_immediate {
