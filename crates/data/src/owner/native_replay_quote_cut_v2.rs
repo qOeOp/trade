@@ -14,7 +14,7 @@
     reason = "quote cut selection and verification wait for the frame readback that consumes them"
 )]
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::{
     pit_snapshot::{VerifiedPitObservation, VerifiedPitObservationBatch},
@@ -48,13 +48,24 @@ pub(crate) fn classify_native_replay_cut_v2(
     }
 }
 
-/// One quote cut the census holds for a scope.
+/// One quote cut the census holds, with the coordinates its request declared.
+///
+/// The coordinates are what the Owner admitted for that snapshot, carried on the census row so a
+/// frame can ignore quote cuts that could never serve it before asking whether one is unique.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct NativeReplayQuoteCutCandidateV2 {
     pub(crate) snapshot_identity: BindingDigest,
     pub(crate) snapshot_fact_digest: BindingDigest,
+    pub(crate) scope_digest: BindingDigest,
+    pub(crate) instrument_master_digest: BindingDigest,
+    pub(crate) universe_selection_digest: BindingDigest,
+    pub(crate) market_semantics_identity: BindingDigest,
+    pub(crate) source_binding_lineage_root: BindingDigest,
     pub(crate) event_effective_ns: u64,
     pub(crate) decision_cut_ns: u64,
+    /// The quote cut's own PIT correction lineage: a correction shares its original's root.
+    pub(crate) correction_lineage_root: BindingDigest,
+    pub(crate) correction_lineage_version: u64,
 }
 
 /// Why a frame has no quote cut to take its liquidity from.
@@ -64,8 +75,6 @@ pub(crate) struct NativeReplayQuoteCutCandidateV2 {
 pub(crate) enum NativeReplayQuoteCutRefusalV2 {
     /// The census or the quote cut's batch could not be read; nothing is claimed.
     CustodyUnavailable,
-    /// A quote cut in the frame's interval was observed after the request's decision cut.
-    ObservationAfterDecisionCut,
     /// No quote cut lies strictly after the frame's BAR and before its bound.
     QuoteCutMissing,
     /// More than one does, and the census cannot choose between them.
@@ -79,39 +88,61 @@ pub(crate) enum NativeReplayQuoteCutRefusalV2 {
     MemberMismatch,
 }
 
-/// Picks the one quote cut in `(frame_time_ns, bound_ns_exclusive)`.
+/// Picks the one quote cut on `frame`'s coordinates in `(frame BAR, bound_ns_exclusive)`, as the
+/// Owner could see the census at the request's decision cut.
 ///
-/// The census query already bounds the interval; the bounds are applied again here so that the
-/// rule is stated, and tested, in one place rather than trusted to a `WHERE` clause.
+/// A candidate on other coordinates is not this frame's, and is set aside before uniqueness is
+/// asked. The census is partitioned by the scope a requester declared, so without this a quote cut
+/// another requester committed under the same scope but on its own Instrument Master, universe
+/// selection, Market Semantics or Source Binding lineage would make a lawful frame ambiguous. A
+/// collision on every one of those coordinates still does: that refuses the frame (a denial of
+/// service) and can never hand it a quote cut the Owner did not verify for it.
+///
+/// A candidate observed after the decision cut is not yet visible and is set aside. Within one
+/// quote cut's correction lineage the latest visible correction stands for the lineage, the same
+/// rule PIT corrections follow everywhere else, so a corrected quote cut resolves to its correction
+/// and one corrected only after the cut resolves to its original. Two lineages left are ambiguous.
+///
+/// The census query already bounds the interval; the rules are applied again here so that they
+/// are stated, and tested, in one place rather than trusted to a `WHERE` clause.
 ///
 /// # Errors
 ///
 /// Returns the refusal for the first violated rule.
-pub(crate) fn select_native_replay_quote_cut_v2(
-    candidates: &[NativeReplayQuoteCutCandidateV2],
-    frame_time_ns: u64,
+pub(crate) fn select_native_replay_quote_cut_v2<'a>(
+    candidates: &'a [NativeReplayQuoteCutCandidateV2],
+    frame: &NativeReplayCutCoordinatesV2,
     bound_ns_exclusive: u64,
     request_decision_cut_ns: u64,
-) -> Result<&NativeReplayQuoteCutCandidateV2, NativeReplayQuoteCutRefusalV2> {
-    let inside = candidates
-        .iter()
-        .filter(|candidate| {
-            candidate.event_effective_ns > frame_time_ns
-                && candidate.event_effective_ns < bound_ns_exclusive
-        })
-        .collect::<Vec<_>>();
+) -> Result<&'a NativeReplayQuoteCutCandidateV2, NativeReplayQuoteCutRefusalV2> {
+    let mut latest_by_lineage =
+        BTreeMap::<BindingDigest, &'a NativeReplayQuoteCutCandidateV2>::new();
 
-    if inside
-        .iter()
-        .any(|candidate| candidate.decision_cut_ns > request_decision_cut_ns)
-    {
-        return Err(NativeReplayQuoteCutRefusalV2::ObservationAfterDecisionCut);
+    for candidate in candidates.iter().filter(|candidate| {
+        candidate.event_effective_ns > frame.event_effective_ns
+            && candidate.event_effective_ns < bound_ns_exclusive
+            && candidate.decision_cut_ns <= request_decision_cut_ns
+            && candidate.scope_digest == frame.scope_digest
+            && candidate.instrument_master_digest == frame.instrument_master_digest
+            && candidate.universe_selection_digest == frame.universe_selection_digest
+            && candidate.market_semantics_identity == frame.market_semantics_identity
+            && candidate.source_binding_lineage_root == frame.source_binding_lineage_root
+    }) {
+        latest_by_lineage
+            .entry(candidate.correction_lineage_root)
+            .and_modify(|latest| {
+                if candidate.correction_lineage_version > latest.correction_lineage_version {
+                    *latest = candidate;
+                }
+            })
+            .or_insert(candidate);
     }
+    let mut lineages = latest_by_lineage.into_values();
 
-    match inside.as_slice() {
-        [] => Err(NativeReplayQuoteCutRefusalV2::QuoteCutMissing),
-        [only] => Ok(only),
-        _ => Err(NativeReplayQuoteCutRefusalV2::AmbiguousQuoteCut),
+    match (lineages.next(), lineages.next()) {
+        (None, _) => Err(NativeReplayQuoteCutRefusalV2::QuoteCutMissing),
+        (Some(only), None) => Ok(only),
+        (Some(_), Some(_)) => Err(NativeReplayQuoteCutRefusalV2::AmbiguousQuoteCut),
     }
 }
 
@@ -162,6 +193,10 @@ impl NativeReplayCutCoordinatesV2 {
 /// universe selection, Market Semantics and Source Binding lineage, and quote exactly the frame's
 /// members - no fewer, which would leave a member without liquidity, and no more, which would bring
 /// in an instrument the frame does not trade.
+///
+/// Selection already set aside candidates on other coordinates, by what their census rows say.
+/// Here the same coordinates are read from the batch the Owner verified, so a census row that
+/// disagrees with its own snapshot is refused rather than trusted.
 ///
 /// # Errors
 ///
@@ -250,13 +285,30 @@ mod tests {
         assert_eq!(classify_native_replay_cut_v2(&rows), expected);
     }
 
+    /// A candidate on the frame's coordinates (see `coordinates`), in a lineage of its own.
     fn candidate(event_effective_ns: u64, decision_cut_ns: u64) -> NativeReplayQuoteCutCandidateV2 {
+        let tag = u8::try_from(event_effective_ns).expect("small");
         NativeReplayQuoteCutCandidateV2 {
-            snapshot_identity: d(u8::try_from(event_effective_ns).expect("small")),
+            snapshot_identity: d(tag),
             snapshot_fact_digest: d(99),
+            scope_digest: d(10),
+            instrument_master_digest: d(11),
+            universe_selection_digest: d(12),
+            market_semantics_identity: d(13),
+            source_binding_lineage_root: d(14),
             event_effective_ns,
             decision_cut_ns,
+            correction_lineage_root: d(tag.wrapping_add(100)),
+            correction_lineage_version: 1,
         }
+    }
+
+    fn frame_at(event_effective_ns: u64) -> NativeReplayCutCoordinatesV2 {
+        coordinates(
+            NativeReplayCutKindV2::Frame,
+            event_effective_ns,
+            &["BTCUSDT-PERP.BINANCE"],
+        )
     }
 
     #[rstest]
@@ -264,30 +316,84 @@ mod tests {
         let census = [candidate(10, 40), candidate(15, 40), candidate(20, 40)];
 
         assert_eq!(
-            select_native_replay_quote_cut_v2(&census, 10, 20, 40),
+            select_native_replay_quote_cut_v2(&census, &frame_at(10), 20, 40),
             Ok(&census[1]),
             "the cut on the frame's own instant and the one on its bound are both outside"
         );
         assert_eq!(
-            select_native_replay_quote_cut_v2(&census, 10, 15, 40),
+            select_native_replay_quote_cut_v2(&census, &frame_at(10), 15, 40),
             Err(NativeReplayQuoteCutRefusalV2::QuoteCutMissing)
         );
         assert_eq!(
-            select_native_replay_quote_cut_v2(&census, 5, 20, 40),
+            select_native_replay_quote_cut_v2(&census, &frame_at(5), 20, 40),
+            Err(NativeReplayQuoteCutRefusalV2::AmbiguousQuoteCut),
+            "two lineages, each on the frame's coordinates: the census does not choose"
+        );
+    }
+
+    #[rstest]
+    fn a_quote_cut_the_owner_could_not_yet_see_at_the_decision_cut_is_not_a_candidate() {
+        let census = [candidate(15, 50), candidate(16, 40)];
+        assert_eq!(
+            select_native_replay_quote_cut_v2(&census, &frame_at(10), 20, 40),
+            Ok(&census[1])
+        );
+        assert_eq!(
+            select_native_replay_quote_cut_v2(&census[..1], &frame_at(10), 20, 40),
+            Err(NativeReplayQuoteCutRefusalV2::QuoteCutMissing)
+        );
+        assert_eq!(
+            select_native_replay_quote_cut_v2(&census[..1], &frame_at(10), 20, 50),
+            Ok(&census[0])
+        );
+    }
+
+    /// Another requester can declare this frame's scope; a quote cut it commits on any coordinate
+    /// of its own is set aside instead of making this frame ambiguous.
+    #[rstest]
+    fn a_quote_cut_on_other_coordinates_does_not_make_a_frame_ambiguous() {
+        for drift in [
+            |cut: &mut NativeReplayQuoteCutCandidateV2| cut.scope_digest = d(90),
+            |cut: &mut NativeReplayQuoteCutCandidateV2| cut.instrument_master_digest = d(91),
+            |cut: &mut NativeReplayQuoteCutCandidateV2| cut.universe_selection_digest = d(92),
+            |cut: &mut NativeReplayQuoteCutCandidateV2| cut.market_semantics_identity = d(93),
+            |cut: &mut NativeReplayQuoteCutCandidateV2| cut.source_binding_lineage_root = d(94),
+        ] {
+            let mut foreign = candidate(16, 40);
+            drift(&mut foreign);
+            let census = [candidate(15, 40), foreign];
+            assert_eq!(
+                select_native_replay_quote_cut_v2(&census, &frame_at(10), 20, 40),
+                Ok(&census[0])
+            );
+        }
+        // On every coordinate the frame's, a second lineage still collides: the frame is refused,
+        // and nothing but a quote cut on its own coordinates is ever handed to it.
+        let census = [candidate(15, 40), candidate(16, 40)];
+        assert_eq!(
+            select_native_replay_quote_cut_v2(&census, &frame_at(10), 20, 40),
             Err(NativeReplayQuoteCutRefusalV2::AmbiguousQuoteCut)
         );
+    }
+
+    #[rstest]
+    fn a_corrected_quote_cut_resolves_to_its_latest_correction_visible_at_the_cut() {
+        let original = candidate(15, 40);
+        let mut correction = candidate(15, 50);
+        correction.snapshot_identity = d(115);
+        correction.correction_lineage_root = original.correction_lineage_root;
+        correction.correction_lineage_version = 2;
+        let census = [original, correction];
+
         assert_eq!(
-            select_native_replay_quote_cut_v2(&census, 10, 20, 39),
-            Err(NativeReplayQuoteCutRefusalV2::ObservationAfterDecisionCut)
+            select_native_replay_quote_cut_v2(&census, &frame_at(10), 20, 50),
+            Ok(&census[1]),
+            "the correction stands for its lineage"
         );
         assert_eq!(
-            select_native_replay_quote_cut_v2(&[candidate(15, 50), candidate(30, 40)], 10, 20, 40),
-            Err(NativeReplayQuoteCutRefusalV2::ObservationAfterDecisionCut),
-            "only quote cuts inside the interval are asked about the decision cut"
-        );
-        assert_eq!(
-            select_native_replay_quote_cut_v2(&[candidate(30, 50)], 10, 20, 40),
-            Err(NativeReplayQuoteCutRefusalV2::QuoteCutMissing)
+            select_native_replay_quote_cut_v2(&census, &frame_at(10), 20, 45),
+            Ok(&census[0]),
+            "a correction the Owner could not yet see leaves the original"
         );
     }
 

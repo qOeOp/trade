@@ -330,7 +330,7 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     // A quote cut is a PIT snapshot whose verified batch holds Quote rows and nothing else. It is
     // not a frame and takes no frame ordinal: a frame's liquidity is the one quote cut strictly
     // between its BAR and its bound, which the resolver finds by scope and event time.
-    "CREATE TABLE IF NOT EXISTS market_data_private.native_replay_quote_cut_census_v2 (snapshot_identity BYTEA PRIMARY KEY REFERENCES market_data_private.pit_snapshot_facts_v1(snapshot_identity) ON DELETE RESTRICT, scope_digest BYTEA NOT NULL CHECK (octet_length(scope_digest) = 32), snapshot_fact_digest BYTEA NOT NULL CHECK (octet_length(snapshot_fact_digest) = 32), event_effective_ns BIGINT NOT NULL CHECK (event_effective_ns >= 0), decision_cut_ns BIGINT NOT NULL CHECK (decision_cut_ns >= 0), correction_branch_digest BYTEA NOT NULL CHECK (octet_length(correction_branch_digest) = 32))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.native_replay_quote_cut_census_v2 (snapshot_identity BYTEA PRIMARY KEY REFERENCES market_data_private.pit_snapshot_facts_v1(snapshot_identity) ON DELETE RESTRICT, scope_digest BYTEA NOT NULL CHECK (octet_length(scope_digest) = 32), snapshot_fact_digest BYTEA NOT NULL CHECK (octet_length(snapshot_fact_digest) = 32), event_effective_ns BIGINT NOT NULL CHECK (event_effective_ns >= 0), decision_cut_ns BIGINT NOT NULL CHECK (decision_cut_ns >= 0), instrument_master_digest BYTEA NOT NULL CHECK (octet_length(instrument_master_digest) = 32), universe_selection_digest BYTEA NOT NULL CHECK (octet_length(universe_selection_digest) = 32), market_semantics_identity BYTEA NOT NULL CHECK (octet_length(market_semantics_identity) = 32), source_binding_lineage_root BYTEA NOT NULL CHECK (octet_length(source_binding_lineage_root) = 32), correction_lineage_root BYTEA NOT NULL CHECK (octet_length(correction_lineage_root) = 32), correction_lineage_version BIGINT NOT NULL CHECK (correction_lineage_version > 0))",
     "CREATE INDEX IF NOT EXISTS native_replay_quote_cut_census_v2_by_scope_and_time ON market_data_private.native_replay_quote_cut_census_v2 (scope_digest, event_effective_ns)",
     "CREATE TABLE IF NOT EXISTS market_data_private.native_replay_frame_sequences_v2 (sequence_identity BYTEA PRIMARY KEY CHECK (octet_length(sequence_identity) = 32), request_identity BYTEA NOT NULL UNIQUE CHECK (octet_length(request_identity) = 32), v1_binding_identity BYTEA NOT NULL CHECK (octet_length(v1_binding_identity) = 32), window_start_ns BIGINT NOT NULL CHECK (window_start_ns >= 0), window_end_ns_exclusive BIGINT NOT NULL CHECK (window_end_ns_exclusive > window_start_ns), first_snapshot_identity BYTEA NOT NULL CHECK (octet_length(first_snapshot_identity) = 32), second_snapshot_identity BYTEA NOT NULL CHECK (octet_length(second_snapshot_identity) = 32), sequence_bytes BYTEA NOT NULL CHECK (octet_length(sequence_bytes) > 0), receipt_identity BYTEA NOT NULL UNIQUE CHECK (octet_length(receipt_identity) = 32), receipt_bytes BYTEA NOT NULL CHECK (octet_length(receipt_bytes) > 0), CHECK (first_snapshot_identity <> second_snapshot_identity))",
     "CREATE TABLE IF NOT EXISTS market_data_private.native_replay_frame_sequence_outbox_v2 (outbox_identity BYTEA PRIMARY KEY CHECK (octet_length(outbox_identity) = 32), sequence_identity BYTEA NOT NULL UNIQUE REFERENCES market_data_private.native_replay_frame_sequences_v2(sequence_identity) ON DELETE RESTRICT, payload_digest BYTEA NOT NULL CHECK (octet_length(payload_digest) = 32), payload BYTEA NOT NULL CHECK (octet_length(payload) > 0))",
@@ -647,8 +647,15 @@ impl MarketDataOwnerPostgres {
     /// `docs/owners/market-data.md` takes a frame's liquidity from its quote cut: an Owner-verified
     /// snapshot strictly after the frame's BAR cut and strictly before `bound_ns_exclusive` - the
     /// next frame's BAR cut, or the window's end for the last one. The caller names no quote cut:
-    /// the census is searched in the frame's own scope, exactly one must lie in the interval, and
-    /// its batch is read back and verified here before it is compared with the frame's.
+    /// the census is searched in the frame's own scope and coordinates, exactly one correction
+    /// lineage must lie in the interval as the Owner saw it at the decision cut, and its batch is
+    /// read back and verified here before it is compared with the frame's.
+    ///
+    /// What the caller does choose is `bound_ns_exclusive` and `request_decision_cut_ns`, and this
+    /// function does not check the bound against the next frame. A caller can therefore only pick
+    /// among Owner-verified quote cuts on the frame's own coordinates - narrowing the bound where
+    /// two collide, for instance - and never hand the frame anything else. Deriving the bound from
+    /// the frame census belongs to the sequence resolver that calls this.
     ///
     /// # Errors
     ///
@@ -675,7 +682,7 @@ impl MarketDataOwnerPostgres {
         .map_err(|_| NativeReplayQuoteCutRefusalV2::CustodyUnavailable)?;
         let chosen = select_native_replay_quote_cut_v2(
             &candidates,
-            frame_coordinates.event_effective_ns,
+            &frame_coordinates,
             bound_ns_exclusive,
             request_decision_cut_ns,
         )?;
@@ -6374,14 +6381,22 @@ async fn admit_native_replay_quote_cut_census(
     let decision_cut = i64::try_from(time.decision_cut.value)
         .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
     sqlx::query(
-        "INSERT INTO market_data_private.native_replay_quote_cut_census_v2(snapshot_identity,scope_digest,snapshot_fact_digest,event_effective_ns,decision_cut_ns,correction_branch_digest) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (snapshot_identity) DO NOTHING",
+        "INSERT INTO market_data_private.native_replay_quote_cut_census_v2(snapshot_identity,scope_digest,snapshot_fact_digest,event_effective_ns,decision_cut_ns,instrument_master_digest,universe_selection_digest,market_semantics_identity,source_binding_lineage_root,correction_lineage_root,correction_lineage_version) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (snapshot_identity) DO NOTHING",
     )
     .bind(fact.snapshot_identity().as_bytes().as_slice())
     .bind(fact.request().scope_digest.as_bytes().as_slice())
     .bind(fact.digest().as_bytes().as_slice())
     .bind(event_effective)
     .bind(decision_cut)
+    .bind(fact.request().instrument_master_digest.as_bytes().as_slice())
+    .bind(fact.request().universe_selection_digest.as_bytes().as_slice())
+    .bind(fact.request().market_semantics_identity.as_bytes().as_slice())
+    .bind(fact.source_binding_lineage_root().as_bytes().as_slice())
     .bind(fact.lineage_root().as_bytes().as_slice())
+    .bind(
+        i64::try_from(fact.lineage_version())
+            .map_err(|_| PitSnapshotError::PersistenceUnavailable)?,
+    )
     .execute(&mut **transaction)
     .await
     .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
@@ -6403,7 +6418,7 @@ async fn load_native_replay_quote_cut_census_v2(
     let before =
         i64::try_from(before_ns_exclusive).map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
     let rows = sqlx::query(
-        "SELECT snapshot_identity,snapshot_fact_digest,event_effective_ns,decision_cut_ns FROM market_data_private.native_replay_quote_cut_census_v2 WHERE scope_digest=$1 AND event_effective_ns>$2 AND event_effective_ns<$3 ORDER BY event_effective_ns,snapshot_identity",
+        "SELECT snapshot_identity,snapshot_fact_digest,scope_digest,event_effective_ns,decision_cut_ns,instrument_master_digest,universe_selection_digest,market_semantics_identity,source_binding_lineage_root,correction_lineage_root,correction_lineage_version FROM market_data_private.native_replay_quote_cut_census_v2 WHERE scope_digest=$1 AND event_effective_ns>$2 AND event_effective_ns<$3 ORDER BY event_effective_ns,snapshot_identity",
     )
     .bind(scope_digest.as_bytes().as_slice())
     .bind(after)
@@ -6422,8 +6437,15 @@ async fn load_native_replay_quote_cut_census_v2(
             Ok(NativeReplayQuoteCutCandidateV2 {
                 snapshot_identity: census_digest(row, "snapshot_identity")?,
                 snapshot_fact_digest: census_digest(row, "snapshot_fact_digest")?,
+                scope_digest: census_digest(row, "scope_digest")?,
+                instrument_master_digest: census_digest(row, "instrument_master_digest")?,
+                universe_selection_digest: census_digest(row, "universe_selection_digest")?,
+                market_semantics_identity: census_digest(row, "market_semantics_identity")?,
+                source_binding_lineage_root: census_digest(row, "source_binding_lineage_root")?,
                 event_effective_ns: nanos("event_effective_ns")?,
                 decision_cut_ns: nanos("decision_cut_ns")?,
+                correction_lineage_root: census_digest(row, "correction_lineage_root")?,
+                correction_lineage_version: nanos("correction_lineage_version")?,
             })
         })
         .collect()
