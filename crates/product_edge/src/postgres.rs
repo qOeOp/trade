@@ -3554,16 +3554,17 @@ impl ProductEdgePostgresOwnerV1 {
         .fetch_one(&mut *transaction)
         .await
         .map_err(storage)?;
+        let admission_mode = if existing_hint {
+            DownstreamAdmissionModeV1::Historical
+        } else {
+            DownstreamAdmissionModeV1::FirstMutation {
+                read_cut_epoch_ms: database_now(&mut transaction).await?,
+            }
+        };
         let admission = resolve_admission_for_downstream_in_transaction(
             &mut transaction,
             &request.admission,
-            if existing_hint {
-                DownstreamAdmissionModeV1::Historical
-            } else {
-                DownstreamAdmissionModeV1::FirstMutation {
-                    read_cut_epoch_ms: now_ms()?,
-                }
-            },
+            admission_mode,
         )
         .await?;
         let payload: SourceIntakeAdmissionPayloadV1 =
@@ -3653,7 +3654,7 @@ impl ProductEdgePostgresOwnerV1 {
             return Ok(readback);
         }
 
-        let write_cut = now_ms()?;
+        let write_cut = database_now(&mut transaction).await?;
         if !admission.authorizes_first_mutation_at(write_cut) {
             return Err(unavailable_for(
                 Reason::PolicyNotCurrent,
@@ -7032,7 +7033,9 @@ mod tests {
 
     /// A research window compares the cut with `owner_cut`, which the R&D Owner stamps with the
     /// database's `clock_timestamp()`, and with a projection and expiry the R&D Owner stamps from
-    /// the same clock. A cut from this process's clock would put two clocks on either side.
+    /// the same clock. A cut from this process's clock would put two clocks on either side. The
+    /// source-intake claim makes the same first-mutation decision as the provider claim, so it
+    /// takes its cuts from the same clock and cannot answer differently at a window's edge.
     #[rstest]
     fn research_window_cuts_come_from_the_owner_transaction_clock() {
         let source = include_str!("postgres.rs");
@@ -7040,6 +7043,7 @@ mod tests {
         for signature in [
             "async fn admit_request_inner(",
             "async fn claim_provider_invocation_inner(",
+            "pub async fn claim_source_intake_invocation(",
         ] {
             let body = item_body(source, signature);
             assert!(
