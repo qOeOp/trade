@@ -134,6 +134,49 @@ fn unavailable_for(reason: Reason, kind: Subject, identity: &str) -> ProductEdge
     ProductEdgeError::unavailable_for(reason, kind, identity)
 }
 
+/// The values a research window is checked against at a cut.
+#[derive(Clone, Copy, Debug)]
+struct ResearchWindowV1 {
+    owner_cut_epoch_ms: u64,
+    projection_at_epoch_ms: u64,
+    valid_through_epoch_ms: u64,
+    source_not_before_epoch_ms: u64,
+    source_valid_through_epoch_ms: u64,
+    /// Whether the source authorization fails at the cut for anything other than its window,
+    /// which is revocation; it is consulted only inside the window.
+    source_revoked: bool,
+}
+
+impl ResearchWindowV1 {
+    /// The conditions that refuse the window at `cut_epoch_ms`, by name, in a fixed order.
+    fn refusals_at(self, cut_epoch_ms: u64) -> Vec<&'static str> {
+        let within_source_window = cut_epoch_ms >= self.source_not_before_epoch_ms
+            && cut_epoch_ms < self.source_valid_through_epoch_ms;
+        [
+            (
+                self.owner_cut_epoch_ms > cut_epoch_ms,
+                "owner_cut_after_cut",
+            ),
+            (
+                self.projection_at_epoch_ms > cut_epoch_ms,
+                "projection_after_cut",
+            ),
+            (
+                cut_epoch_ms >= self.valid_through_epoch_ms,
+                "research_view_expired",
+            ),
+            (!within_source_window, "source_authorization_outside_window"),
+            (
+                within_source_window && self.source_revoked,
+                "source_authorization_revoked",
+            ),
+        ]
+        .into_iter()
+        .filter_map(|(holds, name)| holds.then_some(name))
+        .collect()
+    }
+}
+
 /// Refuses a research intent whose window does not hold at `cut_epoch_ms`, and says which part.
 ///
 /// Four conditions answer to one reason, `WINDOW_NOT_CURRENT`, because they share a repair: the
@@ -149,30 +192,15 @@ fn research_window_refusal(
     intent_identity: &str,
 ) -> Option<ProductEdgeError> {
     let evidence = &locked.evidence;
-    let within_source_window = cut_epoch_ms >= source_authorization.not_before_epoch_ms()
-        && cut_epoch_ms < source_authorization.valid_through_epoch_ms();
-    let held = [
-        (
-            locked.owner_cut_epoch_ms > cut_epoch_ms,
-            "owner_cut_after_cut",
-        ),
-        (
-            evidence.projection_at_epoch_ms > cut_epoch_ms,
-            "projection_after_cut",
-        ),
-        (
-            cut_epoch_ms >= evidence.valid_through_epoch_ms,
-            "research_view_expired",
-        ),
-        (!within_source_window, "source_authorization_outside_window"),
-        (
-            within_source_window && !source_authorization.is_current_at(cut_epoch_ms),
-            "source_authorization_revoked",
-        ),
-    ]
-    .into_iter()
-    .filter_map(|(holds, name)| holds.then_some(name))
-    .collect::<Vec<_>>();
+    let window = ResearchWindowV1 {
+        owner_cut_epoch_ms: locked.owner_cut_epoch_ms,
+        projection_at_epoch_ms: evidence.projection_at_epoch_ms,
+        valid_through_epoch_ms: evidence.valid_through_epoch_ms,
+        source_not_before_epoch_ms: source_authorization.not_before_epoch_ms(),
+        source_valid_through_epoch_ms: source_authorization.valid_through_epoch_ms(),
+        source_revoked: !source_authorization.is_current_at(cut_epoch_ms),
+    };
+    let held = window.refusals_at(cut_epoch_ms);
 
     if held.is_empty() {
         return None;
@@ -7029,6 +7057,82 @@ mod tests {
         .min()
         .expect("item end");
         &rest[..end]
+    }
+
+    /// Which clock each value of a research window check is read from.
+    #[derive(Clone, Copy, Debug)]
+    enum ClockWiring {
+        /// Before this change: the R&D lock stamps `owner_cut` from the database clock, while the
+        /// research commit stamps its projection and expiry, and Product Edge takes its cut, from
+        /// the process clock.
+        ProcessCutAndStamps,
+        /// Every stamp and every cut from the database clock.
+        OwnerTransaction,
+    }
+
+    /// A research window and the cut Product Edge checks it at, when the database clock runs
+    /// `db_ahead_ms` ahead of the process clock (negative: behind).
+    ///
+    /// Real time runs research commit, then the R&D lock 5 ms later, then Product Edge's cut
+    /// 5 ms after that, which is the order the code takes them in.
+    fn window_under(wiring: ClockWiring, db_ahead_ms: i64) -> (ResearchWindowV1, u64) {
+        let (commit_at, locked_at, cut_at) =
+            (1_800_000_000_000_i64, 1_800_000_000_005, 1_800_000_000_010);
+        let db = |at: i64| u64::try_from(at + db_ahead_ms).expect("epoch");
+        let process = |at: i64| u64::try_from(at).expect("epoch");
+        let (projection, cut) = match wiring {
+            ClockWiring::ProcessCutAndStamps => (process(commit_at), process(cut_at)),
+            ClockWiring::OwnerTransaction => (db(commit_at), db(cut_at)),
+        };
+        let declared = process(commit_at);
+        (
+            ResearchWindowV1 {
+                owner_cut_epoch_ms: db(locked_at),
+                projection_at_epoch_ms: projection,
+                valid_through_epoch_ms: projection + 600_000,
+                source_not_before_epoch_ms: declared - 3_600_000,
+                source_valid_through_epoch_ms: declared + 3_600_000,
+                source_revoked: false,
+            },
+            cut,
+        )
+    }
+
+    /// What a successor research intent meets on its way through: the R&D successor lock first,
+    /// which returns no envelope when `projection_at > owner_cut` or `owner_cut >= valid_through`
+    /// (`rd_owner_api.lock_current_successor_research_for_artifact_v1`), then the window check at
+    /// Product Edge's cut.
+    fn refusals_under(wiring: ClockWiring, db_ahead_ms: i64) -> Vec<&'static str> {
+        let (window, cut) = window_under(wiring, db_ahead_ms);
+        if window.projection_at_epoch_ms > window.owner_cut_epoch_ms
+            || window.owner_cut_epoch_ms >= window.valid_through_epoch_ms
+        {
+            return vec!["successor_lock_refused"];
+        }
+        window.refusals_at(cut)
+    }
+
+    /// The WindowNotCurrent family, at its cause. With the old wiring a current successor research
+    /// intent is refused whichever way the database clock is skewed: 16 ms ahead, Product Edge's
+    /// window check sees `owner_cut` after its cut, which is the refusal a diagnostic chain run
+    /// recorded; 16 ms behind, the successor lock sees the projection after its `owner_cut`. The
+    /// first-research lock makes no such comparison, so there only the first direction refuses.
+    /// With every stamp and cut from one clock, no skew refuses either.
+    #[rstest]
+    #[case::old_db_ahead(ClockWiring::ProcessCutAndStamps, 16, &["owner_cut_after_cut"])]
+    #[case::old_same_clock(ClockWiring::ProcessCutAndStamps, 0, &[])]
+    #[case::old_db_behind(ClockWiring::ProcessCutAndStamps, -16, &["successor_lock_refused"])]
+    #[case::new_db_ahead(ClockWiring::OwnerTransaction, 16, &[])]
+    #[case::new_same_clock(ClockWiring::OwnerTransaction, 0, &[])]
+    #[case::new_db_behind(ClockWiring::OwnerTransaction, -16, &[])]
+    #[case::new_db_far_ahead(ClockWiring::OwnerTransaction, 1_000_000, &[])]
+    #[case::new_db_far_behind(ClockWiring::OwnerTransaction, -1_000_000, &[])]
+    fn a_research_window_holds_under_clock_skew_only_on_one_clock(
+        #[case] wiring: ClockWiring,
+        #[case] db_ahead_ms: i64,
+        #[case] refused: &[&str],
+    ) {
+        assert_eq!(refusals_under(wiring, db_ahead_ms), refused);
     }
 
     /// A research window compares the cut with `owner_cut`, which the R&D Owner stamps with the
