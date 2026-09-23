@@ -9,6 +9,7 @@ use std::{
 };
 
 use sqlx::{PgPool, postgres::PgPoolOptions};
+use tracing_subscriber::{Layer as _, layer::SubscriberExt as _};
 use url::Url;
 
 const EXPECTED_DATABASE_ENV: &str = "VIBE_POSTGRES_TEST_DATABASE_NAME";
@@ -72,46 +73,92 @@ const CANONICAL_OWNER_TEST_URLS: [(&str, &str); CanonicalOwnerTestRoleV1::COUNT]
 /// entry's record. Unset, nothing is installed and nothing changes.
 pub const TEST_LOG_FILE_ENV: &str = "VIBE_TEST_LOG_FILE";
 
-/// The first line an admitted test writes into [`TEST_LOG_FILE_ENV`] when its warnings are collected.
+/// The first line a collected test writes into [`TEST_LOG_FILE_ENV`] when its warnings are collected.
 ///
 /// A missing or empty file says nothing about whether the code under test warned; this line says the
 /// collector was there, so a file holding only this line is a quiet entry rather than a blind one.
 pub const TEST_LOG_COLLECTING_MARKER: &str =
     "vibe-testkit: collecting WARN and above for this test process";
 
+/// A layer of the caller's own, installed in the same subscriber as the collector.
+pub type TestLogLayer =
+    Box<dyn tracing_subscriber::Layer<tracing_subscriber::Registry> + Send + Sync + 'static>;
+
 /// Installs one process-wide subscriber that appends `WARN` and above to [`TEST_LOG_FILE_ENV`].
 ///
-/// Admission is where every Owner PostgreSQL proof enters, so this is called there rather than from
-/// each test. It runs once per process and returns the first outcome to every later caller.
-fn collect_warnings_into_test_log() -> Result<(), DedicatedPostgresTestDatabaseError> {
+/// Admission calls this, which covers every Owner PostgreSQL proof that enters through it. A proof
+/// that connects without admission calls it itself, first, or its entry reads as not observed. It
+/// runs once per process and returns the first outcome to every later caller.
+///
+/// # Errors
+///
+/// [`DedicatedPostgresTestDatabaseError::TestLogUnavailable`] when [`TEST_LOG_FILE_ENV`] names a
+/// file this process cannot open or write.
+pub fn collect_warnings_into_test_log() -> Result<(), DedicatedPostgresTestDatabaseError> {
+    collect_warnings_into_test_log_alongside(None)
+}
+
+/// [`collect_warnings_into_test_log`], with a layer of the caller's own in the same subscriber.
+///
+/// A process has one global subscriber. A test that installs its own - to hear the servers it runs
+/// in-process, say - leaves the collector nowhere to go, and its entry reads as not observed. This
+/// puts both layers in one subscriber instead. Call it before admission: the first call decides, and
+/// a later `extra` is dropped.
+///
+/// # Errors
+///
+/// [`DedicatedPostgresTestDatabaseError::TestLogUnavailable`] when [`TEST_LOG_FILE_ENV`] names a
+/// file this process cannot open or write.
+pub fn collect_warnings_into_test_log_alongside(
+    extra: Option<TestLogLayer>,
+) -> Result<(), DedicatedPostgresTestDatabaseError> {
     static INSTALLED: OnceLock<Result<(), DedicatedPostgresTestDatabaseError>> = OnceLock::new();
-    *INSTALLED.get_or_init(|| {
-        let Some(path) = env::var_os(TEST_LOG_FILE_ENV) else {
-            return Ok(());
-        };
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-            .map_err(|_| DedicatedPostgresTestDatabaseError::TestLogUnavailable)?;
-        let writer = file
-            .try_clone()
-            .map_err(|_| DedicatedPostgresTestDatabaseError::TestLogUnavailable)?;
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(Mutex::new(writer))
-            .with_ansi(false)
-            .with_max_level(tracing::Level::WARN)
-            .finish();
-        // Another global subscriber means these warnings went somewhere else. Say so in the file
-        // instead of writing the marker, so the entry reads as unobserved rather than as quiet.
-        let first_line = if tracing::subscriber::set_global_default(subscriber).is_ok() {
-            TEST_LOG_COLLECTING_MARKER
-        } else {
-            "vibe-testkit: another global subscriber was already set; this process's warnings are not here"
-        };
-        writeln!(file, "{first_line}")
-            .map_err(|_| DedicatedPostgresTestDatabaseError::TestLogUnavailable)
-    })
+    *INSTALLED.get_or_init(move || install_test_subscriber(env::var_os(TEST_LOG_FILE_ENV), extra))
+}
+
+/// The body of [`collect_warnings_into_test_log_alongside`], with the file named directly so it can
+/// be exercised without touching the process environment.
+fn install_test_subscriber(
+    path: Option<std::ffi::OsString>,
+    extra: Option<TestLogLayer>,
+) -> Result<(), DedicatedPostgresTestDatabaseError> {
+    let collected = match path {
+        None => None,
+        Some(path) => {
+            let file = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+                .map_err(|_| DedicatedPostgresTestDatabaseError::TestLogUnavailable)?;
+            let writer = file
+                .try_clone()
+                .map_err(|_| DedicatedPostgresTestDatabaseError::TestLogUnavailable)?;
+            let layer = tracing_subscriber::fmt::layer()
+                .with_writer(Mutex::new(writer))
+                .with_ansi(false)
+                .with_filter(tracing_subscriber::filter::LevelFilter::WARN);
+            Some((file, layer))
+        }
+    };
+
+    if collected.is_none() && extra.is_none() {
+        return Ok(());
+    }
+    let (file, layer) = collected.unzip();
+    let subscriber = tracing_subscriber::registry().with(extra).with(layer);
+    let installed = tracing::subscriber::set_global_default(subscriber).is_ok();
+    let Some(mut file) = file else {
+        return Ok(());
+    };
+    // Another global subscriber means these warnings went somewhere else. Say so in the file
+    // instead of writing the marker, so the entry reads as unobserved rather than as quiet.
+    let first_line = if installed {
+        TEST_LOG_COLLECTING_MARKER
+    } else {
+        "vibe-testkit: another global subscriber was already set; this process's warnings are not here"
+    };
+    writeln!(file, "{first_line}")
+        .map_err(|_| DedicatedPostgresTestDatabaseError::TestLogUnavailable)
 }
 
 /// A stable, credential-redacting failure from dedicated test-database admission.
@@ -912,6 +959,57 @@ fn validate_observed_marker(
 
 #[cfg(test)]
 mod tests {
+    /// Both layers must hear through the one subscriber: the collector keeps WARN and above and
+    /// starts with its marker, the caller's layer keeps what its own filter admits. This is the only
+    /// test in this binary that installs a global subscriber.
+    #[rstest::rstest]
+    fn the_collector_and_a_callers_layer_share_one_subscriber() {
+        use tracing_subscriber::Layer as _;
+
+        let directory = std::env::temp_dir().join(format!(
+            "vibe-testkit-collector-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock after the epoch")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&directory).expect("temporary directory");
+        let collected = directory.join("collected.log");
+        let heard = directory.join("heard.log");
+        let heard_layer = tracing_subscriber::fmt::layer()
+            .with_writer(std::sync::Mutex::new(
+                std::fs::File::create(&heard).expect("caller's log"),
+            ))
+            .with_ansi(false)
+            .with_filter(tracing_subscriber::filter::LevelFilter::INFO)
+            .boxed();
+
+        super::install_test_subscriber(Some(collected.clone().into()), Some(heard_layer))
+            .expect("the shared subscriber installs");
+        tracing::info!("an info line only the caller keeps");
+        tracing::warn!("a warning both keep");
+
+        let collected = std::fs::read_to_string(&collected).expect("collected log");
+        let heard = std::fs::read_to_string(&heard).expect("caller's log");
+        std::fs::remove_dir_all(&directory).ok();
+
+        assert_eq!(
+            collected.lines().next(),
+            Some(super::TEST_LOG_COLLECTING_MARKER)
+        );
+        assert!(collected.contains("a warning both keep"), "{collected}");
+        assert!(
+            !collected.contains("an info line only the caller keeps"),
+            "{collected}"
+        );
+        assert!(heard.contains("a warning both keep"), "{heard}");
+        assert!(
+            heard.contains("an info line only the caller keeps"),
+            "{heard}"
+        );
+    }
+
     use rstest::rstest;
 
     use super::*;

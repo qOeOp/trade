@@ -44,6 +44,7 @@ use vibe_common::{
     cache::Cache,
     clients::ExecutionClient,
     live::runner::set_exec_event_sender,
+    logging::{logger::LogGuard, logging_is_initialized},
     messages::{
         ExecutionEvent,
         execution::{
@@ -52,7 +53,7 @@ use vibe_common::{
             ModifyOrder, QueryAccount, QueryOrder, SubmitOrder, SubmitOrderList,
         },
     },
-    testing::wait_until_async,
+    testing::{init_logger_for_testing, wait_until_async_labeled},
 };
 use vibe_core::{Params, UnixNanos};
 use vibe_live::ExecutionClientCore;
@@ -830,13 +831,14 @@ async fn start_exec_test_server() -> SocketAddr {
     let health_url = format!("http://{addr}/fapi/v1/ping");
     let http_client =
         HttpClient::new(HashMap::new(), Vec::new(), Vec::new(), None, None, None).unwrap();
-    wait_until_async(
+    wait_until_async_labeled(
         || {
             let url = health_url.clone();
             let client = http_client.clone();
             async move { client.get(url, None, None, Some(1), None).await.is_ok() }
         },
         Duration::from_secs(5),
+        "the mock server to answer its health check in `start_exec_test_server`",
     )
     .await;
 
@@ -871,13 +873,14 @@ async fn start_exec_test_server_with_leverage_reject() -> SocketAddr {
     let health_url = format!("http://{addr}/fapi/v1/ping");
     let http_client =
         HttpClient::new(HashMap::new(), Vec::new(), Vec::new(), None, None, None).unwrap();
-    wait_until_async(
+    wait_until_async_labeled(
         || {
             let url = health_url.clone();
             let client = http_client.clone();
             async move { client.get(url, None, None, Some(1), None).await.is_ok() }
         },
         Duration::from_secs(5),
+        "the mock server to answer its health check in `start_exec_test_server_with_leverage_reject`",
     )
     .await;
 
@@ -908,13 +911,14 @@ async fn start_exec_test_server_with_command_responses(
     let health_url = format!("http://{addr}/fapi/v1/ping");
     let http_client =
         HttpClient::new(HashMap::new(), Vec::new(), Vec::new(), None, None, None).unwrap();
-    wait_until_async(
+    wait_until_async_labeled(
         || {
             let url = health_url.clone();
             let client = http_client.clone();
             async move { client.get(url, None, None, Some(1), None).await.is_ok() }
         },
         Duration::from_secs(5),
+        "the mock server to answer its health check in `start_exec_test_server_with_command_responses`",
     )
     .await;
 
@@ -954,13 +958,14 @@ async fn start_exec_test_server_with_query_capture_and_responses(
     let health_url = format!("http://{addr}/fapi/v1/ping");
     let http_client =
         HttpClient::new(HashMap::new(), Vec::new(), Vec::new(), None, None, None).unwrap();
-    wait_until_async(
+    wait_until_async_labeled(
         || {
             let url = health_url.clone();
             let client = http_client.clone();
             async move { client.get(url, None, None, Some(1), None).await.is_ok() }
         },
         Duration::from_secs(5),
+        "the mock server to answer its health check in `start_exec_test_server_with_query_capture_and_responses`",
     )
     .await;
 
@@ -996,13 +1001,14 @@ async fn start_exec_test_server_with_ws_trading_capture_and_hedge_mode(
     let health_url = format!("http://{addr}/fapi/v1/ping");
     let http_client =
         HttpClient::new(HashMap::new(), Vec::new(), Vec::new(), None, None, None).unwrap();
-    wait_until_async(
+    wait_until_async_labeled(
         || {
             let url = health_url.clone();
             let client = http_client.clone();
             async move { client.get(url, None, None, Some(1), None).await.is_ok() }
         },
         Duration::from_secs(5),
+        "the mock server to answer its health check in `start_exec_test_server_with_ws_trading_capture_and_hedge_mode`",
     )
     .await;
 
@@ -1037,13 +1043,14 @@ async fn start_exec_test_server_with_algo_capture_and_hedge_mode(
     let health_url = format!("http://{addr}/fapi/v1/ping");
     let http_client =
         HttpClient::new(HashMap::new(), Vec::new(), Vec::new(), None, None, None).unwrap();
-    wait_until_async(
+    wait_until_async_labeled(
         || {
             let url = health_url.clone();
             let client = http_client.clone();
             async move { client.get(url, None, None, Some(1), None).await.is_ok() }
         },
         Duration::from_secs(5),
+        "the mock server to answer its health check in `start_exec_test_server_with_algo_capture_and_hedge_mode`",
     )
     .await;
 
@@ -1107,13 +1114,14 @@ async fn start_exec_test_server_with_gtd_algo_and_ws_capture() -> (
     let health_url = format!("http://{addr}/fapi/v1/ping");
     let http_client =
         HttpClient::new(HashMap::new(), Vec::new(), Vec::new(), None, None, None).unwrap();
-    wait_until_async(
+    wait_until_async_labeled(
         || {
             let url = health_url.clone();
             let client = http_client.clone();
             async move { client.get(url, None, None, Some(1), None).await.is_ok() }
         },
         Duration::from_secs(5),
+        "the mock server to answer its health check in `start_exec_test_server_with_gtd_algo_and_ws_capture`",
     )
     .await;
 
@@ -1233,17 +1241,36 @@ async fn start_exec_test_server_with_order_capture_and_hedge_mode(
     let health_url = format!("http://{addr}/fapi/v1/ping");
     let http_client =
         HttpClient::new(HashMap::new(), Vec::new(), Vec::new(), None, None, None).unwrap();
-    wait_until_async(
+    wait_until_async_labeled(
         || {
             let url = health_url.clone();
             let client = http_client.clone();
             async move { client.get(url, None, None, Some(1), None).await.is_ok() }
         },
         Duration::from_secs(5),
+        "the mock server to answer its health check in `start_exec_test_server_with_order_capture_and_hedge_mode`",
     )
     .await;
 
     (addr, captured_query)
+}
+
+thread_local! {
+    /// Dropped when the test thread ends, after a panic too, which is what flushes the lines the
+    /// client's spawned tasks logged before the failure was recorded.
+    static TEST_LOG_GUARD: RefCell<Option<LogGuard>> = const { RefCell::new(None) };
+}
+
+/// Installs a logger once per process. The client's spawned tasks report a failed command only
+/// by logging it - `submit_order failed: <cause>` - and without a logger that line goes nowhere,
+/// so a test that times out waiting for the command has nothing to say about why.
+fn ensure_test_logging() {
+    if logging_is_initialized() {
+        return;
+    }
+    let guard = init_logger_for_testing(Some(log::LevelFilter::Debug))
+        .expect("the test logger should initialize");
+    TEST_LOG_GUARD.with(|slot| *slot.borrow_mut() = Some(guard));
 }
 
 fn create_test_execution_client(
@@ -1266,6 +1293,7 @@ fn create_test_execution_client_with_leverages(
     tokio::sync::mpsc::UnboundedReceiver<ExecutionEvent>,
     Rc<RefCell<Cache>>,
 ) {
+    ensure_test_logging();
     let trader_id = TraderId::from("TESTER-001");
     let account_id = AccountId::from("BINANCE-001");
     let client_id = *BINANCE_CLIENT_ID;
@@ -1518,7 +1546,7 @@ async fn test_submit_order_generates_submitted_event() {
 
     // Futures HTTP submit emits OrderSubmitted synchronously;
     // OrderAccepted arrives via the WS user data stream
-    wait_until_async(
+    wait_until_async_labeled(
         || {
             let found = rx
                 .try_recv()
@@ -1526,6 +1554,7 @@ async fn test_submit_order_generates_submitted_event() {
             async move { found }
         },
         Duration::from_secs(5),
+        "an OrderSubmitted event in `test_submit_order_generates_submitted_event`",
     )
     .await;
 }
@@ -1546,12 +1575,13 @@ async fn test_submit_usdm_gtd_order_encodes_expiry_over_http() {
         add_gtd_limit_order_to_cache(&cache, ClientOrderId::new("gtd-http-test-001"), expire_time);
     client.submit_order(submit_order_command(&order)).unwrap();
 
-    wait_until_async(
+    wait_until_async_labeled(
         || {
             let captured_query = captured_query.clone();
             async move { captured_query.lock().unwrap().is_some() }
         },
         Duration::from_secs(5),
+        "the order request to reach the mock in `test_submit_usdm_gtd_order_encodes_expiry_over_http`",
     )
     .await;
 
@@ -1671,7 +1701,7 @@ async fn test_submit_order_list_denies_linked_conditional_orders_without_batch_s
         .unwrap();
 
     let mut denied_count = 0;
-    wait_until_async(
+    wait_until_async_labeled(
         || {
             while let Ok(event) = rx.try_recv() {
                 if matches!(event, ExecutionEvent::Order(OrderEventAny::Denied(_))) {
@@ -1682,6 +1712,7 @@ async fn test_submit_order_list_denies_linked_conditional_orders_without_batch_s
             async move { done }
         },
         Duration::from_secs(5),
+        "two OrderDenied events in `test_submit_order_list_denies_linked_conditional_orders_without_batch_submit`",
     )
     .await;
 
@@ -1767,13 +1798,14 @@ async fn test_submit_trailing_stop_order_uses_activate_price_and_precise_callbac
 
     client.submit_order(submit_cmd).unwrap();
 
-    wait_until_async(
+    wait_until_async_labeled(
         || {
             let captured_query = captured_query.clone();
 
             async move { captured_query.lock().unwrap().is_some() }
         },
         Duration::from_secs(5),
+        "the order request to reach the mock in `test_submit_trailing_stop_order_uses_activate_price_and_precise_callback_rate`",
     )
     .await;
 
@@ -1860,13 +1892,14 @@ async fn test_submit_algo_order_in_hedge_mode_omits_reduce_only() {
 
     client.submit_order(submit_cmd).unwrap();
 
-    wait_until_async(
+    wait_until_async_labeled(
         || {
             let captured_query = captured_query.clone();
 
             async move { captured_query.lock().unwrap().is_some() }
         },
         Duration::from_secs(5),
+        "the order request to reach the mock in `test_submit_algo_order_in_hedge_mode_omits_reduce_only`",
     )
     .await;
 
@@ -1900,12 +1933,13 @@ async fn test_submit_usdm_gtd_algo_uses_http_when_ws_trading_is_active() {
     );
     client.submit_order(submit_order_command(&order)).unwrap();
 
-    wait_until_async(
+    wait_until_async_labeled(
         || {
             let captured_query = captured_query.clone();
             async move { captured_query.lock().unwrap().is_some() }
         },
         Duration::from_secs(5),
+        "the order request to reach the mock in `test_submit_usdm_gtd_algo_uses_http_when_ws_trading_is_active`",
     )
     .await;
 
@@ -1947,13 +1981,14 @@ async fn test_submit_reduce_only_limit_order_respects_position_mode(
         .submit_order(submit_order_command(&order_any))
         .unwrap();
 
-    wait_until_async(
+    wait_until_async_labeled(
         || {
             let captured_query = captured_query.clone();
 
             async move { captured_query.lock().unwrap().is_some() }
         },
         Duration::from_secs(5),
+        "the order request to reach the mock in `test_submit_reduce_only_limit_order_respects_position_mode`",
     )
     .await;
 
@@ -2143,7 +2178,7 @@ async fn test_modify_order_completes() {
     client.modify_order(modify_cmd).unwrap();
 
     // Futures modify_order HTTP path emits OrderUpdated on success
-    wait_until_async(
+    wait_until_async_labeled(
         || {
             let found = rx
                 .try_recv()
@@ -2151,6 +2186,7 @@ async fn test_modify_order_completes() {
             async move { found }
         },
         Duration::from_secs(5),
+        "an OrderUpdated event in `test_modify_order_completes`",
     )
     .await;
 }
@@ -2551,12 +2587,13 @@ async fn test_delivery_order_routing_uses_raw_binance_symbol() {
     );
     client.submit_order(submit_order_command(&order)).unwrap();
 
-    wait_until_async(
+    wait_until_async_labeled(
         || {
             let captured_query = captured_query.clone();
             async move { captured_query.lock().unwrap().is_some() }
         },
         Duration::from_secs(5),
+        "the order request to reach the mock in `test_delivery_order_routing_uses_raw_binance_symbol`",
     )
     .await;
 
@@ -4497,15 +4534,16 @@ fn batch_cancel_order_command_from_cancels(cancels: Vec<CancelOrder>) -> BatchCa
 }
 
 async fn wait_for_command_requests(request_count: &AtomicUsize, expected: usize) {
-    wait_until_async(
+    wait_until_async_labeled(
         || async { request_count.load(Ordering::Relaxed) >= expected },
         Duration::from_secs(5),
+        &format!("{expected} command request(s) to reach the mock"),
     )
     .await;
 }
 
 async fn wait_for_query(captured_queries: &CapturedQueries, path: &'static str) -> CapturedQuery {
-    wait_until_async(
+    wait_until_async_labeled(
         || {
             let captured_queries = captured_queries.clone();
             async move {
@@ -4517,6 +4555,7 @@ async fn wait_for_query(captured_queries: &CapturedQueries, path: &'static str) 
             }
         },
         Duration::from_secs(5),
+        &format!("a `{path}` request to reach the mock"),
     )
     .await;
 
@@ -4534,7 +4573,7 @@ async fn wait_for_queries(
     path: &'static str,
     expected: usize,
 ) -> Vec<CapturedQuery> {
-    wait_until_async(
+    wait_until_async_labeled(
         || {
             let captured_queries = captured_queries.clone();
             async move {
@@ -4548,6 +4587,7 @@ async fn wait_for_queries(
             }
         },
         Duration::from_secs(5),
+        &format!("{expected} `{path}` requests to reach the mock"),
     )
     .await;
 
@@ -4565,7 +4605,7 @@ async fn wait_for_ws_trading_method(
     captured_messages: &CapturedWsTradingMessages,
     method: &'static str,
 ) -> serde_json::Value {
-    wait_until_async(
+    wait_until_async_labeled(
         || {
             let captured_messages = captured_messages.clone();
             async move {
@@ -4575,6 +4615,7 @@ async fn wait_for_ws_trading_method(
             }
         },
         Duration::from_secs(5),
+        &format!("a ws-trading `{method}` message to reach the mock"),
     )
     .await;
 
@@ -5117,12 +5158,13 @@ async fn test_submit_order_with_price_match_sends_price_match_and_omits_price() 
 
     client.submit_order(submit_cmd).unwrap();
 
-    wait_until_async(
+    wait_until_async_labeled(
         || {
             let captured_query = captured_query.clone();
             async move { captured_query.lock().unwrap().is_some() }
         },
         Duration::from_secs(5),
+        "the order request to reach the mock in `test_submit_order_with_price_match_sends_price_match_and_omits_price`",
     )
     .await;
 
@@ -5141,7 +5183,7 @@ async fn test_submit_order_with_price_match_sends_price_match_and_omits_price() 
     assert_eq!(query.get("quantity"), Some(&"0.001".to_string()));
 
     // Drain the submitted event to confirm the order was processed
-    wait_until_async(
+    wait_until_async_labeled(
         || {
             let found = rx
                 .try_recv()
@@ -5149,6 +5191,7 @@ async fn test_submit_order_with_price_match_sends_price_match_and_omits_price() 
             async move { found }
         },
         Duration::from_secs(5),
+        "an OrderSubmitted event in `test_submit_order_with_price_match_sends_price_match_and_omits_price`",
     )
     .await;
 }
@@ -5162,6 +5205,7 @@ fn create_test_execution_client_with_ws_trading(
     tokio::sync::mpsc::UnboundedReceiver<ExecutionEvent>,
     Rc<RefCell<Cache>>,
 ) {
+    ensure_test_logging();
     let trader_id = TraderId::from("TESTER-001");
     let account_id = AccountId::from("BINANCE-001");
     let client_id = *BINANCE_CLIENT_ID;
@@ -5271,13 +5315,14 @@ async fn start_injectable_test_server() -> (SocketAddr, WsInjector) {
     let health_url = format!("http://{addr}/fapi/v1/ping");
     let http_client =
         HttpClient::new(HashMap::new(), Vec::new(), Vec::new(), None, None, None).unwrap();
-    wait_until_async(
+    wait_until_async_labeled(
         || {
             let url = health_url.clone();
             let client = http_client.clone();
             async move { client.get(url, None, None, Some(1), None).await.is_ok() }
         },
         Duration::from_secs(5),
+        "the mock server to answer its health check in `start_injectable_test_server`",
     )
     .await;
 
@@ -5352,7 +5397,7 @@ async fn test_order_trade_update_processed_with_default_precision_on_cache_miss(
 
     // The untracked order path produces a FillReport then an OrderStatusReport.
     // wait_until_async panics on timeout, so reaching the end means success.
-    wait_until_async(
+    wait_until_async_labeled(
         || {
             let found = rx
                 .try_recv()
@@ -5360,6 +5405,7 @@ async fn test_order_trade_update_processed_with_default_precision_on_cache_miss(
             async move { found }
         },
         Duration::from_secs(5),
+        "an execution report in `test_order_trade_update_processed_with_default_precision_on_cache_miss`",
     )
     .await;
 }

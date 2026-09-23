@@ -198,6 +198,40 @@ impl InstrumentEconomicTermsPostgresOwnerV1 {
         event_time_ns: i128,
     ) -> Result<[InstrumentEconomicTermsReadbackV1; 2], InstrumentEconomicTermsPostgresErrorV1>
     {
+        // A pair is asked of a two-member cut; a one-member cut is answered by the member form.
+        if instrument_master.cut().members().len() != 2 {
+            return Err(InstrumentEconomicTermsPostgresErrorV1::InvalidSelection);
+        }
+        let [first, second]: [InstrumentEconomicTermsReadbackV1; 2] = self
+            .resolve_unique_native_replay_members(
+                instrument_master,
+                venue_identity,
+                quote_currency,
+                event_time_ns,
+            )
+            .await?
+            .try_into()
+            .map_err(|_| InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)?;
+        Ok([first, second])
+    }
+
+    /// Resolves one economic-terms readback for each member of the cut, in the cut's member order.
+    ///
+    /// Every member must resolve under one shared account scope, exactly once; a member count of
+    /// one is a single-instrument universe and resolves the same way.
+    ///
+    /// # Errors
+    ///
+    /// Returns before readback when custody is corrupt, no complete member set is valid, or more
+    /// than one fact or account scope could satisfy the same sealed execution context.
+    pub async fn resolve_unique_native_replay_members(
+        &self,
+        instrument_master: &InstrumentMasterReadbackV2,
+        venue_identity: &str,
+        quote_currency: &str,
+        event_time_ns: i128,
+    ) -> Result<Vec<InstrumentEconomicTermsReadbackV1>, InstrumentEconomicTermsPostgresErrorV1>
+    {
         if !valid_selector_text(venue_identity) || !valid_selector_text(quote_currency) {
             return Err(InstrumentEconomicTermsPostgresErrorV1::InvalidSelection);
         }
@@ -209,10 +243,10 @@ impl InstrumentEconomicTermsPostgresOwnerV1 {
         }) {
             return Err(InstrumentEconomicTermsPostgresErrorV1::UnknownSelection);
         }
-        let identities = [
-            members[0].fact().canonical_identity(),
-            members[1].fact().canonical_identity(),
-        ];
+        let identities = members
+            .iter()
+            .map(|member| member.fact().canonical_identity())
+            .collect::<Vec<_>>();
 
         let mut tx = self
             .pool
@@ -227,22 +261,21 @@ impl InstrumentEconomicTermsPostgresOwnerV1 {
         assert_acl_in_transaction(&mut tx).await?;
         assert_complete_ledger_in_transaction(&mut tx).await?;
         let rows = sqlx::query(
-            "SELECT f.fact_identity,f.meaning_identity,f.fact_bytes,f.custody_digest,r.receipt_identity,r.receipt_bytes,r.custody_digest AS receipt_custody_digest,s.instrument_identity AS selection_instrument_identity,s.venue_identity AS selection_venue_identity,s.account_scope_identity AS selection_account_scope_identity,s.quote_currency AS selection_quote_currency FROM instrument_owner_private.economic_terms_selection_v1 s JOIN instrument_owner_private.economic_terms_facts_v1 f ON f.fact_identity=s.fact_identity JOIN instrument_owner_private.economic_terms_receipts_v1 r ON r.fact_identity=f.fact_identity WHERE (s.instrument_identity=$1 OR s.instrument_identity=$2) AND s.venue_identity=$3 AND s.quote_currency=$4 ORDER BY f.fact_identity",
+            "SELECT f.fact_identity,f.meaning_identity,f.fact_bytes,f.custody_digest,r.receipt_identity,r.receipt_bytes,r.custody_digest AS receipt_custody_digest,s.instrument_identity AS selection_instrument_identity,s.venue_identity AS selection_venue_identity,s.account_scope_identity AS selection_account_scope_identity,s.quote_currency AS selection_quote_currency FROM instrument_owner_private.economic_terms_selection_v1 s JOIN instrument_owner_private.economic_terms_facts_v1 f ON f.fact_identity=s.fact_identity JOIN instrument_owner_private.economic_terms_receipts_v1 r ON r.fact_identity=f.fact_identity WHERE s.instrument_identity=ANY($1) AND s.venue_identity=$2 AND s.quote_currency=$3 ORDER BY f.fact_identity",
         )
-        .bind(identities[0])
-        .bind(identities[1])
+        .bind(&identities)
         .bind(venue_identity)
         .bind(quote_currency)
         .fetch_all(&mut *tx)
         .await
         .map_err(|cause| store_error(&cause))?;
 
-        let expected_digests = [
-            *members[0].fact().identity().as_bytes(),
-            *members[1].fact().identity().as_bytes(),
-        ];
+        let expected_digests = members
+            .iter()
+            .map(|member| *member.fact().identity().as_bytes())
+            .collect::<Vec<_>>();
         let mut readbacks = Vec::with_capacity(rows.len());
-        let mut by_scope: BTreeMap<String, [Vec<usize>; 2]> = BTreeMap::new();
+        let mut by_scope: BTreeMap<String, Vec<Vec<usize>>> = BTreeMap::new();
 
         for row in rows {
             let readback = decode_row(&row)?;
@@ -262,7 +295,7 @@ impl InstrumentEconomicTermsPostgresOwnerV1 {
                 let index = readbacks.len();
                 by_scope
                     .entry(input.account_scope_identity.clone())
-                    .or_insert_with(|| [Vec::new(), Vec::new()])[member_index]
+                    .or_insert_with(|| vec![Vec::new(); members.len()])[member_index]
                     .push(index);
             }
             readbacks.push(Some(readback));
@@ -270,21 +303,25 @@ impl InstrumentEconomicTermsPostgresOwnerV1 {
 
         let complete: Vec<_> = by_scope
             .values()
-            .filter(|members| !members[0].is_empty() && !members[1].is_empty())
+            .filter(|members| members.iter().all(|found| !found.is_empty()))
             .collect();
-        let pair = match complete.as_slice() {
+        let chosen = match complete.as_slice() {
             [] => return Err(InstrumentEconomicTermsPostgresErrorV1::UnknownSelection),
-            [pair] if pair[0].len() == 1 && pair[1].len() == 1 => [pair[0][0], pair[1][0]],
+            [set] if set.iter().all(|found| found.len() == 1) => {
+                set.iter().map(|found| found[0]).collect::<Vec<_>>()
+            }
             _ => return Err(InstrumentEconomicTermsPostgresErrorV1::AmbiguousSelection),
         };
-        let first = readbacks[pair[0]]
-            .take()
-            .ok_or(InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)?;
-        let second = readbacks[pair[1]]
-            .take()
-            .ok_or(InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)?;
+        let resolved = chosen
+            .into_iter()
+            .map(|index| {
+                readbacks[index]
+                    .take()
+                    .ok_or(InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         tx.commit().await.map_err(|cause| store_error(&cause))?;
-        Ok([first, second])
+        Ok(resolved)
     }
 
     async fn assert_acl(&self) -> Result<(), InstrumentEconomicTermsPostgresErrorV1> {
@@ -549,5 +586,138 @@ fn classify_insert(error: &sqlx::Error) -> InstrumentEconomicTermsPostgresErrorV
         InstrumentEconomicTermsPostgresErrorV1::MeaningConflict
     } else {
         store_error(error)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::owner::{
+        instrument_economic_terms_v1::{
+            InstrumentEconomicAccountApplicabilityV1, InstrumentEconomicDecimalV1,
+            InstrumentEconomicTermsFactV1, InstrumentEconomicTermsInputV1,
+            InstrumentMarginMeaningV1,
+        },
+        instrument_master_v2::{
+            FactValue, InstrumentMasterCutRequestV2, InstrumentMasterFactV2,
+            tests::{fact_for, id},
+        },
+        instrument_master_v2_postgres::{InstrumentMasterV2PostgresOwner, tests::selection_of},
+    };
+
+    /// One member's economic terms under the shared account scope, valid around the replay time.
+    fn terms_for(
+        fact: &InstrumentMasterFactV2,
+        quote_currency: &str,
+    ) -> InstrumentEconomicTermsFactV1 {
+        let decimal = |mantissa, scale| InstrumentEconomicDecimalV1 { mantissa, scale };
+        InstrumentEconomicTermsFactV1::seal(InstrumentEconomicTermsInputV1 {
+            schema_version: 1,
+            instrument_identity: fact.canonical_identity().to_owned(),
+            instrument_public_fact_digest: *fact.identity().as_bytes(),
+            venue_identity: fact.venue_identity().to_owned(),
+            account_scope_identity: "RDQ-MARGIN".into(),
+            account_applicability: InstrumentEconomicAccountApplicabilityV1::MarginAccount,
+            valid_from_ns: 100,
+            valid_until_ns_exclusive: 1_000,
+            source_identity: "fee-schedule-1".into(),
+            source_digest: [2; 32],
+            provenance_digest: [3; 32],
+            revision: 1,
+            quote_currency: quote_currency.to_owned(),
+            fee_currency: quote_currency.to_owned(),
+            maker_fee: decimal(2, 4),
+            taker_fee: decimal(4, 4),
+            initial_margin: decimal(1, 1),
+            maintenance_margin: decimal(5, 2),
+            margin_meaning: InstrumentMarginMeaningV1::StandardNotionalRate,
+        })
+        .expect("sealed economic terms")
+    }
+
+    /// Economic terms resolve for each member of a cut, whether it holds one member or two.
+    ///
+    /// The pair form stays what it was for a two-member cut and refuses a one-member cut rather
+    /// than inventing a second member; the member form answers both, in the cut's member order.
+    #[tokio::test]
+    #[ignore = "requires a disposable Market Data PostgreSQL database"]
+    async fn postgres_economic_terms_resolve_for_one_member_or_two() {
+        let owner_url = std::env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL").unwrap();
+        let pool = PgPool::connect(&owner_url).await.unwrap();
+        let master = InstrumentMasterV2PostgresOwner::install(pool.clone())
+            .await
+            .unwrap();
+        let terms = InstrumentEconomicTermsPostgresOwnerV1::install(pool.clone())
+            .await
+            .unwrap();
+        let btc = fact_for("BTCUSDT-PERP.BINANCE", "BTCUSDT", 10);
+        let eth = fact_for("ETHUSDT-PERP.BINANCE", "ETHUSDT", 20);
+        master.append_fact(&btc).await.unwrap();
+        master.append_fact(&eth).await.unwrap();
+        let FactValue::Value(quote) = btc.terms().quote_currency.clone() else {
+            panic!("the fixture fact states its quote currency");
+        };
+        let venue = btc.venue_identity().to_owned();
+        terms.issue(&terms_for(&btc, &quote)).await.unwrap();
+        terms.issue(&terms_for(&eth, &quote)).await.unwrap();
+
+        let one = master
+            .issue_cut(
+                InstrumentMasterCutRequestV2::new(id(50), 7),
+                &selection_of(&[("BTCUSDT", "BTCUSDT-PERP.BINANCE")]),
+            )
+            .await
+            .unwrap();
+        let two = master
+            .issue_cut(
+                InstrumentMasterCutRequestV2::new(id(51), 7),
+                &selection_of(&[
+                    ("BTCUSDT", "BTCUSDT-PERP.BINANCE"),
+                    ("ETHUSDT", "ETHUSDT-PERP.BINANCE"),
+                ]),
+            )
+            .await
+            .unwrap();
+        let instruments = |resolved: &[InstrumentEconomicTermsReadbackV1]| {
+            resolved
+                .iter()
+                .map(|readback| readback.fact().input().instrument_identity.clone())
+                .collect::<Vec<_>>()
+        };
+
+        let single = terms
+            .resolve_unique_native_replay_members(&one, &venue, &quote, 500)
+            .await
+            .expect("a one-member cut resolves");
+        assert_eq!(instruments(&single), ["BTCUSDT-PERP.BINANCE"]);
+        let both = terms
+            .resolve_unique_native_replay_members(&two, &venue, &quote, 500)
+            .await
+            .expect("a two-member cut resolves");
+        assert_eq!(
+            instruments(&both),
+            ["BTCUSDT-PERP.BINANCE", "ETHUSDT-PERP.BINANCE"]
+        );
+        let pair = terms
+            .resolve_unique_native_replay_pair(&two, &venue, &quote, 500)
+            .await
+            .expect("the pair form answers a two-member cut");
+        assert_eq!(instruments(&pair), instruments(&both));
+        assert_eq!(
+            terms
+                .resolve_unique_native_replay_pair(&one, &venue, &quote, 500)
+                .await
+                .unwrap_err(),
+            InstrumentEconomicTermsPostgresErrorV1::InvalidSelection,
+            "a one-member cut is not a pair"
+        );
+        assert_eq!(
+            terms
+                .resolve_unique_native_replay_members(&one, &venue, &quote, 1_000)
+                .await
+                .unwrap_err(),
+            InstrumentEconomicTermsPostgresErrorV1::UnknownSelection,
+            "outside the terms' validity nothing resolves"
+        );
     }
 }

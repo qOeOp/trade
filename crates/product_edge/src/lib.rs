@@ -1034,6 +1034,7 @@ impl ProductEdgeError {
 pub struct ProductEdgeUnavailableV1 {
     reason: ProductEdgeUnavailableReasonV1,
     subject: Option<ProductEdgeSubjectV1>,
+    cause: Option<String>,
 }
 
 impl ProductEdgeUnavailableV1 {
@@ -1042,6 +1043,7 @@ impl ProductEdgeUnavailableV1 {
         Self {
             reason,
             subject: None,
+            cause: None,
         }
     }
 
@@ -1057,7 +1059,19 @@ impl ProductEdgeUnavailableV1 {
                 kind,
                 identity: identity.into(),
             }),
+            cause: None,
         }
+    }
+
+    /// Names which of the conditions behind one reason held, with the values it compared.
+    ///
+    /// Several conditions can share one reason because they share one repair; they do not share
+    /// one cause, and an operator reading the log needs the cause. It changes nothing a caller
+    /// receives: the reason, the subject and the outward disposition stay as they were.
+    #[must_use]
+    pub fn with_cause(mut self, cause: impl Into<String>) -> Self {
+        self.cause = Some(cause.into());
+        self
     }
 
     pub fn reason(&self) -> &ProductEdgeUnavailableReasonV1 {
@@ -1067,13 +1081,22 @@ impl ProductEdgeUnavailableV1 {
     pub fn subject(&self) -> Option<&ProductEdgeSubjectV1> {
         self.subject.as_ref()
     }
+
+    pub fn cause(&self) -> Option<&str> {
+        self.cause.as_deref()
+    }
 }
 
 impl Display for ProductEdgeUnavailableV1 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.subject {
-            Some(subject) => write!(f, "{} for {subject}", self.reason),
-            None => write!(f, "{}", self.reason),
+            Some(subject) => write!(f, "{} for {subject}", self.reason)?,
+            None => write!(f, "{}", self.reason)?,
+        }
+
+        match &self.cause {
+            Some(cause) => write!(f, " ({cause})"),
+            None => Ok(()),
         }
     }
 }
@@ -1632,6 +1655,30 @@ mod portfolio_read_policy_tests {
         assert_eq!(
             ProductEdgeError::unavailable(ProductEdgeUnavailableReasonV1::Missing).to_string(),
             "Product Edge authority unavailable: MISSING"
+        );
+        assert_eq!(detail.cause(), None);
+    }
+
+    /// A cause is for the log: it is appended to what the refusal says, and the reason and subject
+    /// a caller branches on stay exactly what they were without it.
+    #[rstest]
+    fn a_cause_is_said_and_changes_nothing_a_caller_reads() {
+        let plain = ProductEdgeUnavailableV1::about(
+            ProductEdgeUnavailableReasonV1::WindowNotCurrent,
+            ProductEdgeSubjectKindV1::ResearchIntent,
+            "intent-1",
+        );
+        let caused = plain.clone().with_cause("owner_cut_after_cut at cut 10");
+
+        assert_eq!(caused.reason(), plain.reason());
+        assert_eq!(caused.subject(), plain.subject());
+        assert_eq!(caused.cause(), Some("owner_cut_after_cut at cut 10"));
+        assert_eq!(
+            ProductEdgeError::Unavailable(caused).to_string(),
+            format!(
+                "{} (owner_cut_after_cut at cut 10)",
+                ProductEdgeError::Unavailable(plain)
+            )
         );
     }
 }
