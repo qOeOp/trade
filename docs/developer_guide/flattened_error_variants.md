@@ -4,7 +4,7 @@ Public error-enum variants whose cause never reaches a caller: every production 
 
 The list finds cases where the cause never reaches the caller. Whether that is a defect has to be judged against the channel scope rule of the Owner that holds it. Some flattenings are deliberate fail-closed contracts.
 
-Measured at `769b50286` by regenerating this whole file with:
+A snapshot of `769b50286`, not a live answer: code merged after it is not in this list, and variants fixed after it are still in it. Regenerate the whole file before relying on it:
 
 ```text
 scripts/flattened-error-variants.py --rev 769b50286 > docs/developer_guide/flattened_error_variants.md
