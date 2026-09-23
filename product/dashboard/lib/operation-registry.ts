@@ -342,12 +342,28 @@ export function operationByIdV1(operationId: RegisteredOperationId): OperationDe
 export const OWNER_READ_TIMEOUT_OVERRIDE_ENV = "DASHBOARD_OWNER_READ_TIMEOUT_OVERRIDE_MS" as const;
 
 export function ownerReadTimeoutMsV1(operation: OperationDescriptorV1): number {
-  const declared = operation.timeout_class.milliseconds;
+  return ownerReadBudgetMsV1(operation.timeout_class.milliseconds);
+}
+
+// The one rule for every Owner read's budget, registered operation or not: the declared budget,
+// unless an acceptance explicitly overrides it. A read that kept its own literal instead measured
+// the runner in exactly the harness the override exists for.
+export function ownerReadBudgetMsV1(declaredMs: number): number {
   const raw = process.env[OWNER_READ_TIMEOUT_OVERRIDE_ENV];
-  if (!raw) return declared;
+  if (!raw) return declaredMs;
   const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed <= 0) return declared;
+  if (!Number.isFinite(parsed) || parsed <= 0) return declaredMs;
   return parsed;
+}
+
+// `ownerReadBudgetMsV1`, saying so when the override is in force, so a green read with a relaxed
+// budget cannot pass for one that kept the declared promise.
+export function announcedOwnerReadBudgetMsV1(label: string, declaredMs: number): number {
+  const budgetMs = ownerReadBudgetMsV1(declaredMs);
+  if (budgetMs !== declaredMs) {
+    console.error(`${label}: reading with an overridden ${budgetMs}ms budget, not the declared ${declaredMs}ms`);
+  }
+  return budgetMs;
 }
 
 export function operationManifestV1(operationId: RegisteredOperationId) {
