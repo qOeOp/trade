@@ -2639,7 +2639,7 @@ impl ProductEdgePostgresOwnerV1 {
                         != current_research.evidence.source_admission.admission_digest
                 {
                     return Err(unavailable_for(
-                        Reason::DownstreamCustodyMismatch,
+                        Reason::HintMismatch,
                         Subject::Admission,
                         &current_research
                             .evidence
@@ -2783,7 +2783,7 @@ impl ProductEdgePostgresOwnerV1 {
                 || source.admission_digest != peeked.evidence.source_admission.admission_digest
             {
                 return Err(unavailable_for(
-                    Reason::DownstreamCustodyMismatch,
+                    Reason::HintMismatch,
                     Subject::Admission,
                     &peeked.evidence.source_admission.admission_identity,
                 ));
@@ -2825,12 +2825,31 @@ impl ProductEdgePostgresOwnerV1 {
                     && binding.predecessor_binding_identity.as_deref()
                         == Some(source.binding_identity.as_str());
 
+            // Twelve conditions answered with one name, and they are three repairs: a cut that
+            // has moved outside its window, a lineage that does not join, and an authorization
+            // that is not the one the source was admitted under. Only the last is about the
+            // caller's own authority; the first is about when it asked.
             if locked.owner_cut_epoch_ms > final_cut
                 || evidence.projection_at_epoch_ms > final_cut
                 || final_cut >= evidence.valid_through_epoch_ms
                 || !source_authorization.is_current_at(final_cut)
-                || !same_or_immediate
-                || evidence.effective_principal != source.effective_principal
+            {
+                return Err(unavailable_for(
+                    Reason::WindowNotCurrent,
+                    Subject::ResearchIntent,
+                    &evidence.intent_identity,
+                ));
+            }
+
+            if !same_or_immediate {
+                return Err(unavailable_for(
+                    Reason::LineageBroken,
+                    Subject::ResearchIntent,
+                    &evidence.intent_identity,
+                ));
+            }
+
+            if evidence.effective_principal != source.effective_principal
                 || evidence.authorized_scope != source.authorized_scope
                 || source.effective_principal != binding.effective_principal
                 || source.authorized_scope != binding.authorized_scope
@@ -2840,7 +2859,7 @@ impl ProductEdgePostgresOwnerV1 {
                 || source_authorization.operation_manifests() != authorization.operation_manifests()
             {
                 return Err(unavailable_for(
-                    Reason::DownstreamCustodyMismatch,
+                    Reason::AuthorizationMismatch,
                     Subject::ResearchIntent,
                     &evidence.intent_identity,
                 ));
@@ -3097,12 +3116,14 @@ impl ProductEdgePostgresOwnerV1 {
                 &request.admission.admission_identity,
             ));
         }
+        // Absent, not different: this admission carries no Research custody at all. Reporting a
+        // mismatch sent the reader to compare two things, one of which is not there.
         let research_custody = hinted_admission
             .current_research_custody
             .clone()
             .ok_or_else(|| {
                 unavailable_for(
-                    Reason::DownstreamCustodyMismatch,
+                    Reason::Missing,
                     Subject::Admission,
                     &request.admission.admission_identity,
                 )
@@ -3125,7 +3146,7 @@ impl ProductEdgePostgresOwnerV1 {
             || source_hint.admission_digest != research_evidence.source_admission.admission_digest
         {
             return Err(unavailable_for(
-                Reason::DownstreamCustodyMismatch,
+                Reason::HintMismatch,
                 Subject::Admission,
                 &research_evidence.source_admission.admission_identity,
             ));
@@ -3251,12 +3272,29 @@ impl ProductEdgePostgresOwnerV1 {
                 && current_binding.predecessor_binding_identity.as_deref()
                     == Some(source.binding_identity.as_str());
 
+        // The same three repairs as the read path above, split the same way: when it asked,
+        // whether the lineage joins, and which authority it asked under.
         if locked_research.owner_cut_epoch_ms > write_cut
             || locked_research.evidence.projection_at_epoch_ms > write_cut
             || write_cut >= locked_research.evidence.valid_through_epoch_ms
             || !source_authorization.is_current_at(write_cut)
-            || !same_or_immediate
-            || locked_research.evidence.effective_principal != source.effective_principal
+        {
+            return Err(unavailable_for(
+                Reason::WindowNotCurrent,
+                Subject::ResearchIntent,
+                &research_evidence.intent_identity,
+            ));
+        }
+
+        if !same_or_immediate {
+            return Err(unavailable_for(
+                Reason::LineageBroken,
+                Subject::ResearchIntent,
+                &research_evidence.intent_identity,
+            ));
+        }
+
+        if locked_research.evidence.effective_principal != source.effective_principal
             || locked_research.evidence.authorized_scope != source.authorized_scope
             || source.effective_principal != admission.effective_principal()
             || source.authorized_scope != admission.authorized_scope()
@@ -3267,7 +3305,7 @@ impl ProductEdgePostgresOwnerV1 {
                 != current_policy.authorization.operation_manifests()
         {
             return Err(unavailable_for(
-                Reason::DownstreamCustodyMismatch,
+                Reason::AuthorizationMismatch,
                 Subject::ResearchIntent,
                 &research_evidence.intent_identity,
             ));
@@ -3506,6 +3544,9 @@ impl ProductEdgePostgresOwnerV1 {
         .await
         .map_err(source_invocation_custody_error)?;
 
+        // Six fields, one repair: the locator this caller holds disagrees with the stored
+        // binding, so the caller refreshes it. That is a request mismatch, not downstream
+        // custody drifting underneath.
         if binding.request_identity() != request.admission.request_identity
             || binding.admission_identity() != request.admission.admission_identity
             || binding.admission_digest() != request.admission.admission_digest
@@ -3514,7 +3555,7 @@ impl ProductEdgePostgresOwnerV1 {
             || binding.normalized_doi() != payload.normalized_doi
         {
             return Err(unavailable_for(
-                Reason::DownstreamCustodyMismatch,
+                Reason::RequestMismatch,
                 Subject::Request,
                 &request.admission.request_identity,
             ));
@@ -6149,15 +6190,34 @@ async fn peek_current_research_for_artifact(
             unavailable_for(Reason::Malformed, Subject::ResearchIntent, intent_identity)
         })?;
 
-    if serde_json::to_value(&envelope.evidence).map_err(storage)? != value["evidence"]
-        || envelope.evidence.schema_version != 1
-        || envelope.evidence.intent_identity != intent_identity
+    // Five conditions shared one name here, and they are three different repairs: a row that
+    // disagrees with itself, a row that is not well formed, and a row that is about a different
+    // intent than the one asked for. `DownstreamCustodyMismatch` read as the caller's problem
+    // for all five, and only the third one is.
+    if envelope.evidence.intent_identity != intent_identity {
+        return Err(unavailable_for(
+            Reason::RequestMismatch,
+            Subject::ResearchIntent,
+            intent_identity,
+        ));
+    }
+
+    if envelope.evidence.schema_version != 1
         || envelope.evidence.evidence_identity.trim().is_empty()
+    {
+        return Err(unavailable_for(
+            Reason::Malformed,
+            Subject::ResearchIntent,
+            intent_identity,
+        ));
+    }
+
+    if serde_json::to_value(&envelope.evidence).map_err(storage)? != value["evidence"]
         || envelope.evidence_digest
             != current_research_artifact_evidence_digest(&envelope.evidence)?
     {
         return Err(unavailable_for(
-            Reason::DownstreamCustodyMismatch,
+            Reason::CustodyDrift,
             Subject::ResearchIntent,
             intent_identity,
         ));
@@ -6186,12 +6246,21 @@ async fn lock_current_research_for_artifact(
         unavailable_for(Reason::Malformed, Subject::ResearchIntent, intent_identity)
     })?;
 
-    if locked.evidence != peeked.evidence
-        || locked.evidence_digest != peeked.evidence_digest
-        || locked.evidence_digest != current_research_artifact_evidence_digest(&locked.evidence)?
-    {
+    // Two different failures shared one name here. The first pair means a concurrent writer
+    // changed the row between the pre-lock read and the read under lock, which a caller may
+    // simply retry. The recomputation below means the stored row disagrees with itself, which
+    // no number of retries repairs.
+    if locked.evidence != peeked.evidence || locked.evidence_digest != peeked.evidence_digest {
         return Err(unavailable_for(
-            Reason::DownstreamCustodyMismatch,
+            Reason::HintMismatch,
+            Subject::ResearchIntent,
+            intent_identity,
+        ));
+    }
+
+    if locked.evidence_digest != current_research_artifact_evidence_digest(&locked.evidence)? {
+        return Err(unavailable_for(
+            Reason::CustodyDrift,
             Subject::ResearchIntent,
             intent_identity,
         ));
