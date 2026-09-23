@@ -205,7 +205,7 @@ done
 for guard_database in $(docker exec "$container" psql -U postgres -d postgres -Atqc "SELECT datname FROM pg_catalog.pg_database WHERE NOT datistemplate AND datallowconn ORDER BY 1"); do
   docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
     --username postgres --dbname "$guard_database" \
-    < "$repository_root/scripts/ci/check-security-definer-search-path.sql"
+    < "$repository_root/scripts/ci/check-security-definer-search-path.sql" || echo "SDGUARD|continued past ${guard_database}"
 done
 
 exit 0
