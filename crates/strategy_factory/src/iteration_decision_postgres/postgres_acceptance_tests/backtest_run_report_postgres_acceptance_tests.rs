@@ -5,7 +5,7 @@ use super::{
     *,
 };
 use crate::backtest_run_report_read_v1::{
-    BacktestRunReportStateV1,
+    BacktestRunReportStateV1, begin_report_read_v1,
     report_test_support_v1::{
         assert_series_reads_back_every_counted_point, run_multi_day_round_trip_v1,
     },
@@ -82,16 +82,21 @@ async fn backtest_run_report_reads_back_every_point_a_real_run_committed() {
         request_identity: &request_identity,
         attempt_identity: &attempt_identity,
     };
-    let mut transaction = rd_pool.begin().await.expect("R&D read transaction");
+    // The result half, read the way the report reads it: in its `REPEATABLE READ, READ ONLY`
+    // transaction, where PostgreSQL refuses any row lock.
+    let mut transaction = begin_report_read_v1(rd_pool)
+        .await
+        .expect("the report's read-only transaction");
     let read = resolve_backtest_run_result_v1(&mut transaction, locator)
         .await
         .expect("the committed run's result")
         .expect("a committed run behind the address");
-    let refused = resolve_backtest_run_report_v1(&mut transaction, locator)
+    transaction.rollback().await.expect("R&D read rollback");
+    let refused = resolve_backtest_run_report_v1(rd_pool, locator)
         .await
         .expect_err("a run outside the family has no report");
     let absent = resolve_backtest_run_report_v1(
-        &mut transaction,
+        rd_pool,
         ExploratoryReplayResultLocatorV2 {
             result_identity: &format!("{result_identity}-absent"),
             request_identity: &request_identity,
@@ -100,8 +105,13 @@ async fn backtest_run_report_reads_back_every_point_a_real_run_committed() {
     )
     .await
     .expect("an address with no run is an empty answer, not a refusal");
-    transaction.rollback().await.expect("R&D read rollback");
     assert_eq!(absent, None);
+    assert_request_reads_without_a_lock_and_the_locking_read_still_holds_it(
+        rd_pool,
+        &request_identity,
+        &request_digest,
+    )
+    .await;
     // This code is decided only after the replay request read back: a request that did not would
     // have been refused as `REPLAY_REQUEST_UNAVAILABLE` first.
     assert_eq!(refused.code(), "NO_STRATEGY_STATEMENT_FOR_FAMILY");
@@ -130,4 +140,84 @@ async fn backtest_run_report_reads_back_every_point_a_real_run_committed() {
     assert!(committed_fills > 0, "the real run must have traded");
     assert_eq!(read.result.fills.len(), committed_fills);
     assert_eq!(read.result.fill_count, committed_fills as u64);
+}
+
+/// The two request reads, each against the property it exists for.
+///
+/// Under `READ ONLY`, the lock-free read answers and the locking one is refused with 25006, which
+/// is the refusal that makes a lock on the report path fail on its first call: without the
+/// negative half, a read-only transaction that accepted everything would pass the positive half
+/// too. Outside it, the locking read still holds the row until its transaction ends, which is
+/// what the caller that writes afterwards relies on: another session's `FOR UPDATE NOWAIT` fails
+/// while it holds and succeeds once it ends.
+async fn assert_request_reads_without_a_lock_and_the_locking_read_still_holds_it(
+    rd_pool: &PgPool,
+    request_identity: &str,
+    meaning_digest: &str,
+) {
+    let mut read_only = begin_report_read_v1(rd_pool)
+        .await
+        .expect("a read-only transaction");
+    let lock_free: Option<serde_json::Value> =
+        sqlx::query_scalar("SELECT rd_owner_api.read_exploratory_replay_request_v2($1,$2)")
+            .bind(request_identity)
+            .bind(meaning_digest)
+            .fetch_one(&mut *read_only)
+            .await
+            .expect("the lock-free read runs in a read-only transaction");
+    assert!(lock_free.is_some(), "the lock-free read finds the request");
+    let locking = sqlx::query_scalar::<_, Option<serde_json::Value>>(
+        "SELECT rd_owner_api.resolve_exploratory_replay_request_v2($1,$2)",
+    )
+    .bind(request_identity)
+    .bind(meaning_digest)
+    .fetch_one(&mut *read_only)
+    .await
+    .expect_err("a read-only transaction refuses the locking read");
+    assert_eq!(
+        locking
+            .as_database_error()
+            .and_then(|e| e.code())
+            .as_deref(),
+        Some("25006"),
+        "refused as a read-only transaction, not for another reason: {locking}"
+    );
+    read_only.rollback().await.expect("read-only rollback");
+
+    let mut holder = rd_pool.begin().await.expect("a locking transaction");
+    let held: Option<serde_json::Value> =
+        sqlx::query_scalar("SELECT rd_owner_api.resolve_exploratory_replay_request_v2($1,$2)")
+            .bind(request_identity)
+            .bind(meaning_digest)
+            .fetch_one(&mut *holder)
+            .await
+            .expect("the locking read answers");
+    assert_eq!(held, lock_free, "both reads answer the same request");
+    let try_update = |pool: PgPool| async move {
+        let mut other = pool.begin().await.expect("another session");
+        let outcome = sqlx::query(
+            "SELECT 1 FROM public.rd_sealed_exploratory_replay_requests_v1 \
+             WHERE request_identity=$1 FOR UPDATE NOWAIT",
+        )
+        .bind(request_identity.to_owned())
+        .execute(&mut *other)
+        .await;
+        other.rollback().await.expect("other session rollback");
+        outcome
+    };
+    let blocked = try_update(rd_pool.clone())
+        .await
+        .expect_err("the row is held while the locking read's transaction is open");
+    assert_eq!(
+        blocked
+            .as_database_error()
+            .and_then(|e| e.code())
+            .as_deref(),
+        Some("55P03"),
+        "blocked by the held lock, not for another reason: {blocked}"
+    );
+    holder.rollback().await.expect("locking rollback");
+    try_update(rd_pool.clone())
+        .await
+        .expect("the row is free once the locking read's transaction ends");
 }

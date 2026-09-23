@@ -279,8 +279,12 @@ history; it says nothing about whether the path has ever run in some other envir
     recorded in canonical UTC, net return, maximum drawdown, and every execution with its side and with
     price and quantity exactly as the engine wrote them. It carries no statistics map, because those
     legitimately hold non-finite values. The strategy and the data window are not in a backtest result,
-    so they come from upstream in the caller's same R&D transaction: the replay request the run
-    answered, and the Design and program frozen under the Design it names. The strategy is stated only
+    so they come from upstream: the replay request the run answered, and the Design and program
+    frozen under the Design it names. All three reads run in one transaction the report opens as
+    `REPEATABLE READ, READ ONLY`, so they share one snapshot and PostgreSQL refuses any row lock on
+    the path. The request is read through `rd_owner_api.read_exploratory_replay_request_v2`, which
+    takes none; `resolve_exploratory_replay_request_v2` keeps its lock for the caller that writes
+    afterwards and reads through the same function. The strategy is stated only
     for the admitted single-threshold family, and only when authoring the statement read back from that
     frozen pair reproduces the pair's canonical program exactly; any other run is refused as a whole
     for that named reason. The family carries no version, so a program an earlier author froze and the

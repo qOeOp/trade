@@ -856,13 +856,28 @@ async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
              AND recovery.proparallel='u'
              AND recovery.proisstrict
              AND recovery.proconfig=ARRAY['search_path=pg_catalog']::text[]
-             AND pg_catalog.strpos(recovery.prosrc,'resolve_native_replay_source_storage_v2') > 0
+             AND pg_catalog.strpos(recovery.prosrc,'rd_owner_api.read_exploratory_replay_request_v2(') > 0
              AND pg_catalog.has_function_privilege('rd_owner',recovery.oid,'EXECUTE')
              AND NOT pg_catalog.has_function_privilege('backtest_owner',recovery.oid,'EXECUTE')
              AND NOT EXISTS (
                SELECT 1 FROM pg_catalog.aclexplode(recovery.proacl) acl
                 WHERE acl.privilege_type='EXECUTE'
                   AND acl.grantee<>recovery_owner.oid
+             )
+             AND reader_owner.rolname='rd_owner'
+             AND NOT reader.prosecdef
+             AND reader.provolatile='v'
+             AND reader.proparallel='u'
+             AND reader.proisstrict
+             AND reader.proconfig=ARRAY['search_path=pg_catalog']::text[]
+             AND pg_catalog.strpos(reader.prosrc,'resolve_native_replay_source_storage_v2') > 0
+             AND pg_catalog.strpos(pg_catalog.upper(reader.prosrc),'FOR SHARE') = 0
+             AND pg_catalog.has_function_privilege('rd_owner',reader.oid,'EXECUTE')
+             AND NOT pg_catalog.has_function_privilege('backtest_owner',reader.oid,'EXECUTE')
+             AND NOT EXISTS (
+               SELECT 1 FROM pg_catalog.aclexplode(reader.proacl) acl
+                WHERE acl.privilege_type='EXECUTE'
+                  AND acl.grantee<>reader_owner.oid
              )
           FROM pg_catalog.pg_proc facade
           JOIN pg_catalog.pg_roles facade_owner ON facade_owner.oid=facade.proowner
@@ -876,6 +891,11 @@ async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
               'rd_owner_api.resolve_exploratory_replay_request_v2(text,text)'
             )
           JOIN pg_catalog.pg_roles recovery_owner ON recovery_owner.oid=recovery.proowner
+          JOIN pg_catalog.pg_proc reader
+            ON reader.oid=pg_catalog.to_regprocedure(
+              'rd_owner_api.read_exploratory_replay_request_v2(text,text)'
+            )
+          JOIN pg_catalog.pg_roles reader_owner ON reader_owner.oid=reader.proowner
          WHERE facade.oid=pg_catalog.to_regprocedure(
            'rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)'
          )",

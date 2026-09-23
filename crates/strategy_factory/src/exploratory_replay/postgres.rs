@@ -965,9 +965,16 @@ struct CanonicalStorageRecordV2 {
     mirror: serde_json::Value,
 }
 
-/// The `SELECTOR_RESOLVER_SOURCE_V2` section of the cutover migration, kept as one constant so the parity
-/// test can compare it. It was marked in the migration but compared by nothing.
-const SELECTOR_RESOLVER_SOURCE_V2: &str = "
+/// The `READ_SELECTOR_SOURCE_V2` section of the cutover migration: the one copy of how a Replay V2
+/// request is found by its identity and meaning, and the only part of the read that takes no row
+/// lock, so a `READ ONLY` transaction can call it.
+///
+/// The request row needs no lock to be read consistently: it is written once and never updated
+/// by any production path, and the helpers this calls fence the request with a shared advisory
+/// lock, which a read-only transaction may take. A caller that goes on to write in the same
+/// transaction and needs the row held until then calls `resolve_exploratory_replay_request_v2`,
+/// which takes that lock first and then calls this.
+const READ_SELECTOR_SOURCE_V2: &str = "
         DECLARE stored_receipt_identity text;
         DECLARE stored_seal_digest text;
         DECLARE storage jsonb;
@@ -978,8 +985,7 @@ const SELECTOR_RESOLVER_SOURCE_V2: &str = "
            WHERE request_identity=requested_request_identity
              AND request_schema_version=2
              AND frozen_json->>'request_schema_version'='2'
-             AND v2_meaning_digest=requested_meaning_digest
-           FOR SHARE;
+             AND v2_meaning_digest=requested_meaning_digest;
           IF stored_receipt_identity IS NULL OR stored_seal_digest IS NULL THEN RETURN NULL; END IF;
           storage := rd_owner_api.resolve_native_replay_source_storage_v2(
             requested_request_identity,requested_meaning_digest,
@@ -988,6 +994,25 @@ const SELECTOR_RESOLVER_SOURCE_V2: &str = "
           IF storage IS NULL OR storage->>'custody_state'='CORRUPT_PARTIAL' THEN RETURN NULL; END IF;
           RETURN storage->'replay';
         EXCEPTION WHEN no_data_found OR too_many_rows THEN RETURN NULL;
+        END
+        ";
+
+/// The `SELECTOR_RESOLVER_SOURCE_V2` section of the cutover migration, kept as one constant so the parity
+/// test can compare it.
+///
+/// It holds the request row with a shared lock and then reads through `READ_SELECTOR_SOURCE_V2`,
+/// so a caller that writes afterwards in the same transaction keeps the row stable until it
+/// commits. The lock is taken by primary key, which covers every row the read can match: the read
+/// matches at most the one row with this request identity.
+const SELECTOR_RESOLVER_SOURCE_V2: &str = "
+        BEGIN
+          PERFORM 1
+             FROM public.rd_sealed_exploratory_replay_requests_v1
+            WHERE request_identity=requested_request_identity
+            FOR SHARE;
+          RETURN rd_owner_api.read_exploratory_replay_request_v2(
+            requested_request_identity,requested_meaning_digest
+          );
         END
         ";
 
@@ -1615,6 +1640,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
         "DROP FUNCTION IF EXISTS rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text)",
         "DROP FUNCTION IF EXISTS rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)",
         "DROP FUNCTION IF EXISTS rd_owner_api.resolve_exploratory_replay_request_v2(text,text)",
+        "DROP FUNCTION IF EXISTS rd_owner_api.read_exploratory_replay_request_v2(text,text)",
         "DROP FUNCTION IF EXISTS rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text)",
         "DROP FUNCTION IF EXISTS rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)",
         "DROP FUNCTION IF EXISTS rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text)",
@@ -2036,6 +2062,17 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
     .await
     .map_err(storage)?;
     sqlx::query(sqlx::AssertSqlSafe(format!(
+        "CREATE FUNCTION rd_owner_api.read_exploratory_replay_request_v2(
+          requested_request_identity text,
+          requested_meaning_digest text
+        ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY INVOKER
+        SET search_path = pg_catalog
+        AS $function${READ_SELECTOR_SOURCE_V2}$function$"
+    )))
+    .execute(&mut *publication)
+    .await
+    .map_err(storage)?;
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "CREATE FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(
           requested_request_identity text,
           requested_meaning_digest text
@@ -2106,6 +2143,9 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
         "ALTER FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) OWNER TO rd_owner",
         "REVOKE ALL ON FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, market_data_owner, market_data_reader",
         "GRANT EXECUTE ON FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) TO rd_owner",
+        "ALTER FUNCTION rd_owner_api.read_exploratory_replay_request_v2(text,text) OWNER TO rd_owner",
+        "REVOKE ALL ON FUNCTION rd_owner_api.read_exploratory_replay_request_v2(text,text) FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, market_data_owner, market_data_reader",
+        "GRANT EXECUTE ON FUNCTION rd_owner_api.read_exploratory_replay_request_v2(text,text) TO rd_owner",
         "ALTER FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) OWNER TO rd_owner",
         "REVOKE ALL ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, rd_owner, market_data_owner, market_data_reader",
         "GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) TO backtest_owner",
@@ -3307,6 +3347,59 @@ pub(crate) async fn lock_for_backtest_v2(
     Ok(result)
 }
 
+/// What a report finds when it reads a Replay V2 request.
+pub(crate) enum ReportRequestReadV2 {
+    /// The request, read without a row lock.
+    Found(Box<SealedExploratoryReplayReadbackV2>),
+    /// A request only Composer V3 custody holds, which the report does not read yet.
+    ComposerV3,
+    /// No request at this identity and meaning.
+    Absent,
+}
+
+/// Reads one Replay V2 request for a report, inside the caller's read-only transaction.
+///
+/// Every statement here is one a `READ ONLY` transaction accepts: the source-kind probe is a plain
+/// primary-key read, and `read_exploratory_replay_request_v2` takes no row lock. The Composer V3
+/// read that `resolve_for_rd_v2` makes under `sealed-source-intake-composer-acceptance` locks rows,
+/// so a request only it holds is named here rather than read or reported absent.
+pub(crate) async fn read_for_report_in_transaction_v2(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    selector: &ExploratoryReplayRecoverySelectorV2,
+) -> Result<ReportRequestReadV2, ExploratoryReplayOwnerError> {
+    let source_kind: Option<String> = sqlx::query_scalar(
+        "SELECT source_kind FROM public.rd_sealed_exploratory_replay_requests_v1 \
+         WHERE request_identity=$1",
+    )
+    .bind(&selector.request_identity)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(storage)?;
+
+    match source_kind.as_deref() {
+        None => return Ok(ReportRequestReadV2::Absent),
+        Some("COMPOSER_V3") => return Ok(ReportRequestReadV2::ComposerV3),
+        Some(_) => {}
+    }
+    let value: Option<serde_json::Value> =
+        sqlx::query_scalar("SELECT rd_owner_api.read_exploratory_replay_request_v2($1,$2)")
+            .bind(&selector.request_identity)
+            .bind(&selector.meaning_digest)
+            .fetch_one(&mut **transaction)
+            .await
+            .map_err(storage)?;
+    let result = decode_v2_read_result(
+        &selector.request_identity,
+        &selector.meaning_digest,
+        None,
+        value,
+    )?;
+    Ok(match result.readback {
+        Some(readback) => ReportRequestReadV2::Found(Box::new(readback)),
+        None => ReportRequestReadV2::Absent,
+    })
+}
+
 pub(crate) async fn resolve_for_rd_v2(
     rd_pool: &PgPool,
     selector: &ExploratoryReplayRecoverySelectorV2,
@@ -3322,50 +3415,20 @@ pub(crate) async fn resolve_for_rd_v2(
     {
         return Ok(result);
     }
-    resolve_selector_v2(rd_pool, selector).await
-}
-
-/// [`resolve_for_rd_v2`] inside the caller's R&D transaction, so a read that joins the request to
-/// other R&D custody sees one snapshot of both.
-///
-/// It makes the same lookups in the same order as the pool read, including the Composer V3
-/// custody that exists only under `sealed-source-intake-composer-acceptance`, so the two cannot
-/// give different answers for one selector in any build.
-pub(crate) async fn resolve_for_rd_in_transaction_v2(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    selector: &ExploratoryReplayRecoverySelectorV2,
-) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError> {
-    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
-    if let Some(result) = resolve_composer_v3_read_result_in_transaction(
-        transaction,
-        &selector.request_identity,
-        &selector.meaning_digest,
-        None,
-    )
-    .await?
-    {
-        return Ok(result);
-    }
-    resolve_selector_v2(&mut **transaction, selector).await
-}
-
-async fn resolve_selector_v2<'c>(
-    executor: impl sqlx::PgExecutor<'c>,
-    selector: &ExploratoryReplayRecoverySelectorV2,
-) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError> {
     let value: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT rd_owner_api.resolve_exploratory_replay_request_v2($1,$2)")
             .bind(&selector.request_identity)
             .bind(&selector.meaning_digest)
-            .fetch_one(executor)
+            .fetch_one(rd_pool)
             .await
             .map_err(storage)?;
-    decode_v2_read_result(
+    let result = decode_v2_read_result(
         &selector.request_identity,
         &selector.meaning_digest,
         None,
         value,
-    )
+    )?;
+    Ok(result)
 }
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
@@ -3380,33 +3443,13 @@ async fn resolve_composer_v3_read_result(
         .execute(&mut *transaction)
         .await
         .map_err(storage)?;
-    let result = resolve_composer_v3_read_result_in_transaction(
-        &mut transaction,
-        request_identity,
-        meaning_digest,
-        exact_locator,
-    )
-    .await?;
-    transaction.commit().await.map_err(storage)?;
-    Ok(result)
-}
-
-/// The Composer V3 lookup inside a transaction the caller owns, so a caller that reads other R&D
-/// custody in the same transaction resolves a Composer V3 request exactly as the pool read does.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
-async fn resolve_composer_v3_read_result_in_transaction(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    request_identity: &str,
-    meaning_digest: &str,
-    exact_locator: Option<&ExploratoryReplayRequestLocatorV2>,
-) -> Result<Option<ExploratoryReplayReadResultV2>, ExploratoryReplayOwnerError> {
     let row = sqlx::query(
         "SELECT source_kind,v2_receipt_json,v2_seal_digest,v2_meaning_digest \
          FROM public.rd_sealed_exploratory_replay_requests_v1 \
          WHERE request_identity=$1 FOR SHARE",
     )
     .bind(request_identity)
-    .fetch_optional(&mut **transaction)
+    .fetch_optional(&mut *transaction)
     .await
     .map_err(storage)?;
     let Some(row) = row else {
@@ -3436,9 +3479,12 @@ async fn resolve_composer_v3_read_result_in_transaction(
     if exact_locator.is_some_and(|expected| expected != &locator) {
         return Ok(Some(unavailable_result_v2(request_identity)));
     }
-    let readback =
-        composer_readback_v3::resolve_composer_v3_by_locator_in_transaction(transaction, &locator)
-            .await?;
+    let readback = composer_readback_v3::resolve_composer_v3_by_locator_in_transaction(
+        &mut transaction,
+        &locator,
+    )
+    .await?;
+    transaction.commit().await.map_err(storage)?;
     Ok(Some(match readback {
         Some(readback) => ExploratoryReplayReadResultV2 {
             projection: projection_v2(request_identity, ExploratoryReplayAvailabilityV1::Available),
@@ -5111,7 +5157,7 @@ mod source_tests {
     use super::{
         CanonicalStorageRecordV2, INTERNAL_VERIFY_SOURCE_V1, INTERNAL_VERIFY_SOURCE_V2,
         INTERNAL_VERIFY_SOURCE_V3, MARKET_DATA_LOCK_SOURCE_V1, NATIVE_SOURCE_STORAGE_SOURCE_V2,
-        SELECTOR_RESOLVER_SOURCE_V2, StoredHistoricalReplayDispositionV1,
+        READ_SELECTOR_SOURCE_V2, SELECTOR_RESOLVER_SOURCE_V2, StoredHistoricalReplayDispositionV1,
         StoredHistoricalReplayOperationV1, StoredHistoricalReplayRejectionReceiptV1,
         StoredReceiptV2, canonical_storage_record_matches, validate_historical_rejection_v1,
     };
@@ -5133,6 +5179,7 @@ mod source_tests {
                 "NATIVE_SOURCE_STORAGE_SOURCE_V2",
                 NATIVE_SOURCE_STORAGE_SOURCE_V2,
             ),
+            ("READ_SELECTOR_SOURCE_V2", READ_SELECTOR_SOURCE_V2),
             ("SELECTOR_RESOLVER_SOURCE_V2", SELECTOR_RESOLVER_SOURCE_V2),
             ("MARKET_DATA_LOCK_SOURCE_V1", MARKET_DATA_LOCK_SOURCE_V1),
         ];

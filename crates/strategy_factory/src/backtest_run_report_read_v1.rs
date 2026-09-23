@@ -11,8 +11,10 @@
 //!
 //! The report contract says the strategy statement and the data window come from upstream rather
 //! than from the backtest result, and a canonical result contains neither. So the read is three
-//! reads in the caller's one R&D transaction: the outcome readback, the replay request the run
-//! answered, and the Design and program frozen under the Design that request names.
+//! reads in one transaction the report opens as `REPEATABLE READ, READ ONLY`: the outcome readback,
+//! the replay request the run answered, and the Design and program frozen under the Design that
+//! request names. `READ ONLY` is what keeps row locks off this path, by having PostgreSQL refuse
+//! them.
 //!
 //! The strategy is stated only for the admitted single-threshold family, and only when authoring
 //! the statement read back from the frozen pair reproduces that pair's canonical program exactly
@@ -70,7 +72,8 @@ use crate::{
     bounded_feature_program_v1::BoundedFeaturePredicateV1,
     develop_composer_v2::parse_digest_suffix,
     exploratory_replay::{
-        ExploratoryReplayRecoverySelectorV2, postgres::resolve_for_rd_in_transaction_v2,
+        ExploratoryReplayRecoverySelectorV2,
+        postgres::{ReportRequestReadV2, read_for_report_in_transaction_v2},
     },
     owner_backtest_report_v1::{OwnerBacktestFillV1, OwnerBacktestReportV1},
     rd_bounded_feature_program_v1::read_frozen_design_program_in_transaction_v1,
@@ -112,9 +115,18 @@ pub enum BacktestRunReportRefusalV1 {
     /// An execution's price or quantity is not a plain decimal the report can display as written.
     #[error("execution {field} {value} is not a plain decimal")]
     DecimalNotPlain { field: &'static str, value: String },
+    /// The report's read-only transaction could not be opened or closed.
+    #[error("the report's read-only transaction is unavailable: {0}")]
+    ReadTransactionUnavailable(String),
     /// The replay request the run answered could not be read back from R&D custody.
     #[error("the run's replay request is unavailable: {0}")]
     ReplayRequestUnavailable(String),
+    /// The run's replay request is held only by Composer V3 custody, which this report does not
+    /// read yet: that read locks rows, and the report reads in a read-only transaction.
+    #[error(
+        "the run's replay request is a Composer V3 request, which this report does not read yet"
+    )]
+    ReplayRequestV3NotYetReported,
     /// The frozen Design the request names could not be read, or did not verify.
     #[error("the run's frozen Design is unavailable")]
     FrozenDesignUnavailable,
@@ -129,6 +141,31 @@ pub enum BacktestRunReportRefusalV1 {
 }
 
 impl BacktestRunReportRefusalV1 {
+    /// Whether this refusal is the Owner's conclusion about the run, rather than a failure to read
+    /// it.
+    ///
+    /// A consumer shows a conclusion as the report's state and treats a failure to read as the read
+    /// being unavailable. The match lists every variant and has no wildcard arm, so a new variant
+    /// does not compile until someone decides which it is, here where it is defined.
+    #[must_use]
+    pub const fn is_owner_judgement(&self) -> bool {
+        match self {
+            Self::OutcomeEvidenceUnavailable(_)
+            | Self::ReadTransactionUnavailable(_)
+            | Self::ReplayRequestUnavailable(_)
+            | Self::FrozenDesignUnavailable => false,
+            Self::OutcomeEvidenceRefused(_)
+            | Self::EngineResultNoncanonical(_)
+            | Self::NonFiniteValue(_)
+            | Self::DuplicateSeriesTime(_)
+            | Self::UnknownSide(_)
+            | Self::DecimalNotPlain { .. }
+            | Self::ReplayRequestV3NotYetReported
+            | Self::NoStrategyStatementForFamily
+            | Self::StrategyNotAnchoredToRun => true,
+        }
+    }
+
     /// Returns the stable code a consumer asserts on, rather than a sentence it would have to
     /// match.
     #[must_use]
@@ -141,7 +178,9 @@ impl BacktestRunReportRefusalV1 {
             Self::DuplicateSeriesTime(_) => "DUPLICATE_SERIES_TIME",
             Self::UnknownSide(_) => "UNKNOWN_SIDE",
             Self::DecimalNotPlain { .. } => "DECIMAL_NOT_PLAIN",
+            Self::ReadTransactionUnavailable(_) => "READ_TRANSACTION_UNAVAILABLE",
             Self::ReplayRequestUnavailable(_) => "REPLAY_REQUEST_UNAVAILABLE",
+            Self::ReplayRequestV3NotYetReported => "REPLAY_REQUEST_V3_NOT_YET_REPORTED",
             Self::FrozenDesignUnavailable => "FROZEN_DESIGN_UNAVAILABLE",
             Self::NoStrategyStatementForFamily => "NO_STRATEGY_STATEMENT_FOR_FAMILY",
             Self::StrategyNotAnchoredToRun => "STRATEGY_NOT_ANCHORED_TO_RUN",
@@ -299,11 +338,14 @@ pub fn canonical_utc_v1(nanos: u64) -> String {
     unix_nanos_to_iso8601(UnixNanos::from(nanos))
 }
 
-/// Reads one committed run's report under the caller's R&D transaction.
+/// Reads one committed run's report through the R&D Owner pool.
 ///
-/// Three reads, all in that one transaction: the run's outcome readback from Backtest custody,
-/// the replay request it answered, and the frozen Design and program that request names. The
-/// strategy and data window are therefore stated from the same snapshot of custody as the result.
+/// Three reads, all in one transaction this function opens as `REPEATABLE READ, READ ONLY`: the
+/// run's outcome readback from Backtest custody, the replay request it answered, and the Design
+/// and program frozen under the Design that request names. `REPEATABLE READ` gives the three one
+/// snapshot. `READ ONLY` makes PostgreSQL refuse any row lock on this path, so a read that locks
+/// fails on its first call and names itself, instead of holding a lock until the report returns.
+/// A shared row lock held on a read path is what deadlocked the Dashboard read in entry 28.
 ///
 /// # Errors
 ///
@@ -313,26 +355,64 @@ pub fn canonical_utc_v1(nanos: u64) -> String {
 /// [`BacktestRunReportRefusalV1::NoStrategyStatementForFamily`]: the report answers four questions
 /// or none.
 pub async fn resolve_backtest_run_report_v1(
+    pool: &sqlx::PgPool,
+    locator: ExploratoryReplayResultLocatorV2<'_>,
+) -> Result<Option<BacktestRunReportProjectionV1>, BacktestRunReportRefusalV1> {
+    let mut transaction = begin_report_read_v1(pool).await?;
+    let report = read_report_in_transaction(&mut transaction, locator).await;
+    // Nothing a read-only transaction did can need keeping, and a refusal is still a completed
+    // read, so the transaction ends the same way on every path.
+    transaction
+        .rollback()
+        .await
+        .map_err(|e| BacktestRunReportRefusalV1::ReadTransactionUnavailable(e.to_string()))?;
+    report
+}
+
+/// Opens the report's `REPEATABLE READ, READ ONLY` transaction.
+///
+/// `SET TRANSACTION` must be the transaction's first statement, which is why the report opens its
+/// own rather than taking one from its caller.
+pub(crate) async fn begin_report_read_v1(
+    pool: &sqlx::PgPool,
+) -> Result<sqlx::Transaction<'static, sqlx::Postgres>, BacktestRunReportRefusalV1> {
+    let unavailable =
+        |e: sqlx::Error| BacktestRunReportRefusalV1::ReadTransactionUnavailable(e.to_string());
+    let mut transaction = pool.begin().await.map_err(unavailable)?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+        .execute(&mut *transaction)
+        .await
+        .map_err(unavailable)?;
+    Ok(transaction)
+}
+
+async fn read_report_in_transaction(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     locator: ExploratoryReplayResultLocatorV2<'_>,
 ) -> Result<Option<BacktestRunReportProjectionV1>, BacktestRunReportRefusalV1> {
     let Some(read) = resolve_backtest_run_result_v1(transaction, locator).await? else {
         return Ok(None);
     };
-    let request = resolve_for_rd_in_transaction_v2(
+    let request = match read_for_report_in_transaction_v2(
         transaction,
         &ExploratoryReplayRecoverySelectorV2 {
             request_identity: read.run.request_identity.clone(),
-            meaning_digest: read.request_meaning_digest,
+            meaning_digest: read.request_meaning_digest.clone(),
         },
     )
     .await
-    .map_err(|e| BacktestRunReportRefusalV1::ReplayRequestUnavailable(e.to_string()))?;
-    let request = request.readback().ok_or_else(|| {
-        BacktestRunReportRefusalV1::ReplayRequestUnavailable(
-            "no sealed request at the meaning the outcome evidence binds".to_owned(),
-        )
-    })?;
+    .map_err(|e| BacktestRunReportRefusalV1::ReplayRequestUnavailable(e.to_string()))?
+    {
+        ReportRequestReadV2::Found(request) => request,
+        ReportRequestReadV2::ComposerV3 => {
+            return Err(BacktestRunReportRefusalV1::ReplayRequestV3NotYetReported);
+        }
+        ReportRequestReadV2::Absent => {
+            return Err(BacktestRunReportRefusalV1::ReplayRequestUnavailable(
+                "no sealed request at the meaning the outcome evidence binds".to_owned(),
+            ));
+        }
+    };
     let (strategy, data_window) =
         resolve_strategy_and_window(transaction, request.request().as_dto()).await?;
 
@@ -351,7 +431,7 @@ pub(crate) struct BacktestRunResultReadV1 {
     pub(crate) result: BacktestRunResultV1,
 }
 
-/// Reads only what a run produced, from Backtest custody, under the caller's R&D transaction.
+/// Reads only what a run produced, from Backtest custody, in the caller's transaction.
 ///
 /// It is the first of [`resolve_backtest_run_report_v1`]'s reads, separate so that what a run
 /// produced can be read and proven for a run whose strategy this report cannot state.
@@ -1151,6 +1231,128 @@ mod tests {
         );
     }
 
+    /// Source lines with comments removed, so a doc that names a lock does not read as taking one.
+    fn code_of(source: &str) -> String {
+        source
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// The text from `start` to the end of the item it opens, which ends at the first line that is a
+    /// lone closing brace or string terminator.
+    fn item<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+        let at = source
+            .find(start)
+            .unwrap_or_else(|| panic!("{start} is in its file"));
+        let rest = &source[at..];
+        &rest[..rest.find(end).unwrap_or_else(|| panic!("{start} ends"))]
+    }
+
+    /// The report path names no read that takes a row lock.
+    ///
+    /// `READ ONLY` refuses such a read at run time; this refuses naming one at all, so the next
+    /// reader added to the path is checked before a database is in reach. The positive control
+    /// runs first: the locking resolver's own source must show its lock to this probe, or a probe
+    /// that saw nothing would pass everything.
+    #[rstest]
+    fn the_report_read_path_names_no_locking_read() {
+        let replay = include_str!("exploratory_replay/postgres.rs");
+        let locking = item(
+            replay,
+            "const SELECTOR_RESOLVER_SOURCE_V2: &str = \"",
+            "\";\n",
+        );
+        assert!(locking.contains("FOR SHARE"), "the probe sees a lock");
+
+        let forbidden = [
+            "FOR SHARE",
+            "FOR UPDATE",
+            "resolve_exploratory_replay_request_v2",
+            "resolve_for_rd_v2",
+            "lock_accepted_develop_composer",
+        ];
+        let report = code_of(item(
+            include_str!("backtest_run_report_read_v1.rs"),
+            "use serde::Serialize;",
+            "#[cfg(test)]\npub(crate) mod report_test_support_v1",
+        ));
+        let request_read = code_of(item(
+            replay,
+            "pub(crate) async fn read_for_report_in_transaction_v2(",
+            "\n}\n",
+        ));
+        let lock_free_sql = item(replay, "const READ_SELECTOR_SOURCE_V2: &str = \"", "\";\n");
+        let frozen_read = code_of(item(
+            include_str!("rd_bounded_feature_program_v1.rs"),
+            "pub(crate) async fn read_frozen_design_program_in_transaction_v1(",
+            "\n}\n",
+        ));
+        assert!(request_read.contains("rd_owner_api.read_exploratory_replay_request_v2("));
+        assert!(report.contains("READ ONLY"));
+
+        for (name, text) in [
+            ("report", report.as_str()),
+            ("request read", request_read.as_str()),
+            ("lock-free SQL", lock_free_sql),
+            ("frozen read", frozen_read.as_str()),
+        ] {
+            for word in forbidden {
+                assert!(!text.contains(word), "{name} names {word}");
+            }
+        }
+    }
+
+    /// Every variant, sorted by whether it is a conclusion. The list is the classification written
+    /// down a second time on purpose: a variant moved between classes without updating this is a
+    /// change of meaning a consumer relies on, and it should fail here first.
+    #[rstest]
+    #[case(
+        BacktestRunReportRefusalV1::OutcomeEvidenceUnavailable(String::new()),
+        false
+    )]
+    #[case(
+        BacktestRunReportRefusalV1::ReadTransactionUnavailable(String::new()),
+        false
+    )]
+    #[case(
+        BacktestRunReportRefusalV1::ReplayRequestUnavailable(String::new()),
+        false
+    )]
+    #[case(BacktestRunReportRefusalV1::FrozenDesignUnavailable, false)]
+    #[case(
+        BacktestRunReportRefusalV1::OutcomeEvidenceRefused(
+            BacktestReadbackRefusalV1::SemanticTraceAbsent
+        ),
+        true
+    )]
+    #[case(
+        BacktestRunReportRefusalV1::EngineResultNoncanonical(String::new()),
+        true
+    )]
+    #[case(BacktestRunReportRefusalV1::NonFiniteValue("series"), true)]
+    #[case(BacktestRunReportRefusalV1::DuplicateSeriesTime(0), true)]
+    #[case(BacktestRunReportRefusalV1::UnknownSide(String::new()), true)]
+    #[case(
+        BacktestRunReportRefusalV1::DecimalNotPlain { field: "price", value: String::new() },
+        true
+    )]
+    #[case(BacktestRunReportRefusalV1::ReplayRequestV3NotYetReported, true)]
+    #[case(BacktestRunReportRefusalV1::NoStrategyStatementForFamily, true)]
+    #[case(BacktestRunReportRefusalV1::StrategyNotAnchoredToRun, true)]
+    fn every_refusal_is_either_a_conclusion_or_a_failure_to_read(
+        #[case] refusal: BacktestRunReportRefusalV1,
+        #[case] conclusion: bool,
+    ) {
+        assert_eq!(
+            refusal.is_owner_judgement(),
+            conclusion,
+            "{}",
+            refusal.code()
+        );
+    }
+
     #[rstest]
     fn every_refusal_and_state_has_its_own_code() {
         let codes = [
@@ -1168,7 +1370,9 @@ mod tests {
                 value: String::new(),
             }
             .code(),
+            BacktestRunReportRefusalV1::ReadTransactionUnavailable(String::new()).code(),
             BacktestRunReportRefusalV1::ReplayRequestUnavailable(String::new()).code(),
+            BacktestRunReportRefusalV1::ReplayRequestV3NotYetReported.code(),
             BacktestRunReportRefusalV1::FrozenDesignUnavailable.code(),
             BacktestRunReportRefusalV1::NoStrategyStatementForFamily.code(),
             BacktestRunReportRefusalV1::StrategyNotAnchoredToRun.code(),

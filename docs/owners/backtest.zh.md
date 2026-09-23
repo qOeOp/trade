@@ -234,9 +234,11 @@ production write、provider effect、Paper、Live 或交易权威。
     `OwnerBacktestReportV1` 从同一份已提交字节派生出的：该次运行的 result、request 与 attempt 身份，以及其
     结果证据所绑定的引擎结果摘要；由 Owner 判定的状态（`AVAILABLE` 或 `EMPTY`）；该次运行记录的每一个
     收益观测，时间为规范 UTC；净收益；最大回撤；以及每一笔成交的方向，价格与数量按引擎写出的原样给出。
-    它不承载统计量映射，因为那些映射合法地含有非有限值。策略与数据窗口不在回测结果里，所以取自上游，并在
-    调用方同一个 R&D 事务里读：该次运行所回应的 replay 请求，以及冻结在该请求所指 Design 之下的 Design 与
-    程序。策略只对已准入的单阈值族陈述，而且只有当把从那对冻结值读回的陈述重新编写一遍、能逐字节复现该对
+    它不承载统计量映射，因为那些映射合法地含有非有限值。策略与数据窗口不在回测结果里，所以取自上游：
+    该次运行所回应的 replay 请求，以及冻结在该请求所指 Design 之下的 Design 与程序。三次读取都在报告自己开的
+    一个 `REPEATABLE READ, READ ONLY` 事务里，因此共用一个快照，且 PostgreSQL 拒绝这条路径上的任何行锁。请求经
+    `rd_owner_api.read_exploratory_replay_request_v2` 读取，它不加锁；`resolve_exploratory_replay_request_v2`
+    为之后还要写入的调用方保留它的锁，并经同一个函数读取。策略只对已准入的单阈值族陈述，而且只有当把从那对冻结值读回的陈述重新编写一遍、能逐字节复现该对
     的规范程序时才陈述；任何其他运行都以这个具名理由整体拒绝。这个族不带版本，所以由更早的编写器冻结、
     而当前编写器已不能复现的程序，也以同样方式被拒绝。族内的运行也会被拒绝，码为
     `STRATEGY_NOT_ANCHORED_TO_RUN`，直到冻结程序能锚定到该次运行实际执行的 artifact：请求点名的是
