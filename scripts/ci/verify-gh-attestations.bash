@@ -3,7 +3,7 @@
 set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/ci/release-verification-retry.bash disable=SC1091
+# shellcheck source=scripts/ci/release-verification-retry.bash
 source "${script_dir}/release-verification-retry.bash"
 
 attempts="${GH_ATTESTATION_VERIFY_ATTEMPTS:-7}"

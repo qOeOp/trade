@@ -1586,7 +1586,7 @@ fi
 # the machine until entries with a time window fail for load alone. owner-chain-lock.bash says why
 # and how. A hosted runner runs one job, so CI does not take it.
 if [[ "${GITHUB_ACTIONS:-}" != "true" ]]; then
-  # shellcheck source=scripts/ci/owner-chain-lock.bash disable=SC1091
+  # shellcheck source=scripts/ci/owner-chain-lock.bash
   source "$(dirname "${BASH_SOURCE[0]}")/owner-chain-lock.bash"
   acquire_owner_chain_lock || exit 1
 fi
