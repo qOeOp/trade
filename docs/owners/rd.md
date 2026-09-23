@@ -136,6 +136,22 @@ an admission as invalid:
   the current count. Separately, the route states this as `SUBMITTED_OR_UNKNOWN` with `RESOLVE_SAME_REQUEST`, the
   state reserved for a transport whose outcome is genuinely unknown; here the outcome is known and resolving the
   same request cannot change it.
+- **CURRENT - the composer-backed Exploratory Replay request path carries no admission label, and what lifts its
+seal is upstream:** `commit_composer_backed_exploratory_replay_request_v3` and its route
+`/v3/exploratory-replay-requests/composer-backed` exist only under `sealed-source-intake-composer-acceptance`,
+which the image above does not build. Nothing in this document, `docs/owners/backtest.md` or
+`docs/architecture/` marks the path `TARGET`, `IMPLEMENTATION_ADMITTED` or any other state, so its state is
+read from three statements instead. The deployed-service bullet above says an acceptance route is never evidence
+of a production capability. `docs/guide/dashboard.md` says the boundary lifts when a deployed image carries a
+path that produces Composer artifacts, and that the v2 commit then retires or is replaced by this one. The
+Source Intake bullet above says the deployed pipeline, the first hop toward any Composer artifact, acquires
+nothing. The path is therefore sealed pending a production producer: neither unfinished nor closed by intent.
+The ungated v2 commit cannot stand in for it. Native Replay preparation parses the request's `artifact.digest`
+as a `sha256:` digest before it queries Composer, while a v2 commit succeeds only when that digest equals the
+Artifact Build Owner's `blake3:` wasm digest; and the request's `artifact.identity` would have to equal the
+Artifact Build `blake3:` identity for the commit and Composer's `rd-strategy-artifact-v2-` locator for
+preparation. No v2 request reaches issuance. By the same deployed-service bullet, enabling the feature in the
+ordered chain's acceptance build admits nothing in production.
 - **CURRENT - one read-only operation is reachable only through the write API:** the Dashboard's operation
   registry declares eleven Owner routes, and ten are `GET`. The eleventh,
   `research_goal.legacy_quarantine_read.v1`, declares `effect_set: []` and resolves to
