@@ -596,6 +596,32 @@ if [[ "$chain_summary_line" -ge "$chain_dump_line" ]]; then
   echo "drops the one line that says which entry stopped the run." >&2
   exit 1
 fi
+# The chain's Linux restriction may be stepped over deliberately, and the step must stay expensive to
+# take by accident and impossible to take silently. Three things are pinned: the restriction itself,
+# the one variable that lifts it, and the sentence saying what a run under it is worth. The third is
+# the one that decays - a later edit shortening the message would leave a bypass that no longer says
+# a local pass is not acceptance, and nothing else in this repository would notice.
+chain_linux_gate="$repo_root/scripts/ci/test-rd-owner-postgres.bash"
+# Match literal shell source.
+# shellcheck disable=SC2016
+if ! grep -Fq 'if [[ "$(uname -s)" != "Linux" ]]; then' "$chain_linux_gate"; then
+  echo "test-rd-owner-postgres.bash no longer refuses a non-Linux host." >&2
+  echo "Acceptance is these entries passing on Linux CI; dropping the check removes the only" >&2
+  echo "place that says so to someone running it elsewhere." >&2
+  exit 1
+fi
+if ! grep -Fq 'RD_OWNER_CHAIN_LOCAL_PREFLIGHT' "$chain_linux_gate"; then
+  echo "test-rd-owner-postgres.bash refuses a non-Linux host with no named way through." >&2
+  echo "Without one the refusal is stepped over by editing it out, which leaves nothing in the" >&2
+  echo "log saying the run skipped it." >&2
+  exit 1
+fi
+if ! grep -Fq 'Acceptance is' "$chain_linux_gate"; then
+  echo "test-rd-owner-postgres.bash lets a non-Linux run proceed without saying what it is worth." >&2
+  echo "The message must state that a pass there is a working state and acceptance is Linux CI." >&2
+  exit 1
+fi
+
 grep -Fq 'rust-cache-workspace-crates: "true"' "$build_workflow"
 grep -Fq 'rust-doctests-linux-x86:' "$build_workflow"
 rust_tests_block="$(sed -n '/^  rust-tests-linux-x86:/,/^  quality:/p' "$build_workflow")"
