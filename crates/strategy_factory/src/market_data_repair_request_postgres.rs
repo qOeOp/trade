@@ -334,15 +334,15 @@ where
         )
         .await
         .map_err(|e| unavailable(e.to_string()))?;
-    let source = resolve_native_replay_initial_owner_inputs_v1(
+    let (_market_request, market) = resolve_native_replay_initial_owner_inputs_v1(
         &preparation,
         &plan,
         &instrument_master,
         market_data,
     )
     .await
-    .map_err(|e| unavailable(e.to_string()))?
-    .into_market_data_repair_source();
+    .map_err(|e| unavailable(e.to_string()))?;
+    let source = market.into_market_data_repair_source();
     let shared_time = shared_time_resolver
         .resolve_clock_head(&request.shared_time_head)
         .await
