@@ -332,6 +332,24 @@ impl AdmittedMarketDataPostgresCapability {
         Ok(self.into_source_binding_snapshot_port())
     }
 
+    /// Consumes this authority into the fixed native Replay scheduling read operation: a frame's
+    /// BAR schedules and the quote cut its Quotes are read from.
+    pub(super) fn into_native_replay_scheduling_snapshot_port_v2(
+        self,
+    ) -> Result<AdmittedMarketDataSnapshotPort, DeploymentStoreAdmissionError> {
+        if !self.measurement_spec.covers_bar_schedule_floor_v1()
+            || !self
+                .measurement_spec
+                .covers_native_replay_quote_cut_floor_v2()
+        {
+            return Err(rejection(
+                &self.scope,
+                AdmissionFailureCode::DirectMeasurementMismatch,
+            ));
+        }
+        Ok(self.into_source_binding_snapshot_port())
+    }
+
     /// Consumes this authority into the fixed Shared Time evidence read operation.
     pub(super) fn into_shared_time_evidence_snapshot_port_v1(
         self,
@@ -715,6 +733,51 @@ impl AdmittedMarketDataSnapshotPort {
             .collect())
     }
 
+    /// Reads one frame's quote cut census after admission before and after.
+    pub(super) async fn resolve_native_replay_quote_cut_census_v2(
+        &self,
+        scope_digest: [u8; 32],
+        frame_time_ns: u64,
+        decision_cut_ns: u64,
+        window_end_ns_exclusive: u64,
+    ) -> Result<postgres::RawNativeReplayQuoteCutCensusV2, DeploymentStoreAdmissionError> {
+        let before = self
+            .revalidator
+            .admit_capability(self.scope.clone())
+            .await?;
+        validate_native_replay_quote_cut_revalidation_v2(
+            &self.scope,
+            &self.receipt,
+            &before.receipt,
+            &before.measurement_spec,
+        )?;
+        let raw = postgres::read_native_replay_quote_cut_census_snapshot_v2(
+            &before.credential_lease,
+            &scope_digest,
+            frame_time_ns,
+            decision_cut_ns,
+            window_end_ns_exclusive,
+        )
+        .await
+        .map_err(|_| {
+            rejection(
+                &self.scope,
+                AdmissionFailureCode::DirectMeasurementUnavailable,
+            )
+        })?;
+        let after = self
+            .revalidator
+            .admit_capability(self.scope.clone())
+            .await?;
+        validate_native_replay_quote_cut_revalidation_v2(
+            &self.scope,
+            &self.receipt,
+            &after.receipt,
+            &after.measurement_spec,
+        )?;
+        Ok(raw)
+    }
+
     /// Reads one fixed BAR schedule readback and complete history after admission before and after.
     pub(super) async fn resolve_bar_schedule_v1(
         &self,
@@ -1091,6 +1154,25 @@ fn validate_bar_schedule_revalidation_v1(
     observed_measurement_spec: &PostgresMeasurementSpec,
 ) -> Result<(), DeploymentStoreAdmissionError> {
     if !observed_measurement_spec.covers_bar_schedule_floor_v1() {
+        return Err(rejection(
+            scope,
+            AdmissionFailureCode::DirectMeasurementMismatch,
+        ));
+    }
+
+    if !same_snapshot_cut(expected, observed) {
+        return Err(rejection(scope, AdmissionFailureCode::AdmissionCutExpired));
+    }
+    Ok(())
+}
+
+fn validate_native_replay_quote_cut_revalidation_v2(
+    scope: &AdmissionScope,
+    expected: &SealedDeploymentStoreAdmissionReceipt,
+    observed: &SealedDeploymentStoreAdmissionReceipt,
+    observed_measurement_spec: &PostgresMeasurementSpec,
+) -> Result<(), DeploymentStoreAdmissionError> {
+    if !observed_measurement_spec.covers_native_replay_quote_cut_floor_v2() {
         return Err(rejection(
             scope,
             AdmissionFailureCode::DirectMeasurementMismatch,
@@ -3450,6 +3532,193 @@ mod tests {
             .unwrap()
             .join()
             .unwrap();
+    }
+
+    /// The BAR schedule measurement with the quote cut floor beside it: what a native Replay
+    /// scheduling port is admitted on.
+    fn native_replay_scheduling_measurement_spec() -> PostgresMeasurementSpec {
+        PostgresMeasurementSpec::new(
+            "market_data_private",
+            "market_data_private.owner_migrations_v1",
+            vec![
+                "market_data_private.resolve_bar_schedule_v1(bytea)".to_string(),
+                "market_data_private.resolve_bar_schedule_candidates_v1(text)".to_string(),
+                "market_data_private.resolve_bar_schedule_history_v1(text)".to_string(),
+                "market_data_private.resolve_native_replay_quote_cut_census_v2(bytea,bigint,bigint)"
+                    .to_string(),
+                "market_data_private.resolve_native_replay_next_frame_v2(bytea,bigint,bigint)"
+                    .to_string(),
+            ],
+            vec![
+                "market_data_private.bar_schedule_state_v1".to_string(),
+                "market_data_private.bar_schedule_facts_v1".to_string(),
+                "market_data_private.bar_schedule_heads_v1".to_string(),
+                "market_data_private.bar_schedule_cuts_v1".to_string(),
+                "market_data_private.bar_schedule_receipts_v1".to_string(),
+                "market_data_private.bar_schedule_outbox_v1".to_string(),
+                "market_data_private.native_replay_quote_cut_census_v2".to_string(),
+                "market_data_private.native_replay_frame_census_v2".to_string(),
+            ],
+        )
+        .expect("native Replay scheduling measurement spec")
+    }
+
+    /// Admits `spec` against the disposable database through a real measurement.
+    async fn admitted_capability_for(
+        owner_url: &str,
+        spec: &PostgresMeasurementSpec,
+    ) -> AdmittedMarketDataPostgresCapability {
+        let lease = PostgresCredentialLease::from_resolved_secret(
+            "native-replay-quote-cut-handle",
+            "market-data-owner",
+            "v1",
+            NOW + 3_600_000,
+            owner_url.to_owned(),
+        )
+        .expect("lease for the disposable database");
+        let measured = PostgresDirectMeasurer::measure(&PostgresDirectMeasurer, &lease, spec)
+            .await
+            .expect("the real measurer reads the disposable database");
+        let fixture = Fixture::with_spec_and_measurement(spec, measured);
+        Custodian::new(
+            Arc::new(fixture.custody()),
+            Arc::new(Ed25519Verifier {
+                key: fixture.signing_key.verifying_key(),
+                calls: Arc::new(AtomicUsize::new(0)),
+            }),
+            Arc::new(FakeWitness {
+                observation: fixture.witness.clone(),
+            }),
+            Arc::new(LeasedCredentials {
+                database_url: owner_url.to_owned(),
+            }),
+            Arc::new(CountingPostgresMeasurer {
+                calls: Arc::new(AtomicUsize::new(0)),
+            }),
+            Arc::new(FixedClock),
+        )
+        .admit_capability(fixture.request.scope())
+        .await
+        .expect("the disposable database satisfies the recorded manifest")
+    }
+
+    /// A frame's quote cut, read through an admitted port, is the one custody resolves.
+    ///
+    /// The port reads the frame census's bound and the quote cut census through the Owner's two
+    /// census functions under a measured lease, decodes the rows it returns, and reads the chosen
+    /// cut back through its PIT evaluation. Custody's own read takes the same census through a
+    /// pool. The two are separate code over the same rules, so this asks them the same questions
+    /// and requires the same answers - including the refusal when the window ends on the quote
+    /// cut's instant. A measurement without the quote cut floor never becomes a scheduling port.
+    #[rstest]
+    #[ignore = "requires the crates/data disposable PostgreSQL harness"]
+    fn the_admitted_quote_cut_read_resolves_what_custody_resolves() {
+        std::thread::Builder::new()
+            .name("market-data-native-replay-quote-cut".into())
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(run_native_replay_quote_cut_admitted_scenario());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    async fn run_native_replay_quote_cut_admitted_scenario() {
+        use crate::owner::native_replay_quote_cut_v2::{
+            NativeReplayCutKindV2, NativeReplayQuoteCutRefusalV2, classify_native_replay_cut_v2,
+        };
+
+        let owner_url = std::env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL")
+            .expect("explicit disposable Owner URL");
+        let database =
+            std::env::var("VIBE_POSTGRES_TEST_DATABASE_NAME").expect("disposable database name");
+        assert!(
+            database.starts_with("vibe_test_"),
+            "this proof writes; it runs only against a disposable database"
+        );
+        let owner = crate::owner::postgres::MarketDataOwnerPostgres::connect(&owner_url)
+            .await
+            .expect("Owner connects and migrates");
+        let snapshot =
+            crate::owner::postgres::tests::native_replay_two_member_snapshot_fixture_v1(&owner)
+                .await;
+
+        assert!(
+            admitted_capability_for(&owner_url, &bar_schedule_measurement_spec())
+                .await
+                .into_native_replay_scheduling_snapshot_port_v2()
+                .is_err(),
+            "a measurement without the quote cut floor is not a scheduling port"
+        );
+        let port =
+            admitted_capability_for(&owner_url, &native_replay_scheduling_measurement_spec())
+                .await
+                .into_native_replay_scheduling_snapshot_port_v2()
+                .expect("the measurement carries both floors");
+
+        let evidence = port
+            .resolve_pit_evaluation(*snapshot.snapshot_identity.as_bytes())
+            .await
+            .expect("the frame's evidence");
+        let frame = crate::owner::postgres::verify_admitted_pit_evidence_by_identity_v1(
+            snapshot.snapshot_identity,
+            snapshot.snapshot_fact_digest,
+            &evidence,
+        )
+        .expect("the frame verifies");
+        let window_end = snapshot.frame_time_ns + 1_000;
+
+        let through_port =
+            crate::owner::postgres::resolve_native_replay_quote_cut_through_admitted_port_v2(
+                &port, &frame, window_end,
+            )
+            .await
+            .expect("the port resolves the frame's quote cut");
+        assert_eq!(
+            through_port.snapshot_identity(),
+            snapshot.quote_cut_snapshot_identity
+        );
+        assert_eq!(
+            classify_native_replay_cut_v2(through_port.observations()),
+            NativeReplayCutKindV2::QuoteCut
+        );
+        assert_eq!(
+            through_port.time_evidence().event_effective.value,
+            snapshot.quote_cut_instant_ns
+        );
+        let through_custody = owner
+            .resolve_native_replay_quote_cut_v2(&frame, window_end)
+            .await
+            .expect("custody resolves the frame's quote cut");
+        assert_eq!(
+            through_custody.snapshot_identity(),
+            through_port.snapshot_identity(),
+            "the port and custody resolve the same quote cut"
+        );
+
+        // A window that ends on the quote cut's instant leaves the frame without one, both ways.
+        assert_eq!(
+            crate::owner::postgres::resolve_native_replay_quote_cut_through_admitted_port_v2(
+                &port,
+                &frame,
+                snapshot.quote_cut_instant_ns,
+            )
+            .await
+            .map(|batch| batch.snapshot_identity()),
+            Err(NativeReplayQuoteCutRefusalV2::QuoteCutMissing)
+        );
+        assert_eq!(
+            owner
+                .resolve_native_replay_quote_cut_v2(&frame, snapshot.quote_cut_instant_ns)
+                .await
+                .map(|batch| batch.snapshot_identity()),
+            Err(NativeReplayQuoteCutRefusalV2::QuoteCutMissing)
+        );
     }
 
     /// A request that names one committed snapshot and nothing more.

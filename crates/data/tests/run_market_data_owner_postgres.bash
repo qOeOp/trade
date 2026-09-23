@@ -10,6 +10,7 @@ readonly market_data_owner_postgres_tests=(
   owner::postgres::live_market_stream_v1::tests::postgres_live_channel_head_resumes_and_is_acl_sealed_and_tamper_closed
   owner::store_admission::tests::the_admitted_bar_schedule_order_verifies_before_it_revalidates
   owner::store_admission::tests::a_refused_pit_readback_never_reads_schedule_candidates
+  owner::store_admission::tests::the_admitted_quote_cut_read_resolves_what_custody_resolves
   owner::instrument_master_v2_postgres::tests::postgres_v2_cut_custody_holds_one_or_two_members_and_migrates_a_legacy_table
   owner::instrument_economic_terms_postgres_v1::tests::postgres_economic_terms_resolve_for_one_member_or_two
 )

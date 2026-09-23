@@ -1179,9 +1179,9 @@ The admission and the user's authority for it are recorded with the one-member t
 Factory architecture. For initial Replay composition, the fixed Market Data writer issues the cut through
 `issue_cut` during replay-composition issuance, keyed as the cut-issuance paragraph above states. Built so far: the
 `InstrumentMasterCutV2` cut and its custody table, which an existing table migrates to in place, economic-terms
-resolution, the Owner-binding and the V1 native scheduling seal admit one member; the V1 scheduling receipt hashes a
-two-member universe exactly as before and states the member count for any other. The V2 frame evidence and the frame
-sequence do not admit one member yet, and `issue_cut` has no production caller yet.
+resolution, the Owner-binding, the V1 native scheduling seal, the V2 frame evidence and the frame sequence admit one
+member; the V1 scheduling receipt states its member count, part of the quote cut's change to it. `issue_cut` has no
+production caller yet.
 
 **TARGET, durable Strategy Input Binding Registry:** Market Data owns write-once, validated binding declarations
 keyed by the exact PIT request, `StrategyDesignV2` and typed input role. R&D may supply only
@@ -1505,18 +1505,24 @@ whose latest correction does not serve the frame contributes nothing and never f
 version that correction replaced. The
 census is keyed by the scope a requester declares, so a second quote cut on every one of a
 frame's coordinates collides with the first and refuses the frame - a denial of service, never a
-quote cut the Owner did not verify for it. The bound is the next frame's BAR cut; today the
-resolver's caller supplies it, and deriving it from the frame census belongs to the sequence
-resolver. The
-existing PIT correction lineage records
+quote cut the Owner did not verify for it. The request's decision cut is the decision cut of the
+frame's own PIT snapshot, the one the sealed request names, so a later reading resolves the same
+quote cut. The bound is the first later frame in the frame's scope census that the Owner had
+observed by that decision cut, or the window's end when none lies before it; a frame observed later
+does not move it. The caller names neither. The existing PIT correction lineage records
 revisions of one request; it is not a time-successor index and cannot prove a later frame or the
 absence of skipped frames, which is why the census is its own table rather than a reuse of that
 lineage. The current initial-frame resolver and QuoteTick projection do not themselves issue a
-later frame or a separate liquidity receipt. The current V1 native scheduling seal also takes its
-Quotes from the BAR's own batch, strictly after the BAR, and no Owner-verified batch holds two
-instants, so that seal is unreachable on Owner custody as built. The V2 frame evidence seals every
-frame through that same V1 seal, so the V2 sequence is unreachable on Owner custody for the same
-reason until both take their Quotes from the frame's quote cut.
+later frame or a separate liquidity receipt. The V1 native scheduling seal takes each member's BAR
+from the frame's batch and each member's Quote from the frame's quote cut, every Quote on the quote
+cut's instant and in member order. The Owner resolves the quote cut by the rules above from its own
+custody and through the admitted store port, which reads both censuses through two measured census
+functions. The V1 scheduling receipt states its member count first and binds the quote cut's
+snapshot identity and fact after the frame's batch, so its bytes differ from those it had while it
+took Quotes from the frame's own batch - bytes Owner custody never produced. The V2 frame evidence
+seals every frame through that same seal, over one or two members, and its liquidity EVENT receipt
+seals the quote cut's snapshot, fact and batch in place of the frame's. No proof yet drives a
+complete initial read - schedules, universe and quote cut together - on Owner custody.
 
 In the CURRENT/PARTIAL BAR schedule path, only a custody-verified readback may authorize the additive immutable
 `TimeframeProjectionReceiptV1` keyed by the exact V1 binding-receipt digest. Its existing canonical bytes and domain

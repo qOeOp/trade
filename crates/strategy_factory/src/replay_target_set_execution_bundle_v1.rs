@@ -449,7 +449,7 @@ impl ReplayTargetSetExecutionBundleV1 {
 
         for (frame, universe_frame) in frames.into_iter().zip(&universe_frames) {
             anyhow::ensure!(
-                frame.member_instruments().as_slice() == &*instrument_ids
+                frame.member_instruments() == &*instrument_ids
                     && frame.window_end_ns_exclusive() == request_window.end_event_ns_exclusive
                     && *frame.observation_batch_digest().as_bytes()
                         == *universe_frame
@@ -995,10 +995,14 @@ fn validate_and_digest_scheduling_data(
                 "request execution bundle EVENT scheduling order, time, or liquidity mismatches"
             );
         }
+        // Every member's Quote comes from the frame's quote cut, one PIT snapshot and so one
+        // instant, so members share an event time. Their order at that instant is member order,
+        // which the loop above already fixes position by position; what is refused here is a
+        // Quote that goes back in time.
         anyhow::ensure!(
             events
                 .windows(2)
-                .all(|pair| pair[0].ts_event < pair[1].ts_event),
+                .all(|pair| pair[0].ts_event <= pair[1].ts_event),
             "request execution bundle EVENT order is not canonical"
         );
     }
@@ -1117,8 +1121,9 @@ mod tests {
                 FRAME_TIME.into(),
                 FRAME_TIME.into(),
             )),
+            // Both members' Quotes come from the frame's quote cut, so they share its instant.
             quote(&instruments[0], FRAME_TIME + 1, "100"),
-            quote(&instruments[1], FRAME_TIME + 2, "100.0"),
+            quote(&instruments[1], FRAME_TIME + 1, "100.0"),
         ];
         (instruments, bar_types, data)
     }
@@ -1144,7 +1149,7 @@ mod tests {
         data.push(member_bar(bar_types[0], "100", SECOND_FRAME_TIME));
         data.push(member_bar(bar_types[1], "100.0", SECOND_FRAME_TIME));
         data.push(quote(&instruments[0], SECOND_FRAME_TIME + 1, "100"));
-        data.push(quote(&instruments[1], SECOND_FRAME_TIME + 2, "100.0"));
+        data.push(quote(&instruments[1], SECOND_FRAME_TIME + 1, "100.0"));
         (
             instruments,
             bar_types,
@@ -1186,7 +1191,7 @@ mod tests {
 
         // Same shape one element further in: the second round's second EVENT loses its liquidity.
         let mut dry = data;
-        dry[7] = quote(&instruments[1], SECOND_FRAME_TIME + 2, "0");
+        dry[7] = quote(&instruments[1], SECOND_FRAME_TIME + 1, "0");
         assert!(
             validate_and_digest_scheduling_data(
                 &dry,
@@ -1211,7 +1216,7 @@ mod tests {
         data[4] = member_bar(bar_types[0], "100", FRAME_TIME);
         data[5] = member_bar(bar_types[1], "100.0", FRAME_TIME);
         data[6] = quote(&instruments[0], FRAME_TIME + 1, "100");
-        data[7] = quote(&instruments[1], FRAME_TIME + 2, "100.0");
+        data[7] = quote(&instruments[1], FRAME_TIME + 1, "100.0");
         assert!(
             validate_and_digest_scheduling_data(
                 &data,
@@ -1222,6 +1227,46 @@ mod tests {
                 TWO_ROUND_WINDOW_END
             )
             .is_err()
+        );
+    }
+
+    /// A frame's Quotes share their quote cut's instant, in member order, and never go back.
+    ///
+    /// Swapped members are refused by position; a later member's Quote stamped earlier is refused
+    /// by the event order even when its `ts_init` keeps the stream sorted for Backtest.
+    #[rstest::rstest]
+    fn quotes_of_one_quote_cut_share_an_instant_in_member_order() {
+        let (instruments, bar_types, data) = scheduling_fixture();
+        let validate = |data: &[Data]| {
+            validate_and_digest_scheduling_data(
+                data,
+                &instruments,
+                &bar_types,
+                &[FRAME_TIME],
+                FRAME_TIME,
+                FRAME_TIME + 10,
+            )
+        };
+        assert!(validate(&data).is_ok(), "one instant, member order");
+
+        let mut swapped = data.clone();
+        swapped.swap(2, 3);
+        assert!(validate(&swapped).is_err(), "members out of order");
+
+        let mut backwards = data;
+        backwards[2] = quote(&instruments[0], FRAME_TIME + 2, "100");
+        backwards[3] = Data::Quote(QuoteTick::new(
+            instruments[1].id(),
+            Price::from("100.00"),
+            Price::from("100.01"),
+            Quantity::from("100.0"),
+            Quantity::from("100.0"),
+            (FRAME_TIME + 1).into(),
+            (FRAME_TIME + 3).into(),
+        ));
+        assert!(
+            validate(&backwards).is_err(),
+            "a later member's Quote stamped before an earlier member's"
         );
     }
 
@@ -1343,8 +1388,9 @@ mod tests {
     #[rstest::rstest]
     fn executed_schedule_binds_only_to_its_own_sealed_frame() {
         let (_, _, data) = scheduling_fixture();
+        // Both Quotes sit on the quote cut's instant, so that is the frame's last liquidity.
         let sealed = [
-            (FRAME_TIME, FRAME_TIME + 2),
+            (FRAME_TIME, FRAME_TIME + 1),
             (FRAME_TIME + 3, FRAME_TIME + 5),
         ];
         verify_scheduling_data_against_sealed_frames(&data, &sealed).unwrap();
@@ -1364,10 +1410,7 @@ mod tests {
         assert!(
             verify_scheduling_data_against_sealed_frames(
                 &data,
-                &[
-                    (FRAME_TIME, FRAME_TIME + 1),
-                    (FRAME_TIME + 3, FRAME_TIME + 5)
-                ],
+                &[(FRAME_TIME, FRAME_TIME), (FRAME_TIME + 3, FRAME_TIME + 5)],
             )
             .is_err()
         );
@@ -1376,8 +1419,8 @@ mod tests {
             verify_scheduling_data_against_sealed_frames(
                 &data,
                 &[
-                    (FRAME_TIME, FRAME_TIME + 2),
-                    (FRAME_TIME + 2, FRAME_TIME + 5)
+                    (FRAME_TIME, FRAME_TIME + 1),
+                    (FRAME_TIME + 1, FRAME_TIME + 5)
                 ],
             )
             .is_err()

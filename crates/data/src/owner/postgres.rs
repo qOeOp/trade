@@ -45,10 +45,8 @@ mod universe_selection;
 // inside a `cfg(not(test))` arm, so that its order can be driven rather than only deployed.
 use super::native_replay_scheduling_v1::{
     NativeReplayInitialMarketReadbackV1, NativeReplayInitialMarketRequestV1,
-    NativeReplaySchedulingErrorV1, NativeReplaySchedulingReadbackV1,
-    NativeReplaySchedulingResolverV1, UntrustedNativeReplaySchedulingRequestV1,
-    issue_native_replay_initial_market_readback_v1, seal_native_replay_scheduling_v1,
-    select_native_replay_schedule_v1,
+    NativeReplaySchedulingErrorV1, NativeReplaySchedulingResolverV1,
+    issue_native_replay_initial_market_readback_v1, select_native_replay_schedule_v1,
 };
 use super::pit_snapshot::{
     PitObservationBatchOwnerResolver, PitSnapshotFact, VerifiedPitObservationBatch,
@@ -172,7 +170,8 @@ use super::{
     native_replay_quote_cut_v2::{
         NativeReplayCutCoordinatesV2, NativeReplayCutKindV2, NativeReplayQuoteCutCandidateV2,
         NativeReplayQuoteCutRefusalV2, classify_native_replay_cut_v2,
-        select_native_replay_quote_cut_v2, verify_native_replay_quote_cut_v2,
+        native_replay_quote_cut_bound_v2, select_native_replay_quote_cut_v2,
+        verify_native_replay_quote_cut_v2,
     },
     observation_census::{
         ObservationCensusErrorV1, ObservationCensusReadbackV1, ObservationCensusResolverV1,
@@ -370,6 +369,8 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_strategy_input_sample_projection_v3(p_receipt_digest BYTEA) RETURNS TABLE(receipt_digest BYTEA,kind SMALLINT,lifecycle SMALLINT,subject_identity BYTEA,component_count BIGINT,receipt_bytes BYTEA,custody_digest BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT p.receipt_digest,p.kind,p.lifecycle,p.subject_identity,p.component_count,p.receipt_bytes,p.custody_digest FROM market_data_private.strategy_input_sample_projection_receipts_v3 AS p WHERE p.receipt_digest=p_receipt_digest $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_strategy_input_sample_projection_schedule_dependencies_v3(p_receipt_digest BYTEA) RETURNS TABLE(component_ordinal BIGINT,role_identity BYTEA,binding_receipt_digest BYTEA,schedule_readback_identity BYTEA,schedule_fact_digest BYTEA,schedule_cut_identity BYTEA,schedule_cut_digest BYTEA,schedule_receipt_identity BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT d.component_ordinal,d.role_identity,d.binding_receipt_digest,d.schedule_readback_identity,d.schedule_fact_digest,d.schedule_cut_identity,d.schedule_cut_digest,d.schedule_receipt_identity FROM market_data_private.strategy_input_sample_projection_schedule_dependencies_v3 AS d WHERE d.receipt_digest=p_receipt_digest ORDER BY d.component_ordinal $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_pit_role_coordinate_v1(p_instrument TEXT, p_channel TEXT, p_data_kind TEXT, p_field TEXT, p_timeframe TEXT, p_value_scale SMALLINT, p_decision_cut_at_or_before BIGINT) RETURNS TABLE(decision_cut BIGINT, lineage_root BYTEA, snapshot_identity BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog AS $function$ WITH matched AS (SELECT i.decision_cut, i.lineage_root, i.lineage_version FROM market_data_private.pit_role_coordinate_index_v1 AS i WHERE i.instrument = p_instrument AND i.channel = p_channel AND i.data_kind = p_data_kind AND i.field = p_field AND i.timeframe = p_timeframe AND i.value_scale = p_value_scale AND i.decision_cut <= p_decision_cut_at_or_before) SELECT m.decision_cut, m.lineage_root, h.snapshot_identity FROM matched AS m JOIN market_data_private.pit_snapshot_heads_v1 AS h ON h.lineage_root = m.lineage_root AND h.lineage_version = m.lineage_version WHERE m.decision_cut = (SELECT MAX(decision_cut) FROM matched) ORDER BY m.lineage_root $function$",
+    "CREATE OR REPLACE FUNCTION market_data_private.resolve_native_replay_quote_cut_census_v2(p_scope_digest BYTEA, p_after_ns BIGINT, p_before_ns BIGINT) RETURNS TABLE(snapshot_identity BYTEA,snapshot_fact_digest BYTEA,scope_digest BYTEA,event_effective_ns BIGINT,decision_cut_ns BIGINT,instrument_master_digest BYTEA,universe_selection_digest BYTEA,market_semantics_identity BYTEA,source_binding_lineage_root BYTEA,correction_lineage_root BYTEA,correction_lineage_version BIGINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $function$ SELECT c.snapshot_identity,c.snapshot_fact_digest,c.scope_digest,c.event_effective_ns,c.decision_cut_ns,c.instrument_master_digest,c.universe_selection_digest,c.market_semantics_identity,c.source_binding_lineage_root,c.correction_lineage_root,c.correction_lineage_version FROM market_data_private.native_replay_quote_cut_census_v2 AS c WHERE c.correction_lineage_root IN (SELECT i.correction_lineage_root FROM market_data_private.native_replay_quote_cut_census_v2 AS i WHERE i.scope_digest = p_scope_digest AND i.event_effective_ns > p_after_ns AND i.event_effective_ns < p_before_ns) ORDER BY c.correction_lineage_root,c.correction_lineage_version,c.snapshot_identity $function$",
+    "CREATE OR REPLACE FUNCTION market_data_private.resolve_native_replay_next_frame_v2(p_scope_digest BYTEA, p_after_ns BIGINT, p_decision_cut_ns BIGINT) RETURNS TABLE(event_effective_ns BIGINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $function$ SELECT f.event_effective_ns FROM market_data_private.native_replay_frame_census_v2 AS f WHERE f.scope_digest = p_scope_digest AND f.event_effective_ns > p_after_ns AND f.decision_cut_ns <= p_decision_cut_ns ORDER BY f.event_effective_ns LIMIT 1 $function$",
     "REVOKE ALL ON ALL TABLES IN SCHEMA market_data_private FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_source_binding_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_pit_snapshot_v1(BYTEA) FROM PUBLIC",
@@ -396,6 +397,8 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "REVOKE ALL ON FUNCTION market_data_private.resolve_bar_schedule_history_v1(TEXT) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_strategy_input_sample_projection_v3(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_strategy_input_sample_projection_schedule_dependencies_v3(BYTEA) FROM PUBLIC",
+    "REVOKE ALL ON FUNCTION market_data_private.resolve_native_replay_quote_cut_census_v2(BYTEA,BIGINT,BIGINT) FROM PUBLIC",
+    "REVOKE ALL ON FUNCTION market_data_private.resolve_native_replay_next_frame_v2(BYTEA,BIGINT,BIGINT) FROM PUBLIC",
 ];
 
 pub(crate) struct MarketDataOwnerPostgres {
@@ -649,18 +652,8 @@ impl MarketDataOwnerPostgres {
 
     /// Resolves the one quote cut a frame takes its liquidity from, from Owner custody alone.
     ///
-    /// `docs/owners/market-data.md` takes a frame's liquidity from its quote cut: an Owner-verified
-    /// snapshot strictly after the frame's BAR cut and strictly before `bound_ns_exclusive` - the
-    /// next frame's BAR cut, or the window's end for the last one. The caller names no quote cut:
-    /// the census is searched in the frame's own scope and coordinates, exactly one correction
-    /// lineage must lie in the interval as the Owner saw it at the decision cut, and its batch is
-    /// read back and verified here before it is compared with the frame's.
-    ///
-    /// What the caller does choose is `bound_ns_exclusive` and `request_decision_cut_ns`, and this
-    /// function does not check the bound against the next frame. A caller can therefore only pick
-    /// among Owner-verified quote cuts on the frame's own coordinates - narrowing the bound where
-    /// two collide, for instance - and never hand the frame anything else. Deriving the bound from
-    /// the frame census belongs to the sequence resolver that calls this.
+    /// See [`resolve_native_replay_quote_cut_in_transaction_v2`]; this is the same read in a
+    /// read-only transaction of its own.
     ///
     /// # Errors
     ///
@@ -668,40 +661,19 @@ impl MarketDataOwnerPostgres {
     pub(crate) async fn resolve_native_replay_quote_cut_v2(
         &self,
         frame: &VerifiedPitObservationBatch,
-        bound_ns_exclusive: u64,
-        request_decision_cut_ns: u64,
+        window_end_ns_exclusive: u64,
     ) -> Result<VerifiedPitObservationBatch, NativeReplayQuoteCutRefusalV2> {
-        let frame_coordinates = NativeReplayCutCoordinatesV2::of(frame);
         let mut transaction = self
             .pool
             .begin_with("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
             .await
             .map_err(|_| NativeReplayQuoteCutRefusalV2::CustodyUnavailable)?;
-        let candidates = load_native_replay_quote_cut_census_v2(
+        let quote_cut = resolve_native_replay_quote_cut_in_transaction_v2(
             &mut transaction,
-            frame_coordinates.scope_digest,
-            frame_coordinates.event_effective_ns,
-            bound_ns_exclusive,
+            frame,
+            window_end_ns_exclusive,
         )
-        .await
-        .map_err(|_| NativeReplayQuoteCutRefusalV2::CustodyUnavailable)?;
-        let chosen = select_native_replay_quote_cut_v2(
-            &candidates,
-            &frame_coordinates,
-            bound_ns_exclusive,
-            request_decision_cut_ns,
-        )?;
-        let quote_cut = load_verified_observation_batch(
-            &mut transaction,
-            chosen.snapshot_identity,
-            chosen.snapshot_fact_digest,
-        )
-        .await
-        .map_err(|_| NativeReplayQuoteCutRefusalV2::CustodyUnavailable)?;
-        verify_native_replay_quote_cut_v2(
-            &frame_coordinates,
-            &NativeReplayCutCoordinatesV2::of(&quote_cut),
-        )?;
+        .await?;
         transaction
             .commit()
             .await
@@ -6426,7 +6398,7 @@ async fn load_native_replay_quote_cut_census_v2(
     let before =
         i64::try_from(before_ns_exclusive).map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
     let rows = sqlx::query(
-        "SELECT snapshot_identity,snapshot_fact_digest,scope_digest,event_effective_ns,decision_cut_ns,instrument_master_digest,universe_selection_digest,market_semantics_identity,source_binding_lineage_root,correction_lineage_root,correction_lineage_version FROM market_data_private.native_replay_quote_cut_census_v2 WHERE correction_lineage_root IN (SELECT correction_lineage_root FROM market_data_private.native_replay_quote_cut_census_v2 WHERE scope_digest=$1 AND event_effective_ns>$2 AND event_effective_ns<$3) ORDER BY correction_lineage_root,correction_lineage_version,snapshot_identity",
+        "SELECT * FROM market_data_private.resolve_native_replay_quote_cut_census_v2($1,$2,$3)",
     )
     .bind(scope_digest.as_bytes().as_slice())
     .bind(after)
@@ -6457,6 +6429,91 @@ async fn load_native_replay_quote_cut_census_v2(
             })
         })
         .collect()
+}
+
+/// Reads the event time of the first frame after `after_ns` in `scope_digest` that the Owner had
+/// observed by `decision_cut_ns`, if there is one.
+async fn load_next_native_replay_frame_v2(
+    transaction: &mut Transaction<'_, Postgres>,
+    scope_digest: BindingDigest,
+    after_ns: u64,
+    decision_cut_ns: u64,
+) -> Result<Option<u64>, PitSnapshotError> {
+    let after = i64::try_from(after_ns).map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    let decision_cut =
+        i64::try_from(decision_cut_ns).map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    let next: Option<i64> = sqlx::query_scalar(
+        "SELECT event_effective_ns FROM market_data_private.resolve_native_replay_next_frame_v2($1,$2,$3)",
+    )
+    .bind(scope_digest.as_bytes().as_slice())
+    .bind(after)
+    .bind(decision_cut)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    next.map(|value| u64::try_from(value).map_err(|_| PitSnapshotError::PersistenceUnavailable))
+        .transpose()
+}
+
+/// Resolves the one quote cut `frame` takes its liquidity from, inside the caller's transaction.
+///
+/// `docs/owners/market-data.md` takes a frame's liquidity from its quote cut: an Owner-verified
+/// snapshot strictly after the frame's BAR cut and strictly before the next frame's. The caller
+/// names neither. The bound is the first later frame in the frame's scope census, or the window's
+/// end when none precedes it, and the decision cut is the frame's own: the sealed request names
+/// the frame's PIT snapshot, whose decision cut is the only one it fixes, so a later reading
+/// resolves the same quote cut. Frames the Owner observed after that cut do not bound the
+/// interval, and a later frame can only narrow it - which leaves a quote cut missing, never
+/// admits one that is not the frame's. The census is then searched on the frame's coordinates,
+/// exactly one correction lineage must lie in the interval as the Owner saw it at the decision
+/// cut, and its batch is read back and verified before it is compared with the frame's.
+///
+/// # Errors
+///
+/// Returns the exact [`NativeReplayQuoteCutRefusalV2`] for the first violated rule.
+async fn resolve_native_replay_quote_cut_in_transaction_v2(
+    transaction: &mut Transaction<'_, Postgres>,
+    frame: &VerifiedPitObservationBatch,
+    window_end_ns_exclusive: u64,
+) -> Result<VerifiedPitObservationBatch, NativeReplayQuoteCutRefusalV2> {
+    let frame_coordinates = NativeReplayCutCoordinatesV2::of(frame);
+    let decision_cut_ns = frame.time_evidence().decision_cut.value;
+    let next_frame_ns = load_next_native_replay_frame_v2(
+        transaction,
+        frame_coordinates.scope_digest,
+        frame_coordinates.event_effective_ns,
+        decision_cut_ns,
+    )
+    .await
+    .map_err(|_| NativeReplayQuoteCutRefusalV2::CustodyUnavailable)?;
+    let bound_ns_exclusive =
+        native_replay_quote_cut_bound_v2(next_frame_ns, window_end_ns_exclusive);
+    let candidates = load_native_replay_quote_cut_census_v2(
+        transaction,
+        frame_coordinates.scope_digest,
+        frame_coordinates.event_effective_ns,
+        bound_ns_exclusive,
+    )
+    .await
+    .map_err(|_| NativeReplayQuoteCutRefusalV2::CustodyUnavailable)?;
+    let chosen = select_native_replay_quote_cut_v2(
+        &candidates,
+        &frame_coordinates,
+        bound_ns_exclusive,
+        decision_cut_ns,
+    )?;
+    let quote_cut = load_verified_observation_batch(
+        transaction,
+        chosen.snapshot_identity,
+        chosen.snapshot_fact_digest,
+    )
+    .await
+    .map_err(|_| NativeReplayQuoteCutRefusalV2::CustodyUnavailable)?;
+    verify_native_replay_quote_cut_v2(
+        &frame_coordinates,
+        &NativeReplayCutCoordinatesV2::of(&quote_cut),
+    )?;
+    Ok(quote_cut)
 }
 
 async fn admit_pit_lineage_census(
@@ -8235,7 +8292,8 @@ impl super::native_replay_scheduling_v1::resolver_seal::Sealed for MarketDataRea
 /// inside the `cfg(not(test))` arm of the resolver, the arrangement did not exist in a test build
 /// at all - not untested but absent - so no proof could reach it and the first execution of this
 /// order would have happened in a deployment. The port revalidates its own admission before and
-/// after each read, so what this adds is the order: the cut, then the schedules that cut admits.
+/// after each read, so what this adds is the order: the cut, the schedules that cut admits, then
+/// the quote cut the frame's census and decision cut choose.
 pub(super) async fn resolve_native_replay_initial_market_through_admitted_port_v1(
     port: &AdmittedMarketDataSnapshotPort,
     request: &NativeReplayInitialMarketRequestV1,
@@ -8273,7 +8331,124 @@ pub(super) async fn resolve_native_replay_initial_market_through_admitted_port_v
             request.frame_time_ns(),
         )?);
     }
-    issue_native_replay_initial_market_readback_v1(batch, schedules, request)
+    let quote_cut = resolve_native_replay_quote_cut_through_admitted_port_v2(
+        port,
+        &batch,
+        request.window_end_ns_exclusive(),
+    )
+    .await
+    .map_err(native_replay_scheduling_error_of_quote_cut_refusal)?;
+    issue_native_replay_initial_market_readback_v1(batch, quote_cut, schedules, request)
+}
+
+/// Resolves a frame's quote cut through an admitted port, by the same rules as custody's own read.
+///
+/// The port returns the frame census's bound and the quote cut census rows from one snapshot;
+/// the chosen quote cut is then read back through the port's PIT evaluation and verified like
+/// any other cut before it is compared with the frame.
+pub(super) async fn resolve_native_replay_quote_cut_through_admitted_port_v2(
+    port: &AdmittedMarketDataSnapshotPort,
+    frame: &VerifiedPitObservationBatch,
+    window_end_ns_exclusive: u64,
+) -> Result<VerifiedPitObservationBatch, NativeReplayQuoteCutRefusalV2> {
+    let frame_coordinates = NativeReplayCutCoordinatesV2::of(frame);
+    let decision_cut_ns = frame.time_evidence().decision_cut.value;
+    let census = port
+        .resolve_native_replay_quote_cut_census_v2(
+            *frame_coordinates.scope_digest.as_bytes(),
+            frame_coordinates.event_effective_ns,
+            decision_cut_ns,
+            window_end_ns_exclusive,
+        )
+        .await
+        .map_err(|_| NativeReplayQuoteCutRefusalV2::CustodyUnavailable)?;
+    let candidates = census
+        .rows
+        .iter()
+        .map(|row| decode_raw_native_replay_quote_cut_candidate_v2(row))
+        .collect::<Result<Vec<_>, _>>()?;
+    let chosen = select_native_replay_quote_cut_v2(
+        &candidates,
+        &frame_coordinates,
+        census.bound_ns_exclusive,
+        decision_cut_ns,
+    )?;
+    let evidence = port
+        .resolve_pit_evaluation(*chosen.snapshot_identity.as_bytes())
+        .await
+        .map_err(|_| NativeReplayQuoteCutRefusalV2::CustodyUnavailable)?;
+    let quote_cut = verify_admitted_pit_evidence_by_identity_v1(
+        chosen.snapshot_identity,
+        chosen.snapshot_fact_digest,
+        &evidence,
+    )
+    .map_err(|_| NativeReplayQuoteCutRefusalV2::CustodyUnavailable)?;
+    verify_native_replay_quote_cut_v2(
+        &frame_coordinates,
+        &NativeReplayCutCoordinatesV2::of(&quote_cut),
+    )?;
+    Ok(quote_cut)
+}
+
+/// Decodes one quote cut census row as the port's census read returned it.
+fn decode_raw_native_replay_quote_cut_candidate_v2(
+    row: &[u8],
+) -> Result<NativeReplayQuoteCutCandidateV2, NativeReplayQuoteCutRefusalV2> {
+    let value: Value = serde_json::from_slice(row)
+        .map_err(|_| NativeReplayQuoteCutRefusalV2::CustodyUnavailable)?;
+    let object = value
+        .as_object()
+        .ok_or(NativeReplayQuoteCutRefusalV2::CustodyUnavailable)?;
+    let digest = |field: &str| {
+        object
+            .get(field)
+            .ok_or(NativeReplayQuoteCutRefusalV2::CustodyUnavailable)
+            .and_then(|value| {
+                raw_digest(value).map_err(|_| NativeReplayQuoteCutRefusalV2::CustodyUnavailable)
+            })
+    };
+    let nanos = |field: &str| {
+        object
+            .get(field)
+            .and_then(Value::as_u64)
+            .ok_or(NativeReplayQuoteCutRefusalV2::CustodyUnavailable)
+    };
+    Ok(NativeReplayQuoteCutCandidateV2 {
+        snapshot_identity: digest("snapshot_identity")?,
+        snapshot_fact_digest: digest("snapshot_fact_digest")?,
+        scope_digest: digest("scope_digest")?,
+        instrument_master_digest: digest("instrument_master_digest")?,
+        universe_selection_digest: digest("universe_selection_digest")?,
+        market_semantics_identity: digest("market_semantics_identity")?,
+        source_binding_lineage_root: digest("source_binding_lineage_root")?,
+        event_effective_ns: nanos("event_effective_ns")?,
+        decision_cut_ns: nanos("decision_cut_ns")?,
+        correction_lineage_root: digest("correction_lineage_root")?,
+        correction_lineage_version: nanos("correction_lineage_version")?,
+    })
+}
+
+/// What a quote cut refusal means to the frame that needed it.
+///
+/// A frame with no quote cut has no liquidity after its BAR, which is what `EventOrderUnavailable`
+/// has always said; any other refusal is a quote cut that is not the frame's.
+fn native_replay_scheduling_error_of_quote_cut_refusal(
+    refusal: NativeReplayQuoteCutRefusalV2,
+) -> NativeReplaySchedulingErrorV1 {
+    match refusal {
+        NativeReplayQuoteCutRefusalV2::CustodyUnavailable => {
+            NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable
+        }
+        NativeReplayQuoteCutRefusalV2::QuoteCutMissing => {
+            NativeReplaySchedulingErrorV1::EventOrderUnavailable
+        }
+        NativeReplayQuoteCutRefusalV2::AmbiguousQuoteCut
+        | NativeReplayQuoteCutRefusalV2::NotAQuoteCut
+        | NativeReplayQuoteCutRefusalV2::CoordinateMismatch
+        | NativeReplayQuoteCutRefusalV2::MemberMismatch => {
+            NativeReplaySchedulingErrorV1::OwnerBindingMismatch
+        }
+    }
 }
 
 /// The same read against a pool, for the build where this type holds one instead of a port.
@@ -8315,11 +8490,18 @@ async fn resolve_native_replay_initial_market_from_pool_v1(
             request.frame_time_ns(),
         )?);
     }
+    let quote_cut = resolve_native_replay_quote_cut_in_transaction_v2(
+        &mut transaction,
+        &batch,
+        request.window_end_ns_exclusive(),
+    )
+    .await
+    .map_err(native_replay_scheduling_error_of_quote_cut_refusal)?;
     transaction
         .commit()
         .await
         .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
-    issue_native_replay_initial_market_readback_v1(batch, schedules, request)
+    issue_native_replay_initial_market_readback_v1(batch, quote_cut, schedules, request)
 }
 
 /// Every schedule one instrument holds, in the order the candidate function returns them.
@@ -8371,32 +8553,6 @@ impl NativeReplaySchedulingResolverV1 for MarketDataReadPostgres {
             )
             .await
         }
-    }
-
-    async fn resolve_native_replay_scheduling_v1(
-        &self,
-        request: &UntrustedNativeReplaySchedulingRequestV1,
-    ) -> Result<NativeReplaySchedulingReadbackV1, NativeReplaySchedulingErrorV1> {
-        let batch = self
-            .resolve_pit_observation_batch(request.pit_locator())
-            .await
-            .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
-        let mut schedules = Vec::with_capacity(request.schedule_locators().len());
-
-        for locator in request.schedule_locators() {
-            schedules.push(
-                self.resolve_bar_schedule_v1(locator)
-                    .await
-                    .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?,
-            );
-        }
-        seal_native_replay_scheduling_v1(
-            batch,
-            schedules,
-            request.member_instruments(),
-            request.frame_time_ns(),
-            request.window_end_ns_exclusive(),
-        )
     }
 }
 
@@ -9251,7 +9407,7 @@ fn verify_admitted_pit_evidence(
     )
 }
 
-fn verify_admitted_pit_evidence_by_identity_v1(
+pub(super) fn verify_admitted_pit_evidence_by_identity_v1(
     snapshot_identity: BindingDigest,
     fact_digest: BindingDigest,
     evidence: &MarketDataPitEvaluationStorageEvidence,

@@ -655,11 +655,9 @@ with the complete ordered 28-component observation package. R&D source records p
 Replay-authority bytes; accepted Composer custody provides Design, Plan and Artifact bytes; the independently
 reproduced durable binding provides the remaining resolved-input evidence. The existing Backtest preparation Owner
 accepts this sealed resolver directly and still performs its own request, component and execution-locator
-reconciliation before entering ProgramHost. On Owner custody that materialization cannot complete today: it seals
-the frame through the Market Data V1 native scheduling seal, which takes its Quotes strictly after the BAR out of
-the BAR's own one-instant batch, so the resolver stops at
-`native_replay_execution_binding.market_inputs.into_execution_parts` with `EventOrderUnavailable` until the frame
-takes its Quotes from a quote cut of its own.
+reconciliation before entering ProgramHost. The materialization seals each frame through the Market Data V1 native
+scheduling seal, which now takes the frame's Quotes from the frame's own quote cut rather than from the BAR's
+one-instant batch; no proof has yet driven the materialization to completion on Owner custody.
 
 **IMPLEMENTATION_ADMITTED / NOT_CUT_OVER, production Native Replay entry:** the authenticated R&D API's
 `POST /v2/exploratory-replays` is admitted as a production route; its body carries only the exact sealed request

@@ -602,10 +602,9 @@ repeatable-read R&D transaction 内完成该重建，派生绑定 attempt 的 ru
 move-only bundle 与按固定顺序排列的完整 28-component observation package。Research、TrialFamily 与 Replay
 authority bytes 来自 R&D source record；Design、Plan 与 Artifact bytes 来自已接受的 Composer custody；其余
 resolved-input evidence 来自独立逐字节复现的 durable binding。现有 Backtest preparation Owner 直接接受该
-sealed resolver，并在进入 ProgramHost 前再次校验 request、component 与 execution locator。在 Owner 托管数据上，
-这次 materialize 今天无法完成：它经 Market Data V1 native scheduling seal 封存帧，而该 seal 从 BAR 自己那份只有一个
-时刻的 batch 中取严格晚于 BAR 的 Quote，所以在帧改为从自己的报价 cut 取 Quote 之前，resolver 会停在
-`native_replay_execution_binding.market_inputs.into_execution_parts`，返回 `EventOrderUnavailable`。
+sealed resolver，并在进入 ProgramHost 前再次校验 request、component 与 execution locator。这次 materialize 经
+Market Data V1 native scheduling seal 封存每一帧，该 seal 现在从帧自己的报价 cut 取 Quote，不再从 BAR 那份只有
+一个时刻的 batch 中取；目前还没有证明在 Owner 托管数据上把这次 materialize 驱动到完成。
 
 **IMPLEMENTATION_ADMITTED / NOT_CUT_OVER，生产 Native Replay 入口：** authenticated R&D API 的
 `POST /v2/exploratory-replays` 被准入为生产 route；body 只含准确 sealed request locator 与 attempt identity。
