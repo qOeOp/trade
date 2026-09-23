@@ -36,6 +36,24 @@ came from a dead-code census and 45% of its rows paired a name with a line that 
 something else, so nothing here says anything about that census or about dead code; it is
 one batch of 31 real symbols and the rates are the tool's behaviour on them.
 
+Reachability is transitive and a caller count is not. A cluster of functions that call
+only each other reports a production caller for every member, and every one of those
+callers is itself unreachable; the whole of
+`native_replay_execution_input_binding_v2.rs` is one. At 8839abe8b, on a clean tree, under
+
+    CARGO_BUILD_WARNINGS=warn RUSTFLAGS="--force-warn dead_code" \
+      cargo check -p vibe-strategy-factory --lib --message-format=json
+
+that file carries 38 dead_code diagnostics and 41 primary spans (44 including secondary),
+which is the module; this tool answers "1 production caller" for a function in it. The rev
+and the command belong with the number because it was first reported here as 39, measured
+in a second worktree that was 123 commits behind - `cargo` takes no rev, so which tree it
+read does not appear in the command. Each caller is therefore printed
+with its own host's count, so the cluster is visible, but nothing here computes a transitive
+closure: for `pub(crate)` and narrower items the compiler's dead_code set answers the
+question this cannot, and for `pub` items it is the other way round, since the compiler
+never calls a `pub` item dead.
+
 So: use it to answer a symbol you are already asking about, and before using it over a
 list, run the list and read the two rates separately. Ambiguity and being asked about the
 wrong kind of symbol have different repairs, and adding them together overstates the first
@@ -283,6 +301,18 @@ def call_sites(rev, name):
     return out
 
 
+def enclosing_function(rev, path, lineno):
+    """
+    Return the name of the function containing `lineno`, or None.
+    """
+    lines = file_lines(rev, path)
+    for index in range(min(lineno, len(lines)) - 1, -1, -1):
+        match = FN_RE.match(lines[index])
+        if match:
+            return match.group(1)
+    return None
+
+
 def under_test_attribute(rev, path, lineno):
     lines = file_lines(rev, path)
     for index in range(min(lineno, len(lines)) - 1, -1, -1):
@@ -369,7 +399,16 @@ def report(rev, name, indent=""):
         )
     print(f"{indent}  callers: {len(production)} production, {len(other)} test or gated")
     for path, lineno, _gate, text in production:
-        print(f"{indent}    production caller  {path}:{lineno}  {text[:60]}")
+        # Reachability is transitive and this count is not: a caller sitting inside a
+        # function nothing calls is still a caller. A cluster of functions that only call
+        # each other therefore reports a production caller for every member. Naming the
+        # enclosing function and its own count is what makes that visible here.
+        host = enclosing_function(rev, path, lineno)
+        note = ""
+        if host and host != name:
+            host_production, _host_other = classify_callers(rev, host)
+            note = f"  [inside {host}, itself {len(host_production)} production caller(s)]"
+        print(f"{indent}    production caller  {path}:{lineno}{note}\n{indent}      {text[:70]}")
     if mentions and not sites and not production and not other:
         kind = declaration_kind(rev, name)
         if kind is not None and kind not in MODELLED:
