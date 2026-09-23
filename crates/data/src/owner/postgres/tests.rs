@@ -7819,15 +7819,16 @@ async fn native_replay_quote_cut_census_oracle(owner: &MarketDataOwnerPostgres) 
             derive_observation_batch_digest(&observation).unwrap();
         refresh_request_claims(&mut proposal.request);
         let basis = basis_at(&proposal, &clock(50, 2));
-        let correction = owner
-            .commit_pit_correction_with_observation_batch(
-                original.receipt().locator(),
-                proposal,
-                observation,
-                &basis,
-                &clock(50, 2),
-            )
-            .await?;
+        // Boxed so the closure's own future stays small: the Owner commit's state machine is
+        // larger than clippy's `large_futures` bound under the dev profile.
+        let correction = Box::pin(owner.commit_pit_correction_with_observation_batch(
+            original.receipt().locator(),
+            proposal,
+            observation,
+            &basis,
+            &clock(50, 2),
+        ))
+        .await?;
         assert_eq!(
             correction.fact().lineage_root(),
             original.fact().lineage_root(),

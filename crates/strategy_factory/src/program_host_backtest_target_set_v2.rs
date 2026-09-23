@@ -1,4 +1,5 @@
-//! Exactly-two-member `ProgramHostV2` composition into the real Backtest engine.
+//! Target-set `ProgramHostV2` composition, for every admitted member count, into the real Backtest
+//! engine.
 //!
 //! This adapter reads one in-process Backtest account/instrument snapshot, performs exact Decimal
 //! target conversion, constructs both native orders, and only then commits the prepared Host
@@ -53,7 +54,7 @@ use crate::{
         admit_market_data_universe_program_event_v2,
     },
     strategy_plan_v2::StrategyPlanV2,
-    target_set_members::BoundedMembers,
+    target_set_members::{BoundedMembers, update_member_count_domain},
 };
 
 const RECONCILIATION_SNAPSHOT_DOMAIN: &[u8] = b"strategy.backtest.target-set.snapshot.v2\0";
@@ -1255,7 +1256,11 @@ impl BatchSnapshotV2 {
 
     fn identity(&self) -> BindingDigest {
         let mut hasher = Sha256::new();
-        hasher.update(RECONCILIATION_SNAPSHOT_DOMAIN);
+        update_member_count_domain(
+            &mut hasher,
+            RECONCILIATION_SNAPSHOT_DOMAIN,
+            self.instruments.len(),
+        );
         hash_text(&mut hasher, self.account_id.as_ref());
         hash_text(&mut hasher, self.instruments[0].id().venue.as_ref());
         hasher.update(b"account-type.margin\0");

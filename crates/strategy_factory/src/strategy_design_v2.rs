@@ -341,7 +341,8 @@ pub struct ProposalWiringV2 {
     pub take_profit_ticks: ValueRefV2,
     pub trailing_distance_ticks: ValueRefV2,
     pub trailing_stop_ticks: ValueRefV2,
-    /// Canonical `lifecycle_v2::InstrumentTargetSetV2` bytes for an exactly-two-member frame.
+    /// Canonical `lifecycle_v2::InstrumentTargetSetV2` bytes for a universe frame. A one-member
+    /// universe may omit it and propose for its single instrument, which the host lifts.
     /// Absent on the compatible single-instrument V2 path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub member_target_set: Option<ValueRefV2>,

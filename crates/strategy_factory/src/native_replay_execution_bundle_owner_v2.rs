@@ -6,7 +6,7 @@
 //! Owner readback, which is not an execution bundle and cannot be presented to the EVENT consumer
 //! as one. `compose_native_replay_execution_bundle_v2` goes on, because Market Data does expose
 //! the canonical native projection: `NativeReplaySchedulingReadbackV1` releases the `BarType` and
-//! ordered `Data` of its window, and the two-member public terms materialize the `InstrumentAny`.
+//! ordered `Data` of its window, and the members' public terms materialize the `InstrumentAny`.
 
 use thiserror::Error;
 use vibe_data::owner::strategy_input_binding::StrategyInputUniverseFrameReceipt;
@@ -139,7 +139,8 @@ pub async fn compose_native_replay_execution_bundle_v2(
 /// Cross-binds all currently available Owner readbacks and issues the execution-profile authority.
 ///
 /// A successful return proves the exact request, Composer Design, Replay window, PIT cut,
-/// Universe/Instrument dependency, two-member Instrument Master cut, and private economic terms.
+/// Universe/Instrument dependency, Instrument Master cut of the admitted members, and private
+/// economic terms.
 /// It deliberately does not return `ReplayTargetSetExecutionBundleV1`, because a caller that holds
 /// these readbacks has not yet resolved the window's native scheduling; that is the step
 /// `compose_native_replay_execution_bundle_v2` takes, from this same cut.
