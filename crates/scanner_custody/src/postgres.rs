@@ -15,8 +15,8 @@
 use sqlx::{PgPool, Row};
 use vibe_scanner::{
     AttemptId, CommitKind, CommitOutcome, OpaqueId, ReceiptStoreError, ScannerReceipt,
-    TerminalReceiptDecodeError, TerminalReceiptStore, encode_attempt_id_v1,
-    encode_terminal_receipt_v1, parse_untrusted_terminal_receipt_v1,
+    TerminalReceiptDecodeError, TerminalReceiptEncodeError, TerminalReceiptStore,
+    encode_attempt_id_v1, encode_terminal_receipt_v1, parse_untrusted_terminal_receipt_v1,
 };
 
 use crate::{ProductEdgeTerminalReceiptReadSource, sealed};
@@ -49,8 +49,18 @@ pub enum TerminalReceiptCustodyError {
     },
     /// The store holds a different receipt for that attempt than the one offered.
     ConflictingReceipt { attempt_id: Box<AttemptId> },
-    /// A receipt this build cannot write as canonical bytes.
-    Unencodable { attempt_id: Box<AttemptId> },
+    /// A receipt this build cannot write as canonical bytes, and why.
+    ///
+    /// The refusal is kept for the same reason `NotAReceipt` keeps its decode refusal: the two
+    /// encode refusals mean different things. `UnreachableDisposition` is a receipt the Scanner
+    /// should never have built; `CapacityExceeded` is a real receipt larger than the codec bound.
+    /// The port translation below still reports either one as a conflict on that attempt, as it
+    /// does every fault the store answered; what this keeps is the distinction for whatever holds
+    /// the custody error, which before this could not tell a Scanner defect from a size bound.
+    Unencodable {
+        attempt_id: Box<AttemptId>,
+        refusal: TerminalReceiptEncodeError,
+    },
 }
 
 fn unavailable(reason: &str) -> TerminalReceiptCustodyError {
@@ -185,9 +195,10 @@ impl ScannerTerminalReceiptCustodyV1 {
     ) -> Result<CommitKindV1, TerminalReceiptCustodyError> {
         let attempt_id = receipt.attempt_id();
         let key = encode_attempt_id_v1(attempt_id).map_err(|_| unavailable("attempt-key"))?;
-        let bytes = encode_terminal_receipt_v1(receipt).map_err(|_| {
+        let bytes = encode_terminal_receipt_v1(receipt).map_err(|refusal| {
             TerminalReceiptCustodyError::Unencodable {
                 attempt_id: Box::new(attempt_id.clone()),
+                refusal,
             }
         })?;
         let inserted = sqlx::query(sql(format!(
@@ -242,9 +253,11 @@ impl From<TerminalReceiptCustodyError> for ReceiptStoreError {
             TerminalReceiptCustodyError::Unavailable { evidence } => Self::Unavailable { evidence },
             TerminalReceiptCustodyError::NotAReceipt { attempt_id, .. }
             | TerminalReceiptCustodyError::ConflictingReceipt { attempt_id }
-            | TerminalReceiptCustodyError::Unencodable { attempt_id } => Self::SemanticConflict {
-                attempt_id: *attempt_id,
-            },
+            | TerminalReceiptCustodyError::Unencodable { attempt_id, .. } => {
+                Self::SemanticConflict {
+                    attempt_id: *attempt_id,
+                }
+            }
         }
     }
 }
@@ -271,3 +284,68 @@ impl TerminalReceiptStore for ScannerTerminalReceiptCustodyV1 {
 
 impl sealed::ScannerOwnedTerminalReceiptStore for ScannerTerminalReceiptCustodyV1 {}
 impl ProductEdgeTerminalReceiptReadSource for ScannerTerminalReceiptCustodyV1 {}
+
+#[cfg(test)]
+mod port_translation_tests {
+    use rstest::rstest;
+    use vibe_scanner::{
+        AttemptId, DueSlotBoundary, LocalDateTime, OpaqueId, ReceiptStoreError,
+        TerminalReceiptEncodeError, Version, VersionedIdentity,
+    };
+
+    use super::TerminalReceiptCustodyError;
+
+    fn attempt() -> AttemptId {
+        let identity = |value: &str| VersionedIdentity {
+            identity: OpaqueId::new(value).expect("a named identity"),
+            version: Version::new(1).expect("a non-zero version"),
+        };
+        AttemptId {
+            definition: identity("scanner-custody-port-translation-definition"),
+            scan_scope: identity("scanner-custody-port-translation-scope"),
+            boundary: DueSlotBoundary::Normal {
+                local: LocalDateTime::new(2026, 1, 1, 0, 0, 0).expect("a real local time"),
+                utc_offset_seconds: 0,
+            },
+        }
+    }
+
+    fn unencodable(refusal: TerminalReceiptEncodeError) -> TerminalReceiptCustodyError {
+        TerminalReceiptCustodyError::Unencodable {
+            attempt_id: Box::new(attempt()),
+            refusal,
+        }
+    }
+
+    /// Custody tells the two encode refusals apart; the port deliberately does not.
+    ///
+    /// A receipt that fails to encode cannot be built from this crate - the receipt constructors
+    /// are `pub(crate)` in `vibe_scanner` and the only way in is the validating parser, whose
+    /// output always re-encodes - so the path through `commit` is not reachable from here. What is
+    /// reachable is the error it produces and the translation it goes through, and those are what
+    /// this pins: before the refusal was carried, these two custody errors were equal.
+    #[rstest]
+    fn unencodable_keeps_which_refusal_and_the_port_still_reports_a_conflict() {
+        let defect = unencodable(TerminalReceiptEncodeError::UnreachableDisposition {
+            strategy: OpaqueId::new("scanner-custody-port-translation-strategy")
+                .expect("a named identity"),
+        });
+        let oversize =
+            unencodable(TerminalReceiptEncodeError::CapacityExceeded { field: "receipt" });
+
+        assert_ne!(
+            defect, oversize,
+            "custody collapsed two different encode refusals"
+        );
+
+        for error in [defect, oversize] {
+            assert_eq!(
+                ReceiptStoreError::from(error),
+                ReceiptStoreError::SemanticConflict {
+                    attempt_id: attempt()
+                },
+                "the store answered, so the port reports a conflict on that attempt",
+            );
+        }
+    }
+}

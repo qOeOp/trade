@@ -1403,9 +1403,14 @@ rejects instrument, Market Semantics, frontier, effective-containment, or Instru
 The structural `BarScheduleCutV1` canonical bytes are schema `u16LE = 1`, reserved-zero `u16LE`, fact digest
 `[u8; 32]`, the same canonical-instrument variable bytes, effective instant `i128LE`, then Instrument Master
 readback, fact, and cut digests, Market Semantics identity, source frontier, and correction frontier, all `[u8; 32]`
-in that order. The effective instant must equal the selected BAR row's event-effective instant and the Instrument
-Master cut effective instant, and both the schedule fact and Instrument Master fact effective intervals must contain
-it. The current structural codec does not encode interval open/close or Owner observation/decision-cut coordinates;
+in that order. The effective instant must equal the selected BAR row's event-effective instant. The Instrument
+Master cut's effective instant must not be later than it, and both the schedule fact and Instrument Master fact
+effective intervals must contain it. The Instrument Master fact that governs the instrument at that instant, as the
+Owner resolves it at a cut taken at that instant, must be the fact the schedule's Instrument Master cut holds, compared
+by fact identity; otherwise the schedule is refused. A window of frames shares one Instrument Master cut, and this
+comparison is what lets its later BARs rest on that cut: a correction effective or observed between the cut and a BAR
+resolves to a successor fact and refuses that BAR's schedule, while the superseded fact's interval still contains the
+BAR and cannot. The current structural codec does not encode interval open/close or Owner observation/decision-cut coordinates;
 those predicates remain TARGET/PENDING rather than inferred from this cut. Cut identity and digest are the same
 SHA-256 over `market-data.bar-schedule-cut.v1\0 || canonical cut bytes`.
 
@@ -1448,8 +1453,13 @@ holding a single frame consumes none and a longer window is a longer run rather 
 own exact PIT snapshot/fact, batch, trigger, frame, source/correction lineage, native scheduling
 and liquidity EVENT receipt identities. Each liquidity receipt seals the exact Owner-verified
 Quote row digests, bid/ask prices and sizes, event/initialization times and member order from
-that frame's PIT cut; the V2 sequence digest binds both complete frame/schedule/liquidity
-receipt sets in canonical order and the request identity/window. Every frame's liquidity
+that frame's quote cut: an Owner-verified PIT snapshot of its own, whose instant lies strictly
+after the frame's BAR cut and strictly before the next frame's BAR cut. A PIT snapshot is one instant, so
+the Quotes that follow a BAR cannot sit in that BAR's cut. A quote cut is not a frame: it takes
+no frame ordinal, and exactly one lies between each consumed frame and its successor. Both
+members' Quotes in it share its instant and follow canonical member order, which Backtest consumes
+unchanged for elements that share a `ts_init`. The V2 sequence digest binds both complete
+frame/schedule/liquidity receipt sets in canonical order and the request identity/window. Every frame's liquidity
 EVENTs must precede the next frame's first BAR in native schedule order. All frames
 retain the same canonical two-member universe, Design/role set, Instrument Master cut, timeframe,
 venue and account scope. Market Data verifies each frame's successor relationship and
@@ -1469,11 +1479,19 @@ an R&D binding, Backtest Result, synthetic exit signal or trading order.
 
 This V2 target's request-window frame census exists: every PIT snapshot fact commit takes the next
 dense frame ordinal inside its scope, and the window readback and sequence resolver read it back in
-that order. What the target lacks is a caller. The existing PIT correction lineage records
+that order. What the target lacks is a caller, and a caller alone would not be enough, as the end
+of this paragraph records. The census also admits every commit today, so the
+rule above that a quote cut takes no frame ordinal is not built yet; the Owner has to tell a
+quote cut from a frame by its own verified batch, never by the requester's scope claim. The
+existing PIT correction lineage records
 revisions of one request; it is not a time-successor index and cannot prove a later frame or the
 absence of skipped frames, which is why the census is its own table rather than a reuse of that
 lineage. The current initial-frame resolver and QuoteTick projection do not themselves issue a
-later frame or a separate liquidity receipt.
+later frame or a separate liquidity receipt. The current V1 native scheduling seal also takes its
+Quotes from the BAR's own batch, strictly after the BAR, and no Owner-verified batch holds two
+instants, so that seal is unreachable on Owner custody as built. The V2 frame evidence seals every
+frame through that same V1 seal, so the V2 sequence is unreachable on Owner custody for the same
+reason until both take their Quotes from the frame's quote cut.
 
 In the CURRENT/PARTIAL BAR schedule path, only a custody-verified readback may authorize the additive immutable
 `TimeframeProjectionReceiptV1` keyed by the exact V1 binding-receipt digest. Its existing canonical bytes and domain

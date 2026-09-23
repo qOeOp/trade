@@ -1230,6 +1230,45 @@ pub(crate) mod tests {
         identity: u8,
         cut_effective_instant: u64,
     ) -> BarScheduleReadbackV1 {
+        schedule_bound(
+            instrument,
+            identity,
+            cut_effective_instant,
+            [digest(5), digest(7), digest(4), digest(8)],
+        )
+    }
+
+    /// A schedule that shares `batch`'s Instrument Master, Market Semantics and both frontiers and is
+    /// cut at the batch's own instant, so a seal over that batch gets past every schedule check.
+    pub(crate) fn schedule_bound_to_batch(
+        instrument: &str,
+        identity: u8,
+        batch: &VerifiedPitObservationBatch,
+    ) -> BarScheduleReadbackV1 {
+        schedule_bound(
+            instrument,
+            identity,
+            batch.time_evidence().event_effective.value,
+            [
+                batch.instrument_master_digest(),
+                batch.market_semantics_identity(),
+                batch.source_frontier_digest(),
+                batch.correction_frontier_digest(),
+            ],
+        )
+    }
+
+    fn schedule_bound(
+        instrument: &str,
+        identity: u8,
+        cut_effective_instant: u64,
+        [
+            instrument_master,
+            market_semantics,
+            source_frontier,
+            correction_frontier,
+        ]: [BindingDigest; 4],
+    ) -> BarScheduleReadbackV1 {
         let fact_identity = digest(identity);
         let cut_identity = digest(identity + 20);
         let fact = BarScheduleFactV1 {
@@ -1246,12 +1285,12 @@ pub(crate) mod tests {
             time_zone_identity: digest(33),
             label: BarScheduleLabelV1::IntervalClose,
             completion: BarScheduleCompletionV1::CompleteOnly,
-            instrument_master_digest: digest(5),
+            instrument_master_digest: instrument_master,
             instrument_master_fact_digest: digest(identity + 40),
             instrument_master_cut_digest: digest(34),
-            market_semantics_identity: digest(7),
-            schedule_source_frontier: digest(4),
-            schedule_correction_frontier: digest(8),
+            market_semantics_identity: market_semantics,
+            schedule_source_frontier: source_frontier,
+            schedule_correction_frontier: correction_frontier,
             cut_effective_instant: i128::from(cut_effective_instant),
             canonical_bytes: vec![identity],
             identity: fact_identity,
@@ -1262,12 +1301,12 @@ pub(crate) mod tests {
                 fact_digest: fact_identity,
                 canonical_instrument: instrument.to_owned(),
                 effective_instant: 100,
-                instrument_master_digest: digest(5),
+                instrument_master_digest: instrument_master,
                 instrument_master_fact_digest: digest(identity + 40),
                 instrument_master_cut_digest: digest(34),
-                market_semantics_identity: digest(7),
-                source_frontier: digest(4),
-                correction_frontier: digest(8),
+                market_semantics_identity: market_semantics,
+                source_frontier,
+                correction_frontier,
                 canonical_bytes: vec![identity + 1],
                 identity: cut_identity,
             },

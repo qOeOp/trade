@@ -1226,6 +1226,7 @@ async fn sample_projection_postgres_oracle_v3(owner_url: &str, reader_url: &str,
         &fixture.binding,
         &fixture.batch,
         &fixture.instrument_master,
+        &fixture.instrument_master,
     )
     .expect("prepared BAR schedule");
     let before_schedule: (i64, i64, i64) = sqlx::query_as(
@@ -1373,6 +1374,7 @@ async fn sample_projection_postgres_oracle_v3(owner_url: &str, reader_url: &str,
         successor_proposal,
         &fixture.binding,
         &fixture.batch,
+        &fixture.instrument_master,
         &fixture.instrument_master,
     )
     .expect("same BAR shape with successor schedule custody");
@@ -4520,6 +4522,66 @@ impl PitObservationSourceV1 for ScopeFaithfulObservationSourceV1 {
     }
 }
 
+/// A Data Client that answers a bar at the issued instant and a quote `quote_offset` after it.
+///
+/// The frame design as first written in `docs/owners/market-data.md` took each frame's liquidity
+/// from the frame's own PIT cut, preceding the next frame's first bar, and `into_frame_evidence_v2`
+/// requires the quote strictly after the bar. This client supplies exactly that shape - a quote
+/// later than the bar, in the same snapshot - so the production commit path can say whether a
+/// snapshot may hold it. It cannot, which is why a frame's liquidity now comes from a quote cut of
+/// its own. With `quote_offset == 0` it is the control: the same rows, nothing out of time.
+struct QuoteAfterBarObservationSourceV1 {
+    quote_offset: u64,
+}
+
+#[async_trait::async_trait]
+impl PitObservationSourceV1 for QuoteAfterBarObservationSourceV1 {
+    async fn observe(
+        &self,
+        scope: &PitObservationScopeV1,
+    ) -> Result<Vec<VendorObservationV1>, PitObservationSourceErrorV1> {
+        let row = |symbolic_key: &str,
+                   data_kind: &str,
+                   timeframe: &str,
+                   field: &str,
+                   value_mantissa: i128,
+                   event_effective: u64| VendorObservationV1 {
+            symbolic_key: symbolic_key.into(),
+            member_key: "AAPL".into(),
+            instrument: "AAPL".into(),
+            channel: "MARKET".into(),
+            data_kind: data_kind.into(),
+            timeframe: timeframe.into(),
+            field: field.into(),
+            value_mantissa,
+            value_scale: 2,
+            event_effective,
+            provider_available: scope.provider_available(),
+            retrieval: scope.retrieval(),
+            correction_publication: scope.correction_publication(),
+        };
+        // Strictly ascending by symbolic key, which the canonical batch requires.
+        Ok(vec![
+            row(
+                "AAPL.BID_PRICE.TICK",
+                "QUOTE",
+                "TICK",
+                "BID_PRICE",
+                12_341,
+                scope.event_effective() + self.quote_offset,
+            ),
+            row(
+                "AAPL.CLOSE.1M",
+                "BAR",
+                "1M",
+                "CLOSE",
+                12_345,
+                scope.event_effective(),
+            ),
+        ])
+    }
+}
+
 /// A Data Client that cannot reach its provider.
 struct UnavailableObservationSourceV1;
 
@@ -4957,6 +5019,7 @@ async fn production_pit_mint_postgres_oracle_v1(
         PitSnapshotDisposition::Available,
         "a frozen request alone mints AVAILABLE once the Owner retrieves its own observations"
     );
+
     // Market Semantics: Operations states one fact about the binding, and the Owner derives the
     // scope, the registry key and every coordinate from the snapshot it just committed.
     let semantics_submission = |adjustment: &str| {
@@ -5067,6 +5130,33 @@ async fn production_pit_mint_postgres_oracle_v1(
             .await,
         Err(PitSnapshotError::ObservationBatchUnavailable),
         "an unreachable provider fails closed instead of minting an empty snapshot"
+    );
+    // Can one production snapshot hold a quote later than its own bar? The frame design as first
+    // written in `docs/owners/market-data.md` needed it: each frame's liquidity came from the
+    // frame's own PIT cut and had to follow the bar, and `into_frame_evidence_v2` requires the quote
+    // strictly after it. The production commit path refuses: every row has to carry the request's
+    // one `event_effective`, so a snapshot is one instant and cannot hold anything later than
+    // itself. This measurement is why the design now takes a frame's quotes from a separate quote
+    // cut.
+    //
+    // Measured two-sided on 2026-09-23 against this path. With the same rows and only the quote's
+    // event time changed, the quote on the bar's instant minted `Available` and the quote one step
+    // after it was refused with `InvalidObservationBatch`; every other coordinate was lawful in both,
+    // so the refusal is the event time and nothing else. Only the refusing half stays in the suite:
+    // the control mints a snapshot, and `run_postgres_owner_scenario` later asserts an absolute
+    // count of snapshot facts that a stray mint would break. A refused commit rolls back whole.
+    assert_eq!(
+        owner
+            .commit_pit_initial_from_request_v1(
+                request_only(221),
+                &QuoteAfterBarObservationSourceV1 { quote_offset: 1 },
+                &universe_locator,
+                clock,
+            )
+            .await
+            .unwrap_err(),
+        PitSnapshotError::InvalidObservationBatch,
+        "a production snapshot cannot hold a quote later than its own bar"
     );
 }
 

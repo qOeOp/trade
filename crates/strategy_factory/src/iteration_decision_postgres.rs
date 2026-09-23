@@ -2552,6 +2552,7 @@ mod postgres_acceptance_tests {
         },
     };
 
+    mod backtest_run_report_postgres_acceptance_tests;
     mod iteration_analysis_postgres_acceptance_tests;
 
     const RESULT_STORAGE_DOMAIN: &str = "vibe.backtest.replay-result-storage.v2";
