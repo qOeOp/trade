@@ -51,7 +51,7 @@ use crate::{
     strategy_plan_v2::project_strategy_design_role_set_v1,
 };
 use crate::{
-    develop_plugin_build_v3::DevelopPluginBuildProducerV3,
+    develop_plugin_build_v3::{DevelopPluginBuildProducerV3, DevelopPluginBuildReceiptV3},
     rd_bounded_feature_program_v1::FrozenResearchBoundedFeatureProgramV1,
 };
 
@@ -75,6 +75,26 @@ const REPLAY_LOCATOR_FUNCTION_SOURCE_V2: &str = "BEGIN
      AND role_set.design_digest=p_design_digest
    FOR SHARE OF role_set,operation,artifact,plan,design;
 END";
+const ARTIFACT_BUILD_RECEIPTS_FUNCTION_V1: &str =
+    "composer_owner_api.resolve_artifact_build_receipts_v1(bytea)";
+const ARTIFACT_BUILD_RECEIPTS_FUNCTION_SOURCE_V1: &str = "BEGIN
+  IF SESSION_USER<>'rd_owner' OR CURRENT_USER<>'composer_owner' THEN RAISE EXCEPTION 'R&D Owner required' USING ERRCODE='42501'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM composer_private.rd_develop_artifacts_v2 artifact WHERE artifact.artifact_identity=p_artifact_identity) THEN
+    RAISE EXCEPTION 'Composer artifact is absent' USING ERRCODE='P0002';
+  END IF;
+  RETURN QUERY
+  SELECT build.use_ordinal,build.use_tag,build.use_receipt_identity,build.use_attempt_identity,build.use_capsule_identity,build.use_bytes
+    FROM (SELECT receipt_use.ordinal AS use_ordinal,2 AS use_tag,receipt.receipt_identity AS use_receipt_identity,receipt.build_attempt_identity AS use_attempt_identity,receipt.capsule_identity AS use_capsule_identity,receipt.canonical_bytes AS use_bytes
+            FROM composer_private.rd_develop_artifact_build_receipt_uses_v2 receipt_use
+            JOIN composer_private.rd_develop_build_receipts_v2 receipt ON receipt.receipt_identity=receipt_use.receipt_identity
+           WHERE receipt_use.artifact_identity=p_artifact_identity
+          UNION ALL
+          SELECT receipt_use.ordinal,3,receipt.receipt_identity,receipt.build_attempt_identity,receipt.capsule_identity,receipt.canonical_bytes
+            FROM composer_private.rd_develop_artifact_build_receipt_uses_v3 receipt_use
+            JOIN composer_private.rd_develop_build_receipts_v3 receipt ON receipt.receipt_identity=receipt_use.receipt_identity
+           WHERE receipt_use.artifact_identity=p_artifact_identity) build
+   ORDER BY build.use_ordinal,build.use_tag;
+END";
 const SEALED_READ_UNAVAILABLE_PROTOCOL_V2: &str = "Composer sealed readback is unavailable";
 const COMMIT_FUNCTION_V2: &str = "composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea)";
 const COMMIT_FUNCTION_V3: &str = "composer_owner_api.commit_develop_composer_v3(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,integer[])";
@@ -91,9 +111,9 @@ const ACCEPTANCE_COMMIT_FUNCTION_V3: &str = "composer_owner_api.commit_develop_c
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 const ACCEPTANCE_COMMIT_QUERY_V3: &str = "SELECT composer_owner_api.commit_develop_composer_acceptance_v3($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33)";
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
-const COMPOSER_OWNER_API_FUNCTION_COUNT_V2: i64 = 10;
+const COMPOSER_OWNER_API_FUNCTION_COUNT_V2: i64 = 11;
 #[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
-const COMPOSER_OWNER_API_FUNCTION_COUNT_V2: i64 = 8;
+const COMPOSER_OWNER_API_FUNCTION_COUNT_V2: i64 = 9;
 const COMMIT_CUT_FUNCTION_V2: &str = "composer_owner_api.lock_develop_composer_commit_cut_v2(text)";
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 pub const SEALED_COMPOSER_FAIL_AFTER_GUC_V2: &str = "vibe.sealed_acceptance.composer_fail_after";
@@ -841,6 +861,231 @@ impl Display for DevelopComposerSealedReadErrorV2 {
 }
 
 impl std::error::Error for DevelopComposerSealedReadErrorV2 {}
+
+/// Why the Composer Owner returned no build receipts for an artifact.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ComposerArtifactBuildReceiptsErrorV1 {
+    /// The Composer Owner holds no artifact with this identity. It is a lookup that found no row,
+    /// not a refusal, so nothing is recorded for it.
+    ArtifactAbsent,
+    /// The routine or its grants are not the sealed ones, the store did not answer, or the
+    /// custody it returned is not exact. The cause is recorded under a
+    /// `develop_composer.artifact_build_receipts.` coordinate.
+    Unavailable,
+}
+
+impl Display for ComposerArtifactBuildReceiptsErrorV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::ArtifactAbsent => "the Composer Owner holds no such artifact",
+            Self::Unavailable => "Composer artifact build receipts are unavailable",
+        })
+    }
+}
+
+impl std::error::Error for ComposerArtifactBuildReceiptsErrorV1 {}
+
+fn artifact_build_receipts_refused(
+    coordinate: &'static str,
+    cause: &impl Display,
+) -> ComposerArtifactBuildReceiptsErrorV1 {
+    crate::storage_diagnostic::refused_by_store(coordinate, cause);
+    ComposerArtifactBuildReceiptsErrorV1::Unavailable
+}
+
+/// The build a Composer build receipt records.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ComposerArtifactBuildReceiptSchemaV1 {
+    /// A V2 plugin build. Its receipt binds no joint freeze.
+    PluginBuildV2,
+    /// A V3 plugin build, with the joint freeze its receipt binds. The receipt bytes decoded
+    /// canonically, carried their own digest, and that digest is the identity the artifact uses.
+    PluginBuildV3 { joint_freeze_digest: BindingDigest },
+}
+
+/// One build receipt an accepted Composer artifact uses.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ComposerArtifactBuildReceiptV1 {
+    ordinal: u32,
+    schema: ComposerArtifactBuildReceiptSchemaV1,
+    receipt_identity: BindingDigest,
+    build_attempt_identity: BindingDigest,
+    capsule_identity: BindingDigest,
+    canonical_bytes: Box<[u8]>,
+}
+
+impl ComposerArtifactBuildReceiptV1 {
+    pub const fn ordinal(&self) -> u32 {
+        self.ordinal
+    }
+
+    pub const fn schema(&self) -> ComposerArtifactBuildReceiptSchemaV1 {
+        self.schema
+    }
+
+    pub const fn receipt_identity(&self) -> BindingDigest {
+        self.receipt_identity
+    }
+
+    pub const fn build_attempt_identity(&self) -> BindingDigest {
+        self.build_attempt_identity
+    }
+
+    pub const fn capsule_identity(&self) -> BindingDigest {
+        self.capsule_identity
+    }
+
+    pub fn canonical_bytes(&self) -> &[u8] {
+        &self.canonical_bytes
+    }
+}
+
+/// Reads the build receipts an accepted Composer artifact uses, in ordinal order.
+///
+/// The Composer Owner takes no row lock, table lock or advisory lock for it, so the read neither
+/// waits on a Composer commit nor holds one up, and it runs in a `READ ONLY` transaction. That is
+/// the difference from `lock_accepted_develop_composer_v2`, which takes `SHARE` on every Composer
+/// relation: comparing a receipt with another Owner's fact needs the receipt, not a lock on the
+/// Composer store.
+///
+/// An artifact the Owner does not hold is [`ComposerArtifactBuildReceiptsErrorV1::ArtifactAbsent`];
+/// an artifact it holds with no build receipts is an empty list.
+pub async fn resolve_artifact_build_receipts_v1_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    artifact_identity: BindingDigest,
+) -> Result<Vec<ComposerArtifactBuildReceiptV1>, ComposerArtifactBuildReceiptsErrorV1> {
+    let authority_is_exact: bool = sqlx::query_scalar(
+        "SELECT procedure.prosecdef
+            AND procedure.provolatile='s'
+            AND procedure.proparallel='u'
+            AND procedure.proisstrict
+            AND procedure.proretset
+            AND procedure.prokind='f'
+            AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[]
+            AND procedure.proargtypes='17'::pg_catalog.oidvector
+            AND procedure.proargnames=ARRAY['p_artifact_identity','ordinal','receipt_tag','receipt_identity','build_attempt_identity','capsule_identity','canonical_bytes']::text[]
+            AND pg_catalog.pg_get_userbyid(procedure.proowner)='composer_owner'
+            AND language.lanname='plpgsql'
+            AND procedure.prosrc=$1
+            AND (SELECT pg_catalog.count(*)=2
+                   AND pg_catalog.count(*) FILTER (WHERE acl.grantee=procedure.proowner AND acl.privilege_type='EXECUTE')=1
+                   AND pg_catalog.count(*) FILTER (WHERE role.rolname='rd_owner' AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=1
+                   AND pg_catalog.count(*) FILTER (WHERE acl.grantee=0)=0
+                   FROM pg_catalog.aclexplode(COALESCE(procedure.proacl,pg_catalog.acldefault('f',procedure.proowner))) acl
+                   LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee)
+           FROM pg_catalog.pg_proc procedure
+           JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang
+          WHERE procedure.oid=$2::pg_catalog.regprocedure",
+    )
+    .bind(ARTIFACT_BUILD_RECEIPTS_FUNCTION_SOURCE_V1)
+    .bind(ARTIFACT_BUILD_RECEIPTS_FUNCTION_V1)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|e| {
+        artifact_build_receipts_refused(
+            "develop_composer.artifact_build_receipts.authority_query",
+            &e,
+        )
+    })?
+    .unwrap_or(false);
+
+    if !authority_is_exact {
+        return Err(artifact_build_receipts_refused(
+            "develop_composer.artifact_build_receipts.authority",
+            &"the artifact build receipt routine or its grants are not the sealed ones",
+        ));
+    }
+
+    let rows = sqlx::query(
+        "SELECT ordinal,receipt_tag,receipt_identity,build_attempt_identity,capsule_identity,canonical_bytes
+           FROM composer_owner_api.resolve_artifact_build_receipts_v1($1)",
+    )
+    .bind(artifact_identity.as_bytes().as_slice())
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(|e| {
+        if e.as_database_error().and_then(sqlx::error::DatabaseError::code).as_deref()
+            == Some("P0002")
+        {
+            ComposerArtifactBuildReceiptsErrorV1::ArtifactAbsent
+        } else {
+            artifact_build_receipts_refused("develop_composer.artifact_build_receipts.resolve", &e)
+        }
+    })?;
+
+    let receipts = rows
+        .iter()
+        .map(decode_artifact_build_receipt_row)
+        .collect::<Result<Vec<_>, _>>()?;
+    let ordinals_are_exact = receipts
+        .iter()
+        .enumerate()
+        .all(|(expected, receipt)| usize::try_from(receipt.ordinal).ok() == Some(expected));
+    let schemas_are_uniform = receipts.windows(2).all(|pair| {
+        std::mem::discriminant(&pair[0].schema) == std::mem::discriminant(&pair[1].schema)
+    });
+
+    if !ordinals_are_exact || !schemas_are_uniform {
+        return Err(artifact_build_receipts_refused(
+            "develop_composer.artifact_build_receipts.shape",
+            &"receipt ordinals are not exactly 0..n, or the receipts mix V2 and V3 builds",
+        ));
+    }
+    Ok(receipts)
+}
+
+fn decode_artifact_build_receipt_row(
+    row: &sqlx::postgres::PgRow,
+) -> Result<ComposerArtifactBuildReceiptV1, ComposerArtifactBuildReceiptsErrorV1> {
+    let column = |e: sqlx::Error| {
+        artifact_build_receipts_refused("develop_composer.artifact_build_receipts.column", &e)
+    };
+    let ordinal =
+        u32::try_from(row.try_get::<i32, _>("ordinal").map_err(column)?).map_err(|e| {
+            artifact_build_receipts_refused("develop_composer.artifact_build_receipts.ordinal", &e)
+        })?;
+    let receipt_identity = digest_column(row, "receipt_identity").map_err(column)?;
+    let build_attempt_identity = digest_column(row, "build_attempt_identity").map_err(column)?;
+    let capsule_identity = digest_column(row, "capsule_identity").map_err(column)?;
+    let canonical_bytes: Vec<u8> = row.try_get("canonical_bytes").map_err(column)?;
+    let schema = match row.try_get::<i32, _>("receipt_tag").map_err(column)? {
+        2 => ComposerArtifactBuildReceiptSchemaV1::PluginBuildV2,
+        3 => {
+            let receipt = DevelopPluginBuildReceiptV3::parse_stored(&canonical_bytes).map_err(
+                |terminal| {
+                    artifact_build_receipts_refused(
+                        "develop_composer.artifact_build_receipts.v3_receipt",
+                        &terminal.reason,
+                    )
+                },
+            )?;
+
+            if receipt.receipt_digest() != receipt_identity {
+                return Err(artifact_build_receipts_refused(
+                    "develop_composer.artifact_build_receipts.v3_receipt_identity",
+                    &"V3 receipt bytes carry a digest other than the identity the artifact uses",
+                ));
+            }
+            ComposerArtifactBuildReceiptSchemaV1::PluginBuildV3 {
+                joint_freeze_digest: receipt.joint_freeze_digest(),
+            }
+        }
+        tag => {
+            return Err(artifact_build_receipts_refused(
+                "develop_composer.artifact_build_receipts.receipt_tag",
+                &format!("receipt tag {tag} is neither 2 nor 3"),
+            ));
+        }
+    };
+    Ok(ComposerArtifactBuildReceiptV1 {
+        ordinal,
+        schema,
+        receipt_identity,
+        build_attempt_identity,
+        capsule_identity,
+        canonical_bytes: canonical_bytes.into_boxed_slice(),
+    })
+}
 
 /// R&D-sealed canonical Composer package readback.
 ///

@@ -11,8 +11,10 @@ use vibe_strategy_factory::{
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 use vibe_strategy_factory::{
     develop_composer_postgres_v2::{
+        ComposerArtifactBuildReceiptSchemaV1, ComposerArtifactBuildReceiptsErrorV1,
         DevelopComposerSealedReadErrorV2, DevelopComposerSealedReadLocatorV2,
         DevelopComposerSealedReadPortV2, SealedDevelopComposerAcceptanceReadPortV2,
+        resolve_artifact_build_receipts_v1_in_transaction,
     },
     develop_composer_sealed_acceptance_v2::SealedDevelopComposerAcceptanceV2,
 };
@@ -64,6 +66,56 @@ fn composer_owner_api_routines_search_pg_temp_last() {
             .filter(|(_, search_path)| *search_path != "pg_catalog, pg_temp")
             .collect::<Vec<_>>(),
         Vec::<&(&str, &str)>::new()
+    );
+}
+
+/// The lock clauses a PL/pgSQL body contains, read as tokens so spacing cannot hide one.
+fn lock_clauses(body: &str) -> Vec<&'static str> {
+    let tokens = body
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .filter(|token| !token.is_empty())
+        .map(str::to_ascii_uppercase)
+        .collect::<Vec<_>>();
+    let row_lock = tokens.windows(2).any(|pair| {
+        pair[0] == "FOR" && matches!(pair[1].as_str(), "SHARE" | "UPDATE" | "NO" | "KEY")
+    });
+    [
+        ("row lock", row_lock),
+        ("LOCK", tokens.iter().any(|token| token == "LOCK")),
+        (
+            "advisory",
+            tokens.iter().any(|token| token.contains("ADVISORY")),
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(clause, present)| present.then_some(clause))
+    .collect()
+}
+
+fn function_body<'a>(migration: &'a str, tag: &str) -> &'a str {
+    let delimiter = format!("${tag}$");
+    let mut parts = migration.split(delimiter.as_str());
+    let body = parts.nth(1).expect("dollar-quoted function body");
+    assert!(parts.next().is_some(), "{tag} closes once");
+    body
+}
+
+#[rstest]
+fn artifact_build_receipts_read_takes_no_lock() {
+    let migration =
+        include_str!("../../../product/rd-workbench/postgres-init/10-migrate-authority-custody.sh");
+    assert_eq!(
+        lock_clauses(function_body(migration, "composer_artifact_build_receipts")),
+        Vec::<&str>::new()
+    );
+    // The same reading finds each clause where the sealed reads take it.
+    assert_eq!(
+        lock_clauses(function_body(migration, "composer_read")),
+        ["LOCK"]
+    );
+    assert_eq!(
+        lock_clauses(function_body(migration, "composer_commit_cut")),
+        ["row lock", "advisory"]
     );
 }
 
@@ -633,6 +685,16 @@ async fn transaction_bound_read_uses_the_borrowed_backend_locks_and_writes_nothi
     assert!(!readback.design_bytes().is_empty());
     assert!(!readback.plan_bytes().is_empty());
     assert!(!readback.artifact_package_bytes().is_empty());
+    let sealed_receipt_identities = readback.build_receipt_identities().to_vec();
+    let sealed_receipt_bytes = readback
+        .build_receipt_bytes()
+        .map(<[u8]>::to_vec)
+        .collect::<Vec<_>>();
+    assert!(readback.build_receipt_tags().iter().all(|tag| *tag == 2));
+    // The positive control for the lock census the build-receipt read is held to below: the
+    // sealed read takes SHARE on Composer relations, and the census sees it.
+    let sealed_locks = composer_locks_held(&mut transaction).await;
+    assert!(sealed_locks.stronger_than_access_share > 0);
     // The readback must run on the borrowed backend, inside its transaction: the pid and the
     // transaction-scoped write statistics mean nothing elsewhere. The caller is rd_owner, which
     // past the cutover holds no USAGE on composer_private, so the relation is resolved through
@@ -669,6 +731,183 @@ async fn transaction_bound_read_uses_the_borrowed_backend_locks_and_writes_nothi
         .await
         .expect("positive-read rollback");
     assert_eq!(custody_counts(topology_admin_pool).await, before);
+
+    // The artifact's build receipts are read without a lock of any kind, in a READ ONLY
+    // transaction, and they are the receipts the sealed read returns.
+    let mut transaction = read_only_transaction(rd_pool).await;
+    let receipts = resolve_artifact_build_receipts_v1_in_transaction(
+        &mut transaction,
+        locator.artifact_identity,
+    )
+    .await
+    .expect("lock-free build receipt read");
+    assert_eq!(
+        receipts
+            .iter()
+            .map(|receipt| receipt.receipt_identity())
+            .collect::<Vec<_>>(),
+        sealed_receipt_identities
+    );
+    assert_eq!(
+        receipts
+            .iter()
+            .map(|receipt| receipt.canonical_bytes().to_vec())
+            .collect::<Vec<_>>(),
+        sealed_receipt_bytes
+    );
+    assert!(receipts.iter().enumerate().all(|(ordinal, receipt)| {
+        usize::try_from(receipt.ordinal()).ok() == Some(ordinal)
+            && receipt.schema() == ComposerArtifactBuildReceiptSchemaV1::PluginBuildV2
+    }));
+    let receipt_locks = composer_locks_held(&mut transaction).await;
+    assert!(receipt_locks.access_share > 0);
+    assert_eq!(receipt_locks.stronger_than_access_share, 0);
+    assert_eq!(receipt_locks.advisory, 0);
+    assert_eq!(
+        resolve_artifact_build_receipts_v1_in_transaction(
+            &mut transaction,
+            BindingDigest::from_untrusted_bytes([0x12; 32]),
+        )
+        .await,
+        Err(ComposerArtifactBuildReceiptsErrorV1::ArtifactAbsent)
+    );
+    transaction
+        .rollback()
+        .await
+        .expect("build receipt read rollback");
+
+    // READ ONLY is not what keeps the read lock-free: it lets LOCK TABLE and advisory locks
+    // through, and refuses only row locks. The commit cut takes row locks, so it is refused here.
+    let mut transaction = read_only_transaction(rd_pool).await;
+    let commit_cut = sqlx::query(
+        "SELECT request_digest FROM composer_owner_api.lock_develop_composer_commit_cut_v2($1)",
+    )
+    .bind(&locator.request_identity)
+    .fetch_optional(&mut *transaction)
+    .await
+    .expect_err("row locks are refused in a READ ONLY transaction");
+    assert_eq!(sqlstate(&commit_cut).as_deref(), Some("25006"));
+    transaction.rollback().await.expect("commit cut rollback");
+
+    // A Composer writer holding the receipts table: the build-receipt read passes it, and the
+    // sealed read, which needs SHARE on that table, waits until its lock timeout.
+    let mut writer = topology_admin_pool
+        .begin()
+        .await
+        .expect("writer transaction");
+    sqlx::query("SET LOCAL ROLE composer_owner")
+        .execute(&mut *writer)
+        .await
+        .expect("writer role");
+    sqlx::query("LOCK TABLE composer_private.rd_develop_build_receipts_v3 IN ROW EXCLUSIVE MODE")
+        .execute(&mut *writer)
+        .await
+        .expect("writer table lock");
+    let mut reader = lock_timeout_transaction(rd_pool).await;
+    assert_eq!(
+        resolve_artifact_build_receipts_v1_in_transaction(&mut reader, locator.artifact_identity)
+            .await,
+        Ok(receipts)
+    );
+    reader.rollback().await.expect("unblocked reader rollback");
+    let mut reader = lock_timeout_transaction(rd_pool).await;
+    let sealed_wait =
+        sqlx::query("SELECT composer_owner_api.lock_accepted_develop_composer_v2($1)")
+            .bind(&locator.request_identity)
+            .execute(&mut *reader)
+            .await
+            .expect_err("the sealed read waits behind the writer");
+    assert_eq!(sqlstate(&sealed_wait).as_deref(), Some("55P03"));
+    reader.rollback().await.expect("blocked reader rollback");
+    writer.rollback().await.expect("writer rollback");
+
+    // Only rd_owner executes the routine. Each refused role holds USAGE on the Composer API
+    // schema, so the refusal names the function and not the schema.
+    for role in [
+        CanonicalOwnerTestRoleV1::RdFactWriter,
+        CanonicalOwnerTestRoleV1::MarketDataReader,
+        CanonicalOwnerTestRoleV1::MarketDataOwner,
+    ] {
+        let refused = sqlx::query(
+            "SELECT ordinal FROM composer_owner_api.resolve_artifact_build_receipts_v1($1)",
+        )
+        .bind(locator.artifact_identity.as_bytes().as_slice())
+        .fetch_all(mutation.pool(role))
+        .await
+        .expect_err("only rd_owner executes the build receipt read");
+        assert_eq!(sqlstate(&refused).as_deref(), Some("42501"), "{role:?}");
+        assert!(
+            refused
+                .to_string()
+                .contains("permission denied for function resolve_artifact_build_receipts_v1"),
+            "{role:?}: {refused}"
+        );
+    }
+    assert_eq!(custody_counts(topology_admin_pool).await, before);
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+struct ComposerLocksHeld {
+    access_share: i64,
+    stronger_than_access_share: i64,
+    advisory: i64,
+}
+
+/// Counts the locks this backend holds on Composer private relations, and its advisory locks.
+///
+/// The caller is rd_owner, which holds no USAGE on composer_private, so relations are named
+/// through the catalog.
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+async fn composer_locks_held(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> ComposerLocksHeld {
+    let (access_share, stronger_than_access_share, advisory): (i64, i64, i64) = sqlx::query_as(
+        "SELECT count(*) FILTER (WHERE held.locktype='relation' AND namespace.nspname='composer_private' AND held.mode='AccessShareLock'),
+                count(*) FILTER (WHERE held.locktype='relation' AND namespace.nspname='composer_private' AND held.mode<>'AccessShareLock'),
+                count(*) FILTER (WHERE held.locktype='advisory')
+           FROM pg_catalog.pg_locks held
+           LEFT JOIN pg_catalog.pg_class class ON class.oid=held.relation
+           LEFT JOIN pg_catalog.pg_namespace namespace ON namespace.oid=class.relnamespace
+          WHERE held.pid=pg_catalog.pg_backend_pid()",
+    )
+    .fetch_one(&mut **transaction)
+    .await
+    .expect("lock census");
+    ComposerLocksHeld {
+        access_share,
+        stronger_than_access_share,
+        advisory,
+    }
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+async fn read_only_transaction(pool: &sqlx::PgPool) -> sqlx::Transaction<'static, sqlx::Postgres> {
+    let mut transaction = pool.begin().await.expect("read-only transaction");
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+        .execute(&mut *transaction)
+        .await
+        .expect("read-only isolation");
+    transaction
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+async fn lock_timeout_transaction(
+    pool: &sqlx::PgPool,
+) -> sqlx::Transaction<'static, sqlx::Postgres> {
+    let mut transaction = pool.begin().await.expect("reader transaction");
+    sqlx::query("SET LOCAL lock_timeout='200ms'")
+        .execute(&mut *transaction)
+        .await
+        .expect("reader lock timeout");
+    transaction
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+fn sqlstate(error: &sqlx::Error) -> Option<String> {
+    error
+        .as_database_error()
+        .and_then(sqlx::error::DatabaseError::code)
+        .map(std::borrow::Cow::into_owned)
 }
 
 #[cfg(feature = "sealed-develop-composer-acceptance")]

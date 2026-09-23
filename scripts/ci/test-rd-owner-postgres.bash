@@ -149,8 +149,19 @@ readonly nextest_graph_args=(
 )
 # The incoming Makefile union also contains workspace-root features that none of
 # the three selected packages expose. Keep the archive projection package-scoped.
-readonly nextest_archive_features='vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance'
+readonly nextest_archive_features='vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-composer-acceptance'
 readonly schema_materialization_features="${nextest_archive_features},vibe-strategy-factory-rd-owner-api/sealed-develop-composer-acceptance"
+# `10-migrate-authority-custody.sh` installs the two Composer acceptance commit functions only when
+# SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE is 1, and drops them when it is 0. A build with the
+# Composer-backed Replay feature checks for them - `COMPOSER_OWNER_API_FUNCTION_COUNT_V2` is 10
+# there and 8 without - so the switch is read from the union this chain builds, never set beside
+# it. Set beside it, the two drift: the feature compiled, the switch stayed 0, and every Composer
+# owner refused its own database as "Composer authority topology is unavailable".
+if [[ ",${schema_materialization_features}," == *",vibe-strategy-factory-rd-owner-api/sealed-source-intake-composer-acceptance,"* ]]; then
+  readonly composer_acceptance_migration=1
+else
+  readonly composer_acceptance_migration=0
+fi
 # `--success-output final`: nextest discards a passing test's stdout by default, and every entry
 # here is one whole acceptance. Entry 28 alone drives eleven browser sub-tests whose individual
 # durations exist only on that stream, so a green entry printed nothing at all about what it did -
@@ -288,7 +299,7 @@ check_nextest_graph_contract() {
     return 1
   fi
   if [[ "${nextest_graph_args[*]}" != '--locked --package vibe-strategy-factory --package vibe-strategy-factory-rd-owner-api --package vibe-product-edge --package vibe-operator-authorization --package vibe-backtest-owner --package vibe-data --package vibe-qualification --package vibe-execution-owner --package vibe-portfolio-owner --package vibe-strategy-governance --package vibe-scanner-custody --package vibe-risk-owner --lib --tests' ]] ||
-    [[ "$nextest_archive_features" != 'vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance' ]] ||
+    [[ "$nextest_archive_features" != 'vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-composer-acceptance' ]] ||
     [[ "$schema_materialization_features" != "${nextest_archive_features},vibe-strategy-factory-rd-owner-api/sealed-develop-composer-acceptance" ]] ||
     [[ "${nextest_execution_args[*]}" != '--fail-fast --run-ignored ignored-only --success-output final --no-tests=fail' ]]; then
     echo "ERROR: shared nextest graph, schema feature union, or sequential ignored-only execution changed." >&2
@@ -302,7 +313,7 @@ check_nextest_graph_contract() {
   local repository_root
   repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
   if ! rg -Fxq \
-    'RD_OWNER_POSTGRES_FEATURES := $(CARGO_FEATURES),vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance' \
+    'RD_OWNER_POSTGRES_FEATURES := $(CARGO_FEATURES),vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-composer-acceptance' \
     "$repository_root/Makefile" || ! rg -Uq \
     'cargo-test-rd-owner-postgres-isolated: check-nextest-installed.*\n\tNEXTEST_PROFILE="\$\(NEXTEST_PROFILE\)".*\n\tCARGO_CI_PROFILE="\$\(CARGO_CI_PROFILE\)".*\n\tRD_OWNER_POSTGRES_FEATURES="\$\(RD_OWNER_POSTGRES_FEATURES\)"' \
     "$repository_root/Makefile"; then
@@ -315,7 +326,7 @@ check_nextest_graph_contract() {
     return 1
   fi
   if ! rg -Uq \
-    'RUST_TEST_EXTRA_FEATURES: >-\n[[:space:]]+capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres,\n[[:space:]]+vibe-strategy-factory/sealed-develop-composer-acceptance,\n[[:space:]]+vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,\n[[:space:]]+vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance' \
+    'RUST_TEST_EXTRA_FEATURES: >-\n[[:space:]]+capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres,\n[[:space:]]+vibe-strategy-factory/sealed-develop-composer-acceptance,\n[[:space:]]+vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,\n[[:space:]]+vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance,\n[[:space:]]+vibe-strategy-factory-rd-owner-api/sealed-source-intake-composer-acceptance' \
     "$repository_root/.github/workflows/rd-owner-postgres.yml"; then
     echo "ERROR: rd-owner-postgres workflow must define the complete Composer and Source Intake feature union." >&2
     return 1
@@ -952,6 +963,60 @@ check_market_data_principal_bootstrap_order() {
   fi
 }
 
+# The chain opens the Composer-backed Replay feature in an acceptance build; the deployed image
+# must not. The deployment builds two crates that define it - `vibe-strategy-factory-rd-owner-api`
+# in `Dockerfile.owner` and `vibe-strategy-factory` in `Dockerfile.sandbox` - with no `--features`,
+# over default feature sets that are empty, and migrates its database with the acceptance switch
+# unset. Those are what keep a wider chain union from reaching a deployed image, so they are pinned
+# here, next to the union they are the other side of.
+check_composer_acceptance_stays_in_the_chain() {
+  local repository_root
+  repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+  local migration_calls switch_calls
+  migration_calls="$(rg -c '^[[:space:]]+"\$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody\.sh$' "${BASH_SOURCE[0]}" || true)"
+  switch_calls="$(rg -c '^[[:space:]]+--env "SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE=\$\{composer_acceptance_migration\}" \\$' "${BASH_SOURCE[0]}" || true)"
+  if [[ "${migration_calls:-0}" -lt 1 || "${migration_calls:-0}" != "${switch_calls:-0}" ]]; then
+    echo "ERROR: every 10-migrate-authority-custody.sh run in this chain must pass SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE from the union: ${migration_calls:-0} runs, ${switch_calls:-0} pass it." >&2
+    return 1
+  fi
+  # A switch typed in as a literal passes today and goes wrong the day the union changes.
+  local expected_switch=0
+  [[ ",${schema_materialization_features}," != *",vibe-strategy-factory-rd-owner-api/sealed-source-intake-composer-acceptance,"* ]] ||
+    expected_switch=1
+  if [[ "$composer_acceptance_migration" != "$expected_switch" ]]; then
+    echo "ERROR: the Composer acceptance switch no longer follows the chain feature union." >&2
+    return 1
+  fi
+  local dockerfile package manifest
+  for dockerfile in Dockerfile.owner:vibe-strategy-factory-rd-owner-api Dockerfile.sandbox:vibe-strategy-factory; do
+    package="${dockerfile#*:}"
+    dockerfile="$repository_root/product/rd-workbench/${dockerfile%%:*}"
+    if ! rg -q -F "cargo build --locked --release -p $package " "$dockerfile"; then
+      echo "ERROR: $dockerfile no longer builds $package the way this check reads it." >&2
+      return 1
+    fi
+    if rg -q -e '--features' -e '--all-features' "$dockerfile"; then
+      echo "ERROR: $dockerfile passes a feature to a deployed build; the chain's acceptance union must not reach it." >&2
+      return 1
+    fi
+  done
+  for manifest in strategy_factory_rd_owner_api strategy_factory; do
+    if ! awk '/^\[features\]/{f=1;next} /^\[/{f=0} f && $0=="default = []"{found=1} END{exit !found}' \
+      "$repository_root/crates/$manifest/Cargo.toml"; then
+      echo "ERROR: crates/$manifest must keep an empty default feature set; a deployed build takes its defaults." >&2
+      return 1
+    fi
+  done
+  local deploy_setters
+  deploy_setters="$(git -C "$repository_root" grep -l -F SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE -- product/rd-workbench \
+    ':!product/rd-workbench/postgres-init/10-migrate-authority-custody.sh' \
+    ':!product/rd-workbench/scripts/check/authority.bash' || true)"
+  if [[ -n "$deploy_setters" ]]; then
+    echo "ERROR: the deployment names SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE: ${deploy_setters//$'\n'/, }" >&2
+    return 1
+  fi
+}
+
 check_trial_family_candidate_experiment_cutover() {
   local repository_root
   repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -1345,6 +1410,7 @@ run_authority_migration_for_database() {
     --env "INSTRUMENT_OWNER_DB_PASSWORD=${test_password}" \
     --env "RISK_WRITER_DB_PASSWORD=${test_password}" \
     --env "SCANNER_WRITER_DB_PASSWORD=${test_password}" \
+    --env "SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE=${composer_acceptance_migration}" \
     "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
 }
 
@@ -1354,6 +1420,7 @@ check_backtest_result_function_source
 check_exploratory_replay_read_fence_source
 check_market_data_principal_bootstrap_order
 check_trial_family_candidate_experiment_cutover
+check_composer_acceptance_stays_in_the_chain
 if [[ "${1:-}" == "--check" ]]; then
   exit 0
 fi
@@ -2013,6 +2080,7 @@ docker exec --interactive \
   --env "INSTRUMENT_OWNER_DB_PASSWORD=${test_password}" \
   --env "RISK_WRITER_DB_PASSWORD=${test_password}" \
   --env "SCANNER_WRITER_DB_PASSWORD=${test_password}" \
+  --env "SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE=${composer_acceptance_migration}" \
   "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
 
 existing_cutover_candidate_experiment_fingerprint_before="$(

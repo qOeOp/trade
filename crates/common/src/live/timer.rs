@@ -1181,11 +1181,16 @@ mod tests {
             let now = get_atomic_clock_realtime().get_time_ns();
             let interval_ns = 10_000_000;
             let start_time_ns = now + 50_000_000;
+            // One fire, at the stop boundary. With a repeating timer the schedule kept moving
+            // while this thread waited for it to equal `expected + interval`: a senderless
+            // callback needs the GIL, and whenever a second fire's callback got it before this
+            // thread did, the schedule passed that value and this thread, holding the GIL while
+            // it polled, kept the worker from ever firing again (run 35883683836).
             let mut timer = LiveTimer::new(
                 Ustr::from("SENDERLESS_SCHEDULE"),
                 NonZeroU64::new(interval_ns).unwrap(),
                 start_time_ns,
-                None,
+                Some(start_time_ns),
                 TimeEventCallback::from(callback),
                 true,
                 None,
@@ -1197,16 +1202,17 @@ mod tests {
                 .lock()
                 .expect("schedule mutex should lock")
                 .replace(timer.next_time_ns.clone());
+            // Budgets bound a hang, not a speed: see `wait_until_async_labeled`.
             let observed_time_ns = py
-                .detach(move || rx.recv_timeout(StdDuration::from_secs(1)))
+                .detach(move || rx.recv_timeout(StdDuration::from_mins(1)))
                 .expect("senderless callback should observe the schedule");
-            wait_until(
-                || timer.next_time_ns().as_u64() == expected_time_ns + interval_ns,
-                StdDuration::from_secs(1),
-            );
-            timer.cancel();
+            wait_until(|| timer.is_expired(), StdDuration::from_mins(1));
 
             assert_eq!(observed_time_ns, expected_time_ns);
+            assert_eq!(
+                timer.next_time_ns().as_u64(),
+                expected_time_ns + interval_ns
+            );
         });
     }
 }
