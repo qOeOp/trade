@@ -423,7 +423,7 @@ mod tests {
 
     fn send_to(
         uri: &str,
-        body: serde_json::Value,
+        body: &serde_json::Value,
         token: Option<&str>,
     ) -> axum::http::Request<axum::body::Body> {
         let mut request = axum::http::Request::builder()
@@ -438,7 +438,10 @@ mod tests {
             .unwrap()
     }
 
-    fn send(body: serde_json::Value, token: Option<&str>) -> axum::http::Request<axum::body::Body> {
+    fn send(
+        body: &serde_json::Value,
+        token: Option<&str>,
+    ) -> axum::http::Request<axum::body::Body> {
         send_to("/v1/market-data-repair-requests", body, token)
     }
 
@@ -463,21 +466,21 @@ mod tests {
             response: None,
         });
         let unauthorized = router(Some(service.clone()), token_digest)
-            .oneshot(send(request(), None))
+            .oneshot(send(&request(), None))
             .await
             .unwrap();
         assert_eq!(unauthorized.status(), StatusCode::FORBIDDEN);
         let mut invalid = request();
         invalid["attempt_identity"] = json!("x");
         let invalid = router(Some(service.clone()), token_digest)
-            .oneshot(send(invalid, Some(&format!("Bearer {token}"))))
+            .oneshot(send(&invalid, Some(&format!("Bearer {token}"))))
             .await
             .unwrap();
         assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
         let mut nested = request();
         nested["shared_time_head"]["execution"] = json!({"provider": "caller-selected"});
         let nested = router(Some(service.clone()), token_digest)
-            .oneshot(send(nested, Some(&format!("Bearer {token}"))))
+            .oneshot(send(&nested, Some(&format!("Bearer {token}"))))
             .await
             .unwrap();
         assert_eq!(nested.status(), StatusCode::BAD_REQUEST);
@@ -485,7 +488,7 @@ mod tests {
         let unauthorized_resolve = router(Some(service.clone()), token_digest)
             .oneshot(send_to(
                 "/v1/market-data-repair-requests/resolve",
-                request(),
+                &request(),
                 None,
             ))
             .await
@@ -496,7 +499,7 @@ mod tests {
         let invalid_resolve = router(Some(service.clone()), token_digest)
             .oneshot(send_to(
                 "/v1/market-data-repair-requests/resolve",
-                invalid_resolve,
+                &invalid_resolve,
                 Some(&format!("Bearer {token}")),
             ))
             .await
@@ -506,7 +509,7 @@ mod tests {
         assert_eq!(service.resolve_calls.load(Ordering::SeqCst), 0);
 
         let unavailable = router(None, token_digest)
-            .oneshot(send(request(), Some(&format!("Bearer {token}"))))
+            .oneshot(send(&request(), Some(&format!("Bearer {token}"))))
             .await
             .unwrap();
         assert_eq!(unavailable.status(), StatusCode::SERVICE_UNAVAILABLE);
@@ -526,7 +529,7 @@ mod tests {
 
         for _ in 0..2 {
             let response = router(Some(service.clone()), token_digest)
-                .oneshot(send(request(), Some(&format!("Bearer {token}"))))
+                .oneshot(send(&request(), Some(&format!("Bearer {token}"))))
                 .await
                 .unwrap();
             assert_eq!(response.status(), StatusCode::OK);
@@ -557,7 +560,7 @@ mod tests {
         let response = router(Some(service.clone()), token_digest)
             .oneshot(send_to(
                 "/v1/market-data-repair-requests/resolve",
-                request(),
+                &request(),
                 Some(&format!("Bearer {token}")),
             ))
             .await
@@ -581,7 +584,7 @@ mod tests {
         let response = router(Some(missing.clone()), token_digest)
             .oneshot(send_to(
                 "/v1/market-data-repair-requests/resolve",
-                request(),
+                &request(),
                 Some(&format!("Bearer {token}")),
             ))
             .await
