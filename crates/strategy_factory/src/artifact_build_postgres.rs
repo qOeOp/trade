@@ -88,7 +88,7 @@ pub struct PostgresArtifactBuildOwnerV1 {
     sandbox: Arc<dyn ArtifactBuildSandboxPort>,
     allow_providerless_sealed_acceptance: bool,
     attempt_timeout_ms: u64,
-    clock: Arc<dyn Fn() -> Result<u64, ArtifactBuildError> + Send + Sync>,
+    clock: crate::rd_owner_clock::RdOwnerClockV1,
 }
 
 /// PostgreSQL capability narrowed to verified Artifact Dashboard reads.
@@ -100,7 +100,7 @@ pub struct PostgresArtifactBuildOwnerV1 {
 #[derive(Clone)]
 pub struct PostgresArtifactReadbackOwnerV1 {
     pool: PgPool,
-    clock: Arc<dyn Fn() -> Result<u64, ArtifactBuildError> + Send + Sync>,
+    clock: crate::rd_owner_clock::RdOwnerClockV1,
 }
 
 #[cfg(feature = "sealed-artifact-source-acceptance")]
@@ -331,7 +331,7 @@ impl PostgresArtifactBuildOwnerV1 {
             )),
             allow_providerless_sealed_acceptance: false,
             attempt_timeout_ms: 0,
-            clock: Arc::new(current_epoch_ms),
+            clock: crate::rd_owner_clock::RdOwnerClockV1::owner_transaction(),
         };
 
         if materialization {
@@ -401,7 +401,7 @@ impl PostgresArtifactBuildOwnerV1 {
             sandbox,
             allow_providerless_sealed_acceptance,
             attempt_timeout_ms,
-            clock: Arc::new(current_epoch_ms),
+            clock: crate::rd_owner_clock::RdOwnerClockV1::owner_transaction(),
         };
         crate::schema_materialization::require_existing_public_tables(
             &owner.pool,
@@ -722,22 +722,27 @@ impl PostgresArtifactBuildOwnerV1 {
         Ok(legacy_terminal_result(legacy))
     }
 
-    fn now(&self) -> Result<u64, ArtifactBuildError> {
-        (self.clock)()
+    async fn now(
+        &self,
+        transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<u64, ArtifactBuildError> {
+        self.clock.read(transaction).await.map_err(storage)
     }
 
+    /// The attempt's verified custody and a cut read in the same transaction, after it is admitted.
     async fn read_attempt_custody(
         &self,
         build_request_identity: &str,
-    ) -> Result<Option<VerifiedAttemptCustodyV1>, ArtifactBuildError> {
+    ) -> Result<Option<(VerifiedAttemptCustodyV1, u64)>, ArtifactBuildError> {
         let mut transaction = self.pool.begin().await.map_err(storage)?;
         let custody = Box::pin(admit_attempt_custody_in_transaction(
             &mut transaction,
             build_request_identity,
         ))
         .await?;
+        let read_cut = self.now(&mut transaction).await?;
         transaction.commit().await.map_err(storage)?;
-        Ok(custody)
+        Ok(custody.map(|custody| (custody, read_cut)))
     }
 
     async fn terminal_no_artifact(
@@ -754,7 +759,7 @@ impl PostgresArtifactBuildOwnerV1 {
             DownstreamAdmissionModeV1::Historical
         } else {
             DownstreamAdmissionModeV1::FirstMutation {
-                read_cut_epoch_ms: self.now()?,
+                read_cut_epoch_ms: self.now(&mut transaction).await?,
             }
         };
         let custody = Box::pin(admit_attempt_custody_with_admission_mode_in_transaction(
@@ -771,7 +776,7 @@ impl PostgresArtifactBuildOwnerV1 {
         }
 
         if custody.attempt.state == AttemptState::Terminal {
-            let read_cut = self.now()?;
+            let read_cut = self.now(&mut transaction).await?;
             transaction.commit().await.map_err(storage)?;
             return result_from_verified(custody, read_cut);
         }
@@ -783,7 +788,7 @@ impl PostgresArtifactBuildOwnerV1 {
             ) {
                 (Some(expected), Some(actual)) if same_invocation_claim(expected, actual) => {}
                 (Some(_), None) => {
-                    let read_cut = self.now()?;
+                    let read_cut = self.now(&mut transaction).await?;
                     transaction.commit().await.map_err(storage)?;
                     return result_from_verified(custody, read_cut);
                 }
@@ -796,7 +801,7 @@ impl PostgresArtifactBuildOwnerV1 {
         {
             return Err(ArtifactBuildError::ConflictingReplay);
         }
-        let write_cut = self.now()?;
+        let write_cut = self.now(&mut transaction).await?;
 
         if started_binding.is_none()
             && (!custody
@@ -871,16 +876,17 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
         .fetch_one(&mut *transaction)
         .await
         .map_err(storage)?;
+        let admission_mode = if existing_hint {
+            DownstreamAdmissionModeV1::Historical
+        } else {
+            DownstreamAdmissionModeV1::FirstMutation {
+                read_cut_epoch_ms: self.now(&mut transaction).await?,
+            }
+        };
         let product_edge_admission = resolve_admission_for_downstream_in_transaction(
             &mut transaction,
             &request.admission,
-            if existing_hint {
-                DownstreamAdmissionModeV1::Historical
-            } else {
-                DownstreamAdmissionModeV1::FirstMutation {
-                    read_cut_epoch_ms: self.now()?,
-                }
-            },
+            admission_mode,
         )
         .await
         .map_err(|_| ArtifactBuildError::Unauthorized("Product Edge admission unavailable"))?;
@@ -900,7 +906,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
             {
                 return Err(ArtifactBuildError::ConflictingReplay);
             }
-            let read_cut = self.now()?;
+            let read_cut = self.now(&mut transaction).await?;
             transaction.commit().await.map_err(storage)?;
             return preparation_from_verified(custody, read_cut);
         }
@@ -929,7 +935,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
                 "accepted Develop Intent mismatch".to_string(),
             ));
         }
-        let write_cut = self.now()?;
+        let write_cut = self.now(&mut transaction).await?;
         if !product_edge_admission.authorizes_first_mutation_at(write_cut) {
             transaction.rollback().await.map_err(storage)?;
             return Ok(unavailable_preparation(&request, semantic_digest));
@@ -969,7 +975,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
         ))
         .await?
         .ok_or_else(|| ArtifactBuildError::Storage("prepared attempt missing".to_string()))?;
-        let response_cut = self.now()?;
+        let response_cut = self.now(&mut transaction).await?;
         transaction.commit().await.map_err(storage)?;
         preparation_from_verified(custody, response_cut)
     }
@@ -1016,7 +1022,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
                 {
                     return Err(ArtifactBuildError::ConflictingReplay);
                 }
-                let reserved_at_epoch_ms = self.now()?;
+                let reserved_at_epoch_ms = self.now(&mut transaction).await?;
                 let snapshot = seal_invocation_execution_snapshot(
                     &custody,
                     &claim_binding,
@@ -1128,14 +1134,14 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
             return match Box::pin(self.read_attempt_custody(&request.build_request_identity))
                 .await?
             {
-                Some(custody) => result_from_verified(custody, self.now()?),
+                Some((custody, read_cut)) => result_from_verified(custody, read_cut),
                 None => Ok(unknown_result(
                     &request.build_request_identity,
                     &request.attempt_identity,
                 )),
             };
         }
-        let custody = Box::pin(self.read_attempt_custody(&request.build_request_identity))
+        let (custody, _) = Box::pin(self.read_attempt_custody(&request.build_request_identity))
             .await?
             .ok_or_else(|| ArtifactBuildError::Storage("prepared attempt missing".to_string()))?;
         let intent = custody.intent.clone();
@@ -1155,7 +1161,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
         let admission_mode =
             if self.allow_providerless_sealed_acceptance && started_binding.is_none() {
                 DownstreamAdmissionModeV1::FirstMutation {
-                    read_cut_epoch_ms: self.now()?,
+                    read_cut_epoch_ms: self.now(&mut transaction).await?,
                 }
             } else {
                 DownstreamAdmissionModeV1::Historical
@@ -1169,8 +1175,9 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
         .ok_or_else(|| ArtifactBuildError::Storage("attempt missing".to_string()))?;
         match custody.attempt.state {
             AttemptState::Terminal => {
+                let read_cut = self.now(&mut transaction).await?;
                 transaction.commit().await.map_err(storage)?;
-                return result_from_verified(custody, self.now()?);
+                return result_from_verified(custody, read_cut);
             }
             AttemptState::Building => {
                 if custody.attempt.candidate_digest.as_deref() != Some(&digest) {
@@ -1184,7 +1191,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
                 {
                     return Err(ArtifactBuildError::ConflictingReplay);
                 }
-                let transition_cut = self.now()?;
+                let transition_cut = self.now(&mut transaction).await?;
                 if started_binding.is_none()
                     && !research_view_is_available(&custody.research, transition_cut)
                 {
@@ -1195,7 +1202,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
             }
             AttemptState::InvocationReserved => {
                 let Some(started_binding) = started_binding.as_ref() else {
-                    let read_cut = self.now()?;
+                    let read_cut = self.now(&mut transaction).await?;
                     transaction.commit().await.map_err(storage)?;
                     return result_from_verified(custody, read_cut);
                 };
@@ -1217,7 +1224,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
                 transaction.commit().await.map_err(storage)?;
             }
             AttemptState::Prepared => {
-                let transition_cut = self.now()?;
+                let transition_cut = self.now(&mut transaction).await?;
 
                 if started_binding.is_none()
                     && (!custody
@@ -1276,7 +1283,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
         let admission_mode =
             if self.allow_providerless_sealed_acceptance && started_binding.is_none() {
                 DownstreamAdmissionModeV1::FirstMutation {
-                    read_cut_epoch_ms: self.now()?,
+                    read_cut_epoch_ms: self.now(&mut transaction).await?,
                 }
             } else {
                 DownstreamAdmissionModeV1::Historical
@@ -1289,8 +1296,9 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
         .await?
         .ok_or_else(|| ArtifactBuildError::Storage("attempt missing".to_string()))?;
         if custody.attempt.state == AttemptState::Terminal {
+            let read_cut = self.now(&mut transaction).await?;
             transaction.commit().await.map_err(storage)?;
-            return result_from_verified(custody, self.now()?);
+            return result_from_verified(custody, read_cut);
         }
 
         if custody.intent != intent {
@@ -1308,7 +1316,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
             ),
             ArtifactBuildIntentV1::Initial(_) => None,
         };
-        let now = self.now()?;
+        let now = self.now(&mut transaction).await?;
         let research_view_available = successor_view_custody.as_ref().map_or_else(
             || research_view_is_available(&custody.research, now),
             |successor| {
@@ -1384,7 +1392,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
             failure_code: None,
             committed_at_epoch_ms: now,
         };
-        let write_cut = self.now()?;
+        let write_cut = self.now(&mut transaction).await?;
 
         if started_binding.is_none()
             && (!custody
@@ -1592,7 +1600,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
             return match Box::pin(self.read_attempt_custody(&request.build_request_identity))
                 .await?
             {
-                Some(custody) => result_from_verified(custody, self.now()?),
+                Some((custody, read_cut)) => result_from_verified(custody, read_cut),
                 None => Ok(unknown_result(
                     &request.build_request_identity,
                     &request.attempt_identity,
@@ -1608,8 +1616,8 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
         attempt_identity: &str,
         admission: &ProductEdgeAdmissionLocatorV1,
     ) -> Result<ArtifactBuildResultV1, ArtifactBuildError> {
-        let read_cut = self.now()?;
-        let Some(custody) = Box::pin(self.read_attempt_custody(build_request_identity)).await?
+        let Some((custody, read_cut)) =
+            Box::pin(self.read_attempt_custody(build_request_identity)).await?
         else {
             return Ok(unknown_result(build_request_identity, attempt_identity));
         };
@@ -1625,9 +1633,7 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
         if !matches!(
             custody.attempt.state,
             AttemptState::Terminal | AttemptState::InvocationReserved
-        ) && self
-            .now()?
-            .saturating_sub(custody.attempt.prepared_at_epoch_ms)
+        ) && read_cut.saturating_sub(custody.attempt.prepared_at_epoch_ms)
             > self.attempt_timeout_ms
         {
             return Box::pin(self.terminal_no_artifact(
@@ -1783,12 +1789,12 @@ async fn read_source_from_pool(
 
 async fn read_artifact_from_pool(
     pool: &PgPool,
-    clock: &(dyn Fn() -> Result<u64, ArtifactBuildError> + Send + Sync),
+    clock: &crate::rd_owner_clock::RdOwnerClockV1,
     build_request_identity: &str,
     attempt_identity: &str,
 ) -> Result<ArtifactBuildResultV1, ArtifactBuildError> {
-    let read_cut_epoch_ms = clock()?;
     let mut transaction = pool.begin().await.map_err(storage)?;
+    let read_cut_epoch_ms = clock.read(&mut transaction).await.map_err(storage)?;
     // Unlocked for the reason spelled out in `read_source_from_pool`: a read that locks the
     // attempt and then reaches a Research receipt through the custody admission below is the
     // inverted half of entry 28's deadlock. The identity this probe checks is checked again
@@ -1897,13 +1903,13 @@ impl PostgresArtifactReadbackOwnerV1 {
         .map_err(storage)?;
         Ok(Self {
             pool,
-            clock: Arc::new(current_epoch_ms),
+            clock: crate::rd_owner_clock::RdOwnerClockV1::owner_transaction(),
         })
     }
 
     async fn list_from_pool(
         pool: &PgPool,
-        clock: &(dyn Fn() -> Result<u64, ArtifactBuildError> + Send + Sync),
+        clock: &crate::rd_owner_clock::RdOwnerClockV1,
         after: Option<&ArtifactDirectoryCursorV1>,
         limit: u32,
     ) -> Result<ArtifactDirectoryReadbackV1, ArtifactBuildError> {
@@ -2020,9 +2026,12 @@ impl PostgresArtifactReadbackOwnerV1 {
         let next_cursor = (has_unscanned_candidate || scanned < candidate_count)
             .then_some(last_cursor)
             .flatten();
+        let mut observation = pool.begin().await.map_err(storage)?;
+        let observed_at_epoch_ms = clock.read(&mut observation).await.map_err(storage)?;
+        observation.commit().await.map_err(storage)?;
         Ok(ArtifactDirectoryReadbackV1 {
             schema_version: 1,
-            observed_at_epoch_ms: clock()?,
+            observed_at_epoch_ms,
             completeness: if omitted_count == 0 {
                 ArtifactDirectoryCompletenessV1::Complete
             } else {
@@ -2205,7 +2214,7 @@ impl ArtifactDirectoryOwnerPort for PostgresArtifactBuildOwnerV1 {
     ) -> Result<ArtifactDirectoryReadbackV1, ArtifactBuildError> {
         Box::pin(PostgresArtifactReadbackOwnerV1::list_from_pool(
             &self.pool,
-            self.clock.as_ref(),
+            &self.clock,
             after,
             limit,
         ))
@@ -2220,13 +2229,7 @@ impl ArtifactDirectoryOwnerPort for PostgresArtifactReadbackOwnerV1 {
         after: Option<&ArtifactDirectoryCursorV1>,
         limit: u32,
     ) -> Result<ArtifactDirectoryReadbackV1, ArtifactBuildError> {
-        Box::pin(Self::list_from_pool(
-            &self.pool,
-            self.clock.as_ref(),
-            after,
-            limit,
-        ))
-        .await
+        Box::pin(Self::list_from_pool(&self.pool, &self.clock, after, limit)).await
     }
 }
 
@@ -2255,7 +2258,7 @@ impl ArtifactReadbackOwnerPortV1 for PostgresArtifactReadbackOwnerV1 {
     ) -> Result<ArtifactBuildResultV1, ArtifactBuildError> {
         Box::pin(read_artifact_from_pool(
             &self.pool,
-            self.clock.as_ref(),
+            &self.clock,
             build_request_identity,
             attempt_identity,
         ))
@@ -2993,6 +2996,8 @@ fn encode(value: &impl Serialize) -> Result<serde_json::Value, ArtifactBuildErro
     serde_json::to_value(value).map_err(json_storage)
 }
 
+/// The test process clock; production cuts come from the Owner transaction.
+#[cfg(test)]
 fn current_epoch_ms() -> Result<u64, ArtifactBuildError> {
     let duration = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -3126,7 +3131,10 @@ pub async fn drain_legacy_prepared_attempts_v1(
             "partial legacy PREPARED drain set is forbidden".into(),
         ));
     }
-    let committed_at_epoch_ms = current_epoch_ms()?;
+    let committed_at_epoch_ms =
+        crate::rd_owner_clock::owner_clock_epoch_ms_in_transaction(&mut transaction)
+            .await
+            .map_err(storage)?;
     let mut receipts = Vec::with_capacity(targets.len());
     if existing_count == 0 {
         for (index, target) in targets.iter().enumerate() {
@@ -4233,7 +4241,7 @@ mod postgres_freshness_tests {
         )
         .await
         .unwrap();
-        owner.clock = Arc::new(move || Ok(valid_through));
+        owner.clock = crate::rd_owner_clock::RdOwnerClockV1::fixed(move || valid_through);
 
         let stale_prepare =
             artifact_request(&product_edge, &suffix, &intent_identity, "stale-prepare").await;
@@ -4263,7 +4271,7 @@ mod postgres_freshness_tests {
         );
 
         let fresh_cut = valid_through.saturating_sub(1);
-        owner.clock = Arc::new(move || Ok(fresh_cut));
+        owner.clock = crate::rd_owner_clock::RdOwnerClockV1::fixed(move || fresh_cut);
         let prepared_request = artifact_request(
             &product_edge,
             &suffix,
@@ -4290,7 +4298,7 @@ mod postgres_freshness_tests {
             .unwrap();
         // Reservation is itself a research-fresh transition: at the exact cut it is refused and
         // writes nothing, and the claim stays recoverable for the fresh reservation below.
-        owner.clock = Arc::new(move || Ok(valid_through));
+        owner.clock = crate::rd_owner_clock::RdOwnerClockV1::fixed(move || valid_through);
         let before_stale_reservation = state_snapshot(
             &pool,
             &research_request_identity,
@@ -4320,7 +4328,7 @@ mod postgres_freshness_tests {
             .await,
             before_stale_reservation
         );
-        owner.clock = Arc::new(move || Ok(fresh_cut));
+        owner.clock = crate::rd_owner_clock::RdOwnerClockV1::fixed(move || fresh_cut);
         let invocation_claim = product_edge
             .claim_provider_invocation(invocation_claim_request.clone())
             .await
@@ -4441,7 +4449,7 @@ mod postgres_freshness_tests {
             before_mismatch,
             "no identity mismatch may write"
         );
-        owner.clock = Arc::new(move || Ok(valid_through));
+        owner.clock = crate::rd_owner_clock::RdOwnerClockV1::fixed(move || valid_through);
         let before = state_snapshot(
             &pool,
             &research_request_identity,
@@ -4498,7 +4506,7 @@ mod postgres_freshness_tests {
             "sealed-failure-after-expiry",
         )
         .await;
-        owner.clock = Arc::new(move || Ok(fresh_cut));
+        owner.clock = crate::rd_owner_clock::RdOwnerClockV1::fixed(move || fresh_cut);
         assert_eq!(
             owner
                 .prepare(sealed_failure_request.clone())
@@ -4541,7 +4549,7 @@ mod postgres_freshness_tests {
             .await
             .unwrap()
             .unwrap();
-        owner.clock = Arc::new(move || Ok(valid_through));
+        owner.clock = crate::rd_owner_clock::RdOwnerClockV1::fixed(move || valid_through);
         let terminal = owner
             .fail_no_artifact(
                 sealed_failure_request.clone(),
@@ -4574,7 +4582,7 @@ mod postgres_freshness_tests {
             "sealed-success-after-expiry",
         )
         .await;
-        owner.clock = Arc::new(move || Ok(fresh_cut));
+        owner.clock = crate::rd_owner_clock::RdOwnerClockV1::fixed(move || fresh_cut);
         assert_eq!(
             owner
                 .prepare(sealed_success_request.clone())
@@ -4599,7 +4607,7 @@ mod postgres_freshness_tests {
             .await
             .unwrap();
         let (start_reservation, _invocation_custody) = reserved_invocation.into_parts();
-        owner.clock = Arc::new(move || Ok(valid_through));
+        owner.clock = crate::rd_owner_clock::RdOwnerClockV1::fixed(move || valid_through);
         product_edge
             .start_provider_invocation(start_reservation)
             .await
@@ -4789,7 +4797,7 @@ mod postgres_freshness_tests {
             "stale-final-write",
         )
         .await;
-        owner.clock = Arc::new(move || Ok(fresh_cut));
+        owner.clock = crate::rd_owner_clock::RdOwnerClockV1::fixed(move || fresh_cut);
         assert_eq!(
             owner
                 .prepare(final_request.clone())
@@ -4828,22 +4836,22 @@ mod postgres_freshness_tests {
         let clock_cuts = Arc::clone(&cuts);
         let handed_out = Arc::new(Mutex::new(Vec::<u64>::new()));
         let clock_handed_out = Arc::clone(&handed_out);
-        owner.clock = Arc::new(move || {
+        owner.clock = crate::rd_owner_clock::RdOwnerClockV1::fixed(move || {
             let cut = clock_cuts
                 .lock()
-                .map_err(json_storage)?
+                .expect("test clock")
                 .pop_front()
-                .ok_or_else(|| {
-                    ArtifactBuildError::Storage(format!(
+                .unwrap_or_else(|| {
+                    panic!(
                         "test clock exhausted after handing out {:?}",
                         clock_handed_out
                             .lock()
                             .map(|c| c.clone())
                             .unwrap_or_default()
-                    ))
-                })?;
-            clock_handed_out.lock().map_err(json_storage)?.push(cut);
-            Ok(cut)
+                    )
+                });
+            clock_handed_out.lock().expect("test clock").push(cut);
+            cut
         });
         assert_eq!(
             owner
