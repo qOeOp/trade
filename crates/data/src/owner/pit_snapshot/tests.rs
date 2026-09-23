@@ -1763,12 +1763,9 @@ fn v1_native_scheduling_is_unreachable_on_owner_custody_as_built() {
     );
 
     let later = [1, 2];
-    let mut edited = custody;
-    edited.observations = edited
-        .observations
-        .iter()
-        .cloned()
-        .map(|mut row| {
+    // Edited past verification on purpose: this is the batch custody would refuse (cell C).
+    let edited = custody.edit_for_test(|fields| {
+        for row in &mut fields.observations {
             if row.data_kind == "QUOTE" {
                 let member = FRAME_MEMBERS
                     .iter()
@@ -1776,9 +1773,8 @@ fn v1_native_scheduling_is_unreachable_on_owner_custody_as_built() {
                     .expect("frame member");
                 row.event_effective += later[member];
             }
-            row
-        })
-        .collect();
+        }
+    });
     assert_eq!(
         seal(edited),
         Ok(()),

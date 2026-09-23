@@ -152,6 +152,15 @@ repos:
             scripts/ci/check-docker-toolchain-pins\.bash
           )$
         pass_filenames: false
+      - id: rd-workbench-check
+        name: check R&D deployment package
+        description: >-
+          Runs the deployment package check CI runs, which pins text in postgres-init and reads Owner
+          sources, so a change it refuses is refused at commit rather than forty minutes later
+        entry: bash product/rd-workbench/scripts/check.sh
+        language: system
+        files: ^(product/rd-workbench/|crates/|scripts/ci/test-rd-owner-postgres\.bash$)
+        pass_filenames: false
       - id: check-feature-gate-coverage
         name: check feature gate coverage
         description: Names Cargo features that gate code no job compiles, and fails on a new one

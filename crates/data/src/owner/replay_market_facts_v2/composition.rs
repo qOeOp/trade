@@ -648,6 +648,14 @@ pub enum ReplayCompositionBindingErrorV1 {
     /// fact that cannot be expressed in it. Reporting it as unavailable would send the reader
     /// looking for a missing path instead of at a source that declined to state its rule.
     PriceAdjustmentUnknown,
+    /// The issuance identity and the request disagree with an issuance already stored.
+    ///
+    /// It covers the pairing in both directions: the identity already holds a different request, or
+    /// this request is already stored under a different identity. Either way the caller has to use
+    /// the pairing the Owner holds, and retrying cannot change the answer. It is distinct from
+    /// `DigestMismatch`, which reports stored bytes that do not reproduce their digest, so that a
+    /// caller can be told the conflict is theirs without a store fault being told the same thing.
+    IssuanceIdentityConflict,
 }
 
 impl Display for ReplayCompositionBindingErrorV1 {

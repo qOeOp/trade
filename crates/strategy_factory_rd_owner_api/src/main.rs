@@ -29,7 +29,8 @@ use vibe_core::time::get_atomic_clock_realtime;
 use vibe_data::owner::replay_market_facts_v2::ReplayCompositionOwnerV1;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 use vibe_data::owner::replay_market_facts_v2::{
-    ReplayCompositionIssuanceLocatorV1, ReplayCompositionLocatorOnlyIssuanceRequestV1,
+    ReplayCompositionBindingErrorV1, ReplayCompositionIssuanceLocatorV1,
+    ReplayCompositionLocatorOnlyIssuanceRequestV1,
 };
 #[cfg(test)]
 use vibe_data::owner::{
@@ -1103,8 +1104,8 @@ async fn issue_replay_composition(
             )
                 .into_response(),
             Err(e) => {
-                tracing::warn!(error = %e, "Replay composition issuance unavailable");
-                StatusCode::SERVICE_UNAVAILABLE.into_response()
+                tracing::warn!(error = %e, "Replay composition issuance refused");
+                replay_composition_refusal(e)
             }
         }
     }
@@ -1141,8 +1142,8 @@ async fn resolve_replay_composition(
             )
                 .into_response(),
             Err(e) => {
-                tracing::warn!(error = %e, "Replay composition issuance recovery unavailable");
-                StatusCode::SERVICE_UNAVAILABLE.into_response()
+                tracing::warn!(error = %e, "Replay composition issuance recovery refused");
+                replay_composition_refusal(e)
             }
         }
     }
@@ -2654,6 +2655,53 @@ fn insert_rejection_code(response: &mut Response, code: &str) {
     if let Ok(value) = code.parse() {
         response.headers_mut().insert("x-rd-rejection-code", value);
     }
+}
+
+/// Answers a replay composition refusal with the status its cause supports.
+///
+/// A variant leaves 503 only when every site that constructs it on the issuance and recovery paths
+/// is the caller's request or a fact the store declared, never a store failure. Three qualify.
+/// `InvalidRequest` is raised only by validation of the caller's command, including a locator that
+/// contradicts the composition it was sent with. `IssuanceIdentityConflict` is raised only where the
+/// Owner has established that the identity and the request disagree with an issuance it holds -
+/// the identity stores a different request, or the request is stored under another identity -
+/// which is the conflict this file already answers as `CONFLICTING_SEMANTICS_FOR_REQUEST_IDENTITY`.
+/// `PriceAdjustmentUnknown` is raised only when a Market Semantics fact declares its price
+/// adjustment unknown, a statement about the data that takes the 422 this file gives a well-formed
+/// request the Owner declines on semantics.
+///
+/// The rest stay 503 because their sites are the store's, and a 4xx would tell a caller its request
+/// is wrong when the store may be at fault. `DigestMismatch` now reports only stored bytes,
+/// attestations or a just-built binding that fail to reproduce their own digest. `UnknownBinding`
+/// also reports a stored issuance whose binding cannot be recovered. `NonCanonicalOrder`,
+/// `IncompleteComposition` and `DependencyMismatch` are raised while decoding stored bytes or
+/// validating evidence the Owner assembled itself. `AmbiguousBinding` and `LegacyUnbound` are not
+/// constructed at all. Moving any of these off 503 needs the variant split where it is raised.
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+fn replay_composition_refusal(error: ReplayCompositionBindingErrorV1) -> Response {
+    let (status, code) = match error {
+        ReplayCompositionBindingErrorV1::InvalidRequest => (StatusCode::BAD_REQUEST, None),
+        ReplayCompositionBindingErrorV1::IssuanceIdentityConflict => (
+            StatusCode::CONFLICT,
+            Some("CONFLICTING_SEMANTICS_FOR_REQUEST_IDENTITY"),
+        ),
+        ReplayCompositionBindingErrorV1::PriceAdjustmentUnknown => {
+            (StatusCode::UNPROCESSABLE_ENTITY, None)
+        }
+        ReplayCompositionBindingErrorV1::ReplayV2Unavailable
+        | ReplayCompositionBindingErrorV1::DigestMismatch
+        | ReplayCompositionBindingErrorV1::UnknownBinding
+        | ReplayCompositionBindingErrorV1::NonCanonicalOrder
+        | ReplayCompositionBindingErrorV1::IncompleteComposition
+        | ReplayCompositionBindingErrorV1::DependencyMismatch
+        | ReplayCompositionBindingErrorV1::AmbiguousBinding
+        | ReplayCompositionBindingErrorV1::LegacyUnbound => (StatusCode::SERVICE_UNAVAILABLE, None),
+    };
+    let mut response = status.into_response();
+    if let Some(code) = code {
+        insert_rejection_code(&mut response, code);
+    }
+    response
 }
 
 fn owner_error(error: &ResearchGoalOwnerError, request_identity: &str) -> Response {
@@ -5520,6 +5568,79 @@ mod tests {
         assert_eq!(value["attempt_identity"], "attempt-1");
         assert_eq!(value["owner_receipt"], serde_json::Value::Null);
         assert_eq!(value["next_legal_action"], "RESOLVE_SAME_ATTEMPT_IDENTITY");
+    }
+
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[rstest]
+    #[case::invalid_request(
+        ReplayCompositionBindingErrorV1::InvalidRequest,
+        StatusCode::BAD_REQUEST,
+        None
+    )]
+    #[case::issuance_identity_conflict(
+        ReplayCompositionBindingErrorV1::IssuanceIdentityConflict,
+        StatusCode::CONFLICT,
+        Some("CONFLICTING_SEMANTICS_FOR_REQUEST_IDENTITY")
+    )]
+    #[case::price_adjustment_unknown(
+        ReplayCompositionBindingErrorV1::PriceAdjustmentUnknown,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        None
+    )]
+    #[case::replay_v2_unavailable(
+        ReplayCompositionBindingErrorV1::ReplayV2Unavailable,
+        StatusCode::SERVICE_UNAVAILABLE,
+        None
+    )]
+    #[case::digest_mismatch(
+        ReplayCompositionBindingErrorV1::DigestMismatch,
+        StatusCode::SERVICE_UNAVAILABLE,
+        None
+    )]
+    #[case::unknown_binding(
+        ReplayCompositionBindingErrorV1::UnknownBinding,
+        StatusCode::SERVICE_UNAVAILABLE,
+        None
+    )]
+    #[case::non_canonical_order(
+        ReplayCompositionBindingErrorV1::NonCanonicalOrder,
+        StatusCode::SERVICE_UNAVAILABLE,
+        None
+    )]
+    #[case::incomplete_composition(
+        ReplayCompositionBindingErrorV1::IncompleteComposition,
+        StatusCode::SERVICE_UNAVAILABLE,
+        None
+    )]
+    #[case::dependency_mismatch(
+        ReplayCompositionBindingErrorV1::DependencyMismatch,
+        StatusCode::SERVICE_UNAVAILABLE,
+        None
+    )]
+    #[case::ambiguous_binding(
+        ReplayCompositionBindingErrorV1::AmbiguousBinding,
+        StatusCode::SERVICE_UNAVAILABLE,
+        None
+    )]
+    #[case::legacy_unbound(
+        ReplayCompositionBindingErrorV1::LegacyUnbound,
+        StatusCode::SERVICE_UNAVAILABLE,
+        None
+    )]
+    fn replay_composition_refusal_follows_the_cause(
+        #[case] error: ReplayCompositionBindingErrorV1,
+        #[case] status: StatusCode,
+        #[case] code: Option<&str>,
+    ) {
+        let response = replay_composition_refusal(error);
+        assert_eq!(response.status(), status);
+        assert_eq!(
+            response
+                .headers()
+                .get("x-rd-rejection-code")
+                .map(|value| value.to_str().expect("rejection code is ASCII")),
+            code
+        );
     }
 
     struct FailingResearchReadbackOwner(&'static str);

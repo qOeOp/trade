@@ -1542,25 +1542,27 @@ async fn persist_schedules_and_v3_frames(
                     && candidate.unit == proposal.unit
                     && candidate.anchor_identity == proposal.anchor_identity
             });
-        let index =
-            if let Some(index) = existing.and_then(|prior| schedule_indices.get(prior).copied()) {
-                index
-            } else {
-                let mut proposal = proposal.clone();
-                proposal.predecessor_fact_digest = schedules
-                    .last()
-                    .map(crate::owner::bar_schedule::BarScheduleReadbackV1::fact)
-                    .map(crate::owner::bar_schedule::BarScheduleFactV1::digest)
-                    .or(initial_predecessor);
-                let prepared = prepare_bar_schedule_commit_v1(proposal, binding, batch, instrument)
+        let index = if let Some(index) =
+            existing.and_then(|prior| schedule_indices.get(prior).copied())
+        {
+            index
+        } else {
+            let mut proposal = proposal.clone();
+            proposal.predecessor_fact_digest = schedules
+                .last()
+                .map(crate::owner::bar_schedule::BarScheduleReadbackV1::fact)
+                .map(crate::owner::bar_schedule::BarScheduleFactV1::digest)
+                .or(initial_predecessor);
+            let prepared =
+                prepare_bar_schedule_commit_v1(proposal, binding, batch, instrument, instrument)
                     .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
-                let stored = owner
-                    .commit_prepared_bar_schedule_v1(&prepared)
-                    .await
-                    .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
-                schedules.push(stored);
-                schedules.len() - 1
-            };
+            let stored = owner
+                .commit_prepared_bar_schedule_v1(&prepared)
+                .await
+                .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
+            schedules.push(stored);
+            schedules.len() - 1
+        };
         schedule_indices.push(index);
     }
     let mut digests = Vec::with_capacity(6);
