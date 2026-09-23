@@ -61,11 +61,14 @@ export function BacktestRunReport({ report }: { report: BacktestRunReportProject
               <FactItem label="Cut" mono>{report.data_window.cut_identity}</FactItem>
             </FactGroup>
             <FactGroup title="Result">
-              <FactItem label="Net return" mono>
-                {report.state === "available" ? String(report.net_return) : "No equity observations"}
+              {/* Fractions, shown as stated. The projection does not yet say which of the two bases the
+                  canonical result built the series on, so no label names one or implies an equity
+                  return; the labels will name the basis once the Owner carries it. */}
+              <FactItem label="Net return (fraction)" mono>
+                {report.state === "available" ? String(report.net_return) : "No observations"}
               </FactItem>
-              <FactItem label="Maximum drawdown" mono>
-                {report.state === "available" ? String(report.max_drawdown) : "No equity observations"}
+              <FactItem label="Maximum drawdown (fraction)" mono>
+                {report.state === "available" ? String(report.max_drawdown) : "No observations"}
               </FactItem>
               <FactItem label="Fills">{report.fill_count}</FactItem>
               <FactItem label="Run" mono>{report.run.result_identity}</FactItem>
@@ -77,8 +80,9 @@ export function BacktestRunReport({ report }: { report: BacktestRunReportProject
           ) : (
             // Empty is a run that produced no points, not a read that failed: the facts above and the
             // fills below are still the run's own, so this says what is missing and nothing more.
-            <EmptyState title="No equity observations">
-              This run has no equity snapshots, so it states no series, net return or maximum drawdown.
+            <EmptyState title="No observations">
+              This run produced no observation points, so it states no series, net return or maximum
+              drawdown.
             </EmptyState>
           )}
           <FillsTable fills={report.fills} />
@@ -113,7 +117,7 @@ function SeriesLine({ points }: { points: readonly BacktestRunReportPoint[] }) {
   return (
     <figure className={styles.series}>
       <svg
-        aria-label={`Equity series, ${points.length} observations`}
+        aria-label={`Return series, ${points.length} observations`}
         preserveAspectRatio="none"
         role="img"
         viewBox={`0 0 ${SERIES_WIDTH} ${SERIES_HEIGHT}`}

@@ -70,9 +70,9 @@ const available = {
   strategy,
   data_window: dataWindow,
   series: [
-    { at: "2025-01-01T00:00:00.000000000Z", value: 100_000 },
-    { at: "2025-01-02T00:00:00.000000000Z", value: 100_450.5 },
-    { at: "2025-01-03T00:00:00.000000000Z", value: 99_800 },
+    { at: "2025-01-01T00:00:00.000000000Z", value: 0.0004 },
+    { at: "2025-01-02T00:00:00.000000000Z", value: 0.00105 },
+    { at: "2025-01-03T00:00:00.000000000Z", value: -0.00345 },
   ],
   net_return: -0.002,
   max_drawdown: -0.00647,
@@ -342,13 +342,15 @@ test("available answers all four questions from the stated values", () => {
   assert.match(html, /3 observations/u);
   assert.match(html, />-0\.002</u);
   assert.match(html, />-0\.00647</u);
-  assert.doesNotMatch(html, /No equity observations|%/u);
+  assert.match(html, /Net return \(fraction\)/u);
+  assert.match(html, /Maximum drawdown \(fraction\)/u);
+  assert.doesNotMatch(html, /No observations|%/u);
 });
 
 test("empty lists the run's fills and says only what is missing", () => {
   const html = render(normalizeBacktestRunReport(emptyWithFills, RUN));
   assert.match(html, /data-state="empty"/u);
-  assert.match(html, /No equity observations/u);
+  assert.match(html, /No observations/u);
   assert.doesNotMatch(html, /<polyline|<circle|unavailable-state/u);
   assert.deepEqual(cellTexts(html).filter((text) => text === "BUY" || text === "SELL"), ["BUY", "SELL"]);
   assert.match(html, /<h3>Strategy<\/h3>/u);
@@ -367,4 +369,17 @@ test("a single observation is drawn as a point, not an empty path", () => {
   assert.match(html, /<circle /u);
   assert.doesNotMatch(html, /<polyline/u);
   assert.match(html, /1 observations/u);
+});
+
+test("no state states or implies an equity return", () => {
+  // The series may be built on a per-closed-position price return rather than a daily equity return,
+  // and the projection does not yet say which. Until it does, no rendered word may claim equity.
+  for (const report of [
+    { state: "loading" },
+    normalizeBacktestRunReport(unavailable, RUN),
+    normalizeBacktestRunReport(emptyWithFills, RUN),
+    normalizeBacktestRunReport(available, RUN),
+  ]) {
+    assert.doesNotMatch(render(report), /equity/iu, report.state);
+  }
 });

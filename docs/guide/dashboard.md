@@ -162,9 +162,15 @@ is given as instrument, granularity, canonical UTC start and end, snapshot count
 browser inferring from timestamp alignment. Neither the strategy statement nor the granularity, snapshot count
 and `cut_identity` comes from the backtest result: the run carries them from upstream and the
 projection states them beside it, so a reader looking for a threshold inside a canonical backtest
-result will not find one. The result is an equity or return series plus net return, maximum drawdown
+result will not find one. The result is a return series plus net return, maximum drawdown
 and fill count, each a named field the Owner validates rather than a lookup into an untyped map, so
-a renamed key fails to `unavailable` instead of rendering as absent. Each fill carries a canonical UTC timestamp, side, price
+a renamed key fails to `unavailable` instead of rendering as absent. Every value in the series, and net
+return and maximum drawdown, is a fraction, where 0.01 is one percent. The canonical result can build
+the series on either of two bases and the projection does not yet say which, so the report states
+these values as fractions and names no base: nothing it shows, whether a label, a tooltip or
+explanatory text, states or implies an equity return. Carrying the basis is still open. When the Owner
+carries it, the labels name it; if the basis cannot be determined, net return and maximum drawdown are
+unavailable for a named reason, a state distinct from the null an empty series gives them. Each fill carries a canonical UTC timestamp, side, price
 and quantity. Price and quantity are plain decimal strings at the instrument's precision and are shown
 exactly as given: trailing zeros are kept and none are added, a price may be negative, a quantity
 never carries a sign, and neither uses an exponent or digit grouping. Points are strictly ordered, so equal adjacent timestamps fail closed rather than
@@ -177,8 +183,8 @@ compute a drawdown the projection did not state, or infer a fill the projection 
 expresses them distinctly: an empty series must not stand for both a run that produced no points and
 a read that could not be answered. The projection names its state rather than leaving it to be
 inferred from an empty array. `empty` means the series has no points and both net return and maximum
-drawdown are null; fills may still be listed, because a run can open and close a position between two
-equity snapshots and a fill is a fact regardless. `available` means the series has points and both
+drawdown are null; fills may still be listed, because a run can open and close a position without producing an
+observation point, and a fill is a fact regardless. `available` means the series has points and both
 quantities are stated. Net return and maximum drawdown are always present as keys and null only in
 `empty`, so a missing key is always a fault. A run whose strategy is outside the admitted
 single-threshold family is `unavailable` for a named reason, that no Owner statement of strategy
