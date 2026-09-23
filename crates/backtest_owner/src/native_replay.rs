@@ -206,13 +206,25 @@ impl NativeReplaySemanticTraceEvidenceV2 {
             instance_identity: &self.instance_identity,
             execution,
         })
-        .map_err(|_| NativeReplayRunErrorV2::IncompleteReconciliation)?;
+        .map_err(|e| {
+            crate::canonical_diagnostic::refused_by_canonical_form(
+                "backtest_owner.native_replay.semantic_trace.build",
+                &e,
+            );
+            NativeReplayRunErrorV2::IncompleteReconciliation
+        })?;
         let digest = digest_bytes(SEMANTIC_TRACE_BYTES_DOMAIN_V2, &bytes)?;
         let meaning_identity = OpaqueIdentityV2::try_from(format!(
             "backtest-semantic-trace-v2-{}",
             digest.as_str().trim_start_matches("blake3:")
         ))
-        .map_err(|_| NativeReplayRunErrorV2::IncompleteReconciliation)?;
+        .map_err(|e| {
+            crate::canonical_diagnostic::refused_by_canonical_form(
+                "backtest_owner.native_replay.semantic_trace.identity",
+                &e,
+            );
+            NativeReplayRunErrorV2::IncompleteReconciliation
+        })?;
         let locator = ComponentObservationLocatorV2 {
             component: ObservationComponentV2::SemanticTrace,
             reference: self.observation_reference,
@@ -354,7 +366,13 @@ impl NativeReplayPreparationOwnerV2 for PostgresNativeReplayPreparationOwnerV2 {
                 .resolver
                 .resolve_native_replay_execution_preparation_v2(locator, attempt_identity)
                 .await
-                .map_err(|_| NativeReplayRunErrorV2::ExecutionBundleOwnerUnavailable)?;
+                // Not this Owner's refusal: upstream could not supply the capability, and the
+                // caller acts on that by asking upstream. A cause this Owner may pass on is passed
+                // on rather than recorded in `canonical_diagnostic`, which is for the causes the
+                // fail-closed contract requires this Owner to discard.
+                .map_err(|e| {
+                    NativeReplayRunErrorV2::ExecutionBundleOwnerUnavailable(e.to_string())
+                })?;
             let (
                 request,
                 execution,
@@ -365,10 +383,13 @@ impl NativeReplayPreparationOwnerV2 for PostgresNativeReplayPreparationOwnerV2 {
             ) = prepared.into_parts();
             validate_request_readback(&request, locator)?;
             validate_execution_request_locator(execution.request_locator(), locator)?;
-            let request_meaning_digest = request
-                .request()
-                .meaning_digest()
-                .map_err(|_| NativeReplayRunErrorV2::IncompleteReconciliation)?;
+            let request_meaning_digest = request.request().meaning_digest().map_err(|e| {
+                crate::canonical_diagnostic::refused_by_canonical_form(
+                    "backtest_owner.native_replay.execution.request_meaning_digest",
+                    &e,
+                );
+                NativeReplayRunErrorV2::IncompleteReconciliation
+            })?;
             let execution_profile_binding_digest = execution.execution_profile_binding_digest();
             let native_materialization_digest = execution.native_materialization_digest();
             let component_evidence = observations
@@ -468,9 +489,9 @@ pub enum NativeReplayCommitDispositionV2 {
 #[derive(Debug, Error)]
 pub enum NativeReplayRunErrorV2 {
     #[error(
-        "R&D Owner has no admitted request-to-ReplayTargetSetExecutionBundleV1 preparation capability"
+        "R&D Owner has no admitted request-to-ReplayTargetSetExecutionBundleV1 preparation capability: {0}"
     )]
-    ExecutionBundleOwnerUnavailable,
+    ExecutionBundleOwnerUnavailable(String),
     #[error("native Replay V2 evidence is incomplete, duplicated, mismatched, or unresolvable")]
     IncompleteReconciliation,
     #[error("native Replay V2 ordered semantic trace is incomplete: {0}")]
@@ -543,10 +564,13 @@ fn execute_native_replay_preparation(
         semantic_trace_evidence,
     } = prepared;
     validate_request_readback(&request, locator)?;
-    let request_meaning_digest = request
-        .request()
-        .meaning_digest()
-        .map_err(|_| NativeReplayRunErrorV2::IncompleteReconciliation)?;
+    let request_meaning_digest = request.request().meaning_digest().map_err(|e| {
+        crate::canonical_diagnostic::refused_by_canonical_form(
+            "backtest_owner.native_replay.readback.request_meaning_digest",
+            &e,
+        );
+        NativeReplayRunErrorV2::IncompleteReconciliation
+    })?;
     let component_evidence = validate_component_evidence_inputs(
         request.request(),
         &request_meaning_digest,
@@ -710,10 +734,13 @@ fn validate_request_readback(
     request: &SealedExploratoryReplayReadbackV2,
     locator: &ExploratoryReplayRequestLocatorV2,
 ) -> Result<(), NativeReplayRunErrorV2> {
-    let canonical = request
-        .request()
-        .to_canonical_bytes()
-        .map_err(|_| NativeReplayRunErrorV2::IncompleteReconciliation)?;
+    let canonical = request.request().to_canonical_bytes().map_err(|e| {
+        crate::canonical_diagnostic::refused_by_canonical_form(
+            "backtest_owner.native_replay.request.canonical_bytes",
+            &e,
+        );
+        NativeReplayRunErrorV2::IncompleteReconciliation
+    })?;
 
     if request.locator() != *locator
         || request.canonical_request_bytes() != canonical
@@ -820,7 +847,13 @@ fn seal_component_evidence_after_event(
         attempt_identity.clone(),
         drafts,
     )
-    .map_err(|_| NativeReplayRunErrorV2::IncompleteReconciliation)?;
+    .map_err(|e| {
+        crate::canonical_diagnostic::refused_by_canonical_form(
+            "backtest_owner.native_replay.result_draft.build",
+            &e,
+        );
+        NativeReplayRunErrorV2::IncompleteReconciliation
+    })?;
     let observations = batch
         .envelopes()
         .iter()
@@ -843,8 +876,13 @@ fn digest_bytes(domain: &[u8], bytes: &[u8]) -> Result<CanonicalDigestV2, Native
     let mut hasher = blake3::Hasher::new();
     hasher.update(domain);
     hasher.update(bytes);
-    CanonicalDigestV2::try_from(format!("blake3:{}", hasher.finalize().to_hex()))
-        .map_err(|_| NativeReplayRunErrorV2::IncompleteReconciliation)
+    CanonicalDigestV2::try_from(format!("blake3:{}", hasher.finalize().to_hex())).map_err(|e| {
+        crate::canonical_diagnostic::refused_by_canonical_form(
+            "backtest_owner.native_replay.digest.canonical_form",
+            &e,
+        );
+        NativeReplayRunErrorV2::IncompleteReconciliation
+    })
 }
 
 #[cfg(test)]

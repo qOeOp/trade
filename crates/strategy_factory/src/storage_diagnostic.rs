@@ -30,6 +30,15 @@
 //! because its response collapses that into `OWNER_OUTCOME_UNKNOWN` and names nothing. The rule is
 //! about what the caller is told, not about which variant was raised.
 
+//!
+//! ## Three channels, not one
+//!
+//! Market Data's `storage_diagnostic` is scoped to its storage boundary; this one is scoped to a
+//! refusal the response does not name; the Backtest Owner's `canonical_diagnostic` is scoped to a
+//! failure of that Owner's own canonical form. The shared part is about seven lines of `tracing`.
+//! The unshared part is the scope rule, and an Owner that took the mechanism from a shared crate
+//! would take a scope decision it never made. A fourth Owner should write its own rule first and
+//! expect it to differ again.
 use std::fmt::Display;
 
 /// Records why a refusal collapsed into `SubmittedOrUnknown`, then discards the cause.
