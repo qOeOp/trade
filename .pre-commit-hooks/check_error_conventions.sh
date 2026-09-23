@@ -3,7 +3,8 @@
 # 1. Rust: Always use Err(e) for error variables [not Err(error), Err(err), etc.]
 # 2. Python: Always use 'except Exception as e:' [not as ex, as exc, etc.]
 
-set -euo pipefail
+set -Eeuo pipefail
+trap 'echo "$(basename "${BASH_SOURCE[0]}"):${LINENO}: this check failed: ${BASH_COMMAND}" >&2' ERR
 
 HOOK_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 REPO_ROOT=$(cd "$HOOK_DIR/.." && pwd -P)

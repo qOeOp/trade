@@ -15,7 +15,8 @@
 # 6. Table lines ending with a trailing hyphen on a word fragment
 # 7. Breakable hyphens in table prose (compound words need U+2011)
 
-set -euo pipefail
+set -Eeuo pipefail
+trap 'echo "$(basename "${BASH_SOURCE[0]}"):${LINENO}: this check failed: ${BASH_COMMAND}" >&2' ERR
 
 # Exit cleanly if ripgrep is not installed
 if ! command -v rg &> /dev/null; then

@@ -110,6 +110,13 @@ repos:
         files: "\\.(rs|py|md|toml|yaml|yml)$"
         # Bilibili Note is a Chinese-language research product by contract.
         exclude: ^(docs/.*\.zh\.md|services/bilibili-note-mcp/)
+      - id: test-hook-failure-is-reported
+        name: test hook failure reporting
+        description: Drives every hook with a failing command and requires it to name the line
+        entry: bash .pre-commit-hooks/test_hook_failure_is_reported.sh
+        language: system
+        files: ^(\.pre-commit-config\.yaml|\.pre-commit-hooks/.*\.sh)$
+        pass_filenames: false
       - id: test-non-latin-text
         name: test non-Latin text hook
         description: Verifies each blocked script is rejected identically in every locale

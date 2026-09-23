@@ -8,7 +8,8 @@
 # If lychee is not installed, the hook exits 0 with a warning so that
 # contributors without the cargo toolchain can still commit.
 
-set -euo pipefail
+set -Eeuo pipefail
+trap 'echo "$(basename "${BASH_SOURCE[0]}"):${LINENO}: this check failed: ${BASH_COMMAND}" >&2' ERR
 
 YELLOW='\033[0;33m'
 NC='\033[0m'

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Runs the network Turmoil clippy mix on non-Linux hosts.
-set -euo pipefail
+set -Eeuo pipefail
+trap 'echo "$(basename "${BASH_SOURCE[0]}"):${LINENO}: this check failed: ${BASH_COMMAND}" >&2' ERR
 
 if [ "${VIBE_FORCE_NETWORK_TURMOIL_CLIPPY:-0}" != "1" ]; then
   case "$(uname -s)" in

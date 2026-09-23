@@ -2,7 +2,8 @@
 
 # Enforces formatting conventions in Python code.
 
-set -euo pipefail
+set -Eeuo pipefail
+trap 'echo "$(basename "${BASH_SOURCE[0]}"):${LINENO}: this check failed: ${BASH_COMMAND}" >&2' ERR
 
 # Exit cleanly if ripgrep is not installed
 if ! command -v rg &> /dev/null; then

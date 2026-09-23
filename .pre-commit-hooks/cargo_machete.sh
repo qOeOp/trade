@@ -7,7 +7,8 @@
 #   - Macro-expansion-only deps (brought into scope by a derive elsewhere)
 #   - Build-script deps (cargo-machete cannot always see feature-gated build.rs uses)
 
-set -euo pipefail
+set -Eeuo pipefail
+trap 'echo "$(basename "${BASH_SOURCE[0]}"):${LINENO}: this check failed: ${BASH_COMMAND}" >&2' ERR
 
 PINNED_VERSION="0.9.2"
 
