@@ -2420,6 +2420,41 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     assert_eq!(first.canonical_bytes(), recovered.canonical_bytes());
     let committed = replay_positive_state(market_mutation_pool).await;
 
+    // The insert mapping reads these three names; if a constraint is renamed, this goes red before
+    // the mapping silently stops recognising it.
+    let issuance_constraints: Vec<String> = sqlx::query_scalar(
+        "SELECT constraint_fact.conname::text
+           FROM pg_catalog.pg_constraint constraint_fact
+           JOIN pg_catalog.pg_class relation ON relation.oid=constraint_fact.conrelid
+           JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+          WHERE namespace.nspname='market_data_private'
+            AND relation.relname='replay_composition_issuances_v1'
+            AND constraint_fact.contype IN ('p','u')
+          ORDER BY constraint_fact.conname",
+    )
+    .fetch_all(market_mutation_pool)
+    .await
+    .unwrap();
+    let mut expected_constraints = vec![
+        crate::owner::postgres::ISSUANCE_BINDING_CONSTRAINT.to_string(),
+        crate::owner::postgres::ISSUANCE_IDENTITY_CONSTRAINT.to_string(),
+        crate::owner::postgres::ISSUANCE_MEANING_CONSTRAINT.to_string(),
+    ];
+    expected_constraints.sort();
+    assert_eq!(issuance_constraints, expected_constraints);
+
+    // The same composition under a new identity passes the identity check, and the binding and
+    // market facts writes accept its identical content, so it reaches the issuance insert and is
+    // refused there on the meaning it shares with the stored issuance: a conflict, not a retry.
+    let reused_composition =
+        ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(226), command.composition().clone())
+            .unwrap();
+    assert_eq!(
+        fresh_owner.issue_binding_v1(&reused_composition).await,
+        Err(ReplayCompositionBindingErrorV1::IssuanceIdentityConflict)
+    );
+    assert_eq!(replay_positive_state(market_mutation_pool).await, committed);
+
     sqlx::query("GRANT SELECT ON market_data_private.time_zone_facts_v1 TO PUBLIC")
         .execute(market_mutation_pool)
         .await
