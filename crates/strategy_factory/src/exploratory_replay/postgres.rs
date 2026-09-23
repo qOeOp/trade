@@ -1510,6 +1510,16 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
         "ALTER TABLE public.rd_native_replay_execution_input_binding_receipts_v1 OWNER TO rd_owner",
         "ALTER TABLE public.rd_native_replay_execution_input_binding_outbox_v1 OWNER TO rd_owner",
         "REVOKE ALL ON TABLE public.rd_native_replay_execution_input_bindings_v1, public.rd_native_replay_execution_input_binding_receipts_v1, public.rd_native_replay_execution_input_binding_outbox_v1 FROM PUBLIC, backtest_owner, market_data_owner, market_data_reader",
+        // The V2 tables state the same custody as V1 because `validate_storage_boundary_v2`
+        // asserts it before every write: the relation must be owned by `rd_owner` and carry no
+        // grant to anyone else. `CREATE TABLE IF NOT EXISTS` leaves a relation that already
+        // exists untouched, so without these statements a table created once under a different
+        // owner would fail that boundary for the life of the deployment, and it would fail as
+        // `Unavailable` - the same answer the boundary gives for nine other reasons.
+        "ALTER TABLE public.rd_native_replay_execution_input_bindings_v2 OWNER TO rd_owner",
+        "ALTER TABLE public.rd_native_replay_execution_input_binding_receipts_v2 OWNER TO rd_owner",
+        "ALTER TABLE public.rd_native_replay_execution_input_binding_outbox_v2 OWNER TO rd_owner",
+        "REVOKE ALL ON TABLE public.rd_native_replay_execution_input_bindings_v2, public.rd_native_replay_execution_input_binding_receipts_v2, public.rd_native_replay_execution_input_binding_outbox_v2 FROM PUBLIC, backtest_owner, market_data_owner, market_data_reader",
         "CREATE UNIQUE INDEX IF NOT EXISTS rd_exploratory_replay_artifact_request_v1 ON public.rd_sealed_exploratory_replay_requests_v1(artifact_identity, request_identity)",
         "ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1 OWNER TO rd_owner",
         "REVOKE ALL ON TABLE public.rd_sealed_exploratory_replay_requests_v1 FROM PUBLIC",
