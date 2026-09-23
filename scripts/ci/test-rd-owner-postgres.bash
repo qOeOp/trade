@@ -1382,9 +1382,35 @@ for required_feature in "${required_archive_features[@]}"; do
   esac
 done
 
+# This chain has refused to run anywhere but Linux since the file was created, and until now it said
+# only that. The restriction arrived with the file in #326 on 2026-08-23 and its commit recorded no
+# reason. A survey since finds no construct here that needs Linux - no `--network host`, no `/proc`,
+# no cgroups, no `nsenter`, no GNU-only `stat`, `date` or `sed` flags - and the one platform-specific
+# name in the script, `host.docker.internal`, is the direction Docker Desktop provides and Linux
+# needs `--add-host` for. That is "no recorded reason", which is not the same as "nothing to
+# protect", so the refusal stays.
+#
+# What changes is that it can be stepped over deliberately instead of silently. It is stepped over
+# today - by editing this check out - and an edited-out check leaves nothing in the log saying the
+# run was told to skip it, so a local pass and a Linux pass read alike afterwards. The variable
+# leaves that trace on every run that uses it.
+#
+# The name carries the meaning, because a reader reaches for the variable long before they reach for
+# this comment. A local run is a preflight: AGENTS.md admits an Owner implementation when its entries
+# pass on Linux CI, and a pass here only says the chain is worth spending a runner on. It is not
+# acceptance, and no amount of it becomes acceptance.
 if [[ "$(uname -s)" != "Linux" ]]; then
-  echo "ERROR: isolated R&D Owner PostgreSQL tests require Linux." >&2
-  exit 1
+  if [[ "${RD_OWNER_CHAIN_LOCAL_PREFLIGHT:-}" != "1" ]]; then
+    echo "ERROR: this chain runs on Linux, and this host is $(uname -s)." >&2
+    echo "       No reason was recorded when that restriction was introduced, and no Linux-only" >&2
+    echo "       construct has been found in this script since, so it may well run here." >&2
+    echo "       Set RD_OWNER_CHAIN_LOCAL_PREFLIGHT=1 to run it as a preflight." >&2
+    echo "       A pass under that variable is a working state, not acceptance. Acceptance is" >&2
+    echo "       these entries passing on Linux CI, and nothing run here substitutes for it." >&2
+    exit 1
+  fi
+  echo "=== RD_OWNER_CHAIN_LOCAL_PREFLIGHT=1: running on $(uname -s), not Linux. ===" >&2
+  echo "=== This is a preflight. Acceptance is these entries passing on Linux CI. ===" >&2
 fi
 if ! command -v docker > /dev/null 2>&1; then
   echo "ERROR: Docker is required for isolated R&D Owner PostgreSQL tests." >&2
