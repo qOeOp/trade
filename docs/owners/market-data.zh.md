@@ -1091,6 +1091,12 @@ selection/master/semantics/lineage 任一拼接，
 以及 caller `InstrumentSet` scope 都不产生 positive selection 或 frame。该状态仅表示当前 Owner-local
 binding contract，不声称 compiler、shared kernel、ProgramHost、Backtest、Paper、Live 或生产成熟度。
 
+**TARGET / IMPLEMENTATION_ADMITTED，单成员 universe：** 上述 Owner-binding、`InstrumentMasterCutV2` cut、经济条款解析、
+Native Replay scheduling 与 frame sequence 在保留双成员形态（其行为与字节不变）的同时，也准入准确含一个成员的
+universe；cut 本来就编码了成员数。这一准入及其用户授权依据，与单成员 target-set 纵向切片一起记录在 Strategy Factory
+架构文档中。对于 Replay 初次组装，由固定的 Market Data writer 在 replay-composition issuance 期间通过 `issue_cut`
+签发 cut，key 按上文 cut issuance 段落所述。在实现改动落地之前，这里的内容都不是 current。
+
 **TARGET，durable Strategy Input Binding Registry：** Market Data 拥有 write-once、validated binding
 declaration；每份 declaration 以准确 PIT request、`StrategyDesignV2` 与 typed input role 为 key。R&D 只能提供 Owner-authenticated Design/role intent，绝不提供或选择 member、frame 或 binding
 digest。在一个 Market Data Owner transaction 中，registration 通过原生 authority 解析 PIT Snapshot、

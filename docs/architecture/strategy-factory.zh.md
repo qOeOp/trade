@@ -134,6 +134,16 @@ R&D 内的 Develop 能力返回内容寻址 Strategy Artifact 和 Build Receipt�
   不构成第二次 dynamic Owner issuance 证据。独立创建的等价 Host 或 restored Host 也会拒绝旧 prepared
   capability。它不证明 cold engine restart、venue atomicity、Paper、Live、provider/network、persistence、
   生产 readiness 或交易授权。
+- **TARGET / IMPLEMENTATION_ADMITTED，单成员 Backtest target-set 纵向切片：** 上述纵向切片在保留双成员形态（其行为与规范字节
+  不变）的同时，也准入准确含一个成员的 universe。用户于 2026-09-24 选定加密永续合约与单品种策略为首个产品范围时准入了这一点，
+  原话为："我会把执行链的成员数从「恰好 2」放宽到支持 1 个，这是文档里写着的有界切片，放宽要改文档但不移除任何性质"。
+  单品种策略是一份角色使用 `UniverseMembers` scope 的 Design，运行在单成员的 Owner-sealed universe 上；instrument 由
+  Market Data universe selection 在请求时选定，而不是由 Design 选定。角色为 `EXACT_INSTRUMENT` 的 Design 在 Owner
+  universe 下仍被拒绝，现在由具名拒绝 `ExactInstrumentRolesUnderOwnerUniverse` 给出。universe 纵向切片的输入契约（准确
+  一个固定 `OPEN` 与一个固定 `CLOSE` member role）不变；single-threshold 编写面新增 universe-member 形态，其 channel
+  是该成员的日线收盘价，并携带固定的 open role。target-set schema version、codec 与语义 identity 均不变：成员数本来就
+  被编码，因此双成员 target set 与所有既有 plan identity 的字节都不变。在实现改动落地并更新上面的 CURRENT 陈述之前，
+  这里的内容都不是 current。
 - **TARGET / NOT_ADMITTED：** Paper 与 Live 只有在各自 Owner adapter 存在且被另行接纳后，才消费
   相同 plan、Artifact、事件排序、checkpoint schema、内核和语义 trace 契约。本文不声称当前已有
   Paper 或 Live 等价性、应用、外部写入或交易能力。

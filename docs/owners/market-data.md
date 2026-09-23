@@ -1170,6 +1170,14 @@ splice; and caller `InstrumentSet` scope produce no positive
 selection or frame. This is a current Owner-local binding contract only; it does not claim compiler,
 shared-kernel, ProgramHost, Backtest, Paper, Live, or production maturity.
 
+**TARGET / IMPLEMENTATION_ADMITTED, one-member universe:** the Owner-binding above, the `InstrumentMasterCutV2`
+cut, economic-terms resolution, Native Replay scheduling and the frame sequence also admit a universe of exactly one
+member, alongside the two-member form, which keeps its behaviour and bytes; the cut already encodes its member count.
+The admission and the user's authority for it are recorded with the one-member target-set vertical in the Strategy
+Factory architecture. For initial Replay composition, the fixed Market Data writer issues the cut through
+`issue_cut` during replay-composition issuance, keyed as the cut-issuance paragraph above states. Nothing here is
+current until the implementing changes land.
+
 **TARGET, durable Strategy Input Binding Registry:** Market Data owns write-once, validated binding declarations
 keyed by the exact PIT request, `StrategyDesignV2` and typed input role. R&D may supply only
 Owner-authenticated Design/role intent; they never supply or select members, frames or a binding digest. In one
