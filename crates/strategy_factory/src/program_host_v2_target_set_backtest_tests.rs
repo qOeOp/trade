@@ -61,6 +61,7 @@ use super::{
     },
     replay_execution_profile_binding_v1::owner_replay_execution_profile_binding_fixture_v1,
     replay_target_set_execution_bundle_v1::ReplayTargetSetExecutionBundleV1,
+    target_set_members::BoundedMembers,
 };
 
 #[rstest]
@@ -507,7 +508,7 @@ fn member_fill_routing_rejects_cross_and_unknown_without_checkpoint_mutation() {
     host.apply_event(&start).unwrap();
     let prepared = host.prepare_backtest_universe_event(&frame).unwrap();
     let checkpoint = host.checkpoint().clone();
-    assert_eq!(prepared.canonical_target_set().members.len(), 2);
+    assert_eq!(prepared.canonical_target_set().member_count(), 2);
     let capability = seal_reconciliation_capability_for_test(
         &prepared,
         AccountId::from("XNAS-001"),
@@ -708,8 +709,8 @@ fn real_sim_event_run_enters_fills_exits_fills_again_and_ends_flat() {
         "the run must enter, fill, exit, and fill again on the real Sim EVENT route"
     );
     assert_eq!(
-        trace.final_member_grid_units,
-        Some([0, 0]),
+        trace.final_member_grid_units.as_deref(),
+        Some(&[0, 0][..]),
         "both members must hold no native position when the real run stops"
     );
 
@@ -753,7 +754,10 @@ fn real_sim_event_run_enters_fills_exits_fills_again_and_ends_flat() {
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 fn real_sim_event_run_which_only_entered_claims_no_round_trip() {
     let evidence = run_corpus(false).expect("uninterrupted target-set Backtest corpus");
-    assert_eq!(evidence.trace.final_member_grid_units, Some([5, 4]));
+    assert_eq!(
+        evidence.trace.final_member_grid_units.as_deref(),
+        Some(&[5, 4][..])
+    );
     assert!(
         evidence
             .trace
@@ -791,7 +795,7 @@ fn run_round_trip_corpus() -> anyhow::Result<RoundTripEvidence> {
         &plan,
         &frame,
         exit_time,
-        [[18_725, 18_700], [42_115, 42_100]],
+        &[[18_725, 18_700], [42_115, 42_100]],
     )?;
     let entry_bars = [
         Bar::new(
@@ -910,8 +914,8 @@ fn run_round_trip_corpus() -> anyhow::Result<RoundTripEvidence> {
         StrategyId::from("TARGET-SET-BACKTEST-B3-ROUND-TRIP-001"),
         plan,
         artifact,
-        instrument_ids,
-        bar_types,
+        BoundedMembers::try_from(instrument_ids)?,
+        BoundedMembers::try_from(bar_types)?,
         [frame],
         None,
         false,
@@ -1058,8 +1062,8 @@ fn run_corpus_with_fault(restore: bool, second_submit_fault: bool) -> anyhow::Re
         StrategyId::from("TARGET-SET-BACKTEST-B3-001"),
         plan,
         artifact,
-        instrument_ids,
-        bar_types,
+        BoundedMembers::try_from(instrument_ids)?,
+        BoundedMembers::try_from(bar_types)?,
         [frame],
         None,
         restore,
@@ -1191,8 +1195,8 @@ fn run_invalid_batch(case: InvalidBatchCase) -> anyhow::Result<TargetSetBacktest
         StrategyId::from("TARGET-SET-BACKTEST-B3-INVALID-001"),
         plan,
         artifact,
-        instrument_ids,
-        bar_types,
+        BoundedMembers::try_from(instrument_ids)?,
+        BoundedMembers::try_from(bar_types)?,
         [frame],
         None,
         false,
@@ -1260,7 +1264,7 @@ fn run_multi_frame_equity_corpus() -> anyhow::Result<TargetSetBacktestTraceV2> {
         &plan,
         &frame,
         second_time,
-        [[18_725, 18_750], [42_115, 42_150]],
+        &[[18_725, 18_750], [42_115, 42_150]],
     )?;
     let first_bars = [
         Bar::new(
@@ -1349,8 +1353,8 @@ fn run_multi_frame_equity_corpus() -> anyhow::Result<TargetSetBacktestTraceV2> {
         StrategyId::from("TARGET-SET-BACKTEST-B3-EQUITY-001"),
         plan,
         artifact,
-        instrument_ids,
-        bar_types,
+        BoundedMembers::try_from(instrument_ids)?,
+        BoundedMembers::try_from(bar_types)?,
         [frame],
         None,
         false,
@@ -1543,7 +1547,7 @@ fn fixture_with_target_sets(
 fn target_set() -> InstrumentTargetSetV2 {
     InstrumentTargetSetV2::new(
         1,
-        [
+        &[
             MemberTargetV2 {
                 instrument: InstrumentKeyV2::new(b"AAPL.XNAS").unwrap(),
                 position: PositionIntentV1::Enter,
@@ -1576,7 +1580,7 @@ fn target_set() -> InstrumentTargetSetV2 {
 fn second_target_set() -> InstrumentTargetSetV2 {
     InstrumentTargetSetV2::new(
         2,
-        [
+        &[
             MemberTargetV2 {
                 instrument: InstrumentKeyV2::new(b"AAPL.XNAS").unwrap(),
                 position: PositionIntentV1::Add,
@@ -1599,7 +1603,7 @@ fn second_target_set() -> InstrumentTargetSetV2 {
 fn exit_target_set() -> InstrumentTargetSetV2 {
     InstrumentTargetSetV2::new(
         2,
-        [
+        &[
             MemberTargetV2 {
                 instrument: InstrumentKeyV2::new(b"AAPL.XNAS").unwrap(),
                 position: PositionIntentV1::Exit,

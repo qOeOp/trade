@@ -134,31 +134,26 @@ where
         );
         NativeReplayExecutionBindingConsumerErrorV1
     })?;
-    let first_terms = instrument_terms_owner
-        .resolve(economic_locators[0])
-        .await
-        .map_err(|e| {
-            crate::storage_diagnostic::refused_by_store(
-                "native_replay_execution_binding.economic_terms.resolve_first",
-                &e,
-            );
-            NativeReplayExecutionBindingConsumerErrorV1
-        })?;
-    let second_terms = instrument_terms_owner
-        .resolve(economic_locators[1])
-        .await
-        .map_err(|e| {
-            crate::storage_diagnostic::refused_by_store(
-                "native_replay_execution_binding.economic_terms.resolve_second",
-                &e,
-            );
-            NativeReplayExecutionBindingConsumerErrorV1
-        })?;
-    let terms = [first_terms, second_terms];
+    let mut terms = Vec::with_capacity(economic_locators.len());
+    for (ordinal, locator) in economic_locators.iter().enumerate() {
+        terms.push(
+            instrument_terms_owner
+                .resolve(*locator)
+                .await
+                .map_err(|e| {
+                    crate::storage_diagnostic::refused_by_store(
+                        "native_replay_execution_binding.economic_terms.resolve",
+                        &format!("member {ordinal}: {e}"),
+                    );
+                    NativeReplayExecutionBindingConsumerErrorV1
+                })?,
+        );
+    }
+    let term_readbacks = terms.iter().collect::<Vec<_>>();
     let profile = issue_owner_replay_execution_profile_binding_from_readbacks_v1(
         preparation.family(),
         preparation.replay(),
-        [&terms[0], &terms[1]],
+        &term_readbacks,
     )
     .map_err(|e| {
         crate::storage_diagnostic::refused_by_store(
@@ -221,9 +216,9 @@ where
         &plan,
         &artifact,
         &instrument_master,
-        [&terms[0], &terms[1]],
+        &term_readbacks,
         market.universe_frame(),
-        [&market.schedules()[0], &market.schedules()[1]],
+        &market.schedules().iter().collect::<Vec<_>>(),
     )
     .map_err(|e| {
         crate::storage_diagnostic::refused_by_store(
@@ -232,28 +227,24 @@ where
         );
         NativeReplayExecutionBindingConsumerErrorV1
     })?;
-    let public_terms = [
-        instrument_master.cut().members()[0]
-            .fact()
-            .validate_native_crypto_perpetual_public_terms()
-            .map_err(|e| {
-                crate::storage_diagnostic::refused_by_store(
-                    "native_replay_execution_binding.public_terms.validate_first",
-                    &e,
-                );
-                NativeReplayExecutionBindingConsumerErrorV1
-            })?,
-        instrument_master.cut().members()[1]
-            .fact()
-            .validate_native_crypto_perpetual_public_terms()
-            .map_err(|e| {
-                crate::storage_diagnostic::refused_by_store(
-                    "native_replay_execution_binding.public_terms.validate_second",
-                    &e,
-                );
-                NativeReplayExecutionBindingConsumerErrorV1
-            })?,
-    ];
+    let public_terms = instrument_master
+        .cut()
+        .members()
+        .iter()
+        .enumerate()
+        .map(|(ordinal, member)| {
+            member
+                .fact()
+                .validate_native_crypto_perpetual_public_terms()
+                .map_err(|e| {
+                    crate::storage_diagnostic::refused_by_store(
+                        "native_replay_execution_binding.public_terms.validate",
+                        &format!("member {ordinal}: {e}"),
+                    );
+                    NativeReplayExecutionBindingConsumerErrorV1
+                })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let (universe_frame, scheduling) = market.into_execution_parts().map_err(|e| {
         crate::storage_diagnostic::refused_by_store(
             "native_replay_execution_binding.market_inputs.into_execution_parts",
