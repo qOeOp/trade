@@ -105,7 +105,11 @@ where
         [&terms[0], &terms[1]],
     )
     .map_err(|_| NativeReplayExecutionBindingConsumerErrorV1)?;
-    let market = resolve_native_replay_initial_owner_inputs_v1(
+    // `market_request` is retained unused for now: it is the input that produced this readback, and
+    // the window's whole frame sequence is resolved from it once Market Data supplies the
+    // coordinates. Rebuilding it at that point would be the same second-resolution fault the
+    // sequence resolver exists to prevent.
+    let (_market_request, market) = resolve_native_replay_initial_owner_inputs_v1(
         &preparation,
         &projected_plan,
         &instrument_master,

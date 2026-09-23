@@ -81,7 +81,7 @@ where
         [&terms[0], &terms[1]],
     )
     .map_err(|_| NativeReplayInitialBindingIssuanceErrorV1)?;
-    let market = resolve_native_replay_initial_owner_inputs_v1(
+    let (_market_request, market) = resolve_native_replay_initial_owner_inputs_v1(
         &preparation,
         &projected_plan,
         &instrument_master,

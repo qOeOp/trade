@@ -31,7 +31,13 @@ pub(crate) async fn resolve_native_replay_initial_owner_inputs_v1<R>(
     plan: &StrategyPlanV2,
     instrument_master: &InstrumentMasterReadbackV2,
     resolver: &R,
-) -> Result<NativeReplayInitialMarketReadbackV1, NativeReplayInitialOwnerInputsErrorV1>
+) -> Result<
+    (
+        NativeReplayInitialMarketRequestV1,
+        NativeReplayInitialMarketReadbackV1,
+    ),
+    NativeReplayInitialOwnerInputsErrorV1,
+>
 where
     R: NativeReplaySchedulingResolverV1 + ?Sized,
 {
@@ -117,10 +123,17 @@ where
         replay.window.start_event_ns,
         replay.window.end_event_ns_exclusive,
     );
-    resolver
+    // The request leaves with the readback it produced, by value, in one move. A later caller
+    // needing the request to resolve the window's whole frame sequence takes it from here rather
+    // than rebuilding an equivalent one, because "equivalent" would be a proposition with no
+    // prover, and reading it back a second time is the same fault the sequence resolver exists to
+    // prevent. Pairing them in one return makes that correspondence hold by construction instead
+    // of by a check somebody has to remember to run.
+    let readback = resolver
         .resolve_native_replay_initial_market_inputs_v1(&request)
         .await
-        .map_err(|_| NativeReplayInitialOwnerInputsErrorV1::Unavailable)
+        .map_err(|_| NativeReplayInitialOwnerInputsErrorV1::Unavailable)?;
+    Ok((request, readback))
 }
 
 fn parse_sha256(value: &str) -> Result<[u8; 32], NativeReplayInitialOwnerInputsErrorV1> {
