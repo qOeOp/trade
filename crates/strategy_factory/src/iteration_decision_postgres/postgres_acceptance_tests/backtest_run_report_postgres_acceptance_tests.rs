@@ -240,6 +240,20 @@ async fn assert_request_reads_without_a_lock_and_the_locking_read_still_holds_it
 /// what PostgreSQL says the backend holds, not against what the transaction mode refuses. Every
 /// relation lock must be `AccessShareLock`, the lock a plain read takes and one no writer waits
 /// on, and anything that is not a relation lock or the transaction's own identity is listed.
+///
+/// Two advisory locks are named exceptions, each by the exact key it takes, so any other advisory
+/// lock still fails here:
+/// - the Backtest result topology fence, `vibe.backtest.result-topology.v2`, shared against the
+///   exclusive fence the side that changes that topology holds;
+/// - the request fence, keyed by the request identity, shared against the exclusive fence the
+///   Replay commit holds. This is the fence the request storage function's isolation rule assumes.
+///
+/// And one table-level lock is a named exception, by relation: `ShareLock` on `pg_authid` and
+/// `pg_auth_members`, which the Backtest readback's `lock_authority_catalogs_v1` takes so the role
+/// topology it validates cannot change before it reads. It blocks role changes, not writes to any
+/// business table, and it is taken in the migration's order: topology fence first, then these
+/// catalogs, then everything else. `the_report_takes_its_fences_before_any_business_read` pins
+/// that order in source, because `pg_locks` does not record it.
 async fn assert_the_report_read_holds_only_what_it_names(
     rd_pool: &PgPool,
     locator: ExploratoryReplayResultLocatorV2<'_>,
@@ -251,8 +265,10 @@ async fn assert_the_report_read_holds_only_what_it_names(
         .await
         .expect_err("the run is outside the family");
     assert_eq!(refusal.code(), "NO_STRATEGY_STATEMENT_FOR_FAMILY");
-    let held: Vec<(String, String, Option<String>)> = sqlx::query_as(
-        "SELECT locktype, mode, relation::pg_catalog.regclass::text
+    let held: Vec<(String, String, Option<String>, Option<i64>)> = sqlx::query_as(
+        "SELECT locktype, mode, relation::pg_catalog.regclass::text,
+                CASE WHEN locktype = 'advisory' AND objsubid = 1
+                     THEN (classid::bigint << 32) | objid::bigint END
            FROM pg_catalog.pg_locks
           WHERE pid = pg_catalog.pg_backend_pid()
           ORDER BY locktype, mode, relation::pg_catalog.regclass::text",
@@ -260,11 +276,19 @@ async fn assert_the_report_read_holds_only_what_it_names(
     .fetch_all(&mut *transaction)
     .await
     .expect("this backend's locks");
+    let fences: (i64, i64) = sqlx::query_as(
+        "SELECT pg_catalog.hashtextextended('vibe.backtest.result-topology.v2', 0),
+                pg_catalog.hashtextextended($1, 0)",
+    )
+    .bind(locator.request_identity)
+    .fetch_one(&mut *transaction)
+    .await
+    .expect("the two fence keys");
     transaction.rollback().await.expect("read-only rollback");
 
     let relation_locks = held
         .iter()
-        .filter(|(locktype, _, _)| locktype == "relation")
+        .filter(|(locktype, _, _, _)| locktype == "relation")
         .count();
     assert!(
         relation_locks > 0,
@@ -272,11 +296,20 @@ async fn assert_the_report_read_holds_only_what_it_names(
     );
     let unexpected = held
         .iter()
-        .filter(|(locktype, mode, _)| {
-            !matches!(
-                (locktype.as_str(), mode.as_str()),
-                ("relation", "AccessShareLock") | ("virtualxid" | "transactionid", "ExclusiveLock")
-            )
+        .filter(|(locktype, mode, relation, key)| {
+            let named_fence = locktype == "advisory"
+                && mode == "ShareLock"
+                && (*key == Some(fences.0) || *key == Some(fences.1));
+            let role_catalog = locktype == "relation"
+                && mode == "ShareLock"
+                && matches!(relation.as_deref(), Some("pg_authid" | "pg_auth_members"));
+            !named_fence
+                && !role_catalog
+                && !matches!(
+                    (locktype.as_str(), mode.as_str()),
+                    ("relation", "AccessShareLock")
+                        | ("virtualxid" | "transactionid", "ExclusiveLock")
+                )
         })
         .collect::<Vec<_>>();
     assert!(

@@ -378,9 +378,10 @@ pub async fn resolve_backtest_run_report_v1(
 
 /// How long the report waits for a safe snapshot, and how long any one of its statements may run.
 ///
-/// The three reads take well under a second in the ordered chain; the bound is there so that a
-/// report never hangs the page that asked for it, not to be reached.
-pub(crate) const REPORT_STATEMENT_TIMEOUT_MS_V1: u64 = 5_000;
+/// The three reads took 134 ms on the ordered chain's Linux runner; the bound leaves about fifteen
+/// times that, and is there so that a report never hangs the page that asked for it, not to be
+/// reached.
+pub(crate) const REPORT_STATEMENT_TIMEOUT_MS_V1: u64 = 2_000;
 
 /// Opens the report's `SERIALIZABLE, READ ONLY, DEFERRABLE` transaction.
 ///
@@ -1391,6 +1392,50 @@ mod tests {
             conclusion,
             "{}",
             refusal.code()
+        );
+    }
+
+    /// The report takes its two lock-bearing steps in the migration's order, before any business
+    /// read: the Backtest topology fence, then the role catalogs, then the tables it reads. The
+    /// migration takes the same fence exclusively first and the same catalogs next, so the two
+    /// meet at the fence and never hold one lock each while waiting for the other's. `pg_locks`
+    /// shows which locks are held but not in what order, so the order is pinned here.
+    #[rstest]
+    fn the_report_takes_its_fences_before_any_business_read() {
+        let custody = include_str!("../../backtest_result_custody/src/lib.rs");
+        let readback = item(
+            custody,
+            "pub async fn resolve_exploratory_replay_result_v3(",
+            "\n}\n",
+        );
+        let first_await = readback
+            .find(".await")
+            .expect("the readback awaits something");
+        assert!(
+            readback[..first_await].contains("acquire_topology_fence(transaction)"),
+            "the topology fence is the readback's first statement"
+        );
+        let fence = item(custody, "async fn acquire_topology_fence(", "\n}\n");
+        let advisory = fence
+            .find("pg_advisory_xact_lock_shared")
+            .expect("the fence takes the shared advisory lock");
+        let catalogs = fence
+            .find("lock_authority_catalogs_v1()")
+            .expect("the fence locks the role catalogs");
+        assert!(
+            advisory < catalogs,
+            "the advisory fence precedes the catalogs"
+        );
+
+        let report = item(
+            include_str!("backtest_run_report_read_v1.rs"),
+            "pub(crate) async fn read_report_in_transaction(",
+            "\n}\n",
+        );
+        let first_read = report.find(".await").expect("the report reads");
+        assert!(
+            report[..first_read].contains("resolve_backtest_run_result_v1("),
+            "the Backtest readback is the report's first read"
         );
     }
 
