@@ -5053,6 +5053,42 @@ fn storage(error: sqlx::Error) -> ExploratoryReplayOwnerError {
     ))
 }
 
+/// The Market Data composition binding one sealed COMPOSER_V3 Replay request names.
+///
+/// Only a selector: the caller must already hold that request's verified sealed readback from the
+/// same transaction, so the row read here is the one it verified. `None` means the request has no
+/// COMPOSER_V3 source and therefore names no binding, which is every request in a build without
+/// the Composer-backed Replay feature, since only that feature writes COMPOSER_V3 rows.
+pub(crate) async fn read_composer_v3_market_data_binding_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    replay_request_identity: &str,
+) -> Result<
+    Option<vibe_data::owner::replay_market_facts_v2::ReplayCompositionBindingLocatorV1>,
+    ExploratoryReplayOwnerError,
+> {
+    let rows = sqlx::query("SELECT frozen_json FROM public.rd_sealed_exploratory_replay_requests_v1 WHERE request_identity=$1 AND source_kind='COMPOSER_V3' FOR SHARE")
+        .bind(replay_request_identity)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    let [row] = rows.as_slice() else {
+        return if rows.is_empty() {
+            Ok(None)
+        } else {
+            Err(unavailable("COMPOSER_V3 Replay row cardinality mismatch"))
+        };
+    };
+    let frozen: super::composition_v3::StoredComposerReplayFrozenV3 = decode_exact(
+        &row.try_get::<serde_json::Value, _>("frozen_json")
+            .map_err(storage)?,
+    )?;
+
+    if frozen.source.proposal.request_identity != replay_request_identity {
+        return Err(unavailable("COMPOSER_V3 binding Replay identity mismatch"));
+    }
+    Ok(Some(frozen.source.proposal.market_data_locator))
+}
+
 fn unavailable(error: impl Display) -> ExploratoryReplayOwnerError {
     ExploratoryReplayOwnerError::Unavailable(error.to_string())
 }

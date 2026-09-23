@@ -875,7 +875,25 @@ that cut and returns the new exact V2 cut locator/readback. The request cannot c
 symbols, member order, a store/pool, or a latest selector. For initial composition only, the fixed resolver derives a
 domain-separated request key from the canonical sealed R&D Replay request identity and resolves the unique cut under
 that key. After R&D seals the returned four-coordinate cut locator into its request binding, later exact resolution
-accepts that locator only. In one fixed Owner snapshot, the resolver must decode and rehash the
+accepts that locator only.
+
+That initial cut is issued when R&D first binds a sealed Replay request's native execution input, not during
+replay-composition issuance: the composition binding comes first and the sealed R&D request names it, so the request
+identity the key derives from does not exist while the binding is issued. The bound-replay issuance accepts only that
+sealed request identity and the exact composition-binding locator R&D's own sealed V3 record carries. Market Data
+recovers the Universe Selection that binding already bound, takes its decision cut, and in one Owner transaction
+appends the cut together with a write-once record of which binding the request key was issued under. The same key and
+binding again return the stored cut with zero append. The same key under a different binding is refused by name with
+zero writes, even when both bindings share one selection, because the cut's own idempotency compares only the
+selection. Market Data cannot verify that the identity names a sealed R&D request: the trust boundary is the fixed
+writer process holding the Market Data owner credential, and a cut issued under the wrong binding is refused at R&D's
+consumer, whose selection and member checks fail closed. The issuance commits separately from R&D's repeatable-read
+binding transaction, so an R&D failure after the cut commits is retried and reuses the cut. It reads the binding and
+the selection without row locks and never calls R&D, so it cannot wait on a lock R&D's open transaction holds; it
+serializes with every other Instrument Master V2 write and resolve through the store's table locks, which each
+transaction takes before its first read so that its snapshot already sees the previous holder's commit.
+
+In one fixed Owner snapshot, the resolver must decode and rehash the
 cut and both facts, prove exact membership and order, walk every direct-predecessor link back to the bound baseline
 without a gap or branch, revalidate current store admission and reader ACL, and return one move-only readback. A
 missing, extra, duplicate, reordered, noncanonical, cross-spliced, tampered, or ACL-drifted row returns no
@@ -1176,11 +1194,12 @@ member, alongside the two-member form; admitting one member changes no two-membe
 already encodes its member count. The separate change the quote cut makes to the V1 scheduling receipt is recorded
 with the quote cut paragraph.
 The admission and the user's authority for it are recorded with the one-member target-set vertical in the Strategy
-Factory architecture. For initial Replay composition, the fixed Market Data writer issues the cut through
-`issue_cut` during replay-composition issuance, keyed as the cut-issuance paragraph above states. Built so far: the
-`InstrumentMasterCutV2` cut and its custody table, which an existing table migrates to in place, and economic-terms
-resolution admit one member; the Owner-binding, Native Replay scheduling and the frame sequence do not yet, and
-`issue_cut` has no production caller yet.
+Factory architecture. For initial Replay composition, the fixed Market Data writer issues the cut through the
+bound-replay issuance the cut-issuance paragraph above states, when R&D first binds the sealed Replay request's native
+execution input. Built so far: the `InstrumentMasterCutV2` cut and its custody table, which an existing table migrates
+to in place, and economic-terms resolution admit one member; the Owner-binding, Native Replay scheduling and the frame
+sequence do not yet. The bound-replay issuance is the only production path to `issue_cut`, and its one caller is R&D's
+native execution-input binding issuance.
 
 **TARGET, durable Strategy Input Binding Registry:** Market Data owns write-once, validated binding declarations
 keyed by the exact PIT request, `StrategyDesignV2` and typed input role. R&D may supply only

@@ -817,6 +817,21 @@ V2 cut locator/readback。Request 不能携带 fact bytes、fact digest、symbol
 selector。仅在首次 composition 时，固定 resolver 从规范 sealed R&D Replay request identity 派生域分隔 request
 key，并解析该 key 下唯一的 cut。R&D 将返回的四坐标 cut locator 封存进其 request binding 后，后续 exact
 resolution 只接受该 locator。
+
+这份初次 cut 在 R&D 首次为 sealed Replay request 绑定 native execution input 时签发，而不是在
+replay-composition issuance 期间签发：composition binding 在先，sealed R&D request 引用它，因此签发 binding
+时 key 所依据的 request identity 还不存在。Bound-replay issuance 只接受该 sealed request identity，以及 R&D
+自己的 sealed V3 记录所携带的准确 composition-binding locator。Market Data 恢复该 binding 已绑定的 Universe
+Selection，取其 decision cut，并在一笔 Owner transaction 中追加 cut，同时写入一条一次性记录，载明该 request
+key 是在哪个 binding 下签发的。相同 key 与相同 binding 再次签发时，以零 append 返回已存储的 cut。相同 key 配不同
+binding 时按名拒绝且零写入，即使两个 binding 共用同一个 selection 也是如此，因为 cut 自身的幂等只比较
+selection。Market Data 无法验证该 identity 确实指向一份 sealed R&D request：信任边界是持有 Market Data owner
+凭据的固定 writer 进程；在错误 binding 下签发的 cut 会被 R&D consumer 拒绝，其 selection 与 member 检查失败即
+关闭。该签发与 R&D 的 repeatable-read binding transaction 分开提交，因此 cut 提交后 R&D 一步失败时，重试会复用
+这份 cut。它读取 binding 与 selection 时不加行锁，也从不调用 R&D，因此不会等待 R&D 未结束事务所持有的锁；它通过
+store 的表锁，同其他所有 Instrument Master V2 写入与解析串行执行；每笔事务在第一次读取之前先取得表锁，因此其快照
+已能看到前一个持锁者的提交。
+
 Resolver 必须在一个固定 Owner snapshot 中 decode 并 rehash cut 与两份 fact，证明准确 membership/order，
 沿每条 direct-predecessor link 无 gap、无 branch 地回到绑定 baseline，重新校验当前 store admission 与 reader
 ACL，然后返回一份 move-only readback。任一 missing、extra、duplicate、reordered、noncanonical、
@@ -1095,10 +1110,11 @@ binding contract，不声称 compiler、shared kernel、ProgramHost、Backtest�
 Native Replay scheduling 与 frame sequence 在保留双成员形态的同时，也准入准确含一个成员的 universe；准入单成员
 不改变任何双成员的行为或字节，cut 本来就编码了成员数。V1 scheduling receipt 因 quote cut 而发生的改变是另一项
 改动，记在 quote cut 段落。这一准入及其用户授权依据，与单成员 target-set 纵向切片一起记录在 Strategy Factory
-架构文档中。对于 Replay 初次组装，由固定的 Market Data writer 在 replay-composition issuance 期间通过 `issue_cut`
-签发 cut，key 按上文 cut issuance 段落所述。目前已建成：`InstrumentMasterCutV2` cut 及其托管表（既有表就地迁移到新形状）
-与经济条款解析已准入单成员；Owner-binding、Native Replay scheduling 与 frame sequence 尚未准入，`issue_cut` 也还
-没有生产调用方。
+架构文档中。对于 Replay 初次组装，由固定的 Market Data writer 在 R&D 首次为 sealed Replay request 绑定 native
+execution input 时，通过上文 cut issuance 段落所述的 bound-replay issuance 签发 cut。目前已建成：
+`InstrumentMasterCutV2` cut 及其托管表（既有表就地迁移到新形状）与经济条款解析已准入单成员；Owner-binding、Native
+Replay scheduling 与 frame sequence 尚未准入。Bound-replay issuance 是通向 `issue_cut` 的唯一生产路径，其唯一调用方
+是 R&D 的 native execution-input binding issuance。
 
 **TARGET，durable Strategy Input Binding Registry：** Market Data 拥有 write-once、validated binding
 declaration；每份 declaration 以准确 PIT request、`StrategyDesignV2` 与 typed input role 为 key。R&D 只能提供 Owner-authenticated Design/role intent，绝不提供或选择 member、frame 或 binding
