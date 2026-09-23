@@ -724,6 +724,17 @@ is therefore not merely unwritten but unconstructible until Market Data commits 
 `pit_snapshot/sealed_acceptance.rs` carries `compile_fail` doctests asserting that neither
 deserialization nor a struct literal forges one even with the acceptance feature on.
 
+**What that one production caller does not mean:** it is a caller count, not a statement that the
+path runs. Nothing issues a `NativeReplayExecutionInputBindingV1` in any compilable configuration
+today. Its issuance narrows to `issue_native_replay_execution_input_binding_v1`, whose single
+caller is an HTTP handler registered only under the `rd-owner-api` crate's own
+`sealed-develop-composer-acceptance`, which no Makefile target, workflow or chain script enables;
+no SQL or script writes the binding tables directly, and no test or client names the route. Both
+the issuer and the resolver beside it are ungated production functions on
+`PostgresResearchGoalOwnerV1`, forty-three lines apart, taking the same collaborators. So the
+execution path is unreached rather than unreachable, and one ordered-chain entry that issues and
+then resolves would drive it without enabling a feature or widening any union.
+
 **TARGET / NOT_ADMITTED, BAR FRAME and JOINED_CUT composition:** the additive
 `StrategyInputSampleProjectionV4` is the only projection that may compose BAR components across a complete
 native join. It has closed `FRAME|JOINED_CUT` projection kinds and the closed `BAR` lifecycle; V2 EVENT/FRAME/

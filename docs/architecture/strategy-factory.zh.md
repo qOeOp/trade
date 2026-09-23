@@ -645,6 +645,15 @@ readback 与 sequence resolver 今天都已存在，而那个序列自己的 `MI
 `pit_snapshot/sealed_acceptance.rs` 带着 `compile_fail` doctest，断言即使打开 acceptance feature，
 反序列化与结构体字面量都伪造不出它。
 
+**那「一个生产调用方」不意味着什么：** 它是一个调用方计数，不是「这条路径会跑」的陈述。今天在任何
+可编译配置下都没有东西签发 `NativeReplayExecutionInputBindingV1`。它的签发收敛到
+`issue_native_replay_execution_input_binding_v1`，而后者唯一的调用方是一个 HTTP handler，
+只在 `rd-owner-api` 这个 crate 自己的 `sealed-develop-composer-acceptance` 下注册，
+而没有任何 Makefile 目标、workflow 或链路脚本打开它；没有 SQL 或脚本直接写那几张绑定表，
+也没有测试或客户端提到那条路由。签发者与它旁边的解析者都是 `PostgresResearchGoalOwnerV1` 上
+无门的生产函数，相距四十三行，要的协作者是同一套。所以这条执行路径是没被走到，而不是走不到，
+而一条先签发再解析的有序链路条目就能驱动它，既不必启用 feature 也不必扩任何 union。
+
 **TARGET / NOT_ADMITTED，BAR FRAME 与 JOINED_CUT composition：** additive
 `StrategyInputSampleProjectionV4` 是唯一可在完整 native join 中组合 BAR component 的 projection。
 它的 projection kind 闭集为 `FRAME|JOINED_CUT`，lifecycle 闭集为 `BAR`；V2 EVENT/FRAME/JOINED_CUT 与 V3
