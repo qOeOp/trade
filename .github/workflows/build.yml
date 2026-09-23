@@ -844,7 +844,22 @@ jobs:
 
   quality:
     name: quality
-    if: always()
+    # `always()`, because this job exists to read the others' results and must run when they failed.
+    # The second half is what every other job here already carries, and this was the one job without
+    # it: on a run that ready-gate did not admit as full, every job it aggregates is skipped, so it
+    # aggregated nothing and reported that nothing as a failure.
+    #
+    # A pull request opened as a draft is the documented way to open one, so that run happens on
+    # essentially every pull request. Its `quality` fails in about three and a half minutes - the
+    # jobs it waits on are skipped, so there is nothing to wait for - while the run that matters
+    # takes the better part of an hour. For all of that hour the pull request shows a red `quality`
+    # that is not about the code. On 2026-09-22 two different sessions read that red on two
+    # different pull requests and acted on it; both were wrong, and neither had any way to tell.
+    #
+    # Skipped, not passed. A skipped check and a failed one are different, and so are a skipped one
+    # and a green one: reporting success here would trade a false red for a false green, which is
+    # worse than what it replaces.
+    if: always() && needs.ready-gate.outputs.run-full == 'true'
     needs:
       - ready-gate
       - plan
@@ -858,7 +873,6 @@ jobs:
       - name: Verify required build graph
         env:
           READY_GATE_RESULT: ${{ needs.ready-gate.result }}
-          RUN_FULL: ${{ needs.ready-gate.outputs.run-full }}
           PLAN_RESULT: ${{ needs.plan.result }}
           PRE_COMMIT_RESULT: ${{ needs.pre-commit.result }}
           BUILD_RESULT: ${{ needs.build.result }}
@@ -874,10 +888,6 @@ jobs:
         run: |
           set -euo pipefail
           test "$READY_GATE_RESULT" = success
-          if [[ "$RUN_FULL" != true ]]; then
-            echo '::error::needs-full-ready: move the PR to Draft, then mark it Ready'
-            exit 1
-          fi
           test "$PLAN_RESULT" = success
           test "$PRE_COMMIT_RESULT" = success
           if [[ "$RUN_TESTS" == true ]]; then
