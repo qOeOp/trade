@@ -37,17 +37,18 @@ mod strategy_input_event_binding_v1;
 mod time_zone;
 mod universe_selection;
 
-#[cfg(not(test))]
+// The resolver is needed in every build: the arrangement that reads a frame's inputs is no longer
+// inside a `cfg(not(test))` arm, so that its order can be driven rather than only deployed.
 use super::native_replay_scheduling_v1::{
     NativeReplayInitialMarketReadbackV1, NativeReplayInitialMarketRequestV1,
     NativeReplaySchedulingErrorV1, NativeReplaySchedulingReadbackV1,
     NativeReplaySchedulingResolverV1, UntrustedNativeReplaySchedulingRequestV1,
-    issue_native_replay_initial_market_readback_v1, native_replay_schedule_matches_request_v1,
-    seal_native_replay_scheduling_v1,
+    issue_native_replay_initial_market_readback_v1, seal_native_replay_scheduling_v1,
+    select_native_replay_schedule_v1,
 };
-use super::pit_snapshot::PitSnapshotFact;
-#[cfg(not(test))]
-use super::pit_snapshot::{PitObservationBatchOwnerResolver, VerifiedPitObservationBatch};
+use super::pit_snapshot::{
+    PitObservationBatchOwnerResolver, PitSnapshotFact, VerifiedPitObservationBatch,
+};
 
 /// Exactly what custody holds for one sealed V2 sequence, as stored.
 ///
@@ -112,12 +113,14 @@ use super::store_admission::RawSharedTimeHistoryRowV1;
 // The port and the BAR schedule evidence are needed in every build: the arrangement that reads a
 // schedule through the port is no longer inside a `cfg(not(test))` arm, so that its order can be
 // driven rather than only deployed. The rest stay gated with their production-only readers.
-use super::store_admission::{AdmittedMarketDataSnapshotPort, BarScheduleStorageEvidenceV1};
+use super::store_admission::{
+    AdmittedMarketDataSnapshotPort, BarScheduleStorageEvidenceV1,
+    MarketDataPitEvaluationStorageEvidence,
+};
 #[cfg(not(test))]
 use super::store_admission::{
-    MarketDataPitEvaluationStorageEvidence, MarketDataPitTerminalStorageEvidence,
-    MarketDataSourceBindingStorageEvidence, StrategyInputSampleProjectionStorageEvidenceV2,
-    StrategyInputSampleProjectionStorageEvidenceV3,
+    MarketDataPitTerminalStorageEvidence, MarketDataSourceBindingStorageEvidence,
+    StrategyInputSampleProjectionStorageEvidenceV2, StrategyInputSampleProjectionStorageEvidenceV3,
 };
 use super::universe_selection::{UniverseSelectionErrorV1, UntrustedUniverseSelectionLocatorV1};
 use super::{
@@ -7865,19 +7868,79 @@ impl SourceBindingOwnerResolver for MarketDataReadPostgres {
     }
 }
 
-#[cfg(not(test))]
+/// Reads one snapshot's verified observation batch from a pool, for the build that holds one.
+///
+/// The caller says which cut it wants by identity and states the digest it expects that cut to
+/// have. Checking the digest here is what keeps this arm equal in meaning to the port arm, whose
+/// verifier checks it inside: without it, an identity that has since been corrected would resolve
+/// to a revision the caller never named.
+#[cfg(test)]
+async fn load_verified_observation_batch_from_pool(
+    pool: &PgPool,
+    snapshot_identity: BindingDigest,
+    expected_fact_digest: BindingDigest,
+) -> Result<VerifiedPitObservationBatch, PitSnapshotError> {
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    let aggregate = load_pit_for_update(&mut transaction, snapshot_identity, false)
+        .await
+        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?
+        .ok_or(PitSnapshotError::LocatorMismatch)?;
+
+    if aggregate.fact().digest() != expected_fact_digest {
+        return Err(PitSnapshotError::LocatorMismatch);
+    }
+    let stored = load_pit_observation_batch_for_update(&mut transaction, &aggregate)
+        .await
+        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?
+        .ok_or(PitSnapshotError::LocatorMismatch)?;
+    let batch = verify_observation_batch(
+        &aggregate,
+        stored.source_binding_identity,
+        stored.source_binding_lineage_root,
+        stored.source_binding_lineage_version,
+        stored.digest,
+        &stored.bytes,
+        &stored.rows,
+    )
+    .map_err(|_| PitSnapshotError::LocatorMismatch)?;
+    transaction
+        .commit()
+        .await
+        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    Ok(batch)
+}
+
 #[async_trait::async_trait]
 impl PitObservationBatchOwnerResolver for MarketDataReadPostgres {
     async fn resolve_pit_observation_batch(
         &self,
         locator: &UntrustedPitSnapshotLocator,
     ) -> Result<VerifiedPitObservationBatch, PitSnapshotError> {
-        let evidence = self
-            .admitted_port
-            .resolve_pit_evaluation(*locator.snapshot_identity.as_bytes())
-            .await
-            .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
-        verify_admitted_pit_evidence(locator, &evidence)
+        #[cfg(test)]
+        {
+            return load_verified_observation_batch_from_pool(
+                &self.pool,
+                locator.snapshot_identity,
+                locator.fact_digest,
+            )
+            .await;
+        }
+        #[cfg(not(test))]
+        {
+            let evidence = self
+                .admitted_port
+                .resolve_pit_evaluation(*locator.snapshot_identity.as_bytes())
+                .await
+                .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+            verify_admitted_pit_evidence(locator, &evidence)
+        }
     }
 }
 
@@ -7964,65 +8027,156 @@ impl StrategyInputSampleProjectionResolverV3 for MarketDataReadPostgres {
 impl super::research_pit_terminal::sealed::Sealed for MarketDataReadPostgres {}
 impl super::sealed_replay_input::sealed::Sealed for MarketDataReadPostgres {}
 impl super::bar_schedule::resolver_seal::Sealed for MarketDataReadPostgres {}
-#[cfg(not(test))]
 impl super::native_replay_scheduling_v1::resolver_seal::Sealed for MarketDataReadPostgres {}
 
-#[cfg(not(test))]
+/// Reads one frame's initial Market Data inputs through an admitted port, in the required order.
+///
+/// **Deliberately not `cfg`-gated, although its only production caller is.** While this lived
+/// inside the `cfg(not(test))` arm of the resolver, the arrangement did not exist in a test build
+/// at all - not untested but absent - so no proof could reach it and the first execution of this
+/// order would have happened in a deployment. The port revalidates its own admission before and
+/// after each read, so what this adds is the order: the cut, then the schedules that cut admits.
+pub(super) async fn resolve_native_replay_initial_market_through_admitted_port_v1(
+    port: &AdmittedMarketDataSnapshotPort,
+    request: &NativeReplayInitialMarketRequestV1,
+) -> Result<NativeReplayInitialMarketReadbackV1, NativeReplaySchedulingErrorV1> {
+    let evidence = port
+        .resolve_pit_evaluation(*request.snapshot_identity().as_bytes())
+        .await
+        .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+    let batch = verify_admitted_pit_evidence_by_identity_v1(
+        request.snapshot_identity(),
+        request.snapshot_fact_digest(),
+        &evidence,
+    )
+    .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+    let timeframe = request
+        .schedule_timeframe()
+        .ok_or(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?
+        .to_owned();
+    let mut schedules = Vec::with_capacity(request.member_instruments().len());
+
+    for instrument in request.member_instruments() {
+        let candidates = port
+            .resolve_bar_schedule_candidates_v1(&instrument.to_string())
+            .await
+            .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+        let verified = candidates
+            .iter()
+            .map(verify_admitted_bar_schedule_candidate_v1)
+            .collect::<Result<Vec<_>, _>>()?;
+        schedules.push(select_native_replay_schedule_v1(
+            verified,
+            &batch,
+            instrument,
+            &timeframe,
+            request.frame_time_ns(),
+        )?);
+    }
+    let schedules = schedules
+        .try_into()
+        .map_err(|_| NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
+    issue_native_replay_initial_market_readback_v1(batch, schedules, request)
+}
+
+/// The same read against a pool, for the build where this type holds one instead of a port.
+#[cfg(test)]
+async fn resolve_native_replay_initial_market_from_pool_v1(
+    pool: &PgPool,
+    request: &NativeReplayInitialMarketRequestV1,
+) -> Result<NativeReplayInitialMarketReadbackV1, NativeReplaySchedulingErrorV1> {
+    let batch = load_verified_observation_batch_from_pool(
+        pool,
+        request.snapshot_identity(),
+        request.snapshot_fact_digest(),
+    )
+    .await
+    .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+    let timeframe = request
+        .schedule_timeframe()
+        .ok_or(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?
+        .to_owned();
+    let mut schedules = Vec::with_capacity(request.member_instruments().len());
+
+    for instrument in request.member_instruments() {
+        let candidates = load_bar_schedule_candidates(&mut transaction, &instrument.to_string())
+            .await
+            .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+        schedules.push(select_native_replay_schedule_v1(
+            candidates,
+            &batch,
+            instrument,
+            &timeframe,
+            request.frame_time_ns(),
+        )?);
+    }
+    transaction
+        .commit()
+        .await
+        .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+    let schedules = schedules
+        .try_into()
+        .map_err(|_| NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
+    issue_native_replay_initial_market_readback_v1(batch, schedules, request)
+}
+
+/// Every schedule one instrument holds, in the order the candidate function returns them.
+#[cfg(test)]
+async fn load_bar_schedule_candidates(
+    transaction: &mut Transaction<'_, Postgres>,
+    canonical_instrument: &str,
+) -> Result<Vec<BarScheduleReadbackV1>, BarScheduleCustodyErrorV1> {
+    let digests: Vec<Vec<u8>> = sqlx::query_scalar(
+        "SELECT f.fact_digest FROM market_data_private.bar_schedule_facts_v1 AS f JOIN market_data_private.bar_schedule_receipts_v1 AS r ON r.fact_digest=f.fact_digest WHERE f.canonical_instrument=$1 ORDER BY r.readback_identity",
+    )
+    .bind(canonical_instrument)
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    let mut readbacks = Vec::with_capacity(digests.len());
+
+    for digest in digests {
+        let digest: [u8; 32] = digest
+            .try_into()
+            .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+        let readback = load_bar_schedule_by_fact(
+            transaction,
+            BarScheduleIdentity::from_untrusted_bytes(digest),
+            false,
+        )
+        .await?
+        .ok_or(BarScheduleCustodyErrorV1::UnknownReadback)?;
+        readbacks.push(readback);
+    }
+    Ok(readbacks)
+}
+
 #[async_trait::async_trait]
 impl NativeReplaySchedulingResolverV1 for MarketDataReadPostgres {
     async fn resolve_native_replay_initial_market_inputs_v1(
         &self,
         request: &NativeReplayInitialMarketRequestV1,
     ) -> Result<NativeReplayInitialMarketReadbackV1, NativeReplaySchedulingErrorV1> {
-        let evidence = self
-            .admitted_port
-            .resolve_pit_evaluation(*request.snapshot_identity().as_bytes())
-            .await
-            .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
-        let batch = verify_admitted_pit_evidence_by_identity_v1(
-            request.snapshot_identity(),
-            request.snapshot_fact_digest(),
-            &evidence,
-        )
-        .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
-        let timeframe = request
-            .schedule_timeframe()
-            .ok_or(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?
-            .to_owned();
-        let mut schedules = Vec::with_capacity(2);
-
-        for instrument in request.member_instruments() {
-            let candidates = self
-                .admitted_port
-                .resolve_bar_schedule_candidates_v1(&instrument.to_string())
-                .await
-                .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
-            let mut matches = candidates
-                .iter()
-                .map(verify_admitted_bar_schedule_candidate_v1)
-                .collect::<Result<Vec<_>, _>>()?
-                .into_iter()
-                .filter(|schedule| {
-                    native_replay_schedule_matches_request_v1(
-                        schedule,
-                        &batch,
-                        instrument,
-                        &timeframe,
-                        request.frame_time_ns(),
-                    )
-                });
-            let selected = matches
-                .next()
-                .ok_or(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
-            if matches.next().is_some() {
-                return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
-            }
-            schedules.push(selected);
+        #[cfg(test)]
+        {
+            return resolve_native_replay_initial_market_from_pool_v1(&self.pool, request).await;
         }
-        let schedules = schedules
-            .try_into()
-            .map_err(|_| NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
-        issue_native_replay_initial_market_readback_v1(batch, schedules, request)
+        #[cfg(not(test))]
+        {
+            resolve_native_replay_initial_market_through_admitted_port_v1(
+                &self.admitted_port,
+                request,
+            )
+            .await
+        }
     }
 
     async fn resolve_native_replay_scheduling_v1(
@@ -8116,7 +8270,6 @@ fn verify_admitted_bar_schedule_v1(
     )
 }
 
-#[cfg(not(test))]
 fn verify_admitted_bar_schedule_candidate_v1(
     evidence: &BarScheduleStorageEvidenceV1,
 ) -> Result<BarScheduleReadbackV1, NativeReplaySchedulingErrorV1> {
@@ -8737,7 +8890,6 @@ fn verify_admitted_source_evidence(
     )
 }
 
-#[cfg(not(test))]
 fn verify_admitted_source_rows(
     locator: &UntrustedSourceBindingLocator,
     lineage_rows: &[Vec<u8>],
@@ -8811,7 +8963,6 @@ fn verify_admitted_source_rows(
     Ok(SourceBindingOwnerReadback::from_verified(&aggregate))
 }
 
-#[cfg(not(test))]
 fn verify_admitted_pit_evidence(
     locator: &UntrustedPitSnapshotLocator,
     evidence: &MarketDataPitEvaluationStorageEvidence,
@@ -8905,7 +9056,6 @@ fn verify_admitted_pit_evidence(
     )
 }
 
-#[cfg(not(test))]
 fn verify_admitted_pit_evidence_by_identity_v1(
     snapshot_identity: BindingDigest,
     fact_digest: BindingDigest,
@@ -9191,7 +9341,6 @@ fn verify_terminal_source_rows(
     Ok(selected)
 }
 
-#[cfg(not(test))]
 fn decode_raw_source_envelope(raw: &[u8]) -> Result<StoredEnvelope, SourceBindingError> {
     let value: Value =
         serde_json::from_slice(raw).map_err(|_| SourceBindingError::StoreUnavailable)?;
@@ -9244,7 +9393,6 @@ fn decode_raw_source_envelope(raw: &[u8]) -> Result<StoredEnvelope, SourceBindin
     })
 }
 
-#[cfg(not(test))]
 fn decode_raw_pit_envelope(raw: &[u8]) -> Result<StoredEnvelope, PitSnapshotError> {
     let value: Value =
         serde_json::from_slice(raw).map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
@@ -9291,7 +9439,6 @@ fn decode_raw_pit_envelope(raw: &[u8]) -> Result<StoredEnvelope, PitSnapshotErro
     })
 }
 
-#[cfg(not(test))]
 fn decode_raw_clock(raw: &[u8]) -> Result<MarketDataClockAdmission, SourceBindingError> {
     Ok(decode_raw_clock_fact(raw)?.clock())
 }
