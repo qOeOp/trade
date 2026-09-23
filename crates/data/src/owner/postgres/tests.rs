@@ -1812,7 +1812,7 @@ async fn sample_projection_postgres_oracle_v2(owner_url: &str, reader_url: &str,
     assert!(resolver_security_definer);
     let resolver_config: Vec<String> = sqlx::query_scalar("SELECT p.proconfig FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid=p.pronamespace WHERE n.nspname='market_data_private' AND p.proname='resolve_strategy_input_sample_projection_v2'")
         .fetch_one(admin).await.unwrap();
-    assert_eq!(resolver_config, ["search_path=pg_catalog"]);
+    assert_eq!(resolver_config, ["search_path=pg_catalog, pg_temp"]);
 
     // Content hashes alone are not Owner authority: even a structurally valid projection whose
     // coordinate and outer digests were both recomputed cannot be promoted through durable
