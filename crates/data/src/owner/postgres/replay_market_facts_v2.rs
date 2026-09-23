@@ -1215,8 +1215,11 @@ impl ReplayCompositionOwnerV1 {
                 request,
             )?;
 
+        // Both sides come from the caller's command, and nothing has been read yet: a locator whose
+        // meaning digest disagrees with the composition beside it is a request that contradicts
+        // itself, not a mismatch against anything this Owner holds.
         if actual_meaning != issuance_locator.request_meaning_digest() {
-            return Err(ReplayCompositionBindingErrorV1::DigestMismatch);
+            return Err(ReplayCompositionBindingErrorV1::InvalidRequest);
         }
         let replay = request.replay_request();
         let mut reader_transaction = self
@@ -1805,7 +1808,7 @@ impl ReplayCompositionOwnerV1 {
             .bind(&response_bytes)
             .execute(&mut *transaction)
             .await
-            .map_err(|_| ReplayCompositionBindingErrorV1::DigestMismatch)?;
+            .map_err(|e| map_issuance_insert_error(&e))?;
             Ok(ReplayCompositionDurableIssuanceResponseV1::from_exact_storage(response_bytes))
         })
         .await;
@@ -3488,6 +3491,111 @@ fn map_admission_reader_error(
             StrategyInputBindingAdmissionErrorV1::BindingUnavailable
         }
         _ => StrategyInputBindingAdmissionErrorV1::StoreUnavailable,
+    }
+}
+
+/// Maps a failed issuance insert onto the one failure that is about the request.
+///
+/// A unique violation on the issuance identity means another transaction stored that identity
+/// first, which is the conflict `DigestMismatch` has always reported here. Every other failure of
+/// this write - a lost connection, a serialization failure, a constraint this write should never
+/// meet - is the store's, and reporting it as a digest mismatch told a reader to look at the
+/// request for a fault in the database.
+fn map_issuance_insert_error(error: &sqlx::Error) -> ReplayCompositionBindingErrorV1 {
+    if error
+        .as_database_error()
+        .is_some_and(sqlx::error::DatabaseError::is_unique_violation)
+    {
+        ReplayCompositionBindingErrorV1::DigestMismatch
+    } else {
+        ReplayCompositionBindingErrorV1::ReplayV2Unavailable
+    }
+}
+
+#[cfg(test)]
+mod issuance_insert_error_tests {
+    use std::{borrow::Cow, error::Error, fmt::Display};
+
+    use rstest::rstest;
+    use sqlx::error::{DatabaseError, ErrorKind};
+
+    use super::*;
+
+    /// A database error of one chosen kind, because only PostgreSQL itself can raise a real one.
+    #[derive(Debug)]
+    struct KindOnly(ErrorKind);
+
+    impl Display for KindOnly {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(formatter, "{:?}", self.0)
+        }
+    }
+
+    impl Error for KindOnly {}
+
+    impl DatabaseError for KindOnly {
+        fn message(&self) -> &'static str {
+            "database error of a chosen kind"
+        }
+
+        fn code(&self) -> Option<Cow<'_, str>> {
+            None
+        }
+
+        fn as_error(&self) -> &(dyn Error + Send + Sync + 'static) {
+            self
+        }
+
+        fn as_error_mut(&mut self) -> &mut (dyn Error + Send + Sync + 'static) {
+            self
+        }
+
+        fn into_error(self: Box<Self>) -> Box<dyn Error + Send + Sync + 'static> {
+            self
+        }
+
+        fn kind(&self) -> ErrorKind {
+            match self.0 {
+                ErrorKind::UniqueViolation => ErrorKind::UniqueViolation,
+                ErrorKind::ForeignKeyViolation => ErrorKind::ForeignKeyViolation,
+                ErrorKind::NotNullViolation => ErrorKind::NotNullViolation,
+                ErrorKind::CheckViolation => ErrorKind::CheckViolation,
+                _ => ErrorKind::Other,
+            }
+        }
+    }
+
+    #[rstest]
+    #[case::unique_violation(
+        ErrorKind::UniqueViolation,
+        ReplayCompositionBindingErrorV1::DigestMismatch
+    )]
+    #[case::foreign_key_violation(
+        ErrorKind::ForeignKeyViolation,
+        ReplayCompositionBindingErrorV1::ReplayV2Unavailable
+    )]
+    #[case::check_violation(
+        ErrorKind::CheckViolation,
+        ReplayCompositionBindingErrorV1::ReplayV2Unavailable
+    )]
+    #[case::other(ErrorKind::Other, ReplayCompositionBindingErrorV1::ReplayV2Unavailable)]
+    fn a_database_refusal_is_a_mismatch_only_when_the_identity_is_taken(
+        #[case] kind: ErrorKind,
+        #[case] expected: ReplayCompositionBindingErrorV1,
+    ) {
+        let error = sqlx::Error::Database(Box::new(KindOnly(kind)));
+        assert_eq!(map_issuance_insert_error(&error), expected);
+    }
+
+    #[rstest]
+    #[case::pool_timed_out(sqlx::Error::PoolTimedOut)]
+    #[case::pool_closed(sqlx::Error::PoolClosed)]
+    #[case::worker_crashed(sqlx::Error::WorkerCrashed)]
+    fn a_failure_outside_the_database_is_the_store(#[case] error: sqlx::Error) {
+        assert_eq!(
+            map_issuance_insert_error(&error),
+            ReplayCompositionBindingErrorV1::ReplayV2Unavailable
+        );
     }
 }
 
