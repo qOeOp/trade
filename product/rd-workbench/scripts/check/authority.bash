@@ -288,7 +288,10 @@ grep -Fq 'v2_request_storage_digest TEXT' "$package_dir/postgres-init/10-migrate
 grep -Fq 'canonical_payload_storage_digest TEXT' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'canonical_envelope_storage_digest TEXT' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
-grep -Fq 'SET search_path = pg_catalog' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+# No search_path check here: a file-wide `grep -Fq 'SET search_path = pg_catalog'` passed while any
+# one routine in the file kept that text (57 did in 10-migrate), so it could not see one routine
+# losing or changing its path. scripts/ci/check-security-definer-search-path.sql proves the property
+# per routine in every database the ordered chains materialize.
 grep -Fq 'CREATE OR REPLACE FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "pg_catalog.convert_from(replay_outbox.canonical_envelope_bytes,'UTF8')::pg_catalog.jsonb <>" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'GRANT EXECUTE ON FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(text,text,text,text) TO rd_owner, backtest_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
@@ -365,7 +368,8 @@ grep -Fq 'CREATE OR REPLACE FUNCTION rd_owner_api.lock_source_acquisition_bindin
 grep -Fq 'CREATE OR REPLACE FUNCTION rd_owner_api.lock_source_invocation_reservation_v1(' "$package_dir/../../crates/strategy_factory/src/source_intake/postgres.rs"
 grep -Fq 'CREATE OR REPLACE FUNCTION rd_owner_api.lock_current_research_for_artifact_v1(' "$package_dir/../../crates/strategy_factory/src/product_edge_postgres.rs"
 grep -Fq 'RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER' "$package_dir/../../crates/strategy_factory/src/product_edge_postgres.rs"
-grep -Fq 'SET search_path = pg_catalog' "$package_dir/../../crates/strategy_factory/src/product_edge_postgres.rs"
+# No search_path check here either (4 routines in product_edge_postgres.rs carried the text); see
+# the note above the 10-migrate checks.
 grep -Fq 'GRANT EXECUTE ON FUNCTION rd_owner_api.lock_current_research_for_artifact_v1(text,text,text) TO product_edge_owner' "$package_dir/../../crates/strategy_factory/src/product_edge_postgres.rs"
 grep -Fq '.admit_artifact_build_request(' "$package_dir/../../crates/strategy_factory_rd_owner_api/src/main.rs"
 grep -Fq '|| hinted_admission.request.operation != ARTIFACT_BUILD_OPERATION_V1' "$package_dir/../../crates/product_edge/src/postgres.rs"
