@@ -8,7 +8,8 @@ only ever answers "none" proves nothing about the answer "none"; the paired case
 makes the zero mean something.
 
 Each pair also names the defect it pins, all of which were observed producing quiet zeros:
-POSIX ERE has no `\\b` or `\\s`; the nearest attribute above a line often belongs to the
+`\\b` and `\\s` match under glibc and not under BSD, so a pattern using them reads the tree
+in CI and reads nothing on a Mac; the nearest attribute above a line often belongs to the
 item before it; a `mod x;` in the parent file gates a child file that says nothing itself;
 and an item whose signature spans lines opens its block further down.
 
@@ -17,13 +18,19 @@ Run: python3 -B scripts/production-producer-check_test.py
 """
 
 import importlib.util
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
 
 
-TOOL = Path(__file__).with_name("production-producer-check.py")
+# Overridable so that the mutation harness can point these same cases at a deliberately
+# broken copy of the tool and watch them fail.
+TOOL = Path(
+    os.environ.get("PRODUCTION_PRODUCER_CHECK_TOOL")
+    or Path(__file__).with_name("production-producer-check.py"),
+)
 
 spec = importlib.util.spec_from_file_location("production_producer_check", TOOL)
 ppc = importlib.util.module_from_spec(spec)

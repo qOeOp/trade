@@ -32,8 +32,12 @@ import subprocess
 import sys
 
 
-# `git grep -E` is POSIX ERE: `\b` and `\s` are not metacharacters there and never
-# match, silently. Every pattern below uses bracket expressions instead.
+# `git grep -E` is POSIX ERE, and whether `\b` and `\s` match there is a property of the
+# platform's regex library rather than of the pattern: glibc takes them as extensions,
+# BSD does not and matches nothing, silently. Measured at git 2.54 on Linux and 2.55 on
+# macOS, same tree, same command: `\b` finds the symbol on the first and not on the
+# second. A pattern validated in CI can therefore return nothing on a developer's machine,
+# so every pattern below uses bracket expressions, which mean the same thing everywhere.
 NOT_WORD = "[^A-Za-z0-9_]"
 SPACE = "[[:space:]]"
 
@@ -168,14 +172,15 @@ def gated_module_files(rev):
     """
     Map each file to the cfg on the `mod x;` declaration that brought it in, if any.
 
-    A module gated in its parent is gated throughout, and nothing inside the file says
-    so.
+    A module gated in its parent is gated throughout, and nothing inside the file says so.
+    Only files that declare a submodule are read: finding them by reading every `.rs` file
+    costs one `git show` each and dominates the runtime of everything else here.
 
     """
+    pattern = rf"^{SPACE}*(pub({SPACE}*\([^)]*\))?{SPACE}+)?mod{SPACE}+[a-z_][a-z0-9_]*{SPACE}*;"
+    declaring = {path for path, _lineno, _text in grep(rev, pattern) if path.endswith(".rs")}
     out = {}
-    for path in git("ls-tree", "-r", "--name-only", rev).split("\n"):
-        if not path.endswith(".rs"):
-            continue
+    for path in sorted(declaring):
         lines = file_lines(rev, path)
         directory = os.path.dirname(path)
         stem = os.path.basename(path)[:-3]
@@ -187,7 +192,10 @@ def gated_module_files(rev):
             cfgs = CFG_RE.findall(attributes_above(lines, index))
             if not cfgs:
                 continue
-            for candidate in (f"{root}/{match.group(1)}.rs", f"{root}/{match.group(1)}/mod.rs"):
+            for candidate in (
+                f"{root}/{match.group(1)}.rs",
+                f"{root}/{match.group(1)}/mod.rs",
+            ):
                 out.setdefault(candidate, "; ".join(cfgs))
     return out
 
