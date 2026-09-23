@@ -308,6 +308,15 @@ def report(rev, name, indent=""):
         )
     if declarations and not mentions:
         print(f"{indent}  Declared here and mentioned nowhere else at this rev.")
+    if declarations > 1:
+        # Callers are found by name. A name declared more than once collects the callers
+        # of every declaration, and nothing in the count says so: `new` answers with
+        # thousands of production callers, none of which are attributable.
+        print(
+            f"{indent}  WARNING: {declarations} declarations carry this name, so the caller"
+            f" counts above\n{indent}  belong to all of them together and to none of them"
+            f" in particular.",
+        )
     return files, sites, ungated, production, other
 
 

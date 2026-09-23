@@ -152,6 +152,23 @@ def main():
         f"{lonely}: read as gated; it is ungated, which is what makes it a zero worth reading",
     )
 
+    # A name declared once, against a name declared many times. Callers are matched by
+    # name, so a count for an ambiguous name belongs to every declaration at once; the
+    # tool has to say so, and it can only say so if it counts declarations correctly.
+    unique_declarations, _ = ppc.occurrences(
+        REV,
+        "commit_source_intake_success_terminal_in_transaction",
+    )
+    common_declarations, _ = ppc.occurrences(REV, "new")
+    check(
+        unique_declarations == 1,
+        f"commit_source_intake_success_terminal_in_transaction: {unique_declarations} declarations, expected 1",
+    )
+    check(
+        common_declarations > 1,
+        "new: not seen as declared more than once, so the ambiguity warning never fires",
+    )
+
     # An attribute directly above an item belongs to that item, and an attribute a few
     # lines above usually belongs to the item before it. Both must be distinguished.
     inner = definition_gates("for_verified_test")
@@ -177,7 +194,7 @@ def main():
         )
         return 1
     print(
-        f"production-producer-check calibration passed at {REV[:9]}: 17 checks, both directions exercised",
+        f"production-producer-check calibration passed at {REV[:9]}: 19 checks, both directions exercised",
     )
     return 0
 
