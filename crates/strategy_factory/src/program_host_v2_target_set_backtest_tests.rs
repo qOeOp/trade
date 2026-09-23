@@ -91,12 +91,13 @@ fn owner_bound_profile_drives_bar_signal_then_real_event_fills() {
         authority,
         plan,
         artifact,
-        frame,
+        vec![frame],
         StrategyId::from("TARGET-SET-PROFILE-EVENT-001"),
         "target-set-profile-event".into(),
         instruments.clone(),
         bar_types,
         data,
+        &[time],
     )
     .unwrap();
     let readback = run_program_host_sim_event_consumer_v1(capability).unwrap();
@@ -123,12 +124,13 @@ fn owner_bound_profile_drives_bar_signal_then_real_event_fills() {
             repeat_authority,
             repeat_plan,
             repeat_artifact,
-            repeat_frame,
+            vec![repeat_frame],
             StrategyId::from("TARGET-SET-PROFILE-EVENT-001"),
             "target-set-profile-event".into(),
             instruments,
             repeat_bar_types,
             repeat_data,
+            &[time],
         )
         .unwrap(),
     )
@@ -246,12 +248,13 @@ fn self_consistent_plan_artifact_splice_fails_before_execution() {
             authority,
             foreign_plan,
             foreign_artifact,
-            foreign_frame,
+            vec![foreign_frame],
             StrategyId::from("TARGET-SET-PROFILE-EVENT-SPLICE"),
             "target-set-profile-event-splice".into(),
             instruments,
             bar_types,
             data,
+            &[foreign_time],
         )
         .is_err()
     );
@@ -1248,6 +1251,11 @@ fn run_multi_frame_equity_corpus() -> anyhow::Result<TargetSetBacktestTraceV2> {
     let admitted = admit_market_data_universe_program_event_v2(&plan, &frame)?;
     let first_time = admitted.envelope().order_key.logical_time_ns;
     let second_time = first_time + 100;
+    // THIS SECOND FRAME IS CONSTRUCTED BY THIS TEST, NOT ISSUED BY THE OWNER. It is the first
+    // frame with a new logical time and new member opens and closes, so what follows proves the
+    // strategy's arithmetic across two frames and proves nothing about whether Market Data can
+    // supply a second frame. The Owner sequence landed for scheduling evidence, not for universe
+    // receipts, so no Owner-issued successor exists to take its place yet.
     let successor = issue_backtest_universe_successor_for_test(
         &plan,
         &frame,
