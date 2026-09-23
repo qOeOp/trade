@@ -569,7 +569,7 @@ pub fn run_program_host_sim_event_consumer_v1(
     let ReplayTargetSetExecutionBundleV1 {
         plan,
         artifact,
-        universe_frame,
+        universe_frames,
         native_profile,
         account_scope_id,
         strategy_id,
@@ -580,7 +580,6 @@ pub fn run_program_host_sim_event_consumer_v1(
         census,
     } = capability;
     let trace = Rc::new(std::cell::RefCell::new(TargetSetBacktestTraceV2::default()));
-    let universe_frames = [universe_frame];
     let admitted_frames = universe_frames.len();
     let strategy = BacktestTargetSetProgramHostStrategyV2::new(
         strategy_id,
@@ -1595,16 +1594,15 @@ mod tests {
             native_materialization_digest: [2; 32],
             canonical_plan_digest: [3; 32],
             artifact_identity: [4; 32],
-            universe_frame_digest: [5; 32],
+            frame_sequence_digest: [5; 32],
+            frame_count: 1,
             universe_selection_identity: [6; 32],
             universe_selection_digest: [7; 32],
-            observation_batch_digest: [8; 32],
             member_instruments: ["AAPL.XNAS".to_owned(), "MSFT.XNAS".to_owned()],
             instrument_terms: [
                 test_instrument_census("AAPL", [9; 32], [11; 32]),
                 test_instrument_census("MSFT", [10; 32], [12; 32]),
             ],
-            owner_scheduling_receipt_digest: None,
             scheduling_data_digest: [13; 32],
             scheduling_data_count: 4,
             bar_count: 2,

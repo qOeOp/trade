@@ -9,6 +9,7 @@ use sha2::{Digest, Sha256};
 use strategy_factory_program_sdk::lifecycle_v2::TARGET_SET_MEMBER_COUNT;
 use vibe_data::owner::instrument_master_v2::ValidatedCryptoPerpetualPublicTermsV2;
 use vibe_data::owner::native_replay_scheduling_v1::NativeReplaySchedulingReadbackV1;
+use vibe_data::owner::native_replay_scheduling_v2::NativeReplayFrameSequenceReadbackV2;
 use vibe_data::owner::strategy_input_binding::{
     StrategyInputEventKind, StrategyInputUniverseFrameReceipt,
 };
@@ -37,6 +38,8 @@ use crate::{
 };
 
 const SCHEDULING_DIGEST_DOMAIN_V1: &[u8] = b"strategy-factory.replay-target-set-scheduling.v1\0";
+const FRAME_SEQUENCE_DIGEST_DOMAIN_V1: &[u8] =
+    b"vibe.replay.target-set-execution-frame-sequence.v1\0";
 const CENSUS_DIGEST_DOMAIN_V1: &[u8] = b"strategy-factory.replay-target-set-execution-census.v1\0";
 
 /// Exact Instrument Owner evidence and economic terms consumed for one target-set member.
@@ -185,13 +188,12 @@ pub struct ReplayTargetSetExecutionCensusV1 {
     pub(crate) native_materialization_digest: [u8; 32],
     pub(crate) canonical_plan_digest: [u8; 32],
     pub(crate) artifact_identity: [u8; 32],
-    pub(crate) universe_frame_digest: [u8; 32],
+    pub(crate) frame_sequence_digest: [u8; 32],
+    pub(crate) frame_count: u64,
     pub(crate) universe_selection_identity: [u8; 32],
     pub(crate) universe_selection_digest: [u8; 32],
-    pub(crate) observation_batch_digest: [u8; 32],
     pub(crate) member_instruments: [String; TARGET_SET_MEMBER_COUNT],
     pub(crate) instrument_terms: [ReplayTargetSetInstrumentCensusV1; TARGET_SET_MEMBER_COUNT],
-    pub(crate) owner_scheduling_receipt_digest: Option<[u8; 32]>,
     pub(crate) scheduling_data_digest: [u8; 32],
     pub(crate) scheduling_data_count: u64,
     pub(crate) bar_count: u64,
@@ -250,9 +252,17 @@ impl ReplayTargetSetExecutionCensusV1 {
         self.artifact_identity
     }
 
+    /// Seals the whole ordered frame sequence: each frame's universe digest, its observation batch
+    /// and the Owner scheduling receipt it was scheduled from, in issue order.
     #[must_use]
-    pub const fn universe_frame_digest(&self) -> [u8; 32] {
-        self.universe_frame_digest
+    pub const fn frame_sequence_digest(&self) -> [u8; 32] {
+        self.frame_sequence_digest
+    }
+
+    /// Returns how many Owner frames the run consumed.
+    #[must_use]
+    pub const fn frame_count(&self) -> u64 {
+        self.frame_count
     }
 
     #[must_use]
@@ -263,11 +273,6 @@ impl ReplayTargetSetExecutionCensusV1 {
     #[must_use]
     pub const fn universe_selection_digest(&self) -> [u8; 32] {
         self.universe_selection_digest
-    }
-
-    #[must_use]
-    pub const fn observation_batch_digest(&self) -> [u8; 32] {
-        self.observation_batch_digest
     }
 
     #[must_use]
@@ -302,11 +307,6 @@ impl ReplayTargetSetExecutionCensusV1 {
     }
 
     #[must_use]
-    pub const fn owner_scheduling_receipt_digest(&self) -> Option<[u8; 32]> {
-        self.owner_scheduling_receipt_digest
-    }
-
-    #[must_use]
     pub const fn scheduling_data_count(&self) -> u64 {
         self.scheduling_data_count
     }
@@ -338,7 +338,7 @@ impl ReplayTargetSetExecutionCensusV1 {
 pub struct ReplayTargetSetExecutionBundleV1 {
     pub(crate) plan: StrategyPlanV2,
     pub(crate) artifact: StrategyArtifactV2,
-    pub(crate) universe_frame: StrategyInputUniverseFrameReceipt,
+    pub(crate) universe_frames: Vec<StrategyInputUniverseFrameReceipt>,
     pub(crate) native_profile: ReplayNativeExecutionProfileV1,
     pub(crate) account_scope_id: AccountId,
     pub(crate) strategy_id: StrategyId,
@@ -391,7 +391,105 @@ impl ReplayTargetSetExecutionBundleV1 {
     /// Returns before a capability exists when any profile seal, Plan/Artifact/frame binding,
     /// member, account, economic term, BAR signal, or later EVENT input is missing or mismatched.
     #[allow(clippy::too_many_arguments)]
+    /// Consumes one Owner-sealed frame sequence and the universe receipts it was resolved with.
+    ///
+    /// The sequence arrives whole rather than as loose per-frame readbacks, because its
+    /// construction is what proves the cross-frame rules hold: a caller that assembled the frames
+    /// itself could satisfy every per-frame check here while presenting a window the Owner never
+    /// sealed. The two collections are checked against each other rather than trusted to line up,
+    /// because the resolver returning them in step does not stop a caller reordering one of them.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the sequence and the receipts disagree in length or order, if any frame
+    /// mismatches its paired receipt, or if the series does not cover the Owner request window
+    /// from its start.
     pub fn new(
+        authority: OwnerIssuedReplayExecutionProfileBindingV1,
+        plan: StrategyPlanV2,
+        artifact: StrategyArtifactV2,
+        universe_frames: Vec<StrategyInputUniverseFrameReceipt>,
+        strategy_id: StrategyId,
+        run_id: String,
+        public_terms: [ValidatedCryptoPerpetualPublicTermsV2; TARGET_SET_MEMBER_COUNT],
+        sequence: NativeReplayFrameSequenceReadbackV2,
+    ) -> anyhow::Result<Self> {
+        let instruments = materialize_crypto_perpetual_target_set_v2(
+            authority.execution_profile_binding(),
+            public_terms,
+        )?;
+        let request_window = authority.request_window();
+        let instrument_ids = instruments.each_ref().map(Instrument::id);
+        let (sequence_start_ns, sequence_end_ns_exclusive) = sequence.window();
+        anyhow::ensure!(
+            sequence_start_ns == request_window.start_event_ns
+                && sequence_end_ns_exclusive == request_window.end_event_ns_exclusive,
+            "request execution bundle sequence window mismatches the Owner request window"
+        );
+        let frames = sequence.into_frames();
+        anyhow::ensure!(
+            !frames.is_empty() && frames.len() == universe_frames.len(),
+            "request execution bundle frame sequence and universe receipts do not correspond"
+        );
+        let mut bar_types: Option<[BarType; TARGET_SET_MEMBER_COUNT]> = None;
+        let mut receipt_digests = Vec::with_capacity(frames.len());
+        let mut frame_times = Vec::with_capacity(frames.len());
+        let mut data = Vec::new();
+
+        for (frame, universe_frame) in frames.into_iter().zip(&universe_frames) {
+            anyhow::ensure!(
+                frame.member_instruments() == instrument_ids
+                    && frame.window_end_ns_exclusive() == request_window.end_event_ns_exclusive
+                    && *frame.observation_batch_digest().as_bytes()
+                        == *universe_frame
+                            .selection()
+                            .observation_batch_digest()
+                            .as_bytes(),
+                "request execution bundle frame mismatches its paired Owner universe receipt"
+            );
+            receipt_digests.push(*frame.scheduling_receipt_digest_v1().as_bytes());
+            frame_times.push(frame.frame_time_ns());
+            let (frame_bar_types, frame_data) = frame.into_native_schedule();
+
+            if let Some(expected) = &bar_types {
+                anyhow::ensure!(
+                    *expected == frame_bar_types,
+                    "request execution bundle frames disagree on the target set BAR types"
+                );
+            } else {
+                bar_types = Some(frame_bar_types);
+            }
+            data.extend(frame_data);
+        }
+        let bar_types = bar_types
+            .ok_or_else(|| anyhow::anyhow!("request execution bundle sequence carried no frame"))?;
+        Self::new_with_native_instruments(
+            authority,
+            plan,
+            artifact,
+            universe_frames,
+            strategy_id,
+            run_id,
+            instruments,
+            bar_types,
+            data,
+            &frame_times,
+            &receipt_digests,
+        )
+    }
+
+    /// Composes a bundle from one Owner V1 scheduling readback, as a series of one frame.
+    ///
+    /// The V1 readback and the V2 frame sequence are two consumptions of the same Owner market
+    /// readback and cannot both be taken, so a caller holding the V1 form reaches the series this
+    /// way rather than by reconstructing a sequence it never resolved. Every cross-frame rule
+    /// still runs; with one frame they are satisfied by having nothing to disagree with.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the readback mismatches the Owner inputs or the request window.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_from_single_frame_v1(
         authority: OwnerIssuedReplayExecutionProfileBindingV1,
         plan: StrategyPlanV2,
         artifact: StrategyArtifactV2,
@@ -418,19 +516,21 @@ impl ReplayTargetSetExecutionBundleV1 {
                         .as_bytes(),
             "request execution bundle scheduling authority mismatches Owner inputs"
         );
-        let owner_scheduling_receipt_digest = Some(*scheduling.receipt_digest().as_bytes());
+        let frame_times = vec![scheduling.frame_time_ns()];
+        let receipt_digests = vec![*scheduling.receipt_digest().as_bytes()];
         let (bar_types, data) = scheduling.into_native_schedule();
         Self::new_with_native_instruments(
             authority,
             plan,
             artifact,
-            universe_frame,
+            vec![universe_frame],
             strategy_id,
             run_id,
             instruments,
             bar_types,
             data,
-            owner_scheduling_receipt_digest,
+            &frame_times,
+            &receipt_digests,
         )
     }
 
@@ -439,13 +539,14 @@ impl ReplayTargetSetExecutionBundleV1 {
         authority: OwnerIssuedReplayExecutionProfileBindingV1,
         plan: StrategyPlanV2,
         artifact: StrategyArtifactV2,
-        universe_frame: StrategyInputUniverseFrameReceipt,
+        universe_frames: Vec<StrategyInputUniverseFrameReceipt>,
         strategy_id: StrategyId,
         run_id: String,
         instruments: [InstrumentAny; TARGET_SET_MEMBER_COUNT],
         bar_types: [BarType; TARGET_SET_MEMBER_COUNT],
         data: Vec<Data>,
-        owner_scheduling_receipt_digest: Option<[u8; 32]>,
+        frame_times: &[u64],
+        owner_scheduling_receipt_digests: &[[u8; 32]],
     ) -> anyhow::Result<Self> {
         let request_locator = authority.request_locator().clone();
         let owner_authority_digest = authority.authority_digest();
@@ -458,40 +559,60 @@ impl ReplayTargetSetExecutionBundleV1 {
             "request execution bundle has no run identity"
         );
         artifact.validate_for_plan(&plan)?;
-        let admitted = admit_market_data_universe_program_event_v2(&plan, &universe_frame)?;
         anyhow::ensure!(
-            matches!(
-                universe_frame.trigger().lifecycle().kind(),
-                StrategyInputEventKind::Bar
-            ),
-            "request execution bundle requires one complete Owner BAR frame"
+            !universe_frames.is_empty()
+                && universe_frames.len() == frame_times.len()
+                && universe_frames.len() == owner_scheduling_receipt_digests.len(),
+            "request execution bundle frame census does not correspond to its receipts"
         );
-
         let instrument_ids = instruments.each_ref().map(Instrument::id);
-        anyhow::ensure!(
-            universe_frame.selection().members().len() == TARGET_SET_MEMBER_COUNT
-                && universe_frame
-                    .selection()
-                    .members()
-                    .iter()
-                    .zip(instrument_ids)
-                    .all(|(member, instrument)| member.instrument() == instrument.to_string()),
-            "request execution bundle member set mismatches the Owner universe"
-        );
         let expected_values = plan
             .input_roles()
             .len()
             .checked_mul(TARGET_SET_MEMBER_COUNT)
             .ok_or_else(|| anyhow::anyhow!("request execution bundle value census overflows"))?;
+        let mut admitted_frame_times = Vec::with_capacity(universe_frames.len());
+
+        for universe_frame in &universe_frames {
+            let admitted = admit_market_data_universe_program_event_v2(&plan, universe_frame)?;
+            anyhow::ensure!(
+                matches!(
+                    universe_frame.trigger().lifecycle().kind(),
+                    StrategyInputEventKind::Bar
+                ),
+                "request execution bundle requires every Owner frame to be a complete BAR frame"
+            );
+            anyhow::ensure!(
+                universe_frame.selection().members().len() == TARGET_SET_MEMBER_COUNT
+                    && universe_frame
+                        .selection()
+                        .members()
+                        .iter()
+                        .zip(instrument_ids)
+                        .all(|(member, instrument)| member.instrument() == instrument.to_string()),
+                "request execution bundle member set mismatches the Owner universe"
+            );
+            anyhow::ensure!(
+                universe_frame.values().len() == expected_values,
+                "request execution bundle has an incomplete Owner universe frame"
+            );
+            admitted_frame_times.push(admitted.envelope().order_key.logical_time_ns);
+        }
+        // The two sides are paired, not merely equal in length: a universe receipt admitted at one
+        // instant paired with a schedule for another instant is two different frames wearing one
+        // ordinal, and every per-frame check below would still pass.
         anyhow::ensure!(
-            universe_frame.values().len() == expected_values,
-            "request execution bundle has an incomplete Owner universe frame"
+            admitted_frame_times == frame_times,
+            "request execution bundle universe frames and schedules are admitted at different instants"
         );
-        let frame_time = admitted.envelope().order_key.logical_time_ns;
+        let frame_time = frame_times[0];
         let plan_digest = *plan.canonical_plan_digest().as_bytes();
         let artifact_digest = *artifact.identity().as_bytes();
-        let selection_identity = *universe_frame.selection().selection_identity().as_bytes();
-        let selection_digest = *universe_frame.selection().selection_digest().as_bytes();
+        // The request pins one universe selection for the whole window, so the series' selection
+        // is the first frame's and every later frame was checked against the same member set.
+        let first_frame = &universe_frames[0];
+        let selection_identity = *first_frame.selection().selection_identity().as_bytes();
+        let selection_digest = *first_frame.selection().selection_digest().as_bytes();
         anyhow::ensure!(
             authority.request_strategy_plan_identity()
                 == canonical_digest_text("sha256", plan_digest)
@@ -519,7 +640,7 @@ impl ReplayTargetSetExecutionBundleV1 {
             &data,
             &instruments,
             &bar_types,
-            frame_time,
+            frame_times,
             request_window.start_event_ns,
             request_window.end_event_ns_exclusive,
         )?;
@@ -554,16 +675,13 @@ impl ReplayTargetSetExecutionBundleV1 {
             native_materialization_digest: native_profile.materialization_digest(),
             canonical_plan_digest: *plan.canonical_plan_digest().as_bytes(),
             artifact_identity: *artifact.identity().as_bytes(),
-            universe_frame_digest: *universe_frame.digest().as_bytes(),
-            universe_selection_identity: *universe_frame
-                .selection()
-                .selection_identity()
-                .as_bytes(),
-            universe_selection_digest: *universe_frame.selection().selection_digest().as_bytes(),
-            observation_batch_digest: *universe_frame
-                .selection()
-                .observation_batch_digest()
-                .as_bytes(),
+            frame_sequence_digest: digest_frame_sequence(
+                &universe_frames,
+                owner_scheduling_receipt_digests,
+            )?,
+            frame_count: u64::try_from(universe_frames.len())?,
+            universe_selection_identity: selection_identity,
+            universe_selection_digest: selection_digest,
             member_instruments: instruments
                 .each_ref()
                 .map(|instrument| instrument.id().to_string()),
@@ -571,18 +689,17 @@ impl ReplayTargetSetExecutionBundleV1 {
                 .instrument_terms()
                 .each_ref()
                 .map(ReplayTargetSetInstrumentCensusV1::from),
-            owner_scheduling_receipt_digest,
             scheduling_data_digest,
             scheduling_data_count: u64::try_from(data.len())?,
-            bar_count: u64::try_from(TARGET_SET_MEMBER_COUNT)?,
-            event_count: u64::try_from(TARGET_SET_MEMBER_COUNT)?,
+            bar_count: u64::try_from(TARGET_SET_MEMBER_COUNT * universe_frames.len())?,
+            event_count: u64::try_from(TARGET_SET_MEMBER_COUNT * universe_frames.len())?,
             census_digest: [0; 32],
         };
         census.census_digest = digest_census(&census)?;
         Ok(Self {
             plan,
             artifact,
-            universe_frame,
+            universe_frames,
             native_profile,
             account_scope_id,
             strategy_id,
@@ -604,26 +721,67 @@ impl ReplayTargetSetExecutionBundleV1 {
         authority: OwnerIssuedReplayExecutionProfileBindingV1,
         plan: StrategyPlanV2,
         artifact: StrategyArtifactV2,
-        universe_frame: StrategyInputUniverseFrameReceipt,
+        universe_frames: Vec<StrategyInputUniverseFrameReceipt>,
         strategy_id: StrategyId,
         run_id: String,
         instruments: [InstrumentAny; TARGET_SET_MEMBER_COUNT],
         bar_types: [BarType; TARGET_SET_MEMBER_COUNT],
         data: Vec<Data>,
+        frame_times: &[u64],
     ) -> anyhow::Result<Self> {
+        let receipt_digests = vec![[0; 32]; frame_times.len()];
         Self::new_with_native_instruments(
             authority,
             plan,
             artifact,
-            universe_frame,
+            universe_frames,
             strategy_id,
             run_id,
             instruments,
             bar_types,
             data,
-            None,
+            frame_times,
+            &receipt_digests,
         )
     }
+}
+
+/// Seals the ordered per-frame facts the census used to carry as three single-frame fields.
+///
+/// One digest rather than three columns per frame, so the census keeps a fixed width: a census
+/// that is complete for two frames and one that is complete for three hundred are then the same
+/// shape, and no consumer has to learn to iterate to stay correct. The order is inside the value,
+/// so two frames swapped are a different sequence rather than the same one. `frame_count` stays a
+/// field of its own because a digest cannot answer how many, and a one-frame series has to be
+/// distinguishable from a series that carried none.
+fn digest_frame_sequence(
+    universe_frames: &[StrategyInputUniverseFrameReceipt],
+    owner_scheduling_receipt_digests: &[[u8; 32]],
+) -> anyhow::Result<[u8; 32]> {
+    anyhow::ensure!(
+        universe_frames.len() == owner_scheduling_receipt_digests.len(),
+        "request execution bundle frame sequence digest has unpaired frames"
+    );
+    let mut hasher = Sha256::new();
+    hasher.update(FRAME_SEQUENCE_DIGEST_DOMAIN_V1);
+    hasher.update(u64::try_from(universe_frames.len())?.to_be_bytes());
+
+    for (ordinal, (universe_frame, scheduling_receipt_digest)) in universe_frames
+        .iter()
+        .zip(owner_scheduling_receipt_digests)
+        .enumerate()
+    {
+        hasher.update(u64::try_from(ordinal)?.to_be_bytes());
+        hasher.update(universe_frame.digest().as_bytes());
+        hasher.update(
+            universe_frame
+                .selection()
+                .observation_batch_digest()
+                .as_bytes(),
+        );
+        hasher.update(scheduling_receipt_digest);
+    }
+    Ok(hasher.finalize().into())
 }
 
 fn digest_census(census: &ReplayTargetSetExecutionCensusV1) -> anyhow::Result<[u8; 32]> {
@@ -648,19 +806,15 @@ fn digest_census(census: &ReplayTargetSetExecutionCensusV1) -> anyhow::Result<[u
         census.native_materialization_digest,
         census.canonical_plan_digest,
         census.artifact_identity,
-        census.universe_frame_digest,
+        census.frame_sequence_digest,
         census.universe_selection_identity,
         census.universe_selection_digest,
-        census.observation_batch_digest,
         census.scheduling_data_digest,
     ] {
         hasher.update(digest);
     }
-
-    if let Some(digest) = census.owner_scheduling_receipt_digest {
-        hasher.update(b"OWNER_SCHEDULING_V1\0");
-        hasher.update(digest);
-    }
+    hasher.update(b"FRAME_COUNT_V1\0");
+    hasher.update(census.frame_count.to_be_bytes());
     digest_text(&mut hasher, &census.trial_family_identity)?;
     for instrument in &census.member_instruments {
         digest_text(&mut hasher, instrument)?;
@@ -754,23 +908,16 @@ fn validate_and_digest_scheduling_data(
     data: &[Data],
     instruments: &[InstrumentAny; TARGET_SET_MEMBER_COUNT],
     bar_types: &[BarType; TARGET_SET_MEMBER_COUNT],
-    frame_time: u64,
+    frame_times: &[u64],
     window_start_event_ns: u64,
     window_end_event_ns_exclusive: u64,
 ) -> anyhow::Result<[u8; 32]> {
-    let [
-        Data::Bar(first_bar),
-        Data::Bar(second_bar),
-        Data::Quote(first_event),
-        Data::Quote(second_event),
-    ] = data
-    else {
-        anyhow::bail!(
-            "request execution bundle requires two canonical BAR signals followed by two Quote EVENTs"
-        );
-    };
-    let bars = [first_bar, second_bar];
-    let events = [first_event, second_event];
+    const ROUND_LEN: usize = TARGET_SET_MEMBER_COUNT * 2;
+
+    anyhow::ensure!(
+        !frame_times.is_empty() && data.len() == ROUND_LEN * frame_times.len(),
+        "request execution bundle scheduling data does not carry one complete round per frame"
+    );
     anyhow::ensure!(
         window_start_event_ns < window_end_event_ns_exclusive
             && data
@@ -779,32 +926,56 @@ fn validate_and_digest_scheduling_data(
         "request execution bundle scheduling data is outside the Owner request window"
     );
 
-    for ordinal in 0..TARGET_SET_MEMBER_COUNT {
-        let instrument_id = instruments[ordinal].id();
+    // Every round is checked, not only the first. A rule that reads the head of a paired shape can
+    // never see a defect behind it, and the whole point of a series is that there is something
+    // behind it.
+    for (round, frame_time) in data.chunks_exact(ROUND_LEN).zip(frame_times) {
+        let [
+            Data::Bar(first_bar),
+            Data::Bar(second_bar),
+            Data::Quote(first_event),
+            Data::Quote(second_event),
+        ] = round
+        else {
+            anyhow::bail!(
+                "request execution bundle requires two canonical BAR signals followed by two Quote EVENTs in every round"
+            );
+        };
+        let bars = [first_bar, second_bar];
+        let events = [first_event, second_event];
+
+        for ordinal in 0..TARGET_SET_MEMBER_COUNT {
+            let instrument_id = instruments[ordinal].id();
+            anyhow::ensure!(
+                bars[ordinal].bar_type == bar_types[ordinal]
+                    && bars[ordinal].instrument_id() == instrument_id
+                    && bars[ordinal].ts_event.as_u64() == *frame_time
+                    && bars[ordinal].ts_init.as_u64() == *frame_time
+                    && bars[ordinal].ts_event.as_u64() >= window_start_event_ns
+                    && bars[ordinal].ts_event.as_u64() < window_end_event_ns_exclusive,
+                "request execution bundle BAR scheduling order or time mismatches"
+            );
+            anyhow::ensure!(
+                events[ordinal].instrument_id == instrument_id
+                    && events[ordinal].ts_event.as_u64() > *frame_time
+                    && events[ordinal].ts_event.as_u64() >= window_start_event_ns
+                    && events[ordinal].ts_event.as_u64() < window_end_event_ns_exclusive
+                    && events[ordinal].ts_init.as_u64() >= events[ordinal].ts_event.as_u64()
+                    && events[ordinal].bid_size.as_decimal() > rust_decimal::Decimal::ZERO
+                    && events[ordinal].ask_size.as_decimal() > rust_decimal::Decimal::ZERO,
+                "request execution bundle EVENT scheduling order, time, or liquidity mismatches"
+            );
+        }
         anyhow::ensure!(
-            bars[ordinal].bar_type == bar_types[ordinal]
-                && bars[ordinal].instrument_id() == instrument_id
-                && bars[ordinal].ts_event.as_u64() == frame_time
-                && bars[ordinal].ts_init.as_u64() == frame_time
-                && bars[ordinal].ts_event.as_u64() >= window_start_event_ns
-                && bars[ordinal].ts_event.as_u64() < window_end_event_ns_exclusive,
-            "request execution bundle BAR scheduling order or time mismatches"
-        );
-        anyhow::ensure!(
-            events[ordinal].instrument_id == instrument_id
-                && events[ordinal].ts_event.as_u64() > frame_time
-                && events[ordinal].ts_event.as_u64() >= window_start_event_ns
-                && events[ordinal].ts_event.as_u64() < window_end_event_ns_exclusive
-                && events[ordinal].ts_init.as_u64() >= events[ordinal].ts_event.as_u64()
-                && events[ordinal].bid_size.as_decimal() > rust_decimal::Decimal::ZERO
-                && events[ordinal].ask_size.as_decimal() > rust_decimal::Decimal::ZERO,
-            "request execution bundle EVENT scheduling order, time, or liquidity mismatches"
+            events[0].ts_event < events[1].ts_event,
+            "request execution bundle EVENT order is not canonical"
         );
     }
-    anyhow::ensure!(
-        events[0].ts_event < events[1].ts_event,
-        "request execution bundle EVENT order is not canonical"
-    );
+    // Frames that do not advance are refused here rather than by a rule of their own: every round
+    // stamps its BARs at its frame time, so a frame that did not advance puts a BAR before the
+    // previous round's EVENTs and breaks this order. A separate frame-time comparison was written
+    // first and removed, because mutation testing showed it could be deleted with no test noticing:
+    // it could never fire on its own.
     anyhow::ensure!(
         data.windows(2)
             .all(|pair| pair[0].ts_init() <= pair[1].ts_init()),
@@ -813,13 +984,19 @@ fn validate_and_digest_scheduling_data(
 
     let mut hasher = Sha256::new();
     hasher.update(SCHEDULING_DIGEST_DOMAIN_V1);
-    hasher.update((data.len() as u64).to_be_bytes());
-    for bar in bars {
-        digest_bar(&mut hasher, bar)?;
-    }
+    hasher.update(u64::try_from(data.len())?.to_be_bytes());
+    hasher.update(u64::try_from(frame_times.len())?.to_be_bytes());
 
-    for event in events {
-        digest_quote(&mut hasher, event)?;
+    // Every element in issue order, so a run that reordered two rounds without changing either one
+    // seals a different digest than the run the Owner issued.
+    for value in data {
+        match value {
+            Data::Bar(bar) => digest_bar(&mut hasher, bar)?,
+            Data::Quote(event) => digest_quote(&mut hasher, event)?,
+            _ => {
+                anyhow::bail!("request execution bundle scheduling data carries a foreign element")
+            }
+        }
     }
     Ok(hasher.finalize().into())
 }
@@ -931,6 +1108,172 @@ mod tests {
         ))
     }
 
+    const SECOND_FRAME_TIME: u64 = FRAME_TIME + 10;
+    const TWO_ROUND_WINDOW_END: u64 = FRAME_TIME + 20;
+
+    /// Two complete rounds, so a rule that only reads the first one has somewhere to be wrong.
+    fn two_round_scheduling_fixture() -> (
+        [InstrumentAny; TARGET_SET_MEMBER_COUNT],
+        [BarType; TARGET_SET_MEMBER_COUNT],
+        Vec<Data>,
+        Vec<u64>,
+    ) {
+        let (instruments, bar_types, mut data) = scheduling_fixture();
+        data.push(member_bar(bar_types[0], "100", SECOND_FRAME_TIME));
+        data.push(member_bar(bar_types[1], "100.0", SECOND_FRAME_TIME));
+        data.push(quote(&instruments[0], SECOND_FRAME_TIME + 1, "100"));
+        data.push(quote(&instruments[1], SECOND_FRAME_TIME + 2, "100.0"));
+        (
+            instruments,
+            bar_types,
+            data,
+            vec![FRAME_TIME, SECOND_FRAME_TIME],
+        )
+    }
+
+    #[rstest::rstest]
+    fn a_defect_in_the_second_round_is_refused() {
+        let (instruments, bar_types, data, frame_times) = two_round_scheduling_fixture();
+        assert!(
+            validate_and_digest_scheduling_data(
+                &data,
+                &instruments,
+                &bar_types,
+                &frame_times,
+                FRAME_TIME,
+                TWO_ROUND_WINDOW_END
+            )
+            .is_ok()
+        );
+
+        // The second round's first BAR is stamped at the first round's instant. A validator that
+        // read only the head of the paired shape would accept this, because the head is intact.
+        let mut late = data.clone();
+        late[4] = member_bar(bar_types[0], "100", FRAME_TIME);
+        assert!(
+            validate_and_digest_scheduling_data(
+                &late,
+                &instruments,
+                &bar_types,
+                &frame_times,
+                FRAME_TIME,
+                TWO_ROUND_WINDOW_END
+            )
+            .is_err()
+        );
+
+        // Same shape one element further in: the second round's second EVENT loses its liquidity.
+        let mut dry = data;
+        dry[7] = quote(&instruments[1], SECOND_FRAME_TIME + 2, "0");
+        assert!(
+            validate_and_digest_scheduling_data(
+                &dry,
+                &instruments,
+                &bar_types,
+                &frame_times,
+                FRAME_TIME,
+                TWO_ROUND_WINDOW_END
+            )
+            .is_err()
+        );
+    }
+
+    /// Frames that do not advance are refused, whichever rule does it.
+    ///
+    /// The rule that catches it is the scheduling order, not a frame-time comparison: the second
+    /// round's BARs land before the first round's EVENTs. Naming the observable behaviour rather
+    /// than the mechanism is deliberate, because the mechanism moved once already.
+    #[rstest::rstest]
+    fn frames_that_do_not_advance_are_refused() {
+        let (instruments, bar_types, mut data, _) = two_round_scheduling_fixture();
+        data[4] = member_bar(bar_types[0], "100", FRAME_TIME);
+        data[5] = member_bar(bar_types[1], "100.0", FRAME_TIME);
+        data[6] = quote(&instruments[0], FRAME_TIME + 1, "100");
+        data[7] = quote(&instruments[1], FRAME_TIME + 2, "100.0");
+        assert!(
+            validate_and_digest_scheduling_data(
+                &data,
+                &instruments,
+                &bar_types,
+                &[FRAME_TIME, FRAME_TIME],
+                FRAME_TIME,
+                TWO_ROUND_WINDOW_END
+            )
+            .is_err()
+        );
+    }
+
+    #[rstest::rstest]
+    fn a_frame_without_its_own_round_is_refused() {
+        let (instruments, bar_types, data, frame_times) = two_round_scheduling_fixture();
+        let mut short = data.clone();
+        short.pop();
+        assert!(
+            validate_and_digest_scheduling_data(
+                &short,
+                &instruments,
+                &bar_types,
+                &frame_times,
+                FRAME_TIME,
+                TWO_ROUND_WINDOW_END
+            )
+            .is_err()
+        );
+
+        // One round of data claiming two frames, and two rounds claiming one.
+        assert!(
+            validate_and_digest_scheduling_data(
+                &data[0..4],
+                &instruments,
+                &bar_types,
+                &frame_times,
+                FRAME_TIME,
+                TWO_ROUND_WINDOW_END
+            )
+            .is_err()
+        );
+        assert!(
+            validate_and_digest_scheduling_data(
+                &data,
+                &instruments,
+                &bar_types,
+                &[FRAME_TIME],
+                FRAME_TIME,
+                TWO_ROUND_WINDOW_END
+            )
+            .is_err()
+        );
+    }
+
+    #[rstest::rstest]
+    fn the_scheduling_digest_covers_every_round() {
+        let (instruments, bar_types, data, frame_times) = two_round_scheduling_fixture();
+        let whole = validate_and_digest_scheduling_data(
+            &data,
+            &instruments,
+            &bar_types,
+            &frame_times,
+            FRAME_TIME,
+            TWO_ROUND_WINDOW_END,
+        )
+        .unwrap();
+        // Same lengths, same first round, one element of the second round changed. Comparing
+        // against a one-round call instead would have passed on the element counts alone, which is
+        // what the first version of this test did and what mutation testing caught.
+        let mut altered = data;
+        altered[4] = member_bar(bar_types[0], "101", SECOND_FRAME_TIME);
+        let second_round_changed = validate_and_digest_scheduling_data(
+            &altered,
+            &instruments,
+            &bar_types,
+            &frame_times,
+            FRAME_TIME,
+            TWO_ROUND_WINDOW_END,
+        )
+        .unwrap();
+        assert_ne!(whole, second_round_changed);
+    }
+
     fn member_bar(bar_type: BarType, size: &str, instant: u64) -> Data {
         Data::Bar(Bar::new(
             bar_type,
@@ -1030,7 +1373,7 @@ mod tests {
             &first_data,
             &first_instruments,
             &first_bar_types,
-            FRAME_TIME,
+            &[FRAME_TIME],
             FRAME_TIME,
             FRAME_TIME + 3,
         )
@@ -1039,7 +1382,7 @@ mod tests {
             &second_data,
             &second_instruments,
             &second_bar_types,
-            FRAME_TIME,
+            &[FRAME_TIME],
             FRAME_TIME,
             FRAME_TIME + 3,
         )
@@ -1057,7 +1400,7 @@ mod tests {
                 &missing,
                 &instruments,
                 &bar_types,
-                FRAME_TIME,
+                &[FRAME_TIME],
                 FRAME_TIME,
                 FRAME_TIME + 3
             )
@@ -1071,7 +1414,7 @@ mod tests {
                 &duplicate,
                 &instruments,
                 &bar_types,
-                FRAME_TIME,
+                &[FRAME_TIME],
                 FRAME_TIME,
                 FRAME_TIME + 3
             )
@@ -1085,7 +1428,7 @@ mod tests {
                 &reordered,
                 &instruments,
                 &bar_types,
-                FRAME_TIME,
+                &[FRAME_TIME],
                 FRAME_TIME,
                 FRAME_TIME + 3
             )
@@ -1099,7 +1442,7 @@ mod tests {
                 &no_liquidity,
                 &instruments,
                 &bar_types,
-                FRAME_TIME,
+                &[FRAME_TIME],
                 FRAME_TIME,
                 FRAME_TIME + 3
             )
@@ -1127,7 +1470,7 @@ mod tests {
                 &data,
                 &instruments,
                 &bar_types,
-                FRAME_TIME,
+                &[FRAME_TIME],
                 FRAME_TIME,
                 FRAME_TIME + 11
             )

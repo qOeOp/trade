@@ -2170,6 +2170,43 @@ CREATE TABLE IF NOT EXISTS public.qualification_eligibility_facts_v1 (
   eligibility_json JSONB NOT NULL,
   committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0)
 );
+-- An Eligibility Fact is immutable and carries its own lineage and window. `predecessor_eligibility_identity`
+-- is NULL on an initial Fact and names the Fact a renewal supersedes; it is UNIQUE, so a Fact can be superseded
+-- at most once and each lineage stays linear, which is what makes "the predecessor can never be current again"
+-- a property of the storage rather than of a check somebody has to remember to write. The window is half-open,
+-- `[effective_from_epoch_ms, valid_through_epoch_ms)`, the same shape this Owner already uses for a protected
+-- feedback projection. The columns are nullable because this migration runs against a database that already
+-- holds rows, and the Fact digest, not the column, is what makes them immutable once written.
+ALTER TABLE IF EXISTS public.qualification_eligibility_facts_v1
+  ADD COLUMN IF NOT EXISTS predecessor_eligibility_identity TEXT;
+ALTER TABLE IF EXISTS public.qualification_eligibility_facts_v1
+  ADD COLUMN IF NOT EXISTS effective_from_epoch_ms BIGINT;
+ALTER TABLE IF EXISTS public.qualification_eligibility_facts_v1
+  ADD COLUMN IF NOT EXISTS valid_through_epoch_ms BIGINT;
+ALTER TABLE public.qualification_eligibility_facts_v1
+  DROP CONSTRAINT IF EXISTS qualification_eligibility_facts_v1_predecessor_key;
+ALTER TABLE public.qualification_eligibility_facts_v1
+  ADD CONSTRAINT qualification_eligibility_facts_v1_predecessor_key
+  UNIQUE (predecessor_eligibility_identity);
+ALTER TABLE public.qualification_eligibility_facts_v1
+  DROP CONSTRAINT IF EXISTS qualification_eligibility_facts_v1_predecessor_fkey;
+ALTER TABLE public.qualification_eligibility_facts_v1
+  ADD CONSTRAINT qualification_eligibility_facts_v1_predecessor_fkey
+  FOREIGN KEY (predecessor_eligibility_identity)
+  REFERENCES public.qualification_eligibility_facts_v1(eligibility_identity) DEFERRABLE INITIALLY DEFERRED;
+ALTER TABLE public.qualification_eligibility_facts_v1
+  DROP CONSTRAINT IF EXISTS qualification_eligibility_facts_v1_window_check;
+ALTER TABLE public.qualification_eligibility_facts_v1
+  ADD CONSTRAINT qualification_eligibility_facts_v1_window_check
+  CHECK (
+    (effective_from_epoch_ms IS NULL) = (valid_through_epoch_ms IS NULL)
+    AND (effective_from_epoch_ms IS NULL OR effective_from_epoch_ms < valid_through_epoch_ms)
+  );
+ALTER TABLE public.qualification_eligibility_facts_v1
+  DROP CONSTRAINT IF EXISTS qualification_eligibility_facts_v1_not_self_predecessor_check;
+ALTER TABLE public.qualification_eligibility_facts_v1
+  ADD CONSTRAINT qualification_eligibility_facts_v1_not_self_predecessor_check
+  CHECK (predecessor_eligibility_identity IS DISTINCT FROM eligibility_identity);
 ALTER TABLE public.qualification_eligibility_facts_v1
   DROP CONSTRAINT IF EXISTS qualification_eligibility_facts_v1_status_check;
 ALTER TABLE public.qualification_eligibility_facts_v1

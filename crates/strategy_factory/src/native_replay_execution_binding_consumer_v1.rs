@@ -159,7 +159,7 @@ where
         .commit()
         .await
         .map_err(|_| NativeReplayExecutionBindingConsumerErrorV1)?;
-    let execution = ReplayTargetSetExecutionBundleV1::new(
+    let execution = ReplayTargetSetExecutionBundleV1::new_from_single_frame_v1(
         profile,
         plan,
         artifact,

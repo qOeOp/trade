@@ -3339,8 +3339,9 @@ async fn persist_protected_ineligible_commit_v1(
         "INSERT INTO public.qualification_eligibility_facts_v1 \
          (eligibility_identity,eligibility_digest,status,candidate_identity,assessment_identity,\
           holdout_reservation_identity,holdout_closure_identity,holdout_closure_digest,\
-          holdout_closure_disposition,eligibility_json,committed_at_epoch_ms) \
-         VALUES ($1,$2,'INELIGIBLE',$3,$4,$5,$6,$7,$8,$9,$10)",
+          holdout_closure_disposition,eligibility_json,committed_at_epoch_ms,\
+          predecessor_eligibility_identity,effective_from_epoch_ms,valid_through_epoch_ms) \
+         VALUES ($1,$2,'INELIGIBLE',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
     )
     .bind(eligibility.eligibility_identity())
     .bind(eligibility.eligibility_digest())
@@ -3352,6 +3353,9 @@ async fn persist_protected_ineligible_commit_v1(
     .bind(closure_status(eligibility.holdout_closure_disposition()))
     .bind(eligibility.as_json()?)
     .bind(committed_at)
+    .bind(eligibility.predecessor_eligibility_identity())
+    .bind(i64::try_from(eligibility.effective_from_epoch_ms()).map_err(json_storage)?)
+    .bind(i64::try_from(eligibility.valid_through_epoch_ms()).map_err(json_storage)?)
     .execute(&mut **transaction)
     .await
     .map_err(storage)?;
@@ -3422,7 +3426,8 @@ async fn verify_protected_ineligible_commit_v1(
     let eligibility_rows = sqlx::query(
         "SELECT eligibility_digest,status,candidate_identity,assessment_identity,\
                 holdout_reservation_identity,holdout_closure_identity,holdout_closure_digest,\
-                holdout_closure_disposition,eligibility_json,committed_at_epoch_ms \
+                holdout_closure_disposition,eligibility_json,committed_at_epoch_ms,\
+                predecessor_eligibility_identity,effective_from_epoch_ms,valid_through_epoch_ms \
          FROM public.qualification_eligibility_facts_v1 WHERE eligibility_identity=$1",
     )
     .bind(eligibility.eligibility_identity())
@@ -3523,6 +3528,44 @@ async fn verify_protected_ineligible_commit_v1(
     {
         return Err(unavailable("INELIGIBLE Eligibility Fact custody changed"));
     }
+
+    // The lineage and window columns are verified here rather than inside the condition above,
+    // which already answers eighteen comparisons with one sentence. Adding three more to it would
+    // have made that worse; this says which of the three diverged.
+    let lineage_diverged = if eligibility_rows[0]
+        .try_get::<Option<String>, _>("predecessor_eligibility_identity")
+        .map_err(storage)?
+        .as_deref()
+        != eligibility.predecessor_eligibility_identity()
+    {
+        Some("predecessor_eligibility_identity")
+    } else if u64::try_from(
+        eligibility_rows[0]
+            .try_get::<i64, _>("effective_from_epoch_ms")
+            .map_err(storage)?,
+    )
+    .map_err(json_storage)?
+        != eligibility.effective_from_epoch_ms()
+    {
+        Some("effective_from_epoch_ms")
+    } else if u64::try_from(
+        eligibility_rows[0]
+            .try_get::<i64, _>("valid_through_epoch_ms")
+            .map_err(storage)?,
+    )
+    .map_err(json_storage)?
+        != eligibility.valid_through_epoch_ms()
+    {
+        Some("valid_through_epoch_ms")
+    } else {
+        None
+    };
+
+    if let Some(field) = lineage_diverged {
+        return Err(unavailable(format!(
+            "INELIGIBLE Eligibility Fact lineage readback diverged at {field}"
+        )));
+    }
     Ok(())
 }
 
@@ -3556,8 +3599,9 @@ async fn persist_protected_qualified_commit_v1(
         "INSERT INTO public.qualification_eligibility_facts_v1 \
          (eligibility_identity,eligibility_digest,status,candidate_identity,assessment_identity,\
           holdout_reservation_identity,holdout_closure_identity,holdout_closure_digest,\
-          holdout_closure_disposition,eligibility_json,committed_at_epoch_ms) \
-         VALUES ($1,$2,'QUALIFIED',$3,$4,$5,$6,$7,$8,$9,$10)",
+          holdout_closure_disposition,eligibility_json,committed_at_epoch_ms,\
+          predecessor_eligibility_identity,effective_from_epoch_ms,valid_through_epoch_ms) \
+         VALUES ($1,$2,'QUALIFIED',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
     )
     .bind(eligibility.eligibility_identity())
     .bind(eligibility.eligibility_digest())
@@ -3569,6 +3613,9 @@ async fn persist_protected_qualified_commit_v1(
     .bind(closure_status(eligibility.holdout_closure_disposition()))
     .bind(eligibility.as_json()?)
     .bind(committed_at)
+    .bind(eligibility.predecessor_eligibility_identity())
+    .bind(i64::try_from(eligibility.effective_from_epoch_ms()).map_err(json_storage)?)
+    .bind(i64::try_from(eligibility.valid_through_epoch_ms()).map_err(json_storage)?)
     .execute(&mut **transaction)
     .await
     .map_err(storage)?;
@@ -3639,7 +3686,8 @@ async fn verify_protected_qualified_commit_v1(
     let eligibility_rows = sqlx::query(
         "SELECT eligibility_digest,status,candidate_identity,assessment_identity,\
                 holdout_reservation_identity,holdout_closure_identity,holdout_closure_digest,\
-                holdout_closure_disposition,eligibility_json,committed_at_epoch_ms \
+                holdout_closure_disposition,eligibility_json,committed_at_epoch_ms,\
+                predecessor_eligibility_identity,effective_from_epoch_ms,valid_through_epoch_ms \
          FROM public.qualification_eligibility_facts_v1 WHERE eligibility_identity=$1",
     )
     .bind(eligibility.eligibility_identity())
@@ -3739,6 +3787,44 @@ async fn verify_protected_qualified_commit_v1(
         || outbox_count != 1
     {
         return Err(unavailable("QUALIFIED Eligibility Fact custody changed"));
+    }
+
+    // The lineage and window columns are verified here rather than inside the condition above,
+    // which already answers eighteen comparisons with one sentence. Adding three more to it would
+    // have made that worse; this says which of the three diverged.
+    let lineage_diverged = if eligibility_rows[0]
+        .try_get::<Option<String>, _>("predecessor_eligibility_identity")
+        .map_err(storage)?
+        .as_deref()
+        != eligibility.predecessor_eligibility_identity()
+    {
+        Some("predecessor_eligibility_identity")
+    } else if u64::try_from(
+        eligibility_rows[0]
+            .try_get::<i64, _>("effective_from_epoch_ms")
+            .map_err(storage)?,
+    )
+    .map_err(json_storage)?
+        != eligibility.effective_from_epoch_ms()
+    {
+        Some("effective_from_epoch_ms")
+    } else if u64::try_from(
+        eligibility_rows[0]
+            .try_get::<i64, _>("valid_through_epoch_ms")
+            .map_err(storage)?,
+    )
+    .map_err(json_storage)?
+        != eligibility.valid_through_epoch_ms()
+    {
+        Some("valid_through_epoch_ms")
+    } else {
+        None
+    };
+
+    if let Some(field) = lineage_diverged {
+        return Err(unavailable(format!(
+            "QUALIFIED Eligibility Fact lineage readback diverged at {field}"
+        )));
     }
     Ok(())
 }
@@ -7068,6 +7154,138 @@ mod postgres_tests {
         .await
         .expect("the projection row is still there");
         assert_eq!(after, projection_json, "the tamper was rolled back in full");
+    }
+
+    /// An Eligibility Fact carries its own lineage and window, and storage is what enforces both.
+    ///
+    /// The window is half-open `[effective_from, valid_through)` and its closing edge is not a
+    /// constant: a qualification may not outlive the evidence it rests on, so it is the
+    /// `valid_through` of the assessment-stage Time Evidence the Fact binds. That equality is
+    /// asserted against the assessment row, because a window that merely held some number would
+    /// satisfy a bounds check while meaning nothing.
+    ///
+    /// Immutability is a grant, not a check: `qualification_writer` holds `SELECT` and `INSERT` on
+    /// this relation and neither `UPDATE` nor `DELETE`, so a committed Fact cannot be edited at all.
+    /// This entry asserts that directly, with a relation the same role may update as the control,
+    /// because a probe that finds no privilege anywhere proves nothing.
+    ///
+    /// The constraints are exercised on the accept side by every commit: each Fact written has to
+    /// satisfy the window and self-predecessor checks to be stored at all. What is not driven here
+    /// is any of their refusals, and the reason rather than silence. A refused window or a refused
+    /// self-predecessor would need this Owner to try to write one, which its own commit path does
+    /// not do; a refused second successor needs two Facts in one lineage, and a renewal producer
+    /// does not exist yet. None of the three can be reached by editing a row either, for the grant
+    /// reason above. Their presence is asserted from the catalog so that removing one is not silent.
+    ///
+    /// What this entry does not prove, stated so a green run is not read as more than it is: the
+    /// `valid_through` it checks originates from `issue_protected_evaluation_shared_time_v1`, whose
+    /// five callers are all inside test modules, so it has no production caller today. That is the
+    /// declared state rather than a defect, because the deployment shared-time resolver stays closed
+    /// while `DEPLOYMENT_STORE_ADMISSION_MODE` is `disabled`. This entry proves the window is derived
+    /// from the evidence the Fact binds. It does not prove a deployment can produce that evidence.
+    #[tokio::test]
+    #[ignore = "requires the repository-authoritative disposable Owner PostgreSQL topology"]
+    async fn an_eligibility_fact_window_is_derived_and_its_lineage_is_enforced_by_storage() {
+        const FACTS: &str = "public.qualification_eligibility_facts_v1";
+
+        let url = std::env::var("QUALIFICATION_TEST_DATABASE_URL")
+            .expect("explicit disposable Qualification URL");
+        let pool = PgPool::connect(&url).await.expect("Qualification pool");
+
+        // The window is populated, half-open, and its closing edge is the evidence the Fact binds.
+        let facts: Vec<(String, i64, i64, String)> = sqlx::query_as(
+            "SELECT eligibility_identity,
+                    effective_from_epoch_ms,
+                    valid_through_epoch_ms,
+                    assessment_identity
+               FROM public.qualification_eligibility_facts_v1
+              ORDER BY eligibility_identity",
+        )
+        .fetch_all(&pool)
+        .await
+        .expect("an earlier ordered entry committed an Eligibility Fact");
+        assert!(
+            !facts.is_empty(),
+            "this entry runs after the entries that commit Eligibility Facts"
+        );
+
+        for (identity, effective_from, valid_through, assessment_identity) in &facts {
+            assert!(
+                effective_from < valid_through,
+                "the window is half-open and non-empty for {identity}"
+            );
+            let evidence_valid_through: i64 = sqlx::query_scalar(
+                "SELECT (assessment_json->'assessment_time_evidence'->>'valid_through')::BIGINT
+                   FROM public.qualification_protected_robustness_assessments_v1
+                  WHERE assessment_identity = $1",
+            )
+            .bind(assessment_identity)
+            .fetch_one(&pool)
+            .await
+            .expect("the assessment this Fact binds is readable");
+            assert_eq!(
+                *valid_through, evidence_valid_through,
+                "the closing edge of {identity} is the assessment Time Evidence it binds, not a \
+                 constant; that evidence is issued by the sealed-acceptance surface, which has no \
+                 production caller today"
+            );
+        }
+
+        // Immutability by grant. The control is a relation this same role may update.
+        let (may_update, may_delete, may_insert, may_select, control_may_update): (
+            bool,
+            bool,
+            bool,
+            bool,
+            bool,
+        ) = sqlx::query_as(
+            "SELECT pg_catalog.has_table_privilege(session_user, $1, 'UPDATE'),
+                    pg_catalog.has_table_privilege(session_user, $1, 'DELETE'),
+                    pg_catalog.has_table_privilege(session_user, $1, 'INSERT'),
+                    pg_catalog.has_table_privilege(session_user, $1, 'SELECT'),
+                    pg_catalog.has_table_privilege(
+                        session_user, 'public.qualification_holdout_reservations_v1', 'UPDATE')",
+        )
+        .bind(FACTS)
+        .fetch_one(&pool)
+        .await
+        .expect("the privilege catalog answers");
+        assert!(
+            may_select && may_insert,
+            "this role writes Eligibility Facts, so the probe is pointed at a relation it can use"
+        );
+        assert!(
+            control_may_update,
+            "control: this role does hold UPDATE somewhere, so a false below is a boundary rather \
+             than a role with no privileges at all"
+        );
+        assert!(
+            !may_update && !may_delete,
+            "a committed Eligibility Fact cannot be edited or removed by the role that wrote it"
+        );
+
+        // The lineage constraints are present. Driving them needs a renewal producer, which does
+        // not exist yet, so their presence is what can be asserted today.
+        let constraints: Vec<String> = sqlx::query_scalar(
+            "SELECT conname
+               FROM pg_catalog.pg_constraint
+              WHERE conrelid = $1::pg_catalog.regclass
+                AND conname IN (
+                      'qualification_eligibility_facts_v1_predecessor_key',
+                      'qualification_eligibility_facts_v1_predecessor_fkey',
+                      'qualification_eligibility_facts_v1_window_check',
+                      'qualification_eligibility_facts_v1_not_self_predecessor_check')
+              ORDER BY conname",
+        )
+        .bind(FACTS)
+        .fetch_all(&pool)
+        .await
+        .expect("the constraint catalog answers");
+        assert_eq!(
+            constraints.len(),
+            4,
+            "every lineage and window constraint is present: {constraints:?}"
+        );
     }
 
     #[tokio::test]

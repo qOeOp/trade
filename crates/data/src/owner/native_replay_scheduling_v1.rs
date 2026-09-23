@@ -571,13 +571,6 @@ pub trait NativeReplaySchedulingResolverV1: resolver_seal::Sealed + Send + Sync 
     ) -> Result<NativeReplaySchedulingReadbackV1, NativeReplaySchedulingErrorV1>;
 }
 
-#[cfg_attr(
-    test,
-    allow(
-        dead_code,
-        reason = "the production PostgreSQL resolver is disabled in unit tests"
-    )
-)]
 pub(crate) fn issue_native_replay_initial_market_readback_v1(
     batch: VerifiedPitObservationBatch,
     schedules: [BarScheduleReadbackV1; TARGET_SET_MEMBER_COUNT],
