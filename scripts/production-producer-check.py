@@ -156,7 +156,9 @@ def occurrences(rev, name):
             continue
         if declaration_re.search(line):
             own += 1
-        else:
+        elif name in COMMENT_RE.sub("", line):
+            # A doc comment naming a symbol is not a consumer of it. Counting one makes
+            # a symbol nothing calls look like a symbol whose callers the search missed.
             other += 1
     return own, other
 
