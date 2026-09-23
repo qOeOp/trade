@@ -4,6 +4,7 @@ import {
   type BacktestRunReportLocator,
 } from "./backtest-run-report-contract.ts";
 import { validExploratoryReplayOpaqueIdentityV2 } from "./exploratory-replay-identity.ts";
+import { announcedOwnerReadBudgetMsV1 } from "./operation-registry.ts";
 import { dashboardReadApiTargetV1, ownerApiTargetAvailableV1 } from "./owner-api-target.ts";
 
 // The `/backtest` read route for one run's report, as `docs/guide/dashboard.md` admits it: it relays
@@ -57,12 +58,13 @@ export async function readBacktestRunReportGatewayV1({
   if (!ownerApiTargetAvailableV1(target) || !endpoint || !target.token) {
     return unavailable(503, "OWNER_CONFIGURATION_UNAVAILABLE");
   }
+  const budgetMs = announcedOwnerReadBudgetMsV1("backtest run report", 8_000);
   try {
     const response = await fetcher(endpoint, {
       method: "GET",
       headers: { authorization: `Bearer ${target.token}` },
       cache: "no-store",
-      signal: AbortSignal.timeout(8_000),
+      signal: AbortSignal.timeout(budgetMs),
     });
     if (response.status === 401 || response.status === 403) {
       return unavailable(403, "OWNER_PERMISSION_DENIED");

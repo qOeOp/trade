@@ -1327,6 +1327,10 @@ mod tests {
             .arg("tests/backtest-run-report.browser.test.mjs")
             .current_dir(&dashboard_root)
             .env("DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE", "1")
+            // The same override entry 28 sets, for the same reason: the Dashboard's eight second
+            // Owner-read budget is a promise about a deployment, and on a shared acceptance runner
+            // it measures the runner's load. The gateway announces it whenever it is in force.
+            .env("DASHBOARD_OWNER_READ_TIMEOUT_OVERRIDE_MS", "25000")
             .env(
                 "DASHBOARD_STRATEGY_VIEWER_ACCEPTANCE_CANDIDATE",
                 acceptance_candidate,
