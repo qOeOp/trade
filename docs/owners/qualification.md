@@ -314,19 +314,23 @@ Implementation status of these handoffs, which is a record and not contract. Onl
 production caller: `resolve_or_create_for_basis` and `admit_in_transaction` are called from production code in
 vibe-strategy-factory, and `admit_historical_projection_in_transaction` from its R&D custody path. The R&D
 Candidate handoff has none: every call of `submit_candidate_intake_v1` outside this Owner is in one sealed
-acceptance test module. Backtest cannot perform its half of the economic measurement in production, because it
-has no admitted read of the frozen metric reference: not of the R&D plan, whose only sealed read returns native
-replay source storage, and not of `qualification_protected_economic_policy_bundles_v1`, whose grant is revoked.
+acceptance test module. Backtest's half of the economic measurement now has a delivery path and nothing driving
+it. The frozen metric and coverage-policy references, with the unit and the scale, travel inside the request set
+seal: `ProtectedReplayRequestSetSealDtoV1` carries the `ProtectedEconomicPolicyBundleV1` this Owner sealed, and
+`ResolvedProtectedReplayRequestSetV1::economic_computation` resolves the computation from it. That is the first of
+the two handoffs this gap was recorded as needing. Nothing drives it: `economic_computation` has two callers, both
+inside a test module, and the ordered gate does not reach the measurement through the seal. It reaches it only
+because the gate step reads the Candidate under this Owner's own role, which is fixture discovery, not a path
+Backtest has, and the step says so in its own comment. The grant that would let Backtest read
+`qualification_protected_economic_policy_bundles_v1` directly stays revoked, and the seal makes it unnecessary.
+What remains upstream is that no production code constructs a `ProtectedEconomicPolicyBundleV1`: its four
+construction sites all sit inside test modules.
 The separation from the exploratory path is closed on three layers, measured rather than assumed. No source of
 this Owner names `backtest_replay_results_v2`, `backtest_replay_result_receipts_v1`, or
 `resolve_exploratory_replay_result_v2`/`_v3`, while `backtest_protected_replay_results_v1` is named four times.
 `EXECUTE` on both exploratory resolvers is granted to `rd_owner` alone, where the protected counterpart is
 granted to `qualification_writer`. And `backtest_replay_results_v2` has six readers, none of them this Owner, so
 its absence here is a boundary rather than a dead relation.
-The ordered gate reaches the measurement only because the gate step reads the Candidate under this Owner's own
-role, which is fixture discovery, not a path Backtest has. Closing that gap needs a handoff of the frozen metric and
-coverage-policy references, with the unit and the scale, that Backtest may actually read - inside the request set
-seal, or as a sealed `qualification_api` read - and it is a cross-Owner contract change, not a proof.
 
 ## Output handoffs
 
