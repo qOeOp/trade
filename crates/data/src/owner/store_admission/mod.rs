@@ -3421,6 +3421,231 @@ mod tests {
     /// build that revalidated before verifying would show +3 here. **Deleting either assertion as
     /// redundant removes the whole property.**
     ///
+    /// A refused PIT readback does not go on to read schedule candidates.
+    ///
+    /// `resolve_native_replay_initial_market_through_admitted_port_v1` reads the snapshot's
+    /// evidence, verifies it, and only then asks the port for each member's schedule candidates.
+    /// Nothing in the types enforces that order; swapping the two would still compile, still
+    /// refuse, and still return the same error to the caller. What would change is that a store
+    /// whose snapshot evidence no longer decodes would have been asked about schedules anyway.
+    ///
+    /// The count is kept by the measurer, not by the arrangement, and the two readings differ only
+    /// in whether the schedule reads happened. The intact case is the positive control: it has no
+    /// schedule seeded for either instrument, so it refuses too - but it refuses *after* reading,
+    /// which is the whole point. A proof with only the refusing case would report zero schedule
+    /// reads whether the order held or the counter was broken.
+    #[rstest]
+    #[ignore = "requires the crates/data disposable PostgreSQL harness"]
+    fn a_refused_pit_readback_never_reads_schedule_candidates() {
+        std::thread::Builder::new()
+            .name("market-data-native-replay-order".into())
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(run_native_replay_initial_market_order_scenario());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    /// A request that names one committed snapshot and nothing more.
+    ///
+    /// The role list and window exist because the constructor takes them, not because this proof
+    /// depends on them: everything it measures happens at or before the evidence check, which runs
+    /// before any of these fields is consulted. A request that could resolve a frame would need a
+    /// universe selection the Owner derived, and deriving one is the supply this proof does not
+    /// have and does not need.
+    fn native_replay_request_for(
+        snapshot: &crate::owner::postgres::tests::NativeReplayTwoMemberSnapshotFixtureV1,
+    ) -> crate::owner::native_replay_scheduling_v1::NativeReplayInitialMarketRequestV1 {
+        use crate::owner::native_replay_scheduling_v1::{
+            NativeReplayInitialMarketRequestV1, NativeReplayInitialUniverseRoleV1,
+        };
+        use crate::owner::source_binding::BindingDigest;
+        use crate::owner::strategy_input_binding::{
+            MarketDataFieldSemantic, StrategyInputChannel, StrategyInputUnit,
+        };
+        let role = NativeReplayInitialUniverseRoleV1::new(
+            BindingDigest::from_untrusted_bytes([90; 32]),
+            MarketDataFieldSemantic::BarClosePrice,
+            StrategyInputChannel::Market,
+            "1M".to_owned(),
+            StrategyInputUnit::Price,
+            2,
+        );
+        NativeReplayInitialMarketRequestV1::new(
+            snapshot.snapshot_identity,
+            snapshot.snapshot_fact_digest,
+            BindingDigest::from_untrusted_bytes([91; 32]),
+            BindingDigest::from_untrusted_bytes([92; 32]),
+            BindingDigest::from_untrusted_bytes([93; 32]),
+            snapshot.universe_selection_digest,
+            snapshot.instrument_master_digest,
+            snapshot.source_binding_lineage_root,
+            snapshot.market_semantics_identity,
+            vec![role],
+            ["AAPL.XNAS".into(), "MSFT.XNAS".into()],
+            snapshot.frame_time_ns,
+            snapshot.frame_time_ns + 1_000,
+        )
+    }
+
+    async fn run_native_replay_initial_market_order_scenario() {
+        let owner_url = std::env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL")
+            .expect("explicit disposable Owner URL");
+        let database =
+            std::env::var("VIBE_POSTGRES_TEST_DATABASE_NAME").expect("disposable database name");
+        assert!(
+            database.starts_with("vibe_test_"),
+            "this proof writes and tampers; it runs only against a disposable database"
+        );
+
+        for name in [
+            "PGHOST",
+            "PGPORT",
+            "PGUSER",
+            "PGPASSWORD",
+            "PGDATABASE",
+            "PGSERVICE",
+            "PGSSLMODE",
+        ] {
+            assert!(
+                std::env::var(name).is_err(),
+                "{name} is set: the port's read fails closed on ambient configuration, and that \
+                 failure cannot be told apart from the ones this proof is looking for"
+            );
+        }
+
+        let owner = crate::owner::postgres::MarketDataOwnerPostgres::connect(&owner_url)
+            .await
+            .expect("Owner connects and migrates");
+        let snapshot =
+            crate::owner::postgres::tests::native_replay_two_member_snapshot_fixture_v1(&owner)
+                .await;
+
+        let spec = bar_schedule_measurement_spec();
+        let lease = PostgresCredentialLease::from_resolved_secret(
+            "native-replay-order-handle",
+            "market-data-owner",
+            "v1",
+            NOW + 3_600_000,
+            owner_url.clone(),
+        )
+        .expect("lease for the disposable database");
+        let measured = PostgresDirectMeasurer::measure(&PostgresDirectMeasurer, &lease, &spec)
+            .await
+            .expect("the real measurer reads the disposable database");
+        let fixture = Fixture::with_spec_and_measurement(&spec, measured);
+        let calls = Arc::new(AtomicUsize::new(0));
+        let custodian = Custodian::new(
+            Arc::new(fixture.custody()),
+            Arc::new(Ed25519Verifier {
+                key: fixture.signing_key.verifying_key(),
+                calls: Arc::new(AtomicUsize::new(0)),
+            }),
+            Arc::new(FakeWitness {
+                observation: fixture.witness.clone(),
+            }),
+            Arc::new(LeasedCredentials {
+                database_url: owner_url.clone(),
+            }),
+            Arc::new(CountingPostgresMeasurer {
+                calls: Arc::clone(&calls),
+            }),
+            Arc::new(FixedClock),
+        );
+        let port = custodian
+            .admit_capability(fixture.request.scope())
+            .await
+            .expect("the disposable database satisfies the recorded manifest")
+            .into_bar_schedule_snapshot_port()
+            .expect("the admitted capability carries the snapshot port");
+
+        // What each of the two reads costs, measured directly rather than assumed, because the
+        // assertions below are absolute rather than relative. The first version of this proof
+        // compared the two cases by their difference, and a mutation that read schedules before
+        // verifying anything passed it: premature reads land on both sides and cancel. A quantity
+        // that moves with the defect in only one of the two cases is not a discriminator.
+        let before = calls.load(Ordering::SeqCst);
+        port.resolve_bar_schedule_candidates_v1("AAPL.XNAS")
+            .await
+            .expect("the port answers a schedule query against the disposable database");
+        let per_schedule_read = calls.load(Ordering::SeqCst) - before;
+        assert!(
+            per_schedule_read > 0,
+            "a schedule read must move the counter, or the readings below mean nothing"
+        );
+        let before = calls.load(Ordering::SeqCst);
+        port.resolve_pit_evaluation(*snapshot.snapshot_identity.as_bytes())
+            .await
+            .expect("the port answers an evidence query against the disposable database");
+        let per_evidence_read = calls.load(Ordering::SeqCst) - before;
+        assert!(
+            per_evidence_read > 0,
+            "an evidence read must move the counter, or the readings below mean nothing"
+        );
+
+        let request = native_replay_request_for(&snapshot);
+
+        // Reading one: the snapshot is intact, so the evidence verifies and the arrangement goes on
+        // to ask about schedules. No schedule is seeded for either instrument, so it still refuses -
+        // after the reads, which is what makes this the control rather than the result.
+        let before = calls.load(Ordering::SeqCst);
+        let refused =
+            crate::owner::postgres::resolve_native_replay_initial_market_through_admitted_port_v1(
+                &port, &request,
+            )
+            .await
+            .expect_err("no schedule is seeded for either member");
+        let intact_reads = calls.load(Ordering::SeqCst) - before;
+        // One schedule read rather than two, measured: the loop refuses at the first instrument
+        // whose candidates cannot be selected, so the second is never asked. The arithmetic first
+        // written here assumed both and the run corrected it.
+        assert_eq!(
+            intact_reads,
+            per_evidence_read + per_schedule_read,
+            "the intact snapshot verified, read one instrument's candidates and stopped there; \
+             refusal {refused:?}"
+        );
+
+        // Reading two: the same snapshot, with stored bytes that no longer decode to their digest.
+        // Every join key and every count is untouched, so the read still finds the row and only the
+        // verification can reject.
+        sqlx::query(
+            "UPDATE market_data_private.pit_observation_batches_v1 SET batch_bytes = batch_bytes \
+             || '\\x00'::bytea",
+        )
+        .execute(owner.pool())
+        .await
+        .expect("tamper the stored batch bytes");
+
+        let before = calls.load(Ordering::SeqCst);
+        let rejected =
+            crate::owner::postgres::resolve_native_replay_initial_market_through_admitted_port_v1(
+                &port, &request,
+            )
+            .await
+            .expect_err("evidence that does not decode to its digest must not be returned");
+        let tampered_reads = calls.load(Ordering::SeqCst) - before;
+        assert!(
+            matches!(
+                rejected,
+                crate::owner::native_replay_scheduling_v1::NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable
+            ),
+            "the refusal names the readback, not the binding: {rejected:?}"
+        );
+        assert_eq!(
+            tampered_reads, per_evidence_read,
+            "the tampered snapshot cost the evidence read and nothing else. Anything larger means \
+             a schedule was read for a snapshot that had already failed to verify, which is the \
+             order this proof exists to hold."
+        );
+    }
+
     /// The two admissions inside the port's own read are not a mistake in the count. The port
     /// brackets its storage read with an admission on each side, which was measured here rather
     /// than assumed - the first version of this proof expected +2 and +1 and was corrected by the
