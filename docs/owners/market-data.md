@@ -1197,9 +1197,10 @@ The admission and the user's authority for it are recorded with the one-member t
 Factory architecture. For initial Replay composition, the fixed Market Data writer issues the cut through the
 bound-replay issuance the cut-issuance paragraph above states, when R&D first binds the sealed Replay request's native
 execution input. Built so far: the `InstrumentMasterCutV2` cut and its custody table, which an existing table migrates
-to in place, and economic-terms resolution admit one member; the Owner-binding, Native Replay scheduling and the frame
-sequence do not yet. The bound-replay issuance is the only production path to `issue_cut`, and its one caller is R&D's
-native execution-input binding issuance.
+to in place, economic-terms resolution, the Owner-binding and the V1 native scheduling seal admit one member; the V1
+scheduling receipt hashes a two-member universe exactly as before and states the member count for any other. The V2
+frame evidence and the frame sequence do not admit one member yet. The bound-replay issuance is the only production
+path to `issue_cut`, and its one caller is R&D's native execution-input binding issuance.
 
 **TARGET, durable Strategy Input Binding Registry:** Market Data owns write-once, validated binding declarations
 keyed by the exact PIT request, `StrategyDesignV2` and typed input role. R&D may supply only

@@ -39,15 +39,16 @@ const SCHEMA: [&str; 16] = [
     // and the whole set of checks that mention the second fact, compared by definition: legacy is
     // NOT NULL with exactly the old check, current is nullable with exactly the named new one.
     // Legacy is converted once in this one statement, which commits or fails as a whole; current
-    // is left alone; anything else - a same-named
-    // check with another definition, a duplicated or extra check - is refused rather than
-    // guessed at. The result is not read back afterwards: legacy is matched exactly, the three
-    // changes then produce the current shape and nothing else, and no other session can alter the
-    // table between them, so a re-read could never refuse anything (it was written, and mutation
-    // testing showed it unreachable). Existing rows are two-member cuts and satisfy the new check
-    // unchanged. Two
-    // installs racing on a legacy table leave the loser failing on the constraint the winner
-    // already dropped, which refuses rather than corrupts.
+    // is left alone; anything else - a same-named check with another definition, a duplicated or
+    // extra check - is refused rather than guessed at. The definitions are compared as the text
+    // `pg_get_constraintdef` prints, which is PostgreSQL's own normalized rendering: a server that
+    // prints them differently matches neither shape and is refused, and the two strings below are
+    // what the proof's server prints. The result is not read back afterwards: legacy is matched
+    // exactly, the three changes then produce the current shape and nothing else, and no other
+    // session can alter the table between them, so a re-read could never refuse anything (it was
+    // written, and mutation testing showed it unreachable). Existing rows are two-member cuts and
+    // satisfy the new check unchanged. Two installs racing on a legacy table leave the loser
+    // failing on the constraint the winner already dropped, which refuses rather than corrupts.
     "DO $instrument_master_v2_cut_members$ DECLARE legacy CONSTANT TEXT := 'CHECK ((first_fact_identity <> second_fact_identity))'; current_check CONSTANT TEXT := 'CHECK (((second_fact_identity IS NULL) OR (first_fact_identity <> second_fact_identity)))'; second_required BOOLEAN; second_checks TEXT[]; current_named INTEGER; legacy_name TEXT; BEGIN SELECT a.attnotnull INTO second_required FROM pg_catalog.pg_attribute a WHERE a.attrelid = 'market_data_instrument_master_v2.cuts'::regclass AND a.attname = 'second_fact_identity' AND NOT a.attisdropped; SELECT coalesce(array_agg(pg_catalog.pg_get_constraintdef(c.oid) ORDER BY 1), ARRAY[]::TEXT[]) INTO second_checks FROM pg_catalog.pg_constraint c WHERE c.conrelid = 'market_data_instrument_master_v2.cuts'::regclass AND c.contype = 'c' AND pg_catalog.pg_get_constraintdef(c.oid) LIKE '%second_fact_identity%'; SELECT count(*) INTO current_named FROM pg_catalog.pg_constraint c WHERE c.conrelid = 'market_data_instrument_master_v2.cuts'::regclass AND c.conname = 'cuts_distinct_members' AND pg_catalog.pg_get_constraintdef(c.oid) = current_check; IF second_required IS NULL THEN RAISE EXCEPTION 'unknown Instrument Master V2 cut table shape'; ELSIF second_required AND second_checks = ARRAY[legacy] THEN SELECT c.conname INTO STRICT legacy_name FROM pg_catalog.pg_constraint c WHERE c.conrelid = 'market_data_instrument_master_v2.cuts'::regclass AND c.contype = 'c' AND pg_catalog.pg_get_constraintdef(c.oid) = legacy; EXECUTE 'ALTER TABLE market_data_instrument_master_v2.cuts ALTER COLUMN second_fact_identity DROP NOT NULL'; EXECUTE format('ALTER TABLE market_data_instrument_master_v2.cuts DROP CONSTRAINT %I', legacy_name); EXECUTE 'ALTER TABLE market_data_instrument_master_v2.cuts ADD CONSTRAINT cuts_distinct_members ' || current_check; ELSIF NOT second_required AND second_checks = ARRAY[current_check] AND current_named = 1 THEN NULL; ELSE RAISE EXCEPTION 'Instrument Master V2 cut table is in neither its legacy nor its current shape'; END IF; END $instrument_master_v2_cut_members$",
     "CREATE TABLE IF NOT EXISTS market_data_instrument_master_v2.receipts (receipt_identity BYTEA PRIMARY KEY CHECK(octet_length(receipt_identity)=32),cut_identity BYTEA UNIQUE NOT NULL REFERENCES market_data_instrument_master_v2.cuts(cut_identity) ON DELETE RESTRICT,receipt_bytes BYTEA NOT NULL CHECK(octet_length(receipt_bytes)=106),append_sequence BIGINT UNIQUE NOT NULL CHECK(append_sequence>0),custody_digest BYTEA NOT NULL CHECK(octet_length(custody_digest)=32))",
     "CREATE TABLE IF NOT EXISTS market_data_instrument_master_v2.outbox (outbox_identity BYTEA PRIMARY KEY CHECK(octet_length(outbox_identity)=32),cut_identity BYTEA UNIQUE NOT NULL REFERENCES market_data_instrument_master_v2.cuts(cut_identity) ON DELETE RESTRICT,receipt_identity BYTEA UNIQUE NOT NULL REFERENCES market_data_instrument_master_v2.receipts(receipt_identity) ON DELETE RESTRICT,payload_bytes BYTEA NOT NULL CHECK(octet_length(payload_bytes)=106),append_sequence BIGINT UNIQUE NOT NULL CHECK(append_sequence>0),custody_digest BYTEA NOT NULL CHECK(octet_length(custody_digest)=32))",

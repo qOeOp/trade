@@ -1112,9 +1112,10 @@ Native Replay scheduling 与 frame sequence 在保留双成员形态的同时，
 改动，记在 quote cut 段落。这一准入及其用户授权依据，与单成员 target-set 纵向切片一起记录在 Strategy Factory
 架构文档中。对于 Replay 初次组装，由固定的 Market Data writer 在 R&D 首次为 sealed Replay request 绑定 native
 execution input 时，通过上文 cut issuance 段落所述的 bound-replay issuance 签发 cut。目前已建成：
-`InstrumentMasterCutV2` cut 及其托管表（既有表就地迁移到新形状）与经济条款解析已准入单成员；Owner-binding、Native
-Replay scheduling 与 frame sequence 尚未准入。Bound-replay issuance 是通向 `issue_cut` 的唯一生产路径，其唯一调用方
-是 R&D 的 native execution-input binding issuance。
+`InstrumentMasterCutV2` cut 及其托管表（既有表就地迁移到新形状）、经济条款解析、Owner-binding 与 V1 native scheduling
+seal 已准入单成员；V1 scheduling receipt 对双成员 universe 的哈希与以前完全相同，其他成员数则额外声明成员数。V2 frame
+evidence 与 frame sequence 尚未准入单成员。Bound-replay issuance 是通向 `issue_cut` 的唯一生产路径，其唯一调用方是
+R&D 的 native execution-input binding issuance。
 
 **TARGET，durable Strategy Input Binding Registry：** Market Data 拥有 write-once、validated binding
 declaration；每份 declaration 以准确 PIT request、`StrategyDesignV2` 与 typed input role 为 key。R&D 只能提供 Owner-authenticated Design/role intent，绝不提供或选择 member、frame 或 binding

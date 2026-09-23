@@ -626,13 +626,15 @@ production invocation、Paper/Live execution 或 trading。
 **TARGET / NOT_ADMITTED，Owner 封存的 Native Replay 帧序列 V2：** 现有
 `NativeReplayExecutionInputBindingV1`、单帧、28 项观测证据、执行 bundle、请求和 Result 的字节与身份
 均保持不变。新增独立的 `NativeReplayExecutionInputBindingV2`，针对请求窗口内整条相邻、完整且
-分别由 Market Data Owner 签发的双成员 frame 序列。第一帧必须等于重新解析得到的 V1 初始帧；其后每一帧
+分别由 Market Data Owner 签发的 frame 序列。第一帧必须等于重新解析得到的 V1 初始帧；其后每一帧
 都必须来自另一份真实 PIT snapshot 和 observation batch，不能取 PIT correction successor、测试帧或调用方
 输入。Market Data 必须按封存的窗口和决策 cut 枚举完整可用 frame；帧数少于两个、帧间漏帧、重复、乱序或
 证据缺失时，这个 V2 档不可用，而更长的窗口是更长的序列不是一次拒绝。一次运行消费除最后一帧以外的每一
-帧，最后那帧只用来给它前一帧的流动性划界。每帧都绑定自己的 PIT cut、batch、trigger、BAR schedule，以及
-独立经过 Owner 验证的 Quote EVENT 流动性 receipt，包括成员顺序、价量和事件时间；各帧使用同一 Plan/Design
-role schema、两个 canonical member、universe selection、Instrument Master cut、timeframe、venue 和账户。
+帧，最后那帧只用来给它前一帧的流动性划界。每帧都绑定自己的 PIT cut、batch、trigger、BAR schedule（每个成员
+一个 receipt digest），以及独立经过 Owner 验证的 Quote EVENT 流动性 receipt，包括成员顺序、价量和事件时间；
+各帧使用同一 Plan/Design role schema、同一组 canonical member（即 V1 binding 的成员）、universe selection、
+Instrument Master cut、timeframe、venue 和账户。帧宽因此随成员数变化；V2 字节不重复写成员数，而是取自
+V1 binding，双成员 binding 的字节保持不变，恢复时由存储长度反推成员数。
 
 R&D 仅在准确读取 V1 binding 和每一帧的 Owner 能力后，原子托管 V2 binding、确定性 receipt 与 outbox；
 V2 sequence digest 覆盖各帧顺序及全部 frame、schedule、liquidity receipt。精确重试和响应丢失恢复只回读

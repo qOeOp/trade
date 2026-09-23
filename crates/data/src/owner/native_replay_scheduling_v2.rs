@@ -209,6 +209,9 @@ pub(crate) fn verify_native_replay_frame_evidence_v2(
     )?;
     let scheduling_receipt_digest_v1 = scheduling.receipt_digest();
     let (bar_types, data) = scheduling.into_native_schedule();
+    let bar_types: [BarType; 2] = bar_types
+        .try_into()
+        .map_err(|_| NativeReplaySchedulingErrorV1::FieldCensusMismatch)?;
     let [
         Data::Bar(first_bar),
         Data::Bar(second_bar),
