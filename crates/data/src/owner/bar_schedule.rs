@@ -316,6 +316,25 @@ pub(crate) fn prepare_bar_schedule_commit_v1(
     authority::prepare(proposal, binding, batch, instrument_master)
 }
 
+/// Returns the only element matching `predicate`.
+///
+/// Zero matches and several matches are different faults and get different refusals. A master that
+/// carries no fact for this instrument is the wrong master, which a reader should check against the
+/// row; a master that carries two is one this schedule cannot rest on, which a reader should check
+/// against the Instrument Master Owner. Collapsing them would send half of those readers to the
+/// wrong place.
+fn exactly_one<T>(items: &[T], predicate: impl Fn(&T) -> bool) -> Result<&T, BarScheduleError> {
+    let mut matched = items.iter().filter(|item| predicate(item));
+    let first = matched
+        .next()
+        .ok_or(BarScheduleError::InstrumentMasterMismatch)?;
+
+    match matched.next() {
+        None => Ok(first),
+        Some(_) => Err(BarScheduleError::AmbiguousInstrumentMaster),
+    }
+}
+
 pub(super) mod authority {
     use super::*;
 
@@ -331,24 +350,46 @@ pub(super) mod authority {
         if row.data_kind() != "BAR" {
             return Err(BarScheduleError::UnsupportedDataKind);
         }
-        let [master_fact] = instrument_master.facts() else {
-            return Err(BarScheduleError::AmbiguousInstrumentMaster);
-        };
-        let [resolution] = instrument_master.cut().resolutions.as_slice() else {
-            return Err(BarScheduleError::AmbiguousInstrumentMaster);
-        };
+        // Membership is not checked separately here. `instrument_master::authority` pairs every
+        // fact with its expected member and refuses the cut unless
+        // `fact.canonical_identity() == member`, so a fact for this instrument exists exactly when
+        // this instrument is a member. A containment check beside this one could only fire on a
+        // cut the Owner cannot issue, and a refusal that cannot fire reads as protection while
+        // providing none. Selecting the fact by identity is what binds this schedule to this row.
+        // THIS IS WHERE THIS SCHEDULE IS BOUND TO THIS INSTRUMENT. `exactly_one` returns an
+        // element that satisfies its predicate or no element at all, so a fact and a resolution
+        // that come back from here already carry `row.instrument()` as their canonical identity.
+        // Nothing downstream re-checks that, and nothing should: two disjuncts below used to, and
+        // neither could ever be true. Anyone widening these predicates is removing the binding,
+        // not loosening a filter that something else still enforces.
+        //
+        // Pick this instrument's fact and resolution rather than requiring the master to carry
+        // exactly one of each. The Instrument Master authority already admits a
+        // `UniverseSelectionRecord` scope with any number of members and guarantees one fact and
+        // one resolution per member, so destructuring a single element was not a property being
+        // held - it was this module not following a scope the Owner already issues. Uniqueness is
+        // still required, and the identity checks below are unchanged.
+        let master_fact = exactly_one(instrument_master.facts(), |fact| {
+            fact.canonical_identity() == row.instrument()
+        })?;
+        let resolution = exactly_one(
+            instrument_master.cut().resolutions.as_slice(),
+            |resolution| resolution.canonical_identity == row.instrument(),
+        )?;
         let event = i128::from(row.event_effective());
         if proposal.canonical_instrument != row.instrument()
             || binding.locator().instrument() != row.instrument()
-            || instrument_master.cut().expected_members() != [row.instrument()]
             || !matches!(
                 &instrument_master.cut().scope,
                 super::super::instrument_master::InstrumentMasterScopeV1::ExactInstrument(value)
                     if value == row.instrument()
+            ) && !matches!(
+                &instrument_master.cut().scope,
+                super::super::instrument_master::InstrumentMasterScopeV1::UniverseSelectionRecord(
+                    _
+                )
             )
-            || resolution.canonical_identity != row.instrument()
             || resolution.fact_digest != master_fact.digest()
-            || master_fact.canonical_identity() != row.instrument()
             || instrument_master.digest() != batch.instrument_master_digest()
             || row.instrument_master_digest() != batch.instrument_master_digest()
             || master_fact.market_semantics_identity() != row.market_semantics_identity()

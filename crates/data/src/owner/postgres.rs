@@ -7888,7 +7888,13 @@ async fn load_verified_observation_batch_from_pool(
         .execute(&mut *transaction)
         .await
         .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
-    let aggregate = load_pit_for_update(&mut transaction, snapshot_identity, false)
+    // Both loads read without locking. The transaction above is `READ ONLY`, and PostgreSQL refuses
+    // `SELECT ... FOR UPDATE` inside one with `25006`, so the locking variants this used to call
+    // could not return a batch under any circumstances - the caller always saw
+    // `PersistenceUnavailable`, with the cause discarded one line from where it was produced. The
+    // snapshot this isolation level already provides is what a read-only consumer needs; the lock
+    // was protecting a write that does not happen here.
+    let aggregate = load_pit(&mut transaction, snapshot_identity, false, false)
         .await
         .map_err(|_| PitSnapshotError::PersistenceUnavailable)?
         .ok_or(PitSnapshotError::LocatorMismatch)?;
@@ -7896,7 +7902,7 @@ async fn load_verified_observation_batch_from_pool(
     if aggregate.fact().digest() != expected_fact_digest {
         return Err(PitSnapshotError::LocatorMismatch);
     }
-    let stored = load_pit_observation_batch_for_update(&mut transaction, &aggregate)
+    let stored = load_pit_observation_batch(&mut transaction, &aggregate, false)
         .await
         .map_err(|_| PitSnapshotError::PersistenceUnavailable)?
         .ok_or(PitSnapshotError::LocatorMismatch)?;

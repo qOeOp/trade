@@ -7629,6 +7629,29 @@ async fn native_replay_two_member_frame_supply_oracle(owner: &MarketDataOwnerPos
         "five BAR and four QUOTE fields for each of two members"
     );
 
+    // The Owner reading back what it stored, not the proposal read a second time. This is the input
+    // every later step of the supply takes - a binding receipt, and through it a bar schedule - so
+    // it is asserted here rather than discovered when something downstream fails to bind.
+    let readback = super::load_verified_observation_batch_from_pool(
+        owner.pool(),
+        first.fact().snapshot_identity(),
+        first.fact().digest(),
+    )
+    .await
+    .expect("the Owner reads back the batch it admitted");
+    let selection = crate::owner::strategy_input_binding::derive_universe_selection(&readback)
+        .expect("a two-member universe binds from the readback");
+    let bound: Vec<(&str, &str)> = selection
+        .members()
+        .iter()
+        .map(|member| (member.member_key(), member.instrument()))
+        .collect();
+    assert_eq!(
+        bound,
+        [("AAPL", "AAPL.XNAS"), ("MSFT", "MSFT.XNAS")],
+        "the universe the Owner derives from its own readback names both members and their venues"
+    );
+
     let frame =
         |commit: &PitSnapshotCommitAggregate, frame_time_ns: u64| NativeReplayCensusFrameV2 {
             snapshot_identity: commit.fact().snapshot_identity(),
