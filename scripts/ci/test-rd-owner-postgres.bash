@@ -1027,9 +1027,19 @@ check_composer_acceptance_stays_in_the_chain() {
 # took its events - and it is reported that way rather than counted as quiet.
 readonly chain_log_collecting_marker='vibe-testkit: collecting WARN and above for this test process'
 
+# sqlx's own performance hints, matched by target and message rather than by lacking a coordinate:
+# a slow statement, and a pool acquire past its slow threshold. They say the runner was slow, not
+# that an Owner refused, and on a slower runner a lock-contention proof emits nine of them.
+readonly chain_log_sqlx_performance_hint='^[^ ]+ +WARN sqlx::(query: slow statement: |pool::acquire: acquired connection, but time to acquire exceeded slow threshold)'
+
+# Three buckets, because the report exists so that a new refusal gets noticed. Refusals carry a
+# `coordinate=` and are listed by entry and coordinate. sqlx performance hints are only totalled.
+# Anything else - a sqlx connection error, an Owner cause logged without a coordinate - is listed by
+# entry with its first line, never folded into either of the other two.
 report_collected_warnings() {
-  local record_dir="$1" entry_count="$2" position log count collected=0 warned=0
-  local -a unobserved=()
+  local record_dir="$1" entry_count="$2" position log events coordinates other count first
+  local collected=0 refusing=0 othering=0 hints=0
+  local -a unobserved=() refusal_lines=() other_lines=()
   for position in $(seq 1 "$entry_count"); do
     log="$(printf '%s/%03d.log' "$record_dir" "$position")"
     if [[ ! -f "$log" || "$(head -n 1 -- "$log")" != "$chain_log_collecting_marker" ]]; then
@@ -1037,15 +1047,33 @@ report_collected_warnings() {
       continue
     fi
     collected=$((collected + 1))
-    # Events only: the marker line itself says "WARN", and counting it would report every
-    # collected entry as having warned.
-    count="$(tail -n +2 -- "$log" | grep -cE '^[^ ]+ +WARN ' || true)"
-    if [[ "$count" -gt 0 ]]; then
-      warned=$((warned + 1))
-      echo "  entry ${position}: ${count} warning(s), e.g. $(tail -n +2 -- "$log" | grep -m 1 -o 'coordinate="[^"]*"' || echo 'no coordinate field')"
+    # Events only: the marker line itself says "WARN".
+    events="$(tail -n +2 -- "$log" | grep -E '^[^ ]+ +WARN ' || true)"
+    [[ -n "$events" ]] || continue
+    count="$(printf '%s\n' "$events" | grep -cE "$chain_log_sqlx_performance_hint" || true)"
+    hints=$((hints + count))
+    events="$(printf '%s\n' "$events" | grep -vE "$chain_log_sqlx_performance_hint" || true)"
+    [[ -n "$events" ]] || continue
+    coordinates="$(printf '%s\n' "$events" | grep -o 'coordinate="[^"]*"' | sed -e 's/^coordinate="//' -e 's/"$//' | sort -u | paste -sd ' ' - || true)"
+    if [[ -n "$coordinates" ]]; then
+      refusing=$((refusing + 1))
+      refusal_lines+=("  refused, entry ${position}: ${coordinates}")
+    fi
+    other="$(printf '%s\n' "$events" | grep -v 'coordinate="' || true)"
+    if [[ -n "$other" ]]; then
+      othering=$((othering + 1))
+      count="$(printf '%s\n' "$other" | grep -c '' || true)"
+      first="$(printf '%s\n' "$other" | head -n 1 | sed -E 's/^[^ ]+ +WARN +//' | cut -c1-140)"
+      other_lines+=("  other, entry ${position}: ${count} warning(s), first: ${first}")
     fi
   done
-  echo "=== owner warnings: collected for ${collected}/${entry_count} entries, ${warned} of them warned"
+  echo "=== owner warnings: collected for ${collected}/${entry_count} entries; refusals in ${refusing}, other warnings in ${othering}, ${hints} sqlx performance hint(s) in total"
+  if [[ "${#refusal_lines[@]}" -gt 0 ]]; then
+    printf '%s\n' "${refusal_lines[@]}"
+  fi
+  if [[ "${#other_lines[@]}" -gt 0 ]]; then
+    printf '%s\n' "${other_lines[@]}"
+  fi
   if [[ "${#unobserved[@]}" -gt 0 ]]; then
     echo "    not observed (no collector): ${unobserved[*]}"
   fi
@@ -1075,7 +1103,8 @@ require_collected_positive_control() {
 
 # The warning report and its positive control, on fixed files. A file holding only the collector's
 # marker must count as zero warnings: the marker line itself says "WARN", and the first version of
-# the report counted it, so every collected entry read as having warned once.
+# the report counted it, so every collected entry read as having warned once. Each other kind of line
+# must land in its own bucket, so a sqlx hint can never pass for a refusal or hide one.
 check_collected_warning_report() {
   local fixtures report
   fixtures="$(mktemp -d)"
@@ -1083,13 +1112,22 @@ check_collected_warning_report() {
   printf '%s\n%s\n' "$chain_log_collecting_marker" \
     '2026-01-01T00:00:00.000000Z  WARN vibe_strategy_factory::storage_diagnostic: R&D Owner refused into SubmittedOrUnknown coordinate="fixture.refusal" cause=fixture' \
     > "$fixtures/002.log"
-  report="$(report_collected_warnings "$fixtures" 3)"
-  if [[ "$report" != *"=== owner warnings: collected for 2/3 entries, 1 of them warned"* ]] ||
+  printf '%s\n%s\n%s\n' "$chain_log_collecting_marker" \
+    '2026-01-01T00:00:00.000000Z  WARN sqlx::query: slow statement: execution time exceeded alert threshold summary="SELECT 1" elapsed=1.5' \
+    '2026-01-01T00:00:00.000000Z  WARN sqlx::pool::acquire: acquired connection, but time to acquire exceeded slow threshold acquired_after_secs=2.5' \
+    > "$fixtures/003.log"
+  printf '%s\n%s\n' "$chain_log_collecting_marker" \
+    '2026-01-01T00:00:00.000000Z  WARN sqlx_core::pool::connection: error occurred while testing the connection on-release error=fixture' \
+    > "$fixtures/004.log"
+  report="$(report_collected_warnings "$fixtures" 5)"
+  if [[ "$report" != *"=== owner warnings: collected for 4/5 entries; refusals in 1, other warnings in 1, 2 sqlx performance hint(s) in total"* ]] ||
     [[ "$report" == *"entry 1:"* ]] ||
-    [[ "$report" != *'entry 2: 1 warning(s), e.g. coordinate="fixture.refusal"'* ]] ||
-    [[ "$report" != *"not observed (no collector): 3"* ]]; then
+    [[ "$report" != *"  refused, entry 2: fixture.refusal"* ]] ||
+    [[ "$report" == *"entry 3:"* ]] ||
+    [[ "$report" != *"  other, entry 4: 1 warning(s), first: sqlx_core::pool::connection: error occurred while testing the connection on-release error=fixture"* ]] ||
+    [[ "$report" != *"not observed (no collector): 5"* ]]; then
     rm -rf -- "$fixtures"
-    echo "ERROR: the warning report miscounts its fixed cases (a marker-only file is zero warnings, a missing file is not observed):" >&2
+    echo "ERROR: the warning report misfiles its fixed cases (marker only: nothing; a coordinate: refused; sqlx slow statement or acquire: a hint total only; anything else: other; no file: not observed):" >&2
     printf '%s\n' "$report" >&2
     return 1
   fi
