@@ -41,6 +41,15 @@ pub mod universe_selection_admission_v1;
 
 pub(crate) mod storage_diagnostic;
 
+/// How many members a Native Replay universe may hold: one, for a single-instrument strategy, or
+/// two.
+///
+/// Admitted by `docs/architecture/strategy-factory.md` (one-member target-set vertical). Every
+/// Market Data type that carries a universe's members - the Instrument Master V2 cut, economic
+/// terms, the universe selection receipt and native scheduling - bounds its member count by this
+/// one range, and a two-member value keeps the behaviour and bytes it had.
+pub(crate) const ADMITTED_UNIVERSE_MEMBER_COUNTS: std::ops::RangeInclusive<usize> = 1..=2;
+
 use instrument_economic_terms_postgres_v1::{
     INSTRUMENT_OWNER_DATABASE_URL_ENV, InstrumentEconomicTermsPostgresErrorV1,
     InstrumentEconomicTermsPostgresOwnerV1,

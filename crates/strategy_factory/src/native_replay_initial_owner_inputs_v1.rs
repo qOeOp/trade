@@ -54,11 +54,12 @@ where
     if selection.selection_identity().as_bytes() != &request_selection_identity
         || selection.selection_digest().as_bytes() != &request_selection_digest
         || selection.members().len() != MEMBER_COUNT
-        || !selection
-            .members()
-            .iter()
-            .zip(master_members)
-            .all(|(selected, master)| selected.instrument() == master.fact().canonical_identity())
+        || !members_agree(
+            selection.members().iter().map(|member| member.instrument()),
+            master_members
+                .iter()
+                .map(|member| member.fact().canonical_identity()),
+        )
     {
         return Err(NativeReplayInitialOwnerInputsErrorV1::Unavailable);
     }
@@ -158,4 +159,40 @@ fn parse_sha256(value: &str) -> Result<[u8; 32], NativeReplayInitialOwnerInputsE
         *output = (nibble(pair[0]) << 4) | nibble(pair[1]);
     }
     Ok(bytes)
+}
+
+/// Whether a selection and an Instrument Master cut name the same instruments, in the same order.
+///
+/// Both lengths are compared before the members are. `zip` stops at the shorter side, so without
+/// that a one-member cut would agree with a two-member selection on its first member alone - the
+/// length used to be fixed by both sides' types, and once a cut may hold one member it is not.
+fn members_agree<'a>(
+    selected: impl ExactSizeIterator<Item = &'a str>,
+    master: impl ExactSizeIterator<Item = &'a str>,
+) -> bool {
+    selected.len() == master.len() && selected.zip(master).all(|(left, right)| left == right)
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::members_agree;
+
+    #[rstest]
+    #[case::same_two(&["BTCUSDT-PERP.BINANCE", "ETHUSDT-PERP.BINANCE"], &["BTCUSDT-PERP.BINANCE", "ETHUSDT-PERP.BINANCE"], true)]
+    #[case::same_one(&["BTCUSDT-PERP.BINANCE"], &["BTCUSDT-PERP.BINANCE"], true)]
+    #[case::one_member_cut_under_a_two_member_selection(&["BTCUSDT-PERP.BINANCE", "ETHUSDT-PERP.BINANCE"], &["BTCUSDT-PERP.BINANCE"], false)]
+    #[case::two_member_cut_under_a_one_member_selection(&["BTCUSDT-PERP.BINANCE"], &["BTCUSDT-PERP.BINANCE", "ETHUSDT-PERP.BINANCE"], false)]
+    #[case::another_member(&["BTCUSDT-PERP.BINANCE", "ETHUSDT-PERP.BINANCE"], &["BTCUSDT-PERP.BINANCE", "SOLUSDT-PERP.BINANCE"], false)]
+    fn a_selection_and_a_cut_agree_only_on_the_same_members(
+        #[case] selected: &[&str],
+        #[case] master: &[&str],
+        #[case] agree: bool,
+    ) {
+        assert_eq!(
+            members_agree(selected.iter().copied(), master.iter().copied()),
+            agree
+        );
+    }
 }

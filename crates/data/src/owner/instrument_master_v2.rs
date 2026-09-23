@@ -36,7 +36,7 @@ use vibe_model::types::{
     quantity::{Quantity, QuantityRaw, check_positive_quantity},
 };
 
-use super::source_binding::BindingDigest;
+use super::{ADMITTED_UNIVERSE_MEMBER_COUNTS, source_binding::BindingDigest};
 
 const FACT_SCHEMA_VERSION_V2: u16 = 2;
 const FACT_RESERVED_V2: u16 = 0;
@@ -719,12 +719,6 @@ impl InstrumentMasterCutMemberV2 {
     }
 }
 
-/// How many members a V2 cut may hold: one, for a single-instrument universe, or two.
-///
-/// Admitted by `docs/architecture/strategy-factory.md` (one-member target-set vertical). A two-member
-/// cut keeps its behaviour and bytes: the canonical encoding has always carried its member count.
-pub(crate) const ADMITTED_CUT_MEMBER_COUNTS: std::ops::RangeInclusive<usize> = 1..=2;
-
 /// Immutable, content-addressed public V2 cut over one or two distinct members.
 #[derive(Debug, Eq, PartialEq)]
 pub struct InstrumentMasterCutV2 {
@@ -807,7 +801,7 @@ impl InstrumentMasterCutV2 {
             return Err(InstrumentMasterCustodyErrorV2::InvalidUniverseSelection);
         }
 
-        if !ADMITTED_CUT_MEMBER_COUNTS.contains(&facts.len()) {
+        if !ADMITTED_UNIVERSE_MEMBER_COUNTS.contains(&facts.len()) {
             return Err(InstrumentMasterCustodyErrorV2::InvalidUniverseSelection);
         }
         facts.sort_by(|left, right| left.canonical_identity().cmp(right.canonical_identity()));
@@ -887,7 +881,7 @@ impl InstrumentMasterCutV2 {
         let universe_selection_outbox_identity = decoder.digest().map_err(custody_codec)?;
         let count = usize::try_from(decoder.u32().map_err(custody_codec)?)
             .map_err(|_| InstrumentMasterCustodyErrorV2::CodecMismatch)?;
-        if !ADMITTED_CUT_MEMBER_COUNTS.contains(&count) || facts.len() != count {
+        if !ADMITTED_UNIVERSE_MEMBER_COUNTS.contains(&count) || facts.len() != count {
             return Err(InstrumentMasterCustodyErrorV2::CodecMismatch);
         }
         let mut encoded_members = Vec::with_capacity(count);

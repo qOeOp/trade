@@ -6,11 +6,12 @@ use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 
 use super::{
+    ADMITTED_UNIVERSE_MEMBER_COUNTS,
     instrument_master_v2::{
-        ADMITTED_CUT_MEMBER_COUNTS, InstrumentMasterCustodyErrorV2, InstrumentMasterCutLocatorV2,
-        InstrumentMasterCutReceiptV2, InstrumentMasterCutRequestV2, InstrumentMasterCutV2,
-        InstrumentMasterFactV2, InstrumentMasterReadbackV2, InstrumentMasterResolverV2,
-        native_replay_request_identity_v2, resolver_seal_v2,
+        InstrumentMasterCustodyErrorV2, InstrumentMasterCutLocatorV2, InstrumentMasterCutReceiptV2,
+        InstrumentMasterCutRequestV2, InstrumentMasterCutV2, InstrumentMasterFactV2,
+        InstrumentMasterReadbackV2, InstrumentMasterResolverV2, native_replay_request_identity_v2,
+        resolver_seal_v2,
     },
     source_binding::BindingDigest,
     universe_selection::{UniverseSelectionReadbackV1, verify_universe_selection_readback_v1},
@@ -33,10 +34,20 @@ const SCHEMA: [&str; 14] = [
     "CREATE TABLE IF NOT EXISTS market_data_instrument_master_v2.facts (fact_identity BYTEA PRIMARY KEY CHECK(octet_length(fact_identity)=32),canonical_identity TEXT NOT NULL,predecessor_fact_identity BYTEA NULL REFERENCES market_data_instrument_master_v2.facts(fact_identity) ON DELETE RESTRICT,correction_sequence BIGINT NOT NULL CHECK(correction_sequence>0),owner_observation_ns BYTEA NOT NULL CHECK(octet_length(owner_observation_ns)=16),fact_bytes BYTEA NOT NULL CHECK(octet_length(fact_bytes)>0 AND octet_length(fact_bytes)<=65536),custody_digest BYTEA NOT NULL CHECK(octet_length(custody_digest)=32),UNIQUE(canonical_identity,correction_sequence),UNIQUE(predecessor_fact_identity))",
     "CREATE TABLE IF NOT EXISTS market_data_instrument_master_v2.cuts (cut_identity BYTEA PRIMARY KEY CHECK(octet_length(cut_identity)=32),request_identity BYTEA UNIQUE NOT NULL CHECK(octet_length(request_identity)=32),request_binding_digest BYTEA UNIQUE NOT NULL CHECK(octet_length(request_binding_digest)=32),decision_cut BIGINT NOT NULL CHECK(decision_cut>0),first_fact_identity BYTEA NOT NULL REFERENCES market_data_instrument_master_v2.facts(fact_identity) ON DELETE RESTRICT,second_fact_identity BYTEA REFERENCES market_data_instrument_master_v2.facts(fact_identity) ON DELETE RESTRICT,cut_bytes BYTEA NOT NULL CHECK(octet_length(cut_bytes)>0 AND octet_length(cut_bytes)<=196608),append_sequence BIGINT UNIQUE NOT NULL CHECK(append_sequence>0),custody_digest BYTEA NOT NULL CHECK(octet_length(custody_digest)=32),CONSTRAINT cuts_distinct_members CHECK(second_fact_identity IS NULL OR first_fact_identity<>second_fact_identity))",
     // A cut table created before one-member cuts were admitted required a second fact and a
-    // plain `first <> second` check. Read its shape from the catalog and move it to the current
-    // one exactly once; any other shape is refused rather than half-migrated. Existing rows are
-    // two-member cuts and satisfy the new check unchanged.
-    "DO $instrument_master_v2_cut_members$ DECLARE second_required BOOLEAN; legacy_check TEXT; current_checks INTEGER; BEGIN SELECT a.attnotnull INTO second_required FROM pg_catalog.pg_attribute a WHERE a.attrelid = 'market_data_instrument_master_v2.cuts'::regclass AND a.attname = 'second_fact_identity' AND NOT a.attisdropped; SELECT c.conname INTO legacy_check FROM pg_catalog.pg_constraint c WHERE c.conrelid = 'market_data_instrument_master_v2.cuts'::regclass AND c.contype = 'c' AND pg_catalog.pg_get_constraintdef(c.oid) = 'CHECK ((first_fact_identity <> second_fact_identity))'; SELECT count(*) INTO current_checks FROM pg_catalog.pg_constraint c WHERE c.conrelid = 'market_data_instrument_master_v2.cuts'::regclass AND c.conname = 'cuts_distinct_members'; IF second_required IS NULL THEN RAISE EXCEPTION 'unknown Instrument Master V2 cut table shape'; ELSIF second_required AND legacy_check IS NOT NULL AND current_checks = 0 THEN EXECUTE 'ALTER TABLE market_data_instrument_master_v2.cuts ALTER COLUMN second_fact_identity DROP NOT NULL'; EXECUTE format('ALTER TABLE market_data_instrument_master_v2.cuts DROP CONSTRAINT %I', legacy_check); EXECUTE 'ALTER TABLE market_data_instrument_master_v2.cuts ADD CONSTRAINT cuts_distinct_members CHECK (second_fact_identity IS NULL OR first_fact_identity <> second_fact_identity)'; ELSIF NOT second_required AND legacy_check IS NULL AND current_checks = 1 THEN NULL; ELSE RAISE EXCEPTION 'partially migrated Instrument Master V2 cut table'; END IF; END $instrument_master_v2_cut_members$",
+    // plain `first <> second` check. Its shape is read from the catalog as the column's NOT NULL
+    // and the whole set of checks that mention the second fact, compared by definition: legacy is
+    // NOT NULL with exactly the old check, current is nullable with exactly the named new one.
+    // Legacy is converted once in this one statement, which commits or fails as a whole; current
+    // is left alone; anything else - a same-named
+    // check with another definition, a duplicated or extra check - is refused rather than
+    // guessed at. The result is not read back afterwards: legacy is matched exactly, the three
+    // changes then produce the current shape and nothing else, and no other session can alter the
+    // table between them, so a re-read could never refuse anything (it was written, and mutation
+    // testing showed it unreachable). Existing rows are two-member cuts and satisfy the new check
+    // unchanged. Two
+    // installs racing on a legacy table leave the loser failing on the constraint the winner
+    // already dropped, which refuses rather than corrupts.
+    "DO $instrument_master_v2_cut_members$ DECLARE legacy CONSTANT TEXT := 'CHECK ((first_fact_identity <> second_fact_identity))'; current_check CONSTANT TEXT := 'CHECK (((second_fact_identity IS NULL) OR (first_fact_identity <> second_fact_identity)))'; second_required BOOLEAN; second_checks TEXT[]; current_named INTEGER; legacy_name TEXT; BEGIN SELECT a.attnotnull INTO second_required FROM pg_catalog.pg_attribute a WHERE a.attrelid = 'market_data_instrument_master_v2.cuts'::regclass AND a.attname = 'second_fact_identity' AND NOT a.attisdropped; SELECT coalesce(array_agg(pg_catalog.pg_get_constraintdef(c.oid) ORDER BY 1), ARRAY[]::TEXT[]) INTO second_checks FROM pg_catalog.pg_constraint c WHERE c.conrelid = 'market_data_instrument_master_v2.cuts'::regclass AND c.contype = 'c' AND pg_catalog.pg_get_constraintdef(c.oid) LIKE '%second_fact_identity%'; SELECT count(*) INTO current_named FROM pg_catalog.pg_constraint c WHERE c.conrelid = 'market_data_instrument_master_v2.cuts'::regclass AND c.conname = 'cuts_distinct_members' AND pg_catalog.pg_get_constraintdef(c.oid) = current_check; IF second_required IS NULL THEN RAISE EXCEPTION 'unknown Instrument Master V2 cut table shape'; ELSIF second_required AND second_checks = ARRAY[legacy] THEN SELECT c.conname INTO STRICT legacy_name FROM pg_catalog.pg_constraint c WHERE c.conrelid = 'market_data_instrument_master_v2.cuts'::regclass AND c.contype = 'c' AND pg_catalog.pg_get_constraintdef(c.oid) = legacy; EXECUTE 'ALTER TABLE market_data_instrument_master_v2.cuts ALTER COLUMN second_fact_identity DROP NOT NULL'; EXECUTE format('ALTER TABLE market_data_instrument_master_v2.cuts DROP CONSTRAINT %I', legacy_name); EXECUTE 'ALTER TABLE market_data_instrument_master_v2.cuts ADD CONSTRAINT cuts_distinct_members ' || current_check; ELSIF NOT second_required AND second_checks = ARRAY[current_check] AND current_named = 1 THEN NULL; ELSE RAISE EXCEPTION 'Instrument Master V2 cut table is in neither its legacy nor its current shape'; END IF; END $instrument_master_v2_cut_members$",
     "CREATE TABLE IF NOT EXISTS market_data_instrument_master_v2.receipts (receipt_identity BYTEA PRIMARY KEY CHECK(octet_length(receipt_identity)=32),cut_identity BYTEA UNIQUE NOT NULL REFERENCES market_data_instrument_master_v2.cuts(cut_identity) ON DELETE RESTRICT,receipt_bytes BYTEA NOT NULL CHECK(octet_length(receipt_bytes)=106),append_sequence BIGINT UNIQUE NOT NULL CHECK(append_sequence>0),custody_digest BYTEA NOT NULL CHECK(octet_length(custody_digest)=32))",
     "CREATE TABLE IF NOT EXISTS market_data_instrument_master_v2.outbox (outbox_identity BYTEA PRIMARY KEY CHECK(octet_length(outbox_identity)=32),cut_identity BYTEA UNIQUE NOT NULL REFERENCES market_data_instrument_master_v2.cuts(cut_identity) ON DELETE RESTRICT,receipt_identity BYTEA UNIQUE NOT NULL REFERENCES market_data_instrument_master_v2.receipts(receipt_identity) ON DELETE RESTRICT,payload_bytes BYTEA NOT NULL CHECK(octet_length(payload_bytes)=106),append_sequence BIGINT UNIQUE NOT NULL CHECK(append_sequence>0),custody_digest BYTEA NOT NULL CHECK(octet_length(custody_digest)=32))",
     "REVOKE ALL ON TABLE market_data_instrument_master_v2.state FROM PUBLIC",
@@ -145,7 +156,7 @@ impl InstrumentMasterV2PostgresOwner {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|_| InstrumentMasterCustodyErrorV2::InvalidUniverseSelection)?;
         members.sort();
-        if !ADMITTED_CUT_MEMBER_COUNTS.contains(&members.len())
+        if !ADMITTED_UNIVERSE_MEMBER_COUNTS.contains(&members.len())
             || members.windows(2).any(|pair| pair[0] == pair[1])
         {
             return Err(InstrumentMasterCustodyErrorV2::InvalidUniverseSelection);
@@ -754,7 +765,7 @@ pub(crate) mod tests {
             owner.resolve(two.locator()).await.unwrap().cut().identity(),
             two.cut().identity()
         );
-        let owner = InstrumentMasterV2PostgresOwner::install(pool.clone())
+        InstrumentMasterV2PostgresOwner::install(pool.clone())
             .await
             .expect("a migrated table installs again");
         assert_eq!(
@@ -778,6 +789,55 @@ pub(crate) mod tests {
             .execute(&pool)
             .await
             .unwrap();
+        assert_eq!(cut_table_shape(&pool).await, current_shape);
+
+        let exec = async |statement: &'static str| {
+            sqlx::query(statement).execute(&pool).await.unwrap();
+        };
+
+        // The right name with the wrong definition is not the current shape: a same-named
+        // `CHECK (true)` would otherwise pass for it and take the distinct-members rule with it.
+        exec("ALTER TABLE market_data_instrument_master_v2.cuts DROP CONSTRAINT cuts_distinct_members").await;
+        exec("ALTER TABLE market_data_instrument_master_v2.cuts ADD CONSTRAINT cuts_distinct_members CHECK (true)").await;
+        assert!(
+            InstrumentMasterV2PostgresOwner::install(pool.clone())
+                .await
+                .is_err(),
+            "a same-named check with another definition is refused"
+        );
+        exec("ALTER TABLE market_data_instrument_master_v2.cuts DROP CONSTRAINT cuts_distinct_members").await;
+        exec("ALTER TABLE market_data_instrument_master_v2.cuts ADD CONSTRAINT cuts_distinct_members CHECK (second_fact_identity IS NULL OR first_fact_identity <> second_fact_identity)").await;
+        assert_eq!(cut_table_shape(&pool).await, current_shape);
+
+        // Two identical legacy checks are not the legacy shape: migrating would drop one and
+        // leave the table in a shape the next install refuses. Refused, and left exactly as it was.
+        exec("ALTER TABLE market_data_instrument_master_v2.cuts DROP CONSTRAINT cuts_distinct_members").await;
+        exec("ALTER TABLE market_data_instrument_master_v2.cuts ADD CHECK(first_fact_identity<>second_fact_identity)").await;
+        exec("ALTER TABLE market_data_instrument_master_v2.cuts ADD CHECK(first_fact_identity<>second_fact_identity)").await;
+        exec("ALTER TABLE market_data_instrument_master_v2.cuts ALTER COLUMN second_fact_identity SET NOT NULL").await;
+        let doubled = (
+            true,
+            vec![
+                "CHECK ((first_fact_identity <> second_fact_identity))".to_owned(),
+                "CHECK ((first_fact_identity <> second_fact_identity))".to_owned(),
+            ],
+        );
+        assert_eq!(cut_table_shape(&pool).await, doubled);
+        assert!(
+            InstrumentMasterV2PostgresOwner::install(pool.clone())
+                .await
+                .is_err(),
+            "a doubled legacy check is refused"
+        );
+        assert_eq!(
+            cut_table_shape(&pool).await,
+            doubled,
+            "nothing was half-migrated"
+        );
+        exec("DO $one$ DECLARE extra TEXT; BEGIN SELECT min(c.conname) INTO extra FROM pg_catalog.pg_constraint c WHERE c.conrelid='market_data_instrument_master_v2.cuts'::regclass AND pg_catalog.pg_get_constraintdef(c.oid)='CHECK ((first_fact_identity <> second_fact_identity))'; EXECUTE format('ALTER TABLE market_data_instrument_master_v2.cuts DROP CONSTRAINT %I', extra); END $one$").await;
+        let owner = InstrumentMasterV2PostgresOwner::install(pool.clone())
+            .await
+            .expect("with one legacy check left, the table migrates");
         assert_eq!(cut_table_shape(&pool).await, current_shape);
 
         let one = owner
