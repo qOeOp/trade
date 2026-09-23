@@ -1,3 +1,4 @@
+import { announcedOwnerReadBudgetMsV1 } from "./operation-registry.ts";
 import { createHash } from "node:crypto";
 
 import {
@@ -143,13 +144,14 @@ export async function readArtifactSourceGatewayV1({
   if (!endpoint || !configuredTarget.token) {
     return unavailable(503, "OWNER_CONFIGURATION_UNAVAILABLE");
   }
+  const budgetMs = announcedOwnerReadBudgetMsV1("rd artifact source", 8_000);
   const startedAtMs = performance.now();
   try {
     const response = await fetcher(endpoint, {
       method: "GET",
       headers: { authorization: `Bearer ${configuredTarget.token}` },
       cache: "no-store",
-      signal: AbortSignal.timeout(8_000),
+      signal: AbortSignal.timeout(budgetMs),
     });
     if (response.status === 404) return unavailable(404, "ARTIFACT_SOURCE_UNAVAILABLE");
     if (!response.ok) return unavailable(response.status >= 500 ? 503 : 502, "OWNER_RESPONSE_UNAVAILABLE");
@@ -179,7 +181,7 @@ export async function readArtifactSourceGatewayV1({
     // evidence rather than another sighting.
     const elapsedMs = Math.round(performance.now() - startedAtMs);
     const detail = cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause);
-    console.error(`rd artifact source: Owner read failed after ${elapsedMs}ms against an 8000ms budget: ${detail}`);
+    console.error(`rd artifact source: Owner read failed after ${elapsedMs}ms against its ${budgetMs}ms budget: ${detail}`);
     return unavailable(503, "OWNER_TRANSPORT_UNAVAILABLE");
   }
 }

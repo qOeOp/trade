@@ -1017,6 +1017,135 @@ check_composer_acceptance_stays_in_the_chain() {
   fi
 }
 
+# Owner code says why it refused through `tracing` - `refused_by_store` and its peers - and a test
+# process drops every such event unless something subscribes. vibe-testkit's admission installs a
+# subscriber that appends WARN and above to VIBE_TEST_LOG_FILE (its `TEST_LOG_FILE_ENV`), which each
+# entry points beside its record. The collector's first line is this marker, so a file without it
+# means the entry was not observed - it never admitted through vibe-testkit, or another subscriber
+# took its events - and it is reported that way rather than counted as quiet.
+readonly chain_log_collecting_marker='vibe-testkit: collecting WARN and above for this test process'
+
+# sqlx's own performance hints, matched by target and message rather than by lacking a coordinate:
+# a slow statement, and a pool acquire past its slow threshold. They say the runner was slow, not
+# that an Owner refused, and on a slower runner a lock-contention proof emits nine of them.
+readonly chain_log_sqlx_performance_hint='^[^ ]+ +WARN sqlx::(query: slow statement: |pool::acquire: acquired connection, but time to acquire exceeded slow threshold)'
+
+# Three buckets, because the report exists so that a new refusal gets noticed. Refusals carry a
+# `coordinate=` and are listed by entry and coordinate. sqlx performance hints are only totalled.
+# Anything else - a sqlx connection error, an Owner cause logged without a coordinate - is listed by
+# entry with its first line, never folded into either of the other two.
+report_collected_warnings() {
+  local record_dir="$1" entry_count="$2" position log events coordinates other count first
+  local collected=0 refusing=0 othering=0 hints=0
+  local -a unobserved=() refusal_lines=() other_lines=()
+  for position in $(seq 1 "$entry_count"); do
+    log="$(printf '%s/%03d.log' "$record_dir" "$position")"
+    if [[ ! -f "$log" || "$(head -n 1 -- "$log")" != "$chain_log_collecting_marker" ]]; then
+      unobserved+=("$position")
+      continue
+    fi
+    collected=$((collected + 1))
+    # Events only: the marker line itself says "WARN".
+    events="$(tail -n +2 -- "$log" | grep -E '^[^ ]+ +WARN ' || true)"
+    [[ -n "$events" ]] || continue
+    count="$(printf '%s\n' "$events" | grep -cE "$chain_log_sqlx_performance_hint" || true)"
+    hints=$((hints + count))
+    events="$(printf '%s\n' "$events" | grep -vE "$chain_log_sqlx_performance_hint" || true)"
+    [[ -n "$events" ]] || continue
+    coordinates="$(printf '%s\n' "$events" | grep -o 'coordinate="[^"]*"' | sed -e 's/^coordinate="//' -e 's/"$//' | sort -u | paste -sd ' ' - || true)"
+    if [[ -n "$coordinates" ]]; then
+      refusing=$((refusing + 1))
+      refusal_lines+=("  refused, entry ${position}: ${coordinates}")
+    fi
+    other="$(printf '%s\n' "$events" | grep -v 'coordinate="' || true)"
+    if [[ -n "$other" ]]; then
+      othering=$((othering + 1))
+      count="$(printf '%s\n' "$other" | grep -c '' || true)"
+      first="$(printf '%s\n' "$other" | head -n 1 | sed -E 's/^[^ ]+ +WARN +//' | cut -c1-140)"
+      other_lines+=("  other, entry ${position}: ${count} warning(s), first: ${first}")
+    fi
+  done
+  echo "=== owner warnings: collected for ${collected}/${entry_count} entries; refusals in ${refusing}, other warnings in ${othering}, ${hints} sqlx performance hint(s) in total"
+  if [[ "${#refusal_lines[@]}" -gt 0 ]]; then
+    printf '%s\n' "${refusal_lines[@]}"
+  fi
+  if [[ "${#other_lines[@]}" -gt 0 ]]; then
+    printf '%s\n' "${other_lines[@]}"
+  fi
+  if [[ "${#unobserved[@]}" -gt 0 ]]; then
+    echo "    not observed (no collector): ${unobserved[*]}"
+  fi
+}
+
+# The collector's positive control. `durable_owner_is_atomic_restart_exact_and_fail_closed`
+# constructs two refusals on purpose - it installs an extra Composer routine
+# (`tests/develop_composer_owner_v2.rs:149-186`) and flips one bit of a stored Design (:298-319) -
+# and each is reported through `refused_by_store` with its own coordinate. Neither depends on a
+# live defect, so both must appear every round. A missing one means either the collector stopped
+# collecting or that deliberate refusal no longer reports where it did; both need a look, and a
+# chain that passes without either would be reporting quiet entries it cannot see.
+require_collected_positive_control() {
+  local record_dir="$1" position="$2" log coordinate
+  log="$(printf '%s/%03d.log' "$record_dir" "$position")"
+  if [[ ! -f "$log" || "$(head -n 1 -- "$log")" != "$chain_log_collecting_marker" ]]; then
+    echo "ERROR: entry ${position} ran without the warning collector; ${log} does not begin with its marker." >&2
+    return 1
+  fi
+  for coordinate in develop_composer.read_authority.routines develop_composer.role_set.project; do
+    if ! grep -Fq "coordinate=\"${coordinate}\"" -- "$log"; then
+      echo "ERROR: entry ${position} constructs a refusal reported as ${coordinate}, and ${log} does not hold it." >&2
+      return 1
+    fi
+  done
+}
+
+# The warning report and its positive control, on fixed files. A file holding only the collector's
+# marker must count as zero warnings: the marker line itself says "WARN", and the first version of
+# the report counted it, so every collected entry read as having warned once. Each other kind of line
+# must land in its own bucket, so a sqlx hint can never pass for a refusal or hide one.
+check_collected_warning_report() {
+  local fixtures report
+  fixtures="$(mktemp -d)"
+  printf '%s\n' "$chain_log_collecting_marker" > "$fixtures/001.log"
+  printf '%s\n%s\n' "$chain_log_collecting_marker" \
+    '2026-01-01T00:00:00.000000Z  WARN vibe_strategy_factory::storage_diagnostic: R&D Owner refused into SubmittedOrUnknown coordinate="fixture.refusal" cause=fixture' \
+    > "$fixtures/002.log"
+  printf '%s\n%s\n%s\n' "$chain_log_collecting_marker" \
+    '2026-01-01T00:00:00.000000Z  WARN sqlx::query: slow statement: execution time exceeded alert threshold summary="SELECT 1" elapsed=1.5' \
+    '2026-01-01T00:00:00.000000Z  WARN sqlx::pool::acquire: acquired connection, but time to acquire exceeded slow threshold acquired_after_secs=2.5' \
+    > "$fixtures/003.log"
+  printf '%s\n%s\n' "$chain_log_collecting_marker" \
+    '2026-01-01T00:00:00.000000Z  WARN sqlx_core::pool::connection: error occurred while testing the connection on-release error=fixture' \
+    > "$fixtures/004.log"
+  report="$(report_collected_warnings "$fixtures" 5)"
+  if [[ "$report" != *"=== owner warnings: collected for 4/5 entries; refusals in 1, other warnings in 1, 2 sqlx performance hint(s) in total"* ]] ||
+    [[ "$report" == *"entry 1:"* ]] ||
+    [[ "$report" != *"  refused, entry 2: fixture.refusal"* ]] ||
+    [[ "$report" == *"entry 3:"* ]] ||
+    [[ "$report" != *"  other, entry 4: 1 warning(s), first: sqlx_core::pool::connection: error occurred while testing the connection on-release error=fixture"* ]] ||
+    [[ "$report" != *"not observed (no collector): 5"* ]]; then
+    rm -rf -- "$fixtures"
+    echo "ERROR: the warning report misfiles its fixed cases (marker only: nothing; a coordinate: refused; sqlx slow statement or acquire: a hint total only; anything else: other; no file: not observed):" >&2
+    printf '%s\n' "$report" >&2
+    return 1
+  fi
+  printf '%s\n%s\n%s\n' "$chain_log_collecting_marker" \
+    'x  WARN y: z coordinate="develop_composer.read_authority.routines"' \
+    'x  WARN y: z coordinate="develop_composer.role_set.project"' > "$fixtures/005.log"
+  if ! require_collected_positive_control "$fixtures" 5 2> /dev/null; then
+    rm -rf -- "$fixtures"
+    echo "ERROR: the collector's positive control refuses a log that holds both coordinates." >&2
+    return 1
+  fi
+  printf '%s\n' "$chain_log_collecting_marker" > "$fixtures/005.log"
+  if require_collected_positive_control "$fixtures" 5 2> /dev/null; then
+    rm -rf -- "$fixtures"
+    echo "ERROR: the collector's positive control accepts a log that holds neither coordinate." >&2
+    return 1
+  fi
+  rm -rf -- "$fixtures"
+}
+
 check_trial_family_candidate_experiment_cutover() {
   local repository_root
   repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -1421,6 +1550,7 @@ check_exploratory_replay_read_fence_source
 check_market_data_principal_bootstrap_order
 check_trial_family_candidate_experiment_cutover
 check_composer_acceptance_stays_in_the_chain
+check_collected_warning_report
 if [[ "${1:-}" == "--check" ]]; then
   exit 0
 fi
@@ -1494,7 +1624,7 @@ fi
 # the machine until entries with a time window fail for load alone. owner-chain-lock.bash says why
 # and how. A hosted runner runs one job, so CI does not take it.
 if [[ "${GITHUB_ACTIONS:-}" != "true" ]]; then
-  # shellcheck source=scripts/ci/owner-chain-lock.bash
+  # shellcheck source=scripts/ci/owner-chain-lock.bash disable=SC1091
   source "$(dirname "${BASH_SOURCE[0]}")/owner-chain-lock.bash"
   acquire_owner_chain_lock || exit 1
 fi
@@ -3476,6 +3606,9 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
   chain_position=$((chain_position + 1))
   chain_entry_label="${test_package} ${test_binary} ${test_name}"
   echo "=== ordered chain entry ${chain_position}/${chain_entry_count}: ${chain_entry_label}"
+  # Absolute: nextest runs each test from its package directory.
+  VIBE_TEST_LOG_FILE="${PWD}/$(printf '%s/%03d.log' "$chain_record_dir" "$chain_position")"
+  export VIBE_TEST_LOG_FILE
   test_filter="package(${test_package}) & binary(${test_binary}) & test(=${test_name})"
   backtest_result_fault=''
   case "$test_name" in
@@ -3641,6 +3774,9 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       -E "$test_filter"
   fi
   keep_chain_record "$chain_position"
+  if [[ "$test_name" == 'durable_owner_is_atomic_restart_exact_and_fail_closed' ]]; then
+    require_collected_positive_control "$chain_record_dir" "$chain_position"
+  fi
   if [[ -n "$backtest_result_fault" ]]; then
     restore_backtest_result_fault "$backtest_result_fault"
   fi
@@ -3658,6 +3794,7 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
     fi
     chain_completed=true
     echo "=== ordered chain: all ${chain_entry_count} entries passed, ${chain_record_count} recorded"
+    report_collected_warnings "$chain_record_dir" "$chain_entry_count"
   fi
 done
 

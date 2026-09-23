@@ -145,8 +145,10 @@ R&D 内的 Develop 能力返回内容寻址 Strategy Artifact 和 Build Receipt�
   仍产出单品种 proposal：在单成员 universe 下，host 把该 proposal 提升为单成员规范 target set，因此该纵向切片仍只提交
   一份规范 target set，只是其产出者从插件移到了 host。在首个正例运行之前，single-threshold 报告族及其 data window
   所指的 instrument 扩展到该形态。target-set schema version 与语义 identity 均不变，准入单成员也不改变任何双成员原像：
-  target-set codec 与 Instrument Master cut 本来就编码了成员数，而 V1 scheduling receipt digest 与 ProgramHost
-  target-set 快照 digest 对成员做哈希时不带数量，因此那里的单成员原像以不改变双成员字节的方式做 domain 分隔。
+  target-set codec 与 Instrument Master cut 本来就编码了成员数，而 V1 scheduling receipt digest 与 Strategy Factory
+  中对成员做哈希时不带数量的 digest（Backtest target-set 快照、execution-profile binding、native materialization、
+  execution census 与 round-trip closure digest）对其他成员数改用写明该数量的 domain，双成员的 domain 与字节保持不变。
+  提升出的单成员 target set 取待处理 target set 之后的 sequence，没有待处理时取 1。
   在实现改动落地并更新上面的 CURRENT 陈述之前，这里的内容都不是 current。
 - **TARGET / NOT_ADMITTED：** Paper 与 Live 只有在各自 Owner adapter 存在且被另行接纳后，才消费
   相同 plan、Artifact、事件排序、checkpoint schema、内核和语义 trace 契约。本文不声称当前已有
