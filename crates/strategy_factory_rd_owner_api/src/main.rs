@@ -5072,7 +5072,7 @@ mod tests {
                 research_request_identity: facts.research_request_identity,
                 intent_identity: facts.intent_identity,
                 intent_digest: facts.intent_digest,
-                channel: SingleThresholdChannelV1 {
+                channel: SingleThresholdChannelV1::ExactInstrument {
                     role_semantic_id: "research.input.close.daily.v1".to_owned(),
                     instrument: "AAPL".to_owned(),
                     field_semantic_id: "MARKET_DATA.BAR.CLOSE.PRICE.V1".to_owned(),
