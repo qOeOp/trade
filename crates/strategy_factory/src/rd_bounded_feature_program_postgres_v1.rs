@@ -487,10 +487,22 @@ impl PostgresResearchBoundedFeatureProgramOwnerV1 {
 
         let stored_digest = <[u8; 32]>::try_from(stored.1.as_slice())
             .map(BindingDigest::from_untrusted_bytes)
-            .map_err(|_| ResearchBoundedFeatureProgramOwnerErrorV1::Unavailable)?;
+            .map_err(|_| {
+                crate::storage_diagnostic::refused_by_store(
+                    "bounded_feature_program.role_intent.stored_digest",
+                    &"the stored intent digest is not 32 bytes",
+                );
+                ResearchBoundedFeatureProgramOwnerErrorV1::Unavailable
+            })?;
         let recovered =
             StrategyDesignRoleIntentV1::from_durable_publication(&stored.0, stored_digest)
-                .map_err(|_| ResearchBoundedFeatureProgramOwnerErrorV1::Unavailable)?;
+                .map_err(|e| {
+                    crate::storage_diagnostic::refused_by_store(
+                        "bounded_feature_program.role_intent.recover",
+                        &e,
+                    );
+                    ResearchBoundedFeatureProgramOwnerErrorV1::Unavailable
+                })?;
 
         if recovered != intent {
             return Err(ResearchBoundedFeatureProgramOwnerErrorV1::Conflict);
