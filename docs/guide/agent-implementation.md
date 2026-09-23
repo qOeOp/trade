@@ -153,6 +153,32 @@ because a wrong reading here lands inside the legal range of the answer rather t
   the comparison keeps the container, the databases, the role grants and every earlier entry, while
   invoking the test binary directly skips all of them. A failure from the second is not a failure of
   the entry.
+- **`cargo`'s `--message-format` decides how many dead items the same run can report, and two of the
+  three formats undercount without saying so.** `--message-format=short` folds every dead member of
+  one implementation into a single `multiple associated items are never used` line, anchored at the
+  first member and carrying no member names; the rendered default prints one `-->` per diagnostic,
+  not per member, so counting `-->` lines also counts diagnostics. Only `--message-format=json`
+  reports each folded member as its own primary span. One `cargo check -p vibe-data --lib` at
+  `3560a3aa1` answers 387 or 623 for `crates/data/src` depending on which is counted, because 68 of
+  its diagnostics carry more than one primary span. Count by deduplicating primary spans from the
+  JSON output; to ask whether one item is in the set, search for its name instead of comparing
+  counts.
+- **`--all-targets` enables a feature that no command line mentions.** `crates/qualification` and
+  `crates/backtest_owner` take `sealed-strategy-input-acceptance` in `[dev-dependencies]`, so
+  `cargo check --workspace` leaves it off while `cargo clippy --workspace --all-targets` turns it
+  on. The common "dead in the first, alive in the second" diff therefore moves two variables at once
+  and cannot separate a `cfg(test)` caller from a caller inside a feature-gated module. Enabling the
+  feature in its own build, holding the target set fixed, separates them: on the Market Data set
+  that turned "six of ninety-two sit behind a non-default feature" into "all 163 do, and none has a
+  `cfg(test)` caller".
+- **A `#[allow(dead_code)]` whose comment names the condition that would retire it keeps silencing
+  the lint after that condition is met.** Seven of this repository's suppressions had outlived their
+  stated reason when they were measured, and nothing had failed, because the suppression is the
+  instrument that would have reported it. `#[expect(dead_code)]` is the same note with an expiry: it
+  fails the build once the item stops being dead. It fits only where the item is dead in every
+  target configuration, though - converting three that tests use produced three unfulfilled
+  expectations and five errors under `--all-targets` while `cargo check` stayed green, which is
+  exactly where a test is the only caller.
 
 ## Why the old guides stay outside product authority
 

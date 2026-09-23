@@ -134,6 +134,26 @@ accepted、rejected、unknown、replay 语义。
 - **`scripts/ci/test-rd-owner-postgres.bash` 在非 Linux 宿主上以状态 1 退出。** 所以本机跑一轮有序链路
   必然是跑一份改过的副本，而改了哪里决定了那一轮意味着什么：换掉比较对象会保留容器、数据库、
   角色授权以及它前面的每一个条目，而直接调用测试二进制则把这些全部跳过。后者的失败不是那个条目的失败。
+- **`cargo` 的 `--message-format` 决定同一轮能报出多少条死码，而三种格式里有两种会无声少报。**
+  `--message-format=short` 把一个实现里的每一个死成员折成一行
+  `multiple associated items are never used`，锚在第一个死成员上，且一个成员名都不带；默认的
+  渲染格式每条诊断打一个 `-->`，不是每成员一个，所以数 `-->` 行数得到的也是诊断数。只有 `--message-format=json` 把被折叠的成员逐个
+  作为 primary span 给出。同一条 `cargo check -p vibe-data --lib` 在 `3560a3aa1` 上，对
+  `crates/data/src` 可以答 387 也可以答 623，取决于数的是哪一个，因为其中 68 条诊断带着不止一个
+  primary span。要数就从 JSON 输出里对 primary span 去重；要问某一条在不在集合里，就按名字查，
+  不要比数字。
+- **`--all-targets` 会打开一个命令行里根本没提到的 feature。** `crates/qualification` 与
+  `crates/backtest_owner` 在 `[dev-dependencies]` 里带 `sealed-strategy-input-acceptance`，于是
+  `cargo check --workspace` 是关的，而 `cargo clippy --workspace --all-targets` 是开的。常用的
+  「在前者里死、在后者里活」差集因此同时动了两个变量，分不出 `cfg(test)` 调用方和 feature 门内
+  模块里的调用方。把 feature 放进它自己的一次构建、保持目标集不变，就能分开：在 Market Data 那
+  一族上，这把「九十二条里有六条在非默认 feature 门后」变成了「163 条全都在，而且没有一条有
+  `cfg(test)` 调用方」。
+- **`#[allow(dead_code)]` 的注释里写明了它何时该退休，而条件满足之后它仍旧在压制那条 lint。**
+  这个仓库里有七条压制在被测量时已经活过了它自己写下的理由，而在此之前什么都没红过，因为那条
+  压制正是本该报告它的量具。`#[expect(dead_code)]` 是同一条注释加上有效期：一旦条目不再是死码，
+  构建就会失败。但它只适用于那些在每一种目标配置下都是死码的条目 - 把其中三条被测试用到的这样改，在 `--all-targets` 下产生三条未兑现的预期和五个错误，而 `cargo check` 仍然是绿的，
+  那正是「只有测试在调」的位置。
 
 ## 为什么旧指南不进入产品权威
 
