@@ -138,15 +138,28 @@ because a wrong reading here lands inside the legal range of the answer rather t
   with its revision - and a claim that no workflow, CI script or migration mentions something is
   worth re-running, because those three are exactly what a default walk cannot read.
 
-- **`\b` and `\s` are not POSIX ERE, and every `-E` engine here drops them silently.**
-  `git grep -cE '\bBindingDigest\b'` matches in no file while the same word without the boundaries
-  matches in 143. The partial case is the dangerous one: `git grep -cE '^\s*pub fn'` returns 540
-  files and `'^[[:space:]]*pub fn'` returns 1503, so
+- **`\b` and `\s` in an `-E` pattern work on Linux and match nothing on macOS**, and the direction
+  is what makes it dangerous. They are GNU extensions, not POSIX ERE: glibc's matcher accepts them,
+  BSD's ignores them and reports no match rather than an error. The same file tree, the same
+  command, on git 2.54.0 under Linux and git 2.55.0 on macOS 26.6:
+
+  ```text
+  pattern                    Linux   macOS
+  \bBindingDigest\b            1       0
+  \s                           1       0
+  [[:space:]]                  1       1
+  ```
+
+  **So a pattern written and checked on Linux or in CI comes back empty on a developer's machine,
+  while one written on macOS fails loudly enough to be caught.** The broken side is the side that
+  was already verified, and CI being green proves nothing about the same pattern locally. The
+  partial case is worse than the total one: on macOS `git grep -cE '^\s*pub fn'` returns 540 files
+  and `'^[[:space:]]*pub fn'` returns 1503, so
   **the broken pattern returns a number large enough to look like an answer**.
-  `grep -E` and ugrep's ERE mode drop them the same way; the
-  bracket classes `[[:space:]]`, `[[:alnum:]]` and an explicit `(^|[^A-Za-z0-9_])` are what those
-  engines read. Two lanes hit this independently on the same day, once with a zero that happened to
-  be the right answer, which only its positive control exposed.
+  Write `[[:space:]]`, `[[:alnum:]]` and an explicit `(^|[^A-Za-z0-9_])`, which both matchers read,
+  or pass `-P`. The macOS column above and the two 540/1503 counts are measured on this machine;
+  the Linux column is a second lane's measurement inside a container, on a tree built for the
+  comparison.
 
 - **`scripts/ci/test-rd-owner-postgres.bash` exits 1 on a non-Linux host.** A local ordered-chain run
   is therefore a modified copy, and which modification was made decides what the run means: changing
