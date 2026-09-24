@@ -39,7 +39,9 @@ jobs:
   rd-owner-postgres:
     name: R&D Owner PostgreSQL isolated tests
     runs-on: ubuntu-22.04
-    timeout-minutes: 100
+    # Above the step limits added together (30 + 70) and the short steps around them, so a step
+    # timeout, which keeps its log, fires before the job limit, which does not.
+    timeout-minutes: 105
     defaults:
       run:
         shell: bash
@@ -65,11 +67,11 @@ jobs:
         run: bash scripts/ci/verify-ci-inputs.sh post-checkout
 
       - name: Common setup
-        # Twice this job's slowest successful Common setup: 483s over its last 15 successful
-        # runs (2026-09-24). A hung setup then fails as this step and keeps its log, instead of running
-        # to the job limit and being cancelled with none. Re-measure and raise it once setup
-        # routinely takes half of it.
-        timeout-minutes: 17
+        # The slowest each part of Common setup took across 45 rd/md chain jobs (2026-09-24) - freeing
+        # disk 915s, rust-cache 340s, everything else 59s - is 1314s together; 30 minutes leaves room
+        # above that. Freeing disk is bimodal (3 of 45 jobs took 839-915s on slow runners), so a
+        # sample without one of those reads far too low. Re-measure the parts, not the total.
+        timeout-minutes: 30
         uses: ./.github/actions/common-setup
         with:
           python-version: "3.13"
