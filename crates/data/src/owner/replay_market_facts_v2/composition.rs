@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     ReplayMarketDependencyKindV2, ReplayMarketFactsErrorV2, ReplayMarketFactsReadbackV2,
-    UntrustedReplayMarketFactsRequestV2,
+    ReplayMarketFactsShapeV2, UntrustedReplayMarketFactsRequestV2,
     authority::{ReplayMarketFactsEvidenceV2, issue_replay_market_facts_v2},
     verify_replay_market_facts_readback_v2,
 };
@@ -27,9 +27,67 @@ use crate::owner::{
 
 const RECORD_DOMAIN: &[u8] = b"vibe.market-data.replay-composition-binding.v1\0";
 const RECEIPT_DOMAIN: &[u8] = b"vibe.market-data.replay-composition-binding-receipt.v1\0";
-const SCHEMA_VERSION: u16 = 1;
-const NATIVE_LOCATOR_COUNT: usize = 5;
+const RECORD_DOMAIN_V2: &[u8] = b"vibe.market-data.replay-composition-binding.v2\0";
+const RECEIPT_DOMAIN_V2: &[u8] = b"vibe.market-data.replay-composition-binding-receipt.v2\0";
+const FIRST_CORPUS_SCHEMA: u16 = 1;
+const UNIVERSE_MEMBERS_SCHEMA: u16 = 2;
 const MAX_ROLES: usize = 4_096;
+
+/// The native authorities each binding shape names, in canonical order.
+///
+/// The universe-member shape binds no Instrument Master: a universe Design's Instrument Master is
+/// the request-keyed cut issued when R&D first binds the sealed request, never a composition input.
+const FIRST_CORPUS_NATIVE_KINDS: [ReplayCompositionNativeLocatorKindV1; 5] = [
+    ReplayCompositionNativeLocatorKindV1::PitSnapshot,
+    ReplayCompositionNativeLocatorKindV1::SourceBinding,
+    ReplayCompositionNativeLocatorKindV1::UniverseSelection,
+    ReplayCompositionNativeLocatorKindV1::InstrumentMaster,
+    ReplayCompositionNativeLocatorKindV1::MarketSemantics,
+];
+const UNIVERSE_MEMBERS_NATIVE_KINDS: [ReplayCompositionNativeLocatorKindV1; 4] = [
+    ReplayCompositionNativeLocatorKindV1::PitSnapshot,
+    ReplayCompositionNativeLocatorKindV1::SourceBinding,
+    ReplayCompositionNativeLocatorKindV1::UniverseSelection,
+    ReplayCompositionNativeLocatorKindV1::MarketSemantics,
+];
+
+const fn schema_of(shape: ReplayMarketFactsShapeV2) -> u16 {
+    match shape {
+        ReplayMarketFactsShapeV2::FirstCorpus => FIRST_CORPUS_SCHEMA,
+        ReplayMarketFactsShapeV2::UniverseMembers => UNIVERSE_MEMBERS_SCHEMA,
+    }
+}
+
+const fn shape_of_schema(schema: u16) -> Option<ReplayMarketFactsShapeV2> {
+    match schema {
+        FIRST_CORPUS_SCHEMA => Some(ReplayMarketFactsShapeV2::FirstCorpus),
+        UNIVERSE_MEMBERS_SCHEMA => Some(ReplayMarketFactsShapeV2::UniverseMembers),
+        _ => None,
+    }
+}
+
+const fn record_domain(shape: ReplayMarketFactsShapeV2) -> &'static [u8] {
+    match shape {
+        ReplayMarketFactsShapeV2::FirstCorpus => RECORD_DOMAIN,
+        ReplayMarketFactsShapeV2::UniverseMembers => RECORD_DOMAIN_V2,
+    }
+}
+
+const fn receipt_domain(shape: ReplayMarketFactsShapeV2) -> &'static [u8] {
+    match shape {
+        ReplayMarketFactsShapeV2::FirstCorpus => RECEIPT_DOMAIN,
+        ReplayMarketFactsShapeV2::UniverseMembers => RECEIPT_DOMAIN_V2,
+    }
+}
+
+const fn native_kinds(
+    shape: ReplayMarketFactsShapeV2,
+) -> &'static [ReplayCompositionNativeLocatorKindV1] {
+    match shape {
+        ReplayMarketFactsShapeV2::FirstCorpus => &FIRST_CORPUS_NATIVE_KINDS,
+        ReplayMarketFactsShapeV2::UniverseMembers => &UNIVERSE_MEMBERS_NATIVE_KINDS,
+    }
+}
 
 /// Fixed native authorities named by a positive composition binding.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -77,6 +135,21 @@ pub(crate) struct ReplayCompositionBindingEvidenceV1 {
     pub(crate) sample_projection_identity: BindingDigest,
     pub(crate) sample_projection_digest: BindingDigest,
     pub(crate) sample_projection_roles: Vec<(BindingDigest, BindingDigest)>,
+    pub(crate) stable_correlation: BindingDigest,
+}
+
+/// Owner-private complete evidence for a universe-member binding.
+///
+/// It names no census, joined cut or sample projection: the universe frame over the Design's
+/// complete role set is what shows each (member, role) has exactly one value at the cut.
+pub(crate) struct ReplayCompositionUniverseBindingEvidenceV1 {
+    pub(crate) authenticated_strategy_design_identity: BindingDigest,
+    pub(crate) authenticated_strategy_design_digest: BindingDigest,
+    pub(crate) registry_identity: BindingDigest,
+    pub(crate) registry_digest: BindingDigest,
+    pub(crate) native_locators: Vec<ReplayCompositionNativeLocatorV1>,
+    pub(crate) roles: Vec<ReplayCompositionRoleEvidenceV1>,
+    pub(crate) universe_frame_digest: BindingDigest,
     pub(crate) stable_correlation: BindingDigest,
 }
 
@@ -384,14 +457,27 @@ pub struct ReplayCompositionBindingV1 {
     registry_digest: BindingDigest,
     native_locators: Box<[ReplayCompositionNativeLocatorV1]>,
     roles: Box<[ReplayCompositionRoleV1]>,
-    census_identity: BindingDigest,
-    census_digest: BindingDigest,
-    joined_cut_identity: BindingDigest,
-    joined_cut_digest: BindingDigest,
-    sample_projection_identity: BindingDigest,
-    sample_projection_digest: BindingDigest,
+    body: ReplayCompositionBindingBodyV1,
     canonical_bytes: Box<[u8]>,
     identity: BindingDigest,
+}
+
+/// What a binding seals beyond its common header, by shape. The shape is the record's own, and
+/// is never inferred from which fields happen to be present.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ReplayCompositionBindingBodyV1 {
+    FirstCorpus {
+        census_identity: BindingDigest,
+        census_digest: BindingDigest,
+        joined_cut_identity: BindingDigest,
+        joined_cut_digest: BindingDigest,
+        sample_projection_identity: BindingDigest,
+        sample_projection_digest: BindingDigest,
+    },
+    /// The universe frame over the Design's complete role set; its identity is its digest.
+    UniverseMembers {
+        universe_frame_digest: BindingDigest,
+    },
 }
 
 impl ReplayCompositionBindingV1 {
@@ -413,6 +499,30 @@ impl ReplayCompositionBindingV1 {
     #[must_use]
     pub const fn role_count(&self) -> usize {
         self.roles.len()
+    }
+
+    /// The shape this binding states in its own schema.
+    #[must_use]
+    pub const fn shape(&self) -> ReplayMarketFactsShapeV2 {
+        match self.body {
+            ReplayCompositionBindingBodyV1::FirstCorpus { .. } => {
+                ReplayMarketFactsShapeV2::FirstCorpus
+            }
+            ReplayCompositionBindingBodyV1::UniverseMembers { .. } => {
+                ReplayMarketFactsShapeV2::UniverseMembers
+            }
+        }
+    }
+
+    /// The universe frame a universe-member binding seals; `None` for the first corpus.
+    #[must_use]
+    pub const fn universe_frame_digest(&self) -> Option<BindingDigest> {
+        match self.body {
+            ReplayCompositionBindingBodyV1::UniverseMembers {
+                universe_frame_digest,
+            } => Some(universe_frame_digest),
+            ReplayCompositionBindingBodyV1::FirstCorpus { .. } => None,
+        }
     }
 
     pub(crate) fn native_locator(
@@ -458,6 +568,7 @@ impl ReplayCompositionBindingV1 {
 /// Receipt for the exact binding record and stable correlation.
 #[derive(Debug, Eq, PartialEq)]
 pub struct ReplayCompositionBindingReceiptV1 {
+    shape: ReplayMarketFactsShapeV2,
     binding_identity: BindingDigest,
     binding_digest: BindingDigest,
     stable_correlation: BindingDigest,
@@ -686,20 +797,8 @@ pub(crate) fn issue_replay_composition_binding_v1(
     evidence.joined_cut_roles.sort();
     evidence.sample_projection_roles.sort();
     validate_evidence(request, &evidence)?;
-
-    let roles = evidence
-        .roles
-        .iter()
-        .map(|role| ReplayCompositionRoleV1 {
-            role_identity: role.role_identity,
-            declaration_identity: role.declaration_identity,
-            declaration_digest: role.declaration_digest,
-            binding_identity: role.binding_identity,
-            binding_digest: role.binding_digest,
-        })
-        .collect::<Vec<_>>()
-        .into_boxed_slice();
-    let mut record = ReplayCompositionBindingV1 {
+    let roles = record_roles_v1(&evidence.roles);
+    let record = ReplayCompositionBindingV1 {
         replay_request_identity: request.pit_locator().request_identity,
         replay_request_digest: request.pit_locator().request_digest,
         pit_snapshot_identity: request.pit_locator().snapshot_identity,
@@ -711,26 +810,95 @@ pub(crate) fn issue_replay_composition_binding_v1(
         registry_digest: evidence.registry_digest,
         native_locators: evidence.native_locators.into_boxed_slice(),
         roles,
-        census_identity: evidence.census_identity,
-        census_digest: evidence.census_digest,
-        joined_cut_identity: evidence.joined_cut_identity,
-        joined_cut_digest: evidence.joined_cut_digest,
-        sample_projection_identity: evidence.sample_projection_identity,
-        sample_projection_digest: evidence.sample_projection_digest,
+        body: ReplayCompositionBindingBodyV1::FirstCorpus {
+            census_identity: evidence.census_identity,
+            census_digest: evidence.census_digest,
+            joined_cut_identity: evidence.joined_cut_identity,
+            joined_cut_digest: evidence.joined_cut_digest,
+            sample_projection_identity: evidence.sample_projection_identity,
+            sample_projection_digest: evidence.sample_projection_digest,
+        },
         canonical_bytes: Box::new([]),
         identity: zero(),
     };
+    seal_binding_v1(record, evidence.stable_correlation)
+}
+
+/// Issues a universe-member binding from complete, already authenticated Owner evidence.
+pub(crate) fn issue_universe_member_composition_binding_v1(
+    request: &UntrustedReplayMarketFactsRequestV2,
+    mut evidence: ReplayCompositionUniverseBindingEvidenceV1,
+) -> Result<ReplayCompositionBindingReadbackV1, ReplayCompositionBindingErrorV1> {
+    validate_request(request)?;
+    evidence.native_locators.sort_by_key(|locator| locator.kind);
+    evidence.roles.sort_by_key(|role| role.role_identity);
+    validate_common_evidence_v1(
+        request,
+        ReplayMarketFactsShapeV2::UniverseMembers,
+        &evidence.native_locators,
+        &evidence.roles,
+        [
+            evidence.authenticated_strategy_design_identity,
+            evidence.authenticated_strategy_design_digest,
+            evidence.registry_identity,
+            evidence.registry_digest,
+            evidence.universe_frame_digest,
+            evidence.stable_correlation,
+        ],
+    )?;
+    let record = ReplayCompositionBindingV1 {
+        replay_request_identity: request.pit_locator().request_identity,
+        replay_request_digest: request.pit_locator().request_digest,
+        pit_snapshot_identity: request.pit_locator().snapshot_identity,
+        replay_start_event_ns: request.replay_start_event_ns(),
+        replay_end_event_ns_exclusive: request.replay_end_event_ns_exclusive(),
+        strategy_design_identity: evidence.authenticated_strategy_design_identity,
+        strategy_design_digest: evidence.authenticated_strategy_design_digest,
+        registry_identity: evidence.registry_identity,
+        registry_digest: evidence.registry_digest,
+        native_locators: evidence.native_locators.into_boxed_slice(),
+        roles: record_roles_v1(&evidence.roles),
+        body: ReplayCompositionBindingBodyV1::UniverseMembers {
+            universe_frame_digest: evidence.universe_frame_digest,
+        },
+        canonical_bytes: Box::new([]),
+        identity: zero(),
+    };
+    seal_binding_v1(record, evidence.stable_correlation)
+}
+
+fn record_roles_v1(roles: &[ReplayCompositionRoleEvidenceV1]) -> Box<[ReplayCompositionRoleV1]> {
+    roles
+        .iter()
+        .map(|role| ReplayCompositionRoleV1 {
+            role_identity: role.role_identity,
+            declaration_identity: role.declaration_identity,
+            declaration_digest: role.declaration_digest,
+            binding_identity: role.binding_identity,
+            binding_digest: role.binding_digest,
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice()
+}
+
+/// Encodes a record under its shape's domain, and seals its receipt and outbox.
+fn seal_binding_v1(
+    mut record: ReplayCompositionBindingV1,
+    stable_correlation: BindingDigest,
+) -> Result<ReplayCompositionBindingReadbackV1, ReplayCompositionBindingErrorV1> {
+    let shape = record.shape();
     record.canonical_bytes = encode_record(&record).into_boxed_slice();
-    record.identity = hash(RECORD_DOMAIN, &record.canonical_bytes);
+    record.identity = hash(record_domain(shape), &record.canonical_bytes);
     let mut receipt = ReplayCompositionBindingReceiptV1 {
+        shape,
         binding_identity: record.identity,
         binding_digest: record.identity,
-        stable_correlation: evidence.stable_correlation,
+        stable_correlation,
         canonical_bytes: Box::new([]),
         identity: zero(),
     };
     receipt.canonical_bytes = encode_receipt(&receipt).into_boxed_slice();
-    receipt.identity = hash(RECEIPT_DOMAIN, &receipt.canonical_bytes);
+    receipt.identity = hash(receipt_domain(shape), &receipt.canonical_bytes);
     let outbox = ReplayCompositionBindingOutboxV1 {
         identity: receipt.identity,
         payload: receipt.canonical_bytes.clone(),
@@ -840,12 +1008,12 @@ pub(crate) fn verify_universe_member_replay_facts_frame_v2(
 
 /// Refuses Replay facts whose shape is not the shape of the binding they are stored under.
 ///
-/// Every schema 1 binding is the exact-instrument first corpus, so its facts must be too.
+/// Each record states its own shape and neither is inferred from the other.
 pub(crate) fn require_binding_facts_shape_v1(
-    _binding: &ReplayCompositionBindingReadbackV1,
+    binding: &ReplayCompositionBindingReadbackV1,
     facts: &super::ReplayMarketFactsV2,
 ) -> Result<(), ReplayCompositionBindingErrorV1> {
-    if facts.shape() == super::ReplayMarketFactsShapeV2::FirstCorpus {
+    if facts.shape() == binding.record().shape() {
         Ok(())
     } else {
         Err(ReplayCompositionBindingErrorV1::CompositionShapeMismatch)
@@ -884,12 +1052,13 @@ pub(crate) fn verify_replay_composition_binding_v1(
     let receipt = readback.receipt();
     validate_record(record).is_ok()
         && record.canonical_bytes.as_ref() == encode_record(record)
-        && record.identity == hash(RECORD_DOMAIN, &record.canonical_bytes)
+        && record.identity == hash(record_domain(record.shape()), &record.canonical_bytes)
+        && receipt.shape == record.shape()
         && receipt.binding_identity == record.identity
         && receipt.binding_digest == record.identity
         && nonzero(receipt.stable_correlation)
         && receipt.canonical_bytes.as_ref() == encode_receipt(receipt)
-        && receipt.identity == hash(RECEIPT_DOMAIN, &receipt.canonical_bytes)
+        && receipt.identity == hash(receipt_domain(receipt.shape), &receipt.canonical_bytes)
         && readback.outbox.identity == receipt.identity
         && readback.outbox.payload == receipt.canonical_bytes
 }
@@ -900,7 +1069,7 @@ pub(crate) fn decode_replay_composition_binding_v1(
     outbox_bytes: &[u8],
 ) -> Result<ReplayCompositionBindingReadbackV1, ReplayCompositionBindingErrorV1> {
     let mut record_decoder = BindingDecoderV1::new(record_bytes);
-    record_decoder.header()?;
+    let shape = record_decoder.shape()?;
     let replay_request_identity = record_decoder.digest()?;
     let replay_request_digest = record_decoder.digest()?;
     let pit_snapshot_identity = record_decoder.digest()?;
@@ -910,30 +1079,20 @@ pub(crate) fn decode_replay_composition_binding_v1(
     let strategy_design_digest = record_decoder.digest()?;
     let registry_identity = record_decoder.digest()?;
     let registry_digest = record_decoder.digest()?;
-    let native_count = record_decoder.count(NATIVE_LOCATOR_COUNT)?;
-    if native_count != NATIVE_LOCATOR_COUNT {
+    let kinds = native_kinds(shape);
+    let native_count = record_decoder.count(kinds.len())?;
+    if native_count != kinds.len() {
         return Err(ReplayCompositionBindingErrorV1::IncompleteComposition);
     }
     let mut native_locators = Vec::with_capacity(native_count);
 
-    for ordinal in 1_u16
-        ..=u16::try_from(NATIVE_LOCATOR_COUNT)
-            .map_err(|_| ReplayCompositionBindingErrorV1::IncompleteComposition)?
-    {
+    for expected in kinds {
         let raw_kind = record_decoder.u16()?;
-        if raw_kind != ordinal {
+        if raw_kind != *expected as u16 {
             return Err(ReplayCompositionBindingErrorV1::NonCanonicalOrder);
         }
-        let kind = match raw_kind {
-            1 => ReplayCompositionNativeLocatorKindV1::PitSnapshot,
-            2 => ReplayCompositionNativeLocatorKindV1::SourceBinding,
-            3 => ReplayCompositionNativeLocatorKindV1::UniverseSelection,
-            4 => ReplayCompositionNativeLocatorKindV1::InstrumentMaster,
-            5 => ReplayCompositionNativeLocatorKindV1::MarketSemantics,
-            _ => return Err(ReplayCompositionBindingErrorV1::IncompleteComposition),
-        };
         native_locators.push(ReplayCompositionNativeLocatorV1 {
-            kind,
+            kind: *expected,
             identity: record_decoder.digest()?,
             digest: record_decoder.digest()?,
         });
@@ -952,12 +1111,21 @@ pub(crate) fn decode_replay_composition_binding_v1(
             binding_digest: record_decoder.digest()?,
         });
     }
-    let census_identity = record_decoder.digest()?;
-    let census_digest = record_decoder.digest()?;
-    let joined_cut_identity = record_decoder.digest()?;
-    let joined_cut_digest = record_decoder.digest()?;
-    let sample_projection_identity = record_decoder.digest()?;
-    let sample_projection_digest = record_decoder.digest()?;
+    let body = match shape {
+        ReplayMarketFactsShapeV2::FirstCorpus => ReplayCompositionBindingBodyV1::FirstCorpus {
+            census_identity: record_decoder.digest()?,
+            census_digest: record_decoder.digest()?,
+            joined_cut_identity: record_decoder.digest()?,
+            joined_cut_digest: record_decoder.digest()?,
+            sample_projection_identity: record_decoder.digest()?,
+            sample_projection_digest: record_decoder.digest()?,
+        },
+        ReplayMarketFactsShapeV2::UniverseMembers => {
+            ReplayCompositionBindingBodyV1::UniverseMembers {
+                universe_frame_digest: record_decoder.digest()?,
+            }
+        }
+    };
     record_decoder.done()?;
     let record = ReplayCompositionBindingV1 {
         replay_request_identity,
@@ -971,24 +1139,23 @@ pub(crate) fn decode_replay_composition_binding_v1(
         registry_digest,
         native_locators: native_locators.into_boxed_slice(),
         roles: roles.into_boxed_slice(),
-        census_identity,
-        census_digest,
-        joined_cut_identity,
-        joined_cut_digest,
-        sample_projection_identity,
-        sample_projection_digest,
+        body,
         canonical_bytes: record_bytes.into(),
-        identity: hash(RECORD_DOMAIN, record_bytes),
+        identity: hash(record_domain(shape), record_bytes),
     };
 
     let mut receipt_decoder = BindingDecoderV1::new(receipt_bytes);
-    receipt_decoder.header()?;
+    let receipt_shape = receipt_decoder.shape()?;
+    if receipt_shape != shape {
+        return Err(ReplayCompositionBindingErrorV1::CompositionShapeMismatch);
+    }
     let receipt = ReplayCompositionBindingReceiptV1 {
+        shape,
         binding_identity: receipt_decoder.digest()?,
         binding_digest: receipt_decoder.digest()?,
         stable_correlation: receipt_decoder.digest()?,
         canonical_bytes: receipt_bytes.into(),
-        identity: hash(RECEIPT_DOMAIN, receipt_bytes),
+        identity: hash(receipt_domain(shape), receipt_bytes),
     };
     receipt_decoder.done()?;
     let readback = ReplayCompositionBindingReadbackV1 {
@@ -1053,12 +1220,9 @@ impl<'a> BindingDecoderV1<'a> {
             .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)
     }
 
-    fn header(&mut self) -> Result<(), ReplayCompositionBindingErrorV1> {
-        if self.u16()? == SCHEMA_VERSION {
-            Ok(())
-        } else {
-            Err(ReplayCompositionBindingErrorV1::DigestMismatch)
-        }
+    /// The shape a record or receipt states in its schema; an unknown schema is refused.
+    fn shape(&mut self) -> Result<ReplayMarketFactsShapeV2, ReplayCompositionBindingErrorV1> {
+        shape_of_schema(self.u16()?).ok_or(ReplayCompositionBindingErrorV1::DigestMismatch)
     }
 
     fn done(&self) -> Result<(), ReplayCompositionBindingErrorV1> {
@@ -1089,67 +1253,31 @@ fn validate_evidence(
     request: &UntrustedReplayMarketFactsRequestV2,
     evidence: &ReplayCompositionBindingEvidenceV1,
 ) -> Result<(), ReplayCompositionBindingErrorV1> {
-    let required = [
-        ReplayCompositionNativeLocatorKindV1::PitSnapshot,
-        ReplayCompositionNativeLocatorKindV1::SourceBinding,
-        ReplayCompositionNativeLocatorKindV1::UniverseSelection,
-        ReplayCompositionNativeLocatorKindV1::InstrumentMaster,
-        ReplayCompositionNativeLocatorKindV1::MarketSemantics,
-    ];
-
-    if evidence.native_locators.len() != NATIVE_LOCATOR_COUNT
-        || evidence
-            .native_locators
-            .iter()
-            .map(|locator| locator.kind)
-            .ne(required)
-        || evidence
-            .native_locators
-            .iter()
-            .any(|locator| !nonzero(locator.identity) || !nonzero(locator.digest))
-        || !nonzero(evidence.authenticated_strategy_design_identity)
-        || !nonzero(evidence.authenticated_strategy_design_digest)
-        || !nonzero(evidence.registry_identity)
-        || !nonzero(evidence.registry_digest)
-        || !nonzero(evidence.census_identity)
-        || !nonzero(evidence.census_digest)
-        || !nonzero(evidence.joined_cut_identity)
-        || !nonzero(evidence.joined_cut_digest)
-        || !nonzero(evidence.sample_projection_identity)
-        || !nonzero(evidence.sample_projection_digest)
-        || !nonzero(evidence.stable_correlation)
-        || evidence.roles.is_empty()
-        || evidence.roles.len() > MAX_ROLES
+    validate_common_evidence_v1(
+        request,
+        ReplayMarketFactsShapeV2::FirstCorpus,
+        &evidence.native_locators,
+        &evidence.roles,
+        [
+            evidence.authenticated_strategy_design_identity,
+            evidence.authenticated_strategy_design_digest,
+            evidence.registry_identity,
+            evidence.registry_digest,
+            evidence.stable_correlation,
+        ],
+    )?;
+    if [
+        evidence.census_identity,
+        evidence.census_digest,
+        evidence.joined_cut_identity,
+        evidence.joined_cut_digest,
+        evidence.sample_projection_identity,
+        evidence.sample_projection_digest,
+    ]
+    .into_iter()
+    .any(|value| !nonzero(value))
     {
         return Err(ReplayCompositionBindingErrorV1::IncompleteComposition);
-    }
-    let pit = evidence.native_locators[0];
-    let source = evidence.native_locators[1];
-
-    if pit.identity != request.pit_locator().snapshot_identity
-        || pit.digest != request.pit_locator().fact_digest
-        || source.identity != request.pit_locator().source_binding_identity
-    {
-        return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
-    }
-
-    if evidence
-        .roles
-        .windows(2)
-        .any(|pair| pair[0].role_identity >= pair[1].role_identity)
-        || evidence.roles.iter().any(|role| {
-            [
-                role.role_identity,
-                role.declaration_identity,
-                role.declaration_digest,
-                role.binding_identity,
-                role.binding_digest,
-            ]
-            .into_iter()
-            .any(|value| !nonzero(value))
-        })
-    {
-        return Err(ReplayCompositionBindingErrorV1::NonCanonicalOrder);
     }
     let roles = evidence
         .roles
@@ -1171,10 +1299,67 @@ fn validate_evidence(
     Ok(())
 }
 
+/// What every binding's evidence must hold whatever its shape: exactly the shape's native
+/// locators in canonical order, the PIT and Source Binding the request names, a complete sorted
+/// role set, and no absent digest.
+fn validate_common_evidence_v1<const N: usize>(
+    request: &UntrustedReplayMarketFactsRequestV2,
+    shape: ReplayMarketFactsShapeV2,
+    native_locators: &[ReplayCompositionNativeLocatorV1],
+    roles: &[ReplayCompositionRoleEvidenceV1],
+    required: [BindingDigest; N],
+) -> Result<(), ReplayCompositionBindingErrorV1> {
+    if native_locators
+        .iter()
+        .map(|locator| locator.kind)
+        .ne(native_kinds(shape).iter().copied())
+        || native_locators
+            .iter()
+            .any(|locator| !nonzero(locator.identity) || !nonzero(locator.digest))
+        || required.into_iter().any(|value| !nonzero(value))
+        || roles.is_empty()
+        || roles.len() > MAX_ROLES
+    {
+        return Err(ReplayCompositionBindingErrorV1::IncompleteComposition);
+    }
+    let pit = native_locators[0];
+    let source = native_locators[1];
+
+    if pit.identity != request.pit_locator().snapshot_identity
+        || pit.digest != request.pit_locator().fact_digest
+        || source.identity != request.pit_locator().source_binding_identity
+    {
+        return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
+    }
+
+    if roles
+        .windows(2)
+        .any(|pair| pair[0].role_identity >= pair[1].role_identity)
+        || roles.iter().any(|role| {
+            [
+                role.role_identity,
+                role.declaration_identity,
+                role.declaration_digest,
+                role.binding_identity,
+                role.binding_digest,
+            ]
+            .into_iter()
+            .any(|value| !nonzero(value))
+        })
+    {
+        return Err(ReplayCompositionBindingErrorV1::NonCanonicalOrder);
+    }
+    Ok(())
+}
+
 fn validate_record(
     record: &ReplayCompositionBindingV1,
 ) -> Result<(), ReplayCompositionBindingErrorV1> {
-    if record.native_locators.len() != NATIVE_LOCATOR_COUNT
+    if record
+        .native_locators
+        .iter()
+        .map(|locator| locator.kind)
+        .ne(native_kinds(record.shape()).iter().copied())
         || record.roles.is_empty()
         || record.roles.len() > MAX_ROLES
         || record
@@ -1260,12 +1445,24 @@ fn validate_v2_dependencies(
         })
         .ok_or(ReplayCompositionBindingErrorV1::DependencyMismatch)?;
 
-    if observation_census.identity() != binding.census_identity
-        || observation_census.digest() != binding.census_digest
-        || joined_cut.identity() != binding.joined_cut_identity
-        || joined_cut.digest() != binding.joined_cut_digest
-        || sample_projection.identity() != binding.sample_projection_identity
-        || sample_projection.digest() != binding.sample_projection_digest
+    let ReplayCompositionBindingBodyV1::FirstCorpus {
+        census_identity,
+        census_digest,
+        joined_cut_identity,
+        joined_cut_digest,
+        sample_projection_identity,
+        sample_projection_digest,
+    } = binding.body
+    else {
+        return Err(ReplayCompositionBindingErrorV1::CompositionShapeMismatch);
+    };
+
+    if observation_census.identity() != census_identity
+        || observation_census.digest() != census_digest
+        || joined_cut.identity() != joined_cut_identity
+        || joined_cut.digest() != joined_cut_digest
+        || sample_projection.identity() != sample_projection_identity
+        || sample_projection.digest() != sample_projection_digest
     {
         return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
     }
@@ -1274,7 +1471,7 @@ fn validate_v2_dependencies(
 
 fn encode_record(record: &ReplayCompositionBindingV1) -> Vec<u8> {
     let mut bytes = Vec::new();
-    bytes.extend_from_slice(&SCHEMA_VERSION.to_be_bytes());
+    bytes.extend_from_slice(&schema_of(record.shape()).to_be_bytes());
 
     for value in [
         record.replay_request_identity,
@@ -1312,22 +1509,36 @@ fn encode_record(record: &ReplayCompositionBindingV1) -> Vec<u8> {
         }
     }
 
-    for value in [
-        record.census_identity,
-        record.census_digest,
-        record.joined_cut_identity,
-        record.joined_cut_digest,
-        record.sample_projection_identity,
-        record.sample_projection_digest,
-    ] {
-        push_digest(&mut bytes, value);
+    match record.body {
+        ReplayCompositionBindingBodyV1::FirstCorpus {
+            census_identity,
+            census_digest,
+            joined_cut_identity,
+            joined_cut_digest,
+            sample_projection_identity,
+            sample_projection_digest,
+        } => {
+            for value in [
+                census_identity,
+                census_digest,
+                joined_cut_identity,
+                joined_cut_digest,
+                sample_projection_identity,
+                sample_projection_digest,
+            ] {
+                push_digest(&mut bytes, value);
+            }
+        }
+        ReplayCompositionBindingBodyV1::UniverseMembers {
+            universe_frame_digest,
+        } => push_digest(&mut bytes, universe_frame_digest),
     }
     bytes
 }
 
 fn encode_receipt(receipt: &ReplayCompositionBindingReceiptV1) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(2 + 3 * 32);
-    bytes.extend_from_slice(&SCHEMA_VERSION.to_be_bytes());
+    bytes.extend_from_slice(&schema_of(receipt.shape).to_be_bytes());
     push_digest(&mut bytes, receipt.binding_identity);
     push_digest(&mut bytes, receipt.binding_digest);
     push_digest(&mut bytes, receipt.stable_correlation);
