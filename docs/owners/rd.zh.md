@@ -289,6 +289,8 @@ Composer attestation 注册它们，而铸造该 attestation 的正是一次 Com
 一次提交的响应恰好带着注册所需的 locator；唯独第一圈没有来源，且任何与 artifact 绑定的形状都给不出这个来源，
 因为 program 的身份恰恰折叠了该注册所签发的那些绑定回执。于是本 Owner 发布一份 Design 级 role intent：
 它只指名一个 Design、该 Design 被接纳时所依据的 Research request 与 custody，以及它所声明的角色，别无其他。
+每个角色的 scope 决定它是否指名品种：exact-instrument 角色指名一个，universe-member 角色不指名任何品种，因为选择
+属于 PIT 请求而不属于 Design。
 `POST /v1/strategy-designs/publish-role-intent` 依据当前已接纳的 custody 派生它，并按 Design 一次性写入；自
 schema 2 起它还指名该 Intent 的初始 PIT 请求，见下文请求的品种范围契约；
 `rd_owner_api.resolve_design_role_intent_for_market_data_v1` 只对 Market Data 的读取主体暴露它。
