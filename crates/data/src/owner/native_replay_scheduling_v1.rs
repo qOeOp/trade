@@ -1,8 +1,9 @@
-//! Owner-sealed native scheduling projection for one two-member Replay window.
+//! Owner-sealed native scheduling projection for one Replay frame over one or two members.
 //!
-//! The projection consumes one verified PIT batch and two move-only BAR schedule readbacks. It
-//! emits exactly two complete BAR signals followed by the first complete Quote for each member.
-//! Callers cannot supply prices, quantities, event order, or timestamps.
+//! The projection consumes the frame's verified PIT batch, the verified batch of its quote cut and
+//! one move-only BAR schedule readback per member. It emits each member's complete BAR at the
+//! frame's instant followed by each member's complete Quote at the quote cut's instant, both in
+//! member order. Callers cannot supply prices, quantities, event order, or timestamps.
 
 use std::collections::BTreeMap;
 
@@ -26,6 +27,7 @@ use super::{
         BarScheduleCompletionV1, BarScheduleKindV1, BarScheduleLabelV1, BarScheduleReadbackV1,
         BarScheduleUnitV1, UntrustedBarScheduleLocatorV1,
     },
+    native_replay_quote_cut_v2::{NativeReplayCutCoordinatesV2, verify_native_replay_quote_cut_v2},
     pit_snapshot::{
         UntrustedPitSnapshotLocator, UntrustedPitSnapshotTimeEvidence, VerifiedPitObservation,
         VerifiedPitObservationBatch,
@@ -46,6 +48,7 @@ const QUOTE_FIELDS: [&str; 4] = ["BID_PRICE", "ASK_PRICE", "BID_SIZE", "ASK_SIZE
 #[derive(Debug)]
 pub struct NativeReplaySchedulingReadbackV1 {
     observation_batch_digest: BindingDigest,
+    quote_cut: NativeReplayQuoteCutReadbackV1,
     bar_schedule_digests: Vec<BindingDigest>,
     member_instruments: Vec<InstrumentId>,
     frame_time_ns: u64,
@@ -59,6 +62,12 @@ impl NativeReplaySchedulingReadbackV1 {
     #[must_use]
     pub const fn observation_batch_digest(&self) -> BindingDigest {
         self.observation_batch_digest
+    }
+
+    /// The quote cut this frame's Quotes were read from.
+    #[must_use]
+    pub const fn quote_cut(&self) -> &NativeReplayQuoteCutReadbackV1 {
+        &self.quote_cut
     }
 
     /// One schedule digest per member, in member order.
@@ -92,6 +101,57 @@ impl NativeReplaySchedulingReadbackV1 {
     #[must_use]
     pub fn into_native_schedule(self) -> (Vec<BarType>, Vec<Data>) {
         (self.bar_types, self.data)
+    }
+}
+
+/// The Owner coordinates of the quote cut one frame took its Quotes from.
+///
+/// A PIT snapshot is one instant, so the Quotes that follow a frame's BAR sit in a snapshot of
+/// their own. These are that snapshot's identity, fact, verified batch and instant; every member's
+/// Quote carries that instant as both its event and its initialization time.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NativeReplayQuoteCutReadbackV1 {
+    snapshot_identity: BindingDigest,
+    snapshot_fact_digest: BindingDigest,
+    observation_batch_digest: BindingDigest,
+    instant_ns: u64,
+}
+
+impl NativeReplayQuoteCutReadbackV1 {
+    /// A quote cut readback written by hand, for tests of what is built on one.
+    #[cfg(test)]
+    pub(crate) const fn for_test(
+        snapshot_identity: BindingDigest,
+        snapshot_fact_digest: BindingDigest,
+        observation_batch_digest: BindingDigest,
+        instant_ns: u64,
+    ) -> Self {
+        Self {
+            snapshot_identity,
+            snapshot_fact_digest,
+            observation_batch_digest,
+            instant_ns,
+        }
+    }
+
+    #[must_use]
+    pub const fn snapshot_identity(&self) -> BindingDigest {
+        self.snapshot_identity
+    }
+
+    #[must_use]
+    pub const fn snapshot_fact_digest(&self) -> BindingDigest {
+        self.snapshot_fact_digest
+    }
+
+    #[must_use]
+    pub const fn observation_batch_digest(&self) -> BindingDigest {
+        self.observation_batch_digest
+    }
+
+    #[must_use]
+    pub const fn instant_ns(&self) -> u64 {
+        self.instant_ns
     }
 }
 
@@ -305,6 +365,7 @@ impl NativeReplayInitialMarketRequestV1 {
 #[derive(Debug)]
 pub struct NativeReplayInitialMarketReadbackV1 {
     batch: VerifiedPitObservationBatch,
+    quote_cut: VerifiedPitObservationBatch,
     universe_frame: StrategyInputUniverseFrameReceipt,
     schedules: Vec<BarScheduleReadbackV1>,
     member_instruments: Vec<InstrumentId>,
@@ -465,22 +526,18 @@ impl NativeReplayInitialMarketReadbackV1 {
     > {
         let Self {
             batch,
+            quote_cut,
             universe_frame,
             schedules,
             member_instruments,
             frame_time_ns,
             window_end_ns_exclusive,
         } = self;
-        // The V2 frame evidence is still written for two members; it is rewritten for any count
-        // with the quote cut, and until then a one-member cut has no V2 evidence.
         let evidence = super::native_replay_scheduling_v2::verify_native_replay_frame_evidence_v2(
             batch,
-            schedules
-                .try_into()
-                .map_err(|_| NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?,
-            member_instruments
-                .try_into()
-                .map_err(|_| NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?,
+            quote_cut,
+            schedules,
+            member_instruments,
             frame_time_ns,
             window_end_ns_exclusive,
         )?;
@@ -503,6 +560,7 @@ impl NativeReplayInitialMarketReadbackV1 {
     > {
         let scheduling = seal_native_replay_scheduling_v1(
             self.batch,
+            self.quote_cut,
             self.schedules,
             self.member_instruments,
             self.frame_time_ns,
@@ -594,15 +652,11 @@ pub trait NativeReplaySchedulingResolverV1: resolver_seal::Sealed + Send + Sync 
         &self,
         request: &NativeReplayInitialMarketRequestV1,
     ) -> Result<NativeReplayInitialMarketReadbackV1, NativeReplaySchedulingErrorV1>;
-
-    async fn resolve_native_replay_scheduling_v1(
-        &self,
-        request: &UntrustedNativeReplaySchedulingRequestV1,
-    ) -> Result<NativeReplaySchedulingReadbackV1, NativeReplaySchedulingErrorV1>;
 }
 
 pub(crate) fn issue_native_replay_initial_market_readback_v1(
     batch: VerifiedPitObservationBatch,
+    quote_cut: VerifiedPitObservationBatch,
     schedules: impl Into<Vec<BarScheduleReadbackV1>>,
     request: &NativeReplayInitialMarketRequestV1,
 ) -> Result<NativeReplayInitialMarketReadbackV1, NativeReplaySchedulingErrorV1> {
@@ -689,8 +743,12 @@ pub(crate) fn issue_native_replay_initial_market_readback_v1(
     {
         return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
     }
+    // The frame's Quotes are checked here rather than first found wrong when the readback is spent:
+    // a readback that exists can always become its scheduling seal.
+    quote_cut_instant(&batch, &quote_cut, request.window_end_ns_exclusive)?;
     Ok(NativeReplayInitialMarketReadbackV1 {
         batch,
+        quote_cut,
         universe_frame,
         schedules,
         member_instruments: request.member_instruments.clone(),
@@ -764,7 +822,8 @@ pub(crate) fn native_replay_schedule_matches_request_v1(
     reason = "sealing native scheduling consumes the Owner batch and exact schedule set"
 )]
 pub fn seal_native_replay_scheduling_v1(
-    batch: VerifiedPitObservationBatch,
+    frame: VerifiedPitObservationBatch,
+    quote_cut: VerifiedPitObservationBatch,
     schedules: impl Into<Vec<BarScheduleReadbackV1>>,
     member_instruments: impl Into<Vec<InstrumentId>>,
     frame_time_ns: u64,
@@ -779,11 +838,12 @@ pub fn seal_native_replay_scheduling_v1(
     {
         return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
     }
+    let instant_ns = quote_cut_instant(&frame, &quote_cut, window_end_ns_exclusive)?;
     let bar_types = schedules
         .iter()
         .zip(&member_instruments)
         .map(|(schedule, instrument)| {
-            validated_bar_type(schedule, &batch, *instrument, frame_time_ns)
+            validated_bar_type(schedule, &frame, *instrument, frame_time_ns)
         })
         .collect::<Result<Vec<_>, _>>()?;
     let mut data = Vec::with_capacity(member_instruments.len() * 2);
@@ -792,28 +852,36 @@ pub fn seal_native_replay_scheduling_v1(
         schedules.iter().zip(&member_instruments).zip(&bar_types)
     {
         data.push(Data::Bar(project_bar(
-            &batch,
+            &frame,
             *instrument,
             *bar_type,
             frame_time_ns,
             &schedule_timeframe(schedule.fact()),
         )?));
     }
-    // Each member's Quote is its first complete one after the member before it, in member order.
-    let mut after_event_ns = frame_time_ns;
 
+    // Every member's Quote shares the quote cut's instant; member order is the order Backtest
+    // consumes elements that share a `ts_init` in.
     for instrument in &member_instruments {
-        let quote =
-            project_first_quote(&batch, *instrument, after_event_ns, window_end_ns_exclusive)?;
-        after_event_ns = quote.ts_event.as_u64();
-        data.push(Data::Quote(quote));
+        data.push(Data::Quote(project_quote(
+            &quote_cut,
+            *instrument,
+            instant_ns,
+        )?));
     }
     let bar_schedule_digests = schedules
         .iter()
         .map(BarScheduleReadbackV1::digest)
         .collect::<Vec<_>>();
+    let quote_cut = NativeReplayQuoteCutReadbackV1 {
+        snapshot_identity: quote_cut.snapshot_identity(),
+        snapshot_fact_digest: quote_cut.fact_digest(),
+        observation_batch_digest: quote_cut.digest(),
+        instant_ns,
+    };
     let receipt_digest = digest_receipt(
-        batch.digest(),
+        frame.digest(),
+        &quote_cut,
         &bar_schedule_digests,
         &member_instruments,
         frame_time_ns,
@@ -821,7 +889,8 @@ pub fn seal_native_replay_scheduling_v1(
         &data,
     )?;
     Ok(NativeReplaySchedulingReadbackV1 {
-        observation_batch_digest: batch.digest(),
+        observation_batch_digest: frame.digest(),
+        quote_cut,
         bar_schedule_digests,
         member_instruments,
         frame_time_ns,
@@ -830,6 +899,29 @@ pub fn seal_native_replay_scheduling_v1(
         data,
         receipt_digest,
     })
+}
+
+/// Returns the instant of `quote_cut` once it is `frame`'s quote cut and lies before the bound.
+///
+/// Which quote cut serves a frame is the resolver's question, answered from the census; this is
+/// the check that the batch it resolved is one: a quote cut strictly after the frame's BAR and
+/// strictly before `bound_ns_exclusive`, on the frame's own coordinates and exactly its members.
+fn quote_cut_instant(
+    frame: &VerifiedPitObservationBatch,
+    quote_cut: &VerifiedPitObservationBatch,
+    bound_ns_exclusive: u64,
+) -> Result<u64, NativeReplaySchedulingErrorV1> {
+    let quote_cut_coordinates = NativeReplayCutCoordinatesV2::of(quote_cut);
+    verify_native_replay_quote_cut_v2(
+        &NativeReplayCutCoordinatesV2::of(frame),
+        &quote_cut_coordinates,
+    )
+    .map_err(|_| NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
+
+    if quote_cut_coordinates.event_effective_ns >= bound_ns_exclusive {
+        return Err(NativeReplaySchedulingErrorV1::EventOrderUnavailable);
+    }
+    Ok(quote_cut_coordinates.event_effective_ns)
 }
 
 fn validated_bar_type(
@@ -927,62 +1019,49 @@ fn project_bar(
     .map_err(|_| NativeReplaySchedulingErrorV1::NativeRepresentation)
 }
 
-fn project_first_quote(
-    batch: &VerifiedPitObservationBatch,
+/// Projects one member's complete Quote at the quote cut's instant.
+///
+/// The member's Quote rows in the quote cut are exactly one complete field set, all at the
+/// quote cut's instant: a missing, repeated or differently timed field refuses the frame.
+fn project_quote(
+    quote_cut: &VerifiedPitObservationBatch,
     instrument_id: InstrumentId,
-    after_event_ns: u64,
-    window_end_ns_exclusive: u64,
+    instant_ns: u64,
 ) -> Result<QuoteTick, NativeReplaySchedulingErrorV1> {
     let instrument = instrument_id.to_string();
-    let mut by_event = BTreeMap::<u64, Vec<&VerifiedPitObservation>>::new();
+    let rows = exact_fields(
+        quote_cut
+            .observations()
+            .iter()
+            .filter(|row| row.instrument() == instrument && row.data_kind() == "QUOTE"),
+        &QUOTE_FIELDS,
+    )?;
 
-    for row in batch.observations().iter().filter(|row| {
-        row.instrument() == instrument
-            && row.data_kind() == "QUOTE"
-            && row.event_effective() > after_event_ns
-            && row.event_effective() < window_end_ns_exclusive
-            && QUOTE_FIELDS.contains(&row.field())
-    }) {
-        by_event.entry(row.event_effective()).or_default().push(row);
+    if rows.values().any(|row| row.event_effective() != instant_ns) {
+        return Err(NativeReplaySchedulingErrorV1::EventOrderUnavailable);
     }
+    verify_same_event_coordinate(rows.values().copied())?;
+    let bid_price = native_price(rows["BID_PRICE"])?;
+    let ask_price = native_price(rows["ASK_PRICE"])?;
+    let bid_size = native_quantity(rows["BID_SIZE"], false)?;
+    let ask_size = native_quantity(rows["ASK_SIZE"], false)?;
 
-    for (event_time_ns, candidates) in by_event {
-        let mut rows = BTreeMap::new();
-        for row in candidates {
-            if rows.insert(row.field(), row).is_some() {
-                return Err(NativeReplaySchedulingErrorV1::FieldCensusMismatch);
-            }
-        }
-
-        if rows.len() != QUOTE_FIELDS.len()
-            || QUOTE_FIELDS.iter().any(|field| !rows.contains_key(field))
-        {
-            continue;
-        }
-        verify_same_event_coordinate(rows.values().copied())?;
-        let bid_price = native_price(rows["BID_PRICE"])?;
-        let ask_price = native_price(rows["ASK_PRICE"])?;
-        let bid_size = native_quantity(rows["BID_SIZE"], false)?;
-        let ask_size = native_quantity(rows["ASK_SIZE"], false)?;
-
-        if bid_price > ask_price
-            || bid_price.precision != ask_price.precision
-            || bid_size.precision != ask_size.precision
-        {
-            return Err(NativeReplaySchedulingErrorV1::NativeRepresentation);
-        }
-        return QuoteTick::new_checked(
-            instrument_id,
-            bid_price,
-            ask_price,
-            bid_size,
-            ask_size,
-            event_time_ns.into(),
-            event_time_ns.into(),
-        )
-        .map_err(|_| NativeReplaySchedulingErrorV1::NativeRepresentation);
+    if bid_price > ask_price
+        || bid_price.precision != ask_price.precision
+        || bid_size.precision != ask_size.precision
+    {
+        return Err(NativeReplaySchedulingErrorV1::NativeRepresentation);
     }
-    Err(NativeReplaySchedulingErrorV1::EventOrderUnavailable)
+    QuoteTick::new_checked(
+        instrument_id,
+        bid_price,
+        ask_price,
+        bid_size,
+        ask_size,
+        instant_ns.into(),
+        instant_ns.into(),
+    )
+    .map_err(|_| NativeReplaySchedulingErrorV1::NativeRepresentation)
 }
 
 fn exact_fields<'a>(
@@ -1077,6 +1156,7 @@ fn canonical_members(members: &[InstrumentId]) -> bool {
 
 fn digest_receipt(
     batch_digest: BindingDigest,
+    quote_cut: &NativeReplayQuoteCutReadbackV1,
     schedule_digests: &[BindingDigest],
     instruments: &[InstrumentId],
     frame_time_ns: u64,
@@ -1086,18 +1166,16 @@ fn digest_receipt(
     let mut hasher = Sha256::new();
     hasher.update(RECEIPT_DOMAIN_V1);
 
-    // The members are hashed without a count, and a two-member receipt keeps the bytes it always
-    // had. Any other count states itself here, so no receipt over one member can share a preimage
-    // with one over two.
-    if instruments.len() != 2 {
-        hasher.update(b"members\0");
-        hasher.update(
-            u64::try_from(instruments.len())
-                .map_err(|_| NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?
-                .to_be_bytes(),
-        );
-    }
+    // The member count comes first, so no receipt over one member can share a preimage with one
+    // over two; the quote cut follows the frame's batch because its Quotes are not in that batch.
+    hasher.update(
+        u64::try_from(instruments.len())
+            .map_err(|_| NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?
+            .to_be_bytes(),
+    );
     hasher.update(batch_digest.as_bytes());
+    hasher.update(quote_cut.snapshot_identity.as_bytes());
+    hasher.update(quote_cut.snapshot_fact_digest.as_bytes());
     for digest in schedule_digests {
         hasher.update(digest.as_bytes());
     }
@@ -1200,36 +1278,69 @@ pub(crate) mod tests {
         }
     }
 
-    fn rows_for(instrument: &str, quote_event: u64) -> Vec<VerifiedPitObservation> {
-        let mut rows = Vec::new();
+    /// One member's complete BAR at the fixture frame's instant, 100.
+    fn rows_for(instrument: &str) -> Vec<VerifiedPitObservation> {
+        bar_rows_at(instrument, 100, 0)
+    }
 
-        for (field, mantissa, scale) in [
-            ("OPEN", 10_000, 2),
-            ("HIGH", 10_100, 2),
-            ("LOW", 9_900, 2),
-            ("CLOSE", 10_050, 2),
-            ("VOLUME", 1_000, 0),
-        ] {
-            rows.push(row(instrument, "BAR", "1M", field, mantissa, scale, 100));
-        }
-
-        for (field, mantissa, scale) in [
+    /// One member's complete Quote at `instant`.
+    fn quote_rows(instrument: &str, instant: u64) -> Vec<VerifiedPitObservation> {
+        [
             ("BID_PRICE", 10_000, 2),
             ("ASK_PRICE", 10_001, 2),
             ("BID_SIZE", 100, 0),
             ("ASK_SIZE", 100, 0),
-        ] {
-            rows.push(row(
-                instrument,
-                "QUOTE",
-                "TICK",
-                field,
-                mantissa,
-                scale,
-                quote_event,
-            ));
-        }
-        rows
+        ]
+        .into_iter()
+        .map(|(field, mantissa, scale)| {
+            row(instrument, "QUOTE", "TICK", field, mantissa, scale, instant)
+        })
+        .collect()
+    }
+
+    /// A quote cut of `frame` at `instant`: a snapshot of its own on the frame's coordinates,
+    /// holding exactly `rows`.
+    pub(crate) fn quote_cut_with(
+        frame: &VerifiedPitObservationBatch,
+        rows: Vec<VerifiedPitObservation>,
+        instant: u64,
+    ) -> VerifiedPitObservationBatch {
+        let seed = frame.snapshot_identity().as_bytes()[0];
+        let selection = frame.universe_selection_digest();
+        batch(rows).edit_for_test(|fields| {
+            fields.snapshot_identity = digest(seed.wrapping_add(100));
+            fields.fact_digest = digest(seed.wrapping_add(101));
+            fields.digest = digest(seed.wrapping_add(102));
+            fields.universe_selection_digest = selection;
+            fields.time_evidence.event_effective =
+                UntrustedEventEffectiveTime::from_untrusted(instant, "clock", "epoch");
+
+            for row in &mut fields.observations {
+                row.universe_selection_digest = selection;
+            }
+        })
+    }
+
+    /// A quote cut of `frame` at `instant` quoting each of `members` once.
+    pub(crate) fn quote_cut_for(
+        frame: &VerifiedPitObservationBatch,
+        members: &[&str],
+        instant: u64,
+    ) -> VerifiedPitObservationBatch {
+        quote_cut_with(
+            frame,
+            members
+                .iter()
+                .flat_map(|member| quote_rows(member, instant))
+                .collect(),
+            instant,
+        )
+    }
+
+    fn two_member_frame() -> VerifiedPitObservationBatch {
+        let mut rows = rows_for("AAA-PERP.SIM");
+        rows.extend(rows_for("BBB-PERP.SIM"));
+        batch(rows)
     }
 
     fn bar_rows_at(instrument: &str, event: u64, drift: i128) -> Vec<VerifiedPitObservation> {
@@ -1404,29 +1515,11 @@ pub(crate) mod tests {
             rows.extend(bar_rows_at(instrument, frame_time_ns, i128::from(seed)));
         }
 
-        for (ordinal, instrument) in ["AAA-PERP.SIM", "BBB-PERP.SIM"].into_iter().enumerate() {
-            let quote_event = frame_time_ns + 1 + u64::try_from(ordinal).unwrap();
-
-            for (field, mantissa, scale) in [
-                ("BID_PRICE", 10_000, 2),
-                ("ASK_PRICE", 10_001, 2),
-                ("BID_SIZE", 100, 0),
-                ("ASK_SIZE", 100, 0),
-            ] {
-                rows.push(row(
-                    instrument,
-                    "QUOTE",
-                    "TICK",
-                    field,
-                    mantissa,
-                    scale,
-                    quote_event,
-                ));
-            }
-        }
         let verified = batch(rows).edit_for_test(|fields| {
             fields.snapshot_identity = digest(seed);
             fields.fact_digest = digest(seed.wrapping_add(1));
+            fields.time_evidence.event_effective =
+                UntrustedEventEffectiveTime::from_untrusted(frame_time_ns, "clock", "epoch");
         });
         let selection = crate::owner::strategy_input_binding::derive_universe_selection(&verified)
             .expect("derived Owner selection");
@@ -1461,8 +1554,14 @@ pub(crate) mod tests {
             frame_time_ns,
             window_end_ns_exclusive,
         );
+        let quote_cut = quote_cut_for(
+            &verified,
+            &["AAA-PERP.SIM", "BBB-PERP.SIM"],
+            frame_time_ns + 1,
+        );
         issue_native_replay_initial_market_readback_v1(
             verified,
+            quote_cut,
             [
                 schedule_at("AAA-PERP.SIM", 40, frame_time_ns),
                 schedule_at("BBB-PERP.SIM", 41, frame_time_ns),
@@ -1476,9 +1575,7 @@ pub(crate) mod tests {
         frame_time_ns: u64,
         window_end_ns_exclusive: u64,
     ) -> NativeReplayInitialMarketRequestV1 {
-        let mut rows = rows_for("AAA-PERP.SIM", 101);
-        rows.extend(rows_for("BBB-PERP.SIM", 102));
-        let verified = batch(rows);
+        let verified = two_member_frame();
         let selection = crate::owner::strategy_input_binding::derive_universe_selection(&verified)
             .expect("derived Owner selection");
         NativeReplayInitialMarketRequestV1::new(
@@ -1515,9 +1612,7 @@ pub(crate) mod tests {
     /// resolve. Taking the first would make the frame depend on the order rows came back in.
     #[rstest::rstest]
     fn one_candidate_schedule_is_selected_and_two_are_refused() {
-        let mut rows = rows_for("AAA-PERP.SIM", 101);
-        rows.extend(rows_for("BBB-PERP.SIM", 102));
-        let verified = batch(rows);
+        let verified = two_member_frame();
         let instrument = InstrumentId::from("AAA-PERP.SIM");
         let matching_digest = schedule_at("AAA-PERP.SIM", 40, 100).digest();
 
@@ -1576,24 +1671,33 @@ pub(crate) mod tests {
         );
     }
 
-    /// A two-member receipt keeps the bytes it had before one-member universes were admitted. The
-    /// digest below is what `main` sealed for this fixture before the change (tree `18091e6ca`).
+    fn two_members() -> Vec<InstrumentId> {
+        vec![
+            InstrumentId::from("AAA-PERP.SIM"),
+            InstrumentId::from("BBB-PERP.SIM"),
+        ]
+    }
+
+    fn two_schedules() -> Vec<BarScheduleReadbackV1> {
+        vec![schedule("AAA-PERP.SIM", 40), schedule("BBB-PERP.SIM", 41)]
+    }
+
+    /// The receipt's bytes for this fixture, pinned so a layout change is a decision and not an
+    /// accident. It was first sealed when the frame began taking its Quotes from its quote cut.
     #[rstest::rstest]
-    fn a_two_member_receipt_keeps_its_bytes() {
-        let mut rows = rows_for("AAA-PERP.SIM", 101);
-        rows.extend(rows_for("BBB-PERP.SIM", 102));
+    fn a_receipt_keeps_its_bytes() {
+        let frame = two_member_frame();
+        let quote_cut = quote_cut_for(&frame, &["AAA-PERP.SIM", "BBB-PERP.SIM"], 101);
         let readback = seal_native_replay_scheduling_v1(
-            batch(rows),
-            vec![schedule("AAA-PERP.SIM", 40), schedule("BBB-PERP.SIM", 41)],
-            vec![
-                InstrumentId::from("AAA-PERP.SIM"),
-                InstrumentId::from("BBB-PERP.SIM"),
-            ],
+            frame,
+            quote_cut,
+            two_schedules(),
+            two_members(),
             100,
             200,
         )
         .unwrap();
-        let pinned = "edc17ccfd279ff8e64cccb43fc9aea61c89c48df60fdb8a4df1c0df568a1d71c";
+        let pinned = "c28f9c3148c6a05a6f4a849e36599123ae0312fea30c765202d66a0ff57f0925";
         let expected = (0..pinned.len())
             .step_by(2)
             .map(|at| u8::from_str_radix(&pinned[at..at + 2], 16).unwrap())
@@ -1604,15 +1708,26 @@ pub(crate) mod tests {
         );
     }
 
-    /// The receipt hashes its members with no count. Two members hash exactly as they always did;
-    /// any other count states itself first, so a one-member receipt never shares a preimage shape
-    /// with a two-member one. Checked against the layout itself, not only against a pinned value.
+    /// The receipt states the member count first and binds the quote cut after the frame's batch.
+    ///
+    /// Checked against the layout rebuilt by hand, for one member and for two, so neither count
+    /// can share a preimage with the other and a receipt cannot be moved to another quote cut.
     #[rstest::rstest]
-    fn only_a_non_two_member_receipt_states_its_member_count() {
-        let untagged = |schedule_digests: &[BindingDigest], instruments: &[InstrumentId]| {
+    fn a_receipt_states_its_member_count_and_binds_its_quote_cut() {
+        let quote_cut = NativeReplayQuoteCutReadbackV1 {
+            snapshot_identity: digest(50),
+            snapshot_fact_digest: digest(51),
+            observation_batch_digest: digest(52),
+            instant_ns: 101,
+        };
+        let by_hand = |schedule_digests: &[BindingDigest], instruments: &[InstrumentId]| {
             let mut hasher = Sha256::new();
             hasher.update(RECEIPT_DOMAIN_V1);
+            hasher.update(u64::try_from(instruments.len()).unwrap().to_be_bytes());
             hasher.update(digest(9).as_bytes());
+            hasher.update(digest(50).as_bytes());
+            hasher.update(digest(51).as_bytes());
+
             for schedule_digest in schedule_digests {
                 hasher.update(schedule_digest.as_bytes());
             }
@@ -1624,28 +1739,53 @@ pub(crate) mod tests {
             hasher.update(200_u64.to_be_bytes());
             BindingDigest::from_untrusted_bytes(hasher.finalize().into())
         };
-        let two_digests = [digest(40), digest(41)];
-        let two = [
-            InstrumentId::from("AAA-PERP.SIM"),
-            InstrumentId::from("BBB-PERP.SIM"),
-        ];
-        assert_eq!(
-            digest_receipt(digest(9), &two_digests, &two, 100, 200, &[]).unwrap(),
-            untagged(&two_digests, &two),
-            "two members hash exactly as before"
-        );
+        let schedule_digests = [digest(40), digest(41)];
+        let members = two_members();
+
+        for count in [1, 2] {
+            assert_eq!(
+                digest_receipt(
+                    digest(9),
+                    &quote_cut,
+                    &schedule_digests[..count],
+                    &members[..count],
+                    100,
+                    200,
+                    &[],
+                )
+                .unwrap(),
+                by_hand(&schedule_digests[..count], &members[..count]),
+                "{count} member(s)"
+            );
+        }
+        let elsewhere = NativeReplayQuoteCutReadbackV1 {
+            snapshot_identity: digest(53),
+            ..quote_cut
+        };
         assert_ne!(
-            digest_receipt(digest(9), &two_digests[..1], &two[..1], 100, 200, &[]).unwrap(),
-            untagged(&two_digests[..1], &two[..1]),
-            "one member states its count"
+            digest_receipt(
+                digest(9),
+                &elsewhere,
+                &schedule_digests,
+                &members,
+                100,
+                200,
+                &[]
+            )
+            .unwrap(),
+            by_hand(&schedule_digests, &members),
+            "another quote cut is another receipt"
         );
     }
 
     #[rstest::rstest]
     fn seals_a_one_member_bar_then_quote_schedule() {
         let member = InstrumentId::from("AAA-PERP.SIM");
+        let frame = batch(rows_for("AAA-PERP.SIM"));
+        let quote_cut = quote_cut_for(&frame, &["AAA-PERP.SIM"], 150);
         let readback = seal_native_replay_scheduling_v1(
-            batch(rows_for("AAA-PERP.SIM", 101)),
+            frame,
+            quote_cut,
             vec![schedule("AAA-PERP.SIM", 40)],
             vec![member],
             100,
@@ -1655,9 +1795,14 @@ pub(crate) mod tests {
 
         assert_eq!(readback.member_instruments(), [member]);
         assert_eq!(readback.bar_schedule_digests().len(), 1);
+        assert_eq!(readback.quote_cut().instant_ns(), 150);
         let (bar_types, data) = readback.into_native_schedule();
         assert_eq!(bar_types.len(), 1);
-        assert!(matches!(data.as_slice(), [Data::Bar(_), Data::Quote(_)]));
+        assert!(matches!(
+            data.as_slice(),
+            [Data::Bar(bar), Data::Quote(quote)]
+                if bar.ts_event.as_u64() == 100 && quote.ts_event.as_u64() == 150
+        ));
     }
 
     /// Members are an admitted universe in canonical order or nothing: none, three, a repeated or
@@ -1667,15 +1812,27 @@ pub(crate) mod tests {
         let a = InstrumentId::from("AAA-PERP.SIM");
         let b = InstrumentId::from("BBB-PERP.SIM");
         let c = InstrumentId::from("CCC-PERP.SIM");
-        let mut rows = rows_for("AAA-PERP.SIM", 101);
-        rows.extend(rows_for("BBB-PERP.SIM", 102));
-        rows.extend(rows_for("CCC-PERP.SIM", 103));
+        let mut rows = rows_for("AAA-PERP.SIM");
+        rows.extend(rows_for("BBB-PERP.SIM"));
+        rows.extend(rows_for("CCC-PERP.SIM"));
+        let frame = batch(rows);
+        let quote_cut = quote_cut_for(
+            &frame,
+            &["AAA-PERP.SIM", "BBB-PERP.SIM", "CCC-PERP.SIM"],
+            101,
+        );
         let seal = |schedules: Vec<BarScheduleReadbackV1>, members: Vec<InstrumentId>| {
-            seal_native_replay_scheduling_v1(batch(rows.clone()), schedules, members, 100, 200)
-                .map(|_| ())
+            seal_native_replay_scheduling_v1(
+                frame.clone(),
+                quote_cut.clone(),
+                schedules,
+                members,
+                100,
+                200,
+            )
+            .map(|_| ())
         };
         let one = || schedule("AAA-PERP.SIM", 40);
-        let two = || vec![schedule("AAA-PERP.SIM", 40), schedule("BBB-PERP.SIM", 41)];
 
         for (schedules, members) in [
             (Vec::new(), Vec::new()),
@@ -1692,7 +1849,7 @@ pub(crate) mod tests {
                 vec![schedule("BBB-PERP.SIM", 41), schedule("AAA-PERP.SIM", 40)],
                 vec![b, a],
             ),
-            (two(), vec![a]),
+            (two_schedules(), vec![a]),
         ] {
             assert_eq!(
                 seal(schedules, members),
@@ -1702,40 +1859,116 @@ pub(crate) mod tests {
     }
 
     #[rstest::rstest]
-    fn seals_exact_two_bar_then_two_quote_schedule() {
-        let first = InstrumentId::from("AAA-PERP.SIM");
-        let second = InstrumentId::from("BBB-PERP.SIM");
-        let mut rows = rows_for("AAA-PERP.SIM", 101);
-        rows.extend(rows_for("BBB-PERP.SIM", 102));
-
+    fn seals_every_bar_then_every_quote_at_the_quote_cuts_instant() {
+        let frame = two_member_frame();
+        let quote_cut = quote_cut_for(&frame, &["AAA-PERP.SIM", "BBB-PERP.SIM"], 101);
         let readback = seal_native_replay_scheduling_v1(
-            batch(rows),
-            [schedule("AAA-PERP.SIM", 40), schedule("BBB-PERP.SIM", 41)],
-            [first, second],
+            frame,
+            quote_cut,
+            two_schedules(),
+            two_members(),
             100,
             200,
         )
         .unwrap();
 
-        assert_eq!(readback.member_instruments(), [first, second]);
-        assert_ne!(
-            readback.receipt_digest(),
-            BindingDigest::from_untrusted_bytes([0; 32])
-        );
+        assert_eq!(readback.member_instruments(), two_members());
+        assert_eq!(readback.quote_cut().snapshot_identity(), digest(112));
+        assert_eq!(readback.quote_cut().instant_ns(), 101);
         let (_, data) = readback.into_native_schedule();
-        assert!(matches!(
-            data.as_slice(),
-            [Data::Bar(_), Data::Bar(_), Data::Quote(_), Data::Quote(_)]
-        ));
+        let [
+            Data::Bar(first_bar),
+            Data::Bar(second_bar),
+            Data::Quote(first_quote),
+            Data::Quote(second_quote),
+        ] = data.as_slice()
+        else {
+            panic!("two BARs then two Quotes");
+        };
+        assert_eq!(
+            [
+                first_bar.bar_type.instrument_id(),
+                second_bar.bar_type.instrument_id(),
+                first_quote.instrument_id,
+                second_quote.instrument_id,
+            ],
+            [
+                two_members()[0],
+                two_members()[1],
+                two_members()[0],
+                two_members()[1]
+            ]
+        );
+        assert!(
+            [first_quote, second_quote]
+                .iter()
+                .all(|quote| quote.ts_event.as_u64() == 101 && quote.ts_init == quote.ts_event),
+            "both members' Quotes share the quote cut's instant"
+        );
+    }
+
+    /// A batch is the frame's quote cut or it is refused: a quote cut at or past the bound, one on
+    /// other coordinates or members, a frame offered as a quote cut, or a Quote at another instant
+    /// than its cut's.
+    #[rstest::rstest]
+    fn seals_only_the_frames_own_quote_cut() {
+        let frame = two_member_frame();
+        let both = ["AAA-PERP.SIM", "BBB-PERP.SIM"];
+        let seal = |quote_cut: VerifiedPitObservationBatch| {
+            seal_native_replay_scheduling_v1(
+                frame.clone(),
+                quote_cut,
+                two_schedules(),
+                two_members(),
+                100,
+                200,
+            )
+            .map(|_| ())
+            .unwrap_err()
+        };
+
+        assert_eq!(
+            seal(quote_cut_for(&frame, &both, 200)),
+            NativeReplaySchedulingErrorV1::EventOrderUnavailable,
+            "at the bound"
+        );
+        assert_eq!(
+            seal(quote_cut_for(&frame, &both, 100)),
+            NativeReplaySchedulingErrorV1::OwnerBindingMismatch,
+            "on the frame's own instant"
+        );
+        assert_eq!(
+            seal(
+                quote_cut_for(&frame, &both, 101)
+                    .edit_for_test(|fields| fields.scope_digest = digest(90))
+            ),
+            NativeReplaySchedulingErrorV1::OwnerBindingMismatch,
+            "another scope"
+        );
+        assert_eq!(
+            seal(quote_cut_for(&frame, &["AAA-PERP.SIM"], 101)),
+            NativeReplaySchedulingErrorV1::OwnerBindingMismatch,
+            "a member unquoted"
+        );
+        assert_eq!(
+            seal(two_member_frame()),
+            NativeReplaySchedulingErrorV1::OwnerBindingMismatch,
+            "a frame is not a quote cut"
+        );
+        let mut rows = quote_rows("AAA-PERP.SIM", 101);
+        rows.extend(quote_rows("BBB-PERP.SIM", 102));
+        assert_eq!(
+            seal(quote_cut_with(&frame, rows, 101)),
+            NativeReplaySchedulingErrorV1::EventOrderUnavailable,
+            "a Quote off its cut's instant"
+        );
     }
 
     #[rstest::rstest]
     fn initial_market_readback_projects_exact_repair_scope_and_correlation() {
         let first = InstrumentId::from("AAA-PERP.SIM");
         let second = InstrumentId::from("BBB-PERP.SIM");
-        let mut rows = rows_for("AAA-PERP.SIM", 101);
-        rows.extend(rows_for("BBB-PERP.SIM", 102));
-        let batch = batch(rows);
+        let batch = two_member_frame();
         let selection = crate::owner::strategy_input_binding::derive_universe_selection(&batch)
             .expect("derived Owner selection");
         let selection_identity = selection.selection_identity();
@@ -1769,14 +2002,36 @@ pub(crate) mod tests {
             100,
             200,
         );
+        let quote_cut = quote_cut_for(&batch, &["AAA-PERP.SIM", "BBB-PERP.SIM"], 101);
         let readback = issue_native_replay_initial_market_readback_v1(
             batch,
+            quote_cut,
             [schedule("AAA-PERP.SIM", 40), schedule("BBB-PERP.SIM", 41)],
             &request,
         )
         .expect("exact initial Market Data readback");
 
         let source = readback.into_market_data_repair_source();
+        let frame = two_member_frame().edit_for_test(|fields| {
+            fields.universe_selection_digest = selection_digest;
+
+            for row in &mut fields.observations {
+                row.universe_selection_digest = selection_digest;
+            }
+        });
+        let at_window_end = quote_cut_for(&frame, &["AAA-PERP.SIM", "BBB-PERP.SIM"], 200);
+        assert_eq!(
+            issue_native_replay_initial_market_readback_v1(
+                frame,
+                at_window_end,
+                [schedule("AAA-PERP.SIM", 40), schedule("BBB-PERP.SIM", 41)],
+                &request,
+            )
+            .map(|_| ())
+            .unwrap_err(),
+            NativeReplaySchedulingErrorV1::EventOrderUnavailable,
+            "a readback is issued only with its frame's own quote cut before the window's end"
+        );
         assert_eq!(source.pit_request_identity(), digest(10));
         assert_eq!(source.pit_request_digest(), digest(11));
         assert_eq!(source.correlation_identity(), digest(18));
@@ -1793,9 +2048,8 @@ pub(crate) mod tests {
     fn an_exact_instrument_role_is_refused_under_an_owner_universe() {
         let first = InstrumentId::from("AAA-PERP.SIM");
         let second = InstrumentId::from("BBB-PERP.SIM");
-        let mut rows = rows_for("AAA-PERP.SIM", 101);
-        rows.extend(rows_for("BBB-PERP.SIM", 102));
-        let batch = batch(rows);
+        let batch = two_member_frame();
+        let quote_cut = quote_cut_for(&batch, &["AAA-PERP.SIM", "BBB-PERP.SIM"], 101);
         let selection = crate::owner::strategy_input_binding::derive_universe_selection(&batch)
             .expect("derived Owner selection");
         let role = |scope| {
@@ -1830,6 +2084,7 @@ pub(crate) mod tests {
         assert_eq!(
             issue_native_replay_initial_market_readback_v1(
                 batch,
+                quote_cut,
                 vec![schedule("AAA-PERP.SIM", 40), schedule("BBB-PERP.SIM", 41)],
                 &request,
             )
@@ -1840,46 +2095,48 @@ pub(crate) mod tests {
 
     #[rstest::rstest]
     fn missing_quote_field_cannot_mint_scheduling_authority() {
-        let first = InstrumentId::from("AAA-PERP.SIM");
-        let second = InstrumentId::from("BBB-PERP.SIM");
-        let mut rows = rows_for("AAA-PERP.SIM", 101);
+        let frame = two_member_frame();
+        let mut rows = quote_rows("AAA-PERP.SIM", 101);
         rows.extend(
-            rows_for("BBB-PERP.SIM", 102)
+            quote_rows("BBB-PERP.SIM", 101)
                 .into_iter()
                 .filter(|row| row.field() != "ASK_SIZE"),
         );
+        let quote_cut = quote_cut_with(&frame, rows, 101);
 
         assert_eq!(
             seal_native_replay_scheduling_v1(
-                batch(rows),
-                [schedule("AAA-PERP.SIM", 40), schedule("BBB-PERP.SIM", 41)],
-                [first, second],
+                frame,
+                quote_cut,
+                two_schedules(),
+                two_members(),
                 100,
                 200,
             )
             .unwrap_err(),
-            NativeReplaySchedulingErrorV1::EventOrderUnavailable
+            NativeReplaySchedulingErrorV1::FieldCensusMismatch
         );
     }
 
     #[rstest::rstest]
-    fn duplicate_quote_field_cannot_be_skipped_for_a_later_event() {
-        let first = InstrumentId::from("AAA-PERP.SIM");
-        let second = InstrumentId::from("BBB-PERP.SIM");
-        let mut rows = rows_for("AAA-PERP.SIM", 101);
+    fn duplicate_quote_field_cannot_mint_scheduling_authority() {
+        let frame = two_member_frame();
+        let mut rows = quote_rows("AAA-PERP.SIM", 101);
         let duplicate = rows
             .iter()
             .find(|row| row.field() == "BID_PRICE")
             .unwrap()
             .clone();
         rows.push(duplicate);
-        rows.extend(rows_for("BBB-PERP.SIM", 102));
+        rows.extend(quote_rows("BBB-PERP.SIM", 101));
+        let quote_cut = quote_cut_with(&frame, rows, 101);
 
         assert_eq!(
             seal_native_replay_scheduling_v1(
-                batch(rows),
-                [schedule("AAA-PERP.SIM", 40), schedule("BBB-PERP.SIM", 41)],
-                [first, second],
+                frame,
+                quote_cut,
+                two_schedules(),
+                two_members(),
                 100,
                 200,
             )

@@ -235,10 +235,22 @@ fn original_refusal(
     } else {
         Reason::AuthorizationNotCurrent
     };
-    unavailable_for(
-        reason,
-        Subject::Authorization,
-        &evidence.locator().authorization_identity,
+    let authorization_identity = evidence.locator().authorization_identity;
+    let revoked = evidence
+        .frontier()
+        .revoked_authorization_identities()
+        .contains(&authorization_identity);
+    ProductEdgeError::Unavailable(
+        crate::ProductEdgeUnavailableV1::about(
+            reason,
+            Subject::Authorization,
+            authorization_identity,
+        )
+        .with_cause(format!(
+            "original authorization at cut {read_cut_epoch_ms}: window [{}, {}), revoked {revoked}",
+            evidence.not_before_epoch_ms(),
+            evidence.valid_through_epoch_ms(),
+        )),
     )
 }
 
@@ -1876,11 +1888,11 @@ impl ProductEdgePostgresOwnerV1 {
             "CREATE TABLE IF NOT EXISTS product_edge_effect_invocation_admissions_v1 (receipt_identity TEXT PRIMARY KEY, receipt_digest TEXT NOT NULL, admission_identity TEXT NOT NULL UNIQUE, attempt_identity TEXT NOT NULL UNIQUE, claim_identity TEXT NOT NULL UNIQUE, receipt_json JSONB NOT NULL, write_cut_epoch_ms BIGINT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS product_edge_effect_invocation_claims_v1 (admission_identity TEXT PRIMARY KEY, claim_identity TEXT NOT NULL UNIQUE, attempt_identity TEXT NOT NULL UNIQUE, claim_digest TEXT NOT NULL, claim_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS product_edge_effect_invocation_states_v1 (claim_identity TEXT PRIMARY KEY REFERENCES product_edge_effect_invocation_claims_v1(claim_identity), admission_identity TEXT NOT NULL UNIQUE, attempt_identity TEXT NOT NULL UNIQUE, claim_digest TEXT NOT NULL, state_digest TEXT NOT NULL, state_json JSONB NOT NULL, updated_at_epoch_ms BIGINT NOT NULL)",
-            "CREATE OR REPLACE FUNCTION product_edge_api.lock_legacy_prepared_attempt_drain_effects_v1() RETURNS jsonb LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path = pg_catalog AS $function$ BEGIN IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF; LOCK TABLE public.product_edge_effect_invocation_admissions_v1 IN SHARE ROW EXCLUSIVE MODE; LOCK TABLE public.product_edge_effect_invocation_claims_v1 IN SHARE ROW EXCLUSIVE MODE; LOCK TABLE public.product_edge_effect_invocation_states_v1 IN SHARE ROW EXCLUSIVE MODE; RETURN pg_catalog.jsonb_build_object('schema_version', 1); END $function$",
+            "CREATE OR REPLACE FUNCTION product_edge_api.lock_legacy_prepared_attempt_drain_effects_v1() RETURNS jsonb LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $function$ BEGIN IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF; LOCK TABLE public.product_edge_effect_invocation_admissions_v1 IN SHARE ROW EXCLUSIVE MODE; LOCK TABLE public.product_edge_effect_invocation_claims_v1 IN SHARE ROW EXCLUSIVE MODE; LOCK TABLE public.product_edge_effect_invocation_states_v1 IN SHARE ROW EXCLUSIVE MODE; RETURN pg_catalog.jsonb_build_object('schema_version', 1); END $function$",
             "ALTER FUNCTION product_edge_api.lock_legacy_prepared_attempt_drain_effects_v1() OWNER TO product_edge_owner",
             "REVOKE ALL ON FUNCTION product_edge_api.lock_legacy_prepared_attempt_drain_effects_v1() FROM PUBLIC, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner",
             "GRANT EXECUTE ON FUNCTION product_edge_api.lock_legacy_prepared_attempt_drain_effects_v1() TO rd_owner, product_edge_owner",
-            "CREATE OR REPLACE FUNCTION product_edge_api.read_legacy_prepared_attempt_absence_v1(requested_admission_identity text, requested_attempt_identity text) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path = pg_catalog AS $function$ DECLARE admission_count bigint; claim_count bigint; state_count bigint; provider_start_count bigint; BEGIN IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF; LOCK TABLE public.product_edge_effect_invocation_admissions_v1 IN SHARE ROW EXCLUSIVE MODE; LOCK TABLE public.product_edge_effect_invocation_claims_v1 IN SHARE ROW EXCLUSIVE MODE; LOCK TABLE public.product_edge_effect_invocation_states_v1 IN SHARE ROW EXCLUSIVE MODE; SELECT pg_catalog.count(*) INTO admission_count FROM public.product_edge_effect_invocation_admissions_v1 WHERE admission_identity=requested_admission_identity OR attempt_identity=requested_attempt_identity; SELECT pg_catalog.count(*) INTO claim_count FROM public.product_edge_effect_invocation_claims_v1 WHERE admission_identity=requested_admission_identity OR attempt_identity=requested_attempt_identity; SELECT pg_catalog.count(*) INTO state_count FROM public.product_edge_effect_invocation_states_v1 WHERE admission_identity=requested_admission_identity OR attempt_identity=requested_attempt_identity; SELECT pg_catalog.count(*) INTO provider_start_count FROM public.product_edge_effect_invocation_states_v1 WHERE (admission_identity=requested_admission_identity OR attempt_identity=requested_attempt_identity) AND state_json->>'state'='INVOCATION_STARTED'; RETURN pg_catalog.jsonb_build_object('schema_version', 1, 'effect_invocation_admission_count', admission_count, 'effect_invocation_claim_count', claim_count, 'effect_invocation_state_count', state_count, 'provider_start_custody_count', provider_start_count); END $function$",
+            "CREATE OR REPLACE FUNCTION product_edge_api.read_legacy_prepared_attempt_absence_v1(requested_admission_identity text, requested_attempt_identity text) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $function$ DECLARE admission_count bigint; claim_count bigint; state_count bigint; provider_start_count bigint; BEGIN IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF; LOCK TABLE public.product_edge_effect_invocation_admissions_v1 IN SHARE ROW EXCLUSIVE MODE; LOCK TABLE public.product_edge_effect_invocation_claims_v1 IN SHARE ROW EXCLUSIVE MODE; LOCK TABLE public.product_edge_effect_invocation_states_v1 IN SHARE ROW EXCLUSIVE MODE; SELECT pg_catalog.count(*) INTO admission_count FROM public.product_edge_effect_invocation_admissions_v1 WHERE admission_identity=requested_admission_identity OR attempt_identity=requested_attempt_identity; SELECT pg_catalog.count(*) INTO claim_count FROM public.product_edge_effect_invocation_claims_v1 WHERE admission_identity=requested_admission_identity OR attempt_identity=requested_attempt_identity; SELECT pg_catalog.count(*) INTO state_count FROM public.product_edge_effect_invocation_states_v1 WHERE admission_identity=requested_admission_identity OR attempt_identity=requested_attempt_identity; SELECT pg_catalog.count(*) INTO provider_start_count FROM public.product_edge_effect_invocation_states_v1 WHERE (admission_identity=requested_admission_identity OR attempt_identity=requested_attempt_identity) AND state_json->>'state'='INVOCATION_STARTED'; RETURN pg_catalog.jsonb_build_object('schema_version', 1, 'effect_invocation_admission_count', admission_count, 'effect_invocation_claim_count', claim_count, 'effect_invocation_state_count', state_count, 'provider_start_custody_count', provider_start_count); END $function$",
             "ALTER FUNCTION product_edge_api.read_legacy_prepared_attempt_absence_v1(text,text) OWNER TO product_edge_owner",
             "REVOKE ALL ON FUNCTION product_edge_api.read_legacy_prepared_attempt_absence_v1(text,text) FROM PUBLIC, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner",
             "GRANT EXECUTE ON FUNCTION product_edge_api.read_legacy_prepared_attempt_absence_v1(text,text) TO rd_owner, product_edge_owner",
@@ -4799,15 +4811,25 @@ fn downstream_admission_refusal(
         ),
         // Anything else was raised further in and travelled up: the envelope names the
         // authorization it was about, which is the part this layer could not otherwise
-        // report. An unknown code means the deployed migration is ahead of this binary,
-        // and it stays visible rather than passing as an accepting envelope.
-        _ => unavailable_for(
-            Reason::AuthorizationNotCurrent,
-            Subject::Authorization,
-            envelope
-                .get("authorization_identity")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or(&locator.admission_identity),
+        // report, and the cause keeps the code and the function that raised it. An unknown
+        // code means the deployed migration is ahead of this binary, and it stays visible
+        // rather than passing as an accepting envelope.
+        _ => ProductEdgeError::Unavailable(
+            crate::ProductEdgeUnavailableV1::about(
+                Reason::AuthorizationNotCurrent,
+                Subject::Authorization,
+                envelope
+                    .get("authorization_identity")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or(&locator.admission_identity),
+            )
+            .with_cause(format!(
+                "{refusal} from {}",
+                envelope
+                    .get("refused_by")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("product_edge_api.lock_downstream_admission_v1")
+            )),
         ),
     })
 }
@@ -7316,6 +7338,45 @@ mod tests {
         );
     }
 
+    /// A refusal raised inside the Operator Authorization lock keeps its outward class, and the
+    /// cause names the code and the function that raised it, because the class alone cannot
+    /// tell an unknown identity from a missing revocation head.
+    #[rstest]
+    fn a_refusal_from_inside_the_downstream_lock_names_its_code_and_origin() {
+        let locator = ProductEdgeAdmissionLocatorV1 {
+            request_identity: "request-1".into(),
+            admission_identity: "admission-1".into(),
+            admission_digest: "sha256:admission-1".into(),
+        };
+        let refusal = downstream_admission_refusal(
+            &serde_json::json!({
+                "schema_version": 1,
+                "refusal": "REVOCATION_HEAD_MISSING",
+                "refused_by": "operator_authorization_api.lock_current_authorization_v1",
+                "authorization_identity": "authorization-1",
+            }),
+            &locator,
+        )
+        .expect("a refusal");
+
+        let ProductEdgeError::Unavailable(unavailable) = refusal else {
+            panic!("an Unavailable refusal");
+        };
+        assert_eq!(unavailable.reason(), &Reason::AuthorizationNotCurrent);
+        assert_eq!(
+            unavailable
+                .subject()
+                .map(|subject| subject.identity.as_str()),
+            Some("authorization-1")
+        );
+        assert_eq!(
+            unavailable.cause(),
+            Some(
+                "REVOCATION_HEAD_MISSING from operator_authorization_api.lock_current_authorization_v1"
+            )
+        );
+    }
+
     #[rstest]
     fn artifact_build_effects_are_exact_and_ordered() {
         let exact = ARTIFACT_BUILD_REQUIRED_EFFECTS_V1
@@ -8028,7 +8089,7 @@ mod tests {
         );
         assert_eq!(
             function_catalog.5,
-            Some(vec!["search_path=pg_catalog".into()])
+            Some(vec!["search_path=pg_catalog, pg_temp".into()])
         );
 
         for (role, wrapper, generic, direct_oa) in [
@@ -10012,7 +10073,7 @@ mod tests {
         );
         assert_eq!(
             function_catalog.5,
-            Some(vec!["search_path=pg_catalog".into()])
+            Some(vec!["search_path=pg_catalog, pg_temp".into()])
         );
         assert!(
             sqlx::query("SELECT 1 FROM product_edge_request_admissions_v1 FOR SHARE")

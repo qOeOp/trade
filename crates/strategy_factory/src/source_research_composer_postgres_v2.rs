@@ -7,6 +7,7 @@
 //! census. The same R&D Owner transaction is passed to the fact-Owner binding resolver and remains
 //! open until the Composer decision completes.
 
+use std::fmt::Display;
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -1170,7 +1171,12 @@ impl PostgresSourceResearchComposerBindingOwnerV2 {
     ) -> Result<VerifiedStrategyInputBindingsV2, DevelopComposerTerminalV2> {
         let coordinate = resolve_pit_request_for_strategy_design_v1(transaction, design_identity)
             .await
-            .map_err(|_| production_market_data_unavailable())?;
+            .map_err(|cause| {
+                market_data_binding_refused(
+                    "source_research_composer.binding.resolve_pit_request",
+                    &cause,
+                )
+            })?;
 
         // On the run path R&D holds the Design and must state its own complete role set; the
         // Owner's stored roles may only agree with it. The recovery path has no Design, so there
@@ -1183,7 +1189,10 @@ impl PostgresSourceResearchComposerBindingOwnerV2 {
                 stored.sort_unstable();
                 expected.sort_unstable();
                 if stored != expected {
-                    return Err(production_market_data_unavailable());
+                    return Err(market_data_binding_refused(
+                        "source_research_composer.binding.declared_roles",
+                        &"the Design's role set differs from the roles Market Data holds for it",
+                    ));
                 }
                 declared
             }
@@ -1199,12 +1208,20 @@ impl PostgresSourceResearchComposerBindingOwnerV2 {
         };
         let readback = reread_persisted_strategy_input_custody_for_update_v1(transaction, &claim)
             .await
-            .map_err(|_| production_market_data_unavailable())?;
+            .map_err(|cause| {
+                market_data_binding_refused(
+                    "source_research_composer.binding.reread_custody",
+                    &cause,
+                )
+            })?;
 
         if readback.research_request_identity() != research_request_identity
             || readback.strategy_design_identity() != design_identity
         {
-            return Err(production_market_data_unavailable());
+            return Err(market_data_binding_refused(
+                "source_research_composer.binding.custody_identity",
+                &"the reread custody names another Research request or Design",
+            ));
         }
         Ok(VerifiedStrategyInputBindingsV2::from_owner_receipts(
             readback.bindings(),
@@ -1263,8 +1280,13 @@ impl SourceResearchComposerBindingOwnerV2 for PostgresSourceResearchComposerBind
         frozen: &FrozenResearchBoundedFeatureProgramV1,
         _read_cut_epoch_ms: u64,
     ) -> Result<VerifiedStrategyInputBindingsV2, DevelopComposerTerminalV2> {
-        let design: StrategyDesignV2 = serde_json::from_slice(frozen.design_bytes())
-            .map_err(|_| production_market_data_unavailable())?;
+        let design: StrategyDesignV2 =
+            serde_json::from_slice(frozen.design_bytes()).map_err(|cause| {
+                market_data_binding_refused(
+                    "source_research_composer.binding.frozen_design",
+                    &cause,
+                )
+            })?;
         let declared_roles = design
             .inputs
             .iter()
@@ -1278,6 +1300,20 @@ impl SourceResearchComposerBindingOwnerV2 for PostgresSourceResearchComposerBind
         )
         .await
     }
+}
+
+/// Records why the production Market Data binding read refused, then returns the refusal the
+/// caller is given.
+///
+/// The response is `market_data_binding` whichever step refused, and it stays that way: a caller
+/// learns that the Design has no admitted custody, not which piece of Owner evidence failed. The
+/// coordinate names the step and the cause is that step's own error, so the log says where.
+fn market_data_binding_refused(
+    coordinate: &'static str,
+    cause: &impl Display,
+) -> DevelopComposerTerminalV2 {
+    crate::storage_diagnostic::refused_by_store(coordinate, cause);
+    production_market_data_unavailable()
 }
 
 fn production_market_data_unavailable() -> DevelopComposerTerminalV2 {
@@ -2042,11 +2078,21 @@ where
             ResearchCustodyLookupV1::RequestV2(research_request_locator),
         ))
         .await
-        .map_err(|_| research_unavailable())?
+        .map_err(|cause| {
+            research_custody_refused(
+                "source_research_composer.research_custody.for_locator.admit",
+                &cause,
+            )
+        })?
         .ok_or_else(research_unavailable)?;
         lock_current_research_artifact_custody_in_transaction(transaction, &custody)
             .await
-            .map_err(|_| research_unavailable())?;
+            .map_err(|cause| {
+                research_custody_refused(
+                    "source_research_composer.research_custody.for_locator.lock_artifact_evidence",
+                    &cause,
+                )
+            })?;
         CurrentResearchDevelopCustodyV2::from_verified(
             &custody,
             research_request_locator,
@@ -2130,17 +2176,32 @@ pub(crate) async fn lock_current_research_for_composer_replay_in_transaction(
     let successor_locator = successor_intent_locator(locator.intent_identity);
     if let Some(successor) = lock_by_intent_in_transaction(transaction, &successor_locator)
         .await
-        .map_err(|_| research_unavailable())?
+        .map_err(|cause| {
+            research_custody_refused(
+                "source_research_composer.research_custody.for_replay.lock_successor",
+                &cause,
+            )
+        })?
     {
         let view = lock_successor_research_view_in_transaction(transaction, &successor)
             .await
-            .map_err(|_| research_unavailable())?;
+            .map_err(|cause| {
+                research_custody_refused(
+                    "source_research_composer.research_custody.for_replay.lock_successor_view",
+                    &cause,
+                )
+            })?;
         let family = load_trial_family_census_v2_by_family_in_transaction(
             transaction,
             successor.intent().trial_family_identity(),
         )
         .await
-        .map_err(|_| research_unavailable())?;
+        .map_err(|cause| {
+            research_custody_refused(
+                "source_research_composer.research_custody.for_replay.trial_family_census",
+                &cause,
+            )
+        })?;
         let research = CurrentResearchDevelopCustodyV2::from_verified_successor(
             &successor,
             &view,
@@ -2157,7 +2218,12 @@ pub(crate) async fn lock_current_research_for_composer_replay_in_transaction(
 
     let custodies = Box::pin(admit_all_research_custodies_in_transaction(transaction))
         .await
-        .map_err(|_| research_unavailable())?;
+        .map_err(|cause| {
+            research_custody_refused(
+                "source_research_composer.research_custody.for_replay.admit_all",
+                &cause,
+            )
+        })?;
 
     for custody in custodies {
         if durable_research_identities(&custody).is_some_and(|(request, intent)| {
@@ -2166,7 +2232,12 @@ pub(crate) async fn lock_current_research_for_composer_replay_in_transaction(
             let request_locator = custody.receipt().request_identity.clone();
             lock_current_research_artifact_custody_in_transaction(transaction, &custody)
                 .await
-                .map_err(|_| research_unavailable())?;
+                .map_err(|cause| {
+                    research_custody_refused(
+                        "source_research_composer.research_custody.for_replay.lock_artifact_evidence",
+                        &cause,
+                    )
+                })?;
             matches.push(CurrentResearchDevelopCustodyV2::from_verified(
                 &custody,
                 &request_locator,
@@ -2899,6 +2970,22 @@ fn domain_digest(domain: &[u8], bytes: &[u8]) -> BindingDigest {
     hasher.update(domain);
     hasher.update(bytes);
     BindingDigest::from_untrusted_bytes(hasher.finalize().into())
+}
+
+/// Records why one step of the current Research custody read refused, then returns the refusal the
+/// caller is given.
+///
+/// The response is `research_custody` whichever step refused, and it stays that way: which piece
+/// of stored evidence failed is the Owner's to know, not the caller's. Before this, three different
+/// stored-custody tampers - ancestry, artifact evidence digest and artifact evidence JSON - were
+/// indistinguishable even in the log. The coordinate names the step and the cause is that step's own
+/// error, so a reader can tell them apart without re-running anything.
+fn research_custody_refused(
+    coordinate: &'static str,
+    cause: &impl Display,
+) -> DevelopComposerTerminalV2 {
+    crate::storage_diagnostic::refused_by_store(coordinate, cause);
+    research_unavailable()
 }
 
 fn research_unavailable() -> DevelopComposerTerminalV2 {
