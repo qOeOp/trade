@@ -5684,7 +5684,12 @@ mod postgres_freshness_tests {
             !deployment_lock_available,
             "PE must hold its deployment lock before waiting on R&D"
         );
-        let expired_cut = current_epoch_ms().unwrap();
+        // Product Edge judges this expiry at its final cut, on the store clock; a cut from this
+        // process's clock would put the two sides of that comparison on different clocks.
+        let expired_cut =
+            crate::rd_owner_clock::owner_clock_epoch_ms_in_transaction(&mut rd_row_gate)
+                .await
+                .unwrap();
         let expired = reseal_current_research_artifact_evidence_for_test(
             original.0.clone(),
             original.1.clone(),
