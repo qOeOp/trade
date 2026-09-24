@@ -2016,11 +2016,11 @@ struct StrategyInputBindingRegistryFixtureV1 {
 /// Owner-derived universe frame - and is replayed without a second row. The single-instrument Instrument Master check
 /// does not apply to it, but the batch-level coordinate still does, and an instrument set is still
 /// refused.
-async fn universe_member_declarations_oracle(
+pub(crate) async fn universe_member_declarations_oracle(
     owner: &MarketDataOwnerPostgres,
     exact: &UntrustedStrategyInputBindingRequest,
     batch: &VerifiedPitObservationBatch,
-) {
+) -> Vec<UntrustedStrategyInputBindingRequest> {
     use super::strategy_input_binding_registry::{
         StrategyInputBindingRegistryErrorV1 as Registry,
         register_strategy_input_binding_declaration_v1,
@@ -2098,6 +2098,13 @@ async fn universe_member_declarations_oracle(
         before + 1,
         "refusals write nothing"
     );
+
+    // A second role of the same Design, so its custody re-read covers a role set.
+    let second = universe_request(235);
+    register(&second)
+        .await
+        .expect("a second universe-member declaration");
+    vec![request, second]
 }
 
 async fn strategy_input_binding_registry_postgres_oracle(
@@ -2736,6 +2743,129 @@ async fn read_only_persisted_strategy_input_custody_v1(
     .await;
     transaction.commit().await.unwrap();
     outcome
+}
+
+/// Exercises the universe-member custody re-read against the persisted universe Design.
+///
+/// The Design's two roles re-read into one universe frame over the live batch, which is the frame
+/// the Owner binder derives for the complete role set and not either role's own. Each re-read
+/// serves only its own scope and refuses the other by name, the Design's PIT coordinate states the
+/// scope, a subset claim is refused, and nothing is written.
+async fn persisted_universe_custody_postgres_oracle_v1(
+    owner: &MarketDataOwnerPostgres,
+    fixture: &StrategyInputBindingRegistryFixtureV1,
+    universe_requests: &[UntrustedStrategyInputBindingRequest],
+) {
+    use super::strategy_input_binding_registry::{
+        StrategyInputDeclaredScopeV1,
+        reread_persisted_strategy_input_universe_custody_for_update_v1,
+        resolve_pit_request_for_strategy_design_v1,
+    };
+    use crate::owner::strategy_input_binding::{
+        StrategyInputCustodyUnavailableV1, UntrustedStrategyInputCustodyClaimV1,
+        bind_strategy_input_universe_frame,
+    };
+
+    let universe_locked = async |claim: &UntrustedStrategyInputCustodyClaimV1| {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        let outcome =
+            reread_persisted_strategy_input_universe_custody_for_update_v1(&mut transaction, claim)
+                .await;
+        transaction.commit().await.unwrap();
+        outcome
+    };
+    let coordinate = async |design| {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        let outcome = resolve_pit_request_for_strategy_design_v1(&mut transaction, design).await;
+        transaction.commit().await.unwrap();
+        outcome
+    };
+    let declaration_count = async || -> i64 {
+        sqlx::query_scalar(
+            "SELECT COUNT(*) FROM market_data_private.strategy_input_binding_declarations_v1",
+        )
+        .fetch_one(owner.pool())
+        .await
+        .unwrap()
+    };
+    let claim_of = |requests: &[UntrustedStrategyInputBindingRequest]| {
+        let first = &requests[0];
+        UntrustedStrategyInputCustodyClaimV1 {
+            research_request_identity: first.research_request_identity,
+            strategy_design_identity: first.strategy_design_identity,
+            pit_request_identity: first.pit_request_identity,
+            input_role_identities: requests
+                .iter()
+                .rev()
+                .map(|request| request.input_role_identity)
+                .collect(),
+            decision_cut: first.decision_cut,
+        }
+    };
+    let before = declaration_count().await;
+    let universe = claim_of(universe_requests);
+    let exact = claim_of(&fixture.binding_requests);
+
+    let sealed = universe_locked(&universe)
+        .await
+        .expect("complete universe custody");
+    let role_set = bind_strategy_input_universe_frame(universe_requests, &fixture.batch).unwrap();
+    assert_eq!(sealed.frame(), &role_set);
+    assert_eq!(
+        sealed.frame().values().len(),
+        universe_requests.len() * role_set.selection().members().len()
+    );
+
+    for request in universe_requests {
+        let own = bind_strategy_input_universe_frame(std::slice::from_ref(request), &fixture.batch)
+            .unwrap();
+        assert_ne!(own.digest(), role_set.digest());
+    }
+    assert_eq!(sealed.observation_batch_digest(), fixture.batch.digest());
+    assert_eq!(
+        universe_locked(&universe).await.expect("a re-read replays"),
+        sealed
+    );
+
+    // Each re-read serves its own scope and names the other.
+    assert_eq!(
+        locked_persisted_strategy_input_custody_v1(owner, &universe).await,
+        Err(StrategyInputCustodyUnavailableV1::ScopeMismatch)
+    );
+    assert_eq!(
+        universe_locked(&exact).await,
+        Err(StrategyInputCustodyUnavailableV1::ScopeMismatch)
+    );
+    let mut subset = universe.clone();
+    subset.input_role_identities.pop();
+    assert_eq!(
+        universe_locked(&subset).await,
+        Err(StrategyInputCustodyUnavailableV1::RoleCoverageMismatch)
+    );
+
+    let universe_coordinate = coordinate(universe.strategy_design_identity)
+        .await
+        .expect("the universe Design's coordinate");
+    assert_eq!(
+        universe_coordinate.declared_scope,
+        StrategyInputDeclaredScopeV1::UniverseMembers
+    );
+    assert_eq!(
+        universe_coordinate.pit_request_identity,
+        universe.pit_request_identity
+    );
+    assert_eq!(
+        coordinate(exact.strategy_design_identity)
+            .await
+            .expect("the exact Design's coordinate")
+            .declared_scope,
+        StrategyInputDeclaredScopeV1::ExactInstrument
+    );
+    assert_eq!(
+        declaration_count().await,
+        before,
+        "a re-read writes nothing"
+    );
 }
 
 /// Exercises the durable Composer input custody re-read against real persisted declarations.
@@ -4128,7 +4258,7 @@ async fn instrument_master_postgres_oracle(owner_url: &str, reader_url: &str, ad
     // Beside the registry oracle rather than inside it: that oracle also builds the replay
     // composition base fixture, and nesting this under it overflowed the 2 MiB test stack of the
     // ordered chain's replay composition entry.
-    Box::pin(universe_member_declarations_oracle(
+    let universe_requests = Box::pin(universe_member_declarations_oracle(
         &owner,
         &registry_fixture.binding_requests[0],
         &registry_fixture.batch,
@@ -4137,6 +4267,12 @@ async fn instrument_master_postgres_oracle(owner_url: &str, reader_url: &str, ad
     Box::pin(persisted_strategy_input_custody_postgres_oracle_v1(
         &owner,
         &registry_fixture,
+    ))
+    .await;
+    Box::pin(persisted_universe_custody_postgres_oracle_v1(
+        &owner,
+        &registry_fixture,
+        &universe_requests,
     ))
     .await;
     let after: (i64, i64, i64, i64) = sqlx::query_as("SELECT (SELECT COUNT(*) FROM market_data_private.instrument_master_cuts_v1),(SELECT COUNT(*) FROM market_data_private.instrument_master_receipts_v1),(SELECT COUNT(*) FROM market_data_private.instrument_master_outbox_v1),(SELECT append_sequence FROM market_data_private.instrument_master_state_v1 WHERE singleton)").fetch_one(owner.pool()).await.unwrap();
