@@ -355,6 +355,24 @@ fn composition_evidence(seed: u8) -> ReplayCompositionBindingEvidenceV1 {
     }
 }
 
+/// A binding the Owner issues over the Universe Selection `identity`/`digest`, with every other
+/// coordinate a fixture; `seed` varies the binding's own identity.
+pub(crate) fn binding_over_universe_selection(
+    seed: u8,
+    identity: BindingDigest,
+    digest: BindingDigest,
+) -> super::ReplayCompositionBindingReadbackV1 {
+    let mut evidence = composition_evidence(seed);
+    for locator in &mut evidence.native_locators {
+        if locator.kind == ReplayCompositionNativeLocatorKindV1::UniverseSelection {
+            locator.identity = identity;
+            locator.digest = digest;
+        }
+    }
+    issue_replay_composition_binding_v1(&request(seed + 70), evidence)
+        .expect("a binding over the selection")
+}
+
 #[rstest]
 fn sealed_binding_composes_exact_existing_v2_path() {
     let replay = request(71);

@@ -3,6 +3,7 @@ import test from "node:test";
 import { readFile } from "node:fs/promises";
 
 const componentUrl = new URL("../components/operations-service-logs.tsx", import.meta.url);
+const contractUrl = new URL("../lib/service-log-contract.ts", import.meta.url);
 const eventPreviewUrl = new URL("../components/service-log-event-preview.tsx", import.meta.url);
 const viewportUrl = new URL("../components/ui/bounded-log-viewport.tsx", import.meta.url);
 const shellUrl = new URL("../components/dashboard-route-content.tsx", import.meta.url);
@@ -36,10 +37,14 @@ test("Service Logs composes the fixed frame, status, filters, split, detail, and
 
 test("Service Logs uses exact GET/no-store filters, cursor paging, and bounded download", async () => {
   const source = await readFile(componentUrl, "utf8");
+  const contract = await readFile(contractUrl, "utf8");
   for (const key of ["observedAt", "range", "kind", "service", "instance", "severity", "search", "pageSize", "cursor"]) {
-    assert.ok(source.includes(key), `missing ${key}`);
+    assert.ok(contract.includes(key), `missing ${key}`);
   }
-  assert.match(source, /fetch\(`\/api\/operations\/service-logs\/\?\$\{queryFor/u);
+  assert.match(source, /fetch\(`\/api\/operations\/service-logs\/\?\$\{serviceLogQueryV1/u);
+  // The current view's cut is the database's: the browser asks for "now" and never sends its clock.
+  assert.doesNotMatch(source, /observed_at: new Date\(/u);
+  assert.equal(source.match(/observed_at: null/gu)?.length, 4);
   assert.match(source, /fetch\(`\/api\/operations\/service-logs\/download\/\?\$\{downloadQueryFor/u);
   assert.match(source, /query\.delete\("pageSize"\)/u);
   assert.match(source, /x-service-log-cut-digest/u);
