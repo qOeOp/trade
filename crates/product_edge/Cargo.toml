@@ -10,6 +10,10 @@ publish = false
 [lints]
 workspace = true
 
+[features]
+# An admitted deployment for acceptance proofs that need one first (src/deployment_acceptance.rs).
+sealed-deployment-acceptance = []
+
 [dependencies]
 anyhow = { workspace = true }
 blake3 = { workspace = true }

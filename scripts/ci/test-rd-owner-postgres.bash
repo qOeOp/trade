@@ -133,6 +133,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::postgres_v3_request_binds_its_instrument_scope_into_the_intent'
   'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::postgres_v3_scope_market_data_does_not_admit_closes_with_its_bound_check'
   'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::postgres_v3_request_market_data_cannot_place_is_rejected_by_its_own_answer'
+  'vibe-product-edge|vibe_product_edge|deployment_acceptance::tests::deployment_fixture_is_admitted_idempotent_and_refuses_other_content_by_name'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
@@ -154,7 +155,7 @@ readonly nextest_graph_args=(
 )
 # The incoming Makefile union also contains workspace-root features that none of
 # the three selected packages expose. Keep the archive projection package-scoped.
-readonly nextest_archive_features='vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-composer-acceptance'
+readonly nextest_archive_features='vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-composer-acceptance,vibe-product-edge/sealed-deployment-acceptance'
 # The schema materializer is the archive's own `strategy-factory-rd-owner-api` binary, so it has no
 # feature set of its own. It needs rd-owner-api's `sealed-develop-composer-acceptance`, which
 # `sealed-source-intake-composer-acceptance` above already implies; check_nextest_graph_contract
@@ -194,8 +195,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 105 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all 105 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 106 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all 106 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -312,12 +313,13 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[101]}" != *'|product_edge_postgres::tests::postgres_v3_request_binds_its_instrument_scope_into_the_intent' ]] ||
     [[ "${rd_owner_postgres_tests[102]}" != *'|product_edge_postgres::tests::postgres_v3_scope_market_data_does_not_admit_closes_with_its_bound_check' ]] ||
     [[ "${rd_owner_postgres_tests[103]}" != *'|product_edge_postgres::tests::postgres_v3_request_market_data_cannot_place_is_rejected_by_its_own_answer' ]] ||
-    [[ "${rd_owner_postgres_tests[104]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[104]}" != *'|deployment_acceptance::tests::deployment_fixture_is_admitted_idempotent_and_refuses_other_content_by_name' ]] ||
+    [[ "${rd_owner_postgres_tests[105]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
   if [[ "${nextest_graph_args[*]}" != '--locked --package vibe-strategy-factory --package vibe-strategy-factory-rd-owner-api --package vibe-product-edge --package vibe-operator-authorization --package vibe-backtest-owner --package vibe-data --package vibe-qualification --package vibe-execution-owner --package vibe-portfolio-owner --package vibe-strategy-governance --package vibe-scanner-custody --package vibe-risk-owner --lib --tests' ]] ||
-    [[ "$nextest_archive_features" != 'vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-composer-acceptance' ]] ||
+    [[ "$nextest_archive_features" != 'vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-composer-acceptance,vibe-product-edge/sealed-deployment-acceptance' ]] ||
     [[ "${nextest_execution_args[*]}" != '--fail-fast --run-ignored ignored-only --success-output final --no-tests=fail' ]]; then
     echo "ERROR: shared nextest graph, schema feature union, or sequential ignored-only execution changed." >&2
     return 1
@@ -344,7 +346,7 @@ MANIFEST
   local repository_root
   repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
   if ! rg -Fxq \
-    'RD_OWNER_POSTGRES_FEATURES := $(CARGO_FEATURES),vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-composer-acceptance' \
+    'RD_OWNER_POSTGRES_FEATURES := $(CARGO_FEATURES),vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-composer-acceptance,vibe-product-edge/sealed-deployment-acceptance' \
     "$repository_root/Makefile" || ! rg -Uq \
     'cargo-test-rd-owner-postgres-isolated: check-nextest-installed.*\n\tNEXTEST_PROFILE="\$\(NEXTEST_PROFILE\)".*\n\tCARGO_CI_PROFILE="\$\(CARGO_CI_PROFILE\)".*\n\tRD_OWNER_POSTGRES_FEATURES="\$\(RD_OWNER_POSTGRES_FEATURES\)"' \
     "$repository_root/Makefile"; then
@@ -445,7 +447,7 @@ for line in array_body.splitlines():
     entries.append(tuple(fields))
 # The count lives in one place. Writing it into the message as well lets the two drift, and the
 # drifted form reads as nonsense the moment it fires: "must contain 92 entries, found 92".
-expected_entries = 105
+expected_entries = 106
 if len(entries) != expected_entries:
     raise SystemExit(
         f"ERROR: ordered PostgreSQL test literal must contain {expected_entries} entries, found {len(entries)}."

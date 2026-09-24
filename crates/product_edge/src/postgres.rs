@@ -1934,6 +1934,16 @@ impl ProductEdgePostgresOwnerV1 {
         Ok(())
     }
 
+    /// The store clock every window is compared with, for a sealed fixture that must report a
+    /// deployment that is not current before it admits anything.
+    #[cfg(feature = "sealed-deployment-acceptance")]
+    pub(crate) async fn store_clock_ms(&self) -> Result<u64, ProductEdgeError> {
+        let mut transaction = begin_read_committed(&self.pool).await?;
+        let now = database_now(&mut transaction).await?;
+        transaction.rollback().await.map_err(storage)?;
+        Ok(now)
+    }
+
     pub async fn bootstrap_genesis(
         &self,
         proposal: ProductEdgeBootstrapProposalV1,
