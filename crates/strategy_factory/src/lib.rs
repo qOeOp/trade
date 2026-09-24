@@ -41,6 +41,7 @@ mod composer_replay_intent_v3;
 pub mod condition_readiness_derivation_v1;
 pub mod dashboard_read;
 mod decision;
+mod design_input_custody_v1;
 #[allow(
     dead_code,
     reason = "durable Composer RUN is reachable only from the compile-time sealed acceptance composition"
