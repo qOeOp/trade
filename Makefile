@@ -51,26 +51,28 @@ PIP_AUDIT_IGNORE_FLAGS :=
 TARGET_DIR ?= $(CURDIR)/target
 
 # Compiler configuration
-# Uses clang by default (required by ed25519-blake2b and other deps).
-# When sccache is available, wraps the compiler for build caching.
-# Set CARGO_INCREMENTAL=0 with sccache for better cache hit rates.
+# C and C++ dependencies build with the compiler the caller's environment names. GNU make predefines
+# CC=cc and CXX=c++; exporting those defaults would hand build scripts a CC that a plain `cargo` run
+# (such as CI's Vibe CLI install) never sees, and crates that declare rerun-if-env-changed=CC
+# (aws-lc-sys, libmimalloc-sys) then rebuild, with every dependent, each time the two alternate.
+# Choose a compiler with CC=... in the environment or on the command line.
+# When sccache is available it wraps rustc; CARGO_INCREMENTAL=0 improves its hit rate.
 # To disable sccache: make build SCCACHE=
 SCCACHE ?= $(shell command -v sccache 2>/dev/null)
 
-ifeq ($(SCCACHE),)
-CC ?= clang
-CXX ?= clang++
-else
-CC ?= sccache clang
-CXX ?= sccache clang++
+ifneq ($(SCCACHE),)
 RUSTC_WRAPPER ?= sccache
 CARGO_INCREMENTAL ?= 0
 export RUSTC_WRAPPER
 export CARGO_INCREMENTAL
 endif
 
-export CC
-export CXX
+ifeq ($(origin CC),default)
+unexport CC
+endif
+ifeq ($(origin CXX),default)
+unexport CXX
+endif
 
 # FAIL_FAST controls whether `cargo nextest` should stop after the first test
 # failure. When set to `true` the `--no-fail-fast` flag is omitted so tests
