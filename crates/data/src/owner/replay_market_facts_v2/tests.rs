@@ -1440,3 +1440,149 @@ fn universe_member_facts_under_a_first_corpus_binding_are_a_shape_mismatch() {
         Err(ReplayCompositionBindingErrorV1::CompositionShapeMismatch)
     );
 }
+
+fn hex_digest(value: &str) -> BindingDigest {
+    let bytes: Vec<u8> = (0..value.len())
+        .step_by(2)
+        .map(|at| u8::from_str_radix(&value[at..at + 2], 16).unwrap())
+        .collect();
+    BindingDigest::from_untrusted_bytes(bytes.try_into().unwrap())
+}
+
+/// Universe-member evidence over the same PIT, Source Binding, Universe Selection and Market
+/// Semantics the first-corpus fixture names, with no Instrument Master.
+fn universe_composition_evidence(
+    seed: u8,
+) -> super::composition::ReplayCompositionUniverseBindingEvidenceV1 {
+    let first_corpus = composition_evidence(seed);
+    super::composition::ReplayCompositionUniverseBindingEvidenceV1 {
+        authenticated_strategy_design_identity: first_corpus.authenticated_strategy_design_identity,
+        authenticated_strategy_design_digest: first_corpus.authenticated_strategy_design_digest,
+        registry_identity: first_corpus.registry_identity,
+        registry_digest: first_corpus.registry_digest,
+        native_locators: first_corpus
+            .native_locators
+            .into_iter()
+            .filter(|locator| {
+                locator.kind != ReplayCompositionNativeLocatorKindV1::InstrumentMaster
+            })
+            .collect(),
+        roles: first_corpus.roles,
+        universe_frame_digest: d(seed + 7),
+        stable_correlation: first_corpus.stable_correlation,
+    }
+}
+
+/// The first corpus keeps its schema 1 bytes. The identities were read from the tree before the
+/// universe-member shape existed (`8fb948ad0`), and each is the BLAKE3 of its domain and bytes, so
+/// equal identities are equal bytes.
+#[rstest]
+fn the_first_corpus_binding_keeps_its_schema_1_bytes() {
+    let binding = issue_replay_composition_binding_v1(&request(71), composition_evidence(1))
+        .expect("complete binding");
+    assert_eq!(
+        binding.record().identity(),
+        hex_digest("ebd660db3561abee62bf50f5b8badb34ad64fcaad78e96ac3442039102c6b914")
+    );
+    assert_eq!(
+        binding.receipt().identity(),
+        hex_digest("321462692b58d334f6d5617b0c8d039abbe179aef63c03d30e2701e5531ea1cd")
+    );
+    assert_eq!(&binding.record().canonical_bytes()[..2], &[0, 1]);
+    assert_eq!(
+        binding.record().shape(),
+        super::ReplayMarketFactsShapeV2::FirstCorpus
+    );
+    assert_eq!(binding.record().universe_frame_digest(), None);
+}
+
+#[rstest]
+fn a_universe_member_binding_is_schema_2_names_no_instrument_master_and_round_trips() {
+    use super::composition::issue_universe_member_composition_binding_v1;
+
+    let replay = request(71);
+    let binding =
+        issue_universe_member_composition_binding_v1(&replay, universe_composition_evidence(1))
+            .expect("complete universe-member binding");
+    assert!(verify_replay_composition_binding_v1(&binding));
+    assert_eq!(
+        binding.record().shape(),
+        super::ReplayMarketFactsShapeV2::UniverseMembers
+    );
+    assert_eq!(&binding.record().canonical_bytes()[..2], &[0, 2]);
+    assert_eq!(&binding.receipt().canonical_bytes()[..2], &[0, 2]);
+    assert_eq!(binding.record().universe_frame_digest(), Some(d(8)));
+    assert_eq!(binding.record().role_count(), 2);
+    assert!(
+        binding
+            .record()
+            .native_locator(ReplayCompositionNativeLocatorKindV1::InstrumentMaster)
+            .is_none()
+    );
+    assert!(
+        binding
+            .record()
+            .native_locator(ReplayCompositionNativeLocatorKindV1::UniverseSelection)
+            .is_some()
+    );
+    let first_corpus = issue_replay_composition_binding_v1(&replay, composition_evidence(1))
+        .expect("complete binding");
+    assert_ne!(
+        binding.record().identity(),
+        first_corpus.record().identity()
+    );
+
+    let decoded = decode_replay_composition_binding_v1(
+        binding.record().canonical_bytes(),
+        binding.receipt().canonical_bytes(),
+        binding.outbox().payload(),
+    )
+    .expect("the stored bytes decode to the same binding");
+    assert_eq!(decoded, binding);
+}
+
+#[rstest]
+fn a_universe_member_binding_refuses_an_instrument_master_and_a_receipt_of_the_other_shape() {
+    use super::composition::issue_universe_member_composition_binding_v1;
+
+    let replay = request(71);
+    let mut with_instrument_master = universe_composition_evidence(1);
+    with_instrument_master
+        .native_locators
+        .push(ReplayCompositionNativeLocatorV1 {
+            kind: ReplayCompositionNativeLocatorKindV1::InstrumentMaster,
+            identity: d(3),
+            digest: d(23),
+        });
+    assert_eq!(
+        issue_universe_member_composition_binding_v1(&replay, with_instrument_master).unwrap_err(),
+        ReplayCompositionBindingErrorV1::IncompleteComposition
+    );
+
+    let universe =
+        issue_universe_member_composition_binding_v1(&replay, universe_composition_evidence(1))
+            .expect("complete universe-member binding");
+    let first_corpus = issue_replay_composition_binding_v1(&replay, composition_evidence(1))
+        .expect("complete binding");
+    assert_eq!(
+        decode_replay_composition_binding_v1(
+            universe.record().canonical_bytes(),
+            first_corpus.receipt().canonical_bytes(),
+            first_corpus.outbox().payload(),
+        )
+        .unwrap_err(),
+        ReplayCompositionBindingErrorV1::CompositionShapeMismatch
+    );
+
+    let mut restated = universe.record().canonical_bytes().to_vec();
+    restated[..2].copy_from_slice(&[0, 1]);
+    assert!(
+        decode_replay_composition_binding_v1(
+            &restated,
+            universe.receipt().canonical_bytes(),
+            universe.outbox().payload(),
+        )
+        .is_err(),
+        "universe-member bytes restated as schema 1 are not a first-corpus binding"
+    );
+}
