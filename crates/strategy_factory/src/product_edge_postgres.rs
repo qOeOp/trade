@@ -38,16 +38,17 @@ use crate::exploratory_replay::{
     sealed_read_port::RdOwned,
 };
 use crate::product_edge::{
-    FrozenResearchGoalIntent, IndependenceBasisReadbackV1, IndependenceBasisReceiptV1,
-    ProductEdgeResearchGoalRequestV2, ProductEdgeResolution, ResearchDirectoryCompletenessV1,
-    ResearchDirectoryCursorV1, ResearchDirectoryItemV1, ResearchDirectoryOwnerPort,
-    ResearchDirectoryReadbackV1, ResearchExploratoryDiagnosisGateErrorV1,
-    ResearchExploratoryDiagnosisGateProjectionV1, ResearchExploratoryDiagnosisLocatorV1,
-    ResearchGoalOwnerError, ResearchGoalOwnerPortV2, ResearchGoalOwnerResultV1,
-    ResearchGoalOwnerResultV2, ResearchLineageResolutionV1, ResearchReadbackOwnerPortV1,
-    ResearchRequestReceiptV1, StoredAdmittedResearchRequestV2, StoredIndependenceBasisV1,
-    StoredProtectedFeedbackProjectionV1, StoredRejectedResearchRequestV2,
-    UnsourcedResearchProposalV1, ValidatedResearchGoalRequestV2,
+    FrozenResearchGoalIntent, INSTRUMENT_SCOPE_NOT_RESOLVABLE, IndependenceBasisReadbackV1,
+    IndependenceBasisReceiptV1, InstrumentScopeCheckRecordV1, InstrumentScopeOutcomeV1,
+    InstrumentScopeUnresolvedV1, ProductEdgeResearchGoalRequestV2, ProductEdgeResolution,
+    ResearchDirectoryCompletenessV1, ResearchDirectoryCursorV1, ResearchDirectoryItemV1,
+    ResearchDirectoryOwnerPort, ResearchDirectoryReadbackV1,
+    ResearchExploratoryDiagnosisGateErrorV1, ResearchExploratoryDiagnosisGateProjectionV1,
+    ResearchExploratoryDiagnosisLocatorV1, ResearchGoalOwnerError, ResearchGoalOwnerPortV2,
+    ResearchGoalOwnerResultV1, ResearchGoalOwnerResultV2, ResearchLineageResolutionV1,
+    ResearchReadbackOwnerPortV1, ResearchRequestReceiptV1, StoredAdmittedResearchRequestV2,
+    StoredIndependenceBasisV1, StoredProtectedFeedbackProjectionV1,
+    StoredRejectedResearchRequestV2, UnsourcedResearchProposalV1, ValidatedResearchGoalRequestV2,
     assemble_partial_source_intake_research_admission_input, decide_commit_v2,
     decide_rejected_commit_v2, semantic_digest_v2, unresolved_result, unresolved_result_v2,
     validate_goal_request_v2, verify_research_admission_v2,
@@ -58,6 +59,9 @@ use crate::rd_owner_postgres_custody::{
     admit_independence_basis_by_identity_in_transaction, admit_research_custody_in_transaction,
     admit_research_v2_custody_read_only_in_transaction, require_rd_owner_api_schema,
     resolve_exploratory_replay_result_for_rd_in_transaction, resolve_verified_artifact_family,
+};
+use crate::research_instrument_scope_check::{
+    InstrumentScopeCheckPortV1, InstrumentScopeCheckUnavailableV1, MarketDataInstrumentScopeCheckV1,
 };
 use crate::{
     replay_policy_catalog_postgres_v2::resolve_current_v3_for_trial_family_formation,
@@ -93,6 +97,7 @@ pub struct PostgresResearchGoalOwnerV1 {
     backtest: Option<crate::exploratory_replay::postgres::BoundBacktestReadV1>,
     source_policy: Option<Arc<dyn SourceIntakePolicyEvidencePort>>,
     source_submission: Option<Arc<SourceBoundResearchSubmissionV1>>,
+    instrument_scope_check: Arc<dyn InstrumentScopeCheckPortV1>,
 }
 
 #[derive(Clone)]
@@ -723,6 +728,17 @@ impl PostgresResearchGoalOwnerV1 {
         self
     }
 
+    /// Replaces Market Data's early instrument-scope check, for tests of this Owner's handling.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn bind_instrument_scope_check_for_test(
+        mut self,
+        check: Arc<dyn InstrumentScopeCheckPortV1>,
+    ) -> Self {
+        self.instrument_scope_check = check;
+        self
+    }
+
     /// Compile-time-only fixed policy composition for the disposable sealed
     /// Source Intake-to-Research acceptance. The generic binder stays private.
     #[cfg(feature = "sealed-source-intake-research-acceptance")]
@@ -781,6 +797,7 @@ impl PostgresResearchGoalOwnerV1 {
             qualification: self.qualification.clone(),
             backtest: self.backtest.clone(),
             source_policy: self.source_policy.clone(),
+            instrument_scope_check: self.instrument_scope_check.clone(),
             source_submission: Some(Arc::new(SourceBoundResearchSubmissionV1 {
                 proposal,
                 ancestry,
@@ -1065,6 +1082,7 @@ impl PostgresResearchGoalOwnerV1 {
             backtest: None,
             source_policy: None,
             source_submission: None,
+            instrument_scope_check: Arc::new(MarketDataInstrumentScopeCheckV1),
         })
     }
 
@@ -2533,6 +2551,7 @@ fn assemble_peeked_source_intake_research_request_v1(
             }],
         },
         trial_family_proposal: proposal.trial_family_proposal,
+        instrument_scope: proposal.instrument_scope,
     }
 }
 
@@ -2555,6 +2574,7 @@ fn unsourced_proposal_matches_request_v1(
                 capacity_assumption: request.goal.capacity_assumption.clone(),
             },
             trial_family_proposal: request.trial_family_proposal.clone(),
+            instrument_scope: request.instrument_scope.clone(),
         }
 }
 
@@ -3194,6 +3214,7 @@ impl PostgresResearchGoalOwnerV1 {
         request: ProductEdgeResearchGoalRequestV2,
         digest: String,
         rejection_code: &'static str,
+        instrument_scope_check: Option<InstrumentScopeCheckRecordV1>,
     ) -> Result<ResearchGoalOwnerResultV2, ResearchGoalOwnerError> {
         let request_identity = request.request_identity.clone();
         let write_cut = owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
@@ -3210,6 +3231,7 @@ impl PostgresResearchGoalOwnerV1 {
             schema_version: 1,
             request: request.clone(),
             rejection_code: rejection_code.to_string(),
+            instrument_scope_check,
         };
         let commit = decide_rejected_commit_v2(request, digest, rejection_code, write_cut);
         let (request_json, request_bytes, request_storage_digest) = research_source_storage(
@@ -3732,10 +3754,77 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
                         request,
                         digest,
                         rejection_code,
+                        None,
                     )
                     .await;
             }
         };
+
+        // A basis stage means an earlier attempt already passed the check and began accepting, so
+        // the check is asked only before anything positive exists for this request.
+        if basis_stage.is_none()
+            && let Some(scope) = validated.instrument_scope()
+        {
+            let check = match self
+                .instrument_scope_check
+                .check(&mut transaction, scope)
+                .await
+            {
+                Ok(check) => check,
+                Err(e) => {
+                    match e {
+                        InstrumentScopeCheckUnavailableV1::ClockUnavailable => {
+                            storage_diagnostic::refused_by_store(
+                                "research_goal_owner.submit_v2.instrument_scope_check.clock_unavailable",
+                                &e,
+                            );
+                        }
+                        InstrumentScopeCheckUnavailableV1::StoreUnavailable => {
+                            storage_diagnostic::refused_by_store(
+                                "research_goal_owner.submit_v2.instrument_scope_check.store_unavailable",
+                                &e,
+                            );
+                        }
+                    }
+                    transaction.rollback().await.map_err(|e| storage(&e))?;
+                    return Ok(unresolved_result_v2(&request_identity));
+                }
+            };
+
+            match check.outcome_for(scope) {
+                InstrumentScopeOutcomeV1::Admit => {}
+                InstrumentScopeOutcomeV1::Unresolved(reason) => {
+                    match reason {
+                        InstrumentScopeUnresolvedV1::NoCurrentFrontier => {
+                            storage_diagnostic::refused_by_store(
+                                "research_goal_owner.submit_v2.instrument_scope_check.no_current_frontier",
+                                &reason,
+                            );
+                        }
+                        InstrumentScopeUnresolvedV1::MalformedAnswer => {
+                            storage_diagnostic::refused_by_store(
+                                "research_goal_owner.submit_v2.instrument_scope_check.malformed_answer",
+                                &reason,
+                            );
+                        }
+                    }
+                    transaction.rollback().await.map_err(|e| storage(&e))?;
+                    return Ok(unresolved_result_v2(&request_identity));
+                }
+                InstrumentScopeOutcomeV1::Reject => {
+                    return self
+                        .commit_rejected_v2(
+                            transaction,
+                            &product_edge_admission,
+                            validated.into_request(),
+                            digest,
+                            INSTRUMENT_SCOPE_NOT_RESOLVABLE,
+                            Some(check),
+                        )
+                        .await;
+                }
+            }
+        }
         let basis = if let Some(custody) = basis_stage {
             custody.basis
         } else {
@@ -4989,6 +5078,7 @@ pub(crate) mod tests {
                 capacity_assumption: seeded.goal.capacity_assumption.clone(),
             },
             trial_family_proposal: seeded.trial_family_proposal,
+            instrument_scope: None,
         };
         let first = assemble_peeked_source_intake_research_request_v1(
             proposal.clone(),
@@ -6561,6 +6651,7 @@ pub(crate) mod tests {
                 independence_rationale: "No known local predecessor before Owner resolution."
                     .to_string(),
             },
+            instrument_scope: None,
         }
     }
 
@@ -6826,6 +6917,508 @@ pub(crate) mod tests {
                 || coordinate.starts_with("research_goal_owner.resolve_v2.")),
             "{recorded:?}"
         );
+    }
+
+    fn scope_wire(
+        identities: &[&str],
+    ) -> vibe_data::owner::research_instrument_scope_v1::ResearchInstrumentScopeWireV1 {
+        vibe_data::owner::research_instrument_scope_v1::ResearchInstrumentScopeWireV1 {
+            schema_version: 1,
+            identities: identities
+                .iter()
+                .map(|identity| (*identity).to_string())
+                .collect(),
+        }
+    }
+
+    fn request_v3(
+        request_identity: &str,
+        admission: ProductEdgeAdmissionLocatorV1,
+        identities: &[&str],
+    ) -> ProductEdgeResearchGoalRequestV2 {
+        ProductEdgeResearchGoalRequestV2 {
+            instrument_scope: Some(scope_wire(identities)),
+            ..request(request_identity, admission)
+        }
+    }
+
+    fn market_data_cut() -> vibe_data::owner::pit_market_snapshot_intake_v1::MarketDataDecisionCutV1
+    {
+        vibe_data::owner::pit_market_snapshot_intake_v1::MarketDataDecisionCutV1 {
+            clock_identity: "market-data-clock-test".to_string(),
+            clock_epoch: "epoch-1".to_string(),
+            decision_cut: 1_000,
+            monotonic_sequence: 7,
+            restart_continuity_digest: BindingDigest::from_untrusted_bytes([3; 32]),
+            valid_through: 2_000,
+            uncertainty_bound: 1,
+            skew_bound: 1,
+        }
+    }
+
+    fn scope_check(
+        frontier: Option<[u8; 32]>,
+        rows: &[(&str, crate::product_edge::InstrumentAdmissibilityV1)],
+    ) -> InstrumentScopeCheckRecordV1 {
+        InstrumentScopeCheckRecordV1 {
+            eligible_instrument_frontier: frontier.map(BindingDigest::from_untrusted_bytes),
+            decision_cut: market_data_cut(),
+            rows: rows
+                .iter()
+                .map(
+                    |(identity, admissibility)| crate::product_edge::InstrumentScopeCheckRowV1 {
+                        identity: (*identity).to_string(),
+                        admissibility: *admissibility,
+                    },
+                )
+                .collect(),
+        }
+    }
+
+    fn answering(
+        check: Result<
+            InstrumentScopeCheckRecordV1,
+            crate::research_instrument_scope_check::InstrumentScopeCheckUnavailableV1,
+        >,
+    ) -> Arc<dyn InstrumentScopeCheckPortV1> {
+        Arc::new(crate::research_instrument_scope_check::FixedInstrumentScopeCheckV1(check))
+    }
+
+    /// Admits one V3 request: the V2 admission payload plus the scope, under the V3 operation.
+    async fn bootstrap_v3_admission(
+        test_database: &CanonicalOwnerPostgresTestDatabaseV1,
+        request_identity: &str,
+        suffix: u128,
+        identities: &[&str],
+    ) -> ProductEdgeAdmissionLocatorV1 {
+        let payload = request_v3(
+            request_identity,
+            ProductEdgeAdmissionLocatorV1 {
+                request_identity: request_identity.to_string(),
+                admission_identity: String::new(),
+                admission_digest: String::new(),
+            },
+            identities,
+        );
+        bootstrap_operation_admission(
+            BootstrapAdmissionTopology::Existing {
+                operator_authorization_database_url: test_database
+                    .database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+                product_edge_database_url: test_database
+                    .database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+            },
+            request_identity,
+            suffix,
+            BootstrapAdmittedOperationV1 {
+                operation: crate::product_edge::RESEARCH_GOAL_OPERATION_V3,
+                operation_schema: crate::product_edge::RESEARCH_GOAL_SCHEMA_V3,
+                effect: "R_AND_D_RESEARCH_MUTATION_V1",
+                typed_payload: serde_json::json!({
+                    "request_identity": payload.request_identity,
+                    "channel": payload.channel,
+                    "goal": payload.goal,
+                    "trial_family_proposal": payload.trial_family_proposal,
+                    "instrument_scope": payload.instrument_scope,
+                }),
+            },
+        )
+        .await
+        .0
+    }
+
+    async fn stored_intent(pool: &PgPool, request_identity: &str) -> Option<serde_json::Value> {
+        sqlx::query_scalar(
+            "SELECT intent_json FROM rd_research_request_receipts_v1 WHERE request_identity = $1",
+        )
+        .bind(request_identity)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    async fn basis_rows(pool: &PgPool, request_identity: &str) -> i64 {
+        sqlx::query_scalar(
+            "SELECT COUNT(*) FROM rd_independence_bases_v1 WHERE request_identity = $1",
+        )
+        .bind(request_identity)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    /// A V3 request freezes a schema 3 Intent that binds the scope identity and bytes this Owner
+    /// computed; a retry returns the same custody, and the same request identity with another
+    /// scope is a changed meaning.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "requires the ordered canonical Owner PostgreSQL gate"]
+    async fn postgres_v3_request_binds_its_instrument_scope_into_the_intent() {
+        use crate::product_edge::InstrumentAdmissibilityV1::Admissible;
+        use vibe_data::owner::research_instrument_scope_v1::ResearchInstrumentScopeV1;
+
+        // The ordered chain's canonical Owner topology, which also holds the Replay Policy Catalog
+        // V3 head an accepted request forms its TrialFamily against.
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let request_identity = format!("research-request-v3-scope-{suffix}");
+        let btc = "BTCUSDT-PERP.BINANCE";
+        let admission =
+            bootstrap_v3_admission(&test_database, &request_identity, suffix, &[btc]).await;
+        let owner = PostgresResearchGoalOwnerV1::connect(
+            test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+            test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+        )
+        .await
+        .unwrap()
+        .bind_instrument_scope_check_for_test(answering(Ok(scope_check(
+            Some([9; 32]),
+            &[(btc, Admissible)],
+        ))));
+
+        let accepted = owner
+            .submit_v2(request_v3(&request_identity, admission.clone(), &[btc]))
+            .await
+            .unwrap();
+        assert_eq!(accepted.resolution(), ProductEdgeResolution::Accepted);
+        assert_eq!(
+            owner.read_research_v2(&request_identity).await.unwrap(),
+            accepted
+        );
+
+        let scope = ResearchInstrumentScopeV1::from_wire(scope_wire(&[btc])).unwrap();
+        let intent = stored_intent(&owner.pool, &request_identity)
+            .await
+            .expect("an accepted V3 request freezes an Intent");
+        assert_eq!(intent["schema_version"], 3);
+        assert_eq!(
+            intent["instrument_scope"],
+            serde_json::to_value(
+                crate::product_edge::FrozenResearchInstrumentScopeV1::from_scope(&scope)
+            )
+            .unwrap()
+        );
+
+        assert_eq!(
+            owner
+                .submit_v2(request_v3(&request_identity, admission.clone(), &[btc]))
+                .await
+                .unwrap(),
+            accepted
+        );
+        assert_eq!(
+            owner
+                .submit_v2(request_v3(
+                    &request_identity,
+                    admission,
+                    &["ETHUSDT-PERP.BINANCE"]
+                ))
+                .await,
+            Err(ResearchGoalOwnerError::ConflictingReplay)
+        );
+    }
+
+    /// When Market Data's early check does not admit the scope, the request closes
+    /// `REJECTED_NO_WRITE` with no Intent and no basis, and the answer it rests on is stored with
+    /// it: a later check that would admit the scope does not change the recorded rejection.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "requires the ordered canonical Owner PostgreSQL gate"]
+    async fn postgres_v3_scope_market_data_does_not_admit_closes_with_its_bound_check() {
+        use crate::product_edge::InstrumentAdmissibilityV1::{Admissible, NotInEligibleFrontier};
+
+        // The ordered chain's canonical Owner topology, which also holds the Replay Policy Catalog
+        // V3 head an accepted request forms its TrialFamily against.
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let mistyped = "BTCUSDT-PERP.BINANCEE";
+        let request_identity = format!("research-request-v3-mistyped-{suffix}");
+        let admission =
+            bootstrap_v3_admission(&test_database, &request_identity, suffix, &[mistyped]).await;
+        let connected = PostgresResearchGoalOwnerV1::connect(
+            test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+            test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+        )
+        .await
+        .unwrap();
+
+        // Unanswered: the request stays unresolved and nothing is written.
+        let unanswered = connected
+            .clone()
+            .bind_instrument_scope_check_for_test(answering(Err(
+                crate::research_instrument_scope_check::InstrumentScopeCheckUnavailableV1::ClockUnavailable,
+            )));
+        let pending = unanswered
+            .submit_v2(request_v3(
+                &request_identity,
+                admission.clone(),
+                &[mistyped],
+            ))
+            .await
+            .unwrap();
+        assert_eq!(
+            pending.resolution(),
+            ProductEdgeResolution::SubmittedOrUnknown
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM rd_research_request_receipts_v1 WHERE request_identity = $1"
+            )
+            .bind(&request_identity)
+            .fetch_one(&connected.pool)
+            .await
+            .unwrap(),
+            0
+        );
+
+        // Answered, but without a current frontier: the answer denies the environment rather than
+        // the instrument, so the request stays unresolved and nothing is written.
+        let no_frontier = connected
+            .clone()
+            .bind_instrument_scope_check_for_test(answering(Ok(scope_check(
+                None,
+                &[(mistyped, NotInEligibleFrontier)],
+            ))));
+        assert_eq!(
+            no_frontier
+                .submit_v2(request_v3(
+                    &request_identity,
+                    admission.clone(),
+                    &[mistyped]
+                ))
+                .await
+                .unwrap()
+                .resolution(),
+            ProductEdgeResolution::SubmittedOrUnknown
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM rd_research_request_receipts_v1 WHERE request_identity = $1"
+            )
+            .bind(&request_identity)
+            .fetch_one(&connected.pool)
+            .await
+            .unwrap(),
+            0
+        );
+
+        // Answered against a current frontier that does not hold the identity: rejected with
+        // that record.
+        let owner = connected
+            .clone()
+            .bind_instrument_scope_check_for_test(answering(Ok(scope_check(
+                Some([7; 32]),
+                &[(mistyped, NotInEligibleFrontier)],
+            ))));
+        let rejected = owner
+            .submit_v2(request_v3(
+                &request_identity,
+                admission.clone(),
+                &[mistyped],
+            ))
+            .await
+            .unwrap();
+        assert_eq!(
+            rejected.resolution(),
+            ProductEdgeResolution::RejectedNoWrite
+        );
+        assert_eq!(
+            rejected.owner_receipt().unwrap().rejection_code.as_deref(),
+            Some(crate::product_edge::INSTRUMENT_SCOPE_NOT_RESOLVABLE)
+        );
+        assert_eq!(stored_intent(&owner.pool, &request_identity).await, None);
+        assert_eq!(basis_rows(&owner.pool, &request_identity).await, 0);
+        assert_eq!(
+            owner.read_research_v2(&request_identity).await.unwrap(),
+            rejected
+        );
+
+        // The recorded answer is the fact: a check that would now admit it changes nothing.
+        let later = connected.bind_instrument_scope_check_for_test(answering(Ok(scope_check(
+            Some([9; 32]),
+            &[(mistyped, Admissible)],
+        ))));
+        assert_eq!(
+            later
+                .submit_v2(request_v3(&request_identity, admission, &[mistyped]))
+                .await
+                .unwrap(),
+            rejected
+        );
+        assert_eq!(basis_rows(&later.pool, &request_identity).await, 0);
+    }
+
+    /// The production check, not a test double: a V3 request naming an instrument Market Data
+    /// cannot place in its eligible frontier closes `REJECTED_NO_WRITE`, and the record it stores is
+    /// exactly Market Data's own answer - the rows, the frontier and the decision cut.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "requires the ordered canonical Owner PostgreSQL gate"]
+    async fn postgres_v3_request_market_data_cannot_place_is_rejected_by_its_own_answer() {
+        use vibe_data::owner::research_instrument_scope_v1::ResearchInstrumentScopeV1;
+
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let unknown = format!("NOT-AN-INSTRUMENT-{suffix}.NOWHERE");
+        let request_identity = format!("research-request-v3-unplaced-{suffix}");
+        let owner = PostgresResearchGoalOwnerV1::connect(
+            test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+            test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+        )
+        .await
+        .unwrap();
+        let scope = ResearchInstrumentScopeV1::from_wire(scope_wire(&[&unknown])).unwrap();
+
+        // The precondition, named: Market Data answers only once it holds a clock head, which the
+        // replay composition entry commits. Without it the request would stay unresolved.
+        let answer = {
+            let mut transaction = owner.pool.begin().await.unwrap();
+            let answer = vibe_data::owner::check_research_instrument_scope_v1(
+                &mut transaction,
+                &scope,
+            )
+            .await
+            .expect(
+                "Market Data's clock head, which the replay composition entry commits, must \
+                     precede this entry",
+            );
+            transaction.rollback().await.unwrap();
+            answer
+        };
+        assert!(
+            !answer.is_admissible(),
+            "an unknown instrument cannot be admissible"
+        );
+        assert!(
+            answer.eligible_instrument_frontier().is_some(),
+            "Market Data's current eligible frontier, which the replay composition entry admits, \
+             must precede this entry"
+        );
+
+        let admission =
+            bootstrap_v3_admission(&test_database, &request_identity, suffix, &[&unknown]).await;
+        let rejected = owner
+            .submit_v2(request_v3(&request_identity, admission, &[&unknown]))
+            .await
+            .unwrap();
+        assert_eq!(
+            rejected.resolution(),
+            ProductEdgeResolution::RejectedNoWrite
+        );
+        assert_eq!(
+            rejected.owner_receipt().unwrap().rejection_code.as_deref(),
+            Some(crate::product_edge::INSTRUMENT_SCOPE_NOT_RESOLVABLE)
+        );
+        assert_eq!(
+            owner.read_research_v2(&request_identity).await.unwrap(),
+            rejected
+        );
+
+        let stored: serde_json::Value = sqlx::query_scalar(
+            "SELECT request_json FROM rd_research_request_receipts_v1 WHERE request_identity = $1",
+        )
+        .bind(&request_identity)
+        .fetch_one(&owner.pool)
+        .await
+        .unwrap();
+        let record: InstrumentScopeCheckRecordV1 =
+            serde_json::from_value(stored["instrument_scope_check"].clone())
+                .expect("a scope rejection stores the answer it rests on");
+        assert_eq!(
+            record.eligible_instrument_frontier,
+            answer.eligible_instrument_frontier()
+        );
+        assert_eq!(&record.decision_cut, answer.decision_cut());
+        assert_eq!(
+            record
+                .rows
+                .iter()
+                .map(|row| (row.identity.clone(), format!("{:?}", row.admissibility)))
+                .collect::<Vec<_>>(),
+            answer
+                .rows()
+                .iter()
+                .map(|row| (
+                    row.identity().to_owned(),
+                    format!("{:?}", row.admissibility())
+                ))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// A field rejection is proved by replay and a scope rejection by its record, and neither
+    /// proof stands in for the other.
+    #[rstest]
+    fn each_stored_rejection_is_proved_by_its_own_evidence() {
+        use crate::product_edge::InstrumentAdmissibilityV1::{Admissible, Unresolved};
+        use crate::rd_owner_postgres_custody::rejected_request_and_code_v2;
+
+        let admission = ProductEdgeAdmissionLocatorV1 {
+            request_identity: "research-request-v3-proof-0001".to_string(),
+            admission_identity: "admission".to_string(),
+            admission_digest: format!("sha256:{}", "b".repeat(64)),
+        };
+        let btc = "BTCUSDT-PERP.BINANCE";
+        let valid = request_v3("research-request-v3-proof-0001", admission.clone(), &[btc]);
+        let mut invalid = valid.clone();
+        invalid.goal.hypothesis = "short".to_string();
+        let refusing = scope_check(Some([9; 32]), &[(btc, Unresolved)]);
+        let not_resolvable = crate::product_edge::INSTRUMENT_SCOPE_NOT_RESOLVABLE;
+
+        assert_eq!(
+            rejected_request_and_code_v2(invalid.clone(), "HYPOTHESIS_INVALID", None)
+                .unwrap()
+                .1,
+            "HYPOTHESIS_INVALID"
+        );
+        assert_eq!(
+            rejected_request_and_code_v2(valid.clone(), not_resolvable, Some(refusing.clone()))
+                .unwrap()
+                .1,
+            not_resolvable
+        );
+
+        for (request, code, check) in [
+            // A replayed field rejection with another code.
+            (invalid.clone(), "MECHANISM_INVALID", None),
+            // A field rejection that also carries a scope record.
+            (invalid, "HYPOTHESIS_INVALID", Some(refusing.clone())),
+            // A scope rejection without its record.
+            (valid.clone(), not_resolvable, None),
+            // A scope rejection whose record admits the scope.
+            (
+                valid.clone(),
+                not_resolvable,
+                Some(scope_check(Some([9; 32]), &[(btc, Admissible)])),
+            ),
+            // A scope rejection whose record answers another identity.
+            (
+                valid.clone(),
+                not_resolvable,
+                Some(scope_check(
+                    Some([9; 32]),
+                    &[("ETHUSDT-PERP.BINANCE", Unresolved)],
+                )),
+            ),
+            // A scope record under another code.
+            (valid, "HYPOTHESIS_INVALID", Some(refusing.clone())),
+            // A V2 request cannot carry a scope rejection.
+            (
+                request(&admission.request_identity, admission.clone()),
+                not_resolvable,
+                Some(refusing),
+            ),
+        ] {
+            assert!(
+                rejected_request_and_code_v2(request, code, check).is_err(),
+                "{code}"
+            );
+        }
     }
 }
 
