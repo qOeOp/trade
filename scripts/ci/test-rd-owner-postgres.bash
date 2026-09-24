@@ -345,11 +345,14 @@ MANIFEST
     echo "ERROR: Makefile must pass the sealed Develop Composer feature union to the shared nextest graph." >&2
     return 1
   fi
-  # Three consumers of the one feature graph: the rust tests step, the chain matrix, and the chain
-  # archive job that builds what the matrix's R&D leg runs.
+  # Three consumers of the one feature graph: the rust tests step and the chain archive job in
+  # build.yml, and the R&D chain legs, whose make line owner-chain-matrix.py generates for both
+  # workflows.
   if [[ "$(rg -c 'EXTRA_FEATURES="\$\{RUST_TEST_EXTRA_FEATURES\}"' \
-    "$repository_root/.github/workflows/build.yml")" -ne 3 ]]; then
-    echo "ERROR: the rust tests step, the chain matrix and the chain archive job must all pass the shared feature graph." >&2
+    "$repository_root/.github/workflows/build.yml")" -ne 2 ]] ||
+    [[ "$(rg -c 'EXTRA_FEATURES="\$\{RUST_TEST_EXTRA_FEATURES\}"' \
+      "$repository_root/scripts/ci/owner-chain-matrix.py")" -ne 1 ]]; then
+    echo "ERROR: the rust tests step, the chain archive job and the chain legs must all pass the shared feature graph." >&2
     return 1
   fi
   if ! rg -Uq \

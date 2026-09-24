@@ -115,46 +115,48 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  # The chain matrix, read from the repository rather than spelled in this file: the legs and their
+  # limits, and one R&D entry per shard. It runs beside the archive job, off the critical path.
+  owner-chain-plan:
+    name: owner chain plan
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      # https://github.com/step-security/harden-runner
+      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: >-
+            ${{ env.AUDIT_PR == 'true' && 'audit'
+            || vars.STEP_SECURITY_EGRESS_POLICY
+            || 'block' }}
+          allowed-endpoints: >-
+            ${{ vars.COMMON_ALLOWED_ENDPOINTS }}
+            ${{ vars.CI_ALLOWED_ENDPOINTS }}
+
+      - name: Checkout repository
+        # https://github.com/actions/checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Read the chain matrix
+        id: matrix
+        run: python3 scripts/ci/owner-chain-matrix.py scripts/ci/rd-owner-chain-shards.tsv >> "$GITHUB_OUTPUT"
+
   owner-chain:
     name: ${{ matrix.chain.name }}
     runs-on: ubuntu-22.04
     timeout-minutes: ${{ matrix.chain.job-timeout-minutes }}
     needs:
+      - owner-chain-plan
       - rd-owner-archive
     strategy:
       fail-fast: false
-      matrix:
-        chain:
-          - key: rd-owner
-            name: rd owner postgres (ubuntu-22.04)
-            # Common setup: the slowest each part of it took across 45 rd/md chain jobs (2026-09-24) -
-            # freeing disk 915s, rust-cache 340s, everything else 59s - is 1314s together; 30 minutes
-            # leaves room above that. Freeing disk is bimodal: 42 jobs took 116-341s and 3 took
-            # 839-915s on slow runners, so a sample without one of those reads far too low (this was
-            # 18 and 28 minutes, and cut #979's setup at 18). Re-measure the parts, not the total,
-            # and raise it once any of them routinely nears half of it.
-            setup-timeout-minutes: 30
-            step-timeout-minutes: 70
-            # Above the step limits added together (30 + 70) and the short steps around them, so a
-            # step timeout, which keeps its log, fires before the job limit, which does not.
-            job-timeout-minutes: 105
-            make: >-
-              cargo-test-rd-owner-postgres-isolated NEXTEST_PROFILE=ci
-              EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
-          - key: market-data
-            name: market data owner postgres (ubuntu-22.04)
-            # Common setup: the slowest each part of it took across 45 rd/md chain jobs (2026-09-24) -
-            # freeing disk 915s, rust-cache 340s, everything else 59s - is 1314s together; 30 minutes
-            # leaves room above that. Freeing disk is bimodal: 42 jobs took 116-341s and 3 took
-            # 839-915s on slow runners, so a sample without one of those reads far too low (this was
-            # 18 and 28 minutes, and cut #979's setup at 18). Re-measure the parts, not the total,
-            # and raise it once any of them routinely nears half of it.
-            setup-timeout-minutes: 30
-            step-timeout-minutes: 15
-            # Above the step limits added together (30 + 15) and the short steps around them, so a
-            # step timeout, which keeps its log, fires before the job limit, which does not.
-            job-timeout-minutes: 50
-            make: cargo-test-market-data-owner-postgres-isolated
+      # One entry per leg, and per shard of the R&D leg: scripts/ci/owner-chain-matrix.py holds the
+      # legs, their limits and why, and reads the shards from scripts/ci/rd-owner-chain-shards.tsv.
+      matrix: ${{ fromJSON(needs.owner-chain-plan.outputs.matrix) }}
     env:
       # What `build`'s chain job resolves to on a pull request, `main` and `test-ci` - the builds that
       # admit to `main` - because this workflow's result is the same acceptance (AGENTS.md). It was
@@ -223,7 +225,7 @@ jobs:
       # has been `rd-owner-postgres.yml`. This leg carries the same sealed inputs, byte for byte, so
       # a lane's push exercises the whole entry. The Market Data leg has no browser to drive.
       - name: Install the sealed Dashboard browser acceptance inputs
-        if: matrix.chain.key == 'rd-owner'
+        if: matrix.chain.browser == 1
         uses: ./.github/actions/dashboard-browser-acceptance
         with:
           acceptance-candidate: ${{ github.sha }}
@@ -256,6 +258,8 @@ jobs:
           RD_OWNER_NEXTEST_ARCHIVE: >-
             ${{ matrix.chain.key == 'rd-owner'
             && format('{0}/rd-owner-archive/rd-owner-tests.tar.zst', runner.temp) || '' }}
+          # Empty for the whole chain and for Market Data; a shard name runs that shard's entries only.
+          RD_OWNER_CHAIN_SHARD: ${{ matrix.chain.shard }}
         run: make ${{ matrix.chain.make }}
 
       # `if: always()`: the run that ends at an entry is the one whose record answers the most.
@@ -270,7 +274,8 @@ jobs:
         # https://github.com/actions/upload-artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: chain-record-${{ matrix.chain.key }}
+          name: >-
+            chain-record-${{ matrix.chain.key }}${{ matrix.chain.shard && format('-{0}', matrix.chain.shard) || '' }}
           path: target/nextest/chain-records/
           if-no-files-found: error
           retention-days: 7
@@ -282,7 +287,8 @@ jobs:
         # https://github.com/actions/upload-artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: chain-record-${{ matrix.chain.key }}
+          name: >-
+            chain-record-${{ matrix.chain.key }}${{ matrix.chain.shard && format('-{0}', matrix.chain.shard) || '' }}
           path: target/nextest/market-data-records/
           if-no-files-found: ignore
           retention-days: 7
