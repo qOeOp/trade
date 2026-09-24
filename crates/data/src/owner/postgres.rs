@@ -6918,6 +6918,19 @@ struct DurableClockHandoffState {
     epoch_transition_count: i64,
 }
 
+/// The Owner's current clock head, read without a lock.
+async fn load_owner_clock_head_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<Option<MarketDataClockAdmission>, sqlx::Error> {
+    sqlx::query(
+        "SELECT clock_identity,clock_epoch,monotonic_sequence,wall_observed,decision_cut,valid_through,restart_continuity_digest,uncertainty_bound,skew_bound,comparison_rule FROM market_data_private.clock_head_v1 WHERE singleton",
+    )
+    .fetch_optional(&mut **transaction)
+    .await?
+    .map(|row| decode_clock(&row))
+    .transpose()
+}
+
 async fn load_current_clock_for_update(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<Option<MarketDataClockAdmission>, SourceBindingError> {

@@ -11,17 +11,21 @@
 
 use std::collections::BTreeSet;
 use std::fmt::Debug;
+use std::future::Future;
+use std::pin::Pin;
 
 use sqlx::{Postgres, Row, Transaction};
 
 use crate::owner::{
+    instrument_master::authority::{ObservationClockV1, select_facts_observed},
+    research_instrument_scope_v1::ResearchInstrumentScopeV1,
     source_binding::BindingDigest,
     universe_selection::{
-        UniverseSelectionErrorV1, UniverseSelectionReadbackV1, UntrustedUniverseSelectionLocatorV1,
-        UntrustedUniverseSelectionRequestV1,
+        HistoricalMembershipRecordV1, UniverseSelectionErrorV1, UniverseSelectionReadbackV1,
+        UntrustedUniverseSelectionLocatorV1, UntrustedUniverseSelectionRequestV1,
         authority::{
             HistoricalMembershipFactProposalV1, UniverseSelectionRuleEvaluatorV1,
-            decode_readback_v1, decode_source_fact_v1, issue_source_fact_v1,
+            decode_readback_v1, decode_source_fact_v1, fixed_member_scope_v1, issue_source_fact_v1,
             issue_universe_selection_readback_v1, select_complete_membership_v1, validate_request,
         },
         codec,
@@ -229,8 +233,20 @@ pub(super) async fn resolve_universe_selection_in_transaction_v1(
         .iter()
         .map(|bytes| decode_source_fact_v1(bytes))
         .collect::<Result<Vec<_>, _>>()?;
+    let fixed = fixed_member_scope_v1(
+        request.selection_rule_identity(),
+        request.selection_rule_bytes(),
+    )?;
+
+    if let Some(scope) = &fixed {
+        fixed_member_preconditions_v1(transaction, request, scope).await?;
+    }
     let membership =
         select_complete_membership_v1(request, &source_facts, &expected_member_keys, evaluator)?;
+
+    if let Some(scope) = &fixed {
+        fixed_members_included_v1(scope, &membership)?;
+    }
     let database: String = sqlx::query_scalar("SELECT current_database()")
         .fetch_one(&mut **transaction)
         .await
@@ -246,6 +262,74 @@ pub(super) async fn resolve_universe_selection_in_transaction_v1(
     validate_aggregate_size(&readback)?;
     insert_readback_rows(transaction, &readback, sequence).await?;
     Ok(readback)
+}
+
+type FixedMemberPreconditionsFutureV1<'a> =
+    Pin<Box<dyn Future<Output = Result<(), UniverseSelectionErrorV1>> + Send + 'a>>;
+
+/// What a fixed-member request needs before its frontier is evaluated.
+///
+/// It is evaluated against the frontier Market Data holds as current, never one the requester
+/// chose, and each requested identity must resolve to an Instrument Master fact in force and
+/// observable at the request's instants: an unresolved identity is refused, never dropped from a
+/// selection that would then hold fewer members. Built outside the caller's frame, which sits on
+/// the replay composition chain entry's deepest path.
+fn fixed_member_preconditions_v1<'a, 'b: 'a>(
+    transaction: &'a mut Transaction<'b, Postgres>,
+    request: &'a UntrustedUniverseSelectionRequestV1,
+    scope: &'a ResearchInstrumentScopeV1,
+) -> FixedMemberPreconditionsFutureV1<'a> {
+    Box::pin(async move {
+        if resolve_current_eligible_frontier_v1(transaction).await?
+            != Some(request.eligible_instrument_frontier())
+        {
+            return Err(UniverseSelectionErrorV1::FrontierNotCurrent);
+        }
+        let clock = super::load_owner_clock_head_v1(transaction)
+            .await
+            .map_err(|cause| store_error(&cause))?
+            .ok_or(UniverseSelectionErrorV1::StoreUnavailable)?;
+        let clock = ObservationClockV1::from_owner_head(
+            &clock.clock_identity,
+            &clock.clock_epoch,
+            clock.monotonic_sequence,
+        )
+        .ok_or(UniverseSelectionErrorV1::StoreUntrusted)?;
+        let facts = super::load_instrument_facts(transaction, scope.identities(), false)
+            .await
+            .map_err(|cause| store_error(&cause))?;
+
+        for identity in scope.identities() {
+            select_facts_observed(
+                &facts,
+                std::slice::from_ref(identity),
+                request.effective_at_ns(),
+                request.owner_observation_ns(),
+                request.decision_cut(),
+                clock,
+            )
+            .map_err(|_| UniverseSelectionErrorV1::FixedMemberUnresolved)?;
+        }
+        Ok(())
+    })
+}
+
+/// Each identity a fixed-member request names is included by exactly one member.
+fn fixed_members_included_v1(
+    scope: &ResearchInstrumentScopeV1,
+    membership: &[HistoricalMembershipRecordV1],
+) -> Result<(), UniverseSelectionErrorV1> {
+    for identity in scope.identities() {
+        let included = membership
+            .iter()
+            .filter(|member| member.included() && member.instrument() == identity.as_bytes())
+            .count();
+
+        if included != 1 {
+            return Err(UniverseSelectionErrorV1::FixedMemberNotInFrontier);
+        }
+    }
+    Ok(())
 }
 
 /// Writes one issued selection's record, receipt, and outbox rows; the only writer of all three.
