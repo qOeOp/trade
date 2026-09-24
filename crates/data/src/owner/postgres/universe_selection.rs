@@ -32,6 +32,13 @@ pub(super) const MAX_UNIVERSE_SELECTION_AGGREGATE_BYTES_V1: usize = 8 * 1024 * 1
 
 pub(super) const UNIVERSE_SELECTION_SCHEMA_V1: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS market_data_private.historical_membership_frontiers_v1 (eligible_frontier BYTEA PRIMARY KEY CHECK(octet_length(eligible_frontier)=32))",
+    // Admission order: each frontier created from now on takes the next number, and the latest
+    // numbered frontier is the one Market Data holds as current. A frontier admitted before this
+    // column existed has no number and is never current; it is not renumbered, so its membership
+    // counts again only once it is admitted under a new frontier digest.
+    "CREATE SEQUENCE IF NOT EXISTS market_data_private.historical_membership_frontier_admissions_v1 AS BIGINT MINVALUE 1",
+    "ALTER TABLE market_data_private.historical_membership_frontiers_v1 ADD COLUMN IF NOT EXISTS admission_sequence BIGINT UNIQUE CHECK (admission_sequence > 0)",
+    "REVOKE ALL ON SEQUENCE market_data_private.historical_membership_frontier_admissions_v1 FROM PUBLIC",
     "CREATE TABLE IF NOT EXISTS market_data_private.historical_membership_facts_v1 (fact_identity BYTEA PRIMARY KEY CHECK(octet_length(fact_identity)=32), eligible_frontier BYTEA NOT NULL CHECK(octet_length(eligible_frontier)=32), member_key BYTEA NOT NULL CHECK(octet_length(member_key)>0), instrument BYTEA NOT NULL CHECK(octet_length(instrument)>0), predecessor_identity BYTEA NULL REFERENCES market_data_private.historical_membership_facts_v1(fact_identity), decision_cut BIGINT NOT NULL CHECK(decision_cut>0), owner_observation_ns TEXT NOT NULL CHECK(owner_observation_ns<>''), fact_bytes BYTEA NOT NULL CHECK(octet_length(fact_bytes)>0), UNIQUE(eligible_frontier,member_key,fact_identity))",
     "CREATE TABLE IF NOT EXISTS market_data_private.historical_membership_heads_v1 (eligible_frontier BYTEA NOT NULL CHECK(octet_length(eligible_frontier)=32), member_key BYTEA NOT NULL CHECK(octet_length(member_key)>0), fact_identity BYTEA UNIQUE NOT NULL REFERENCES market_data_private.historical_membership_facts_v1(fact_identity), PRIMARY KEY(eligible_frontier,member_key))",
     "CREATE TABLE IF NOT EXISTS market_data_private.historical_membership_manifest_v1 (eligible_frontier BYTEA NOT NULL CHECK(octet_length(eligible_frontier)=32), ordinal BIGINT NOT NULL CHECK(ordinal>0), member_key BYTEA NOT NULL CHECK(octet_length(member_key)>0), PRIMARY KEY(eligible_frontier,ordinal), UNIQUE(eligible_frontier,member_key))",
@@ -53,6 +60,28 @@ pub(super) async fn install_universe_selection_schema_v1(
     Ok(())
 }
 
+/// The eligible-instrument frontier Market Data holds as current: the latest admitted one.
+///
+/// Admission order is Market Data's own, so a requester never chooses the frontier its selection
+/// is evaluated against. `None` when no frontier has been admitted since frontiers were numbered.
+pub(super) async fn resolve_current_eligible_frontier_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<Option<BindingDigest>, UniverseSelectionErrorV1> {
+    let current: Option<Vec<u8>> = sqlx::query_scalar(
+        "SELECT eligible_frontier FROM market_data_private.historical_membership_frontiers_v1 WHERE admission_sequence IS NOT NULL ORDER BY admission_sequence DESC LIMIT 1",
+    )
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|cause| store_error(&cause))?;
+    current
+        .map(|bytes| {
+            <[u8; 32]>::try_from(bytes.as_slice())
+                .map(BindingDigest::from_untrusted_bytes)
+                .map_err(|_| UniverseSelectionErrorV1::StoreUntrusted)
+        })
+        .transpose()
+}
+
 pub(super) async fn persist_historical_membership_frontier_v1(
     transaction: &mut Transaction<'_, Postgres>,
     eligible_frontier: BindingDigest,
@@ -62,7 +91,7 @@ pub(super) async fn persist_historical_membership_frontier_v1(
         return Err(UniverseSelectionErrorV1::InvalidMembership);
     }
     advisory_lock(transaction, eligible_frontier).await?;
-    let created = sqlx::query("INSERT INTO market_data_private.historical_membership_frontiers_v1(eligible_frontier) VALUES($1) ON CONFLICT(eligible_frontier) DO NOTHING")
+    let created = sqlx::query("INSERT INTO market_data_private.historical_membership_frontiers_v1(eligible_frontier,admission_sequence) VALUES($1,nextval('market_data_private.historical_membership_frontier_admissions_v1')) ON CONFLICT(eligible_frontier) DO NOTHING")
         .bind(eligible_frontier.as_bytes().as_slice()).execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?
         .rows_affected() == 1;
     let mut facts = proposals

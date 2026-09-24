@@ -2100,6 +2100,76 @@ async fn universe_member_declarations_oracle(
     );
 }
 
+/// Market Data, not a requester, decides which eligible-instrument frontier is current.
+///
+/// Each newly admitted frontier takes the next admission number and becomes current; admitting an
+/// existing frontier again changes nothing; and a frontier row from before numbering, however
+/// recently written, is never current.
+async fn current_eligible_frontier_oracle_v1(
+    owner: &MarketDataOwnerPostgres,
+    source: &SourceBindingCommit,
+) {
+    use super::universe_selection::{
+        persist_historical_membership_frontier_v1, resolve_current_eligible_frontier_v1,
+    };
+
+    let admit = async |frontier: BindingDigest| {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        persist_historical_membership_frontier_v1(
+            &mut transaction,
+            frontier,
+            vec![HistoricalMembershipFactProposalV1 {
+                member_key: b"AAPL".to_vec(),
+                instrument: b"AAPL".to_vec(),
+                predecessor_identity: None,
+                effective_from_ns: 1,
+                effective_until_ns: None,
+                provider_available_ns: 90,
+                retrieval_ns: 92,
+                correction_publication_ns: 91,
+                owner_observation_ns: 99,
+                decision_cut: 100,
+                source_binding_lineage_root: source.fact().lineage_root(),
+                correction_frontier_digest: d(86),
+            }],
+        )
+        .await
+        .unwrap();
+        transaction.commit().await.unwrap();
+    };
+    let current = async || {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        let current = resolve_current_eligible_frontier_v1(&mut transaction)
+            .await
+            .unwrap();
+        transaction.commit().await.unwrap();
+        current
+    };
+
+    admit(d(203)).await;
+    assert_eq!(current().await, Some(d(203)));
+    admit(d(204)).await;
+    assert_eq!(current().await, Some(d(204)));
+    admit(d(203)).await;
+    assert_eq!(
+        current().await,
+        Some(d(204)),
+        "admitting an existing frontier again does not make it current"
+    );
+    sqlx::query(
+        "INSERT INTO market_data_private.historical_membership_frontiers_v1(eligible_frontier) VALUES($1)",
+    )
+    .bind(d(205).as_bytes().as_slice())
+    .execute(owner.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        current().await,
+        Some(d(204)),
+        "a frontier from before numbering is never current"
+    );
+}
+
 async fn strategy_input_binding_registry_postgres_oracle(
     owner: &MarketDataOwnerPostgres,
     source: &SourceBindingCommit,
@@ -4134,6 +4204,7 @@ async fn instrument_master_postgres_oracle(owner_url: &str, reader_url: &str, ad
         &registry_fixture.batch,
     ))
     .await;
+    Box::pin(current_eligible_frontier_oracle_v1(&owner, &source)).await;
     Box::pin(persisted_strategy_input_custody_postgres_oracle_v1(
         &owner,
         &registry_fixture,
