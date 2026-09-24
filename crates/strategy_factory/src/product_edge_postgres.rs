@@ -2160,6 +2160,12 @@ impl PostgresResearchGoalOwnerV1 {
     }
 
     /// Resolves every request-bound Owner input and atomically issues the R&D binding.
+    ///
+    /// The issuance runs SERIALIZABLE. The R&D storage functions it reads through refuse
+    /// REPEATABLE READ, whose snapshot predates the request fence their locks take, and answer only
+    /// under READ COMMITTED or SERIALIZABLE; SERIALIZABLE keeps one snapshot for the whole
+    /// issuance and reports a concurrent writer as a serialization failure instead. One such
+    /// failure is retried once from a new transaction; a second is answered as it is.
     pub async fn issue_native_replay_execution_input_binding_v1<P, R>(
         &self,
         locator: &ExploratoryReplayRequestLocatorV2,
@@ -2175,15 +2181,66 @@ impl PostgresResearchGoalOwnerV1 {
         P: crate::develop_composer_postgres_v2::DevelopComposerSealedReadPortV2 + ?Sized,
         R: NativeReplaySchedulingResolverV1 + ?Sized,
     {
+        match self
+            .issue_native_replay_execution_input_binding_once_v1(
+                locator,
+                composer,
+                instrument_master_owner,
+                instrument_terms_owner,
+                market_data,
+            )
+            .await
+        {
+            Err(e) if is_serialization_failure(&e) => {
+                self.issue_native_replay_execution_input_binding_once_v1(
+                    locator,
+                    composer,
+                    instrument_master_owner,
+                    instrument_terms_owner,
+                    market_data,
+                )
+                .await
+            }
+            result => result,
+        }
+    }
+
+    /// Opens the transaction one execution-input binding is issued in, at the isolation the R&D
+    /// storage functions it reads through answer under.
+    pub(crate) async fn begin_native_replay_issuance_transaction_v1(
+        &self,
+    ) -> Result<
+        sqlx::Transaction<'static, sqlx::Postgres>,
+        crate::NativeReplayExecutionInputBindingErrorV1,
+    > {
         let mut transaction = self
             .pool
             .begin()
             .await
             .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
             .execute(&mut *transaction)
             .await
             .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
+        Ok(transaction)
+    }
+
+    async fn issue_native_replay_execution_input_binding_once_v1<P, R>(
+        &self,
+        locator: &ExploratoryReplayRequestLocatorV2,
+        composer: &P,
+        instrument_master_owner: &InstrumentMasterV2PostgresOwner,
+        instrument_terms_owner: &InstrumentEconomicTermsPostgresOwnerV1,
+        market_data: &R,
+    ) -> Result<
+        crate::NativeReplayExecutionInputBindingReadbackV1,
+        crate::NativeReplayExecutionInputBindingErrorV1,
+    >
+    where
+        P: crate::develop_composer_postgres_v2::DevelopComposerSealedReadPortV2 + ?Sized,
+        R: NativeReplaySchedulingResolverV1 + ?Sized,
+    {
+        let mut transaction = self.begin_native_replay_issuance_transaction_v1().await?;
         let readback = crate::native_replay_initial_binding_issuance_v1::issue_native_replay_initial_binding_v1_in_transaction(
             &mut transaction,
             locator,
@@ -4267,6 +4324,28 @@ fn current_epoch_ms() -> Result<u64, ResearchGoalOwnerError> {
 
 fn storage(error: &sqlx::Error) -> ResearchGoalOwnerError {
     ResearchGoalOwnerError::Storage(crate::postgres_error_message::database_message(error))
+}
+
+/// Whether an issuance failed because SERIALIZABLE aborted it against a concurrent transaction, the
+/// one failure a fresh attempt can change. Only the commit and the final issue keep their storage
+/// error; every earlier stage already answers `Unavailable`, so a failure there is not retried.
+fn is_serialization_failure(error: &crate::NativeReplayExecutionInputBindingErrorV1) -> bool {
+    match error {
+        crate::NativeReplayExecutionInputBindingErrorV1::Storage(e) => {
+            sqlstate_is_serialization_failure(
+                e.as_database_error()
+                    .and_then(sqlx::error::DatabaseError::code)
+                    .as_deref(),
+            )
+        }
+        _ => false,
+    }
+}
+
+/// `40001` is a serialization failure and `40P01` a deadlock; PostgreSQL rolls the transaction
+/// back for both, and both are what a concurrent writer produces here.
+fn sqlstate_is_serialization_failure(sqlstate: Option<&str>) -> bool {
+    matches!(sqlstate, Some("40001" | "40P01"))
 }
 
 fn json_storage(error: impl Display) -> ResearchGoalOwnerError {
@@ -6747,5 +6826,27 @@ pub(crate) mod tests {
                 || coordinate.starts_with("research_goal_owner.resolve_v2.")),
             "{recorded:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod issuance_serialization_retry_tests {
+    use rstest::rstest;
+
+    use super::sqlstate_is_serialization_failure;
+
+    /// Only the two failures PostgreSQL rolls a transaction back for under contention are retried;
+    /// every other code, and an error with none, is answered as it is.
+    #[rstest]
+    #[case::serialization_failure(Some("40001"), true)]
+    #[case::deadlock(Some("40P01"), true)]
+    #[case::unique_violation(Some("23505"), false)]
+    #[case::other_class_40(Some("40002"), false)]
+    #[case::no_code(None, false)]
+    fn only_serialization_failures_and_deadlocks_are_retried(
+        #[case] sqlstate: Option<&str>,
+        #[case] retried: bool,
+    ) {
+        assert_eq!(sqlstate_is_serialization_failure(sqlstate), retried);
     }
 }

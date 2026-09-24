@@ -4709,6 +4709,123 @@ mod postgres_acceptance_tests {
         }
     }
 
+    /// Execution-input binding issuance opens its transaction where the R&D source boundary it
+    /// reads through answers.
+    ///
+    /// The storage functions behind that boundary answer NULL below READ COMMITTED or SERIALIZABLE,
+    /// and issuance used to open REPEATABLE READ, so every request was refused at the boundary as
+    /// "R&D Owner source read unavailable" and the route answered 503 for all of them. Under the
+    /// transaction issuance opens now, a legacy Replay request passes the boundary and is refused
+    /// one step later, where its `blake3:` Artifact digest cannot name a Composer package. The
+    /// control opens REPEATABLE READ by hand and must still be refused at the boundary, so the
+    /// assertion can tell the two apart.
+    ///
+    /// Issuance itself is not driven: its Instrument Master, economic terms and Market Data
+    /// scheduling collaborators are built only from production environment variables, and a legacy
+    /// request is refused in preparation before any of them is used. Nothing here writes a binding.
+    #[tokio::test]
+    #[ignore = "requires the canonical disposable R&D and Backtest Owner PostgreSQL topology"]
+    async fn legacy_replay_request_passes_the_source_boundary_under_issuance_isolation() {
+        use crate::native_replay_preparation_inputs_v2::{
+            NativeReplayPreparationInputsErrorV2,
+            resolve_native_replay_preparation_inputs_v2_in_transaction,
+        };
+
+        // Each phase is boxed: held inline, their futures exhaust the Linux test thread stack.
+        let database = Box::pin(CanonicalOwnerPostgresTestDatabaseV1::admit())
+            .await
+            .expect("canonical disposable topology");
+        let suffix = unique_suffix();
+        let market_data_evidence =
+            issue_market_data_repair_evidence_v1().expect("sealed Market Data evidence");
+        let PersistedReplayPredecessorV1 {
+            owner, predecessor, ..
+        } = Box::pin(persist_repair_replay_predecessor(
+            &database,
+            &market_data_evidence,
+            &suffix,
+        ))
+        .await;
+        let locator = predecessor.locator();
+        let rd_database_url = database.database_url(CanonicalOwnerTestRoleV1::RdOwner);
+        // Preparation takes the Composer read port as a parameter. A legacy request is refused
+        // before the port is read, but opening it verifies the Composer family's authority, so the
+        // family is materialized here rather than taken from whichever entry did it first.
+        Box::pin(
+            crate::develop_composer_postgres_v2::PostgresDevelopComposerStoreV2::materialize_schema(
+                rd_database_url,
+            ),
+        )
+        .await
+        .expect("the Composer family materializes");
+        let composer = Box::pin(
+            crate::source_research_composer_postgres_v2::PostgresSourceResearchComposerProductionV2::connect(
+                rd_database_url,
+                database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+            ),
+        )
+        .await
+        .expect("the production Composer read port opens");
+        let rd_pool = sqlx::PgPool::connect(rd_database_url)
+            .await
+            .expect("R&D Owner pool");
+        let bindings_for_request = || async {
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM public.rd_native_replay_execution_input_bindings_v1 \
+                 WHERE request_identity=$1",
+            )
+            .bind(&locator.request_identity)
+            .fetch_one(&rd_pool)
+            .await
+            .expect("binding count")
+        };
+        let before = bindings_for_request().await;
+
+        let mut issuance = Box::pin(owner.begin_native_replay_issuance_transaction_v1())
+            .await
+            .expect("issuance transaction");
+        let refused = Box::pin(resolve_native_replay_preparation_inputs_v2_in_transaction(
+            &mut issuance,
+            &locator,
+            &composer,
+        ))
+        .await;
+        issuance.rollback().await.expect("issuance rollback");
+        let Err(NativeReplayPreparationInputsErrorV2::Unavailable(cause)) = refused else {
+            panic!("a legacy Replay request names no Composer package");
+        };
+        assert!(
+            cause.contains("canonical SHA-256 content digest is unavailable"),
+            "past the source boundary, the legacy Artifact digest is what refuses: {cause}"
+        );
+
+        let mut repeatable_read = rd_pool.begin().await.expect("control transaction");
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            .execute(&mut *repeatable_read)
+            .await
+            .expect("control isolation");
+        let refused = Box::pin(resolve_native_replay_preparation_inputs_v2_in_transaction(
+            &mut repeatable_read,
+            &locator,
+            &composer,
+        ))
+        .await;
+        repeatable_read.rollback().await.expect("control rollback");
+        let Err(NativeReplayPreparationInputsErrorV2::Unavailable(cause)) = refused else {
+            panic!("REPEATABLE READ is refused at the source boundary");
+        };
+        assert!(
+            cause.contains("R&D Owner source read unavailable"),
+            "under REPEATABLE READ the source boundary answers nothing: {cause}"
+        );
+
+        assert_eq!(
+            bindings_for_request().await,
+            before,
+            "no binding is written"
+        );
+    }
+
     async fn prepare_ready_decision_postgres_harness(
         lineage: ReadyLineageV1,
     ) -> Box<ReadyDecisionPostgresHarnessV1> {
