@@ -34,20 +34,26 @@ import { startNextServer } from "./preview-instance.mjs";
 //
 // Linux has no AppKit path, and Chrome for Testing 152 on the Linux runners is unaffected, so this
 // refuses nothing in CI.
+//
+// Only Input.dispatchKeyEvent starts it. On the same Chrome 153 and bare page, three Input.insertText
+// calls (the text landed) left the browser process at 0-12% CPU, while one dispatchKeyEvent in the
+// same session sent it to 97% and it stayed there.
 export const MACOS_SYNTHESIZED_KEY_SPIN_FIRST_MAJOR = 146;
 
 // Refuses, before any work, a suite that will send synthesized keys to a browser that spins on
 // them. Without this the run fails 60 s into a DevTools command, and the timeout reads as a hung
-// page - which is how this was first reported. `platform` and `versionText` are parameters so the
-// decision can be tested on any machine.
+// page - which is how this was first reported. Callers pass the `--version` output they already
+// read. The browser is asked only when they have not, and only on macOS, so the Linux runners start
+// no extra process for this. `platform` is a parameter so the decision can be tested on any machine.
 export function refuseBrowserThatSpinsOnSynthesizedKeys(executable, {
   platform = process.platform,
-  versionText = execFileSync(executable, ["--version"], { encoding: "utf8" }),
+  versionText,
 } = {}) {
   if (platform !== "darwin") return;
   // The shell has no browser UI; it prints the same product name as the full browser, so the
   // executable's name is the only thing that tells them apart.
   if (basename(executable) === "chrome-headless-shell") return;
+  versionText ??= execFileSync(executable, ["--version"], { encoding: "utf8", timeout: 30_000 });
   const major = Number(/(\d+)\.\d+\.\d+\.\d+/.exec(versionText)?.[1]);
   if (!Number.isSafeInteger(major)) {
     throw new Error(`cannot read a Chrome version from ${JSON.stringify(versionText.trim())}`);

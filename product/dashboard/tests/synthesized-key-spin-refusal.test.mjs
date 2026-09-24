@@ -51,20 +51,36 @@ test("an unreadable version on macOS is refused rather than guessed", () => {
   );
 });
 
+test("off macOS the browser is not asked for its version at all", () => {
+  // The Linux runners must pay nothing for this: no subprocess, so a missing or wedged executable
+  // cannot fail or stall a run through this path.
+  assert.doesNotThrow(() => refuseBrowserThatSpinsOnSynthesizedKeys("/nonexistent/chrome", { platform: "linux" }));
+});
+
 // The refusal only helps a suite that calls it. A new suite that sends keys and forgets to would
 // fail on a spinning browser 60 s into a DevTools command, looking like a hung page - which is the
 // report this refusal exists to prevent.
+//
+// Both sides are read from code, not text. A sender is a `.send("Input.dispatchKeyEvent"` call, so
+// a comment naming the method does not count; Input.insertText is left out because it measured not
+// to spin (see browser-acceptance.mjs). A refusal counts only as a call that starts a statement,
+// optionally behind an `if (...)`, after line comments are stripped - so a commented-out call does
+// not satisfy it. browser-acceptance.mjs is scanned too: a shared helper that sends keys would be
+// called from suites that never mention the method, so the refusal has to live inside that helper.
+const SENDS_KEYS = /\.send\(\s*["']Input\.dispatchKeyEvent["']/u;
+const REFUSES = /^\s*(?:if \([^)]*\)\s*)?refuseBrowserThatSpinsOnSynthesizedKeys\(browserExecutable\b/mu;
+const withoutLineComments = (source) => source.replace(/^\s*\/\/.*$/gmu, "").replace(/\s\/\/.*$/gmu, "");
+
 test("every suite that synthesizes keys refuses a browser that spins on them", async () => {
   const directory = new URL("./", import.meta.url);
   const senders = [];
   for (const name of await readdir(directory)) {
-    if (!name.endsWith(".mjs") || name === "browser-acceptance.mjs" || name === "synthesized-key-spin-refusal.test.mjs") {
-      continue;
-    }
-    const source = await readFile(new URL(name, directory), "utf8");
-    if (source.includes("Input.dispatchKeyEvent")) {
-      senders.push([name, source.includes("refuseBrowserThatSpinsOnSynthesizedKeys(browserExecutable)")]);
-    }
+    if (!name.endsWith(".mjs") || name === "synthesized-key-spin-refusal.test.mjs") continue;
+    const source = withoutLineComments(await readFile(new URL(name, directory), "utf8"));
+    if (!SENDS_KEYS.test(source)) continue;
+    assert.notEqual(name, "browser-acceptance.mjs",
+      "browser-acceptance.mjs sends keys itself: put the refusal inside that helper, since its callers never name the method");
+    senders.push([name, REFUSES.test(source)]);
   }
   // A scan that found nothing would pass whatever the suites did. Two suites send keys today.
   assert.ok(senders.length >= 2, `expected at least two key-sending suites, found ${JSON.stringify(senders)}`);

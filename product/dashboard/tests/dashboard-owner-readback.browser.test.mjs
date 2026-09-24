@@ -122,7 +122,7 @@ test(browserAcceptance
 { skip: !browserAcceptance, timeout: 20 * 60_000 }, async (t) => {
   // This suite presses keys (select-all and copy below), so a browser that spins on them is
   // refused here, before anything is built, rather than 60 s into a stalled DevTools command.
-  refuseBrowserThatSpinsOnSynthesizedKeys(browserExecutable);
+  refuseBrowserThatSpinsOnSynthesizedKeys(browserExecutable, { versionText: browserVersion });
   // These three assertions verify no Owner surface. They are what makes this test's own name true:
   // it reports the commit it read every admitted surface from, and that sentence is a claim about a
   // tree nobody ran unless HEAD is that commit and the worktree is unmodified. Deleting them would

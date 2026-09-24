@@ -24,7 +24,9 @@ const calendarLogin = "calendar-browser-login-0123456789-abcdefghijklmnop";
 const calendarSessionHmac = "calendar-browser-session-0123456789-abcdefghijklmnop";
 const dashboardRoot = new URL("../", import.meta.url);
 const browserVersion = browserAcceptance
-  ? execFileSync(browserExecutable, ["--version"], { encoding: "utf8" }).trim()
+  // Bounded: a browser that never answers `--version` would otherwise hold module load, and with it
+  // the whole run, with nothing to say why.
+  ? execFileSync(browserExecutable, ["--version"], { encoding: "utf8", timeout: 30_000 }).trim()
   : "";
 const testName = browserAcceptance
   ? `browser acceptance reaches the schedule calendar from candidate ${acceptanceCandidate} with ${browserVersion}`
@@ -329,7 +331,7 @@ async function dispatchBrowserKey(browser, key) {
 test(testName, { skip: !url }, async () => {
   // Every keyboard step here synthesizes keys, so a browser that spins on them is refused before any
   // database or build work, rather than 60 s into a stalled DevTools command at an arbitrary step.
-  if (browserAcceptance) refuseBrowserThatSpinsOnSynthesizedKeys(browserExecutable);
+  if (browserAcceptance) refuseBrowserThatSpinsOnSynthesizedKeys(browserExecutable, { versionText: browserVersion });
   const parsed = new URL(url);
   assert.equal(parsed.hostname, "127.0.0.1");
   assert.match(parsed.pathname, process.env.DASHBOARD_CALENDAR_PREVIEW === "1" ? /^\/dashboard_calendar_preview(?:_\d+)?$/ : /^\/dashboard_calendar$/);
