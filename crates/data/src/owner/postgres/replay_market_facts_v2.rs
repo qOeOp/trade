@@ -713,8 +713,7 @@ async fn validate_replay_first_corpus_claim_v1(
             .iter()
             .find(|dependency| {
                 dependency.role_identity == *request.input_role_identity.as_bytes()
-                    && dependency.binding_receipt_digest
-                        == *declaration.binding().digest().as_bytes()
+                    && dependency.binding_receipt_digest == *declaration.binding_digest().as_bytes()
             })
             .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
         let schedule = super::load_bar_schedule_readback(
@@ -1425,8 +1424,8 @@ impl ReplayCompositionOwnerV1 {
                 role_identity: role.role_identity,
                 declaration_identity: declaration.request_meaning_digest(),
                 declaration_digest: declaration.request_meaning_digest(),
-                binding_identity: declaration.binding().digest(),
-                binding_digest: declaration.binding().digest(),
+                binding_identity: declaration.binding_digest(),
+                binding_digest: declaration.binding_digest(),
             });
             declarations.push(declaration);
         }

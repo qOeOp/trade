@@ -728,7 +728,10 @@ R&D 从 binding 及其 Replay facts 读取的内容，以及在 universe-member 
 
 exact-instrument 第一语料经 Instrument Master V1 解析其 instrument，而 V1 projection 无法构造原生 crypto
 perpetual（`require_complete_native_crypto_perpetual_construction` 恒拒绝），所以任何 exact-instrument 形状都无法
-运行用户准入的 crypto perpetual；universe-member 形状是它们的路线。目前已建成：无。
+运行用户准入的 crypto perpetual；universe-member 形状是它们的路线。目前已建成：durable declaration registry 如上段所述
+准入 universe-member declaration，将其绑定到该 role 的 universe frame，并拒绝 role 混用两种 scope 或指名多于一个
+selection 的 Design；联接单行的路径按名拒绝这种 declaration。尚无生产 registration 路径组装它：attested 与 role-intent
+两条 registration 仍把每个 role 组装为 exact instrument。该形状的 binding record、Replay frontier 与 resolved cut 均未建成。
 
 **TARGET，持久 R&D attestation seam：** positive R&D Develop Composer transaction 将一份不可变、完整的
 `StrategyDesignRoleSetReceiptV1` attestation 与 Composer aggregate、receipt 及 outbox 一起规范持久化。它绑定

@@ -778,7 +778,11 @@ What R&D reads from a binding and its Replay facts, and where each comes from in
 The exact-instrument first corpus resolves its instrument through Instrument Master V1, whose projection cannot
 construct a native crypto perpetual (`require_complete_native_crypto_perpetual_construction` always refuses), so no
 exact-instrument shape can run the crypto perpetuals the user admitted; the universe-member shape is their route.
-Built so far: nothing.
+Built so far: the durable declaration registry admits a universe-member declaration as the paragraph above states,
+binding it to its role's universe frame, and refuses a Design whose roles mix the two scopes or name more than one
+selection. The paths that join single rows refuse such a declaration by name. No production registration path composes
+one yet: both the attested and the role-intent registration still compose every role as an exact instrument. The
+binding record, Replay frontier and resolved cut of this shape are not built.
 
 **TARGET, durable R&D attestation seam:** the positive R&D Develop Composer transaction canonically persists one
 immutable complete `StrategyDesignRoleSetReceiptV1` attestation together with the Composer aggregate, receipt and
