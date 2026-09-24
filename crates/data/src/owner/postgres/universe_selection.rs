@@ -166,7 +166,7 @@ pub(super) async fn persist_historical_membership_frontier_v1(
         let existing: Option<(Vec<u8>, Vec<u8>)> = sqlx::query_as("SELECT eligible_frontier,fact_bytes FROM market_data_private.historical_membership_facts_v1 WHERE fact_identity=$1 FOR UPDATE")
             .bind(fact.identity().as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
         if let Some((frontier, bytes)) = existing {
-            if frontier != eligible_frontier.as_bytes().as_slice()
+            if frontier.is_empty()
                 || bytes != fact.canonical_bytes()
             {
                 return Err(UniverseSelectionErrorV1::RequestConflict);
