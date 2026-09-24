@@ -785,21 +785,33 @@ jobs:
         chain:
           - key: rd-owner
             name: rd owner postgres (ubuntu-22.04)
-            # Common setup: twice the slowest measured for this chain across build and owner-chains
-            # (530s, 2026-09-24). Re-measure and raise it once setup routinely takes half of it.
-            setup-timeout-minutes: 18
+            # Common setup: the slowest each part of it took across 45 rd/md chain jobs (2026-09-24) -
+            # freeing disk 915s, rust-cache 340s, everything else 59s - is 1314s together; 30 minutes
+            # leaves room above that. Freeing disk is bimodal: 42 jobs took 116-341s and 3 took
+            # 839-915s on slow runners, so a sample without one of those reads far too low (this was
+            # 18 and 28 minutes, and cut #979's setup at 18). Re-measure the parts, not the total,
+            # and raise it once any of them routinely nears half of it.
+            setup-timeout-minutes: 30
             step-timeout-minutes: 70
-            job-timeout-minutes: 100
+            # Above the step limits added together (30 + 70) and the short steps around them, so a
+            # step timeout, which keeps its log, fires before the job limit, which does not.
+            job-timeout-minutes: 105
             make: >-
               cargo-test-rd-owner-postgres-isolated NEXTEST_PROFILE=ci
               EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
           - key: market-data
             name: market data owner postgres (ubuntu-22.04)
-            # Common setup: twice the slowest measured for this chain across build and owner-chains
-            # (820s, 2026-09-24). Re-measure and raise it once setup routinely takes half of it.
-            setup-timeout-minutes: 28
+            # Common setup: the slowest each part of it took across 45 rd/md chain jobs (2026-09-24) -
+            # freeing disk 915s, rust-cache 340s, everything else 59s - is 1314s together; 30 minutes
+            # leaves room above that. Freeing disk is bimodal: 42 jobs took 116-341s and 3 took
+            # 839-915s on slow runners, so a sample without one of those reads far too low (this was
+            # 18 and 28 minutes, and cut #979's setup at 18). Re-measure the parts, not the total,
+            # and raise it once any of them routinely nears half of it.
+            setup-timeout-minutes: 30
             step-timeout-minutes: 15
-            job-timeout-minutes: 40
+            # Above the step limits added together (30 + 15) and the short steps around them, so a
+            # step timeout, which keeps its log, fires before the job limit, which does not.
+            job-timeout-minutes: 50
             make: cargo-test-market-data-owner-postgres-isolated
     env:
       # Byte-identical to `rust tests`, deliberately: rust-cache folds every CARGO_/RUST_
