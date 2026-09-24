@@ -4693,9 +4693,29 @@ mod postgres_acceptance_tests {
     /// Issuance itself is not driven: its Instrument Master, economic terms and Market Data
     /// scheduling collaborators are built only from production environment variables, and a legacy
     /// request is refused in preparation before any of them is used. Nothing here writes a binding.
-    #[tokio::test]
+    ///
+    /// It runs on its own 16 MiB thread. On the default test thread it overflowed the stack on Linux
+    /// (owner-chains run 36067531658) with every phase boxed; which await is the deep one is not
+    /// established. The other entry that mints this legacy request runs the same way.
+    #[rstest::rstest]
     #[ignore = "requires the canonical disposable R&D and Backtest Owner PostgreSQL topology"]
-    async fn legacy_replay_request_passes_the_source_boundary_under_issuance_isolation() {
+    fn legacy_replay_request_passes_the_source_boundary_under_issuance_isolation() {
+        std::thread::Builder::new()
+            .name("legacy-source-boundary-test".into())
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("test runtime")
+                    .block_on(run_legacy_replay_request_passes_the_source_boundary_under_issuance_isolation());
+            })
+            .expect("source boundary test thread")
+            .join()
+            .expect("source boundary test thread completion");
+    }
+
+    async fn run_legacy_replay_request_passes_the_source_boundary_under_issuance_isolation() {
         use crate::native_replay_preparation_inputs_v2::{
             NativeReplayPreparationInputsErrorV2,
             resolve_native_replay_preparation_inputs_v2_in_transaction,
