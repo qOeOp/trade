@@ -589,7 +589,7 @@ use crate::{
     product_edge::{
         FrozenResearchGoalIntent, FrozenResearchGoalIntentV1, FrozenResearchGoalIntentV2,
         INSTRUMENT_SCOPE_NOT_RESOLVABLE, IndependenceBasisReadbackV1, IndependenceBasisReceiptV1,
-        InstrumentScopeCheckRecordV1, ProductEdgeResearchGoalRequestV1,
+        InstrumentScopeCheckRecordV1, InstrumentScopeOutcomeV1, ProductEdgeResearchGoalRequestV1,
         ProductEdgeResearchGoalRequestV2, ProductEdgeResolution, RESEARCH_OWNER_V1,
         RESEARCH_SCOPE_V1, RESEARCH_VIEW_SCOPE_V1, ResearchGoalCommitV1, ResearchGoalCommitV2,
         ResearchGoalOwnerError, ResearchGoalOwnerResultV1, ResearchGoalOwnerResultV2,
@@ -1734,14 +1734,18 @@ pub(crate) fn rejected_request_and_code_v2(
             let scope = validated
                 .instrument_scope()
                 .ok_or_else(|| mismatch("stored scope rejection names no instrument scope"))?;
-            check
-                .validate_against(scope)
-                .map_err(|reason| mismatch(&format!("stored scope check: {reason}")))?;
-
-            if check.admits() {
-                return Err(mismatch("stored scope check admits the rejected scope"));
+            // The rule that proves a stored scope rejection is the rule that decided it.
+            match check.outcome_for(scope) {
+                InstrumentScopeOutcomeV1::Reject => {
+                    Ok((validated.into_request(), INSTRUMENT_SCOPE_NOT_RESOLVABLE))
+                }
+                InstrumentScopeOutcomeV1::Admit => {
+                    Err(mismatch("stored scope check admits the rejected scope"))
+                }
+                InstrumentScopeOutcomeV1::Unresolved(coordinate) => Err(mismatch(&format!(
+                    "stored scope check could not have rejected: {coordinate}"
+                ))),
             }
-            Ok((validated.into_request(), INSTRUMENT_SCOPE_NOT_RESOLVABLE))
         }
         (Ok(_), None) => Err(mismatch("stored rejected V2 request is semantically valid")),
         (_, Some(_)) => Err(mismatch("stored scope check accompanies another rejection")),
