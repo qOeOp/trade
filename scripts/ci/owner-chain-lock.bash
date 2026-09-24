@@ -37,6 +37,7 @@ acquire_owner_chain_lock() {
     printf 'pid %s, since %s, in %s at %s\n' \
       "$$" "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$PWD" \
       "$(git rev-parse --short HEAD 2> /dev/null || echo 'no git')" > "$owner_chain_lock_file"
+    reap_orphaned_owner_chain_containers
     return 0
   fi
 
@@ -51,4 +52,56 @@ acquire_owner_chain_lock() {
   echo "       window fail for load alone. Run again once that pid has exited." >&2
   echo "       Lock: ${owner_chain_lock_file}" >&2
   return 1
+}
+
+# A chain removes its containers in its EXIT trap, so a run that is killed outright - SIGKILL, a
+# closed terminal, a crashed agent - leaves them running, each holding a PostgreSQL and a volume.
+# They were found by hand, a dozen at a time. Whoever holds the lock is by definition the only chain
+# on this machine, so every chain container whose run has exited is an orphan; the holder removes
+# them before it starts its own.
+#
+# Both chains end their names with the pid of the script that made them:
+# vibe-rd-owner-{test,impersonator}-<random>-<pid> (containers and volumes) and
+# vibe-md-d1-<ppid>-<pid> (containers only). A name whose pid is alive is left alone. That includes
+# a reused pid, which only ever spares an orphan, never removes a live chain. `ps -p`, not `kill -0`:
+# kill -0 fails for a process of another user, which would read a live run as dead.
+#
+# A container kept on purpose to inspect a failed run survives in either of two ways. It can carry
+# the label vibe.keep=1, set when it was created, since Docker cannot label an existing container.
+# Or it can be renamed with a -keep suffix: `docker rename <name> <name>-keep`. A kept container
+# keeps its volume mounted, and only volumes nothing mounts are removed.
+reap_orphaned_owner_chain_containers() {
+  local docker="${OWNER_CHAIN_DOCKER:-docker}" name keep pid containers volumes
+
+  if ! containers="$("$docker" ps --all --filter 'name=^vibe-rd-owner-' --filter 'name=^vibe-md-d1-' \
+    --format '{{.Names}}	{{.Label "vibe.keep"}}' 2> /dev/null)"; then
+    echo "owner chain cleanup: docker did not answer; leaving any orphaned chain containers in place" >&2
+    return 0
+  fi
+  while IFS=$'\t' read -r name keep; do
+    [[ -n "$name" ]] || continue
+    if [[ "$keep" == 1 || "$name" == *-keep ]]; then
+      echo "owner chain cleanup: skipping ${name}: keep marker" >&2
+      continue
+    fi
+    pid="${name##*-}"
+    [[ "$pid" =~ ^[0-9]+$ ]] || continue
+    ps -p "$pid" > /dev/null 2>&1 && continue
+    echo "owner chain cleanup: removing ${name}: its run, pid ${pid}, has exited" >&2
+    "$docker" rm --force "$name" > /dev/null ||
+      echo "owner chain cleanup: could not remove ${name}" >&2
+  done <<< "$containers"
+
+  volumes="$("$docker" volume ls --quiet --filter dangling=true --filter 'name=^vibe-rd-owner-' 2> /dev/null)" ||
+    return 0
+  while IFS= read -r name; do
+    [[ -n "$name" ]] || continue
+    pid="${name##*-}"
+    [[ "$pid" =~ ^[0-9]+$ ]] || continue
+    ps -p "$pid" > /dev/null 2>&1 && continue
+    echo "owner chain cleanup: removing volume ${name}: its run, pid ${pid}, has exited" >&2
+    "$docker" volume rm "$name" > /dev/null ||
+      echo "owner chain cleanup: could not remove volume ${name}" >&2
+  done <<< "$volumes"
+  return 0
 }

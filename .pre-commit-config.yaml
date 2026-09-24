@@ -245,6 +245,13 @@ repos:
         language: system
         files: ^scripts/ci/(owner-chain-lock|test-owner-chain-lock)\.bash$
         pass_filenames: false
+      - id: test-owner-chain-reap
+        name: test orphaned Owner chain container cleanup
+        description: A dead run's chain containers and unmounted volumes are removed; live and kept ones stay
+        entry: bash scripts/ci/test-owner-chain-reap.bash
+        language: system
+        files: ^scripts/ci/(owner-chain-lock|test-owner-chain-reap)\.bash$
+        pass_filenames: false
       - id: check-miri-toolchain
         name: check Miri toolchain
         description: Ensures the pinned Miri compiler supports the workspace Rust version
