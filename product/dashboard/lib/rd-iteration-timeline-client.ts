@@ -4,6 +4,11 @@ import {
   ownerOperationUrlV1,
   RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION,
 } from "./operation-registry.ts";
+import {
+  newOwnerReadNonceV1,
+  OWNER_READ_NONCE_HEADER,
+  ownerReadNonceEchoedV1,
+} from "./owner-read-nonce.ts";
 import { validOperationalRunReferenceV1 } from "./operational-run-reference.ts";
 
 const MAX_OWNER_RESPONSE_BYTES = 1_048_576;
@@ -180,11 +185,12 @@ function parseDecision(value: unknown): RdIterationDecisionV1 | null {
   };
 }
 
+// The observation time is the R&D Owner's clock, so it is compared only with the commit times that
+// clock stamped, never with this process's; `resolveRdIterationTimelineShadowV1` binds the answer
+// to its request by the echoed nonce instead.
 export function parseRdIterationTimelineOwnerV1(
   value: unknown,
   expectedTrialFamilyIdentity: string,
-  requestStartedAtEpochMs: number,
-  responseObservedAtEpochMs: number,
 ): RdIterationTimelineProjectionV1 | null {
   if (!object(value) || !exactKeys(value, [
     "schema_version", "trial_family_identity", "census_frontier_identity",
@@ -195,9 +201,7 @@ export function parseRdIterationTimelineOwnerV1(
     || !digest(value.census_frontier_digest) || !epoch(value.consumed_trial_budget)
     || !epoch(value.trial_budget) || Number(value.consumed_trial_budget) > Number(value.trial_budget)
     || !memberOf(STATES, value.state) || !Array.isArray(value.decisions)
-    || value.decisions.length > 128 || !epoch(value.observed_at_epoch_ms)
-    || value.observed_at_epoch_ms < requestStartedAtEpochMs
-    || value.observed_at_epoch_ms > responseObservedAtEpochMs) return null;
+    || value.decisions.length > 128 || !epoch(value.observed_at_epoch_ms)) return null;
   const decisions = value.decisions.map(parseDecision);
   if (decisions.some((decision) => decision === null)) return null;
   const parsed = decisions as RdIterationDecisionV1[];
@@ -265,11 +269,11 @@ export async function resolveRdIterationTimelineShadowV1({
   if (!endpoint || !token) {
     return unavailable(trialFamilyIdentity, "OWNER_CONFIGURATION_UNAVAILABLE", 503, now());
   }
-  const startedAt = now();
+  const nonce = newOwnerReadNonceV1();
   try {
     const response = await fetcher(endpoint, {
       method: "GET",
-      headers: { authorization: `Bearer ${token}` },
+      headers: { authorization: `Bearer ${token}`, [OWNER_READ_NONCE_HEADER]: nonce },
       cache: "no-store",
       signal: AbortSignal.timeout(
         announcedOwnerReadBudgetMsV1("rd iteration timeline", operation.timeout_class.milliseconds),
@@ -283,17 +287,14 @@ export async function resolveRdIterationTimelineShadowV1({
     if (response.status >= 500) {
       return unavailable(trialFamilyIdentity, "OWNER_TRANSPORT_UNAVAILABLE", 503, observedAt);
     }
-    if (!response.ok) {
+    if (!response.ok || !ownerReadNonceEchoedV1(response, nonce)) {
       return unavailable(trialFamilyIdentity, "OWNER_RESPONSE_UNAVAILABLE", 502, observedAt);
     }
     let raw: unknown;
     try { raw = JSON.parse(body); } catch {
       return unavailable(trialFamilyIdentity, "OWNER_RESPONSE_UNAVAILABLE", 502, observedAt);
     }
-    const projection = parseRdIterationTimelineOwnerV1(
-      raw, trialFamilyIdentity,
-      Math.max(0, startedAt - operation.timeout_class.milliseconds), observedAt,
-    );
+    const projection = parseRdIterationTimelineOwnerV1(raw, trialFamilyIdentity);
     if (!projection) {
       return unavailable(trialFamilyIdentity, "OWNER_RESPONSE_UNAVAILABLE", 502, observedAt);
     }
@@ -326,11 +327,7 @@ export function parseRdIterationTimelineDirectEnvelopeV1(
     || !Number.isFinite(Date.parse(value.transport_observed_at))
     || value.availability !== "available" || value.unavailable_reason !== null
     || !object(value.projection)) return null;
-  return parseBrowserProjection(
-    value.projection,
-    expectedTrialFamilyIdentity,
-    Date.parse(value.transport_observed_at),
-  );
+  return parseBrowserProjection(value.projection, expectedTrialFamilyIdentity);
 }
 
 export function parseRdIterationTimelineShadowEnvelopeV1(
@@ -347,17 +344,12 @@ export function parseRdIterationTimelineShadowEnvelopeV1(
       value.availability === "available" ? "available" : "unavailable")) return null;
   if (value.availability !== "available" || value.unavailable_reason !== null
     || !object(value.projection)) return null;
-  return parseBrowserProjection(
-    value.projection,
-    value.trial_family_identity,
-    Date.parse(value.transport_observed_at),
-  );
+  return parseBrowserProjection(value.projection, value.trial_family_identity);
 }
 
 function parseBrowserProjection(
   projection: Json,
   trialFamilyIdentity: string,
-  observedAt: number,
 ): RdIterationTimelineProjectionV1 | null {
   const ownerShape = {
     schema_version: 1,
@@ -384,9 +376,5 @@ function parseBrowserProjection(
     }) : null) : null,
     observed_at_epoch_ms: projection.observedAtEpochMs,
   };
-  const operation = operationByIdV1(RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION);
-  return parseRdIterationTimelineOwnerV1(
-    ownerShape, trialFamilyIdentity,
-    observedAt - operation.timeout_class.milliseconds, observedAt,
-  );
+  return parseRdIterationTimelineOwnerV1(ownerShape, trialFamilyIdentity);
 }

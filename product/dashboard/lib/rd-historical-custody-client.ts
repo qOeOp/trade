@@ -5,6 +5,11 @@ import {
   RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION,
 } from "./operation-registry.ts";
 import { validOperationalRunReferenceV1 } from "./operational-run-reference.ts";
+import {
+  newOwnerReadNonceV1,
+  OWNER_READ_NONCE_HEADER,
+  ownerReadNonceEchoedV1,
+} from "./owner-read-nonce.ts";
 
 const MAX_OWNER_RESPONSE_BYTES = 1_048_576;
 const IDENTITY = /^[A-Za-z0-9._:/-]{1,256}$/;
@@ -110,13 +115,11 @@ function parseOwnerBindingCandidate(value: unknown): HistoricalBindingCandidateV
   };
 }
 
-export function parseHistoricalCustodyOwnerV1(
-  value: unknown,
-  startedAt: number,
-  observedAt: number,
-): HistoricalCustodyProjectionV1 | null {
-  if (!count(startedAt) || !count(observedAt) || observedAt < startedAt
-    || !object(value) || !exactKeys(value, [
+// The observation time is the R&D Owner's clock, so it is compared only with the commit times that
+// clock stamped, never with this process's; `resolveHistoricalCustodyShadowV1` binds the answer
+// to its request by the echoed nonce instead.
+export function parseHistoricalCustodyOwnerV1(value: unknown): HistoricalCustodyProjectionV1 | null {
+  if (!object(value) || !exactKeys(value, [
     "schema_version", "operation", "completeness", "observed_at_epoch_ms",
     "research_total", "artifact_attempt_total", "binding_total", "research",
     "artifact_attempts", "bindings",
@@ -124,8 +127,6 @@ export function parseHistoricalCustodyOwnerV1(
     || value.operation !== "rd.historical_custody_quarantine.read.v1"
     || !completeness(value.completeness)
     || !count(value.observed_at_epoch_ms)
-    || Number(value.observed_at_epoch_ms) < startedAt
-    || Number(value.observed_at_epoch_ms) > observedAt
     || !count(value.research_total) || !count(value.artifact_attempt_total) || !count(value.binding_total)
     || !Array.isArray(value.research) || !Array.isArray(value.artifact_attempts) || !Array.isArray(value.bindings)) return null;
   const research = parseRows(value.research, parseOwnerResearchCandidate);
@@ -224,21 +225,17 @@ export async function resolveHistoricalCustodyShadowV1({ baseUrl, token, fetcher
   const operation = operationByIdV1(RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION);
   const endpoint = baseUrl ? ownerOperationUrlV1({ operationId: RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION, baseUrl, identities: {} }) : null;
   if (!endpoint || !token) return unavailable("OWNER_CONFIGURATION_UNAVAILABLE", 503, now());
-  const startedAt = now();
+  const nonce = newOwnerReadNonceV1();
   try {
-    const response = await fetcher(endpoint, { method: "GET", headers: { authorization: `Bearer ${token}` }, cache: "no-store", signal: AbortSignal.timeout(announcedOwnerReadBudgetMsV1("rd historical custody", operation.timeout_class.milliseconds)) });
+    const response = await fetcher(endpoint, { method: "GET", headers: { authorization: `Bearer ${token}`, [OWNER_READ_NONCE_HEADER]: nonce }, cache: "no-store", signal: AbortSignal.timeout(announcedOwnerReadBudgetMsV1("rd historical custody", operation.timeout_class.milliseconds)) });
     const body = await response.text();
     const observedAt = now();
     if (new TextEncoder().encode(body).byteLength > MAX_OWNER_RESPONSE_BYTES) return unavailable("OWNER_RESPONSE_UNAVAILABLE", 502, observedAt);
     if (response.status >= 500) return unavailable("OWNER_TRANSPORT_UNAVAILABLE", 503, observedAt);
-    if (!response.ok) return unavailable("OWNER_RESPONSE_UNAVAILABLE", 502, observedAt);
+    if (!response.ok || !ownerReadNonceEchoedV1(response, nonce)) return unavailable("OWNER_RESPONSE_UNAVAILABLE", 502, observedAt);
     let raw: unknown;
     try { raw = JSON.parse(body); } catch { return unavailable("OWNER_RESPONSE_UNAVAILABLE", 502, observedAt); }
-    const projection = parseHistoricalCustodyOwnerV1(
-      raw,
-      Math.max(0, startedAt - operation.timeout_class.milliseconds),
-      observedAt,
-    );
+    const projection = parseHistoricalCustodyOwnerV1(raw);
     if (!projection) return unavailable("OWNER_RESPONSE_UNAVAILABLE", 502, observedAt);
     return { status: 200, envelope: { schema_version: 1 as const, operation: RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION, channel: "DASHBOARD_SHADOW_READ" as const, transport_observed_at: new Date(observedAt).toISOString(), availability: "available" as const, unavailable_reason: null, projection } };
   } catch { return unavailable("OWNER_TRANSPORT_UNAVAILABLE", 503, now()); }
@@ -263,7 +260,6 @@ export function parseHistoricalCustodyBrowserEnvelopeV1(value: unknown): Histori
   if (typeof value.transport_observed_at !== "string") return null;
   const transport = Date.parse(value.transport_observed_at);
   if (!count(transport)) return null;
-  const operation = operationByIdV1(RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION);
   const ownerShape = {
     schema_version: 1, operation: "rd.historical_custody_quarantine.read.v1", completeness: projection.completeness,
     observed_at_epoch_ms: projection.observedAtEpochMs, research_total: projection.researchTotal,
@@ -272,5 +268,5 @@ export function parseHistoricalCustodyBrowserEnvelopeV1(value: unknown): Histori
     artifact_attempts: artifactAttempts.map((row) => ({ build_request_identity: row.buildRequestIdentity, attempt_identity: row.attemptIdentity, prepared_at_epoch_ms: row.preparedAtEpochMs, projection_state: row.projectionState })),
     bindings: bindings.map((row) => ({ binding_identity: row.bindingIdentity, trial_family_identity: row.trialFamilyIdentity, committed_at_epoch_ms: row.committedAtEpochMs, projection_state: row.projectionState })),
   };
-  return parseHistoricalCustodyOwnerV1(ownerShape, transport - operation.timeout_class.milliseconds, transport);
+  return parseHistoricalCustodyOwnerV1(ownerShape);
 }

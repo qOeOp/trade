@@ -4,7 +4,7 @@ use anyhow::Context;
 use axum::{
     Json, Router,
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::get,
 };
@@ -486,6 +486,7 @@ pub async fn compose_state(config: &DashboardReadApiConfigV1) -> anyhow::Result<
             research.clone(),
             artifact_directory.clone(),
             artifact_readback.clone(),
+            research.clone(),
         ));
     let iteration_timeline: Arc<dyn IterationTimelineOwnerPortV1> =
         match PostgresIterationTimelineOwnerV1::connect(database_url).await {
@@ -838,9 +839,14 @@ pub async fn read_formation_catalog(State(state): State<ApiState>, headers: Head
     if !authorized(&headers, &state.token_digest) {
         return StatusCode::FORBIDDEN.into_response();
     }
+    let Some(nonce) = read_nonce(&headers) else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
 
     match state.formation_catalog.read_formation_catalog().await {
-        Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
+        Ok(readback) => {
+            (StatusCode::OK, [(READ_NONCE_HEADER, nonce)], Json(readback)).into_response()
+        }
         Err(e) => {
             tracing::warn!(%e, "Formation Catalog Dashboard read unavailable");
             StatusCode::SERVICE_UNAVAILABLE.into_response()
@@ -861,9 +867,14 @@ pub async fn read_historical_custodies(
     if !authorized(&headers, &state.token_digest) {
         return StatusCode::FORBIDDEN.into_response();
     }
+    let Some(nonce) = read_nonce(&headers) else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
 
     match state.historical_custody.read_historical_custodies().await {
-        Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
+        Ok(readback) => {
+            (StatusCode::OK, [(READ_NONCE_HEADER, nonce)], Json(readback)).into_response()
+        }
         Err(e) => {
             tracing::warn!(%e, "Historical custody Dashboard read unavailable");
             StatusCode::SERVICE_UNAVAILABLE.into_response()
@@ -880,6 +891,10 @@ pub async fn read_iteration_timeline(
         return StatusCode::FORBIDDEN.into_response();
     }
 
+    let Some(nonce) = read_nonce(&headers) else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
+
     if !valid_identity(&trial_family_identity) {
         return StatusCode::BAD_REQUEST.into_response();
     }
@@ -889,7 +904,9 @@ pub async fn read_iteration_timeline(
         .read_iteration_timeline(&trial_family_identity)
         .await
     {
-        Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
+        Ok(readback) => {
+            (StatusCode::OK, [(READ_NONCE_HEADER, nonce)], Json(readback)).into_response()
+        }
         Err(DashboardReadErrorV1::NotFound) => StatusCode::NOT_FOUND.into_response(),
         Err(e) => {
             tracing::warn!(%e, "Iteration Timeline Dashboard read unavailable");
@@ -1215,6 +1232,30 @@ fn valid_research_request_identity(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b':' | b'.'))
+}
+
+/// The header a Dashboard read carries its request nonce in, and the one a successful answer
+/// returns it in.
+///
+/// The Formation catalog, historical custody and Iteration timeline projections are stamped from
+/// the R&D Owner's clock, so the BFF cannot place them in its own request window. The echo is what
+/// binds an answer to the request that asked for it instead: it is returned only beside a
+/// projection the Owner produced for this request, never on a refusal or a failure.
+pub const READ_NONCE_HEADER: &str = "x-dashboard-read-nonce";
+
+/// The request's one nonce: 32 lowercase hexadecimal digits, the 128 bits the BFF draws for each
+/// read.
+fn read_nonce(headers: &HeaderMap) -> Option<HeaderValue> {
+    let mut values = headers.get_all(READ_NONCE_HEADER).iter();
+    let (Some(value), None) = (values.next(), values.next()) else {
+        return None;
+    };
+    let bytes = value.as_bytes();
+    (bytes.len() == 32
+        && bytes
+            .iter()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f')))
+    .then(|| value.clone())
 }
 
 fn authorized(headers: &HeaderMap, expected_digest: &[u8; 32]) -> bool {
