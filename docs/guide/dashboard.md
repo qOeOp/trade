@@ -371,6 +371,15 @@ proposal. It does not reconstruct these fields from Source custody, expose Owner
 The three content regions reuse shared `DetailInspector`, `FormField`, `Input`, and `Textarea` atoms; the action
 region reuses `ActionAdmissionGate` and the standard compact button variants.
 
+**TARGET / IMPLEMENTATION_ADMITTED, the Instrument field:** the control gains one required `Instrument` field in the
+research region, a canonical Instrument Master identity such as `BTCUSDT-PERP.BINANCE`, entered once and reusing the
+shared `FormField` and `Input` atoms. With it the control submits `ResearchGoalExecutionInputV3`, whose
+`instrument_scope` holds exactly that one identity; the shared validator refuses an empty, padded or non-canonical
+value before dispatch, and the control neither suggests nor defaults an instrument. The research and its backtests
+are bound to that instrument, and changing it means a successor research request, never an edit of a frozen one.
+The user's authority and the scope contract are stated in the [R&D Owner contract](../owners/rd). Built so far:
+nothing.
+
 Client and server import the same pure input validator. Plausible alternatives are canonicalized into unique
 UTF-8 byte order before validation; required data preserves the entered order. `RUN` freezes the complete request
 and clears operator access as dispatch begins. A terminal bounded Owner projection links to the exact Research and

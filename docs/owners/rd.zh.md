@@ -287,7 +287,8 @@ Composer attestation 注册它们，而铸造该 attestation 的正是一次 Com
 一次提交的响应恰好带着注册所需的 locator；唯独第一圈没有来源，且任何与 artifact 绑定的形状都给不出这个来源，
 因为 program 的身份恰恰折叠了该注册所签发的那些绑定回执。于是本 Owner 发布一份 Design 级 role intent：
 它只指名一个 Design、该 Design 被接纳时所依据的 Research request 与 custody，以及它所声明的角色，别无其他。
-`POST /v1/strategy-designs/publish-role-intent` 依据当前已接纳的 custody 派生它，并按 Design 一次性写入；
+`POST /v1/strategy-designs/publish-role-intent` 依据当前已接纳的 custody 派生它，并按 Design 一次性写入；自
+schema 2 起它还指名该 Intent 的初始 PIT 请求，见下文请求的品种范围契约；
 `rd_owner_api.resolve_design_role_intent_for_market_data_v1` 只对 Market Data 的读取主体暴露它。
 有序 PostgreSQL 链路见证了一个在 `composer_private` 中无人指名的 Design，
 从没有任何 PIT 坐标，走到 Market Data 自行解析出的那一个，并与它必须一致的那次 attestation 准入并排。
@@ -774,8 +775,9 @@ purge 与 embargo 派生规则、TrialFamily-aware multiplicity policy、attempt
 - [Market Data](./market-data/) 提供 PIT 事实 数据版本与标的语义。对每个初始 PIT Market Snapshot Request，它返回一个
   move-only、由 Market Data 密封的 `ResearchPitTerminal`，关联准确的请求身份与内容摘要，携带规范六态处置
   `AVAILABLE` `INSUFFICIENT` `STALE` `UNLICENSED` `AMBIGUOUS` 或 `UNAVAILABLE`，以及准确的 Universe Selection
-  Record 身份与摘要。只有 `AVAILABLE` 能进入冻结或后继 Intent；其他状态只冻结依赖它的 Intent，没有响应则保持
-  未知。对已提交的 Market Data Repair Request，它另行返回关联的 `AVAILABLE` 或 `UNAVAILABLE` 终态。
+  Record 身份与摘要。请求绑定 Intent 身份，因此它只在该 Intent 冻结之后才存在，其终态也无法进入该 Intent：只有
+  `AVAILABLE` 的初始终态可以被该 Intent 的 Design role intent 指名或被其探索性 Replay 消费，其他状态只阻断该
+  Intent 的下游消费，没有响应则保持未知。对已提交的 Market Data Repair Request，它另行返回关联的 `AVAILABLE` 或 `UNAVAILABLE` 终态。
 - [Backtest](./backtest/) 对每个 R&D 拥有的 Exploratory Replay Request 返回一个 Exploratory Run Result，状态恰为
   `RUN_REJECTED` `IN_PROGRESS_OR_UNKNOWN` `TERMINAL_RESULT` 或 `INVALID_REPLAY_EVIDENCE` 之一。结果重复实际消费的
   Artifact、PIT 范围与 PIT Market Snapshot、Universe Selection Record 与修正规则、重放配置、Runtime kernel、simulator
@@ -803,6 +805,7 @@ purge 与 embargo 派生规则、TrialFamily-aware multiplicity policy、attempt
   provenance、Source Binding 与数据集版本集、许可 权利 保留与署名策略截面、修正与修订前沿截面、稳定的请求关联身份，
   以及请求时刻的 Time Evidence。R&D 拥有其身份与内容摘要；相同身份与摘要加入同一个 Market Data attempt，范围 截面
   provenance 许可 修正或含义变化则需要后继请求。传输成功只让请求保持 `SUBMITTED_OR_UNKNOWN`，不证明任何快照可用。
+
 - 向 [Market Data](./market-data/) 只在已提交 `REPAIR_INPUTS` Iteration Decision 后发出 Market Data
   Repair Request。请求要求原生 Owner 修复证据，不指定 adapter 不改写旧 snapshot 也不宣称数据可用。
 - 向 [Backtest](./backtest/) 交付一个由 R&D 拥有的冻结 Exploratory Replay Request，绑定准确意图
@@ -849,6 +852,36 @@ question 绑定；Build 行携带 build request 身份 attempt 身份 提交时�
 也不指名超出上限的行，因此消费方无法声称一个这个 Owner 没有解析过的坐标。两个清单相互独立：其中一个回答
 unavailable 或位于不同 cut 时，只撤回它自己的行与计数。两个读都不接纳 Plan Artifact 收据字节 源码文本或
 任何 mutation，也都不是 Selection Candidate 或 Qualification 事实。
+
+**TARGET / IMPLEMENTATION_ADMITTED，请求的品种范围与初始 PIT 请求：** Research request 陈述它研究的品种范围，本 Owner
+从不替用户选择。用户于 2026-09-24 准入此项，所选选项原文为：「发研究请求时指定（推荐）：研究请求表单加一个『品种』
+字段，这次研究和它的回测都绑定这个品种；要换品种就发一个后继研究请求。这和文档现有设计一致：初始 PIT 请求绑定
+『请求的品种或 universe 范围』。」
+
+- `ProductEdgeResearchGoalRequestV3` 等于 `ProductEdgeResearchGoalRequestV2` 加一个必填的 `instrument_scope`，即
+  `ResearchInstrumentScopeV1`：一到两个互不相同的规范 Instrument Master 身份（例如 `BTCUSDT-PERP.BINANCE`），按字节
+  升序排列，与 universe 纵向切片准入的成员数一致；单品种路径只陈述一个。其规范字节依次为 schema `u16LE = 1`、成员数
+  `u8`，以及按序排列、各带长度前缀（`u16LE`）的身份；其身份为对 `rd.research-instrument-scope.v1\0 || 规范字节` 的
+  SHA-256。范围属于请求含义，因此同一请求身份配另一范围即为含义变化，会被拒绝。冻结的 Research Intent（V3）绑定范围
+  身份与字节。更换品种意味着一个后继 Research request，它有自己的 Intent 与自己的初始 PIT 请求；没有任何机制把已接纳
+  的 Intent 改绑到另一品种。
+- V2 请求仍原样接纳。它不陈述范围，因此不为它签发初始 PIT 请求，它能发布的 Design role intent 也不指名任何 PIT
+  请求；Market Data 对来自这种 intent 的 universe-member 声明按名拒绝。
+- Intent 冻结之后、任何探索性消费之前，本 Owner 在自己的步骤中签发初始 PIT 请求，调用方只提供 Intent locator。它先向
+  Market Data 的 Universe Selection intake 陈述选择规则：一条固定成员规则，其字节即范围的规范字节，由 Market Data 在其
+  已发布的 decision cut 上以其自有的 eligible-instrument frontier 求值；R&D 不指名任何 frontier，也不指名用户所请求
+  之外的任何成员。随后它冻结 PIT Market Snapshot Request：`requester_identity` 是 Research request 身份的规范摘要，
+  由本 Owner 写入，从不取自调用方；`scope_digest` 是范围身份；关联身份由 Intent 身份派生；Source Binding、
+  Instrument Master、Market Semantics 与 decision cut 的引用，是 Market Data 自有读取面为该范围解析出的那些，由
+  Market Data 契约陈述。冻结的请求在发送之前按 Intent 一次性写入，每次重试都发送这些已存储的字节，因此相同身份与摘要
+  加入同一次 Market Data 尝试：再次签发是幂等的。若拒绝重试，首次发送以 `SUBMITTED_OR_UNKNOWN` 结束的 Intent 就会
+  被困住，所以重试是加入而不是冲突。返回的 `ResearchPitTerminal` 记录在该 Intent 名下。
+- Design role intent（schema 2）另外指名该初始 PIT 请求，取自本 Owner 的 custody，从不取自发布调用方，并且只在所记录
+  的终态为 `AVAILABLE` 之后才发布。Market Data 针对恰为该请求注册 Design 的声明，而不去搜索一个，因此调用方以伪造的
+  `requester_identity` 提交的请求永远不会被选中。同一 Intent 的后继 PIT 请求只由在它之后发布的 role intent 指名；
+  已发布的 role intent 从不改变。
+
+目前已建成：无。
 
 ## 拒绝和禁止事项
 

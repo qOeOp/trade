@@ -296,6 +296,12 @@ cost/capacity assumption 与完整 TrialFamily proposal。它不从 Source custo
 内部字段，也不接收 raw JSON。三个内容区复用 `DetailInspector`、`FormField`、`Input` 与 `Textarea` 原子；
 action 区复用 `ActionAdmissionGate` 和标准 compact button variant。
 
+**TARGET / IMPLEMENTATION_ADMITTED，Instrument 字段：** 该 control 在研究区增加一个必填的 `Instrument` 字段，填写一个
+规范 Instrument Master 身份（例如 `BTCUSDT-PERP.BINANCE`），只填一次，复用共享的 `FormField` 与 `Input` 原子。有了它，
+control 提交 `ResearchGoalExecutionInputV3`，其 `instrument_scope` 恰好只含这一个身份；共享 validator 在 dispatch 之前
+拒绝空值、带首尾空白或非规范的值，control 既不推荐也不默认任何品种。这次研究和它的回测都绑定该品种，更换品种意味着
+一个后继研究请求，从不修改已冻结的请求。用户的授权与范围契约陈述于 [R&D Owner 契约](../owners/rd)。目前已建成：无。
+
 client 与 server 导入同一份 pure input validator。plausible alternatives 在校验前规范成唯一 UTF-8 byte order；
 required data 保留输入顺序。`RUN` 在 dispatch 开始时冻结完整 request 并清空 operator access。terminal bounded
 Owner projection 链接到精确 Research 与 Run 回读。malformed response、transport loss 或 nonterminal

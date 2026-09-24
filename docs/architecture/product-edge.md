@@ -513,6 +513,13 @@ request with the same two terminal outcomes, and an accepted receipt binds exact
 Decision identity and its complete Authorization Lineage. Until that Owner-owned receipt exists, Product Edge keeps the original request unresolved; it
 does not infer acceptance from a shell acknowledgement, a read model, or an absent error.
 
+**TARGET / IMPLEMENTATION_ADMITTED, the requested instrument scope:** a research request states the instruments it
+studies. Product Edge admits `ProductEdgeResearchGoalRequestV3`, which carries the user's required `instrument_scope`
+(one or two canonical Instrument Master identities), and forwards the scope unchanged as part of the request's
+meaning; it never fills, defaults, completes or edits it. The V2 request stays admitted as it is. The scope's shape,
+the initial PIT request it drives, and the user's authority are stated in the [R&D Owner contract](../owners/rd).
+Built so far: nothing.
+
 An `ATTENDED_D_ONLY_REPAIR` uses the same request-lineage and receipt rule, but an accepted R&D Request Receipt
 binds only the D-only repair admission, not completion. A pre-admission `REJECTED_NO_WRITE` receipt creates no
 repair attempt and therefore no D-only Repair Disposition. R&D later commits exactly one request- and attempt-bound

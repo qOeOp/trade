@@ -444,6 +444,11 @@ Research 用只写一次的 `ACCEPTED` 或 `REJECTED_NO_WRITE` Research Request 
 请求；接受回执必须绑定唯一 Authorized Generation Decision 身份及完整 Authorization Lineage。Owner 回执出现前 Product Edge
 始终保留原请求的未知状态，不从 Shell 确认、只读视图或没有错误中推断接受。
 
+**TARGET / IMPLEMENTATION_ADMITTED，请求的品种范围：** 研究请求陈述它研究的品种。Product Edge 接纳
+`ProductEdgeResearchGoalRequestV3`，它携带用户必填的 `instrument_scope`（一到两个规范 Instrument Master 身份），并把范围
+作为请求含义的一部分原样转交；它从不填写、默认、补全或修改范围。V2 请求保持原样接纳。范围的形状、它驱动的初始 PIT
+请求以及用户的授权，陈述于 [R&D Owner 契约](../owners/rd)。目前已建成：无。
+
 `ATTENDED_D_ONLY_REPAIR` 使用同一请求 lineage 与 receipt 规则，但已接受的 R&D Request Receipt 只绑定
 D-only repair admission，不证明修复完成。admission 前的 `REJECTED_NO_WRITE` receipt 不创建 repair
 attempt，因此也没有 D-only Repair Disposition。R&D 随后准确提交一个关联请求与 attempt 的 D-only Repair
