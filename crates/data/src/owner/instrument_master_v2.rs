@@ -1118,6 +1118,10 @@ pub enum InstrumentMasterCustodyErrorV2 {
     BoundReplayBindingConflict,
     /// No composition binding matches the exact locator a bound-replay issuance named.
     BoundReplayBindingUnavailable,
+    /// A member's class can carry corporate actions. A universe-member Replay binds no
+    /// corporate-action cut, because the one class this cut admits has none by definition; a
+    /// member of any other class is refused until a corporate-action path exists for it.
+    MemberClassCarriesCorporateActions,
 }
 
 impl Display for InstrumentMasterCustodyErrorV2 {
@@ -2137,6 +2141,34 @@ pub(crate) mod tests {
             },
             terms,
         }
+    }
+
+    /// An unknown class code never decodes: it is refused by name before any consumer sees it.
+    #[rstest]
+    fn an_unknown_instrument_class_code_is_refused_by_the_decoder() {
+        let fact = InstrumentMasterFactV2::from_exchange_info_baseline(baseline(complete_terms()))
+            .unwrap();
+        let text = |value: &str| 4 + value.len();
+        let class_at = 4
+            + text(fact.canonical_identity())
+            + text(fact.venue_identity())
+            + text(fact.raw_symbol());
+        let bytes = fact.canonical_bytes();
+        assert_eq!(
+            bytes[class_at..class_at + 2],
+            (PublicInstrumentClassV2::CryptoPerpetual as u16).to_be_bytes(),
+            "the offset points at the class the fixture states"
+        );
+        assert_eq!(
+            InstrumentMasterFactV2::from_canonical_bytes(bytes, None),
+            Ok(fact.clone())
+        );
+        let mut unknown = bytes.to_vec();
+        unknown[class_at..class_at + 2].copy_from_slice(&2_u16.to_be_bytes());
+        assert_eq!(
+            InstrumentMasterFactV2::from_canonical_bytes(&unknown, None),
+            Err(InstrumentMasterV2Error::CodecMismatch)
+        );
     }
 
     #[rstest]

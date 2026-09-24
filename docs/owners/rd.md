@@ -1031,6 +1031,27 @@ request binds 'the requested instrument or universe scope'."
   request identity with another scope is a changed meaning and is rejected. The frozen Research Intent (V3) binds the
   scope identity and bytes. Changing the instrument means a successor Research request, with its own Intent and its
   own initial PIT request; nothing rebinds an accepted Intent to another instrument.
+- How this Owner holds a V3 request. There is one stored Research request for V2 and V3:
+  `ProductEdgeResearchGoalRequestV2` carries `instrument_scope` exactly for a V3 request and omits it, rather than
+  writing `null`, for a V2 one, so every stored V2 request, meaning digest and admission payload is unchanged and
+  everything derived from a request is derived the same way. A V3 request is admitted under
+  `research_goal.submit_or_resolve.v3` and `sourced-research-goal-v3` with the scope in its admission payload, and its
+  meaning digest covers the scope. A scope that is not canonical closes the request `REJECTED_NO_WRITE` with
+  `INSTRUMENT_SCOPE_INVALID`, checked after every V2 field so no V2 rejection code is displaced. The V3 Intent has
+  schema 3 and binds `instrument_scope` as the scope identity and canonical bytes in lowercase hex; it keeps the V2
+  Intent and receipt identity scheme, which stays unique because the meaning digest covers the scope. Both resolve
+  routes resolve a stored request by its identity, whichever schema admitted it.
+- How a scope rejection is proved. A rejected request is proved by replay: validating the stored request again
+  reproduces the stored code. `INSTRUMENT_SCOPE_NOT_RESOLVABLE` cannot be reproduced that way, because Market Data
+  answers at its own decision cut, so that rejection is proved instead by the check record stored with it: the
+  eligible-instrument frontier Market Data held as current, the `MarketDataDecisionCutV1` it answered at, and one row
+  per requested identity in request order. Only an answer given against a current frontier rejects: without one,
+  Market Data has denied the environment rather than the instruments, so the request stays unresolved, as it does when
+  the check cannot be answered at all. Custody accepts a stored rejection only when the stored request is otherwise
+  valid, the record answers exactly its scope against a stated frontier that is not all zero, the cut precedes its
+  own validity bound, and the record does not admit the scope; a later check never rewrites it. Every other rejection is still proved by replay, and a record beside any other code is
+  refused. A source-bound rejection records its Source Intake ancestry as an accepted request does, and is re-verified
+  against the admission it was made under.
 - A V2 request is still accepted unchanged. It states no scope, so no initial PIT request is issued for it, and the
   Design role intent it can publish names no PIT request; Market Data refuses a universe-member declaration from such
   an intent by name.
@@ -1065,7 +1086,10 @@ Built so far: the scope codec and the schema 2 role intent codec. `ResearchInstr
 computes its canonical bytes, identity and fixed-member selection rule, and decodes that rule back, for this Owner and
 Market Data alike. `StrategyDesignRoleIntentV1` names the initial PIT request as
 `(pit_request_identity, pit_request_digest)` under schema 2 alone, digests each schema under its own domain, and
-leaves schema 1 bytes and digests unchanged. Nothing accepts a scope or publishes a schema 2 intent yet.
+leaves schema 1 bytes and digests unchanged. A V3 request is submitted through `POST /v3/source-intake-research`,
+checked against Market Data's early read, and either accepted with a schema 3 Intent that binds its scope or rejected
+with its bound check record. Nothing issues the initial PIT request or publishes a schema 2 intent yet, and the
+readback carries no `initial_pit` yet.
 
 ## Rejections and prohibitions
 

@@ -459,6 +459,7 @@ mod tests {
             trial_family_identity: family.root().trial_family_identity().into(),
             trial_family_policy_digest: family.root().policy_digest().into(),
             frozen_at_epoch_ms: 7,
+            instrument_scope: None,
         })
     }
 

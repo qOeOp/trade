@@ -11,13 +11,16 @@ use crate::owner::replay_market_facts_v2::{
     ReplayCompositionIssuanceLocatorV1, ReplayCompositionIssuanceResponseV1,
     ReplayCompositionLocatorOnlyIssuanceRequestV1, ReplayCompositionOwnerV1,
     ReplayCorporateActionTermsV2, ReplayMarketDependencyKindV2, ReplayMarketDependencyRefV2,
-    ReplayPriceAdjustmentV2, ReplayReferenceFactKindV2, ReplayReferenceFactTimeV2,
-    ReplayReferenceFactValueV2, ReplayTimestampBasisV2, ResolvedReplayCompositionCutV1,
-    UntrustedComposerNativeJoinRequestV1, UntrustedReplayMarketFactsCompositionRequestV1,
+    ReplayMarketFactsReadbackV2, ReplayPriceAdjustmentV2, ReplayReferenceFactKindV2,
+    ReplayReferenceFactTimeV2, ReplayReferenceFactValueV2, ReplayTimestampBasisV2,
+    ResolvedReplayCompositionCutV1, UntrustedComposerNativeJoinRequestV1,
+    UntrustedReplayMarketFactsCompositionRequestV1, UntrustedReplayMarketFactsRequestV2,
     authority::{
         ReplayMarketFactsEvidenceV2, ReplayNativeChainEvidenceV2, ReplayReferenceFactCutProposalV2,
         ReplayReferenceFactProposalV2, ReplayReferenceFactScopeProposalV2,
-        ReplayVerifiedNativeDerivedRecordV2, ReplayVerifiedNativeRecordV2, pit_clock_digest,
+        ReplayUniverseMemberFactsEvidenceV2, ReplayVerifiedNativeDerivedRecordV2,
+        ReplayVerifiedNativeRecordV2, issue_universe_member_replay_market_facts_v2,
+        pit_clock_digest,
     },
     composition::{
         ReplayCompositionBindingEvidenceV1, ReplayCompositionNativeLocatorKindV1,
@@ -2330,6 +2333,7 @@ pub(super) async fn verify_rd_replay_cut_transport_v1(
         "market_data_rd_api.lock_pit_snapshot_for_replay_v1(bytea)",
         "market_data_rd_api.lock_instrument_master_for_replay_v1(bytea)",
         "market_data_rd_api.lock_replay_market_facts_for_replay_v1(bytea)",
+        "market_data_rd_api.lock_replay_market_facts_for_replay_v2(bytea)",
         "market_data_rd_api.lock_strategy_input_declarations_v1(bytea,bytea)",
         "market_data_rd_api.lock_source_for_strategy_input_v1(bytea)",
         "market_data_rd_api.lock_pit_observation_batch_for_strategy_input_v1(bytea)",
@@ -2462,6 +2466,10 @@ async fn resolve_bound_replay_cut_from_binding_in_transaction_v1(
         }
     }
     .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+    crate::owner::replay_market_facts_v2::composition::require_binding_facts_shape_v1(
+        &binding,
+        market_facts.facts(),
+    )?;
     let instrument_master = match reader {
         ReplayCutReaderV1::MarketOwner => {
             let instrument_row = sqlx::query(
@@ -2898,6 +2906,7 @@ pub(in crate::owner) async fn recover_bound_universe_selection_in_transaction_v1
             | Binding::MeaningConflict
             | Binding::UnknownRecord
             | Binding::CorruptRecord
+            | Binding::UnknownShape
             | Binding::UniverseSelectionUnavailable
             | Binding::JoinedCutUnavailable
             | Binding::SampleProjectionUnavailable => {
@@ -3172,16 +3181,7 @@ fn build_reference_cuts(
     ],
 ) -> Result<Vec<ReplayReferenceFactCutProposalV2>, ReplayCompositionBindingErrorV1> {
     let instrument_cut_identity = instrument_master.cut_digest;
-    let r0_record = r0.record();
-    if r0_record.evidence.pit_snapshot_identity != request.pit_locator().snapshot_identity
-        || r0_record.evidence.pit_fact_digest != request.pit_locator().fact_digest
-        || r0_record.evidence.source_binding_identity != source.binding_id()
-        || r0_record.evidence.source_binding_fact_digest != source.fact_digest()
-        || r0_record.evidence.source_binding_lineage_root != source.lineage_root()
-        || r0_record.evidence.source_binding_lineage_version != source.lineage_version()
-    {
-        return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
-    }
+    validate_r0_binds_request_v2(r0, request.pit_locator(), source)?;
 
     if session.cut.instrument_master_readback_identity != instrument_master.readback_identity
         || session.cut.instrument_master_fact_digest != instrument_master.fact_digest
@@ -3194,40 +3194,16 @@ fn build_reference_cuts(
     {
         return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
     }
-    let make_scope = |kind, identity| -> Result<_, ReplayCompositionBindingErrorV1> {
-        Ok(ReplayReferenceFactScopeProposalV2 {
-            pit_snapshot_identity: request.pit_locator().snapshot_identity,
-            pit_decision_cut: request.pit_locator().time_evidence.decision_cut.value,
-            pit_observed_at: request.pit_locator().time_evidence.observed_at,
-            pit_valid_through: request.pit_locator().time_evidence.valid_through,
-            pit_clock_digest: pit_clock_digest(
-                request
-                    .pit_locator()
-                    .time_evidence
-                    .decision_cut
-                    .clock_identity
-                    .as_bytes(),
-                request
-                    .pit_locator()
-                    .time_evidence
-                    .decision_cut
-                    .clock_epoch
-                    .as_bytes(),
-            )
-            .map_err(|_| ReplayCompositionBindingErrorV1::DependencyMismatch)?,
-            replay_start_event_ns: request.replay_start_event_ns(),
-            replay_end_event_ns_exclusive: request.replay_end_event_ns_exclusive(),
-            authority_kind: kind,
-            authority_identity: identity,
-        })
+    let make_scope = |kind, identity| {
+        reference_scope_v2(
+            request.pit_locator(),
+            request.replay_start_event_ns(),
+            request.replay_end_event_ns_exclusive(),
+            kind,
+            identity,
+        )
     };
-    let proposal =
-        |value, time, source_identity, correction_identity| ReplayReferenceFactProposalV2 {
-            value,
-            time,
-            source_identity,
-            correction_identity,
-        };
+    let proposal = reference_fact_proposal_v2;
     let calendar_facts = calendar
         .facts()
         .iter()
@@ -3324,102 +3300,8 @@ fn build_reference_cuts(
             ))
         })
         .collect::<Result<Vec<_>, ReplayCompositionBindingErrorV1>>()?;
-    let semantics_facts = semantics
-        .facts()
-        .iter()
-        .map(|fact| {
-            validate_native_reference_fact_evidence_v1(
-                r0,
-                r0,
-                source,
-                NativeReferenceFactEvidenceV1 {
-                    source_binding_identity: fact.source_binding_identity,
-                    source_binding_fact_digest: fact.source_binding_fact_digest,
-                    source_binding_lineage_root: fact.source_binding_lineage_root,
-                    source_binding_lineage_version: fact.source_binding_lineage_version,
-                    provider_available_ns: fact.provider_available_ns,
-                    retrieval_ns: fact.retrieval_ns,
-                    correction_publication_ns: fact.correction_publication_ns,
-                    owner_observation_ns: fact.owner_observation_ns,
-                    decision_cut: fact.decision_cut,
-                    r0_coordinate_identity: fact.coordinate_identity,
-                    r0_coordinate_digest: fact.coordinate_digest,
-                },
-            )?;
-            let value = fact.value();
-            Ok(proposal(
-                ReplayReferenceFactValueV2::MarketSemantics {
-                    normalization_identity: value.normalization_identity,
-                    price_adjustment: match value.price_adjustment {
-                        crate::owner::market_semantics::MarketSemanticsPriceAdjustmentV1::Raw => ReplayPriceAdjustmentV2::Raw,
-                        crate::owner::market_semantics::MarketSemanticsPriceAdjustmentV1::SplitAdjusted => ReplayPriceAdjustmentV2::SplitAdjusted,
-                        crate::owner::market_semantics::MarketSemanticsPriceAdjustmentV1::TotalReturnAdjusted => ReplayPriceAdjustmentV2::TotalReturnAdjusted,
-                        // A declared-unknown caliber has no V2 representation on purpose. Mapping
-                        // it onto `Raw` would be the assertion the declaration exists to avoid,
-                        // and admitting it to the replay would let prices of unknown caliber be
-                        // compared with prices of known caliber without anything saying so.
-                        crate::owner::market_semantics::MarketSemanticsPriceAdjustmentV1::Unknown => {
-                            return Err(ReplayCompositionBindingErrorV1::PriceAdjustmentUnknown);
-                        }
-                    },
-                    timestamp_basis: match value.timestamp_basis {
-                        crate::owner::market_semantics::MarketSemanticsTimestampBasisV1::EventEffective => ReplayTimestampBasisV2::EventEffective,
-                        crate::owner::market_semantics::MarketSemanticsTimestampBasisV1::IntervalOpen => ReplayTimestampBasisV2::IntervalOpen,
-                        crate::owner::market_semantics::MarketSemanticsTimestampBasisV1::IntervalClose => ReplayTimestampBasisV2::IntervalClose,
-                    },
-                    price_unit_identity: value.price_unit_identity,
-                    size_unit_identity: value.size_unit_identity,
-                },
-                ReplayReferenceFactTimeV2 {
-                    effective_from_ns: fact.effective_from_ns,
-                    effective_until_ns: fact.effective_until_ns,
-                    provider_available_ns: fact.provider_available_ns,
-                    retrieval_ns: fact.retrieval_ns,
-                    correction_publication_ns: fact.correction_publication_ns,
-                    owner_observation_ns: fact.owner_observation_ns,
-                    decision_cut: fact.decision_cut,
-                },
-                fact.source_binding_identity,
-                fact.correction_identity,
-            ))
-        })
-        .collect::<Result<Vec<_>, ReplayCompositionBindingErrorV1>>()?;
-    validate_native_reference_fact_evidence_v1(
-        r0,
-        r0,
-        source,
-        NativeReferenceFactEvidenceV1 {
-            source_binding_identity: correction.source_binding_identity(),
-            source_binding_fact_digest: correction.source_binding_fact_digest(),
-            source_binding_lineage_root: correction.source_binding_lineage_root(),
-            source_binding_lineage_version: correction.source_binding_lineage_version(),
-            provider_available_ns: correction.provider_available_ns(),
-            retrieval_ns: correction.retrieval_ns(),
-            correction_publication_ns: correction.correction_publication_ns(),
-            owner_observation_ns: correction.owner_observation_ns(),
-            decision_cut: correction.decision_cut(),
-            r0_coordinate_identity: correction.r0_coordinate_identity(),
-            r0_coordinate_digest: correction.r0_coordinate_digest(),
-        },
-    )?;
-    let correction_facts = vec![proposal(
-        ReplayReferenceFactValueV2::CorrectionPolicy {
-            stream_identity: correction.stream_identity().to_vec(),
-            sequence: correction.sequence(),
-            successor_only: correction.successor_only(),
-        },
-        ReplayReferenceFactTimeV2 {
-            effective_from_ns: correction.effective_from_ns(),
-            effective_until_ns: correction.effective_until_ns(),
-            provider_available_ns: correction.provider_available_ns(),
-            retrieval_ns: correction.retrieval_ns(),
-            correction_publication_ns: correction.correction_publication_ns(),
-            owner_observation_ns: correction.owner_observation_ns(),
-            decision_cut: correction.decision_cut(),
-        },
-        correction.source_binding_identity(),
-        correction.identity(),
-    )];
+    let semantics_facts = semantics_reference_facts_v2(r0, semantics, source)?;
+    let correction_facts = correction_reference_facts_v2(r0, correction, source)?;
     let action_facts = corporate_action
         .facts()
         .iter()
@@ -3491,38 +3373,7 @@ fn build_reference_cuts(
             ))
         })
         .collect::<Result<Vec<_>, ReplayCompositionBindingErrorV1>>()?;
-    if universe.record().source_binding_lineage_root() != source.lineage_root() {
-        return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
-    }
-    let membership_facts = universe
-        .record()
-        .membership()
-        .iter()
-        .map(|member| {
-            if member.source_binding_lineage_root() != source.lineage_root() {
-                return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
-            }
-            Ok(proposal(
-                ReplayReferenceFactValueV2::HistoricalMembership {
-                    selection_identity: universe.record().identity(),
-                    member_key: member.member_key().to_vec(),
-                    instrument: member.instrument().to_vec(),
-                    included: member.included(),
-                },
-                ReplayReferenceFactTimeV2 {
-                    effective_from_ns: member.effective_from_ns(),
-                    effective_until_ns: member.effective_until_ns(),
-                    provider_available_ns: member.provider_available_ns(),
-                    retrieval_ns: member.retrieval_ns(),
-                    correction_publication_ns: member.correction_publication_ns(),
-                    owner_observation_ns: member.owner_observation_ns(),
-                    decision_cut: member.decision_cut(),
-                },
-                source.binding_id(),
-                member.correction_frontier_digest(),
-            ))
-        })
-        .collect::<Result<Vec<_>, ReplayCompositionBindingErrorV1>>()?;
+    let membership_facts = membership_reference_facts_v2(universe, source)?;
     Ok(vec![
         ReplayReferenceFactCutProposalV2 {
             kind: ReplayReferenceFactKindV2::Calendar,
@@ -3583,6 +3434,372 @@ fn build_reference_cuts(
     ])
 }
 
+/// The Owner-verified inputs one universe-member Replay facts aggregate is issued from.
+///
+/// Every one is a readback or receipt only Market Data can construct: the caller hands over what it
+/// resolved, never a digest standing for it.
+pub(crate) struct UniverseMemberReplayFactsSourcesV2<'a> {
+    pub(crate) r0: &'a crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1,
+    pub(crate) source: &'a crate::owner::source_binding::SourceBindingOwnerReadback,
+    pub(crate) universe: &'a crate::owner::universe_selection::UniverseSelectionReadbackV1,
+    pub(crate) semantics: &'a crate::owner::market_semantics::MarketSemanticsReadbackV1,
+    pub(crate) correction:
+        &'a crate::owner::correction_policy_projection::CorrectionPolicyProjectionV1,
+    /// The frame Market Data derived over the Design's complete role set from the PIT batch.
+    pub(crate) frame: &'a crate::owner::strategy_input_binding::StrategyInputUniverseFrameReceipt,
+}
+
+/// Issues and stores one universe-member Replay facts aggregate in the caller's transaction.
+///
+/// `binding_identity` is the universe-member binding the caller issued in this same transaction;
+/// the stored row is bound to it and to nothing else. Nothing is written when any check refuses.
+///
+/// # Errors
+///
+/// `UniverseFrameMismatch` when the frame is not this request's, the reference-cut refusals of
+/// the first corpus for the three cuts this shape carries, and `ReplayV2Unavailable` when the
+/// aggregate cannot be issued or stored.
+pub(crate) async fn persist_universe_member_replay_market_facts_in_transaction_v2(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    request: &UntrustedReplayMarketFactsRequestV2,
+    sources: &UniverseMemberReplayFactsSourcesV2<'_>,
+    binding_identity: BindingDigest,
+    stable_correlation: BindingDigest,
+) -> Result<ReplayMarketFactsReadbackV2, ReplayCompositionBindingErrorV1> {
+    let readback =
+        compose_universe_member_replay_market_facts_v2(request, sources, stable_correlation)?;
+    let prepared = PreparedReplayMarketFactsStorageV2::from_verified_universe_member_readback(
+        &readback,
+        binding_identity,
+    )
+    .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+    Box::pin(persist_replay_market_facts_in_transaction_v2(
+        transaction,
+        &prepared,
+    ))
+    .await
+    .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+    Ok(readback)
+}
+
+/// Issues one universe-member aggregate: the PIT snapshot, Source Binding and Universe Selection the
+/// request is bound to, the frame over its role set, and the Market Semantics, correction-policy and
+/// historical-membership cuts those authorities scope.
+pub(crate) fn compose_universe_member_replay_market_facts_v2(
+    request: &UntrustedReplayMarketFactsRequestV2,
+    sources: &UniverseMemberReplayFactsSourcesV2<'_>,
+    stable_correlation: BindingDigest,
+) -> Result<ReplayMarketFactsReadbackV2, ReplayCompositionBindingErrorV1> {
+    let pit = request.pit_locator();
+    let source = sources.source;
+    let record = sources.universe.record();
+    validate_universe_frame_binds_request_v2(pit, sources)?;
+    validate_r0_binds_request_v2(sources.r0, pit, source)?;
+    let scope = |kind, identity| {
+        reference_scope_v2(
+            pit,
+            request.replay_start_event_ns(),
+            request.replay_end_event_ns_exclusive(),
+            kind,
+            identity,
+        )
+    };
+    let reference_cuts = vec![
+        ReplayReferenceFactCutProposalV2 {
+            kind: ReplayReferenceFactKindV2::MarketSemantics,
+            scope: scope(
+                ReplayMarketDependencyKindV2::SourceBindingV1,
+                source.binding_id(),
+            )?,
+            facts: semantics_reference_facts_v2(sources.r0, sources.semantics, source)?,
+        },
+        ReplayReferenceFactCutProposalV2 {
+            kind: ReplayReferenceFactKindV2::CorrectionPolicy,
+            scope: scope(
+                ReplayMarketDependencyKindV2::SourceBindingV1,
+                source.binding_id(),
+            )?,
+            facts: correction_reference_facts_v2(sources.r0, sources.correction, source)?,
+        },
+        ReplayReferenceFactCutProposalV2 {
+            kind: ReplayReferenceFactKindV2::HistoricalMembership,
+            scope: scope(
+                ReplayMarketDependencyKindV2::UniverseSelectionV1,
+                record.identity(),
+            )?,
+            facts: membership_reference_facts_v2(sources.universe, source)?,
+        },
+    ];
+    issue_universe_member_replay_market_facts_v2(
+        request,
+        ReplayUniverseMemberFactsEvidenceV2 {
+            base_dependencies: vec![
+                ReplayMarketDependencyRefV2::from_verified_owner_record(
+                    ReplayMarketDependencyKindV2::PitSnapshotV1,
+                    pit.snapshot_identity,
+                    pit.fact_digest,
+                ),
+                ReplayMarketDependencyRefV2::from_verified_owner_record(
+                    ReplayMarketDependencyKindV2::SourceBindingV1,
+                    source.binding_id(),
+                    source.fact_digest(),
+                ),
+                ReplayMarketDependencyRefV2::from_verified_owner_record(
+                    ReplayMarketDependencyKindV2::UniverseSelectionV1,
+                    record.identity(),
+                    record.digest(),
+                ),
+            ],
+            universe_frame: ReplayMarketDependencyRefV2::from_verified_owner_record(
+                ReplayMarketDependencyKindV2::StrategyInputUniverseFrameV1,
+                sources.frame.digest(),
+                sources.frame.digest(),
+            ),
+            reference_cuts,
+            stable_correlation,
+        },
+    )
+    .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)
+}
+
+/// The frame must be over this request's PIT snapshot, derived under its Source Binding lineage,
+/// and hold exactly the members its Universe Selection includes.
+fn validate_universe_frame_binds_request_v2(
+    pit: &crate::owner::pit_snapshot::UntrustedPitSnapshotLocator,
+    sources: &UniverseMemberReplayFactsSourcesV2<'_>,
+) -> Result<(), ReplayCompositionBindingErrorV1> {
+    let selected_members = sources
+        .universe
+        .record()
+        .membership()
+        .iter()
+        .filter(|member| member.included())
+        .map(|member| (member.member_key(), member.instrument()))
+        .collect::<Vec<_>>();
+
+    if crate::owner::replay_market_facts_v2::composition::universe_frame_binds_request_v2(
+        sources.frame,
+        pit.snapshot_identity,
+        pit.fact_digest,
+        sources.source.lineage_root(),
+        &selected_members,
+    ) {
+        Ok(())
+    } else {
+        Err(ReplayCompositionBindingErrorV1::UniverseFrameMismatch)
+    }
+}
+
+/// The one PIT, clock and replay-window scope every reference cut of one request repeats.
+fn reference_scope_v2(
+    pit: &crate::owner::pit_snapshot::UntrustedPitSnapshotLocator,
+    replay_start_event_ns: i128,
+    replay_end_event_ns_exclusive: i128,
+    kind: ReplayMarketDependencyKindV2,
+    identity: BindingDigest,
+) -> Result<ReplayReferenceFactScopeProposalV2, ReplayCompositionBindingErrorV1> {
+    Ok(ReplayReferenceFactScopeProposalV2 {
+        pit_snapshot_identity: pit.snapshot_identity,
+        pit_decision_cut: pit.time_evidence.decision_cut.value,
+        pit_observed_at: pit.time_evidence.observed_at,
+        pit_valid_through: pit.time_evidence.valid_through,
+        pit_clock_digest: pit_clock_digest(
+            pit.time_evidence.decision_cut.clock_identity.as_bytes(),
+            pit.time_evidence.decision_cut.clock_epoch.as_bytes(),
+        )
+        .map_err(|_| ReplayCompositionBindingErrorV1::DependencyMismatch)?,
+        replay_start_event_ns,
+        replay_end_event_ns_exclusive,
+        authority_kind: kind,
+        authority_identity: identity,
+    })
+}
+
+fn reference_fact_proposal_v2(
+    value: ReplayReferenceFactValueV2,
+    time: ReplayReferenceFactTimeV2,
+    source_identity: BindingDigest,
+    correction_identity: BindingDigest,
+) -> ReplayReferenceFactProposalV2 {
+    ReplayReferenceFactProposalV2 {
+        value,
+        time,
+        source_identity,
+        correction_identity,
+    }
+}
+
+/// The R0 record the reference facts are coordinated by must be this request's PIT and Source.
+fn validate_r0_binds_request_v2(
+    r0: &crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1,
+    pit: &crate::owner::pit_snapshot::UntrustedPitSnapshotLocator,
+    source: &crate::owner::source_binding::SourceBindingOwnerReadback,
+) -> Result<(), ReplayCompositionBindingErrorV1> {
+    let r0_record = r0.record();
+    if r0_record.evidence.pit_snapshot_identity != pit.snapshot_identity
+        || r0_record.evidence.pit_fact_digest != pit.fact_digest
+        || r0_record.evidence.source_binding_identity != source.binding_id()
+        || r0_record.evidence.source_binding_fact_digest != source.fact_digest()
+        || r0_record.evidence.source_binding_lineage_root != source.lineage_root()
+        || r0_record.evidence.source_binding_lineage_version != source.lineage_version()
+    {
+        return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
+    }
+    Ok(())
+}
+
+fn semantics_reference_facts_v2(
+    r0: &crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1,
+    semantics: &crate::owner::market_semantics::MarketSemanticsReadbackV1,
+    source: &crate::owner::source_binding::SourceBindingOwnerReadback,
+) -> Result<Vec<ReplayReferenceFactProposalV2>, ReplayCompositionBindingErrorV1> {
+    let proposal = reference_fact_proposal_v2;
+    semantics
+        .facts()
+        .iter()
+        .map(|fact| {
+            validate_native_reference_fact_evidence_v1(
+                r0,
+                r0,
+                source,
+                NativeReferenceFactEvidenceV1 {
+                    source_binding_identity: fact.source_binding_identity,
+                    source_binding_fact_digest: fact.source_binding_fact_digest,
+                    source_binding_lineage_root: fact.source_binding_lineage_root,
+                    source_binding_lineage_version: fact.source_binding_lineage_version,
+                    provider_available_ns: fact.provider_available_ns,
+                    retrieval_ns: fact.retrieval_ns,
+                    correction_publication_ns: fact.correction_publication_ns,
+                    owner_observation_ns: fact.owner_observation_ns,
+                    decision_cut: fact.decision_cut,
+                    r0_coordinate_identity: fact.coordinate_identity,
+                    r0_coordinate_digest: fact.coordinate_digest,
+                },
+            )?;
+            let value = fact.value();
+            Ok(proposal(
+                ReplayReferenceFactValueV2::MarketSemantics {
+                    normalization_identity: value.normalization_identity,
+                    price_adjustment: match value.price_adjustment {
+                        crate::owner::market_semantics::MarketSemanticsPriceAdjustmentV1::Raw => ReplayPriceAdjustmentV2::Raw,
+                        crate::owner::market_semantics::MarketSemanticsPriceAdjustmentV1::SplitAdjusted => ReplayPriceAdjustmentV2::SplitAdjusted,
+                        crate::owner::market_semantics::MarketSemanticsPriceAdjustmentV1::TotalReturnAdjusted => ReplayPriceAdjustmentV2::TotalReturnAdjusted,
+                        // A declared-unknown caliber has no V2 representation on purpose. Mapping
+                        // it onto `Raw` would be the assertion the declaration exists to avoid,
+                        // and admitting it to the replay would let prices of unknown caliber be
+                        // compared with prices of known caliber without anything saying so.
+                        crate::owner::market_semantics::MarketSemanticsPriceAdjustmentV1::Unknown => {
+                            return Err(ReplayCompositionBindingErrorV1::PriceAdjustmentUnknown);
+                        }
+                    },
+                    timestamp_basis: match value.timestamp_basis {
+                        crate::owner::market_semantics::MarketSemanticsTimestampBasisV1::EventEffective => ReplayTimestampBasisV2::EventEffective,
+                        crate::owner::market_semantics::MarketSemanticsTimestampBasisV1::IntervalOpen => ReplayTimestampBasisV2::IntervalOpen,
+                        crate::owner::market_semantics::MarketSemanticsTimestampBasisV1::IntervalClose => ReplayTimestampBasisV2::IntervalClose,
+                    },
+                    price_unit_identity: value.price_unit_identity,
+                    size_unit_identity: value.size_unit_identity,
+                },
+                ReplayReferenceFactTimeV2 {
+                    effective_from_ns: fact.effective_from_ns,
+                    effective_until_ns: fact.effective_until_ns,
+                    provider_available_ns: fact.provider_available_ns,
+                    retrieval_ns: fact.retrieval_ns,
+                    correction_publication_ns: fact.correction_publication_ns,
+                    owner_observation_ns: fact.owner_observation_ns,
+                    decision_cut: fact.decision_cut,
+                },
+                fact.source_binding_identity,
+                fact.correction_identity,
+            ))
+        })
+        .collect::<Result<Vec<_>, ReplayCompositionBindingErrorV1>>()
+}
+
+fn correction_reference_facts_v2(
+    r0: &crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1,
+    correction: &crate::owner::correction_policy_projection::CorrectionPolicyProjectionV1,
+    source: &crate::owner::source_binding::SourceBindingOwnerReadback,
+) -> Result<Vec<ReplayReferenceFactProposalV2>, ReplayCompositionBindingErrorV1> {
+    let proposal = reference_fact_proposal_v2;
+    validate_native_reference_fact_evidence_v1(
+        r0,
+        r0,
+        source,
+        NativeReferenceFactEvidenceV1 {
+            source_binding_identity: correction.source_binding_identity(),
+            source_binding_fact_digest: correction.source_binding_fact_digest(),
+            source_binding_lineage_root: correction.source_binding_lineage_root(),
+            source_binding_lineage_version: correction.source_binding_lineage_version(),
+            provider_available_ns: correction.provider_available_ns(),
+            retrieval_ns: correction.retrieval_ns(),
+            correction_publication_ns: correction.correction_publication_ns(),
+            owner_observation_ns: correction.owner_observation_ns(),
+            decision_cut: correction.decision_cut(),
+            r0_coordinate_identity: correction.r0_coordinate_identity(),
+            r0_coordinate_digest: correction.r0_coordinate_digest(),
+        },
+    )?;
+    Ok(vec![proposal(
+        ReplayReferenceFactValueV2::CorrectionPolicy {
+            stream_identity: correction.stream_identity().to_vec(),
+            sequence: correction.sequence(),
+            successor_only: correction.successor_only(),
+        },
+        ReplayReferenceFactTimeV2 {
+            effective_from_ns: correction.effective_from_ns(),
+            effective_until_ns: correction.effective_until_ns(),
+            provider_available_ns: correction.provider_available_ns(),
+            retrieval_ns: correction.retrieval_ns(),
+            correction_publication_ns: correction.correction_publication_ns(),
+            owner_observation_ns: correction.owner_observation_ns(),
+            decision_cut: correction.decision_cut(),
+        },
+        correction.source_binding_identity(),
+        correction.identity(),
+    )])
+}
+
+fn membership_reference_facts_v2(
+    universe: &crate::owner::universe_selection::UniverseSelectionReadbackV1,
+    source: &crate::owner::source_binding::SourceBindingOwnerReadback,
+) -> Result<Vec<ReplayReferenceFactProposalV2>, ReplayCompositionBindingErrorV1> {
+    let proposal = reference_fact_proposal_v2;
+
+    if universe.record().source_binding_lineage_root() != source.lineage_root() {
+        return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
+    }
+    universe
+        .record()
+        .membership()
+        .iter()
+        .map(|member| {
+            if member.source_binding_lineage_root() != source.lineage_root() {
+                return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
+            }
+            Ok(proposal(
+                ReplayReferenceFactValueV2::HistoricalMembership {
+                    selection_identity: universe.record().identity(),
+                    member_key: member.member_key().to_vec(),
+                    instrument: member.instrument().to_vec(),
+                    included: member.included(),
+                },
+                ReplayReferenceFactTimeV2 {
+                    effective_from_ns: member.effective_from_ns(),
+                    effective_until_ns: member.effective_until_ns(),
+                    provider_available_ns: member.provider_available_ns(),
+                    retrieval_ns: member.retrieval_ns(),
+                    correction_publication_ns: member.correction_publication_ns(),
+                    owner_observation_ns: member.owner_observation_ns(),
+                    decision_cut: member.decision_cut(),
+                },
+                source.binding_id(),
+                member.correction_frontier_digest(),
+            ))
+        })
+        .collect::<Result<Vec<_>, ReplayCompositionBindingErrorV1>>()
+}
+
 /// Maps a reader-side failure onto the admission's own bounded categories.
 ///
 /// The reader can only fail in three ways that matter to a caller: the locator names nothing, the
@@ -3612,6 +3829,14 @@ fn map_admission_reader_error(
         // reaches here, rather than reported as the store being unreachable.
         ReplayCompositionBindingErrorV1::IssuanceIdentityConflict => {
             StrategyInputBindingAdmissionErrorV1::RequestConflict
+        }
+        // Stored custody that contradicts itself, like a digest that does not reproduce.
+        ReplayCompositionBindingErrorV1::CompositionShapeMismatch => {
+            StrategyInputBindingAdmissionErrorV1::AuthenticatedDesignUntrusted
+        }
+        // Raised only while issuing a universe-member aggregate, which this reader never does.
+        ReplayCompositionBindingErrorV1::UniverseFrameMismatch => {
+            StrategyInputBindingAdmissionErrorV1::BindingUnavailable
         }
         // Listed rather than left to a wildcard, so that a variant added later cannot become a
         // store failure without someone deciding that it is one.
