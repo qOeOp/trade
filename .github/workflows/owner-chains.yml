@@ -39,19 +39,15 @@ env:
   AUDIT_PR: ${{ github.repository == 'qOeOp/trade' }}
 
 jobs:
-  # The R&D chain's nextest archive, built where the Rust cache is. The chain job below only
-  # downloads it: restoring the 6 GB cache took 145-225 s of every chain job's setup, and the chain's
-  # 12-package graph reuses little of it anyway (its dependency features differ from the workspace
-  # build that saved it, so 133 external crates compiled regardless). The archive is 383 MB. Both
-  # legs of the matrix wait for it - Market Data does not use it, and finishes well inside the R&D
-  # leg's time regardless.
+  # The R&D chain's nextest archive, built once. The chain job below only downloads it (383 MB).
+  # Both legs of the matrix wait for it - Market Data does not use it, and finishes well inside the
+  # R&D leg's time regardless.
   rd-owner-archive:
     name: rd owner archive (ubuntu-22.04)
     runs-on: ubuntu-22.04
-    # No run of this job to measure yet (2026-09-24), so a stand-in: the chain job's own setup and
-    # step limits, which covered this same build when it ran inside the chain. Replace with twice this
-    # job's slowest run after its first successful runs.
-    timeout-minutes: 45
+    # Twice the slowest run without a cache restore (8.8 minutes, owner-chains run 36058051045),
+    # plus room for common-setup's disk cleanup, which runs only below 40G free and took 116-915 s.
+    timeout-minutes: 30
     env:
       # The chain builds exactly this; check-chain-channel-environment.py keeps the two equal.
       CARGO_CI_PROFILE: ci-pr
@@ -90,15 +86,16 @@ jobs:
           free-disk-space: "true"
           free-disk-space-max-build: "true"
           minimum-free-space-gb: "40"
-          rust-cache-enabled: "true"
-          rust-cache-shared-key: rust-tests-linux-x86
-          rust-cache-workspaces: . -> target/rust-tests-linux-x86
-          rust-cache-on-failure: "false"
-          rust-cache-save-if: "false"
-          rust-cache-workspace-crates: "true"
+          # No Rust cache: `rust tests`'s entry buys this build nothing. Restored at full match
+          # (owner-chains run 36063327107), it still compiled all 792 units - the chain's 12-package
+          # graph unifies dependency features differently from the workspace build that saved it, so
+          # no fingerprint matches - and the restore alone took 225 s (run 36061606498): 9.9 minutes
+          # warm against 8.8 cold. check-chain-channel-environment.py refuses a restore added back.
+          rust-cache-enabled: "false"
 
       - name: Build the R&D chain archive
-        timeout-minutes: 30
+        # Twice the slowest cold compile, 7m45s.
+        timeout-minutes: 16
         run: >-
           make cargo-archive-rd-owner-postgres NEXTEST_PROFILE=ci
           EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"

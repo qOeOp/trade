@@ -786,12 +786,9 @@ jobs:
         if: always()
         run: bash scripts/ci/report-disk-space.bash "after Rust tests"
 
-  # The R&D chain's nextest archive, built where the Rust cache is. The chain job's R&D leg only
-  # downloads it: restoring the 6 GB cache took 145-225 s of every chain job's setup, and the chain's
-  # 12-package graph reuses little of it anyway (its dependency features differ from the workspace
-  # build that saved it, so 133 external crates compiled regardless). The archive is 383 MB. Both
-  # legs of the chain matrix wait for it - Market Data does not use it, and finishes well inside the
-  # R&D leg's time regardless.
+  # The R&D chain's nextest archive, built once. The chain job's R&D leg only downloads it (383 MB).
+  # Both legs of the chain matrix wait for it - Market Data does not use it, and finishes well inside
+  # the R&D leg's time regardless.
   postgres-owner-chain-archive-linux-x86:
     if: >
       github.ref != 'refs/heads/test-pre-commit' &&
@@ -801,15 +798,14 @@ jobs:
        github.ref == 'refs/heads/master')
     name: rd owner archive (ubuntu-22.04)
     runs-on: ubuntu-22.04
-    # No run of this job to measure yet (2026-09-24), so a stand-in: the chain job's own setup and
-    # step limits, which covered this same build when it ran inside the chain. Replace with twice this
-    # job's slowest run after its first successful runs.
-    timeout-minutes: 45
+    # Twice the slowest run without a cache restore (8.8 minutes, owner-chains run 36058051045),
+    # plus room for common-setup's disk cleanup, which runs only below 40G free and took 116-915 s.
+    timeout-minutes: 30
     needs:
       - plan
     env:
-      # The chain job's environment exactly - it runs what this builds - which is `rust tests`'s,
-      # so this restores the entry `main` saves. check-chain-channel-environment.py keeps them equal.
+      # The chain job's environment exactly - it runs what this builds.
+      # check-chain-channel-environment.py keeps them equal.
       CARGO_CI_PROFILE: >-
         ${{ (github.event_name == 'pull_request'
         || github.event_name == 'merge_group'
@@ -855,26 +851,16 @@ jobs:
           free-disk-space: "true"
           free-disk-space-max-build: ${{ runner.environment == 'github-hosted' && 'true' || 'false' }}
           minimum-free-space-gb: "40"
-          rust-cache-enabled: >-
-            ${{ (runner.environment == 'github-hosted'
-            || github.event_name == 'push'
-            && (github.ref_name == 'main' || github.ref_name == 'test-ci'))
-            && 'true' || 'false' }}
-          # These chains build a different selection from `rust tests` -- five packages under the
-          # sealed Owner features rather than the whole workspace -- into the same target
-          # directory, so `rust tests`'s entry is a superset of what they need. `key` could not
-          # deliver it: rust-cache appends `GITHUB_JOB`, so run 35414461628 logged `No cache
-          # found.` here and compiled 473 crates from scratch, 26 minutes, on the gate's
-          # second-longest job. `shared-key` drops that job component. The job still does not
-          # save, so the quota still holds one copy of this directory, not three.
-          rust-cache-shared-key: rust-tests-linux-x86
-          rust-cache-workspaces: . -> target/rust-tests-linux-x86
-          rust-cache-on-failure: "false"
-          rust-cache-save-if: "false"
-          rust-cache-workspace-crates: "true"
+          # No Rust cache: `rust tests`'s entry buys this build nothing. Restored at full match
+          # (owner-chains run 36063327107), it still compiled all 792 units - the chain's 12-package
+          # graph unifies dependency features differently from the workspace build that saved it, so
+          # no fingerprint matches - and the restore alone took 225 s (run 36061606498): 9.9 minutes
+          # warm against 8.8 cold. check-chain-channel-environment.py refuses a restore added back.
+          rust-cache-enabled: "false"
 
       - name: Build the R&D chain archive
-        timeout-minutes: 30
+        # Twice the slowest cold compile, 7m45s.
+        timeout-minutes: 16
         run: >-
           make cargo-archive-rd-owner-postgres NEXTEST_PROFILE=ci
           EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"

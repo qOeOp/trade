@@ -45,6 +45,10 @@ jobs:
       RUST_TEST_EXTRA_FEATURES: capnp,hypersync
       RUST_BACKTRACE: 1
     steps:
+      - uses: ./.github/actions/common-setup
+        with:
+          python-version: "3.13"
+          rust-cache-enabled: "false"
       - run: make archive
   postgres-owner-chains-linux-x86:
     name: ${{ matrix.chain.name }}
@@ -81,6 +85,10 @@ jobs:
       RUST_TEST_EXTRA_FEATURES: capnp,hypersync
       RUST_BACKTRACE: 1
     steps:
+      - uses: ./.github/actions/common-setup
+        with:
+          python-version: "3.13"
+          rust-cache-enabled: "false"
       - run: make archive
 
   owner-chain:
@@ -216,6 +224,36 @@ def main() -> int:
             ),
             CHAINS,
             "build.yml job `postgres-owner-chain-archive-linux-x86` sets CARGO_CI_PROFILE='nextest'",
+        ),
+        "build's archive job restores the Rust cache again": (
+            within(
+                BUILD,
+                "  postgres-owner-chain-archive-linux-x86:\n",
+                'rust-cache-enabled: "false"',
+                'rust-cache-enabled: "true"',
+            ),
+            CHAINS,
+            'job `postgres-owner-chain-archive-linux-x86` restores the Rust cache (rust-cache-enabled: "true")',
+        ),
+        "owner-chains archive job names a cache entry to restore": (
+            BUILD,
+            within(
+                CHAINS,
+                "  rd-owner-archive:\n",
+                '          rust-cache-enabled: "false"\n',
+                '          rust-cache-enabled: "false"\n          rust-cache-shared-key: rust-tests-linux-x86\n',
+            ),
+            'job `rd-owner-archive` restores the Rust cache (rust-cache-enabled: "false", rust-cache-shared-key',
+        ),
+        "owner-chains archive job drops the input and takes the default": (
+            BUILD,
+            within(
+                CHAINS,
+                "  rd-owner-archive:\n",
+                '          rust-cache-enabled: "false"\n',
+                "",
+            ),
+            "rust-cache-enabled unset, which common-setup defaults to true",
         ),
         "build's acceptance value changes and owner-chains does not follow": (
             within(
