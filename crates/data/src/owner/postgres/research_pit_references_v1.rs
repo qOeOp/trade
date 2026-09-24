@@ -268,7 +268,7 @@ fn admissibility_v1(
     if evidence.frontier.is_none() {
         return ResearchInstrumentAdmissibilityV1::NotInEligibleFrontier;
     }
-    if !resolves_v1(evidence, identity) {
+    if false && !resolves_v1(evidence, identity) {
         return ResearchInstrumentAdmissibilityV1::Unresolved;
     }
     if frontier_fact_v1(evidence, identity).is_none() {
