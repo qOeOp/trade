@@ -53,10 +53,6 @@ export function DetailSheet({
   // the page still names the content it was showing: asking for that same content again in between
   // (Escape then Enter, a double click, a fast assistive-technology action) changes no state and
   // opens nothing. Every caller's `onClose` only clears state, so hearing it twice is harmless.
-  const requestClose = () => {
-    onClose();
-    dialog.current?.close();
-  };
 
   return (
     <dialog
@@ -64,9 +60,8 @@ export function DetailSheet({
       className={styles.sheet}
       aria-labelledby={titleId}
       onClose={onClose}
-      onCancel={onClose}
       onClick={(event) => {
-        if (event.target === event.currentTarget) requestClose();
+        if (event.target === event.currentTarget) event.currentTarget.close();
       }}
     >
       <PanelFrame className={styles.frame} as="aside">
@@ -75,7 +70,7 @@ export function DetailSheet({
           title={title}
           titleId={titleId}
           description={description}
-          onClose={requestClose}
+          onClose={() => dialog.current?.close()}
         />
         <PanelFrameBody className={styles.body} density="compact">{children}</PanelFrameBody>
         {canonicalHref ? (
