@@ -1406,6 +1406,7 @@ fn validate_evidence(
             evidence.stable_correlation,
         ],
     )?;
+
     if [
         evidence.census_identity,
         evidence.census_digest,

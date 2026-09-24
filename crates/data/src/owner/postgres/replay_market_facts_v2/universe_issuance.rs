@@ -269,9 +269,9 @@ mod postgres_tests {
         replay_market_facts_v2::{
             ReplayCompositionBindingErrorV1, ReplayCompositionBindingLocatorV1,
             ReplayCompositionContentLocatorV1, ReplayCompositionDurableIssuanceResponseV1,
-            ReplayCompositionLocatorOnlyIssuanceRequestV1, ReplayCompositionRequestLocatorV1,
-            ReplayCompositionUniverseBindingIssuanceRequestV1, ReplayMarketFactsShapeV2,
-            composition::ReplayCompositionNativeLocatorKindV1,
+            ReplayCompositionLocatorOnlyIssuanceRequestV1, ReplayCompositionOwnerV1,
+            ReplayCompositionRequestLocatorV1, ReplayCompositionUniverseBindingIssuanceRequestV1,
+            ReplayMarketFactsShapeV2, composition::ReplayCompositionNativeLocatorKindV1,
             postgres::recover_replay_composition_binding_in_transaction_v1,
         },
         source_binding::BindingDigest,
@@ -345,6 +345,11 @@ mod postgres_tests {
     async fn postgres_universe_member_composition_issues_a_binding_that_keys_its_cut() {
         let owner_url = std::env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL").unwrap();
         let base = Box::pin(replay_composition_market_base_fixture_v1(&owner_url)).await;
+        // The deployed store is materialized before custody cutover; this database is too, by the
+        // same production entry, so the issuance table exists as it does in production.
+        ReplayCompositionOwnerV1::materialize_schema(&owner_url)
+            .await
+            .expect("the replay composition store materializes");
         let market = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
         let pool = market.pool().clone();
         let requests = Box::pin(universe_member_declarations_oracle(
@@ -455,6 +460,7 @@ mod postgres_tests {
                 &request_bytes,
             ))
             .await;
+
             if issued.is_ok() {
                 transaction.commit().await.unwrap();
             } else {
