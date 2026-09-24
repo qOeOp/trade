@@ -530,7 +530,7 @@ if tuple(assignments) != expected_overrides:
     )
 expected_invocation = (
     "cargo nextest run \\",
-    '--archive-file "$nextest_archive_file" \\',
+    '"${nextest_reuse_args[@]}" \\',
     '--profile "$nextest_profile" \\',
     '"${nextest_execution_args[@]}" \\',
     '-E "$test_filter"',
@@ -1722,6 +1722,7 @@ container_created=false
 impersonator_container_created=false
 nextest_archive_dir=''
 nextest_archive_file=''
+nextest_extract_dir=''
 # Where the ordered chain is. The chain is fail-fast over one shared store, so a red run's useful
 # number is the entry it stopped at, not only the test nextest names: an Owner's acceptance is its
 # own entries passing, and this is what says how far the run got.
@@ -1791,6 +1792,10 @@ cleanup() {
     echo "ordered chain stopped at entry ${chain_position}/${chain_entry_count} (${chain_entry_label}); $((chain_position - 1)) passed before it." >&2
   fi
 
+  if [[ -n "$nextest_extract_dir" ]] &&
+    ! rm -rf -- "$nextest_extract_dir"; then
+    cleanup_failed=true
+  fi
   if [[ -n "$nextest_archive_file" ]] &&
     ! rm -f -- "$nextest_archive_file"; then
     cleanup_failed=true
@@ -3346,9 +3351,27 @@ cargo nextest archive \
   --cargo-profile "$cargo_ci_profile" \
   --archive-file "$nextest_archive_file"
 
-candidate_experiment_seed_filter="package(vibe-strategy-factory) & binary(vibe_strategy_factory) & test(=${candidate_experiment_upgrade_seed_test})"
+# Extract the archive once and run every entry from the extracted tree. `--archive-file` extracts the
+# whole archive again on each invocation - 52 binaries, about 3.5 s each time - and the chain makes
+# one invocation per entry, so that alone was six of its minutes (run 35989665241). `--no-run` stops
+# after the extraction. The reuse arguments point nextest at the same metadata, binaries and libdirs
+# the archive run would have extracted, with the same remapping, so the tests run the same binaries.
+nextest_extract_dir="${nextest_archive_dir}/extracted"
+mkdir -- "$nextest_extract_dir"
 cargo nextest run \
   --archive-file "$nextest_archive_file" \
+  --extract-to "$nextest_extract_dir" \
+  --no-run
+readonly nextest_reuse_args=(
+  --binaries-metadata "${nextest_extract_dir}/target/nextest/binaries-metadata.json"
+  --cargo-metadata "${nextest_extract_dir}/target/nextest/cargo-metadata.json"
+  --target-dir-remap "${nextest_extract_dir}/target"
+  --workspace-remap "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+)
+
+candidate_experiment_seed_filter="package(vibe-strategy-factory) & binary(vibe_strategy_factory) & test(=${candidate_experiment_upgrade_seed_test})"
+cargo nextest run \
+  "${nextest_reuse_args[@]}" \
   --profile "$nextest_profile" \
   "${nextest_execution_args[@]}" \
   -E "$candidate_experiment_seed_filter"
@@ -3705,7 +3728,7 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       RISK_OWNER_TEST_DATABASE_URL="postgresql://risk_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}" \
       SCANNER_OWNER_TEST_DATABASE_URL="postgresql://scanner_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}" \
       cargo nextest run \
-      --archive-file "$nextest_archive_file" \
+      "${nextest_reuse_args[@]}" \
       --profile "$nextest_profile" \
       "${nextest_execution_args[@]}" \
       -E "$test_filter"
@@ -3730,7 +3753,7 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       RISK_OWNER_TEST_DATABASE_URL="postgresql://risk_writer:${test_password}@${postgres_host}:${postgres_port}/${legacy_replay_database}" \
       SCANNER_OWNER_TEST_DATABASE_URL="postgresql://scanner_writer:${test_password}@${postgres_host}:${postgres_port}/${legacy_replay_database}" \
       cargo nextest run \
-      --archive-file "$nextest_archive_file" \
+      "${nextest_reuse_args[@]}" \
       --profile "$nextest_profile" \
       "${nextest_execution_args[@]}" \
       -E "$test_filter"
@@ -3755,7 +3778,7 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       RISK_OWNER_TEST_DATABASE_URL="postgresql://risk_writer:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
       SCANNER_OWNER_TEST_DATABASE_URL="postgresql://scanner_writer:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
       cargo nextest run \
-      --archive-file "$nextest_archive_file" \
+      "${nextest_reuse_args[@]}" \
       --profile "$nextest_profile" \
       "${nextest_execution_args[@]}" \
       -E "$test_filter"
@@ -3772,7 +3795,7 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
     [[ "$test_name" == 'product_edge_postgres::tests::second_request_under_one_principal_resolves_through_the_frontier_arm' ]]; then
     RUST_MIN_STACK=16777216 \
       cargo nextest run \
-      --archive-file "$nextest_archive_file" \
+      "${nextest_reuse_args[@]}" \
       --profile "$nextest_profile" \
       "${nextest_execution_args[@]}" \
       -E "$test_filter"
@@ -3797,7 +3820,7 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       RISK_OWNER_TEST_DATABASE_URL="postgresql://risk_writer:${test_password}@${postgres_host}:${postgres_port}/${composer_sealed_read_database}" \
       SCANNER_OWNER_TEST_DATABASE_URL="postgresql://scanner_writer:${test_password}@${postgres_host}:${postgres_port}/${composer_sealed_read_database}" \
       cargo nextest run \
-      --archive-file "$nextest_archive_file" \
+      "${nextest_reuse_args[@]}" \
       --profile "$nextest_profile" \
       "${nextest_execution_args[@]}" \
       -E "$test_filter"
@@ -3822,13 +3845,13 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       RISK_OWNER_TEST_DATABASE_URL="postgresql://risk_writer:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
       SCANNER_OWNER_TEST_DATABASE_URL="postgresql://scanner_writer:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
       cargo nextest run \
-      --archive-file "$nextest_archive_file" \
+      "${nextest_reuse_args[@]}" \
       --profile "$nextest_profile" \
       "${nextest_execution_args[@]}" \
       -E "$test_filter"
   else
     cargo nextest run \
-      --archive-file "$nextest_archive_file" \
+      "${nextest_reuse_args[@]}" \
       --profile "$nextest_profile" \
       "${nextest_execution_args[@]}" \
       -E "$test_filter"
