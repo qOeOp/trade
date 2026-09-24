@@ -39,10 +39,88 @@ env:
   AUDIT_PR: ${{ github.repository == 'qOeOp/trade' }}
 
 jobs:
+  # The R&D chain's nextest archive, built where the Rust cache is. The chain job below only
+  # downloads it: restoring the 6 GB cache took 145-225 s of every chain job's setup, and the chain's
+  # 12-package graph reuses little of it anyway (its dependency features differ from the workspace
+  # build that saved it, so 133 external crates compiled regardless). The archive is 383 MB. Both
+  # legs of the matrix wait for it - Market Data does not use it, and finishes well inside the R&D
+  # leg's time regardless.
+  rd-owner-archive:
+    name: rd owner archive (ubuntu-22.04)
+    runs-on: ubuntu-22.04
+    # No run of this job to measure yet (2026-09-24), so a stand-in: the chain job's own setup and
+    # step limits, which covered this same build when it ran inside the chain. Replace with twice this
+    # job's slowest run after its first successful runs.
+    timeout-minutes: 45
+    env:
+      # The chain builds exactly this; check-chain-channel-environment.py keeps the two equal.
+      CARGO_CI_PROFILE: ci-pr
+      CARGO_TARGET_DIR: target/rust-tests-linux-x86
+      # yamllint disable-line rule:line-length
+      RUST_TEST_EXTRA_FEATURES: capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres,vibe-strategy-factory/sealed-develop-composer-acceptance
+      RUST_BACKTRACE: 1
+      VIBE_TEST_DATA_BASE_URL: ${{ vars.VIBE_TEST_DATA_BASE_URL }}
+    steps:
+      # https://github.com/step-security/harden-runner
+      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: >-
+            ${{ env.AUDIT_PR == 'true' && 'audit'
+            || vars.STEP_SECURITY_EGRESS_POLICY
+            || 'block' }}
+          allowed-endpoints: >-
+            ${{ vars.COMMON_ALLOWED_ENDPOINTS }}
+            ${{ vars.CI_ALLOWED_ENDPOINTS }}
+
+      - name: Checkout repository
+        # https://github.com/actions/checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Verify immutable CI inputs (post-checkout)
+        run: bash scripts/ci/verify-ci-inputs.sh post-checkout
+
+      - name: Common setup
+        timeout-minutes: 30
+        uses: ./.github/actions/common-setup
+        with:
+          python-version: "3.13"
+          build-type: "test"
+          free-disk-space: "true"
+          free-disk-space-max-build: "true"
+          minimum-free-space-gb: "40"
+          rust-cache-enabled: "true"
+          rust-cache-shared-key: rust-tests-linux-x86
+          rust-cache-workspaces: . -> target/rust-tests-linux-x86
+          rust-cache-on-failure: "false"
+          rust-cache-save-if: "false"
+          rust-cache-workspace-crates: "true"
+
+      - name: Build the R&D chain archive
+        timeout-minutes: 30
+        run: >-
+          make cargo-archive-rd-owner-postgres NEXTEST_PROFILE=ci
+          EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
+          RD_OWNER_ARCHIVE_FILE="${RUNNER_TEMP}/rd-owner-archive/rd-owner-tests.tar.zst"
+
+      # Artifacts are Actions storage, not the 10 GB cache quota the Rust cache lives in. Kept one day:
+      # the chain job reads it minutes later, and nothing else does.
+      - name: Publish the R&D chain archive
+        # https://github.com/actions/upload-artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rd-owner-archive
+          path: ${{ runner.temp }}/rd-owner-archive/
+          if-no-files-found: error
+          retention-days: 1
+
   owner-chain:
     name: ${{ matrix.chain.name }}
     runs-on: ubuntu-22.04
     timeout-minutes: ${{ matrix.chain.job-timeout-minutes }}
+    needs:
+      - rd-owner-archive
     strategy:
       fail-fast: false
       matrix:
@@ -129,7 +207,9 @@ jobs:
           # `main`'s `rust tests` saves. Nothing is saved under it, so this workflow never spends the
           # 10 GB quota. It was `rust-cache-key`, which appends the job id: every run looked for an
           # `...-owner-chain-...` entry nobody saves and logged `No cache found.`.
-          rust-cache-enabled: "true"
+          # The R&D leg compiles nothing - it runs the archive rd-owner-archive built - so it skips
+          # the restore, which was most of its setup.
+          rust-cache-enabled: ${{ matrix.chain.key != 'rd-owner' && 'true' || 'false' }}
           rust-cache-shared-key: rust-tests-linux-x86
           rust-cache-workspaces: . -> target/rust-tests-linux-x86
           rust-cache-on-failure: "false"
@@ -148,6 +228,14 @@ jobs:
         with:
           acceptance-candidate: ${{ github.sha }}
 
+      - name: Download the R&D chain archive
+        if: matrix.chain.key == 'rd-owner'
+        # https://github.com/actions/download-artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: rd-owner-archive
+          path: ${{ runner.temp }}/rd-owner-archive
+
       - name: Report disk space before the chain
         run: bash scripts/ci/report-disk-space.bash "before ${{ matrix.chain.key }}"
 
@@ -163,6 +251,11 @@ jobs:
       # raise both ceilings to about twice the new figures.
       - name: Run the isolated PostgreSQL Owner chain
         timeout-minutes: ${{ matrix.chain.step-timeout-minutes }}
+        env:
+          # The chain refuses an archive whose identity is not this tree's; empty on the Market Data leg.
+          RD_OWNER_NEXTEST_ARCHIVE: >-
+            ${{ matrix.chain.key == 'rd-owner'
+            && format('{0}/rd-owner-archive/rd-owner-tests.tar.zst', runner.temp) || '' }}
         run: make ${{ matrix.chain.make }}
 
       # `if: always()`: the run that ends at an entry is the one whose record answers the most.

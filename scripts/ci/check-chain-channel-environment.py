@@ -114,23 +114,32 @@ def check(root: Path) -> list[str]:
         if CARGO_ENVIRONMENT.match(name)
     }
     failures = []
-    # The venue leg shares no cache entry with `build` and has no counterpart there, but it is
-    # evidence for the same Owner, so it builds under the same profile.
-    for job, names in (
-        ("owner-chain", sorted(expected)),
-        ("venue-end-to-end", ["CARGO_CI_PROFILE"]),
-    ):
-        actual = env_of(chains, job)
+    # Every job that builds or runs the chain's binaries carries the whole Cargo environment: the two
+    # chain jobs, and the two archive jobs that now build what they run. The venue leg shares no cache
+    # entry with `build` and has no counterpart there, but it is evidence for the same Owner, so it
+    # builds under the same profile.
+    jobs = (
+        ("owner-chains.yml", chains, "owner-chain", None),
+        ("owner-chains.yml", chains, "rd-owner-archive", None),
+        ("build.yml", build, "postgres-owner-chain-archive-linux-x86", None),
+        ("owner-chains.yml", chains, "venue-end-to-end", ["CARGO_CI_PROFILE"]),
+    )
+    for workflow, text, job, only in jobs:
+        actual = {
+            name: on_acceptance(name, value) if workflow == "build.yml" else value
+            for name, value in env_of(text, job).items()
+            if CARGO_ENVIRONMENT.match(name)
+        }
         failures += [
-            f"owner-chains.yml job `{job}` sets {name}={actual.get(name)!r}; "
+            f"{workflow} job `{job}` sets {name}={actual.get(name)!r}; "
             f"build.yml's chain job builds with {expected[name]!r} on a pull request, `main` and `test-ci`."
-            for name in names
+            for name in (only or sorted(expected))
             if actual.get(name) != expected[name]
         ]
-        if job == "owner-chain":
+        if only is None:
             failures += [
-                f"owner-chains.yml job `{job}` sets {name}, which build.yml's chain job does not."
-                for name in sorted(set(filter(CARGO_ENVIRONMENT.match, actual)) - set(expected))
+                f"{workflow} job `{job}` sets {name}, which build.yml's chain job does not."
+                for name in sorted(set(actual) - set(expected))
             ]
     return failures
 

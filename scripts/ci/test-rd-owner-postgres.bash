@@ -345,9 +345,11 @@ MANIFEST
     echo "ERROR: Makefile must pass the sealed Develop Composer feature union to the shared nextest graph." >&2
     return 1
   fi
+  # Three consumers of the one feature graph: the rust tests step, the chain matrix, and the chain
+  # archive job that builds what the matrix's R&D leg runs.
   if [[ "$(rg -c 'EXTRA_FEATURES="\$\{RUST_TEST_EXTRA_FEATURES\}"' \
-    "$repository_root/.github/workflows/build.yml")" -ne 2 ]]; then
-    echo "ERROR: workspace CI and local rust test step must use the shared feature graph." >&2
+    "$repository_root/.github/workflows/build.yml")" -ne 3 ]]; then
+    echo "ERROR: the rust tests step, the chain matrix and the chain archive job must all pass the shared feature graph." >&2
     return 1
   fi
   if ! rg -Uq \
@@ -1448,7 +1450,7 @@ if (
     or "cleanup(" in seed_fixture
 ):
     raise SystemExit("ERROR: Candidate experiment upgrade seed bypasses post-cutover Owner custody")
-seed_execution = test_script.rsplit("cargo nextest archive", 1)[1].split(
+seed_execution = test_script.rsplit('\n  build_nextest_archive "$nextest_archive_file"\n', 1)[1].split(
     "run_authority_migration() {", 1
 )[0]
 position = -1
@@ -1607,6 +1609,36 @@ for required_feature in "${required_archive_features[@]}"; do
       ;;
   esac
 done
+
+# The archive can be built in one job and run in another: CI builds it where the Rust cache is and
+# runs the chain on a runner that only downloads it. The chain then runs binaries it did not build,
+# so the archive carries an identity - the source tree, the features and both profiles - and a chain
+# given an archive refuses one whose identity is not its own, by name, rather than running binaries
+# from some other tree.
+build_nextest_archive() {
+  cargo nextest archive \
+    "${nextest_graph_args[@]}" \
+    --features "$nextest_archive_features" \
+    --profile "$nextest_profile" \
+    --cargo-profile "$cargo_ci_profile" \
+    --archive-file "$1"
+}
+nextest_archive_identity() {
+  printf 'tree %s\nfeatures %s\ncargo-profile %s\nnextest-profile %s\n' \
+    "$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse 'HEAD^{tree}')" \
+    "$nextest_archive_features" "$cargo_ci_profile" "$nextest_profile"
+}
+if [[ "${1:-}" == "--archive-only" ]]; then
+  if [[ -z "${2:-}" ]]; then
+    echo "ERROR: --archive-only needs the archive file to write." >&2
+    exit 1
+  fi
+  build_nextest_archive "$2"
+  nextest_archive_identity > "${2}.identity"
+  echo "=== R&D Owner chain archive written to ${2}:" >&2
+  cat "${2}.identity" >&2
+  exit 0
+fi
 
 # This chain has refused to run anywhere but Linux since the file was created, and until now it said
 # only that. The restriction arrived with the file in #326 on 2026-08-23 and its commit recorded no
@@ -2246,12 +2278,18 @@ if [[ ! -d "$nextest_temp_root" ]]; then
 fi
 nextest_archive_dir="$(mktemp -d "${nextest_temp_root%/}/vibe-rd-owner-nextest.XXXXXXXX")"
 nextest_archive_file="${nextest_archive_dir}/rd-owner-tests.tar.zst"
-cargo nextest archive \
-  "${nextest_graph_args[@]}" \
-  --features "$nextest_archive_features" \
-  --profile "$nextest_profile" \
-  --cargo-profile "$cargo_ci_profile" \
-  --archive-file "$nextest_archive_file"
+if [[ -n "${RD_OWNER_NEXTEST_ARCHIVE:-}" ]]; then
+  if ! diff -u "${RD_OWNER_NEXTEST_ARCHIVE}.identity" <(nextest_archive_identity) >&2; then
+    echo "ERROR: the archive at ${RD_OWNER_NEXTEST_ARCHIVE} was not built from this tree with these" >&2
+    echo "       features and profiles (its identity is on the left above), so its binaries are not" >&2
+    echo "       the ones this chain must run." >&2
+    exit 1
+  fi
+  echo "=== running the archive built elsewhere: ${RD_OWNER_NEXTEST_ARCHIVE}" >&2
+  cp -- "$RD_OWNER_NEXTEST_ARCHIVE" "$nextest_archive_file"
+else
+  build_nextest_archive "$nextest_archive_file"
+fi
 
 # Extract the archive once and run every entry from the extracted tree. `--archive-file` extracts the
 # whole archive again on each invocation - 52 binaries, about 3.5 s each time - and the chain makes
