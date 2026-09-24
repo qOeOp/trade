@@ -155,11 +155,11 @@ pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
 ];
 
 /// Alters relations the Backtest run report reads, through its R&D read functions, under the
-/// topology fence, without taking the fence; `_admitted` is why that cannot interleave with a
+/// topology fence, without taking the fence; `admitted` is why that cannot interleave with a
 /// readback. See [`crate::schema_materialization::PreCutoverMaterializationAdmitted`].
 pub(crate) async fn migrate(
     pool: &PgPool,
-    _admitted: &crate::schema_materialization::PreCutoverMaterializationAdmitted,
+    admitted: &crate::schema_materialization::PreCutoverMaterializationAdmitted,
 ) -> Result<(), TrialFamilyError> {
     for (relation_name, statement) in [
         (
@@ -235,7 +235,7 @@ pub(crate) async fn migrate(
     crate::iteration_result_admission_postgres::migrate(pool)
         .await
         .map_err(|e| TrialFamilyError::Unavailable(e.to_string()))?;
-    crate::iteration_decision_postgres::migrate(pool)
+    crate::iteration_decision_postgres::migrate(pool, admitted)
         .await
         .map_err(|e| TrialFamilyError::Unavailable(e.to_string()))?;
     Ok(())
