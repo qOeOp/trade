@@ -4,26 +4,15 @@
 -- domain the caller created in pg_temp. So the path must end in pg_temp, and every schema before it
 -- other than pg_catalog must be one no role but the routine's owner can create objects in.
 --
--- The exceptions below are the routines that did not meet this when the guard was introduced, each
--- with the search_path it had then. The list only shrinks: a routine outside it that breaks the rule
--- fails, a listed routine whose search_path changed to anything else fails, a listed routine that
--- now meets the rule fails until its entry is removed, and a listed name that matches more than one
--- routine in a database fails. The fix for each Owner removes its own entries.
+-- No routine is exempt. The guard began with a list of the routines that did not meet the rule, and
+-- each Owner's fix removed its own entries until none was left; a routine that breaks the rule now
+-- is fixed, not listed.
 DO $security_definer_search_path$
 DECLARE
   violations text;
   checked bigint;
-  allowlisted bigint;
 BEGIN
-  WITH exception_list(routine_name, search_path) AS (VALUES
-    ('execution_api.read_current_paper_adapter_binding_v1', 'pg_catalog, execution_private'),
-    ('execution_api.read_paper_account_opening_fact_v1', 'pg_catalog, execution_private'),
-    ('governance_api.read_current_execution_scope_v1', 'pg_catalog, governance_private'),
-    ('portfolio_api.capacity_view_expired_at_v1', 'pg_catalog, portfolio_private'),
-    ('portfolio_api.read_bound_capacity_scope_v1', 'pg_catalog, portfolio_private'),
-    ('portfolio_api.read_current_capacity_view_v1', 'pg_catalog, portfolio_private'),
-    ('scanner_api.read_terminal_receipt_v1', 'pg_catalog')
-  ), routines AS (
+  WITH routines AS (
     SELECT procedure.oid,
            procedure.proowner,
            namespace.nspname || '.' || procedure.proname AS routine_name,
@@ -77,44 +66,23 @@ BEGIN
                THEN 'search_path names a schema a role other than the owner can create in, or one that does not exist: '
                  || (SELECT pg_catalog.string_agg(creatable_items.schema_name || ' (' || creatable_items.reason || ')', '; ' ORDER BY creatable_items.schema_name)
                        FROM creatable_items WHERE creatable_items.oid=routines.oid)
-           END AS failure,
-           pg_catalog.count(*) OVER (PARTITION BY routines.routine_name) AS same_name_count
+           END AS failure
       FROM routines
-  ), findings AS (
-    SELECT assessed.routine_name || ': ' || assessed.failure AS finding
-      FROM assessed
-     WHERE assessed.failure IS NOT NULL
-       AND NOT EXISTS (SELECT 1 FROM exception_list
-                        WHERE exception_list.routine_name=assessed.routine_name
-                          AND exception_list.search_path=assessed.search_path)
-    UNION ALL
-    SELECT assessed.routine_name || ': listed as an exception but now meets the rule; remove its entry'
-      FROM assessed
-      JOIN exception_list ON exception_list.routine_name=assessed.routine_name
-     WHERE assessed.failure IS NULL
-    UNION ALL
-    SELECT DISTINCT assessed.routine_name || ': listed as an exception but names more than one routine'
-      FROM assessed
-      JOIN exception_list ON exception_list.routine_name=assessed.routine_name
-     WHERE assessed.same_name_count>1
   )
-  SELECT pg_catalog.string_agg(finding, E'\n' ORDER BY finding),
-         (SELECT pg_catalog.count(*) FROM routines),
-         (SELECT pg_catalog.count(*)
-            FROM assessed
-            JOIN exception_list ON exception_list.routine_name=assessed.routine_name
-                               AND exception_list.search_path=assessed.search_path
-           WHERE assessed.failure IS NOT NULL)
-    INTO violations, checked, allowlisted
-    FROM findings;
+  SELECT pg_catalog.string_agg(assessed.routine_name || ': ' || assessed.failure, E'\n'
+                               ORDER BY assessed.routine_name, assessed.failure)
+           FILTER (WHERE assessed.failure IS NOT NULL),
+         pg_catalog.count(*)
+    INTO violations, checked
+    FROM assessed;
 
   IF violations IS NOT NULL THEN
     RAISE EXCEPTION 'SECURITY DEFINER search_path guard failed in database %:%', pg_catalog.current_database(), E'\n' || violations;
   END IF;
-  PERFORM pg_catalog.set_config('vibe.security_definer_guard', checked || ' ' || allowlisted, false);
+  PERFORM pg_catalog.set_config('vibe.security_definer_guard', checked::text, false);
 END
 $security_definer_search_path$;
 
--- What this database contributed, as `<routines checked> <routines excused by the list>`: the
--- chains sum it across databases and fail a run that scanned nothing, so a pass says what it read.
+-- How many routines this database contributed: the chains sum it across databases and fail a run
+-- that scanned nothing, so a pass says what it read.
 SELECT pg_catalog.current_setting('vibe.security_definer_guard');

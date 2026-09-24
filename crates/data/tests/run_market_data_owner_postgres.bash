@@ -224,7 +224,7 @@ done
 
 # Every SECURITY DEFINER routine, in every database the chain materialized, must search pg_temp last
 # and name no schema another role can create in; scripts/ci/check-security-definer-search-path.sql
-# holds the rule and the shrinking list of routines that do not meet it yet.
+# holds the rule, and no routine is exempt from it.
 guard_databases=(postgres)
 for ((guard_ordinal = 1; guard_ordinal <= ${#market_data_owner_postgres_tests[@]}; guard_ordinal++)); do
   guard_databases+=("${database_prefix}_${guard_ordinal}")
