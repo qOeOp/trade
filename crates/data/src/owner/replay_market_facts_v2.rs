@@ -82,13 +82,14 @@ pub struct ReplayCompositionOwnerV1 {
     pub(in crate::owner) rd_role_set_pool: sqlx::PgPool,
 }
 
-/// Move-only exact binding plus its byte-verified Replay facts and Instrument Master cut.
+/// Move-only exact binding plus its byte-verified Replay facts and, for the first corpus, its
+/// Instrument Master cut.
 #[derive(Debug, Eq, PartialEq)]
 pub struct ResolvedReplayCompositionCutV1 {
     binding: ReplayCompositionBindingReadbackV1,
     market_data_scope_digest: BindingDigest,
     market_facts: ReplayMarketFactsReadbackV2,
-    instrument_master: InstrumentMasterReadbackV1,
+    instrument_master: Option<InstrumentMasterReadbackV1>,
 }
 
 impl ResolvedReplayCompositionCutV1 {
@@ -96,7 +97,7 @@ impl ResolvedReplayCompositionCutV1 {
         binding: ReplayCompositionBindingReadbackV1,
         market_data_scope_digest: BindingDigest,
         market_facts: ReplayMarketFactsReadbackV2,
-        instrument_master: InstrumentMasterReadbackV1,
+        instrument_master: Option<InstrumentMasterReadbackV1>,
     ) -> Self {
         Self {
             binding,
@@ -122,9 +123,11 @@ impl ResolvedReplayCompositionCutV1 {
         &self.market_facts
     }
 
+    /// The first corpus's Instrument Master cut; `None` for a universe-member binding, which
+    /// binds no Instrument Master at composition time.
     #[must_use]
-    pub const fn instrument_master(&self) -> &InstrumentMasterReadbackV1 {
-        &self.instrument_master
+    pub const fn instrument_master(&self) -> Option<&InstrumentMasterReadbackV1> {
+        self.instrument_master.as_ref()
     }
 
     #[must_use]
@@ -133,7 +136,7 @@ impl ResolvedReplayCompositionCutV1 {
     ) -> (
         ReplayCompositionBindingReadbackV1,
         ReplayMarketFactsReadbackV2,
-        InstrumentMasterReadbackV1,
+        Option<InstrumentMasterReadbackV1>,
     ) {
         (self.binding, self.market_facts, self.instrument_master)
     }

@@ -2412,9 +2412,6 @@ async fn resolve_bound_replay_cut_from_binding_in_transaction_v1(
     let pit = record
         .native_locator(ReplayCompositionNativeLocatorKindV1::PitSnapshot)
         .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
-    let instrument = record
-        .native_locator(ReplayCompositionNativeLocatorKindV1::InstrumentMaster)
-        .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
     let aggregate = match reader {
         ReplayCutReaderV1::MarketOwner => {
             super::load_pit_for_update(transaction, pit.identity, false)
@@ -2470,6 +2467,41 @@ async fn resolve_bound_replay_cut_from_binding_in_transaction_v1(
         &binding,
         market_facts.facts(),
     )?;
+    // A universe-member binding names no Instrument Master: its members' Instrument Master is
+    // the request-keyed cut issued when R&D first binds the sealed request, never this cut's.
+    let instrument_master = match record.shape() {
+        crate::owner::replay_market_facts_v2::ReplayMarketFactsShapeV2::FirstCorpus => {
+            let instrument = record
+                .native_locator(ReplayCompositionNativeLocatorKindV1::InstrumentMaster)
+                .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
+            Some(
+                Box::pin(resolve_first_corpus_instrument_master_v1(
+                    transaction,
+                    instrument,
+                    reader,
+                ))
+                .await?,
+            )
+        }
+        crate::owner::replay_market_facts_v2::ReplayMarketFactsShapeV2::UniverseMembers => None,
+    };
+    Ok(ResolvedReplayCompositionCutV1::from_owner_resolution(
+        binding,
+        market_data_scope_digest,
+        market_facts,
+        instrument_master,
+    ))
+}
+
+/// The exact Instrument Master cut a first-corpus binding names, read by the binding's reader.
+async fn resolve_first_corpus_instrument_master_v1(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    instrument: crate::owner::replay_market_facts_v2::composition::ReplayCompositionNativeLocatorV1,
+    reader: ReplayCutReaderV1,
+) -> Result<
+    crate::owner::instrument_master::InstrumentMasterReadbackV1,
+    ReplayCompositionBindingErrorV1,
+> {
     let instrument_master = match reader {
         ReplayCutReaderV1::MarketOwner => {
             let instrument_row = sqlx::query(
@@ -2496,12 +2528,7 @@ async fn resolve_bound_replay_cut_from_binding_in_transaction_v1(
     {
         return Err(ReplayCompositionBindingErrorV1::DigestMismatch);
     }
-    Ok(ResolvedReplayCompositionCutV1::from_owner_resolution(
-        binding,
-        market_data_scope_digest,
-        market_facts,
-        instrument_master,
-    ))
+    Ok(instrument_master)
 }
 
 async fn verify_composer_cut_contract_v1(
