@@ -229,6 +229,21 @@ fn native_chain(seed: u8) -> ReplayNativeChainEvidenceV2 {
     )
 }
 
+/// The first corpus as production issues it: the sample projection is the V4 `JOINED_CUT` one.
+fn native_chain_v4(seed: u8) -> ReplayNativeChainEvidenceV2 {
+    let observation =
+        ReplayVerifiedNativeRecordV2::from_verified_native_record(d(seed + 4), d(seed + 24));
+    let joined =
+        ReplayVerifiedNativeRecordV2::from_verified_native_record(d(seed + 5), d(seed + 25));
+    let sample =
+        ReplayVerifiedNativeRecordV2::from_verified_native_record(d(seed + 6), d(seed + 26));
+    ReplayNativeChainEvidenceV2::from_verified_native_records_v4(
+        observation,
+        ReplayVerifiedNativeDerivedRecordV2::from_verified_native_record(joined, observation),
+        ReplayVerifiedNativeDerivedRecordV2::from_verified_native_record(sample, joined),
+    )
+}
+
 fn request(snapshot_byte: u8) -> UntrustedReplayMarketFactsRequestV2 {
     let frontier = UntrustedCompleteFrontier {
         stream_identity: "stream".into(),
@@ -1017,4 +1032,120 @@ fn cumulative_cut_preflight_rejects_before_child_canonical_materialization() {
         },
     );
     assert_eq!(result, Err(ReplayMarketFactsErrorV2::CapacityExceeded));
+}
+
+fn hex(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+
+    bytes.iter().fold(String::new(), |mut text, byte| {
+        write!(text, "{byte:02x}").expect("writing to a String cannot fail");
+        text
+    })
+}
+
+/// Every stored value of one first-corpus Replay facts readback and its bound storage row.
+fn first_corpus_values(v4: bool) -> Vec<(&'static str, String)> {
+    let replay = request(71);
+    let binding = issue_replay_composition_binding_v1(&replay, composition_evidence(1))
+        .expect("complete binding");
+    let chain = if v4 {
+        native_chain_v4(1)
+    } else {
+        native_chain(1)
+    };
+    let readback = compose_replay_market_facts_v2(
+        &super::UntrustedReplayMarketFactsCompositionRequestV1::new(
+            replay,
+            binding.record().locator(),
+        ),
+        &binding,
+        ReplayMarketFactsEvidenceV2 {
+            base_dependencies: dependencies(1),
+            native_chain: chain,
+            reference_cuts: cuts(1, true),
+            stable_correlation: d(41),
+        },
+    )
+    .expect("exact positive composition");
+    let facts = readback.facts();
+    let frontier = facts.frontier();
+    let receipt = readback.receipt();
+    let storage = super::postgres::PreparedReplayMarketFactsStorageV2::from_verified_readback(
+        &readback, &binding,
+    )
+    .expect("bound storage row");
+    let (meaning, custody) = super::postgres::prepared_storage_digests_for_test(&storage);
+    vec![
+        (
+            "frontier bytes length",
+            frontier.canonical_bytes().len().to_string(),
+        ),
+        ("frontier identity", hex(frontier.identity().as_bytes())),
+        ("frontier digest", hex(frontier.digest().as_bytes())),
+        (
+            "facts bytes length",
+            facts.canonical_bytes().len().to_string(),
+        ),
+        ("facts identity", hex(facts.identity().as_bytes())),
+        ("facts digest", hex(facts.digest().as_bytes())),
+        ("receipt bytes", hex(receipt.canonical_bytes())),
+        ("receipt identity", hex(receipt.identity().as_bytes())),
+        ("storage meaning identity", hex(&meaning)),
+        ("storage custody digest", hex(&custody)),
+    ]
+}
+
+/// The first corpus's stored Replay facts, pinned value by value.
+///
+/// Nothing else pins these bytes, and a second facts shape is about to share their codec, their
+/// table and their resolver. Every value below was read twice from c4dd1e05f and must not move:
+/// the frontier and facts identities are BLAKE3 over their domain and canonical bytes, so with the
+/// length they pin the bytes; the receipt is short enough to pin whole. `v4` is the shape production
+/// issues (the V4 `JOINED_CUT` sample projection); the V2 sample projection stays readable.
+#[rstest]
+#[case::v4_joined_cut_sample(
+    true,
+    "c5de3e07e5dd97da0e991b36dcb7ff354175de53e5245461aab046089adee926",
+    "1d6bb486e510ce15d75096c48b03f44900a2a3b0aa13e726809433831500f2bc",
+    "d9ac112680c45d5b78aabde87f9a6cc0ac0ed9239cece8107ceb2d4d4afd6f84",
+    "ba14466ca9d418ff4127a121925830470a894fc3720ae9e88a3cb911577c2c59"
+)]
+#[case::v2_sample(
+    false,
+    "fc94a0c10d4106e4ed7dc462b77589c34413896f6731c244afd42b9217d2ddae",
+    "737d2113f0ca15be9b4a3f861e1491d71351de2c8a40f51ffab627f9b4de9c26",
+    "35629de8afeb350c9434c219ff9257b6c69290ba22d611a61828b75c19297af3",
+    "b7fdf7f7d2bbd9557c59f8506e81d31231724148676dbe9147b59cae11c2f5f0"
+)]
+fn first_corpus_replay_facts_bytes_are_pinned(
+    #[case] v4: bool,
+    #[case] frontier_identity: &str,
+    #[case] facts_identity: &str,
+    #[case] receipt_identity: &str,
+    #[case] custody_digest: &str,
+) {
+    let receipt = [
+        "0002",
+        &"39".repeat(32),
+        facts_identity,
+        frontier_identity,
+        &"29".repeat(32),
+    ]
+    .concat();
+    let expected = vec![
+        ("frontier bytes length", "1022".to_owned()),
+        ("frontier identity", frontier_identity.to_owned()),
+        ("frontier digest", frontier_identity.to_owned()),
+        ("facts bytes length", "4641".to_owned()),
+        ("facts identity", facts_identity.to_owned()),
+        ("facts digest", facts_identity.to_owned()),
+        ("receipt bytes", receipt),
+        ("receipt identity", receipt_identity.to_owned()),
+        (
+            "storage meaning identity",
+            "73ecf59fc069bc4e552eb458a9a6dd761dc626a4952fbafb16c3bfa595b67b1a".to_owned(),
+        ),
+        ("storage custody digest", custody_digest.to_owned()),
+    ];
+    assert_eq!(first_corpus_values(v4), expected);
 }

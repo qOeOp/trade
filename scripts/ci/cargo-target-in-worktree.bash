@@ -19,7 +19,9 @@
 # Fails, naming the fix, unless cargo's target directory is inside this worktree.
 require_cargo_target_inside_worktree() {
   local toplevel target
-  toplevel="$(git rev-parse --show-toplevel)"
+  # A git hook or wrapper can export GIT_DIR, and with it set `--show-toplevel` answers the current
+  # directory rather than the worktree root; this check needs the root, so it ignores both.
+  toplevel="$(env -u GIT_DIR -u GIT_WORK_TREE git rev-parse --show-toplevel)"
   target="$(cargo metadata --format-version 1 --no-deps |
     python3 -c 'import json, os, sys; print(os.path.realpath(json.load(sys.stdin)["target_directory"]))')"
   toplevel="$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$toplevel")"
