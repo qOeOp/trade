@@ -727,7 +727,7 @@ its unchanged canonical bytes, readback and seven-kind frontier. Replay storage 
 the binding identity. Existing unbound rows remain negative-only: they are never backfilled, inferred, selected as
 latest or discovered by a full scan.
 
-**TARGET / IMPLEMENTATION_ADMITTED, universe-member composition binding:** the W3 binding above admits one shape
+**CURRENT/PARTIAL, universe-member composition binding:** the W3 binding above admits one shape
 only, the exact-instrument first corpus, and a Design whose roles are universe members (scope `UniverseSelection`)
 cannot be bound by it, so its Replay V3 request has no binding to carry. Market Data adds a second binding shape for
 that Design and keeps the first byte for byte. The shape is carried by the record and never inferred: the first
@@ -823,8 +823,20 @@ scope's declarations by name. The ordered chain re-reads it as `rd_owner` and re
 transaction opens, because registration writes through the Market Data pool while the re-reads hold locks it would
 wait on. Replay facts of this shape are built: their four-kind frontier and three reference cuts, their storage
 beside the first corpus's, the re-derivation of their universe frame from the PIT batch and a role set, the refusal of
-facts whose shape is not their binding's, and the class refusal at the Instrument Master V2 cut. The binding record and
-resolved cut of this shape are not built, and nothing issues its Replay facts yet.
+facts whose shape is not their binding's, and the class refusal at the Instrument Master V2 cut. The binding of this
+shape is built and issued. A locator-only `ReplayCompositionUniverseBindingIssuanceRequestV1`, on its own route
+`POST /v1/replay-compositions/universe-member-issuances` and hashed under its own meaning domain
+`market-data.replay-composition-universe-issuance-meaning.v1\0`, names the Composer attestation, the PIT request, the
+Source Binding, the replay window, the Universe Selection, the Reference Fact R0 record, Market Semantics and the
+correction policy, and nothing else. It runs in the first corpus's two transactions and challenges without the
+native-join read, and stores the schema 2 binding, its Replay facts and the issuance atomically. A retry returns the
+stored bytes; an issuance identity is one namespace across both shapes and is recovered through the same resolve
+route; and a Design with an exact-instrument declaration is refused by name as a composition shape mismatch, writing
+nothing. Replay facts of this shape are stored only under the universe-member binding issued for exactly their
+request, their native authorities and their frame. The resolved composition cut of this shape carries no Instrument
+Master, and each Strategy Factory reader that needs one refuses it by name as `InstrumentMasterAbsentForUniverseShape`
+(HTTP 422 `INSTRUMENT_MASTER_ABSENT_FOR_UNIVERSE_SHAPE`). A schema 2 binding keys the request's Instrument Master V2
+cut exactly as a first-corpus binding does.
 
 **TARGET, durable R&D attestation seam:** the positive R&D Develop Composer transaction canonically persists one
 immutable complete `StrategyDesignRoleSetReceiptV1` attestation together with the Composer aggregate, receipt and

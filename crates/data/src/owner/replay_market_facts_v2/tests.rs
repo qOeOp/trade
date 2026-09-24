@@ -1586,3 +1586,88 @@ fn a_universe_member_binding_refuses_an_instrument_master_and_a_receipt_of_the_o
         "universe-member bytes restated as schema 1 are not a first-corpus binding"
     );
 }
+
+/// A schema 2 universe-member binding naming `identity`/`digest` as its Universe Selection.
+pub(crate) fn universe_member_binding_over_universe_selection(
+    seed: u8,
+    identity: BindingDigest,
+    digest: BindingDigest,
+) -> super::ReplayCompositionBindingReadbackV1 {
+    let mut evidence = universe_composition_evidence(seed);
+    for locator in &mut evidence.native_locators {
+        if locator.kind == ReplayCompositionNativeLocatorKindV1::UniverseSelection {
+            locator.identity = identity;
+            locator.digest = digest;
+        }
+    }
+    super::composition::issue_universe_member_composition_binding_v1(&request(seed + 70), evidence)
+        .expect("a universe-member binding over the selection")
+}
+
+/// Universe-member facts are stored only under the universe-member binding issued for exactly this
+/// request, these native authorities and this frame; each other binding is refused by name.
+#[rstest]
+fn universe_member_facts_are_stored_only_under_their_own_binding() {
+    use super::composition::{
+        issue_universe_member_composition_binding_v1, require_universe_member_binding_v1,
+    };
+
+    let replay = request(71);
+    let evidence = universe_composition_evidence(1);
+    let frame = evidence.universe_frame_digest;
+    let mut native_locators = evidence.native_locators.clone();
+    let binding = issue_universe_member_composition_binding_v1(&replay, evidence)
+        .expect("a universe-member binding");
+    assert_eq!(
+        require_universe_member_binding_v1(&replay, &binding, &native_locators, frame),
+        Ok(())
+    );
+    native_locators.reverse();
+    assert_eq!(
+        require_universe_member_binding_v1(&replay, &binding, &native_locators, frame),
+        Ok(()),
+        "the locators are compared by kind, not by position"
+    );
+
+    let first_corpus = issue_replay_composition_binding_v1(&replay, composition_evidence(1))
+        .expect("a first-corpus binding of the same request");
+    assert_eq!(
+        require_universe_member_binding_v1(&replay, &first_corpus, &native_locators, frame),
+        Err(ReplayCompositionBindingErrorV1::CompositionShapeMismatch)
+    );
+    assert_eq!(
+        require_universe_member_binding_v1(&request(72), &binding, &native_locators, frame),
+        Err(ReplayCompositionBindingErrorV1::DependencyMismatch),
+        "a binding of another request"
+    );
+    assert_eq!(
+        require_universe_member_binding_v1(&replay, &binding, &native_locators, d(99)),
+        Err(ReplayCompositionBindingErrorV1::UniverseFrameMismatch)
+    );
+
+    let mut other_selection = native_locators.clone();
+    for locator in &mut other_selection {
+        if locator.kind == ReplayCompositionNativeLocatorKindV1::UniverseSelection {
+            locator.digest = d(98);
+        }
+    }
+    assert_eq!(
+        require_universe_member_binding_v1(&replay, &binding, &other_selection, frame),
+        Err(ReplayCompositionBindingErrorV1::DependencyMismatch)
+    );
+    assert_eq!(
+        require_universe_member_binding_v1(&replay, &binding, &native_locators[1..], frame),
+        Err(ReplayCompositionBindingErrorV1::DependencyMismatch),
+        "a binding naming an authority the facts do not"
+    );
+    let mut with_instrument_master = native_locators.clone();
+    with_instrument_master.push(ReplayCompositionNativeLocatorV1 {
+        kind: ReplayCompositionNativeLocatorKindV1::InstrumentMaster,
+        identity: d(97),
+        digest: d(97),
+    });
+    assert_eq!(
+        require_universe_member_binding_v1(&replay, &binding, &with_instrument_master, frame),
+        Err(ReplayCompositionBindingErrorV1::DependencyMismatch)
+    );
+}
