@@ -1674,6 +1674,16 @@ async fn postgres_source_invocation_lifecycle_is_canonical_once_only_and_acl_sea
     assert_eq!(acl, (false, true, false, true, false));
 }
 
+/// A stored Research or Source Intake ancestry column; the (table, trigger) immutability guard set
+/// aside while it changes, if any; the statement that changes it; and the one that restores it.
+#[cfg(feature = "sealed-source-intake-research-acceptance")]
+type ResearchColumnTamper = (
+    &'static str,
+    Option<(&'static str, &'static str)>,
+    &'static str,
+    &'static str,
+);
+
 #[cfg(feature = "sealed-source-intake-research-acceptance")]
 #[tokio::test]
 #[ignore = "requires the canonical isolated R&D Owner PostgreSQL harness"]
@@ -2112,7 +2122,7 @@ async fn postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_r
     .fetch_one(rd_owner)
     .await
     .unwrap();
-    let research_tampers: [(&str, Option<(&str, &str)>, &'static str, &'static str); 14] = [
+    let research_tampers: [ResearchColumnTamper; 14] = [
         (
             "rd_research_request_receipts_v1.semantic_digest",
             None,
