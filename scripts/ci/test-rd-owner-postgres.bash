@@ -2292,6 +2292,12 @@ BINARY
 RD_OWNER_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}" \
   "$schema_materializer" \
   --materialize-schema
+# LANE8 PROOF, NOT FOR MERGE: record the schema the materializer produced, then stop.
+lane8_dump="$(mktemp)"
+docker exec "$container" pg_dump --username postgres --schema-only --dbname "$test_database" > "$lane8_dump"
+echo "LANE8-SCHEMA-DUMP lines=$(wc -l < "$lane8_dump") sha256=$(sha256sum < "$lane8_dump" | cut -c1-64) database=${test_database}"
+grep -c "${test_database}" "$lane8_dump" | sed 's/^/LANE8-SCHEMA-DUMP lines naming the database: /'
+exit 0
 
 docker exec --interactive \
   --env POSTGRES_HOST=127.0.0.1 \
