@@ -155,6 +155,27 @@ Artifact Build Owner's `blake3:` wasm digest; and the request's `artifact.identi
 Artifact Build `blake3:` identity for the commit and Composer's `rd-strategy-artifact-v2-` locator for
 preparation. No v2 request reaches issuance. By the same deployed-service bullet, enabling the feature in the
 ordered chain's acceptance build admits nothing in production.
+- **CURRENT - what a composer-backed Replay stores for each composition shape:** the stored Composer source,
+  `composer_source_json` and the same value inside `frozen_json`, records by its `schema_version` the shape of the
+  Replay composition cut it was composed from. Schema 3 is the first corpus and carries the three Instrument Master
+  fields its cut binds. Schema 4 is the universe-member shape and carries none of them: that shape binds no
+  Instrument Master at composition, which the native initial binding verifies later through the request-keyed
+  Instrument Master V2 cut, so nothing between the two may record one as verified. An absent field is not
+  serialized, so a schema 3 source keeps the bytes it had before schema 4 existed; a unit golden in
+  `exploratory_replay/composition_v3.rs` pins them. The Replay request's `resolved_owner_inputs` is the observation
+  census for the first corpus and the universe frame, whose identity is its BLAKE3 digest, for the universe-member
+  shape. A universe-member frame is re-derived here, not by Market Data: before either the commit or the readback
+  composes, the Design's persisted universe input custody is re-read on the R&D transaction and its frame must be
+  the frame the facts and the binding record. Market Data's resolver holds only the binding, not the Research
+  request and decision cut that re-read needs, so the check sits with this consumer, where the first corpus
+  re-reads its census. Every disagreement is refused by name as a `ComposerReplayShapeRefusalV1`: an unknown
+  source schema, a schema 3 source missing an Instrument Master field, a schema 4 source carrying one, a source
+  schema other than the one its binding's shape records, a binding and facts of different shapes, frames that are
+  not one frame, and a frame the custody no longer re-derives. Schema 4 is only ever written new: no universe-member
+  composition binding could be issued before it, so no stored row has that shape and none is backfilled. The commit
+  and the historical readback both bind the Composer's inputs through the production binding Owner, which re-reads
+  Market Data custody, never the acceptance corpus's fixed frame. No SQL function reads the source sub-object of
+  either column; one that starts to must branch on the source schema first.
 - **CURRENT - one read-only operation is reachable only through the write API:** the Dashboard's operation
   registry declares eleven Owner routes, and ten are `GET`. The eleventh,
   `research_goal.legacy_quarantine_read.v1`, declares `effect_set: []` and resolves to
