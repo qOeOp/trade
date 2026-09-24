@@ -3425,6 +3425,7 @@ fn research_request(identity: &str) -> ProductEdgeResearchGoalRequestV2 {
             capacity_model_identity: "capacity-model-v1".into(),
             independence_rationale: "Owner-resolved predecessor census".into(),
         },
+        instrument_scope: None,
     }
 }
 

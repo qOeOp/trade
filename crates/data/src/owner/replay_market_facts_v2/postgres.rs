@@ -7,17 +7,20 @@ use sqlx::{Postgres, Row, Transaction};
 
 use super::{
     ReplayCorporateActionTermsV2, ReplayMarketDependencyKindV2, ReplayMarketDependencyRefV2,
-    ReplayMarketFactsReadbackV2, ReplayPriceAdjustmentV2, ReplayReferenceFactKindV2,
-    ReplayReferenceFactTimeV2, ReplayReferenceFactValueV2, ReplayTimestampBasisV2,
-    UntrustedReplayMarketFactsRequestV2,
+    ReplayMarketFactsReadbackV2, ReplayMarketFactsShapeV2, ReplayPriceAdjustmentV2,
+    ReplayReferenceFactKindV2, ReplayReferenceFactTimeV2, ReplayReferenceFactValueV2,
+    ReplayTimestampBasisV2, UntrustedReplayMarketFactsRequestV2,
     authority::{
         ReplayMarketFactsEvidenceV2, ReplayNativeChainEvidenceV2, ReplayReferenceFactCutProposalV2,
         ReplayReferenceFactProposalV2, ReplayReferenceFactScopeProposalV2,
-        issue_replay_market_facts_v2,
+        ReplayUniverseMemberFactsEvidenceV2, issue_replay_market_facts_v2,
+        issue_universe_member_replay_market_facts_v2,
     },
     codec::{
         CUT_DOMAIN, FACTS_DOMAIN, FRONTIER_DOMAIN, MAX_AGGREGATE_BYTES, MAX_CUT_BYTES,
-        MAX_FIELD_BYTES, MAX_FRONTIER_BYTES, MAX_RECEIPT_BYTES, RECEIPT_DOMAIN, digest,
+        MAX_FIELD_BYTES, MAX_FRONTIER_BYTES, MAX_RECEIPT_BYTES, RECEIPT_DOMAIN, SCHEMA_VERSION,
+        UNIVERSE_MEMBERS_FACTS_DOMAIN, UNIVERSE_MEMBERS_FRONTIER_DOMAIN,
+        UNIVERSE_MEMBERS_SCHEMA_VERSION, digest,
     },
     composition::{
         ReplayCompositionBindingLocatorV1, ReplayCompositionBindingReadbackV1,
@@ -36,14 +39,26 @@ const OUTBOX_CUSTODY_DOMAIN: &[u8] = b"vibe.market-data.replay-market-facts-outb
 const DIGEST_BYTES: usize = 32;
 const RECEIPT_CANONICAL_BYTES: usize = 2 + 4 * DIGEST_BYTES;
 const REQUIRED_DEPENDENCY_COUNT: usize = 7;
+const UNIVERSE_MEMBER_DEPENDENCY_COUNT: usize = 4;
+/// The shape check exactly as PostgreSQL renders it back; the migration and the read contract both
+/// compare against it, so a check that drifted from this text is refused rather than trusted.
+pub(super) const REPLAY_MARKET_FACTS_SHAPE_CHECK_V2: &str = "CHECK ((((shape = 1) AND (joined_cut_identity IS NOT NULL) AND (joined_cut_digest IS NOT NULL) AND (sample_projection_identity IS NOT NULL) AND (sample_projection_digest IS NOT NULL) AND (universe_frame_identity IS NULL) AND (universe_frame_digest IS NULL)) OR ((shape = 2) AND (joined_cut_identity IS NULL) AND (joined_cut_digest IS NULL) AND (sample_projection_identity IS NULL) AND (sample_projection_digest IS NULL) AND (universe_frame_identity IS NOT NULL) AND (universe_frame_digest IS NOT NULL) AND (composition_binding_identity IS NOT NULL))))";
+const STORAGE_UNIVERSE_MEMBERS_DOMAIN: &[u8] =
+    b"vibe.market-data.replay-market-facts-storage.universe-members.v2\0";
 const RESOLVE_COMPOSITION_BINDING_SOURCE_V1: &str = " SELECT b.binding_identity,b.binding_digest,b.receipt_identity,b.record_bytes,r.receipt_bytes,o.outbox_identity,o.binding_identity,o.receipt_identity,o.payload_bytes FROM market_data_private.replay_composition_bindings_v1 AS b JOIN market_data_private.replay_composition_binding_receipts_v1 AS r ON r.binding_identity=b.binding_identity JOIN market_data_private.replay_composition_binding_outbox_v1 AS o ON o.binding_identity=b.binding_identity WHERE b.binding_identity=p_binding_identity ";
 const RESOLVE_BOUND_REPLAY_FACTS_SOURCE_V1: &str = " SELECT f.facts_identity,f.meaning_identity,f.composition_binding_identity,f.request_identity,f.request_digest,f.frontier_identity,f.receipt_identity,f.universe_selection_identity,f.universe_selection_digest,f.joined_cut_identity,f.joined_cut_digest,f.sample_projection_identity,f.sample_projection_digest,f.facts_bytes,f.frontier_bytes,r.receipt_bytes,f.custody_digest,f.append_sequence,r.facts_identity,r.meaning_identity,r.append_sequence,r.manifest_digest,r.custody_digest,o.outbox_identity,o.facts_identity,o.receipt_identity,o.payload_digest,o.payload_bytes,o.append_sequence,o.manifest_digest,o.custody_digest,s.store_generation_identity,s.append_sequence,(SELECT COUNT(*) FROM market_data_private.replay_market_facts_v2),(SELECT COUNT(*) FROM market_data_private.replay_market_facts_receipts_v2),(SELECT COUNT(*) FROM market_data_private.replay_market_facts_outbox_v2),(SELECT COALESCE(MAX(append_sequence),0) FROM market_data_private.replay_market_facts_v2),(SELECT COALESCE(MAX(append_sequence),0) FROM market_data_private.replay_market_facts_receipts_v2),(SELECT COALESCE(MAX(append_sequence),0) FROM market_data_private.replay_market_facts_outbox_v2) FROM market_data_private.replay_market_facts_v2 AS f JOIN market_data_private.replay_market_facts_receipts_v2 AS r ON r.facts_identity=f.facts_identity JOIN market_data_private.replay_market_facts_outbox_v2 AS o ON o.facts_identity=f.facts_identity CROSS JOIN market_data_private.replay_market_facts_state_v2 AS s WHERE s.singleton AND f.meaning_identity=p_meaning_identity ";
+const RESOLVE_BOUND_REPLAY_FACTS_SOURCE_V2: &str = " SELECT f.facts_identity,f.meaning_identity,f.composition_binding_identity,f.request_identity,f.request_digest,f.frontier_identity,f.receipt_identity,f.universe_selection_identity,f.universe_selection_digest,f.joined_cut_identity,f.joined_cut_digest,f.sample_projection_identity,f.sample_projection_digest,f.shape,f.universe_frame_identity,f.universe_frame_digest,f.facts_bytes,f.frontier_bytes,r.receipt_bytes,f.custody_digest,f.append_sequence,r.facts_identity,r.meaning_identity,r.append_sequence,r.manifest_digest,r.custody_digest,o.outbox_identity,o.facts_identity,o.receipt_identity,o.payload_digest,o.payload_bytes,o.append_sequence,o.manifest_digest,o.custody_digest,s.store_generation_identity,s.append_sequence,(SELECT COUNT(*) FROM market_data_private.replay_market_facts_v2),(SELECT COUNT(*) FROM market_data_private.replay_market_facts_receipts_v2),(SELECT COUNT(*) FROM market_data_private.replay_market_facts_outbox_v2),(SELECT COALESCE(MAX(append_sequence),0) FROM market_data_private.replay_market_facts_v2),(SELECT COALESCE(MAX(append_sequence),0) FROM market_data_private.replay_market_facts_receipts_v2),(SELECT COALESCE(MAX(append_sequence),0) FROM market_data_private.replay_market_facts_outbox_v2) FROM market_data_private.replay_market_facts_v2 AS f JOIN market_data_private.replay_market_facts_receipts_v2 AS r ON r.facts_identity=f.facts_identity JOIN market_data_private.replay_market_facts_outbox_v2 AS o ON o.facts_identity=f.facts_identity CROSS JOIN market_data_private.replay_market_facts_state_v2 AS s WHERE s.singleton AND f.meaning_identity=p_meaning_identity ";
 
-pub(crate) const REPLAY_MARKET_FACTS_SCHEMA_V2: [&str; 20] = [
+pub(crate) const REPLAY_MARKET_FACTS_SCHEMA_V2: [&str; 23] = [
     "CREATE TABLE IF NOT EXISTS market_data_private.replay_market_facts_state_v2 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), store_generation_identity BYTEA NOT NULL CHECK (octet_length(store_generation_identity)=32), append_sequence BIGINT NOT NULL CHECK (append_sequence>=0))",
     "CREATE TABLE IF NOT EXISTS market_data_private.replay_market_facts_v2 (facts_identity BYTEA PRIMARY KEY CHECK (octet_length(facts_identity)=32), meaning_identity BYTEA UNIQUE NOT NULL CHECK (octet_length(meaning_identity)=32), composition_binding_identity BYTEA NULL CHECK (composition_binding_identity IS NULL OR octet_length(composition_binding_identity)=32), request_identity BYTEA NOT NULL CHECK (octet_length(request_identity)=32), request_digest BYTEA NOT NULL CHECK (octet_length(request_digest)=32), frontier_identity BYTEA NOT NULL CHECK (octet_length(frontier_identity)=32), receipt_identity BYTEA UNIQUE NOT NULL CHECK (octet_length(receipt_identity)=32), universe_selection_identity BYTEA NOT NULL CHECK (octet_length(universe_selection_identity)=32), universe_selection_digest BYTEA NOT NULL CHECK (octet_length(universe_selection_digest)=32), joined_cut_identity BYTEA NOT NULL CHECK (octet_length(joined_cut_identity)=32), joined_cut_digest BYTEA NOT NULL CHECK (octet_length(joined_cut_digest)=32), sample_projection_identity BYTEA NOT NULL CHECK (octet_length(sample_projection_identity)=32), sample_projection_digest BYTEA NOT NULL CHECK (octet_length(sample_projection_digest)=32), facts_bytes BYTEA NOT NULL CHECK (octet_length(facts_bytes)>0 AND octet_length(facts_bytes)<=33554432), frontier_bytes BYTEA NOT NULL CHECK (octet_length(frontier_bytes)>0 AND octet_length(frontier_bytes)<=65536), append_sequence BIGINT UNIQUE NOT NULL CHECK (append_sequence>0), custody_digest BYTEA NOT NULL CHECK (octet_length(custody_digest)=32))",
     "ALTER TABLE market_data_private.replay_market_facts_v2 ADD COLUMN IF NOT EXISTS composition_binding_identity BYTEA NULL CHECK (composition_binding_identity IS NULL OR octet_length(composition_binding_identity)=32)",
     "CREATE UNIQUE INDEX IF NOT EXISTS replay_market_facts_binding_v1 ON market_data_private.replay_market_facts_v2(composition_binding_identity) WHERE composition_binding_identity IS NOT NULL",
+    // The universe-member shape binds no joined cut or sample projection but a universe frame, so
+    // the table states each row's shape and a named check keeps every row's columns to it. The
+    // table is read from the catalog and changed only from its exact legacy shape; any other shape
+    // stops the migration instead of being guessed at, and the result is checked before it commits.
+    "DO $replay_market_facts_shape$ DECLARE current_check CONSTANT TEXT := 'CHECK ((((shape = 1) AND (joined_cut_identity IS NOT NULL) AND (joined_cut_digest IS NOT NULL) AND (sample_projection_identity IS NOT NULL) AND (sample_projection_digest IS NOT NULL) AND (universe_frame_identity IS NULL) AND (universe_frame_digest IS NULL)) OR ((shape = 2) AND (joined_cut_identity IS NULL) AND (joined_cut_digest IS NULL) AND (sample_projection_identity IS NULL) AND (sample_projection_digest IS NULL) AND (universe_frame_identity IS NOT NULL) AND (universe_frame_digest IS NOT NULL) AND (composition_binding_identity IS NOT NULL))))'; joined_required BOOLEAN; has_shape BOOLEAN; BEGIN SELECT a.attnotnull INTO joined_required FROM pg_catalog.pg_attribute a WHERE a.attrelid = 'market_data_private.replay_market_facts_v2'::regclass AND a.attname = 'joined_cut_identity' AND NOT a.attisdropped; SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a WHERE a.attrelid = 'market_data_private.replay_market_facts_v2'::regclass AND a.attname = 'shape' AND NOT a.attisdropped) INTO has_shape; IF joined_required IS NULL THEN RAISE EXCEPTION 'unknown Replay market facts table shape'; ELSIF joined_required AND NOT has_shape THEN ALTER TABLE market_data_private.replay_market_facts_v2 ADD COLUMN shape SMALLINT NOT NULL DEFAULT 1; ALTER TABLE market_data_private.replay_market_facts_v2 ALTER COLUMN shape DROP DEFAULT; ALTER TABLE market_data_private.replay_market_facts_v2 ADD COLUMN universe_frame_identity BYTEA NULL CHECK (octet_length(universe_frame_identity)=32), ADD COLUMN universe_frame_digest BYTEA NULL CHECK (octet_length(universe_frame_digest)=32), ALTER COLUMN joined_cut_identity DROP NOT NULL, ALTER COLUMN joined_cut_digest DROP NOT NULL, ALTER COLUMN sample_projection_identity DROP NOT NULL, ALTER COLUMN sample_projection_digest DROP NOT NULL; ALTER TABLE market_data_private.replay_market_facts_v2 ADD CONSTRAINT replay_market_facts_shape_v2 CHECK ((shape=1 AND joined_cut_identity IS NOT NULL AND joined_cut_digest IS NOT NULL AND sample_projection_identity IS NOT NULL AND sample_projection_digest IS NOT NULL AND universe_frame_identity IS NULL AND universe_frame_digest IS NULL) OR (shape=2 AND joined_cut_identity IS NULL AND joined_cut_digest IS NULL AND sample_projection_identity IS NULL AND sample_projection_digest IS NULL AND universe_frame_identity IS NOT NULL AND universe_frame_digest IS NOT NULL AND composition_binding_identity IS NOT NULL)); ELSIF joined_required OR NOT has_shape THEN RAISE EXCEPTION 'Replay market facts table is in neither its legacy nor its current shape'; END IF; IF (SELECT count(*) FROM pg_catalog.pg_constraint c WHERE c.conrelid = 'market_data_private.replay_market_facts_v2'::regclass AND c.conname = 'replay_market_facts_shape_v2' AND pg_catalog.pg_get_constraintdef(c.oid) = current_check) <> 1 OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a WHERE a.attrelid = 'market_data_private.replay_market_facts_v2'::regclass AND a.attname = 'shape' AND a.attnotnull AND NOT a.atthasdef AND NOT a.attisdropped) THEN RAISE EXCEPTION 'Replay market facts table did not reach its current shape'; END IF; END $replay_market_facts_shape$",
     "CREATE TABLE IF NOT EXISTS market_data_private.replay_market_facts_receipts_v2 (receipt_identity BYTEA PRIMARY KEY CHECK (octet_length(receipt_identity)=32), facts_identity BYTEA UNIQUE NOT NULL REFERENCES market_data_private.replay_market_facts_v2(facts_identity), meaning_identity BYTEA UNIQUE NOT NULL CHECK (octet_length(meaning_identity)=32), receipt_bytes BYTEA NOT NULL CHECK (octet_length(receipt_bytes)=130), append_sequence BIGINT UNIQUE NOT NULL CHECK (append_sequence>0), manifest_digest BYTEA NOT NULL CHECK (octet_length(manifest_digest)=32), custody_digest BYTEA NOT NULL CHECK (octet_length(custody_digest)=32))",
     "CREATE TABLE IF NOT EXISTS market_data_private.replay_market_facts_outbox_v2 (outbox_identity BYTEA PRIMARY KEY CHECK (octet_length(outbox_identity)=32), facts_identity BYTEA UNIQUE NOT NULL REFERENCES market_data_private.replay_market_facts_v2(facts_identity), receipt_identity BYTEA UNIQUE NOT NULL REFERENCES market_data_private.replay_market_facts_receipts_v2(receipt_identity), payload_digest BYTEA NOT NULL CHECK (octet_length(payload_digest)=32), payload_bytes BYTEA NOT NULL CHECK (octet_length(payload_bytes)=130), append_sequence BIGINT UNIQUE NOT NULL CHECK (append_sequence>0), manifest_digest BYTEA NOT NULL CHECK (octet_length(manifest_digest)=32), custody_digest BYTEA NOT NULL CHECK (octet_length(custody_digest)=32))",
     "CREATE TABLE IF NOT EXISTS market_data_private.replay_composition_bindings_v1 (binding_identity BYTEA PRIMARY KEY CHECK (octet_length(binding_identity)=32), binding_digest BYTEA UNIQUE NOT NULL CHECK (octet_length(binding_digest)=32), receipt_identity BYTEA UNIQUE NOT NULL CHECK (octet_length(receipt_identity)=32), record_bytes BYTEA NOT NULL CHECK (octet_length(record_bytes)>0 AND octet_length(record_bytes)<=1048576))",
@@ -51,6 +66,7 @@ pub(crate) const REPLAY_MARKET_FACTS_SCHEMA_V2: [&str; 20] = [
     "CREATE TABLE IF NOT EXISTS market_data_private.replay_composition_binding_outbox_v1 (outbox_identity BYTEA PRIMARY KEY CHECK (octet_length(outbox_identity)=32), binding_identity BYTEA UNIQUE NOT NULL REFERENCES market_data_private.replay_composition_bindings_v1(binding_identity) ON DELETE RESTRICT, receipt_identity BYTEA UNIQUE NOT NULL REFERENCES market_data_private.replay_composition_binding_receipts_v1(receipt_identity) ON DELETE RESTRICT, payload_bytes BYTEA NOT NULL CHECK (octet_length(payload_bytes)=98))",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_replay_composition_binding_v1(p_binding_identity BYTEA) RETURNS TABLE(binding_identity BYTEA,binding_digest BYTEA,receipt_identity BYTEA,record_bytes BYTEA,receipt_bytes BYTEA,outbox_identity BYTEA,outbox_binding_identity BYTEA,outbox_receipt_identity BYTEA,outbox_bytes BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog, pg_temp AS $function$ SELECT b.binding_identity,b.binding_digest,b.receipt_identity,b.record_bytes,r.receipt_bytes,o.outbox_identity,o.binding_identity,o.receipt_identity,o.payload_bytes FROM market_data_private.replay_composition_bindings_v1 AS b JOIN market_data_private.replay_composition_binding_receipts_v1 AS r ON r.binding_identity=b.binding_identity JOIN market_data_private.replay_composition_binding_outbox_v1 AS o ON o.binding_identity=b.binding_identity WHERE b.binding_identity=p_binding_identity $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_replay_market_facts_bound_storage_v1(p_meaning_identity BYTEA) RETURNS TABLE(facts_identity BYTEA,meaning_identity BYTEA,composition_binding_identity BYTEA,request_identity BYTEA,request_digest BYTEA,frontier_identity BYTEA,receipt_identity BYTEA,universe_selection_identity BYTEA,universe_selection_digest BYTEA,joined_cut_identity BYTEA,joined_cut_digest BYTEA,sample_projection_identity BYTEA,sample_projection_digest BYTEA,facts_bytes BYTEA,frontier_bytes BYTEA,receipt_bytes BYTEA,custody_digest BYTEA,append_sequence BIGINT,receipt_facts_identity BYTEA,receipt_meaning_identity BYTEA,receipt_append_sequence BIGINT,receipt_manifest_digest BYTEA,receipt_custody_digest BYTEA,outbox_identity BYTEA,outbox_facts_identity BYTEA,outbox_receipt_identity BYTEA,outbox_payload_digest BYTEA,outbox_payload_bytes BYTEA,outbox_append_sequence BIGINT,outbox_manifest_digest BYTEA,outbox_custody_digest BYTEA,store_generation_identity BYTEA,state_append_sequence BIGINT,fact_count BIGINT,receipt_count BIGINT,outbox_count BIGINT,fact_max_sequence BIGINT,receipt_max_sequence BIGINT,outbox_max_sequence BIGINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog, pg_temp AS $function$ SELECT f.facts_identity,f.meaning_identity,f.composition_binding_identity,f.request_identity,f.request_digest,f.frontier_identity,f.receipt_identity,f.universe_selection_identity,f.universe_selection_digest,f.joined_cut_identity,f.joined_cut_digest,f.sample_projection_identity,f.sample_projection_digest,f.facts_bytes,f.frontier_bytes,r.receipt_bytes,f.custody_digest,f.append_sequence,r.facts_identity,r.meaning_identity,r.append_sequence,r.manifest_digest,r.custody_digest,o.outbox_identity,o.facts_identity,o.receipt_identity,o.payload_digest,o.payload_bytes,o.append_sequence,o.manifest_digest,o.custody_digest,s.store_generation_identity,s.append_sequence,(SELECT COUNT(*) FROM market_data_private.replay_market_facts_v2),(SELECT COUNT(*) FROM market_data_private.replay_market_facts_receipts_v2),(SELECT COUNT(*) FROM market_data_private.replay_market_facts_outbox_v2),(SELECT COALESCE(MAX(append_sequence),0) FROM market_data_private.replay_market_facts_v2),(SELECT COALESCE(MAX(append_sequence),0) FROM market_data_private.replay_market_facts_receipts_v2),(SELECT COALESCE(MAX(append_sequence),0) FROM market_data_private.replay_market_facts_outbox_v2) FROM market_data_private.replay_market_facts_v2 AS f JOIN market_data_private.replay_market_facts_receipts_v2 AS r ON r.facts_identity=f.facts_identity JOIN market_data_private.replay_market_facts_outbox_v2 AS o ON o.facts_identity=f.facts_identity CROSS JOIN market_data_private.replay_market_facts_state_v2 AS s WHERE s.singleton AND f.meaning_identity=p_meaning_identity $function$",
+    "CREATE OR REPLACE FUNCTION market_data_private.resolve_replay_market_facts_bound_storage_v2(p_meaning_identity BYTEA) RETURNS TABLE(facts_identity BYTEA,meaning_identity BYTEA,composition_binding_identity BYTEA,request_identity BYTEA,request_digest BYTEA,frontier_identity BYTEA,receipt_identity BYTEA,universe_selection_identity BYTEA,universe_selection_digest BYTEA,joined_cut_identity BYTEA,joined_cut_digest BYTEA,sample_projection_identity BYTEA,sample_projection_digest BYTEA,shape SMALLINT,universe_frame_identity BYTEA,universe_frame_digest BYTEA,facts_bytes BYTEA,frontier_bytes BYTEA,receipt_bytes BYTEA,custody_digest BYTEA,append_sequence BIGINT,receipt_facts_identity BYTEA,receipt_meaning_identity BYTEA,receipt_append_sequence BIGINT,receipt_manifest_digest BYTEA,receipt_custody_digest BYTEA,outbox_identity BYTEA,outbox_facts_identity BYTEA,outbox_receipt_identity BYTEA,outbox_payload_digest BYTEA,outbox_payload_bytes BYTEA,outbox_append_sequence BIGINT,outbox_manifest_digest BYTEA,outbox_custody_digest BYTEA,store_generation_identity BYTEA,state_append_sequence BIGINT,fact_count BIGINT,receipt_count BIGINT,outbox_count BIGINT,fact_max_sequence BIGINT,receipt_max_sequence BIGINT,outbox_max_sequence BIGINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog, pg_temp AS $function$ SELECT f.facts_identity,f.meaning_identity,f.composition_binding_identity,f.request_identity,f.request_digest,f.frontier_identity,f.receipt_identity,f.universe_selection_identity,f.universe_selection_digest,f.joined_cut_identity,f.joined_cut_digest,f.sample_projection_identity,f.sample_projection_digest,f.shape,f.universe_frame_identity,f.universe_frame_digest,f.facts_bytes,f.frontier_bytes,r.receipt_bytes,f.custody_digest,f.append_sequence,r.facts_identity,r.meaning_identity,r.append_sequence,r.manifest_digest,r.custody_digest,o.outbox_identity,o.facts_identity,o.receipt_identity,o.payload_digest,o.payload_bytes,o.append_sequence,o.manifest_digest,o.custody_digest,s.store_generation_identity,s.append_sequence,(SELECT COUNT(*) FROM market_data_private.replay_market_facts_v2),(SELECT COUNT(*) FROM market_data_private.replay_market_facts_receipts_v2),(SELECT COUNT(*) FROM market_data_private.replay_market_facts_outbox_v2),(SELECT COALESCE(MAX(append_sequence),0) FROM market_data_private.replay_market_facts_v2),(SELECT COALESCE(MAX(append_sequence),0) FROM market_data_private.replay_market_facts_receipts_v2),(SELECT COALESCE(MAX(append_sequence),0) FROM market_data_private.replay_market_facts_outbox_v2) FROM market_data_private.replay_market_facts_v2 AS f JOIN market_data_private.replay_market_facts_receipts_v2 AS r ON r.facts_identity=f.facts_identity JOIN market_data_private.replay_market_facts_outbox_v2 AS o ON o.facts_identity=f.facts_identity CROSS JOIN market_data_private.replay_market_facts_state_v2 AS s WHERE s.singleton AND f.meaning_identity=p_meaning_identity $function$",
     "REVOKE ALL ON TABLE market_data_private.replay_market_facts_v2 FROM PUBLIC",
     "REVOKE ALL ON TABLE market_data_private.replay_market_facts_receipts_v2 FROM PUBLIC",
     "REVOKE ALL ON TABLE market_data_private.replay_market_facts_outbox_v2 FROM PUBLIC",
@@ -60,6 +76,7 @@ pub(crate) const REPLAY_MARKET_FACTS_SCHEMA_V2: [&str; 20] = [
     "REVOKE ALL ON TABLE market_data_private.replay_composition_binding_outbox_v1 FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_replay_composition_binding_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_replay_market_facts_bound_storage_v1(BYTEA) FROM PUBLIC",
+    "REVOKE ALL ON FUNCTION market_data_private.resolve_replay_market_facts_bound_storage_v2(BYTEA) FROM PUBLIC",
 ];
 
 /// The R&D transaction can lock one exact Market Data binding without receiving table privileges.
@@ -76,18 +93,22 @@ pub(crate) const REPLAY_MARKET_RD_CUT_API_SCHEMA_V1: &[&str] = &[
     "CREATE OR REPLACE FUNCTION market_data_rd_api.lock_pit_snapshot_for_replay_v1(p_snapshot_identity BYTEA) RETURNS TABLE(row_identity BYTEA,fact_digest BYTEA,request_identity BYTEA,request_digest BYTEA,correction_stream_identity TEXT,correction_sequence BIGINT,fact_lineage_root BYTEA,fact_lineage_version BIGINT,aggregate_json JSONB,outbox_event_identity BYTEA,outbox_aggregate_identity BYTEA,outbox_payload BYTEA,outbox_digest BYTEA,head_lineage_root BYTEA,head_identity BYTEA,head_digest BYTEA,head_version BIGINT) LANGUAGE SQL VOLATILE SECURITY DEFINER SET search_path=pg_catalog, pg_temp AS $function$ SELECT f.snapshot_identity,f.fact_digest,f.request_identity,f.request_digest,f.correction_stream_identity,f.correction_sequence,f.lineage_root,f.lineage_version,f.aggregate_json,o.event_identity,o.aggregate_identity,o.payload,o.payload_digest,h.lineage_root,h.snapshot_identity,h.fact_digest,h.lineage_version FROM market_data_private.pit_snapshot_facts_v1 AS f JOIN market_data_private.pit_snapshot_outbox_v1 AS o ON o.aggregate_identity=f.snapshot_identity JOIN market_data_private.pit_snapshot_heads_v1 AS h ON h.lineage_root=f.lineage_root WHERE f.snapshot_identity=p_snapshot_identity FOR SHARE OF f,o,h $function$",
     "CREATE OR REPLACE FUNCTION market_data_rd_api.lock_instrument_master_for_replay_v1(p_cut_identity BYTEA) RETURNS TABLE(request_identity BYTEA,request_meaning_digest BYTEA,receipt_identity BYTEA,receipt_bytes BYTEA,append_sequence BIGINT,cut_identity BYTEA,cut_bytes BYTEA,outbox_identity BYTEA,outbox_receipt_bytes BYTEA,store_generation_identity BYTEA,state_append_sequence BIGINT,cut_count BIGINT,receipt_count BIGINT,outbox_count BIGINT) LANGUAGE SQL VOLATILE SECURITY DEFINER SET search_path=pg_catalog, pg_temp AS $function$ SELECT r.request_identity,r.request_meaning_digest,r.receipt_identity,r.receipt_bytes,r.append_sequence,c.cut_identity,c.cut_bytes,o.outbox_identity,o.receipt_bytes,s.store_generation_identity,s.append_sequence,(SELECT COUNT(*) FROM market_data_private.instrument_master_cuts_v1),(SELECT COUNT(*) FROM market_data_private.instrument_master_receipts_v1),(SELECT COUNT(*) FROM market_data_private.instrument_master_outbox_v1) FROM market_data_private.instrument_master_receipts_v1 AS r JOIN market_data_private.instrument_master_cuts_v1 AS c ON c.request_identity=r.request_identity AND c.cut_identity=r.cut_identity JOIN market_data_private.instrument_master_outbox_v1 AS o ON o.request_identity=r.request_identity AND o.outbox_identity=r.receipt_identity CROSS JOIN market_data_private.instrument_master_state_v1 AS s WHERE s.singleton AND c.cut_identity=p_cut_identity FOR SHARE OF r,c,o,s $function$",
     "CREATE OR REPLACE FUNCTION market_data_rd_api.lock_replay_market_facts_for_replay_v1(p_binding_identity BYTEA) RETURNS TABLE(facts_identity BYTEA,meaning_identity BYTEA,composition_binding_identity BYTEA,request_identity BYTEA,request_digest BYTEA,frontier_identity BYTEA,receipt_identity BYTEA,universe_selection_identity BYTEA,universe_selection_digest BYTEA,joined_cut_identity BYTEA,joined_cut_digest BYTEA,sample_projection_identity BYTEA,sample_projection_digest BYTEA,facts_bytes BYTEA,frontier_bytes BYTEA,receipt_bytes BYTEA,custody_digest BYTEA,append_sequence BIGINT,receipt_facts_identity BYTEA,receipt_meaning_identity BYTEA,receipt_append_sequence BIGINT,receipt_manifest_digest BYTEA,receipt_custody_digest BYTEA,outbox_identity BYTEA,outbox_facts_identity BYTEA,outbox_receipt_identity BYTEA,outbox_payload_digest BYTEA,outbox_payload_bytes BYTEA,outbox_append_sequence BIGINT,outbox_manifest_digest BYTEA,outbox_custody_digest BYTEA,store_generation_identity BYTEA,state_append_sequence BIGINT,fact_count BIGINT,receipt_count BIGINT,outbox_count BIGINT,fact_max_sequence BIGINT,receipt_max_sequence BIGINT,outbox_max_sequence BIGINT) LANGUAGE SQL VOLATILE SECURITY DEFINER SET search_path=pg_catalog, pg_temp AS $function$ SELECT f.facts_identity,f.meaning_identity,f.composition_binding_identity,f.request_identity,f.request_digest,f.frontier_identity,f.receipt_identity,f.universe_selection_identity,f.universe_selection_digest,f.joined_cut_identity,f.joined_cut_digest,f.sample_projection_identity,f.sample_projection_digest,f.facts_bytes,f.frontier_bytes,r.receipt_bytes,f.custody_digest,f.append_sequence,r.facts_identity,r.meaning_identity,r.append_sequence,r.manifest_digest,r.custody_digest,o.outbox_identity,o.facts_identity,o.receipt_identity,o.payload_digest,o.payload_bytes,o.append_sequence,o.manifest_digest,o.custody_digest,s.store_generation_identity,s.append_sequence,(SELECT COUNT(*) FROM market_data_private.replay_market_facts_v2),(SELECT COUNT(*) FROM market_data_private.replay_market_facts_receipts_v2),(SELECT COUNT(*) FROM market_data_private.replay_market_facts_outbox_v2),(SELECT COALESCE(MAX(append_sequence),0) FROM market_data_private.replay_market_facts_v2),(SELECT COALESCE(MAX(append_sequence),0) FROM market_data_private.replay_market_facts_receipts_v2),(SELECT COALESCE(MAX(append_sequence),0) FROM market_data_private.replay_market_facts_outbox_v2) FROM market_data_private.replay_market_facts_v2 AS f JOIN market_data_private.replay_market_facts_receipts_v2 AS r ON r.facts_identity=f.facts_identity JOIN market_data_private.replay_market_facts_outbox_v2 AS o ON o.facts_identity=f.facts_identity CROSS JOIN market_data_private.replay_market_facts_state_v2 AS s WHERE s.singleton AND f.composition_binding_identity=p_binding_identity FOR SHARE OF f,r,o,s $function$",
+    // A binary built before the universe-member shape keeps reading `_v1`, whose text is unchanged
+    // so its transport probe still passes; everything current reads `_v2`, which states the shape.
+    "CREATE OR REPLACE FUNCTION market_data_rd_api.lock_replay_market_facts_for_replay_v2(p_binding_identity BYTEA) RETURNS TABLE(facts_identity BYTEA,meaning_identity BYTEA,composition_binding_identity BYTEA,request_identity BYTEA,request_digest BYTEA,frontier_identity BYTEA,receipt_identity BYTEA,universe_selection_identity BYTEA,universe_selection_digest BYTEA,joined_cut_identity BYTEA,joined_cut_digest BYTEA,sample_projection_identity BYTEA,sample_projection_digest BYTEA,shape SMALLINT,universe_frame_identity BYTEA,universe_frame_digest BYTEA,facts_bytes BYTEA,frontier_bytes BYTEA,receipt_bytes BYTEA,custody_digest BYTEA,append_sequence BIGINT,receipt_facts_identity BYTEA,receipt_meaning_identity BYTEA,receipt_append_sequence BIGINT,receipt_manifest_digest BYTEA,receipt_custody_digest BYTEA,outbox_identity BYTEA,outbox_facts_identity BYTEA,outbox_receipt_identity BYTEA,outbox_payload_digest BYTEA,outbox_payload_bytes BYTEA,outbox_append_sequence BIGINT,outbox_manifest_digest BYTEA,outbox_custody_digest BYTEA,store_generation_identity BYTEA,state_append_sequence BIGINT,fact_count BIGINT,receipt_count BIGINT,outbox_count BIGINT,fact_max_sequence BIGINT,receipt_max_sequence BIGINT,outbox_max_sequence BIGINT) LANGUAGE SQL VOLATILE SECURITY DEFINER SET search_path=pg_catalog, pg_temp AS $function$ SELECT f.facts_identity,f.meaning_identity,f.composition_binding_identity,f.request_identity,f.request_digest,f.frontier_identity,f.receipt_identity,f.universe_selection_identity,f.universe_selection_digest,f.joined_cut_identity,f.joined_cut_digest,f.sample_projection_identity,f.sample_projection_digest,f.shape,f.universe_frame_identity,f.universe_frame_digest,f.facts_bytes,f.frontier_bytes,r.receipt_bytes,f.custody_digest,f.append_sequence,r.facts_identity,r.meaning_identity,r.append_sequence,r.manifest_digest,r.custody_digest,o.outbox_identity,o.facts_identity,o.receipt_identity,o.payload_digest,o.payload_bytes,o.append_sequence,o.manifest_digest,o.custody_digest,s.store_generation_identity,s.append_sequence,(SELECT COUNT(*) FROM market_data_private.replay_market_facts_v2),(SELECT COUNT(*) FROM market_data_private.replay_market_facts_receipts_v2),(SELECT COUNT(*) FROM market_data_private.replay_market_facts_outbox_v2),(SELECT COALESCE(MAX(append_sequence),0) FROM market_data_private.replay_market_facts_v2),(SELECT COALESCE(MAX(append_sequence),0) FROM market_data_private.replay_market_facts_receipts_v2),(SELECT COALESCE(MAX(append_sequence),0) FROM market_data_private.replay_market_facts_outbox_v2) FROM market_data_private.replay_market_facts_v2 AS f JOIN market_data_private.replay_market_facts_receipts_v2 AS r ON r.facts_identity=f.facts_identity JOIN market_data_private.replay_market_facts_outbox_v2 AS o ON o.facts_identity=f.facts_identity CROSS JOIN market_data_private.replay_market_facts_state_v2 AS s WHERE s.singleton AND f.composition_binding_identity=p_binding_identity FOR SHARE OF f,r,o,s $function$",
     "REVOKE ALL ON FUNCTION market_data_rd_api.lock_replay_composition_binding_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_rd_api.lock_replay_market_facts_for_replay_v1(BYTEA) FROM PUBLIC",
+    "REVOKE ALL ON FUNCTION market_data_rd_api.lock_replay_market_facts_for_replay_v2(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_rd_api.lock_pit_snapshot_for_replay_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_rd_api.lock_instrument_master_for_replay_v1(BYTEA) FROM PUBLIC",
-    "DO $grant$ BEGIN IF pg_catalog.to_regrole('rd_owner') IS NOT NULL THEN GRANT USAGE ON SCHEMA market_data_rd_api TO rd_owner; GRANT EXECUTE ON FUNCTION market_data_rd_api.lock_replay_composition_binding_v1(BYTEA), market_data_rd_api.lock_pit_snapshot_for_replay_v1(BYTEA), market_data_rd_api.lock_instrument_master_for_replay_v1(BYTEA), market_data_rd_api.lock_replay_market_facts_for_replay_v1(BYTEA) TO rd_owner; END IF; END $grant$",
+    "DO $grant$ BEGIN IF pg_catalog.to_regrole('rd_owner') IS NOT NULL THEN GRANT USAGE ON SCHEMA market_data_rd_api TO rd_owner; GRANT EXECUTE ON FUNCTION market_data_rd_api.lock_replay_composition_binding_v1(BYTEA), market_data_rd_api.lock_pit_snapshot_for_replay_v1(BYTEA), market_data_rd_api.lock_instrument_master_for_replay_v1(BYTEA), market_data_rd_api.lock_replay_market_facts_for_replay_v1(BYTEA), market_data_rd_api.lock_replay_market_facts_for_replay_v2(BYTEA) TO rd_owner; END IF; END $grant$",
 ];
 
-const INSERT_REPLAY_MARKET_FACTS_V2: &str = "INSERT INTO market_data_private.replay_market_facts_v2(facts_identity,meaning_identity,composition_binding_identity,request_identity,request_digest,frontier_identity,receipt_identity,universe_selection_identity,universe_selection_digest,joined_cut_identity,joined_cut_digest,sample_projection_identity,sample_projection_digest,facts_bytes,frontier_bytes,append_sequence,custody_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)";
+const INSERT_REPLAY_MARKET_FACTS_V2: &str = "INSERT INTO market_data_private.replay_market_facts_v2(facts_identity,meaning_identity,composition_binding_identity,request_identity,request_digest,frontier_identity,receipt_identity,universe_selection_identity,universe_selection_digest,joined_cut_identity,joined_cut_digest,sample_projection_identity,sample_projection_digest,facts_bytes,frontier_bytes,append_sequence,custody_digest,shape,universe_frame_identity,universe_frame_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)";
 const INSERT_REPLAY_MARKET_FACTS_RECEIPT_V2: &str = "INSERT INTO market_data_private.replay_market_facts_receipts_v2(receipt_identity,facts_identity,meaning_identity,receipt_bytes,append_sequence,manifest_digest,custody_digest) VALUES($1,$2,$3,$4,$5,$6,$7)";
 const INSERT_REPLAY_MARKET_FACTS_OUTBOX_V2: &str = "INSERT INTO market_data_private.replay_market_facts_outbox_v2(outbox_identity,facts_identity,receipt_identity,payload_digest,payload_bytes,append_sequence,manifest_digest,custody_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8)";
 const LOAD_REPLAY_MARKET_FACTS_BY_MEANING_V2: &str =
-    "SELECT * FROM market_data_private.resolve_replay_market_facts_bound_storage_v1($1)";
+    "SELECT * FROM market_data_private.resolve_replay_market_facts_bound_storage_v2($1)";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct OpaqueDependencyLocatorV2 {
@@ -114,21 +135,91 @@ impl PreparedReplayMarketFactsStorageV2 {
         readback: &ReplayMarketFactsReadbackV2,
         binding: &ReplayCompositionBindingReadbackV1,
     ) -> Result<Self, ReplayMarketFactsPostgresErrorV2> {
+        // A schema 1 binding is the first corpus; facts of any other shape cannot be stored under it.
         if !verify_replay_market_facts_readback_v2(readback)
             || !verify_replay_composition_binding_v1(binding)
+            || readback.facts().shape() != ReplayMarketFactsShapeV2::FirstCorpus
         {
             return Err(ReplayMarketFactsPostgresErrorV2::InvalidPrepared);
         }
+        Self::from_verified_parts(readback, *binding.record().identity().as_bytes())
+    }
+}
+
+/// The stored columns that exist for one shape only. The table's named shape check keeps a row's
+/// columns to exactly one of these.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum StoredShapeLocatorsV2 {
+    FirstCorpus {
+        joined_cut: OpaqueDependencyLocatorV2,
+        sample_projection: OpaqueDependencyLocatorV2,
+    },
+    UniverseMembers {
+        universe_frame: OpaqueDependencyLocatorV2,
+    },
+}
+
+impl StoredShapeLocatorsV2 {
+    const fn shape(self) -> ReplayMarketFactsShapeV2 {
+        match self {
+            Self::FirstCorpus { .. } => ReplayMarketFactsShapeV2::FirstCorpus,
+            Self::UniverseMembers { .. } => ReplayMarketFactsShapeV2::UniverseMembers,
+        }
+    }
+}
+
+/// The Universe Selection locator and the shape's own locators, from a verified frontier.
+fn stored_dependency_locators(
+    shape: ReplayMarketFactsShapeV2,
+    dependencies: &[ReplayMarketDependencyRefV2],
+) -> Result<(OpaqueDependencyLocatorV2, StoredShapeLocatorsV2), ReplayMarketFactsPostgresErrorV2> {
+    match (shape, dependencies) {
+        (ReplayMarketFactsShapeV2::FirstCorpus, [_, _, _, universe, _, joined, sample]) => Ok((
+            OpaqueDependencyLocatorV2::from_dependency(*universe),
+            StoredShapeLocatorsV2::FirstCorpus {
+                joined_cut: OpaqueDependencyLocatorV2::from_dependency(*joined),
+                sample_projection: OpaqueDependencyLocatorV2::from_dependency(*sample),
+            },
+        )),
+        (ReplayMarketFactsShapeV2::UniverseMembers, [_, _, universe, frame]) => Ok((
+            OpaqueDependencyLocatorV2::from_dependency(*universe),
+            StoredShapeLocatorsV2::UniverseMembers {
+                universe_frame: OpaqueDependencyLocatorV2::from_dependency(*frame),
+            },
+        )),
+        _ => Err(ReplayMarketFactsPostgresErrorV2::InvalidPrepared),
+    }
+}
+
+impl PreparedReplayMarketFactsStorageV2 {
+    /// Prepares a universe-member aggregate for storage under the universe-member binding
+    /// `binding_identity` names.
+    ///
+    /// # Errors
+    ///
+    /// `InvalidPrepared` unless the readback verifies and is of the universe-member shape.
+    pub(crate) fn from_verified_universe_member_readback(
+        readback: &ReplayMarketFactsReadbackV2,
+        binding_identity: BindingDigest,
+    ) -> Result<Self, ReplayMarketFactsPostgresErrorV2> {
         let facts = readback.facts();
-        let receipt = readback.receipt();
-        let dependencies = facts.frontier().dependencies();
-        if dependencies.len() != REQUIRED_DEPENDENCY_COUNT {
+        if !verify_replay_market_facts_readback_v2(readback)
+            || facts.shape() != ReplayMarketFactsShapeV2::UniverseMembers
+            || binding_identity.as_bytes() == &[0; DIGEST_BYTES]
+        {
             return Err(ReplayMarketFactsPostgresErrorV2::InvalidPrepared);
         }
-        let universe_selection = OpaqueDependencyLocatorV2::from_dependency(dependencies[3]);
-        let joined_cut = OpaqueDependencyLocatorV2::from_dependency(dependencies[5]);
-        let sample_projection = OpaqueDependencyLocatorV2::from_dependency(dependencies[6]);
-        let composition_binding_identity = *binding.record().identity().as_bytes();
+        Self::from_verified_parts(readback, *binding_identity.as_bytes())
+    }
+
+    fn from_verified_parts(
+        readback: &ReplayMarketFactsReadbackV2,
+        composition_binding_identity: [u8; DIGEST_BYTES],
+    ) -> Result<Self, ReplayMarketFactsPostgresErrorV2> {
+        let facts = readback.facts();
+        let receipt = readback.receipt();
+        let (universe_selection, shape_locators) =
+            stored_dependency_locators(facts.shape(), facts.frontier().dependencies())?;
         let meaning_identity = bound_meaning_identity(
             *facts.request_identity().as_bytes(),
             *facts.request_digest().as_bytes(),
@@ -149,8 +240,7 @@ impl PreparedReplayMarketFactsStorageV2 {
             frontier_identity: *facts.frontier().identity().as_bytes(),
             receipt_identity: *receipt.identity().as_bytes(),
             universe_selection,
-            joined_cut,
-            sample_projection,
+            shape_locators,
             facts_bytes: facts.canonical_bytes().to_vec(),
             frontier_bytes: facts.frontier().canonical_bytes().to_vec(),
             receipt_bytes: receipt.canonical_bytes().to_vec(),
@@ -175,8 +265,7 @@ pub(super) struct StoredReplayMarketFactsRowV2 {
     pub(super) frontier_identity: [u8; DIGEST_BYTES],
     pub(super) receipt_identity: [u8; DIGEST_BYTES],
     pub(super) universe_selection: OpaqueDependencyLocatorV2,
-    pub(super) joined_cut: OpaqueDependencyLocatorV2,
-    pub(super) sample_projection: OpaqueDependencyLocatorV2,
+    pub(super) shape_locators: StoredShapeLocatorsV2,
     pub(super) facts_bytes: Vec<u8>,
     pub(super) frontier_bytes: Vec<u8>,
     pub(super) receipt_bytes: Vec<u8>,
@@ -227,6 +316,8 @@ pub(crate) enum ReplayMarketFactsPostgresErrorV2 {
     UnknownRecord,
     #[error("stored replay facts are corrupt or cross-spliced")]
     CorruptRecord,
+    #[error("stored replay facts state a shape this build does not know")]
+    UnknownShape,
     #[error("durable Universe Selection authority is unavailable")]
     UniverseSelectionUnavailable,
     #[error("durable JoinedCut authority is unavailable")]
@@ -288,27 +379,30 @@ pub(crate) async fn verify_replay_market_facts_read_contract_v2(
                    pg_catalog.to_regclass('market_data_private.replay_composition_binding_receipts_v1'),
                    pg_catalog.to_regclass('market_data_private.replay_composition_binding_outbox_v1')
                  ]))
-            AND (SELECT count(*)=2
-                   AND count(*) FILTER (WHERE pg_catalog.pg_get_userbyid(procedure.proowner)=current_user)=2
-                   AND count(*) FILTER (WHERE language.lanname='sql' AND procedure.prokind='f' AND procedure.proretset AND procedure.prosecdef AND NOT procedure.proisstrict AND procedure.provolatile='s' AND procedure.proparallel='u' AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[] AND procedure.prosrc=ANY(ARRAY[$1,$2]))=2
+            AND (SELECT count(*)=3
+                   AND count(*) FILTER (WHERE pg_catalog.pg_get_userbyid(procedure.proowner)=current_user)=3
+                   AND count(*) FILTER (WHERE language.lanname='sql' AND procedure.prokind='f' AND procedure.proretset AND procedure.prosecdef AND NOT procedure.proisstrict AND procedure.provolatile='s' AND procedure.proparallel='u' AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[] AND procedure.prosrc=ANY(ARRAY[$1,$2,$3]))=3
                    AND NOT EXISTS (
                        SELECT 1 FROM pg_catalog.pg_proc function_acl
                        CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(function_acl.proacl,pg_catalog.acldefault('f',function_acl.proowner))) privilege
                         WHERE function_acl.oid=ANY(ARRAY[
                           pg_catalog.to_regprocedure('market_data_private.resolve_replay_composition_binding_v1(bytea)'),
-                          pg_catalog.to_regprocedure('market_data_private.resolve_replay_market_facts_bound_storage_v1(bytea)')
+                          pg_catalog.to_regprocedure('market_data_private.resolve_replay_market_facts_bound_storage_v1(bytea)'),
+                          pg_catalog.to_regprocedure('market_data_private.resolve_replay_market_facts_bound_storage_v2(bytea)')
                         ]) AND privilege.grantee<>function_acl.proowner)
                   FROM pg_catalog.pg_proc procedure
                   JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang
                  WHERE procedure.oid=ANY(ARRAY[
                    pg_catalog.to_regprocedure('market_data_private.resolve_replay_composition_binding_v1(bytea)'),
-                   pg_catalog.to_regprocedure('market_data_private.resolve_replay_market_facts_bound_storage_v1(bytea)')
+                   pg_catalog.to_regprocedure('market_data_private.resolve_replay_market_facts_bound_storage_v1(bytea)'),
+                   pg_catalog.to_regprocedure('market_data_private.resolve_replay_market_facts_bound_storage_v2(bytea)')
                  ]))
            FROM pg_catalog.pg_namespace namespace
           WHERE namespace.nspname='market_data_private'",
     )
     .bind(RESOLVE_COMPOSITION_BINDING_SOURCE_V1)
     .bind(RESOLVE_BOUND_REPLAY_FACTS_SOURCE_V1)
+    .bind(RESOLVE_BOUND_REPLAY_FACTS_SOURCE_V2)
     .fetch_one(&mut **transaction)
     .await
     .map_err(|_| ReplayMarketFactsPostgresErrorV2::StoreUnavailable)?;
@@ -394,8 +488,15 @@ pub(crate) async fn verify_replay_market_facts_read_contract_v2(
                  FROM pg_catalog.pg_index index_fact
                  JOIN pg_catalog.pg_class index_relation ON index_relation.oid=index_fact.indexrelid
                 WHERE index_relation.relnamespace=pg_catalog.to_regnamespace('market_data_private')
-                  AND index_relation.relname='replay_market_facts_binding_v1')",
+                  AND index_relation.relname='replay_market_facts_binding_v1')
+          AND (SELECT count(*)=1
+                 FROM pg_catalog.pg_constraint shape_check
+                WHERE shape_check.conrelid=pg_catalog.to_regclass('market_data_private.replay_market_facts_v2')
+                  AND shape_check.conname='replay_market_facts_shape_v2'
+                  AND shape_check.contype='c' AND shape_check.convalidated
+                  AND pg_catalog.pg_get_constraintdef(shape_check.oid)=$1)",
     )
+    .bind(REPLAY_MARKET_FACTS_SHAPE_CHECK_V2)
     .fetch_one(&mut **transaction)
     .await
     .map_err(|_| ReplayMarketFactsPostgresErrorV2::StoreUnavailable)?;
@@ -597,6 +698,15 @@ pub(crate) async fn persist_replay_market_facts_in_transaction_v2(
         .execute(&mut **transaction)
         .await
         .map_err(|_| ReplayMarketFactsPostgresErrorV2::StoreUnavailable)?;
+    let (joined_cut, sample_projection, universe_frame) = match row.shape_locators {
+        StoredShapeLocatorsV2::FirstCorpus {
+            joined_cut,
+            sample_projection,
+        } => (Some(joined_cut), Some(sample_projection), None),
+        StoredShapeLocatorsV2::UniverseMembers { universe_frame } => {
+            (None, None, Some(universe_frame))
+        }
+    };
     sqlx::query(INSERT_REPLAY_MARKET_FACTS_V2)
         .bind(row.facts_identity.as_slice())
         .bind(row.meaning_identity.as_slice())
@@ -611,14 +721,17 @@ pub(crate) async fn persist_replay_market_facts_in_transaction_v2(
         .bind(row.receipt_identity.as_slice())
         .bind(row.universe_selection.identity.as_slice())
         .bind(row.universe_selection.digest.as_slice())
-        .bind(row.joined_cut.identity.as_slice())
-        .bind(row.joined_cut.digest.as_slice())
-        .bind(row.sample_projection.identity.as_slice())
-        .bind(row.sample_projection.digest.as_slice())
+        .bind(joined_cut.map(|locator| locator.identity.to_vec()))
+        .bind(joined_cut.map(|locator| locator.digest.to_vec()))
+        .bind(sample_projection.map(|locator| locator.identity.to_vec()))
+        .bind(sample_projection.map(|locator| locator.digest.to_vec()))
         .bind(&row.facts_bytes)
         .bind(&row.frontier_bytes)
         .bind(append_sequence_i64)
         .bind(row.custody_digest.as_slice())
+        .bind(row.shape_locators.shape() as i16)
+        .bind(universe_frame.map(|locator| locator.identity.to_vec()))
+        .bind(universe_frame.map(|locator| locator.digest.to_vec()))
         .execute(&mut **transaction)
         .await
         .map_err(|_| ReplayMarketFactsPostgresErrorV2::StoreUnavailable)?;
@@ -702,7 +815,7 @@ pub(crate) async fn recover_bound_replay_market_facts_for_rd_in_transaction_v2(
     binding_identity: [u8; DIGEST_BYTES],
 ) -> Result<ReplayMarketFactsReadbackV2, ReplayMarketFactsPostgresErrorV2> {
     let row =
-        sqlx::query("SELECT * FROM market_data_rd_api.lock_replay_market_facts_for_replay_v1($1)")
+        sqlx::query("SELECT * FROM market_data_rd_api.lock_replay_market_facts_for_replay_v2($1)")
             .bind(binding_identity.as_slice())
             .fetch_optional(&mut **transaction)
             .await
@@ -775,24 +888,50 @@ fn decode_exact_readback_v2(
         return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
     }
 
-    let (base_dependencies, native_chain, reference_cut_identities) =
-        decode_frontier_evidence_v2(&row.frontier_bytes)?;
-    let reference_cuts = decode_fact_cuts_v2(
-        &row.facts_bytes,
-        request,
-        row.frontier_identity,
-        &reference_cut_identities,
-    )?;
+    let shape = row.shape_locators.shape();
     let stable_correlation = decode_receipt_correlation_v2(&row.receipt_bytes)?;
-    let readback = issue_replay_market_facts_v2(
-        request,
-        ReplayMarketFactsEvidenceV2 {
-            base_dependencies,
-            native_chain,
-            reference_cuts,
-            stable_correlation,
-        },
-    )
+    let readback = match shape {
+        ReplayMarketFactsShapeV2::FirstCorpus => {
+            let (base_dependencies, native_chain, reference_cut_identities) =
+                decode_frontier_evidence_v2(&row.frontier_bytes)?;
+            let reference_cuts = decode_fact_cuts_v2(
+                shape,
+                &row.facts_bytes,
+                request,
+                row.frontier_identity,
+                &reference_cut_identities,
+            )?;
+            issue_replay_market_facts_v2(
+                request,
+                ReplayMarketFactsEvidenceV2 {
+                    base_dependencies,
+                    native_chain,
+                    reference_cuts,
+                    stable_correlation,
+                },
+            )
+        }
+        ReplayMarketFactsShapeV2::UniverseMembers => {
+            let (base_dependencies, universe_frame, reference_cut_identities) =
+                decode_universe_member_frontier_evidence_v2(&row.frontier_bytes)?;
+            let reference_cuts = decode_fact_cuts_v2(
+                shape,
+                &row.facts_bytes,
+                request,
+                row.frontier_identity,
+                &reference_cut_identities,
+            )?;
+            issue_universe_member_replay_market_facts_v2(
+                request,
+                ReplayUniverseMemberFactsEvidenceV2 {
+                    base_dependencies,
+                    universe_frame,
+                    reference_cuts,
+                    stable_correlation,
+                },
+            )
+        }
+    }
     .map_err(|_| ReplayMarketFactsPostgresErrorV2::CorruptRecord)?;
 
     if readback.facts().identity().as_bytes() != &row.facts_identity
@@ -817,7 +956,7 @@ fn decode_frontier_evidence_v2(
     ReplayMarketFactsPostgresErrorV2,
 > {
     let mut cursor = Cursor::new(bytes);
-    cursor.version()?;
+    cursor.version(SCHEMA_VERSION)?;
     if cursor.u32()? as usize != REQUIRED_DEPENDENCY_COUNT {
         return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
     }
@@ -885,14 +1024,64 @@ fn decode_frontier_evidence_v2(
     ))
 }
 
+/// The reference-cut kinds, as codes in stored order, a facts aggregate of `shape` carries.
+const fn stored_reference_kind_codes(shape: ReplayMarketFactsShapeV2) -> &'static [u16] {
+    match shape {
+        ReplayMarketFactsShapeV2::FirstCorpus => &[1, 2, 3, 4, 5, 6, 7],
+        ReplayMarketFactsShapeV2::UniverseMembers => &[4, 5, 7],
+    }
+}
+
+fn decode_universe_member_frontier_evidence_v2(
+    bytes: &[u8],
+) -> Result<
+    (
+        Vec<ReplayMarketDependencyRefV2>,
+        ReplayMarketDependencyRefV2,
+        Vec<BindingDigest>,
+    ),
+    ReplayMarketFactsPostgresErrorV2,
+> {
+    let mut cursor = Cursor::new(bytes);
+    cursor.version(UNIVERSE_MEMBERS_SCHEMA_VERSION)?;
+    if cursor.u32()? as usize != UNIVERSE_MEMBER_DEPENDENCY_COUNT {
+        return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
+    }
+    let base_dependencies = vec![
+        cursor.typed_dependency(ReplayMarketDependencyKindV2::PitSnapshotV1)?,
+        cursor.typed_dependency(ReplayMarketDependencyKindV2::SourceBindingV1)?,
+        cursor.typed_dependency(ReplayMarketDependencyKindV2::UniverseSelectionV1)?,
+    ];
+    let universe_frame =
+        cursor.typed_dependency(ReplayMarketDependencyKindV2::StrategyInputUniverseFrameV1)?;
+    let reference_count = usize::try_from(cursor.u32()?)
+        .map_err(|_| ReplayMarketFactsPostgresErrorV2::CorruptRecord)?;
+
+    if reference_count
+        != stored_reference_kind_codes(ReplayMarketFactsShapeV2::UniverseMembers).len()
+    {
+        return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
+    }
+    let mut reference_cut_identities = Vec::with_capacity(reference_count);
+    for _ in 0..reference_count {
+        reference_cut_identities.push(cursor.binding_digest()?);
+    }
+
+    if !cursor.is_finished() {
+        return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
+    }
+    Ok((base_dependencies, universe_frame, reference_cut_identities))
+}
+
 fn decode_fact_cuts_v2(
+    shape: ReplayMarketFactsShapeV2,
     bytes: &[u8],
     request: &UntrustedReplayMarketFactsRequestV2,
     expected_frontier: [u8; DIGEST_BYTES],
     expected_cut_identities: &[BindingDigest],
 ) -> Result<Vec<ReplayReferenceFactCutProposalV2>, ReplayMarketFactsPostgresErrorV2> {
     let mut cursor = Cursor::new(bytes);
-    cursor.version()?;
+    cursor.version(shape_schema(shape))?;
     let locator = request.pit_locator();
     if cursor.binding_digest()? != locator.request_identity
         || cursor.binding_digest()? != locator.request_digest
@@ -911,15 +1100,16 @@ fn decode_fact_cuts_v2(
     {
         return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
     }
+    let kind_codes = stored_reference_kind_codes(shape);
     let count = usize::try_from(cursor.u32()?)
         .map_err(|_| ReplayMarketFactsPostgresErrorV2::CorruptRecord)?;
-    if count != 7 || expected_cut_identities.len() != count {
+    if count != kind_codes.len() || expected_cut_identities.len() != count {
         return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
     }
     let mut cuts = Vec::with_capacity(count);
     let mut decoded_identities = Vec::with_capacity(count);
 
-    for ordinal in 1_u16..=7 {
+    for &ordinal in kind_codes {
         if cursor.u16()? != ordinal {
             return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
         }
@@ -943,7 +1133,7 @@ fn decode_cut_proposal_v2(
     bytes: &[u8],
 ) -> Result<ReplayReferenceFactCutProposalV2, ReplayMarketFactsPostgresErrorV2> {
     let mut cursor = Cursor::new(bytes);
-    cursor.version()?;
+    cursor.version(SCHEMA_VERSION)?;
     let kind = reference_kind(cursor.u16()?)?;
     let scope_bytes = cursor.length_prefixed(MAX_FIELD_BYTES)?;
     let scope = decode_scope_v2(scope_bytes)?;
@@ -972,7 +1162,7 @@ fn decode_scope_v2(
     bytes: &[u8],
 ) -> Result<ReplayReferenceFactScopeProposalV2, ReplayMarketFactsPostgresErrorV2> {
     let mut cursor = Cursor::new(bytes);
-    cursor.version()?;
+    cursor.version(SCHEMA_VERSION)?;
     let scope = ReplayReferenceFactScopeProposalV2 {
         pit_snapshot_identity: cursor.binding_digest()?,
         pit_decision_cut: cursor.u64()?,
@@ -995,7 +1185,7 @@ fn decode_fact_proposal_v2(
     expected_scope: &[u8],
 ) -> Result<ReplayReferenceFactProposalV2, ReplayMarketFactsPostgresErrorV2> {
     let mut cursor = Cursor::new(bytes);
-    cursor.version()?;
+    cursor.version(SCHEMA_VERSION)?;
     if cursor.length_prefixed(MAX_FIELD_BYTES)? != expected_scope {
         return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
     }
@@ -1126,7 +1316,7 @@ fn decode_receipt_correlation_v2(
     bytes: &[u8],
 ) -> Result<BindingDigest, ReplayMarketFactsPostgresErrorV2> {
     let mut cursor = Cursor::new(bytes);
-    cursor.version()?;
+    cursor.version(SCHEMA_VERSION)?;
     let _request_identity = cursor.digest()?;
     let _facts_identity = cursor.digest()?;
     let _frontier_identity = cursor.digest()?;
@@ -1305,10 +1495,15 @@ fn decode_postgres_row(
         receipt_identity: row_bytes(row, "receipt_identity")?,
         universe_selection_identity: row_bytes(row, "universe_selection_identity")?,
         universe_selection_digest: row_bytes(row, "universe_selection_digest")?,
-        joined_cut_identity: row_bytes(row, "joined_cut_identity")?,
-        joined_cut_digest: row_bytes(row, "joined_cut_digest")?,
-        sample_projection_identity: row_bytes(row, "sample_projection_identity")?,
-        sample_projection_digest: row_bytes(row, "sample_projection_digest")?,
+        shape: row
+            .try_get::<i16, _>("shape")
+            .map_err(|_| ReplayMarketFactsPostgresErrorV2::CorruptRecord)?,
+        joined_cut_identity: row_optional_digest(row, "joined_cut_identity")?,
+        joined_cut_digest: row_optional_digest(row, "joined_cut_digest")?,
+        sample_projection_identity: row_optional_digest(row, "sample_projection_identity")?,
+        sample_projection_digest: row_optional_digest(row, "sample_projection_digest")?,
+        universe_frame_identity: row_optional_digest(row, "universe_frame_identity")?,
+        universe_frame_digest: row_optional_digest(row, "universe_frame_digest")?,
         facts_bytes: row_bytes(row, "facts_bytes")?,
         frontier_bytes: row_bytes(row, "frontier_bytes")?,
         receipt_bytes: row_bytes(row, "receipt_bytes")?,
@@ -1383,10 +1578,13 @@ struct RawReplayMarketFactsRowV2 {
     receipt_identity: Vec<u8>,
     universe_selection_identity: Vec<u8>,
     universe_selection_digest: Vec<u8>,
-    joined_cut_identity: Vec<u8>,
-    joined_cut_digest: Vec<u8>,
-    sample_projection_identity: Vec<u8>,
-    sample_projection_digest: Vec<u8>,
+    shape: i16,
+    joined_cut_identity: Option<Vec<u8>>,
+    joined_cut_digest: Option<Vec<u8>>,
+    sample_projection_identity: Option<Vec<u8>>,
+    sample_projection_digest: Option<Vec<u8>>,
+    universe_frame_identity: Option<Vec<u8>>,
+    universe_frame_digest: Option<Vec<u8>>,
     facts_bytes: Vec<u8>,
     frontier_bytes: Vec<u8>,
     receipt_bytes: Vec<u8>,
@@ -1398,6 +1596,43 @@ impl TryFrom<RawReplayMarketFactsRowV2> for StoredReplayMarketFactsRowV2 {
 
     fn try_from(raw: RawReplayMarketFactsRowV2) -> Result<Self, Self::Error> {
         let facts = parse_facts_envelope(&raw.facts_bytes)?;
+        let locator = |identity: Option<Vec<u8>>, digest: Option<Vec<u8>>| {
+            Ok::<_, ReplayMarketFactsPostgresErrorV2>(OpaqueDependencyLocatorV2 {
+                identity: digest_array(
+                    identity.ok_or(ReplayMarketFactsPostgresErrorV2::CorruptRecord)?,
+                )?,
+                digest: digest_array(
+                    digest.ok_or(ReplayMarketFactsPostgresErrorV2::CorruptRecord)?,
+                )?,
+            })
+        };
+        // The table's shape check already confines each row to one layout; decoding restates it
+        // so a row that escaped the check still cannot decode as the other shape.
+        let shape_locators = match raw.shape {
+            1 if raw.universe_frame_identity.is_none() && raw.universe_frame_digest.is_none() => {
+                StoredShapeLocatorsV2::FirstCorpus {
+                    joined_cut: locator(raw.joined_cut_identity, raw.joined_cut_digest)?,
+                    sample_projection: locator(
+                        raw.sample_projection_identity,
+                        raw.sample_projection_digest,
+                    )?,
+                }
+            }
+            2 if raw.joined_cut_identity.is_none()
+                && raw.joined_cut_digest.is_none()
+                && raw.sample_projection_identity.is_none()
+                && raw.sample_projection_digest.is_none() =>
+            {
+                StoredShapeLocatorsV2::UniverseMembers {
+                    universe_frame: locator(
+                        raw.universe_frame_identity,
+                        raw.universe_frame_digest,
+                    )?,
+                }
+            }
+            1 | 2 => return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord),
+            _ => return Err(ReplayMarketFactsPostgresErrorV2::UnknownShape),
+        };
         let row = Self {
             facts_identity: digest_array(raw.facts_identity)?,
             meaning_identity: digest_array(raw.meaning_identity)?,
@@ -1416,14 +1651,7 @@ impl TryFrom<RawReplayMarketFactsRowV2> for StoredReplayMarketFactsRowV2 {
                 identity: digest_array(raw.universe_selection_identity)?,
                 digest: digest_array(raw.universe_selection_digest)?,
             },
-            joined_cut: OpaqueDependencyLocatorV2 {
-                identity: digest_array(raw.joined_cut_identity)?,
-                digest: digest_array(raw.joined_cut_digest)?,
-            },
-            sample_projection: OpaqueDependencyLocatorV2 {
-                identity: digest_array(raw.sample_projection_identity)?,
-                digest: digest_array(raw.sample_projection_digest)?,
-            },
+            shape_locators,
             facts_bytes: raw.facts_bytes,
             frontier_bytes: raw.frontier_bytes,
             receipt_bytes: raw.receipt_bytes,
@@ -1450,8 +1678,13 @@ fn validate_stored_row(
         || row.receipt_bytes.len() != RECEIPT_CANONICAL_BYTES
         || row.receipt_bytes.len() > MAX_RECEIPT_BYTES
         || row.replay_start_event_ns >= row.replay_end_event_ns_exclusive
-        || row.facts_identity != digest_bytes(FACTS_DOMAIN, &row.facts_bytes)
-        || row.frontier_identity != digest_bytes(FRONTIER_DOMAIN, &row.frontier_bytes)
+        || row.facts_identity
+            != digest_bytes(facts_domain(row.shape_locators.shape()), &row.facts_bytes)
+        || row.frontier_identity
+            != digest_bytes(
+                frontier_domain(row.shape_locators.shape()),
+                &row.frontier_bytes,
+            )
         || row.receipt_identity != digest_bytes(RECEIPT_DOMAIN, &row.receipt_bytes)
         || row.meaning_identity != expected_meaning_identity(row)
         || row.custody_digest != storage_digest(row)
@@ -1507,11 +1740,34 @@ fn validate_storage_manifest(
     Ok(())
 }
 
+const fn facts_domain(shape: ReplayMarketFactsShapeV2) -> &'static [u8] {
+    match shape {
+        ReplayMarketFactsShapeV2::FirstCorpus => FACTS_DOMAIN,
+        ReplayMarketFactsShapeV2::UniverseMembers => UNIVERSE_MEMBERS_FACTS_DOMAIN,
+    }
+}
+
+const fn frontier_domain(shape: ReplayMarketFactsShapeV2) -> &'static [u8] {
+    match shape {
+        ReplayMarketFactsShapeV2::FirstCorpus => FRONTIER_DOMAIN,
+        ReplayMarketFactsShapeV2::UniverseMembers => UNIVERSE_MEMBERS_FRONTIER_DOMAIN,
+    }
+}
+
+/// The leading schema a frontier and a facts aggregate of `shape` carry.
+const fn shape_schema(shape: ReplayMarketFactsShapeV2) -> u16 {
+    match shape {
+        ReplayMarketFactsShapeV2::FirstCorpus => SCHEMA_VERSION,
+        ReplayMarketFactsShapeV2::UniverseMembers => UNIVERSE_MEMBERS_SCHEMA_VERSION,
+    }
+}
+
 fn validate_facts_envelope(
     row: &StoredReplayMarketFactsRowV2,
 ) -> Result<(), ReplayMarketFactsPostgresErrorV2> {
     let facts = parse_facts_envelope(&row.facts_bytes)?;
-    if facts.request_identity != row.request_identity
+    if facts.schema != shape_schema(row.shape_locators.shape())
+        || facts.request_identity != row.request_identity
         || facts.request_digest != row.request_digest
         || facts.pit_snapshot_identity != row.pit_snapshot_identity
         || facts.replay_start_event_ns != row.replay_start_event_ns
@@ -1527,7 +1783,7 @@ fn validate_receipt_envelope(
     row: &StoredReplayMarketFactsRowV2,
 ) -> Result<(), ReplayMarketFactsPostgresErrorV2> {
     let mut cursor = Cursor::new(&row.receipt_bytes);
-    cursor.version()?;
+    cursor.version(SCHEMA_VERSION)?;
     let request_identity = cursor.digest()?;
     let facts_identity = cursor.digest()?;
     let frontier_identity = cursor.digest()?;
@@ -1546,8 +1802,52 @@ fn validate_receipt_envelope(
 fn validate_frontier_envelope(
     row: &StoredReplayMarketFactsRowV2,
 ) -> Result<(), ReplayMarketFactsPostgresErrorV2> {
+    match row.shape_locators {
+        StoredShapeLocatorsV2::FirstCorpus {
+            joined_cut,
+            sample_projection,
+        } => validate_first_corpus_frontier_envelope(row, joined_cut, sample_projection),
+        StoredShapeLocatorsV2::UniverseMembers { universe_frame } => {
+            validate_universe_member_frontier_envelope(row, universe_frame)
+        }
+    }
+}
+
+fn validate_universe_member_frontier_envelope(
+    row: &StoredReplayMarketFactsRowV2,
+    universe_frame: OpaqueDependencyLocatorV2,
+) -> Result<(), ReplayMarketFactsPostgresErrorV2> {
     let mut cursor = Cursor::new(&row.frontier_bytes);
-    cursor.version()?;
+    cursor.version(UNIVERSE_MEMBERS_SCHEMA_VERSION)?;
+    if cursor.u32()? as usize != UNIVERSE_MEMBER_DEPENDENCY_COUNT {
+        return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
+    }
+    let _pit = cursor.dependency(ReplayMarketDependencyKindV2::PitSnapshotV1)?;
+    let _source = cursor.dependency(ReplayMarketDependencyKindV2::SourceBindingV1)?;
+    let universe = cursor.dependency(ReplayMarketDependencyKindV2::UniverseSelectionV1)?;
+    let frame = cursor.dependency(ReplayMarketDependencyKindV2::StrategyInputUniverseFrameV1)?;
+    let reference_count = cursor.u32()? as usize;
+    for _ in 0..reference_count {
+        let _ = cursor.digest()?;
+    }
+
+    if !cursor.is_finished()
+        || frame.identity != frame.digest
+        || row.universe_selection != universe
+        || universe_frame != frame
+    {
+        return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
+    }
+    Ok(())
+}
+
+fn validate_first_corpus_frontier_envelope(
+    row: &StoredReplayMarketFactsRowV2,
+    joined_cut: OpaqueDependencyLocatorV2,
+    sample_projection: OpaqueDependencyLocatorV2,
+) -> Result<(), ReplayMarketFactsPostgresErrorV2> {
+    let mut cursor = Cursor::new(&row.frontier_bytes);
+    cursor.version(SCHEMA_VERSION)?;
     if cursor.u32()? as usize != REQUIRED_DEPENDENCY_COUNT {
         return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
     }
@@ -1608,8 +1908,8 @@ fn validate_frontier_envelope(
         || sample_subject != joined.identity
         || sample_subject_digest != joined.digest
         || row.universe_selection != dependencies[3]
-        || row.joined_cut != dependencies[5]
-        || row.sample_projection != dependencies[6]
+        || joined_cut != dependencies[5]
+        || sample_projection != dependencies[6]
     {
         return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
     }
@@ -1618,6 +1918,7 @@ fn validate_frontier_envelope(
 
 #[derive(Clone, Copy)]
 struct FactsEnvelopeV2 {
+    schema: u16,
     request_identity: [u8; DIGEST_BYTES],
     request_digest: [u8; DIGEST_BYTES],
     pit_snapshot_identity: [u8; DIGEST_BYTES],
@@ -1628,7 +1929,7 @@ struct FactsEnvelopeV2 {
 
 fn parse_facts_envelope(bytes: &[u8]) -> Result<FactsEnvelopeV2, ReplayMarketFactsPostgresErrorV2> {
     let mut cursor = Cursor::new(bytes);
-    cursor.version()?;
+    let schema = cursor.u16()?;
     let request_identity = cursor.digest()?;
     let request_digest = cursor.digest()?;
     let pit_snapshot_identity = cursor.digest()?;
@@ -1642,6 +1943,7 @@ fn parse_facts_envelope(bytes: &[u8]) -> Result<FactsEnvelopeV2, ReplayMarketFac
     let replay_end_event_ns_exclusive = cursor.i128()?;
     let frontier_identity = cursor.digest()?;
     Ok(FactsEnvelopeV2 {
+        schema,
         request_identity,
         request_digest,
         pit_snapshot_identity,
@@ -1674,8 +1976,8 @@ impl<'a> Cursor<'a> {
         Ok(value)
     }
 
-    fn version(&mut self) -> Result<(), ReplayMarketFactsPostgresErrorV2> {
-        if self.u16()? == 2 {
+    fn version(&mut self, expected: u16) -> Result<(), ReplayMarketFactsPostgresErrorV2> {
+        if self.u16()? == expected {
             Ok(())
         } else {
             Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord)
@@ -1848,9 +2150,23 @@ fn expected_meaning_identity(row: &StoredReplayMarketFactsRowV2) -> [u8; DIGEST_
     }
 }
 
+/// The first corpus keeps its domain and field order byte for byte; the universe-member shape binds
+/// its frame where the first corpus binds its joined cut and sample projection, under its own domain.
 pub(super) fn storage_digest(row: &StoredReplayMarketFactsRowV2) -> [u8; DIGEST_BYTES] {
     let mut hasher = blake3::Hasher::new();
-    hasher.update(STORAGE_DOMAIN);
+    let shape_locators = match &row.shape_locators {
+        StoredShapeLocatorsV2::FirstCorpus {
+            joined_cut,
+            sample_projection,
+        } => {
+            hasher.update(STORAGE_DOMAIN);
+            vec![joined_cut, sample_projection]
+        }
+        StoredShapeLocatorsV2::UniverseMembers { universe_frame } => {
+            hasher.update(STORAGE_UNIVERSE_MEMBERS_DOMAIN);
+            vec![universe_frame]
+        }
+    };
 
     for bytes in [
         row.facts_identity.as_slice(),
@@ -1861,12 +2177,13 @@ pub(super) fn storage_digest(row: &StoredReplayMarketFactsRowV2) -> [u8; DIGEST_
         row.receipt_identity.as_slice(),
         row.universe_selection.identity.as_slice(),
         row.universe_selection.digest.as_slice(),
-        row.joined_cut.identity.as_slice(),
-        row.joined_cut.digest.as_slice(),
-        row.sample_projection.identity.as_slice(),
-        row.sample_projection.digest.as_slice(),
     ] {
         hasher.update(bytes);
+    }
+
+    for locator in shape_locators {
+        hasher.update(&locator.identity);
+        hasher.update(&locator.digest);
     }
 
     match row.composition_binding_identity {
@@ -2046,6 +2363,8 @@ mod resolver_contract_tests {
         let schema = REPLAY_MARKET_FACTS_SCHEMA_V2.join("\n");
         assert!(schema.contains(RESOLVE_COMPOSITION_BINDING_SOURCE_V1));
         assert!(schema.contains(RESOLVE_BOUND_REPLAY_FACTS_SOURCE_V1));
+        assert!(schema.contains(RESOLVE_BOUND_REPLAY_FACTS_SOURCE_V2));
+        assert!(schema.contains(REPLAY_MARKET_FACTS_SHAPE_CHECK_V2));
 
         let source = include_str!("postgres.rs");
 
@@ -2053,7 +2372,8 @@ mod resolver_contract_tests {
             "current_user='market_data_owner'",
             "pg_catalog.aclexplode",
             "attribute.attacl IS NOT NULL",
-            "procedure.prosrc=ANY(ARRAY[$1,$2])",
+            "procedure.prosrc=ANY(ARRAY[$1,$2,$3])",
+            "shape_check.conname='replay_market_facts_shape_v2'",
             "procedure.prosecdef",
             "procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[]",
             "relation.relkind='r'",
@@ -2178,6 +2498,228 @@ mod resolver_contract_tests {
         assert_eq!(
             invalid_boolean.boolean(),
             Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord)
+        );
+    }
+}
+
+#[cfg(test)]
+mod shape_storage_tests {
+    use sha2::{Digest as _, Sha256};
+
+    use super::*;
+
+    fn raw_from(row: &StoredReplayMarketFactsRowV2) -> RawReplayMarketFactsRowV2 {
+        let (shape, joined_cut, sample_projection, universe_frame) = match row.shape_locators {
+            StoredShapeLocatorsV2::FirstCorpus {
+                joined_cut,
+                sample_projection,
+            } => (1, Some(joined_cut), Some(sample_projection), None),
+            StoredShapeLocatorsV2::UniverseMembers { universe_frame } => {
+                (2, None, None, Some(universe_frame))
+            }
+        };
+        RawReplayMarketFactsRowV2 {
+            facts_identity: row.facts_identity.to_vec(),
+            meaning_identity: row.meaning_identity.to_vec(),
+            composition_binding_identity: row
+                .composition_binding_identity
+                .map(|value| value.to_vec()),
+            request_identity: row.request_identity.to_vec(),
+            request_digest: row.request_digest.to_vec(),
+            frontier_identity: row.frontier_identity.to_vec(),
+            receipt_identity: row.receipt_identity.to_vec(),
+            universe_selection_identity: row.universe_selection.identity.to_vec(),
+            universe_selection_digest: row.universe_selection.digest.to_vec(),
+            shape,
+            joined_cut_identity: joined_cut.map(|locator| locator.identity.to_vec()),
+            joined_cut_digest: joined_cut.map(|locator| locator.digest.to_vec()),
+            sample_projection_identity: sample_projection.map(|locator| locator.identity.to_vec()),
+            sample_projection_digest: sample_projection.map(|locator| locator.digest.to_vec()),
+            universe_frame_identity: universe_frame.map(|locator| locator.identity.to_vec()),
+            universe_frame_digest: universe_frame.map(|locator| locator.digest.to_vec()),
+            facts_bytes: row.facts_bytes.clone(),
+            frontier_bytes: row.frontier_bytes.clone(),
+            receipt_bytes: row.receipt_bytes.clone(),
+            custody_digest: row.custody_digest.to_vec(),
+        }
+    }
+
+    fn universe_row() -> StoredReplayMarketFactsRowV2 {
+        let readback = super::super::tests::universe_member_readback(1);
+        PreparedReplayMarketFactsStorageV2::from_verified_universe_member_readback(
+            &readback,
+            BindingDigest::from_untrusted_bytes([97; DIGEST_BYTES]),
+        )
+        .expect("a universe-member row")
+        .row
+    }
+
+    fn first_corpus_row() -> StoredReplayMarketFactsRowV2 {
+        let (binding, readback) = super::super::tests::first_corpus_readback(true);
+        PreparedReplayMarketFactsStorageV2::from_verified_readback(&readback, &binding)
+            .expect("a first-corpus row")
+            .row
+    }
+
+    /// A stored row states its shape; a shape this build does not know, or columns of the other
+    /// shape, never decode.
+    #[rstest::rstest]
+    fn a_stored_row_decodes_only_as_the_shape_it_states() {
+        for row in [universe_row(), first_corpus_row()] {
+            assert_eq!(
+                StoredReplayMarketFactsRowV2::try_from(raw_from(&row)),
+                Ok(row)
+            );
+        }
+
+        let mut unknown = raw_from(&universe_row());
+        unknown.shape = 3;
+        assert_eq!(
+            StoredReplayMarketFactsRowV2::try_from(unknown),
+            Err(ReplayMarketFactsPostgresErrorV2::UnknownShape)
+        );
+
+        let first = raw_from(&first_corpus_row());
+        let mut universe_with_joined_cut = raw_from(&universe_row());
+        universe_with_joined_cut.joined_cut_identity = first.joined_cut_identity.clone();
+        universe_with_joined_cut.joined_cut_digest = first.joined_cut_digest.clone();
+        assert_eq!(
+            StoredReplayMarketFactsRowV2::try_from(universe_with_joined_cut),
+            Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord)
+        );
+
+        let mut first_with_frame = first;
+        first_with_frame.universe_frame_identity = Some(vec![95; DIGEST_BYTES]);
+        first_with_frame.universe_frame_digest = Some(vec![95; DIGEST_BYTES]);
+        assert_eq!(
+            StoredReplayMarketFactsRowV2::try_from(first_with_frame),
+            Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord)
+        );
+    }
+
+    /// Each storage preparation takes its own shape only.
+    #[rstest::rstest]
+    fn storage_preparation_refuses_the_other_shape() {
+        let (binding, first) = super::super::tests::first_corpus_readback(true);
+        let universe = super::super::tests::universe_member_readback(1);
+        assert_eq!(
+            PreparedReplayMarketFactsStorageV2::from_verified_readback(&universe, &binding),
+            Err(ReplayMarketFactsPostgresErrorV2::InvalidPrepared)
+        );
+        assert_eq!(
+            PreparedReplayMarketFactsStorageV2::from_verified_universe_member_readback(
+                &first,
+                binding.record().identity(),
+            ),
+            Err(ReplayMarketFactsPostgresErrorV2::InvalidPrepared)
+        );
+    }
+
+    fn sha256_hex(text: &str) -> String {
+        Sha256::digest(text.as_bytes())
+            .iter()
+            .fold(String::new(), |mut hex, byte| {
+                use std::fmt::Write as _;
+                write!(hex, "{byte:02x}").expect("writing to a String cannot fail");
+                hex
+            })
+    }
+
+    fn statement<'a>(statements: &[&'a str], function: &str) -> &'a str {
+        let [statement] = statements
+            .iter()
+            .filter(|statement| {
+                statement.starts_with(&format!("CREATE OR REPLACE FUNCTION {function}("))
+            })
+            .copied()
+            .collect::<Vec<_>>()[..]
+        else {
+            panic!("exactly one statement creates {function}");
+        };
+        statement
+    }
+
+    /// The two `_v1` functions keep main's text byte for byte.
+    ///
+    /// A binary built before the universe-member shape compares every rd-api function's `prosrc`
+    /// with the text compiled into it; one changed character in `_v1` would fail every Replay read
+    /// that binary makes. Both digests were computed from 0e9f47fe0's statements outside this crate.
+    #[rstest::rstest]
+    fn the_v1_functions_keep_the_text_older_binaries_verify() {
+        assert_eq!(
+            // Assembled so that `nothing_current_calls_the_v1_lock_function` does not count it.
+            sha256_hex(statement(
+                REPLAY_MARKET_RD_CUT_API_SCHEMA_V1,
+                &[
+                    "market_data_rd_api.lock_replay_market_facts_",
+                    "for_replay_v1"
+                ]
+                .concat()
+            )),
+            "5fa68acbc1fd73b6e60acc7037d124d36f797d7e3595f852c70c42e799ba46e2"
+        );
+        assert_eq!(
+            sha256_hex(statement(
+                &REPLAY_MARKET_FACTS_SCHEMA_V2,
+                "market_data_private.resolve_replay_market_facts_bound_storage_v1"
+            )),
+            "565fc65da517d5b5581fcec57511af43cadfd426cc80af1dd59c34856ed4eb1d"
+        );
+    }
+
+    /// Nothing current reads through `_v1`: it stays only for binaries built before this shape.
+    ///
+    /// Every `.rs` file under `crates/` is read. The name is assembled at run time so this test's
+    /// own text does not count itself. The expected sites are the statements that create, revoke and
+    /// grant the function, the transport probe's list, and the golden that reads the first corpus
+    /// back through it.
+    #[rstest::rstest]
+    fn nothing_current_calls_the_v1_lock_function() {
+        let name = ["lock_replay_market_facts_", "for_replay_v1"].concat();
+        let crates = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("crates/data sits in crates/");
+        let mut sites = std::collections::BTreeMap::new();
+        let mut pending = vec![crates.to_path_buf()];
+        let mut files = 0_usize;
+
+        while let Some(directory) = pending.pop() {
+            for entry in std::fs::read_dir(&directory).expect("readable source tree") {
+                let path = entry.expect("readable entry").path();
+                if path.is_dir() {
+                    if path.file_name().is_some_and(|name| name != "target") {
+                        pending.push(path);
+                    }
+                } else if path.extension().is_some_and(|extension| extension == "rs") {
+                    files += 1;
+                    let text = std::fs::read_to_string(&path).expect("UTF-8 source");
+                    let count = text.matches(name.as_str()).count();
+                    if count > 0 {
+                        let relative = path
+                            .strip_prefix(crates)
+                            .expect("under crates/")
+                            .to_string_lossy()
+                            .into_owned();
+                        sites.insert(relative, count);
+                    }
+                }
+            }
+        }
+        assert!(
+            files > 1000,
+            "the walk read the source tree ({files} files)"
+        );
+        assert_eq!(
+            sites.into_iter().collect::<Vec<_>>(),
+            [
+                ("data/src/owner/postgres/replay_market_facts_v2.rs".to_owned(), 1),
+                (
+                    "data/src/owner/replay_market_facts_v2/first_corpus_v1_readback_postgres_tests.rs"
+                        .to_owned(),
+                    2
+                ),
+                ("data/src/owner/replay_market_facts_v2/postgres.rs".to_owned(), 3),
+            ]
         );
     }
 }
