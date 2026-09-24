@@ -287,7 +287,7 @@ async fn resolve_native_source_storage_boundary(
             AND NOT procedure.proleakproof
             AND NOT procedure.proretset
             AND procedure.prokind='f'
-            AND procedure.proconfig=ARRAY['search_path=pg_catalog']::text[]
+            AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[]
             AND procedure.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
             AND procedure.proargtypes='25 25 25 25'::pg_catalog.oidvector
             AND procedure.proargnames=ARRAY['requested_request_identity','requested_meaning_digest','requested_receipt_identity','requested_seal_digest']::text[]
