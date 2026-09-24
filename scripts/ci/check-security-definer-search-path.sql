@@ -14,8 +14,6 @@ DECLARE
   violations text;
 BEGIN
   WITH exception_list(routine_name, search_path) AS (VALUES
-    ('backtest_owner_api.resolve_protected_replay_attempt_frontier_v1', 'pg_catalog'),
-    ('backtest_owner_api.resolve_protected_replay_result_v1', 'pg_catalog'),
     ('execution_api.read_current_paper_adapter_binding_v1', 'pg_catalog, execution_private'),
     ('execution_api.read_paper_account_opening_fact_v1', 'pg_catalog, execution_private'),
     ('governance_api.read_current_execution_scope_v1', 'pg_catalog, governance_private'),
