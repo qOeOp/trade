@@ -1341,6 +1341,21 @@ fn universe_member_frontier_bytes_and_identities_are_pinned() {
     },
     ReplayMarketFactsErrorV2::DependencyMismatch
 )]
+#[case::the_frame_and_the_selection_swapped(
+    |evidence: &mut ReplayUniverseMemberFactsEvidenceV2| {
+        let selection = ReplayMarketDependencyRefV2::from_verified_owner_record(
+            ReplayMarketDependencyKindV2::UniverseSelectionV1,
+            d(4),
+            d(4),
+        );
+        evidence.base_dependencies.retain(|dependency| {
+            dependency.kind() != ReplayMarketDependencyKindV2::UniverseSelectionV1
+        });
+        evidence.base_dependencies.push(universe_frame());
+        evidence.universe_frame = selection;
+    },
+    ReplayMarketFactsErrorV2::DependencyMismatch
+)]
 #[case::an_instrument_master_dependency(
     |evidence: &mut ReplayUniverseMemberFactsEvidenceV2| {
         evidence.base_dependencies = dependencies(1);
