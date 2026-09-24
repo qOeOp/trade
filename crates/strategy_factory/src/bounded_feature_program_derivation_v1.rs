@@ -32,16 +32,12 @@
 //! Derivation is not admission. The result is still a proposal, carries no Owner authority, and
 //! must pass the same canonical verification as one assembled by hand.
 
-use std::{collections::BTreeSet, fmt::Display};
+use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
 use thiserror::Error;
-use vibe_data::owner::{
-    reread_persisted_strategy_input_custody_for_update_v1,
-    resolve_pit_request_for_strategy_design_v1, source_binding::BindingDigest,
-    strategy_input_binding::UntrustedStrategyInputCustodyClaimV1,
-};
+use vibe_data::owner::source_binding::BindingDigest;
 use vibe_indicators_kernel::PrimitiveCatalogV1;
 
 use crate::{
@@ -52,6 +48,9 @@ use crate::{
         BoundedFeatureInputV1, BoundedFeatureNodeV1, BoundedFeatureProgramProposalV1,
         BoundedFeatureProposalDecisionTableV1, BoundedFeatureStateCellV1,
         BoundedFeatureWarmupContractV1,
+    },
+    design_input_custody_v1::{
+        DeclaredDesignInputsV1, DesignInputCustodyRefusedV1, reread_design_input_custody_v1,
     },
     strategy_design_v2::StrategyDesignV2,
     strategy_plan_v2::{
@@ -848,16 +847,12 @@ pub enum BoundedFeatureProgramAssemblyErrorV1 {
     Derivation(#[from] BoundedFeatureProgramDerivationErrorV1),
 }
 
-/// Records why the Market Data custody read refused, then returns the refusal the caller is given.
-///
-/// The caller learns `MarketDataUnavailable` whichever step refused; the coordinate names the step
-/// and the cause is that step's own error, so the log says where.
-fn market_data_refused(
-    coordinate: &'static str,
-    cause: &impl Display,
-) -> BoundedFeatureProgramAssemblyErrorV1 {
-    crate::storage_diagnostic::refused_by_store(coordinate, cause);
-    BoundedFeatureProgramAssemblyErrorV1::MarketDataUnavailable
+/// The design input custody read already recorded which step refused and why; derivation answers
+/// with its unchanged `MarketDataUnavailable`.
+impl From<DesignInputCustodyRefusedV1> for BoundedFeatureProgramAssemblyErrorV1 {
+    fn from(_: DesignInputCustodyRefusedV1) -> Self {
+        Self::MarketDataUnavailable
+    }
 }
 
 /// Resolves live Owner binding custody for a Design and assembles declared meaning against it.
@@ -892,52 +887,20 @@ pub(crate) async fn assemble_declared_bounded_feature_program_v1(
         _ => return Err(BoundedFeatureProgramDerivationErrorV1::Design.into()),
     };
 
-    let coordinate = resolve_pit_request_for_strategy_design_v1(transaction, design_identity)
-        .await
-        .map_err(|cause| {
-            market_data_refused("bfp_derivation.binding.resolve_pit_request", &cause)
-        })?;
-
-    let mut declared: Vec<BindingDigest> = design
-        .inputs
-        .iter()
-        .map(strategy_input_role_identity_v2)
-        .collect();
-    let mut stored = coordinate.input_role_identities.clone();
-    declared.sort_unstable();
-    stored.sort_unstable();
-    if declared != stored {
-        return Err(market_data_refused(
-            "bfp_derivation.binding.declared_roles",
-            &"the Design's role set differs from the roles Market Data holds for it",
-        ));
-    }
-
-    let claim = UntrustedStrategyInputCustodyClaimV1 {
-        research_request_identity: design.research_request_identity,
-        strategy_design_identity: design_identity,
-        pit_request_identity: coordinate.pit_request_identity,
-        input_role_identities: declared,
-        decision_cut: coordinate.decision_cut,
-    };
-    let readback = reread_persisted_strategy_input_custody_for_update_v1(transaction, &claim)
-        .await
-        .map_err(|cause| market_data_refused("bfp_derivation.binding.reread_custody", &cause))?;
-
-    if readback.research_request_identity() != design.research_request_identity
-        || readback.strategy_design_identity() != design_identity
-    {
-        return Err(market_data_refused(
-            "bfp_derivation.binding.custody_identity",
-            &"the reread custody names another Research request or Design",
-        ));
-    }
+    let bindings = reread_design_input_custody_v1(
+        transaction,
+        "bfp_derivation",
+        design.research_request_identity,
+        design_identity,
+        Some(DeclaredDesignInputsV1::of(
+            "bfp_derivation",
+            &design.inputs,
+        )?),
+    )
+    .await?;
 
     Ok(derive_bounded_feature_program_proposal_v1(
-        design,
-        catalog,
-        meaning,
-        &VerifiedStrategyInputBindingsV2::from_owner_receipts(readback.bindings()),
+        design, catalog, meaning, &bindings,
     )?)
 }
 

@@ -787,7 +787,7 @@ fi
 grep -Fq 'rust-cache-workspace-crates: "true"' "$build_workflow"
 grep -Fq 'rust-doctests-linux-x86:' "$build_workflow"
 rust_tests_block="$(sed -n '/^  rust-tests-linux-x86:/,/^  quality:/p' "$build_workflow")"
-[[ "$rust_tests_block" == *'minimum-free-space-gb: "110"'* ]]
+[[ "$rust_tests_block" == *'minimum-free-space-gb: "70"'* ]]
 # shellcheck disable=SC2016
 grep -Fq 'RUST_DOCTESTS_RESULT: ${{ needs.rust-doctests-linux-x86.result }}' "$build_workflow"
 # Match literal shell source.

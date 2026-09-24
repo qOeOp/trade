@@ -497,7 +497,7 @@ impl VerifiedStrategyInputBindingsV2 {
         }
     }
 
-    fn from_owner_universe(
+    pub(crate) fn from_owner_universe(
         authority: &StrategyInputUniverseFrameReceipt,
         research_request_identity: BindingDigest,
         strategy_design_identity: BindingDigest,

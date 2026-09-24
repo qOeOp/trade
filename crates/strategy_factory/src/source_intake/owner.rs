@@ -8,8 +8,8 @@ use sqlx::PgPool;
 
 use crate::storage_diagnostic::refused_by_store;
 use vibe_product_edge::{
-    ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionRequestV1, ProductEdgeError,
-    ProductEdgePostgresAdmissionPointReadPortV1, ProductEdgePostgresOwnerV1,
+    ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionReadbackV1, ProductEdgeAdmissionRequestV1,
+    ProductEdgeError, ProductEdgePostgresAdmissionPointReadPortV1, ProductEdgePostgresOwnerV1,
     ProductEdgeSourceInvocationStartRequestV1, SOURCE_INTAKE_OPERATION_SCHEMA_V1,
     SOURCE_INTAKE_OPERATION_V1, SOURCE_INTAKE_REQUIRED_EFFECTS_V1, SOURCE_INTAKE_TARGET_OWNER_V1,
 };
@@ -204,19 +204,21 @@ impl SourceIntakeReadbackOwnerPort for PostgresSourceIntakeReadbackOwnerV1 {
         // Both ways of finding nothing answer the Dashboard the same way, as the contract's
         // neutral no-verified-terminal state, so each names itself here instead: a reader of the
         // Owner's warnings can tell a request Product Edge never admitted from one it did.
-        if self
+        let Some(admission) = self
             .product_edge
             .resolve_admission(request_identity, &self.request_proof_digest)
             .await
             .map_err(|e| product_edge_error(&e))?
-            .is_none()
-        {
+        else {
             refused_by_store(
                 "source_intake.production_readback.admission_absent",
                 &"Product Edge holds no admission for this request under this request proof",
             );
             return Ok(None);
-        }
+        };
+        // An admission for another operation is refused before the read, so it is never reported
+        // as an empty readback: no Source Intake terminal can exist for it.
+        ensure_source_intake_admission(&admission)?;
         let terminal = read_terminal(
             &self.owner_pool,
             request_identity,
@@ -613,15 +615,57 @@ pub(super) async fn resolve_terminal(
     request_proof_digest: &str,
     authority: &SourceAcquisitionAuthorityBindingV1,
 ) -> Result<Option<SourceIntakeTerminalAtomV1>, SourceIntakeOwnerErrorV1> {
-    if product_edge
+    let Some(admission) = product_edge
         .resolve_admission(request_identity, request_proof_digest)
         .await
         .map_err(|e| product_edge_error(&e))?
-        .is_none()
-    {
+    else {
         return Ok(None);
-    }
+    };
+    ensure_source_intake_admission(&admission)?;
     read_terminal(owner_pool, request_identity, authority).await
+}
+
+/// Refuses an admission Product Edge made for another operation.
+///
+/// A request identity names one admission of one operation, and only a Source Intake admission
+/// can ever carry a Source Intake terminal. An identity Product Edge admitted for another
+/// operation is therefore refused by name here. Answering it as "admitted, no terminal yet"
+/// would send the caller to poll for a terminal that can never exist.
+///
+/// # Errors
+///
+/// Returns [`SourceIntakeOwnerErrorV1::Conflict`] when the admission is for another operation.
+fn ensure_source_intake_admission(
+    admission: &ProductEdgeAdmissionReadbackV1,
+) -> Result<(), SourceIntakeOwnerErrorV1> {
+    let request = admission.request();
+    if !is_source_intake_request(request) {
+        // The response names this refusal (409 CONFLICTING_SEMANTICS_FOR_REQUEST_IDENTITY), so it
+        // is outside the `refused_by_store` channel, whose scope is a refusal the response does
+        // not name. Which operation the admission was for is still worth a line.
+        tracing::info!(
+            operation = %request.operation,
+            operation_schema = %request.operation_schema,
+            "Source Intake refused an identity Product Edge admitted for another operation"
+        );
+        return Err(SourceIntakeOwnerErrorV1::Conflict);
+    }
+    Ok(())
+}
+
+/// Whether an admission request names the Source Intake operation: its operation, schema, target
+/// Owner and exact effects. `canonical_admission_request` builds every request this Owner offers
+/// Product Edge from the same constants, and a test holds the two together.
+fn is_source_intake_request(request: &ProductEdgeAdmissionRequestV1) -> bool {
+    request.operation == SOURCE_INTAKE_OPERATION_V1
+        && request.operation_schema == SOURCE_INTAKE_OPERATION_SCHEMA_V1
+        && request.target_owner == SOURCE_INTAKE_TARGET_OWNER_V1
+        && request
+            .requested_effects
+            .iter()
+            .map(String::as_str)
+            .eq(SOURCE_INTAKE_REQUIRED_EFFECTS_V1)
 }
 
 pub(super) async fn read_terminal(
@@ -969,5 +1013,45 @@ mod discarded_cause_tests {
             recorded >= 11,
             "the instrumented sites must not shrink silently: found {recorded}"
         );
+    }
+}
+
+#[cfg(test)]
+mod admission_operation_tests {
+    use rstest::rstest;
+
+    use super::{
+        ProductEdgeGatewayV1, SOURCE_INTAKE_OPERATION_V1, SourceIntakeOperationRequestV1,
+        SourceInterpretationV1, canonical_admission_request, is_source_intake_request,
+    };
+
+    /// The request this Owner offers Product Edge is one its own reads recognize.
+    ///
+    /// The readback refuses an admission that is not a Source Intake request, and the write path
+    /// builds the request it admits. Both read the same constants today; this keeps a change to
+    /// one side from leaving the other refusing every request the Owner itself admitted.
+    #[rstest]
+    fn the_canonical_admission_request_is_a_source_intake_request() {
+        let request = canonical_admission_request(
+            &SourceIntakeOperationRequestV1 {
+                request_identity: "source-request-1".into(),
+                channel: ProductEdgeGatewayV1::WindmillProductEdge,
+                normalized_doi: "10.1234/source-intake".into(),
+                interpretation: SourceInterpretationV1 {
+                    bounded_explanation: "a bounded explanation".into(),
+                    differentiating_prediction: "a differentiating prediction".into(),
+                    falsifier: "a falsifier".into(),
+                    plausible_alternatives: vec!["an alternative".into()],
+                },
+            },
+            &format!("sha256:{}", "7".repeat(64)),
+        );
+        assert!(is_source_intake_request(&request));
+
+        // The same check refuses a request for another operation, so the assertion above is not
+        // one that every request passes.
+        let mut other = request;
+        other.operation = format!("{SOURCE_INTAKE_OPERATION_V1}-other");
+        assert!(!is_source_intake_request(&other));
     }
 }

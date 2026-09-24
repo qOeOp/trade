@@ -370,6 +370,10 @@ Invalid identity shows inline validation without transport. Missing configuratio
 or oversized Owner response, permission denial, and any identity/receipt/custody mismatch replace all previously
 rendered terminal fields with one same-height unavailable state. Stale successful content is never retained after
 a new lookup or failed refresh.
+An identity that Product Edge admitted for another operation is one of those mismatches, not an unfinished Intake:
+no Source Intake terminal can ever exist for it, so the Owner refuses it with 409
+`CONFLICTING_SEMANTICS_FOR_REQUEST_IDENTITY` instead of answering `SUBMITTED_OR_UNKNOWN`, and the workbench shows the
+unavailable state rather than inviting another refresh.
 
 The Dashboard BFF binds the path identity to authenticated Owner GET
 `/v1/source-intakes/{request_identity}/readback`, accepts only the existing strict Source Intake projection, and
