@@ -878,9 +878,9 @@ unavailable 或位于不同 cut 时，只撤回它自己的行与计数。两个
 - V2 请求仍原样接纳。它不陈述范围，因此不为它签发初始 PIT 请求，它能发布的 Design role intent 也不指名任何 PIT
   请求；Market Data 对来自这种 intent 的 universe-member 声明按名拒绝。
 - Intent 冻结之后、任何探索性消费之前，本 Owner 在自己的步骤中签发初始 PIT 请求，调用方只提供 Intent locator。它先向
-  Market Data 的 Universe Selection intake 陈述选择规则：一条固定成员规则，其字节即范围的规范字节，由 Market Data 在其
-  已发布的 decision cut 上以其自有的 eligible-instrument frontier 求值；R&D 不指名任何 frontier，也不指名用户所请求
-  之外的任何成员。随后它冻结 PIT Market Snapshot Request：`requester_identity` 是 Research request 身份的规范摘要，
+  Market Data 的 Universe Selection intake 陈述选择规则：固定成员规则，即 `[0,1,3]` 后接范围的规范字节，以范围身份作为
+  其规则身份，由 Market Data 在其已发布的 decision cut 上以其 eligible-instrument frontier 求值。R&D 不自选任何 frontier，
+  也不选用户所请求之外的任何成员：请求携带的是 Market Data 读取所返回的当前 eligible-instrument frontier。随后它冻结 PIT Market Snapshot Request：`requester_identity` 是 Research request 身份的规范摘要，
   由本 Owner 写入，从不取自调用方；`scope_digest` 是范围身份；关联身份由 Intent 身份派生；Source Binding、
   Instrument Master、Market Semantics 与 decision cut 的引用，是 Market Data 自有读取面为该范围解析出的那些，由
   Market Data 契约陈述。冻结的请求在发送之前按 Intent 一次性写入，每次重试都发送这些已存储的字节，因此相同身份与摘要

@@ -1012,9 +1012,10 @@ request binds 'the requested instrument or universe scope'."
   an intent by name.
 - After the Intent is frozen and before any exploratory consumption, this Owner issues the initial PIT request in its
   own step, taking only the Intent locator from its caller. It first states the selection rule to Market Data's
-  Universe Selection intake: a fixed-member rule whose bytes are the scope's canonical bytes, which Market Data
-  evaluates against its own eligible-instrument frontier at its published decision cut; R&D names no frontier and no
-  member beyond the ones the user requested. It then freezes the PIT Market Snapshot Request: `requester_identity` is
+  Universe Selection intake: the fixed-member rule, `[0,1,3]` followed by the scope's canonical bytes, with the scope
+  identity as its rule identity, which Market Data evaluates against its eligible-instrument frontier at its published
+  decision cut. R&D chooses no frontier and no member beyond the ones the user requested: the request carries the
+  current eligible-instrument frontier Market Data's read returns. It then freezes the PIT Market Snapshot Request: `requester_identity` is
   the canonical digest of the Research request identity, written by this Owner and never taken from a caller;
   `scope_digest` is the scope identity; the correlation is derived from the Intent identity; and the Source Binding,
   Instrument Master, Market Semantics and decision-cut references are the ones Market Data's own read surfaces
