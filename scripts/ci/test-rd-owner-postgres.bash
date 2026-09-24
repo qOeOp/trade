@@ -2246,12 +2246,66 @@ if [[ ! -d "$nextest_temp_root" ]]; then
 fi
 nextest_archive_dir="$(mktemp -d "${nextest_temp_root%/}/vibe-rd-owner-nextest.XXXXXXXX")"
 nextest_archive_file="${nextest_archive_dir}/rd-owner-tests.tar.zst"
+# LANE8 PROBE, NOT FOR MERGE: time every link, and record cargo's per-unit timings.
+lane8_link_log="$(mktemp)"
+lane8_linker="$(mktemp)"
+cat > "$lane8_linker" << 'LINKER'
+#!/usr/bin/env bash
+start=$(date +%s.%N)
+cc "$@"
+status=$?
+end=$(date +%s.%N)
+out=""
+previous=""
+for argument in "$@"; do
+  [[ "$previous" == "-o" ]] && out="$argument"
+  previous="$argument"
+done
+echo "$start $end $status ${out##*/}" >> "LINK_LOG"
+exit $status
+LINKER
+sed -i "s#LINK_LOG#${lane8_link_log}#" "$lane8_linker"
+chmod +x "$lane8_linker"
+lane8_started=$SECONDS
 cargo nextest archive \
   "${nextest_graph_args[@]}" \
   --features "$nextest_archive_features" \
   --profile "$nextest_profile" \
   --cargo-profile "$cargo_ci_profile" \
+  --timings \
+  --config "target.x86_64-unknown-linux-gnu.linker=\"${lane8_linker}\"" \
   --archive-file "$nextest_archive_file"
+echo "LANE8-PROBE archive wall: $((SECONDS - lane8_started))s"
+python3 - "$lane8_link_log" "${CARGO_TARGET_DIR:-target}/cargo-timings/cargo-timing.html" << 'SUMMARY'
+import json
+import re
+import sys
+
+links = [line.split() for line in open(sys.argv[1]) if line.strip()]
+spans = sorted((float(a), float(b), name if len(rest) else "", int(c)) for a, b, c, *rest in links for name in (rest[0] if rest else "",))
+total = sum(b - a for a, b, _, _ in spans)
+union = 0.0
+cursor = 0.0
+for a, b, _, _ in spans:
+    if b > cursor:
+        union += b - max(a, cursor)
+        cursor = b
+print(f"LANE8-PROBE links: {len(spans)} invocations, summed {total:.1f}s, wall-clock union {union:.1f}s, failures {sum(1 for *_, c in spans if c)}")
+for a, b, name, _ in sorted(spans, key=lambda s: s[0] - s[1])[:8]:
+    print(f"LANE8-PROBE   slow link {b - a:6.1f}s {name}")
+html = open(sys.argv[2], encoding="utf-8").read()
+match = re.search(r"const UNIT_DATA = (\[.*?\]);", html, re.S)
+units = json.loads(match.group(1)) if match else []
+workspace = [u for u in units if u["name"].startswith(("vibe", "strategy-factory", "strategy_factory"))]
+external = [u for u in units if u not in workspace]
+print(f"LANE8-PROBE units: {len(units)} ({len(external)} external, {len(workspace)} workspace)")
+print(f"LANE8-PROBE summed unit time: external {sum(u['duration'] for u in external):.0f}s, workspace {sum(u['duration'] for u in workspace):.0f}s")
+end = max((u["start"] + u["duration"] for u in units), default=0)
+print(f"LANE8-PROBE build wall from timings: {end:.0f}s")
+for u in sorted(units, key=lambda u: -u["duration"])[:12]:
+    print(f"LANE8-PROBE   unit {u['duration']:6.1f}s {u['name']} {u.get('target', '')}".rstrip())
+SUMMARY
+exit 0
 
 # Extract the archive once and run every entry from the extracted tree. `--archive-file` extracts the
 # whole archive again on each invocation - 52 binaries, about 3.5 s each time - and the chain makes
