@@ -460,6 +460,10 @@ jobs:
           workspaces: . -> target/py-stubs
           cache-on-failure: "false"
           cache-workspace-crates: "true"
+          # The same prefix common-setup gives every other rust-cache step: `make py-stubs` builds
+          # under the compile environment in build-env.mk, which rust-cache cannot see.
+          prefix-key: v0-rust-${{ hashFiles('build-env.mk') }}
+          env-vars: CAPNP
           # A literal, for the reason already recorded on `rust tests` below: rust-cache derives
           # the rest of the key itself, so naming compile inputs here can only lose entries.
           # This key hashed `build.yml`, `Cargo.lock` and the `Makefile`, three files that change
