@@ -885,7 +885,19 @@ test(testName, { skip: !url }, async () => {
         return Boolean(trigger);
       })()`), true, "the badge case left its schedule selected in the inspector");
       await waitForBrowserExpression(browser,
-        "document.querySelectorAll('dialog[open]').length === 1 && Boolean(document.querySelector('dialog[open] a[href^=\"/operations/runs/\"]'))");
+        "document.querySelectorAll('dialog[open]').length === 1 && Boolean(document.querySelector('dialog[open] a[href^=\"/operations/runs/\"]'))")
+        .catch(async (timedOut) => {
+          // Which state the page holds decides between two histories. A sheet still carrying the
+          // run it last showed ("Related run") means its close never reached the page's state, so
+          // asking for the same run changed nothing; a sheet back on the schedule means the click
+          // itself never asked.
+          const sheets = await readBrowserValue(browser, `[...document.querySelectorAll('dialog')].map((dialog) => ({
+            label: dialog.getAttribute('aria-label') ?? dialog.getAttribute('aria-labelledby'),
+            open: dialog.open,
+            text: dialog.textContent.replace(/\\s+/gu, ' ').trim().slice(0, 160),
+          }))`).catch((error) => error.message);
+          throw new Error(`${timedOut.message}; sheets after the inspector click: ${JSON.stringify(sheets)}`);
+        });
       await readBrowserValue(browser,
         "document.querySelector('dialog[open] button[aria-label=\"Close panel\"]')?.click()");
       await waitForBrowserExpression(browser, "document.querySelector('dialog[open]') === null");
