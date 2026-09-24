@@ -1580,6 +1580,116 @@ check_market_data_principal_bootstrap_order
 check_trial_family_candidate_experiment_cutover
 check_composer_acceptance_stays_in_the_chain
 check_collected_warning_report
+# The chain's verdict from its records alone, so a run split across jobs is judged by the same
+# report a serial run prints. Records are named by global chain position, so the directories of
+# several jobs merge into the layout one serial run leaves. Every position must hold exactly one
+# junit record naming the test the array puts there, with one test run and none failed, errored or
+# skipped: a record under the wrong number, a skip-shaped pass and a missing entry are each named.
+# The two summary lines then come from the same code the serial chain calls.
+report_chain_records() {
+  local record_dir="$1" position selection package binary name record header problems=0
+  local expected_count="${#rd_owner_postgres_tests[@]}"
+  if [[ ! -d "$record_dir" ]]; then
+    echo "ERROR: no chain record directory at ${record_dir}." >&2
+    return 1
+  fi
+  for position in $(seq 1 "$expected_count"); do
+    selection="${rd_owner_postgres_tests[$((position - 1))]}"
+    IFS='|' read -r package binary name <<< "$selection"
+    record="$(printf '%s/%03d.xml' "$record_dir" "$position")"
+    if [[ ! -f "$record" ]]; then
+      echo "ERROR: entry ${position} (${name}) left no record at ${record}." >&2
+      problems=$((problems + 1))
+      continue
+    fi
+    header="$(grep -m 1 -o '<testsuites [^>]*>' -- "$record" || true)"
+    if [[ "$header" != *' tests="1" skipped="0" failures="0" errors="0" '* ]]; then
+      echo "ERROR: entry ${position} (${name}) did not record exactly one passing test: ${header:-no testsuites element}" >&2
+      problems=$((problems + 1))
+    fi
+    if ! grep -Fq "<testcase name=\"${name}\" classname=\"${package}" -- "$record"; then
+      echo "ERROR: record ${record} is not entry ${position} (${name}); it names $(grep -m 1 -o '<testcase name="[^"]*"' -- "$record" || echo 'no test case')." >&2
+      problems=$((problems + 1))
+    fi
+  done
+  while IFS= read -r record; do
+    position="$(basename -- "$record" .xml)"
+    if [[ ! "$position" =~ ^[0-9]{3}$ ]] || ((10#$position < 1 || 10#$position > expected_count)); then
+      echo "ERROR: ${record} is not the record of any of the ${expected_count} entries." >&2
+      problems=$((problems + 1))
+    fi
+  done < <(find "$record_dir" -maxdepth 1 -name '*.xml' -type f | sort)
+  if [[ "$problems" -ne 0 ]]; then
+    echo "ERROR: ${problems} problem(s) in the chain records at ${record_dir}." >&2
+    return 1
+  fi
+  echo "=== ordered chain: all ${expected_count} entries passed, ${expected_count} recorded"
+  report_collected_warnings "$record_dir" "$expected_count"
+}
+
+# The record verdict and its positive control, on records built from the array itself. A complete
+# set must pass and print the serial chain's own lines; each way a merged set can be wrong must be
+# named: a missing entry, a record under another entry's number, a skip-shaped pass, and a record
+# for a position the array does not have.
+check_chain_record_report() {
+  local fixtures position selection package binary name report
+  fixtures="$(mktemp -d)"
+  for position in $(seq 1 "${#rd_owner_postgres_tests[@]}"); do
+    selection="${rd_owner_postgres_tests[$((position - 1))]}"
+    IFS='|' read -r package binary name <<< "$selection"
+    printf '<testsuites name="nextest-run" tests="1" skipped="0" failures="0" errors="0" time="1">\n<testcase name="%s" classname="%s::%s" time="1"/>\n</testsuites>\n' \
+      "$name" "$package" "$binary" > "$(printf '%s/%03d.xml' "$fixtures" "$position")"
+    printf '%s\n' "$chain_log_collecting_marker" > "$(printf '%s/%03d.log' "$fixtures" "$position")"
+  done
+  if ! report="$(report_chain_records "$fixtures" 2>&1)" ||
+    [[ "$report" != "=== ordered chain: all ${#rd_owner_postgres_tests[@]} entries passed, ${#rd_owner_postgres_tests[@]} recorded"$'\n'"=== owner warnings: collected for ${#rd_owner_postgres_tests[@]}/${#rd_owner_postgres_tests[@]} entries; refusals in 0, other warnings in 0, 0 sqlx performance hint(s) in total" ]]; then
+    rm -rf -- "$fixtures"
+    echo "ERROR: the record verdict refuses a complete set of records or prints other lines:" >&2
+    printf '%s\n' "$report" >&2
+    return 1
+  fi
+  mv -- "$fixtures/002.xml" "$fixtures/002.held"
+  if report_chain_records "$fixtures" > /dev/null 2>&1; then
+    rm -rf -- "$fixtures"
+    echo "ERROR: the record verdict accepts a set with entry 2 missing." >&2
+    return 1
+  fi
+  cp -- "$fixtures/001.xml" "$fixtures/002.xml"
+  if report_chain_records "$fixtures" > /dev/null 2>&1; then
+    rm -rf -- "$fixtures"
+    echo "ERROR: the record verdict accepts entry 1's record under entry 2's number." >&2
+    return 1
+  fi
+  mv -- "$fixtures/002.held" "$fixtures/002.xml"
+  sed -e 's/ skipped="0" / skipped="1" /' "$fixtures/001.xml" > "$fixtures/001.skipped"
+  mv -- "$fixtures/001.xml" "$fixtures/001.held"
+  mv -- "$fixtures/001.skipped" "$fixtures/001.xml"
+  if report_chain_records "$fixtures" > /dev/null 2>&1; then
+    rm -rf -- "$fixtures"
+    echo "ERROR: the record verdict accepts a skip-shaped record." >&2
+    return 1
+  fi
+  mv -- "$fixtures/001.held" "$fixtures/001.xml"
+  cp -- "$fixtures/001.xml" "$(printf '%s/%03d.xml' "$fixtures" "$((${#rd_owner_postgres_tests[@]} + 1))")"
+  if report_chain_records "$fixtures" > /dev/null 2>&1; then
+    rm -rf -- "$fixtures"
+    echo "ERROR: the record verdict accepts a record for a position the chain does not have." >&2
+    return 1
+  fi
+  rm -rf -- "$fixtures"
+}
+
+check_chain_record_report
+
+if [[ "${1:-}" == "--report-records" ]]; then
+  if [[ "$#" -ne 2 ]]; then
+    echo "usage: $0 --report-records <chain record directory>" >&2
+    exit 2
+  fi
+  report_chain_records "$2"
+  exit
+fi
+
 if [[ "${1:-}" == "--check" ]]; then
   exit 0
 fi
