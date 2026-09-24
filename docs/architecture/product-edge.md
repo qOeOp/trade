@@ -516,7 +516,8 @@ does not infer acceptance from a shell acknowledgement, a read model, or an abse
 **TARGET / IMPLEMENTATION_ADMITTED, the requested instrument scope:** a research request states the instruments it
 studies. Product Edge admits `ProductEdgeResearchGoalRequestV3`, which carries the user's required `instrument_scope`
 (one or two canonical Instrument Master identities), and forwards the scope unchanged as part of the request's
-meaning; it never fills, defaults, completes or edits it. The V2 request stays admitted as it is. The scope's shape,
+meaning, through the `sourced-research-goal-v3` operation; it never fills, defaults, completes or edits it. The V2
+request stays admitted as it is. The scope's shape,
 the initial PIT request it drives, and the user's authority are stated in the [R&D Owner contract](../owners/rd).
 Built so far: nothing.
 

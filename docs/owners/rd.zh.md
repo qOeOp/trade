@@ -862,7 +862,17 @@ unavailable 或位于不同 cut 时，只撤回它自己的行与计数。两个
   `ResearchInstrumentScopeV1`：一到两个互不相同的规范 Instrument Master 身份（例如 `BTCUSDT-PERP.BINANCE`），按字节
   升序排列，与 universe 纵向切片准入的成员数一致；单品种路径只陈述一个。其规范字节依次为 schema `u16LE = 1`、成员数
   `u8`，以及按序排列、各带长度前缀（`u16LE`）的身份；其身份为对 `rd.research-instrument-scope.v1\0 || 规范字节` 的
-  SHA-256。范围属于请求含义，因此同一请求身份配另一范围即为含义变化，会被拒绝。冻结的 Research Intent（V3）绑定范围
+  SHA-256。它在传输中是 JSON 对象 `{"schema_version": 1, "identities": ["BTCUSDT-PERP.BINANCE"]}`；本 Owner 拒绝未知的
+  schema、空的、重复的或未排序的列表，以及为空、带首尾空白、含控制字符或超过 1024 个 UTF-8 字节的身份，并自行计算规范
+  字节与身份，从不取自调用方。接纳之前，本 Owner 通过 Market Data 已准入的读取面询问：每个身份能否解析，且是否在
+  Market Data 当前 decision cut 上的 eligible-instrument frontier 之内；只要有一个不满足，请求就以
+  `REJECTED_NO_WRITE` 和 `INSTRUMENT_SCOPE_NOT_RESOLVABLE` 结束，不冻结任何 Intent，因此输错的品种不会留下一个已接纳
+  却永远无法回测的研究。该检查只是提前拒绝：真正的保证仍然是 Market Data 在签发初始 PIT 请求时的判定，与
+  universe-member binding 同理。由哪个 Market Data 读取函数回答它，与 Market Data 对齐；若今天尚无已准入的读取函数，
+  提供它属于本切片，而绝不是跳过该检查的理由。请求以
+  `sourced-research-goal-v3` operation 传输，经 `POST /v3/source-intake-research` 提交、经
+  `POST /v3/research-goals/{request_identity}/resolve` 解析，与不变的 V2 路由并列。范围属于请求含义，因此同一请求身份配
+  另一范围即为含义变化，会被拒绝。冻结的 Research Intent（V3）绑定范围
   身份与字节。更换品种意味着一个后继 Research request，它有自己的 Intent 与自己的初始 PIT 请求；没有任何机制把已接纳
   的 Intent 改绑到另一品种。
 - V2 请求仍原样接纳。它不陈述范围，因此不为它签发初始 PIT 请求，它能发布的 Design role intent 也不指名任何 PIT
@@ -875,7 +885,9 @@ unavailable 或位于不同 cut 时，只撤回它自己的行与计数。两个
   Instrument Master、Market Semantics 与 decision cut 的引用，是 Market Data 自有读取面为该范围解析出的那些，由
   Market Data 契约陈述。冻结的请求在发送之前按 Intent 一次性写入，每次重试都发送这些已存储的字节，因此相同身份与摘要
   加入同一次 Market Data 尝试：再次签发是幂等的。若拒绝重试，首次发送以 `SUBMITTED_OR_UNKNOWN` 结束的 Intent 就会
-  被困住，所以重试是加入而不是冲突。返回的 `ResearchPitTerminal` 记录在该 Intent 名下。
+  被困住，所以重试是加入而不是冲突。返回的 `ResearchPitTerminal` 记录在该 Intent 名下，Research 回读显示其处置。接纳时
+  通过检查、但在请求的 decision cut 上不可纳入的品种，仍会得到非 `AVAILABLE` 的终态：该 Intent 的任何下游都不得消费它，
+  补救办法是发一个后继请求。
 - Design role intent（schema 2）另外指名该初始 PIT 请求，取自本 Owner 的 custody，从不取自发布调用方，并且只在所记录
   的终态为 `AVAILABLE` 之后才发布。Market Data 针对恰为该请求注册 Design 的声明，而不去搜索一个，因此调用方以伪造的
   `requester_identity` 提交的请求永远不会被选中。同一 Intent 的后继 PIT 请求只由在它之后发布的 role intent 指名；

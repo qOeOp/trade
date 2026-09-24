@@ -990,7 +990,20 @@ request binds 'the requested instrument or universe scope'."
   `BTCUSDT-PERP.BINANCE`, in ascending byte order, matching the member counts the universe vertical admits. The
   single-instrument route states one. Its canonical bytes are schema `u16LE = 1`, the member count `u8`, and each
   identity length-prefixed (`u16LE`) in order; its identity is SHA-256 over
-  `rd.research-instrument-scope.v1\0 || canonical bytes`. The scope is part of the request's meaning, so the same
+  `rd.research-instrument-scope.v1\0 || canonical bytes`. On the wire it is the JSON object
+  `{"schema_version": 1, "identities": ["BTCUSDT-PERP.BINANCE"]}`; this Owner refuses an unknown schema, an empty,
+  duplicated or unordered list, or an identity that is empty, padded, holds a control character or exceeds 1024 UTF-8
+  bytes, and it computes the canonical bytes and identity itself, never taking them from a caller. Before accepting,
+  this Owner asks Market Data's admitted read surface whether every identity resolves and lies in the eligible
+  instrument frontier at Market Data's current decision cut; if one does not, the request closes
+  `REJECTED_NO_WRITE` with `INSTRUMENT_SCOPE_NOT_RESOLVABLE` and no Intent is frozen, so a mistyped instrument leaves
+  no accepted research that could never be backtested. That check only refuses early: Market Data's decision when the
+  initial PIT request is issued remains the guarantee, as in the universe-member binding. Which Market Data read
+  function answers it is agreed with Market Data; if none is admitted yet, providing one is part of this slice, never
+  a reason to skip the check. The request travels as
+  the `sourced-research-goal-v3` operation, submitted with `POST /v3/source-intake-research` and resolved with
+  `POST /v3/research-goals/{request_identity}/resolve`, beside the unchanged V2 routes. The scope is part of the
+  request's meaning, so the same
   request identity with another scope is a changed meaning and is rejected. The frozen Research Intent (V3) binds the
   scope identity and bytes. Changing the instrument means a successor Research request, with its own Intent and its
   own initial PIT request; nothing rebinds an accepted Intent to another instrument.
@@ -1009,7 +1022,9 @@ request binds 'the requested instrument or universe scope'."
   Intent before it is sent, and every retry sends those stored bytes, so the same identity and digest join one
   Market Data attempt: issuing again is idempotent. A refusal would strand an Intent whose first send ended
   `SUBMITTED_OR_UNKNOWN`, which is why a retry joins rather than conflicts. The returned `ResearchPitTerminal` is
-  recorded against the Intent.
+  recorded against the Intent, and the Research readback shows its disposition. An instrument that passed the check
+  at acceptance but is not eligible at the request's decision cut still ends in a terminal that is not `AVAILABLE`:
+  nothing downstream of that Intent may consume it, and the remedy is a successor request.
 - The Design role intent (schema 2) additionally names that initial PIT request, read from this Owner's custody and
   never from the publishing caller, and it is published only once the recorded terminal is `AVAILABLE`. Market Data
   registers the Design's declarations against exactly that request instead of searching for one, so a request a

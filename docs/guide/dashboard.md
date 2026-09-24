@@ -374,9 +374,15 @@ region reuses `ActionAdmissionGate` and the standard compact button variants.
 **TARGET / IMPLEMENTATION_ADMITTED, the Instrument field:** the control gains one required `Instrument` field in the
 research region, a canonical Instrument Master identity such as `BTCUSDT-PERP.BINANCE`, entered once and reusing the
 shared `FormField` and `Input` atoms. With it the control submits `ResearchGoalExecutionInputV3`, whose
-`instrument_scope` holds exactly that one identity; the shared validator refuses an empty, padded or non-canonical
-value before dispatch, and the control neither suggests nor defaults an instrument. The research and its backtests
-are bound to that instrument, and changing it means a successor research request, never an edit of a frozen one.
+`instrument_scope` holds exactly that one identity, through the `sourced-research-goal-v3` operation; once built,
+the control submits only V3. The shared validator refuses an empty value, leading or trailing whitespace, a control
+character, or more than 1024 UTF-8 bytes before dispatch; whether the value names an eligible instrument is answered
+by R&D against Market Data, not by the form, and the control neither suggests nor defaults an instrument. The form no
+longer emits V2. A mistyped instrument closes as `REJECTED_NO_WRITE` with `INSTRUMENT_SCOPE_NOT_RESOLVABLE` and is
+shown as that terminal; the Research readback also shows the initial PIT disposition, one of the six
+`ResearchPitTerminal` states, for an instrument that passed at acceptance. The research and its
+backtests are bound to that instrument, and changing it means a successor research request, never an edit of a
+frozen one.
 The user's authority and the scope contract are stated in the [R&D Owner contract](../owners/rd). Built so far:
 nothing.
 
