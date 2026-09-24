@@ -1964,6 +1964,13 @@ pub(super) fn validate_stored_row_for_test(
 }
 
 #[cfg(test)]
+pub(super) fn prepared_storage_digests_for_test(
+    prepared: &PreparedReplayMarketFactsStorageV2,
+) -> ([u8; DIGEST_BYTES], [u8; DIGEST_BYTES]) {
+    (prepared.row.meaning_identity, prepared.row.custody_digest)
+}
+
+#[cfg(test)]
 pub(super) fn reseal_storage_row_for_test(row: &mut StoredReplayMarketFactsRowV2) {
     row.custody_digest = storage_digest(row);
 }
