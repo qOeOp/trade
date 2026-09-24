@@ -1254,6 +1254,101 @@ mod tests {
         }
     }
 
+    /// The environment names the deployed read API is given, read from its compose service.
+    ///
+    /// `RUST_LOG` is logging, not composition. A name added to that service without the chain
+    /// answering it would leave this entry composing less than deployment does, so the comparison
+    /// that uses this fails instead.
+    fn deployed_read_api_environment_names() -> std::collections::BTreeSet<&'static str> {
+        const COMPOSE: &str = include_str!("../../../../product/rd-workbench/docker-compose.yml");
+        let service = COMPOSE
+            .split("\n  rd-dashboard-owner-read-api:\n")
+            .nth(1)
+            .expect("the compose file defines the read API service");
+        let environment = service
+            .split("\n    environment:\n")
+            .nth(1)
+            .expect("the read API service has an environment");
+        environment
+            .lines()
+            .take_while(|line| line.starts_with("      "))
+            .filter_map(|line| {
+                let line = line.trim_start();
+                line.split_once(':').map(|(name, _)| name).filter(|name| {
+                    !name.is_empty() && name.bytes().all(|b| b.is_ascii_uppercase() || b == b'_')
+                })
+            })
+            .filter(|name| *name != "RUST_LOG")
+            .collect()
+    }
+
+    #[rstest]
+    fn the_deployed_read_api_is_given_four_composition_inputs() {
+        assert_eq!(
+            deployed_read_api_environment_names(),
+            [
+                "RD_DASHBOARD_OWNER_READ_API_TOKEN",
+                "RD_DASHBOARD_OWNER_READ_DATABASE_URL",
+                "RD_DASHBOARD_SOURCE_INTAKE_PRODUCT_EDGE_DATABASE_URL",
+                "RD_DASHBOARD_SOURCE_INTAKE_REQUEST_PROOF",
+            ]
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>()
+        );
+    }
+
+    #[rstest]
+    fn the_read_api_configuration_binds_source_intake_only_from_a_whole_pair() {
+        const OWNER: [(&str, &str); 2] = [
+            ("RD_DASHBOARD_OWNER_READ_DATABASE_URL", "postgres://owner"),
+            ("RD_DASHBOARD_OWNER_READ_API_TOKEN", "read-token"),
+        ];
+        const HALF_PAIR: [(&str, &str); 3] = [
+            OWNER[0],
+            OWNER[1],
+            (
+                "RD_DASHBOARD_SOURCE_INTAKE_PRODUCT_EDGE_DATABASE_URL",
+                "postgres://edge",
+            ),
+        ];
+        const WHOLE_PAIR: [(&str, &str); 4] = [
+            OWNER[0],
+            OWNER[1],
+            HALF_PAIR[2],
+            ("RD_DASHBOARD_SOURCE_INTAKE_REQUEST_PROOF", "proof"),
+        ];
+        const EMPTY_TOKEN: [(&str, &str); 2] =
+            [OWNER[0], ("RD_DASHBOARD_OWNER_READ_API_TOKEN", " ")];
+        let lookup = |pairs: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                pairs
+                    .iter()
+                    .find(|(candidate, _)| *candidate == name)
+                    .map(|(_, value)| (*value).to_string())
+            }
+        };
+
+        let owner_only = DashboardReadApiConfigV1::from_lookup(lookup(&OWNER)).unwrap();
+        assert!(owner_only.source_intake.is_none());
+        assert_eq!(owner_only.bind, "0.0.0.0:8082");
+        assert!(
+            DashboardReadApiConfigV1::from_lookup(lookup(&HALF_PAIR))
+                .unwrap()
+                .source_intake
+                .is_none()
+        );
+        let bound = DashboardReadApiConfigV1::from_lookup(lookup(&WHOLE_PAIR))
+            .unwrap()
+            .source_intake
+            .expect("a whole pair binds Source Intake");
+        assert_eq!(bound.product_edge_database_url, "postgres://edge");
+        assert_eq!(bound.request_proof, "proof");
+
+        for pairs in [&OWNER[..1], &EMPTY_TOKEN[..]] {
+            assert!(DashboardReadApiConfigV1::from_lookup(lookup(pairs)).is_err());
+        }
+    }
+
     /// One exploratory result and the selector the `/backtest` workbench opens it with.
     struct OpenableResult {
         result_identity: String,
@@ -1370,18 +1465,55 @@ mod tests {
         };
         let run = openable(&run_rows[0]);
 
-        // Composed exactly as the binary composes it, with the read API's own credential.
+        // Composed by the binary's own rule: `from_lookup` is what `from_environment` reads the
+        // deployment through, and the chain answers the same names the deployed service is given
+        // (the `rd-dashboard-owner-read-api` environment in product/rd-workbench/docker-compose.yml,
+        // checked below). The request proof is the chain's own; this entry reads no Source Intake.
         let read_token = "rd-dashboard-read-run-report-acceptance";
-        let api = dashboard_read_api::compose_state(&DashboardReadApiConfigV1 {
-            owner_database_url: test_database
-                .database_url(CanonicalOwnerTestRoleV1::RdOwner)
-                .to_string(),
-            token: read_token.to_string(),
-            source_intake: None,
-            bind: String::new(),
-        })
+        let read_environment = [
+            (
+                "RD_DASHBOARD_OWNER_READ_DATABASE_URL",
+                test_database
+                    .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+                    .to_string(),
+            ),
+            ("RD_DASHBOARD_OWNER_READ_API_TOKEN", read_token.to_string()),
+            (
+                "RD_DASHBOARD_SOURCE_INTAKE_PRODUCT_EDGE_DATABASE_URL",
+                test_database
+                    .database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner)
+                    .to_string(),
+            ),
+            (
+                "RD_DASHBOARD_SOURCE_INTAKE_REQUEST_PROOF",
+                "rd-owner-api-run-report-acceptance".to_string(),
+            ),
+        ];
+        assert_eq!(
+            read_environment
+                .iter()
+                .map(|(name, _)| *name)
+                .collect::<std::collections::BTreeSet<_>>(),
+            deployed_read_api_environment_names(),
+            "the chain answers exactly the names the deployed read API is given"
+        );
+        let api = dashboard_read_api::compose_state(
+            &DashboardReadApiConfigV1::from_lookup(|name| {
+                read_environment
+                    .iter()
+                    .find(|(candidate, _)| *candidate == name)
+                    .map(|(_, value)| value.clone())
+            })
+            .unwrap(),
+        )
         .await
         .unwrap();
+        // Every optional port the deployment binds binds here too, so this entry serves the
+        // deployed composition rather than a narrower one.
+        assert!(
+            api.source_intake_readback.is_some(),
+            "Source Intake readback binds as it does in deployment"
+        );
         let mut probe = api.clone();
         probe.token_digest = Sha256::digest(b"test-token").into();
 

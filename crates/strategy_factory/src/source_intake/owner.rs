@@ -201,6 +201,9 @@ impl SourceIntakeReadbackOwnerPort for PostgresSourceIntakeReadbackOwnerV1 {
     ) -> Result<Option<SourceIntakeTerminalAtomV1>, SourceIntakeOwnerErrorV1> {
         validate_identity(request_identity)?;
 
+        // Both ways of finding nothing answer the Dashboard the same way, as the contract's
+        // neutral no-verified-terminal state, so each names itself here instead: a reader of the
+        // Owner's warnings can tell a request Product Edge never admitted from one it did.
         if self
             .product_edge
             .resolve_admission(request_identity, &self.request_proof_digest)
@@ -208,14 +211,29 @@ impl SourceIntakeReadbackOwnerPort for PostgresSourceIntakeReadbackOwnerV1 {
             .map_err(|e| product_edge_error(&e))?
             .is_none()
         {
+            refused_by_store(
+                "source_intake.production_readback.admission_absent",
+                &"Product Edge holds no admission for this request under this request proof",
+            );
             return Ok(None);
         }
-        read_terminal(
+        let terminal = read_terminal(
             &self.owner_pool,
             request_identity,
             &live_external_authority(),
         )
-        .await
+        .await?;
+
+        if terminal.is_none() {
+            // The readback function answers no row both when no binding exists for the identity
+            // and when a binding fails the integrity checks inside the function, so this names the
+            // function's silence rather than one of its causes.
+            refused_by_store(
+                "source_intake.production_readback.readback_empty",
+                &"rd_owner_api.read_source_intake_v1 returned no row for an admitted request",
+            );
+        }
+        Ok(terminal)
     }
 }
 
