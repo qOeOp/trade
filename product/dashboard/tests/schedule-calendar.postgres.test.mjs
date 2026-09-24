@@ -878,6 +878,27 @@ test(testName, { skip: !url }, async () => {
       // schedule was already selected and its preview had been opened, and closed, from the schedule
       // inspector before the calendar badge opened it again. Recreate that history, on the badge that
       // just passed, so the case is driven every run instead of when the clock happens to allow it.
+      // EXPERIMENT (do not merge), preregistered prediction: a click that asks for the run the sheet
+      // is still holding, made before the page has handled that sheet's close event, opens nothing.
+      // Open the inspector preview, then close it and click its trigger again in one evaluation.
+      await readBrowserValue(browser, `document.querySelector(
+        '[aria-label="Selected schedule"] [data-run-preview-trigger="${calendarRunOrigins.badge}"]')?.click()`);
+      await waitForBrowserExpression(browser,
+        "document.querySelectorAll('dialog[open]').length === 1 && Boolean(document.querySelector('dialog[open] a[href^=\"/operations/runs/\"]'))");
+      await readBrowserValue(browser, `(() => {
+        document.querySelector('dialog[open] button[aria-label="Close panel"]')?.click();
+        document.querySelector(
+          '[aria-label="Selected schedule"] [data-run-preview-trigger="${calendarRunOrigins.badge}"]')?.click();
+        return true;
+      })()`);
+      await delay(1_000);
+      console.log(`calendar close race (click before close handled) -> ${JSON.stringify(await readBrowserValue(browser,
+        `[...document.querySelectorAll('dialog')].map((dialog) => ({ open: dialog.open,
+          text: dialog.textContent.replace(/\\s+/gu, ' ').trim().slice(0, 40) }))`))}`);
+      // Control: the same click after the page shows it handled the close.
+      await readBrowserValue(browser, "document.querySelector('dialog[open] button[aria-label=\"Close panel\"]')?.click()");
+      await waitForBrowserExpression(browser, "document.querySelector('dialog[open]') === null");
+      await delay(1_000);
       // What the click itself met, recorded in the same evaluation: a run where the sheet never
       // opens has to say whether the click reached the button, and whether anything opened at all.
       const inspectorClick = await readBrowserValue(browser, `(() => {
