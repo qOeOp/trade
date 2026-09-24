@@ -224,6 +224,13 @@ repos:
         language: system
         files: ^(\.github/workflows/(build|owner-chains)\.yml|scripts/ci/check-chain-channel-environment\.py)$
         pass_filenames: false
+      - id: test-wait-for-run-artifact
+        name: test the wait for a same-run artifact
+        description: Returns once the artifact is published, fails by name on a dead producer and at the timeout
+        entry: bash scripts/ci/test-wait-for-run-artifact.bash
+        language: system
+        files: ^scripts/ci/(wait-for-run-artifact|test-wait-for-run-artifact)\.bash$
+        pass_filenames: false
       - id: test-owner-chain-matrix
         name: test the Owner chain matrix
         description: The chain matrix is the whole chain without a shard list and one entry per shard with one
