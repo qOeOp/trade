@@ -36,9 +36,8 @@ use crate::{
         RESEARCH_OWNER_V1, RESEARCH_SCOPE_V1, ResearchViewAvailability, ResearchViewPhase,
         ResearchViewV1, canonical_research_view_identity_v2,
     },
-    source_research_composer_postgres_v2::{
-        SealedSourceResearchComposerBindingOwnerV2, read_sealed_accepted_for_replay_in_transaction,
-    },
+    develop_composer_postgres_v2::read_accepted_for_replay_in_transaction,
+    source_research_composer_postgres_v2::PostgresSourceResearchComposerBindingOwnerV2,
     trial_family_postgres::load_trial_family_census_v2_by_family_in_transaction,
 };
 
@@ -235,7 +234,7 @@ pub(crate) async fn commit_composer_v3(
     ensure_composer_artifact_family_binding_for_replay_v3(
         pool,
         &proposal,
-        &SealedSourceResearchComposerBindingOwnerV2,
+        &PostgresSourceResearchComposerBindingOwnerV2,
     )
     .await
     .map_err(unavailable)?;
@@ -281,9 +280,10 @@ pub(crate) async fn commit_composer_v3(
     )
     .await
     .map_err(unavailable)?;
-    let composer = read_sealed_accepted_for_replay_in_transaction(
+    let composer = read_accepted_for_replay_in_transaction(
         &mut transaction,
         &proposal.composer_locator,
+        &PostgresSourceResearchComposerBindingOwnerV2,
         first_cut,
     )
     .await
