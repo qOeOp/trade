@@ -686,7 +686,6 @@ mod router_tests {
     use sha2::{Digest, Sha256};
     use tower::ServiceExt;
     use vibe_data::owner::source_binding::BindingDigest;
-    use vibe_data::owner::strategy_design_role_set::StrategyDesignRoleEntryV1;
     use vibe_strategy_factory::single_threshold_authoring_v1::DesignRoleIntentProposalV1;
 
     use super::*;
@@ -821,28 +820,10 @@ mod router_tests {
     }
 
     fn intent_for(design: &StrategyDesignV2) -> StrategyDesignRoleIntentV1 {
-        let roles: Vec<StrategyDesignRoleEntryV1> = design
-            .inputs
-            .iter()
-            .enumerate()
-            .map(|(index, role)| {
-                let mut bytes = [0x11_u8; 32];
-                bytes[0] = u8::try_from(index).expect("fewer than 256 roles");
-                StrategyDesignRoleEntryV1 {
-                    role_identity: BindingDigest::from_untrusted_bytes(bytes),
-                    semantic_id: role.semantic_id.clone(),
-                    fact_class: format!("{:?}", role.fact_class),
-                    instrument: role.instrument.clone(),
-                    scope: format!("{:?}", role.scope),
-                    field_semantic_id: role.field_semantic_id.clone(),
-                    channel: role.channel.clone(),
-                    timeframe: role.timeframe.clone(),
-                    unit: role.unit.clone(),
-                    scale: role.scale,
-                    value_type: format!("{:?}", role.value_type),
-                }
-            })
-            .collect();
+        // The roles exactly as R&D projects them for publication, so this fixture cannot drift
+        // from the coordinates the Owner and Market Data actually accept.
+        let roles =
+            vibe_strategy_factory::strategy_plan_v2::project_design_role_entries_v1(&design.inputs);
         StrategyDesignRoleIntentV1::from_rd_owner_projection(
             BindingDigest::from_untrusted_bytes([1; 32]),
             BindingDigest::from_untrusted_bytes([2; 32]),

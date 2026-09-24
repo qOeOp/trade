@@ -1803,9 +1803,7 @@ pub(crate) fn prepare_canonical_strategy_design_v2(
 /// program exists describe the same roles. They derive them here rather than each mapping the
 /// coordinates again, because two mappings are two chances to disagree about one enum's canonical
 /// form, and a disagreement would be invisible until a digest failed to reproduce.
-pub(crate) fn project_design_role_entries_v1(
-    roles: &[InputRoleV2],
-) -> Vec<StrategyDesignRoleEntryV1> {
+pub fn project_design_role_entries_v1(roles: &[InputRoleV2]) -> Vec<StrategyDesignRoleEntryV1> {
     let mut entries = roles
         .iter()
         .map(|role| StrategyDesignRoleEntryV1 {
