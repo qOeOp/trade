@@ -252,7 +252,8 @@ test("prices and quantities are plain decimals, and are kept exactly as given", 
 });
 
 test("a projection missing only required keys is refused under a reason that names them", () => {
-  // The Owner's result-only projection: a statement it has not delivered yet is not a malformed one.
+  // A projection without its strategy and data window: a statement missing by name is not a
+  // malformed one.
   const resultOnly = without(without(available, "strategy"), "data_window");
   assert.deepEqual(normalizeBacktestRunReport(resultOnly, LOCATOR), {
     state: "unavailable",
