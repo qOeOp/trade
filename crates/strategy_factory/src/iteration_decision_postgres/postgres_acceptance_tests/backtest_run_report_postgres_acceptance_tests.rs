@@ -160,6 +160,13 @@ async fn backtest_run_report_reads_back_every_point_a_real_run_committed() {
     assert_eq!(read.result.fill_count, committed_fills as u64);
 }
 
+/// One Design frozen in R&D custody, and the Composer artifact composed from it if there is one.
+struct FrozenDesignV1 {
+    design_identity: Vec<u8>,
+    design_digest: Vec<u8>,
+    artifact: Option<Vec<u8>>,
+}
+
 /// Anchors the artifacts the production Composer built earlier in this chain, in the report's own
 /// read-only transaction.
 ///
@@ -194,14 +201,18 @@ async fn assert_the_anchor_holds_real_composer_artifacts_to_their_own_freeze(
     .fetch_all(admin)
     .await
     .expect("every Composer artifact and the Design its plan was composed from");
-    let freezes: Vec<(Vec<u8>, Vec<u8>, Option<Vec<u8>>)> = frozen
+    let freezes: Vec<FrozenDesignV1> = frozen
         .into_iter()
         .map(|(design_identity, design_digest)| {
             let artifact = composed
                 .iter()
                 .find(|(composed_from, _)| *composed_from == design_identity)
                 .map(|(_, artifact)| artifact.clone());
-            (design_identity, design_digest, artifact)
+            FrozenDesignV1 {
+                design_identity,
+                design_digest,
+                artifact,
+            }
         })
         .collect();
     let digest = |bytes: &[u8]| {
@@ -216,7 +227,12 @@ async fn assert_the_anchor_holds_real_composer_artifacts_to_their_own_freeze(
     // freeze a Composer artifact was built from must verify.
     let mut joint_freeze_digests = Vec::with_capacity(freezes.len());
 
-    for (design_identity, design_digest, artifact) in &freezes {
+    for FrozenDesignV1 {
+        design_identity,
+        design_digest,
+        artifact,
+    } in &freezes
+    {
         let frozen = read_frozen_design_program_in_transaction_v1(
             &mut transaction,
             digest(design_identity),
@@ -233,7 +249,10 @@ async fn assert_the_anchor_holds_real_composer_artifacts_to_their_own_freeze(
         };
         joint_freeze_digests.push(joint_freeze_digest);
     }
-    let built = freezes.iter().filter(|freeze| freeze.2.is_some()).count();
+    let built = freezes
+        .iter()
+        .filter(|freeze| freeze.artifact.is_some())
+        .count();
     let verified = joint_freeze_digests.iter().flatten().count();
     assert!(
         built >= 1 && verified >= 2,
@@ -242,7 +261,7 @@ async fn assert_the_anchor_holds_real_composer_artifacts_to_their_own_freeze(
         freezes.len()
     );
 
-    for (built_from, (_, _, artifact)) in freezes.iter().enumerate() {
+    for (built_from, FrozenDesignV1 { artifact, .. }) in freezes.iter().enumerate() {
         let Some(artifact) = artifact else {
             continue;
         };
