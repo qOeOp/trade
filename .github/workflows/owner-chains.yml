@@ -102,7 +102,12 @@ jobs:
           build-type: "test"
           free-disk-space: "true"
           free-disk-space-max-build: "true"
-          minimum-free-space-gb: "110"
+          # The chains need far less room than the whole-workspace `rust tests` build this 110 was copied
+          # from: measured on main 4a3013c12 (owner-chains run 35964493641), a hosted runner had 86G free
+          # before any cleanup, and the rd chain's restored cache plus the chain itself took about 12G (md
+          # about 5G). At 40 the cleanup is skipped on such a runner - it took 116-915s, 213s typically -
+          # and still runs on any runner that starts below 40. Re-measure if a chain's use nears 20G.
+          minimum-free-space-gb: "40"
           # Read-only, and the same key `build`'s chain jobs state. Nothing is saved under it, so
           # this workflow never spends the 10 GB quota; a hit is a bonus, a miss is what `build`'s
           # chain jobs get today for the reason their `rust-cache-key` comment gives.
