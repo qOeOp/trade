@@ -922,15 +922,21 @@ test(testName, { skip: !url }, async () => {
           throw new Error(`${timedOut.message}; inspector click: ${JSON.stringify(inspectorClick)}; sheets after it: ${
             JSON.stringify(sheets)}`);
         });
-      // Closing the sheet and asking for the same run again before the page's next task must open it
-      // again. Before the sheet told the page about its own close inside that close, this opened
-      // nothing and left the page on the schedule preview (35962774207): the red this case first met.
+      // The sheet's own Close control must tell the page, not only the dialog's `close` event: that
+      // event arrives as a later task, and a request for the same run made before it changed nothing
+      // and opened nothing (35962774207; the red this case first met). Holding that one event back
+      // makes the ordering deterministic: without the page hearing it from the control, the click
+      // below opens nothing every time. The two clicks stay separate evaluations, as two user inputs
+      // are separate tasks.
       await readBrowserValue(browser, `(() => {
+        document.addEventListener('close', (event) => {
+          if (event.target instanceof HTMLDialogElement) event.stopImmediatePropagation();
+        }, { capture: true, once: true });
         document.querySelector('dialog[open] button[aria-label="Close panel"]')?.click();
-        document.querySelector(
-          '[aria-label="Selected schedule"] [data-run-preview-trigger="${calendarRunOrigins.badge}"]')?.click();
         return true;
       })()`);
+      await readBrowserValue(browser, `document.querySelector(
+        '[aria-label="Selected schedule"] [data-run-preview-trigger="${calendarRunOrigins.badge}"]')?.click()`);
       await waitForBrowserExpression(browser,
         "document.querySelectorAll('dialog[open]').length === 1 && Boolean(document.querySelector('dialog[open] a[href^=\"/operations/runs/\"]'))");
       await readBrowserValue(browser,
