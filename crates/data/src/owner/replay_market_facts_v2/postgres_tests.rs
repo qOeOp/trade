@@ -1403,8 +1403,11 @@ fn universe_design_roles_v1()
 /// A universe-member composition issues a schema 2 binding, and that binding keys the request's
 /// Instrument Master cut.
 ///
-/// The universe Design declared earlier in this entry is attested by a Composer operation of its
-/// own, and composed through the universe-member entry: one binding naming no Instrument Master,
+/// A Composer operation is keyed by its Research request, so the composed universe Design belongs
+/// to a Research request of its own: its own PIT snapshot, R0 record and Market Semantics over the
+/// base fixture's authorities, a published schema 2 role intent naming that PIT request, its roles
+/// declared by the production writer, and a Composer attestation. It is composed through the
+/// universe-member entry: one binding naming no Instrument Master,
 /// one aggregate of the universe-member shape, one issuance, with no census. A retry returns the
 /// stored bytes and writes nothing; the same identity with another composition, and the exact
 /// Design's attestation offered to this entry, are refused by name with nothing written. R&D reads
@@ -1443,22 +1446,66 @@ async fn universe_member_composition_is_issued_step_v1(
     exact: &super::ReplayCompositionLocatorOnlyIssuanceRequestV1,
 ) {
     use crate::owner::{
+        correction_policy_projection::{CorrectionPolicyAuthenticatedInputsV1, project_first_v1},
         instrument_master_v2::InstrumentMasterCustodyErrorV2,
         instrument_master_v2_postgres::InstrumentMasterV2PostgresOwner,
         replay_market_facts_v2::{
             ReplayCompositionBindingErrorV1, ReplayCompositionBindingLocatorV1,
-            ReplayCompositionLocatorOnlyIssuanceRequestV1, ReplayCompositionOwnerV1,
+            ReplayCompositionContentLocatorV1, ReplayCompositionLocatorOnlyIssuanceRequestV1,
+            ReplayCompositionOwnerV1, ReplayCompositionRequestLocatorV1,
             ReplayCompositionUniverseBindingIssuanceRequestV1, ReplayMarketFactsShapeV2,
             composition::ReplayCompositionNativeLocatorKindV1,
             postgres::recover_replay_composition_binding_in_transaction_v1,
         },
         source_binding::BindingDigest,
+        strategy_design_role_intent_v1::{InitialPitRequestLocatorV1, StrategyDesignRoleIntentV1},
         strategy_design_role_set::{
             StrategyDesignRoleSetLocatorV1, StrategyDesignRoleSetReceiptV1,
         },
     };
 
     let d = vibe_data_binding_digest_for_test;
+    let research = d(0x80);
+    let design = d(0x84);
+    let market = crate::owner::postgres::MarketDataOwnerPostgres::connect(owner_url)
+        .await
+        .unwrap();
+    let lineage = crate::owner::postgres::tests::persist_research_pit_lineage_v1(
+        &market, base, research, 0x81,
+    )
+    .await;
+    let lineage_request = lineage.pit.fact().request();
+    let intent = StrategyDesignRoleIntentV1::from_rd_owner_projection_with_initial_pit(
+        research,
+        d(0x85),
+        d(0x86),
+        design,
+        d(0x87),
+        universe_design_roles_v1(),
+        InitialPitRequestLocatorV1 {
+            pit_request_identity: lineage_request.claimed_request_identity,
+            pit_request_digest: lineage_request.claimed_request_digest,
+        },
+    )
+    .expect("R&D publishes the universe Design's roles and its own initial PIT request");
+    sqlx::query(
+        "INSERT INTO public.rd_design_role_intents_v1(
+         design_identity, research_request_identity, intent_identity,
+         research_custody_digest, design_digest, intent_digest, canonical_bytes,
+         published_at_epoch_ms
+     ) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+    )
+    .bind(intent.design_identity().as_bytes().to_vec())
+    .bind(intent.research_request_identity().as_bytes().to_vec())
+    .bind(intent.intent_identity().as_bytes().to_vec())
+    .bind(intent.research_custody_digest().as_bytes().to_vec())
+    .bind(intent.design_digest().as_bytes().to_vec())
+    .bind(intent.intent_digest().as_bytes().to_vec())
+    .bind(intent.canonical_bytes().to_vec())
+    .bind(1_i64)
+    .execute(rd_pool)
+    .await
+    .expect("R&D stores the publication");
     let composer_locator = StrategyDesignRoleSetLocatorV1 {
         schema_version: 2,
         request_identity: "universe-member-replay-composition-v1".into(),
@@ -1470,9 +1517,9 @@ async fn universe_member_composition_is_issued_step_v1(
     };
     let role_set = StrategyDesignRoleSetReceiptV1::from_rd_owner_projection(
         composer_locator.clone(),
-        base.binding_requests[0].research_request_identity,
+        research,
         d(0x75),
-        universe_design_identity_v1(),
+        design,
         d(0x74),
         d(0x76),
         universe_design_roles_v1(),
@@ -1487,9 +1534,9 @@ async fn universe_member_composition_is_issued_step_v1(
             .unwrap();
     }
     sqlx::query("INSERT INTO composer_private.rd_develop_designs_v2(design_identity,canonical_bytes) VALUES($1,$2)")
-        .bind(universe_design_identity_v1().as_bytes().as_slice()).bind(b"universe-design".as_slice()).execute(&mut *composer).await.unwrap();
+        .bind(design.as_bytes().as_slice()).bind(b"universe-design".as_slice()).execute(&mut *composer).await.unwrap();
     sqlx::query("INSERT INTO composer_private.rd_develop_plans_v2(plan_digest,design_identity,canonical_bytes) VALUES($1,$2,$3)")
-        .bind(composer_locator.canonical_plan_digest.as_bytes().as_slice()).bind(universe_design_identity_v1().as_bytes().as_slice()).bind(b"universe-plan".as_slice()).execute(&mut *composer).await.unwrap();
+        .bind(composer_locator.canonical_plan_digest.as_bytes().as_slice()).bind(design.as_bytes().as_slice()).bind(b"universe-plan".as_slice()).execute(&mut *composer).await.unwrap();
     sqlx::query("INSERT INTO composer_private.rd_develop_artifacts_v2(artifact_identity,plan_digest,package_bytes) VALUES($1,$2,$3)")
         .bind(composer_locator.artifact_identity.as_bytes().as_slice()).bind(composer_locator.canonical_plan_digest.as_bytes().as_slice()).bind(b"universe-artifact".as_slice()).execute(&mut *composer).await.unwrap();
     sqlx::query("INSERT INTO composer_private.rd_develop_operations_v2(request_identity,request_digest,research_request_identity,intent_identity,artifact_identity,canonical_receipt_bytes,response_bytes) VALUES($1,$2,$3,$4,$5,$6,$7)")
@@ -1501,18 +1548,41 @@ async fn universe_member_composition_is_issued_step_v1(
     let owner = ReplayCompositionOwnerV1::connect(owner_url, reader_url)
         .await
         .expect("the universe-member entry's owner");
+    owner
+        .declare_strategy_input_bindings_from_design_intent_v1(design)
+        .await
+        .expect("the universe Design declares against its own initial PIT request");
     let w3 = exact.composition();
+    let correction = project_first_v1(CorrectionPolicyAuthenticatedInputsV1 {
+        source_binding: &base.source_readback,
+        coordinates: &crate::owner::reference_fact_coordinates::verified_coordinates_from_r0_v1(
+            &lineage.r0,
+        )
+        .unwrap(),
+        r0_coordinate_identity: lineage.r0.record().identity(),
+        r0_coordinate_digest: lineage.r0.record().digest(),
+    })
+    .unwrap();
     let composition = |composer: StrategyDesignRoleSetLocatorV1, end: i128| {
         ReplayCompositionUniverseBindingIssuanceRequestV1::from_test_fixture(
             composer,
-            w3.pit_locator().clone(),
+            lineage.pit.receipt().locator().clone(),
             w3.source_binding_locator().clone(),
             50,
             end,
             w3.universe_selection_locator(),
-            w3.reference_fact_r0_locator(),
-            w3.market_semantics_locator(),
-            w3.correction_policy_locator(),
+            ReplayCompositionRequestLocatorV1::from_untrusted(
+                lineage.r0.receipt().request_identity,
+                lineage.r0.receipt().request_meaning_digest,
+            ),
+            ReplayCompositionRequestLocatorV1::from_untrusted(
+                lineage.semantics.receipt().request_identity,
+                lineage.semantics.receipt().request_meaning_digest,
+            ),
+            ReplayCompositionContentLocatorV1::from_untrusted(
+                correction.identity(),
+                correction.identity(),
+            ),
         )
     };
     let command = ReplayCompositionLocatorOnlyIssuanceRequestV1::new(
@@ -1608,9 +1678,20 @@ async fn universe_member_composition_is_issued_step_v1(
         owner.issue_universe_member_binding_v1(&reused).await,
         Err(ReplayCompositionBindingErrorV1::IssuanceIdentityConflict)
     );
+    // The exact Design's own locators reach its exact-instrument declarations.
     let exact_design = ReplayCompositionLocatorOnlyIssuanceRequestV1::new(
         d(0x79),
-        composition(w3.composer_locator().clone(), 51),
+        ReplayCompositionUniverseBindingIssuanceRequestV1::from_test_fixture(
+            w3.composer_locator().clone(),
+            w3.pit_locator().clone(),
+            w3.source_binding_locator().clone(),
+            50,
+            51,
+            w3.universe_selection_locator(),
+            w3.reference_fact_r0_locator(),
+            w3.market_semantics_locator(),
+            w3.correction_policy_locator(),
+        ),
     )
     .unwrap();
     assert_eq!(
