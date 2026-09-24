@@ -291,6 +291,9 @@ identity；它不显示也不暗示 Resolve control。非法 identity 只显示 
 缺失 configuration、transport failure、malformed 或超限 Owner response、permission denial，以及任意
 identity/receipt/custody mismatch，都会用一个同高度 unavailable state 替换此前展示的全部 terminal field。
 新 lookup 或失败 refresh 后绝不保留 stale success content。
+Product Edge 为其他 operation 受理的 identity 属于上述 mismatch，而不是尚未完成的 Intake：它永远不会有
+Source Intake terminal，因此 Owner 以 409 `CONFLICTING_SEMANTICS_FOR_REQUEST_IDENTITY` 拒绝，而不回答
+`SUBMITTED_OR_UNKNOWN`；工作台显示 unavailable state，而不是引导再次 refresh。
 
 Dashboard BFF 将 path identity 绑定到经认证的 Owner GET
 `/v1/source-intakes/{request_identity}/readback`，只接受现有 strict Source Intake projection，并返回只含上述

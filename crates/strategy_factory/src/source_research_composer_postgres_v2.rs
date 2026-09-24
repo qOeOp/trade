@@ -24,14 +24,9 @@ use vibe_data::owner::pit_snapshot::sealed_acceptance::{
     issue_strategy_input_exact_instrument_bar_frame_for_owner_lineage,
 };
 use vibe_data::owner::source_binding::BindingDigest;
-use vibe_data::owner::strategy_input_binding::UntrustedStrategyInputCustodyClaimV1;
 use vibe_data::owner::strategy_input_binding::{
     MarketDataFieldSemantic, StrategyInputChannel, StrategyInputUnit,
     UntrustedStrategyInputBindingRequest, UntrustedStrategyInputScope,
-};
-use vibe_data::owner::{
-    reread_persisted_strategy_input_custody_for_update_v1,
-    resolve_pit_request_for_strategy_design_v1,
 };
 use vibe_indicators_kernel::PrimitiveCatalogV1;
 
@@ -61,6 +56,9 @@ use crate::product_edge::{
 use crate::rd_owner_postgres_custody::validate_historical_view;
 use crate::{
     bounded_feature_program_lowerer_v1::prepare_frozen_bounded_feature_source_inputs_v1,
+    design_input_custody_v1::{
+        DeclaredDesignInputsV1, DesignInputCustodyRefusedV1, reread_design_input_custody_v1,
+    },
     develop_composer_operation_v2::{
         DevelopComposerDurableEvidenceLocatorV2, DevelopComposerFinalEvidencePortV2,
         DevelopComposerLockedEvidenceV2, DevelopComposerOperationResponseV2,
@@ -1162,73 +1160,6 @@ pub(crate) trait SourceResearchComposerBindingOwnerV2: Send + Sync {
 /// facts nor a binding receipt.
 pub(crate) struct PostgresSourceResearchComposerBindingOwnerV2;
 
-impl PostgresSourceResearchComposerBindingOwnerV2 {
-    async fn read(
-        transaction: &mut Transaction<'_, Postgres>,
-        research_request_identity: BindingDigest,
-        design_identity: BindingDigest,
-        declared_roles: Option<Vec<BindingDigest>>,
-    ) -> Result<VerifiedStrategyInputBindingsV2, DevelopComposerTerminalV2> {
-        let coordinate = resolve_pit_request_for_strategy_design_v1(transaction, design_identity)
-            .await
-            .map_err(|cause| {
-                market_data_binding_refused(
-                    "source_research_composer.binding.resolve_pit_request",
-                    &cause,
-                )
-            })?;
-
-        // On the run path R&D holds the Design and must state its own complete role set; the
-        // Owner's stored roles may only agree with it. The recovery path has no Design, so there
-        // the Owner's own roles are the claim, and the engine still compares the result against
-        // the stored Composer record.
-        let input_role_identities = match declared_roles {
-            Some(declared) => {
-                let mut stored = coordinate.input_role_identities.clone();
-                let mut expected = declared.clone();
-                stored.sort_unstable();
-                expected.sort_unstable();
-                if stored != expected {
-                    return Err(market_data_binding_refused(
-                        "source_research_composer.binding.declared_roles",
-                        &"the Design's role set differs from the roles Market Data holds for it",
-                    ));
-                }
-                declared
-            }
-            None => coordinate.input_role_identities.clone(),
-        };
-
-        let claim = UntrustedStrategyInputCustodyClaimV1 {
-            research_request_identity,
-            strategy_design_identity: design_identity,
-            pit_request_identity: coordinate.pit_request_identity,
-            input_role_identities,
-            decision_cut: coordinate.decision_cut,
-        };
-        let readback = reread_persisted_strategy_input_custody_for_update_v1(transaction, &claim)
-            .await
-            .map_err(|cause| {
-                market_data_binding_refused(
-                    "source_research_composer.binding.reread_custody",
-                    &cause,
-                )
-            })?;
-
-        if readback.research_request_identity() != research_request_identity
-            || readback.strategy_design_identity() != design_identity
-        {
-            return Err(market_data_binding_refused(
-                "source_research_composer.binding.custody_identity",
-                &"the reread custody names another Research request or Design",
-            ));
-        }
-        Ok(VerifiedStrategyInputBindingsV2::from_owner_receipts(
-            readback.bindings(),
-        ))
-    }
-}
-
 #[async_trait::async_trait]
 impl SourceResearchComposerBindingOwnerV2 for PostgresSourceResearchComposerBindingOwnerV2 {
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
@@ -1244,19 +1175,17 @@ impl SourceResearchComposerBindingOwnerV2 for PostgresSourceResearchComposerBind
         else {
             return Err(production_market_data_unavailable());
         };
-        let declared_roles = request
-            .design
-            .inputs
-            .iter()
-            .map(strategy_input_role_identity_v2)
-            .collect::<Vec<_>>();
-        Self::read(
+        Ok(reread_design_input_custody_v1(
             transaction,
+            "source_research_composer.run",
             request.design.research_request_identity,
             design_identity,
-            Some(declared_roles),
+            Some(DeclaredDesignInputsV1::of(
+                "source_research_composer.run",
+                &request.design.inputs,
+            )?),
         )
-        .await
+        .await?)
     }
 
     async fn lock_for_resolve(
@@ -1265,13 +1194,17 @@ impl SourceResearchComposerBindingOwnerV2 for PostgresSourceResearchComposerBind
         locator: &DevelopComposerDurableEvidenceLocatorV2,
         _read_cut_epoch_ms: u64,
     ) -> Result<VerifiedStrategyInputBindingsV2, DevelopComposerTerminalV2> {
-        Self::read(
+        // The recovery path holds no Design, so the Owner's stored declarations are the claim and
+        // choose the custody path; the engine still compares the result against the stored
+        // Composer record.
+        Ok(reread_design_input_custody_v1(
             transaction,
+            "source_research_composer.resolve",
             locator.research_request_identity,
             locator.design_identity,
             None,
         )
-        .await
+        .await?)
     }
 
     async fn lock_for_frozen_program(
@@ -1287,18 +1220,17 @@ impl SourceResearchComposerBindingOwnerV2 for PostgresSourceResearchComposerBind
                     &cause,
                 )
             })?;
-        let declared_roles = design
-            .inputs
-            .iter()
-            .map(strategy_input_role_identity_v2)
-            .collect::<Vec<_>>();
-        Self::read(
+        Ok(reread_design_input_custody_v1(
             transaction,
+            "source_research_composer.frozen_program",
             frozen.research_request_identity(),
             frozen.design_identity(),
-            Some(declared_roles),
+            Some(DeclaredDesignInputsV1::of(
+                "source_research_composer.frozen_program",
+                &design.inputs,
+            )?),
         )
-        .await
+        .await?)
     }
 }
 
@@ -1314,6 +1246,14 @@ fn market_data_binding_refused(
 ) -> DevelopComposerTerminalV2 {
     crate::storage_diagnostic::refused_by_store(coordinate, cause);
     production_market_data_unavailable()
+}
+
+/// The design input custody read already recorded which step refused and why; the Composer
+/// answers with its unchanged `market_data_binding` refusal.
+impl From<DesignInputCustodyRefusedV1> for DevelopComposerTerminalV2 {
+    fn from(_: DesignInputCustodyRefusedV1) -> Self {
+        production_market_data_unavailable()
+    }
 }
 
 fn production_market_data_unavailable() -> DevelopComposerTerminalV2 {

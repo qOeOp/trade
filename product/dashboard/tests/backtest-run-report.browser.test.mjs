@@ -150,8 +150,6 @@ test(browserAcceptance
   const readApiToken = process.env.RD_DASHBOARD_OWNER_READ_API_TOKEN ?? "";
   assert.match(readApiUrl, /^http:\/\/127\.0\.0\.1:\d+\/$/u);
   assert.match(readApiToken, /^\S+$/u);
-  const port = Number(required("DASHBOARD_RUN_REPORT_PREVIEW_PORT", /^[1-9][0-9]{0,4}$/u));
-  assert.ok(port <= 65_535);
   const run = selector("RUN");
   const refused = selector("REFUSED");
   assert.notEqual(refused.resultIdentity, run.resultIdentity);
@@ -181,14 +179,13 @@ test(browserAcceptance
     body: { state: "UNAVAILABLE", reason: runOwnerCode },
   }, "the read API relays the Owner's refusal of the committed run under the Owner's own code");
 
-  const origin = `http://127.0.0.1:${port}`;
   let preview;
+  let origin;
   let browser;
   let executionError;
   try {
-    preview = await startProductionPreview({
+    ({ preview, origin } = await startProductionPreview({
       dashboardRoot,
-      port,
       label: "run-report-preview",
       env: {
         RD_DASHBOARD_OWNER_READ_API_URL: readApiUrl,
@@ -196,7 +193,7 @@ test(browserAcceptance
         DASHBOARD_LOCAL_OPERATOR_LOGIN_TOKEN: sessionLoginToken,
         DASHBOARD_SESSION_HMAC_KEY: sessionHmacKey,
       },
-    });
+    }));
     browser = await openBrowser(browserExecutable, { label: "run-report-browser" });
     await browser.send("Page.enable");
     await navigate(browser, `${origin}/login/`);

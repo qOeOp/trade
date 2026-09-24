@@ -35,13 +35,15 @@ use vibe_product_edge::{
 use vibe_rd_source_intake_invocation_custody::{
     SourceInvocationReservationMeaningV1, seal_source_invocation_reservation,
 };
+use vibe_strategy_factory::product_edge::{
+    RESEARCH_GOAL_OPERATION_V2, RESEARCH_GOAL_SCHEMA_V2, RESEARCH_OWNER_V1,
+};
 use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
 #[cfg(feature = "sealed-source-intake-research-acceptance")]
 use vibe_strategy_factory::{
     product_edge::{
-        ProductEdgeChannel, ProductEdgeResolution, RESEARCH_GOAL_OPERATION_V2,
-        RESEARCH_GOAL_SCHEMA_V2, RESEARCH_OWNER_V1, ResearchGoalOwnerError,
+        ProductEdgeChannel, ProductEdgeResolution, ResearchGoalOwnerError,
         ResearchReadbackOwnerPortV1, TrialFamilyProposalV1, UnsourcedResearchGoalV1,
         UnsourcedResearchProposalV1,
     },
@@ -3765,4 +3767,193 @@ fn postgres_design_reuses_owner_lock_acl_outbox_and_keeps_raw_private() {
         .next()
         .unwrap();
     assert!(!handoff_projection.contains("'raw_payload'"));
+}
+
+/// An identity Product Edge admitted for another operation is refused by name.
+///
+/// A request identity names one admission of one operation, and only a Source Intake admission can
+/// ever carry a Source Intake terminal. The readback used to answer a Research admission's identity
+/// as "admitted, no terminal yet", which the Dashboard serves as 202 `OWNER_OUTCOME_UNKNOWN`, so a
+/// caller would poll for a terminal that can never exist. Both admissions here are real, issued by
+/// Product Edge under one deployment and one request proof, and read through the production
+/// readback adapter.
+#[tokio::test]
+#[ignore = "requires the canonical isolated R&D Owner PostgreSQL harness"]
+async fn postgres_readback_refuses_an_identity_admitted_for_another_operation() {
+    use source_intake::{
+        PostgresSourceIntakeReadbackOwnerV1, SourceIntakeOwnerErrorV1,
+        SourceIntakeReadbackOwnerPort as _,
+    };
+    use vibe_product_edge::AgentOperationManifestSetV1;
+
+    const RESEARCH_EFFECT: &str = "R_AND_D_RESEARCH_MUTATION_V1";
+
+    let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+        .await
+        .expect("canonical disposable Owner database");
+    let mutation = database.mutation();
+    install_source_intake_schema(mutation.pool(CanonicalOwnerTestRoleV1::RdOwner)).await;
+
+    let now = u64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis(),
+    )
+    .unwrap();
+    let suffix = format!("foreign-{}-{now}", std::process::id());
+    let source_identity = format!("source-request-{suffix}");
+    let research_identity = format!("research-request-{suffix}");
+    let deployment_identity = format!("source-deployment-{suffix}");
+    let principal = format!("source-principal-{suffix}");
+    let proof_digest = format!("sha256:{}", "9".repeat(64));
+    let source_manifest = AgentOperationManifestProposalV1 {
+        operation: SOURCE_INTAKE_OPERATION_V1.into(),
+        operation_schema: SOURCE_INTAKE_OPERATION_SCHEMA_V1.into(),
+        target_owner: SOURCE_INTAKE_TARGET_OWNER_V1.into(),
+        allowed_effects: SOURCE_INTAKE_REQUIRED_EFFECTS_V1
+            .into_iter()
+            .map(ToString::to_string)
+            .collect(),
+        prohibited_effects: vec!["ORDER_V1".into(), "REAL_TRADING_V1".into()],
+        capability_policy_digest: format!("sha256:{}", "8".repeat(64)),
+        effective_from_epoch_ms: now.saturating_sub(1_000),
+        valid_through_epoch_ms: now.saturating_add(600_000),
+    };
+    let research_manifest = AgentOperationManifestProposalV1 {
+        operation: RESEARCH_GOAL_OPERATION_V2.into(),
+        operation_schema: RESEARCH_GOAL_SCHEMA_V2.into(),
+        target_owner: RESEARCH_OWNER_V1.into(),
+        allowed_effects: vec![RESEARCH_EFFECT.into()],
+        prohibited_effects: vec!["REAL_TRADING_V1".into()],
+        capability_policy_digest: format!("sha256:{}", "8".repeat(64)),
+        effective_from_epoch_ms: now.saturating_sub(1_000),
+        valid_through_epoch_ms: now.saturating_add(600_000),
+    };
+    // Operator Authorization takes the bindings in strictly ascending manifest identity.
+    let mut manifest_bindings: Vec<OperationManifestBindingV1> =
+        [&source_manifest, &research_manifest]
+            .into_iter()
+            .map(|manifest| OperationManifestBindingV1 {
+                manifest_identity: manifest.manifest_identity().unwrap(),
+                manifest_digest: manifest.manifest_digest().unwrap(),
+            })
+            .collect();
+    manifest_bindings.sort_by(|left, right| left.manifest_identity.cmp(&right.manifest_identity));
+    let issuer = OperatorAuthorizationIssuerPostgresV1::connect(
+        database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+    )
+    .await
+    .unwrap();
+    let authorization = issuer
+        .issue_genesis(OperatorAuthorizationIssuanceProposalV1 {
+            authorization_identity: format!("source-authorization-{suffix}"),
+            issuer_identity: "operator-authorization-issuer-test-v1".into(),
+            issuer_key_version: "test-key-v1".into(),
+            scope: OperatorAuthorizationScopeV1 {
+                principal: principal.clone(),
+                audience: "PRODUCT_EDGE".into(),
+                permissions: vec!["research:source-intake".into(), "research:submit".into()],
+            },
+            request_proof_digest: proof_digest.clone(),
+            operation_manifests: manifest_bindings,
+            not_before_epoch_ms: now.saturating_sub(1_000),
+            valid_through_epoch_ms: now.saturating_add(600_000),
+            expected_revocation_head: "EMPTY".into(),
+        })
+        .await
+        .unwrap();
+    let product_edge = ProductEdgePostgresOwnerV1::connect(
+        database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+        &deployment_identity,
+        ProductEdgeAuthorizationTrustV1 {
+            issuer_identity: "operator-authorization-issuer-test-v1".into(),
+            issuer_key_version: "test-key-v1".into(),
+            audience: "PRODUCT_EDGE".into(),
+        },
+    )
+    .await
+    .unwrap();
+    product_edge
+        .bootstrap_genesis(ProductEdgeBootstrapProposalV1 {
+            deployment_identity,
+            binding_identity: format!("source-edge-binding-{suffix}"),
+            expected_history_head: "EMPTY".into(),
+            generation: 1,
+            effective_principal: principal,
+            scope_policy_version: "source-scope-v1".into(),
+            capability_policy_version: "source-capability-v1".into(),
+            audit_policy_version: "source-audit-v1".into(),
+            valid_from_epoch_ms: now.saturating_sub(1_000),
+            valid_through_epoch_ms: now.saturating_add(600_000),
+            authorization: authorization.locator(),
+            manifests: AgentOperationManifestSetV1::new(vec![source_manifest, research_manifest])
+                .unwrap(),
+        })
+        .await
+        .unwrap();
+    product_edge
+        .admit_source_intake_request(ProductEdgeAdmissionRequestV1 {
+            request_identity: source_identity.clone(),
+            typed_payload: serde_json::json!({
+                "request_identity": source_identity,
+                "gateway": "WINDMILL_PRODUCT_EDGE",
+                "normalized_doi": DOI,
+                "interpretation": interpretation(),
+            }),
+            operation: SOURCE_INTAKE_OPERATION_V1.into(),
+            operation_schema: SOURCE_INTAKE_OPERATION_SCHEMA_V1.into(),
+            target_owner: SOURCE_INTAKE_TARGET_OWNER_V1.into(),
+            requested_effects: SOURCE_INTAKE_REQUIRED_EFFECTS_V1
+                .into_iter()
+                .map(ToString::to_string)
+                .collect(),
+            request_proof_digest: proof_digest.clone(),
+            audit_correlation: format!("source:{suffix}"),
+        })
+        .await
+        .unwrap();
+    product_edge
+        .admit_request(ProductEdgeAdmissionRequestV1 {
+            request_identity: research_identity.clone(),
+            typed_payload: serde_json::json!({ "request_identity": research_identity }),
+            operation: RESEARCH_GOAL_OPERATION_V2.into(),
+            operation_schema: RESEARCH_GOAL_SCHEMA_V2.into(),
+            target_owner: RESEARCH_OWNER_V1.into(),
+            requested_effects: vec![RESEARCH_EFFECT.into()],
+            request_proof_digest: proof_digest.clone(),
+            audit_correlation: format!("research:{suffix}"),
+        })
+        .await
+        .unwrap();
+
+    let readback = PostgresSourceIntakeReadbackOwnerV1::connect(
+        database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+        database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+        proof_digest,
+    )
+    .await
+    .unwrap();
+
+    // A Source Intake admission with no terminal yet, and an identity nobody admitted, are both
+    // answered "nothing to read yet": the first will gain a terminal, and the second is not known.
+    let source = readback.read_source_intake(&source_identity).await;
+    assert!(
+        matches!(source, Ok(None)),
+        "Source Intake admission: {source:?}"
+    );
+    let unknown = readback
+        .read_source_intake(&format!("never-admitted-{suffix}"))
+        .await;
+    assert!(
+        matches!(unknown, Ok(None)),
+        "unadmitted identity: {unknown:?}"
+    );
+    // A Research admission's identity names a request that can never carry a Source Intake
+    // terminal, so it is refused by name rather than left to be polled.
+    let research = readback.read_source_intake(&research_identity).await;
+    assert!(
+        matches!(research, Err(SourceIntakeOwnerErrorV1::Conflict)),
+        "Research admission: {research:?}"
+    );
 }

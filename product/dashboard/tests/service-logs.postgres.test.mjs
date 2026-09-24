@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -10,6 +9,8 @@ import { randomUUID } from "node:crypto";
 import test from "node:test";
 
 import pg from "pg";
+
+import { startNextServer } from "./preview-instance.mjs";
 
 import {
   operationDispatchBindingForIdV1,
@@ -72,19 +73,6 @@ async function readModelFingerprint(pool) {
     (SELECT COUNT(*)::int FROM dashboard_operation_run_logs_v1) AS logs,
     (SELECT COUNT(*)::int FROM dashboard_shadow_workers_v1) AS workers`);
   return result.rows[0];
-}
-
-async function freePort() {
-  const server = createServer();
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  const address = server.address();
-  assert.ok(address && typeof address === "object");
-  const port = address.port;
-  await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-  return port;
 }
 
 async function waitForHttp(target, child, headers = {}, timeoutMs = 60_000) {
@@ -477,23 +465,20 @@ test(testName, { skip: !url }, async () => {
       DASHBOARD_DIST_DIR: ".next-test",
       DASHBOARD_SERVER_INSTANCE_IDENTITY: serverIdentity,
     };
-    const port = await freePort();
-    preview = spawn(process.execPath, [
-      "node_modules/next/dist/bin/next", "dev", "-H", "127.0.0.1", "-p", String(port),
-    ], {
-      cwd: dashboardRoot,
+    // Its own port and its own server: ready only once it answers as the instance started here.
+    let origin;
+    ({ child: preview, origin } = await startNextServer({
+      dashboardRoot,
+      mode: "dev",
+      label: "service-log preview",
       env: {
-        ...process.env,
         ...environment,
         DASHBOARD_LOCAL_OPERATOR_LOGIN_TOKEN: serviceLogsLogin,
         DASHBOARD_SESSION_HMAC_KEY: serviceLogsSessionHmac,
       },
-      stdio: "inherit",
-    });
-    const origin = `http://127.0.0.1:${port}`;
+    }));
     // Every Operations surface is behind the local operator session, so the acceptance signs in
     // the way an operator does and carries the session it was issued.
-    await waitForHttp(`${origin}/api/health/`, preview);
     const login = await fetch(`${origin}/api/auth/session/`, {
       method: "POST",
       headers: { "content-type": "application/json", origin },

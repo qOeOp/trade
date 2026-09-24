@@ -3806,9 +3806,6 @@ mod tests {
             )
             .await
         });
-        let preview_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let preview_port = preview_listener.local_addr().unwrap().port();
-        drop(preview_listener);
         let dashboard_root =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../product/dashboard");
         // The browser run takes minutes, and this runtime has two worker threads with both API
@@ -3842,10 +3839,6 @@ mod tests {
             .env(
                 "DASHBOARD_STRATEGY_VIEWER_BROWSER_EXECUTABLE",
                 browser_executable,
-            )
-            .env(
-                "DASHBOARD_OWNER_READBACK_PREVIEW_PORT",
-                preview_port.to_string(),
             )
             .env(
                 "DASHBOARD_OWNER_READBACK_RESEARCH_REQUEST_IDENTITY",

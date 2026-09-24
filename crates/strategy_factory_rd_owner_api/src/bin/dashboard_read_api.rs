@@ -1602,9 +1602,6 @@ mod tests {
         let read_server = tokio::spawn(async move {
             axum::serve(read_listener, dashboard_read_api::router(api)).await
         });
-        let preview_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let preview_port = preview_listener.local_addr().unwrap().port();
-        drop(preview_listener);
         let dashboard_root =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../product/dashboard");
         let mut browser = std::process::Command::new("node");
@@ -1624,10 +1621,6 @@ mod tests {
             .env(
                 "DASHBOARD_STRATEGY_VIEWER_BROWSER_EXECUTABLE",
                 browser_executable,
-            )
-            .env(
-                "DASHBOARD_RUN_REPORT_PREVIEW_PORT",
-                preview_port.to_string(),
             )
             .env(
                 "RD_DASHBOARD_OWNER_READ_API_URL",

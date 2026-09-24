@@ -6,16 +6,70 @@
 // endpoint, or a page condition that never becomes true fails with the observed state instead
 // of hanging the chain.
 
-import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import { appendFile, mkdtemp, rm } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
+
+import { startNextServer } from "./preview-instance.mjs";
+
+// The first major version known to spin, as far as the builds at hand can tell. On macOS a full
+// Chrome in headless mode starts spinning its browser main thread after the first key sent with
+// Input.dispatchKeyEvent. The thread stays in AppKit's key-equivalent routing
+// (NSApplication sendEvent: -> routeKeyEquivalent -> performKeyEquivalent -> NSMenu _enableItems)
+// at about 100% CPU and never leaves it. Every DevTools command then waits behind it, for seconds
+// to minutes. Whichever command outlasts a suite's budget reads as a hung page, at a different
+// step each run.
+//
+// Measured 2026-09-24 on a bare page with this harness's flags, one Enter after 10 s idle:
+//   - Chrome 153.0.8010.53 and Chrome for Testing 151.0.7922.34 spin;
+//   - Chrome for Testing 145.0.7632.6 and 144.0.7559.96 return to idle within a second;
+//   - chrome-headless-shell 144, which has no browser UI or menu bar, never spins.
+// No build between 145 and 151 was available without a download, so 146 is the lowest version not
+// shown to be safe. Raise it to the first failing major once that is measured.
+//
+// Linux has no AppKit path, and Chrome for Testing 152 on the Linux runners is unaffected, so this
+// refuses nothing in CI.
+//
+// Only Input.dispatchKeyEvent starts it. On the same Chrome 153 and bare page, three Input.insertText
+// calls (the text landed) left the browser process at 0-12% CPU, while one dispatchKeyEvent in the
+// same session sent it to 97% and it stayed there.
+export const MACOS_SYNTHESIZED_KEY_SPIN_FIRST_MAJOR = 146;
+
+// Refuses, before any work, a suite that will send synthesized keys to a browser that spins on
+// them. Without this the run fails 60 s into a DevTools command, and the timeout reads as a hung
+// page - which is how this was first reported. Callers pass the `--version` output they already
+// read. The browser is asked only when they have not, and only on macOS, so the Linux runners start
+// no extra process for this. `platform` is a parameter so the decision can be tested on any machine.
+export function refuseBrowserThatSpinsOnSynthesizedKeys(executable, {
+  platform = process.platform,
+  versionText,
+} = {}) {
+  if (platform !== "darwin") return;
+  // The shell has no browser UI; it prints the same product name as the full browser, so the
+  // executable's name is the only thing that tells them apart.
+  if (basename(executable) === "chrome-headless-shell") return;
+  versionText ??= execFileSync(executable, ["--version"], { encoding: "utf8", timeout: 30_000 });
+  const major = Number(/(\d+)\.\d+\.\d+\.\d+/.exec(versionText)?.[1]);
+  if (!Number.isSafeInteger(major)) {
+    throw new Error(`cannot read a Chrome version from ${JSON.stringify(versionText.trim())}`);
+  }
+  if (major < MACOS_SYNTHESIZED_KEY_SPIN_FIRST_MAJOR) return;
+  throw new Error([
+    `refusing to drive ${versionText.trim()} on macOS: this suite sends synthesized keys, and on`,
+    `macOS a full Chrome ${MACOS_SYNTHESIZED_KEY_SPIN_FIRST_MAJOR} or later spins its browser main`,
+    "thread in AppKit's key-equivalent routing (NSMenu _enableItems) after the first one, so every",
+    "later DevTools command stalls and the run fails at an arbitrary step. A result from it is not",
+    "evidence about the page either way.",
+    "Acceptance evidence comes from the Linux runners (Chrome for Testing 152). To locate a fault",
+    "locally, point the executable at chrome-headless-shell or at a Chrome for Testing 145 or",
+    "earlier; neither is acceptance evidence, because neither is the browser CI drives.",
+  ].join(" "));
+}
 
 // A browser is a tree, not a process. Chrome's helper processes inherit the stderr pipe this module
 // reads, and they outlive a signal sent only to the process spawned here: the pipe stays open, Node
@@ -57,38 +111,13 @@ export async function stopProcess(child, label = "child", { group = false } = {}
   throw new Error(`${label} process did not exit after SIGKILL`);
 }
 
-export async function reserveLoopbackPort() {
-  const server = createServer();
-  server.listen(0, "127.0.0.1");
-  await once(server, "listening");
-  const address = server.address();
-  assert.ok(address && typeof address === "object");
-  const port = address.port;
-  server.close();
-  await once(server, "close");
-  return port;
-}
-
-export async function waitForHttp(url, child, { timeoutMs = 60_000, label = "preview" } = {}) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`${label} exited with ${child.exitCode}`);
-    try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(5_000), redirect: "manual" });
-      if (response.ok || (response.status >= 300 && response.status < 400)) return response;
-    } catch {
-      // The bounded local preview is still starting.
-    }
-    await delay(200);
-  }
-  throw new Error(`${label} did not become ready at ${url}`);
-}
-
 /**
- * Builds the Dashboard once and serves the production bundle on the reserved port, so the
- * browser exercises the same server runtime an operator deploys rather than the dev compiler.
+ * Builds the Dashboard once and serves the production bundle, so the browser exercises the same
+ * server runtime an operator deploys rather than the dev compiler. The server takes a port the
+ * system assigns and is ready only when it answers as itself (see preview-instance.mjs); the
+ * caller gets back the origin it announced.
  */
-export async function startProductionPreview({ dashboardRoot, port, env, label = "preview" }) {
+export async function startProductionPreview({ dashboardRoot, env, label = "preview" }) {
   const nextBin = "node_modules/next/dist/bin/next";
   // Callers hold this root either way, and spawn accepts both - but the cache probe below joins it,
   // and join refuses a URL. Normalise here rather than leaving the next caller to find out.
@@ -117,13 +146,8 @@ export async function startProductionPreview({ dashboardRoot, port, env, label =
     await appendFile(process.env.GITHUB_STEP_SUMMARY, `- ${evidence}\n`).catch(() => {});
   }
   if (buildExit !== 0) throw new Error(`${label} build exited with ${buildExit}`);
-  const preview = spawn(process.execPath, [nextBin, "start", "-H", "127.0.0.1", "-p", String(port)], {
-    cwd: root,
-    env: previewEnv,
-    stdio: "inherit",
-  });
-  await waitForHttp(`http://127.0.0.1:${port}/api/health/`, preview, { timeoutMs: 120_000, label });
-  return preview;
+  const { child: preview, origin } = await startNextServer({ dashboardRoot: root, mode: "start", env, label });
+  return { preview, origin };
 }
 
 async function removeBrowserProfile(profile) {
@@ -132,10 +156,12 @@ async function removeBrowserProfile(profile) {
 
 export async function openBrowser(executable, { label = "browser" } = {}) {
   const profile = await mkdtemp(join(tmpdir(), "dashboard-browser-acceptance-"));
-  const debugPort = await reserveLoopbackPort();
   console.error(`[${label}] launching browser`);
+  // Port 0: the browser takes a port the system assigns and writes it to DevToolsActivePort in
+  // its own profile, so the port read below is this browser's. A port reserved and released
+  // beforehand could be taken, and answered, by another browser in between.
   const child = spawn(executable, [
-    "--headless", `--remote-debugging-port=${debugPort}`, "--remote-debugging-address=127.0.0.1",
+    "--headless", "--remote-debugging-port=0", "--remote-debugging-address=127.0.0.1",
     `--user-data-dir=${profile}`, "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu",
     "--disable-background-networking", "--disable-default-apps", "--disable-extensions",
     "--disable-sync", "--metrics-recording-only", "--no-default-browser-check", "--no-first-run",
@@ -149,9 +175,19 @@ export async function openBrowser(executable, { label = "browser" } = {}) {
   try {
     const deadline = Date.now() + 15_000;
     let devToolsReady = false;
+    let debugPort = null;
     while (Date.now() < deadline) {
       if (child.exitCode !== null || child.signalCode !== null) {
         throw new Error(`${label} exited with ${child.exitCode ?? child.signalCode}`);
+      }
+      if (debugPort === null) {
+        const announced = await readFile(join(profile, "DevToolsActivePort"), "utf8").catch(() => "");
+        const port = Number(announced.split("\n")[0]);
+        if (!Number.isSafeInteger(port) || port <= 0) {
+          await delay(100);
+          continue;
+        }
+        debugPort = port;
       }
       try {
         const response = await fetch(`http://127.0.0.1:${debugPort}/json/version`, {
