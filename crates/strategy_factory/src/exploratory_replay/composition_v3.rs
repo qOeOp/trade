@@ -1,26 +1,28 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use sqlx::{Postgres, Transaction};
 use std::fmt::Display;
 use vibe_backtest_owner_contracts::{
     CanonicalDigestV2, ContentIdentityV2, OpaqueIdentityV2, ReplayAuthorityClaimV2,
     ReplayModelProfilesV2, ReplayNamespaceV2, ReplayRequestDtoV2, ReplayRequestV2,
 };
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
-use vibe_data::owner::replay_market_facts_v2::resolve_bound_replay_cut_for_rd_in_transaction_v1;
 use vibe_data::owner::{
-    replay_market_facts_v2::{ReplayMarketDependencyKindV2, ResolvedReplayCompositionCutV1},
+    replay_market_facts_v2::{
+        ReplayMarketDependencyKindV2, ReplayMarketFactsShapeV2, ReplayMarketFactsV2,
+        ResolvedReplayCompositionCutV1,
+    },
     source_binding::BindingDigest,
 };
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
-use crate::composer_artifact_family_binding_v3::load_composer_artifact_family_binding_for_replay_v3;
 use crate::{
     composer_artifact_family_binding_v3::ComposerArtifactFamilyReadbackV3,
     composer_replay_intent_v3::{ComposerReplayIntentV3, hex, parse_named_sha256},
+    design_input_custody_v1::reread_design_universe_frame_digest_v1,
     develop_composer_postgres_v2::SealedDevelopComposerReadbackV2,
-    exploratory_replay::{ComposerBackedExploratoryReplayProposalV3, ExploratoryReplayOwnerError},
+    exploratory_replay::{
+        ComposerBackedExploratoryReplayProposalV3, ComposerReplayShapeRefusalV1,
+        ExploratoryReplayOwnerError,
+    },
     product_edge::{
         ResearchExplorationViewV1, ResearchViewAvailability, ResearchViewV1,
         canonical_research_view_identity_v2, project_composer_exploration_research_view_v3,
@@ -28,14 +30,14 @@ use crate::{
     replay_execution_profile_binding_v1::ReplayExecutionProfileRequestSealV1,
     trial_family::TrialFamilyCensusReadbackV2,
 };
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
-use crate::{
-    composer_replay_intent_v3::resolve_composer_replay_intent_in_transaction,
-    develop_composer_postgres_v2::read_accepted_for_replay_in_transaction,
-    source_research_composer_postgres_v2::SourceResearchComposerBindingOwnerV2,
-    trial_family_postgres::load_trial_family_census_v2_by_family_in_transaction,
-};
 
+/// The Composer source of a COMPOSER_V3 Replay.
+///
+/// Its schema records the shape of the Replay composition cut it was composed from. Schema 3 is
+/// the first corpus and carries all three Instrument Master fields; schema 4 is the universe-member
+/// shape, which binds no Instrument Master at composition, and carries none of them, so it never
+/// records an Instrument Master as verified. Absent fields are not serialized, so a schema 3
+/// source's bytes are those it had before schema 4 existed.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct StoredComposerReplaySourceV3 {
@@ -63,9 +65,59 @@ pub(super) struct StoredComposerReplaySourceV3 {
     pub(super) market_binding_outbox_identity: BindingDigest,
     pub(super) market_facts_identity: BindingDigest,
     pub(super) market_facts_receipt_identity: BindingDigest,
-    pub(super) instrument_master_identity: BindingDigest,
-    pub(super) instrument_master_receipt_identity: BindingDigest,
-    pub(super) instrument_master_outbox_identity: BindingDigest,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) instrument_master_identity: Option<BindingDigest>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) instrument_master_receipt_identity: Option<BindingDigest>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) instrument_master_outbox_identity: Option<BindingDigest>,
+}
+
+const FIRST_CORPUS_SOURCE_SCHEMA_V3: u16 = 3;
+const UNIVERSE_MEMBER_SOURCE_SCHEMA_V3: u16 = 4;
+
+impl StoredComposerReplaySourceV3 {
+    /// The shape this source's schema records, refusing a source whose Instrument Master fields
+    /// are not exactly those its schema carries.
+    pub(super) fn shape(&self) -> Result<ReplayMarketFactsShapeV2, ExploratoryReplayOwnerError> {
+        let instrument_master = [
+            self.instrument_master_identity,
+            self.instrument_master_receipt_identity,
+            self.instrument_master_outbox_identity,
+        ];
+        match self.schema_version {
+            FIRST_CORPUS_SOURCE_SCHEMA_V3 if instrument_master.iter().all(Option::is_some) => {
+                Ok(ReplayMarketFactsShapeV2::FirstCorpus)
+            }
+            FIRST_CORPUS_SOURCE_SCHEMA_V3 => Err(shape_refused(
+                ComposerReplayShapeRefusalV1::FirstCorpusSourceLacksInstrumentMaster,
+            )),
+            UNIVERSE_MEMBER_SOURCE_SCHEMA_V3 if instrument_master.iter().all(Option::is_none) => {
+                Ok(ReplayMarketFactsShapeV2::UniverseMembers)
+            }
+            UNIVERSE_MEMBER_SOURCE_SCHEMA_V3 => Err(shape_refused(
+                ComposerReplayShapeRefusalV1::UniverseSourceCarriesInstrumentMaster,
+            )),
+            _ => Err(shape_refused(
+                ComposerReplayShapeRefusalV1::UnknownSourceSchema,
+            )),
+        }
+    }
+
+    /// Refuses a stored source whose schema is not the one its composition binding's shape
+    /// records, before any of its fields is compared as that shape's evidence.
+    pub(super) fn require_binding_shape(
+        &self,
+        binding_shape: ReplayMarketFactsShapeV2,
+    ) -> Result<(), ExploratoryReplayOwnerError> {
+        if self.shape()? == binding_shape {
+            Ok(())
+        } else {
+            Err(shape_refused(
+                ComposerReplayShapeRefusalV1::SourceSchemaDiffersFromBindingShape,
+            ))
+        }
+    }
 }
 
 pub(super) struct ComposedComposerBackedReplayV3 {
@@ -201,8 +253,8 @@ pub(super) fn issue_composer_replay_frozen_v3(
     (StoredComposerReplayFrozenV3, StoredComposerReplayReceiptV3),
     ExploratoryReplayOwnerError,
 > {
-    if source.schema_version != 3
-        || committed_at_epoch_ms == 0
+    source.shape()?;
+    if committed_at_epoch_ms == 0
         || !canonical_sha256(&product_edge_request_semantic_digest)
         || pre_transition_research_view.phase
             != crate::product_edge::ResearchViewPhase::IntentFrozen
@@ -294,57 +346,122 @@ fn canonical_sha256(value: &str) -> bool {
     })
 }
 
-/// Resolves every Owner fact used by composition on the caller's still-open R&D transaction.
-/// Composer re-locks current Research and strategy-input Owner evidence on that transaction.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
-pub(super) async fn prepare_composer_backed_replay_in_transaction_v3<B>(
+/// A resolved Replay composition cut whose shape was admitted for Composer composition.
+///
+/// For the universe-member shape the frame was re-derived from the Design's persisted input custody
+/// under the caller's transaction, and it is the frame the facts and the binding record. Market
+/// Data's resolver does not re-derive it: it holds the binding alone, not the Research request and
+/// decision cut the custody claim needs, so this consumer does, as the first corpus's consumer
+/// re-reads its census. Only [`admit_composer_replay_market_in_transaction_v3`] builds one.
+pub(super) struct AdmittedReplayMarketShapeV3 {
+    facts_identity: BindingDigest,
+    universe_frame: Option<BindingDigest>,
+}
+
+/// Admits a resolved cut's shape, re-deriving a universe-member cut's frame from the Composer
+/// Design's persisted input custody on the caller's transaction.
+pub(super) async fn admit_composer_replay_market_in_transaction_v3(
     transaction: &mut Transaction<'_, Postgres>,
-    proposal: &ComposerBackedExploratoryReplayProposalV3,
-    binding_owner: &B,
-    read_cut_epoch_ms: u64,
-) -> Result<ComposedComposerBackedReplayV3, ExploratoryReplayOwnerError>
-where
-    B: SourceResearchComposerBindingOwnerV2,
-{
-    let census = load_trial_family_census_v2_by_family_in_transaction(
-        transaction,
-        &proposal.trial_family_identity,
-    )
-    .await
-    .map_err(unavailable)?;
-    let composer = read_accepted_for_replay_in_transaction(
-        transaction,
-        &proposal.composer_locator,
-        binding_owner,
-        read_cut_epoch_ms,
-    )
-    .await
-    .map_err(unavailable)?;
-    let intent =
-        resolve_composer_replay_intent_in_transaction(transaction, &census, &composer).await?;
-    let artifact_family = load_composer_artifact_family_binding_for_replay_v3(
-        transaction,
-        &census,
-        &intent,
-        &composer,
-    )
-    .await
-    .map_err(unavailable)?
-    .ok_or_else(|| unavailable("Composer Artifact-family binding is unavailable"))?;
-    let market = resolve_bound_replay_cut_for_rd_in_transaction_v1(
-        transaction,
-        proposal.market_data_locator,
-    )
-    .await
-    .map_err(unavailable)?;
-    prepare_composer_backed_replay_v3(
-        proposal,
-        &census,
-        &intent,
-        &composer,
-        &artifact_family,
-        &market,
-    )
+    composer: &SealedDevelopComposerReadbackV2,
+    market: &ResolvedReplayCompositionCutV1,
+) -> Result<AdmittedReplayMarketShapeV3, ExploratoryReplayOwnerError> {
+    let binding = market.binding().record();
+    let facts = market.market_facts().facts();
+    let rederived_frame = if binding.shape() == ReplayMarketFactsShapeV2::UniverseMembers {
+        Some(
+            Box::pin(reread_design_universe_frame_digest_v1(
+                transaction,
+                "exploratory_replay.composer_v3.universe_frame",
+                composer.research_request_identity(),
+                composer.design_identity(),
+            ))
+            .await
+            .map_err(|_| shape_refused(ComposerReplayShapeRefusalV1::UniverseFrameNotRederived))?,
+        )
+    } else {
+        None
+    };
+    let universe_frame = admit_replay_market_shape_v3(&ReplayMarketShapeEvidenceV3 {
+        binding_shape: binding.shape(),
+        facts_shape: facts.shape(),
+        binding_frame: binding.universe_frame_digest(),
+        facts_frame: facts.universe_frame_digest(),
+        frame_dependency: universe_frame_dependency(facts)?,
+        rederived_frame,
+    })
+    .map_err(shape_refused)?;
+    Ok(AdmittedReplayMarketShapeV3 {
+        facts_identity: facts.identity(),
+        universe_frame,
+    })
+}
+
+/// What a cut states about its shape and frame, and the frame re-derived from custody.
+struct ReplayMarketShapeEvidenceV3 {
+    binding_shape: ReplayMarketFactsShapeV2,
+    facts_shape: ReplayMarketFactsShapeV2,
+    binding_frame: Option<BindingDigest>,
+    facts_frame: Option<BindingDigest>,
+    /// The identity and digest of the facts' one universe frame dependency.
+    frame_dependency: Option<(BindingDigest, BindingDigest)>,
+    rederived_frame: Option<BindingDigest>,
+}
+
+/// Returns the universe frame a universe-member cut binds, and `None` for the first corpus.
+fn admit_replay_market_shape_v3(
+    evidence: &ReplayMarketShapeEvidenceV3,
+) -> Result<Option<BindingDigest>, ComposerReplayShapeRefusalV1> {
+    if evidence.binding_shape != evidence.facts_shape {
+        return Err(ComposerReplayShapeRefusalV1::BindingAndFactsShapeDiffer);
+    }
+    match evidence.facts_shape {
+        ReplayMarketFactsShapeV2::FirstCorpus => {
+            if evidence.binding_frame.is_some()
+                || evidence.facts_frame.is_some()
+                || evidence.frame_dependency.is_some()
+            {
+                return Err(ComposerReplayShapeRefusalV1::UniverseFrameDependencyDiffers);
+            }
+            Ok(None)
+        }
+        ReplayMarketFactsShapeV2::UniverseMembers => {
+            let Some((identity, digest)) = evidence.frame_dependency else {
+                return Err(ComposerReplayShapeRefusalV1::UniverseFrameDependencyDiffers);
+            };
+            if identity != digest
+                || evidence.facts_frame != Some(digest)
+                || evidence.binding_frame != Some(digest)
+            {
+                return Err(ComposerReplayShapeRefusalV1::UniverseFrameDependencyDiffers);
+            }
+            if evidence.rederived_frame != Some(digest) {
+                return Err(ComposerReplayShapeRefusalV1::UniverseFrameNotRederived);
+            }
+            Ok(Some(digest))
+        }
+    }
+}
+
+/// The facts' universe frame dependency, if they have exactly one; two are refused.
+fn universe_frame_dependency(
+    facts: &ReplayMarketFactsV2,
+) -> Result<Option<(BindingDigest, BindingDigest)>, ExploratoryReplayOwnerError> {
+    let mut frames = facts
+        .frontier()
+        .dependencies()
+        .iter()
+        .filter(|dependency| {
+            dependency.kind() == ReplayMarketDependencyKindV2::StrategyInputUniverseFrameV1
+        });
+    let frame = frames
+        .next()
+        .map(|dependency| (dependency.identity(), dependency.digest()));
+    if frames.next().is_some() {
+        return Err(shape_refused(
+            ComposerReplayShapeRefusalV1::UniverseFrameDependencyDiffers,
+        ));
+    }
+    Ok(frame)
 }
 
 pub(super) fn prepare_composer_backed_replay_v3(
@@ -354,9 +471,11 @@ pub(super) fn prepare_composer_backed_replay_v3(
     composer: &SealedDevelopComposerReadbackV2,
     artifact_family: &ComposerArtifactFamilyReadbackV3,
     market: &ResolvedReplayCompositionCutV1,
+    admitted: &AdmittedReplayMarketShapeV3,
 ) -> Result<ComposedComposerBackedReplayV3, ExploratoryReplayOwnerError> {
-    let request =
-        compose_composer_backed_replay_request_v3(proposal, census, intent, composer, market)?;
+    let request = compose_composer_backed_replay_request_v3(
+        proposal, census, intent, composer, market, admitted,
+    )?;
     let family = &census.legacy_family;
     let root = family.root();
     let root_receipt = family.root_receipt();
@@ -375,15 +494,25 @@ pub(super) fn prepare_composer_backed_replay_v3(
     }
     let binding = market.binding();
     let market_facts = market.market_facts();
-    // A universe-member cut binds no Instrument Master; until this reader handles that shape it
-    // refuses it by this name, so the refusal is findable and says why.
-    let instrument_master = market
-        .instrument_master()
-        .ok_or(ExploratoryReplayOwnerError::InstrumentMasterAbsentForUniverseShape)?;
+    // The first corpus binds its Instrument Master here; the universe-member shape binds none
+    // until the native initial binding verifies the request-keyed V2 cut, so nothing is recorded.
+    let (schema_version, instrument_master) =
+        match (admitted.universe_frame, market.instrument_master()) {
+            (None, Some(instrument_master)) => (
+                FIRST_CORPUS_SOURCE_SCHEMA_V3,
+                Some(instrument_master),
+            ),
+            (Some(_), None) => (UNIVERSE_MEMBER_SOURCE_SCHEMA_V3, None),
+            _ => {
+                return Err(shape_refused(
+                    ComposerReplayShapeRefusalV1::InstrumentMasterDiffersFromShape,
+                ));
+            }
+        };
     Ok(ComposedComposerBackedReplayV3 {
         request,
         source: StoredComposerReplaySourceV3 {
-            schema_version: 3,
+            schema_version,
             proposal: proposal.clone(),
             trial_family_root_receipt_identity: root_receipt.receipt_identity().to_owned(),
             trial_family_root_digest: root.root_digest().to_owned(),
@@ -410,19 +539,22 @@ pub(super) fn prepare_composer_backed_replay_v3(
             market_binding_outbox_identity: binding.outbox().identity(),
             market_facts_identity: market_facts.facts().identity(),
             market_facts_receipt_identity: market_facts.receipt().identity(),
-            instrument_master_identity: instrument_master.identity(),
-            instrument_master_receipt_identity: instrument_master.receipt_identity(),
-            instrument_master_outbox_identity: instrument_master.outbox_identity(),
+            instrument_master_identity: instrument_master.map(|master| master.identity()),
+            instrument_master_receipt_identity: instrument_master
+                .map(|master| master.receipt_identity()),
+            instrument_master_outbox_identity: instrument_master
+                .map(|master| master.outbox_identity()),
         },
     })
 }
 
-pub(crate) fn compose_composer_backed_replay_request_v3(
+fn compose_composer_backed_replay_request_v3(
     proposal: &ComposerBackedExploratoryReplayProposalV3,
     census: &TrialFamilyCensusReadbackV2,
     intent: &ComposerReplayIntentV3,
     composer: &SealedDevelopComposerReadbackV2,
     market: &ResolvedReplayCompositionCutV1,
+    admitted: &AdmittedReplayMarketShapeV3,
 ) -> Result<ReplayRequestDtoV2, ExploratoryReplayOwnerError> {
     let family = &census.legacy_family;
     let root = family.root();
@@ -457,6 +589,7 @@ pub(crate) fn compose_composer_backed_replay_request_v3(
         || market.market_data_scope_digest() != proposal.market_data_scope_digest
         || composer.intent_identity() != parse_named_sha256(intent.identity(), intent_prefix)?
         || composer.design_identity() != composition.strategy_design_identity()
+        || market_facts.identity() != admitted.facts_identity
         || market_facts.replay_start_event_ns() != i128::from(policy.window.start_event_ns)
         || market_facts.replay_end_event_ns_exclusive()
             != i128::from(policy.window.end_event_ns_exclusive)
@@ -466,10 +599,18 @@ pub(crate) fn compose_composer_backed_replay_request_v3(
         ));
     }
 
-    let observation = unique_dependency(
-        market_facts,
-        ReplayMarketDependencyKindV2::ObservationCensusV1,
-    )?;
+    // The first corpus's owner inputs are its observation census; a universe-member cut's are the
+    // universe frame, whose identity is its BLAKE3 digest.
+    let resolved_owner_inputs = match admitted.universe_frame {
+        None => {
+            let observation = unique_dependency(
+                market_facts,
+                ReplayMarketDependencyKindV2::ObservationCensusV1,
+            )?;
+            blake3_content(observation.identity(), observation.digest())?
+        }
+        Some(frame) => blake3_content(frame, frame)?,
+    };
     let universe = unique_dependency(
         market_facts,
         ReplayMarketDependencyKindV2::UniverseSelectionV1,
@@ -497,7 +638,7 @@ pub(crate) fn compose_composer_backed_replay_request_v3(
             identity: opaque(&composer_locator.artifact_locator)?,
             digest: sha256_digest(composer_locator.artifact_identity)?,
         },
-        resolved_owner_inputs: blake3_content(observation.identity(), observation.digest())?,
+        resolved_owner_inputs,
         pit_scope: sha256_content(
             market_facts.request_identity(),
             market.market_data_scope_digest(),
@@ -530,7 +671,7 @@ pub(crate) fn compose_composer_backed_replay_request_v3(
 }
 
 fn unique_dependency(
-    facts: &vibe_data::owner::replay_market_facts_v2::ReplayMarketFactsV2,
+    facts: &ReplayMarketFactsV2,
     kind: ReplayMarketDependencyKindV2,
 ) -> Result<
     &vibe_data::owner::replay_market_facts_v2::ReplayMarketDependencyRefV2,
@@ -593,4 +734,342 @@ fn sha256_digest(digest: BindingDigest) -> Result<CanonicalDigestV2, Exploratory
 
 fn unavailable(error: impl Display) -> ExploratoryReplayOwnerError {
     ExploratoryReplayOwnerError::Unavailable(error.to_string())
+}
+
+const fn shape_refused(
+    refusal: ComposerReplayShapeRefusalV1,
+) -> ExploratoryReplayOwnerError {
+    ExploratoryReplayOwnerError::ComposerReplayShapeRefused(refusal)
+}
+
+#[cfg(test)]
+mod tests {
+    use vibe_data::owner::{
+        replay_market_facts_v2::ReplayCompositionBindingLocatorV1, source_binding::BindingDigest,
+    };
+    use vibe_product_edge::ProductEdgeAdmissionLocatorV1;
+
+    use super::*;
+    use crate::{
+        develop_composer_postgres_v2::DevelopComposerSealedReadLocatorV2,
+        product_edge::{
+            RESEARCH_OWNER_V1, RESEARCH_SCOPE_V1, RESEARCH_VIEW_SCOPE_V1, ResearchNextLegalAction,
+            ResearchViewPhase,
+        },
+    };
+
+    fn digest(byte: u8) -> BindingDigest {
+        BindingDigest::from_untrusted_bytes([byte; 32])
+    }
+
+    fn first_corpus_source() -> StoredComposerReplaySourceV3 {
+        StoredComposerReplaySourceV3 {
+            schema_version: 3,
+            proposal: ComposerBackedExploratoryReplayProposalV3 {
+                admission: ProductEdgeAdmissionLocatorV1 {
+                    request_identity: "replay-request".into(),
+                    admission_identity: "admission".into(),
+                    admission_digest: format!("sha256:{}", "a".repeat(64)),
+                },
+                request_identity: "replay-request".into(),
+                trial_family_identity: "trial-family".into(),
+                artifact_identity: "artifact".into(),
+                composer_locator: DevelopComposerSealedReadLocatorV2 {
+                    schema_version: 2,
+                    request_identity: "composer-request".into(),
+                    operation_receipt_identity: digest(1),
+                    artifact_locator: "artifact-locator".into(),
+                    artifact_identity: digest(2),
+                    canonical_plan_digest: digest(3),
+                    design_digest: digest(4),
+                },
+                market_data_locator: ReplayCompositionBindingLocatorV1::from_untrusted(
+                    digest(5),
+                    digest(6),
+                ),
+                market_data_scope_digest: digest(7),
+            },
+            trial_family_root_receipt_identity: "root-receipt".into(),
+            trial_family_root_digest: "root-digest".into(),
+            trial_family_member_identity: "member".into(),
+            trial_family_member_digest: "member-digest".into(),
+            census_frontier_identity: "census-frontier".into(),
+            census_frontier_digest: "census-frontier-digest".into(),
+            composer_request_digest: digest(8),
+            artifact_family_binding_identity: "family-binding".into(),
+            artifact_family_binding_digest: "family-binding-digest".into(),
+            artifact_family_binding_receipt_identity: "family-binding-receipt".into(),
+            intent_identity: "intent".into(),
+            intent_digest: "intent-digest".into(),
+            composer_research_request_identity: digest(9),
+            composer_intent_identity: digest(10),
+            composer_design_identity: digest(11),
+            composer_design_bytes_digest: digest(12),
+            composer_plan_bytes_digest: digest(13),
+            composer_artifact_package_bytes_digest: digest(14),
+            market_binding_receipt_identity: digest(15),
+            market_binding_outbox_identity: digest(16),
+            market_facts_identity: digest(17),
+            market_facts_receipt_identity: digest(18),
+            instrument_master_identity: Some(digest(19)),
+            instrument_master_receipt_identity: Some(digest(20)),
+            instrument_master_outbox_identity: Some(digest(21)),
+        }
+    }
+
+    fn intent_frozen_view() -> ResearchViewV1 {
+        let mut view = ResearchViewV1 {
+            schema_version: 1,
+            projection_identity: String::new(),
+            request_identity: "research-request".into(),
+            trusted_principal: "admin".into(),
+            authorized_scope: vec![RESEARCH_SCOPE_V1.into(), RESEARCH_VIEW_SCOPE_V1.into()],
+            authorization_policy_cut: "operator-frontier".into(),
+            source_owner: RESEARCH_OWNER_V1.into(),
+            source_cut: "source-cut".into(),
+            observed_at_epoch_ms: 1_000,
+            projection_at_epoch_ms: 2_000,
+            valid_through_epoch_ms: 3_000,
+            availability: ResearchViewAvailability::Available,
+            phase: ResearchViewPhase::IntentFrozen,
+            intent_identity: "intent".into(),
+            source_frontier: Vec::new(),
+            attempt_identity: None,
+            artifact_identity: None,
+            build_receipt_identity: None,
+            artifact_review_identity: None,
+            composer_artifact: None,
+            exploration: None,
+            next_legal_action: ResearchNextLegalAction::WaitForRAndDExecution,
+        };
+        view.projection_identity = canonical_research_view_identity_v2(&view);
+        view
+    }
+
+    fn sha256_hex(bytes: &[u8]) -> String {
+        format!("{:x}", Sha256::digest(bytes))
+    }
+
+    fn frozen(
+        source: StoredComposerReplaySourceV3,
+    ) -> Result<
+        (StoredComposerReplayFrozenV3, StoredComposerReplayReceiptV3),
+        ExploratoryReplayOwnerError,
+    > {
+        issue_composer_replay_frozen_v3(
+            source,
+            intent_frozen_view(),
+            format!("sha256:{}", "b".repeat(64)),
+            2_500,
+        )
+    }
+
+    fn universe_member_source() -> StoredComposerReplaySourceV3 {
+        StoredComposerReplaySourceV3 {
+            schema_version: 4,
+            instrument_master_identity: None,
+            instrument_master_receipt_identity: None,
+            instrument_master_outbox_identity: None,
+            ..first_corpus_source()
+        }
+    }
+
+    fn refusal(error: ExploratoryReplayOwnerError) -> ComposerReplayShapeRefusalV1 {
+        match error {
+            ExploratoryReplayOwnerError::ComposerReplayShapeRefused(refusal) => refusal,
+            other => panic!("expected a named shape refusal, got {other:?}"),
+        }
+    }
+
+    /// The bytes were read from this fixture, twice, on the tree before schema 4 existed
+    /// (73bf32923), and are the first corpus's stored source, frozen claim and receipt.
+    #[test]
+    fn a_first_corpus_source_keeps_its_bytes() {
+        let source = first_corpus_source();
+        let bytes = serde_json::to_vec(&source).unwrap();
+        assert_eq!(
+            sha256_hex(&bytes),
+            "bc930fd482373348621de09f9323325407e967d7f78824c9f042f767e40a0f8c"
+        );
+        let decoded: StoredComposerReplaySourceV3 = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(decoded, source);
+        assert_eq!(serde_json::to_vec(&decoded).unwrap(), bytes);
+        assert_eq!(source.shape().unwrap(), ReplayMarketFactsShapeV2::FirstCorpus);
+
+        let (frozen, receipt) = frozen(source).unwrap();
+        assert_eq!(
+            sha256_hex(&serde_json::to_vec(&frozen).unwrap()),
+            "f7b1281d243dcc21bcc575a0b935d914226d0553c68ec7183c0ba8fd00d17b30"
+        );
+        assert_eq!(
+            sha256_hex(&serde_json::to_vec(&receipt).unwrap()),
+            "5561236f205d52c0707db7930b0357daf3a9198be134336878ce4b01ac46d49c"
+        );
+        assert_eq!(
+            frozen.request_digest,
+            "sha256:a6b0746b59145b5243f501ce064e7764aa5490dcc3a002ce0bc99882cd319479"
+        );
+    }
+
+    #[test]
+    fn a_universe_member_source_carries_no_instrument_master() {
+        let source = universe_member_source();
+        let json = serde_json::to_value(&source).unwrap();
+        let object = json.as_object().unwrap();
+        assert!(
+            object
+                .keys()
+                .all(|key| !key.starts_with("instrument_master")),
+            "{object:?}"
+        );
+        assert_eq!(object["schema_version"], 4);
+        let decoded: StoredComposerReplaySourceV3 = serde_json::from_value(json).unwrap();
+        assert_eq!(decoded, source);
+        assert_eq!(
+            source.shape().unwrap(),
+            ReplayMarketFactsShapeV2::UniverseMembers
+        );
+        let (frozen, receipt) = frozen(source).unwrap();
+        verify_composer_replay_frozen_v3(&frozen, &receipt).unwrap();
+    }
+
+    #[rstest::rstest]
+    #[case::schema_3_without_the_identity(3, [None, Some(20), Some(21)], ComposerReplayShapeRefusalV1::FirstCorpusSourceLacksInstrumentMaster)]
+    #[case::schema_3_without_the_receipt(3, [Some(19), None, Some(21)], ComposerReplayShapeRefusalV1::FirstCorpusSourceLacksInstrumentMaster)]
+    #[case::schema_3_without_the_outbox(3, [Some(19), Some(20), None], ComposerReplayShapeRefusalV1::FirstCorpusSourceLacksInstrumentMaster)]
+    #[case::schema_3_without_any(3, [None, None, None], ComposerReplayShapeRefusalV1::FirstCorpusSourceLacksInstrumentMaster)]
+    #[case::schema_4_with_the_identity(4, [Some(19), None, None], ComposerReplayShapeRefusalV1::UniverseSourceCarriesInstrumentMaster)]
+    #[case::schema_4_with_the_outbox(4, [None, None, Some(21)], ComposerReplayShapeRefusalV1::UniverseSourceCarriesInstrumentMaster)]
+    #[case::schema_4_with_all(4, [Some(19), Some(20), Some(21)], ComposerReplayShapeRefusalV1::UniverseSourceCarriesInstrumentMaster)]
+    #[case::schema_2(2, [Some(19), Some(20), Some(21)], ComposerReplayShapeRefusalV1::UnknownSourceSchema)]
+    #[case::schema_5(5, [None, None, None], ComposerReplayShapeRefusalV1::UnknownSourceSchema)]
+    fn a_source_whose_schema_and_instrument_master_disagree_is_refused_by_name(
+        #[case] schema_version: u16,
+        #[case] instrument_master: [Option<u8>; 3],
+        #[case] expected: ComposerReplayShapeRefusalV1,
+    ) {
+        let [identity, receipt, outbox] = instrument_master.map(|byte| byte.map(digest));
+        let source = StoredComposerReplaySourceV3 {
+            schema_version,
+            instrument_master_identity: identity,
+            instrument_master_receipt_identity: receipt,
+            instrument_master_outbox_identity: outbox,
+            ..first_corpus_source()
+        };
+        assert_eq!(refusal(source.shape().unwrap_err()), expected);
+        assert_eq!(refusal(frozen(source).unwrap_err()), expected);
+    }
+
+    #[test]
+    fn a_source_is_read_only_under_a_binding_of_its_own_shape() {
+        let first = first_corpus_source();
+        let universe = universe_member_source();
+        first
+            .require_binding_shape(ReplayMarketFactsShapeV2::FirstCorpus)
+            .unwrap();
+        universe
+            .require_binding_shape(ReplayMarketFactsShapeV2::UniverseMembers)
+            .unwrap();
+        for (source, binding_shape) in [
+            (first, ReplayMarketFactsShapeV2::UniverseMembers),
+            (universe, ReplayMarketFactsShapeV2::FirstCorpus),
+        ] {
+            assert_eq!(
+                refusal(source.require_binding_shape(binding_shape).unwrap_err()),
+                ComposerReplayShapeRefusalV1::SourceSchemaDiffersFromBindingShape
+            );
+        }
+    }
+
+    fn first_corpus_evidence() -> ReplayMarketShapeEvidenceV3 {
+        ReplayMarketShapeEvidenceV3 {
+            binding_shape: ReplayMarketFactsShapeV2::FirstCorpus,
+            facts_shape: ReplayMarketFactsShapeV2::FirstCorpus,
+            binding_frame: None,
+            facts_frame: None,
+            frame_dependency: None,
+            rederived_frame: None,
+        }
+    }
+
+    fn universe_evidence() -> ReplayMarketShapeEvidenceV3 {
+        let frame = digest(30);
+        ReplayMarketShapeEvidenceV3 {
+            binding_shape: ReplayMarketFactsShapeV2::UniverseMembers,
+            facts_shape: ReplayMarketFactsShapeV2::UniverseMembers,
+            binding_frame: Some(frame),
+            facts_frame: Some(frame),
+            frame_dependency: Some((frame, frame)),
+            rederived_frame: Some(frame),
+        }
+    }
+
+    #[test]
+    fn each_shape_is_admitted_with_its_own_owner_inputs() {
+        assert_eq!(admit_replay_market_shape_v3(&first_corpus_evidence()), Ok(None));
+        assert_eq!(
+            admit_replay_market_shape_v3(&universe_evidence()),
+            Ok(Some(digest(30)))
+        );
+    }
+
+    #[rstest::rstest]
+    #[case::binding_first_corpus_facts_universe(
+        ReplayMarketShapeEvidenceV3 { binding_shape: ReplayMarketFactsShapeV2::FirstCorpus, ..universe_evidence() },
+        ComposerReplayShapeRefusalV1::BindingAndFactsShapeDiffer,
+    )]
+    #[case::binding_universe_facts_first_corpus(
+        ReplayMarketShapeEvidenceV3 { binding_shape: ReplayMarketFactsShapeV2::UniverseMembers, ..first_corpus_evidence() },
+        ComposerReplayShapeRefusalV1::BindingAndFactsShapeDiffer,
+    )]
+    #[case::first_corpus_binding_names_a_frame(
+        ReplayMarketShapeEvidenceV3 { binding_frame: Some(digest(30)), ..first_corpus_evidence() },
+        ComposerReplayShapeRefusalV1::UniverseFrameDependencyDiffers,
+    )]
+    #[case::first_corpus_facts_name_a_frame(
+        ReplayMarketShapeEvidenceV3 { facts_frame: Some(digest(30)), ..first_corpus_evidence() },
+        ComposerReplayShapeRefusalV1::UniverseFrameDependencyDiffers,
+    )]
+    #[case::first_corpus_depends_on_a_frame(
+        ReplayMarketShapeEvidenceV3 { frame_dependency: Some((digest(30), digest(30))), ..first_corpus_evidence() },
+        ComposerReplayShapeRefusalV1::UniverseFrameDependencyDiffers,
+    )]
+    #[case::universe_without_a_frame_dependency(
+        ReplayMarketShapeEvidenceV3 { frame_dependency: None, ..universe_evidence() },
+        ComposerReplayShapeRefusalV1::UniverseFrameDependencyDiffers,
+    )]
+    #[case::frame_dependency_identity_is_not_its_digest(
+        ReplayMarketShapeEvidenceV3 { frame_dependency: Some((digest(31), digest(30))), ..universe_evidence() },
+        ComposerReplayShapeRefusalV1::UniverseFrameDependencyDiffers,
+    )]
+    #[case::frame_dependency_is_another_frame(
+        ReplayMarketShapeEvidenceV3 { frame_dependency: Some((digest(31), digest(31))), ..universe_evidence() },
+        ComposerReplayShapeRefusalV1::UniverseFrameDependencyDiffers,
+    )]
+    #[case::facts_record_another_frame(
+        ReplayMarketShapeEvidenceV3 { facts_frame: Some(digest(31)), ..universe_evidence() },
+        ComposerReplayShapeRefusalV1::UniverseFrameDependencyDiffers,
+    )]
+    #[case::binding_records_another_frame(
+        ReplayMarketShapeEvidenceV3 { binding_frame: Some(digest(31)), ..universe_evidence() },
+        ComposerReplayShapeRefusalV1::UniverseFrameDependencyDiffers,
+    )]
+    #[case::binding_records_no_frame(
+        ReplayMarketShapeEvidenceV3 { binding_frame: None, ..universe_evidence() },
+        ComposerReplayShapeRefusalV1::UniverseFrameDependencyDiffers,
+    )]
+    #[case::custody_rederives_another_frame(
+        ReplayMarketShapeEvidenceV3 { rederived_frame: Some(digest(31)), ..universe_evidence() },
+        ComposerReplayShapeRefusalV1::UniverseFrameNotRederived,
+    )]
+    #[case::custody_was_not_reread(
+        ReplayMarketShapeEvidenceV3 { rederived_frame: None, ..universe_evidence() },
+        ComposerReplayShapeRefusalV1::UniverseFrameNotRederived,
+    )]
+    fn a_cut_whose_shape_or_frame_does_not_hold_together_is_refused_by_name(
+        #[case] evidence: ReplayMarketShapeEvidenceV3,
+        #[case] expected: ComposerReplayShapeRefusalV1,
+    ) {
+        assert_eq!(admit_replay_market_shape_v3(&evidence), Err(expected));
+    }
 }

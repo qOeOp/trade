@@ -1368,9 +1368,9 @@ fn owner_error(error: &ExploratoryReplayOwnerError, request_identity: &str) -> R
             "OWNER_UNAVAILABLE",
             request_identity,
         ),
-        ExploratoryReplayOwnerError::InstrumentMasterAbsentForUniverseShape => rejection(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "INSTRUMENT_MASTER_ABSENT_FOR_UNIVERSE_SHAPE",
+        ExploratoryReplayOwnerError::ComposerReplayShapeRefused(_) => rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "COMPOSER_REPLAY_SHAPE_REFUSED",
             request_identity,
         ),
     }

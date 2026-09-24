@@ -26,8 +26,9 @@ use crate::{
         EXPLORATORY_REPLAY_OPERATION_V3, EXPLORATORY_REPLAY_REQUEST_FROZEN_EVENT_V2,
         EXPLORATORY_REPLAY_SCHEMA_V3, ExploratoryReplayCommitResultV2, ExploratoryReplayOwnerError,
         composition_v3::{
-            prepare_composer_backed_replay_v3, prepare_composer_replay_seal_v3,
-            project_composer_replay_view_v3, verify_composer_replay_frozen_v3,
+            admit_composer_replay_market_in_transaction_v3, prepare_composer_backed_replay_v3,
+            prepare_composer_replay_seal_v3, project_composer_replay_view_v3,
+            verify_composer_replay_frozen_v3,
         },
         exploratory_replay_admission_payload_v3,
     },
@@ -304,6 +305,9 @@ pub(crate) async fn commit_composer_v3(
     )
     .await
     .map_err(unavailable)?;
+    let admitted =
+        admit_composer_replay_market_in_transaction_v3(&mut transaction, &composer, &market)
+            .await?;
     let old_view = lock_exact_research_view(&mut transaction, &intent, &composer).await?;
     if old_view.availability != ResearchViewAvailability::Available
         || old_view.phase != ResearchViewPhase::IntentFrozen
@@ -333,6 +337,7 @@ pub(crate) async fn commit_composer_v3(
         &composer,
         &artifact_family,
         &market,
+        &admitted,
     )?;
     let prepared = prepare_composer_replay_seal_v3(
         composed,
