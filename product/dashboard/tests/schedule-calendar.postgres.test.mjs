@@ -878,12 +878,24 @@ test(testName, { skip: !url }, async () => {
       // schedule was already selected and its preview had been opened, and closed, from the schedule
       // inspector before the calendar badge opened it again. Recreate that history, on the badge that
       // just passed, so the case is driven every run instead of when the clock happens to allow it.
-      assert.equal(await readBrowserValue(browser, `(() => {
+      // What the click itself met, recorded in the same evaluation: a run where the sheet never
+      // opens has to say whether the click reached the button, and whether anything opened at all.
+      const inspectorClick = await readBrowserValue(browser, `(() => {
         const trigger = document.querySelector(
           '[aria-label="Selected schedule"] [data-run-preview-trigger="${calendarRunOrigins.badge}"]');
-        trigger?.click();
-        return Boolean(trigger);
-      })()`), true, "the badge case left its schedule selected in the inspector");
+        if (!trigger) return { found: false };
+        let reached = false;
+        trigger.addEventListener('click', () => { reached = true; }, { once: true, capture: true });
+        const rect = trigger.getBoundingClientRect();
+        const before = { disabled: trigger.disabled, inert: Boolean(trigger.closest('[inert]')),
+          width: rect.width, height: rect.height,
+          matches: document.querySelectorAll('[data-run-preview-trigger="${calendarRunOrigins.badge}"]').length };
+        trigger.click();
+        return { found: true, ...before, reached,
+          openAfterClick: [...document.querySelectorAll('dialog')].map((dialog) => dialog.open) };
+      })()`);
+      console.log(`calendar inspector click -> ${JSON.stringify(inspectorClick)}`);
+      assert.equal(inspectorClick.found, true, "the badge case left its schedule selected in the inspector");
       await waitForBrowserExpression(browser,
         "document.querySelectorAll('dialog[open]').length === 1 && Boolean(document.querySelector('dialog[open] a[href^=\"/operations/runs/\"]'))")
         .catch(async (timedOut) => {
@@ -896,7 +908,8 @@ test(testName, { skip: !url }, async () => {
             open: dialog.open,
             text: dialog.textContent.replace(/\\s+/gu, ' ').trim().slice(0, 160),
           }))`).catch((error) => error.message);
-          throw new Error(`${timedOut.message}; sheets after the inspector click: ${JSON.stringify(sheets)}`);
+          throw new Error(`${timedOut.message}; inspector click: ${JSON.stringify(inspectorClick)}; sheets after it: ${
+            JSON.stringify(sheets)}`);
         });
       await readBrowserValue(browser,
         "document.querySelector('dialog[open] button[aria-label=\"Close panel\"]')?.click()");
