@@ -605,7 +605,8 @@ impl ReplayPolicyCatalogBootstrapReceiptV3 {
 }
 
 #[cfg(feature = "sealed-develop-composer-acceptance")]
-fn sealed_acceptance_policy() -> Result<ReplayExecutionPolicyV2, ReplayPolicyCatalogErrorV2> {
+pub(crate) fn sealed_acceptance_policy()
+-> Result<ReplayExecutionPolicyV2, ReplayPolicyCatalogErrorV2> {
     use vibe_backtest_owner_contracts::{
         CanonicalDigestV2, ContentIdentityV2, OpaqueIdentityV2, ReplayWindowV2, VersionedIdentityV2,
     };
