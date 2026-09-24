@@ -5,6 +5,7 @@ use super::postgres::{
     validate_storage_manifest_for_test, validate_stored_row_for_test,
 };
 use rstest::rstest;
+use vibe_testkit::postgres::CanonicalOwnerPostgresTestDatabaseV1;
 
 const EXACT_V4_CUSTODY_RELOAD: &str = "let stored = load( transaction, \
     prepared.receipt_digest(), DependencyValidationModeV4::LockRows, )";
@@ -1170,6 +1171,15 @@ fn fixture_row() -> super::postgres::StoredReplayMarketFactsRowV2 {
 /// test body holds one pointer.
 type ChainEntryStepV1<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + 'a>>;
 
+/// Runs one phase of the replay composition chain entry as a step built outside the caller's frame.
+///
+/// The phase's future is created in this function's frame, which returns before the caller polls
+/// it, so the caller holds one pointer however large the phase is, and each phase's own frame is
+/// live only while that phase runs.
+fn chain_entry_step_v1<'a, T: 'a>(phase: impl AsyncFnOnce() -> T + 'a) -> ChainEntryStepV1<'a, T> {
+    Box::pin(phase())
+}
+
 /// A universe-member Design declares its bindings from the schema 2 role intent R&D published.
 ///
 /// The intent names the fixture's PIT request by identity and digest, and that request's requester
@@ -1547,26 +1557,45 @@ async fn universe_custody_rereads_as_rd_owner_step_v1(
     );
 }
 
-#[tokio::test]
-#[ignore = "requires the admitted disposable R&D Owner PostgreSQL topology"]
-async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_market_transaction_overlap()
- {
+/// Builds the replay composition entry's base fixture outside the test body's frame.
+fn replay_composition_base_fixture_v1(
+    owner_url: &str,
+) -> ChainEntryStepV1<'_, crate::owner::postgres::tests::ReplayCompositionMarketBaseFixtureV1> {
+    Box::pin(crate::owner::postgres::tests::replay_composition_market_base_fixture_v1(owner_url))
+}
+
+/// Everything the replay composition entry proves once its base fixture exists.
+///
+/// The entry's two deepest parts are the base fixture's chain and this body, and each is close to
+/// half of the 2 MiB test stack on its own. Kept in the test body they nested, because that body's
+/// frame is live for the whole test; as a step built outside it, this runs only after the fixture
+/// has returned, so the two never stack.
+fn replay_composition_after_base_fixture_v1(
+    database: &CanonicalOwnerPostgresTestDatabaseV1,
+    base: crate::owner::postgres::tests::ReplayCompositionMarketBaseFixtureV1,
+    market: crate::owner::postgres::MarketDataOwnerPostgres,
+) -> ChainEntryStepV1<'_, ()> {
+    Box::pin(replay_composition_after_base_fixture_step_v1(
+        database, base, market,
+    ))
+}
+
+async fn replay_composition_after_base_fixture_step_v1(
+    database: &CanonicalOwnerPostgresTestDatabaseV1,
+    base: crate::owner::postgres::tests::ReplayCompositionMarketBaseFixtureV1,
+    market: crate::owner::postgres::MarketDataOwnerPostgres,
+) {
     use std::{sync::Arc, time::Duration};
 
-    use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+    use vibe_testkit::postgres::CanonicalOwnerTestRoleV1;
 
     use crate::owner::resolve_pit_request_for_strategy_design_v1;
     use crate::owner::{
         correction_policy_projection::{CorrectionPolicyAuthenticatedInputsV1, project_first_v1},
-        postgres::{
-            MarketDataOwnerPostgres,
-            tests::{
-                persist_replay_alternate_r0_time_zone_fixture_v1,
-                persist_replay_joined_projection_fixture_v1,
-                persist_replay_reference_leaf_fixture_v1,
-                persist_replay_unbound_r0_time_zone_fixture_v1,
-                replay_composition_market_base_fixture_v1,
-            },
+        postgres::tests::{
+            persist_replay_alternate_r0_time_zone_fixture_v1,
+            persist_replay_joined_projection_fixture_v1, persist_replay_reference_leaf_fixture_v1,
+            persist_replay_unbound_r0_time_zone_fixture_v1,
         },
         replay_market_facts_v2::{
             AuthenticatedComposerNativeJoinV1, ReplayCompositionBindingLocatorV1,
@@ -1772,6 +1801,1307 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         );
     }
 
+    let mutation = database.mutation();
+    let market_mutation_pool = mutation.pool(CanonicalOwnerTestRoleV1::MarketDataOwner);
+    let owner_url = database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner);
+    let reader_url = database.database_url(CanonicalOwnerTestRoleV1::MarketDataReader);
+    let admin = database.owner_topology_admin_pool();
+    let (joined, leaves) = chain_entry_step_v1(async || {
+        let joined = Box::pin(persist_replay_joined_projection_fixture_v1(&market, &base)).await;
+        ReplayCompositionOwnerV1::materialize_schema(owner_url)
+            .await
+            .unwrap();
+        let leaves = Box::pin(persist_replay_reference_leaf_fixture_v1(&market, &base)).await;
+        assert!(
+            ReplayCompositionOwnerV1::connect(owner_url, reader_url)
+                .await
+                .is_ok()
+        );
+        sqlx::query("GRANT SELECT ON market_data_private.time_zone_facts_v1 TO PUBLIC")
+            .execute(market_mutation_pool)
+            .await
+            .unwrap();
+        assert!(
+            ReplayCompositionOwnerV1::connect(owner_url, reader_url)
+                .await
+                .is_err()
+        );
+        sqlx::query("REVOKE SELECT ON market_data_private.time_zone_facts_v1 FROM PUBLIC")
+            .execute(market_mutation_pool)
+            .await
+            .unwrap();
+        assert!(
+            ReplayCompositionOwnerV1::connect(owner_url, reader_url)
+                .await
+                .is_ok()
+        );
+        sqlx::query(
+            "ALTER TABLE market_data_private.time_zone_receipts_v1
+             RENAME TO time_zone_receipts_v1_missing",
+        )
+        .execute(market_mutation_pool)
+        .await
+        .unwrap();
+        assert!(
+            ReplayCompositionOwnerV1::connect(owner_url, reader_url)
+                .await
+                .is_err()
+        );
+        sqlx::query(
+            "ALTER TABLE market_data_private.time_zone_receipts_v1_missing
+             RENAME TO time_zone_receipts_v1",
+        )
+        .execute(market_mutation_pool)
+        .await
+        .unwrap();
+        assert!(
+            ReplayCompositionOwnerV1::connect(owner_url, reader_url)
+                .await
+                .is_ok()
+        );
+        sqlx::query(
+            "ALTER TABLE market_data_private.time_zone_facts_v1
+             RENAME COLUMN effective_until_ns TO effective_until_ns_missing",
+        )
+        .execute(market_mutation_pool)
+        .await
+        .unwrap();
+        assert!(
+            ReplayCompositionOwnerV1::connect(owner_url, reader_url)
+                .await
+                .is_err()
+        );
+        sqlx::query(
+            "ALTER TABLE market_data_private.time_zone_facts_v1
+             RENAME COLUMN effective_until_ns_missing TO effective_until_ns",
+        )
+        .execute(market_mutation_pool)
+        .await
+        .unwrap();
+        assert!(
+            ReplayCompositionOwnerV1::connect(owner_url, reader_url)
+                .await
+                .is_ok()
+        );
+        sqlx::query(
+            "ALTER TABLE market_data_private.time_zone_state_v1
+             DROP CONSTRAINT time_zone_state_v1_append_sequence_check",
+        )
+        .execute(market_mutation_pool)
+        .await
+        .unwrap();
+        assert!(
+            ReplayCompositionOwnerV1::connect(owner_url, reader_url)
+                .await
+                .is_err()
+        );
+        sqlx::query(
+            "ALTER TABLE market_data_private.time_zone_state_v1
+             ADD CONSTRAINT time_zone_state_v1_substitution_probe_check CHECK(singleton)",
+        )
+        .execute(market_mutation_pool)
+        .await
+        .unwrap();
+        assert!(
+            ReplayCompositionOwnerV1::connect(owner_url, reader_url)
+                .await
+                .is_err()
+        );
+        sqlx::query(
+            "ALTER TABLE market_data_private.time_zone_state_v1
+             DROP CONSTRAINT time_zone_state_v1_substitution_probe_check,
+             ADD CONSTRAINT time_zone_state_v1_append_sequence_check CHECK(append_sequence>=0)",
+        )
+        .execute(market_mutation_pool)
+        .await
+        .unwrap();
+        assert!(
+            ReplayCompositionOwnerV1::connect(owner_url, reader_url)
+                .await
+                .is_ok()
+        );
+        sqlx::query(
+            "CREATE TABLE market_data_private.time_zone_inheritance_probe_v1 ()
+             INHERITS (market_data_private.time_zone_state_v1)",
+        )
+        .execute(market_mutation_pool)
+        .await
+        .unwrap();
+        assert!(
+            ReplayCompositionOwnerV1::connect(owner_url, reader_url)
+                .await
+                .is_err()
+        );
+        sqlx::query("DROP TABLE market_data_private.time_zone_inheritance_probe_v1")
+            .execute(market_mutation_pool)
+            .await
+            .unwrap();
+        (joined, leaves)
+    })
+    .await;
+
+    let (owner, correction, composer_locator, role_set, joined_digest, native_join, cross_splice_native_join, cross_design_native_join) = chain_entry_step_v1(async || {
+        let owner = Arc::new(
+            ReplayCompositionOwnerV1::connect(owner_url, reader_url)
+                .await
+                .unwrap(),
+        );
+        let correction = project_first_v1(CorrectionPolicyAuthenticatedInputsV1 {
+            source_binding: &base.source_readback,
+            coordinates: &base.coordinates,
+            r0_coordinate_identity: base.r0.record().identity(),
+            r0_coordinate_digest: base.r0.record().digest(),
+        })
+        .unwrap();
+
+        let composer_locator = StrategyDesignRoleSetLocatorV1 {
+            schema_version: 2,
+            request_identity: "w3-replay-composition-owner-v1".into(),
+            operation_receipt_identity: d(216),
+            artifact_locator: "artifact:w3-replay-composition-owner-v1".into(),
+            artifact_identity: d(214),
+            canonical_plan_digest: d(215),
+            design_digest: d(213),
+        };
+        let roles = base
+            .binding_requests
+            .iter()
+            .zip(&joined.join_claim.roles)
+            .zip([
+                ("MARKET_DATA.BAR.OPEN.PRICE.V1", "1M"),
+                ("MARKET_DATA.BAR.HIGH.PRICE.V1", "1M"),
+                ("MARKET_DATA.BAR.LOW.PRICE.V1", "1M"),
+                ("MARKET_DATA.BAR.CLOSE.PRICE.V1", "1M"),
+                ("MARKET_DATA.BAR.CLOSE.PRICE.V1", "1H"),
+                ("MARKET_DATA.BAR.CLOSE.PRICE.V1", "1D"),
+            ])
+            .map(
+                |((request, join_role), (field_semantic_id, timeframe))| StrategyDesignRoleEntryV1 {
+                    role_identity: request.input_role_identity,
+                    semantic_id: join_role.semantic_id.clone(),
+                    fact_class: "MARKET_DATA".into(),
+                    instrument: "AAPL".into(),
+                    scope: r#"{"kind":"EXACT_INSTRUMENT"}"#.into(),
+                    field_semantic_id: field_semantic_id.into(),
+                    channel: "MARKET".into(),
+                    timeframe: timeframe.into(),
+                    unit: "PRICE".into(),
+                    scale: 2,
+                    value_type: "I128".into(),
+                },
+            )
+            .collect::<Vec<_>>();
+        let join_entry = StrategyDesignJoinEntryV1 {
+            join_identity: joined.join_claim.join_identity,
+            semantic_id: joined.join_claim.join_semantic_id.clone(),
+            roles: joined
+                .join_claim
+                .roles
+                .iter()
+                .map(|role| StrategyDesignJoinRoleV1 {
+                    semantic_id: role.semantic_id.clone(),
+                    role_identity: role.input_role_identity,
+                })
+                .collect(),
+            alignment_semantic_id: joined.join_claim.alignment_semantic_id.clone(),
+            trigger_input_id: joined.join_claim.trigger_input_id.clone(),
+            max_staleness_ns: joined.join_claim.max_staleness_ns,
+        };
+        let role_set = StrategyDesignRoleSetReceiptV1::from_rd_owner_projection(
+            composer_locator.clone(),
+            base.binding_requests[0].research_request_identity,
+            d(217),
+            base.binding_requests[0].strategy_design_identity,
+            d(213),
+            d(218),
+            roles,
+            vec![join_entry],
+        )
+        .unwrap();
+        let trigger_component = joined
+            .joined
+            .record()
+            .joined_cut_receipt()
+            .components()
+            .iter()
+            .find(|component| component.role_semantic_id() == joined.join_claim.trigger_input_id)
+            .unwrap();
+        assert_eq!(
+            joined.joined.record().joined_cut_receipt().trigger_digest(),
+            trigger_component.frame().trigger().digest()
+        );
+        assert_ne!(
+            joined.joined.record().joined_cut_receipt().trigger_digest(),
+            trigger_component.frame_digest()
+        );
+        let joined_digest = joined.joined.record().digest();
+        let joined_receipt_digest = joined.joined.record().joined_cut_receipt().digest();
+        assert_ne!(joined_digest, joined_receipt_digest);
+        assert_eq!(
+            joined.projection.subject_identity(),
+            *joined_receipt_digest.as_bytes()
+        );
+        let native_request = UntrustedComposerNativeJoinRequestV1 {
+            joined_cut_identity: joined.joined.record().identity(),
+            joined_cut_digest: joined_digest,
+            frame_projection_digests: joined.frame_projection_digests,
+        };
+        let native_capability = owner
+            .issue_composer_native_join_v1(&native_request)
+            .await
+            .unwrap();
+        assert_eq!(
+            native_capability.locator().receipt_digest(),
+            joined.projection.receipt_digest()
+        );
+        assert_eq!(native_capability.joined_cut_digest(), joined_digest);
+        assert_eq!(
+            native_capability.joined_cut_receipt_digest(),
+            joined_receipt_digest
+        );
+        assert_eq!(
+            native_capability
+                .schedule_dependency_set_digest()
+                .as_bytes(),
+            &joined.projection.schedule_dependency_set_digest()
+        );
+        sqlx::query("GRANT SELECT ON market_data_private.time_zone_facts_v1 TO PUBLIC")
+            .execute(market_mutation_pool)
+            .await
+            .unwrap();
+        assert!(matches!(
+            owner.issue_composer_native_join_v1(&native_request).await,
+            Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable)
+        ));
+        sqlx::query("REVOKE SELECT ON market_data_private.time_zone_facts_v1 FROM PUBLIC")
+            .execute(market_mutation_pool)
+            .await
+            .unwrap();
+        let recovered_native_capability = owner
+            .issue_composer_native_join_v1(&native_request)
+            .await
+            .unwrap();
+        assert_eq!(
+            recovered_native_capability.locator(),
+            native_capability.locator()
+        );
+        let native_join =
+            StrategyDesignNativeJoinReceiptV1::from_market_owner(&role_set, &native_capability)
+                .unwrap();
+        let cross_splice_capability = AuthenticatedComposerNativeJoinV1::from_owner_readback(
+            UntrustedStrategyInputSampleProjectionLocatorV4::from_untrusted(
+                joined.cross_splice_projection.receipt_digest(),
+            ),
+            joined_digest,
+            joined.cross_splice_receipt_digest,
+            BindingDigest::from_untrusted_bytes(
+                joined
+                    .cross_splice_projection
+                    .schedule_dependency_set_digest(),
+            ),
+            &joined.join_claim,
+        );
+        let cross_splice_native_join =
+            StrategyDesignNativeJoinReceiptV1::from_market_owner(&role_set, &cross_splice_capability)
+                .unwrap();
+        let mut cross_design_claim = joined.join_claim.clone();
+        cross_design_claim.strategy_design_identity = d(240);
+        cross_design_claim.join_identity = d(241);
+        let mut cross_design_joins = role_set.joins.clone();
+        cross_design_joins[0].join_identity = cross_design_claim.join_identity;
+        let cross_design_role_set = StrategyDesignRoleSetReceiptV1::from_rd_owner_projection(
+            composer_locator.clone(),
+            role_set.research_request_identity,
+            role_set.intent_identity,
+            cross_design_claim.strategy_design_identity,
+            role_set.design_digest,
+            role_set.canonical_design_digest,
+            role_set.roles.clone(),
+            cross_design_joins,
+        )
+        .unwrap();
+        let cross_design_capability = AuthenticatedComposerNativeJoinV1::from_owner_readback(
+            UntrustedStrategyInputSampleProjectionLocatorV4::from_untrusted(
+                joined.projection.receipt_digest(),
+            ),
+            joined_digest,
+            joined_receipt_digest,
+            BindingDigest::from_untrusted_bytes(joined.projection.schedule_dependency_set_digest()),
+            &cross_design_claim,
+        );
+        let cross_design_native_join = StrategyDesignNativeJoinReceiptV1::from_market_owner(
+            &cross_design_role_set,
+            &cross_design_capability,
+        )
+        .unwrap();
+        let mut composer_tx = admin.begin().await.unwrap();
+        sqlx::query("SET LOCAL ROLE composer_owner")
+            .execute(&mut *composer_tx)
+            .await
+            .unwrap();
+        sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||$1,0))")
+            .bind(&composer_locator.request_identity)
+            .execute(&mut *composer_tx)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO composer_private.rd_develop_designs_v2(design_identity,canonical_bytes) VALUES($1,$2)")
+            .bind(base.binding_requests[0].strategy_design_identity.as_bytes().as_slice()).bind(b"w3-design".as_slice()).execute(&mut *composer_tx).await.unwrap();
+        sqlx::query("INSERT INTO composer_private.rd_develop_plans_v2(plan_digest,design_identity,canonical_bytes) VALUES($1,$2,$3)")
+            .bind(composer_locator.canonical_plan_digest.as_bytes().as_slice()).bind(base.binding_requests[0].strategy_design_identity.as_bytes().as_slice()).bind(b"w3-plan".as_slice()).execute(&mut *composer_tx).await.unwrap();
+        sqlx::query("INSERT INTO composer_private.rd_develop_artifacts_v2(artifact_identity,plan_digest,package_bytes) VALUES($1,$2,$3)")
+            .bind(composer_locator.artifact_identity.as_bytes().as_slice()).bind(composer_locator.canonical_plan_digest.as_bytes().as_slice()).bind(b"w3-artifact".as_slice()).execute(&mut *composer_tx).await.unwrap();
+        sqlx::query("INSERT INTO composer_private.rd_develop_operations_v2(request_identity,request_digest,research_request_identity,intent_identity,artifact_identity,canonical_receipt_bytes,response_bytes) VALUES($1,$2,$3,$4,$5,$6,$7)")
+            .bind(&composer_locator.request_identity).bind(d(219).as_bytes().as_slice()).bind(role_set.research_request_identity.as_bytes().as_slice()).bind(role_set.intent_identity.as_bytes().as_slice()).bind(composer_locator.artifact_identity.as_bytes().as_slice()).bind(b"w3-operation".as_slice()).bind(b"w3-response".as_slice()).execute(&mut *composer_tx).await.unwrap();
+        sqlx::query("INSERT INTO composer_private.rd_develop_strategy_design_role_set_attestations_v1(request_identity,composer_schema_version,operation_receipt_identity,artifact_locator,artifact_identity,canonical_plan_digest,design_digest,attestation_identity,attestation_digest,canonical_bytes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
+            .bind(&composer_locator.request_identity).bind(i32::from(composer_locator.schema_version)).bind(composer_locator.operation_receipt_identity.as_bytes().as_slice()).bind(&composer_locator.artifact_locator).bind(composer_locator.artifact_identity.as_bytes().as_slice()).bind(composer_locator.canonical_plan_digest.as_bytes().as_slice()).bind(composer_locator.design_digest.as_bytes().as_slice()).bind(role_set.receipt_identity().as_bytes().as_slice()).bind(role_set.receipt_digest().as_bytes().as_slice()).bind(role_set.canonical_bytes()).execute(&mut *composer_tx).await.unwrap();
+        sqlx::query("INSERT INTO composer_private.rd_develop_strategy_design_native_joins_v1(request_identity,native_join_digest,projection_receipt_digest,joined_cut_digest,schedule_dependency_set_digest,canonical_bytes) VALUES($1,$2,$3,$4,$5,$6)")
+            .bind(&composer_locator.request_identity).bind(native_join.receipt_digest().as_bytes().as_slice()).bind(native_join.projection_receipt_digest().as_bytes().as_slice()).bind(native_join.joined_cut_digest().as_bytes().as_slice()).bind(native_join.schedule_dependency_set_digest().as_bytes().as_slice()).bind(native_join.canonical_bytes()).execute(&mut *composer_tx).await.unwrap();
+        composer_tx.commit().await.unwrap();
+        (owner, correction, composer_locator, role_set, joined_digest, native_join, cross_splice_native_join, cross_design_native_join)
+    })
+    .await;
+
+    chain_entry_step_v1(async || {
+        // W3: the Design's roles become binding declarations through the production writer, which
+        // resolves them to the request the Owner already committed rather than to anything a caller
+        // states.
+        //
+        // This section originally opened by asserting that the Design resolved to no coordinate yet.
+        // That cannot hold here: the fixture that builds `base` registers all six declarations for this
+        // exact Design through the `#[cfg(test)]` unchecked registrar and commits them, so the
+        // coordinate is already present before the production writer runs. The terminal assertions
+        // below are what carry the proof - they observe the writer's own output and bind it to the
+        // Owner's committed request, which a pre-existing coordinate cannot satisfy on its own.
+        let w3_design = base.binding_requests[0].strategy_design_identity;
+
+        let w3_binding = ReplayCompositionOwnerV1::connect(owner_url, reader_url)
+            .await
+            .expect("W3 admission binding");
+        let w3_terminal = w3_binding
+            .declare_strategy_input_bindings_v1(&composer_locator)
+            .await
+            .expect("W3 declares the authenticated role set");
+        assert_eq!(w3_terminal.design_identity(), w3_design);
+        assert_eq!(
+            w3_terminal.research_request_identity(),
+            base.binding_requests[0].research_request_identity
+        );
+        assert_eq!(w3_terminal.role_count() as usize, role_set.roles.len());
+        assert_eq!(
+            w3_terminal.pit_request_identity(),
+            base.binding_requests[0].pit_request_identity,
+            "the Owner resolved the roles to its own committed request, not to a caller's claim"
+        );
+        assert_eq!(
+            w3_terminal.decision_cut(),
+            base.binding_requests[0].decision_cut
+        );
+
+        let mut after_tx = market_mutation_pool.begin().await.unwrap();
+        let coordinate = resolve_pit_request_for_strategy_design_v1(&mut after_tx, w3_design)
+            .await
+            .expect("the declared Design now has a PIT coordinate");
+        after_tx.rollback().await.unwrap();
+        assert_eq!(
+            coordinate.pit_request_identity,
+            base.binding_requests[0].pit_request_identity
+        );
+
+        // Re-admitting the same locator rejoins rather than rewrites, which is what makes a lost commit
+        // acknowledgement safe to retry.
+        let w3_replay = w3_binding
+            .declare_strategy_input_bindings_v1(&composer_locator)
+            .await
+            .expect("re-admission rejoins the same declarations");
+        assert_eq!(w3_replay, w3_terminal);
+
+        // A locator the Composer never attested reaches no declaration. The Owner cannot be talked into
+        // registering against an attestation that does not exist.
+        let mut unattested = composer_locator.clone();
+        unattested.request_identity = format!("{}-unattested", composer_locator.request_identity);
+        assert_eq!(
+            w3_binding
+                .declare_strategy_input_bindings_v1(&unattested)
+                .await
+                .unwrap_err(),
+            StrategyInputBindingAdmissionErrorV1::UnknownAuthenticatedDesign
+        );
+
+        // The other shape that can authenticate a Design, for the cycle in which no Composer operation
+        // can exist yet: a program's identity folds in the binding receipts this registration issues,
+        // so the first cycle of any Design has to be opened by something that carries no program.
+        Box::pin(first_cycle_from_a_published_design_role_intent_v1(
+            mutation.pool(CanonicalOwnerTestRoleV1::RdOwner),
+            mutation.pool(CanonicalOwnerTestRoleV1::MarketDataReader),
+            market_mutation_pool,
+            &w3_binding,
+            &role_set,
+            &w3_terminal,
+            w3_design,
+        ))
+        .await;
+        universe_design_declares_from_a_published_intent_v1(
+            mutation.pool(CanonicalOwnerTestRoleV1::RdOwner),
+            market_mutation_pool,
+            &w3_binding,
+            &base,
+        )
+        .await;
+    })
+    .await;
+
+    chain_entry_step_v1(async || {
+        let reader_pool = mutation.pool(CanonicalOwnerTestRoleV1::MarketDataReader);
+        let mut reader_cut = reader_pool.begin().await.unwrap();
+        let reader_backend: i64 =
+            sqlx::query_scalar("SELECT composer_owner_api.lock_replay_composition_cut_v1($1)")
+                .bind(&composer_locator.request_identity)
+                .fetch_one(&mut *reader_cut)
+                .await
+                .unwrap();
+        assert!(reader_backend > 0);
+        let (writer_backend_sender, writer_backend_receiver) = tokio::sync::oneshot::channel();
+        let writer_admin = admin.clone();
+        let writer_request_identity = composer_locator.request_identity.clone();
+
+        let queued_writer = tokio::spawn(async move {
+            let mut writer = writer_admin.begin().await.unwrap();
+            sqlx::query("SET LOCAL ROLE composer_owner")
+                .execute(&mut *writer)
+                .await
+                .unwrap();
+            let writer_backend: i32 = sqlx::query_scalar("SELECT pg_catalog.pg_backend_pid()")
+                .fetch_one(&mut *writer)
+                .await
+                .unwrap();
+            writer_backend_sender.send(writer_backend).unwrap();
+            sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||$1,0))")
+                .bind(writer_request_identity)
+                .execute(&mut *writer)
+                .await
+                .unwrap();
+            writer.commit().await.unwrap();
+        });
+        let writer_backend = writer_backend_receiver.await.unwrap();
+
+        for _ in 0..100 {
+            let writer_is_queued: bool = sqlx::query_scalar(
+                "SELECT EXISTS(
+                   SELECT 1 FROM pg_catalog.pg_locks
+                    WHERE pid=$1 AND locktype='advisory' AND mode='ExclusiveLock' AND NOT granted
+                 )",
+            )
+            .bind(writer_backend)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+
+            if writer_is_queued {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let writer_is_queued: bool = sqlx::query_scalar(
+            "SELECT EXISTS(
+               SELECT 1 FROM pg_catalog.pg_locks
+                WHERE pid=$1 AND locktype='advisory' AND mode='ExclusiveLock' AND NOT granted
+             )",
+        )
+        .bind(writer_backend)
+        .fetch_one(admin)
+        .await
+        .unwrap();
+        assert!(writer_is_queued, "exclusive Composer writer must be queued");
+        let mut market_cut = market_mutation_pool.begin().await.unwrap();
+        let market_backend: i64 = tokio::time::timeout(
+            Duration::from_secs(1),
+            sqlx::query_scalar("SELECT composer_owner_api.lock_replay_composition_cut_v1($1)")
+                .bind(&composer_locator.request_identity)
+                .fetch_one(&mut *market_cut),
+        )
+        .await
+        .expect("Market shared-cut attempt must return without waiting for the queued writer")
+        .unwrap();
+        assert_eq!(market_backend, 0);
+        market_cut.rollback().await.unwrap();
+        assert!(!queued_writer.is_finished());
+        reader_cut.rollback().await.unwrap();
+        tokio::time::timeout(Duration::from_secs(1), queued_writer)
+            .await
+            .expect("exclusive Composer writer completes after reader cut release")
+            .unwrap();
+    })
+    .await;
+
+    let (command, before) = chain_entry_step_v1(async || {
+        let semantics_receipt = base.semantics.receipt();
+        let composition = ReplayCompositionBindingIssuanceRequestV1::from_test_fixture(
+            composer_locator.clone(),
+            base.pit.receipt().locator().clone(),
+            base.source.receipt().locator().clone(),
+            50,
+            51,
+            ReplayCompositionRequestLocatorV1::from_untrusted(
+                base.instrument.cut().request_identity,
+                base.instrument.cut().request_meaning_digest,
+            ),
+            ReplayCompositionRequestLocatorV1::from_untrusted(
+                base.universe.receipt().request_identity(),
+                base.universe.receipt().request_meaning_digest(),
+            ),
+            ReplayCompositionRequestLocatorV1::from_untrusted(
+                joined.census_request.request_identity(),
+                joined.census_request.request_meaning_digest(),
+            ),
+            ReplayCompositionContentLocatorV1::from_untrusted(joined_digest, joined_digest),
+            ReplayCompositionContentLocatorV1::from_untrusted(
+                BindingDigest::from_untrusted_bytes(joined.projection.receipt_digest()),
+                BindingDigest::from_untrusted_bytes(joined.projection.receipt_digest()),
+            ),
+            ReplayCompositionRequestLocatorV1::from_untrusted(
+                base.r0.receipt().request_identity,
+                base.r0.receipt().request_meaning_digest,
+            ),
+            ReplayCompositionRequestLocatorV1::from_untrusted(
+                leaves.calendar_request.request_identity(),
+                leaves.calendar_request.request_meaning_digest(),
+            ),
+            ReplayCompositionRequestLocatorV1::from_untrusted(
+                leaves.session_request.request_identity,
+                leaves.session_request_meaning_digest,
+            ),
+            ReplayCompositionRequestLocatorV1::from_untrusted(
+                leaves.time_zone_request.request_identity,
+                crate::owner::time_zone::authority::request_meaning_digest_v1(
+                    &leaves.time_zone_request,
+                )
+                .unwrap(),
+            ),
+            ReplayCompositionRequestLocatorV1::from_untrusted(
+                semantics_receipt.request_identity,
+                semantics_receipt.request_meaning_digest,
+            ),
+            ReplayCompositionContentLocatorV1::from_untrusted(
+                correction.identity(),
+                correction.identity(),
+            ),
+            ReplayCompositionRequestLocatorV1::from_untrusted(
+                leaves.corporate_action_request.request_identity,
+                leaves.corporate_action_request.request_meaning_digest,
+            ),
+        );
+        let command = ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(220), composition).unwrap();
+        let composition_with_sample_projection =
+            |sample_projection_locator: ReplayCompositionContentLocatorV1| {
+                ReplayCompositionBindingIssuanceRequestV1::from_test_fixture(
+                    command.composition().composer_locator().clone(),
+                    command.composition().pit_locator().clone(),
+                    command.composition().source_binding_locator().clone(),
+                    command.composition().replay_start_event_ns(),
+                    command.composition().replay_end_event_ns_exclusive(),
+                    command.composition().instrument_master_locator(),
+                    command.composition().universe_selection_locator(),
+                    command.composition().observation_census_locator(),
+                    command.composition().joined_cut_locator(),
+                    sample_projection_locator,
+                    command.composition().reference_fact_r0_locator(),
+                    command.composition().calendar_locator(),
+                    command.composition().session_locator(),
+                    command.composition().time_zone_locator(),
+                    command.composition().market_semantics_locator(),
+                    command.composition().correction_policy_locator(),
+                    command.composition().corporate_action_locator(),
+                )
+            };
+        let before = replay_positive_state(market_mutation_pool).await;
+        let composition_with_time_zone = |time_zone_locator: ReplayCompositionRequestLocatorV1| {
+            ReplayCompositionBindingIssuanceRequestV1::from_test_fixture(
+                command.composition().composer_locator().clone(),
+                command.composition().pit_locator().clone(),
+                command.composition().source_binding_locator().clone(),
+                command.composition().replay_start_event_ns(),
+                command.composition().replay_end_event_ns_exclusive(),
+                command.composition().instrument_master_locator(),
+                command.composition().universe_selection_locator(),
+                command.composition().observation_census_locator(),
+                command.composition().joined_cut_locator(),
+                command.composition().sample_projection_locator(),
+                command.composition().reference_fact_r0_locator(),
+                command.composition().calendar_locator(),
+                command.composition().session_locator(),
+                time_zone_locator,
+                command.composition().market_semantics_locator(),
+                command.composition().correction_policy_locator(),
+                command.composition().corporate_action_locator(),
+            )
+        };
+        let alternate_time_zone =
+            persist_replay_alternate_r0_time_zone_fixture_v1(&market, &base, d(243), d(250), d(251))
+                .await;
+        let alternate_time_zone_composition =
+            composition_with_time_zone(ReplayCompositionRequestLocatorV1::from_untrusted(
+                alternate_time_zone.request_identity,
+                alternate_time_zone.request_meaning_digest,
+            ));
+        let alternate_time_zone_command =
+            ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(252), alternate_time_zone_composition)
+                .unwrap();
+        assert_eq!(
+            owner.issue_binding_v1(&alternate_time_zone_command).await,
+            Err(ReplayCompositionBindingErrorV1::DependencyMismatch)
+        );
+        assert_eq!(replay_positive_state(market_mutation_pool).await, before);
+        let wrong_digest_time_zone = persist_replay_unbound_r0_time_zone_fixture_v1(
+            &market,
+            &base,
+            d(234),
+            d(233),
+            base.native_r0.receipt().request_identity,
+            base.native_r0.receipt().request_meaning_digest,
+            base.native_r0.record().identity(),
+            d(235),
+        )
+        .await;
+        let missing_r0_time_zone = persist_replay_unbound_r0_time_zone_fixture_v1(
+            &market,
+            &base,
+            d(236),
+            d(240),
+            d(237),
+            d(238),
+            d(239),
+            d(239),
+        )
+        .await;
+
+        for (issuance_identity, locator) in [
+            (d(230), wrong_digest_time_zone),
+            (d(231), missing_r0_time_zone),
+        ] {
+            let composition =
+                composition_with_time_zone(ReplayCompositionRequestLocatorV1::from_untrusted(
+                    locator.request_identity,
+                    locator.request_meaning_digest,
+                ));
+            let request =
+                ReplayCompositionLocatorOnlyIssuanceRequestV1::new(issuance_identity, composition)
+                    .unwrap();
+            assert_eq!(
+                owner.issue_binding_v1(&request).await,
+                Err(ReplayCompositionBindingErrorV1::DependencyMismatch)
+            );
+            assert_eq!(replay_positive_state(market_mutation_pool).await, before);
+        }
+        let mut cross_design_tx = admin.begin().await.unwrap();
+        sqlx::query("SET LOCAL ROLE composer_owner")
+            .execute(&mut *cross_design_tx)
+            .await
+            .unwrap();
+        sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||$1,0))")
+            .bind(&composer_locator.request_identity)
+            .execute(&mut *cross_design_tx)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE composer_private.rd_develop_strategy_design_native_joins_v1 SET native_join_digest=$1,projection_receipt_digest=$2,joined_cut_digest=$3,schedule_dependency_set_digest=$4,canonical_bytes=$5 WHERE request_identity=$6")
+            .bind(cross_design_native_join.receipt_digest().as_bytes().as_slice())
+            .bind(cross_design_native_join.projection_receipt_digest().as_bytes().as_slice())
+            .bind(cross_design_native_join.joined_cut_digest().as_bytes().as_slice())
+            .bind(cross_design_native_join.schedule_dependency_set_digest().as_bytes().as_slice())
+            .bind(cross_design_native_join.canonical_bytes())
+            .bind(&composer_locator.request_identity)
+            .execute(&mut *cross_design_tx)
+            .await
+            .unwrap();
+        cross_design_tx.commit().await.unwrap();
+        let cross_design =
+            ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(242), command.composition().clone())
+                .unwrap();
+        assert!(owner.issue_binding_v1(&cross_design).await.is_err());
+        assert_eq!(replay_positive_state(market_mutation_pool).await, before);
+
+        let mut cross_splice_tx = admin.begin().await.unwrap();
+        sqlx::query("SET LOCAL ROLE composer_owner")
+            .execute(&mut *cross_splice_tx)
+            .await
+            .unwrap();
+        sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||$1,0))")
+            .bind(&composer_locator.request_identity)
+            .execute(&mut *cross_splice_tx)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE composer_private.rd_develop_strategy_design_native_joins_v1 SET native_join_digest=$1,projection_receipt_digest=$2,joined_cut_digest=$3,schedule_dependency_set_digest=$4,canonical_bytes=$5 WHERE request_identity=$6")
+            .bind(cross_splice_native_join.receipt_digest().as_bytes().as_slice())
+            .bind(cross_splice_native_join.projection_receipt_digest().as_bytes().as_slice())
+            .bind(cross_splice_native_join.joined_cut_digest().as_bytes().as_slice())
+            .bind(cross_splice_native_join.schedule_dependency_set_digest().as_bytes().as_slice())
+            .bind(cross_splice_native_join.canonical_bytes())
+            .bind(&composer_locator.request_identity)
+            .execute(&mut *cross_splice_tx)
+            .await
+            .unwrap();
+        cross_splice_tx.commit().await.unwrap();
+        let cross_splice_projection_digest =
+            BindingDigest::from_untrusted_bytes(joined.cross_splice_projection.receipt_digest());
+        let cross_splice = ReplayCompositionLocatorOnlyIssuanceRequestV1::new(
+            d(254),
+            composition_with_sample_projection(ReplayCompositionContentLocatorV1::from_untrusted(
+                cross_splice_projection_digest,
+                cross_splice_projection_digest,
+            )),
+        )
+        .unwrap();
+        assert!(owner.issue_binding_v1(&cross_splice).await.is_err());
+        assert_eq!(replay_positive_state(market_mutation_pool).await, before);
+        (command, before)
+    })
+    .await;
+
+    let (first, fresh_owner, committed) = chain_entry_step_v1(async || {
+        let mut correct_day_tx = admin.begin().await.unwrap();
+        sqlx::query("SET LOCAL ROLE composer_owner")
+            .execute(&mut *correct_day_tx)
+            .await
+            .unwrap();
+        sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||$1,0))")
+            .bind(&composer_locator.request_identity)
+            .execute(&mut *correct_day_tx)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE composer_private.rd_develop_strategy_design_native_joins_v1 SET native_join_digest=$1,projection_receipt_digest=$2,joined_cut_digest=$3,schedule_dependency_set_digest=$4,canonical_bytes=$5 WHERE request_identity=$6")
+            .bind(native_join.receipt_digest().as_bytes().as_slice())
+            .bind(native_join.projection_receipt_digest().as_bytes().as_slice())
+            .bind(native_join.joined_cut_digest().as_bytes().as_slice())
+            .bind(native_join.schedule_dependency_set_digest().as_bytes().as_slice())
+            .bind(native_join.canonical_bytes())
+            .bind(&composer_locator.request_identity)
+            .execute(&mut *correct_day_tx)
+            .await
+            .unwrap();
+        correct_day_tx.commit().await.unwrap();
+
+        let missing_composition = ReplayCompositionBindingIssuanceRequestV1::from_test_fixture(
+            StrategyDesignRoleSetLocatorV1 {
+                request_identity: "missing-w3-composer".into(),
+                ..composer_locator.clone()
+            },
+            command.composition().pit_locator().clone(),
+            command.composition().source_binding_locator().clone(),
+            50,
+            51,
+            command.composition().instrument_master_locator(),
+            command.composition().universe_selection_locator(),
+            command.composition().observation_census_locator(),
+            command.composition().joined_cut_locator(),
+            command.composition().sample_projection_locator(),
+            command.composition().reference_fact_r0_locator(),
+            command.composition().calendar_locator(),
+            command.composition().session_locator(),
+            command.composition().time_zone_locator(),
+            command.composition().market_semantics_locator(),
+            command.composition().correction_policy_locator(),
+            command.composition().corporate_action_locator(),
+        );
+        let missing =
+            ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(221), missing_composition).unwrap();
+        assert!(owner.issue_binding_v1(&missing).await.is_err());
+        assert_eq!(replay_positive_state(market_mutation_pool).await, before);
+
+        let mut splice_tx = admin.begin().await.unwrap();
+        sqlx::query("SET LOCAL ROLE composer_owner")
+            .execute(&mut *splice_tx)
+            .await
+            .unwrap();
+        sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||$1,0))")
+            .bind(&composer_locator.request_identity)
+            .execute(&mut *splice_tx)
+            .await
+            .unwrap();
+        let spliced = sqlx::query(
+            "UPDATE composer_private.rd_develop_strategy_design_native_joins_v1
+             SET native_join_digest=$1 WHERE request_identity=$2",
+        )
+        .bind(d(249).as_bytes().as_slice())
+        .bind(&composer_locator.request_identity)
+        .execute(&mut *splice_tx)
+        .await
+        .unwrap();
+        assert_eq!(spliced.rows_affected(), 1);
+        splice_tx.commit().await.unwrap();
+        let cross_spliced =
+            ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(223), command.composition().clone())
+                .unwrap();
+        assert!(owner.issue_binding_v1(&cross_spliced).await.is_err());
+        assert_eq!(replay_positive_state(market_mutation_pool).await, before);
+        let mut restore_tx = admin.begin().await.unwrap();
+        sqlx::query("SET LOCAL ROLE composer_owner")
+            .execute(&mut *restore_tx)
+            .await
+            .unwrap();
+        sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||$1,0))")
+            .bind(&composer_locator.request_identity)
+            .execute(&mut *restore_tx)
+            .await
+            .unwrap();
+        let restored = sqlx::query(
+            "UPDATE composer_private.rd_develop_strategy_design_native_joins_v1
+             SET native_join_digest=$1 WHERE request_identity=$2",
+        )
+        .bind(native_join.receipt_digest().as_bytes().as_slice())
+        .bind(&composer_locator.request_identity)
+        .execute(&mut *restore_tx)
+        .await
+        .unwrap();
+        assert_eq!(restored.rows_affected(), 1);
+        restore_tx.commit().await.unwrap();
+
+        sqlx::query(
+            "CREATE FUNCTION market_data_private.terminate_replay_composition_issuance_commit_v1()
+             RETURNS trigger LANGUAGE plpgsql AS $function$
+             BEGIN
+               PERFORM pg_catalog.pg_terminate_backend(pg_catalog.pg_backend_pid());
+               RETURN NEW;
+             END
+             $function$",
+        )
+        .execute(market_mutation_pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "CREATE CONSTRAINT TRIGGER terminate_replay_composition_issuance_commit_v1
+             AFTER INSERT ON market_data_private.replay_composition_issuances_v1
+             DEFERRABLE INITIALLY DEFERRED
+             FOR EACH ROW EXECUTE FUNCTION market_data_private.terminate_replay_composition_issuance_commit_v1()",
+        )
+        .execute(market_mutation_pool)
+        .await
+        .unwrap();
+        assert!(owner.issue_binding_v1(&command).await.is_err());
+        assert_eq!(replay_positive_state(market_mutation_pool).await, before);
+        sqlx::query(
+            "DROP TRIGGER terminate_replay_composition_issuance_commit_v1
+             ON market_data_private.replay_composition_issuances_v1",
+        )
+        .execute(market_mutation_pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "DROP FUNCTION market_data_private.terminate_replay_composition_issuance_commit_v1()",
+        )
+        .execute(market_mutation_pool)
+        .await
+        .unwrap();
+
+        let mut blocker = market_mutation_pool.begin().await.unwrap();
+        sqlx::query("SELECT 1 FROM market_data_private.reference_fact_r0_records_v1 WHERE request_identity=$1 FOR UPDATE")
+            .bind(base.r0.receipt().request_identity.as_bytes().as_slice()).fetch_one(&mut *blocker).await.unwrap();
+        let issue_owner = Arc::clone(&owner);
+        let issue_command = command.clone();
+        let issue = tokio::spawn(async move { issue_owner.issue_binding_v1(&issue_command).await });
+        let mut observed_two_owner_transactions = false;
+
+        for _ in 0..100 {
+            let holders: i64 = sqlx::query_scalar("SELECT count(DISTINCT activity.usename) FROM pg_catalog.pg_locks lock_fact JOIN pg_catalog.pg_stat_activity activity ON activity.pid=lock_fact.pid WHERE lock_fact.locktype='advisory' AND lock_fact.granted AND activity.usename IN ('market_data_reader','market_data_owner')")
+                .fetch_one(admin).await.unwrap();
+
+            if holders == 2 {
+                observed_two_owner_transactions = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(
+            observed_two_owner_transactions,
+            "reader and Market transactions overlap after handoff"
+        );
+        blocker.rollback().await.unwrap();
+        let first = issue.await.unwrap().unwrap();
+        let (binding_identity, binding_digest): (Vec<u8>, Vec<u8>) = sqlx::query_as(
+            "SELECT binding_identity,binding_digest FROM market_data_private.replay_composition_bindings_v1",
+        )
+        .fetch_one(market_mutation_pool)
+        .await
+        .unwrap();
+        let binding_locator = ReplayCompositionBindingLocatorV1::from_untrusted(
+            BindingDigest::from_untrusted_bytes(binding_identity.try_into().unwrap()),
+            BindingDigest::from_untrusted_bytes(binding_digest.try_into().unwrap()),
+        );
+        let owner_cut = owner
+            .resolve_bound_replay_cut_v1(binding_locator)
+            .await
+            .unwrap();
+        let universe_requests =
+            universe_design_registered_before_rd_owner_v1(&market, &base, market_mutation_pool).await;
+        let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+        let mut rd_transaction = rd_pool.begin().await.unwrap();
+        let rd_cut = owner
+            .resolve_bound_replay_cut_in_transaction_v1(&mut rd_transaction, binding_locator)
+            .await
+            .unwrap();
+        assert_eq!(rd_cut, owner_cut);
+        strategy_input_custody_rereads_as_rd_owner_v1(&base, &universe_requests, &mut rd_transaction)
+            .await;
+
+        rd_transaction.rollback().await.unwrap();
+        assert!(
+            sqlx::query("SELECT * FROM market_data_private.replay_composition_bindings_v1")
+                .fetch_optional(rd_pool)
+                .await
+                .is_err()
+        );
+        assert!(
+            sqlx::query("SELECT * FROM market_data_private.strategy_input_binding_declarations_v1")
+                .fetch_optional(rd_pool)
+                .await
+                .is_err()
+        );
+
+        for function in [
+            "market_data_rd_api.lock_strategy_input_declarations_v1(bytea,bytea)",
+            "market_data_rd_api.lock_pit_observation_batch_for_strategy_input_v1(bytea)",
+            "market_data_rd_api.lock_pit_observation_rows_for_strategy_input_v1(bytea)",
+            "market_data_rd_api.lock_source_for_strategy_input_v1(bytea)",
+            "market_data_rd_api.lock_universe_for_strategy_input_v1(bytea)",
+            "market_data_rd_api.lock_market_semantics_scope_for_strategy_input_v1(bytea)",
+            "market_data_rd_api.lock_market_semantics_readback_for_strategy_input_v1(bytea)",
+        ] {
+            // The textual `has_function_privilege` overload parses the signature, which needs USAGE on
+            // the facade schema. Only `rd_owner` holds that, so resolve the catalog entry and ask
+            // about the OID instead; catalog reads need no schema grant.
+            let name = function
+                .split_once('(')
+                .map_or(function, |(name, _)| name)
+                .rsplit_once('.')
+                .map_or(function, |(_, name)| name);
+            let isolated: bool = sqlx::query_scalar(
+                "SELECT pg_catalog.has_function_privilege('rd_owner',procedure.oid,'EXECUTE')
+                        AND NOT pg_catalog.has_function_privilege('market_data_reader',procedure.oid,'EXECUTE')
+                   FROM pg_catalog.pg_proc procedure
+                   JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace
+                  WHERE namespace.nspname='market_data_rd_api' AND procedure.proname=$1",
+            )
+            .bind(name)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+            assert!(isolated, "Market Data custody facade ACL: {function}");
+        }
+        let fresh_owner = ReplayCompositionOwnerV1::connect(owner_url, reader_url)
+            .await
+            .unwrap();
+        let retry = fresh_owner.issue_binding_v1(&command).await.unwrap();
+        let recovered = fresh_owner
+            .recover_issuance_v1(command.issuance_locator())
+            .await
+            .unwrap();
+        assert_eq!(first.canonical_bytes(), retry.canonical_bytes());
+        assert_eq!(first.canonical_bytes(), recovered.canonical_bytes());
+        let committed = replay_positive_state(market_mutation_pool).await;
+        (first, fresh_owner, committed)
+    })
+    .await;
+
+    let (time_zone_lineage_root, current_time_zone_head, current_time_zone_catalog) = chain_entry_step_v1(async || {
+        // The insert mapping reads these three names; if a constraint is renamed, this goes red before
+        // the mapping silently stops recognising it.
+        let issuance_constraints: Vec<String> = sqlx::query_scalar(
+            "SELECT constraint_fact.conname::text
+               FROM pg_catalog.pg_constraint constraint_fact
+               JOIN pg_catalog.pg_class relation ON relation.oid=constraint_fact.conrelid
+               JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+              WHERE namespace.nspname='market_data_private'
+                AND relation.relname='replay_composition_issuances_v1'
+                AND constraint_fact.contype IN ('p','u')
+              ORDER BY constraint_fact.conname",
+        )
+        .fetch_all(market_mutation_pool)
+        .await
+        .unwrap();
+        let mut expected_constraints = vec![
+            crate::owner::postgres::ISSUANCE_BINDING_CONSTRAINT.to_string(),
+            crate::owner::postgres::ISSUANCE_IDENTITY_CONSTRAINT.to_string(),
+            crate::owner::postgres::ISSUANCE_MEANING_CONSTRAINT.to_string(),
+        ];
+        expected_constraints.sort();
+        assert_eq!(issuance_constraints, expected_constraints);
+
+        // The same composition under a new identity passes the identity check, and the binding and
+        // market facts writes accept its identical content, so it reaches the issuance insert and is
+        // refused there on the meaning it shares with the stored issuance: a conflict, not a retry.
+        let reused_composition =
+            ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(226), command.composition().clone())
+                .unwrap();
+        assert_eq!(
+            fresh_owner.issue_binding_v1(&reused_composition).await,
+            Err(ReplayCompositionBindingErrorV1::IssuanceIdentityConflict)
+        );
+        assert_eq!(replay_positive_state(market_mutation_pool).await, committed);
+
+        sqlx::query("GRANT SELECT ON market_data_private.time_zone_facts_v1 TO PUBLIC")
+            .execute(market_mutation_pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            fresh_owner.issue_binding_v1(&command).await,
+            Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable)
+        );
+        assert_eq!(replay_positive_state(market_mutation_pool).await, committed);
+        sqlx::query("REVOKE SELECT ON market_data_private.time_zone_facts_v1 FROM PUBLIC")
+            .execute(market_mutation_pool)
+            .await
+            .unwrap();
+        let recovered_after_topology_restore = fresh_owner.issue_binding_v1(&command).await.unwrap();
+        assert_eq!(
+            first.canonical_bytes(),
+            recovered_after_topology_restore.canonical_bytes()
+        );
+
+        crate::owner::postgres::tests::advance_time_zone_head_and_verify_historical_recovery_v1(
+            &market,
+            &base,
+            &leaves,
+            d(223),
+        )
+        .await;
+        let recovered_historical = fresh_owner.issue_binding_v1(&command).await.unwrap();
+        assert_eq!(
+            first.canonical_bytes(),
+            recovered_historical.canonical_bytes()
+        );
+
+        let time_zone_lineage_root: Vec<u8> = sqlx::query_scalar(
+            "SELECT lineage_root FROM market_data_private.time_zone_facts_v1 WHERE fact_identity=$1",
+        )
+        .bind(leaves.time_zone_fact_identity.as_bytes().as_slice())
+        .fetch_one(market_mutation_pool)
+        .await
+        .unwrap();
+        let current_time_zone_head: Vec<u8> = sqlx::query_scalar(
+            "SELECT fact_identity FROM market_data_private.time_zone_heads_v1 WHERE lineage_root=$1",
+        )
+        .bind(&time_zone_lineage_root)
+        .fetch_one(market_mutation_pool)
+        .await
+        .unwrap();
+        let current_time_zone_catalog: Vec<u8> = sqlx::query_scalar(
+            "SELECT catalog_entry_identity FROM market_data_private.time_zone_facts_v1 WHERE fact_identity=$1",
+        )
+        .bind(&current_time_zone_head)
+        .fetch_one(market_mutation_pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE market_data_private.time_zone_heads_v1 SET fact_identity=$1 WHERE lineage_root=$2",
+        )
+        .bind(leaves.time_zone_fact_identity.as_bytes().as_slice())
+        .bind(&time_zone_lineage_root)
+        .execute(market_mutation_pool)
+        .await
+        .unwrap();
+        (time_zone_lineage_root, current_time_zone_head, current_time_zone_catalog)
+    })
+    .await;
+
+    chain_entry_step_v1(async || {
+        let native_head_rollback_state = replay_positive_state(market_mutation_pool).await;
+        assert!(fresh_owner.issue_binding_v1(&command).await.is_err());
+        assert_eq!(
+            replay_positive_state(market_mutation_pool).await,
+            native_head_rollback_state
+        );
+        sqlx::query(
+            "UPDATE market_data_private.time_zone_heads_v1 SET fact_identity=$1 WHERE lineage_root=$2",
+        )
+        .bind(&current_time_zone_head)
+        .bind(&time_zone_lineage_root)
+        .execute(market_mutation_pool)
+        .await
+        .unwrap();
+
+        let time_zone_cut_identity: Vec<u8> = sqlx::query_scalar(
+            "SELECT cut_identity FROM market_data_private.time_zone_cuts_v1 WHERE request_identity=$1",
+        )
+        .bind(
+            leaves
+                .time_zone_request
+                .request_identity
+                .as_bytes()
+                .as_slice(),
+        )
+        .fetch_one(market_mutation_pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE market_data_private.time_zone_cut_facts_v1 SET fact_identity=$1 WHERE cut_identity=$2 AND ordinal=1",
+        )
+        .bind(&current_time_zone_head)
+        .bind(&time_zone_cut_identity)
+        .execute(market_mutation_pool)
+        .await
+        .unwrap();
+        let cut_splice_state = replay_positive_state(market_mutation_pool).await;
+        assert!(fresh_owner.issue_binding_v1(&command).await.is_err());
+        assert_eq!(
+            replay_positive_state(market_mutation_pool).await,
+            cut_splice_state
+        );
+        sqlx::query(
+            "UPDATE market_data_private.time_zone_cut_facts_v1 SET fact_identity=$1 WHERE cut_identity=$2 AND ordinal=1",
+        )
+        .bind(leaves.time_zone_fact_identity.as_bytes().as_slice())
+        .bind(&time_zone_cut_identity)
+        .execute(market_mutation_pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "UPDATE market_data_private.reference_fact_catalog_heads_v1
+             SET correction_sequence=correction_sequence+1
+             WHERE entry_identity=$1",
+        )
+        .bind(&current_time_zone_catalog)
+        .execute(market_mutation_pool)
+        .await
+        .unwrap();
+        let catalog_head_tamper =
+            ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(224), command.composition().clone())
+                .unwrap();
+        assert!(
+            fresh_owner
+                .issue_binding_v1(&catalog_head_tamper)
+                .await
+                .is_err()
+        );
+        assert_eq!(replay_positive_state(market_mutation_pool).await, committed);
+        sqlx::query(
+            "UPDATE market_data_private.reference_fact_catalog_heads_v1
+             SET correction_sequence=$1
+             WHERE entry_identity=$2",
+        )
+        .bind(i64::try_from(leaves.time_zone_correction_sequence + 1).unwrap())
+        .bind(&current_time_zone_catalog)
+        .execute(market_mutation_pool)
+        .await
+        .unwrap();
+
+        let catalog_effective_from: String = sqlx::query_scalar(
+            "SELECT effective_from_ns
+             FROM market_data_private.reference_fact_catalog_entries_v1
+             WHERE entry_identity=$1",
+        )
+        .bind(
+            leaves
+                .time_zone_catalog_entry_identity
+                .as_bytes()
+                .as_slice(),
+        )
+        .fetch_one(market_mutation_pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE market_data_private.reference_fact_catalog_entries_v1
+             SET effective_from_ns=(effective_from_ns::numeric+1)::text
+             WHERE entry_identity=$1",
+        )
+        .bind(
+            leaves
+                .time_zone_catalog_entry_identity
+                .as_bytes()
+                .as_slice(),
+        )
+        .execute(market_mutation_pool)
+        .await
+        .unwrap();
+        let catalog_row_tamper =
+            ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(225), command.composition().clone())
+                .unwrap();
+        assert!(
+            fresh_owner
+                .issue_binding_v1(&catalog_row_tamper)
+                .await
+                .is_err()
+        );
+        assert_eq!(replay_positive_state(market_mutation_pool).await, committed);
+        sqlx::query(
+            "UPDATE market_data_private.reference_fact_catalog_entries_v1
+             SET effective_from_ns=$1
+             WHERE entry_identity=$2",
+        )
+        .bind(catalog_effective_from)
+        .bind(
+            leaves
+                .time_zone_catalog_entry_identity
+                .as_bytes()
+                .as_slice(),
+        )
+        .execute(market_mutation_pool)
+        .await
+        .unwrap();
+
+        let native_predecessor: Option<Vec<u8>> = sqlx::query_scalar(
+            "SELECT predecessor_identity
+             FROM market_data_private.time_zone_facts_v1
+             WHERE fact_identity=$1",
+        )
+        .bind(leaves.time_zone_fact_identity.as_bytes().as_slice())
+        .fetch_one(market_mutation_pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE market_data_private.time_zone_facts_v1
+             SET predecessor_identity=fact_identity
+             WHERE fact_identity=$1",
+        )
+        .bind(leaves.time_zone_fact_identity.as_bytes().as_slice())
+        .execute(market_mutation_pool)
+        .await
+        .unwrap();
+        assert!(fresh_owner.issue_binding_v1(&command).await.is_err());
+        assert_eq!(replay_positive_state(market_mutation_pool).await, committed);
+        sqlx::query(
+            "UPDATE market_data_private.time_zone_facts_v1
+             SET predecessor_identity=$1
+             WHERE fact_identity=$2",
+        )
+        .bind(native_predecessor)
+        .bind(leaves.time_zone_fact_identity.as_bytes().as_slice())
+        .execute(market_mutation_pool)
+        .await
+        .unwrap();
+
+        let bad_r0 = ReplayCompositionBindingIssuanceRequestV1::from_test_fixture(
+            composer_locator,
+            command.composition().pit_locator().clone(),
+            command.composition().source_binding_locator().clone(),
+            50,
+            51,
+            command.composition().instrument_master_locator(),
+            command.composition().universe_selection_locator(),
+            command.composition().observation_census_locator(),
+            command.composition().joined_cut_locator(),
+            command.composition().sample_projection_locator(),
+            ReplayCompositionRequestLocatorV1::from_untrusted(d(250), d(251)),
+            command.composition().calendar_locator(),
+            command.composition().session_locator(),
+            command.composition().time_zone_locator(),
+            command.composition().market_semantics_locator(),
+            command.composition().correction_policy_locator(),
+            command.composition().corporate_action_locator(),
+        );
+        let bad = ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(222), bad_r0).unwrap();
+        assert!(fresh_owner.issue_binding_v1(&bad).await.is_err());
+        assert_eq!(replay_positive_state(market_mutation_pool).await, committed);
+    })
+    .await;
+}
+
+#[tokio::test]
+#[ignore = "requires the admitted disposable R&D Owner PostgreSQL topology"]
+async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_market_transaction_overlap()
+ {
+    use vibe_testkit::postgres::CanonicalOwnerTestRoleV1;
+
+    use crate::owner::postgres::MarketDataOwnerPostgres;
+
     let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
         .await
         .expect("canonical disposable Owner topology");
@@ -1779,7 +3109,6 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     let market_mutation_pool = mutation.pool(CanonicalOwnerTestRoleV1::MarketDataOwner);
     let owner_url = database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner);
     let reader_url = database.database_url(CanonicalOwnerTestRoleV1::MarketDataReader);
-    let admin = database.owner_topology_admin_pool();
     let can_create_schema: bool = sqlx::query_scalar(
         "SELECT pg_catalog.has_database_privilege(current_user,current_database(),'CREATE')",
     )
@@ -1792,1263 +3121,9 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         wrong_owner,
         Err(crate::owner::source_binding::SourceBindingError::StoreUnavailable)
     ));
-    let base = Box::pin(replay_composition_market_base_fixture_v1(owner_url)).await;
+    let base = replay_composition_base_fixture_v1(owner_url).await;
     let market = MarketDataOwnerPostgres::connect(owner_url).await.unwrap();
-    let joined = Box::pin(persist_replay_joined_projection_fixture_v1(&market, &base)).await;
-    ReplayCompositionOwnerV1::materialize_schema(owner_url)
-        .await
-        .unwrap();
-    let leaves = Box::pin(persist_replay_reference_leaf_fixture_v1(&market, &base)).await;
-    assert!(
-        ReplayCompositionOwnerV1::connect(owner_url, reader_url)
-            .await
-            .is_ok()
-    );
-    sqlx::query("GRANT SELECT ON market_data_private.time_zone_facts_v1 TO PUBLIC")
-        .execute(market_mutation_pool)
-        .await
-        .unwrap();
-    assert!(
-        ReplayCompositionOwnerV1::connect(owner_url, reader_url)
-            .await
-            .is_err()
-    );
-    sqlx::query("REVOKE SELECT ON market_data_private.time_zone_facts_v1 FROM PUBLIC")
-        .execute(market_mutation_pool)
-        .await
-        .unwrap();
-    assert!(
-        ReplayCompositionOwnerV1::connect(owner_url, reader_url)
-            .await
-            .is_ok()
-    );
-    sqlx::query(
-        "ALTER TABLE market_data_private.time_zone_receipts_v1
-         RENAME TO time_zone_receipts_v1_missing",
-    )
-    .execute(market_mutation_pool)
-    .await
-    .unwrap();
-    assert!(
-        ReplayCompositionOwnerV1::connect(owner_url, reader_url)
-            .await
-            .is_err()
-    );
-    sqlx::query(
-        "ALTER TABLE market_data_private.time_zone_receipts_v1_missing
-         RENAME TO time_zone_receipts_v1",
-    )
-    .execute(market_mutation_pool)
-    .await
-    .unwrap();
-    assert!(
-        ReplayCompositionOwnerV1::connect(owner_url, reader_url)
-            .await
-            .is_ok()
-    );
-    sqlx::query(
-        "ALTER TABLE market_data_private.time_zone_facts_v1
-         RENAME COLUMN effective_until_ns TO effective_until_ns_missing",
-    )
-    .execute(market_mutation_pool)
-    .await
-    .unwrap();
-    assert!(
-        ReplayCompositionOwnerV1::connect(owner_url, reader_url)
-            .await
-            .is_err()
-    );
-    sqlx::query(
-        "ALTER TABLE market_data_private.time_zone_facts_v1
-         RENAME COLUMN effective_until_ns_missing TO effective_until_ns",
-    )
-    .execute(market_mutation_pool)
-    .await
-    .unwrap();
-    assert!(
-        ReplayCompositionOwnerV1::connect(owner_url, reader_url)
-            .await
-            .is_ok()
-    );
-    sqlx::query(
-        "ALTER TABLE market_data_private.time_zone_state_v1
-         DROP CONSTRAINT time_zone_state_v1_append_sequence_check",
-    )
-    .execute(market_mutation_pool)
-    .await
-    .unwrap();
-    assert!(
-        ReplayCompositionOwnerV1::connect(owner_url, reader_url)
-            .await
-            .is_err()
-    );
-    sqlx::query(
-        "ALTER TABLE market_data_private.time_zone_state_v1
-         ADD CONSTRAINT time_zone_state_v1_substitution_probe_check CHECK(singleton)",
-    )
-    .execute(market_mutation_pool)
-    .await
-    .unwrap();
-    assert!(
-        ReplayCompositionOwnerV1::connect(owner_url, reader_url)
-            .await
-            .is_err()
-    );
-    sqlx::query(
-        "ALTER TABLE market_data_private.time_zone_state_v1
-         DROP CONSTRAINT time_zone_state_v1_substitution_probe_check,
-         ADD CONSTRAINT time_zone_state_v1_append_sequence_check CHECK(append_sequence>=0)",
-    )
-    .execute(market_mutation_pool)
-    .await
-    .unwrap();
-    assert!(
-        ReplayCompositionOwnerV1::connect(owner_url, reader_url)
-            .await
-            .is_ok()
-    );
-    sqlx::query(
-        "CREATE TABLE market_data_private.time_zone_inheritance_probe_v1 ()
-         INHERITS (market_data_private.time_zone_state_v1)",
-    )
-    .execute(market_mutation_pool)
-    .await
-    .unwrap();
-    assert!(
-        ReplayCompositionOwnerV1::connect(owner_url, reader_url)
-            .await
-            .is_err()
-    );
-    sqlx::query("DROP TABLE market_data_private.time_zone_inheritance_probe_v1")
-        .execute(market_mutation_pool)
-        .await
-        .unwrap();
-    let owner = Arc::new(
-        ReplayCompositionOwnerV1::connect(owner_url, reader_url)
-            .await
-            .unwrap(),
-    );
-    let correction = project_first_v1(CorrectionPolicyAuthenticatedInputsV1 {
-        source_binding: &base.source_readback,
-        coordinates: &base.coordinates,
-        r0_coordinate_identity: base.r0.record().identity(),
-        r0_coordinate_digest: base.r0.record().digest(),
-    })
-    .unwrap();
-
-    let composer_locator = StrategyDesignRoleSetLocatorV1 {
-        schema_version: 2,
-        request_identity: "w3-replay-composition-owner-v1".into(),
-        operation_receipt_identity: d(216),
-        artifact_locator: "artifact:w3-replay-composition-owner-v1".into(),
-        artifact_identity: d(214),
-        canonical_plan_digest: d(215),
-        design_digest: d(213),
-    };
-    let roles = base
-        .binding_requests
-        .iter()
-        .zip(&joined.join_claim.roles)
-        .zip([
-            ("MARKET_DATA.BAR.OPEN.PRICE.V1", "1M"),
-            ("MARKET_DATA.BAR.HIGH.PRICE.V1", "1M"),
-            ("MARKET_DATA.BAR.LOW.PRICE.V1", "1M"),
-            ("MARKET_DATA.BAR.CLOSE.PRICE.V1", "1M"),
-            ("MARKET_DATA.BAR.CLOSE.PRICE.V1", "1H"),
-            ("MARKET_DATA.BAR.CLOSE.PRICE.V1", "1D"),
-        ])
-        .map(
-            |((request, join_role), (field_semantic_id, timeframe))| StrategyDesignRoleEntryV1 {
-                role_identity: request.input_role_identity,
-                semantic_id: join_role.semantic_id.clone(),
-                fact_class: "MARKET_DATA".into(),
-                instrument: "AAPL".into(),
-                scope: r#"{"kind":"EXACT_INSTRUMENT"}"#.into(),
-                field_semantic_id: field_semantic_id.into(),
-                channel: "MARKET".into(),
-                timeframe: timeframe.into(),
-                unit: "PRICE".into(),
-                scale: 2,
-                value_type: "I128".into(),
-            },
-        )
-        .collect::<Vec<_>>();
-    let join_entry = StrategyDesignJoinEntryV1 {
-        join_identity: joined.join_claim.join_identity,
-        semantic_id: joined.join_claim.join_semantic_id.clone(),
-        roles: joined
-            .join_claim
-            .roles
-            .iter()
-            .map(|role| StrategyDesignJoinRoleV1 {
-                semantic_id: role.semantic_id.clone(),
-                role_identity: role.input_role_identity,
-            })
-            .collect(),
-        alignment_semantic_id: joined.join_claim.alignment_semantic_id.clone(),
-        trigger_input_id: joined.join_claim.trigger_input_id.clone(),
-        max_staleness_ns: joined.join_claim.max_staleness_ns,
-    };
-    let role_set = StrategyDesignRoleSetReceiptV1::from_rd_owner_projection(
-        composer_locator.clone(),
-        base.binding_requests[0].research_request_identity,
-        d(217),
-        base.binding_requests[0].strategy_design_identity,
-        d(213),
-        d(218),
-        roles,
-        vec![join_entry],
-    )
-    .unwrap();
-    let trigger_component = joined
-        .joined
-        .record()
-        .joined_cut_receipt()
-        .components()
-        .iter()
-        .find(|component| component.role_semantic_id() == joined.join_claim.trigger_input_id)
-        .unwrap();
-    assert_eq!(
-        joined.joined.record().joined_cut_receipt().trigger_digest(),
-        trigger_component.frame().trigger().digest()
-    );
-    assert_ne!(
-        joined.joined.record().joined_cut_receipt().trigger_digest(),
-        trigger_component.frame_digest()
-    );
-    let joined_digest = joined.joined.record().digest();
-    let joined_receipt_digest = joined.joined.record().joined_cut_receipt().digest();
-    assert_ne!(joined_digest, joined_receipt_digest);
-    assert_eq!(
-        joined.projection.subject_identity(),
-        *joined_receipt_digest.as_bytes()
-    );
-    let native_request = UntrustedComposerNativeJoinRequestV1 {
-        joined_cut_identity: joined.joined.record().identity(),
-        joined_cut_digest: joined_digest,
-        frame_projection_digests: joined.frame_projection_digests,
-    };
-    let native_capability = owner
-        .issue_composer_native_join_v1(&native_request)
-        .await
-        .unwrap();
-    assert_eq!(
-        native_capability.locator().receipt_digest(),
-        joined.projection.receipt_digest()
-    );
-    assert_eq!(native_capability.joined_cut_digest(), joined_digest);
-    assert_eq!(
-        native_capability.joined_cut_receipt_digest(),
-        joined_receipt_digest
-    );
-    assert_eq!(
-        native_capability
-            .schedule_dependency_set_digest()
-            .as_bytes(),
-        &joined.projection.schedule_dependency_set_digest()
-    );
-    sqlx::query("GRANT SELECT ON market_data_private.time_zone_facts_v1 TO PUBLIC")
-        .execute(market_mutation_pool)
-        .await
-        .unwrap();
-    assert!(matches!(
-        owner.issue_composer_native_join_v1(&native_request).await,
-        Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable)
-    ));
-    sqlx::query("REVOKE SELECT ON market_data_private.time_zone_facts_v1 FROM PUBLIC")
-        .execute(market_mutation_pool)
-        .await
-        .unwrap();
-    let recovered_native_capability = owner
-        .issue_composer_native_join_v1(&native_request)
-        .await
-        .unwrap();
-    assert_eq!(
-        recovered_native_capability.locator(),
-        native_capability.locator()
-    );
-    let native_join =
-        StrategyDesignNativeJoinReceiptV1::from_market_owner(&role_set, &native_capability)
-            .unwrap();
-    let cross_splice_capability = AuthenticatedComposerNativeJoinV1::from_owner_readback(
-        UntrustedStrategyInputSampleProjectionLocatorV4::from_untrusted(
-            joined.cross_splice_projection.receipt_digest(),
-        ),
-        joined_digest,
-        joined.cross_splice_receipt_digest,
-        BindingDigest::from_untrusted_bytes(
-            joined
-                .cross_splice_projection
-                .schedule_dependency_set_digest(),
-        ),
-        &joined.join_claim,
-    );
-    let cross_splice_native_join =
-        StrategyDesignNativeJoinReceiptV1::from_market_owner(&role_set, &cross_splice_capability)
-            .unwrap();
-    let mut cross_design_claim = joined.join_claim.clone();
-    cross_design_claim.strategy_design_identity = d(240);
-    cross_design_claim.join_identity = d(241);
-    let mut cross_design_joins = role_set.joins.clone();
-    cross_design_joins[0].join_identity = cross_design_claim.join_identity;
-    let cross_design_role_set = StrategyDesignRoleSetReceiptV1::from_rd_owner_projection(
-        composer_locator.clone(),
-        role_set.research_request_identity,
-        role_set.intent_identity,
-        cross_design_claim.strategy_design_identity,
-        role_set.design_digest,
-        role_set.canonical_design_digest,
-        role_set.roles.clone(),
-        cross_design_joins,
-    )
-    .unwrap();
-    let cross_design_capability = AuthenticatedComposerNativeJoinV1::from_owner_readback(
-        UntrustedStrategyInputSampleProjectionLocatorV4::from_untrusted(
-            joined.projection.receipt_digest(),
-        ),
-        joined_digest,
-        joined_receipt_digest,
-        BindingDigest::from_untrusted_bytes(joined.projection.schedule_dependency_set_digest()),
-        &cross_design_claim,
-    );
-    let cross_design_native_join = StrategyDesignNativeJoinReceiptV1::from_market_owner(
-        &cross_design_role_set,
-        &cross_design_capability,
-    )
-    .unwrap();
-    let mut composer_tx = admin.begin().await.unwrap();
-    sqlx::query("SET LOCAL ROLE composer_owner")
-        .execute(&mut *composer_tx)
-        .await
-        .unwrap();
-    sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||$1,0))")
-        .bind(&composer_locator.request_identity)
-        .execute(&mut *composer_tx)
-        .await
-        .unwrap();
-    sqlx::query("INSERT INTO composer_private.rd_develop_designs_v2(design_identity,canonical_bytes) VALUES($1,$2)")
-        .bind(base.binding_requests[0].strategy_design_identity.as_bytes().as_slice()).bind(b"w3-design".as_slice()).execute(&mut *composer_tx).await.unwrap();
-    sqlx::query("INSERT INTO composer_private.rd_develop_plans_v2(plan_digest,design_identity,canonical_bytes) VALUES($1,$2,$3)")
-        .bind(composer_locator.canonical_plan_digest.as_bytes().as_slice()).bind(base.binding_requests[0].strategy_design_identity.as_bytes().as_slice()).bind(b"w3-plan".as_slice()).execute(&mut *composer_tx).await.unwrap();
-    sqlx::query("INSERT INTO composer_private.rd_develop_artifacts_v2(artifact_identity,plan_digest,package_bytes) VALUES($1,$2,$3)")
-        .bind(composer_locator.artifact_identity.as_bytes().as_slice()).bind(composer_locator.canonical_plan_digest.as_bytes().as_slice()).bind(b"w3-artifact".as_slice()).execute(&mut *composer_tx).await.unwrap();
-    sqlx::query("INSERT INTO composer_private.rd_develop_operations_v2(request_identity,request_digest,research_request_identity,intent_identity,artifact_identity,canonical_receipt_bytes,response_bytes) VALUES($1,$2,$3,$4,$5,$6,$7)")
-        .bind(&composer_locator.request_identity).bind(d(219).as_bytes().as_slice()).bind(role_set.research_request_identity.as_bytes().as_slice()).bind(role_set.intent_identity.as_bytes().as_slice()).bind(composer_locator.artifact_identity.as_bytes().as_slice()).bind(b"w3-operation".as_slice()).bind(b"w3-response".as_slice()).execute(&mut *composer_tx).await.unwrap();
-    sqlx::query("INSERT INTO composer_private.rd_develop_strategy_design_role_set_attestations_v1(request_identity,composer_schema_version,operation_receipt_identity,artifact_locator,artifact_identity,canonical_plan_digest,design_digest,attestation_identity,attestation_digest,canonical_bytes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
-        .bind(&composer_locator.request_identity).bind(i32::from(composer_locator.schema_version)).bind(composer_locator.operation_receipt_identity.as_bytes().as_slice()).bind(&composer_locator.artifact_locator).bind(composer_locator.artifact_identity.as_bytes().as_slice()).bind(composer_locator.canonical_plan_digest.as_bytes().as_slice()).bind(composer_locator.design_digest.as_bytes().as_slice()).bind(role_set.receipt_identity().as_bytes().as_slice()).bind(role_set.receipt_digest().as_bytes().as_slice()).bind(role_set.canonical_bytes()).execute(&mut *composer_tx).await.unwrap();
-    sqlx::query("INSERT INTO composer_private.rd_develop_strategy_design_native_joins_v1(request_identity,native_join_digest,projection_receipt_digest,joined_cut_digest,schedule_dependency_set_digest,canonical_bytes) VALUES($1,$2,$3,$4,$5,$6)")
-        .bind(&composer_locator.request_identity).bind(native_join.receipt_digest().as_bytes().as_slice()).bind(native_join.projection_receipt_digest().as_bytes().as_slice()).bind(native_join.joined_cut_digest().as_bytes().as_slice()).bind(native_join.schedule_dependency_set_digest().as_bytes().as_slice()).bind(native_join.canonical_bytes()).execute(&mut *composer_tx).await.unwrap();
-    composer_tx.commit().await.unwrap();
-
-    // W3: the Design's roles become binding declarations through the production writer, which
-    // resolves them to the request the Owner already committed rather than to anything a caller
-    // states.
-    //
-    // This section originally opened by asserting that the Design resolved to no coordinate yet.
-    // That cannot hold here: the fixture that builds `base` registers all six declarations for this
-    // exact Design through the `#[cfg(test)]` unchecked registrar and commits them, so the
-    // coordinate is already present before the production writer runs. The terminal assertions
-    // below are what carry the proof - they observe the writer's own output and bind it to the
-    // Owner's committed request, which a pre-existing coordinate cannot satisfy on its own.
-    let w3_design = base.binding_requests[0].strategy_design_identity;
-
-    let w3_binding = ReplayCompositionOwnerV1::connect(owner_url, reader_url)
-        .await
-        .expect("W3 admission binding");
-    let w3_terminal = w3_binding
-        .declare_strategy_input_bindings_v1(&composer_locator)
-        .await
-        .expect("W3 declares the authenticated role set");
-    assert_eq!(w3_terminal.design_identity(), w3_design);
-    assert_eq!(
-        w3_terminal.research_request_identity(),
-        base.binding_requests[0].research_request_identity
-    );
-    assert_eq!(w3_terminal.role_count() as usize, role_set.roles.len());
-    assert_eq!(
-        w3_terminal.pit_request_identity(),
-        base.binding_requests[0].pit_request_identity,
-        "the Owner resolved the roles to its own committed request, not to a caller's claim"
-    );
-    assert_eq!(
-        w3_terminal.decision_cut(),
-        base.binding_requests[0].decision_cut
-    );
-
-    let mut after_tx = market_mutation_pool.begin().await.unwrap();
-    let coordinate = resolve_pit_request_for_strategy_design_v1(&mut after_tx, w3_design)
-        .await
-        .expect("the declared Design now has a PIT coordinate");
-    after_tx.rollback().await.unwrap();
-    assert_eq!(
-        coordinate.pit_request_identity,
-        base.binding_requests[0].pit_request_identity
-    );
-
-    // Re-admitting the same locator rejoins rather than rewrites, which is what makes a lost commit
-    // acknowledgement safe to retry.
-    let w3_replay = w3_binding
-        .declare_strategy_input_bindings_v1(&composer_locator)
-        .await
-        .expect("re-admission rejoins the same declarations");
-    assert_eq!(w3_replay, w3_terminal);
-
-    // A locator the Composer never attested reaches no declaration. The Owner cannot be talked into
-    // registering against an attestation that does not exist.
-    let mut unattested = composer_locator.clone();
-    unattested.request_identity = format!("{}-unattested", composer_locator.request_identity);
-    assert_eq!(
-        w3_binding
-            .declare_strategy_input_bindings_v1(&unattested)
-            .await
-            .unwrap_err(),
-        StrategyInputBindingAdmissionErrorV1::UnknownAuthenticatedDesign
-    );
-
-    // The other shape that can authenticate a Design, for the cycle in which no Composer operation
-    // can exist yet: a program's identity folds in the binding receipts this registration issues,
-    // so the first cycle of any Design has to be opened by something that carries no program.
-    Box::pin(first_cycle_from_a_published_design_role_intent_v1(
-        mutation.pool(CanonicalOwnerTestRoleV1::RdOwner),
-        mutation.pool(CanonicalOwnerTestRoleV1::MarketDataReader),
-        market_mutation_pool,
-        &w3_binding,
-        &role_set,
-        &w3_terminal,
-        w3_design,
-    ))
-    .await;
-    universe_design_declares_from_a_published_intent_v1(
-        mutation.pool(CanonicalOwnerTestRoleV1::RdOwner),
-        market_mutation_pool,
-        &w3_binding,
-        &base,
-    )
-    .await;
-
-    let reader_pool = mutation.pool(CanonicalOwnerTestRoleV1::MarketDataReader);
-    let mut reader_cut = reader_pool.begin().await.unwrap();
-    let reader_backend: i64 =
-        sqlx::query_scalar("SELECT composer_owner_api.lock_replay_composition_cut_v1($1)")
-            .bind(&composer_locator.request_identity)
-            .fetch_one(&mut *reader_cut)
-            .await
-            .unwrap();
-    assert!(reader_backend > 0);
-    let (writer_backend_sender, writer_backend_receiver) = tokio::sync::oneshot::channel();
-    let writer_admin = admin.clone();
-    let writer_request_identity = composer_locator.request_identity.clone();
-
-    let queued_writer = tokio::spawn(async move {
-        let mut writer = writer_admin.begin().await.unwrap();
-        sqlx::query("SET LOCAL ROLE composer_owner")
-            .execute(&mut *writer)
-            .await
-            .unwrap();
-        let writer_backend: i32 = sqlx::query_scalar("SELECT pg_catalog.pg_backend_pid()")
-            .fetch_one(&mut *writer)
-            .await
-            .unwrap();
-        writer_backend_sender.send(writer_backend).unwrap();
-        sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||$1,0))")
-            .bind(writer_request_identity)
-            .execute(&mut *writer)
-            .await
-            .unwrap();
-        writer.commit().await.unwrap();
-    });
-    let writer_backend = writer_backend_receiver.await.unwrap();
-
-    for _ in 0..100 {
-        let writer_is_queued: bool = sqlx::query_scalar(
-            "SELECT EXISTS(
-               SELECT 1 FROM pg_catalog.pg_locks
-                WHERE pid=$1 AND locktype='advisory' AND mode='ExclusiveLock' AND NOT granted
-             )",
-        )
-        .bind(writer_backend)
-        .fetch_one(admin)
-        .await
-        .unwrap();
-
-        if writer_is_queued {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    let writer_is_queued: bool = sqlx::query_scalar(
-        "SELECT EXISTS(
-           SELECT 1 FROM pg_catalog.pg_locks
-            WHERE pid=$1 AND locktype='advisory' AND mode='ExclusiveLock' AND NOT granted
-         )",
-    )
-    .bind(writer_backend)
-    .fetch_one(admin)
-    .await
-    .unwrap();
-    assert!(writer_is_queued, "exclusive Composer writer must be queued");
-    let mut market_cut = market_mutation_pool.begin().await.unwrap();
-    let market_backend: i64 = tokio::time::timeout(
-        Duration::from_secs(1),
-        sqlx::query_scalar("SELECT composer_owner_api.lock_replay_composition_cut_v1($1)")
-            .bind(&composer_locator.request_identity)
-            .fetch_one(&mut *market_cut),
-    )
-    .await
-    .expect("Market shared-cut attempt must return without waiting for the queued writer")
-    .unwrap();
-    assert_eq!(market_backend, 0);
-    market_cut.rollback().await.unwrap();
-    assert!(!queued_writer.is_finished());
-    reader_cut.rollback().await.unwrap();
-    tokio::time::timeout(Duration::from_secs(1), queued_writer)
-        .await
-        .expect("exclusive Composer writer completes after reader cut release")
-        .unwrap();
-
-    let semantics_receipt = base.semantics.receipt();
-    let composition = ReplayCompositionBindingIssuanceRequestV1::from_test_fixture(
-        composer_locator.clone(),
-        base.pit.receipt().locator().clone(),
-        base.source.receipt().locator().clone(),
-        50,
-        51,
-        ReplayCompositionRequestLocatorV1::from_untrusted(
-            base.instrument.cut().request_identity,
-            base.instrument.cut().request_meaning_digest,
-        ),
-        ReplayCompositionRequestLocatorV1::from_untrusted(
-            base.universe.receipt().request_identity(),
-            base.universe.receipt().request_meaning_digest(),
-        ),
-        ReplayCompositionRequestLocatorV1::from_untrusted(
-            joined.census_request.request_identity(),
-            joined.census_request.request_meaning_digest(),
-        ),
-        ReplayCompositionContentLocatorV1::from_untrusted(joined_digest, joined_digest),
-        ReplayCompositionContentLocatorV1::from_untrusted(
-            BindingDigest::from_untrusted_bytes(joined.projection.receipt_digest()),
-            BindingDigest::from_untrusted_bytes(joined.projection.receipt_digest()),
-        ),
-        ReplayCompositionRequestLocatorV1::from_untrusted(
-            base.r0.receipt().request_identity,
-            base.r0.receipt().request_meaning_digest,
-        ),
-        ReplayCompositionRequestLocatorV1::from_untrusted(
-            leaves.calendar_request.request_identity(),
-            leaves.calendar_request.request_meaning_digest(),
-        ),
-        ReplayCompositionRequestLocatorV1::from_untrusted(
-            leaves.session_request.request_identity,
-            leaves.session_request_meaning_digest,
-        ),
-        ReplayCompositionRequestLocatorV1::from_untrusted(
-            leaves.time_zone_request.request_identity,
-            crate::owner::time_zone::authority::request_meaning_digest_v1(
-                &leaves.time_zone_request,
-            )
-            .unwrap(),
-        ),
-        ReplayCompositionRequestLocatorV1::from_untrusted(
-            semantics_receipt.request_identity,
-            semantics_receipt.request_meaning_digest,
-        ),
-        ReplayCompositionContentLocatorV1::from_untrusted(
-            correction.identity(),
-            correction.identity(),
-        ),
-        ReplayCompositionRequestLocatorV1::from_untrusted(
-            leaves.corporate_action_request.request_identity,
-            leaves.corporate_action_request.request_meaning_digest,
-        ),
-    );
-    let command = ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(220), composition).unwrap();
-    let composition_with_sample_projection =
-        |sample_projection_locator: ReplayCompositionContentLocatorV1| {
-            ReplayCompositionBindingIssuanceRequestV1::from_test_fixture(
-                command.composition().composer_locator().clone(),
-                command.composition().pit_locator().clone(),
-                command.composition().source_binding_locator().clone(),
-                command.composition().replay_start_event_ns(),
-                command.composition().replay_end_event_ns_exclusive(),
-                command.composition().instrument_master_locator(),
-                command.composition().universe_selection_locator(),
-                command.composition().observation_census_locator(),
-                command.composition().joined_cut_locator(),
-                sample_projection_locator,
-                command.composition().reference_fact_r0_locator(),
-                command.composition().calendar_locator(),
-                command.composition().session_locator(),
-                command.composition().time_zone_locator(),
-                command.composition().market_semantics_locator(),
-                command.composition().correction_policy_locator(),
-                command.composition().corporate_action_locator(),
-            )
-        };
-    let before = replay_positive_state(market_mutation_pool).await;
-    let composition_with_time_zone = |time_zone_locator: ReplayCompositionRequestLocatorV1| {
-        ReplayCompositionBindingIssuanceRequestV1::from_test_fixture(
-            command.composition().composer_locator().clone(),
-            command.composition().pit_locator().clone(),
-            command.composition().source_binding_locator().clone(),
-            command.composition().replay_start_event_ns(),
-            command.composition().replay_end_event_ns_exclusive(),
-            command.composition().instrument_master_locator(),
-            command.composition().universe_selection_locator(),
-            command.composition().observation_census_locator(),
-            command.composition().joined_cut_locator(),
-            command.composition().sample_projection_locator(),
-            command.composition().reference_fact_r0_locator(),
-            command.composition().calendar_locator(),
-            command.composition().session_locator(),
-            time_zone_locator,
-            command.composition().market_semantics_locator(),
-            command.composition().correction_policy_locator(),
-            command.composition().corporate_action_locator(),
-        )
-    };
-    let alternate_time_zone =
-        persist_replay_alternate_r0_time_zone_fixture_v1(&market, &base, d(243), d(250), d(251))
-            .await;
-    let alternate_time_zone_composition =
-        composition_with_time_zone(ReplayCompositionRequestLocatorV1::from_untrusted(
-            alternate_time_zone.request_identity,
-            alternate_time_zone.request_meaning_digest,
-        ));
-    let alternate_time_zone_command =
-        ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(252), alternate_time_zone_composition)
-            .unwrap();
-    assert_eq!(
-        owner.issue_binding_v1(&alternate_time_zone_command).await,
-        Err(ReplayCompositionBindingErrorV1::DependencyMismatch)
-    );
-    assert_eq!(replay_positive_state(market_mutation_pool).await, before);
-    let wrong_digest_time_zone = persist_replay_unbound_r0_time_zone_fixture_v1(
-        &market,
-        &base,
-        d(234),
-        d(233),
-        base.native_r0.receipt().request_identity,
-        base.native_r0.receipt().request_meaning_digest,
-        base.native_r0.record().identity(),
-        d(235),
-    )
-    .await;
-    let missing_r0_time_zone = persist_replay_unbound_r0_time_zone_fixture_v1(
-        &market,
-        &base,
-        d(236),
-        d(240),
-        d(237),
-        d(238),
-        d(239),
-        d(239),
-    )
-    .await;
-
-    for (issuance_identity, locator) in [
-        (d(230), wrong_digest_time_zone),
-        (d(231), missing_r0_time_zone),
-    ] {
-        let composition =
-            composition_with_time_zone(ReplayCompositionRequestLocatorV1::from_untrusted(
-                locator.request_identity,
-                locator.request_meaning_digest,
-            ));
-        let request =
-            ReplayCompositionLocatorOnlyIssuanceRequestV1::new(issuance_identity, composition)
-                .unwrap();
-        assert_eq!(
-            owner.issue_binding_v1(&request).await,
-            Err(ReplayCompositionBindingErrorV1::DependencyMismatch)
-        );
-        assert_eq!(replay_positive_state(market_mutation_pool).await, before);
-    }
-    let mut cross_design_tx = admin.begin().await.unwrap();
-    sqlx::query("SET LOCAL ROLE composer_owner")
-        .execute(&mut *cross_design_tx)
-        .await
-        .unwrap();
-    sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||$1,0))")
-        .bind(&composer_locator.request_identity)
-        .execute(&mut *cross_design_tx)
-        .await
-        .unwrap();
-    sqlx::query("UPDATE composer_private.rd_develop_strategy_design_native_joins_v1 SET native_join_digest=$1,projection_receipt_digest=$2,joined_cut_digest=$3,schedule_dependency_set_digest=$4,canonical_bytes=$5 WHERE request_identity=$6")
-        .bind(cross_design_native_join.receipt_digest().as_bytes().as_slice())
-        .bind(cross_design_native_join.projection_receipt_digest().as_bytes().as_slice())
-        .bind(cross_design_native_join.joined_cut_digest().as_bytes().as_slice())
-        .bind(cross_design_native_join.schedule_dependency_set_digest().as_bytes().as_slice())
-        .bind(cross_design_native_join.canonical_bytes())
-        .bind(&composer_locator.request_identity)
-        .execute(&mut *cross_design_tx)
-        .await
-        .unwrap();
-    cross_design_tx.commit().await.unwrap();
-    let cross_design =
-        ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(242), command.composition().clone())
-            .unwrap();
-    assert!(owner.issue_binding_v1(&cross_design).await.is_err());
-    assert_eq!(replay_positive_state(market_mutation_pool).await, before);
-
-    let mut cross_splice_tx = admin.begin().await.unwrap();
-    sqlx::query("SET LOCAL ROLE composer_owner")
-        .execute(&mut *cross_splice_tx)
-        .await
-        .unwrap();
-    sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||$1,0))")
-        .bind(&composer_locator.request_identity)
-        .execute(&mut *cross_splice_tx)
-        .await
-        .unwrap();
-    sqlx::query("UPDATE composer_private.rd_develop_strategy_design_native_joins_v1 SET native_join_digest=$1,projection_receipt_digest=$2,joined_cut_digest=$3,schedule_dependency_set_digest=$4,canonical_bytes=$5 WHERE request_identity=$6")
-        .bind(cross_splice_native_join.receipt_digest().as_bytes().as_slice())
-        .bind(cross_splice_native_join.projection_receipt_digest().as_bytes().as_slice())
-        .bind(cross_splice_native_join.joined_cut_digest().as_bytes().as_slice())
-        .bind(cross_splice_native_join.schedule_dependency_set_digest().as_bytes().as_slice())
-        .bind(cross_splice_native_join.canonical_bytes())
-        .bind(&composer_locator.request_identity)
-        .execute(&mut *cross_splice_tx)
-        .await
-        .unwrap();
-    cross_splice_tx.commit().await.unwrap();
-    let cross_splice_projection_digest =
-        BindingDigest::from_untrusted_bytes(joined.cross_splice_projection.receipt_digest());
-    let cross_splice = ReplayCompositionLocatorOnlyIssuanceRequestV1::new(
-        d(254),
-        composition_with_sample_projection(ReplayCompositionContentLocatorV1::from_untrusted(
-            cross_splice_projection_digest,
-            cross_splice_projection_digest,
-        )),
-    )
-    .unwrap();
-    assert!(owner.issue_binding_v1(&cross_splice).await.is_err());
-    assert_eq!(replay_positive_state(market_mutation_pool).await, before);
-
-    let mut correct_day_tx = admin.begin().await.unwrap();
-    sqlx::query("SET LOCAL ROLE composer_owner")
-        .execute(&mut *correct_day_tx)
-        .await
-        .unwrap();
-    sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||$1,0))")
-        .bind(&composer_locator.request_identity)
-        .execute(&mut *correct_day_tx)
-        .await
-        .unwrap();
-    sqlx::query("UPDATE composer_private.rd_develop_strategy_design_native_joins_v1 SET native_join_digest=$1,projection_receipt_digest=$2,joined_cut_digest=$3,schedule_dependency_set_digest=$4,canonical_bytes=$5 WHERE request_identity=$6")
-        .bind(native_join.receipt_digest().as_bytes().as_slice())
-        .bind(native_join.projection_receipt_digest().as_bytes().as_slice())
-        .bind(native_join.joined_cut_digest().as_bytes().as_slice())
-        .bind(native_join.schedule_dependency_set_digest().as_bytes().as_slice())
-        .bind(native_join.canonical_bytes())
-        .bind(&composer_locator.request_identity)
-        .execute(&mut *correct_day_tx)
-        .await
-        .unwrap();
-    correct_day_tx.commit().await.unwrap();
-
-    let missing_composition = ReplayCompositionBindingIssuanceRequestV1::from_test_fixture(
-        StrategyDesignRoleSetLocatorV1 {
-            request_identity: "missing-w3-composer".into(),
-            ..composer_locator.clone()
-        },
-        command.composition().pit_locator().clone(),
-        command.composition().source_binding_locator().clone(),
-        50,
-        51,
-        command.composition().instrument_master_locator(),
-        command.composition().universe_selection_locator(),
-        command.composition().observation_census_locator(),
-        command.composition().joined_cut_locator(),
-        command.composition().sample_projection_locator(),
-        command.composition().reference_fact_r0_locator(),
-        command.composition().calendar_locator(),
-        command.composition().session_locator(),
-        command.composition().time_zone_locator(),
-        command.composition().market_semantics_locator(),
-        command.composition().correction_policy_locator(),
-        command.composition().corporate_action_locator(),
-    );
-    let missing =
-        ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(221), missing_composition).unwrap();
-    assert!(owner.issue_binding_v1(&missing).await.is_err());
-    assert_eq!(replay_positive_state(market_mutation_pool).await, before);
-
-    let mut splice_tx = admin.begin().await.unwrap();
-    sqlx::query("SET LOCAL ROLE composer_owner")
-        .execute(&mut *splice_tx)
-        .await
-        .unwrap();
-    sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||$1,0))")
-        .bind(&composer_locator.request_identity)
-        .execute(&mut *splice_tx)
-        .await
-        .unwrap();
-    let spliced = sqlx::query(
-        "UPDATE composer_private.rd_develop_strategy_design_native_joins_v1
-         SET native_join_digest=$1 WHERE request_identity=$2",
-    )
-    .bind(d(249).as_bytes().as_slice())
-    .bind(&composer_locator.request_identity)
-    .execute(&mut *splice_tx)
-    .await
-    .unwrap();
-    assert_eq!(spliced.rows_affected(), 1);
-    splice_tx.commit().await.unwrap();
-    let cross_spliced =
-        ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(223), command.composition().clone())
-            .unwrap();
-    assert!(owner.issue_binding_v1(&cross_spliced).await.is_err());
-    assert_eq!(replay_positive_state(market_mutation_pool).await, before);
-    let mut restore_tx = admin.begin().await.unwrap();
-    sqlx::query("SET LOCAL ROLE composer_owner")
-        .execute(&mut *restore_tx)
-        .await
-        .unwrap();
-    sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||$1,0))")
-        .bind(&composer_locator.request_identity)
-        .execute(&mut *restore_tx)
-        .await
-        .unwrap();
-    let restored = sqlx::query(
-        "UPDATE composer_private.rd_develop_strategy_design_native_joins_v1
-         SET native_join_digest=$1 WHERE request_identity=$2",
-    )
-    .bind(native_join.receipt_digest().as_bytes().as_slice())
-    .bind(&composer_locator.request_identity)
-    .execute(&mut *restore_tx)
-    .await
-    .unwrap();
-    assert_eq!(restored.rows_affected(), 1);
-    restore_tx.commit().await.unwrap();
-
-    sqlx::query(
-        "CREATE FUNCTION market_data_private.terminate_replay_composition_issuance_commit_v1()
-         RETURNS trigger LANGUAGE plpgsql AS $function$
-         BEGIN
-           PERFORM pg_catalog.pg_terminate_backend(pg_catalog.pg_backend_pid());
-           RETURN NEW;
-         END
-         $function$",
-    )
-    .execute(market_mutation_pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        "CREATE CONSTRAINT TRIGGER terminate_replay_composition_issuance_commit_v1
-         AFTER INSERT ON market_data_private.replay_composition_issuances_v1
-         DEFERRABLE INITIALLY DEFERRED
-         FOR EACH ROW EXECUTE FUNCTION market_data_private.terminate_replay_composition_issuance_commit_v1()",
-    )
-    .execute(market_mutation_pool)
-    .await
-    .unwrap();
-    assert!(owner.issue_binding_v1(&command).await.is_err());
-    assert_eq!(replay_positive_state(market_mutation_pool).await, before);
-    sqlx::query(
-        "DROP TRIGGER terminate_replay_composition_issuance_commit_v1
-         ON market_data_private.replay_composition_issuances_v1",
-    )
-    .execute(market_mutation_pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        "DROP FUNCTION market_data_private.terminate_replay_composition_issuance_commit_v1()",
-    )
-    .execute(market_mutation_pool)
-    .await
-    .unwrap();
-
-    let mut blocker = market_mutation_pool.begin().await.unwrap();
-    sqlx::query("SELECT 1 FROM market_data_private.reference_fact_r0_records_v1 WHERE request_identity=$1 FOR UPDATE")
-        .bind(base.r0.receipt().request_identity.as_bytes().as_slice()).fetch_one(&mut *blocker).await.unwrap();
-    let issue_owner = Arc::clone(&owner);
-    let issue_command = command.clone();
-    let issue = tokio::spawn(async move { issue_owner.issue_binding_v1(&issue_command).await });
-    let mut observed_two_owner_transactions = false;
-
-    for _ in 0..100 {
-        let holders: i64 = sqlx::query_scalar("SELECT count(DISTINCT activity.usename) FROM pg_catalog.pg_locks lock_fact JOIN pg_catalog.pg_stat_activity activity ON activity.pid=lock_fact.pid WHERE lock_fact.locktype='advisory' AND lock_fact.granted AND activity.usename IN ('market_data_reader','market_data_owner')")
-            .fetch_one(admin).await.unwrap();
-
-        if holders == 2 {
-            observed_two_owner_transactions = true;
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    assert!(
-        observed_two_owner_transactions,
-        "reader and Market transactions overlap after handoff"
-    );
-    blocker.rollback().await.unwrap();
-    let first = issue.await.unwrap().unwrap();
-    let (binding_identity, binding_digest): (Vec<u8>, Vec<u8>) = sqlx::query_as(
-        "SELECT binding_identity,binding_digest FROM market_data_private.replay_composition_bindings_v1",
-    )
-    .fetch_one(market_mutation_pool)
-    .await
-    .unwrap();
-    let binding_locator = ReplayCompositionBindingLocatorV1::from_untrusted(
-        BindingDigest::from_untrusted_bytes(binding_identity.try_into().unwrap()),
-        BindingDigest::from_untrusted_bytes(binding_digest.try_into().unwrap()),
-    );
-    let owner_cut = owner
-        .resolve_bound_replay_cut_v1(binding_locator)
-        .await
-        .unwrap();
-    let universe_requests =
-        universe_design_registered_before_rd_owner_v1(&market, &base, market_mutation_pool).await;
-    let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
-    let mut rd_transaction = rd_pool.begin().await.unwrap();
-    let rd_cut = owner
-        .resolve_bound_replay_cut_in_transaction_v1(&mut rd_transaction, binding_locator)
-        .await
-        .unwrap();
-    assert_eq!(rd_cut, owner_cut);
-    strategy_input_custody_rereads_as_rd_owner_v1(&base, &universe_requests, &mut rd_transaction)
-        .await;
-
-    rd_transaction.rollback().await.unwrap();
-    assert!(
-        sqlx::query("SELECT * FROM market_data_private.replay_composition_bindings_v1")
-            .fetch_optional(rd_pool)
-            .await
-            .is_err()
-    );
-    assert!(
-        sqlx::query("SELECT * FROM market_data_private.strategy_input_binding_declarations_v1")
-            .fetch_optional(rd_pool)
-            .await
-            .is_err()
-    );
-
-    for function in [
-        "market_data_rd_api.lock_strategy_input_declarations_v1(bytea,bytea)",
-        "market_data_rd_api.lock_pit_observation_batch_for_strategy_input_v1(bytea)",
-        "market_data_rd_api.lock_pit_observation_rows_for_strategy_input_v1(bytea)",
-        "market_data_rd_api.lock_source_for_strategy_input_v1(bytea)",
-        "market_data_rd_api.lock_universe_for_strategy_input_v1(bytea)",
-        "market_data_rd_api.lock_market_semantics_scope_for_strategy_input_v1(bytea)",
-        "market_data_rd_api.lock_market_semantics_readback_for_strategy_input_v1(bytea)",
-    ] {
-        // The textual `has_function_privilege` overload parses the signature, which needs USAGE on
-        // the facade schema. Only `rd_owner` holds that, so resolve the catalog entry and ask
-        // about the OID instead; catalog reads need no schema grant.
-        let name = function
-            .split_once('(')
-            .map_or(function, |(name, _)| name)
-            .rsplit_once('.')
-            .map_or(function, |(_, name)| name);
-        let isolated: bool = sqlx::query_scalar(
-            "SELECT pg_catalog.has_function_privilege('rd_owner',procedure.oid,'EXECUTE')
-                    AND NOT pg_catalog.has_function_privilege('market_data_reader',procedure.oid,'EXECUTE')
-               FROM pg_catalog.pg_proc procedure
-               JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace
-              WHERE namespace.nspname='market_data_rd_api' AND procedure.proname=$1",
-        )
-        .bind(name)
-        .fetch_one(admin)
-        .await
-        .unwrap();
-        assert!(isolated, "Market Data custody facade ACL: {function}");
-    }
-    let fresh_owner = ReplayCompositionOwnerV1::connect(owner_url, reader_url)
-        .await
-        .unwrap();
-    let retry = fresh_owner.issue_binding_v1(&command).await.unwrap();
-    let recovered = fresh_owner
-        .recover_issuance_v1(command.issuance_locator())
-        .await
-        .unwrap();
-    assert_eq!(first.canonical_bytes(), retry.canonical_bytes());
-    assert_eq!(first.canonical_bytes(), recovered.canonical_bytes());
-    let committed = replay_positive_state(market_mutation_pool).await;
-
-    // The insert mapping reads these three names; if a constraint is renamed, this goes red before
-    // the mapping silently stops recognising it.
-    let issuance_constraints: Vec<String> = sqlx::query_scalar(
-        "SELECT constraint_fact.conname::text
-           FROM pg_catalog.pg_constraint constraint_fact
-           JOIN pg_catalog.pg_class relation ON relation.oid=constraint_fact.conrelid
-           JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
-          WHERE namespace.nspname='market_data_private'
-            AND relation.relname='replay_composition_issuances_v1'
-            AND constraint_fact.contype IN ('p','u')
-          ORDER BY constraint_fact.conname",
-    )
-    .fetch_all(market_mutation_pool)
-    .await
-    .unwrap();
-    let mut expected_constraints = vec![
-        crate::owner::postgres::ISSUANCE_BINDING_CONSTRAINT.to_string(),
-        crate::owner::postgres::ISSUANCE_IDENTITY_CONSTRAINT.to_string(),
-        crate::owner::postgres::ISSUANCE_MEANING_CONSTRAINT.to_string(),
-    ];
-    expected_constraints.sort();
-    assert_eq!(issuance_constraints, expected_constraints);
-
-    // The same composition under a new identity passes the identity check, and the binding and
-    // market facts writes accept its identical content, so it reaches the issuance insert and is
-    // refused there on the meaning it shares with the stored issuance: a conflict, not a retry.
-    let reused_composition =
-        ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(226), command.composition().clone())
-            .unwrap();
-    assert_eq!(
-        fresh_owner.issue_binding_v1(&reused_composition).await,
-        Err(ReplayCompositionBindingErrorV1::IssuanceIdentityConflict)
-    );
-    assert_eq!(replay_positive_state(market_mutation_pool).await, committed);
-
-    sqlx::query("GRANT SELECT ON market_data_private.time_zone_facts_v1 TO PUBLIC")
-        .execute(market_mutation_pool)
-        .await
-        .unwrap();
-    assert_eq!(
-        fresh_owner.issue_binding_v1(&command).await,
-        Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable)
-    );
-    assert_eq!(replay_positive_state(market_mutation_pool).await, committed);
-    sqlx::query("REVOKE SELECT ON market_data_private.time_zone_facts_v1 FROM PUBLIC")
-        .execute(market_mutation_pool)
-        .await
-        .unwrap();
-    let recovered_after_topology_restore = fresh_owner.issue_binding_v1(&command).await.unwrap();
-    assert_eq!(
-        first.canonical_bytes(),
-        recovered_after_topology_restore.canonical_bytes()
-    );
-
-    crate::owner::postgres::tests::advance_time_zone_head_and_verify_historical_recovery_v1(
-        &market,
-        &base,
-        &leaves,
-        d(223),
-    )
-    .await;
-    let recovered_historical = fresh_owner.issue_binding_v1(&command).await.unwrap();
-    assert_eq!(
-        first.canonical_bytes(),
-        recovered_historical.canonical_bytes()
-    );
-
-    let time_zone_lineage_root: Vec<u8> = sqlx::query_scalar(
-        "SELECT lineage_root FROM market_data_private.time_zone_facts_v1 WHERE fact_identity=$1",
-    )
-    .bind(leaves.time_zone_fact_identity.as_bytes().as_slice())
-    .fetch_one(market_mutation_pool)
-    .await
-    .unwrap();
-    let current_time_zone_head: Vec<u8> = sqlx::query_scalar(
-        "SELECT fact_identity FROM market_data_private.time_zone_heads_v1 WHERE lineage_root=$1",
-    )
-    .bind(&time_zone_lineage_root)
-    .fetch_one(market_mutation_pool)
-    .await
-    .unwrap();
-    let current_time_zone_catalog: Vec<u8> = sqlx::query_scalar(
-        "SELECT catalog_entry_identity FROM market_data_private.time_zone_facts_v1 WHERE fact_identity=$1",
-    )
-    .bind(&current_time_zone_head)
-    .fetch_one(market_mutation_pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        "UPDATE market_data_private.time_zone_heads_v1 SET fact_identity=$1 WHERE lineage_root=$2",
-    )
-    .bind(leaves.time_zone_fact_identity.as_bytes().as_slice())
-    .bind(&time_zone_lineage_root)
-    .execute(market_mutation_pool)
-    .await
-    .unwrap();
-    let native_head_rollback_state = replay_positive_state(market_mutation_pool).await;
-    assert!(fresh_owner.issue_binding_v1(&command).await.is_err());
-    assert_eq!(
-        replay_positive_state(market_mutation_pool).await,
-        native_head_rollback_state
-    );
-    sqlx::query(
-        "UPDATE market_data_private.time_zone_heads_v1 SET fact_identity=$1 WHERE lineage_root=$2",
-    )
-    .bind(&current_time_zone_head)
-    .bind(&time_zone_lineage_root)
-    .execute(market_mutation_pool)
-    .await
-    .unwrap();
-
-    let time_zone_cut_identity: Vec<u8> = sqlx::query_scalar(
-        "SELECT cut_identity FROM market_data_private.time_zone_cuts_v1 WHERE request_identity=$1",
-    )
-    .bind(
-        leaves
-            .time_zone_request
-            .request_identity
-            .as_bytes()
-            .as_slice(),
-    )
-    .fetch_one(market_mutation_pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        "UPDATE market_data_private.time_zone_cut_facts_v1 SET fact_identity=$1 WHERE cut_identity=$2 AND ordinal=1",
-    )
-    .bind(&current_time_zone_head)
-    .bind(&time_zone_cut_identity)
-    .execute(market_mutation_pool)
-    .await
-    .unwrap();
-    let cut_splice_state = replay_positive_state(market_mutation_pool).await;
-    assert!(fresh_owner.issue_binding_v1(&command).await.is_err());
-    assert_eq!(
-        replay_positive_state(market_mutation_pool).await,
-        cut_splice_state
-    );
-    sqlx::query(
-        "UPDATE market_data_private.time_zone_cut_facts_v1 SET fact_identity=$1 WHERE cut_identity=$2 AND ordinal=1",
-    )
-    .bind(leaves.time_zone_fact_identity.as_bytes().as_slice())
-    .bind(&time_zone_cut_identity)
-    .execute(market_mutation_pool)
-    .await
-    .unwrap();
-
-    sqlx::query(
-        "UPDATE market_data_private.reference_fact_catalog_heads_v1
-         SET correction_sequence=correction_sequence+1
-         WHERE entry_identity=$1",
-    )
-    .bind(&current_time_zone_catalog)
-    .execute(market_mutation_pool)
-    .await
-    .unwrap();
-    let catalog_head_tamper =
-        ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(224), command.composition().clone())
-            .unwrap();
-    assert!(
-        fresh_owner
-            .issue_binding_v1(&catalog_head_tamper)
-            .await
-            .is_err()
-    );
-    assert_eq!(replay_positive_state(market_mutation_pool).await, committed);
-    sqlx::query(
-        "UPDATE market_data_private.reference_fact_catalog_heads_v1
-         SET correction_sequence=$1
-         WHERE entry_identity=$2",
-    )
-    .bind(i64::try_from(leaves.time_zone_correction_sequence + 1).unwrap())
-    .bind(&current_time_zone_catalog)
-    .execute(market_mutation_pool)
-    .await
-    .unwrap();
-
-    let catalog_effective_from: String = sqlx::query_scalar(
-        "SELECT effective_from_ns
-         FROM market_data_private.reference_fact_catalog_entries_v1
-         WHERE entry_identity=$1",
-    )
-    .bind(
-        leaves
-            .time_zone_catalog_entry_identity
-            .as_bytes()
-            .as_slice(),
-    )
-    .fetch_one(market_mutation_pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        "UPDATE market_data_private.reference_fact_catalog_entries_v1
-         SET effective_from_ns=(effective_from_ns::numeric+1)::text
-         WHERE entry_identity=$1",
-    )
-    .bind(
-        leaves
-            .time_zone_catalog_entry_identity
-            .as_bytes()
-            .as_slice(),
-    )
-    .execute(market_mutation_pool)
-    .await
-    .unwrap();
-    let catalog_row_tamper =
-        ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(225), command.composition().clone())
-            .unwrap();
-    assert!(
-        fresh_owner
-            .issue_binding_v1(&catalog_row_tamper)
-            .await
-            .is_err()
-    );
-    assert_eq!(replay_positive_state(market_mutation_pool).await, committed);
-    sqlx::query(
-        "UPDATE market_data_private.reference_fact_catalog_entries_v1
-         SET effective_from_ns=$1
-         WHERE entry_identity=$2",
-    )
-    .bind(catalog_effective_from)
-    .bind(
-        leaves
-            .time_zone_catalog_entry_identity
-            .as_bytes()
-            .as_slice(),
-    )
-    .execute(market_mutation_pool)
-    .await
-    .unwrap();
-
-    let native_predecessor: Option<Vec<u8>> = sqlx::query_scalar(
-        "SELECT predecessor_identity
-         FROM market_data_private.time_zone_facts_v1
-         WHERE fact_identity=$1",
-    )
-    .bind(leaves.time_zone_fact_identity.as_bytes().as_slice())
-    .fetch_one(market_mutation_pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        "UPDATE market_data_private.time_zone_facts_v1
-         SET predecessor_identity=fact_identity
-         WHERE fact_identity=$1",
-    )
-    .bind(leaves.time_zone_fact_identity.as_bytes().as_slice())
-    .execute(market_mutation_pool)
-    .await
-    .unwrap();
-    assert!(fresh_owner.issue_binding_v1(&command).await.is_err());
-    assert_eq!(replay_positive_state(market_mutation_pool).await, committed);
-    sqlx::query(
-        "UPDATE market_data_private.time_zone_facts_v1
-         SET predecessor_identity=$1
-         WHERE fact_identity=$2",
-    )
-    .bind(native_predecessor)
-    .bind(leaves.time_zone_fact_identity.as_bytes().as_slice())
-    .execute(market_mutation_pool)
-    .await
-    .unwrap();
-
-    let bad_r0 = ReplayCompositionBindingIssuanceRequestV1::from_test_fixture(
-        composer_locator,
-        command.composition().pit_locator().clone(),
-        command.composition().source_binding_locator().clone(),
-        50,
-        51,
-        command.composition().instrument_master_locator(),
-        command.composition().universe_selection_locator(),
-        command.composition().observation_census_locator(),
-        command.composition().joined_cut_locator(),
-        command.composition().sample_projection_locator(),
-        ReplayCompositionRequestLocatorV1::from_untrusted(d(250), d(251)),
-        command.composition().calendar_locator(),
-        command.composition().session_locator(),
-        command.composition().time_zone_locator(),
-        command.composition().market_semantics_locator(),
-        command.composition().correction_policy_locator(),
-        command.composition().corporate_action_locator(),
-    );
-    let bad = ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(222), bad_r0).unwrap();
-    assert!(fresh_owner.issue_binding_v1(&bad).await.is_err());
-    assert_eq!(replay_positive_state(market_mutation_pool).await, committed);
+    replay_composition_after_base_fixture_v1(&database, base, market).await;
 }
 
 async fn replay_positive_state(pool: &sqlx::PgPool) -> Vec<i64> {

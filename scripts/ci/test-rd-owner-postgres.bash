@@ -152,14 +152,22 @@ readonly nextest_graph_args=(
 # The incoming Makefile union also contains workspace-root features that none of
 # the three selected packages expose. Keep the archive projection package-scoped.
 readonly nextest_archive_features='vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-composer-acceptance'
-readonly schema_materialization_features="${nextest_archive_features},vibe-strategy-factory-rd-owner-api/sealed-develop-composer-acceptance"
+# The schema materializer is the archive's own `strategy-factory-rd-owner-api` binary, so it has no
+# feature set of its own. It needs rd-owner-api's `sealed-develop-composer-acceptance`, which
+# `sealed-source-intake-composer-acceptance` above already implies; check_nextest_graph_contract
+# keeps that implication true. It used to be built separately with `cargo run` and a union spelled
+# out beside this one. A bin build carries no dev-dependencies, so Cargo unified that graph's
+# dependency features differently from the test graph, and 78 crates - datafusion, parquet, hyper,
+# reqwest among them - were compiled twice: five minutes (#993's run 35989665241). Resolved with
+# `cargo metadata`, that union and this set give every one of the 74 workspace crates the same
+# features.
 # `10-migrate-authority-custody.sh` installs the two Composer acceptance commit functions only when
 # SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE is 1, and drops them when it is 0. A build with the
 # Composer-backed Replay feature checks for them - `COMPOSER_OWNER_API_FUNCTION_COUNT_V2` is 10
 # there and 8 without - so the switch is read from the union this chain builds, never set beside
 # it. Set beside it, the two drift: the feature compiled, the switch stayed 0, and every Composer
 # owner refused its own database as "Composer authority topology is unavailable".
-if [[ ",${schema_materialization_features}," == *",vibe-strategy-factory-rd-owner-api/sealed-source-intake-composer-acceptance,"* ]]; then
+if [[ ",${nextest_archive_features}," == *",vibe-strategy-factory-rd-owner-api/sealed-source-intake-composer-acceptance,"* ]]; then
   readonly composer_acceptance_migration=1
 else
   readonly composer_acceptance_migration=0
@@ -304,9 +312,22 @@ check_nextest_graph_contract() {
   fi
   if [[ "${nextest_graph_args[*]}" != '--locked --package vibe-strategy-factory --package vibe-strategy-factory-rd-owner-api --package vibe-product-edge --package vibe-operator-authorization --package vibe-backtest-owner --package vibe-data --package vibe-qualification --package vibe-execution-owner --package vibe-portfolio-owner --package vibe-strategy-governance --package vibe-scanner-custody --package vibe-risk-owner --lib --tests' ]] ||
     [[ "$nextest_archive_features" != 'vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-composer-acceptance' ]] ||
-    [[ "$schema_materialization_features" != "${nextest_archive_features},vibe-strategy-factory-rd-owner-api/sealed-develop-composer-acceptance" ]] ||
     [[ "${nextest_execution_args[*]}" != '--fail-fast --run-ignored ignored-only --success-output final --no-tests=fail' ]]; then
     echo "ERROR: shared nextest graph, schema feature union, or sequential ignored-only execution changed." >&2
+    return 1
+  fi
+  # The materializer runs from the archive, so the archive's features must reach rd-owner-api's
+  # `sealed-develop-composer-acceptance`. They do through `sealed-source-intake-composer-acceptance`;
+  # if that entry is ever dropped from the manifest, the materializer loses the Composer schema.
+  if ! python3 - "$(dirname "${BASH_SOURCE[0]}")/../../crates/strategy_factory_rd_owner_api/Cargo.toml" << 'MANIFEST'; then
+import re
+import sys
+
+manifest = open(sys.argv[1], encoding="utf-8").read()
+block = re.search(r"^sealed-source-intake-composer-acceptance = \[(.*?)^\]", manifest, re.M | re.S)
+sys.exit(0 if block and re.search(r'^\s*"sealed-develop-composer-acceptance",$', block.group(1), re.M) else 1)
+MANIFEST
+    echo "ERROR: rd-owner-api's sealed-source-intake-composer-acceptance no longer implies sealed-develop-composer-acceptance, which the schema materializer built in the archive needs." >&2
     return 1
   fi
   if [[ "$candidate_experiment_upgrade_seed_test" != 'trial_family_postgres::postgres_binding_tests::canonical_candidate_experiment_upgrade_seed_is_owner_issued_and_locked_readback_exact' ]]; then
@@ -532,7 +553,7 @@ if tuple(assignments) != expected_overrides:
     )
 expected_invocation = (
     "cargo nextest run \\",
-    '--archive-file "$nextest_archive_file" \\',
+    '"${nextest_reuse_args[@]}" \\',
     '--profile "$nextest_profile" \\',
     '"${nextest_execution_args[@]}" \\',
     '-E "$test_filter"',
@@ -987,7 +1008,7 @@ check_composer_acceptance_stays_in_the_chain() {
   fi
   # A switch typed in as a literal passes today and goes wrong the day the union changes.
   local expected_switch=0
-  [[ ",${schema_materialization_features}," != *",vibe-strategy-factory-rd-owner-api/sealed-source-intake-composer-acceptance,"* ]] ||
+  [[ ",${nextest_archive_features}," != *",vibe-strategy-factory-rd-owner-api/sealed-source-intake-composer-acceptance,"* ]] ||
     expected_switch=1
   if [[ "$composer_acceptance_migration" != "$expected_switch" ]]; then
     echo "ERROR: the Composer acceptance switch no longer follows the chain feature union." >&2
@@ -1724,6 +1745,7 @@ container_created=false
 impersonator_container_created=false
 nextest_archive_dir=''
 nextest_archive_file=''
+nextest_extract_dir=''
 # Where the ordered chain is. The chain is fail-fast over one shared store, so a red run's useful
 # number is the entry it stopped at, not only the test nextest names: an Owner's acceptance is its
 # own entries passing, and this is what says how far the run got.
@@ -1793,6 +1815,10 @@ cleanup() {
     echo "ordered chain stopped at entry ${chain_position}/${chain_entry_count} (${chain_entry_label}); $((chain_position - 1)) passed before it." >&2
   fi
 
+  if [[ -n "$nextest_extract_dir" ]] &&
+    ! rm -rf -- "$nextest_extract_dir"; then
+    cleanup_failed=true
+  fi
   if [[ -n "$nextest_archive_file" ]] &&
     ! rm -f -- "$nextest_archive_file"; then
     cleanup_failed=true
@@ -2213,14 +2239,60 @@ INSERT INTO public.rd_exploratory_replay_request_custody_v1 (
 );
 SQL
 
+nextest_temp_root="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
+if [[ ! -d "$nextest_temp_root" ]]; then
+  echo "ERROR: nextest archive parent does not exist: ${nextest_temp_root}" >&2
+  exit 1
+fi
+nextest_archive_dir="$(mktemp -d "${nextest_temp_root%/}/vibe-rd-owner-nextest.XXXXXXXX")"
+nextest_archive_file="${nextest_archive_dir}/rd-owner-tests.tar.zst"
+cargo nextest archive \
+  "${nextest_graph_args[@]}" \
+  --features "$nextest_archive_features" \
+  --profile "$nextest_profile" \
+  --cargo-profile "$cargo_ci_profile" \
+  --archive-file "$nextest_archive_file"
+
+# Extract the archive once and run every entry from the extracted tree. `--archive-file` extracts the
+# whole archive again on each invocation - 52 binaries, about 3.5 s each time - and the chain makes
+# one invocation per entry, so that alone was six of its minutes (run 35989665241). `--no-run` stops
+# after the extraction. The reuse arguments point nextest at the same metadata, binaries and libdirs
+# the archive run would have extracted, with the same remapping, so the tests run the same binaries.
+nextest_extract_dir="${nextest_archive_dir}/extracted"
+mkdir -- "$nextest_extract_dir"
+cargo nextest run \
+  --archive-file "$nextest_archive_file" \
+  --extract-to "$nextest_extract_dir" \
+  --no-run
+readonly nextest_reuse_args=(
+  --binaries-metadata "${nextest_extract_dir}/target/nextest/binaries-metadata.json"
+  --cargo-metadata "${nextest_extract_dir}/target/nextest/cargo-metadata.json"
+  --target-dir-remap "${nextest_extract_dir}/target"
+  --workspace-remap "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+)
+
+# The schema materializer is the rd-owner-api binary the archive already holds; see
+# nextest_archive_features for why it is not built a second time.
+schema_materializer="$(
+  python3 - "${nextest_extract_dir}/target" << 'BINARY'
+import json
+import sys
+
+target = sys.argv[1]
+meta = json.load(open(f"{target}/nextest/binaries-metadata.json", encoding="utf-8"))["rust-build-meta"]
+found = [
+    binary["path"]
+    for binaries in meta["non-test-binaries"].values()
+    for binary in binaries
+    if binary["name"] == "strategy-factory-rd-owner-api" and binary["kind"] == "bin-exe"
+]
+if len(found) != 1:
+    sys.exit(f"ERROR: the archive holds {len(found)} strategy-factory-rd-owner-api binaries, expected 1.")
+print(f"{target}/{found[0]}")
+BINARY
+)"
 RD_OWNER_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}" \
-  cargo run \
-  --locked \
-  --package vibe-strategy-factory-rd-owner-api \
-  --bin strategy-factory-rd-owner-api \
-  --profile "$cargo_ci_profile" \
-  --features "$schema_materialization_features" \
-  -- \
+  "$schema_materializer" \
   --materialize-schema
 
 docker exec --interactive \
@@ -3334,23 +3406,9 @@ export BACKTEST_IMPERSONATOR_TEST_DATABASE_URL="postgresql://backtest_owner:${im
 export VIBE_POSTGRES_TEST_DATABASE_NAME="$test_database"
 export VIBE_POSTGRES_TEST_INSTANCE_MARKER="$test_marker"
 
-nextest_temp_root="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
-if [[ ! -d "$nextest_temp_root" ]]; then
-  echo "ERROR: nextest archive parent does not exist: ${nextest_temp_root}" >&2
-  exit 1
-fi
-nextest_archive_dir="$(mktemp -d "${nextest_temp_root%/}/vibe-rd-owner-nextest.XXXXXXXX")"
-nextest_archive_file="${nextest_archive_dir}/rd-owner-tests.tar.zst"
-cargo nextest archive \
-  "${nextest_graph_args[@]}" \
-  --features "$nextest_archive_features" \
-  --profile "$nextest_profile" \
-  --cargo-profile "$cargo_ci_profile" \
-  --archive-file "$nextest_archive_file"
-
 candidate_experiment_seed_filter="package(vibe-strategy-factory) & binary(vibe_strategy_factory) & test(=${candidate_experiment_upgrade_seed_test})"
 cargo nextest run \
-  --archive-file "$nextest_archive_file" \
+  "${nextest_reuse_args[@]}" \
   --profile "$nextest_profile" \
   "${nextest_execution_args[@]}" \
   -E "$candidate_experiment_seed_filter"
@@ -3707,7 +3765,7 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       RISK_OWNER_TEST_DATABASE_URL="postgresql://risk_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}" \
       SCANNER_OWNER_TEST_DATABASE_URL="postgresql://scanner_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}" \
       cargo nextest run \
-      --archive-file "$nextest_archive_file" \
+      "${nextest_reuse_args[@]}" \
       --profile "$nextest_profile" \
       "${nextest_execution_args[@]}" \
       -E "$test_filter"
@@ -3732,7 +3790,7 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       RISK_OWNER_TEST_DATABASE_URL="postgresql://risk_writer:${test_password}@${postgres_host}:${postgres_port}/${legacy_replay_database}" \
       SCANNER_OWNER_TEST_DATABASE_URL="postgresql://scanner_writer:${test_password}@${postgres_host}:${postgres_port}/${legacy_replay_database}" \
       cargo nextest run \
-      --archive-file "$nextest_archive_file" \
+      "${nextest_reuse_args[@]}" \
       --profile "$nextest_profile" \
       "${nextest_execution_args[@]}" \
       -E "$test_filter"
@@ -3757,7 +3815,7 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       RISK_OWNER_TEST_DATABASE_URL="postgresql://risk_writer:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
       SCANNER_OWNER_TEST_DATABASE_URL="postgresql://scanner_writer:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
       cargo nextest run \
-      --archive-file "$nextest_archive_file" \
+      "${nextest_reuse_args[@]}" \
       --profile "$nextest_profile" \
       "${nextest_execution_args[@]}" \
       -E "$test_filter"
@@ -3774,7 +3832,7 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
     [[ "$test_name" == 'product_edge_postgres::tests::second_request_under_one_principal_resolves_through_the_frontier_arm' ]]; then
     RUST_MIN_STACK=16777216 \
       cargo nextest run \
-      --archive-file "$nextest_archive_file" \
+      "${nextest_reuse_args[@]}" \
       --profile "$nextest_profile" \
       "${nextest_execution_args[@]}" \
       -E "$test_filter"
@@ -3799,7 +3857,7 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       RISK_OWNER_TEST_DATABASE_URL="postgresql://risk_writer:${test_password}@${postgres_host}:${postgres_port}/${composer_sealed_read_database}" \
       SCANNER_OWNER_TEST_DATABASE_URL="postgresql://scanner_writer:${test_password}@${postgres_host}:${postgres_port}/${composer_sealed_read_database}" \
       cargo nextest run \
-      --archive-file "$nextest_archive_file" \
+      "${nextest_reuse_args[@]}" \
       --profile "$nextest_profile" \
       "${nextest_execution_args[@]}" \
       -E "$test_filter"
@@ -3824,13 +3882,13 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       RISK_OWNER_TEST_DATABASE_URL="postgresql://risk_writer:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
       SCANNER_OWNER_TEST_DATABASE_URL="postgresql://scanner_writer:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
       cargo nextest run \
-      --archive-file "$nextest_archive_file" \
+      "${nextest_reuse_args[@]}" \
       --profile "$nextest_profile" \
       "${nextest_execution_args[@]}" \
       -E "$test_filter"
   else
     cargo nextest run \
-      --archive-file "$nextest_archive_file" \
+      "${nextest_reuse_args[@]}" \
       --profile "$nextest_profile" \
       "${nextest_execution_args[@]}" \
       -E "$test_filter"
