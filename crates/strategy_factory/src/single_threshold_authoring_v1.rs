@@ -1407,6 +1407,7 @@ mod tests {
                 reason:
                     "a bounded feature program reads a universe only when it has exactly one member"
                         .to_owned(),
+                refusal: None,
             })),
         );
     }

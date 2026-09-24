@@ -13,6 +13,7 @@ import {
 import { readExploratoryReplayReadbackGatewayV1 } from "../lib/exploratory-replay-readback-gateway.ts";
 import { readExploratoryReplayHistoricalRejectionGatewayV1 } from "../lib/exploratory-replay-historical-rejection-gateway.ts";
 import { readExploratoryReplayResultGatewayV1 } from "../lib/exploratory-replay-result-gateway.ts";
+import { losslessQueryEncoding } from "../lib/lossless-query-encoding.ts";
 
 test("Backtest route renders one compact exact Replay request and result workbench", async () => {
   const [component, route, resultRoute, resultGateway, shell, page, css, ownerApi, ownerRouter, ownerReadApi] = await Promise.all([
@@ -69,6 +70,15 @@ test("Backtest route renders one compact exact Replay request and result workben
   assert.match(ownerRouter, /"\/v2\/exploratory-replay-requests\/readback"/u);
   assert.match(ownerReadApi, /"\/v2\/exploratory-replay-results\/\{result_identity\}"/u);
   assert.doesNotMatch(component, /BacktestReturnBand|textarea|contentEditable|Run replay|>Resolve<|Download/u);
+  // The single-run report mounts once, only beneath the result the lookup opened, keyed by its locator.
+  assert.equal(component.match(/<BacktestRunReportReadback/gu)?.length, 1);
+  assert.match(
+    component,
+    /resultStatus === "available" && resultProjection \? \(\s*<>\s*<AvailableResult projection=\{resultProjection\} \/>[\s\S]*?<BacktestRunReportReadback\s+key=/u,
+  );
+  for (const field of ["result_identity", "request_identity", "attempt_identity"]) {
+    assert.match(component, new RegExp(`${field}: resultProjection\\.`, "u"));
+  }
   assert.doesNotMatch(css, /#[0-9a-f]{3,8}|rgba?\(|hsla?\(|var\(--ring\)|var\(--focus-ring\)/iu);
   assert.doesNotMatch(css, /min-height:\s*(?:[5-9]\d\d|\d{4,})px/u);
 });
@@ -98,6 +108,9 @@ test("Backtest BFF rejects malformed query UTF-8 before selector dispatch", asyn
     }
     if (path.includes("exploratory-replay-identity")) {
       return { decodeExploratoryReplayOpaqueIdentityV2 };
+    }
+    if (path.includes("lossless-query-encoding")) {
+      return { losslessQueryEncoding };
     }
     return require(path);
   };
@@ -159,6 +172,9 @@ test("Backtest result BFF rejects malformed or ambiguous selectors before Owner 
     if (path.includes("exploratory-replay-identity")) {
       return { decodeExploratoryReplayOpaqueIdentityV2 };
     }
+    if (path.includes("lossless-query-encoding")) {
+      return { losslessQueryEncoding };
+    }
     return require(path);
   };
   const exports = {};
@@ -218,6 +234,9 @@ test("historical rejection BFF rejects malformed or ambiguous selectors before O
     }
     if (path.includes("exploratory-replay-identity")) {
       return { decodeExploratoryReplayOpaqueIdentityV2 };
+    }
+    if (path.includes("lossless-query-encoding")) {
+      return { losslessQueryEncoding };
     }
     return require(path);
   };
