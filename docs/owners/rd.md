@@ -617,6 +617,13 @@ receipt, Intent, TrialFamily root/member/head, or transition outbox. A malformed
 authority may produce only `REJECTED_NO_WRITE`. Same request, rationale, and canonical Owner cuts replay the exact
 bytes; changed meaning or changed cuts cannot join. R&D never reads protected payload or detail.
 
+R&D's clock is `pg_catalog.clock_timestamp()`, read inside the R&D transaction that uses it. A Research Intent's
+projection time, `valid_through` and commit time are stamped from it, and so is the `owner_cut` its lock returns;
+a successor Research Intent follows the same rule. Every other R&D cut compared with a research view, in Artifact
+builds, the bounded feature program and the Composer's source research, is read the same way, and Product Edge
+compares cuts it takes from the same clock with those values, so no research window compares two clocks.
+Qualification takes its Owner cut the same way.
+
 ## Attended D-only repair
 
 An authorized user may select one exact current strategy generation and Artifact and ask R&D to repair an implementation defect without opening adaptive Research. Product Edge submits the typed `ATTENDED_D_ONLY_REPAIR` request and later displays the bounded result, but R&D alone admits the request and commits its D-only Repair Disposition. Shell acknowledgement or a visible view is not that terminal fact.

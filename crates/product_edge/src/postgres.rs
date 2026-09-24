@@ -134,13 +134,57 @@ fn unavailable_for(reason: Reason, kind: Subject, identity: &str) -> ProductEdge
     ProductEdgeError::unavailable_for(reason, kind, identity)
 }
 
+/// The values a research window is checked against at a cut.
+#[derive(Clone, Copy, Debug)]
+struct ResearchWindowV1 {
+    owner_cut_epoch_ms: u64,
+    projection_at_epoch_ms: u64,
+    valid_through_epoch_ms: u64,
+    source_not_before_epoch_ms: u64,
+    source_valid_through_epoch_ms: u64,
+    /// Whether the source authorization fails at the cut for anything other than its window,
+    /// which is revocation; it is consulted only inside the window.
+    source_revoked: bool,
+}
+
+impl ResearchWindowV1 {
+    /// The conditions that refuse the window at `cut_epoch_ms`, by name, in a fixed order.
+    fn refusals_at(self, cut_epoch_ms: u64) -> Vec<&'static str> {
+        let within_source_window = cut_epoch_ms >= self.source_not_before_epoch_ms
+            && cut_epoch_ms < self.source_valid_through_epoch_ms;
+        [
+            (
+                self.owner_cut_epoch_ms > cut_epoch_ms,
+                "owner_cut_after_cut",
+            ),
+            (
+                self.projection_at_epoch_ms > cut_epoch_ms,
+                "projection_after_cut",
+            ),
+            (
+                cut_epoch_ms >= self.valid_through_epoch_ms,
+                "research_view_expired",
+            ),
+            (!within_source_window, "source_authorization_outside_window"),
+            (
+                within_source_window && self.source_revoked,
+                "source_authorization_revoked",
+            ),
+        ]
+        .into_iter()
+        .filter_map(|(holds, name)| holds.then_some(name))
+        .collect()
+    }
+}
+
 /// Refuses a research intent whose window does not hold at `cut_epoch_ms`, and says which part.
 ///
 /// Four conditions answer to one reason, `WINDOW_NOT_CURRENT`, because they share a repair: the
 /// caller asked at a cut outside the research intent's window. They do not share a cause, and they
-/// do not share a clock: `owner_cut_epoch_ms` is the database's `clock_timestamp()` while
-/// `cut_epoch_ms` is this process's clock, so the refusal carries the conditions that held and every
-/// value they compared. The reason, the subject and the outward disposition are unchanged.
+/// share a clock: `owner_cut_epoch_ms`, the projection and the expiry are stamped by the R&D Owner
+/// from the database's `pg_catalog.clock_timestamp()`, and the callers take `cut_epoch_ms` from the
+/// same clock in their own transaction. The refusal carries the conditions that held and every value
+/// they compared. The reason, the subject and the outward disposition are unchanged.
 fn research_window_refusal(
     locked: &LockedCurrentResearchEnvelopeV1,
     source_authorization: &OperatorAuthorizationReadbackV1,
@@ -148,30 +192,15 @@ fn research_window_refusal(
     intent_identity: &str,
 ) -> Option<ProductEdgeError> {
     let evidence = &locked.evidence;
-    let within_source_window = cut_epoch_ms >= source_authorization.not_before_epoch_ms()
-        && cut_epoch_ms < source_authorization.valid_through_epoch_ms();
-    let held = [
-        (
-            locked.owner_cut_epoch_ms > cut_epoch_ms,
-            "owner_cut_after_cut",
-        ),
-        (
-            evidence.projection_at_epoch_ms > cut_epoch_ms,
-            "projection_after_cut",
-        ),
-        (
-            cut_epoch_ms >= evidence.valid_through_epoch_ms,
-            "research_view_expired",
-        ),
-        (!within_source_window, "source_authorization_outside_window"),
-        (
-            within_source_window && !source_authorization.is_current_at(cut_epoch_ms),
-            "source_authorization_revoked",
-        ),
-    ]
-    .into_iter()
-    .filter_map(|(holds, name)| holds.then_some(name))
-    .collect::<Vec<_>>();
+    let window = ResearchWindowV1 {
+        owner_cut_epoch_ms: locked.owner_cut_epoch_ms,
+        projection_at_epoch_ms: evidence.projection_at_epoch_ms,
+        valid_through_epoch_ms: evidence.valid_through_epoch_ms,
+        source_not_before_epoch_ms: source_authorization.not_before_epoch_ms(),
+        source_valid_through_epoch_ms: source_authorization.valid_through_epoch_ms(),
+        source_revoked: !source_authorization.is_current_at(cut_epoch_ms),
+    };
+    let held = window.refusals_at(cut_epoch_ms);
 
     if held.is_empty() {
         return None;
@@ -2759,7 +2788,7 @@ impl ProductEdgePostgresOwnerV1 {
                 &request.request_identity,
             ));
         }
-        let read_cut = now_ms()?;
+        let read_cut = database_now(&mut transaction).await?;
         let binding = load_current_binding(
             &mut transaction,
             &self.deployment_identity,
@@ -2859,7 +2888,7 @@ impl ProductEdgePostgresOwnerV1 {
         // Every canonical lock is now held. Sample one cut immediately before
         // the first write and revalidate every half-open authority window at
         // that exact cut; the same cut is bound into identity and receipt.
-        let final_cut = now_ms()?;
+        let final_cut = database_now(&mut transaction).await?;
         if !authority_windows_are_current_at(
             final_cut,
             binding.valid_from_epoch_ms,
@@ -3266,7 +3295,7 @@ impl ProductEdgePostgresOwnerV1 {
                 &research_evidence.source_admission.request_identity,
             )
         })?;
-        let read_cut = now_ms()?;
+        let read_cut = database_now(&mut transaction).await?;
         let admission = resolve_admission_for_downstream_in_transaction(
             &mut transaction,
             &request.admission,
@@ -3306,7 +3335,7 @@ impl ProductEdgePostgresOwnerV1 {
                 &request.admission.admission_identity,
             ));
         }
-        let write_cut = now_ms()?;
+        let write_cut = database_now(&mut transaction).await?;
         if !admission.authorizes_first_mutation_at(write_cut) {
             return Err(unavailable_for(
                 Reason::PolicyNotCurrent,
@@ -3553,16 +3582,17 @@ impl ProductEdgePostgresOwnerV1 {
         .fetch_one(&mut *transaction)
         .await
         .map_err(storage)?;
+        let admission_mode = if existing_hint {
+            DownstreamAdmissionModeV1::Historical
+        } else {
+            DownstreamAdmissionModeV1::FirstMutation {
+                read_cut_epoch_ms: database_now(&mut transaction).await?,
+            }
+        };
         let admission = resolve_admission_for_downstream_in_transaction(
             &mut transaction,
             &request.admission,
-            if existing_hint {
-                DownstreamAdmissionModeV1::Historical
-            } else {
-                DownstreamAdmissionModeV1::FirstMutation {
-                    read_cut_epoch_ms: now_ms()?,
-                }
-            },
+            admission_mode,
         )
         .await?;
         let payload: SourceIntakeAdmissionPayloadV1 =
@@ -3652,7 +3682,7 @@ impl ProductEdgePostgresOwnerV1 {
             return Ok(readback);
         }
 
-        let write_cut = now_ms()?;
+        let write_cut = database_now(&mut transaction).await?;
         if !admission.authorizes_first_mutation_at(write_cut) {
             return Err(unavailable_for(
                 Reason::PolicyNotCurrent,
@@ -6895,11 +6925,12 @@ fn now_ms() -> Result<u64, ProductEdgeError> {
 async fn database_now(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<u64, ProductEdgeError> {
-    let value: i64 =
-        sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint")
-            .fetch_one(&mut **transaction)
-            .await
-            .map_err(storage)?;
+    let value: i64 = sqlx::query_scalar(
+        "SELECT pg_catalog.floor(EXTRACT(epoch FROM pg_catalog.clock_timestamp()) * 1000)::bigint",
+    )
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(storage)?;
     from_i64(value)
 }
 fn json<T: Serialize>(value: &T) -> Result<serde_json::Value, ProductEdgeError> {
@@ -7001,6 +7032,142 @@ mod tests {
         ProductEdgeManifestBindingV1, STRATEGY_GOVERNANCE_AUDIENCE_V1,
     };
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+
+    /// The process-clock reads a piece of source contains.
+    fn process_clock_reads(body: &str) -> Vec<&'static str> {
+        ["now_ms(", "SystemTime", "current_epoch_ms("]
+            .into_iter()
+            .filter(|read| body.contains(read))
+            .collect()
+    }
+
+    /// The body of the first item after `signature`, up to the next item at the same indentation.
+    fn item_body<'a>(source: &'a str, signature: &str) -> &'a str {
+        let start = source.find(signature).expect("item signature");
+        let rest = &source[start + signature.len()..];
+        let end = [
+            "\n    async fn ",
+            "\n    fn ",
+            "\n    pub ",
+            "\nfn ",
+            "\nasync fn ",
+        ]
+        .into_iter()
+        .filter_map(|next| rest.find(next))
+        .min()
+        .expect("item end");
+        &rest[..end]
+    }
+
+    /// Which clock each value of a research window check is read from.
+    #[derive(Clone, Copy, Debug)]
+    enum ClockWiring {
+        /// Before this change: the R&D lock stamps `owner_cut` from the database clock, while the
+        /// research commit stamps its projection and expiry, and Product Edge takes its cut, from
+        /// the process clock.
+        ProcessCutAndStamps,
+        /// Every stamp and every cut from the database clock.
+        OwnerTransaction,
+    }
+
+    /// A research window and the cut Product Edge checks it at, when the database clock runs
+    /// `db_ahead_ms` ahead of the process clock (negative: behind).
+    ///
+    /// Real time runs research commit, then the R&D lock 5 ms later, then Product Edge's cut
+    /// 5 ms after that, which is the order the code takes them in.
+    fn window_under(wiring: ClockWiring, db_ahead_ms: i64) -> (ResearchWindowV1, u64) {
+        let (commit_at, locked_at, cut_at) =
+            (1_800_000_000_000_i64, 1_800_000_000_005, 1_800_000_000_010);
+        let db = |at: i64| u64::try_from(at + db_ahead_ms).expect("epoch");
+        let process = |at: i64| u64::try_from(at).expect("epoch");
+        let (projection, cut) = match wiring {
+            ClockWiring::ProcessCutAndStamps => (process(commit_at), process(cut_at)),
+            ClockWiring::OwnerTransaction => (db(commit_at), db(cut_at)),
+        };
+        let declared = process(commit_at);
+        (
+            ResearchWindowV1 {
+                owner_cut_epoch_ms: db(locked_at),
+                projection_at_epoch_ms: projection,
+                valid_through_epoch_ms: projection + 600_000,
+                source_not_before_epoch_ms: declared - 3_600_000,
+                source_valid_through_epoch_ms: declared + 3_600_000,
+                source_revoked: false,
+            },
+            cut,
+        )
+    }
+
+    /// What a successor research intent meets on its way through: the R&D successor lock first,
+    /// which returns no envelope when `projection_at > owner_cut` or `owner_cut >= valid_through`
+    /// (`rd_owner_api.lock_current_successor_research_for_artifact_v1`), then the window check at
+    /// Product Edge's cut.
+    fn refusals_under(wiring: ClockWiring, db_ahead_ms: i64) -> Vec<&'static str> {
+        let (window, cut) = window_under(wiring, db_ahead_ms);
+        if window.projection_at_epoch_ms > window.owner_cut_epoch_ms
+            || window.owner_cut_epoch_ms >= window.valid_through_epoch_ms
+        {
+            return vec!["successor_lock_refused"];
+        }
+        window.refusals_at(cut)
+    }
+
+    /// The WindowNotCurrent family, at its cause. With the old wiring a current successor research
+    /// intent is refused whichever way the database clock is skewed: 16 ms ahead, Product Edge's
+    /// window check sees `owner_cut` after its cut, which is the refusal a diagnostic chain run
+    /// recorded; 16 ms behind, the successor lock sees the projection after its `owner_cut`. The
+    /// first-research lock makes no such comparison, so there only the first direction refuses.
+    /// With every stamp and cut from one clock, no skew refuses either.
+    #[rstest]
+    #[case::old_db_ahead(ClockWiring::ProcessCutAndStamps, 16, &["owner_cut_after_cut"])]
+    #[case::old_same_clock(ClockWiring::ProcessCutAndStamps, 0, &[])]
+    #[case::old_db_behind(ClockWiring::ProcessCutAndStamps, -16, &["successor_lock_refused"])]
+    #[case::new_db_ahead(ClockWiring::OwnerTransaction, 16, &[])]
+    #[case::new_same_clock(ClockWiring::OwnerTransaction, 0, &[])]
+    #[case::new_db_behind(ClockWiring::OwnerTransaction, -16, &[])]
+    #[case::new_db_far_ahead(ClockWiring::OwnerTransaction, 1_000_000, &[])]
+    #[case::new_db_far_behind(ClockWiring::OwnerTransaction, -1_000_000, &[])]
+    fn a_research_window_holds_under_clock_skew_only_on_one_clock(
+        #[case] wiring: ClockWiring,
+        #[case] db_ahead_ms: i64,
+        #[case] refused: &[&str],
+    ) {
+        assert_eq!(refusals_under(wiring, db_ahead_ms), refused);
+    }
+
+    /// A research window compares the cut with `owner_cut`, which the R&D Owner stamps with the
+    /// database's `clock_timestamp()`, and with a projection and expiry the R&D Owner stamps from
+    /// the same clock. A cut from this process's clock would put two clocks on either side. The
+    /// source-intake claim makes the same first-mutation decision as the provider claim, so it
+    /// takes its cuts from the same clock and cannot answer differently at a window's edge.
+    #[rstest]
+    fn research_window_cuts_come_from_the_owner_transaction_clock() {
+        let source = include_str!("postgres.rs");
+
+        for signature in [
+            "async fn admit_request_inner(",
+            "async fn claim_provider_invocation_inner(",
+            "pub async fn claim_source_intake_invocation(",
+        ] {
+            let body = item_body(source, signature);
+            assert!(
+                body.contains("database_now(&mut transaction).await?"),
+                "{signature}"
+            );
+            assert_eq!(process_clock_reads(body), Vec::<&str>::new(), "{signature}");
+        }
+        // The same reading finds the process clock where it is defined.
+        assert_eq!(
+            process_clock_reads(item_body(
+                source,
+                "fn now_ms() -> Result<u64, ProductEdgeError> {"
+            )),
+            ["SystemTime"]
+        );
+        assert!(
+            item_body(source, "async fn database_now(").contains("pg_catalog.clock_timestamp()")
+        );
+    }
 
     #[rstest]
     fn expired_manifest_recovery_schema_preparation_is_exactly_bounded() {
