@@ -3994,7 +3994,8 @@ pub(crate) struct ResearchPitLineageFixtureV1 {
 /// A Composer operation is keyed by its Research request, and a Design names as its initial PIT
 /// request only one requested for its own Research request, so a second Design that is composed
 /// needs a lineage of its own. The observations, times and authorities are the base fixture's;
-/// only the requester, the correlation and the request identities (from `seed`) differ.
+/// the requester, the correlation, the request identities and the Market Semantics compatibility
+/// scope (all from `seed`) are its own.
 pub(crate) async fn persist_research_pit_lineage_v1(
     owner: &MarketDataOwnerPostgres,
     base: &ReplayCompositionMarketBaseFixtureV1,
@@ -4011,6 +4012,10 @@ pub(crate) async fn persist_research_pit_lineage_v1(
         2,
     );
     let source = &base.source;
+    // A Market Semantics fact heads the chain of its compatibility scope, whatever PIT snapshot it
+    // is bound to, so this lineage's fact starts a scope of its own rather than restating the base
+    // fixture's head without naming it as predecessor.
+    let semantics_scope = d(seed.wrapping_add(3));
     let time_evidence = UntrustedPitSnapshotTimeEvidence {
         event_effective: UntrustedEventEffectiveTime::from_untrusted(
             50,
@@ -4057,7 +4062,7 @@ pub(crate) async fn persist_research_pit_lineage_v1(
             source_binding: source.receipt().locator().clone(),
             instrument_master_digest: base.instrument.digest(),
             universe_selection_digest: base.universe.record().identity(),
-            market_semantics_identity: base_request.market_semantics_identity,
+            market_semantics_identity: semantics_scope,
             time_evidence,
         },
         evidence: UntrustedPitSnapshotEvidence {
@@ -4092,7 +4097,7 @@ pub(crate) async fn persist_research_pit_lineage_v1(
                 source_frontier_digest: row.source_frontier_digest(),
                 instrument_master_digest: row.instrument_master_digest(),
                 universe_selection_digest: row.universe_selection_digest(),
-                market_semantics_identity: row.market_semantics_identity(),
+                market_semantics_identity: semantics_scope,
                 correction_stream_identity: row.correction_stream_identity().into(),
                 correction_sequence: row.correction_sequence(),
                 correction_frontier_digest: row.correction_frontier_digest(),
@@ -4174,7 +4179,7 @@ pub(crate) async fn persist_research_pit_lineage_v1(
     };
     let semantics_value = base.semantics.facts()[0].value();
     let registry_key = market_semantics_authority::derive_registry_key_v1(
-        base_request.market_semantics_identity,
+        semantics_scope,
         &base.source_readback,
         &batch,
         &base.instrument,
@@ -4204,7 +4209,7 @@ pub(crate) async fn persist_research_pit_lineage_v1(
         request_identity: d(seed.wrapping_add(2)),
         request_meaning_digest: d(0),
         consumer: MarketSemanticsConsumerV1::StrategyInputBindingRegistry,
-        compatibility_scope_identity: base_request.market_semantics_identity,
+        compatibility_scope_identity: semantics_scope,
         predecessor_identity: None,
         value: semantics_value,
         effective_from_ns: 50,
