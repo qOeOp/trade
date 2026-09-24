@@ -11,6 +11,9 @@ use super::{
     UntrustedUniverseSelectionRequestV1,
     codec::{self, Decoder, Encoder},
 };
+use crate::owner::research_instrument_scope_v1::{
+    FIXED_MEMBER_SELECTION_RULE_PREFIX_V1, ResearchInstrumentScopeV1,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct HistoricalMembershipFactProposalV1 {
@@ -71,21 +74,47 @@ pub(crate) trait UniverseSelectionRuleEvaluatorV1: Send + Sync {
     ) -> Result<UniverseMembershipDispositionV1, UniverseSelectionErrorV1>;
 }
 
+/// The Research instrument scope a fixed-member rule selects, or `None` for any other rule.
+///
+/// A rule that starts with the fixed-member prefix is that rule or nothing: bytes after the prefix
+/// that do not decode as a scope, or a rule identity that is not the scope's identity, are refused
+/// rather than read as some other rule.
+pub(crate) fn fixed_member_scope_v1(
+    selection_rule_identity: UniverseSelectionIdentity,
+    selection_rule_bytes: &[u8],
+) -> Result<Option<ResearchInstrumentScopeV1>, UniverseSelectionErrorV1> {
+    if !selection_rule_bytes.starts_with(&FIXED_MEMBER_SELECTION_RULE_PREFIX_V1) {
+        return Ok(None);
+    }
+    let scope = ResearchInstrumentScopeV1::from_fixed_member_selection_rule(selection_rule_bytes)
+        .map_err(|_| UniverseSelectionErrorV1::InvalidRequest)?;
+
+    if scope.identity() != selection_rule_identity {
+        return Err(UniverseSelectionErrorV1::InvalidRequest);
+    }
+    Ok(Some(scope))
+}
+
 /// Owner-private deterministic grammar: `00 01 01` selects all; `00 01 02 <prefix>` selects
-/// instruments having the supplied non-empty byte prefix. Unsupported rules fail closed.
+/// instruments having the supplied non-empty byte prefix; `00 01 03 <scope>` selects exactly the
+/// instruments a Research request's scope names. Unsupported rules fail closed.
 pub(crate) struct CanonicalUniverseSelectionRuleEvaluatorV1;
 
 impl UniverseSelectionRuleEvaluatorV1 for CanonicalUniverseSelectionRuleEvaluatorV1 {
     fn evaluate(
         &self,
-        _selection_rule_identity: UniverseSelectionIdentity,
+        selection_rule_identity: UniverseSelectionIdentity,
         selection_rule_bytes: &[u8],
         fact: &HistoricalMembershipSourceFactV1,
     ) -> Result<UniverseMembershipDispositionV1, UniverseSelectionErrorV1> {
         let included = match selection_rule_bytes {
             [0, 1, 1] => true,
             [0, 1, 2, prefix @ ..] if !prefix.is_empty() => fact.instrument().starts_with(prefix),
-            _ => return Err(UniverseSelectionErrorV1::EvaluatorUnavailable),
+            _ => fixed_member_scope_v1(selection_rule_identity, selection_rule_bytes)?
+                .ok_or(UniverseSelectionErrorV1::EvaluatorUnavailable)?
+                .identities()
+                .iter()
+                .any(|identity| identity.as_bytes() == fact.instrument()),
         };
         Ok(UniverseMembershipDispositionV1 {
             included,
@@ -254,48 +283,18 @@ pub(crate) fn select_complete_membership_v1(
     }
     let mut selected = Vec::with_capacity(expected.len());
     for member_key in expected {
-        let mut candidates: Vec<_> = source_facts
-            .iter()
-            .filter(|fact| {
-                fact.member_key() == member_key
-                    && fact.proposal.effective_from_ns <= request.effective_at_ns
-                    && fact
-                        .proposal
-                        .effective_until_ns
-                        .is_none_or(|until| request.effective_at_ns < until)
-                    && fact.proposal.provider_available_ns <= request.owner_observation_ns
-                    && fact.proposal.retrieval_ns <= request.owner_observation_ns
-                    && fact.proposal.correction_publication_ns <= request.owner_observation_ns
-                    && fact.proposal.owner_observation_ns <= request.owner_observation_ns
-                    && fact.proposal.decision_cut <= request.decision_cut
-                    && fact.proposal.source_binding_lineage_root
-                        == request.source_binding_lineage_root
-                    && fact.proposal.correction_frontier_digest
-                        == request.correction_frontier_digest
-            })
-            .collect();
-        candidates.sort_by_key(|fact| {
-            (
-                fact.proposal.decision_cut,
-                fact.proposal.owner_observation_ns,
-                fact.identity(),
-            )
-        });
-        let fact = candidates
-            .pop()
-            .ok_or(UniverseSelectionErrorV1::InvalidMembership)?;
-
-        if candidates.last().is_some_and(|other| {
-            (
-                other.proposal.decision_cut,
-                other.proposal.owner_observation_ns,
-            ) == (
-                fact.proposal.decision_cut,
-                fact.proposal.owner_observation_ns,
-            )
-        }) {
-            return Err(UniverseSelectionErrorV1::InvalidMembership);
-        }
+        let fact = latest_membership_fact_v1(source_facts.iter().filter(|fact| {
+            fact.member_key() == member_key
+                && membership_fact_in_force_v1(
+                    fact,
+                    request.effective_at_ns,
+                    request.owner_observation_ns,
+                    request.decision_cut,
+                )
+                && fact.proposal.source_binding_lineage_root == request.source_binding_lineage_root
+                && fact.proposal.correction_frontier_digest == request.correction_frontier_digest
+        }))
+        .ok_or(UniverseSelectionErrorV1::InvalidMembership)?;
         let disposition = evaluator.evaluate(
             request.selection_rule_identity,
             &request.selection_rule_bytes,
@@ -319,6 +318,53 @@ pub(crate) fn select_complete_membership_v1(
         return Err(UniverseSelectionErrorV1::InvalidMembership);
     }
     Ok(selected)
+}
+
+/// Whether a membership fact is in force at `effective_at_ns` and observable at the cut.
+pub(crate) fn membership_fact_in_force_v1(
+    fact: &HistoricalMembershipSourceFactV1,
+    effective_at_ns: i128,
+    owner_observation_ns: i128,
+    decision_cut: u64,
+) -> bool {
+    fact.proposal.effective_from_ns <= effective_at_ns
+        && fact
+            .proposal
+            .effective_until_ns
+            .is_none_or(|until| effective_at_ns < until)
+        && fact.proposal.provider_available_ns <= owner_observation_ns
+        && fact.proposal.retrieval_ns <= owner_observation_ns
+        && fact.proposal.correction_publication_ns <= owner_observation_ns
+        && fact.proposal.owner_observation_ns <= owner_observation_ns
+        && fact.proposal.decision_cut <= decision_cut
+}
+
+/// The one latest candidate, by decision cut then owner observation.
+///
+/// `None` when there is no candidate, or when two share the latest decision cut and observation:
+/// then no single fact states the member, and picking one by identity would be arbitrary.
+pub(crate) fn latest_membership_fact_v1<'a>(
+    candidates: impl Iterator<Item = &'a HistoricalMembershipSourceFactV1>,
+) -> Option<&'a HistoricalMembershipSourceFactV1> {
+    let mut candidates: Vec<_> = candidates.collect();
+    candidates.sort_by_key(|fact| {
+        (
+            fact.proposal.decision_cut,
+            fact.proposal.owner_observation_ns,
+            fact.identity(),
+        )
+    });
+    let fact = candidates.pop()?;
+    let tied = candidates.last().is_some_and(|other| {
+        (
+            other.proposal.decision_cut,
+            other.proposal.owner_observation_ns,
+        ) == (
+            fact.proposal.decision_cut,
+            fact.proposal.owner_observation_ns,
+        )
+    });
+    (!tied).then_some(fact)
 }
 
 fn issue_membership(

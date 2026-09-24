@@ -121,6 +121,12 @@ pub enum UniverseSelectionAdmissionErrorV1 {
     UnknownIdentity,
     /// The Owner store is unreachable or refused the commit.
     StoreUnavailable,
+    /// A fixed-member request names a frontier other than the current one.
+    FrontierNotCurrent,
+    /// A requested identity has no Instrument Master fact at the request's instants.
+    FixedMemberUnresolved,
+    /// A requested identity is not a member of the current frontier at the request's instants.
+    FixedMemberNotInFrontier,
 }
 
 impl Display for UniverseSelectionAdmissionErrorV1 {
@@ -130,6 +136,13 @@ impl Display for UniverseSelectionAdmissionErrorV1 {
             Self::RequestConflict => "the identity is bound to different content",
             Self::UnknownIdentity => "the named frontier or record is not held",
             Self::StoreUnavailable => "the Market Data store is unavailable",
+            Self::FrontierNotCurrent => "the eligible-instrument frontier is not the current one",
+            Self::FixedMemberUnresolved => {
+                "a requested instrument has no Instrument Master fact at the request's instants"
+            }
+            Self::FixedMemberNotInFrontier => {
+                "a requested instrument is not a member of the eligible-instrument frontier"
+            }
         };
         formatter.write_str(text)
     }
@@ -144,6 +157,9 @@ impl From<UniverseSelectionErrorV1> for UniverseSelectionAdmissionErrorV1 {
             | UniverseSelectionErrorV1::StoreUntrusted => Self::StoreUnavailable,
             UniverseSelectionErrorV1::RequestConflict => Self::RequestConflict,
             UniverseSelectionErrorV1::UnknownIdentity => Self::UnknownIdentity,
+            UniverseSelectionErrorV1::FrontierNotCurrent => Self::FrontierNotCurrent,
+            UniverseSelectionErrorV1::FixedMemberUnresolved => Self::FixedMemberUnresolved,
+            UniverseSelectionErrorV1::FixedMemberNotInFrontier => Self::FixedMemberNotInFrontier,
             _ => Self::InvalidRequest,
         }
     }

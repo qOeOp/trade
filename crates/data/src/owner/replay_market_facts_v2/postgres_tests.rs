@@ -215,8 +215,14 @@ fn schema_is_private_opaque_and_has_no_native_authority_foreign_keys() {
     assert!(schema.contains("outbox_count BIGINT"));
     assert!(schema.contains("outbox_max_sequence BIGINT"));
     assert!(schema.contains("UNIQUE NOT NULL"));
-    assert_eq!(schema.matches("REVOKE ALL").count(), 9);
-    assert!(!schema.contains("BEGIN"));
+    assert_eq!(schema.matches("REVOKE ALL").count(), 10);
+    // The shape migration is a `DO` block, whose body opens with plpgsql's `BEGIN`; what the schema
+    // must never do is control the caller's transaction.
+    assert!(
+        REPLAY_MARKET_FACTS_SCHEMA_V2
+            .iter()
+            .all(|statement| !statement.trim_start().starts_with("BEGIN"))
+    );
     assert!(!schema.contains("COMMIT"));
     assert!(!schema.contains("universe_selection_facts"));
     assert!(!schema.contains("strategy_input_joined_cut_receipts"));
@@ -1026,7 +1032,12 @@ fn resolver_rejects_corrupt_and_cross_spliced_dependency_rows() {
     );
 
     let mut cross_spliced = valid;
-    cross_spliced.joined_cut.identity = [99; 32];
+    let super::postgres::StoredShapeLocatorsV2::FirstCorpus { joined_cut, .. } =
+        &mut cross_spliced.shape_locators
+    else {
+        panic!("the fixture row is the first corpus");
+    };
+    joined_cut.identity = [99; 32];
     reseal_storage_row_for_test(&mut cross_spliced);
     assert_eq!(
         validate_stored_row_for_test(&cross_spliced),
@@ -1137,8 +1148,10 @@ fn fixture_row() -> super::postgres::StoredReplayMarketFactsRowV2 {
         frontier_identity,
         receipt_identity,
         universe_selection,
-        joined_cut,
-        sample_projection,
+        shape_locators: super::postgres::StoredShapeLocatorsV2::FirstCorpus {
+            joined_cut,
+            sample_projection,
+        },
         facts_bytes,
         frontier_bytes,
         receipt_bytes,

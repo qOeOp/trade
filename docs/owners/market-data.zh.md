@@ -642,9 +642,10 @@ time/source/correction 准确相等后重复这些 field。Backtest 保留相同
 ## Replay Market Facts V2 基础
 
 **CURRENT / PARTIAL：** Market Data 定义了 additive、dependency-neutral 的
-`ReplayMarketFactsV2` contract 与规范 codec。一个完整 cut 包含有类型且内容寻址的 calendar-day、
+`ReplayMarketFactsV2` contract 与规范 codec。一个完整的第一语料 cut 包含有类型且内容寻址的 calendar-day、
 session-interval、time-zone ruleset、Market Semantics、successor-only correction-policy、
-corporate-action 与 historical-membership 事实。每条事实绑定半开 effective interval、
+corporate-action 与 historical-membership 事实；universe-member cut 包含 Market Semantics、correction-policy 与
+historical-membership 事实，其余四类在何处被证明由下文 universe-member composition 一节陈述。每条事实绑定半开 effective interval、
 provider-available、retrieval、correction-publication、Owner-observation、decision cut、Source identity
 与 correction identity。Corporate action 携带实际 split、cash-dividend、symbol-change、expiry 或 roll
 条款；historical membership 携带准确 selection、member、instrument 与 inclusion disposition。
@@ -725,6 +726,31 @@ R&D 从 binding 及其 Replay facts 读取的内容，以及在 universe-member 
 | Replay facts identity 与 receipt identity | Replay facts                                        | 同一来源                                                                           |
 | Design identity、非空 role set            | binding record                                      | binding record；role set 绝不为空                                                  |
 | Instrument Master 校验                    | registry，逐个 exact instrument                     | composition 时不绑定；按 request 定键的 cut 签发时校验每个 member 的 V2 fact chain |
+| 每种依赖恰好一个                          | 七种类 frontier                                     | 四种类 frontier：PIT、Source Binding、Universe Selection、universe frame           |
+
+第一语料的 Replay facts 还携带七个 reference cut。universe-member aggregate 只携带其所绑定 authority 覆盖的三个；另外四个
+在每个 member 被解析之处得到证明，而不是被丢弃：
+
+| Reference cut         | 第一语料的 scope 来源    | universe‑member 形状                                                                                                                                                                                             |
+| --------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Calendar              | Instrument Master V1 cut | 迁移到每个 member 的 `BarScheduleFactV1`：它绑定该 member 的 calendar identity，原生 Replay 调度为每个 Master V2 member 读取它                                                                                   |
+| Session               | Instrument Master V1 cut | 迁移到同一 `BarScheduleFactV1`，它绑定 session identity                                                                                                                                                          |
+| Time zone             | Instrument Master V1 cut | 迁移到同一 `BarScheduleFactV1`，它绑定 time‑zone identity                                                                                                                                                        |
+| Market Semantics      | Source Binding           | 同一个 cut，由同一个 Source Binding 限定 scope                                                                                                                                                                   |
+| Correction policy     | Source Binding           | 同一个 cut，由同一个 Source Binding 限定 scope                                                                                                                                                                   |
+| Corporate action      | Instrument Master V1 cut | 迁移到按 request 定键的 Instrument Master V2 cut：其唯一类别是封闭的 crypto perpetual，没有 split、dividend、expiry 或 roll；其签发按名拒绝任何其他类别的 member（`MemberClassCarriesCorporateActions`），零写入 |
+| Historical membership | Universe Selection       | 同一个 cut，由同一个 Universe Selection 限定 scope；它也证明改名，改名在 Instrument Master V2 中记为新的 canonical instrument，而不是 correction                                                                 |
+
+这一类别拒绝今天没有任何运行期输入可以触发，这是故意的：它对每个类别做匹配而不留通配分支，所以 Instrument Master V2
+新增一个类别时，在有人于此决定它是否携带 corporate action 之前无法编译。
+
+存储的 Replay facts 行以 `shape` 列陈述其形状，具名检查 `replay_market_facts_shape_v2` 让每行的列与之相符：第一语料行
+有 joined cut 与 sample projection、没有 universe frame；universe-member 行相反，且必有 binding。该表经一次迁移达到此
+形状：迁移读取系统目录，只改动确切的旧形状，把既有行回填为第一语料，遇到任何其他形状即中止。
+`market_data_rd_api.lock_replay_market_facts_for_replay_v2` 返回形状与 frame；`_v1` 函数逐字节保持原文，因为在该形状
+之前构建的 R&D 二进制在读取任何东西之前，会把每个 rd-api 函数的源码与自身编入的逐字比对。这样的二进制无法经 `_v1`
+读到 universe-member 行：它只在已解码的 binding 下读取 facts，universe-member 行只挂在 schema 2 binding 下，而它在读取
+任何 facts 之前就把 schema 2 binding 作为未知拒绝。移除 `_v1` 要等所有已部署的 R&D 二进制都改读 `_v2`。
 
 exact-instrument 第一语料经 Instrument Master V1 解析其 instrument，而 V1 projection 无法构造原生 crypto perpetual
 （`require_complete_native_crypto_perpetual_construction` 恒拒绝），所以任何 exact-instrument 形状都无法运行用户准入的
@@ -738,8 +764,10 @@ Design 不指名任何 request，其 universe-member role 按「未指名」拒�
 `reread_persisted_strategy_input_universe_custody_for_update_v1` 重读：它采用 exact 重读的 claim 与锁，按已存 digest
 重新导出每个 role，并封存完整 role set 的 universe frame；`resolve_pit_request_for_strategy_design_v1` 陈述该 Design
 声明的 scope，两种重读都按名拒绝另一种 scope 的 declaration。有序链路以 `rd_owner` 重读它，并在该事务打开之前注册该
-Design，因为 registration 经 Market Data pool 写入，而重读持有 registration 会等待的锁。该形状的 binding record、
-Replay frontier 与 resolved cut 均未建成。
+Design，因为 registration 经 Market Data pool 写入，而重读持有 registration 会等待的锁。该形状的 Replay facts 已建成：
+其四种类 frontier 与三个 reference cut、与第一语料并存的存储、由 PIT batch 与 role set 重新导出 universe frame、拒绝
+形状与其 binding 不符的 facts，以及 Instrument Master V2 cut 处的类别拒绝。该形状的 binding record 与 resolved cut
+尚未建成，目前也没有任何路径签发其 Replay facts。
 
 **TARGET，持久 R&D attestation seam：** positive R&D Develop Composer transaction 将一份不可变、完整的
 `StrategyDesignRoleSetReceiptV1` attestation 与 Composer aggregate、receipt 及 outbox 一起规范持久化。它绑定
@@ -1241,20 +1269,27 @@ Data 不依赖 R&D，不拥有也不重新解释 Strategy Design role/join。
 以其 `ResearchInstrumentScopeV1` 指名一到两个规范 Instrument Master identity（用户于 2026-09-24 准入），并由 R&D
 据此签发 Intent 的初始 PIT request。Market Data 回答该 request，从不替用户选择 instrument。具体如下：
 
-- 固定成员 selection rule。在 canonical evaluator 今天准入的两种 rule（全部 frontier member `[0,1,1]` 与
-  instrument 前缀 `[0,1,2,..]`）之外，Universe Selection request 可以携带固定成员 rule：`[0,1,3]` 后接该 scope 的
-  canonical bytes，且 `selection_rule_identity` 等于 scope identity。无法解码为 scope 的 bytes、或任何其他 rule
-  identity 都被拒绝。Market Data 在 request 的 decision cut 上，对其当前持有的 eligible-instrument frontier 求值：
-  selection 恰好包含所请求的 identity，其余 frontier member 一律以 `RULE_FILTERED_V1` 排除。某个请求的 identity
-  在该 cut 上没有 Instrument Master fact 时按「unresolved」拒绝；在 frontier 中没有 eligible 且 included 的 fact
-  时按「不在 frontier 中」拒绝；二者都不会从 selection 中被丢弃而使 selection 成员变少。当前 frontier 是最近一次准入的
-  historical-membership frontier：每次准入都承接前一个 frontier，因此由 Market Data 而非请求方决定哪个 frontier 是当前的。
-- PIT 引用。R&D 通过一个读取函数 `market_data_rd_api.resolve_research_pit_references_v1(identities)` 解析初始 PIT
-  request 的全部 Market Data 引用，不自行提供任何值。该函数返回当前 eligible-instrument frontier；所请求 identity 的
-  frontier fact 所指名的那一条 Source Binding lineage 的 locator、lineage root、correction frontier 与 Market
-  Semantics identity；为它们解析出的 Instrument Master V1 digest；以及 Market Data 当前的 decision cut 连同 PIT intake
-  要逐字比对的 clock 证据。若某个 identity 不可准入，或这些 identity 的 fact 指名了不止一条 Source Binding lineage，
-  则不返回任何行，因为一个 PIT request 只绑定一个 Source Binding。intake 仍会重新校验 R&D 随后陈述的 Universe
+- 固定成员 selection rule。在全部成员 rule（`[0,1,1]`）与 instrument 前缀 rule（`[0,1,2,..]`）之外，Universe Selection
+  request 可以携带固定成员 rule：`[0,1,3]` 后接该 scope 的 canonical bytes，且 `selection_rule_identity` 等于 scope
+  identity。无法解码为 scope 的 bytes、或任何其他 rule identity，都按无效请求拒绝。Market Data 对其当前持有的
+  eligible-instrument frontier 求值，指名其他 frontier 的请求按 `UNIVERSE_SELECTION_FRONTIER_NOT_CURRENT` 拒绝。
+  selection 恰好包含所请求的 identity，其余 frontier member 一律以 `RULE_FILTERED_V1` 排除。某个请求的 identity，若
+  Instrument Master 在请求的各时刻上选不出生效且可观察的 fact，按 `UNIVERSE_SELECTION_MEMBER_UNRESOLVED` 拒绝；若
+  frontier 中没有唯一一个 member 包含它，按 `UNIVERSE_SELECTION_MEMBER_NOT_IN_FRONTIER` 拒绝；二者都不会从 selection 中
+  被丢弃而使 selection 成员变少，任何拒绝都不写入 selection。当前 frontier 是最近一次准入的 historical-membership
+  frontier：每次准入都承接前一个 frontier，因此由 Market Data 而非请求方决定哪个 frontier 是当前的。membership fact 属于
+  它被准入时的 frontier：为另一个 frontier 重述同一条 fact 按冲突拒绝。
+- PIT 引用。R&D 通过一个读取 `resolve_research_pit_references_v1` 解析初始 PIT request 的全部 Market Data 引用，该读取在
+  R&D 自己的事务里运行，R&D 不自行提供任何值。它返回当前 eligible-instrument frontier；所请求 identity 的 frontier fact
+  所指名的那一条 Source Binding lineage 的 locator、lineage root、correction frontier 与 Market Semantics identity；以及
+  Market Data 当前的 decision cut 连同 PIT intake 要逐字比对的 clock 证据。它不返回 Instrument Master digest，R&D 提交的
+  request 也不陈述它。PIT request 所绑定的 Instrument Master readback 由 intake 自己的一次写入铸出，以 request 的
+  correlation 与 event instant 为键，任何对 scope 的读取都无法复现它。因此 R&D 提交的 request 不带 Instrument Master 字
+  段，也不带 claimed identity 或 digest；intake 盖上它自己的 readback digest，按它将要提交的内容 seal request 的
+  identity 与 digest，并按名拒绝陈述了 Instrument Master digest 的提交，因此任何替代值（全零或其他）都不会被当作 digest
+  读取。terminal 报告的 request identity 与 digest 是 Market Data 的。以下情况按名拒绝：某个 identity 不可准入；这些
+  identity 的 fact 指名了不止一条 Source Binding lineage 或 correction frontier，因为一个 PIT request 只绑定一个 Source
+  Binding；该 lineage 没有已准入的 head；Market Data 没有 clock head。intake 仍会重新校验 R&D 随后陈述的 Universe
   Selection 与其冻结的 PIT request，并准入一到两个成员的 scope。
 - Requester identity。初始 PIT request 的 `requester_identity` 是对
   `vibe.market-data.pit-requester.research-request.v1\0` 后接 Design role intent 所携带的 32 字节 Research request
@@ -1268,17 +1303,24 @@ Data 不依赖 R&D，不拥有也不重新解释 Strategy Design role/join。
   组装；exact-instrument role 在同一 batch 中绑定其 instrument。schema 1 的 intent 不指名任何 request：其
   exact-instrument role 仍如上文各段所述按坐标解析，其 universe-member role 按名拒绝。universe-member Design 的
   Composer attestation 从该 Design 已发布的 schema 2 role intent 取其 PIT request，从不取自 attestation。
-- 提前检查。R&D 在接纳 Research request 之前调用
-  `market_data_rd_api.check_research_instrument_scope_v1(identities)`，它按顺序为每个 identity 返回一行，在 Market
-  Data 当前的 decision cut 上取值 `ADMISSIBLE`、`UNRESOLVED` 或 `NOT_IN_ELIGIBLE_FRONTIER`。它是 `STABLE` 的，在调用方的
-  R&D 事务内不加行锁地运行，且不写入任何东西。它只做提前拒绝：PIT request 处的固定成员求值仍是决定，在检查时可准入的
-  identity 仍可能以非 `AVAILABLE` 的 terminal 结束。
+- 提前检查。R&D 在接纳 Research request 之前调用 `check_research_instrument_scope_v1`，它按顺序为每个 identity 返回一行，
+  取值 `ADMISSIBLE`、`UNRESOLVED` 或 `NOT_IN_ELIGIBLE_FRONTIER`，并附上判定所依据的 frontier 与 decision cut。判定中的每
+  个时刻都是 Market Data 当前的 decision cut。Instrument Master 在该 cut 上选不出唯一一条生效且可观察的 fact 时，该
+  identity 为 `UNRESOLVED`；能解析、但当前 frontier 中没有唯一一条对它生效的 membership fact 时，为
+  `NOT_IN_ELIGIBLE_FRONTIER`；没有当前 frontier 时每一行都是 `NOT_IN_ELIGIBLE_FRONTIER`。它在调用方的 R&D 事务内不加行锁
+  地运行，且不写入任何东西。它只做提前拒绝：PIT request 处的固定成员求值仍是决定，在检查时可准入的 identity 仍可能以非
+  `AVAILABLE` 的 terminal 结束。
+- 两个读取的传输。两个读取都是在 R&D 事务里运行的 Market Data 代码。进入 `market_data_rd_api` 的是四个 `STABLE` 的
+  `SECURITY DEFINER` 函数，它们只返回已存储的证据：Owner 的 clock head、当前 frontier 中所请求 instrument 的 membership
+  fact、这些 instrument 的 Instrument Master fact，以及一条 lineage 的 Source Binding head。每个答案都由 Owner 自己的
+  decoder 与选择规则决定。
 
 目前已建成：PIT intake 准入含一个或两个 included 成员的 Universe Selection Record，每个成员的 key 即其 canonical
-instrument；其他成员数或 key 在写入任何东西之前按名拒绝。除此之外无：canonical evaluator 只准入全部成员与前缀两种
-rule；eligible-instrument frontier 是调用方选定、没有任何准入去承接的 digest；没有任何读取能从 identity 解析出
-Source Binding、Instrument Master fact 或 eligibility；没有任何代码按 identity 读取 PIT request；registration 按坐标
-解析每个 role。
+目前已建成：本节中 Market Data 的一半，不带 Instrument Master 字段的提交除外：intake 仍接收带该字段的 request，并在校验
+之前覆盖它，尚无任何代码拒绝陈述了 digest 的提交。PIT intake 准入含一个或两个 included 成员的 Universe Selection Record，
+每个成员的 key 即其 canonical instrument；其他成员数或 key 在写入任何东西之前按名拒绝。按引用注册让 Design 恰好针对其
+role intent 指名的初始 PIT request 注册，拒绝如上文所述。每个新准入的 frontier 取下一个准入序号，序号最大的即为当前
+frontier；在编号之前准入的 frontier 永远不是当前的。固定成员 rule 及其三种拒绝、检查与引用读取均按上文作答。
 
 Market Data 只消费、但不定义也不重新解释 R&D Owner contract 中明确规定的 big-endian canonical binary
 codec；其 JSON 表示不是 canonical receipt material。registration 必须通过固定 R&D adapter 取得

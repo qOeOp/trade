@@ -11,17 +11,21 @@
 
 use std::collections::BTreeSet;
 use std::fmt::Debug;
+use std::future::Future;
+use std::pin::Pin;
 
 use sqlx::{Postgres, Row, Transaction};
 
 use crate::owner::{
+    instrument_master::authority::{ObservationClockV1, select_facts_observed},
+    research_instrument_scope_v1::ResearchInstrumentScopeV1,
     source_binding::BindingDigest,
     universe_selection::{
-        UniverseSelectionErrorV1, UniverseSelectionReadbackV1, UntrustedUniverseSelectionLocatorV1,
-        UntrustedUniverseSelectionRequestV1,
+        HistoricalMembershipRecordV1, UniverseSelectionErrorV1, UniverseSelectionReadbackV1,
+        UntrustedUniverseSelectionLocatorV1, UntrustedUniverseSelectionRequestV1,
         authority::{
             HistoricalMembershipFactProposalV1, UniverseSelectionRuleEvaluatorV1,
-            decode_readback_v1, decode_source_fact_v1, issue_source_fact_v1,
+            decode_readback_v1, decode_source_fact_v1, fixed_member_scope_v1, issue_source_fact_v1,
             issue_universe_selection_readback_v1, select_complete_membership_v1, validate_request,
         },
         codec,
@@ -32,6 +36,17 @@ pub(super) const MAX_UNIVERSE_SELECTION_AGGREGATE_BYTES_V1: usize = 8 * 1024 * 1
 
 pub(super) const UNIVERSE_SELECTION_SCHEMA_V1: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS market_data_private.historical_membership_frontiers_v1 (eligible_frontier BYTEA PRIMARY KEY CHECK(octet_length(eligible_frontier)=32))",
+    // Admission order: each frontier created from now on takes the next number, and the latest
+    // numbered frontier is the one Market Data holds as current. A frontier admitted before this
+    // column existed has no number and is never current; it is not renumbered, so its membership
+    // counts again only once it is admitted under a new frontier digest.
+    "CREATE SEQUENCE IF NOT EXISTS market_data_private.historical_membership_frontier_admissions_v1 AS BIGINT MINVALUE 1",
+    "ALTER TABLE market_data_private.historical_membership_frontiers_v1 ADD COLUMN IF NOT EXISTS admission_sequence BIGINT UNIQUE CHECK (admission_sequence > 0)",
+    "REVOKE ALL ON SEQUENCE market_data_private.historical_membership_frontier_admissions_v1 FROM PUBLIC",
+    // The one statement of which frontier is current, for the Owner's own evaluation and for the
+    // reads it answers R&D with alike.
+    "CREATE OR REPLACE FUNCTION market_data_private.current_eligible_frontier_v1() RETURNS BYTEA LANGUAGE SQL STABLE SET search_path=pg_catalog, pg_temp AS $function$ SELECT f.eligible_frontier FROM market_data_private.historical_membership_frontiers_v1 f WHERE f.admission_sequence IS NOT NULL ORDER BY f.admission_sequence DESC LIMIT 1 $function$",
+    "REVOKE ALL ON FUNCTION market_data_private.current_eligible_frontier_v1() FROM PUBLIC",
     "CREATE TABLE IF NOT EXISTS market_data_private.historical_membership_facts_v1 (fact_identity BYTEA PRIMARY KEY CHECK(octet_length(fact_identity)=32), eligible_frontier BYTEA NOT NULL CHECK(octet_length(eligible_frontier)=32), member_key BYTEA NOT NULL CHECK(octet_length(member_key)>0), instrument BYTEA NOT NULL CHECK(octet_length(instrument)>0), predecessor_identity BYTEA NULL REFERENCES market_data_private.historical_membership_facts_v1(fact_identity), decision_cut BIGINT NOT NULL CHECK(decision_cut>0), owner_observation_ns TEXT NOT NULL CHECK(owner_observation_ns<>''), fact_bytes BYTEA NOT NULL CHECK(octet_length(fact_bytes)>0), UNIQUE(eligible_frontier,member_key,fact_identity))",
     "CREATE TABLE IF NOT EXISTS market_data_private.historical_membership_heads_v1 (eligible_frontier BYTEA NOT NULL CHECK(octet_length(eligible_frontier)=32), member_key BYTEA NOT NULL CHECK(octet_length(member_key)>0), fact_identity BYTEA UNIQUE NOT NULL REFERENCES market_data_private.historical_membership_facts_v1(fact_identity), PRIMARY KEY(eligible_frontier,member_key))",
     "CREATE TABLE IF NOT EXISTS market_data_private.historical_membership_manifest_v1 (eligible_frontier BYTEA NOT NULL CHECK(octet_length(eligible_frontier)=32), ordinal BIGINT NOT NULL CHECK(ordinal>0), member_key BYTEA NOT NULL CHECK(octet_length(member_key)>0), PRIMARY KEY(eligible_frontier,ordinal), UNIQUE(eligible_frontier,member_key))",
@@ -53,6 +68,27 @@ pub(super) async fn install_universe_selection_schema_v1(
     Ok(())
 }
 
+/// The eligible-instrument frontier Market Data holds as current: the latest admitted one.
+///
+/// Admission order is Market Data's own, so a requester never chooses the frontier its selection
+/// is evaluated against. `None` when no frontier has been admitted since frontiers were numbered.
+pub(super) async fn resolve_current_eligible_frontier_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<Option<BindingDigest>, UniverseSelectionErrorV1> {
+    let current: Option<Vec<u8>> =
+        sqlx::query_scalar("SELECT market_data_private.current_eligible_frontier_v1()")
+            .fetch_one(&mut **transaction)
+            .await
+            .map_err(|cause| store_error(&cause))?;
+    current
+        .map(|bytes| {
+            <[u8; 32]>::try_from(bytes.as_slice())
+                .map(BindingDigest::from_untrusted_bytes)
+                .map_err(|_| UniverseSelectionErrorV1::StoreUntrusted)
+        })
+        .transpose()
+}
+
 pub(super) async fn persist_historical_membership_frontier_v1(
     transaction: &mut Transaction<'_, Postgres>,
     eligible_frontier: BindingDigest,
@@ -62,7 +98,7 @@ pub(super) async fn persist_historical_membership_frontier_v1(
         return Err(UniverseSelectionErrorV1::InvalidMembership);
     }
     advisory_lock(transaction, eligible_frontier).await?;
-    let created = sqlx::query("INSERT INTO market_data_private.historical_membership_frontiers_v1(eligible_frontier) VALUES($1) ON CONFLICT(eligible_frontier) DO NOTHING")
+    let created = sqlx::query("INSERT INTO market_data_private.historical_membership_frontiers_v1(eligible_frontier,admission_sequence) VALUES($1,nextval('market_data_private.historical_membership_frontier_admissions_v1')) ON CONFLICT(eligible_frontier) DO NOTHING")
         .bind(eligible_frontier.as_bytes().as_slice()).execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?
         .rows_affected() == 1;
     let mut facts = proposals
@@ -124,10 +160,15 @@ pub(super) async fn persist_historical_membership_frontier_v1(
                 return Err(UniverseSelectionErrorV1::InvalidMembership);
             }
         }
-        let existing: Option<Vec<u8>> = sqlx::query_scalar("SELECT fact_bytes FROM market_data_private.historical_membership_facts_v1 WHERE fact_identity=$1 FOR UPDATE")
+        // A fact's identity does not name its frontier, but its row does: the same fact stated
+        // for a second frontier is a caller conflict, refused here rather than left to surface as
+        // the heads table's unique violation.
+        let existing: Option<(Vec<u8>, Vec<u8>)> = sqlx::query_as("SELECT eligible_frontier,fact_bytes FROM market_data_private.historical_membership_facts_v1 WHERE fact_identity=$1 FOR UPDATE")
             .bind(fact.identity().as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
-        if let Some(bytes) = existing {
-            if bytes != fact.canonical_bytes() {
+        if let Some((frontier, bytes)) = existing {
+            if frontier != eligible_frontier.as_bytes().as_slice()
+                || bytes != fact.canonical_bytes()
+            {
                 return Err(UniverseSelectionErrorV1::RequestConflict);
             }
         } else {
@@ -192,8 +233,20 @@ pub(super) async fn resolve_universe_selection_in_transaction_v1(
         .iter()
         .map(|bytes| decode_source_fact_v1(bytes))
         .collect::<Result<Vec<_>, _>>()?;
+    let fixed = fixed_member_scope_v1(
+        request.selection_rule_identity(),
+        request.selection_rule_bytes(),
+    )?;
+
+    if let Some(scope) = &fixed {
+        fixed_member_preconditions_v1(transaction, request, scope).await?;
+    }
     let membership =
         select_complete_membership_v1(request, &source_facts, &expected_member_keys, evaluator)?;
+
+    if let Some(scope) = &fixed {
+        fixed_members_included_v1(scope, &membership)?;
+    }
     let database: String = sqlx::query_scalar("SELECT current_database()")
         .fetch_one(&mut **transaction)
         .await
@@ -209,6 +262,74 @@ pub(super) async fn resolve_universe_selection_in_transaction_v1(
     validate_aggregate_size(&readback)?;
     insert_readback_rows(transaction, &readback, sequence).await?;
     Ok(readback)
+}
+
+type FixedMemberPreconditionsFutureV1<'a> =
+    Pin<Box<dyn Future<Output = Result<(), UniverseSelectionErrorV1>> + Send + 'a>>;
+
+/// What a fixed-member request needs before its frontier is evaluated.
+///
+/// It is evaluated against the frontier Market Data holds as current, never one the requester
+/// chose, and each requested identity must resolve to an Instrument Master fact in force and
+/// observable at the request's instants: an unresolved identity is refused, never dropped from a
+/// selection that would then hold fewer members. Built outside the caller's frame, which sits on
+/// the replay composition chain entry's deepest path.
+fn fixed_member_preconditions_v1<'a, 'b: 'a>(
+    transaction: &'a mut Transaction<'b, Postgres>,
+    request: &'a UntrustedUniverseSelectionRequestV1,
+    scope: &'a ResearchInstrumentScopeV1,
+) -> FixedMemberPreconditionsFutureV1<'a> {
+    Box::pin(async move {
+        if resolve_current_eligible_frontier_v1(transaction).await?
+            != Some(request.eligible_instrument_frontier())
+        {
+            return Err(UniverseSelectionErrorV1::FrontierNotCurrent);
+        }
+        let clock = super::load_owner_clock_head_v1(transaction)
+            .await
+            .map_err(|cause| store_error(&cause))?
+            .ok_or(UniverseSelectionErrorV1::StoreUnavailable)?;
+        let clock = ObservationClockV1::from_owner_head(
+            &clock.clock_identity,
+            &clock.clock_epoch,
+            clock.monotonic_sequence,
+        )
+        .ok_or(UniverseSelectionErrorV1::StoreUntrusted)?;
+        let facts = super::load_instrument_facts(transaction, scope.identities(), false)
+            .await
+            .map_err(|cause| store_error(&cause))?;
+
+        for identity in scope.identities() {
+            select_facts_observed(
+                &facts,
+                std::slice::from_ref(identity),
+                request.effective_at_ns(),
+                request.owner_observation_ns(),
+                request.decision_cut(),
+                clock,
+            )
+            .map_err(|_| UniverseSelectionErrorV1::FixedMemberUnresolved)?;
+        }
+        Ok(())
+    })
+}
+
+/// Each identity a fixed-member request names is included by exactly one member.
+fn fixed_members_included_v1(
+    scope: &ResearchInstrumentScopeV1,
+    membership: &[HistoricalMembershipRecordV1],
+) -> Result<(), UniverseSelectionErrorV1> {
+    for identity in scope.identities() {
+        let included = membership
+            .iter()
+            .filter(|member| member.included() && member.instrument() == identity.as_bytes())
+            .count();
+
+        if included != 1 {
+            return Err(UniverseSelectionErrorV1::FixedMemberNotInFrontier);
+        }
+    }
+    Ok(())
 }
 
 /// Writes one issued selection's record, receipt, and outbox rows; the only writer of all three.

@@ -374,6 +374,13 @@ pub enum UniverseSelectionErrorV1 {
     StoreUntrusted,
     CommitInterrupted,
     ResponseLost,
+    /// A fixed-member request names a frontier other than the one Market Data holds as current.
+    FrontierNotCurrent,
+    /// A fixed-member identity has no Instrument Master fact in force and observable at the
+    /// request's instants.
+    FixedMemberUnresolved,
+    /// A fixed-member identity is not included by exactly one member of the frontier.
+    FixedMemberNotInFrontier,
 }
 
 impl Display for UniverseSelectionErrorV1 {

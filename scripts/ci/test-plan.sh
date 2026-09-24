@@ -803,10 +803,16 @@ generated_block="$(sed -n '/Restore generated stubs Rust cache/,/Upload wheel ar
 # keeps the entry distinct from the wheel cache in this same job without re-introducing
 # compile inputs.
 [[ "$generated_block" == *'key: py-stubs'* ]]
-if [[ "$generated_block" == *'hashFiles('* ]]; then
+# The one file hashed into every rust-cache prefix is build-env.mk (scripts/ci/check-build-env-file.bash);
+# any other hashFiles in this block is the churn described above.
+generated_prefix="prefix-key: v0-rust-\${{ hashFiles('build-env.mk') }}"
+[[ "$generated_block" == *"$generated_prefix"* ]]
+if [[ "${generated_block//"$generated_prefix"/}" == *'hashFiles('* ]]; then
   echo "Generated stubs cache key must not name compile inputs: rust-cache derives them" >&2
   exit 1
 fi
+bash "$repo_root/scripts/ci/check-build-env-file.bash" --self-test
+bash "$repo_root/scripts/ci/check-build-env-file.bash"
 [[ "$generated_block" == *"runner.environment == 'github-hosted'"* ]]
 [[ "$generated_block" == *"format('{0}/target/py-stubs', github.workspace)"* ]]
 [[ "$generated_block" == *'make py-stubs'* ]]

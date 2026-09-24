@@ -10,8 +10,8 @@ use super::{
     instrument_master_v2::{
         InstrumentMasterCustodyErrorV2, InstrumentMasterCutLocatorV2, InstrumentMasterCutReceiptV2,
         InstrumentMasterCutRequestV2, InstrumentMasterCutV2, InstrumentMasterFactV2,
-        InstrumentMasterReadbackV2, InstrumentMasterResolverV2, native_replay_request_identity_v2,
-        resolver_seal_v2,
+        InstrumentMasterReadbackV2, InstrumentMasterResolverV2, PublicInstrumentClassV2,
+        native_replay_request_identity_v2, resolver_seal_v2,
     },
     postgres::{BoundUniverseSelectionErrorV1, recover_bound_universe_selection_in_transaction_v1},
     replay_market_facts_v2::ReplayCompositionBindingLocatorV1,
@@ -404,6 +404,13 @@ async fn issue_cut_in_transaction(
     for member in members {
         facts.push(resolve_member_at(tx, member, selection.record().owner_observation_ns()).await?);
     }
+
+    if facts
+        .iter()
+        .any(|fact| !class_has_no_corporate_actions(fact.instrument_class()))
+    {
+        return Err(InstrumentMasterCustodyErrorV2::MemberClassCarriesCorporateActions);
+    }
     let cut = InstrumentMasterCutV2::issue(
         request,
         selection.record().identity(),
@@ -462,6 +469,20 @@ async fn load_bound_replay_binding(
         ))
     })
     .transpose()
+}
+
+/// Whether a class has no corporate actions by definition.
+///
+/// A universe-member Replay binds no corporate-action cut, and this is the check that lets it: a
+/// crypto perpetual has no split, dividend, expiry or roll, and a rename makes a new canonical
+/// instrument that historical membership proves. The match lists every class and has no wildcard,
+/// so a class added later does not compile until someone decides here whether it carries corporate
+/// actions. No input reaches the refusal today, and that is deliberate: its positive control is
+/// that compile failure, not a runtime case.
+const fn class_has_no_corporate_actions(class: PublicInstrumentClassV2) -> bool {
+    match class {
+        PublicInstrumentClassV2::CryptoPerpetual => true,
+    }
 }
 
 async fn resolve_member_at(
@@ -1274,10 +1295,11 @@ pub(crate) mod tests {
             let first = format!("rd-replay-concurrent-{round}-a");
             let second = format!("rd-replay-concurrent-{round}-b");
             let (a, b, resolved) = tokio::time::timeout(bounded, async {
+                // Boxed: three issuances' futures side by side exceed the large-future limit.
                 tokio::join!(
-                    owner.issue_cut_for_bound_replay_v1(&first, two_binding),
-                    owner.issue_cut_for_bound_replay_v1(&second, one_binding),
-                    owner.resolve(issued.locator()),
+                    Box::pin(owner.issue_cut_for_bound_replay_v1(&first, two_binding)),
+                    Box::pin(owner.issue_cut_for_bound_replay_v1(&second, one_binding)),
+                    Box::pin(owner.resolve(issued.locator())),
                 )
             })
             .await
