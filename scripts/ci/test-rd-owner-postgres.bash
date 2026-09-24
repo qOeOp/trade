@@ -354,9 +354,11 @@ check_nextest_graph_contract() {
   fi
   # Every channel AGENTS.md accepts as chain evidence has to call it. A channel that does not still
   # runs entry 28 and still reports PASS - in milliseconds, having driven no browser - so its
-  # absence here is indistinguishable from success in the chain's own output.
+  # absence here is indistinguishable from success in the chain's own output. Those channels are
+  # `owner-chains` and `build`'s chain job; `rd-owner-postgres.yml` is not one (its own header says
+  # why), so it is not listed.
   local acceptance_channel
-  for acceptance_channel in rd-owner-postgres owner-chains build; do
+  for acceptance_channel in owner-chains build; do
     if ! rg -Fq './.github/actions/dashboard-browser-acceptance' \
       "$repository_root/.github/workflows/${acceptance_channel}.yml"; then
       echo "ERROR: ${acceptance_channel}.yml claims to carry the Owner chain but never installs the sealed Dashboard browser acceptance inputs." >&2

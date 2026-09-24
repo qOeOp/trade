@@ -1,5 +1,11 @@
 name: rd-owner-postgres
 
+# Not an Owner acceptance channel. AGENTS.md accepts an Owner implementation on its chain entries
+# passing in `owner-chains` or in `build`'s chain job, and this is neither: it builds under the
+# Makefile's default `nextest` profile (dependencies optimised) where both of those build under
+# `ci-pr`, and its RUST_TEST_EXTRA_FEATURES carries three sealed rd-owner-api features they do not.
+# A green run here is not acceptance evidence for anything.
+
 permissions:
   contents: read
 
