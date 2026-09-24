@@ -323,7 +323,7 @@ fn fixed_members_included_v1(
             .filter(|member| member.included() && member.instrument() == identity.as_bytes())
             .count();
 
-        if included != 1 {
+        if included > 1 {
             return Err(UniverseSelectionErrorV1::FixedMemberNotInFrontier);
         }
     }
