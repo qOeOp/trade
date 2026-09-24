@@ -6,16 +6,19 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{
-    ReplayCorporateActionTermsV2, ReplayMarketDependencyKindV2, ReplayMarketDependencyRefV2,
-    ReplayMarketFactsErrorV2, ReplayMarketFactsFrontierV2, ReplayMarketFactsReadbackV2,
-    ReplayMarketFactsReceiptV2, ReplayMarketFactsV2, ReplayNativeChainV2, ReplayReferenceFactCutV2,
-    ReplayReferenceFactKindV2, ReplayReferenceFactScopeV2, ReplayReferenceFactTimeV2,
-    ReplayReferenceFactV2, ReplayReferenceFactValueV2, UntrustedReplayMarketFactsRequestV2,
+    ReplayCorporateActionTermsV2, ReplayFrontierChainV2, ReplayMarketDependencyKindV2,
+    ReplayMarketDependencyRefV2, ReplayMarketFactsErrorV2, ReplayMarketFactsFrontierV2,
+    ReplayMarketFactsReadbackV2, ReplayMarketFactsReceiptV2, ReplayMarketFactsShapeV2,
+    ReplayMarketFactsV2, ReplayNativeChainV2, ReplayReferenceFactCutV2, ReplayReferenceFactKindV2,
+    ReplayReferenceFactScopeV2, ReplayReferenceFactTimeV2, ReplayReferenceFactV2,
+    ReplayReferenceFactValueV2, UntrustedReplayMarketFactsRequestV2,
     codec::{
         CUT_DOMAIN, Encoder, FACT_DOMAIN, FACTS_DOMAIN, FRONTIER_DOMAIN, MAX_AGGREGATE_BYTES,
         MAX_CUT_BYTES, MAX_FACT_BYTES, MAX_FACTS_PER_CUT, MAX_FIELD_BYTES, MAX_FRONTIER_BYTES,
-        MAX_RECEIPT_BYTES, MAX_TOTAL_FACTS, PIT_CLOCK_DOMAIN, RECEIPT_DOMAIN, digest,
-        encode_dependency, encode_time, encode_value, valid_adjustment, valid_timestamp_basis,
+        MAX_RECEIPT_BYTES, MAX_TOTAL_FACTS, PIT_CLOCK_DOMAIN, RECEIPT_DOMAIN, SCHEMA_VERSION,
+        UNIVERSE_MEMBERS_FACTS_DOMAIN, UNIVERSE_MEMBERS_FRONTIER_DOMAIN,
+        UNIVERSE_MEMBERS_SCHEMA_VERSION, digest, encode_dependency, encode_time, encode_value,
+        valid_adjustment, valid_timestamp_basis,
     },
 };
 use crate::owner::source_binding::BindingDigest;
@@ -28,6 +31,22 @@ const REQUIRED_REFERENCE_KINDS: [ReplayReferenceFactKindV2; 7] = [
     ReplayReferenceFactKindV2::CorrectionPolicy,
     ReplayReferenceFactKindV2::CorporateAction,
     ReplayReferenceFactKindV2::HistoricalMembership,
+];
+
+/// The reference cuts a universe-member aggregate carries: the ones whose authority it binds. Its
+/// calendar, session and time-zone facts are proven per member by the native bar schedule, and
+/// corporate actions by the request-keyed Instrument Master V2 cut, so none of them is scoped here.
+const UNIVERSE_MEMBER_REFERENCE_KINDS: [ReplayReferenceFactKindV2; 3] = [
+    ReplayReferenceFactKindV2::MarketSemantics,
+    ReplayReferenceFactKindV2::CorrectionPolicy,
+    ReplayReferenceFactKindV2::HistoricalMembership,
+];
+
+const UNIVERSE_MEMBER_DEPENDENCY_KINDS: [ReplayMarketDependencyKindV2; 4] = [
+    ReplayMarketDependencyKindV2::PitSnapshotV1,
+    ReplayMarketDependencyKindV2::SourceBindingV1,
+    ReplayMarketDependencyKindV2::UniverseSelectionV1,
+    ReplayMarketDependencyKindV2::StrategyInputUniverseFrameV1,
 ];
 
 const REQUIRED_BASE_DEPENDENCY_KINDS: [ReplayMarketDependencyKindV2; 4] = [
@@ -91,6 +110,17 @@ pub(crate) struct ReplayReferenceFactScopeProposalV2 {
 pub(crate) struct ReplayMarketFactsEvidenceV2 {
     pub(crate) base_dependencies: Vec<ReplayMarketDependencyRefV2>,
     pub(crate) native_chain: ReplayNativeChainEvidenceV2,
+    pub(crate) reference_cuts: Vec<ReplayReferenceFactCutProposalV2>,
+    pub(crate) stable_correlation: BindingDigest,
+}
+
+/// Owner-private proof for one universe-member aggregate.
+///
+/// `base_dependencies` are the PIT snapshot, Source Binding and Universe Selection the request is
+/// bound to; `universe_frame` is the frame Market Data derived over the Design's complete role set.
+pub(crate) struct ReplayUniverseMemberFactsEvidenceV2 {
+    pub(crate) base_dependencies: Vec<ReplayMarketDependencyRefV2>,
+    pub(crate) universe_frame: ReplayMarketDependencyRefV2,
     pub(crate) reference_cuts: Vec<ReplayReferenceFactCutProposalV2>,
     pub(crate) stable_correlation: BindingDigest,
 }
@@ -201,12 +231,47 @@ pub(crate) fn issue_replay_market_facts_v2(
     let (dependencies, native_chain) =
         validate_dependencies(evidence.base_dependencies, evidence.native_chain)?;
     validate_request_dependencies(request, &dependencies)?;
+    issue_sealed_aggregate(
+        request,
+        &dependencies,
+        ReplayFrontierChainV2::FirstCorpus(Box::new(native_chain)),
+        evidence.reference_cuts,
+        evidence.stable_correlation,
+    )
+}
 
-    if evidence.reference_cuts.len() != REQUIRED_REFERENCE_KINDS.len() {
+/// Issues one universe-member aggregate: four dependencies, no Instrument Master and no native
+/// census chain, and only the reference cuts whose authority those dependencies carry.
+pub(crate) fn issue_universe_member_replay_market_facts_v2(
+    request: &UntrustedReplayMarketFactsRequestV2,
+    evidence: ReplayUniverseMemberFactsEvidenceV2,
+) -> Result<ReplayMarketFactsReadbackV2, ReplayMarketFactsErrorV2> {
+    validate_request(request)?;
+    let dependencies =
+        validate_universe_member_dependencies(evidence.base_dependencies, evidence.universe_frame)?;
+    validate_request_dependencies(request, &dependencies)?;
+    issue_sealed_aggregate(
+        request,
+        &dependencies,
+        ReplayFrontierChainV2::UniverseMembers,
+        evidence.reference_cuts,
+        evidence.stable_correlation,
+    )
+}
+
+fn issue_sealed_aggregate(
+    request: &UntrustedReplayMarketFactsRequestV2,
+    dependencies: &[ReplayMarketDependencyRefV2],
+    chain: ReplayFrontierChainV2,
+    reference_cuts: Vec<ReplayReferenceFactCutProposalV2>,
+    stable_correlation: BindingDigest,
+) -> Result<ReplayMarketFactsReadbackV2, ReplayMarketFactsErrorV2> {
+    let shape = chain_shape(&chain);
+
+    if reference_cuts.len() != required_reference_kinds(shape).len() {
         return Err(ReplayMarketFactsErrorV2::IncompleteReferenceCuts);
     }
-    let total_facts = evidence
-        .reference_cuts
+    let total_facts = reference_cuts
         .iter()
         .try_fold(0_usize, |total, cut| total.checked_add(cut.facts.len()))
         .ok_or(ReplayMarketFactsErrorV2::CapacityExceeded)?;
@@ -214,16 +279,20 @@ pub(crate) fn issue_replay_market_facts_v2(
     if total_facts > MAX_TOTAL_FACTS {
         return Err(ReplayMarketFactsErrorV2::CapacityExceeded);
     }
-    preflight_reference_cuts(request, &dependencies, &evidence.reference_cuts)?;
-    let reference_cuts = evidence
-        .reference_cuts
+    preflight_reference_cuts(request, dependencies, &reference_cuts)?;
+    let reference_cuts = reference_cuts
         .into_iter()
-        .map(|proposal| issue_reference_cut(request, &dependencies, proposal))
+        .map(|proposal| issue_reference_cut(request, dependencies, proposal))
         .collect::<Result<Vec<_>, _>>()?;
-    validate_replay_semantics(request_context(request)?, &dependencies, &reference_cuts)?;
-    let frontier = issue_frontier(&dependencies, native_chain, &reference_cuts)?;
+    validate_replay_semantics(
+        request_context(request)?,
+        shape,
+        dependencies,
+        &reference_cuts,
+    )?;
+    let frontier = issue_frontier(dependencies, chain, &reference_cuts)?;
     let facts = issue_facts(request, reference_cuts, frontier)?;
-    let receipt = issue_receipt(&facts, evidence.stable_correlation)?;
+    let receipt = issue_receipt(&facts, stable_correlation)?;
     let readback = ReplayMarketFactsReadbackV2 { facts, receipt };
 
     if verify_replay_market_facts_readback_v2(&readback) {
@@ -510,6 +579,69 @@ fn validate_native_chain(chain: ReplayNativeChainV2) -> Result<(), ReplayMarketF
         Err(ReplayMarketFactsErrorV2::DependencyMismatch)
     } else {
         Ok(())
+    }
+}
+
+fn validate_universe_member_dependencies(
+    mut dependencies: Vec<ReplayMarketDependencyRefV2>,
+    universe_frame: ReplayMarketDependencyRefV2,
+) -> Result<Box<[ReplayMarketDependencyRefV2]>, ReplayMarketFactsErrorV2> {
+    // The frame is content-addressed: its identity and digest are one value.
+    if universe_frame.kind != ReplayMarketDependencyKindV2::StrategyInputUniverseFrameV1
+        || universe_frame.identity != universe_frame.digest
+    {
+        return Err(ReplayMarketFactsErrorV2::DependencyMismatch);
+    }
+    dependencies.push(universe_frame);
+    dependencies.sort_by_key(|value| value.kind);
+
+    if dependencies
+        .iter()
+        .map(|value| value.kind)
+        .ne(UNIVERSE_MEMBER_DEPENDENCY_KINDS)
+        || dependencies.iter().any(|value| {
+            value.identity.as_bytes() == &[0; 32] || value.digest.as_bytes() == &[0; 32]
+        })
+    {
+        return Err(ReplayMarketFactsErrorV2::DependencyMismatch);
+    }
+    Ok(dependencies.into_boxed_slice())
+}
+
+const fn chain_shape(chain: &ReplayFrontierChainV2) -> ReplayMarketFactsShapeV2 {
+    match chain {
+        ReplayFrontierChainV2::FirstCorpus(_) => ReplayMarketFactsShapeV2::FirstCorpus,
+        ReplayFrontierChainV2::UniverseMembers => ReplayMarketFactsShapeV2::UniverseMembers,
+    }
+}
+
+const fn required_reference_kinds(
+    shape: ReplayMarketFactsShapeV2,
+) -> &'static [ReplayReferenceFactKindV2] {
+    match shape {
+        ReplayMarketFactsShapeV2::FirstCorpus => &REQUIRED_REFERENCE_KINDS,
+        ReplayMarketFactsShapeV2::UniverseMembers => &UNIVERSE_MEMBER_REFERENCE_KINDS,
+    }
+}
+
+const fn schema_version(shape: ReplayMarketFactsShapeV2) -> u16 {
+    match shape {
+        ReplayMarketFactsShapeV2::FirstCorpus => SCHEMA_VERSION,
+        ReplayMarketFactsShapeV2::UniverseMembers => UNIVERSE_MEMBERS_SCHEMA_VERSION,
+    }
+}
+
+const fn frontier_domain(shape: ReplayMarketFactsShapeV2) -> &'static [u8] {
+    match shape {
+        ReplayMarketFactsShapeV2::FirstCorpus => FRONTIER_DOMAIN,
+        ReplayMarketFactsShapeV2::UniverseMembers => UNIVERSE_MEMBERS_FRONTIER_DOMAIN,
+    }
+}
+
+const fn facts_domain(shape: ReplayMarketFactsShapeV2) -> &'static [u8] {
+    match shape {
+        ReplayMarketFactsShapeV2::FirstCorpus => FACTS_DOMAIN,
+        ReplayMarketFactsShapeV2::UniverseMembers => UNIVERSE_MEMBERS_FACTS_DOMAIN,
     }
 }
 
@@ -975,10 +1107,11 @@ fn validate_logical_histories(
 
 fn validate_replay_semantics(
     context: ReplayRequestContextV2,
+    shape: ReplayMarketFactsShapeV2,
     dependencies: &[ReplayMarketDependencyRefV2],
     cuts: &[ReplayReferenceFactCutV2],
 ) -> Result<(), ReplayMarketFactsErrorV2> {
-    validate_reference_cut_census(cuts)?;
+    validate_reference_cut_census(shape, cuts)?;
     let source_binding_identity = dependencies
         .iter()
         .find(|dependency| dependency.kind() == ReplayMarketDependencyKindV2::SourceBindingV1)
@@ -1085,14 +1218,14 @@ fn validate_stored_fact(
 }
 
 fn validate_reference_cut_census(
+    shape: ReplayMarketFactsShapeV2,
     cuts: &[ReplayReferenceFactCutV2],
 ) -> Result<(), ReplayMarketFactsErrorV2> {
+    let required = required_reference_kinds(shape);
     let kinds = cuts.iter().map(|cut| cut.kind).collect::<BTreeSet<_>>();
-    if cuts.len() != REQUIRED_REFERENCE_KINDS.len()
-        || kinds.len() != REQUIRED_REFERENCE_KINDS.len()
-        || REQUIRED_REFERENCE_KINDS
-            .iter()
-            .any(|kind| !kinds.contains(kind))
+    if cuts.len() != required.len()
+        || kinds.len() != required.len()
+        || required.iter().any(|kind| !kinds.contains(kind))
     {
         Err(ReplayMarketFactsErrorV2::IncompleteReferenceCuts)
     } else {
@@ -1102,7 +1235,7 @@ fn validate_reference_cut_census(
 
 fn issue_frontier(
     dependencies: &[ReplayMarketDependencyRefV2],
-    native_chain: ReplayNativeChainV2,
+    chain: ReplayFrontierChainV2,
     cuts: &[ReplayReferenceFactCutV2],
 ) -> Result<ReplayMarketFactsFrontierV2, ReplayMarketFactsErrorV2> {
     let mut reference_cut_identities = cuts
@@ -1110,7 +1243,25 @@ fn issue_frontier(
         .map(ReplayReferenceFactCutV2::identity)
         .collect::<Vec<_>>();
     reference_cut_identities.sort();
-    let mut encoder = Encoder::new(MAX_FRONTIER_BYTES);
+    let canonical_bytes = encode_frontier_bytes(dependencies, &chain, &reference_cut_identities)?;
+    let identity = digest(frontier_domain(chain_shape(&chain)), &canonical_bytes);
+    Ok(ReplayMarketFactsFrontierV2 {
+        dependencies: dependencies.to_vec().into_boxed_slice(),
+        chain,
+        reference_cut_identities: reference_cut_identities.into_boxed_slice(),
+        canonical_bytes,
+        identity,
+    })
+}
+
+/// The frontier's canonical bytes. The first corpus keeps its schema and layout byte for byte; a
+/// universe-member frontier states its own schema and has no native chain to encode.
+fn encode_frontier_bytes(
+    dependencies: &[ReplayMarketDependencyRefV2],
+    chain: &ReplayFrontierChainV2,
+    reference_cut_identities: &[BindingDigest],
+) -> Result<Box<[u8]>, ReplayMarketFactsErrorV2> {
+    let mut encoder = Encoder::with_schema(MAX_FRONTIER_BYTES, schema_version(chain_shape(chain)));
     encoder.u32(
         u32::try_from(dependencies.len())
             .map_err(|_| ReplayMarketFactsErrorV2::CanonicalEncodingUnavailable)?,
@@ -1119,24 +1270,19 @@ fn issue_frontier(
     for dependency in dependencies {
         encode_dependency(&mut encoder, *dependency);
     }
-    encode_native_chain(&mut encoder, native_chain);
+
+    if let ReplayFrontierChainV2::FirstCorpus(native_chain) = chain {
+        encode_native_chain(&mut encoder, **native_chain);
+    }
     encoder.u32(
         u32::try_from(reference_cut_identities.len())
             .map_err(|_| ReplayMarketFactsErrorV2::CanonicalEncodingUnavailable)?,
     );
 
-    for identity in &reference_cut_identities {
+    for identity in reference_cut_identities {
         encoder.digest(*identity);
     }
-    let canonical_bytes = encoder.finish()?;
-    let identity = digest(FRONTIER_DOMAIN, &canonical_bytes);
-    Ok(ReplayMarketFactsFrontierV2 {
-        dependencies: dependencies.to_vec().into_boxed_slice(),
-        native_chain,
-        reference_cut_identities: reference_cut_identities.into_boxed_slice(),
-        canonical_bytes,
-        identity,
-    })
+    encoder.finish()
 }
 
 fn encode_native_chain(encoder: &mut Encoder, chain: ReplayNativeChainV2) {
@@ -1155,8 +1301,9 @@ fn issue_facts(
     frontier: ReplayMarketFactsFrontierV2,
 ) -> Result<ReplayMarketFactsV2, ReplayMarketFactsErrorV2> {
     reference_cuts.sort_by_key(|cut| cut.kind);
+    let shape = frontier.shape();
     let locator = request.pit_locator();
-    let mut encoder = Encoder::new(MAX_AGGREGATE_BYTES);
+    let mut encoder = Encoder::with_schema(MAX_AGGREGATE_BYTES, schema_version(shape));
     encoder.digest(locator.request_identity);
     encoder.digest(locator.request_digest);
     encoder.digest(locator.snapshot_identity);
@@ -1180,7 +1327,7 @@ fn issue_facts(
         encoder.nested_bytes(cut.canonical_bytes())?;
     }
     let canonical_bytes = encoder.finish()?;
-    let identity = digest(FACTS_DOMAIN, &canonical_bytes);
+    let identity = digest(facts_domain(shape), &canonical_bytes);
     Ok(ReplayMarketFactsV2 {
         request_identity: locator.request_identity,
         request_digest: locator.request_digest,
@@ -1241,6 +1388,8 @@ fn issue_receipt(
 pub fn verify_replay_market_facts_readback_v2(readback: &ReplayMarketFactsReadbackV2) -> bool {
     let facts = readback.facts();
     let receipt = readback.receipt();
+    let shape = facts.shape();
+    let required_kinds = required_reference_kinds(shape);
     let dependencies = facts.frontier.dependencies.as_ref();
     let sizes_valid = facts.canonical_bytes.len() <= MAX_AGGREGATE_BYTES
         && facts.frontier.canonical_bytes.len() <= MAX_FRONTIER_BYTES
@@ -1249,7 +1398,7 @@ pub fn verify_replay_market_facts_readback_v2(readback: &ReplayMarketFactsReadba
         && !facts.pit_clock_epoch.is_empty()
         && facts.pit_clock_identity.len() <= MAX_FIELD_BYTES
         && facts.pit_clock_epoch.len() <= MAX_FIELD_BYTES
-        && facts.reference_cuts.len() == REQUIRED_REFERENCE_KINDS.len()
+        && facts.reference_cuts.len() == required_kinds.len()
         && facts.reference_cuts.iter().all(|cut| {
             cut.canonical_bytes.len() <= MAX_CUT_BYTES
                 && cut.scope_canonical_bytes.len() <= MAX_FIELD_BYTES
@@ -1276,10 +1425,11 @@ pub fn verify_replay_market_facts_readback_v2(readback: &ReplayMarketFactsReadba
         replay_start_event_ns: facts.replay_start_event_ns,
         replay_end_event_ns_exclusive: facts.replay_end_event_ns_exclusive,
     };
-    let semantic_valid =
-        validate_stored_dependencies(context, dependencies, facts.frontier.native_chain)
-            .and_then(|()| validate_replay_semantics(context, dependencies, &facts.reference_cuts))
-            .is_ok();
+    let semantic_valid = validate_stored_dependencies(context, dependencies, &facts.frontier.chain)
+        .and_then(|()| {
+            validate_replay_semantics(context, shape, dependencies, &facts.reference_cuts)
+        })
+        .is_ok();
 
     if !semantic_valid {
         return false;
@@ -1295,13 +1445,18 @@ pub fn verify_replay_market_facts_readback_v2(readback: &ReplayMarketFactsReadba
         .reference_cuts
         .iter()
         .map(|cut| cut.kind)
-        .eq(REQUIRED_REFERENCE_KINDS)
+        .eq(required_kinds.iter().copied())
         && facts.frontier.reference_cut_identities.as_ref() == expected_cut_identities
         && canonical_facts_bytes(facts).is_ok_and(|bytes| bytes.as_ref() == facts.canonical_bytes())
-        && facts.identity == digest(FACTS_DOMAIN, facts.canonical_bytes())
-        && canonical_frontier_bytes(&facts.frontier)
-            .is_ok_and(|bytes| bytes.as_ref() == facts.frontier.canonical_bytes())
-        && facts.frontier.identity == digest(FRONTIER_DOMAIN, facts.frontier.canonical_bytes())
+        && facts.identity == digest(facts_domain(shape), facts.canonical_bytes())
+        && encode_frontier_bytes(
+            &facts.frontier.dependencies,
+            &facts.frontier.chain,
+            &facts.frontier.reference_cut_identities,
+        )
+        .is_ok_and(|bytes| bytes.as_ref() == facts.frontier.canonical_bytes())
+        && facts.frontier.identity
+            == digest(frontier_domain(shape), facts.frontier.canonical_bytes())
         && facts.reference_cuts.iter().all(verify_cut)
         && canonical_receipt_bytes(receipt)
             .is_ok_and(|bytes| bytes.as_ref() == receipt.canonical_bytes())
@@ -1312,6 +1467,50 @@ pub fn verify_replay_market_facts_readback_v2(readback: &ReplayMarketFactsReadba
 }
 
 fn validate_stored_dependencies(
+    context: ReplayRequestContextV2,
+    dependencies: &[ReplayMarketDependencyRefV2],
+    chain: &ReplayFrontierChainV2,
+) -> Result<(), ReplayMarketFactsErrorV2> {
+    match chain {
+        ReplayFrontierChainV2::FirstCorpus(native_chain) => {
+            validate_stored_first_corpus_dependencies(context, dependencies, **native_chain)
+        }
+        ReplayFrontierChainV2::UniverseMembers => {
+            validate_stored_universe_member_dependencies(context, dependencies)
+        }
+    }
+}
+
+fn validate_stored_universe_member_dependencies(
+    context: ReplayRequestContextV2,
+    dependencies: &[ReplayMarketDependencyRefV2],
+) -> Result<(), ReplayMarketFactsErrorV2> {
+    let [pit, _, _, frame] = dependencies else {
+        return Err(ReplayMarketFactsErrorV2::DependencyMismatch);
+    };
+
+    if dependencies
+        .iter()
+        .map(ReplayMarketDependencyRefV2::kind)
+        .ne(UNIVERSE_MEMBER_DEPENDENCY_KINDS)
+        || dependencies.iter().any(|dependency| {
+            dependency.identity().as_bytes() == &[0; 32]
+                || dependency.digest().as_bytes() == &[0; 32]
+        })
+        || frame.identity() != frame.digest()
+        || pit.identity() != context.pit_snapshot_identity
+        || pit.digest() != context.pit_fact_digest
+        || context.pit_observed_at >= context.pit_valid_through
+        || context.pit_decision_cut > context.pit_observed_at
+        || context.pit_clock_digest.as_bytes() == &[0; 32]
+    {
+        Err(ReplayMarketFactsErrorV2::DependencyMismatch)
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_stored_first_corpus_dependencies(
     context: ReplayRequestContextV2,
     dependencies: &[ReplayMarketDependencyRefV2],
     native_chain: ReplayNativeChainV2,
@@ -1394,34 +1593,10 @@ fn canonical_cut_bytes(
     encoder.finish()
 }
 
-fn canonical_frontier_bytes(
-    frontier: &ReplayMarketFactsFrontierV2,
-) -> Result<Box<[u8]>, ReplayMarketFactsErrorV2> {
-    let mut encoder = Encoder::new(MAX_FRONTIER_BYTES);
-    encoder.u32(
-        u32::try_from(frontier.dependencies.len())
-            .map_err(|_| ReplayMarketFactsErrorV2::CanonicalEncodingUnavailable)?,
-    );
-
-    for dependency in &frontier.dependencies {
-        encode_dependency(&mut encoder, *dependency);
-    }
-    encode_native_chain(&mut encoder, frontier.native_chain);
-    encoder.u32(
-        u32::try_from(frontier.reference_cut_identities.len())
-            .map_err(|_| ReplayMarketFactsErrorV2::CanonicalEncodingUnavailable)?,
-    );
-
-    for identity in &frontier.reference_cut_identities {
-        encoder.digest(*identity);
-    }
-    encoder.finish()
-}
-
 fn canonical_facts_bytes(
     facts: &ReplayMarketFactsV2,
 ) -> Result<Box<[u8]>, ReplayMarketFactsErrorV2> {
-    let mut encoder = Encoder::new(MAX_AGGREGATE_BYTES);
+    let mut encoder = Encoder::with_schema(MAX_AGGREGATE_BYTES, schema_version(facts.shape()));
     encoder.digest(facts.request_identity);
     encoder.digest(facts.request_digest);
     encoder.digest(facts.pit_snapshot_identity);

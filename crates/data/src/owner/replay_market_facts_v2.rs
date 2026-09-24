@@ -733,6 +733,28 @@ struct ReplayReferenceFactScopeV2 {
     authority_identity: BindingDigest,
 }
 
+/// The shape one Replay facts aggregate states for itself.
+///
+/// Its bytes carry it - the frontier and facts schema and their domains - so a reader never infers
+/// it from which dependencies happen to be present.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u16)]
+pub enum ReplayMarketFactsShapeV2 {
+    /// The exact-instrument first corpus: PIT, Source Binding, Instrument Master, Universe
+    /// Selection and the census -> joined cut -> sample projection chain.
+    FirstCorpus = 1,
+    /// A universe-member Design: PIT, Source Binding, Universe Selection and the universe frame
+    /// Market Data derives over the Design's complete role set. It binds no Instrument Master.
+    UniverseMembers = 2,
+}
+
+/// What the frontier seals beyond its dependencies, by shape.
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum ReplayFrontierChainV2 {
+    FirstCorpus(Box<ReplayNativeChainV2>),
+    UniverseMembers,
+}
+
 /// Sealed subject chain projected from the three native producer capabilities.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct ReplayNativeChainV2 {
@@ -757,6 +779,9 @@ pub enum ReplayMarketDependencyKindV2 {
     StrategyInputJoinedCutV1 = 6,
     StrategyInputSampleProjectionV2 = 7,
     StrategyInputSampleProjectionV4 = 8,
+    /// The universe frame over a universe-member Design's complete role set; its identity is its
+    /// digest.
+    StrategyInputUniverseFrameV1 = 9,
 }
 
 /// Exact reference to an existing immutable Owner record.
@@ -785,7 +810,7 @@ impl ReplayMarketDependencyRefV2 {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReplayMarketFactsFrontierV2 {
     dependencies: Box<[ReplayMarketDependencyRefV2]>,
-    native_chain: ReplayNativeChainV2,
+    chain: ReplayFrontierChainV2,
     reference_cut_identities: Box<[BindingDigest]>,
     canonical_bytes: Box<[u8]>,
     identity: BindingDigest,
@@ -794,6 +819,13 @@ pub struct ReplayMarketFactsFrontierV2 {
 impl ReplayMarketFactsFrontierV2 {
     pub fn dependencies(&self) -> &[ReplayMarketDependencyRefV2] {
         &self.dependencies
+    }
+
+    pub const fn shape(&self) -> ReplayMarketFactsShapeV2 {
+        match &self.chain {
+            ReplayFrontierChainV2::FirstCorpus(_) => ReplayMarketFactsShapeV2::FirstCorpus,
+            ReplayFrontierChainV2::UniverseMembers => ReplayMarketFactsShapeV2::UniverseMembers,
+        }
     }
 
     pub fn reference_cut_identities(&self) -> &[BindingDigest] {
@@ -876,6 +908,22 @@ impl ReplayMarketFactsV2 {
 
     pub const fn frontier(&self) -> &ReplayMarketFactsFrontierV2 {
         &self.frontier
+    }
+
+    pub const fn shape(&self) -> ReplayMarketFactsShapeV2 {
+        self.frontier.shape()
+    }
+
+    /// The universe frame a universe-member aggregate binds: what R&D reads as its resolved Owner
+    /// inputs. The first corpus binds none; its resolved Owner inputs are its observation census.
+    pub fn universe_frame_digest(&self) -> Option<BindingDigest> {
+        self.frontier
+            .dependencies
+            .iter()
+            .find(|dependency| {
+                dependency.kind == ReplayMarketDependencyKindV2::StrategyInputUniverseFrameV1
+            })
+            .map(|dependency| dependency.digest)
     }
 
     pub fn canonical_bytes(&self) -> &[u8] {

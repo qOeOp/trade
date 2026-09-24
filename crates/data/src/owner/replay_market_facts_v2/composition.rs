@@ -656,6 +656,15 @@ pub enum ReplayCompositionBindingErrorV1 {
     /// `DigestMismatch`, which reports stored bytes that do not reproduce their digest, so that a
     /// caller can be told the conflict is theirs without a store fault being told the same thing.
     IssuanceIdentityConflict,
+    /// A binding and the Replay facts under it state different shapes.
+    ///
+    /// Each record carries its own shape and neither is inferred from the other, so a disagreement
+    /// is a statement that the stored custody contradicts itself, not a missing dependency.
+    CompositionShapeMismatch,
+    /// The universe frame offered for a universe-member aggregate was not derived over this
+    /// request's PIT snapshot, its Source Binding lineage, or the members its Universe Selection
+    /// includes.
+    UniverseFrameMismatch,
 }
 
 impl Display for ReplayCompositionBindingErrorV1 {
@@ -768,6 +777,20 @@ fn validate_replay_request_binding_association_v1(
     Ok(())
 }
 
+/// Refuses Replay facts whose shape is not the shape of the binding they are stored under.
+///
+/// Every schema 1 binding is the exact-instrument first corpus, so its facts must be too.
+pub(crate) fn require_binding_facts_shape_v1(
+    _binding: &ReplayCompositionBindingReadbackV1,
+    facts: &super::ReplayMarketFactsV2,
+) -> Result<(), ReplayCompositionBindingErrorV1> {
+    if facts.shape() == super::ReplayMarketFactsShapeV2::FirstCorpus {
+        Ok(())
+    } else {
+        Err(ReplayCompositionBindingErrorV1::CompositionShapeMismatch)
+    }
+}
+
 pub(crate) fn validate_replay_composition_readback_association_v1(
     request: &UntrustedReplayMarketFactsCompositionRequestV1,
     binding: &ReplayCompositionBindingReadbackV1,
@@ -778,6 +801,7 @@ pub(crate) fn validate_replay_composition_readback_association_v1(
     if !verify_replay_market_facts_readback_v2(readback) {
         return Err(ReplayCompositionBindingErrorV1::DigestMismatch);
     }
+    require_binding_facts_shape_v1(binding, readback.facts())?;
     let replay = request.replay_v2_request();
     let facts = readback.facts();
     if facts.request_identity() != replay.pit_locator().request_identity

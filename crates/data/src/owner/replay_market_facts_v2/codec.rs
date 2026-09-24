@@ -9,6 +9,14 @@ pub(super) const FACT_DOMAIN: &[u8] = b"vibe.market-data.replay-reference-fact.v
 pub(super) const CUT_DOMAIN: &[u8] = b"vibe.market-data.replay-reference-cut.v2\0";
 pub(super) const FRONTIER_DOMAIN: &[u8] = b"vibe.market-data.replay-facts-frontier.v2\0";
 pub(super) const FACTS_DOMAIN: &[u8] = b"vibe.market-data.replay-market-facts.v2\0";
+pub(super) const UNIVERSE_MEMBERS_FRONTIER_DOMAIN: &[u8] =
+    b"vibe.market-data.replay-facts-frontier.universe-members.v2\0";
+pub(super) const UNIVERSE_MEMBERS_FACTS_DOMAIN: &[u8] =
+    b"vibe.market-data.replay-market-facts.universe-members.v2\0";
+/// Every canonical record's leading schema, except the two below.
+pub(super) const SCHEMA_VERSION: u16 = 2;
+/// The leading schema of a universe-member frontier and facts aggregate.
+pub(super) const UNIVERSE_MEMBERS_SCHEMA_VERSION: u16 = 3;
 pub(super) const RECEIPT_DOMAIN: &[u8] = b"vibe.market-data.replay-market-facts-receipt.v2\0";
 pub(super) const PIT_CLOCK_DOMAIN: &[u8] = b"vibe.market-data.replay-pit-clock.v2\0";
 pub(super) const MAX_FIELD_BYTES: usize = 4 * 1024;
@@ -28,12 +36,16 @@ pub(super) struct Encoder {
 
 impl Encoder {
     pub(super) fn new(limit: usize) -> Self {
+        Self::with_schema(limit, SCHEMA_VERSION)
+    }
+
+    pub(super) fn with_schema(limit: usize, schema: u16) -> Self {
         let mut this = Self {
             bytes: Vec::new(),
             limit,
             failed: false,
         };
-        this.u16(2);
+        this.u16(schema);
         this
     }
 

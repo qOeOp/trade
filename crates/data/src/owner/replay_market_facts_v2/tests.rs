@@ -836,19 +836,21 @@ fn native_subject_chain_cross_splices_fail_at_issuer_and_verifier() {
     );
 
     let mut verifier_joined = readback(1, true);
-    verifier_joined
-        .facts
-        .frontier
-        .native_chain
-        .joined_cut_observation_subject = d(99);
+    let super::ReplayFrontierChainV2::FirstCorpus(chain) =
+        &mut verifier_joined.facts.frontier.chain
+    else {
+        panic!("the fixture is the first corpus");
+    };
+    chain.joined_cut_observation_subject = d(99);
     assert!(!verify_replay_market_facts_readback_v2(&verifier_joined));
 
     let mut verifier_sample = readback(1, true);
-    verifier_sample
-        .facts
-        .frontier
-        .native_chain
-        .sample_projection_joined_cut_subject = d(99);
+    let super::ReplayFrontierChainV2::FirstCorpus(chain) =
+        &mut verifier_sample.facts.frontier.chain
+    else {
+        panic!("the fixture is the first corpus");
+    };
+    chain.sample_projection_joined_cut_subject = d(99);
     assert!(!verify_replay_market_facts_readback_v2(&verifier_sample));
 }
 

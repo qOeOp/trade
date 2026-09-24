@@ -106,7 +106,8 @@ where
                 | InstrumentMasterCustodyErrorV2::UnknownLocator
                 | InstrumentMasterCustodyErrorV2::StoreUnavailable
                 | InstrumentMasterCustodyErrorV2::AclUnavailable
-                | InstrumentMasterCustodyErrorV2::BoundReplayBindingUnavailable => {
+                | InstrumentMasterCustodyErrorV2::BoundReplayBindingUnavailable
+                | InstrumentMasterCustodyErrorV2::MemberClassCarriesCorporateActions => {
                     unavailable(coordinate, &e)
                 }
             }

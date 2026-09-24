@@ -2675,8 +2675,11 @@ fn insert_rejection_code(response: &mut Response, code: &str) {
 /// attestations or a just-built binding that fail to reproduce their own digest. `UnknownBinding`
 /// also reports a stored issuance whose binding cannot be recovered. `NonCanonicalOrder`,
 /// `IncompleteComposition` and `DependencyMismatch` are raised while decoding stored bytes or
-/// validating evidence the Owner assembled itself. `AmbiguousBinding` and `LegacyUnbound` are not
-/// constructed at all. Moving any of these off 503 needs the variant split where it is raised.
+/// validating evidence the Owner assembled itself. `CompositionShapeMismatch` reports stored custody
+/// whose binding and facts disagree on their shape, and `UniverseFrameMismatch` a universe frame the
+/// Owner assembled that does not match the request it issues for. `AmbiguousBinding` and
+/// `LegacyUnbound` are not constructed at all. Moving any of these off 503 needs the variant split
+/// where it is raised.
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 fn replay_composition_refusal(error: ReplayCompositionBindingErrorV1) -> Response {
     let (status, code) = match error {
@@ -2695,7 +2698,11 @@ fn replay_composition_refusal(error: ReplayCompositionBindingErrorV1) -> Respons
         | ReplayCompositionBindingErrorV1::IncompleteComposition
         | ReplayCompositionBindingErrorV1::DependencyMismatch
         | ReplayCompositionBindingErrorV1::AmbiguousBinding
-        | ReplayCompositionBindingErrorV1::LegacyUnbound => (StatusCode::SERVICE_UNAVAILABLE, None),
+        | ReplayCompositionBindingErrorV1::LegacyUnbound
+        | ReplayCompositionBindingErrorV1::CompositionShapeMismatch
+        | ReplayCompositionBindingErrorV1::UniverseFrameMismatch => {
+            (StatusCode::SERVICE_UNAVAILABLE, None)
+        }
     };
     let mut response = status.into_response();
     if let Some(code) = code {
