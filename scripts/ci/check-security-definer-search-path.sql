@@ -12,10 +12,10 @@
 DO $security_definer_search_path$
 DECLARE
   violations text;
+  checked bigint;
+  allowlisted bigint;
 BEGIN
   WITH exception_list(routine_name, search_path) AS (VALUES
-    ('backtest_owner_api.resolve_protected_replay_attempt_frontier_v1', 'pg_catalog'),
-    ('backtest_owner_api.resolve_protected_replay_result_v1', 'pg_catalog'),
     ('execution_api.read_current_paper_adapter_binding_v1', 'pg_catalog, execution_private'),
     ('execution_api.read_paper_account_opening_fact_v1', 'pg_catalog, execution_private'),
     ('governance_api.read_current_execution_scope_v1', 'pg_catalog, governance_private'),
@@ -165,10 +165,23 @@ BEGIN
       JOIN exception_list ON exception_list.routine_name=assessed.routine_name
      WHERE assessed.same_name_count>1
   )
-  SELECT pg_catalog.string_agg(finding, E'\n' ORDER BY finding) INTO violations FROM findings;
+  SELECT pg_catalog.string_agg(finding, E'\n' ORDER BY finding),
+         (SELECT pg_catalog.count(*) FROM routines),
+         (SELECT pg_catalog.count(*)
+            FROM assessed
+            JOIN exception_list ON exception_list.routine_name=assessed.routine_name
+                               AND exception_list.search_path=assessed.search_path
+           WHERE assessed.failure IS NOT NULL)
+    INTO violations, checked, allowlisted
+    FROM findings;
 
   IF violations IS NOT NULL THEN
     RAISE EXCEPTION 'SECURITY DEFINER search_path guard failed in database %:%', pg_catalog.current_database(), E'\n' || violations;
   END IF;
+  PERFORM pg_catalog.set_config('vibe.security_definer_guard', checked || ' ' || allowlisted, false);
 END
 $security_definer_search_path$;
+
+-- What this database contributed, as `<routines checked> <routines excused by the list>`: the
+-- chains sum it across databases and fail a run that scanned nothing, so a pass says what it read.
+SELECT pg_catalog.current_setting('vibe.security_definer_guard');
