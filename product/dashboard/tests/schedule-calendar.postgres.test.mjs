@@ -792,15 +792,17 @@ test(testName, { skip: !url }, async () => {
         const badge = month?.querySelector('[data-slot="calendar-event-badge"][data-kind="observed"][data-run-identity]');
         const overflow = [...(month?.querySelectorAll('[data-run-identities]') ?? [])]
           .find((button) => button.getAttribute('data-run-identities').split(' ').length > 0);
+        // Overflow first: the badge case then leaves the badge's schedule selected, which the case
+        // after the loop builds on.
         return {
-          badge: badge?.getAttribute('data-run-identity') ?? null,
           overflow: overflow?.getAttribute('data-run-identities').split(' ')[0] ?? null,
+          badge: badge?.getAttribute('data-run-identity') ?? null,
         };
       })()`);
       assert.deepEqual(Object.keys(calendarRunOrigins).filter((kind) => calendarRunOrigins[kind] === null), [],
         `the month view carries an observed run behind a badge and behind an overflow trigger at ${
           new Date().toISOString()}: ${JSON.stringify(calendarRunOrigins)}`);
-      for (const [originKind, identity] of Object.entries(calendarRunOrigins)) {
+      const driveCalendarRunOrigin = async (originKind, identity) => {
         const verified = await fetch(`${origin}/api/operations/runs/${encodeURIComponent(identity)}/`,
           { headers: { cookie } });
         assert.equal(verified.status, 200, `${originKind} run ${identity} has a verified preview`);
@@ -868,7 +870,26 @@ test(testName, { skip: !url }, async () => {
         assert.equal(returned.returned, true,
           `closing a calendar-origin run preview returns focus to its exact ${originKind} trigger: ${
             JSON.stringify(returned)}`);
+      };
+      for (const [originKind, identity] of Object.entries(calendarRunOrigins)) {
+        await driveCalendarRunOrigin(originKind, identity);
       }
+      // The first badge run that ever failed here (#973) had a history the two cases above lack: its
+      // schedule was already selected and its preview had been opened, and closed, from the schedule
+      // inspector before the calendar badge opened it again. Recreate that history, on the badge that
+      // just passed, so the case is driven every run instead of when the clock happens to allow it.
+      assert.equal(await readBrowserValue(browser, `(() => {
+        const trigger = document.querySelector(
+          '[aria-label="Selected schedule"] [data-run-preview-trigger="${calendarRunOrigins.badge}"]');
+        trigger?.click();
+        return Boolean(trigger);
+      })()`), true, "the badge case left its schedule selected in the inspector");
+      await waitForBrowserExpression(browser,
+        "document.querySelectorAll('dialog[open]').length === 1 && Boolean(document.querySelector('dialog[open] a[href^=\"/operations/runs/\"]'))");
+      await readBrowserValue(browser,
+        "document.querySelector('dialog[open] button[aria-label=\"Close panel\"]')?.click()");
+      await waitForBrowserExpression(browser, "document.querySelector('dialog[open]') === null");
+      await driveCalendarRunOrigin("badge", calendarRunOrigins.badge);
 
       await browser.send("Emulation.setDeviceMetricsOverride", {
         width: 760, height: 900, deviceScaleFactor: 1, mobile: false,

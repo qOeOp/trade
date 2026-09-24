@@ -541,17 +541,20 @@ test(testName, { skip: !url }, async () => {
     await browser.send("Page.navigate", { url: `${origin}/operations/service-logs/` });
     await waitForBrowserExpression(browser,
       `document.querySelectorAll('table[aria-label="Service log events"] tbody tr').length > 0`);
-    // Identities appear as compact labels with the exact identity as title evidence, so the
-    // acceptance accepts either and reports what the surface actually named on failure.
-    const namedInstances = await readBrowserValue(browser, `(() => ({
-      text: document.body?.innerText ?? '',
-      titles: [...document.querySelectorAll('[title]')].map((node) => node.getAttribute('title')),
-    }))()`);
+    // Each source is listed under a compact label and carries its exact identity as the item's
+    // title (`primaryTitle` in ServiceInstanceList). This used to accept the identity in either the
+    // page text or any title, and a disjunction one side of which always holds never tests the
+    // other; it now asserts the one place the design puts it.
+    const namedInstances = await readBrowserValue(browser, `(() => [...document.querySelectorAll(
+      '[aria-label="Service sources"] [title]')].map((node) => ({
+      title: node.getAttribute('title'),
+      text: node.textContent?.trim() ?? '',
+    })))()`);
     for (const identity of [workerIdentity, serverIdentity]) {
-      assert.ok(
-        namedInstances.text.includes(identity) || namedInstances.titles.includes(identity),
-        `${identity} is missing: ${JSON.stringify(namedInstances)}`,
-      );
+      const listed = namedInstances.filter((item) => item.title === identity);
+      assert.equal(listed.length, 1, `${identity} is one source's title: ${JSON.stringify(namedInstances)}`);
+      assert.ok(listed[0].text.length > 0 && !listed[0].text.includes(identity),
+        `${identity} is listed under a compact label, not as text: ${JSON.stringify(listed[0])}`);
     }
     const surface = await readBrowserValue(browser, `(() => {
       const frame = document.querySelector('.operations-service-logs-panel');
