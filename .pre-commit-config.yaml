@@ -209,6 +209,13 @@ repos:
         language: system
         files: ^scripts/ci/(chain-entry-watchdog|test-chain-entry-watchdog)\.bash$
         pass_filenames: false
+      - id: test-cargo-target-in-worktree
+        name: test local chain target-directory check
+        description: A cargo target directory outside the worktree, including a prefix-sharing sibling, is refused
+        entry: bash scripts/ci/test-cargo-target-in-worktree.bash
+        language: system
+        files: ^scripts/ci/(cargo-target-in-worktree|test-cargo-target-in-worktree)\.bash$
+        pass_filenames: false
       - id: test-owner-chain-lock
         name: test Owner chain machine lock
         description: A second local Owner chain is refused and named; a dead holder releases the lock
