@@ -219,6 +219,16 @@ pub(crate) async fn read_research_bounded_feature_program_historical_in_transact
     Ok(stored)
 }
 
+/// The Design and program frozen under one Design identity, with the joint freeze they bind.
+pub(crate) struct FrozenDesignProgramV1 {
+    pub(crate) design: StrategyDesignV2,
+    pub(crate) program: crate::bounded_feature_program_v1::CanonicalBoundedFeatureProgramV1,
+    /// Derived again from the row's Research custody digest, Design and program, and equal to the
+    /// digest stored beside them. A Composer V3 build receipt names the freeze it was built from
+    /// by this value.
+    pub(crate) joint_freeze_digest: BindingDigest,
+}
+
 /// Reads the Design and program frozen under one Design identity, for a report that states them.
 ///
 /// It takes no row lock. The readers above lock `FOR SHARE` because a composition step decides
@@ -228,8 +238,10 @@ pub(crate) async fn read_research_bounded_feature_program_historical_in_transact
 /// saw, which is the row it is reporting on.
 ///
 /// The row is not trusted for what it claims. The Design must hash to the identity and digest the
-/// caller asked for, and the program must parse canonically against that Design and hash to the
-/// digest stored beside it. A row that fails either is `Unavailable`, not absent.
+/// caller asked for, the program must parse canonically against that Design and hash to the
+/// digest stored beside it, its plugin manifest digest must be the one stored, and the joint
+/// freeze digest must derive again from the row. A row that fails any of these is `Unavailable`,
+/// not absent.
 ///
 /// # Errors
 ///
@@ -239,15 +251,10 @@ pub(crate) async fn read_frozen_design_program_in_transaction_v1(
     transaction: &mut Transaction<'_, Postgres>,
     design_identity: BindingDigest,
     design_digest: BindingDigest,
-) -> Result<
-    Option<(
-        StrategyDesignV2,
-        crate::bounded_feature_program_v1::CanonicalBoundedFeatureProgramV1,
-    )>,
-    ResearchBoundedFeatureProgramFreezeErrorV1,
-> {
+) -> Result<Option<FrozenDesignProgramV1>, ResearchBoundedFeatureProgramFreezeErrorV1> {
     let Some(row) = sqlx::query(
-        "SELECT design_digest, design_bytes, program_digest, program_bytes
+        "SELECT design_digest, design_bytes, program_digest, program_bytes,
+                research_custody_digest, plugin_manifest_digest, joint_freeze_digest
            FROM public.rd_bounded_feature_program_freezes_v1
           WHERE design_identity=$1",
     )
@@ -260,15 +267,13 @@ pub(crate) async fn read_frozen_design_program_in_transaction_v1(
     };
     let design: StrategyDesignV2 = serde_json::from_slice(&row_bytes(&row, "design_bytes")?)
         .map_err(|_| ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)?;
-    let verified = matches!(
-        crate::strategy_plan_v2::prepare_strategy_design_v2(&design),
-        crate::strategy_plan_v2::StrategyDesignPreparationV2::Prepared {
-            design_identity: prepared_identity,
-            design_digest: prepared_digest,
-        } if prepared_identity == design_identity && prepared_digest == design_digest
-    );
+    let canonical_design = prepare_canonical_strategy_design_v2(&design)
+        .map_err(|_| ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)?;
 
-    if !verified || row_digest(&row, "design_digest")? != design_digest {
+    if canonical_design.design_identity() != design_identity
+        || canonical_design.design_digest() != design_digest
+        || row_digest(&row, "design_digest")? != design_digest
+    {
         return Err(ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable);
     }
     let program = crate::bounded_feature_program_v1::parse_bounded_feature_program_v1(
@@ -276,10 +281,31 @@ pub(crate) async fn read_frozen_design_program_in_transaction_v1(
         &design,
     )
     .map_err(|_| ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)?;
-    if program.digest() != row_digest(&row, "program_digest")? {
+    let plugin_manifest_digest = row_digest(&row, "plugin_manifest_digest")?;
+
+    if program.digest() != row_digest(&row, "program_digest")?
+        || program.program().plugin_manifest_digest != plugin_manifest_digest
+    {
         return Err(ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable);
     }
-    Ok(Some((design, program)))
+    let derived = joint_freeze_digest(
+        row_digest(&row, "research_custody_digest")?,
+        design_identity,
+        design_digest,
+        plugin_manifest_digest,
+        program.digest(),
+        canonical_design.canonical_bytes(),
+        program.canonical_bytes(),
+    );
+
+    if derived != row_digest(&row, "joint_freeze_digest")? {
+        return Err(ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable);
+    }
+    Ok(Some(FrozenDesignProgramV1 {
+        design,
+        program,
+        joint_freeze_digest: derived,
+    }))
 }
 
 /// Rebuilds the stored freeze from its own bytes under the catalog version those bytes declare.
