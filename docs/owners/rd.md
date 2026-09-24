@@ -1022,7 +1022,10 @@ request binds 'the requested instrument or universe scope'."
   Intent before it is sent, and every retry sends those stored bytes, so the same identity and digest join one
   Market Data attempt: issuing again is idempotent. A refusal would strand an Intent whose first send ended
   `SUBMITTED_OR_UNKNOWN`, which is why a retry joins rather than conflicts. The returned `ResearchPitTerminal` is
-  recorded against the Intent, and the Research readback shows its disposition. An instrument that passed the check
+  recorded against the Intent. The Research readback carries it as `initial_pit`: `null` for a V2 request,
+  `NOT_ISSUED` before this Owner has frozen the request, `SUBMITTED_OR_UNKNOWN` once it is sent and before a terminal
+  is recorded, and otherwise the recorded disposition, one of the six, with its primary blocker or `null`; a reader
+  never infers one of these from another. An instrument that passed the check
   at acceptance but is not eligible at the request's decision cut still ends in a terminal that is not `AVAILABLE`:
   nothing downstream of that Intent may consume it, and the remedy is a successor request.
 - The Design role intent (schema 2) additionally names that initial PIT request, read from this Owner's custody and

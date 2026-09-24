@@ -885,7 +885,9 @@ unavailable 或位于不同 cut 时，只撤回它自己的行与计数。两个
   Instrument Master、Market Semantics 与 decision cut 的引用，是 Market Data 自有读取面为该范围解析出的那些，由
   Market Data 契约陈述。冻结的请求在发送之前按 Intent 一次性写入，每次重试都发送这些已存储的字节，因此相同身份与摘要
   加入同一次 Market Data 尝试：再次签发是幂等的。若拒绝重试，首次发送以 `SUBMITTED_OR_UNKNOWN` 结束的 Intent 就会
-  被困住，所以重试是加入而不是冲突。返回的 `ResearchPitTerminal` 记录在该 Intent 名下，Research 回读显示其处置。接纳时
+  被困住，所以重试是加入而不是冲突。返回的 `ResearchPitTerminal` 记录在该 Intent 名下。Research 回读以 `initial_pit`
+  携带它：V2 请求为 `null`；本 Owner 冻结请求之前为 `NOT_ISSUED`；已发送、尚未记录终态时为 `SUBMITTED_OR_UNKNOWN`；
+  否则为所记录的处置（六态之一）及其 primary blocker 或 `null`；读取方从不由其中一种推断另一种。接纳时
   通过检查、但在请求的 decision cut 上不可纳入的品种，仍会得到非 `AVAILABLE` 的终态：该 Intent 的任何下游都不得消费它，
   补救办法是发一个后继请求。
 - Design role intent（schema 2）另外指名该初始 PIT 请求，取自本 Owner 的 custody，从不取自发布调用方，并且只在所记录
