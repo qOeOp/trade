@@ -725,6 +725,61 @@ its unchanged canonical bytes, readback and seven-kind frontier. Replay storage 
 the binding identity. Existing unbound rows remain negative-only: they are never backfilled, inferred, selected as
 latest or discovered by a full scan.
 
+**TARGET / IMPLEMENTATION_ADMITTED, universe-member composition binding:** the W3 binding above admits one shape
+only, the exact-instrument first corpus, and a Design whose roles are universe members (scope `UniverseSelection`)
+cannot be bound by it, so its Replay V3 request has no binding to carry. Market Data adds a second binding shape for
+that Design and keeps the first byte for byte. The shape is carried by the record and never inferred: the first
+corpus keeps schema `u16 = 1` and domain `vibe.market-data.replay-composition-binding.v1\0`; the universe-member
+shape is schema `u16 = 2` under `vibe.market-data.replay-composition-binding.v2\0`, and the decoded record states its
+shape. A record, claim or Replay frontier whose parts disagree with its shape is refused as a composition shape
+mismatch. The universe-member shape binds the exact PIT request/snapshot and replay window, the authenticated
+`StrategyDesignV2`, its complete sorted role set of universe-member roles with every durable-registry declaration
+and binding, the exact native PIT, Source Binding, Universe Selection and Market Semantics locators, and the
+universe frame Market Data derives from the request's PIT batch and that role set. It binds no observation census,
+joined cut, V4 projection or native-join attestation: those exist to seal a joined cut, and the universe frame is
+what shows that each (member, role) has exactly one value at the cut. It binds no Instrument Master either, for the
+reason below, so neither the record, its Replay frontier nor the resolved composition cut carries an Instrument
+Master for this shape. Issuance branches on the claim's shape before the native-join read. Replay V2 facts for this
+shape carry the four-kind frontier PIT, Source Binding, Universe Selection and `StrategyInputUniverseFrameV1`; the
+first corpus keeps its seven-kind frontier.
+
+The durable declaration registry admits `UniverseSelection`-scoped declarations. Each is checked against the PIT
+batch, its Source Binding and frontiers, the Owner-verified Universe Selection the batch names, the batch-level
+Instrument Master coordinate and every Market Semantics field except the single-instrument Instrument Master
+coordinate, and its Owner binding digest is the digest of that role's universe frame over the batch, which Market Data
+derives itself. That per-role digest is not the universe frame the Replay frontier carries, which Market Data derives
+over the Design's complete role set: the declaration's digest names what one role was bound to, the frontier's frame
+is what R&D reads as `resolved_owner_inputs`, and nothing compares the two. A universe Design has no Instrument Master
+authority to bind at composition time: its Instrument Master is the request-keyed V2 cut Market Data issues when R&D
+first binds the sealed request for native execution. Instrument Master verification for universe roles therefore moves
+to that cut's issuance, `issue_cut_for_bound_replay_v1`. It takes the members from the recovered selection's own
+included membership, so the member set is the selection's by construction, and resolves each member's Instrument
+Master V2 fact chain at the selection's owner observation time; a member with no fact at that time (`MissingFact`) or
+a chain that does not verify (`ChainMismatch`) refuses the issuance by name with zero writes. Strategy Factory's
+initial Owner inputs (`resolve_native_replay_initial_owner_inputs_v1`) then refuse a cut whose members disagree with
+the Plan's selection. Between the two checkpoints no binding, fact or reader may claim or pass on an Instrument Master
+field as verified. That a selection member without a verifiable Instrument Master fact refuses the issuance by name
+with zero writes is asserted by the composition binding's Postgres proof that drives that issuance from a
+universe-member binding.
+
+What R&D reads from a binding and its Replay facts, and where each comes from in the universe-member shape:
+
+| Read by R&D                                | First corpus                                         | Universe‑member shape                                                                       |
+| ------------------------------------------ | ---------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `resolved_owner_inputs`                    | observation census identity and digest               | universe frame receipt digest over the complete role set (BLAKE3, identity equal to digest) |
+| `universe_selection`                       | Universe Selection dependency                        | the same Universe Selection dependency                                                      |
+| binding locator                            | binding record                                       | the same binding record                                                                     |
+| market data scope digest (`pit_scope`)     | resolved composition cut, from the PIT request scope | the same                                                                                    |
+| PIT snapshot, window, request identity     | Replay facts header                                  | the same header                                                                             |
+| Replay facts identity and receipt identity | Replay facts                                         | the same                                                                                    |
+| Design identity, non‑empty role set        | binding record                                       | binding record; the role set is never empty                                                 |
+| Instrument Master verification             | registry, per exact instrument                       | not bound at composition; each member's V2 fact chain when the request‑keyed cut is issued  |
+
+The exact-instrument first corpus resolves its instrument through Instrument Master V1, whose projection cannot
+construct a native crypto perpetual (`require_complete_native_crypto_perpetual_construction` always refuses), so no
+exact-instrument shape can run the crypto perpetuals the user admitted; the universe-member shape is their route.
+Built so far: nothing.
+
 **TARGET, durable R&D attestation seam:** the positive R&D Develop Composer transaction canonically persists one
 immutable complete `StrategyDesignRoleSetReceiptV1` attestation together with the Composer aggregate, receipt and
 outbox. It binds the
@@ -1197,10 +1252,10 @@ The admission and the user's authority for it are recorded with the one-member t
 Factory architecture. For initial Replay composition, the fixed Market Data writer issues the cut through the
 bound-replay issuance the cut-issuance paragraph above states, when R&D first binds the sealed Replay request's native
 execution input. Built so far: the `InstrumentMasterCutV2` cut and its custody table, which an existing table migrates
-to in place, economic-terms resolution, the Owner-binding and the V1 native scheduling seal admit one member; the V1
-scheduling receipt hashes a two-member universe exactly as before and states the member count for any other. The V2
-frame evidence and the frame sequence do not admit one member yet. The bound-replay issuance is the only production
-path to `issue_cut`, and its one caller is R&D's native execution-input binding issuance.
+to in place, economic-terms resolution, the Owner-binding, the V1 native scheduling seal, the V2 frame evidence and the
+frame sequence admit one member; the V1 scheduling receipt states its member count, part of the quote cut's change to
+it. The bound-replay issuance is the only production path to `issue_cut`, and its one caller is R&D's native
+execution-input binding issuance.
 
 **TARGET, durable Strategy Input Binding Registry:** Market Data owns write-once, validated binding declarations
 keyed by the exact PIT request, `StrategyDesignV2` and typed input role. R&D may supply only
@@ -1573,18 +1628,24 @@ whose latest correction does not serve the frame contributes nothing and never f
 version that correction replaced. The
 census is keyed by the scope a requester declares, so a second quote cut on every one of a
 frame's coordinates collides with the first and refuses the frame - a denial of service, never a
-quote cut the Owner did not verify for it. The bound is the next frame's BAR cut; today the
-resolver's caller supplies it, and deriving it from the frame census belongs to the sequence
-resolver. The
-existing PIT correction lineage records
+quote cut the Owner did not verify for it. The request's decision cut is the decision cut of the
+frame's own PIT snapshot, the one the sealed request names, so a later reading resolves the same
+quote cut. The bound is the first later frame in the frame's scope census that the Owner had
+observed by that decision cut, or the window's end when none lies before it; a frame observed later
+does not move it. The caller names neither. The existing PIT correction lineage records
 revisions of one request; it is not a time-successor index and cannot prove a later frame or the
 absence of skipped frames, which is why the census is its own table rather than a reuse of that
 lineage. The current initial-frame resolver and QuoteTick projection do not themselves issue a
-later frame or a separate liquidity receipt. The current V1 native scheduling seal also takes its
-Quotes from the BAR's own batch, strictly after the BAR, and no Owner-verified batch holds two
-instants, so that seal is unreachable on Owner custody as built. The V2 frame evidence seals every
-frame through that same V1 seal, so the V2 sequence is unreachable on Owner custody for the same
-reason until both take their Quotes from the frame's quote cut.
+later frame or a separate liquidity receipt. The V1 native scheduling seal takes each member's BAR
+from the frame's batch and each member's Quote from the frame's quote cut, every Quote on the quote
+cut's instant and in member order. The Owner resolves the quote cut by the rules above from its own
+custody and through the admitted store port, which reads both censuses through two measured census
+functions. The V1 scheduling receipt states its member count first and binds the quote cut's
+snapshot identity and fact after the frame's batch, so its bytes differ from those it had while it
+took Quotes from the frame's own batch - bytes Owner custody never produced. The V2 frame evidence
+seals every frame through that same seal, over one or two members, and its liquidity EVENT receipt
+seals the quote cut's snapshot, fact and batch in place of the frame's. No proof yet drives a
+complete initial read - schedules, universe and quote cut together - on Owner custody.
 
 In the CURRENT/PARTIAL BAR schedule path, only a custody-verified readback may authorize the additive immutable
 `TimeframeProjectionReceiptV1` keyed by the exact V1 binding-receipt digest. Its existing canonical bytes and domain
@@ -1773,6 +1834,53 @@ schedule-set, component, custody, response-loss or admission failure writes zero
 binding. W3 consumes only this V4 JOINED_CUT locator/readback. This contract claims no implementation, migration,
 registered product composition, production startup/write, ProgramHost, Backtest, deployment, runtime or trading
 authority.
+
+**TARGET / IMPLEMENTATION_ADMITTED, universe-frame sample projection:** `StrategyInputUniverseSampleProjectionV1`
+gives each (member, role) value of one universe frame the Owner sample coordinate a bounded feature program reads. It
+is additive: no V1 receipt, V2, V3 or V4 projection, `SampleFactV1`, `SampleReceiptV1` or coordinate codec changes.
+Its subject is the exact digest of one `StrategyInputUniverseFrameReceipt`, the receipt a ProgramHost admits for
+that frame, never a digest the host cannot compare with it. It holds one component per (member, role) value of that
+frame, strictly ordered by member ordinal - the selection's canonical member order, which a frame's values follow -
+and then input-role identity, exhausting the frame; a missing, extra or duplicated pair produces no projection. A component carries the member ordinal, member key and instrument, the
+input-role identity, the universe member binding digest, the value receipt digest, the frame's trigger digest, the
+timeframe-projection receipt digest, the sample identity, the native `SampleReceiptV1` digest, the coordinate digest
+and the 308 coordinate bytes. The coordinate is the existing codec unchanged (schema `1`, domain
+`strategy.input.sample-coordinate.v1\0`); its binding field holds the universe member binding digest, because a
+universe member has no static binding receipt. A universe member's sample is the same role-free `SampleFactV1` that
+an exact-instrument binding of the same row issues; only its `TimeframeProjectionReceiptV1` binds the member binding
+digest where an exact binding binds its receipt digest.
+
+A BAR frame's projection also binds the schedule each member's BAR role was read under. Its schedule-dependency
+set digest is SHA-256 over `market-data.universe-sample-projection-schedule-set.v1\0`, the component count `u32LE`,
+and per component in order the member ordinal `u8`, input-role identity and that member's BAR schedule readback
+identity (`[u8; 32]` each). It is required, never optional, for a BAR frame and absent for an EVENT frame, and it is
+part of the projection's identity, so the same frame read under another schedule is another projection; a
+timeframe-projection receipt binds the timeframe but not the schedule, so without it a schedule change would leave
+the admitted event's identity unchanged.
+
+Its canonical bytes are, in order: schema `u16LE = 1`, reserved-zero `u16LE`, subject `[u8; 32]`, frame lifecycle
+`u8` (`1` EVENT, `2` BAR), for a BAR frame the schedule-dependency set digest `[u8; 32]`, positive component
+count `u32LE`, then per component the member ordinal `u8`, length-prefixed (`u16LE`) member key and instrument, and
+the input-role, member-binding, value-receipt, trigger, timeframe-projection, sample-identity, sample-receipt and
+coordinate digests (`[u8; 32]` each) followed by the 308 coordinate bytes. Its identity is SHA-256 over
+`market-data.universe-sample-projection-receipt.v1\0 || canonical bytes`.
+
+The fixed Market Data writer issues projections through one Owner operation, called by R&D with only the sealed
+Replay request identity, that request's composition binding locator and which frames: the request's initial frame,
+or every frame its window consumes. In one Market Data transaction it resolves each frame's Owner-verified batch -
+for a window, from the frame census by the rules above, so the caller names no frame list - takes the Design and
+role set from the composition binding's authenticated composer role set, so the caller names no role, re-derives
+each frame's universe frame through the same binding that produces the frame a host admits, commits or reuses each
+(member, role) sample and timeframe projection (a BAR role takes that member's schedule for the frame), and stores
+each projection's receipt, exact-subject readback and outbox. A window's projections are issued in that one call,
+so an R&D transaction that holds locks makes one cross-database call however long the window is. The request key
+is recorded with the binding it was issued under, and another binding under that key is refused by name with zero
+writes; an exact retry returns the stored bytes with zero append. The operation never calls R&D. R&D calls it
+before it resolves the frames. A host attaches a projection only when its (member, role) set equals both the
+admitted frame's value set and the Plan's role table, and refuses it otherwise; any comparison R&D makes earlier is
+an early refusal, not that guarantee. The exact-subject resolver reads one projection by its universe-frame
+digest. Built so far: nothing; the contract is admitted to be built, and it claims no production startup or write,
+deployment, runtime or trading authority.
 
 An accepted correction is an immutable successor with both an exact series predecessor and correction
 predecessor. It creates a new `SampleFactV1`, `SampleReceiptV1`, `sample_identity`, and coordinate and advances the

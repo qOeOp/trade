@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use rstest::rstest;
-use vibe_model::identifiers::InstrumentId;
+use vibe_model::{data::Data, identifiers::InstrumentId};
 
 use super::{
     BindingDigest, PitSnapshotBlocker, PitSnapshotCommitAggregate, PitSnapshotDisposition,
@@ -1613,12 +1613,15 @@ fn research_terminal_fixture(
 /// The two members of a native scheduling frame, as the Owner verifies a batch holding both.
 const FRAME_MEMBERS: [&str; 2] = ["AAPL.XNAS", "MSFT.XNAS"];
 
-/// One frame's BAR and Quote rows for both members, sent through the Owner's own admission and the
-/// sole constructor of a verified batch, `verify_observation_batch`.
+/// Both members' rows of `kinds` in one cut, sent through the Owner's own admission and the sole
+/// constructor of a verified batch, `verify_observation_batch`.
 ///
-/// Every BAR row sits at the snapshot's instant; member `i`'s Quote rows sit `quote_offsets[i]`
-/// after it. Nothing here bypasses verification, so what comes back is what Owner custody can hold.
-fn custody_frame_batch(
+/// The cut's instant is `back` before the fixture proposal's; every BAR row sits on it, and member
+/// `i`'s Quote rows sit `quote_offsets[i]` after it. Nothing here bypasses verification, so what
+/// comes back is what Owner custody can hold.
+fn custody_cut(
+    back: u64,
+    kinds: &[&str],
     quote_offsets: [u64; 2],
 ) -> Result<super::VerifiedPitObservationBatch, PitSnapshotError> {
     let source_value = source_proposal(10, 40);
@@ -1636,6 +1639,8 @@ fn custody_frame_batch(
         },
     );
     let mut value = proposal(source.commit().receipt().locator());
+    value.request.time_evidence.event_effective.value -= back;
+    refresh_request_claims(&mut value.request);
     let request = &value.request;
     let evidence = &value.evidence;
     let instant = request.time_evidence.event_effective.value;
@@ -1679,7 +1684,10 @@ fn custody_frame_batch(
             ("LOW", 12_331, 2),
             ("CLOSE", 12_345, 2),
             ("VOLUME", 1_000, 0),
-        ] {
+        ]
+        .into_iter()
+        .filter(|_| kinds.contains(&"BAR"))
+        {
             rows.push(row(member, "BAR", "1M", field, mantissa, scale, instant));
         }
 
@@ -1688,7 +1696,10 @@ fn custody_frame_batch(
             ("ASK_PRICE", 12_343, 2),
             ("BID_SIZE", 100, 0),
             ("ASK_SIZE", 100, 0),
-        ] {
+        ]
+        .into_iter()
+        .filter(|_| kinds.contains(&"QUOTE"))
+        {
             rows.push(row(
                 member,
                 "QUOTE",
@@ -1730,61 +1741,64 @@ fn custody_frame_batch(
     )
 }
 
-/// The V1 native scheduling seal, as built, cannot run on anything Owner custody holds.
+/// The V1 native scheduling seal runs on what Owner custody holds.
 ///
-/// It takes each member's first Quote strictly after the frame's BAR out of the BAR's own batch, and
-/// a verified batch holds exactly one instant. The three cells pin that from both sides:
+/// A verified batch holds exactly one instant, so the Quotes that follow a frame's BAR cannot sit
+/// in the frame's batch; the seal takes them from the frame's quote cut instead. The three cells
+/// pin that from both sides:
 ///
-/// - A: a frame custody does admit (Quotes on the BAR's instant) has no Quote V1 can take.
-/// - B: the same batch with only the Quotes moved later, edited by hand past verification, seals.
-///   So Quote timing is the only thing stopping A, and nothing else in the fixture is wrong.
-/// - C: exactly those later Quotes, sent through custody, are refused at verification.
-///
-/// This is meant to go red. When V1 takes its Quotes from the frame's quote cut, cell A seals
-/// and this test has to be rewritten around the new source; until then it is the record that the
-/// old shape has never had an instance.
+/// - A: a custody frame and a custody quote cut one instant later seal, every Quote on the quote
+///   cut's instant.
+/// - B: the frame's own batch is not its quote cut, even though it holds Quotes.
+/// - C: custody still refuses a batch whose Quotes sit off its instant - the shape the seal used
+///   to need, which is why it now has a second batch.
 #[rstest]
-fn v1_native_scheduling_is_unreachable_on_owner_custody_as_built() {
-    let members = FRAME_MEMBERS.map(InstrumentId::from);
-    let seal = |batch: super::VerifiedPitObservationBatch| {
-        let frame = batch.time_evidence().event_effective.value;
-        let schedules = [
-            schedule_bound_to_batch(FRAME_MEMBERS[0], 40, &batch),
-            schedule_bound_to_batch(FRAME_MEMBERS[1], 41, &batch),
+fn v1_native_scheduling_seals_a_custody_frame_with_its_custody_quote_cut() {
+    let members = FRAME_MEMBERS.map(InstrumentId::from).to_vec();
+    let seal = |frame: super::VerifiedPitObservationBatch,
+                quote_cut: super::VerifiedPitObservationBatch| {
+        let frame_time = frame.time_evidence().event_effective.value;
+        let schedules = vec![
+            schedule_bound_to_batch(FRAME_MEMBERS[0], 40, &frame),
+            schedule_bound_to_batch(FRAME_MEMBERS[1], 41, &frame),
         ];
-        seal_native_replay_scheduling_v1(batch, schedules, members, frame, frame + 100).map(|_| ())
+        seal_native_replay_scheduling_v1(
+            frame,
+            quote_cut,
+            schedules,
+            members.clone(),
+            frame_time,
+            frame_time + 100,
+        )
     };
+    let frame = custody_cut(1, &["BAR"], [0, 0]).expect("custody admits a frame");
+    let quote_cut = custody_cut(0, &["QUOTE"], [0, 0]).expect("custody admits its quote cut");
+    let instant = quote_cut.time_evidence().event_effective.value;
+    assert_eq!(instant, frame.time_evidence().event_effective.value + 1);
 
-    let custody = custody_frame_batch([0, 0]).expect("custody admits a frame at one instant");
-    assert_eq!(
-        seal(custody.clone()),
-        Err(NativeReplaySchedulingErrorV1::EventOrderUnavailable),
-        "A: a batch custody holds offers V1 no Quote after its BAR"
+    let (_, data) = seal(frame, quote_cut)
+        .expect("A: a custody frame seals with its custody quote cut")
+        .into_native_schedule();
+    assert!(
+        matches!(
+            data.as_slice(),
+            [Data::Bar(_), Data::Bar(_), Data::Quote(first), Data::Quote(second)]
+                if first.ts_event.as_u64() == instant && second.ts_event.as_u64() == instant
+        ),
+        "A: every Quote on the quote cut's instant"
     );
 
-    let later = [1, 2];
-    // Edited past verification on purpose: this is the batch custody would refuse (cell C).
-    let edited = custody.edit_for_test(|fields| {
-        for row in &mut fields.observations {
-            if row.data_kind == "QUOTE" {
-                let member = FRAME_MEMBERS
-                    .iter()
-                    .position(|member| *member == row.instrument)
-                    .expect("frame member");
-                row.event_effective += later[member];
-            }
-        }
-    });
+    let with_quotes = custody_cut(1, &["BAR", "QUOTE"], [0, 0]).expect("a frame holding Quotes");
     assert_eq!(
-        seal(edited),
-        Ok(()),
-        "B: with only the Quotes moved later, the same batch seals"
+        seal(with_quotes.clone(), with_quotes).map(|_| ()),
+        Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch),
+        "B: a frame's own batch is not its quote cut"
     );
 
     assert_eq!(
-        custody_frame_batch(later).map(|_| ()),
+        custody_cut(0, &["BAR", "QUOTE"], [1, 2]).map(|_| ()),
         Err(PitSnapshotError::InvalidObservationBatch),
-        "C: custody refuses the batch V1 would need"
+        "C: custody refuses Quotes off the batch's instant"
     );
 }
 

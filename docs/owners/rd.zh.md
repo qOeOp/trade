@@ -527,6 +527,12 @@ source cut clock epoch 与半开有效期。
 在其他权威均当前时，畸形理由只能产生 `REJECTED_NO_WRITE`。相同 request 理由和规范 Owner cuts
 重放准确相同字节；含义或 cut 改变不能加入。R&D 永不读取保护 payload 或细节。
 
+R&D 的时钟是在使用它的 R&D 事务内读取的 `pg_catalog.clock_timestamp()`。Research Intent 的投影时间、
+`valid_through` 与提交时间都由它盖戳，其锁返回的 `owner_cut` 也是；后继 Research Intent 遵循同一规则。
+Artifact 构建、有界特征程序与 Composer 来源研究中其余所有与研究视图比较的 R&D cut 都以同样方式读取，
+Product Edge 用取自同一时钟的 cut 与这些值比较，因此任何研究窗口都不会比较两个时钟。Qualification 以同样
+方式取其 Owner cut。
+
 ## 有人值守的 D-only 修复
 
 授权用户可以选择一个准确的当前策略 generation 与 Artifact，要求 R&D 只修复实现缺陷而不启动自适应

@@ -227,6 +227,19 @@ mod durable_codec_v2_tests {
 pub struct CompilationIssueV2 {
     pub coordinate: String,
     pub reason: String,
+    /// Set when the architecture names this refusal, so a caller can tell it apart from every
+    /// other issue without reading `reason`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refusal: Option<CompilationRefusalV2>,
+}
+
+/// Compilation refusals the architecture documents by name.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub enum CompilationRefusalV2 {
+    /// A Design whose roles name exact instruments was compiled against an Owner universe. Under an
+    /// Owner universe the Market Data selection chooses the instruments, so a Design must use
+    /// universe-member roles instead.
+    ExactInstrumentRolesUnderOwnerUniverse,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -3142,6 +3155,14 @@ fn compile_canonical(
         );
     }
 
+    if has_exact_roles && universe_selection.is_some() {
+        return StrategyCompilationV2::Unsupported(CompilationIssueV2 {
+            coordinate: "inputs.scope".to_owned(),
+            reason: "exact-instrument roles are refused under an Owner universe; the universe selection chooses the instruments".to_owned(),
+            refusal: Some(CompilationRefusalV2::ExactInstrumentRolesUnderOwnerUniverse),
+        });
+    }
+
     if has_universe_roles != universe_selection.is_some() {
         return unsupported(
             "inputs.scope",
@@ -3969,6 +3990,7 @@ fn unsupported(coordinate: &str, reason: &str) -> StrategyCompilationV2 {
     StrategyCompilationV2::Unsupported(CompilationIssueV2 {
         coordinate: coordinate.to_owned(),
         reason: reason.to_owned(),
+        refusal: None,
     })
 }
 
@@ -3976,6 +3998,7 @@ fn refinement(coordinate: &str, reason: &str) -> StrategyCompilationV2 {
     StrategyCompilationV2::NeedsResearchRefinement(CompilationIssueV2 {
         coordinate: coordinate.to_owned(),
         reason: reason.to_owned(),
+        refusal: None,
     })
 }
 
