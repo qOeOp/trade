@@ -178,6 +178,10 @@ pub enum PitMarketSnapshotIntakeErrorV1 {
     RequestConflict,
     /// No Instrument Master V1 fact of this Owner answers the request's instrument at its cut.
     InstrumentMasterUnavailable,
+    /// The recovered Universe Selection Record includes no member, or more than two.
+    UniverseMemberCountUnadmitted,
+    /// An included member's key is not the canonical instrument it names.
+    UniverseMemberKeyIsNotInstrument,
 }
 
 impl Display for PitMarketSnapshotIntakeErrorV1 {
@@ -192,6 +196,12 @@ impl Display for PitMarketSnapshotIntakeErrorV1 {
             Self::RequestConflict => "the request identity is bound to different content",
             Self::InstrumentMasterUnavailable => {
                 "no Instrument Master fact answers the request's instrument at its cut"
+            }
+            Self::UniverseMemberCountUnadmitted => {
+                "the Universe Selection Record includes no member or more than two"
+            }
+            Self::UniverseMemberKeyIsNotInstrument => {
+                "a Universe Selection member key is not the canonical instrument it names"
             }
         };
         formatter.write_str(text)
@@ -213,6 +223,10 @@ impl From<PitSnapshotError> for PitMarketSnapshotIntakeErrorV1 {
                 Self::StoreUnavailable
             }
             PitSnapshotError::InstrumentMasterUnavailable => Self::InstrumentMasterUnavailable,
+            PitSnapshotError::UniverseMemberCountUnadmitted => Self::UniverseMemberCountUnadmitted,
+            PitSnapshotError::UniverseMemberKeyIsNotInstrument => {
+                Self::UniverseMemberKeyIsNotInstrument
+            }
             _ => Self::InvalidRequest,
         }
     }
