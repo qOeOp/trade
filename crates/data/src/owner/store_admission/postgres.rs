@@ -230,6 +230,27 @@ impl PostgresMeasurementSpec {
     }
 
     /// Returns whether this exact admitted measurement covers the fixed Shared Time read.
+    /// Returns whether this exact admitted measurement covers a frame's quote cut read: the
+    /// census of quote cuts it is chosen from and the frame census its bound is read from.
+    pub(super) fn covers_native_replay_quote_cut_floor_v2(&self) -> bool {
+        const FUNCTIONS: [&str; 2] = [
+            "market_data_private.resolve_native_replay_quote_cut_census_v2(bytea,bigint,bigint)",
+            "market_data_private.resolve_native_replay_next_frame_v2(bytea,bigint,bigint)",
+        ];
+        const RELATIONS: [&str; 2] = [
+            "market_data_private.native_replay_quote_cut_census_v2",
+            "market_data_private.native_replay_frame_census_v2",
+        ];
+
+        FUNCTIONS.iter().all(|required| {
+            self.function_signatures
+                .iter()
+                .any(|value| value == required)
+        }) && RELATIONS
+            .iter()
+            .all(|required| self.acl_relations.iter().any(|value| value == required))
+    }
+
     pub(super) fn covers_shared_time_floor_v1(&self) -> bool {
         const FUNCTIONS: [&str; 5] = [
             "market_data_private.resolve_owner_history_census_custody_v1()",
@@ -1027,6 +1048,100 @@ pub(super) async fn read_bar_schedule_candidate_snapshots_v1(
         .await
         .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
     Ok(snapshots)
+}
+
+/// One frame's quote cut census as the Owner held it in one read: the bound the first later frame
+/// the Owner had observed by the frame's decision cut sets, and the census rows of every quote cut
+/// lineage with a version between the frame and that bound.
+pub(crate) struct RawNativeReplayQuoteCutCensusV2 {
+    pub(crate) bound_ns_exclusive: u64,
+    pub(crate) rows: Vec<Vec<u8>>,
+}
+
+/// Reads a frame's quote cut census through the Owner's two census functions, in one snapshot.
+///
+/// The bound and the rows are read in the same repeatable-read transaction, so a frame committed
+/// between the two reads cannot move the bound after the rows were chosen by it.
+pub(super) async fn read_native_replay_quote_cut_census_snapshot_v2(
+    lease: &PostgresCredentialLease,
+    scope_digest: &[u8; 32],
+    frame_time_ns: u64,
+    decision_cut_ns: u64,
+    window_end_ns_exclusive: u64,
+) -> Result<RawNativeReplayQuoteCutCensusV2, PostgresMeasurementError> {
+    const MAX_ROWS: usize = 10_000;
+    const MAX_ROW_BYTES: usize = 64 * 1024;
+
+    if ambient_pg_configuration_present() {
+        return Err(PostgresMeasurementError::InvalidTarget);
+    }
+    let frame_time =
+        i64::try_from(frame_time_ns).map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    let decision_cut = i64::try_from(decision_cut_ns)
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    let target = parse_target(lease.database_url())?;
+    let options = connect_options(&target, "vibe-market-data-native-replay-quote-cut-v2");
+    let mut connection = PgConnection::connect_with(&options)
+        .await
+        .map_err(|_| PostgresMeasurementError::ConnectionUnavailable)?;
+    let mut transaction = connection
+        .begin()
+        .await
+        .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
+    let next_frame: Option<i64> = sqlx::query_scalar(
+        "SELECT event_effective_ns FROM market_data_private.resolve_native_replay_next_frame_v2($1,$2,$3)",
+    )
+    .bind(scope_digest.as_slice())
+    .bind(frame_time)
+    .bind(decision_cut)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    let next_frame_ns = next_frame
+        .map(u64::try_from)
+        .transpose()
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    let bound_ns_exclusive =
+        crate::owner::native_replay_quote_cut_v2::native_replay_quote_cut_bound_v2(
+            next_frame_ns,
+            window_end_ns_exclusive,
+        );
+    let bound = i64::try_from(bound_ns_exclusive)
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    let rows = sqlx::query_scalar::<_, serde_json::Value>(
+        "SELECT to_jsonb(r) FROM market_data_private.resolve_native_replay_quote_cut_census_v2($1,$2,$3) AS r",
+    )
+    .bind(scope_digest.as_slice())
+    .bind(frame_time)
+    .bind(bound)
+    .fetch_all(&mut *transaction)
+    .await
+    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+
+    if rows.len() > MAX_ROWS {
+        return Err(PostgresMeasurementError::SnapshotUnavailable);
+    }
+    let rows = rows
+        .into_iter()
+        .map(|value| {
+            serde_json::to_vec(&value)
+                .ok()
+                .filter(|row| row.len() <= MAX_ROW_BYTES)
+                .ok_or(PostgresMeasurementError::SnapshotUnavailable)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    transaction
+        .commit()
+        .await
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    Ok(RawNativeReplayQuoteCutCensusV2 {
+        bound_ns_exclusive,
+        rows,
+    })
 }
 
 fn raw_bar_schedule_canonical_instrument(

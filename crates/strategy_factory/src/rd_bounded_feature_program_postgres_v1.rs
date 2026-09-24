@@ -10,8 +10,6 @@
 //! accepted Research custody, and it rejects a second, different freeze for the same Research
 //! identity as a changed-meaning conflict.
 
-use std::sync::Arc;
-
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
@@ -247,7 +245,7 @@ pub enum ResearchBoundedFeatureProgramLoweringErrorV1 {
 #[derive(Clone)]
 pub struct PostgresResearchBoundedFeatureProgramOwnerV1 {
     pool: PgPool,
-    clock: Arc<dyn Fn() -> u64 + Send + Sync>,
+    clock: crate::rd_owner_clock::RdOwnerClockV1,
 }
 
 impl PostgresResearchBoundedFeatureProgramOwnerV1 {
@@ -260,21 +258,20 @@ impl PostgresResearchBoundedFeatureProgramOwnerV1 {
         Ok(Self::new(PgPool::connect(database_url).await?))
     }
 
-    /// Binds the Owner to one R&D pool and the live wall clock.
+    /// Binds the Owner to one R&D pool; its cuts are read from the database clock inside each Owner
+    /// transaction.
     #[must_use]
     pub fn new(pool: PgPool) -> Self {
         Self {
             pool,
-            clock: Arc::new(|| {
-                use vibe_common::{clock::Clock, live::clock::LiveClock};
-                LiveClock::default().timestamp_ms()
-            }),
+            clock: crate::rd_owner_clock::RdOwnerClockV1::owner_transaction(),
         }
     }
 
-    /// Binds the Owner to one R&D pool and an explicit clock.
+    /// Binds the Owner to one R&D pool and a clock a test pins.
+    #[cfg(test)]
     #[must_use]
-    pub fn with_clock(pool: PgPool, clock: Arc<dyn Fn() -> u64 + Send + Sync>) -> Self {
+    pub(crate) fn with_clock(pool: PgPool, clock: crate::rd_owner_clock::RdOwnerClockV1) -> Self {
         Self { pool, clock }
     }
 
@@ -297,9 +294,13 @@ impl PostgresResearchBoundedFeatureProgramOwnerV1 {
         // The catalog is no longer resolved here: a freeze rebuilds it from the catalog version the
         // program's own bytes declare, so a check against the pinned one here could only disagree
         // with the version actually in force for this program.
-        let read_cut_epoch_ms = (self.clock)();
-        let committed_at_epoch_ms = (self.clock)().max(read_cut_epoch_ms);
         let mut transaction = self.pool.begin().await?;
+        let read_cut_epoch_ms = self.clock.read(&mut transaction).await?;
+        let committed_at_epoch_ms = self
+            .clock
+            .read(&mut transaction)
+            .await?
+            .max(read_cut_epoch_ms);
         let committed = Box::pin(commit_research_bounded_feature_program_in_transaction_v1(
             &mut transaction,
             &request.research_request_locator,
@@ -365,8 +366,8 @@ impl PostgresResearchBoundedFeatureProgramOwnerV1 {
         &self,
         research_request_locator: &str,
     ) -> Result<ResearchAuthoringFactsV1, ResearchBoundedFeatureProgramOwnerErrorV1> {
-        let read_cut_epoch_ms = (self.clock)();
         let mut transaction = self.pool.begin().await?;
+        let read_cut_epoch_ms = self.clock.read(&mut transaction).await?;
         let verified = match Box::pin(
             crate::rd_owner_postgres_custody::admit_research_v2_custody_read_only_in_transaction(
                 &mut transaction,
@@ -414,8 +415,8 @@ impl PostgresResearchBoundedFeatureProgramOwnerV1 {
         research_request_locator: &str,
         design: &StrategyDesignV2,
     ) -> Result<StrategyDesignRoleIntentV1, ResearchBoundedFeatureProgramOwnerErrorV1> {
-        let read_cut_epoch_ms = (self.clock)();
         let mut transaction = self.pool.begin().await?;
+        let read_cut_epoch_ms = self.clock.read(&mut transaction).await?;
         let verified = match Box::pin(
             crate::rd_owner_postgres_custody::admit_research_v2_custody_read_only_in_transaction(
                 &mut transaction,
@@ -537,9 +538,13 @@ impl PostgresResearchBoundedFeatureProgramOwnerV1 {
         // and `lower` resolve none.
         let catalog = PrimitiveCatalogV1::verify()
             .map_err(|_| ResearchBoundedFeatureProgramOwnerErrorV1::CatalogUnavailable)?;
-        let read_cut_epoch_ms = (self.clock)();
-        let committed_at_epoch_ms = (self.clock)().max(read_cut_epoch_ms);
         let mut transaction = self.pool.begin().await?;
+        let read_cut_epoch_ms = self.clock.read(&mut transaction).await?;
+        let committed_at_epoch_ms = self
+            .clock
+            .read(&mut transaction)
+            .await?
+            .max(read_cut_epoch_ms);
 
         let assembled = Box::pin(assemble_declared_bounded_feature_program_v1(
             &mut transaction,
@@ -604,8 +609,8 @@ impl PostgresResearchBoundedFeatureProgramOwnerV1 {
     {
         // The readback rebuilds the freeze under the catalog version its own stored bytes declare,
         // so resolving a catalog here could only disagree with the one actually in force.
-        let read_cut_epoch_ms = (self.clock)();
         let mut transaction = self.pool.begin().await?;
+        let read_cut_epoch_ms = self.clock.read(&mut transaction).await?;
         let frozen = Box::pin(read_research_bounded_feature_program_in_transaction_v1(
             &mut transaction,
             research_request_locator,

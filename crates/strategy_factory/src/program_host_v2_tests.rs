@@ -1389,3 +1389,25 @@ fn a_lifted_single_instrument_proposal_is_the_one_member_set_a_plugin_would_prop
             .is_err()
     );
 }
+
+/// A Design whose roles name exact instruments is refused under an Owner universe by the refusal the
+/// architecture names, before any other universe check can answer for it.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn exact_instrument_roles_are_refused_under_an_owner_universe_by_name() {
+    let candidate = executable_design();
+    let frame = issue_strategy_input_universe_frame().expect("fixed Owner universe frame");
+    let implementations =
+        super::strategy_plan_v2::plugin_implementation_receipts_for_test(&candidate, 71);
+
+    let StrategyCompilationV2::Unsupported(issue) =
+        compile_strategy_design_v2_for_universe(candidate, &frame, &implementations)
+    else {
+        panic!("an exact-instrument Design must not compile under an Owner universe")
+    };
+    assert_eq!(
+        issue.refusal,
+        Some(super::strategy_plan_v2::CompilationRefusalV2::ExactInstrumentRolesUnderOwnerUniverse)
+    );
+    assert_eq!(issue.coordinate, "inputs.scope");
+}

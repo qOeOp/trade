@@ -1112,10 +1112,10 @@ Native Replay scheduling 与 frame sequence 在保留双成员形态的同时，
 改动，记在 quote cut 段落。这一准入及其用户授权依据，与单成员 target-set 纵向切片一起记录在 Strategy Factory
 架构文档中。对于 Replay 初次组装，由固定的 Market Data writer 在 R&D 首次为 sealed Replay request 绑定 native
 execution input 时，通过上文 cut issuance 段落所述的 bound-replay issuance 签发 cut。目前已建成：
-`InstrumentMasterCutV2` cut 及其托管表（既有表就地迁移到新形状）、经济条款解析、Owner-binding 与 V1 native scheduling
-seal 已准入单成员；V1 scheduling receipt 对双成员 universe 的哈希与以前完全相同，其他成员数则额外声明成员数。V2 frame
-evidence 与 frame sequence 尚未准入单成员。Bound-replay issuance 是通向 `issue_cut` 的唯一生产路径，其唯一调用方是
-R&D 的 native execution-input binding issuance。
+`InstrumentMasterCutV2` cut 及其托管表（既有表就地迁移到新形状）、经济条款解析、Owner-binding、V1 native scheduling
+seal、V2 frame evidence 与 frame sequence 已准入单成员；V1 scheduling receipt 声明其成员数，这属于报价 cut 对它的改变。
+Bound-replay issuance 是通向 `issue_cut` 的唯一生产路径，其唯一调用方是 R&D 的 native execution-input binding
+issuance。
 
 **TARGET，durable Strategy Input Binding Registry：** Market Data 拥有 write-once、validated binding
 declaration；每份 declaration 以准确 PIT request、`StrategyDesignV2` 与 typed input role 为 key。R&D 只能提供 Owner-authenticated Design/role intent，绝不提供或选择 member、frame 或 binding
@@ -1400,13 +1400,18 @@ cut。每个报价 cut 的 correction lineage 先归约为它在请求的 decisi
 Source Binding lineage，并且报价的成员恰好是帧的成员。最新更正不能服务该帧的 lineage 什么也不提供，永不退回到
 被那次更正取代的版本。census 按请求方声明的 scope
 分区，所以在帧的全部坐标上都相同的第二个报价 cut 会与第一个冲突并使该帧被拒：这是拒绝服务，永远不会把一个
-Owner 未为它核验的报价 cut 交给它。上界是下一帧的 BAR cut；今天由 resolver 的调用方给出，从 frame census
-推导它属于序列解析器。现有 PIT correction lineage
+Owner 未为它核验的报价 cut 交给它。请求的 decision cut 是该帧自身 PIT snapshot 的 decision cut，即已封存请求
+所指名的那一个，所以日后重读会解析出同一个报价 cut。上界是 Owner 在该 decision cut 时已观察到的、帧所在 scope
+census 中第一个更晚的帧，窗口结束前没有这样的帧时则是窗口末端；更晚才被观察到的帧不会移动它。两者都不由调用方
+给出。现有 PIT correction lineage
 记录的是同一请求的修正版本，不是时间后继索引，也不能证明无漏帧，census 因此是一张独立的表而不是对它的
-复用；现有首帧 resolver 与 QuoteTick 投影本身不签发后续帧或独立流动性 receipt。现有 V1 native scheduling
-seal 还从 BAR 自己的 batch 中取严格晚于 BAR 的 Quote，而经 Owner 验证的 batch 不会含两个时刻，所以按现状它在
-Owner 托管数据上不可达。V2 帧证据的每一帧都经同一个 V1 seal 封存，所以在两者都改为从该帧报价 cut 取 Quote
-之前，V2 序列出于同样原因在 Owner 托管数据上不可达。
+复用；现有首帧 resolver 与 QuoteTick 投影本身不签发后续帧或独立流动性 receipt。V1 native scheduling seal 从帧的
+batch 取每个成员的 BAR，从帧的报价 cut 取每个成员的 Quote，所有 Quote 都在报价 cut 的时刻上并按成员顺序排列。
+Owner 按上述规则既从自身托管数据、也经已准入的 store port 解析报价 cut，后者通过两个受测量的 census 函数读取两份
+census。V1 scheduling receipt 先声明成员数，并在帧的 batch 之后绑定报价 cut 的 snapshot identity 与 fact，所以
+它的字节不同于它从帧自己的 batch 取 Quote 时的字节 - 那些字节 Owner 托管数据从未产生过。V2 帧证据的每一帧都经
+同一个 seal 封存，覆盖一个或两个成员，其流动性 EVENT receipt 封存的是报价 cut 而不是帧的 snapshot、fact 与
+batch。目前还没有证明在 Owner 托管数据上驱动过一次完整的首帧读取（schedule、universe 与报价 cut 齐备）。
 
 在 CURRENT/PARTIAL BAR schedule 路径中，只有具备 custody verification 的 readback 才能授权以准确 V1
 binding-receipt digest 为键的新增 immutable `TimeframeProjectionReceiptV1`。其既有 canonical bytes 与 domain
