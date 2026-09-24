@@ -230,12 +230,31 @@ production write、provider effect、Paper、Live 或交易权威。
     里的条目只允许 `terminal`、`reconciliation_summary`、`diagnostic_summary` 与
     `semantic_trace_presence`，不含任何经济字段。
   - 运行报告，即 `crates/strategy_factory/src/backtest_run_report_read_v1.rs` 里的
-    `resolve_backtest_run_report_v1`，承载 `OwnerBacktestReportV1` 从同一份已提交字节派生出的
-    `BacktestRunReport` 具名结果字段：该次运行的 result、request 与 attempt 身份，以及其结果证据所绑定的
-    引擎结果摘要；由 Owner 判定的状态（`AVAILABLE` 或 `EMPTY`）；该次运行记录的每一个收益观测，时间为
-    规范 UTC；净收益；最大回撤；以及每一笔成交的方向，价格与数量按引擎写出的原样给出。它不承载统计量
-    映射，因为那些映射合法地含有非有限值；也不承载策略陈述、品种或数据窗口，因为回测结果里没有这些。
-    它在调用方的 R&D 事务里读，使提供那些上游字段的读取能共用同一事务。
+    `resolve_backtest_run_report_v1`，承载 `BacktestRunReport` 的具名字段。运行产出的部分是
+    `OwnerBacktestReportV1` 从同一份已提交字节派生出的：该次运行的 result、request 与 attempt 身份，以及其
+    结果证据所绑定的引擎结果摘要；由 Owner 判定的状态（`AVAILABLE` 或 `EMPTY`）；该次运行记录的每一个
+    收益观测，时间为规范 UTC；净收益；最大回撤；以及每一笔成交的方向，价格与数量按引擎写出的原样给出。
+    它不承载统计量映射，因为那些映射合法地含有非有限值。策略与数据窗口不在回测结果里，所以取自上游：
+    该次运行所回应的 replay 请求，以及冻结在该请求所指 Design 之下的 Design 与程序。三次读取都在报告自己开的
+    一个 `SERIALIZABLE, READ ONLY, DEFERRABLE` 事务里：三者共用一个安全快照，同时保留请求存储函数的隔离规则（它只在
+    `read committed` 或 `serializable` 下作答，因为在 `repeatable read` 下它的快照早于它的请求栅栏），且 PostgreSQL
+    拒绝这条路径上的任何行锁。等待该快照有上限，超时的报告以 `REPORT_SNAPSHOT_UNAVAILABLE` 拒绝，而不是一直等。请求经
+    `rd_owner_api.read_exploratory_replay_request_v2` 读取，它不加锁；`resolve_exploratory_replay_request_v2`
+    为之后还要写入的调用方保留它的锁，并经同一个函数读取。策略只对已准入的单阈值族陈述，而且只有当把从那对冻结值读回的陈述重新编写一遍、能逐字节复现该对
+    的规范程序时才陈述；任何其他运行都以这个具名理由整体拒绝。这个族不带版本，所以由更早的编写器冻结、
+    而当前编写器已不能复现的程序，也以同样方式被拒绝。族内的运行也会被拒绝，码为
+    `STRATEGY_NOT_ANCHORED_TO_RUN`，直到冻结程序能锚定到该次运行实际执行的 artifact：请求点名的是
+    Design，而不是其 artifact 构建所依据的程序。锚点是 artifact 的 Composer 构建回执带有该冻结的
+    `joint_freeze_digest`；V2 构建不带这个值，因此永远满足不了。那些回执在 Composer 托管里，而 R&D Owner
+    能调用、又能返回它们的唯一一个 Composer Owner API 函数 `lock_accepted_develop_composer_v2` 取表级 SHARE 锁，
+    会挡住 Composer 的写者。一个
+    不上锁、读取 artifact 构建回执的 Composer 读取是让族内运行得以陈述的后续事项；在它存在之前，所有族内
+    运行都被拒绝。通道按运行实际读取的样子陈述（角色、品种、事实、时间粒度、单位与精度），而不是按请求
+    编写它的形式；因此间接指定品种的编写形式同样给出这六个字段，编写通道的方式变了，这份交接也不变。
+    universe 成员形态只通过运行的 universe 选择给出品种，而本报告目前还不读取那份选择，所以该形态的运行
+    以 `UNIVERSE_MEMBER_NOT_YET_REPORTED` 拒绝，而不是在缺少品种的情况下陈述。
+    数据窗口是通道的品种与时间粒度、请求的时间
+    窗口（结束端不含）、请求绑定的 PIT 快照个数，以及以该快照身份作为的切面。
 
   序列不是每根 bar 一个点：组合收益按日计算，组合快照跨不到两个 UTC 日的运行退回为每个已平仓位一个收益。
   序列中的每个值、净收益与最大回撤都是分数，0.01 即百分之一，这条交接对它们只陈述这一点。它不说明它们
@@ -243,7 +262,8 @@ production write、provider effect、Paper、Live 或交易权威。
   产出的是哪一种。因此在交接携带从规范结果读回的这一依据之前，任何消费方都不得把这些数呈现为权益收益。
   运行报告目前没有 HTTP 调用方。它的 PostgreSQL 证明读回的是一次真实的引擎运行，但
   那次运行是经验收模块自己的写入进入托管的，而不是经 `run_exploratory_replay_v2`；后者没有任何有序链路
-  条目驱动。
+  条目驱动。而且它的程序在族外，所以链路证明的是整体拒绝与结果那一半。族内的运行在链路里今天不可构造：
+  没有任何条目从编写出的 Design 组出 replay 请求。
 
 ## 拒绝和禁止事项
 

@@ -32,7 +32,7 @@
 //! Derivation is not admission. The result is still a proposal, carries no Owner authority, and
 //! must pass the same canonical verification as one assembled by hand.
 
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, fmt::Display};
 
 use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
@@ -187,6 +187,71 @@ pub(crate) fn derive_bounded_feature_program_proposal_v1(
     meaning: &BoundedFeatureProgramMeaningV1,
     bindings: &VerifiedStrategyInputBindingsV2,
 ) -> Result<BoundedFeatureProgramProposalV1, BoundedFeatureProgramDerivationErrorV1> {
+    assemble_proposal(
+        design,
+        DerivedProvenanceV1 {
+            catalog_semantic_version: catalog.semantic_version(),
+            // The catalog's semantic digest, which is what canonical verification compares
+            // against. `identity()` is a different value and a proposal carrying it is rejected
+            // at freeze time.
+            catalog_digest: BindingDigest::from_untrusted_bytes(catalog.semantic_digest()),
+            first_party_sdk_source_digest: first_party_bfp_sdk_source_digest_v1(),
+        },
+        meaning,
+        |role_identity| bindings.receipt_digest_for_role(role_identity),
+    )
+}
+
+/// Redeclares `meaning` against a program the Owner already froze.
+///
+/// Every field a proposer does not decide is taken from `frozen` rather than derived again: its
+/// catalog version and digest, its first-party SDK digest, and each input role's binding receipt.
+/// What changes is only the declared half. Preparing the result therefore reproduces `frozen`'s
+/// canonical bytes exactly when `meaning` is the meaning `frozen` was declared with, whatever
+/// order its collections were written in, because both go through the one canonicalization.
+///
+/// # Errors
+///
+/// Returns the same errors as [`derive_bounded_feature_program_proposal_v1`], with
+/// [`BoundedFeatureProgramDerivationErrorV1::MissingBindingReceipt`] for a role `frozen` holds no
+/// receipt for.
+pub(crate) fn redeclare_frozen_bounded_feature_program_v1(
+    design: &StrategyDesignV2,
+    frozen: &BoundedFeatureProgramProposalV1,
+    meaning: &BoundedFeatureProgramMeaningV1,
+) -> Result<BoundedFeatureProgramProposalV1, BoundedFeatureProgramDerivationErrorV1> {
+    assemble_proposal(
+        design,
+        DerivedProvenanceV1 {
+            catalog_semantic_version: frozen.catalog_semantic_version,
+            catalog_digest: frozen.catalog_digest,
+            first_party_sdk_source_digest: frozen.first_party_sdk_source_digest,
+        },
+        meaning,
+        |role_identity| {
+            frozen
+                .inputs
+                .iter()
+                .find(|input| input.input_role_identity == role_identity)
+                .map(|input| input.static_binding_receipt_digest)
+        },
+    )
+}
+
+/// The provenance fields of a proposal that are neither meaning nor Design.
+#[derive(Clone, Copy)]
+struct DerivedProvenanceV1 {
+    catalog_semantic_version: u16,
+    catalog_digest: BindingDigest,
+    first_party_sdk_source_digest: BindingDigest,
+}
+
+fn assemble_proposal(
+    design: &StrategyDesignV2,
+    provenance: DerivedProvenanceV1,
+    meaning: &BoundedFeatureProgramMeaningV1,
+    receipt_for_role: impl Fn(BindingDigest) -> Option<BindingDigest>,
+) -> Result<BoundedFeatureProgramProposalV1, BoundedFeatureProgramDerivationErrorV1> {
     let (design_identity, design_digest) = match prepare_strategy_design_v2(design) {
         StrategyDesignPreparationV2::Prepared {
             design_identity,
@@ -219,13 +284,12 @@ pub(crate) fn derive_bounded_feature_program_proposal_v1(
                 )
             })?;
         let input_role_identity = strategy_input_role_identity_v2(role);
-        let static_binding_receipt_digest = bindings
-            .receipt_digest_for_role(input_role_identity)
-            .ok_or_else(|| {
-            BoundedFeatureProgramDerivationErrorV1::MissingBindingReceipt(
-                input.role_semantic_id.clone(),
-            )
-        })?;
+        let static_binding_receipt_digest =
+            receipt_for_role(input_role_identity).ok_or_else(|| {
+                BoundedFeatureProgramDerivationErrorV1::MissingBindingReceipt(
+                    input.role_semantic_id.clone(),
+                )
+            })?;
 
         inputs.push(BoundedFeatureInputV1 {
             owner_semantic_id: MARKET_DATA_OWNER_SEMANTIC_ID_V1.to_owned(),
@@ -264,11 +328,9 @@ pub(crate) fn derive_bounded_feature_program_proposal_v1(
         // The version actually assembled against, not a constant. The catalog is published per
         // semantic version, so a proposal that named a fixed one would claim a provenance it might
         // not have.
-        catalog_semantic_version: catalog.semantic_version(),
-        // The catalog's semantic digest, which is what canonical verification compares against.
-        // `identity()` is a different value and a proposal carrying it is rejected at freeze time.
-        catalog_digest: BindingDigest::from_untrusted_bytes(catalog.semantic_digest()),
-        first_party_sdk_source_digest: first_party_bfp_sdk_source_digest_v1(),
+        catalog_semantic_version: provenance.catalog_semantic_version,
+        catalog_digest: provenance.catalog_digest,
+        first_party_sdk_source_digest: provenance.first_party_sdk_source_digest,
         inputs,
         constants: meaning.constants.clone(),
         state_cells: meaning.state_cells.clone(),
@@ -786,6 +848,18 @@ pub enum BoundedFeatureProgramAssemblyErrorV1 {
     Derivation(#[from] BoundedFeatureProgramDerivationErrorV1),
 }
 
+/// Records why the Market Data custody read refused, then returns the refusal the caller is given.
+///
+/// The caller learns `MarketDataUnavailable` whichever step refused; the coordinate names the step
+/// and the cause is that step's own error, so the log says where.
+fn market_data_refused(
+    coordinate: &'static str,
+    cause: &impl Display,
+) -> BoundedFeatureProgramAssemblyErrorV1 {
+    crate::storage_diagnostic::refused_by_store(coordinate, cause);
+    BoundedFeatureProgramAssemblyErrorV1::MarketDataUnavailable
+}
+
 /// Resolves live Owner binding custody for a Design and assembles declared meaning against it.
 ///
 /// This is the four-step custody path `source_research_composer_postgres_v2` performs, lifted out
@@ -820,7 +894,9 @@ pub(crate) async fn assemble_declared_bounded_feature_program_v1(
 
     let coordinate = resolve_pit_request_for_strategy_design_v1(transaction, design_identity)
         .await
-        .map_err(|_| BoundedFeatureProgramAssemblyErrorV1::MarketDataUnavailable)?;
+        .map_err(|cause| {
+            market_data_refused("bfp_derivation.binding.resolve_pit_request", &cause)
+        })?;
 
     let mut declared: Vec<BindingDigest> = design
         .inputs
@@ -831,7 +907,10 @@ pub(crate) async fn assemble_declared_bounded_feature_program_v1(
     declared.sort_unstable();
     stored.sort_unstable();
     if declared != stored {
-        return Err(BoundedFeatureProgramAssemblyErrorV1::MarketDataUnavailable);
+        return Err(market_data_refused(
+            "bfp_derivation.binding.declared_roles",
+            &"the Design's role set differs from the roles Market Data holds for it",
+        ));
     }
 
     let claim = UntrustedStrategyInputCustodyClaimV1 {
@@ -843,12 +922,15 @@ pub(crate) async fn assemble_declared_bounded_feature_program_v1(
     };
     let readback = reread_persisted_strategy_input_custody_for_update_v1(transaction, &claim)
         .await
-        .map_err(|_| BoundedFeatureProgramAssemblyErrorV1::MarketDataUnavailable)?;
+        .map_err(|cause| market_data_refused("bfp_derivation.binding.reread_custody", &cause))?;
 
     if readback.research_request_identity() != design.research_request_identity
         || readback.strategy_design_identity() != design_identity
     {
-        return Err(BoundedFeatureProgramAssemblyErrorV1::MarketDataUnavailable);
+        return Err(market_data_refused(
+            "bfp_derivation.binding.custody_identity",
+            &"the reread custody names another Research request or Design",
+        ));
     }
 
     Ok(derive_bounded_feature_program_proposal_v1(

@@ -149,6 +149,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ReplayPolicyCatalogErro
     if crate::schema_materialization::pre_cutover_materialization_is_admitted(pool)
         .await
         .map_err(unavailable)?
+        .is_some()
     {
         for (relation_name, statement) in [
             (

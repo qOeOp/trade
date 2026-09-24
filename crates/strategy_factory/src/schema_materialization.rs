@@ -77,10 +77,34 @@ pub(crate) const fn unique_index(keys: &'static str) -> IndexSpec {
     }
 }
 
+/// Proof that the database was in the explicit pre-cutover phase when the gate read it.
+///
+/// Only [`pre_cutover_materialization_is_admitted`] can build one: the field is private to this
+/// module. A migration that takes it as a parameter can therefore only be reached from behind the
+/// gate, and a call from `connect` or any other runtime entry does not compile.
+///
+/// That is what keeps R&D materialization from interleaving with a fenced readback. It does not take
+/// the Backtest topology fence, and it alters relations the run report reads under that fence; it
+/// runs only before cutover, when no such readback can exist, and this type makes "only before
+/// cutover" a compile-time fact rather than a property someone has to remember.
+#[derive(Debug)]
+pub(crate) struct PreCutoverMaterializationAdmitted {
+    _gate_only: (),
+}
+
+#[cfg(test)]
+impl PreCutoverMaterializationAdmitted {
+    /// For a test that migrates its own disposable database directly. Absent from every non-test
+    /// build, so it cannot stand in for the gate anywhere a report could be reading.
+    pub(crate) fn for_a_disposable_test_database() -> Self {
+        Self { _gate_only: () }
+    }
+}
+
 pub(crate) async fn pre_cutover_materialization_is_admitted(
     pool: &PgPool,
-) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar(
+) -> Result<Option<PreCutoverMaterializationAdmitted>, sqlx::Error> {
+    let admitted: bool = sqlx::query_scalar(
         "SELECT session_user='rd_owner'
            AND current_user='rd_owner'
            AND pg_catalog.pg_get_userbyid(database.datdba)='rd_owner'
@@ -93,7 +117,8 @@ pub(crate) async fn pre_cutover_materialization_is_admitted(
          WHERE database.datname=pg_catalog.current_database()",
     )
     .fetch_one(pool)
-    .await
+    .await?;
+    Ok(admitted.then_some(PreCutoverMaterializationAdmitted { _gate_only: () }))
 }
 
 pub(crate) async fn materialize_public_table(
@@ -101,7 +126,10 @@ pub(crate) async fn materialize_public_table(
     relation_name: &str,
     create_statement: &'static str,
 ) -> Result<(), sqlx::Error> {
-    if !pre_cutover_materialization_is_admitted(pool).await? {
+    if pre_cutover_materialization_is_admitted(pool)
+        .await?
+        .is_none()
+    {
         return Err(sqlx::Error::Protocol(format!(
             "public R&D relation {relation_name} cannot be materialized outside the explicit pre-cutover phase"
         )));
@@ -165,7 +193,10 @@ pub(crate) async fn verify_materialized_public_tables(
     pool: &PgPool,
     specs: &[PublicTableSpec],
 ) -> Result<(), sqlx::Error> {
-    if !pre_cutover_materialization_is_admitted(pool).await? {
+    if pre_cutover_materialization_is_admitted(pool)
+        .await?
+        .is_none()
+    {
         return Err(sqlx::Error::Protocol(
             "pre-cutover R&D schema verification is unavailable".to_owned(),
         ));

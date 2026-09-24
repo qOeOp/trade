@@ -1320,10 +1320,11 @@ mod tests {
     ///
     /// It proves the unavailable state from a real Owner reason: a result the workbench can open,
     /// committed without outcome evidence, which the Backtest Owner refuses under its own code. It
-    /// then opens the run the preceding chain entry committed from a
-    /// real engine run and asserts what that run renders today. That run's engine bytes are real, but
-    /// its input is constructed quotes and it reached custody through a test writer, not through a
-    /// production-produced run. This entry must follow that one.
+    /// then opens the run the preceding chain entry committed from a real engine run, which the
+    /// Owner refuses too: its program is not one the single-threshold family authors, so the Owner
+    /// states no strategy for it. That run's engine bytes are real, but its input is constructed
+    /// quotes and it reached custody through a test writer, not through a production-produced run.
+    /// This entry must follow that one.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[ignore = "requires the ordered chain's committed run report, Dashboard dependencies and Chrome acceptance admission"]
     async fn backtest_run_report_browser_acceptance_reads_the_owner_answer() {
@@ -1440,6 +1441,21 @@ mod tests {
             )
         });
 
+        // The committed run's answer, read from the Owner the same way. It must be the Owner's
+        // judgement about the run: a transaction or storage failure also arrives as a code, and a
+        // browser held to that code would pass on a database hiccup.
+        let run_answer = owner
+            .resolve_backtest_run_report_v1(ExploratoryReplayResultLocatorV2 {
+                result_identity: &run.result_identity,
+                request_identity: &run.request_identity,
+                attempt_identity: &run.attempt_identity,
+            })
+            .await;
+        let run_code = match &run_answer {
+            Err(refusal) if refusal.is_owner_judgement() => refusal.code(),
+            other => panic!("the committed run's report is not an Owner refusal: {other:?}"),
+        };
+
         let before = report_relation_counts(backtest_pool, rd_pool).await;
         let read_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let read_address = read_listener.local_addr().unwrap();
@@ -1478,7 +1494,8 @@ mod tests {
                 format!("http://{read_address}/"),
             )
             .env("RD_DASHBOARD_OWNER_READ_API_TOKEN", read_token)
-            .env("DASHBOARD_RUN_REPORT_REFUSED_OWNER_CODE", refused_code);
+            .env("DASHBOARD_RUN_REPORT_REFUSED_OWNER_CODE", refused_code)
+            .env("DASHBOARD_RUN_REPORT_RUN_OWNER_CODE", run_code);
 
         for (prefix, selected) in [("RUN", &run), ("REFUSED", &refused)] {
             browser

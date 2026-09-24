@@ -348,6 +348,30 @@ impl AdmittedProgramEventV2 {
     pub(crate) fn corrupt_trigger_for_test(&mut self) {
         self.inputs[0].owner_event.trigger_digest = BindingDigest::from_untrusted_bytes([0xa5; 32]);
     }
+
+    /// Moves one role's input to another member ordinal and reseals the event identity, so the
+    /// event reaches input validation instead of being refused for an identity it no longer has.
+    #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
+    pub(crate) fn move_member_ordinal_and_reseal_for_test(
+        &mut self,
+        plan: &StrategyPlanV2,
+        role_semantic_id: &str,
+        member_ordinal: u8,
+    ) {
+        self.inputs
+            .iter_mut()
+            .find(|input| input.role_semantic_id == role_semantic_id)
+            .expect("test role has an input")
+            .member_ordinal = Some(member_ordinal);
+        self.identity = admitted_event_identity(
+            plan,
+            self.envelope,
+            &self.inputs,
+            &self.source_binding_lineages,
+            self.input_join_identity,
+            self.universe_frame,
+        );
+    }
 }
 
 /// Admits one input-free lifecycle event issued by the isolated Backtest composition root.
@@ -2223,6 +2247,10 @@ impl ProgramHostV2 {
             return Err(ProgramHostV2Error::InputCoverage);
         }
         let universe = self.plan.universe_selection().is_some();
+        let member_count = self
+            .plan
+            .universe_selection()
+            .map_or(0, |selection| selection.members().len());
         let expected_len = match self.plan.universe_selection() {
             Some(selection) => declared.len().saturating_mul(selection.members().len()),
             None => declared.len(),
@@ -2261,7 +2289,7 @@ impl ProgramHostV2 {
                 || input.owner_event.input_role_identity != role_identity
                 || input.owner_event.scale != role.scale
                 || (bfp_coordinates_required != input.owner_event.sample_coordinate.is_some())
-                || (universe && input.member_ordinal.is_none_or(|ordinal| ordinal >= 2))
+                || (universe && !is_universe_member_ordinal(input.member_ordinal, member_count))
                 || (!universe && input.member_ordinal.is_some())
                 || (input_join_identity.is_none()
                     && frame
@@ -2292,8 +2320,10 @@ impl ProgramHostV2 {
 
         if declared.iter().any(|role| {
             if universe {
-                (0..2).any(|ordinal| {
-                    !values.contains_key(&(role.semantic_id.as_str(), Some(ordinal)))
+                (0..member_count).any(|ordinal| {
+                    u8::try_from(ordinal).map_or(true, |ordinal| {
+                        !values.contains_key(&(role.semantic_id.as_str(), Some(ordinal)))
+                    })
                 })
             } else {
                 !values.contains_key(&(role.semantic_id.as_str(), None))
@@ -3402,6 +3432,11 @@ pub(crate) fn lift_single_instrument_proposal(
         }],
     )
     .map_err(|_| ProgramHostV2Error::Graph("proposal.member_target_set.lift".into()))
+}
+
+/// Whether `ordinal` names a member of a universe of `member_count` members.
+pub(crate) fn is_universe_member_ordinal(ordinal: Option<u8>, member_count: usize) -> bool {
+    ordinal.is_some_and(|ordinal| usize::from(ordinal) < member_count)
 }
 
 fn target_set_selection_identity(plan: &StrategyPlanV2) -> BindingDigest {

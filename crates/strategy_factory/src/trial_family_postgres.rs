@@ -154,7 +154,13 @@ pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
     [primary "event_identity", unique "aggregate_identity,event_kind", unique "aggregate_identity,event_kind"]),
 ];
 
-pub(crate) async fn migrate(pool: &PgPool) -> Result<(), TrialFamilyError> {
+/// Alters relations the Backtest run report reads, through its R&D read functions, under the
+/// topology fence, without taking the fence; `admitted` is why that cannot interleave with a
+/// readback. See [`crate::schema_materialization::PreCutoverMaterializationAdmitted`].
+pub(crate) async fn migrate(
+    pool: &PgPool,
+    admitted: &crate::schema_materialization::PreCutoverMaterializationAdmitted,
+) -> Result<(), TrialFamilyError> {
     for (relation_name, statement) in [
         (
             "rd_trial_families_v1",
@@ -229,7 +235,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), TrialFamilyError> {
     crate::iteration_result_admission_postgres::migrate(pool)
         .await
         .map_err(|e| TrialFamilyError::Unavailable(e.to_string()))?;
-    crate::iteration_decision_postgres::migrate(pool)
+    crate::iteration_decision_postgres::migrate(pool, admitted)
         .await
         .map_err(|e| TrialFamilyError::Unavailable(e.to_string()))?;
     Ok(())
@@ -2023,7 +2029,12 @@ mod postgres_binding_tests {
             .connect(test_database.database_url())
             .await
             .unwrap();
-        migrate(&pool).await.unwrap();
+        migrate(
+            &pool,
+            &crate::schema_materialization::PreCutoverMaterializationAdmitted::for_a_disposable_test_database(),
+        )
+        .await
+        .unwrap();
         let suffix = unique_suffix();
         let intent_identity = format!("rd-research-intent-v2-binding-matrix-{suffix}");
         let intent_digest = format!("sha256:{}", "a".repeat(64));
@@ -2420,7 +2431,12 @@ mod postgres_binding_tests {
             .connect(test_database.database_url())
             .await
             .unwrap();
-        migrate(&pool).await.unwrap();
+        migrate(
+            &pool,
+            &crate::schema_materialization::PreCutoverMaterializationAdmitted::for_a_disposable_test_database(),
+        )
+        .await
+        .unwrap();
         let suffix = unique_suffix();
         let intent_identity = format!("rd-research-intent-v2-census-{suffix}");
         let intent_digest = format!("sha256:{}", "d".repeat(64));
