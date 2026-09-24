@@ -1343,24 +1343,34 @@ request name one or two canonical Instrument Master identities as its `ResearchI
 admitted on 2026-09-24, and has R&D issue the Intent's initial PIT request from it. Market Data answers that request
 and never chooses the instruments. This is how:
 
-- Fixed-member selection rule. Besides the two rules the canonical evaluator admits today, every frontier member
-  (`[0,1,1]`) and an instrument prefix (`[0,1,2,..]`), a Universe Selection request may carry the fixed-member rule:
-  `[0,1,3]` followed by the scope's canonical bytes, with `selection_rule_identity` equal to the scope identity. Bytes
-  that do not decode as a scope, or any other rule identity, are refused. Market Data evaluates the rule against the
-  eligible-instrument frontier it holds as current at the request's decision cut: the selection includes exactly the
-  requested identities and excludes every other frontier member as `RULE_FILTERED_V1`. A requested identity with no
-  Instrument Master fact at that cut is refused as unresolved, and one with no eligible included fact in the frontier
-  as not in the frontier; neither is dropped from a selection that would then hold fewer members. The current frontier
-  is the latest admitted historical-membership frontier: each admission succeeds the one before it, so Market Data,
-  not the requester, decides which frontier is current.
-- PIT references. R&D resolves every Market Data reference of the initial PIT request through one read function,
-  `market_data_rd_api.resolve_research_pit_references_v1(identities)`, and supplies nothing of its own. The function
+- Fixed-member selection rule. Besides the every-member rule (`[0,1,1]`) and the instrument-prefix rule (`[0,1,2,..]`),
+  a Universe Selection request may carry the fixed-member rule: `[0,1,3]` followed by the scope's canonical bytes, with
+  `selection_rule_identity` equal to the scope identity. Bytes that do not decode as a scope, or any other rule
+  identity, are refused as an invalid request. Market Data evaluates the rule against the eligible-instrument frontier
+  it holds as current, and refuses a request that names any other frontier as `UNIVERSE_SELECTION_FRONTIER_NOT_CURRENT`.
+  The selection includes exactly the requested identities and excludes every other frontier member as
+  `RULE_FILTERED_V1`. A requested identity for which the Instrument Master selects no fact in force and observable at
+  the request's instants is refused as `UNIVERSE_SELECTION_MEMBER_UNRESOLVED`, and one that no single member of the
+  frontier includes as `UNIVERSE_SELECTION_MEMBER_NOT_IN_FRONTIER`; neither is dropped from a selection that would then
+  hold fewer members, and no refusal writes a selection. The current frontier is the latest admitted
+  historical-membership frontier: each admission succeeds the one before it, so Market Data, not the requester, decides
+  which frontier is current. A membership fact belongs to the frontier it was admitted under: restating the same fact
+  for another frontier is refused as a conflict.
+- PIT references. R&D resolves every Market Data reference of the initial PIT request through one read,
+  `resolve_research_pit_references_v1`, which runs in R&D's own transaction, and supplies nothing of its own. The read
   returns the current eligible-instrument frontier; the locator, lineage root, correction frontier and Market Semantics
-  identity of the one Source Binding lineage the requested identities' frontier facts name; the Instrument Master V1
-  digest resolved for them; and Market Data's current decision cut with the clock evidence the PIT intake compares
-  exactly. It returns no row when an identity is not admissible, or when the identities' facts name more than one
-  Source Binding lineage, because one PIT request binds one Source Binding. The intake still re-verifies the Universe
-  Selection R&D then states and the PIT request it freezes, and it admits a scope of one or two members.
+  identity of the one Source Binding lineage the requested identities' frontier facts name; and Market Data's current
+  decision cut with the clock evidence the PIT intake compares exactly. It returns no Instrument Master digest, and the
+  request R&D submits states none. The Instrument Master readback a PIT request binds is minted by the intake's own
+  write, keyed on the request's correlation and event instant, which no read of the scope can reproduce. R&D therefore
+  submits the request without an Instrument Master field and without a claimed identity or digest; the intake stamps its
+  own readback digest, seals the request's identity and digest over what it will commit, and refuses by name a
+  submission that states an Instrument Master digest, so no stand-in value, all-zero or otherwise, is ever read as one.
+  The request identity and digest a terminal reports are Market Data's. The read refuses by name when an identity is not
+  admissible; when the identities' facts name more than one Source Binding lineage or correction frontier, because one
+  PIT request binds one Source Binding; when that lineage has no admitted head; and when Market Data holds no clock
+  head. The intake still re-verifies the Universe Selection R&D then states and the PIT request it freezes, and it
+  admits a scope of one or two members.
 - Requester identity. The initial PIT request's `requester_identity` is SHA-256 over
   `vibe.market-data.pit-requester.research-request.v1\0` followed by the 32-byte Research request identity the Design
   role intent carries, which is R&D's `rd.develop.request-identity.v2` digest of the request locator, never another
@@ -1375,18 +1385,27 @@ and never chooses the instruments. This is how:
   schema 1 intent names no request: its exact-instrument roles still resolve by coordinate as the paragraphs above
   state, and its universe-member roles are refused by name. A Composer attestation of a universe-member Design takes
   its PIT request from that Design's published schema 2 role intent, never from the attestation.
-- Early check. Before R&D accepts a Research request it calls
-  `market_data_rd_api.check_research_instrument_scope_v1(identities)`, which returns one row per identity, in order,
-  each `ADMISSIBLE`, `UNRESOLVED` or `NOT_IN_ELIGIBLE_FRONTIER` at Market Data's current decision cut. It is `STABLE`,
-  runs inside the caller's R&D transaction without row locks, and writes nothing. It only refuses early: the
-  fixed-member evaluation at the PIT request remains the decision, and an identity admissible at the check can still
-  end in a terminal that is not `AVAILABLE`.
+- Early check. Before R&D accepts a Research request it calls `check_research_instrument_scope_v1`, which returns one
+  row per identity, in order, each `ADMISSIBLE`, `UNRESOLVED` or `NOT_IN_ELIGIBLE_FRONTIER`, with the frontier and the
+  decision cut it judged them at. Every instant of the judgement is Market Data's current decision cut. An identity is
+  `UNRESOLVED` when the Instrument Master selects no single fact for it in force and observable at that cut, and
+  `NOT_IN_ELIGIBLE_FRONTIER` when it resolves but no single membership fact for it is in force in the current frontier;
+  with no current frontier every row is `NOT_IN_ELIGIBLE_FRONTIER`. It runs inside the caller's R&D transaction without
+  row locks, and writes nothing. It only refuses early: the fixed-member evaluation at the PIT request remains the
+  decision, and an identity admissible at the check can still end in a terminal that is not `AVAILABLE`.
+- The reads' transport. Both reads are Market Data code running in R&D's transaction. What crosses into
+  `market_data_rd_api` is four `STABLE` `SECURITY DEFINER` functions that only return stored evidence: the Owner's clock
+  head, the current frontier's membership facts for the requested instruments, their Instrument Master facts, and one
+  lineage's Source Binding head. The Owner's own decoders and selection rules decide every answer.
 
 Built so far: the PIT intake admits a Universe Selection Record of one or two included members, each keyed by its
-canonical instrument, and refuses any other count or key by name before it writes anything. Nothing else: the
-canonical evaluator admits only the every-member and prefix rules; an eligible-instrument frontier is a caller-chosen
-digest that no admission succeeds; no read resolves a Source Binding, an Instrument Master fact or eligibility from an
-identity; nothing reads a PIT request by its identity; and registration resolves every role by coordinate.
+Built so far: Market Data's half of this section, except the submission without an Instrument Master field: the intake
+still takes a request that carries one and overwrites it before validating, and nothing refuses a stated digest yet. The
+PIT intake admits a Universe Selection Record of one or two included members, each keyed by its canonical instrument,
+and refuses any other count or key by name before it writes anything. Registration by reference registers a Design
+against exactly the initial PIT request its role intent names, with the refusals stated above. Each newly admitted
+frontier takes the next admission number and the latest numbered one is current; a frontier admitted before numbering is
+never current. The fixed-member rule and its three refusals, the check and the reference read answer as stated.
 
 Market Data consumes, but does not define or reinterpret, the explicit big-endian R&D canonical binary codec
 specified in the R&D Owner contract. Its JSON representation is not canonical receipt material. Registration

@@ -28,6 +28,7 @@ mod rd_strategy_input_custody;
 mod reference_fact_catalog;
 mod reference_fact_coordinates;
 mod replay_market_facts_v2;
+pub(in crate::owner) mod research_pit_references_v1;
 pub(super) use replay_market_facts_v2::resolve_bound_replay_cut_for_rd_in_transaction_v1;
 pub(super) use replay_market_facts_v2::{
     BoundUniverseSelectionErrorV1, recover_bound_universe_selection_in_transaction_v1,
@@ -968,7 +969,10 @@ impl MarketDataOwnerPostgres {
         .await
         .map_err(|_| SourceBindingError::StoreUnavailable)?;
 
-        for statement in rd_strategy_input_custody::SCHEMA_V1 {
+        for statement in rd_strategy_input_custody::SCHEMA_V1
+            .iter()
+            .chain(research_pit_references_v1::SCHEMA_V1)
+        {
             sqlx::query(*statement)
                 .execute(&mut *transaction)
                 .await
@@ -5235,6 +5239,13 @@ async fn load_instrument_facts(
         .fetch_all(&mut **transaction)
         .await
         .map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+    decode_instrument_fact_rows(rows)
+}
+
+/// Decodes stored Instrument Master fact rows, refusing any whose columns disagree with its bytes.
+fn decode_instrument_fact_rows(
+    rows: Vec<sqlx::postgres::PgRow>,
+) -> Result<Vec<InstrumentMasterFactV1>, InstrumentMasterError> {
     rows.into_iter()
         .map(|row| {
             let bytes: Vec<u8> = row
@@ -6905,6 +6916,19 @@ struct DurableClockHandoffState {
     materialized: bool,
     handoff_count: i64,
     epoch_transition_count: i64,
+}
+
+/// The Owner's current clock head, read without a lock.
+async fn load_owner_clock_head_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<Option<MarketDataClockAdmission>, sqlx::Error> {
+    sqlx::query(
+        "SELECT clock_identity,clock_epoch,monotonic_sequence,wall_observed,decision_cut,valid_through,restart_continuity_digest,uncertainty_bound,skew_bound,comparison_rule FROM market_data_private.clock_head_v1 WHERE singleton",
+    )
+    .fetch_optional(&mut **transaction)
+    .await?
+    .map(|row| decode_clock(&row))
+    .transpose()
 }
 
 async fn load_current_clock_for_update(
