@@ -335,9 +335,11 @@ a commit's own response carries exactly the locator the registration takes - but
 origin, and no artifact-bound shape could supply one: a program's identity folds in the very binding
 receipts the registration issues. This Owner therefore publishes a Design-level role intent, which
 names a Design, the Research request and custody it was admitted against, and the roles it declares,
-and nothing else. `POST /v1/strategy-designs/publish-role-intent` derives it from currently accepted
-custody and stores it write-once per Design; from schema 2 it also names the Intent's initial PIT request, as the
-requested-instrument-scope contract below states;
+and nothing else. Each role's scope decides whether it names an instrument: an exact-instrument role names one, and a
+universe-member role names none, because the selection is the PIT request's rather than the Design's.
+`POST /v1/strategy-designs/publish-role-intent` derives it from currently accepted custody and stores it
+write-once per Design; from schema 2 it also names the Intent's initial PIT request, as the requested-instrument-scope
+contract below states;
 `rd_owner_api.resolve_design_role_intent_for_market_data_v1` exposes it to the Market Data reader
 principal alone. The ordered PostgreSQL chain witnesses a Design that nothing in
 `composer_private` names moving from no PIT coordinate to the one Market Data resolved, beside the attested admission it
