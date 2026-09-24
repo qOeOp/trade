@@ -3447,7 +3447,7 @@ REVOKE ALL ON ALL TABLES IN SCHEMA operator_authorization_private FROM PUBLIC, r
 
 CREATE OR REPLACE FUNCTION operator_authorization_api.lock_current_authorization_v1(requested_authorization_identity text, requested_issuance_receipt_identity text)
 RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path = pg_catalog, operator_authorization_private
+SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
   issuance operator_authorization_private.operator_authorization_issuances_v1%ROWTYPE;
@@ -3491,7 +3491,7 @@ GRANT EXECUTE ON FUNCTION operator_authorization_api.lock_current_authorization_
 
 CREATE OR REPLACE FUNCTION operator_authorization_api.resolve_authorization_snapshot_v1(requested_authorization_identity text, requested_issuance_receipt_identity text)
 RETURNS jsonb LANGUAGE plpgsql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
-SET search_path = pg_catalog, operator_authorization_private
+SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
   issuance operator_authorization_private.operator_authorization_issuances_v1%ROWTYPE;
@@ -3735,7 +3735,7 @@ $product_edge_ownership$;
 
 CREATE OR REPLACE FUNCTION product_edge_api.lock_legacy_prepared_attempt_drain_effects_v1()
 RETURNS jsonb LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
 BEGIN
   IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF;
@@ -3754,7 +3754,7 @@ CREATE OR REPLACE FUNCTION product_edge_api.read_legacy_prepared_attempt_absence
   requested_attempt_identity text
 )
 RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
   admission_count bigint;
@@ -3798,7 +3798,7 @@ CREATE OR REPLACE FUNCTION product_edge_api.lock_downstream_admission_v1(
   requested_admission_digest text
 )
 RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
   hinted_admission public.product_edge_request_admissions_v1%ROWTYPE;
@@ -3950,7 +3950,7 @@ CREATE OR REPLACE FUNCTION product_edge_api.resolve_historical_downstream_admiss
   requested_admission_digest text
 )
 RETURNS jsonb LANGUAGE plpgsql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
   hinted_admission public.product_edge_request_admissions_v1%ROWTYPE;
@@ -4042,7 +4042,7 @@ CREATE OR REPLACE FUNCTION product_edge_api.lock_source_invocation_state_v1(
   requested_state text
 )
 RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
   locked_admission record;
@@ -4149,7 +4149,7 @@ CREATE OR REPLACE FUNCTION product_edge_api.lock_source_invocation_claim_v1(
   requested_attempt_identity text
 )
 RETURNS jsonb LANGUAGE sql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
   SELECT product_edge_api.lock_source_invocation_state_v1($1,$2,$3,'CLAIMED')
 $function$;
@@ -4163,7 +4163,7 @@ CREATE OR REPLACE FUNCTION product_edge_api.lock_source_invocation_started_v1(
   requested_attempt_identity text
 )
 RETURNS jsonb LANGUAGE sql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
   SELECT product_edge_api.lock_source_invocation_state_v1($1,$2,$3,'INVOCATION_STARTED')
 $function$;
@@ -4179,7 +4179,7 @@ CREATE OR REPLACE FUNCTION product_edge_api.lock_portfolio_read_policy_v1(
   requested_admission_digest text
 )
 RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
   operator_authorization_envelope jsonb;
