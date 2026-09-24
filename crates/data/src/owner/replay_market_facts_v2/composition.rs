@@ -777,6 +777,67 @@ fn validate_replay_request_binding_association_v1(
     Ok(())
 }
 
+/// Whether `frame` is over this PIT snapshot, derived under this Source Binding lineage, and holds
+/// exactly `selected_members` - the (member key, instrument) pairs the Universe Selection includes.
+pub(crate) fn universe_frame_binds_request_v2(
+    frame: &crate::owner::strategy_input_binding::StrategyInputUniverseFrameReceipt,
+    pit_snapshot_identity: BindingDigest,
+    pit_fact_digest: BindingDigest,
+    source_binding_lineage_root: BindingDigest,
+    selected_members: &[(&[u8], &[u8])],
+) -> bool {
+    let mut frame_members = frame
+        .selection()
+        .members()
+        .iter()
+        .map(|member| {
+            (
+                member.member_key().as_bytes(),
+                member.instrument().as_bytes(),
+            )
+        })
+        .collect::<Vec<_>>();
+    frame_members.sort_unstable();
+    let mut selected_members = selected_members.to_vec();
+    selected_members.sort_unstable();
+
+    frame.trigger().snapshot_identity() == pit_snapshot_identity
+        && frame.trigger().snapshot_fact_digest() == pit_fact_digest
+        && frame.selection().source_binding_lineage_root() == source_binding_lineage_root
+        && frame_members == selected_members
+}
+
+/// Re-derives the universe frame a universe-member aggregate binds and compares it.
+///
+/// The frame is derived, never stored: this is the universe-member counterpart of re-deriving the
+/// first corpus's persisted census. `batch` is the request's verified PIT batch and `role_requests`
+/// the binding's complete role set; the frame they derive must be the one the aggregate binds.
+///
+/// # Errors
+///
+/// `CompositionShapeMismatch` for first-corpus facts, and `UniverseFrameMismatch` when the role set
+/// derives no frame over the batch or a frame other than the bound one.
+pub(crate) fn verify_universe_member_replay_facts_frame_v2(
+    facts: &super::ReplayMarketFactsV2,
+    batch: &crate::owner::pit_snapshot::VerifiedPitObservationBatch,
+    role_requests: &[crate::owner::strategy_input_binding::UntrustedStrategyInputBindingRequest],
+) -> Result<(), ReplayCompositionBindingErrorV1> {
+    let Some(bound) = facts.universe_frame_digest() else {
+        return Err(ReplayCompositionBindingErrorV1::CompositionShapeMismatch);
+    };
+    let derived = crate::owner::strategy_input_binding::bind_strategy_input_universe_frame(
+        role_requests,
+        batch,
+    )
+    .map_err(|_| ReplayCompositionBindingErrorV1::UniverseFrameMismatch)?;
+
+    if derived.digest() == bound {
+        Ok(())
+    } else {
+        Err(ReplayCompositionBindingErrorV1::UniverseFrameMismatch)
+    }
+}
+
 /// Refuses Replay facts whose shape is not the shape of the binding they are stored under.
 ///
 /// Every schema 1 binding is the exact-instrument first corpus, so its facts must be too.

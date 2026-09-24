@@ -42,7 +42,7 @@ const REQUIRED_DEPENDENCY_COUNT: usize = 7;
 const UNIVERSE_MEMBER_DEPENDENCY_COUNT: usize = 4;
 /// The shape check exactly as PostgreSQL renders it back; the migration and the read contract both
 /// compare against it, so a check that drifted from this text is refused rather than trusted.
-const REPLAY_MARKET_FACTS_SHAPE_CHECK_V2: &str = "CHECK ((((shape = 1) AND (joined_cut_identity IS NOT NULL) AND (joined_cut_digest IS NOT NULL) AND (sample_projection_identity IS NOT NULL) AND (sample_projection_digest IS NOT NULL) AND (universe_frame_identity IS NULL) AND (universe_frame_digest IS NULL)) OR ((shape = 2) AND (joined_cut_identity IS NULL) AND (joined_cut_digest IS NULL) AND (sample_projection_identity IS NULL) AND (sample_projection_digest IS NULL) AND (universe_frame_identity IS NOT NULL) AND (universe_frame_digest IS NOT NULL) AND (composition_binding_identity IS NOT NULL))))";
+pub(super) const REPLAY_MARKET_FACTS_SHAPE_CHECK_V2: &str = "CHECK ((((shape = 1) AND (joined_cut_identity IS NOT NULL) AND (joined_cut_digest IS NOT NULL) AND (sample_projection_identity IS NOT NULL) AND (sample_projection_digest IS NOT NULL) AND (universe_frame_identity IS NULL) AND (universe_frame_digest IS NULL)) OR ((shape = 2) AND (joined_cut_identity IS NULL) AND (joined_cut_digest IS NULL) AND (sample_projection_identity IS NULL) AND (sample_projection_digest IS NULL) AND (universe_frame_identity IS NOT NULL) AND (universe_frame_digest IS NOT NULL) AND (composition_binding_identity IS NOT NULL))))";
 const STORAGE_UNIVERSE_MEMBERS_DOMAIN: &[u8] =
     b"vibe.market-data.replay-market-facts-storage.universe-members.v2\0";
 const RESOLVE_COMPOSITION_BINDING_SOURCE_V1: &str = " SELECT b.binding_identity,b.binding_digest,b.receipt_identity,b.record_bytes,r.receipt_bytes,o.outbox_identity,o.binding_identity,o.receipt_identity,o.payload_bytes FROM market_data_private.replay_composition_bindings_v1 AS b JOIN market_data_private.replay_composition_binding_receipts_v1 AS r ON r.binding_identity=b.binding_identity JOIN market_data_private.replay_composition_binding_outbox_v1 AS o ON o.binding_identity=b.binding_identity WHERE b.binding_identity=p_binding_identity ";
@@ -2498,6 +2498,228 @@ mod resolver_contract_tests {
         assert_eq!(
             invalid_boolean.boolean(),
             Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord)
+        );
+    }
+}
+
+#[cfg(test)]
+mod shape_storage_tests {
+    use sha2::{Digest as _, Sha256};
+
+    use super::*;
+
+    fn raw_from(row: &StoredReplayMarketFactsRowV2) -> RawReplayMarketFactsRowV2 {
+        let (shape, joined_cut, sample_projection, universe_frame) = match row.shape_locators {
+            StoredShapeLocatorsV2::FirstCorpus {
+                joined_cut,
+                sample_projection,
+            } => (1, Some(joined_cut), Some(sample_projection), None),
+            StoredShapeLocatorsV2::UniverseMembers { universe_frame } => {
+                (2, None, None, Some(universe_frame))
+            }
+        };
+        RawReplayMarketFactsRowV2 {
+            facts_identity: row.facts_identity.to_vec(),
+            meaning_identity: row.meaning_identity.to_vec(),
+            composition_binding_identity: row
+                .composition_binding_identity
+                .map(|value| value.to_vec()),
+            request_identity: row.request_identity.to_vec(),
+            request_digest: row.request_digest.to_vec(),
+            frontier_identity: row.frontier_identity.to_vec(),
+            receipt_identity: row.receipt_identity.to_vec(),
+            universe_selection_identity: row.universe_selection.identity.to_vec(),
+            universe_selection_digest: row.universe_selection.digest.to_vec(),
+            shape,
+            joined_cut_identity: joined_cut.map(|locator| locator.identity.to_vec()),
+            joined_cut_digest: joined_cut.map(|locator| locator.digest.to_vec()),
+            sample_projection_identity: sample_projection.map(|locator| locator.identity.to_vec()),
+            sample_projection_digest: sample_projection.map(|locator| locator.digest.to_vec()),
+            universe_frame_identity: universe_frame.map(|locator| locator.identity.to_vec()),
+            universe_frame_digest: universe_frame.map(|locator| locator.digest.to_vec()),
+            facts_bytes: row.facts_bytes.clone(),
+            frontier_bytes: row.frontier_bytes.clone(),
+            receipt_bytes: row.receipt_bytes.clone(),
+            custody_digest: row.custody_digest.to_vec(),
+        }
+    }
+
+    fn universe_row() -> StoredReplayMarketFactsRowV2 {
+        let readback = super::super::tests::universe_member_readback(1);
+        PreparedReplayMarketFactsStorageV2::from_verified_universe_member_readback(
+            &readback,
+            BindingDigest::from_untrusted_bytes([97; DIGEST_BYTES]),
+        )
+        .expect("a universe-member row")
+        .row
+    }
+
+    fn first_corpus_row() -> StoredReplayMarketFactsRowV2 {
+        let (binding, readback) = super::super::tests::first_corpus_readback(true);
+        PreparedReplayMarketFactsStorageV2::from_verified_readback(&readback, &binding)
+            .expect("a first-corpus row")
+            .row
+    }
+
+    /// A stored row states its shape; a shape this build does not know, or columns of the other
+    /// shape, never decode.
+    #[rstest::rstest]
+    fn a_stored_row_decodes_only_as_the_shape_it_states() {
+        for row in [universe_row(), first_corpus_row()] {
+            assert_eq!(
+                StoredReplayMarketFactsRowV2::try_from(raw_from(&row)),
+                Ok(row)
+            );
+        }
+
+        let mut unknown = raw_from(&universe_row());
+        unknown.shape = 3;
+        assert_eq!(
+            StoredReplayMarketFactsRowV2::try_from(unknown),
+            Err(ReplayMarketFactsPostgresErrorV2::UnknownShape)
+        );
+
+        let first = raw_from(&first_corpus_row());
+        let mut universe_with_joined_cut = raw_from(&universe_row());
+        universe_with_joined_cut.joined_cut_identity = first.joined_cut_identity.clone();
+        universe_with_joined_cut.joined_cut_digest = first.joined_cut_digest.clone();
+        assert_eq!(
+            StoredReplayMarketFactsRowV2::try_from(universe_with_joined_cut),
+            Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord)
+        );
+
+        let mut first_with_frame = first;
+        first_with_frame.universe_frame_identity = Some(vec![95; DIGEST_BYTES]);
+        first_with_frame.universe_frame_digest = Some(vec![95; DIGEST_BYTES]);
+        assert_eq!(
+            StoredReplayMarketFactsRowV2::try_from(first_with_frame),
+            Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord)
+        );
+    }
+
+    /// Each storage preparation takes its own shape only.
+    #[rstest::rstest]
+    fn storage_preparation_refuses_the_other_shape() {
+        let (binding, first) = super::super::tests::first_corpus_readback(true);
+        let universe = super::super::tests::universe_member_readback(1);
+        assert_eq!(
+            PreparedReplayMarketFactsStorageV2::from_verified_readback(&universe, &binding),
+            Err(ReplayMarketFactsPostgresErrorV2::InvalidPrepared)
+        );
+        assert_eq!(
+            PreparedReplayMarketFactsStorageV2::from_verified_universe_member_readback(
+                &first,
+                binding.record().identity(),
+            ),
+            Err(ReplayMarketFactsPostgresErrorV2::InvalidPrepared)
+        );
+    }
+
+    fn sha256_hex(text: &str) -> String {
+        Sha256::digest(text.as_bytes())
+            .iter()
+            .fold(String::new(), |mut hex, byte| {
+                use std::fmt::Write as _;
+                write!(hex, "{byte:02x}").expect("writing to a String cannot fail");
+                hex
+            })
+    }
+
+    fn statement<'a>(statements: &[&'a str], function: &str) -> &'a str {
+        let [statement] = statements
+            .iter()
+            .filter(|statement| {
+                statement.starts_with(&format!("CREATE OR REPLACE FUNCTION {function}("))
+            })
+            .copied()
+            .collect::<Vec<_>>()[..]
+        else {
+            panic!("exactly one statement creates {function}");
+        };
+        statement
+    }
+
+    /// The two `_v1` functions keep main's text byte for byte.
+    ///
+    /// A binary built before the universe-member shape compares every rd-api function's `prosrc`
+    /// with the text compiled into it; one changed character in `_v1` would fail every Replay read
+    /// that binary makes. Both digests were computed from 0e9f47fe0's statements outside this crate.
+    #[rstest::rstest]
+    fn the_v1_functions_keep_the_text_older_binaries_verify() {
+        assert_eq!(
+            // Assembled so that `nothing_current_calls_the_v1_lock_function` does not count it.
+            sha256_hex(statement(
+                REPLAY_MARKET_RD_CUT_API_SCHEMA_V1,
+                &[
+                    "market_data_rd_api.lock_replay_market_facts_",
+                    "for_replay_v1"
+                ]
+                .concat()
+            )),
+            "5fa68acbc1fd73b6e60acc7037d124d36f797d7e3595f852c70c42e799ba46e2"
+        );
+        assert_eq!(
+            sha256_hex(statement(
+                &REPLAY_MARKET_FACTS_SCHEMA_V2,
+                "market_data_private.resolve_replay_market_facts_bound_storage_v1"
+            )),
+            "565fc65da517d5b5581fcec57511af43cadfd426cc80af1dd59c34856ed4eb1d"
+        );
+    }
+
+    /// Nothing current reads through `_v1`: it stays only for binaries built before this shape.
+    ///
+    /// Every `.rs` file under `crates/` is read. The name is assembled at run time so this test's
+    /// own text does not count itself. The expected sites are the statements that create, revoke and
+    /// grant the function, the transport probe's list, and the golden that reads the first corpus
+    /// back through it.
+    #[rstest::rstest]
+    fn nothing_current_calls_the_v1_lock_function() {
+        let name = ["lock_replay_market_facts_", "for_replay_v1"].concat();
+        let crates = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("crates/data sits in crates/");
+        let mut sites = std::collections::BTreeMap::new();
+        let mut pending = vec![crates.to_path_buf()];
+        let mut files = 0_usize;
+
+        while let Some(directory) = pending.pop() {
+            for entry in std::fs::read_dir(&directory).expect("readable source tree") {
+                let path = entry.expect("readable entry").path();
+                if path.is_dir() {
+                    if path.file_name().is_some_and(|name| name != "target") {
+                        pending.push(path);
+                    }
+                } else if path.extension().is_some_and(|extension| extension == "rs") {
+                    files += 1;
+                    let text = std::fs::read_to_string(&path).expect("UTF-8 source");
+                    let count = text.matches(name.as_str()).count();
+                    if count > 0 {
+                        let relative = path
+                            .strip_prefix(crates)
+                            .expect("under crates/")
+                            .to_string_lossy()
+                            .into_owned();
+                        sites.insert(relative, count);
+                    }
+                }
+            }
+        }
+        assert!(
+            files > 1000,
+            "the walk read the source tree ({files} files)"
+        );
+        assert_eq!(
+            sites.into_iter().collect::<Vec<_>>(),
+            [
+                ("data/src/owner/postgres/replay_market_facts_v2.rs".to_owned(), 1),
+                (
+                    "data/src/owner/replay_market_facts_v2/first_corpus_v1_readback_postgres_tests.rs"
+                        .to_owned(),
+                    2
+                ),
+                ("data/src/owner/replay_market_facts_v2/postgres.rs".to_owned(), 3),
+            ]
         );
     }
 }

@@ -16,6 +16,7 @@ readonly market_data_owner_postgres_tests=(
   owner::instrument_economic_terms_postgres_v1::tests::postgres_economic_terms_resolve_for_one_member_or_two
   owner::postgres::pit_intake_member_count_tests::pit_intake_admits_one_or_two_universe_members_and_refuses_the_rest_unwritten
   owner::replay_market_facts_v2::first_corpus_v1_readback_postgres_tests::first_corpus_reads_back_through_the_v1_lock_function_unchanged
+  owner::replay_market_facts_v2::universe_member_shape_postgres_tests::replay_facts_table_migrates_and_keeps_each_row_to_its_shape
 )
 
 # The ordered chain refuses a guarded crate whose test SQL is destructive without dedicated-database

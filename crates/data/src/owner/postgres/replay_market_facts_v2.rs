@@ -3565,20 +3565,7 @@ fn validate_universe_frame_binds_request_v2(
     pit: &crate::owner::pit_snapshot::UntrustedPitSnapshotLocator,
     sources: &UniverseMemberReplayFactsSourcesV2<'_>,
 ) -> Result<(), ReplayCompositionBindingErrorV1> {
-    let frame = sources.frame;
-    let mut frame_members = frame
-        .selection()
-        .members()
-        .iter()
-        .map(|member| {
-            (
-                member.member_key().as_bytes(),
-                member.instrument().as_bytes(),
-            )
-        })
-        .collect::<Vec<_>>();
-    frame_members.sort_unstable();
-    let mut selected_members = sources
+    let selected_members = sources
         .universe
         .record()
         .membership()
@@ -3586,16 +3573,17 @@ fn validate_universe_frame_binds_request_v2(
         .filter(|member| member.included())
         .map(|member| (member.member_key(), member.instrument()))
         .collect::<Vec<_>>();
-    selected_members.sort_unstable();
 
-    if frame.trigger().snapshot_identity() != pit.snapshot_identity
-        || frame.trigger().snapshot_fact_digest() != pit.fact_digest
-        || frame.selection().source_binding_lineage_root() != sources.source.lineage_root()
-        || frame_members != selected_members
-    {
-        Err(ReplayCompositionBindingErrorV1::UniverseFrameMismatch)
-    } else {
+    if crate::owner::replay_market_facts_v2::composition::universe_frame_binds_request_v2(
+        sources.frame,
+        pit.snapshot_identity,
+        pit.fact_digest,
+        sources.source.lineage_root(),
+        &selected_members,
+    ) {
         Ok(())
+    } else {
+        Err(ReplayCompositionBindingErrorV1::UniverseFrameMismatch)
     }
 }
 

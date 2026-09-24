@@ -45,6 +45,8 @@ mod first_corpus_v1_readback_postgres_tests;
 mod postgres_tests;
 #[cfg(test)]
 pub(crate) mod tests;
+#[cfg(test)]
+mod universe_member_shape_postgres_tests;
 
 pub use authority::verify_replay_market_facts_readback_v2;
 pub use composition::{
