@@ -881,8 +881,8 @@ mod tests {
         }
     }
 
-    /// The bytes were read from this fixture, twice, on the tree before schema 4 existed
-    /// (73bf32923), and are the first corpus's stored source, frozen claim and receipt.
+    /// The bytes were read from this fixture on the tree before schema 4 existed (73bf32923), and
+    /// are the first corpus's stored source, frozen claim and receipt.
     #[test]
     fn a_first_corpus_source_keeps_its_bytes() {
         let source = first_corpus_source();
