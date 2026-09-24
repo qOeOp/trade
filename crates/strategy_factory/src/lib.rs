@@ -202,6 +202,7 @@ mod rd_bounded_feature_program_v1;
 pub mod rd_design_role_intent_v1;
 pub mod rd_historical_custody;
 pub mod rd_historical_custody_postgres;
+mod rd_owner_clock;
 mod rd_owner_postgres_custody;
 pub use native_replay_execution_bundle_owner_v2::{
     NativeReplayExecutionPrerequisitesErrorV2, NativeReplayExecutionPrerequisitesV2,

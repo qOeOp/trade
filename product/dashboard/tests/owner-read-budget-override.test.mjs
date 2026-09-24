@@ -4,6 +4,7 @@ import test from "node:test";
 import { readArtifactDirectoryGatewayV1 } from "../lib/artifact-directory-gateway.ts";
 import { readArtifactHistoricalGatewayV1 } from "../lib/artifact-readback-gateway.ts";
 import { readArtifactSourceGatewayV1 } from "../lib/artifact-source-gateway.ts";
+import { readBacktestRunReportGatewayV1 } from "../lib/backtest-run-report-gateway.ts";
 import {
   readExploratoryReplayHistoricalRejectionGatewayV1,
 } from "../lib/exploratory-replay-historical-rejection-gateway.ts";
@@ -14,7 +15,8 @@ import {
 
 // Entry 28 of the ordered chain failed on a loaded machine with "rd artifact directory: Owner read
 // failed ... against an 8000ms budget", although the acceptance sets the override to 25000ms: four
-// gateways kept their own `AbortSignal.timeout(8_000)` and never read it. Each is driven here with
+// gateways kept their own `AbortSignal.timeout(8_000)` and never read it, and so did the single-run
+// report's, which entry 100 reads. Each is driven here with
 // one delay and the budget both ways. With the override set below the delay the read must abort on
 // the override, and without it the same delay must not abort, so the declared budget a deployment
 // keeps is unchanged.
@@ -54,7 +56,8 @@ async function withOverride(value, run) {
   }
 }
 
-const reasonOf = (result) => result.projection?.reason ?? result.projection?.unavailableReason;
+const reasonOf = (result) => result.projection?.reason ?? result.projection?.unavailableReason
+  ?? result.body?.reason;
 
 const gateways = [
   ["rd artifact directory", (fetcher) => readArtifactDirectoryGatewayV1({
@@ -88,6 +91,18 @@ const gateways = [
       fetcher,
     })
   )],
+  ["backtest run report", (fetcher) => readBacktestRunReportGatewayV1({
+    locator: {
+      result_identity: "backtest-replay-result-v2-1",
+      request_identity: "exploratory-replay-request-1",
+      attempt_identity: "backtest-attempt-1",
+    },
+    environment: {
+      RD_DASHBOARD_OWNER_READ_API_URL: "http://dashboard-read:8082/",
+      RD_DASHBOARD_OWNER_READ_API_TOKEN: "read-secret",
+    },
+    fetcher,
+  })],
 ];
 
 for (const [label, read] of gateways) {

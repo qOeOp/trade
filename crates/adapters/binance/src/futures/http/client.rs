@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use ahash::AHashMap;
+use ahash::{AHashMap, AHashSet};
 use aws_lc_rs::digest;
 use dashmap::DashMap;
 use jiff::Timestamp;
@@ -1493,11 +1493,18 @@ impl BinanceFuturesHttpClient {
     }
 
     /// Replaces the precision lookup cache after a complete catalogue fetch.
+    ///
+    /// Reloads run while orders are submitted, so a symbol in both catalogues stays resolvable
+    /// throughout: new entries are written first, then only symbols the new catalogue dropped are
+    /// removed. Clearing first would hide every symbol until it was re-inserted.
     pub fn replace_instruments(&self, instruments: Vec<(Ustr, BinanceFuturesInstrument)>) {
-        self.instruments.clear();
+        let symbols: AHashSet<Ustr> = instruments.iter().map(|(symbol, _)| *symbol).collect();
+
         for (symbol, instrument) in instruments {
             self.instruments.insert(symbol, instrument);
         }
+        self.instruments
+            .retain(|symbol, _| symbols.contains(symbol));
     }
 
     /// Returns server time.
@@ -3349,6 +3356,11 @@ pub(crate) fn order_type_to_binance_futures(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{
+        Barrier,
+        atomic::{AtomicBool, Ordering},
+    };
+
     use rstest::rstest;
     use tokio_util::bytes::Bytes;
     use vibe_core::time::get_atomic_clock_realtime;
@@ -3777,6 +3789,51 @@ mod tests {
             time_in_force: Vec::new(),
             filters: Vec::new(),
         }
+    }
+
+    // A catalogue reload runs concurrently with order submission (`start` spawns one while
+    // `connect` has already loaded). A symbol present before and after the reload must stay
+    // resolvable throughout it, or a submit landing mid-reload fails with "Instrument not found".
+    #[rstest]
+    fn test_replace_instruments_never_hides_a_symbol_it_keeps() {
+        const RELOADS: usize = 20_000;
+        let client = create_test_client();
+        let catalogue = vec![(
+            Ustr::from("BTCUSDT"),
+            BinanceFuturesInstrument::UsdM(test_usdm_symbol()),
+        )];
+        client.replace_instruments(catalogue.clone());
+        let reloading = AtomicBool::new(true);
+        let start = Barrier::new(2);
+
+        let (lookups, misses) = std::thread::scope(|scope| {
+            scope.spawn(|| {
+                start.wait();
+
+                for _ in 0..RELOADS {
+                    client.replace_instruments(catalogue.clone());
+                }
+                reloading.store(false, Ordering::Release);
+            });
+
+            let reader = scope.spawn(|| {
+                start.wait();
+                let (mut lookups, mut misses) = (0_usize, 0_usize);
+
+                while reloading.load(Ordering::Acquire) {
+                    lookups += 1;
+                    misses += usize::from(client.get_price_precision("BTCUSDT").is_err());
+                }
+                (lookups, misses)
+            });
+            reader.join().unwrap()
+        });
+
+        assert!(lookups > 0, "the reader never overlapped a reload");
+        assert_eq!(
+            misses, 0,
+            "BTCUSDT was missing in {misses} of {lookups} lookups during {RELOADS} reloads"
+        );
     }
 
     #[rstest]
