@@ -1071,48 +1071,57 @@ mod tests {
         assert_eq!(cross_spliced.status(), StatusCode::NOT_FOUND);
     }
 
-    /// The code under which Backtest custody itself refused a run's report, or `None` when the
-    /// answer is anything else.
+    /// The code of the Owner's judgement about a run's report, or `None` when the answer is
+    /// anything else.
     ///
-    /// Only custody's named refusal is the Owner's judgement. A report, an absent run, a failed
-    /// transaction or storage read (`OUTCOME_EVIDENCE_UNAVAILABLE`), and a projection fault are not,
-    /// so an acceptance that took any of those as "the Owner refused" would go green on a database
-    /// hiccup.
-    fn custody_refusal_code(
+    /// Which refusals are the Owner's conclusion about the run, rather than a failure to read it,
+    /// is the Owner's to say: `BacktestRunReportRefusalV1::is_owner_judgement` lists every variant
+    /// with no wildcard arm. A report, an absent run, and a failed transaction, snapshot or storage
+    /// read are not judgements, so an acceptance that took them as "the Owner refused" would go
+    /// green on a database hiccup.
+    fn owner_judgement_code(
         answer: &Result<Option<BacktestRunReportProjectionV1>, BacktestRunReportRefusalV1>,
     ) -> Option<&'static str> {
         match answer {
-            Err(BacktestRunReportRefusalV1::OutcomeEvidenceRefused(refusal)) => {
-                Some(refusal.code())
-            }
+            Err(refusal) if refusal.is_owner_judgement() => Some(refusal.code()),
             _ => None,
         }
     }
 
     #[rstest]
-    fn only_custodys_named_refusal_counts_as_the_owners_code() {
-        let named = Err(BacktestRunReportRefusalV1::OutcomeEvidenceRefused(
-            BacktestReadbackRefusalV1::SemanticTraceAbsent,
-        ));
-        assert_eq!(custody_refusal_code(&named), Some("SEMANTIC_TRACE_ABSENT"));
+    fn only_the_owners_judgement_counts_as_its_code() {
+        for (judgement, code) in [
+            (
+                BacktestRunReportRefusalV1::OutcomeEvidenceRefused(
+                    BacktestReadbackRefusalV1::SemanticTraceAbsent,
+                ),
+                "SEMANTIC_TRACE_ABSENT",
+            ),
+            (
+                BacktestRunReportRefusalV1::NoStrategyStatementForFamily,
+                "NO_STRATEGY_STATEMENT_FOR_FAMILY",
+            ),
+        ] {
+            assert_eq!(owner_judgement_code(&Err(judgement)), Some(code));
+        }
 
-        // Negative controls: each of these reaches the page as a code, and none is custody's own.
+        // Negative controls: each of these reaches the page as a code, and none is a judgement.
         for answer in [
             Err(BacktestRunReportRefusalV1::OutcomeEvidenceUnavailable(
                 "storage unavailable".to_owned(),
             )),
-            Err(BacktestRunReportRefusalV1::EngineResultNoncanonical(
-                "truncated".to_owned(),
+            Err(BacktestRunReportRefusalV1::ReadTransactionUnavailable(
+                "could not serialize".to_owned(),
             )),
-            Err(BacktestRunReportRefusalV1::NonFiniteValue("net_return")),
+            Err(BacktestRunReportRefusalV1::ReportSnapshotUnavailable(1)),
+            Err(BacktestRunReportRefusalV1::ReplayRequestUnavailable(
+                "storage unavailable".to_owned(),
+            )),
+            Err(BacktestRunReportRefusalV1::FrozenDesignUnavailable),
             Ok(None),
         ] {
-            assert_eq!(custody_refusal_code(&answer), None, "{answer:?}");
+            assert_eq!(owner_judgement_code(&answer), None, "{answer:?}");
         }
-        assert_eq!(
-            BacktestRunReportRefusalV1::OutcomeEvidenceUnavailable(String::new()).code(),
-            "OUTCOME_EVIDENCE_UNAVAILABLE"
-        );
     }
 
     /// One exploratory result and the selector the `/backtest` workbench opens it with.
@@ -1297,7 +1306,7 @@ mod tests {
                 })
                 .await;
 
-            if let Some(code) = custody_refusal_code(&answer) {
+            if let Some(code) = owner_judgement_code(&answer) {
                 refused = Some((candidate, code));
                 break;
             }
@@ -1305,8 +1314,8 @@ mod tests {
         let (refused, refused_code) = refused.unwrap_or_else(|| {
             panic!(
                 "none of the {} results committed without outcome evidence both opens in the \
-                 workbench and is refused by name by Backtest custody, so no real Owner refusal \
-                 is reachable from the page",
+                 workbench and is refused by the Owner's judgement, so no real Owner refusal is \
+                 reachable from the page",
                 without_evidence.len()
             )
         });
@@ -1321,10 +1330,9 @@ mod tests {
                 attempt_identity: &run.attempt_identity,
             })
             .await;
-        let run_code = match &run_answer {
-            Err(refusal) if refusal.is_owner_judgement() => refusal.code(),
-            other => panic!("the committed run's report is not an Owner refusal: {other:?}"),
-        };
+        let run_code = owner_judgement_code(&run_answer).unwrap_or_else(|| {
+            panic!("the committed run's report is not an Owner refusal: {run_answer:?}")
+        });
 
         let before = report_relation_counts(backtest_pool, rd_pool).await;
         let read_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
