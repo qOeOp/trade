@@ -206,10 +206,22 @@ fn original_refusal(
     } else {
         Reason::AuthorizationNotCurrent
     };
-    unavailable_for(
-        reason,
-        Subject::Authorization,
-        &evidence.locator().authorization_identity,
+    let authorization_identity = evidence.locator().authorization_identity;
+    let revoked = evidence
+        .frontier()
+        .revoked_authorization_identities()
+        .contains(&authorization_identity);
+    ProductEdgeError::Unavailable(
+        crate::ProductEdgeUnavailableV1::about(
+            reason,
+            Subject::Authorization,
+            authorization_identity,
+        )
+        .with_cause(format!(
+            "original authorization at cut {read_cut_epoch_ms}: window [{}, {}), revoked {revoked}",
+            evidence.not_before_epoch_ms(),
+            evidence.valid_through_epoch_ms(),
+        )),
     )
 }
 
@@ -4769,15 +4781,25 @@ fn downstream_admission_refusal(
         ),
         // Anything else was raised further in and travelled up: the envelope names the
         // authorization it was about, which is the part this layer could not otherwise
-        // report. An unknown code means the deployed migration is ahead of this binary,
-        // and it stays visible rather than passing as an accepting envelope.
-        _ => unavailable_for(
-            Reason::AuthorizationNotCurrent,
-            Subject::Authorization,
-            envelope
-                .get("authorization_identity")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or(&locator.admission_identity),
+        // report, and the cause keeps the code and the function that raised it. An unknown
+        // code means the deployed migration is ahead of this binary, and it stays visible
+        // rather than passing as an accepting envelope.
+        _ => ProductEdgeError::Unavailable(
+            crate::ProductEdgeUnavailableV1::about(
+                Reason::AuthorizationNotCurrent,
+                Subject::Authorization,
+                envelope
+                    .get("authorization_identity")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or(&locator.admission_identity),
+            )
+            .with_cause(format!(
+                "{refusal} from {}",
+                envelope
+                    .get("refused_by")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("product_edge_api.lock_downstream_admission_v1")
+            )),
         ),
     })
 }
@@ -7146,6 +7168,45 @@ mod tests {
             .await,
             before_pe,
             "failed Product Edge sidecar verification must roll back owner and ACL changes"
+        );
+    }
+
+    /// A refusal raised inside the Operator Authorization lock keeps its outward class, and the
+    /// cause names the code and the function that raised it, because the class alone cannot
+    /// tell an unknown identity from a missing revocation head.
+    #[rstest]
+    fn a_refusal_from_inside_the_downstream_lock_names_its_code_and_origin() {
+        let locator = ProductEdgeAdmissionLocatorV1 {
+            request_identity: "request-1".into(),
+            admission_identity: "admission-1".into(),
+            admission_digest: "sha256:admission-1".into(),
+        };
+        let refusal = downstream_admission_refusal(
+            &serde_json::json!({
+                "schema_version": 1,
+                "refusal": "REVOCATION_HEAD_MISSING",
+                "refused_by": "operator_authorization_api.lock_current_authorization_v1",
+                "authorization_identity": "authorization-1",
+            }),
+            &locator,
+        )
+        .expect("a refusal");
+
+        let ProductEdgeError::Unavailable(unavailable) = refusal else {
+            panic!("an Unavailable refusal");
+        };
+        assert_eq!(unavailable.reason(), &Reason::AuthorizationNotCurrent);
+        assert_eq!(
+            unavailable
+                .subject()
+                .map(|subject| subject.identity.as_str()),
+            Some("authorization-1")
+        );
+        assert_eq!(
+            unavailable.cause(),
+            Some(
+                "REVOCATION_HEAD_MISSING from operator_authorization_api.lock_current_authorization_v1"
+            )
         );
     }
 
