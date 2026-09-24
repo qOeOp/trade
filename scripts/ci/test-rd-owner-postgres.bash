@@ -2289,9 +2289,37 @@ if len(found) != 1:
 print(f"{target}/{found[0]}")
 BINARY
 )"
+# LANE8 PROOF, NOT FOR MERGE: materialize a clone of the same pre-materialization database with the
+# old separately built materializer, then compare schema-only dumps.
+lane8_old_database="${test_database}_oldmat"
+docker exec "$container" psql --quiet --set ON_ERROR_STOP=1 --username postgres --dbname postgres \
+  --command "CREATE DATABASE \"${lane8_old_database}\" TEMPLATE \"${test_database}\""
+RD_OWNER_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${lane8_old_database}" \
+  cargo run \
+  --locked \
+  --package vibe-strategy-factory-rd-owner-api \
+  --bin strategy-factory-rd-owner-api \
+  --profile "$cargo_ci_profile" \
+  --features "${nextest_archive_features},vibe-strategy-factory-rd-owner-api/sealed-develop-composer-acceptance" \
+  -- \
+  --materialize-schema
 RD_OWNER_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}" \
   "$schema_materializer" \
   --materialize-schema
+lane8_dump_dir="$(mktemp -d)"
+docker exec "$container" pg_dump --username postgres --schema-only --dbname "$test_database" > "${lane8_dump_dir}/new.sql"
+docker exec "$container" pg_dump --username postgres --schema-only --dbname "$lane8_old_database" > "${lane8_dump_dir}/old.sql"
+echo "LANE8-SCHEMA-PROOF new: $(wc -l < "${lane8_dump_dir}/new.sql") lines sha256 $(sha256sum < "${lane8_dump_dir}/new.sql" | cut -c1-64)"
+echo "LANE8-SCHEMA-PROOF old: $(wc -l < "${lane8_dump_dir}/old.sql") lines sha256 $(sha256sum < "${lane8_dump_dir}/old.sql" | cut -c1-64)"
+if cmp -s "${lane8_dump_dir}/new.sql" "${lane8_dump_dir}/old.sql"; then
+  echo "LANE8-SCHEMA-PROOF identical"
+else
+  echo "LANE8-SCHEMA-PROOF DIFFERENT"
+  diff "${lane8_dump_dir}/old.sql" "${lane8_dump_dir}/new.sql" | head -80 || true
+fi
+docker exec "$container" psql --quiet --set ON_ERROR_STOP=1 --username postgres --dbname postgres \
+  --command "DROP DATABASE \"${lane8_old_database}\""
+rm -rf -- "$lane8_dump_dir"
 
 docker exec --interactive \
   --env POSTGRES_HOST=127.0.0.1 \
