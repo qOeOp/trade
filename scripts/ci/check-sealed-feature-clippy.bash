@@ -20,34 +20,9 @@ trap 'echo "check-sealed-feature-clippy.bash:${LINENO}: this failed: ${BASH_COMM
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 chain_script="$repository_root/scripts/ci/test-rd-owner-postgres.bash"
 
-# Parse the two definitions exactly instead of evaluating them. If the chain restructures how it spells
-# its union, this fails and says so; it never falls back to a partial or stale value.
-archive_features=""
-schema_features=""
-while IFS= read -r line; do
-  if [[ "$line" =~ ^readonly\ nextest_archive_features=\'([^\']+)\'$ ]]; then
-    [ -z "$archive_features" ] || {
-      echo "ERROR: $chain_script defines nextest_archive_features twice." >&2
-      exit 1
-    }
-    archive_features="${BASH_REMATCH[1]}"
-  elif [[ "$line" =~ ^readonly\ schema_materialization_features=\"\$\{nextest_archive_features\},([^\"]+)\"$ ]]; then
-    [ -z "$schema_features" ] || {
-      echo "ERROR: $chain_script defines schema_materialization_features twice." >&2
-      exit 1
-    }
-    schema_features="${BASH_REMATCH[1]}"
-  fi
-done < "$chain_script"
-if [ -z "$archive_features" ] || [ -z "$schema_features" ]; then
-  echo "ERROR: could not read the sealed feature union from $chain_script." >&2
-  echo "       Expected 'readonly nextest_archive_features='...'' and" >&2
-  echo "       'readonly schema_materialization_features=\"\${nextest_archive_features},...\"'." >&2
-  echo "       Update this gate to read the chain's union where it now lives; do not copy it here." >&2
-  exit 1
-fi
-# The schema materialization build is the widest graph the chain compiles.
-features="$archive_features,$schema_features"
+# shellcheck source=scripts/ci/sealed-feature-union.bash
+source "$repository_root/scripts/ci/sealed-feature-union.bash"
+features="$(sealed_feature_union "$chain_script")"
 
 cd "$repository_root"
 metadata="$(cargo metadata --format-version 1 --locked --features "$features")"
