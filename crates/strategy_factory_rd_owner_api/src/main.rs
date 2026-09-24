@@ -569,6 +569,11 @@ async fn main() -> anyhow::Result<()> {
             "/v2/research-goals/{request_identity}/resolve",
             post(resolve_v2),
         )
+        // Resolution reads the stored request by identity, whichever schema admitted it.
+        .route(
+            "/v3/research-goals/{request_identity}/resolve",
+            post(resolve_v2),
+        )
         .route(
             "/v2/exploratory-replay-requests/identify",
             post(exploratory_replay::identify),
@@ -1747,6 +1752,7 @@ async fn submit_v2(State(state): State<ApiState>, headers: HeaderMap, body: Byte
         admission: admission.locator().clone(),
         goal: operation.goal,
         trial_family_proposal: operation.trial_family_proposal,
+        instrument_scope: None,
     };
     let request_identity = request.request_identity.clone();
     let response = match state.owner.submit_v2(request).await {

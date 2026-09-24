@@ -50,29 +50,10 @@ PIP_AUDIT_IGNORE_FLAGS :=
 # TARGET_DIR controls where Cargo places build artifacts
 TARGET_DIR ?= $(CURDIR)/target
 
-# Compiler configuration
-# C and C++ dependencies build with the compiler the caller's environment names. GNU make predefines
-# CC=cc and CXX=c++; exporting those defaults would hand build scripts a CC that a plain `cargo` run
-# (such as CI's Vibe CLI install) never sees, and crates that declare rerun-if-env-changed=CC
-# (aws-lc-sys, libmimalloc-sys) then rebuild, with every dependent, each time the two alternate.
-# Choose a compiler with CC=... in the environment or on the command line.
-# When sccache is available it wraps rustc; CARGO_INCREMENTAL=0 improves its hit rate.
-# To disable sccache: make build SCCACHE=
-SCCACHE ?= $(shell command -v sccache 2>/dev/null)
-
-ifneq ($(SCCACHE),)
-RUSTC_WRAPPER ?= sccache
-CARGO_INCREMENTAL ?= 0
-export RUSTC_WRAPPER
-export CARGO_INCREMENTAL
-endif
-
-ifeq ($(origin CC),default)
-unexport CC
-endif
-ifeq ($(origin CXX),default)
-unexport CXX
-endif
+# Compiler configuration: everything make adds to the compile environment of the cargo runs it
+# starts is in build-env.mk, including target-specific flags, because CI keys its Rust caches on
+# that file alone. Do not set a compiler, flag or wrapper variable in this file.
+include $(dir $(lastword $(MAKEFILE_LIST)))build-env.mk
 
 # FAIL_FAST controls whether `cargo nextest` should stop after the first test
 # failure. When set to `true` the `--no-fail-fast` flag is omitted so tests
@@ -171,7 +152,7 @@ CARGO_FEATURES := $(BASE_FEATURES),$(EXTRA_FEATURES)
 else
 CARGO_FEATURES := $(BASE_FEATURES)
 endif
-RD_OWNER_POSTGRES_FEATURES := $(CARGO_FEATURES),vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-composer-acceptance
+RD_OWNER_POSTGRES_FEATURES := $(CARGO_FEATURES),vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-composer-acceptance,vibe-product-edge/sealed-deployment-acceptance
 CORE_SELECTED_FEATURE_LIST := $(filter-out hypersync,$(subst $(comma),$(space),$(CARGO_FEATURES)))
 CORE_SELECTED_FEATURES := $(subst $(space),$(comma),$(strip $(CORE_SELECTED_FEATURE_LIST))),vibe-serialization/sbe,vibe-infrastructure/postgres
 
@@ -552,13 +533,10 @@ docs-python:  #-- Build Python documentation with Sphinx
 RUSTDOC_EXTRA_HEAD ?=
 
 .PHONY: docs-rust
-docs-rust: export RUSTDOCFLAGS=--enable-index-page -Zunstable-options $(if $(RUSTDOC_EXTRA_HEAD),--html-in-header $(RUSTDOC_EXTRA_HEAD))
 docs-rust:  #-- Build Rust documentation with cargo doc
 	cargo +nightly doc --all-features --no-deps --workspace
 
 .PHONY: docsrs-check
-docsrs-check: export DOCS_RS=1
-docsrs-check: export RUSTDOCFLAGS=--cfg docsrs -D warnings
 docsrs-check: check-hack-installed #-- Check documentation builds for docs.rs compatibility
 	cargo +nightly hack --workspace --ignore-private --ignore-unknown-features \
 		--features arrow,capnp,cloud,defi,display \
@@ -936,7 +914,6 @@ endif
 # DST scope.
 .PHONY: cargo-test-sim
 cargo-test-sim: export RUST_BACKTRACE=1
-cargo-test-sim: export RUSTFLAGS=--cfg madsim
 cargo-test-sim: check-nextest-installed
 cargo-test-sim:  #-- Run DST simulation smoke tests (cfg madsim + simulation feature)
 	$(info $(M) Building in-scope crates under simulation (compile gate)...)

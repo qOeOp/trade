@@ -268,7 +268,7 @@ while IFS= read -r -d '' status <&3; do
       full_prek=true
       codeql_rust=true
       ;;
-    Makefile | tools.toml | *.sh | *.bash | *.zsh | *.toml | *.yaml | *.yml | \
+    Makefile | *.mk | tools.toml | *.sh | *.bash | *.zsh | *.toml | *.yaml | *.yml | \
       *.json | *.lock | generated/* | */generated/* | tests/* | */tests/* | \
       fixtures/* | */fixtures/* | resources/* | */resources/* | data/* | */data/*)
       run_all "Build input, generator, fixture, data, or config changed: running full validation"

@@ -912,6 +912,21 @@ unavailable 或位于不同 cut 时，只撤回它自己的行与计数。两个
   另一范围即为含义变化，会被拒绝。冻结的 Research Intent（V3）绑定范围
   身份与字节。更换品种意味着一个后继 Research request，它有自己的 Intent 与自己的初始 PIT 请求；没有任何机制把已接纳
   的 Intent 改绑到另一品种。
+- 本 Owner 如何持有 V3 请求。V2 与 V3 共用一种存储的 Research request：`ProductEdgeResearchGoalRequestV2` 只在 V3
+  请求上带 `instrument_scope`，在 V2 请求上省略它（而不是写 `null`），因此每个已存储的 V2 请求、含义摘要与准入 payload
+  都不变，由请求派生的一切也以同样方式派生。V3 请求以 `research_goal.submit_or_resolve.v3` 与
+  `sourced-research-goal-v3` 准入，准入 payload 中带范围，其含义摘要覆盖范围。不规范的范围使请求以
+  `REJECTED_NO_WRITE` 和 `INSTRUMENT_SCOPE_INVALID` 结束；它在所有 V2 字段之后检查，因此不会顶替任何 V2 拒绝码。V3
+  Intent 的 schema 为 3，以小写十六进制的范围身份与规范字节绑定 `instrument_scope`；它沿用 V2 的 Intent 与 receipt
+  身份方案，由于含义摘要覆盖范围，身份依然唯一。两条 resolve 路由都按身份解析已存储的请求，不论它由哪个 schema 准入。
+- 范围拒绝如何被证明。被拒请求由重放证明：再次校验已存储的请求会复现已存储的拒绝码。
+  `INSTRUMENT_SCOPE_NOT_RESOLVABLE` 无法这样复现，因为 Market Data 在它自己的 decision cut 上作答，所以该拒绝改由与它
+  一同存储的检查记录证明：Market Data 当时视为当前的 eligible-instrument frontier、它作答时的
+  `MarketDataDecisionCutV1`，以及按请求顺序每个身份一行。只有针对当前 frontier 作出的答复才会造成拒绝：没有当前
+  frontier 时，Market Data 否定的是环境而不是所请求的品种，因此请求保持未决，与检查根本无法作答时一样。只有当已存储的
+  请求在其他方面有效、记录针对一个不全为零的已陈述 frontier 恰好回答其范围、该 cut 早于其自身有效期上界、并且记录不
+  接纳该范围时，custody 才接受已存储的拒绝；之后的检查永远不会改写它。其他每一种拒绝仍由重放证明，与其他拒绝码并存的记录会被拒绝。
+  source-bound 的拒绝与已接纳的请求一样记录其 Source Intake ancestry，并按它当时所依据的准入重新校验。
 - V2 请求仍原样接纳。它不陈述范围，因此不为它签发初始 PIT 请求，它能发布的 Design role intent 也不指名任何 PIT
   请求；Market Data 对来自这种 intent 的 universe-member 声明按名拒绝。
 - Intent 冻结之后、任何探索性消费之前，本 Owner 在自己的步骤中签发初始 PIT 请求，调用方只提供 Intent locator。它先向
@@ -937,7 +952,9 @@ unavailable 或位于不同 cut 时，只撤回它自己的行与计数。两个
 目前已建成：scope 编解码与 schema 2 role intent 的编解码。`ResearchInstrumentScopeV1` 校验 scope，计算其 canonical
 bytes、identity 与 fixed-member 选择规则，并能从该规则解回 scope，本 Owner 与 Market Data 共用。`StrategyDesignRoleIntentV1` 只在 schema 2 下以
 `(pit_request_identity, pit_request_digest)` 指名初始 PIT 请求，每个 schema 在各自的 domain 下取摘要，schema 1 的
-字节与摘要不变。目前还没有任何代码接收 scope 或发布 schema 2 intent。
+字节与摘要不变。V3 请求经 `POST /v3/source-intake-research` 提交，按 Market Data 的提前读取检查，要么以绑定其范围的
+schema 3 Intent 接纳，要么连同绑定的检查记录被拒。目前还没有任何代码签发初始 PIT 请求或发布 schema 2 intent，读回
+也尚不带 `initial_pit`。
 
 ## 拒绝和禁止事项
 

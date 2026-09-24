@@ -83,6 +83,9 @@ rstest = { workspace = true }
 tracing-subscriber = { workspace = true }
 vibe-operator-authorization = { workspace = true }
 vibe-portfolio = { workspace = true }
+vibe-qualification = { workspace = true, features = [
+  "ready-lineage-acceptance",
+] }
 vibe-testkit = { workspace = true, features = ["postgres"] }
 vibe-trading = { workspace = true, features = ["examples"] }
 

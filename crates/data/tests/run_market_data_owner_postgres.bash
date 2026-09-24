@@ -135,7 +135,11 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-docker run --detach --name "$container" --publish 127.0.0.1::5432 \
+# `--init`, as in the R&D chain (test-rd-owner-postgres.bash says why at its first `docker run`): with
+# PostgreSQL as PID 1, any orphaned shell child of a `docker exec` is reaped by the postmaster, and
+# one killed by a signal restarts every server process. Nothing here drives psql from an in-container
+# heredoc today; this keeps that from mattering if something ever does.
+docker run --detach --init --name "$container" --publish 127.0.0.1::5432 \
   --env POSTGRES_PASSWORD="$admin_password" postgres:16.10-alpine > /dev/null
 
 # The postgres entrypoint runs initdb against a temporary server, stops it, then starts the real

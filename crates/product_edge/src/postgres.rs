@@ -1,8 +1,4 @@
-use std::{
-    collections::BTreeMap,
-    fmt::Display,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::{collections::BTreeMap, fmt::Display};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -1938,6 +1934,16 @@ impl ProductEdgePostgresOwnerV1 {
         Ok(())
     }
 
+    /// The store clock every window is compared with, for a sealed fixture that must report a
+    /// deployment that is not current before it admits anything.
+    #[cfg(feature = "sealed-deployment-acceptance")]
+    pub(crate) async fn store_clock_ms(&self) -> Result<u64, ProductEdgeError> {
+        let mut transaction = begin_read_committed(&self.pool).await?;
+        let now = database_now(&mut transaction).await?;
+        transaction.rollback().await.map_err(storage)?;
+        Ok(now)
+    }
+
     pub async fn bootstrap_genesis(
         &self,
         proposal: ProductEdgeBootstrapProposalV1,
@@ -1961,10 +1967,11 @@ impl ProductEdgePostgresOwnerV1 {
             if !binding_matches_proposal(&existing, &proposal)? {
                 return Err(ProductEdgeError::ConflictingReplay);
             }
+            let read_at = database_now(&mut transaction).await?;
             let readback = load_bootstrap_readback(
                 &mut transaction,
                 &existing,
-                now_ms()?,
+                read_at,
                 &hinted_bindings,
                 &authorization_plan,
             )
@@ -1986,7 +1993,7 @@ impl ProductEdgePostgresOwnerV1 {
             return Err(ProductEdgeError::ConflictingReplay);
         }
 
-        let committed_at = now_ms()?;
+        let committed_at = database_now(&mut transaction).await?;
         if committed_at < proposal.valid_from_epoch_ms
             || committed_at >= proposal.valid_through_epoch_ms
         {
@@ -2217,10 +2224,11 @@ impl ProductEdgePostgresOwnerV1 {
                 proposal_digest,
             )
             .await?;
+            let read_at = database_now(&mut transaction).await?;
             let readback = load_bootstrap_readback(
                 &mut transaction,
                 &existing,
-                now_ms()?,
+                read_at,
                 &hinted_bindings,
                 &authorization_plan,
             )
@@ -2259,7 +2267,7 @@ impl ProductEdgePostgresOwnerV1 {
         {
             return Err(ProductEdgeError::ConflictingReplay);
         }
-        let committed_at = now_ms()?;
+        let committed_at = database_now(&mut transaction).await?;
         let authorization = self
             .verify_successor_policy(
                 &mut transaction,
@@ -2435,10 +2443,11 @@ impl ProductEdgePostgresOwnerV1 {
                 proposal_digest,
             )
             .await?;
+            let read_at = database_now(&mut transaction).await?;
             let readback = load_bootstrap_readback(
                 &mut transaction,
                 &existing,
-                now_ms()?,
+                read_at,
                 &hinted_bindings,
                 &authorization_plan,
             )
@@ -2471,7 +2480,7 @@ impl ProductEdgePostgresOwnerV1 {
                 return Err(ProductEdgeError::ConflictingReplay);
             }
         } else {
-            let fence_cut = now_ms()?;
+            let fence_cut = database_now(&mut transaction).await?;
             self.verify_successor_policy(
                 &mut transaction,
                 &current,
@@ -3829,7 +3838,7 @@ impl ProductEdgePostgresOwnerV1 {
             transaction.commit().await.map_err(storage)?;
             return Ok(readback);
         }
-        let started_at = now_ms()?;
+        let started_at = database_now(&mut transaction).await?;
         let mut started = state.clone();
         started.state = StoredInvocationStateKindV1::InvocationStarted;
         started.state_digest.clear();
@@ -3953,7 +3962,7 @@ impl ProductEdgePostgresOwnerV1 {
             return Ok(readback);
         }
 
-        let started_at = now_ms()?;
+        let started_at = database_now(&mut transaction).await?;
         let mut started = state.clone();
         started.state = StoredInvocationStateKindV1::InvocationStarted;
         started.state_digest.clear();
@@ -6938,12 +6947,6 @@ async fn resolve_admission_observation_in_transaction(
     ))
 }
 
-fn now_ms() -> Result<u64, ProductEdgeError> {
-    let duration = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|e| ProductEdgeError::Storage(e.to_string()))?;
-    u64::try_from(duration.as_millis()).map_err(|e| ProductEdgeError::Storage(e.to_string()))
-}
 async fn database_now(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<u64, ProductEdgeError> {
@@ -7178,17 +7181,58 @@ mod tests {
             );
             assert_eq!(process_clock_reads(body), Vec::<&str>::new(), "{signature}");
         }
-        // The same reading finds the process clock where it is defined.
-        assert_eq!(
-            process_clock_reads(item_body(
-                source,
-                "fn now_ms() -> Result<u64, ProductEdgeError> {"
-            )),
-            ["SystemTime"]
-        );
         assert!(
             item_body(source, "async fn database_now(").contains("pg_catalog.clock_timestamp()")
         );
+    }
+
+    /// Product Edge has one clock, the store's `clock_timestamp()`. Genesis, a successor's
+    /// activation and its fence compare a binding's validity with it, admission and both claims
+    /// compare the binding with it again, and the two starts stamp a state the claims stamped
+    /// first. Genesis used to read this process's clock while admission read the store's, so under
+    /// clock skew a binding genesis had just accepted could be refused by the next admission as
+    /// not current, or the other way round. The binding's window comes from the operator
+    /// (product_edge_admin reads no clock), so after this there is no second clock to skew from.
+    #[rstest]
+    fn product_edge_reads_only_the_store_clock() {
+        let source = include_str!("postgres.rs");
+        let tests = source
+            .find("#[cfg(test)]\nmod tests {")
+            .expect("test module");
+        assert_eq!(process_clock_reads(&source[..tests]), Vec::<&str>::new());
+
+        for signature in [
+            "pub async fn bootstrap_genesis(",
+            "async fn activate_successor_phase_two(",
+            "async fn commit_successor_fence(",
+            "pub async fn start_source_intake_invocation(",
+            "pub async fn start_provider_invocation(",
+            "async fn admit_request_inner(",
+            "async fn claim_provider_invocation_inner(",
+            "pub async fn claim_source_intake_invocation(",
+        ] {
+            assert!(
+                item_body(source, signature).contains("database_now(&mut transaction).await?"),
+                "{signature}"
+            );
+        }
+        // The reading sees a process clock wherever one is written.
+        for read in [
+            "let now = SystemTime::now();",
+            "let now = now_ms()?;",
+            "let now = current_epoch_ms()?;",
+        ] {
+            assert_eq!(process_clock_reads(read).len(), 1, "{read}");
+        }
+    }
+
+    /// The clock Product Edge compares with, read the way the Owner reads it. A fixture that takes
+    /// its windows from this process's clock would bring back the skew the Owner no longer has.
+    async fn owner_now_ms(pool: &PgPool) -> u64 {
+        let mut transaction = pool.begin().await.unwrap();
+        let now = database_now(&mut transaction).await.unwrap();
+        transaction.rollback().await.unwrap();
+        now
     }
 
     #[rstest]
@@ -7924,7 +7968,7 @@ mod tests {
         );
         denied_role.rollback().await.unwrap();
         let suffix = format!("portfolio-read-{}", unique_suffix());
-        let now = now_ms().unwrap();
+        let now = owner_now_ms(pe_pool).await;
         let principal = format!("portfolio-principal-{suffix}");
         let manifest = AgentOperationManifestProposalV1 {
             operation: PORTFOLIO_READ_POLICY_OPERATION_V1.into(),
@@ -8148,7 +8192,7 @@ mod tests {
             "caller locator and digest mismatches must write no Owner state"
         );
 
-        let expiry_start = now_ms().unwrap();
+        let expiry_start = owner_now_ms(pe_pool).await;
         let expiry_at = expiry_start.saturating_add(900);
         let expiring_resource = PortfolioResourceV1 {
             account_identity: format!("expiring-account-{suffix}"),
@@ -8233,7 +8277,7 @@ mod tests {
             "OA grant must be locked before the PE wait"
         );
         oa_probe.rollback().await.unwrap();
-        let remaining = expiry_at.saturating_sub(now_ms().unwrap());
+        let remaining = expiry_at.saturating_sub(owner_now_ms(pe_pool).await);
         tokio::time::sleep(Duration::from_millis(remaining.saturating_add(50))).await;
         pe_blocker.rollback().await.unwrap();
         assert!(matches!(
@@ -8568,7 +8612,7 @@ mod tests {
         .await
         .unwrap();
         let suffix = unique_suffix();
-        let now = now_ms().unwrap();
+        let now = owner_now_ms(mutation.pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner)).await;
         // What this entry tests is recovery after expiry, so the expiry itself is not negotiable.
         // The time before it is only the budget for creating everything that will expire: the
         // manifests, the authorization and the binding each refuse a validity that has already
@@ -8715,7 +8759,7 @@ mod tests {
         .fetch_one(pe_pool)
         .await
         .unwrap();
-        let setup_done = now_ms().unwrap();
+        let setup_done = owner_now_ms(pe_pool).await;
         assert!(
             setup_done < expiry,
             "setup took {} ms, past the {RECOVERY_PRE_EXPIRY_BUDGET_MS} ms budget before expiry; \
@@ -8981,7 +9025,7 @@ mod tests {
     async fn lifecycle_request_admission_is_typed_effect_free_and_replay_exact() {
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
         let mutation = test_database.mutation();
-        let now = now_ms().unwrap();
+        let now = owner_now_ms(mutation.pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner)).await;
         let suffix = unique_suffix();
         let governance_effect = "STRATEGY_GOVERNANCE_LIFECYCLE_DECISION_V1".to_string();
         let manifest = AgentOperationManifestProposalV1 {
@@ -9309,7 +9353,7 @@ mod tests {
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
         Box::pin(exercise_portfolio_read_policy_consumer(&test_database)).await;
         let mutation = test_database.mutation();
-        let now = now_ms().unwrap();
+        let now = owner_now_ms(mutation.pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner)).await;
         let suffix = unique_suffix();
         let manifest = AgentOperationManifestProposalV1 {
             operation: "research.generic.submit.v1".to_string(),
@@ -9933,7 +9977,7 @@ mod tests {
             &mut downstream_successor_cut,
             admission.locator(),
             DownstreamAdmissionModeV1::FirstMutation {
-                read_cut_epoch_ms: now_ms().unwrap(),
+                read_cut_epoch_ms: owner_now_ms(rd_pool).await,
             },
         )
         .await
@@ -10090,18 +10134,18 @@ mod tests {
             &mut first_mutation,
             admission.locator(),
             DownstreamAdmissionModeV1::FirstMutation {
-                read_cut_epoch_ms: now_ms().unwrap(),
+                read_cut_epoch_ms: owner_now_ms(rd_pool).await,
             },
         )
         .await
         .unwrap();
-        assert!(resolved.authorizes_first_mutation_at(now_ms().unwrap()));
+        assert!(resolved.authorizes_first_mutation_at(owner_now_ms(rd_pool).await));
         let mut second_mutation = rd_pool.begin().await.unwrap();
         resolve_admission_for_downstream_in_transaction(
             &mut second_mutation,
             admission.locator(),
             DownstreamAdmissionModeV1::FirstMutation {
-                read_cut_epoch_ms: now_ms().unwrap(),
+                read_cut_epoch_ms: owner_now_ms(rd_pool).await,
             },
         )
         .await
@@ -10165,7 +10209,7 @@ mod tests {
                 &mut revoked_cut,
                 admission.locator(),
                 DownstreamAdmissionModeV1::FirstMutation {
-                    read_cut_epoch_ms: now_ms().unwrap(),
+                    read_cut_epoch_ms: owner_now_ms(rd_pool).await,
                 },
             )
             .await,

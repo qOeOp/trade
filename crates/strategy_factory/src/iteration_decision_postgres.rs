@@ -2477,6 +2477,9 @@ fn storage(error: impl Display) -> IterationDecisionPostgresErrorV1 {
 #[cfg(all(test, feature = "sealed-develop-composer-acceptance"))]
 mod postgres_acceptance_tests {
     use vibe_data::owner::source_binding::BindingDigest;
+    use vibe_qualification::{
+        ORDERED_CHAIN_READY_FIXTURE_KEY_V1, ReadyLineageV1, ready_lineage_acceptance_identity_v1,
+    };
 
     use super::*;
     use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
@@ -2826,6 +2829,7 @@ mod postgres_acceptance_tests {
                 capacity_model_identity: "capacity-model-v1".to_string(),
                 independence_rationale: "Owner-resolved predecessor census".to_string(),
             },
+            instrument_scope: None,
         };
         let research_admission = edge
             .admit_request(ProductEdgeAdmissionRequestV1 {
@@ -4652,8 +4656,9 @@ mod postgres_acceptance_tests {
         // Qualification terminal the ordered gate proves needs its own Candidate lineage minted
         // here. Three admitted lineages are left ADMITTED and unevaluated for the terminal entries
         // (economic pass, economic failure, all-not-applicable), one inadequate plan closes
-        // NOT_ADMITTED here, and the Origin lineage is minted last so the Origin attempt entries
-        // that select the latest ADMITTED intake keep consuming it.
+        // NOT_ADMITTED here, and the Origin lineage is minted last. Each consumer reads its lineage
+        // by the identities `ready_lineage_acceptance_identity_v1` derives from
+        // `ORDERED_CHAIN_READY_FIXTURE_KEY_V1`, so none depends on which lineage is newest.
         for lineage in [
             ReadyLineageV1::EconomicPass,
             ReadyLineageV1::EconomicFailure,
@@ -4674,41 +4679,6 @@ mod postgres_acceptance_tests {
         Box::pin(assert_ready_tamper_closure(&harness)).await;
     }
 
-    /// One Candidate lineage of the ordered gate, named by the Qualification terminal it feeds.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    enum ReadyLineageV1 {
-        /// Consumed by the Origin (`schema_version=1`) protected attempt entries.
-        Origin,
-        /// Driven to `QUALIFIED` by the current protected-evaluation entries.
-        EconomicPass,
-        /// Driven to `INELIGIBLE` by the current protected-evaluation entries.
-        EconomicFailure,
-        /// Driven to `ASSESSMENT_INVALID` by the current protected-evaluation entries.
-        AllNotApplicable,
-        /// A single preregistered time window: Qualification closes it `NOT_ADMITTED` here.
-        InadequatePlan,
-    }
-
-    impl ReadyLineageV1 {
-        /// The review request identity prefix the gate entries select this lineage by.
-        const fn review_slug(self) -> &'static str {
-            match self {
-                Self::Origin => "ready",
-                Self::EconomicPass => "economic-pass",
-                Self::EconomicFailure => "economic-failure",
-                Self::AllNotApplicable => "all-not-applicable",
-                Self::InadequatePlan => "inadequate-plan",
-            }
-        }
-
-        const fn expected_intake_status(self) -> vibe_qualification::CandidateIntakeStatusV1 {
-            match self {
-                Self::InadequatePlan => vibe_qualification::CandidateIntakeStatusV1::NotAdmitted,
-                _ => vibe_qualification::CandidateIntakeStatusV1::Admitted,
-            }
-        }
-    }
-
     async fn prepare_ready_decision_postgres_harness(
         lineage: ReadyLineageV1,
     ) -> Box<ReadyDecisionPostgresHarnessV1> {
@@ -4718,7 +4688,12 @@ mod postgres_acceptance_tests {
         let mutation = database.mutation();
         let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
         let backtest_pool = mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner);
-        let suffix = unique_suffix();
+        // The Qualification entries that consume this lineage compute the same identities from the
+        // same key and read exactly it, so every identity minted here derives from them.
+        let suffix =
+            ready_lineage_acceptance_identity_v1(ORDERED_CHAIN_READY_FIXTURE_KEY_V1, lineage)
+                .suffix()
+                .to_owned();
         let market_data_evidence =
             issue_market_data_repair_evidence_v1().expect("sealed Market Data evidence");
         let PersistedReplayPredecessorV1 {
@@ -4930,7 +4905,9 @@ mod postgres_acceptance_tests {
             .protected_decision_policy;
         let lineage = harness.lineage;
         let intake_request = vibe_qualification::CandidateIntakeRequestV1::new(
-            format!("qualification-review-{}-{suffix}", lineage.review_slug()),
+            ready_lineage_acceptance_identity_v1(ORDERED_CHAIN_READY_FIXTURE_KEY_V1, lineage)
+                .review_request_identity()
+                .to_owned(),
             issued.decision().decision_identity().to_string(),
             result_identity.clone(),
             issued.candidate().candidate_identity().to_string(),
