@@ -14,10 +14,17 @@
 
 chain_entry_watchdog_pid=''
 
-# Every process below `$1`, depth first.
+# Every process below `$1`, depth first. `pgrep` exits 1 when a process has no children, which is
+# every leaf; left as a failing command substitution under the chains' `set -E`, that fired their ERR
+# trap and printed "this failed" twice for every entry. So exit 1 is an empty answer here, and any
+# other failure - pgrep missing, bad arguments - is returned and still trips the trap.
 chain_entry_descendants() {
-  local child
-  for child in $(pgrep -P "$1" 2> /dev/null); do
+  local children child status=0
+  children="$(pgrep -P "$1" 2> /dev/null)" || status=$?
+  if ((status > 1)); then
+    return "$status"
+  fi
+  for child in $children; do
     echo "$child"
     chain_entry_descendants "$child"
   done
