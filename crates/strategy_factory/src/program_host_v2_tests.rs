@@ -17,7 +17,9 @@ use vibe_data::owner::{
 };
 
 #[cfg(feature = "sealed-strategy-input-acceptance")]
-use super::program_host_v2::admit_market_data_universe_program_event_v2;
+use super::program_host_v2::{
+    UniverseMemberSampleCoordinateV1, admit_market_data_universe_program_event_v2,
+};
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 use super::strategy_plan_v2::{
     compile_strategy_design_v2_for_universe, corrupt_universe_binding_digest_for_test,
@@ -1510,4 +1512,299 @@ fn exact_instrument_roles_are_refused_under_an_owner_universe_by_name() {
         Some(super::strategy_plan_v2::CompilationRefusalV2::ExactInstrumentRolesUnderOwnerUniverse)
     );
     assert_eq!(issue.coordinate, "inputs.scope");
+}
+
+/// The authored single-threshold universe-member Design, compiled against the real one-member Owner
+/// universe frame that Market Data issues for that Design, with a bounded ABI3 plugin module.
+///
+/// The Design's roles carry the names the frame binds, so the Plan's coordinate rows name the
+/// frame's (member 0, role) pairs. The module holds; what these tests exercise is the host reading
+/// each coordinate into the plugin's input frame, which happens before the module runs.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn universe_bfp_fixture() -> (
+    StrategyPlanV2,
+    StrategyArtifactV2,
+    StrategyInputUniverseFrameReceipt,
+) {
+    use super::{
+        bounded_feature_program_v1::BoundedFeaturePredicateV1,
+        cargo_artifact::{PluginCargoBuildEvidenceV3, VerifiedPluginCargoBuildV3},
+        single_threshold_authoring_v1::{
+            SingleThresholdAuthoringRequestV1, SingleThresholdChannelV1, SingleThresholdOutcomeV1,
+            author_single_threshold_program_v1,
+        },
+    };
+
+    let outcome = |position_intent: &str, units| SingleThresholdOutcomeV1 {
+        position_intent_semantic_id: position_intent.to_owned(),
+        target_variant_semantic_id: "kernel.target.position.v1".to_owned(),
+        target_position_units: units,
+    };
+    let (candidate, _) = author_single_threshold_program_v1(&SingleThresholdAuthoringRequestV1 {
+        research_request_identity: BindingDigest::from_untrusted_bytes([1; 32]),
+        intent_identity: BindingDigest::from_untrusted_bytes([2; 32]),
+        intent_digest: BindingDigest::from_untrusted_bytes([3; 32]),
+        channel: SingleThresholdChannelV1::UniverseMember {
+            close_role_semantic_id: "research.input.close.v1".to_owned(),
+            open_role_semantic_id: "research.input.open.v1".to_owned(),
+        },
+        threshold_coefficient: 10_000,
+        comparison: BoundedFeaturePredicateV1::Greater,
+        when_true: outcome("kernel.position.enter.v1", 1),
+        otherwise: outcome("kernel.position.exit.v1", 0),
+        falsifier: "the channel never crosses the threshold in the admitted window".to_owned(),
+    })
+    .expect("the universe-member request is authorable");
+    let super::strategy_plan_v2::StrategyDesignPreparationV2::Prepared {
+        design_identity, ..
+    } = super::strategy_plan_v2::prepare_strategy_design_v2(&candidate)
+    else {
+        panic!("the authored Design canonicalizes")
+    };
+    let frame = issue_single_member_universe_frame_for_owner_lineage(
+        candidate.research_request_identity,
+        design_identity,
+    )
+    .expect("one-member Owner universe frame");
+    // The host reads plugin frames against the Plan's canonical manifest, whose ports are sorted.
+    let mut manifest = candidate.plugins[0].clone();
+    manifest.input_ports.sort();
+    manifest.output_ports.sort();
+    let wasm = hold_plugin_module(&manifest).expect("bounded HOLD ABI3 plugin module");
+    let build = VerifiedPluginCargoBuildV3::verify(
+        &manifest,
+        PluginCargoBuildEvidenceV3 {
+            wasm_one: &wasm,
+            wasm_two: &wasm,
+            capsule_digest: BindingDigest::from_untrusted_bytes([31; 32]),
+            source_set_digest: BindingDigest::from_untrusted_bytes([41; 32]),
+            verified_build_receipt_digest: BindingDigest::from_untrusted_bytes([51; 32]),
+            max_wasm_bytes: u32::try_from(wasm.len()).expect("bounded fixture module"),
+        },
+    )
+    .expect("repeat-equal ABI3 plugin build");
+    let receipt = issue_plugin_implementation_receipt_v2_for_test(
+        &manifest,
+        build.capsule_digest(),
+        build.source_set_digest(),
+        build.module_digest(),
+        build.verified_build_receipt_digest(),
+        "strategy.plugin.compute.v2",
+        manifest.abi_version,
+        manifest
+            .capability_ids
+            .iter()
+            .map(|id| (id.clone(), 1))
+            .collect(),
+    );
+    let StrategyCompilationV2::Compiled(plan) =
+        compile_strategy_design_v2_for_universe(candidate, &frame, &[receipt])
+    else {
+        panic!("the authored universe-member Design compiles against the one-member frame")
+    };
+    let artifact = StrategyArtifactV2::issue_versioned(&plan, vec![build.into()])
+        .expect("ABI3 strategy artifact");
+    (*plan, artifact, frame.frame().clone())
+}
+
+/// One coordinate for every (member, role) pair the Plan's coordinate rows name.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn plan_member_coordinates(
+    plan: &StrategyPlanV2,
+    frame: &StrategyInputUniverseFrameReceipt,
+) -> Vec<UniverseMemberSampleCoordinateV1> {
+    plan.bfp_role_bindings()
+        .iter()
+        .filter(|row| row.kind() == super::strategy_plan_v2::BfpRoleBindingKindV1::Coordinate)
+        .map(|row| {
+            UniverseMemberSampleCoordinateV1::for_frame_test(
+                frame,
+                row.member_ordinal()
+                    .expect("a universe coordinate row names its member"),
+                row.input_role_identity(),
+            )
+        })
+        .collect()
+}
+
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn started_universe_host(plan: &StrategyPlanV2, artifact: &StrategyArtifactV2) -> ProgramHostV2 {
+    let mut host = ProgramHostV2::new(plan.clone(), artifact.clone()).expect("ABI3 universe host");
+    host.apply_event(&admitted(plan, envelope(1, LifecycleKind::Start), None))
+        .expect("START applies");
+    host
+}
+
+/// The control: the real universe frame with a coordinate for every pair the Plan binds is
+/// admitted, carries each coordinate, and runs the program, which reads each member coordinate into
+/// the plugin's input frame.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn a_universe_frame_with_its_member_coordinates_runs_the_program() {
+    use super::program_host_v2::admit_market_data_coordinated_universe_program_event_v2;
+
+    let (plan, artifact, frame) = universe_bfp_fixture();
+    let coordinates = plan_member_coordinates(&plan, &frame);
+    assert_eq!(coordinates.len(), 2, "one coordinate per role at member 0");
+
+    let event =
+        admit_market_data_coordinated_universe_program_event_v2(&plan, &frame, &coordinates)
+            .expect("the coordinated frame is admitted");
+    let mut host = started_universe_host(&plan, &artifact);
+    host.apply_event(&event)
+        .expect("the program runs on the coordinated frame");
+    assert_eq!(host.plugin_calls(), 1);
+}
+
+/// The refusal: the same frame without its coordinates is refused at admission, by the host's own
+/// admission and by the host entry point that takes a bare frame.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn a_universe_frame_without_its_member_coordinates_is_refused() {
+    use super::program_host_v2::{
+        ProgramHostV2Error, admit_market_data_coordinated_universe_program_event_v2,
+    };
+
+    let (plan, artifact, frame) = universe_bfp_fixture();
+
+    assert_eq!(
+        admit_market_data_coordinated_universe_program_event_v2(&plan, &frame, &[]),
+        Err(ProgramHostV2Error::InputCoverage)
+    );
+    assert_eq!(
+        admit_market_data_universe_program_event_v2(&plan, &frame),
+        Err(ProgramHostV2Error::InputCoverage)
+    );
+    let mut host = started_universe_host(&plan, &artifact);
+    assert_eq!(
+        host.apply_market_data_universe_event(&frame).err(),
+        Some(ProgramHostV2Error::InputCoverage)
+    );
+    assert_eq!(host.plugin_calls(), 0);
+}
+
+/// The coordinates must be exactly the Plan's (member, role) pairs: one fewer, one more at a member
+/// the Plan does not bind, or the same pair twice is refused.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn coordinates_other_than_the_plan_pairs_are_refused() {
+    use super::program_host_v2::{
+        ProgramHostV2Error, admit_market_data_coordinated_universe_program_event_v2,
+    };
+
+    let (plan, _, frame) = universe_bfp_fixture();
+    let coordinates = plan_member_coordinates(&plan, &frame);
+    let admit = |coordinates: &[UniverseMemberSampleCoordinateV1]| {
+        admit_market_data_coordinated_universe_program_event_v2(&plan, &frame, coordinates)
+    };
+    assert!(
+        admit(&coordinates).is_ok(),
+        "the Plan's own pairs are admitted"
+    );
+
+    let fewer = &coordinates[1..];
+    let mut more = coordinates.clone();
+    more.push(coordinates[0].clone().with_member_ordinal_for_test(1));
+    let mut twice = coordinates.clone();
+    twice.push(coordinates[0].clone());
+
+    for (case, supplied) in [("fewer", fewer), ("more", &more[..]), ("twice", &twice[..])] {
+        assert_eq!(
+            admit(supplied),
+            Err(ProgramHostV2Error::InputCoverage),
+            "{case}"
+        );
+    }
+}
+
+/// A coordinate with no projection receipt, that does not name this frame, or that carries no BAR
+/// schedule dependency is refused; the schedule dependency it does carry is part of the admitted
+/// event identity.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn a_member_coordinate_names_this_frame_and_its_bar_schedule() {
+    use super::program_host_v2::{
+        ProgramHostV2Error, admit_market_data_coordinated_universe_program_event_v2,
+    };
+
+    let (plan, _, frame) = universe_bfp_fixture();
+    let coordinates = plan_member_coordinates(&plan, &frame);
+    let admit = |coordinates: &[UniverseMemberSampleCoordinateV1]| {
+        admit_market_data_coordinated_universe_program_event_v2(&plan, &frame, coordinates)
+    };
+    let with_first =
+        |change: &dyn Fn(UniverseMemberSampleCoordinateV1) -> UniverseMemberSampleCoordinateV1| {
+            let mut changed = coordinates.clone();
+            changed[0] = change(changed[0].clone());
+            changed
+        };
+
+    for (case, changed) in [
+        (
+            "no schedule",
+            with_first(&|coordinate| coordinate.with_schedule_dependency_for_test(None)),
+        ),
+        (
+            "zero schedule",
+            with_first(&|coordinate| {
+                coordinate.with_schedule_dependency_for_test(Some(
+                    BindingDigest::from_untrusted_bytes([0; 32]),
+                ))
+            }),
+        ),
+        (
+            "zero projection receipt",
+            with_first(&|coordinate| {
+                coordinate
+                    .with_projection_receipt_for_test(BindingDigest::from_untrusted_bytes([0; 32]))
+            }),
+        ),
+        (
+            "another subject",
+            with_first(&|coordinate| {
+                coordinate.with_subject_for_test(BindingDigest::from_untrusted_bytes([7; 32]))
+            }),
+        ),
+    ] {
+        assert_eq!(
+            admit(&changed),
+            Err(ProgramHostV2Error::InputCoverage),
+            "{case}"
+        );
+    }
+
+    let identity = admit(&coordinates).unwrap().admitted_identity();
+    let rescheduled = with_first(&|coordinate| {
+        coordinate
+            .with_schedule_dependency_for_test(Some(BindingDigest::from_untrusted_bytes([9; 32])))
+    });
+    assert_ne!(
+        admit(&rescheduled).unwrap().admitted_identity(),
+        identity,
+        "the BAR schedule dependency is part of the admitted identity"
+    );
+}
+
+/// A universe Plan without coordinate rows admits its frame only without coordinates.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn a_plan_without_coordinate_rows_refuses_a_supplied_coordinate() {
+    use super::program_host_v2::{
+        ProgramHostV2Error, admit_market_data_coordinated_universe_program_event_v2,
+    };
+
+    let (plan, _, frame) = one_member_universe_fixture();
+    assert!(plan.bfp_role_bindings().is_empty());
+    let role = super::strategy_plan_v2::strategy_input_role_identity_v2(&plan.input_roles()[0]);
+    assert!(admit_market_data_universe_program_event_v2(&plan, &frame).is_ok());
+    assert_eq!(
+        admit_market_data_coordinated_universe_program_event_v2(
+            &plan,
+            &frame,
+            &[UniverseMemberSampleCoordinateV1::for_frame_test(
+                &frame, 0, role
+            )],
+        ),
+        Err(ProgramHostV2Error::InputCoverage)
+    );
 }
