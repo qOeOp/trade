@@ -1633,6 +1633,7 @@ if [[ "${1:-}" == "--archive-only" ]]; then
     echo "ERROR: --archive-only needs the archive file to write." >&2
     exit 1
   fi
+  mkdir -p -- "$(dirname -- "$2")"
   build_nextest_archive "$2"
   nextest_archive_identity > "${2}.identity"
   echo "=== R&D Owner chain archive written to ${2}:" >&2
