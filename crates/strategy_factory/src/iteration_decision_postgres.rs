@@ -2826,6 +2826,7 @@ mod postgres_acceptance_tests {
                 capacity_model_identity: "capacity-model-v1".to_string(),
                 independence_rationale: "Owner-resolved predecessor census".to_string(),
             },
+            instrument_scope: None,
         };
         let research_admission = edge
             .admit_request(ProductEdgeAdmissionRequestV1 {

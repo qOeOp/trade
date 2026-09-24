@@ -9,6 +9,7 @@ use axum::{
     routing::post,
 };
 use serde::{Deserialize, Serialize};
+use vibe_data::owner::research_instrument_scope_v1::ResearchInstrumentScopeWireV1;
 use vibe_product_edge::{
     ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionReadbackV1, ProductEdgeAdmissionRequestV1,
     ProductEdgeError, ProductEdgePostgresOwnerV1,
@@ -17,7 +18,8 @@ use vibe_product_edge::{
 use vibe_strategy_factory::product_edge::ResearchGoalOwnerPortV2;
 use vibe_strategy_factory::{
     product_edge::{
-        ProductEdgeChannel, RESEARCH_GOAL_OPERATION_V2, RESEARCH_GOAL_SCHEMA_V2, RESEARCH_OWNER_V1,
+        ProductEdgeChannel, RESEARCH_GOAL_OPERATION_V2, RESEARCH_GOAL_OPERATION_V3,
+        RESEARCH_GOAL_SCHEMA_V2, RESEARCH_GOAL_SCHEMA_V3, RESEARCH_OWNER_V1,
         ResearchGoalOwnerError, TrialFamilyProposalV1, UnsourcedResearchGoalV1,
         UnsourcedResearchProposalV1, identity_conflict_result_v2, unresolved_result_v2,
     },
@@ -53,6 +55,13 @@ pub(crate) struct SourceIntakeResearchOperationV2 {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct SourceIntakeResearchOperationV3 {
+    pub proposal: SourceIntakeResearchProposalV3,
+    pub ancestry: SourceIntakeResearchAncestryProposalV1,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct SourceIntakeResearchProposalV1 {
     pub request_identity: String,
     pub channel: ProductEdgeChannel,
@@ -68,6 +77,16 @@ pub(crate) struct SourceIntakeResearchProposalV2 {
     pub trial_family_proposal: TrialFamilyProposalV1,
 }
 
+/// A V2 proposal plus the instrument scope the research studies, which the caller must state.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SourceIntakeResearchProposalV3 {
+    pub request_identity: String,
+    pub goal: UnsourcedResearchGoalV1,
+    pub trial_family_proposal: TrialFamilyProposalV1,
+    pub instrument_scope: ResearchInstrumentScopeWireV1,
+}
+
 pub(super) fn router(
     product_edge: Arc<ProductEdgePostgresOwnerV1>,
     owner: Arc<PostgresResearchGoalOwnerV1>,
@@ -78,6 +97,7 @@ pub(super) fn router(
     Router::new()
         .route("/v1/source-intake-research", post(run))
         .route("/v2/source-intake-research", post(run_v2))
+        .route("/v3/source-intake-research", post(run_v3))
         .route(
             "/v1/source-intake-research/{request_identity}/resolve",
             post(resolve),
@@ -123,6 +143,52 @@ async fn run_v2(
         }
     };
     execute_run_v2(state, headers, operation).await
+}
+
+async fn run_v3(
+    State(state): State<SourceIntakeResearchApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !super::authorized(&headers, &state.token_digest) {
+        return super::rejection_v2(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            "unbound",
+        );
+    }
+    let operation: SourceIntakeResearchOperationV3 = match serde_json::from_slice(&body) {
+        Ok(operation) => operation,
+        Err(_) => {
+            return super::rejection_v2(
+                StatusCode::BAD_REQUEST,
+                "MALFORMED_TYPED_REQUEST",
+                "unbound",
+            );
+        }
+    };
+    let request_identity = operation.proposal.request_identity.clone();
+    let admission = match admit_research_proposal(
+        &state,
+        &operation.proposal.request_identity,
+        &operation.proposal,
+        (RESEARCH_GOAL_OPERATION_V3, RESEARCH_GOAL_SCHEMA_V3),
+    )
+    .await
+    {
+        Ok(admission) => admission,
+        Err(response) => return response,
+    };
+    let proposal = admitted_proposal_v3(operation.proposal, admission.locator().clone());
+    let response = match state
+        .owner
+        .submit_source_intake_research_v2(proposal, operation.ancestry)
+        .await
+    {
+        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
+        Err(e) => source_research_owner_error(&e, &request_identity),
+    };
+    delayed_acceptance_response(&state, &headers, response).await
 }
 
 async fn resolve(
@@ -227,6 +293,7 @@ async fn execute_run(
         &state,
         &operation.proposal.request_identity,
         &operation.proposal,
+        (RESEARCH_GOAL_OPERATION_V2, RESEARCH_GOAL_SCHEMA_V2),
     )
     .await
     {
@@ -257,6 +324,7 @@ async fn execute_run_v2(
         &state,
         &operation.proposal.request_identity,
         &operation.proposal,
+        (RESEARCH_GOAL_OPERATION_V2, RESEARCH_GOAL_SCHEMA_V2),
     )
     .await
     {
@@ -279,6 +347,7 @@ async fn admit_research_proposal<T: Serialize>(
     state: &SourceIntakeResearchApiState,
     request_identity: &str,
     proposal: &T,
+    (operation, operation_schema): (&str, &str),
 ) -> Result<ProductEdgeAdmissionReadbackV1, Response> {
     state
         .product_edge
@@ -291,8 +360,8 @@ async fn admit_research_proposal<T: Serialize>(
                     request_identity,
                 )
             })?,
-            operation: RESEARCH_GOAL_OPERATION_V2.into(),
-            operation_schema: RESEARCH_GOAL_SCHEMA_V2.into(),
+            operation: operation.into(),
+            operation_schema: operation_schema.into(),
             target_owner: RESEARCH_OWNER_V1.into(),
             requested_effects: vec!["R_AND_D_RESEARCH_MUTATION_V1".into()],
             request_proof_digest: state.request_proof_digest.clone(),
@@ -370,6 +439,7 @@ fn admitted_proposal(
         admission,
         goal: proposal.goal,
         trial_family_proposal: proposal.trial_family_proposal,
+        instrument_scope: None,
     }
 }
 
@@ -385,6 +455,21 @@ fn admitted_proposal_v2(
         admission,
         goal: proposal.goal,
         trial_family_proposal: proposal.trial_family_proposal,
+        instrument_scope: None,
+    }
+}
+
+fn admitted_proposal_v3(
+    proposal: SourceIntakeResearchProposalV3,
+    admission: ProductEdgeAdmissionLocatorV1,
+) -> UnsourcedResearchProposalV1 {
+    UnsourcedResearchProposalV1 {
+        request_identity: proposal.request_identity,
+        channel: ProductEdgeChannel::WindmillProductEdge,
+        admission,
+        goal: proposal.goal,
+        trial_family_proposal: proposal.trial_family_proposal,
+        instrument_scope: Some(proposal.instrument_scope),
     }
 }
 
@@ -517,6 +602,80 @@ mod tests {
             },
             ancestry: legacy.ancestry,
         }
+    }
+
+    fn operation_v3_fixture() -> SourceIntakeResearchOperationV3 {
+        let v2 = operation_v2_fixture();
+        SourceIntakeResearchOperationV3 {
+            proposal: SourceIntakeResearchProposalV3 {
+                request_identity: v2.proposal.request_identity,
+                goal: v2.proposal.goal,
+                trial_family_proposal: v2.proposal.trial_family_proposal,
+                instrument_scope: ResearchInstrumentScopeWireV1 {
+                    schema_version: 1,
+                    identities: vec!["BTCUSDT-PERP.BINANCE".to_string()],
+                },
+            },
+            ancestry: v2.ancestry,
+        }
+    }
+
+    /// A V3 proposal is the V2 proposal plus the scope the caller must state, and each route
+    /// takes only its own shape.
+    #[rstest]
+    fn v3_request_states_its_instrument_scope_and_each_route_takes_its_own_shape() {
+        let operation = operation_v3_fixture();
+        let value = serde_json::to_value(&operation).expect("V3 operation serializes");
+        assert_eq!(
+            value["proposal"]
+                .as_object()
+                .expect("V3 proposal is an object")
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>(),
+            vec![
+                "goal",
+                "instrument_scope",
+                "request_identity",
+                "trial_family_proposal"
+            ]
+        );
+        assert_eq!(
+            value["proposal"]["instrument_scope"],
+            serde_json::json!({"schema_version": 1, "identities": ["BTCUSDT-PERP.BINANCE"]})
+        );
+
+        let mut without_scope = value.clone();
+        without_scope["proposal"]
+            .as_object_mut()
+            .expect("V3 proposal is an object")
+            .remove("instrument_scope");
+        assert!(
+            serde_json::from_value::<SourceIntakeResearchOperationV3>(without_scope.clone())
+                .is_err(),
+            "V3 must require the instrument scope"
+        );
+        assert!(
+            serde_json::from_value::<SourceIntakeResearchOperationV2>(without_scope).is_ok(),
+            "the same proposal without a scope is exactly a V2 proposal"
+        );
+        assert!(
+            serde_json::from_value::<SourceIntakeResearchOperationV2>(value).is_err(),
+            "V2 must refuse a caller-supplied instrument scope"
+        );
+
+        let admitted = admitted_proposal_v3(
+            operation.proposal.clone(),
+            ProductEdgeAdmissionLocatorV1 {
+                request_identity: operation.proposal.request_identity.clone(),
+                admission_identity: "admission".to_string(),
+                admission_digest: "digest".to_string(),
+            },
+        );
+        assert_eq!(
+            admitted.instrument_scope,
+            Some(operation.proposal.instrument_scope)
+        );
     }
 
     #[rstest]

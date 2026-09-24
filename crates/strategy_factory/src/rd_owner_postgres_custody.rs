@@ -398,6 +398,9 @@ async fn native_research_custody_from_boundary(
     };
     let expected_intent_identity =
         canonical_v2_intent_identity(&stored_request.request.request_identity, &semantic_digest);
+    let (expected_intent_schema, expected_instrument_scope) =
+        crate::product_edge::expected_intent_scope(&stored_request.request)
+            .map_err(|e| native_source_unavailable(e.to_string()))?;
     if receipt.schema_version != 1
         || receipt.request_identity != stored_request.request.request_identity
         || receipt.semantic_digest != semantic_digest
@@ -411,7 +414,8 @@ async fn native_research_custody_from_boundary(
                 &receipt.request_identity,
                 &semantic_digest,
             )
-        || intent_v2.schema_version != 2
+        || intent_v2.schema_version != expected_intent_schema
+        || intent_v2.instrument_scope != expected_instrument_scope
         || intent_v2.intent_identity != expected_intent_identity
         || intent_v2.request_identity != receipt.request_identity
         || intent_v2.semantic_digest != semantic_digest
@@ -584,18 +588,19 @@ fn native_replay_outbox_source_record(
 use crate::{
     product_edge::{
         FrozenResearchGoalIntent, FrozenResearchGoalIntentV1, FrozenResearchGoalIntentV2,
-        IndependenceBasisReadbackV1, IndependenceBasisReceiptV1, ProductEdgeResearchGoalRequestV1,
-        ProductEdgeResolution, RESEARCH_OWNER_V1, RESEARCH_SCOPE_V1, RESEARCH_VIEW_SCOPE_V1,
-        ResearchGoalCommitV1, ResearchGoalCommitV2, ResearchGoalOwnerError,
-        ResearchGoalOwnerResultV1, ResearchGoalOwnerResultV2, ResearchNextLegalAction,
-        ResearchRequestDisposition, ResearchRequestReceiptV1, ResearchViewV1,
-        SourcedResearchGoalV2, StoredAdmittedResearchRequestV2, StoredIndependenceBasisV1,
-        StoredProtectedFeedbackProjectionV1, StoredRejectedResearchRequestV2,
-        TrialFamilyProposalV1, canonical_research_view_identity_v2,
-        canonical_research_view_identity_v3, canonical_v2_intent_identity,
-        composer_exploration_research_view_is_valid_v3, decide_commit, decide_commit_v2,
-        decide_rejected_commit_v2, semantic_digest, semantic_digest_v2,
-        terminal_research_view_identity, validate_goal_request_v2,
+        INSTRUMENT_SCOPE_NOT_RESOLVABLE, IndependenceBasisReadbackV1, IndependenceBasisReceiptV1,
+        InstrumentScopeCheckRecordV1, ProductEdgeResearchGoalRequestV1,
+        ProductEdgeResearchGoalRequestV2, ProductEdgeResolution, RESEARCH_OWNER_V1,
+        RESEARCH_SCOPE_V1, RESEARCH_VIEW_SCOPE_V1, ResearchGoalCommitV1, ResearchGoalCommitV2,
+        ResearchGoalOwnerError, ResearchGoalOwnerResultV1, ResearchGoalOwnerResultV2,
+        ResearchNextLegalAction, ResearchRequestDisposition, ResearchRequestReceiptV1,
+        ResearchViewV1, SourcedResearchGoalV2, StoredAdmittedResearchRequestV2,
+        StoredIndependenceBasisV1, StoredProtectedFeedbackProjectionV1,
+        StoredRejectedResearchRequestV2, TrialFamilyProposalV1,
+        canonical_research_view_identity_v2, canonical_research_view_identity_v3,
+        canonical_v2_intent_identity, composer_exploration_research_view_is_valid_v3,
+        decide_commit, decide_commit_v2, decide_rejected_commit_v2, semantic_digest,
+        semantic_digest_v2, terminal_research_view_identity, validate_goal_request_v2,
         validate_goal_request_v2_meaning, validate_legacy_goal_meaning,
         verify_research_admission_v1, verify_research_admission_v2,
         verify_source_bound_research_admission_v2,
@@ -1429,8 +1434,10 @@ async fn verify_legacy_admitted_v2(
         load_trial_family_in_transaction(transaction, &intent_identity, &receipt.receipt_identity)
             .await
             .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
+    // Legacy custody predates the instrument scope, so it never binds one.
     if family != expected_family
         || intent.schema_version != 2
+        || intent.instrument_scope.is_some()
         || intent.intent_identity != intent_identity
         || intent.request_identity != request_identity
         || intent.semantic_digest != semantic_digest
@@ -1700,6 +1707,45 @@ fn is_sha256_digest(value: &str) -> bool {
     value
         .strip_prefix("sha256:")
         .is_some_and(|hex| hex.len() == 64 && hex.bytes().all(|byte| byte.is_ascii_hexdigit()))
+}
+
+/// The request and rejection code a stored V2 rejection proves.
+///
+/// A field rejection is proved by replay: the stored request must still fail validation with the
+/// stored code. An [`INSTRUMENT_SCOPE_NOT_RESOLVABLE`] rejection cannot be, because Market Data's
+/// early check answers at its own cut; it is proved instead by the check record stored with it,
+/// which must answer exactly the request's valid scope, be well formed, and not admit it.
+pub(crate) fn rejected_request_and_code_v2(
+    request: ProductEdgeResearchGoalRequestV2,
+    stored_code: &str,
+    check: Option<InstrumentScopeCheckRecordV1>,
+) -> Result<(ProductEdgeResearchGoalRequestV2, &'static str), ResearchGoalOwnerError> {
+    let mismatch = |reason: &str| ResearchGoalOwnerError::Storage(reason.to_string());
+
+    match (validate_goal_request_v2(request), check) {
+        (Err(rejected), None) => {
+            let (request, code) = rejected.into_parts();
+            if stored_code != code {
+                return Err(mismatch("stored rejected V2 failure code mismatch"));
+            }
+            Ok((request, code))
+        }
+        (Ok(validated), Some(check)) if stored_code == INSTRUMENT_SCOPE_NOT_RESOLVABLE => {
+            let scope = validated
+                .instrument_scope()
+                .ok_or_else(|| mismatch("stored scope rejection names no instrument scope"))?;
+            check
+                .validate_against(scope)
+                .map_err(|reason| mismatch(&format!("stored scope check: {reason}")))?;
+
+            if check.admits() {
+                return Err(mismatch("stored scope check admits the rejected scope"));
+            }
+            Ok((validated.into_request(), INSTRUMENT_SCOPE_NOT_RESOLVABLE))
+        }
+        (Ok(_), None) => Err(mismatch("stored rejected V2 request is semantically valid")),
+        (_, Some(_)) => Err(mismatch("stored scope check accompanies another rejection")),
+    }
 }
 
 fn validate_source_ancestry_custody_v1(
@@ -2576,20 +2622,11 @@ async fn admit_preloaded_research_row_in_transaction(
                 "stored rejected V2 request meaning mismatch".to_string(),
             ));
         }
-        let (request, rejection_code) = validate_goal_request_v2(request)
-            .err()
-            .ok_or_else(|| {
-                ResearchGoalOwnerError::Storage(
-                    "stored rejected V2 request is semantically valid".to_string(),
-                )
-            })?
-            .into_parts();
-
-        if stored.rejection_code != rejection_code {
-            return Err(ResearchGoalOwnerError::Storage(
-                "stored rejected V2 failure code mismatch".to_string(),
-            ));
-        }
+        let (request, rejection_code) = rejected_request_and_code_v2(
+            request,
+            &stored.rejection_code,
+            stored.instrument_scope_check,
+        )?;
         let positive_prerequisites: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM rd_independence_bases_v1 WHERE request_identity = $1",
         )
