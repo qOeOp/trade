@@ -715,8 +715,22 @@ jobs:
       - name: Report disk space before Rust tests
         run: bash scripts/ci/report-disk-space.bash "before Rust tests"
 
+      # EXPERIMENT (do not merge): record why cargo judges each unit dirty after the cache restore.
+      - name: Record source and artifact times after the cache restore
+        run: |
+          set -uo pipefail
+          date -u +%FT%T
+          fingerprints=target/rust-tests-linux-x86/ci-pr/.fingerprint
+          ls -la --time-style=full-iso "$fingerprints" 2>/dev/null | sed -n '2,6p' || true
+          for crate in aws-lc-sys libmimalloc-sys; do
+            ls -dl --time-style=full-iso "$HOME"/.cargo/registry/src/*/"$crate"-* 2>/dev/null || true
+          done
+          ls -la --time-style=full-iso crates/core/src/lib.rs Cargo.lock
+
       - name: Run Rust tests
         id: rust-tests
+        env:
+          CARGO_LOG: cargo::core::compiler::fingerprint=info
         run: >-
           make cargo-test NEXTEST_PROFILE=ci
           EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
