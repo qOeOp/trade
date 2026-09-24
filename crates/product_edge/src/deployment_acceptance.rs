@@ -44,6 +44,7 @@
 //! let edge = deployment.connect_owner(&product_edge_database_url).await?;
 //! ```
 
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 use vibe_operator_authorization::{
     OperationManifestBindingV1, OperatorAuthorizationError,
@@ -63,7 +64,16 @@ const VALID_FROM_EPOCH_MS: u64 = 1_767_225_600_000;
 const VALID_THROUGH_EPOCH_MS: u64 = 2_082_758_400_000;
 const ISSUER_IDENTITY: &str = "operator-authorization-issuer-acceptance-v1";
 const ISSUER_KEY_VERSION: &str = "acceptance-key-v1";
-const REQUEST_PROOF_DIGEST: &str = "sha256:acceptance-proof";
+
+/// The request proof the authorization is issued with and every admission into these deployments
+/// presents. It is a canonical digest, `sha256:` and 64 lowercase hex digits, because consumers
+/// such as Source Intake refuse any other shape; it is the SHA-256 of a fixed domain string.
+fn request_proof_digest() -> String {
+    format!(
+        "sha256:{:x}",
+        Sha256::digest(b"vibe-product-edge/deployment-acceptance/request-proof/v1")
+    )
+}
 
 /// One operation the deployment may admit, bound at genesis.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -219,7 +229,7 @@ pub async fn ensure_product_edge_deployment_acceptance_fixture_v1(
                 audience: proposal.audience.clone(),
                 permissions: proposal.permissions.clone(),
             },
-            request_proof_digest: REQUEST_PROOF_DIGEST.to_string(),
+            request_proof_digest: request_proof_digest(),
             operation_manifests: manifest_bindings,
             not_before_epoch_ms: VALID_FROM_EPOCH_MS,
             valid_through_epoch_ms: VALID_THROUGH_EPOCH_MS,
@@ -297,7 +307,7 @@ pub async fn ensure_product_edge_deployment_acceptance_fixture_v1(
         permissions: proposal.permissions.clone(),
         authorization,
         authorization_trust,
-        request_proof_digest: REQUEST_PROOF_DIGEST.to_string(),
+        request_proof_digest: request_proof_digest(),
         operations,
         valid_from_epoch_ms: VALID_FROM_EPOCH_MS,
         valid_through_epoch_ms: VALID_THROUGH_EPOCH_MS,
@@ -348,6 +358,22 @@ mod tests {
             request_proof_digest: deployment.request_proof_digest.clone(),
             audit_correlation: format!("acceptance:{identity}"),
         }
+    }
+
+    /// Source Intake's own check, `validate_digest`, refuses anything but `sha256:` and 64
+    /// lowercase hex digits; the first version of this fixture presented `sha256:acceptance-proof`
+    /// and every research entry built on it would have been refused before admitting anything.
+    #[rstest]
+    fn the_request_proof_is_a_canonical_sha256_digest() {
+        let digest = request_proof_digest();
+        assert_eq!(digest.len(), 71, "{digest}");
+        assert!(digest.starts_with("sha256:"), "{digest}");
+        assert!(
+            digest[7..]
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+            "{digest}"
+        );
     }
 
     /// The ordered chain's database is never reset, so every run takes its own keys.
