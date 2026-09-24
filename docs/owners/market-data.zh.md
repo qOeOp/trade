@@ -1249,13 +1249,16 @@ Data 不依赖 R&D，不拥有也不重新解释 Strategy Design role/join。
   在该 cut 上没有 Instrument Master fact 时按「unresolved」拒绝；在 frontier 中没有 eligible 且 included 的 fact
   时按「不在 frontier 中」拒绝；二者都不会从 selection 中被丢弃而使 selection 成员变少。当前 frontier 是最近一次准入的
   historical-membership frontier：每次准入都承接前一个 frontier，因此由 Market Data 而非请求方决定哪个 frontier 是当前的。
-- PIT 引用。R&D 通过一个读取函数 `market_data_rd_api.resolve_research_pit_references_v1(identities)` 解析初始 PIT
-  request 的全部 Market Data 引用，不自行提供任何值。该函数返回当前 eligible-instrument frontier；所请求 identity 的
-  frontier fact 所指名的那一条 Source Binding lineage 的 locator、lineage root、correction frontier 与 Market
-  Semantics identity；为它们解析出的 Instrument Master V1 digest；以及 Market Data 当前的 decision cut 连同 PIT intake
-  要逐字比对的 clock 证据。若某个 identity 不可准入，或这些 identity 的 fact 指名了不止一条 Source Binding lineage，
-  则不返回任何行，因为一个 PIT request 只绑定一个 Source Binding。intake 仍会重新校验 R&D 随后陈述的 Universe
-  Selection 与其冻结的 PIT request，并准入一到两个成员的 scope。
+- PIT 引用。R&D 通过一个读取 `resolve_research_pit_references_v1` 解析初始 PIT request 的全部 Market Data 引用，该读取在
+  R&D 自己的事务里运行，R&D 不自行提供任何值。它返回当前 eligible-instrument frontier；所请求 identity 的 frontier fact
+  所指名的那一条 Source Binding lineage 的 locator、lineage root、correction frontier 与 Market Semantics identity；以及
+  Market Data 当前的 decision cut 连同 PIT intake 要逐字比对的 clock 证据。它不返回 Instrument Master digest：R&D 冻结
+  request 时把 `instrument_master_digest` 填为全零，intake 在校验或持久化该 request 之前，以它自己的 Instrument Master
+  readback 的 digest 覆盖该字段。该 readback 由一次以 request 的 correlation 与 event instant 为键的写入铸出，任何对
+  scope 的读取都无法复现它；因此 terminal 报告的 request identity 与 digest 是 Market Data 重新 seal 后的值，从不是冻结
+  bytes 自身的值。以下情况按名拒绝：某个 identity 不可准入；这些 identity 的 fact 指名了不止一条 Source Binding lineage
+  或 correction frontier，因为一个 PIT request 只绑定一个 Source Binding；该 lineage 没有已准入的 head；Market Data 没有
+  clock head。intake 仍会重新校验 R&D 随后陈述的 Universe Selection 与其冻结的 PIT request，并准入一到两个成员的 scope。
 - Requester identity。初始 PIT request 的 `requester_identity` 是对
   `vibe.market-data.pit-requester.research-request.v1\0` 后接 Design role intent 所携带的 32 字节 Research request
   identity 所做的 SHA-256；该 identity 即 R&D 对 request locator 所做的 `rd.develop.request-identity.v2` digest，
@@ -1268,17 +1271,23 @@ Data 不依赖 R&D，不拥有也不重新解释 Strategy Design role/join。
   组装；exact-instrument role 在同一 batch 中绑定其 instrument。schema 1 的 intent 不指名任何 request：其
   exact-instrument role 仍如上文各段所述按坐标解析，其 universe-member role 按名拒绝。universe-member Design 的
   Composer attestation 从该 Design 已发布的 schema 2 role intent 取其 PIT request，从不取自 attestation。
-- 提前检查。R&D 在接纳 Research request 之前调用
-  `market_data_rd_api.check_research_instrument_scope_v1(identities)`，它按顺序为每个 identity 返回一行，在 Market
-  Data 当前的 decision cut 上取值 `ADMISSIBLE`、`UNRESOLVED` 或 `NOT_IN_ELIGIBLE_FRONTIER`。它是 `STABLE` 的，在调用方的
-  R&D 事务内不加行锁地运行，且不写入任何东西。它只做提前拒绝：PIT request 处的固定成员求值仍是决定，在检查时可准入的
-  identity 仍可能以非 `AVAILABLE` 的 terminal 结束。
+- 提前检查。R&D 在接纳 Research request 之前调用 `check_research_instrument_scope_v1`，它按顺序为每个 identity 返回一行，
+  取值 `ADMISSIBLE`、`UNRESOLVED` 或 `NOT_IN_ELIGIBLE_FRONTIER`，并附上判定所依据的 frontier 与 decision cut。判定中的每
+  个时刻都是 Market Data 当前的 decision cut。Instrument Master 在该 cut 上选不出唯一一条生效且可观察的 fact 时，该
+  identity 为 `UNRESOLVED`；能解析、但当前 frontier 中没有唯一一条对它生效的 membership fact 时，为
+  `NOT_IN_ELIGIBLE_FRONTIER`；没有当前 frontier 时每一行都是 `NOT_IN_ELIGIBLE_FRONTIER`。它在调用方的 R&D 事务内不加行锁
+  地运行，且不写入任何东西。它只做提前拒绝：PIT request 处的固定成员求值仍是决定，在检查时可准入的 identity 仍可能以非
+  `AVAILABLE` 的 terminal 结束。
+- 两个读取的传输。两个读取都是在 R&D 事务里运行的 Market Data 代码。进入 `market_data_rd_api` 的是四个 `STABLE` 的
+  `SECURITY DEFINER` 函数，它们只返回已存储的证据：Owner 的 clock head、当前 frontier 中所请求 instrument 的 membership
+  fact、这些 instrument 的 Instrument Master fact，以及一条 lineage 的 Source Binding head。每个答案都由 Owner 自己的
+  decoder 与选择规则决定。
 
 目前已建成：PIT intake 准入含一个或两个 included 成员的 Universe Selection Record，每个成员的 key 即其 canonical
-instrument；其他成员数或 key 在写入任何东西之前按名拒绝。除此之外无：canonical evaluator 只准入全部成员与前缀两种
-rule；eligible-instrument frontier 是调用方选定、没有任何准入去承接的 digest；没有任何读取能从 identity 解析出
-Source Binding、Instrument Master fact 或 eligibility；没有任何代码按 identity 读取 PIT request；registration 按坐标
-解析每个 role。
+instrument；其他成员数或 key 在写入任何东西之前按名拒绝。按引用注册已建成：Design 恰好针对其 role intent 指名的初始 PIT
+request 注册，拒绝如上文所述。当前 frontier 与两个读取已建成：每个新准入的 frontier 取下一个准入序号，序号最大的即为当前
+frontier，在编号之前准入的 frontier 永远不是当前的，检查与引用读取按上文作答。除此之外无：canonical evaluator 只准入全部
+成员与前缀两种 rule。
 
 Market Data 只消费、但不定义也不重新解释 R&D Owner contract 中明确规定的 big-endian canonical binary
 codec；其 JSON 表示不是 canonical receipt material。registration 必须通过固定 R&D adapter 取得
