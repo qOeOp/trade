@@ -64,19 +64,20 @@ test("off macOS the browser is not asked for its version at all", () => {
 // Both sides are read from code, not text. A sender is a `.send("Input.dispatchKeyEvent"` call, so
 // a comment naming the method does not count; Input.insertText is left out because it measured not
 // to spin (see browser-acceptance.mjs). A refusal counts only as a call that starts a statement,
-// optionally behind an `if (...)`, after line comments are stripped - so a commented-out call does
-// not satisfy it. browser-acceptance.mjs is scanned too: a shared helper that sends keys would be
+// optionally behind an `if (...)`, after block and line comments are stripped - so a commented-out
+// call does not satisfy it. browser-acceptance.mjs is scanned too: a shared helper that sends keys would be
 // called from suites that never mention the method, so the refusal has to live inside that helper.
 const SENDS_KEYS = /\.send\(\s*["']Input\.dispatchKeyEvent["']/u;
 const REFUSES = /^\s*(?:if \([^)]*\)\s*)?refuseBrowserThatSpinsOnSynthesizedKeys\(browserExecutable\b/mu;
-const withoutLineComments = (source) => source.replace(/^\s*\/\/.*$/gmu, "").replace(/\s\/\/.*$/gmu, "");
+const withoutComments = (source) => source.replace(/\/\*[\s\S]*?\*\//gu, "")
+  .replace(/^\s*\/\/.*$/gmu, "").replace(/\s\/\/.*$/gmu, "");
 
 test("every suite that synthesizes keys refuses a browser that spins on them", async () => {
   const directory = new URL("./", import.meta.url);
   const senders = [];
   for (const name of await readdir(directory)) {
     if (!name.endsWith(".mjs") || name === "synthesized-key-spin-refusal.test.mjs") continue;
-    const source = withoutLineComments(await readFile(new URL(name, directory), "utf8"));
+    const source = withoutComments(await readFile(new URL(name, directory), "utf8"));
     if (!SENDS_KEYS.test(source)) continue;
     assert.notEqual(name, "browser-acceptance.mjs",
       "browser-acceptance.mjs sends keys itself: put the refusal inside that helper, since its callers never name the method");
