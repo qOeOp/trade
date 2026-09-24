@@ -1148,13 +1148,37 @@ fn fixture_row() -> super::postgres::StoredReplayMarketFactsRowV2 {
     row
 }
 
+/// A boxed step of the replay composition chain entry, built outside that test's frame.
+///
+/// The entry's test body is the deepest frame of the ordered chain and stays live for the whole
+/// test, and main already runs it close to the 2 MiB test stack. `Box::pin(step(..)).await` would
+/// still build the step's whole state in that frame before moving it to the heap, so each step is a
+/// plain function: its state is built in a frame that returns before the test polls it, and the
+/// test body holds one pointer.
+type ChainEntryStepV1<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + 'a>>;
+
 /// Registers a universe-member Design on the same custody and confirms it is committed.
 ///
 /// It runs before the `rd_owner` transaction opens, and must: registration writes through the Market
 /// Data pool, and the `rd_owner` re-reads hold locks that registration would wait on, so the test
 /// would block against itself until the runner's timeout. The committed-row count makes that order
 /// an assertion rather than a convention.
-async fn universe_design_registered_before_rd_owner_v1(
+fn universe_design_registered_before_rd_owner_v1<'a>(
+    market: &'a crate::owner::postgres::MarketDataOwnerPostgres,
+    base: &'a crate::owner::postgres::tests::ReplayCompositionMarketBaseFixtureV1,
+    market_pool: &'a sqlx::PgPool,
+) -> ChainEntryStepV1<
+    'a,
+    Vec<crate::owner::strategy_input_binding::UntrustedStrategyInputBindingRequest>,
+> {
+    Box::pin(universe_design_registered_before_rd_owner_step_v1(
+        market,
+        base,
+        market_pool,
+    ))
+}
+
+async fn universe_design_registered_before_rd_owner_step_v1(
     market: &crate::owner::postgres::MarketDataOwnerPostgres,
     base: &crate::owner::postgres::tests::ReplayCompositionMarketBaseFixtureV1,
     market_pool: &sqlx::PgPool,
@@ -1182,21 +1206,125 @@ async fn universe_design_registered_before_rd_owner_v1(
     universe_requests
 }
 
-/// A universe-member Design on the same custody re-reads through its own entry point as `rd_owner`.
+/// `rd_owner` re-reads the exact Design's custody, and then the universe Design's, in its own
+/// transaction.
 ///
-/// The facade path binds the same role-set universe frame the Owner derives, the exact re-read
-/// refuses it by name, and the coordinate says which re-read serves the Design. It is a function of
-/// its own, not part of the test body: in a debug build that body's frame is live for the whole
-/// test, and holding these locals in it overflowed the 2 MiB test stack at the base fixture.
-async fn universe_custody_rereads_as_rd_owner_v1(
-    universe_requests: &[crate::owner::strategy_input_binding::UntrustedStrategyInputBindingRequest],
+/// The exact claim re-derives the Owner's receipts and a claim missing a role is refused; the Design's
+/// coordinate comes from the declarations Market Data owns; a universe-member Design on the same
+/// custody re-reads through its own entry point; and a Design with no declaration has no coordinate.
+fn strategy_input_custody_rereads_as_rd_owner_v1<'a, 'b: 'a>(
+    base: &'a crate::owner::postgres::tests::ReplayCompositionMarketBaseFixtureV1,
+    universe_requests: &'a [crate::owner::strategy_input_binding::UntrustedStrategyInputBindingRequest],
+    rd_transaction: &'a mut sqlx::Transaction<'b, sqlx::Postgres>,
+) -> ChainEntryStepV1<'a, ()> {
+    Box::pin(strategy_input_custody_rereads_as_rd_owner_step_v1(
+        base,
+        universe_requests,
+        rd_transaction,
+    ))
+}
+
+async fn strategy_input_custody_rereads_as_rd_owner_step_v1(
     base: &crate::owner::postgres::tests::ReplayCompositionMarketBaseFixtureV1,
+    universe_requests: &[crate::owner::strategy_input_binding::UntrustedStrategyInputBindingRequest],
     rd_transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) {
     use crate::owner::strategy_input_binding::{
         StrategyInputCustodyUnavailableV1, UntrustedStrategyInputCustodyClaimV1,
     };
 
+    let first_role = &base.binding_requests[0];
+    let custody_claim = UntrustedStrategyInputCustodyClaimV1 {
+        research_request_identity: first_role.research_request_identity,
+        strategy_design_identity: first_role.strategy_design_identity,
+        pit_request_identity: first_role.pit_request_identity,
+        input_role_identities: base
+            .binding_requests
+            .iter()
+            .rev()
+            .map(|request| request.input_role_identity)
+            .collect(),
+        decision_cut: first_role.decision_cut,
+    };
+    let custody = crate::owner::postgres::strategy_input_binding_registry::
+        reread_persisted_strategy_input_custody_for_update_v1(&mut *rd_transaction, &custody_claim)
+        .await
+        .expect("rd_owner re-derives durable Strategy Input receipts");
+    assert_eq!(custody.bindings(), base.bindings.as_slice());
+    assert_eq!(custody.frame().values().len(), base.bindings.len());
+    let mut missing_role = custody_claim.clone();
+    missing_role.input_role_identities.pop();
+    assert_eq!(
+        crate::owner::postgres::strategy_input_binding_registry::
+            reread_persisted_strategy_input_custody_for_update_v1(&mut *rd_transaction, &missing_role)
+            .await,
+        Err(StrategyInputCustodyUnavailableV1::RoleCoverageMismatch)
+    );
+    // The Composer is told only a Research locator, so Market Data must answer which PIT cut the
+    // Design binds against. The answer comes from the declarations it owns, never from a caller.
+    let coordinate = crate::owner::postgres::strategy_input_binding_registry::
+        resolve_pit_request_for_strategy_design_v1(
+            &mut *rd_transaction,
+            first_role.strategy_design_identity,
+        )
+        .await
+        .expect("rd_owner resolves the Design's one admitted PIT coordinate");
+    assert_eq!(
+        coordinate.pit_request_identity,
+        first_role.pit_request_identity
+    );
+    assert_eq!(coordinate.decision_cut, first_role.decision_cut);
+    let mut stored_roles = coordinate.input_role_identities.clone();
+    let mut declared_roles = base
+        .binding_requests
+        .iter()
+        .map(|request| request.input_role_identity)
+        .collect::<Vec<_>>();
+    stored_roles.sort_unstable();
+    declared_roles.sort_unstable();
+    assert_eq!(stored_roles, declared_roles);
+
+    universe_custody_rereads_as_rd_owner_step_v1(
+        universe_requests,
+        base,
+        coordinate.declared_scope,
+        rd_transaction,
+    )
+    .await;
+
+    // A Design with no declaration has no cut to bind against, and inventing one is the whole
+    // failure this resolver exists to prevent.
+    assert_eq!(
+        crate::owner::postgres::strategy_input_binding_registry::
+            resolve_pit_request_for_strategy_design_v1(
+                &mut *rd_transaction,
+                vibe_data_binding_digest_for_test(0x5a),
+            )
+            .await,
+        Err(StrategyInputCustodyUnavailableV1::UnknownDeclaration)
+    );
+}
+
+/// A universe-member Design on the same custody re-reads through its own entry point as `rd_owner`.
+///
+/// The facade path binds the same role-set universe frame the Owner derives, the exact re-read
+/// refuses it by name, and the coordinate says which re-read serves each Design: the exact Design's
+/// `exact_scope`, resolved by the caller, and the universe Design's, resolved here.
+async fn universe_custody_rereads_as_rd_owner_step_v1(
+    universe_requests: &[crate::owner::strategy_input_binding::UntrustedStrategyInputBindingRequest],
+    base: &crate::owner::postgres::tests::ReplayCompositionMarketBaseFixtureV1,
+    exact_scope: crate::owner::postgres::strategy_input_binding_registry::StrategyInputDeclaredScopeV1,
+    rd_transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) {
+    use crate::owner::strategy_input_binding::{
+        StrategyInputCustodyUnavailableV1, UntrustedStrategyInputCustodyClaimV1,
+    };
+
+    assert_eq!(
+        exact_scope,
+        crate::owner::postgres::strategy_input_binding_registry::
+            StrategyInputDeclaredScopeV1::ExactInstrument
+    );
     let universe_claim = UntrustedStrategyInputCustodyClaimV1 {
         research_request_identity: universe_requests[0].research_request_identity,
         strategy_design_identity: universe_requests[0].strategy_design_identity,
@@ -1282,9 +1410,6 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
             StrategyDesignJoinEntryV1, StrategyDesignJoinRoleV1, StrategyDesignNativeJoinReceiptV1,
             StrategyDesignRoleEntryV1, StrategyDesignRoleSetLocatorV1,
             StrategyDesignRoleSetReceiptV1,
-        },
-        strategy_input_binding::{
-            StrategyInputCustodyUnavailableV1, UntrustedStrategyInputCustodyClaimV1,
         },
         strategy_input_binding_admission_v1::{
             StrategyInputBindingAdmissionErrorV1, StrategyInputBindingAdmissionTerminalV1,
@@ -2391,12 +2516,8 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         .resolve_bound_replay_cut_v1(binding_locator)
         .await
         .unwrap();
-    let universe_requests = Box::pin(universe_design_registered_before_rd_owner_v1(
-        &market,
-        &base,
-        market_mutation_pool,
-    ))
-    .await;
+    let universe_requests =
+        universe_design_registered_before_rd_owner_v1(&market, &base, market_mutation_pool).await;
     let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
     let mut rd_transaction = rd_pool.begin().await.unwrap();
     let rd_cut = owner
@@ -2404,80 +2525,8 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         .await
         .unwrap();
     assert_eq!(rd_cut, owner_cut);
-    let first_role = &base.binding_requests[0];
-    let custody_claim = UntrustedStrategyInputCustodyClaimV1 {
-        research_request_identity: first_role.research_request_identity,
-        strategy_design_identity: first_role.strategy_design_identity,
-        pit_request_identity: first_role.pit_request_identity,
-        input_role_identities: base
-            .binding_requests
-            .iter()
-            .rev()
-            .map(|request| request.input_role_identity)
-            .collect(),
-        decision_cut: first_role.decision_cut,
-    };
-    let custody = crate::owner::postgres::strategy_input_binding_registry::
-        reread_persisted_strategy_input_custody_for_update_v1(&mut rd_transaction, &custody_claim)
-        .await
-        .expect("rd_owner re-derives durable Strategy Input receipts");
-    assert_eq!(custody.bindings(), base.bindings.as_slice());
-    assert_eq!(custody.frame().values().len(), base.bindings.len());
-    let mut missing_role = custody_claim.clone();
-    missing_role.input_role_identities.pop();
-    assert_eq!(
-        crate::owner::postgres::strategy_input_binding_registry::
-            reread_persisted_strategy_input_custody_for_update_v1(&mut rd_transaction, &missing_role)
-            .await,
-        Err(StrategyInputCustodyUnavailableV1::RoleCoverageMismatch)
-    );
-    // The Composer is told only a Research locator, so Market Data must answer which PIT cut the
-    // Design binds against. The answer comes from the declarations it owns, never from a caller.
-    let coordinate = crate::owner::postgres::strategy_input_binding_registry::
-        resolve_pit_request_for_strategy_design_v1(
-            &mut rd_transaction,
-            first_role.strategy_design_identity,
-        )
-        .await
-        .expect("rd_owner resolves the Design's one admitted PIT coordinate");
-    assert_eq!(
-        coordinate.pit_request_identity,
-        first_role.pit_request_identity
-    );
-    assert_eq!(coordinate.decision_cut, first_role.decision_cut);
-    let mut stored_roles = coordinate.input_role_identities.clone();
-    let mut declared_roles = base
-        .binding_requests
-        .iter()
-        .map(|request| request.input_role_identity)
-        .collect::<Vec<_>>();
-    stored_roles.sort_unstable();
-    declared_roles.sort_unstable();
-    assert_eq!(stored_roles, declared_roles);
-
-    Box::pin(universe_custody_rereads_as_rd_owner_v1(
-        &universe_requests,
-        &base,
-        &mut rd_transaction,
-    ))
-    .await;
-    assert_eq!(
-        coordinate.declared_scope,
-        crate::owner::postgres::strategy_input_binding_registry::
-            StrategyInputDeclaredScopeV1::ExactInstrument
-    );
-
-    // A Design with no declaration has no cut to bind against, and inventing one is the whole
-    // failure this resolver exists to prevent.
-    assert_eq!(
-        crate::owner::postgres::strategy_input_binding_registry::
-            resolve_pit_request_for_strategy_design_v1(
-                &mut rd_transaction,
-                vibe_data_binding_digest_for_test(0x5a),
-            )
-            .await,
-        Err(StrategyInputCustodyUnavailableV1::UnknownDeclaration)
-    );
+    strategy_input_custody_rereads_as_rd_owner_v1(&base, &universe_requests, &mut rd_transaction)
+        .await;
 
     rd_transaction.rollback().await.unwrap();
     assert!(
