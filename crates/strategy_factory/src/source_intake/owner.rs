@@ -201,20 +201,41 @@ impl SourceIntakeReadbackOwnerPort for PostgresSourceIntakeReadbackOwnerV1 {
     ) -> Result<Option<SourceIntakeTerminalAtomV1>, SourceIntakeOwnerErrorV1> {
         validate_identity(request_identity)?;
 
-        let admission = self
+        // Both ways of finding nothing answer the Dashboard the same way, as the contract's
+        // neutral no-verified-terminal state, so each names itself here instead: a reader of the
+        // Owner's warnings can tell a request Product Edge never admitted from one it did.
+        let Some(admission) = self
             .product_edge
             .resolve_admission(request_identity, &self.request_proof_digest)
             .await
-            .map_err(|e| product_edge_error(&e))?;
-        if !admitted_as_source_intake(admission.as_ref())? {
+            .map_err(|e| product_edge_error(&e))?
+        else {
+            refused_by_store(
+                "source_intake.production_readback.admission_absent",
+                &"Product Edge holds no admission for this request under this request proof",
+            );
             return Ok(None);
-        }
-        read_terminal(
+        };
+        // An admission for another operation is refused before the read, so it is never reported
+        // as an empty readback: no Source Intake terminal can exist for it.
+        ensure_source_intake_admission(&admission)?;
+        let terminal = read_terminal(
             &self.owner_pool,
             request_identity,
             &live_external_authority(),
         )
-        .await
+        .await?;
+
+        if terminal.is_none() {
+            // The readback function answers no row both when no binding exists for the identity
+            // and when a binding fails the integrity checks inside the function, so this names the
+            // function's silence rather than one of its causes.
+            refused_by_store(
+                "source_intake.production_readback.readback_empty",
+                &"rd_owner_api.read_source_intake_v1 returned no row for an admitted request",
+            );
+        }
+        Ok(terminal)
     }
 }
 
@@ -594,17 +615,18 @@ pub(super) async fn resolve_terminal(
     request_proof_digest: &str,
     authority: &SourceAcquisitionAuthorityBindingV1,
 ) -> Result<Option<SourceIntakeTerminalAtomV1>, SourceIntakeOwnerErrorV1> {
-    let admission = product_edge
+    let Some(admission) = product_edge
         .resolve_admission(request_identity, request_proof_digest)
         .await
-        .map_err(|e| product_edge_error(&e))?;
-    if !admitted_as_source_intake(admission.as_ref())? {
+        .map_err(|e| product_edge_error(&e))?
+    else {
         return Ok(None);
-    }
+    };
+    ensure_source_intake_admission(&admission)?;
     read_terminal(owner_pool, request_identity, authority).await
 }
 
-/// Whether Product Edge admitted this identity as a Source Intake request.
+/// Refuses an admission Product Edge made for another operation.
 ///
 /// A request identity names one admission of one operation, and only a Source Intake admission
 /// can ever carry a Source Intake terminal. An identity Product Edge admitted for another
@@ -614,12 +636,9 @@ pub(super) async fn resolve_terminal(
 /// # Errors
 ///
 /// Returns [`SourceIntakeOwnerErrorV1::Conflict`] when the admission is for another operation.
-fn admitted_as_source_intake(
-    admission: Option<&ProductEdgeAdmissionReadbackV1>,
-) -> Result<bool, SourceIntakeOwnerErrorV1> {
-    let Some(admission) = admission else {
-        return Ok(false);
-    };
+fn ensure_source_intake_admission(
+    admission: &ProductEdgeAdmissionReadbackV1,
+) -> Result<(), SourceIntakeOwnerErrorV1> {
     let request = admission.request();
     if !is_source_intake_request(request) {
         refused_by_store(
@@ -631,7 +650,7 @@ fn admitted_as_source_intake(
         );
         return Err(SourceIntakeOwnerErrorV1::Conflict);
     }
-    Ok(true)
+    Ok(())
 }
 
 /// Whether an admission request names the Source Intake operation: its operation, schema, target

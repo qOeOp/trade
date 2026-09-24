@@ -78,9 +78,14 @@ jobs:
             job-timeout-minutes: 50
             make: cargo-test-market-data-owner-postgres-isolated
     env:
-      # What `build` gives these chains on a push to any branch other than `main` or `test-ci`.
-      CARGO_CI_PROFILE: nextest
-      CARGO_TARGET_DIR: /home/runner/.cache/cargo-target/rust-tests-linux-x86
+      # What `build`'s chain job resolves to on a pull request, `main` and `test-ci` - the builds that
+      # admit to `main` - because this workflow's result is the same acceptance (AGENTS.md). It was
+      # `nextest`, whose dependencies are optimised: unoptimised sqlx and tokio futures keep larger
+      # poll frames, so #993's entry 6 passed here and overflowed its stack in the pull request's
+      # build. Being byte-identical also puts this job on the rust-cache entry `main` saves.
+      # scripts/ci/check-chain-channel-environment.py refuses any CARGO_/RUST difference.
+      CARGO_CI_PROFILE: ci-pr
+      CARGO_TARGET_DIR: target/rust-tests-linux-x86
       # yamllint disable-line rule:line-length
       RUST_TEST_EXTRA_FEATURES: capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres,vibe-strategy-factory/sealed-develop-composer-acceptance
       RUST_BACKTRACE: 1
@@ -120,20 +125,16 @@ jobs:
           # about 5G). At 40 the cleanup is skipped on such a runner - it took 116-915s, 213s typically -
           # and still runs on any runner that starts below 40. Re-measure if a chain's use nears 20G.
           minimum-free-space-gb: "40"
-          # Read-only, and the same key `build`'s chain jobs state. Nothing is saved under it, so
-          # this workflow never spends the 10 GB quota; a hit is a bonus, a miss is what `build`'s
-          # chain jobs get today for the reason their `rust-cache-key` comment gives.
+          # Read-only, and the shared key `build`'s chain jobs state, so this restores the entry
+          # `main`'s `rust tests` saves. Nothing is saved under it, so this workflow never spends the
+          # 10 GB quota. It was `rust-cache-key`, which appends the job id: every run looked for an
+          # `...-owner-chain-...` entry nobody saves and logged `No cache found.`.
           rust-cache-enabled: "true"
-          rust-cache-key: rust-tests-linux-x86
+          rust-cache-shared-key: rust-tests-linux-x86
           rust-cache-workspaces: . -> target/rust-tests-linux-x86
           rust-cache-on-failure: "false"
           rust-cache-save-if: "false"
           rust-cache-workspace-crates: "true"
-
-      # A GitHub-hosted `ubuntu-22.04` runner on a public repository has 4 vCPUs, and this job is
-      # alone on its runner. `CARGO_BUILD_JOBS` is left at Cargo's default, the vCPU count, rather
-      # than the 2 `build`'s chain job states: the chain runs its tests one at a time, so the build
-      # is the whole job.
 
       # The R&D chain's entry 28, `strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody`,
       # drives the Dashboard strategy viewer in a real browser only when these three inputs are
@@ -231,8 +232,8 @@ jobs:
     env:
       # The same environment the chain jobs above are given, so this leg and they differ in what
       # they run and in nothing else.
-      CARGO_CI_PROFILE: nextest
-      CARGO_TARGET_DIR: /home/runner/.cache/cargo-target/rust-tests-linux-x86
+      CARGO_CI_PROFILE: ci-pr
+      CARGO_TARGET_DIR: target/rust-tests-linux-x86
       RUST_BACKTRACE: 1
       VIBE_TEST_DATA_BASE_URL: ${{ vars.VIBE_TEST_DATA_BASE_URL }}
     steps:
@@ -270,7 +271,7 @@ jobs:
           free-disk-space-max-build: "true"
           minimum-free-space-gb: "110"
           rust-cache-enabled: "true"
-          rust-cache-key: rust-tests-linux-x86
+          rust-cache-shared-key: rust-tests-linux-x86
           rust-cache-workspaces: . -> target/rust-tests-linux-x86
           rust-cache-on-failure: "false"
           rust-cache-save-if: "false"

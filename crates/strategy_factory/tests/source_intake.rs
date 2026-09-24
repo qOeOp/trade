@@ -97,6 +97,39 @@ impl SourceIntakeAttemptFixtureExt for SourceIntakeAttemptV1 {
 
 const DOI: &str = "10.1234/source-intake";
 
+/// Captures what a tracing subscriber writes, so a test can read the warning a refusal named.
+#[cfg(feature = "sealed-source-intake-research-acceptance")]
+#[derive(Clone, Default)]
+struct WarningSink(Arc<std::sync::Mutex<Vec<u8>>>);
+
+#[cfg(feature = "sealed-source-intake-research-acceptance")]
+impl WarningSink {
+    fn written(&self) -> String {
+        String::from_utf8(self.0.lock().expect("sink lock").clone()).expect("UTF-8 log output")
+    }
+}
+
+#[cfg(feature = "sealed-source-intake-research-acceptance")]
+impl std::io::Write for WarningSink {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().expect("sink lock").extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(feature = "sealed-source-intake-research-acceptance")]
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for WarningSink {
+    type Writer = Self;
+
+    fn make_writer(&'a self) -> Self::Writer {
+        self.clone()
+    }
+}
+
 async fn install_source_intake_schema(pool: &sqlx::PgPool) {
     let mut transaction = pool
         .begin()
@@ -1816,6 +1849,88 @@ async fn postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_r
         })
         .await
         .unwrap();
+
+    // The production readback adapter, which the Dashboard read API binds in deployment and which
+    // no acceptance otherwise asks anything: both ways it finds nothing answer the same neutral
+    // state, so each is told apart by the warning it names. The positive read waits for a Source
+    // Intake production path that produces live custody; this acceptance's custody is sealed.
+    let unbound_request_identity = format!("sealed-source-unbound-{suffix}");
+    product_edge
+        .admit_source_intake_request(ProductEdgeAdmissionRequestV1 {
+            request_identity: unbound_request_identity.clone(),
+            typed_payload: serde_json::json!({
+                "request_identity": unbound_request_identity,
+                "gateway": ProductEdgeGatewayV1::WindmillProductEdge,
+                "normalized_doi": "10.5555/sealed-unbound",
+                "interpretation": interpretation(),
+            }),
+            operation: SOURCE_INTAKE_OPERATION_V1.into(),
+            operation_schema: SOURCE_INTAKE_OPERATION_SCHEMA_V1.into(),
+            target_owner: SOURCE_INTAKE_TARGET_OWNER_V1.into(),
+            requested_effects: SOURCE_INTAKE_REQUIRED_EFFECTS_V1
+                .into_iter()
+                .map(ToString::to_string)
+                .collect(),
+            request_proof_digest: proof_digest.clone(),
+            audit_correlation: format!("rd-workbench:{unbound_request_identity}"),
+        })
+        .await
+        .unwrap();
+    let production_readback = source_intake::PostgresSourceIntakeReadbackOwnerV1::connect(
+        database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+        database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+        proof_digest.clone(),
+    )
+    .await
+    .expect("the production readback adapter binds to the disposable topology");
+
+    for (label, identity, coordinate) in [
+        (
+            "no admission",
+            format!("sealed-source-never-admitted-{suffix}"),
+            "source_intake.production_readback.admission_absent",
+        ),
+        (
+            "admitted, nothing bound",
+            unbound_request_identity.clone(),
+            "source_intake.production_readback.readback_empty",
+        ),
+    ] {
+        let sink = WarningSink::default();
+        let answer = {
+            let _subscriber = tracing::subscriber::set_default(
+                tracing_subscriber::fmt().with_writer(sink.clone()).finish(),
+            );
+            source_intake::SourceIntakeReadbackOwnerPort::read_source_intake(
+                &production_readback,
+                &identity,
+            )
+            .await
+        };
+        let written = sink.written();
+        assert!(matches!(answer, Ok(None)), "{label}: {answer:?}");
+        assert!(written.contains(coordinate), "{label}: {written}");
+
+        for other in [
+            "source_intake.production_readback.admission_absent",
+            "source_intake.production_readback.readback_empty",
+        ] {
+            if other != coordinate {
+                assert!(
+                    !written.contains(other),
+                    "{label} also named {other}: {written}"
+                );
+            }
+        }
+    }
+    assert!(matches!(
+        source_intake::SourceIntakeReadbackOwnerPort::read_source_intake(
+            &production_readback,
+            "not an identity",
+        )
+        .await,
+        Err(source_intake::SourceIntakeOwnerErrorV1::Invalid)
+    ));
 
     let environment = SealedSourceIntakeEnvironmentV1::new(
         product_edge.clone(),
