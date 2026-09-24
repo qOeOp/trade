@@ -60,4 +60,29 @@ if [[ -e "${test_root}/007.timeout" ]]; then
   exit 1
 fi
 
-echo "chain-entry-watchdog: an entry past its limit is stopped by name with a record and cleanup; one inside it is left alone"
+# A watchdog whose token disarm has already claimed never fires, even once its own sleep runs out. The
+# claim, not how quickly disarm's kills land, is what keeps a disarmed watchdog from writing a record,
+# so this removes the token without killing anything and lets the limit pass.
+rm -f "${test_root}/007.timeout"
+claimed_status=0
+bash -c '
+  set -Eeuo pipefail
+  source "$1"
+  arm_chain_entry_watchdog 1 "$2/007.timeout" "ordered chain entry 7/9 (a claimed watchdog)"
+  rm -f -- "$chain_entry_watchdog_token"
+  sleep 3
+  disarm_chain_entry_watchdog
+' _ "$WATCHDOG" "$test_root" 2> "${test_root}/stderr" || claimed_status=$?
+# The record is checked first: a watchdog that fires anyway also stops the entry, and that exit
+# status alone would not say why.
+if [[ -e "${test_root}/007.timeout" ]]; then
+  echo "FAIL: a watchdog whose token was already claimed still fired and wrote a record" >&2
+  exit 1
+fi
+if ((claimed_status != 0)); then
+  echo "FAIL: the entry under a claimed watchdog ended with status ${claimed_status}:" >&2
+  cat "${test_root}/stderr" >&2
+  exit 1
+fi
+
+echo "chain-entry-watchdog: an entry past its limit is stopped by name with a record and cleanup; one inside it is left alone; a claimed watchdog never fires"
