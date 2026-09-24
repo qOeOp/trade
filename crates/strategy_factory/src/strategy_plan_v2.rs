@@ -3140,20 +3140,12 @@ fn compile_canonical(
     mut universe_bindings: Vec<UniverseRoleBindingProjectionV2>,
     mut plugin_implementations: Vec<PluginImplementationReceiptV2>,
 ) -> StrategyCompilationV2 {
-    let has_exact_roles = canonical
-        .inputs
-        .iter()
-        .any(|input| input.scope == InputScopeV2::ExactInstrument);
-    let has_universe_roles = canonical
-        .inputs
-        .iter()
-        .any(|input| input.scope == InputScopeV2::UniverseMembers);
-    if has_exact_roles && has_universe_roles {
-        return unsupported(
-            "inputs.scope",
-            "exact-instrument and universe-member roles cannot be mixed",
-        );
-    }
+    let scope = match input_scope_of_design_v2(&canonical.inputs) {
+        Ok(scope) => scope,
+        Err(refusal) => return refusal,
+    };
+    let has_exact_roles = scope == Some(InputScopeV2::ExactInstrument);
+    let has_universe_roles = scope == Some(InputScopeV2::UniverseMembers);
 
     if has_exact_roles && universe_selection.is_some() {
         return StrategyCompilationV2::Unsupported(CompilationIssueV2 {
@@ -3506,6 +3498,34 @@ fn compile_canonical(
 /// Design's ordinals are exactly the Owner universe's. A reaction proposes one complete member
 /// target set; under a one-member universe it may instead propose for a single instrument, which
 /// the host lifts into the one-member target set.
+/// The one input scope a Design's roles share, or `None` when it declares no input.
+///
+/// A Design binds its inputs through one Owner custody path: every role is an exact instrument,
+/// read through a singular binding receipt, or every role is a member of an Owner universe, read
+/// through the universe selection. The Plan compiler decides which from this, and so do the R&D
+/// reads that choose an Owner custody path for a Design, so the two cannot disagree about a Design.
+/// A Design whose roles mix the scopes is refused here.
+pub(crate) fn input_scope_of_design_v2(
+    inputs: &[InputRoleV2],
+) -> Result<Option<InputScopeV2>, StrategyCompilationV2> {
+    let has_exact_roles = inputs
+        .iter()
+        .any(|input| input.scope == InputScopeV2::ExactInstrument);
+    let has_universe_roles = inputs
+        .iter()
+        .any(|input| input.scope == InputScopeV2::UniverseMembers);
+
+    match (has_exact_roles, has_universe_roles) {
+        (true, true) => Err(unsupported(
+            "inputs.scope",
+            "exact-instrument and universe-member roles cannot be mixed",
+        )),
+        (true, false) => Ok(Some(InputScopeV2::ExactInstrument)),
+        (false, true) => Ok(Some(InputScopeV2::UniverseMembers)),
+        (false, false) => Ok(None),
+    }
+}
+
 /// Market Data field of the universe vertical's fixed `OPEN` member role.
 pub(crate) const UNIVERSE_OPEN_FIELD_SEMANTIC_ID_V2: &str = "MARKET_DATA.BAR.OPEN.PRICE.V1";
 /// Market Data field of the universe vertical's fixed `CLOSE` member role.

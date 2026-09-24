@@ -133,9 +133,12 @@ an admission as invalid:
   `SealedSourceIntakeEnvironmentV1`, an acceptance-only class that by the same section permits no external
   network at all. Which stages are still missing is not kept here: `UNIMPLEMENTED_PRODUCTION_STAGES` in that
   module lists them, and a guard fails if the list and the code disagree. Read the list, not this paragraph, for
-  the current count. Separately, the route states this as `SUBMITTED_OR_UNKNOWN` with `RESOLVE_SAME_REQUEST`, the
-  state reserved for a transport whose outcome is genuinely unknown; here the outcome is known and resolving the
-  same request cannot change it.
+  the current count. The route answers this as `SUBMITTED_OR_UNKNOWN` with `RESOLVE_SAME_REQUEST`, which is what
+  the refusal rule under Lineage and protected-feedback admission gives it: what refuses is the environment, the
+  absent `LIVE_EXTERNAL` authority the Playbook names, not the request, whose own refusals (a conflicting identity,
+  a malformed body) the route already answers by name. That no retry changes the answer today is the build's
+  missing capability, listed in `UNIMPLEMENTED_PRODUCTION_STAGES`; it is not a property of the request and calls
+  for no answer of its own.
 - **CURRENT - the composer-backed Exploratory Replay request path carries no admission label, and what lifts its
 seal is upstream:** `commit_composer_backed_exploratory_replay_request_v3` and its route
 `/v3/exploratory-replay-requests/composer-backed` exist only under `sealed-source-intake-composer-acceptance`,
@@ -617,6 +620,18 @@ or cross-basis evidence yields `UNAVAILABLE`. `UNAVAILABLE` returns `SUBMITTED_O
 receipt, Intent, TrialFamily root/member/head, or transition outbox. A malformed rationale under otherwise current
 authority may produce only `REJECTED_NO_WRITE`. Same request, rationale, and canonical Owner cuts replay the exact
 bytes; changed meaning or changed cuts cannot join. R&D never reads protected payload or detail.
+
+Which answer a refusal gets is decided by what it negates. A refusal that negates the request itself - its type,
+its identity, the operation it belongs to - cannot be changed by any retry, so it is refused under its own name and
+never answered as `SUBMITTED_OR_UNKNOWN`: the Source Intake route answers a request identity whose stored semantics
+conflict with the request as `CONFLICTING_SEMANTICS_FOR_REQUEST_IDENTITY`. A refusal that negates the current state of the environment, of an authority, or of the
+build's capability may be changed by a retry or a new deployment, so it answers `SUBMITTED_OR_UNKNOWN` with the
+resolve-same-request action (`RESOLVE_SAME_REQUEST_IDENTITY` here, `RESOLVE_SAME_REQUEST` on the Source Intake
+route), even when the Owner knows it wrote nothing, and its cause is recorded through `refused_by_store` under a
+named coordinate, which is where an operator looks: `submit_v2` answers so when the current replay policy catalog V3
+head is absent, and records `research_goal_owner.submit_v2.replay_policy_catalog_v3.resolve_current`. The Owner does
+not judge how long an environment state will last - a head published a minute later lets the same request succeed -
+so an unavailable authority gets no answer of its own.
 
 R&D's clock is `pg_catalog.clock_timestamp()`, read inside the R&D transaction that uses it. A Research Intent's
 projection time, `valid_through` and commit time are stamped from it, and so is the `owner_cut` its lock returns;

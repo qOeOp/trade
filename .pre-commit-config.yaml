@@ -1,3 +1,11 @@
+# Git state a hook inherits. `git commit` in a linked worktree exports GIT_DIR and GIT_INDEX_FILE to
+# its hooks (no GIT_WORK_TREE; measured 2026-09-24), and with them set git takes the current
+# directory as the work tree. So a hook that runs git must not change directory first, and one that
+# works on another repository - a fixture, a temporary repository - must clear every GIT_* before it
+# does (scripts/ci/test-plan.sh, crates/strategy_factory/tools/seal-program.sh). Never clear them at
+# a hook's entry: for `git commit -- <paths>` GIT_INDEX_FILE names a temporary index holding exactly
+# what is being committed, and `git diff --cached` in scripts/clippy-changed.sh and
+# scripts/doc-changed.sh reads it; cleared, they check the wrong files.
 exclude: ^(patches/pyo3-stub-gen/|services/bilibili-note-mcp/deploy/openclaw/openclaw-2026\.7\.1-2-mcp-progress\.patch$)
 repos:
   ##############################################################################
@@ -208,6 +216,13 @@ repos:
         entry: bash scripts/ci/test-chain-entry-watchdog.bash
         language: system
         files: ^scripts/ci/(chain-entry-watchdog|test-chain-entry-watchdog)\.bash$
+        pass_filenames: false
+      - id: test-cargo-target-in-worktree
+        name: test local chain target-directory check
+        description: A cargo target directory outside the worktree, including a prefix-sharing sibling, is refused
+        entry: bash scripts/ci/test-cargo-target-in-worktree.bash
+        language: system
+        files: ^scripts/ci/(cargo-target-in-worktree|test-cargo-target-in-worktree)\.bash$
         pass_filenames: false
       - id: test-owner-chain-lock
         name: test Owner chain machine lock

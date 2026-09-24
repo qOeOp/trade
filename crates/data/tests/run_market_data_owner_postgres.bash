@@ -14,6 +14,7 @@ readonly market_data_owner_postgres_tests=(
   owner::instrument_master_v2_postgres::tests::postgres_v2_cut_custody_holds_one_or_two_members_and_migrates_a_legacy_table
   owner::instrument_master_v2_postgres::tests::postgres_bound_replay_issuance_keys_each_request_to_one_binding
   owner::instrument_economic_terms_postgres_v1::tests::postgres_economic_terms_resolve_for_one_member_or_two
+  owner::postgres::pit_intake_member_count_tests::pit_intake_admits_one_or_two_universe_members_and_refuses_the_rest_unwritten
 )
 
 # The ordered chain refuses a guarded crate whose test SQL is destructive without dedicated-database
@@ -87,6 +88,10 @@ if [[ "${GITHUB_ACTIONS:-}" != "true" ]]; then
   # shellcheck source=scripts/ci/owner-chain-lock.bash
   source "${repository_root}/scripts/ci/owner-chain-lock.bash"
   acquire_owner_chain_lock || exit 1
+  # Binaries built by another worktree must not run here; cargo-target-in-worktree.bash says why.
+  # shellcheck source=scripts/ci/cargo-target-in-worktree.bash
+  source "${repository_root}/scripts/ci/cargo-target-in-worktree.bash"
+  require_cargo_target_inside_worktree || exit 1
 fi
 
 container="vibe-md-d1-${PPID}-$$"
@@ -224,7 +229,7 @@ done
 
 # Every SECURITY DEFINER routine, in every database the chain materialized, must search pg_temp last
 # and name no schema another role can create in; scripts/ci/check-security-definer-search-path.sql
-# holds the rule and the shrinking list of routines that do not meet it yet.
+# holds the rule, and no routine is exempt from it.
 guard_databases=(postgres)
 for ((guard_ordinal = 1; guard_ordinal <= ${#market_data_owner_postgres_tests[@]}; guard_ordinal++)); do
   guard_databases+=("${database_prefix}_${guard_ordinal}")

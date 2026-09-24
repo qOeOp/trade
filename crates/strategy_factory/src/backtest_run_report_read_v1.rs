@@ -67,9 +67,14 @@ use vibe_backtest_result_custody::{
     BacktestReadbackRefusalV1, BacktestResultCustodyErrorV2, ExploratoryReplayResultLocatorV2,
 };
 use vibe_core::{UnixNanos, datetime::unix_nanos_to_iso8601};
+use vibe_data::owner::source_binding::BindingDigest;
 
 use crate::{
     bounded_feature_program_v1::BoundedFeaturePredicateV1,
+    develop_composer_postgres_v2::{
+        ComposerArtifactBuildReceiptSchemaV1, ComposerArtifactBuildReceiptV1,
+        ComposerArtifactBuildReceiptsErrorV1, resolve_artifact_build_receipts_v1_in_transaction,
+    },
     develop_composer_v2::parse_digest_suffix,
     exploratory_replay::{
         ExploratoryReplayRecoverySelectorV2,
@@ -147,6 +152,10 @@ pub enum BacktestRunReportRefusalV1 {
     /// states no channel and no data window for the run.
     #[error("the run reads a universe member, whose instrument this report does not read yet")]
     UniverseMemberNotYetReported,
+    /// The build receipts of the run's artifact could not be read from Composer custody, so
+    /// nothing can prove or disprove that the frozen program is the one the run executed.
+    #[error("the build receipts of the run's artifact are unavailable")]
+    ArtifactBuildReceiptsUnavailable,
 }
 
 impl BacktestRunReportRefusalV1 {
@@ -163,7 +172,8 @@ impl BacktestRunReportRefusalV1 {
             | Self::ReadTransactionUnavailable(_)
             | Self::ReportSnapshotUnavailable(_)
             | Self::ReplayRequestUnavailable(_)
-            | Self::FrozenDesignUnavailable => false,
+            | Self::FrozenDesignUnavailable
+            | Self::ArtifactBuildReceiptsUnavailable => false,
             Self::OutcomeEvidenceRefused(_)
             | Self::EngineResultNoncanonical(_)
             | Self::NonFiniteValue(_)
@@ -197,6 +207,7 @@ impl BacktestRunReportRefusalV1 {
             Self::NoStrategyStatementForFamily => "NO_STRATEGY_STATEMENT_FOR_FAMILY",
             Self::StrategyNotAnchoredToRun => "STRATEGY_NOT_ANCHORED_TO_RUN",
             Self::UniverseMemberNotYetReported => "UNIVERSE_MEMBER_NOT_YET_REPORTED",
+            Self::ArtifactBuildReceiptsUnavailable => "ARTIFACT_BUILD_RECEIPTS_UNAVAILABLE",
         }
     }
 }
@@ -554,14 +565,14 @@ async fn resolve_strategy_and_window(
     ) else {
         return Err(BacktestRunReportRefusalV1::NoStrategyStatementForFamily);
     };
-    let (design, program) =
+    let frozen =
         read_frozen_design_program_in_transaction_v1(transaction, design_identity, design_digest)
             .await
             .map_err(|_| BacktestRunReportRefusalV1::FrozenDesignUnavailable)?
             .ok_or(BacktestRunReportRefusalV1::NoStrategyStatementForFamily)?;
-    let authored = recover_single_threshold_request_v1(&design, &program)
+    let authored = recover_single_threshold_request_v1(&frozen.design, &frozen.program)
         .ok_or(BacktestRunReportRefusalV1::NoStrategyStatementForFamily)?;
-    anchor_frozen_program_to_run(request)?;
+    anchor_frozen_program_to_run(transaction, request, frozen.joint_freeze_digest).await?;
 
     // Typed on purpose. The request binds one PIT snapshot today; when it binds several, this
     // field changes type and the annotation stops compiling, instead of `from_ref` quietly
@@ -622,26 +633,78 @@ fn resolved_channel(
 ///
 /// The request names its Design, and the freeze table holds one program per Design, but a Design
 /// does not decide which program a run executed: the artifact does. Composer seals a V3 plugin
-/// build to the joint freeze it was built from, and the anchor is that build receipt's
-/// `joint_freeze_digest` equalling the freeze row's. A V2 build carries no joint freeze at all,
-/// and Composer accepts one for any Design, so an artifact built that way can never be anchored.
+/// build to the joint freeze it was built from, so the anchor is the artifact's build receipts
+/// naming the freeze's `joint_freeze_digest`. They are read through the Composer Owner's lock-free
+/// receipt read, inside the report's read-only transaction.
 ///
-/// The build receipts live in Composer custody, and no Composer Owner API function lets the R&D
-/// Owner read them without locking: the only one it may call, `lock_accepted_develop_composer_v2`,
-/// takes a table-level SHARE lock on Composer custody, which blocks Composer's writers for as long
-/// as the caller's transaction runs, and a report must not hold that on a read path. Until a lock-free read exists, nothing can prove the anchor, so every run is
-/// refused here rather than stated from its Design alone. Stating a strategy the run did not
-/// execute is the error this report exists to rule out.
-///
-/// It takes the request because the anchor it will check is the request's `artifact`.
+/// The request carries the artifact's identity as the `sha256:` digest a Composer V3 request
+/// writes (`composition_v3`). An identity in any other form, an artifact Composer does not hold,
+/// and receipts that do not anchor are all the same answer: nothing proves the program ran, so
+/// the strategy is not stated.
 ///
 /// # Errors
 ///
-/// Always [`BacktestRunReportRefusalV1::StrategyNotAnchoredToRun`] today.
-const fn anchor_frozen_program_to_run(
-    _request: &ReplayRequestDtoV2,
+/// [`BacktestRunReportRefusalV1::StrategyNotAnchoredToRun`] when the artifact is not anchored to
+/// the freeze, and [`BacktestRunReportRefusalV1::ArtifactBuildReceiptsUnavailable`] when its
+/// receipts could not be read.
+async fn anchor_frozen_program_to_run(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    request: &ReplayRequestDtoV2,
+    joint_freeze_digest: BindingDigest,
 ) -> Result<(), BacktestRunReportRefusalV1> {
-    Err(BacktestRunReportRefusalV1::StrategyNotAnchoredToRun)
+    let artifact_identity = parse_digest_suffix(request.artifact.digest.as_str(), "sha256:")
+        .ok_or(BacktestRunReportRefusalV1::StrategyNotAnchoredToRun)?;
+
+    anchor_artifact_to_freeze(transaction, artifact_identity, joint_freeze_digest).await
+}
+
+/// Whether one Composer artifact was built from one joint freeze, read in the caller's
+/// transaction.
+///
+/// # Errors
+///
+/// As [`anchor_frozen_program_to_run`].
+pub(crate) async fn anchor_artifact_to_freeze(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    artifact_identity: BindingDigest,
+    joint_freeze_digest: BindingDigest,
+) -> Result<(), BacktestRunReportRefusalV1> {
+    match resolve_artifact_build_receipts_v1_in_transaction(transaction, artifact_identity).await {
+        Ok(receipts)
+            if receipts_anchor_to_freeze(
+                receipts.iter().map(ComposerArtifactBuildReceiptV1::schema),
+                joint_freeze_digest,
+            ) =>
+        {
+            Ok(())
+        }
+        Ok(_) | Err(ComposerArtifactBuildReceiptsErrorV1::ArtifactAbsent) => {
+            Err(BacktestRunReportRefusalV1::StrategyNotAnchoredToRun)
+        }
+        Err(ComposerArtifactBuildReceiptsErrorV1::Unavailable) => {
+            Err(BacktestRunReportRefusalV1::ArtifactBuildReceiptsUnavailable)
+        }
+    }
+}
+
+/// An artifact is anchored to a freeze when it has at least one build receipt and every one is a
+/// V3 plugin build of that freeze.
+///
+/// Every, not any: a receipt of another build would mean the artifact runs more than the frozen
+/// program, and the statement would describe only part of what ran. A V2 build binds no freeze and
+/// never anchors, and an artifact with no receipts has nothing to anchor with.
+fn receipts_anchor_to_freeze(
+    schemas: impl IntoIterator<Item = ComposerArtifactBuildReceiptSchemaV1>,
+    joint_freeze_digest: BindingDigest,
+) -> bool {
+    let mut schemas = schemas.into_iter().peekable();
+    schemas.peek().is_some()
+        && schemas.all(|schema| {
+            schema
+                == ComposerArtifactBuildReceiptSchemaV1::PluginBuildV3 {
+                    joint_freeze_digest,
+                }
+        })
 }
 
 /// Writes a fixed-point coefficient as a plain decimal with exactly `scale` fractional digits.
@@ -1166,6 +1229,32 @@ mod tests {
         }
     }
 
+    /// Each receipt set against one freeze. Only a non-empty set of V3 builds of that freeze
+    /// anchors: another freeze, a V2 build, an empty set, and a set that also holds another
+    /// build do not.
+    #[rstest]
+    #[case::one_build_of_the_freeze(&[Some(1)], true)]
+    #[case::two_builds_of_the_freeze(&[Some(1), Some(1)], true)]
+    #[case::no_receipts(&[], false)]
+    #[case::a_build_of_another_freeze(&[Some(2)], false)]
+    #[case::a_v2_build(&[None], false)]
+    #[case::the_freeze_and_a_v2_build(&[Some(1), None], false)]
+    #[case::the_freeze_and_another_freeze(&[Some(1), Some(2)], false)]
+    fn receipts_anchor_only_when_every_one_is_a_build_of_the_freeze(
+        #[case] builds: &[Option<u8>],
+        #[case] anchored: bool,
+    ) {
+        let freeze = |seed: u8| BindingDigest::from_untrusted_bytes([seed; 32]);
+        let schemas = builds.iter().map(|build| match build {
+            Some(seed) => ComposerArtifactBuildReceiptSchemaV1::PluginBuildV3 {
+                joint_freeze_digest: freeze(*seed),
+            },
+            None => ComposerArtifactBuildReceiptSchemaV1::PluginBuildV2,
+        });
+
+        assert_eq!(receipts_anchor_to_freeze(schemas, freeze(1)), anchored);
+    }
+
     /// An exact-instrument channel is stated field for field; a universe member is refused by name,
     /// because its instrument is the run's universe selection and not part of the request.
     #[rstest]
@@ -1472,6 +1561,7 @@ mod tests {
     #[case(BacktestRunReportRefusalV1::NoStrategyStatementForFamily, true)]
     #[case(BacktestRunReportRefusalV1::StrategyNotAnchoredToRun, true)]
     #[case(BacktestRunReportRefusalV1::UniverseMemberNotYetReported, true)]
+    #[case(BacktestRunReportRefusalV1::ArtifactBuildReceiptsUnavailable, false)]
     fn every_refusal_is_either_a_conclusion_or_a_failure_to_read(
         #[case] refusal: BacktestRunReportRefusalV1,
         #[case] conclusion: bool,
@@ -1553,6 +1643,7 @@ mod tests {
             BacktestRunReportRefusalV1::NoStrategyStatementForFamily.code(),
             BacktestRunReportRefusalV1::StrategyNotAnchoredToRun.code(),
             BacktestRunReportRefusalV1::UniverseMemberNotYetReported.code(),
+            BacktestRunReportRefusalV1::ArtifactBuildReceiptsUnavailable.code(),
             BacktestRunReportStateV1::Available.code(),
             BacktestRunReportStateV1::Empty.code(),
         ];

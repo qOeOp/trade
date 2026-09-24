@@ -422,8 +422,47 @@ test("missing compatibility stops before routing, RunStore begin, or Owner effec
   assert.deepEqual(events, ["schema", "read"]);
 });
 
-test("same-identity recovery resolves Owner custody without consulting current routing", async () => {
+// A fake Owner that answers only the routes the two operations' orchestration contracts name,
+// with the method each names and a body only where the route takes one. The routes are read from
+// the contracts rather than written here a second time, so a request that drifts from its contract
+// is recorded as a violation instead of being answered - which is how the recovery path's RESOLVE
+// reached a V1 composite route with a V2 body and still passed.
+function contractOwner(answer) {
+  const routes = [
+    [researchGoalOperationV2.orchestration_contract.run_owner_route, true],
+    [researchGoalOperationV2.orchestration_contract.resolve_owner_route, false],
+    [sourceIntakeOperationV1.orchestration_contract.run_owner_route, true],
+    [sourceIntakeOperationV1.orchestration_contract.resolve_owner_route, false],
+  ].map(([route, takesBody]) => {
+    const [method, template] = route.split(" ");
+    const pattern = new RegExp(`^${template.replace(/\{[a-z_]+\}/gu, "[^/]+")}$`, "u");
+    return { route, method, pattern, takesBody };
+  });
   const calls = [];
+  const violations = [];
+  const fetcher = async (input, init) => {
+    const path = new URL(String(input)).pathname;
+    const method = init.method ?? "GET";
+    calls.push({ path, url: String(input), init });
+    const route = routes.find((candidate) => candidate.method === method && candidate.pattern.test(path));
+    const hasBody = init.body !== undefined && init.body !== null;
+    if (!route) {
+      violations.push(`${method} ${path} is no contract route`);
+      return new Response(null, { status: 404 });
+    }
+    if (hasBody !== route.takesBody) {
+      violations.push(`${route.route} ${hasBody ? "takes no body" : "requires a body"}`);
+      return new Response(null, { status: 400 });
+    }
+    return answer(path, init);
+  };
+  return { calls, violations, fetcher };
+}
+
+test("same-identity recovery resolves Owner custody without consulting current routing", async () => {
+  const owner = contractOwner((path) => Response.json(path.startsWith("/v1/source-intakes/")
+    ? sourceTerminal : acceptedResearch));
+  const { calls } = owner;
   const events = [];
   const recoveryRun = run();
   const recovery = {
@@ -439,16 +478,13 @@ test("same-identity recovery resolves Owner custody without consulting current r
     environment,
     store: runStore(events, recovery),
     routingResolver: async () => { throw new Error("recovery must not reread routing"); },
-    fetcher: async (input, init) => {
-      calls.push({ url: String(input), init });
-      return Response.json(String(input).includes("/v1/source-intakes/")
-        ? sourceTerminal : acceptedResearch);
-    },
+    fetcher: owner.fetcher,
   });
+  assert.deepEqual(owner.violations, []);
   assert.equal(result.status, 200);
-  assert.deepEqual(calls.map(({ url }) => new URL(url).pathname), [
+  assert.deepEqual(calls.map(({ path }) => path), [
     "/v1/source-intakes/source-request-1/readback",
-    "/v1/source-intake-research/request-1/resolve",
+    "/v2/research-goals/request-1/resolve",
   ]);
   assert.ok(calls.every(({ init }) => (
     init.headers["x-trade-effect-dispatcher"] === undefined
@@ -458,7 +494,13 @@ test("same-identity recovery resolves Owner custody without consulting current r
 });
 
 test("identity-only RESOLVE resumes a missing Source stage from retained input", async () => {
-  const calls = [];
+  const owner = contractOwner((path) => {
+    if (path === "/v1/source-intakes/source-request-1/readback") {
+      return new Response(null, { status: 404 });
+    }
+    return Response.json(path === "/v2/source-intakes" ? sourceTerminal : acceptedResearch);
+  });
+  const { calls } = owner;
   const recovery = {
     schema_version: 1,
     run: run(),
@@ -472,17 +514,11 @@ test("identity-only RESOLVE resumes a missing Source stage from retained input",
     environment,
     store: runStore([], recovery),
     routingResolver: async () => { throw new Error("resolve must not reread routing"); },
-    fetcher: async (input, init) => {
-      calls.push({ url: String(input), init });
-      const path = new URL(String(input)).pathname;
-      if (path === "/v1/source-intakes/source-request-1/readback") {
-        return new Response(null, { status: 404 });
-      }
-      return Response.json(path === "/v2/source-intakes" ? sourceTerminal : acceptedResearch);
-    },
+    fetcher: owner.fetcher,
   });
+  assert.deepEqual(owner.violations, []);
   assert.equal(result.status, 200);
-  assert.deepEqual(calls.map(({ url }) => new URL(url).pathname), [
+  assert.deepEqual(calls.map(({ path }) => path), [
     "/v1/source-intakes/source-request-1/readback",
     "/v2/source-intakes",
     "/v2/research-goals/request-1/resolve",
@@ -494,8 +530,20 @@ test("identity-only RESOLVE resumes a missing Source stage from retained input",
 });
 
 test("a resumed Source RUN with unknown outcome returns to body-free identity resolution", async () => {
-  const calls = [];
   let sourceReadCount = 0;
+  const owner = contractOwner((path) => {
+    if (path === "/v1/source-intakes/source-request-1/readback") {
+      sourceReadCount += 1;
+      return sourceReadCount === 1
+        ? new Response(null, { status: 404 })
+        : Response.json(sourceTerminal);
+    }
+    if (path === "/v2/source-intakes") {
+      return Response.json(unknownSource, { status: 202 });
+    }
+    return Response.json(acceptedResearch);
+  });
+  const { calls } = owner;
   const recovery = {
     schema_version: 1,
     run: run(),
@@ -509,21 +557,9 @@ test("a resumed Source RUN with unknown outcome returns to body-free identity re
     environment,
     store: runStore([], recovery),
     routingResolver: async () => { throw new Error("resolve must not reread routing"); },
-    fetcher: async (input, init) => {
-      const path = new URL(String(input)).pathname;
-      calls.push({ path, init });
-      if (path === "/v1/source-intakes/source-request-1/readback") {
-        sourceReadCount += 1;
-        return sourceReadCount === 1
-          ? new Response(null, { status: 404 })
-          : Response.json(sourceTerminal);
-      }
-      if (path === "/v2/source-intakes") {
-        return Response.json(unknownSource, { status: 202 });
-      }
-      return Response.json(acceptedResearch);
-    },
+    fetcher: owner.fetcher,
   });
+  assert.deepEqual(owner.violations, []);
   assert.equal(result.status, 200);
   assert.deepEqual(calls.map(({ path }) => path), [
     "/v1/source-intakes/source-request-1/readback",
@@ -539,8 +575,20 @@ test("a resumed Source RUN with unknown outcome returns to body-free identity re
 });
 
 test("a resumed Research RUN with unknown outcome returns to body-free identity resolution", async () => {
-  const calls = [];
   let researchResolveCount = 0;
+  const owner = contractOwner((path) => {
+    if (path === "/v1/source-intakes/source-request-1/readback") {
+      return Response.json(sourceTerminal);
+    }
+    if (path === "/v2/research-goals/request-1/resolve") {
+      researchResolveCount += 1;
+      return researchResolveCount === 1
+        ? new Response(null, { status: 404 })
+        : Response.json(acceptedResearch);
+    }
+    return Response.json(unknownResearch, { status: 202 });
+  });
+  const { calls } = owner;
   const recovery = {
     schema_version: 1,
     run: run(),
@@ -554,21 +602,9 @@ test("a resumed Research RUN with unknown outcome returns to body-free identity 
     environment,
     store: runStore([], recovery),
     routingResolver: async () => { throw new Error("resolve must not reread routing"); },
-    fetcher: async (input, init) => {
-      const path = new URL(String(input)).pathname;
-      calls.push({ path, init });
-      if (path === "/v1/source-intakes/source-request-1/readback") {
-        return Response.json(sourceTerminal);
-      }
-      if (path === "/v2/research-goals/request-1/resolve") {
-        researchResolveCount += 1;
-        return researchResolveCount === 1
-          ? new Response(null, { status: 404 })
-          : Response.json(acceptedResearch);
-      }
-      return Response.json(unknownResearch, { status: 202 });
-    },
+    fetcher: owner.fetcher,
   });
+  assert.deepEqual(owner.violations, []);
   assert.equal(result.status, 200);
   assert.deepEqual(calls.map(({ path }) => path), [
     "/v1/source-intakes/source-request-1/readback",
