@@ -54,7 +54,8 @@ pub use composition::{
     ReplayCompositionBindingLocatorV1, ReplayCompositionBindingReadbackV1,
     ReplayCompositionBindingResolverV1, ReplayCompositionBindingResponseV1,
     ReplayCompositionContentLocatorV1, ReplayCompositionIssuanceResponseV1,
-    ReplayCompositionRequestLocatorV1, UntrustedReplayMarketFactsCompositionRequestV1,
+    ReplayCompositionRequestLocatorV1, ReplayCompositionUniverseBindingIssuanceRequestV1,
+    UntrustedReplayMarketFactsCompositionRequestV1,
 };
 
 /// Resolves one exact Market Data cut inside an existing R&D Owner transaction.
@@ -383,15 +384,41 @@ impl ReplayCompositionIssuanceLocatorV1 {
     }
 }
 
+/// A composition one locator-only issuance command can carry: the first corpus or universe members.
+///
+/// Each states the domain its canonical meaning is hashed under, so the same identity can never
+/// mean one composition of either shape and a byte-identical composition of the other.
+pub trait ReplayCompositionIssuanceCompositionV1:
+    composition::issuance_seal::Sealed + Serialize
+{
+    #[doc(hidden)]
+    const MEANING_DOMAIN: &'static [u8];
+}
+
+impl composition::issuance_seal::Sealed for ReplayCompositionBindingIssuanceRequestV1 {}
+
+impl ReplayCompositionIssuanceCompositionV1 for ReplayCompositionBindingIssuanceRequestV1 {
+    const MEANING_DOMAIN: &'static [u8] = b"market-data.replay-composition-issuance-meaning.v1\0";
+}
+
+impl composition::issuance_seal::Sealed for ReplayCompositionUniverseBindingIssuanceRequestV1 {}
+
+impl ReplayCompositionIssuanceCompositionV1 for ReplayCompositionUniverseBindingIssuanceRequestV1 {
+    const MEANING_DOMAIN: &'static [u8] =
+        b"market-data.replay-composition-universe-issuance-meaning.v1\0";
+}
+
 /// Locator-only command whose retry/recovery identity is known before the first send.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ReplayCompositionLocatorOnlyIssuanceRequestV1 {
+pub struct ReplayCompositionLocatorOnlyIssuanceRequestV1<
+    C = ReplayCompositionBindingIssuanceRequestV1,
+> {
     issuance_locator: ReplayCompositionIssuanceLocatorV1,
-    composition: ReplayCompositionBindingIssuanceRequestV1,
+    composition: C,
 }
 
-impl ReplayCompositionLocatorOnlyIssuanceRequestV1 {
+impl<C: ReplayCompositionIssuanceCompositionV1> ReplayCompositionLocatorOnlyIssuanceRequestV1<C> {
     /// Creates a command whose recovery identity and canonical meaning are fixed before send.
     ///
     /// # Errors
@@ -400,7 +427,7 @@ impl ReplayCompositionLocatorOnlyIssuanceRequestV1 {
     /// command cannot be canonically encoded.
     pub fn new(
         request_identity: BindingDigest,
-        composition: ReplayCompositionBindingIssuanceRequestV1,
+        composition: C,
     ) -> Result<Self, ReplayCompositionBindingErrorV1> {
         if request_identity.as_bytes() == &[0; 32] {
             return Err(ReplayCompositionBindingErrorV1::InvalidRequest);
@@ -418,7 +445,7 @@ impl ReplayCompositionLocatorOnlyIssuanceRequestV1 {
     #[must_use]
     pub const fn from_untrusted(
         issuance_locator: ReplayCompositionIssuanceLocatorV1,
-        composition: ReplayCompositionBindingIssuanceRequestV1,
+        composition: C,
     ) -> Self {
         Self {
             issuance_locator,
@@ -432,7 +459,7 @@ impl ReplayCompositionLocatorOnlyIssuanceRequestV1 {
     }
 
     #[must_use]
-    pub const fn composition(&self) -> &ReplayCompositionBindingIssuanceRequestV1 {
+    pub const fn composition(&self) -> &C {
         &self.composition
     }
 }
@@ -443,13 +470,13 @@ impl ReplayCompositionLocatorOnlyIssuanceRequestV1 {
 ///
 /// Returns [`ReplayCompositionBindingErrorV1::InvalidRequest`] if the bounded composition command
 /// cannot be canonically encoded.
-pub fn replay_composition_issuance_meaning_digest_v1(
-    composition: &ReplayCompositionBindingIssuanceRequestV1,
+pub fn replay_composition_issuance_meaning_digest_v1<C: ReplayCompositionIssuanceCompositionV1>(
+    composition: &C,
 ) -> Result<BindingDigest, ReplayCompositionBindingErrorV1> {
     let bytes = serde_json::to_vec(composition)
         .map_err(|_| ReplayCompositionBindingErrorV1::InvalidRequest)?;
     let mut hasher = Sha256::new();
-    hasher.update(b"market-data.replay-composition-issuance-meaning.v1\0");
+    hasher.update(C::MEANING_DOMAIN);
     hasher.update(bytes);
     Ok(BindingDigest::from_untrusted_bytes(
         hasher.finalize().into(),

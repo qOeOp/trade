@@ -381,6 +381,98 @@ impl ReplayCompositionBindingIssuanceRequestV1 {
     }
 }
 
+/// Locator-only issuance command for a universe-member binding.
+///
+/// It names what a universe-member aggregate is composed from and nothing a first corpus needs:
+/// no Instrument Master, census, joined cut, sample projection, calendar, session, time zone or
+/// corporate action. Every positive coordinate is again derived from the fixed R&D readback and
+/// exact Market Data custody, and none can be supplied by the caller.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReplayCompositionUniverseBindingIssuanceRequestV1 {
+    composer_locator: StrategyDesignRoleSetLocatorV1,
+    pit_locator: UntrustedPitSnapshotLocator,
+    source_binding_locator: UntrustedSourceBindingLocator,
+    replay_start_event_ns: i128,
+    replay_end_event_ns_exclusive: i128,
+    universe_selection_locator: ReplayCompositionRequestLocatorV1,
+    reference_fact_r0_locator: ReplayCompositionRequestLocatorV1,
+    market_semantics_locator: ReplayCompositionRequestLocatorV1,
+    correction_policy_locator: ReplayCompositionContentLocatorV1,
+}
+
+impl ReplayCompositionUniverseBindingIssuanceRequestV1 {
+    #[cfg(test)]
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) const fn from_test_fixture(
+        composer_locator: StrategyDesignRoleSetLocatorV1,
+        pit_locator: UntrustedPitSnapshotLocator,
+        source_binding_locator: UntrustedSourceBindingLocator,
+        replay_start_event_ns: i128,
+        replay_end_event_ns_exclusive: i128,
+        universe_selection_locator: ReplayCompositionRequestLocatorV1,
+        reference_fact_r0_locator: ReplayCompositionRequestLocatorV1,
+        market_semantics_locator: ReplayCompositionRequestLocatorV1,
+        correction_policy_locator: ReplayCompositionContentLocatorV1,
+    ) -> Self {
+        Self {
+            composer_locator,
+            pit_locator,
+            source_binding_locator,
+            replay_start_event_ns,
+            replay_end_event_ns_exclusive,
+            universe_selection_locator,
+            reference_fact_r0_locator,
+            market_semantics_locator,
+            correction_policy_locator,
+        }
+    }
+
+    #[must_use]
+    pub const fn composer_locator(&self) -> &StrategyDesignRoleSetLocatorV1 {
+        &self.composer_locator
+    }
+
+    #[must_use]
+    pub const fn pit_locator(&self) -> &UntrustedPitSnapshotLocator {
+        &self.pit_locator
+    }
+
+    #[must_use]
+    pub const fn source_binding_locator(&self) -> &UntrustedSourceBindingLocator {
+        &self.source_binding_locator
+    }
+
+    #[must_use]
+    pub const fn universe_selection_locator(&self) -> ReplayCompositionRequestLocatorV1 {
+        self.universe_selection_locator
+    }
+
+    #[must_use]
+    pub const fn reference_fact_r0_locator(&self) -> ReplayCompositionRequestLocatorV1 {
+        self.reference_fact_r0_locator
+    }
+
+    #[must_use]
+    pub const fn market_semantics_locator(&self) -> ReplayCompositionRequestLocatorV1 {
+        self.market_semantics_locator
+    }
+
+    #[must_use]
+    pub const fn correction_policy_locator(&self) -> ReplayCompositionContentLocatorV1 {
+        self.correction_policy_locator
+    }
+
+    #[must_use]
+    pub fn replay_request(&self) -> UntrustedReplayMarketFactsRequestV2 {
+        UntrustedReplayMarketFactsRequestV2::new(
+            self.pit_locator.clone(),
+            self.replay_start_event_ns,
+            self.replay_end_event_ns_exclusive,
+        )
+    }
+}
+
 impl ReplayCompositionBindingLocatorV1 {
     #[must_use]
     pub const fn from_untrusted(
@@ -731,6 +823,10 @@ pub(crate) mod resolver_seal {
     pub trait Sealed {}
 }
 
+pub(crate) mod issuance_seal {
+    pub trait Sealed {}
+}
+
 /// Sealed positive resolver. The only entry is the exact locator-bearing composition request.
 #[async_trait::async_trait]
 #[allow(private_bounds)]
@@ -941,6 +1037,50 @@ fn validate_replay_request_binding_association_v1(
         || record.replay_end_event_ns_exclusive != replay.replay_end_event_ns_exclusive()
     {
         return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
+    }
+    Ok(())
+}
+
+/// Refuses to store universe-member facts under anything but the universe-member binding issued
+/// for exactly this request, these native authorities and this frame.
+///
+/// The facts row is keyed by its binding, so a first-corpus binding, or a universe-member binding
+/// of another request, selection or frame, would otherwise carry facts it never bound.
+///
+/// # Errors
+///
+/// `UnknownBinding` for a binding that does not verify, `CompositionShapeMismatch` for a
+/// first-corpus binding, `DependencyMismatch` for another request or native authority, and
+/// `UniverseFrameMismatch` for another frame.
+pub(crate) fn require_universe_member_binding_v1(
+    request: &UntrustedReplayMarketFactsRequestV2,
+    binding: &ReplayCompositionBindingReadbackV1,
+    native_locators: &[ReplayCompositionNativeLocatorV1],
+    universe_frame_digest: BindingDigest,
+) -> Result<(), ReplayCompositionBindingErrorV1> {
+    if !verify_replay_composition_binding_v1(binding) {
+        return Err(ReplayCompositionBindingErrorV1::UnknownBinding);
+    }
+    let record = binding.record();
+
+    if record.shape() != ReplayMarketFactsShapeV2::UniverseMembers {
+        return Err(ReplayCompositionBindingErrorV1::CompositionShapeMismatch);
+    }
+    validate_replay_request_binding_association_v1(
+        &UntrustedReplayMarketFactsCompositionRequestV1::new(request.clone(), record.locator()),
+        binding,
+    )?;
+
+    if native_locators.len() != record.native_locators.len()
+        || native_locators
+            .iter()
+            .any(|expected| record.native_locator(expected.kind) != Some(*expected))
+    {
+        return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
+    }
+
+    if record.universe_frame_digest() != Some(universe_frame_digest) {
+        return Err(ReplayCompositionBindingErrorV1::UniverseFrameMismatch);
     }
     Ok(())
 }

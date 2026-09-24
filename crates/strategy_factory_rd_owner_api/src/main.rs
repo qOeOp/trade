@@ -29,8 +29,9 @@ use vibe_core::time::get_atomic_clock_realtime;
 use vibe_data::owner::replay_market_facts_v2::ReplayCompositionOwnerV1;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 use vibe_data::owner::replay_market_facts_v2::{
-    ReplayCompositionBindingErrorV1, ReplayCompositionIssuanceLocatorV1,
-    ReplayCompositionLocatorOnlyIssuanceRequestV1,
+    ReplayCompositionBindingErrorV1, ReplayCompositionDurableIssuanceResponseV1,
+    ReplayCompositionIssuanceLocatorV1, ReplayCompositionLocatorOnlyIssuanceRequestV1,
+    ReplayCompositionUniverseBindingIssuanceRequestV1,
 };
 #[cfg(test)]
 use vibe_data::owner::{
@@ -629,6 +630,10 @@ async fn main() -> anyhow::Result<()> {
             post(resolve_replay_composition),
         )
         .route(
+            "/v1/replay-compositions/universe-member-issuances",
+            post(issue_universe_member_replay_composition),
+        )
+        .route(
             "/v2/develop-composer/runs/{request_identity}/readback",
             get(read_develop_composer),
         )
@@ -1096,17 +1101,59 @@ async fn issue_replay_composition(
             return StatusCode::SERVICE_UNAVAILABLE.into_response();
         };
 
-        match replay_composition.issue_binding_v1(&command).await {
-            Ok(response) => (
-                StatusCode::OK,
-                [(axum::http::header::CONTENT_TYPE, "application/json")],
-                response.canonical_bytes().to_vec(),
-            )
-                .into_response(),
-            Err(e) => {
-                tracing::warn!(error = %e, "Replay composition issuance refused");
-                replay_composition_refusal(e)
-            }
+        replay_composition_issuance_response(replay_composition.issue_binding_v1(&command).await)
+    }
+}
+
+/// Issues a universe-member composition binding: the locator-only command names no Instrument
+/// Master, census, joined cut or sample projection, and is recovered through the same resolve
+/// route, since an issuance identity is one namespace whichever shape it issued.
+async fn issue_universe_member_replay_composition(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
+    {
+        let _ = body;
+        StatusCode::SERVICE_UNAVAILABLE.into_response()
+    }
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    {
+        let command: ReplayCompositionLocatorOnlyIssuanceRequestV1<
+            ReplayCompositionUniverseBindingIssuanceRequestV1,
+        > = match serde_json::from_slice(&body) {
+            Ok(command) => command,
+            Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+        };
+        let Some(replay_composition) = &state.replay_composition else {
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        };
+        replay_composition_issuance_response(
+            replay_composition
+                .issue_universe_member_binding_v1(&command)
+                .await,
+        )
+    }
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+fn replay_composition_issuance_response(
+    issued: Result<ReplayCompositionDurableIssuanceResponseV1, ReplayCompositionBindingErrorV1>,
+) -> Response {
+    match issued {
+        Ok(response) => (
+            StatusCode::OK,
+            [(axum::http::header::CONTENT_TYPE, "application/json")],
+            response.canonical_bytes().to_vec(),
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::warn!(error = %e, "Replay composition issuance refused");
+            replay_composition_refusal(e)
         }
     }
 }

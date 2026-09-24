@@ -242,9 +242,13 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
     assert!(source.contains("request_meaning_digest BYTEA NOT NULL UNIQUE"));
     assert!(source.contains("response_bytes BYTEA NOT NULL"));
     assert!(source.contains("lock_issuance_identity"));
-    assert!(source.contains("let authenticated_role_set = Self::resolve_role_set_attestation("));
-    assert!(source.contains("let native_join = Self::resolve_native_join_attestation("));
-    assert!(source.contains("validate_native_join_v4(&mut transaction, &native_join)"));
+    assert!(
+        source.contains(
+            "Self::resolve_role_set_attestation(&mut reader_transaction, composer_locator)"
+        )
+    );
+    assert!(source.contains("Self::resolve_native_join_attestation("));
+    assert!(source.contains("validate_native_join_v4(transaction, native_join)"));
     assert!(source.contains("let mut reader_transaction = self\n            .rd_role_set_pool"));
     assert!(source.contains("verify_owner_domain_and_reader_challenge_v1("));
     assert!(source.contains("verify_market_challenge_v1("));
@@ -288,9 +292,58 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
     assert!(issue_signature.contains("ReplayCompositionLocatorOnlyIssuanceRequestV1"));
     assert!(!issue_signature.contains("StrategyDesignRoleSetReadbackV1"));
     let issue_body = source
-        .split("pub async fn issue_binding_v1")
+        .split("async fn open_issuance_v1")
         .nth(1)
-        .expect("positive issuance body");
+        .expect("shared issuance opening")
+        .split("async fn close_issuance_v1")
+        .next()
+        .expect("bounded issuance opening");
+    let first_corpus_body = source
+        .split("async fn issue_first_corpus_in_transaction_v1")
+        .nth(1)
+        .expect("first-corpus issuance body")
+        .split("struct OwnerChallengeV1")
+        .next()
+        .expect("bounded first-corpus issuance body");
+    let universe_source = include_str!("../postgres/replay_market_facts_v2/universe_issuance.rs");
+
+    // Every Owner-transaction read and write of either shape runs in its body, which its entry
+    // calls only once the opening returned holding both challenges, the Composer cut lock and the
+    // issuance identity lock, and before the one finalizer.
+    for (entry, body_call) in [
+        (
+            source
+                .split("pub async fn issue_binding_v1")
+                .nth(1)
+                .expect("first-corpus entry")
+                .split("async fn open_issuance_v1")
+                .next()
+                .expect("bounded first-corpus entry"),
+            "issue_first_corpus_in_transaction_v1(",
+        ),
+        (
+            universe_source
+                .split("pub async fn issue_universe_member_binding_v1")
+                .nth(1)
+                .expect("universe-member entry")
+                .split("async fn issue_universe_members_in_transaction_v1")
+                .next()
+                .expect("bounded universe-member entry"),
+            "issue_universe_members_in_transaction_v1(",
+        ),
+    ] {
+        let open = entry.find(".open_issuance_v1(").expect("shared opening");
+        let body = entry.find(body_call).expect("shape body");
+        let close = entry.find(".close_issuance_v1(").expect("shared finalizer");
+        assert!(
+            entry
+                .find("canonical_issuance_command_bytes_v1(")
+                .expect("self-consistency")
+                < open
+        );
+        assert!(open < body && body < close);
+        assert!(entry[open..body].contains(".await?;"));
+    }
     assert!(
         issue_body
             .find("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
@@ -333,12 +386,12 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
                 .expect("handoff consumes supplied challenge")
     );
     let market_outcome = issue_body
-        .split("let outcome = Box::pin(async {")
+        .split("let locked = Box::pin(async {")
         .nth(1)
-        .expect("Market transaction outcome")
-        .split("let market_terminal = transaction.commit().await;")
+        .expect("Market transaction locks")
+        .split("match locked")
         .next()
-        .expect("bounded Market transaction outcome");
+        .expect("bounded Market transaction locks");
     let market_cut = market_outcome
         .find("lock_composer_cut_v1(")
         .expect("Market Composer shared cut");
@@ -348,20 +401,29 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
     let first_market_read = market_outcome
         .find("lock_issuance_identity(")
         .expect("first Market fact access");
-    let first_market_write = market_outcome
-        .find("persist_replay_composition_binding_in_transaction_v1")
-        .expect("first Market write");
     assert!(market_cut < final_reader_liveness);
     assert!(final_reader_liveness < first_market_read);
-    assert!(final_reader_liveness < first_market_write);
-    assert!(
-        issue_body
-            .find("lock_composer_cut_v1(")
-            .expect("Composer owner lock")
-            < issue_body
-                .find("recover_reference_fact_r0_in_transaction_v1")
+
+    let universe_body = universe_source
+        .split("async fn issue_universe_members_in_transaction_v1")
+        .nth(1)
+        .expect("universe-member issuance body");
+
+    for body in [first_corpus_body, universe_body] {
+        assert!(
+            body.find("recover_reference_fact_r0_in_transaction_v1")
                 .expect("first Market fact read")
-    );
+                < body
+                    .find("persist_replay_composition_binding_in_transaction_v1")
+                    .expect("first Market write")
+        );
+        assert!(
+            body.find("replayed_issuance_v1(").expect("issuance replay")
+                < body
+                    .find("persist_replay_composition_binding_in_transaction_v1")
+                    .expect("first Market write")
+        );
+    }
     assert!(source.contains("rd_role_set_pool"));
     assert!(
         source.contains(
@@ -441,29 +503,18 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
                 .find("persist_strategy_input_sample_projection_in_transaction_v4")
                 .expect("same-transaction V4 write")
     );
-    let binding_issue_body = source
-        .split("pub async fn issue_binding_v1")
-        .nth(1)
-        .expect("production binding issuance entry")
-        .split("async fn verify_composer_cut_contract_v1")
-        .next()
-        .expect("bounded production binding issuance");
     assert!(
-        binding_issue_body
+        issue_body
             .find("BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE")
             .expect("serializable binding transaction")
-            < binding_issue_body
-                .find("verify_time_zone_custody_in_transaction_v1")
-                .expect("transaction-bound Time Zone custody verification")
+            < issue_body
+                .find(
+                    "shape == ReplayMarketFactsShapeV2::FirstCorpus\n            && super::time_zone::verify_time_zone_custody_in_transaction_v1",
+                )
+                .expect("transaction-bound Time Zone custody verification for the first corpus")
     );
-    assert!(
-        binding_issue_body
-            .find("verify_time_zone_custody_in_transaction_v1")
-            .expect("transaction-bound Time Zone custody verification")
-            < binding_issue_body
-                .find("recover_time_zone_in_transaction_v1")
-                .expect("Time Zone business-fact consumption")
-    );
+    assert!(first_corpus_body.contains("recover_time_zone_in_transaction_v1"));
+    assert!(!universe_source.contains("time_zone"));
     assert!(
         native_issue_body
             .find("persist_strategy_input_sample_projection_in_transaction_v4")
@@ -478,26 +529,10 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
     assert!(reloads_exact_v4_custody_after_outbox(&v4_persist));
     assert!(v4_persist.contains("Ok(stored)"));
     assert!(
-        issue_body
-            .find("lock_composer_cut_v1(")
-            .expect("Composer owner lock")
-            < issue_body
-                .find("persist_replay_composition_binding_in_transaction_v1")
-                .expect("first Market write")
-    );
-    assert!(
-        issue_body
-            .find("verify_market_challenge_v1(")
-            .expect("live database handoff")
-            < issue_body
-                .find("persist_replay_composition_binding_in_transaction_v1")
-                .expect("first Market write")
-    );
-    assert!(
-        issue_body
+        first_corpus_body
             .find("validate_replay_first_corpus_v1(")
             .expect("Replay-specific first-corpus gate")
-            < issue_body
+            < first_corpus_body
                 .find("persist_replay_composition_binding_in_transaction_v1")
                 .expect("first Market write")
     );
@@ -508,10 +543,10 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
         "native_join.join_claim_digest()",
     ] {
         assert!(
-            issue_body
+            first_corpus_body
                 .find(coordinate)
                 .expect("native Design/join binding")
-                < issue_body
+                < first_corpus_body
                     .find("persist_replay_composition_binding_in_transaction_v1")
                     .expect("first Market write")
         );
@@ -632,57 +667,70 @@ fn replay_first_corpus_rejects_duplicate_hour_without_session_day() {
 fn owner_transactions_are_explicitly_terminal_before_reader_release() {
     let source = include_str!("../postgres/replay_market_facts_v2.rs");
     let issue_body = source
-        .split("pub async fn issue_binding_v1")
+        .split("async fn open_issuance_v1")
         .nth(1)
-        .expect("positive issuance body")
-        .split("async fn resolve_role_set_attestation")
+        .expect("shared issuance opening")
+        .split("async fn close_issuance_v1")
         .next()
-        .expect("bounded issuance body");
-    let finalizer = issue_body
-        .split("match outcome")
+        .expect("bounded issuance opening");
+    let success = source
+        .split("async fn close_issuance_v1")
         .nth(1)
-        .expect("single outer transaction finalizer");
-    let success = finalizer
-        .split("Err(operation_error) =>")
+        .expect("single outer transaction finalizer")
+        .split("async fn abandon_issuance_v1")
         .next()
         .expect("success terminal branch");
+    assert!(
+        success
+            .find("Self::abandon_issuance_v1(issuance, operation_error)")
+            .expect("failed outcome abandoned")
+            < success
+                .find("let market_terminal = transaction.commit().await;")
+                .expect("Market commit terminal")
+    );
     assert!(
         success
             .find("let market_terminal = transaction.commit().await;")
             .expect("Market commit terminal")
             < success
-                .find("reader_transaction\n                        .rollback()")
+                .find("reader_transaction\n                .rollback()")
                 .expect("reader release after Market commit")
     );
     assert!(success.contains("prove_market_transaction_terminal_v1("));
     assert!(
         success
-            .find("reader_transaction\n                        .rollback()")
+            .find("reader_transaction\n                .rollback()")
             .expect("reader release")
             < success
                 .find("self.recover_issuance_v1(issuance_locator)")
                 .expect("exact recovery after terminal proof and reader release")
     );
     assert!(success.contains("recovered.canonical_bytes() == response.canonical_bytes()"));
-    let failure = finalizer
-        .split("Err(operation_error) =>")
+    let failure = source
+        .split("async fn abandon_issuance_v1")
         .nth(1)
-        .expect("failure terminal branch");
+        .expect("failure terminal branch")
+        .split("/// The two open transactions of one issuance")
+        .next()
+        .expect("bounded failure terminal branch");
     assert!(
         failure
             .find("let market_terminal = transaction.rollback().await;")
             .expect("Market rollback terminal")
             < failure
-                .find("reader_transaction\n                    .rollback()")
+                .find("reader_transaction.rollback()")
                 .expect("reader release after Market rollback")
     );
     assert!(failure.contains("prove_market_transaction_terminal_v1("));
-    assert!(failure.contains("Err(operation_error)"));
+    assert!(failure.contains("Ok(()) => operation_error"));
+    assert!(issue_body.contains(
+        "Err(operation_error) => Err(Self::abandon_issuance_v1(issuance, operation_error).await)"
+    ));
     let pre_domain = issue_body
         .split("if let Err(operation_error) = verify_owner_domain_and_reader_challenge_v1(")
         .nth(1)
         .expect("pre-domain failure branch")
-        .split("let outcome =")
+        .split("let mut issuance = OpenIssuanceV1")
         .next()
         .expect("bounded pre-domain branch");
     assert!(pre_domain.contains("terminalize_market_before_domain_v1("));

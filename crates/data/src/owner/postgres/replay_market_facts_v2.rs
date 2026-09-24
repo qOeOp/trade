@@ -7,13 +7,14 @@
 
 use crate::owner::replay_market_facts_v2::{
     AuthenticatedComposerNativeJoinV1, ReplayCompositionBindingErrorV1,
-    ReplayCompositionBindingLocatorV1, ReplayCompositionDurableIssuanceResponseV1,
+    ReplayCompositionBindingLocatorV1, ReplayCompositionBindingReadbackV1,
+    ReplayCompositionDurableIssuanceResponseV1, ReplayCompositionIssuanceCompositionV1,
     ReplayCompositionIssuanceLocatorV1, ReplayCompositionIssuanceResponseV1,
     ReplayCompositionLocatorOnlyIssuanceRequestV1, ReplayCompositionOwnerV1,
     ReplayCorporateActionTermsV2, ReplayMarketDependencyKindV2, ReplayMarketDependencyRefV2,
-    ReplayMarketFactsReadbackV2, ReplayPriceAdjustmentV2, ReplayReferenceFactKindV2,
-    ReplayReferenceFactTimeV2, ReplayReferenceFactValueV2, ReplayTimestampBasisV2,
-    ResolvedReplayCompositionCutV1, UntrustedComposerNativeJoinRequestV1,
+    ReplayMarketFactsReadbackV2, ReplayMarketFactsShapeV2, ReplayPriceAdjustmentV2,
+    ReplayReferenceFactKindV2, ReplayReferenceFactTimeV2, ReplayReferenceFactValueV2,
+    ReplayTimestampBasisV2, ResolvedReplayCompositionCutV1, UntrustedComposerNativeJoinRequestV1,
     UntrustedReplayMarketFactsCompositionRequestV1, UntrustedReplayMarketFactsRequestV2,
     authority::{
         ReplayMarketFactsEvidenceV2, ReplayNativeChainEvidenceV2, ReplayReferenceFactCutProposalV2,
@@ -26,6 +27,7 @@ use crate::owner::replay_market_facts_v2::{
         ReplayCompositionBindingEvidenceV1, ReplayCompositionNativeLocatorKindV1,
         ReplayCompositionNativeLocatorV1, ReplayCompositionRoleEvidenceV1,
         compose_replay_market_facts_v2, issue_replay_composition_binding_v1,
+        require_universe_member_binding_v1,
     },
     postgres::{
         PreparedReplayMarketFactsStorageV2, REPLAY_MARKET_RD_CUT_API_SCHEMA_V1,
@@ -77,6 +79,8 @@ use crate::owner::{
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, Row, postgres::PgPoolOptions};
 use std::sync::atomic::{AtomicU64, Ordering};
+
+mod universe_issuance;
 
 const REPLAY_COMPOSITION_ISSUANCE_SCHEMA_V1: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS market_data_private.replay_composition_issuances_v1 (request_identity BYTEA PRIMARY KEY, request_meaning_digest BYTEA NOT NULL UNIQUE, request_bytes BYTEA NOT NULL, binding_identity BYTEA NOT NULL UNIQUE, binding_digest BYTEA NOT NULL, response_bytes BYTEA NOT NULL)",
@@ -1207,23 +1211,39 @@ impl ReplayCompositionOwnerV1 {
     ) -> Result<ReplayCompositionDurableIssuanceResponseV1, ReplayCompositionBindingErrorV1> {
         let request = command.composition();
         let issuance_locator = command.issuance_locator();
-        if issuance_locator.request_identity().as_bytes() == &[0; 32] {
-            return Err(ReplayCompositionBindingErrorV1::InvalidRequest);
-        }
-        let request_bytes = serde_json::to_vec(request)
-            .map_err(|_| ReplayCompositionBindingErrorV1::InvalidRequest)?;
-        let actual_meaning =
-            crate::owner::replay_market_facts_v2::replay_composition_issuance_meaning_digest_v1(
-                request,
-            )?;
+        let request_bytes = canonical_issuance_command_bytes_v1(command)?;
+        let mut issuance = self
+            .open_issuance_v1(
+                issuance_locator,
+                request.composer_locator(),
+                ReplayMarketFactsShapeV2::FirstCorpus,
+            )
+            .await?;
+        let outcome = Box::pin(issue_first_corpus_in_transaction_v1(
+            &mut issuance,
+            request,
+            issuance_locator,
+            &request_bytes,
+        ))
+        .await;
+        self.close_issuance_v1(issuance, issuance_locator, outcome)
+            .await
+    }
 
-        // Both sides come from the caller's command, and nothing has been read yet: a locator whose
-        // meaning digest disagrees with the composition beside it is a request that contradicts
-        // itself, not a mismatch against anything this Owner holds.
-        if actual_meaning != issuance_locator.request_meaning_digest() {
-            return Err(ReplayCompositionBindingErrorV1::InvalidRequest);
-        }
-        let replay = request.replay_request();
+    /// Opens the two transactions one issuance runs in and proves they are distinct sessions of one
+    /// primary database, each holding its own challenge.
+    ///
+    /// The R&D reader is `REPEATABLE READ READ ONLY`; it takes the Composer cut lock and resolves
+    /// the authenticated role set - and, for the first corpus, the Composer native join - before
+    /// the Market Data Owner transaction begins. The Owner transaction is `SERIALIZABLE` and, once
+    /// both challenges verify, holds the Composer cut lock and the issuance identity lock. A
+    /// failure after the Owner transaction begins leaves it terminal before the reader is released.
+    async fn open_issuance_v1(
+        &self,
+        issuance_locator: ReplayCompositionIssuanceLocatorV1,
+        composer_locator: &StrategyDesignRoleSetLocatorV1,
+        shape: ReplayMarketFactsShapeV2,
+    ) -> Result<OpenIssuanceV1, ReplayCompositionBindingErrorV1> {
         let mut reader_transaction = self
             .rd_role_set_pool
             .begin_with("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
@@ -1246,25 +1266,25 @@ impl ReplayCompositionOwnerV1 {
                 "reader",
             )
             .await?;
-            lock_composer_cut_v1(
-                &mut reader_transaction,
-                &request.composer_locator().request_identity,
-            )
-            .await?;
-            let authenticated_role_set = Self::resolve_role_set_attestation(
-                &mut reader_transaction,
-                request.composer_locator(),
-            )
-            .await?;
-            let native_join = Self::resolve_native_join_attestation(
-                &mut reader_transaction,
-                request.composer_locator(),
-            )
-            .await?;
+            lock_composer_cut_v1(&mut reader_transaction, &composer_locator.request_identity)
+                .await?;
+            let authenticated_role_set =
+                Self::resolve_role_set_attestation(&mut reader_transaction, composer_locator)
+                    .await?;
+            let native_join = match shape {
+                ReplayMarketFactsShapeV2::FirstCorpus => Some(
+                    Self::resolve_native_join_attestation(
+                        &mut reader_transaction,
+                        composer_locator,
+                    )
+                    .await?,
+                ),
+                ReplayMarketFactsShapeV2::UniverseMembers => None,
+            };
             Ok((reader_challenge, authenticated_role_set, native_join))
         }
         .await;
-        let (reader_challenge, authenticated_role_set, native_join) = match reader_preflight {
+        let (reader_challenge, role_set, native_join) = match reader_preflight {
             Ok(preflight) => preflight,
             Err(operation_error) => {
                 reader_transaction
@@ -1274,7 +1294,6 @@ impl ReplayCompositionOwnerV1 {
                 return Err(operation_error);
             }
         };
-        let receipt = authenticated_role_set.receipt();
         let Ok(mut transaction) = self
             .owner
             .pool
@@ -1288,9 +1307,11 @@ impl ReplayCompositionOwnerV1 {
             return Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable);
         };
 
-        if super::time_zone::verify_time_zone_custody_in_transaction_v1(&mut transaction)
-            .await
-            .is_err()
+        // Only the first corpus consumes Time Zone facts, so only it depends on their custody.
+        if shape == ReplayMarketFactsShapeV2::FirstCorpus
+            && super::time_zone::verify_time_zone_custody_in_transaction_v1(&mut transaction)
+                .await
+                .is_err()
         {
             transaction
                 .rollback()
@@ -1339,525 +1360,113 @@ impl ReplayCompositionOwnerV1 {
                 .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
             return Err(operation_error);
         }
-        let outcome = Box::pin(async {
-        lock_composer_cut_v1(
-            &mut transaction,
-            &request.composer_locator().request_identity,
-        )
-        .await?;
-        verify_market_challenge_v1(
-            &mut reader_transaction,
-            &mut transaction,
-            &reader_challenge,
-            &market_challenge,
-        )
-        .await?;
-        lock_issuance_identity(&mut transaction, issuance_locator.request_identity()).await?;
-        let validated_native_join = validate_native_join_v4(&mut transaction, &native_join).await?;
-
-        let r0_locator = request.reference_fact_r0_locator();
-        let r0 = super::reference_fact_coordinates::recover_reference_fact_r0_in_transaction_v1(
-            &mut transaction,
-            UntrustedReferenceFactR0LocatorV1 {
-                request_identity: r0_locator.request_identity(),
-                request_meaning_digest: r0_locator.request_meaning_digest(),
-            },
-        )
-        .await
-        .map_err(|_| ReplayCompositionBindingErrorV1::DependencyMismatch)?;
-        let semantics_locator = request.market_semantics_locator();
-        let semantics = super::market_semantics::recover_market_semantics_in_transaction_v1(
-            &mut transaction,
-            UntrustedMarketSemanticsLocatorV1 {
-                request_identity: semantics_locator.request_identity(),
-                request_meaning_digest: semantics_locator.request_meaning_digest(),
-            },
-        )
-        .await
-        .map_err(|_| ReplayCompositionBindingErrorV1::DependencyMismatch)?;
-
-        if semantics.cut().r0_cut_identity != r0.cut().identity()
-            || semantics.cut().r0_cut_digest != r0.cut().digest()
-            || semantics.facts().iter().any(|fact| {
-                fact.pit_snapshot_identity != request.pit_locator().snapshot_identity
-                    || fact.pit_fact_digest != request.pit_locator().fact_digest
-                    || fact.source_binding_identity != request.source_binding_locator().binding_id
-            })
-        {
-            return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
-        }
-
-        let universe_locator = request.universe_selection_locator();
-        let universe = super::universe_selection::recover_universe_selection_in_transaction_v1(
-            &mut transaction,
-            &UntrustedUniverseSelectionLocatorV1::from_untrusted(
-                universe_locator.request_identity(),
-                universe_locator.request_meaning_digest(),
-            ),
-        )
-        .await
-        .map_err(|_| ReplayCompositionBindingErrorV1::DependencyMismatch)?;
-
-        let mut roles = Vec::with_capacity(receipt.roles.len());
-        let mut declarations = Vec::with_capacity(receipt.roles.len());
-        let mut first_declaration_request = None;
-
-        for role in &receipt.roles {
-            let declaration = super::strategy_input_binding_registry::recover_strategy_input_binding_declaration_v1(
-                &mut transaction,
-                request.pit_locator().request_identity,
-                receipt.design_identity,
-                role.role_identity,
+        let mut issuance = OpenIssuanceV1 {
+            reader_transaction,
+            transaction,
+            market_challenge,
+            role_set,
+            native_join,
+        };
+        let locked = Box::pin(async {
+            lock_composer_cut_v1(
+                &mut issuance.transaction,
+                &composer_locator.request_identity,
+            )
+            .await?;
+            verify_market_challenge_v1(
+                &mut issuance.reader_transaction,
+                &mut issuance.transaction,
+                &reader_challenge,
+                &issuance.market_challenge,
+            )
+            .await?;
+            lock_issuance_identity(
+                &mut issuance.transaction,
+                issuance_locator.request_identity(),
             )
             .await
-            .map_err(|_| ReplayCompositionBindingErrorV1::IncompleteComposition)?;
-
-            if declaration.request().research_request_identity != receipt.research_request_identity
-                || declaration.request().strategy_design_identity != receipt.design_identity
-                || declaration.request().input_role_identity != role.role_identity
-                || !request_matches_authenticated_role_v1(declaration.request(), role)
-            {
-                return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
-            }
-
-            if first_declaration_request.is_none() {
-                first_declaration_request = Some(declaration.request().clone());
-            }
-            roles.push(ReplayCompositionRoleEvidenceV1 {
-                role_identity: role.role_identity,
-                declaration_identity: declaration.request_meaning_digest(),
-                declaration_digest: declaration.request_meaning_digest(),
-                binding_identity: declaration.binding_digest(),
-                binding_digest: declaration.binding_digest(),
-            });
-            declarations.push(declaration);
-        }
-        let census_locator = request.observation_census_locator();
-        let census_row = sqlx::query("SELECT request_meaning_digest,request_bytes,census_identity,census_bytes FROM market_data_private.observation_census_records_v1 WHERE request_identity=$1")
-            .bind(census_locator.request_identity().as_bytes().as_slice())
-            .fetch_optional(&mut *transaction)
-            .await
-            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?
-            .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
-        let census_meaning = digest_column(&census_row, "request_meaning_digest")?;
-        let census_identity = digest_column(&census_row, "census_identity")?;
-        let census_bytes: Vec<u8> = census_row
-            .try_get("census_bytes")
-            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
-        let census_request_bytes: Vec<u8> = census_row
-            .try_get("request_bytes")
-            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
-        let census_request =
-            crate::owner::observation_census::authority::decode_observation_census_request_v1(
-                &census_request_bytes,
-            )
-            .map_err(|_| ReplayCompositionBindingErrorV1::DigestMismatch)?;
-        let census =
-            crate::owner::observation_census::authority::decode_observation_census_storage_v1(
-                &census_bytes,
-            )
-            .map_err(|_| ReplayCompositionBindingErrorV1::DigestMismatch)?;
-        if census_meaning != census_locator.request_meaning_digest() {
-            return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
-        }
-        let census_roles = census
-            .record()
-            .entries()
-            .iter()
-            .map(crate::owner::observation_census::ObservationCensusEntryV1::input_role_identity)
-            .collect::<Vec<_>>();
-
-        if census.record().identity() != census_identity
-            || census_roles
-                != receipt
-                    .roles
-                    .iter()
-                    .map(|role| role.role_identity)
-                    .collect::<Vec<_>>()
-        {
-            return Err(ReplayCompositionBindingErrorV1::IncompleteComposition);
-        }
-        let joined = request.joined_cut_locator();
-        let (authenticated_census, authenticated_joined) =
-            super::observation_census::resolve_and_commit_authenticated_observation_census_v1(
-                &mut transaction,
-                &census_request,
-                receipt,
-            )
-            .await
-            .map_err(|_| ReplayCompositionBindingErrorV1::IncompleteComposition)?;
-        let sample = request.sample_projection_locator();
-
-        if authenticated_census.record().identity() != census_identity
-            || authenticated_joined
-                .record()
-                .locator()
-                .joined_cut_identity()
-                != joined.identity()
-            || authenticated_joined.record().locator().joined_cut_digest() != joined.digest()
-            || native_join.joined_cut_digest() != joined.digest()
-            || native_join.joined_cut_receipt_digest()
-                != authenticated_joined.record().joined_cut_receipt().digest()
-            || native_join.strategy_design_identity() != receipt.design_identity
-            || native_join.join_identity() != census_request.join_claim().join_identity
-            || native_join.join_claim_digest()
-                != crate::owner::replay_market_facts_v2::composer_join_claim_digest_v1(
-                    census_request.join_claim(),
-                )
-            || sample.identity() != native_join.projection_receipt_digest()
-            || sample.digest() != native_join.projection_receipt_digest()
-            || validated_native_join.roles
-                != roles
-                    .iter()
-                    .map(|role| (role.role_identity, role.binding_digest))
-                    .collect::<Vec<_>>()
-        {
-            return Err(ReplayCompositionBindingErrorV1::IncompleteComposition);
-        }
-
-        validate_replay_first_corpus_v1(
-            &mut transaction,
-            receipt,
-            census_request.join_claim(),
-            &declarations,
-            authenticated_joined.record().joined_cut_receipt(),
-            &validated_native_join,
-        )
-        .await?;
-
-        validate_exact_request_row(
-            &mut transaction,
-            "instrument_master_receipts_v1",
-            request.instrument_master_locator(),
-        )
-        .await?;
-
-        let calendar_locator = request.calendar_locator();
-        let calendar = super::calendar::recover_calendar_v1(
-            &mut transaction,
-            UntrustedCalendarLocatorV1::from_untrusted(
-                calendar_locator.request_identity(),
-                calendar_locator.request_meaning_digest(),
-            ),
-        )
-        .await
-        .map_err(|_| ReplayCompositionBindingErrorV1::DependencyMismatch)?;
-        let session_locator = request.session_locator();
-        let session = super::session::recover_session_in_transaction_v1(
-            &mut transaction,
-            UntrustedSessionLocatorV1 {
-                request_identity: session_locator.request_identity(),
-                request_meaning_digest: session_locator.request_meaning_digest(),
-            },
-        )
-        .await
-        .map_err(|_| ReplayCompositionBindingErrorV1::DependencyMismatch)?;
-        let time_zone_locator = request.time_zone_locator();
-        let time_zone = super::time_zone::recover_time_zone_in_transaction_v1(
-            &mut transaction,
-            UntrustedTimeZoneLocatorV1 {
-                request_identity: time_zone_locator.request_identity(),
-                request_meaning_digest: time_zone_locator.request_meaning_digest(),
-            },
-        )
-        .await
-        .map_err(|_| ReplayCompositionBindingErrorV1::DependencyMismatch)?;
-        let action_locator = request.corporate_action_locator();
-        let corporate_action = super::corporate_action::recover_corporate_action_in_transaction_v1(
-            &mut transaction,
-            UntrustedCorporateActionLocatorV1 {
-                request_identity: action_locator.request_identity(),
-                request_meaning_digest: action_locator.request_meaning_digest(),
-            },
-        )
-        .await
-        .map_err(|_| ReplayCompositionBindingErrorV1::DependencyMismatch)?;
-        let source =
-            super::strategy_input_binding_registry::recover_strategy_input_binding_source_v1(
-                &mut transaction,
-                first_declaration_request
-                    .as_ref()
-                    .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?,
-            )
-            .await
-            .map_err(|_| ReplayCompositionBindingErrorV1::DependencyMismatch)?;
-        if source.locator() != request.source_binding_locator() {
-            return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
-        }
-        let native_reference_r0s = recover_native_reference_r0s_v1(
-            &mut transaction,
-            &calendar,
-            &session,
-            &time_zone,
-        )
-        .await?;
-        let coordinates = coordinates_from_r0(&r0)?;
-        let correction = project_first_v1(CorrectionPolicyAuthenticatedInputsV1 {
-            source_binding: &source,
-            coordinates: &coordinates,
-            r0_coordinate_identity: r0.record().identity(),
-            r0_coordinate_digest: r0.record().digest(),
-        })
-        .map_err(|_| ReplayCompositionBindingErrorV1::DependencyMismatch)?;
-
-        if correction.identity() != request.correction_policy_locator().identity()
-            || correction.identity() != request.correction_policy_locator().digest()
-        {
-            return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
-        }
-        let instrument_master =
-            exact_instrument_reference(&mut transaction, request.instrument_master_locator())
-                .await?;
-        let instrument_cut_identity = instrument_master.cut_digest;
-
-        if semantics
-            .facts()
-            .iter()
-            .any(|fact| fact.instrument_master_cut_digest != instrument_cut_identity)
-        {
-            return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
-        }
-        validate_exact_request_row(
-            &mut transaction,
-            "calendar_receipts_v1",
-            request.calendar_locator(),
-        )
-        .await?;
-        validate_exact_request_row(
-            &mut transaction,
-            "session_receipts_v1",
-            request.session_locator(),
-        )
-        .await?;
-        validate_exact_request_row(
-            &mut transaction,
-            "time_zone_receipts_v1",
-            request.time_zone_locator(),
-        )
-        .await?;
-        validate_exact_request_row(
-            &mut transaction,
-            "corporate_action_receipts_v1",
-            request.corporate_action_locator(),
-        )
-        .await?;
-
-        if issuance_exists(&mut transaction, issuance_locator.request_identity()).await? {
-            let response =
-                recover_issuance_in_transaction(&mut transaction, issuance_locator).await?;
-            let stored_request_bytes: Vec<u8> = sqlx::query_scalar(
-                "SELECT request_bytes FROM market_data_private.replay_composition_issuances_v1 WHERE request_identity=$1",
-            )
-            .bind(issuance_locator.request_identity().as_bytes().as_slice())
-            .fetch_one(&mut *transaction)
-            .await
-            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
-            if stored_request_bytes != request_bytes {
-                return Err(ReplayCompositionBindingErrorV1::IssuanceIdentityConflict);
-            }
-            return Ok(response);
-        }
-
-        let registry_digest = digest_registry(&roles);
-        let role_ids = roles
-            .iter()
-            .map(|role| role.role_identity)
-            .collect::<Vec<_>>();
-        let role_bindings = roles
-            .iter()
-            .map(|role| (role.role_identity, role.binding_digest))
-            .collect::<Vec<_>>();
-        let binding = issue_replay_composition_binding_v1(
-            &replay,
-            ReplayCompositionBindingEvidenceV1 {
-                authenticated_strategy_design_identity: receipt.design_identity,
-                authenticated_strategy_design_digest: receipt.design_digest,
-                registry_identity: registry_digest,
-                registry_digest,
-                native_locators: vec![
-                    ReplayCompositionNativeLocatorV1 {
-                        kind: ReplayCompositionNativeLocatorKindV1::PitSnapshot,
-                        identity: request.pit_locator().snapshot_identity,
-                        digest: request.pit_locator().fact_digest,
-                    },
-                    ReplayCompositionNativeLocatorV1 {
-                        kind: ReplayCompositionNativeLocatorKindV1::SourceBinding,
-                        identity: request.source_binding_locator().binding_id,
-                        digest: request.source_binding_locator().fact_digest,
-                    },
-                    ReplayCompositionNativeLocatorV1 {
-                        kind: ReplayCompositionNativeLocatorKindV1::UniverseSelection,
-                        identity: universe.record().identity(),
-                        digest: universe.record().digest(),
-                    },
-                    ReplayCompositionNativeLocatorV1 {
-                        kind: ReplayCompositionNativeLocatorKindV1::InstrumentMaster,
-                        identity: instrument_cut_identity,
-                        digest: instrument_cut_identity,
-                    },
-                    ReplayCompositionNativeLocatorV1 {
-                        kind: ReplayCompositionNativeLocatorKindV1::MarketSemantics,
-                        identity: semantics.cut().identity(),
-                        digest: semantics.cut().digest(),
-                    },
-                ],
-                roles,
-                census_identity,
-                census_digest: census_identity,
-                census_roles: role_ids,
-                joined_cut_identity: joined.identity(),
-                joined_cut_digest: joined.digest(),
-                joined_cut_roles: role_bindings.clone(),
-                sample_projection_identity: sample.identity(),
-                sample_projection_digest: sample.digest(),
-                sample_projection_roles: role_bindings,
-                stable_correlation: receipt.intent_identity,
-            },
-        )?;
-        persist_replay_composition_binding_in_transaction_v1(&mut transaction, &binding)
-            .await
-            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
-        let native_chain = ReplayNativeChainEvidenceV2::from_verified_native_records_v4(
-            ReplayVerifiedNativeRecordV2::from_verified_native_record(
-                census_identity,
-                census_identity,
-            ),
-            ReplayVerifiedNativeDerivedRecordV2::from_verified_native_record(
-                ReplayVerifiedNativeRecordV2::from_verified_native_record(
-                    joined.identity(),
-                    joined.digest(),
-                ),
-                ReplayVerifiedNativeRecordV2::from_verified_native_record(
-                    census_identity,
-                    census_identity,
-                ),
-            ),
-            ReplayVerifiedNativeDerivedRecordV2::from_verified_native_record(
-                ReplayVerifiedNativeRecordV2::from_verified_native_record(
-                    sample.identity(),
-                    sample.digest(),
-                ),
-                ReplayVerifiedNativeRecordV2::from_verified_native_record(
-                    joined.identity(),
-                    joined.digest(),
-                ),
-            ),
-        );
-        let base_dependencies = vec![
-            ReplayMarketDependencyRefV2::from_verified_owner_record(
-                ReplayMarketDependencyKindV2::PitSnapshotV1,
-                request.pit_locator().snapshot_identity,
-                request.pit_locator().fact_digest,
-            ),
-            ReplayMarketDependencyRefV2::from_verified_owner_record(
-                ReplayMarketDependencyKindV2::SourceBindingV1,
-                source.binding_id(),
-                source.fact_digest(),
-            ),
-            ReplayMarketDependencyRefV2::from_verified_owner_record(
-                ReplayMarketDependencyKindV2::InstrumentMasterCutV1,
-                instrument_cut_identity,
-                instrument_cut_identity,
-            ),
-            ReplayMarketDependencyRefV2::from_verified_owner_record(
-                ReplayMarketDependencyKindV2::UniverseSelectionV1,
-                universe.record().identity(),
-                universe.record().digest(),
-            ),
-        ];
-        let reference_cuts = build_reference_cuts(
-            request,
-            &r0,
-            &calendar,
-            &session,
-            &time_zone,
-            &semantics,
-            &correction,
-            &corporate_action,
-            &universe,
-            &instrument_master,
-            &source,
-            &native_reference_r0s,
-        )?;
-        let composed_request =
-            UntrustedReplayMarketFactsCompositionRequestV1::new(replay, binding.record().locator());
-        let replay_readback = compose_replay_market_facts_v2(
-            &composed_request,
-            &binding,
-            ReplayMarketFactsEvidenceV2 {
-                base_dependencies,
-                native_chain,
-                reference_cuts,
-                stable_correlation: receipt.intent_identity,
-            },
-        )?;
-        let prepared =
-            PreparedReplayMarketFactsStorageV2::from_verified_readback(&replay_readback, &binding)
-                .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
-        persist_replay_market_facts_in_transaction_v2(&mut transaction, &prepared)
-            .await
-            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
-        let response =
-            ReplayCompositionIssuanceResponseV1::from_authenticated(&binding, &replay_readback);
-        let response_bytes = serde_json::to_vec(&response)
-            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
-        sqlx::query("INSERT INTO market_data_private.replay_composition_issuances_v1 (request_identity, request_meaning_digest, request_bytes, binding_identity, binding_digest, response_bytes) VALUES ($1,$2,$3,$4,$5,$6)")
-            .bind(issuance_locator.request_identity().as_bytes().as_slice())
-            .bind(issuance_locator.request_meaning_digest().as_bytes().as_slice())
-            .bind(&request_bytes)
-            .bind(binding.record().locator().binding_identity().as_bytes().as_slice())
-            .bind(binding.record().locator().binding_digest().as_bytes().as_slice())
-            .bind(&response_bytes)
-            .execute(&mut *transaction)
-            .await
-            .map_err(|e| map_issuance_insert_error(&e))?;
-            Ok(ReplayCompositionDurableIssuanceResponseV1::from_exact_storage(response_bytes))
         })
         .await;
 
-        match outcome {
-            Ok(response) => {
-                let market_terminal = transaction.commit().await;
-                if market_terminal.is_err() {
-                    prove_market_transaction_terminal_v1(
-                        &mut reader_transaction,
-                        &market_challenge,
-                    )
-                    .await?;
-                    reader_transaction
-                        .rollback()
-                        .await
-                        .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
-                    return match self.recover_issuance_v1(issuance_locator).await {
-                        Ok(recovered)
-                            if recovered.canonical_bytes() == response.canonical_bytes() =>
-                        {
-                            Ok(recovered)
-                        }
-                        _ => Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable),
-                    };
-                }
-                reader_transaction
-                    .rollback()
-                    .await
-                    .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
-                Ok(response)
-            }
+        match locked {
+            Ok(()) => Ok(issuance),
+            Err(operation_error) => Err(Self::abandon_issuance_v1(issuance, operation_error).await),
+        }
+    }
+
+    /// Ends one issuance: commits the Owner transaction on success and rolls it back otherwise, and
+    /// releases the reader only once the Owner transaction is proven terminal.
+    ///
+    /// A commit whose outcome is unknown is resolved by recovering the stored issuance, which is
+    /// returned only if it is byte-identical to the response this call produced.
+    async fn close_issuance_v1(
+        &self,
+        issuance: OpenIssuanceV1,
+        issuance_locator: ReplayCompositionIssuanceLocatorV1,
+        outcome: Result<
+            ReplayCompositionDurableIssuanceResponseV1,
+            ReplayCompositionBindingErrorV1,
+        >,
+    ) -> Result<ReplayCompositionDurableIssuanceResponseV1, ReplayCompositionBindingErrorV1> {
+        let response = match outcome {
+            Ok(response) => response,
             Err(operation_error) => {
-                let market_terminal = transaction.rollback().await;
-                if market_terminal.is_err() {
-                    prove_market_transaction_terminal_v1(
-                        &mut reader_transaction,
-                        &market_challenge,
-                    )
-                    .await?;
-                }
-                reader_transaction
-                    .rollback()
-                    .await
-                    .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
-                Err(operation_error)
+                return Err(Self::abandon_issuance_v1(issuance, operation_error).await);
             }
+        };
+        let OpenIssuanceV1 {
+            mut reader_transaction,
+            transaction,
+            market_challenge,
+            ..
+        } = issuance;
+        let market_terminal = transaction.commit().await;
+        if market_terminal.is_err() {
+            prove_market_transaction_terminal_v1(&mut reader_transaction, &market_challenge)
+                .await?;
+            reader_transaction
+                .rollback()
+                .await
+                .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+            return match self.recover_issuance_v1(issuance_locator).await {
+                Ok(recovered) if recovered.canonical_bytes() == response.canonical_bytes() => {
+                    Ok(recovered)
+                }
+                _ => Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable),
+            };
+        }
+        reader_transaction
+            .rollback()
+            .await
+            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+        Ok(response)
+    }
+
+    /// Rolls the Owner transaction back, proves it terminal, releases the reader, and returns the
+    /// error the caller reports: the operation's own, or `ReplayV2Unavailable` when releasing
+    /// either transaction fails.
+    async fn abandon_issuance_v1(
+        issuance: OpenIssuanceV1,
+        operation_error: ReplayCompositionBindingErrorV1,
+    ) -> ReplayCompositionBindingErrorV1 {
+        let OpenIssuanceV1 {
+            mut reader_transaction,
+            transaction,
+            market_challenge,
+            ..
+        } = issuance;
+        let market_terminal = transaction.rollback().await;
+        if market_terminal.is_err()
+            && let Err(proof_error) =
+                prove_market_transaction_terminal_v1(&mut reader_transaction, &market_challenge)
+                    .await
+        {
+            return proof_error;
+        }
+
+        match reader_transaction.rollback().await {
+            Ok(()) => operation_error,
+            Err(_) => ReplayCompositionBindingErrorV1::ReplayV2Unavailable,
         }
     }
 
@@ -2571,6 +2180,539 @@ struct OwnerDatabaseDomainV1 {
     database_name: String,
     database_oid: i64,
     postmaster_started_at_epoch: String,
+}
+
+/// The two open transactions of one issuance and what the R&D reader authenticated for it.
+struct OpenIssuanceV1 {
+    reader_transaction: sqlx::Transaction<'static, sqlx::Postgres>,
+    transaction: sqlx::Transaction<'static, sqlx::Postgres>,
+    market_challenge: OwnerChallengeV1,
+    role_set: AuthenticatedStrategyDesignRoleSetV1,
+    /// The Composer native join, resolved only for the first corpus.
+    native_join: Option<StrategyDesignNativeJoinReceiptV1>,
+}
+
+/// The canonical bytes of an issuance command whose locator's meaning digest is its composition's.
+///
+/// Both sides come from the caller's command, and nothing has been read yet: a locator whose
+/// meaning digest disagrees with the composition beside it is a request that contradicts itself,
+/// not a mismatch against anything this Owner holds.
+fn canonical_issuance_command_bytes_v1<C: ReplayCompositionIssuanceCompositionV1>(
+    command: &ReplayCompositionLocatorOnlyIssuanceRequestV1<C>,
+) -> Result<Vec<u8>, ReplayCompositionBindingErrorV1> {
+    let issuance_locator = command.issuance_locator();
+    if issuance_locator.request_identity().as_bytes() == &[0; 32] {
+        return Err(ReplayCompositionBindingErrorV1::InvalidRequest);
+    }
+    let request_bytes = serde_json::to_vec(command.composition())
+        .map_err(|_| ReplayCompositionBindingErrorV1::InvalidRequest)?;
+    let actual_meaning =
+        crate::owner::replay_market_facts_v2::replay_composition_issuance_meaning_digest_v1(
+            command.composition(),
+        )?;
+
+    if actual_meaning != issuance_locator.request_meaning_digest() {
+        return Err(ReplayCompositionBindingErrorV1::InvalidRequest);
+    }
+    Ok(request_bytes)
+}
+
+/// The stored response when this identity was already issued, refusing it when the identity holds
+/// another request.
+async fn replayed_issuance_v1(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    issuance_locator: ReplayCompositionIssuanceLocatorV1,
+    request_bytes: &[u8],
+) -> Result<Option<ReplayCompositionDurableIssuanceResponseV1>, ReplayCompositionBindingErrorV1> {
+    if !issuance_exists(transaction, issuance_locator.request_identity()).await? {
+        return Ok(None);
+    }
+    let response = recover_issuance_in_transaction(transaction, issuance_locator).await?;
+    let stored_request_bytes: Vec<u8> = sqlx::query_scalar(
+        "SELECT request_bytes FROM market_data_private.replay_composition_issuances_v1 WHERE request_identity=$1",
+    )
+    .bind(issuance_locator.request_identity().as_bytes().as_slice())
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+    if stored_request_bytes != request_bytes {
+        return Err(ReplayCompositionBindingErrorV1::IssuanceIdentityConflict);
+    }
+    Ok(Some(response))
+}
+
+/// Records the issuance of one binding and its Replay facts, and returns the exact response bytes
+/// every retry of this identity reads back.
+async fn record_issuance_v1(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    issuance_locator: ReplayCompositionIssuanceLocatorV1,
+    request_bytes: &[u8],
+    binding: &ReplayCompositionBindingReadbackV1,
+    replay_readback: &ReplayMarketFactsReadbackV2,
+) -> Result<ReplayCompositionDurableIssuanceResponseV1, ReplayCompositionBindingErrorV1> {
+    let response =
+        ReplayCompositionIssuanceResponseV1::from_authenticated(binding, replay_readback);
+    let response_bytes = serde_json::to_vec(&response)
+        .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+    sqlx::query("INSERT INTO market_data_private.replay_composition_issuances_v1 (request_identity, request_meaning_digest, request_bytes, binding_identity, binding_digest, response_bytes) VALUES ($1,$2,$3,$4,$5,$6)")
+        .bind(issuance_locator.request_identity().as_bytes().as_slice())
+        .bind(issuance_locator.request_meaning_digest().as_bytes().as_slice())
+        .bind(request_bytes)
+        .bind(binding.record().locator().binding_identity().as_bytes().as_slice())
+        .bind(binding.record().locator().binding_digest().as_bytes().as_slice())
+        .bind(&response_bytes)
+        .execute(&mut **transaction)
+        .await
+        .map_err(|e| map_issuance_insert_error(&e))?;
+    Ok(ReplayCompositionDurableIssuanceResponseV1::from_exact_storage(response_bytes))
+}
+
+/// Resolves the first corpus's exact custody in the Owner transaction and stores its binding and
+/// Replay facts.
+async fn issue_first_corpus_in_transaction_v1(
+    issuance: &mut OpenIssuanceV1,
+    request: &crate::owner::replay_market_facts_v2::ReplayCompositionBindingIssuanceRequestV1,
+    issuance_locator: ReplayCompositionIssuanceLocatorV1,
+    request_bytes: &[u8],
+) -> Result<ReplayCompositionDurableIssuanceResponseV1, ReplayCompositionBindingErrorV1> {
+    let transaction = &mut issuance.transaction;
+    let receipt = issuance.role_set.receipt();
+    let native_join = issuance
+        .native_join
+        .as_ref()
+        .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
+    let replay = request.replay_request();
+    let validated_native_join = validate_native_join_v4(transaction, native_join).await?;
+
+    let r0_locator = request.reference_fact_r0_locator();
+    let r0 = super::reference_fact_coordinates::recover_reference_fact_r0_in_transaction_v1(
+        transaction,
+        UntrustedReferenceFactR0LocatorV1 {
+            request_identity: r0_locator.request_identity(),
+            request_meaning_digest: r0_locator.request_meaning_digest(),
+        },
+    )
+    .await
+    .map_err(|_| ReplayCompositionBindingErrorV1::DependencyMismatch)?;
+    let semantics_locator = request.market_semantics_locator();
+    let semantics = super::market_semantics::recover_market_semantics_in_transaction_v1(
+        transaction,
+        UntrustedMarketSemanticsLocatorV1 {
+            request_identity: semantics_locator.request_identity(),
+            request_meaning_digest: semantics_locator.request_meaning_digest(),
+        },
+    )
+    .await
+    .map_err(|_| ReplayCompositionBindingErrorV1::DependencyMismatch)?;
+
+    if semantics.cut().r0_cut_identity != r0.cut().identity()
+        || semantics.cut().r0_cut_digest != r0.cut().digest()
+        || semantics.facts().iter().any(|fact| {
+            fact.pit_snapshot_identity != request.pit_locator().snapshot_identity
+                || fact.pit_fact_digest != request.pit_locator().fact_digest
+                || fact.source_binding_identity != request.source_binding_locator().binding_id
+        })
+    {
+        return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
+    }
+
+    let universe_locator = request.universe_selection_locator();
+    let universe = super::universe_selection::recover_universe_selection_in_transaction_v1(
+        transaction,
+        &UntrustedUniverseSelectionLocatorV1::from_untrusted(
+            universe_locator.request_identity(),
+            universe_locator.request_meaning_digest(),
+        ),
+    )
+    .await
+    .map_err(|_| ReplayCompositionBindingErrorV1::DependencyMismatch)?;
+
+    let mut roles = Vec::with_capacity(receipt.roles.len());
+    let mut declarations = Vec::with_capacity(receipt.roles.len());
+    let mut first_declaration_request = None;
+
+    for role in &receipt.roles {
+        let declaration =
+            super::strategy_input_binding_registry::recover_strategy_input_binding_declaration_v1(
+                transaction,
+                request.pit_locator().request_identity,
+                receipt.design_identity,
+                role.role_identity,
+            )
+            .await
+            .map_err(|_| ReplayCompositionBindingErrorV1::IncompleteComposition)?;
+
+        if declaration.request().research_request_identity != receipt.research_request_identity
+            || declaration.request().strategy_design_identity != receipt.design_identity
+            || declaration.request().input_role_identity != role.role_identity
+            || !request_matches_authenticated_role_v1(declaration.request(), role)
+        {
+            return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
+        }
+
+        if first_declaration_request.is_none() {
+            first_declaration_request = Some(declaration.request().clone());
+        }
+        roles.push(ReplayCompositionRoleEvidenceV1 {
+            role_identity: role.role_identity,
+            declaration_identity: declaration.request_meaning_digest(),
+            declaration_digest: declaration.request_meaning_digest(),
+            binding_identity: declaration.binding_digest(),
+            binding_digest: declaration.binding_digest(),
+        });
+        declarations.push(declaration);
+    }
+    let census_locator = request.observation_census_locator();
+    let census_row = sqlx::query("SELECT request_meaning_digest,request_bytes,census_identity,census_bytes FROM market_data_private.observation_census_records_v1 WHERE request_identity=$1")
+        .bind(census_locator.request_identity().as_bytes().as_slice())
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?
+        .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
+    let census_meaning = digest_column(&census_row, "request_meaning_digest")?;
+    let census_identity = digest_column(&census_row, "census_identity")?;
+    let census_bytes: Vec<u8> = census_row
+        .try_get("census_bytes")
+        .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+    let census_request_bytes: Vec<u8> = census_row
+        .try_get("request_bytes")
+        .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+    let census_request =
+        crate::owner::observation_census::authority::decode_observation_census_request_v1(
+            &census_request_bytes,
+        )
+        .map_err(|_| ReplayCompositionBindingErrorV1::DigestMismatch)?;
+    let census = crate::owner::observation_census::authority::decode_observation_census_storage_v1(
+        &census_bytes,
+    )
+    .map_err(|_| ReplayCompositionBindingErrorV1::DigestMismatch)?;
+    if census_meaning != census_locator.request_meaning_digest() {
+        return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
+    }
+    let census_roles = census
+        .record()
+        .entries()
+        .iter()
+        .map(crate::owner::observation_census::ObservationCensusEntryV1::input_role_identity)
+        .collect::<Vec<_>>();
+
+    if census.record().identity() != census_identity
+        || census_roles
+            != receipt
+                .roles
+                .iter()
+                .map(|role| role.role_identity)
+                .collect::<Vec<_>>()
+    {
+        return Err(ReplayCompositionBindingErrorV1::IncompleteComposition);
+    }
+    let joined = request.joined_cut_locator();
+    let (authenticated_census, authenticated_joined) =
+        super::observation_census::resolve_and_commit_authenticated_observation_census_v1(
+            transaction,
+            &census_request,
+            receipt,
+        )
+        .await
+        .map_err(|_| ReplayCompositionBindingErrorV1::IncompleteComposition)?;
+    let sample = request.sample_projection_locator();
+
+    if authenticated_census.record().identity() != census_identity
+        || authenticated_joined
+            .record()
+            .locator()
+            .joined_cut_identity()
+            != joined.identity()
+        || authenticated_joined.record().locator().joined_cut_digest() != joined.digest()
+        || native_join.joined_cut_digest() != joined.digest()
+        || native_join.joined_cut_receipt_digest()
+            != authenticated_joined.record().joined_cut_receipt().digest()
+        || native_join.strategy_design_identity() != receipt.design_identity
+        || native_join.join_identity() != census_request.join_claim().join_identity
+        || native_join.join_claim_digest()
+            != crate::owner::replay_market_facts_v2::composer_join_claim_digest_v1(
+                census_request.join_claim(),
+            )
+        || sample.identity() != native_join.projection_receipt_digest()
+        || sample.digest() != native_join.projection_receipt_digest()
+        || validated_native_join.roles
+            != roles
+                .iter()
+                .map(|role| (role.role_identity, role.binding_digest))
+                .collect::<Vec<_>>()
+    {
+        return Err(ReplayCompositionBindingErrorV1::IncompleteComposition);
+    }
+
+    validate_replay_first_corpus_v1(
+        transaction,
+        receipt,
+        census_request.join_claim(),
+        &declarations,
+        authenticated_joined.record().joined_cut_receipt(),
+        &validated_native_join,
+    )
+    .await?;
+
+    validate_exact_request_row(
+        transaction,
+        "instrument_master_receipts_v1",
+        request.instrument_master_locator(),
+    )
+    .await?;
+
+    let calendar_locator = request.calendar_locator();
+    let calendar = super::calendar::recover_calendar_v1(
+        transaction,
+        UntrustedCalendarLocatorV1::from_untrusted(
+            calendar_locator.request_identity(),
+            calendar_locator.request_meaning_digest(),
+        ),
+    )
+    .await
+    .map_err(|_| ReplayCompositionBindingErrorV1::DependencyMismatch)?;
+    let session_locator = request.session_locator();
+    let session = super::session::recover_session_in_transaction_v1(
+        transaction,
+        UntrustedSessionLocatorV1 {
+            request_identity: session_locator.request_identity(),
+            request_meaning_digest: session_locator.request_meaning_digest(),
+        },
+    )
+    .await
+    .map_err(|_| ReplayCompositionBindingErrorV1::DependencyMismatch)?;
+    let time_zone_locator = request.time_zone_locator();
+    let time_zone = super::time_zone::recover_time_zone_in_transaction_v1(
+        transaction,
+        UntrustedTimeZoneLocatorV1 {
+            request_identity: time_zone_locator.request_identity(),
+            request_meaning_digest: time_zone_locator.request_meaning_digest(),
+        },
+    )
+    .await
+    .map_err(|_| ReplayCompositionBindingErrorV1::DependencyMismatch)?;
+    let action_locator = request.corporate_action_locator();
+    let corporate_action = super::corporate_action::recover_corporate_action_in_transaction_v1(
+        transaction,
+        UntrustedCorporateActionLocatorV1 {
+            request_identity: action_locator.request_identity(),
+            request_meaning_digest: action_locator.request_meaning_digest(),
+        },
+    )
+    .await
+    .map_err(|_| ReplayCompositionBindingErrorV1::DependencyMismatch)?;
+    let source = super::strategy_input_binding_registry::recover_strategy_input_binding_source_v1(
+        transaction,
+        first_declaration_request
+            .as_ref()
+            .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?,
+    )
+    .await
+    .map_err(|_| ReplayCompositionBindingErrorV1::DependencyMismatch)?;
+    if source.locator() != request.source_binding_locator() {
+        return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
+    }
+    let native_reference_r0s =
+        recover_native_reference_r0s_v1(transaction, &calendar, &session, &time_zone).await?;
+    let coordinates = coordinates_from_r0(&r0)?;
+    let correction = project_first_v1(CorrectionPolicyAuthenticatedInputsV1 {
+        source_binding: &source,
+        coordinates: &coordinates,
+        r0_coordinate_identity: r0.record().identity(),
+        r0_coordinate_digest: r0.record().digest(),
+    })
+    .map_err(|_| ReplayCompositionBindingErrorV1::DependencyMismatch)?;
+
+    if correction.identity() != request.correction_policy_locator().identity()
+        || correction.identity() != request.correction_policy_locator().digest()
+    {
+        return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
+    }
+    let instrument_master =
+        exact_instrument_reference(transaction, request.instrument_master_locator()).await?;
+    let instrument_cut_identity = instrument_master.cut_digest;
+
+    if semantics
+        .facts()
+        .iter()
+        .any(|fact| fact.instrument_master_cut_digest != instrument_cut_identity)
+    {
+        return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
+    }
+    validate_exact_request_row(
+        transaction,
+        "calendar_receipts_v1",
+        request.calendar_locator(),
+    )
+    .await?;
+    validate_exact_request_row(
+        transaction,
+        "session_receipts_v1",
+        request.session_locator(),
+    )
+    .await?;
+    validate_exact_request_row(
+        transaction,
+        "time_zone_receipts_v1",
+        request.time_zone_locator(),
+    )
+    .await?;
+    validate_exact_request_row(
+        transaction,
+        "corporate_action_receipts_v1",
+        request.corporate_action_locator(),
+    )
+    .await?;
+
+    if let Some(response) =
+        replayed_issuance_v1(transaction, issuance_locator, request_bytes).await?
+    {
+        return Ok(response);
+    }
+    let registry_digest = digest_registry(&roles);
+    let role_ids = roles
+        .iter()
+        .map(|role| role.role_identity)
+        .collect::<Vec<_>>();
+    let role_bindings = roles
+        .iter()
+        .map(|role| (role.role_identity, role.binding_digest))
+        .collect::<Vec<_>>();
+    let binding = issue_replay_composition_binding_v1(
+        &replay,
+        ReplayCompositionBindingEvidenceV1 {
+            authenticated_strategy_design_identity: receipt.design_identity,
+            authenticated_strategy_design_digest: receipt.design_digest,
+            registry_identity: registry_digest,
+            registry_digest,
+            native_locators: vec![
+                ReplayCompositionNativeLocatorV1 {
+                    kind: ReplayCompositionNativeLocatorKindV1::PitSnapshot,
+                    identity: request.pit_locator().snapshot_identity,
+                    digest: request.pit_locator().fact_digest,
+                },
+                ReplayCompositionNativeLocatorV1 {
+                    kind: ReplayCompositionNativeLocatorKindV1::SourceBinding,
+                    identity: request.source_binding_locator().binding_id,
+                    digest: request.source_binding_locator().fact_digest,
+                },
+                ReplayCompositionNativeLocatorV1 {
+                    kind: ReplayCompositionNativeLocatorKindV1::UniverseSelection,
+                    identity: universe.record().identity(),
+                    digest: universe.record().digest(),
+                },
+                ReplayCompositionNativeLocatorV1 {
+                    kind: ReplayCompositionNativeLocatorKindV1::InstrumentMaster,
+                    identity: instrument_cut_identity,
+                    digest: instrument_cut_identity,
+                },
+                ReplayCompositionNativeLocatorV1 {
+                    kind: ReplayCompositionNativeLocatorKindV1::MarketSemantics,
+                    identity: semantics.cut().identity(),
+                    digest: semantics.cut().digest(),
+                },
+            ],
+            roles,
+            census_identity,
+            census_digest: census_identity,
+            census_roles: role_ids,
+            joined_cut_identity: joined.identity(),
+            joined_cut_digest: joined.digest(),
+            joined_cut_roles: role_bindings.clone(),
+            sample_projection_identity: sample.identity(),
+            sample_projection_digest: sample.digest(),
+            sample_projection_roles: role_bindings,
+            stable_correlation: receipt.intent_identity,
+        },
+    )?;
+    persist_replay_composition_binding_in_transaction_v1(transaction, &binding)
+        .await
+        .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+    let native_chain = ReplayNativeChainEvidenceV2::from_verified_native_records_v4(
+        ReplayVerifiedNativeRecordV2::from_verified_native_record(census_identity, census_identity),
+        ReplayVerifiedNativeDerivedRecordV2::from_verified_native_record(
+            ReplayVerifiedNativeRecordV2::from_verified_native_record(
+                joined.identity(),
+                joined.digest(),
+            ),
+            ReplayVerifiedNativeRecordV2::from_verified_native_record(
+                census_identity,
+                census_identity,
+            ),
+        ),
+        ReplayVerifiedNativeDerivedRecordV2::from_verified_native_record(
+            ReplayVerifiedNativeRecordV2::from_verified_native_record(
+                sample.identity(),
+                sample.digest(),
+            ),
+            ReplayVerifiedNativeRecordV2::from_verified_native_record(
+                joined.identity(),
+                joined.digest(),
+            ),
+        ),
+    );
+    let base_dependencies = vec![
+        ReplayMarketDependencyRefV2::from_verified_owner_record(
+            ReplayMarketDependencyKindV2::PitSnapshotV1,
+            request.pit_locator().snapshot_identity,
+            request.pit_locator().fact_digest,
+        ),
+        ReplayMarketDependencyRefV2::from_verified_owner_record(
+            ReplayMarketDependencyKindV2::SourceBindingV1,
+            source.binding_id(),
+            source.fact_digest(),
+        ),
+        ReplayMarketDependencyRefV2::from_verified_owner_record(
+            ReplayMarketDependencyKindV2::InstrumentMasterCutV1,
+            instrument_cut_identity,
+            instrument_cut_identity,
+        ),
+        ReplayMarketDependencyRefV2::from_verified_owner_record(
+            ReplayMarketDependencyKindV2::UniverseSelectionV1,
+            universe.record().identity(),
+            universe.record().digest(),
+        ),
+    ];
+    let reference_cuts = build_reference_cuts(
+        request,
+        &r0,
+        &calendar,
+        &session,
+        &time_zone,
+        &semantics,
+        &correction,
+        &corporate_action,
+        &universe,
+        &instrument_master,
+        &source,
+        &native_reference_r0s,
+    )?;
+    let composed_request =
+        UntrustedReplayMarketFactsCompositionRequestV1::new(replay, binding.record().locator());
+    let replay_readback = compose_replay_market_facts_v2(
+        &composed_request,
+        &binding,
+        ReplayMarketFactsEvidenceV2 {
+            base_dependencies,
+            native_chain,
+            reference_cuts,
+            stable_correlation: receipt.intent_identity,
+        },
+    )?;
+    let prepared =
+        PreparedReplayMarketFactsStorageV2::from_verified_readback(&replay_readback, &binding)
+            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+    persist_replay_market_facts_in_transaction_v2(transaction, &prepared)
+        .await
+        .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+    record_issuance_v1(
+        transaction,
+        issuance_locator,
+        request_bytes,
+        &binding,
+        &replay_readback,
+    )
+    .await
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -3475,26 +3617,36 @@ pub(crate) struct UniverseMemberReplayFactsSourcesV2<'a> {
 
 /// Issues and stores one universe-member Replay facts aggregate in the caller's transaction.
 ///
-/// `binding_identity` is the universe-member binding the caller issued in this same transaction;
-/// the stored row is bound to it and to nothing else. Nothing is written when any check refuses.
+/// `binding` is the universe-member binding the caller issued in this same transaction. It must
+/// be a universe-member binding of this request, name exactly these sources' native authorities
+/// and bind this frame; the stored row is keyed by it and by nothing else. Nothing is written when
+/// any check refuses.
 ///
 /// # Errors
 ///
-/// `UniverseFrameMismatch` when the frame is not this request's, the reference-cut refusals of
-/// the first corpus for the three cuts this shape carries, and `ReplayV2Unavailable` when the
-/// aggregate cannot be issued or stored.
+/// `CompositionShapeMismatch` for a first-corpus binding, `DependencyMismatch` for a binding of
+/// another request or native authority, `UniverseFrameMismatch` when the frame is not the
+/// binding's or not this request's, the reference-cut refusals of the first corpus for the three
+/// cuts this shape carries, and `ReplayV2Unavailable` when the aggregate cannot be issued or
+/// stored.
 pub(crate) async fn persist_universe_member_replay_market_facts_in_transaction_v2(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     request: &UntrustedReplayMarketFactsRequestV2,
     sources: &UniverseMemberReplayFactsSourcesV2<'_>,
-    binding_identity: BindingDigest,
+    binding: &ReplayCompositionBindingReadbackV1,
     stable_correlation: BindingDigest,
 ) -> Result<ReplayMarketFactsReadbackV2, ReplayCompositionBindingErrorV1> {
+    require_universe_member_binding_v1(
+        request,
+        binding,
+        &universe_member_native_locators_v1(request.pit_locator(), sources),
+        sources.frame.digest(),
+    )?;
     let readback =
         compose_universe_member_replay_market_facts_v2(request, sources, stable_correlation)?;
     let prepared = PreparedReplayMarketFactsStorageV2::from_verified_universe_member_readback(
         &readback,
-        binding_identity,
+        binding.record().locator().binding_identity(),
     )
     .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
     Box::pin(persist_replay_market_facts_in_transaction_v2(
@@ -3504,6 +3656,37 @@ pub(crate) async fn persist_universe_member_replay_market_facts_in_transaction_v
     .await
     .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
     Ok(readback)
+}
+
+/// The native authorities a universe-member binding names: the PIT snapshot, the Source Binding,
+/// the Universe Selection and the Market Semantics cut. It names no Instrument Master: each
+/// member's facts are the request-keyed cut Market Data issues over the selection later.
+pub(crate) fn universe_member_native_locators_v1(
+    pit: &crate::owner::pit_snapshot::UntrustedPitSnapshotLocator,
+    sources: &UniverseMemberReplayFactsSourcesV2<'_>,
+) -> Vec<ReplayCompositionNativeLocatorV1> {
+    vec![
+        ReplayCompositionNativeLocatorV1 {
+            kind: ReplayCompositionNativeLocatorKindV1::PitSnapshot,
+            identity: pit.snapshot_identity,
+            digest: pit.fact_digest,
+        },
+        ReplayCompositionNativeLocatorV1 {
+            kind: ReplayCompositionNativeLocatorKindV1::SourceBinding,
+            identity: sources.source.binding_id(),
+            digest: sources.source.fact_digest(),
+        },
+        ReplayCompositionNativeLocatorV1 {
+            kind: ReplayCompositionNativeLocatorKindV1::UniverseSelection,
+            identity: sources.universe.record().identity(),
+            digest: sources.universe.record().digest(),
+        },
+        ReplayCompositionNativeLocatorV1 {
+            kind: ReplayCompositionNativeLocatorKindV1::MarketSemantics,
+            identity: sources.semantics.cut().identity(),
+            digest: sources.semantics.cut().digest(),
+        },
+    ]
 }
 
 /// Issues one universe-member aggregate: the PIT snapshot, Source Binding and Universe Selection the
