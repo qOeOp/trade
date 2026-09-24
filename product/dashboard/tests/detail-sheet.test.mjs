@@ -21,7 +21,9 @@ test("the shared detail sheet owns focus, responsive geometry, and canonical fal
     readFile(new URL("../../../docs/guide/dashboard.zh.md", import.meta.url), "utf8"),
   ]);
 
-  for (const token of ["showModal()", "aria-labelledby", "returnFocus.current?.focus()", "canonicalHref"]) {
+  // Focus return is the browser's modal close, proven in the browser acceptances, so no source text
+  // stands in for it here.
+  for (const token of ["showModal()", "aria-labelledby", "canonicalHref"]) {
     assert.ok(sheet.includes(token), `DetailSheet missing ${token}`);
   }
   assert.match(sheet, /<PanelFrameBody className=\{styles\.body\} density="compact">/u);
