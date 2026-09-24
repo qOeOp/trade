@@ -166,9 +166,13 @@ pub(super) struct StrategyInputBindingDeclarationReadbackV1 {
 /// An exact-instrument role binds to its one row. A universe-member role binds to its value for
 /// every member of the selection at the cut - the role's universe frame - because it has no single
 /// row to bind. Either way the stored declaration keeps only the digest.
+///
+/// Both bindings are boxed: the enum is held in the frames of the registry's async functions,
+/// which a debug build keeps whole while they await, and the ordered chain runs those frames on a
+/// 2 MiB test stack.
 pub(super) enum DeclaredStrategyInputBindingV1 {
-    ExactInstrument(StrategyInputBindingReceipt),
-    UniverseMembers(StrategyInputUniverseFrameReceipt),
+    ExactInstrument(Box<StrategyInputBindingReceipt>),
+    UniverseMembers(Box<StrategyInputUniverseFrameReceipt>),
 }
 
 impl DeclaredStrategyInputBindingV1 {
@@ -176,6 +180,19 @@ impl DeclaredStrategyInputBindingV1 {
         match self {
             Self::ExactInstrument(binding) => binding.digest(),
             Self::UniverseMembers(frame) => frame.digest(),
+        }
+    }
+
+    /// The exact-instrument binding, or a refusal for a universe-member declaration, which has no
+    /// single-row binding.
+    fn into_exact(
+        self,
+    ) -> Result<StrategyInputBindingReceipt, StrategyInputBindingRegistryErrorV1> {
+        match self {
+            Self::ExactInstrument(binding) => Ok(*binding),
+            Self::UniverseMembers(_) => {
+                Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterScopeUnavailable)
+            }
         }
     }
 }
@@ -198,7 +215,7 @@ impl StrategyInputBindingDeclarationReadbackV1 {
     /// join single rows into an event frame have no row to take from a universe role.
     pub(super) const fn exact_binding(&self) -> Option<&StrategyInputBindingReceipt> {
         match &self.binding {
-            DeclaredStrategyInputBindingV1::ExactInstrument(binding) => Some(binding),
+            DeclaredStrategyInputBindingV1::ExactInstrument(binding) => Some(&**binding),
             DeclaredStrategyInputBindingV1::UniverseMembers(_) => None,
         }
     }
@@ -769,46 +786,65 @@ async fn resolve_and_bind_with_mode(
         return Err(StrategyInputBindingRegistryErrorV1::MarketSemanticsUnavailable);
     };
 
+    // Each arm binds through a synchronous helper, so this async function's frame, which a debug
+    // build keeps whole across every await, holds none of the binders' temporaries.
     match &request.scope {
         UntrustedStrategyInputScope::ExactInstrument { .. } => {
             let instrument =
                 validate_native_instrument_master(transaction, request, &batch, semantics_fact)
                     .await?;
-            validate_native_market_semantics(request, &batch, semantics_fact)?;
-
-            if !market_semantics_instrument_coordinate_matches(
-                instrument,
-                request.instrument_master_digest,
-                semantics_fact.instrument_master_readback_digest,
-                semantics_fact.instrument_master_fact_digest,
-                semantics_fact.instrument_master_cut_digest,
-            ) {
-                return Err(StrategyInputBindingRegistryErrorV1::MarketSemanticsUnavailable);
-            }
-            bind_strategy_input_role(request, &batch)
-                .map(DeclaredStrategyInputBindingV1::ExactInstrument)
-                .map_err(StrategyInputBindingRegistryErrorV1::BindingUnavailable)
+            bind_exact_instrument_declaration_v1(request, &batch, semantics_fact, instrument)
         }
         UntrustedStrategyInputScope::UniverseSelection { .. } => {
-            // A universe role binds no Instrument Master at composition time: its members' facts
-            // are the request-keyed V2 cut Market Data issues over the selection's own membership
-            // when R&D first binds the sealed request for native execution. Only the batch-level
-            // coordinate is checked here; the per-instrument check moves to that cut, and nothing
-            // between the two may present an Instrument Master field as verified.
-            if request.instrument_master_digest != batch.instrument_master_digest() {
-                return Err(
-                    StrategyInputBindingRegistryErrorV1::InstrumentMasterBatchDigestUnavailable,
-                );
-            }
-            validate_native_market_semantics(request, &batch, semantics_fact)?;
-            bind_strategy_input_universe_frame(std::slice::from_ref(request), &batch)
-                .map(DeclaredStrategyInputBindingV1::UniverseMembers)
-                .map_err(StrategyInputBindingRegistryErrorV1::BindingUnavailable)
+            bind_universe_members_declaration_v1(request, &batch, semantics_fact)
         }
         UntrustedStrategyInputScope::InstrumentSet { .. } => {
             Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterScopeUnavailable)
         }
     }
+}
+
+/// Binds an exact-instrument declaration once its Instrument Master coordinate is resolved.
+fn bind_exact_instrument_declaration_v1(
+    request: &UntrustedStrategyInputBindingRequest,
+    batch: &VerifiedPitObservationBatch,
+    semantics_fact: &crate::owner::market_semantics::MarketSemanticsFactV1,
+    instrument: NativeInstrumentMasterCoordinateV1,
+) -> Result<DeclaredStrategyInputBindingV1, StrategyInputBindingRegistryErrorV1> {
+    validate_native_market_semantics(request, batch, semantics_fact)?;
+
+    if !market_semantics_instrument_coordinate_matches(
+        instrument,
+        request.instrument_master_digest,
+        semantics_fact.instrument_master_readback_digest,
+        semantics_fact.instrument_master_fact_digest,
+        semantics_fact.instrument_master_cut_digest,
+    ) {
+        return Err(StrategyInputBindingRegistryErrorV1::MarketSemanticsUnavailable);
+    }
+    bind_strategy_input_role(request, batch)
+        .map(|binding| DeclaredStrategyInputBindingV1::ExactInstrument(Box::new(binding)))
+        .map_err(StrategyInputBindingRegistryErrorV1::BindingUnavailable)
+}
+
+/// Binds a universe-member declaration to the role's universe frame over the batch.
+fn bind_universe_members_declaration_v1(
+    request: &UntrustedStrategyInputBindingRequest,
+    batch: &VerifiedPitObservationBatch,
+    semantics_fact: &crate::owner::market_semantics::MarketSemanticsFactV1,
+) -> Result<DeclaredStrategyInputBindingV1, StrategyInputBindingRegistryErrorV1> {
+    // A universe role binds no Instrument Master at composition time: its members' facts
+    // are the request-keyed V2 cut Market Data issues over the selection's own membership
+    // when R&D first binds the sealed request for native execution. Only the batch-level
+    // coordinate is checked here; the per-instrument check moves to that cut, and nothing
+    // between the two may present an Instrument Master field as verified.
+    if request.instrument_master_digest != batch.instrument_master_digest() {
+        return Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterBatchDigestUnavailable);
+    }
+    validate_native_market_semantics(request, batch, semantics_fact)?;
+    bind_strategy_input_universe_frame(std::slice::from_ref(request), batch)
+        .map(|frame| DeclaredStrategyInputBindingV1::UniverseMembers(Box::new(frame)))
+        .map_err(StrategyInputBindingRegistryErrorV1::BindingUnavailable)
 }
 
 /// Re-derives an exact-instrument binding without locking; a universe-member request has no
@@ -817,12 +853,9 @@ pub(super) async fn rederive_strategy_input_binding_read_only_v1(
     transaction: &mut Transaction<'_, Postgres>,
     request: &UntrustedStrategyInputBindingRequest,
 ) -> Result<StrategyInputBindingReceipt, StrategyInputBindingRegistryErrorV1> {
-    match resolve_and_bind_with_mode(transaction, request, DependencyReadModeV1::ReadOnly).await? {
-        DeclaredStrategyInputBindingV1::ExactInstrument(binding) => Ok(binding),
-        DeclaredStrategyInputBindingV1::UniverseMembers(_) => {
-            Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterScopeUnavailable)
-        }
-    }
+    resolve_and_bind_with_mode(transaction, request, DependencyReadModeV1::ReadOnly)
+        .await?
+        .into_exact()
 }
 
 pub(super) async fn resolve_complete_strategy_input_roles_v1(
@@ -927,12 +960,7 @@ async fn resolve_complete_strategy_input_roles_with_mode_v1(
     let batch = resolve_native_pit(transaction, request, mode).await?;
     let bindings = declarations
         .into_iter()
-        .map(|declaration| match declaration.binding {
-            DeclaredStrategyInputBindingV1::ExactInstrument(binding) => Ok(binding),
-            DeclaredStrategyInputBindingV1::UniverseMembers(_) => {
-                Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterScopeUnavailable)
-            }
-        })
+        .map(|declaration| declaration.binding.into_exact())
         .collect::<Result<Vec<_>, _>>()?;
     let mut frames = Vec::with_capacity(bindings.len());
     for binding in &bindings {
