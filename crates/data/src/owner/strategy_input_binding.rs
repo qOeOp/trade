@@ -16,6 +16,12 @@ use super::{
     strategy_design_role_set::StrategyDesignRoleEntryV1,
 };
 
+/// The canonical scope an authenticated exact-instrument role carries.
+pub(crate) const EXACT_INSTRUMENT_ROLE_SCOPE_V1: &str = r#"{"kind":"EXACT_INSTRUMENT"}"#;
+
+/// The canonical scope an authenticated universe-member role carries.
+pub(crate) const UNIVERSE_MEMBERS_ROLE_SCOPE_V1: &str = r#"{"kind":"UNIVERSE_MEMBERS"}"#;
+
 /// Verifies that a legacy V1 request repeats one authenticated Design role without changing any
 /// Research-owned semantic coordinate. PIT/lineage coordinates remain Market Data-owned checks.
 pub(crate) fn request_matches_authenticated_role_v1(
@@ -31,10 +37,10 @@ pub(crate) fn request_matches_authenticated_role_v1(
     // still refused.
     let (scope, instrument) = match &request.scope {
         UntrustedStrategyInputScope::ExactInstrument { instrument } => {
-            (r#"{"kind":"EXACT_INSTRUMENT"}"#, instrument.as_str())
+            (EXACT_INSTRUMENT_ROLE_SCOPE_V1, instrument.as_str())
         }
         UntrustedStrategyInputScope::UniverseSelection { .. } => {
-            (r#"{"kind":"UNIVERSE_MEMBERS"}"#, "")
+            (UNIVERSE_MEMBERS_ROLE_SCOPE_V1, "")
         }
         UntrustedStrategyInputScope::InstrumentSet { .. } => return false,
     };

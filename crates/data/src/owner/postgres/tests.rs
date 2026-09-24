@@ -2212,7 +2212,11 @@ async fn strategy_input_binding_registry_postgres_oracle(
             claimed_request_identity: d(0),
             claimed_request_digest: d(0),
             correlation_identity: d(174),
-            requester_identity: d(175),
+            // The requester R&D writes for the fixture's Research request, so a Design of that
+            // request can name this PIT request as its initial one.
+            requester_identity: crate::owner::pit_snapshot::research_pit_requester_identity_v1(d(
+                190,
+            )),
             scope_digest: d(176),
             source_binding: source.receipt().locator().clone(),
             instrument_master_digest: instrument.digest(),
@@ -2743,6 +2747,158 @@ async fn read_only_persisted_strategy_input_custody_v1(
     .await;
     transaction.commit().await.unwrap();
     outcome
+}
+
+/// A universe-member Design registers against exactly the initial PIT request it names.
+///
+/// The Design's role intent names the registry fixture's PIT request by its claimed identity and
+/// digest, and that request carries the requester R&D writes for the fixture's Research request.
+/// Registration resolves nothing else: a Design that names no request, an unknown one, the right
+/// one with another digest, or the right one from another Research request is refused by name and
+/// writes nothing. A named request that is not `AVAILABLE` is covered where the decision is made.
+async fn initial_pit_request_registration_oracle_v1(
+    owner: &MarketDataOwnerPostgres,
+    fixture: &StrategyInputBindingRegistryFixtureV1,
+) {
+    use super::authenticated_design_registration_v1::register_authenticated_design_roles_v1;
+    use super::pit_role_resolution_v1::AuthenticatedDesignIdentityV1;
+    use super::strategy_input_binding_registry::{
+        StrategyInputDeclaredScopeV1, resolve_pit_request_for_strategy_design_v1,
+    };
+    use crate::owner::strategy_design_role_intent_v1::InitialPitRequestLocatorV1;
+    use crate::owner::strategy_design_role_set::{
+        StrategyDesignRoleEntryV1, StrategyDesignRoleSetLocatorV1, StrategyDesignRoleSetReceiptV1,
+    };
+    use crate::owner::strategy_input_binding_admission_v1::StrategyInputBindingAdmissionErrorV1 as Admission;
+
+    let role = |identity, field: &str| StrategyDesignRoleEntryV1 {
+        role_identity: identity,
+        semantic_id: format!("universe-{field}"),
+        fact_class: "MARKET_DATA".into(),
+        instrument: String::new(),
+        scope: r#"{"kind":"UNIVERSE_MEMBERS"}"#.into(),
+        field_semantic_id: format!("MARKET_DATA.BAR.{field}.PRICE.V1"),
+        channel: "MARKET".into(),
+        timeframe: "1M".into(),
+        unit: "PRICE".into(),
+        scale: 2,
+        value_type: "I128".into(),
+    };
+    let roles = vec![role(d(246), "CLOSE"), role(d(247), "OPEN")];
+    let design = |research, design| {
+        AuthenticatedDesignIdentityV1::from_role_set(
+            &StrategyDesignRoleSetReceiptV1::from_rd_owner_projection(
+                StrategyDesignRoleSetLocatorV1 {
+                    schema_version: 2,
+                    request_identity: "universe-composer-request".into(),
+                    operation_receipt_identity: d(20),
+                    artifact_locator: "artifact".into(),
+                    artifact_identity: d(21),
+                    canonical_plan_digest: d(22),
+                    design_digest: d(23),
+                },
+                research,
+                d(24),
+                design,
+                d(23),
+                d(25),
+                roles.clone(),
+                vec![],
+            )
+            .unwrap(),
+        )
+    };
+    let request = fixture.pit.fact().request();
+    let named = InitialPitRequestLocatorV1 {
+        pit_request_identity: request.claimed_request_identity,
+        pit_request_digest: request.claimed_request_digest,
+    };
+    let register = async |design, named| {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        let outcome = Box::pin(register_authenticated_design_roles_v1(
+            &mut transaction,
+            design,
+            &roles,
+            named,
+        ))
+        .await;
+        transaction.commit().await.unwrap();
+        outcome
+    };
+    let declaration_count = async || -> i64 {
+        sqlx::query_scalar(
+            "SELECT COUNT(*) FROM market_data_private.strategy_input_binding_declarations_v1",
+        )
+        .fetch_one(owner.pool())
+        .await
+        .unwrap()
+    };
+
+    let before = declaration_count().await;
+    let unknown = InitialPitRequestLocatorV1 {
+        pit_request_identity: d(250),
+        ..named
+    };
+    let other_digest = InitialPitRequestLocatorV1 {
+        pit_request_digest: d(251),
+        ..named
+    };
+
+    for (refused_design, refused_named, expected) in [
+        (
+            design(d(190), d(245)),
+            None,
+            Admission::InitialPitRequestUnnamed,
+        ),
+        (
+            design(d(190), d(245)),
+            Some(unknown),
+            Admission::InitialPitRequestUnknown,
+        ),
+        (
+            design(d(190), d(245)),
+            Some(other_digest),
+            Admission::InitialPitRequestDigestMismatch,
+        ),
+        (
+            design(d(252), d(245)),
+            Some(named),
+            Admission::InitialPitRequestRequesterMismatch,
+        ),
+    ] {
+        assert_eq!(
+            register(refused_design, refused_named).await.map(|_| ()),
+            Err(expected)
+        );
+    }
+    assert_eq!(declaration_count().await, before, "refusals write nothing");
+
+    register(design(d(190), d(245)), Some(named))
+        .await
+        .expect("the Design registers against the PIT request it names");
+    assert_eq!(declaration_count().await, before + 2);
+    let coordinate = {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        let coordinate = resolve_pit_request_for_strategy_design_v1(&mut transaction, d(245))
+            .await
+            .unwrap();
+        transaction.commit().await.unwrap();
+        coordinate
+    };
+    assert_eq!(
+        coordinate.declared_scope,
+        StrategyInputDeclaredScopeV1::UniverseMembers
+    );
+    assert_eq!(coordinate.pit_request_identity, named.pit_request_identity);
+
+    register(design(d(190), d(245)), Some(named))
+        .await
+        .expect("registration replays");
+    assert_eq!(
+        declaration_count().await,
+        before + 2,
+        "a replay writes nothing"
+    );
 }
 
 /// Exercises the universe-member custody re-read against the persisted universe Design.
@@ -4262,6 +4418,11 @@ async fn instrument_master_postgres_oracle(owner_url: &str, reader_url: &str, ad
         &owner,
         &registry_fixture.binding_requests[0],
         &registry_fixture.batch,
+    ))
+    .await;
+    Box::pin(initial_pit_request_registration_oracle_v1(
+        &owner,
+        &registry_fixture,
     ))
     .await;
     Box::pin(persisted_strategy_input_custody_postgres_oracle_v1(
