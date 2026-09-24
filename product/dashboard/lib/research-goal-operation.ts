@@ -109,14 +109,15 @@ async function availableTerminalResearch(
   };
 }
 
+// Submits a sourced Research request. Resolving one, fresh or in recovery, goes through
+// `resolveResearchGoalOperationV2` and the Owner route the orchestration contract names; the V1
+// composite route this used to resolve through takes a V1 body the V2 proposal is not.
 export async function executeResearchGoalOperationV2({
-  action,
   input,
   ancestry,
   transport,
   routing,
 }: {
-  action: "RUN" | "RESOLVE";
   input: ResearchGoalExecutionInputV2;
   ancestry: SourceIntakeAncestryV1;
   transport: RdOwnerHttpTransportV1;
@@ -125,15 +126,12 @@ export async function executeResearchGoalOperationV2({
   if (!validResearchGoalExecutionInputV2(input) || !validAncestry(ancestry)) {
     return unavailable("RESEARCH_EXECUTION_REQUEST_INVALID");
   }
-  if (action === "RUN"
-    && (routing.state !== "ACTIVE" || routing.dispatcher !== "TRADE_DASHBOARD")) {
+  if (routing.state !== "ACTIVE" || routing.dispatcher !== "TRADE_DASHBOARD") {
     return unavailable("RESEARCH_EXECUTION_ROUTING_UNAVAILABLE");
   }
   const ownerOutcome = await rdOwnerJsonOutcomeV1({
     transport,
-    path: action === "RUN"
-      ? "/v2/source-intake-research"
-      : `/v1/source-intake-research/${encodeURIComponent(input.request_identity)}/resolve`,
+    path: "/v2/source-intake-research",
     method: "POST",
     body: {
       proposal: {
@@ -143,12 +141,10 @@ export async function executeResearchGoalOperationV2({
       },
       ancestry,
     },
-    tradeDashboardDispatcher: action === "RUN",
+    tradeDashboardDispatcher: true,
   });
   if (ownerOutcome.state === "ABSENT") {
-    return unavailable(action === "RESOLVE"
-      ? "RESEARCH_OWNER_ABSENT"
-      : "RESEARCH_OWNER_RESPONSE_UNAVAILABLE");
+    return unavailable("RESEARCH_OWNER_RESPONSE_UNAVAILABLE");
   }
   if (ownerOutcome.state === "UNKNOWN") {
     return unavailable("RESEARCH_OWNER_UNKNOWN");
