@@ -93,6 +93,26 @@ test("disposable PostgreSQL keeps cancellation and deletion receipts atomic with
     assert.equal(detail.timeline.some(({ audit_identity }) => audit_identity === entry.audit_identity), true);
   }
 
+  // The current view is cut at the database's time, the clock the audit rows were stamped with. A
+  // cut from a browser clock ahead of the database is refused outright, and one behind it hides the
+  // rows written since, which is why the page asks for the current view instead of sending its clock.
+  const beforeRead = (await admin.query("SELECT clock_timestamp() AS at")).rows[0].at;
+  const current = await gateway.read({ principalRef: "audit_test_operator", range: "all", pageSize: 20 });
+  const afterRead = (await admin.query("SELECT clock_timestamp() AS at")).rows[0].at;
+  assert.ok(Date.parse(current.filter_cut.observed_at) >= beforeRead.getTime());
+  assert.ok(Date.parse(current.filter_cut.observed_at) <= afterRead.getTime());
+  assert.equal(current.entries.length, 2);
+  await assert.rejects(() => gateway.read({
+    observedAt: new Date(afterRead.getTime() + 3_600_000).toISOString(),
+    principalRef: "audit_test_operator", range: "all", pageSize: 20,
+  }), /OPERATION_AUDIT_QUERY_INVALID/u);
+  const oldest = Math.min(...current.entries.map(({ observed_at }) => Date.parse(observed_at)));
+  const behind = await gateway.read({
+    observedAt: new Date(oldest - 1).toISOString(),
+    principalRef: "audit_test_operator", range: "all", pageSize: 20,
+  });
+  assert.equal(behind.entries.length, 0);
+
   const deletionEntry = page.entries.find(({ receipt_identity }) => receipt_identity === deletion.receipt_identity);
   assert.ok(deletionEntry);
   await assert.rejects(() => admin.query(

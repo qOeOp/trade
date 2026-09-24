@@ -142,6 +142,30 @@ impl PostgresExploratoryReplayReadbackOwnerV2 {
             .map_err(|_| crate::BacktestResultCustodyErrorV2::Unavailable)?;
         result
     }
+
+    /// Reads one committed run's report through the Backtest Owner's run-report read.
+    ///
+    /// Like the result read above, the transaction is always rolled back and this adapter exposes
+    /// no mutation method. A transaction that cannot begin or end is the Owner's custody being
+    /// unreadable, so it is named as that refusal rather than as a new one.
+    pub async fn resolve_backtest_run_report_v1(
+        &self,
+        locator: crate::ExploratoryReplayResultLocatorV2<'_>,
+    ) -> Result<
+        Option<crate::backtest_run_report_read_v1::BacktestRunReportProjectionV1>,
+        crate::backtest_run_report_read_v1::BacktestRunReportRefusalV1,
+    > {
+        use crate::backtest_run_report_read_v1::{
+            BacktestRunReportRefusalV1, resolve_backtest_run_report_v1,
+        };
+
+        let unavailable =
+            |e: sqlx::Error| BacktestRunReportRefusalV1::OutcomeEvidenceUnavailable(e.to_string());
+        let mut transaction = self.pool.begin().await.map_err(unavailable)?;
+        let report = resolve_backtest_run_report_v1(&mut transaction, locator).await;
+        transaction.rollback().await.map_err(unavailable)?;
+        report
+    }
 }
 
 impl PostgresResearchReadbackOwnerV1 {
@@ -941,7 +965,7 @@ impl PostgresResearchGoalOwnerV1 {
                 "Source Intake ancestry changed",
             ));
         }
-        let read_cut = current_epoch_ms()?;
+        let read_cut = owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
         let product_edge_policy_current = resolve_admission_for_downstream_in_transaction(
             &mut transaction,
             &proposal.admission,
@@ -1164,7 +1188,7 @@ impl PostgresResearchGoalOwnerV1 {
                 requested_design_identity bytea
             ) RETURNS TABLE(intent_digest bytea, canonical_bytes bytea)
             LANGUAGE sql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
-            SET search_path = pg_catalog
+            SET search_path = pg_catalog, pg_temp
             AS $function$
             SELECT intent.intent_digest, intent.canonical_bytes
             FROM public.rd_design_role_intents_v1 intent
@@ -1185,7 +1209,7 @@ impl PostgresResearchGoalOwnerV1 {
             "
             CREATE OR REPLACE FUNCTION rd_owner_api.peek_current_research_for_artifact_v1(requested_intent_identity text)
             RETURNS jsonb LANGUAGE plpgsql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
-            SET search_path = pg_catalog
+            SET search_path = pg_catalog, pg_temp
             AS $function$
             DECLARE sealed record; source_handoff jsonb;
             BEGIN
@@ -1293,7 +1317,7 @@ impl PostgresResearchGoalOwnerV1 {
             CREATE OR REPLACE FUNCTION rd_owner_api.lock_current_research_for_artifact_v1(
               requested_intent_identity text, requested_evidence_identity text, requested_evidence_digest text
             ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-            SET search_path = pg_catalog
+            SET search_path = pg_catalog, pg_temp
             AS $function$
             DECLARE sealed record; source_handoff jsonb;
             BEGIN
@@ -1460,7 +1484,7 @@ impl PostgresResearchGoalOwnerV1 {
               requested_principal text,
               requested_request_scope jsonb
             ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-            SET search_path = pg_catalog
+            SET search_path = pg_catalog, pg_temp
             AS $function$
             DECLARE
               locked_basis record;
@@ -2243,8 +2267,8 @@ impl PostgresResearchGoalOwnerV1 {
         request_identity: &str,
         admission: &ProductEdgeAdmissionLocatorV1,
     ) -> Result<ResearchGoalOwnerResultV1, ResearchGoalOwnerError> {
-        let read_cut = current_epoch_ms()?;
         let mut transaction = self.pool.begin().await.map_err(|e| storage(&e))?;
+        let read_cut = owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
         let custody = Box::pin(admit_research_custody_in_transaction(
             &mut transaction,
             ResearchCustodyLookupV1::RequestV1(request_identity),
@@ -2317,9 +2341,13 @@ impl PostgresResearchGoalOwnerV1 {
         &self,
         request_identity: &str,
         admission: &ProductEdgeAdmissionLocatorV1,
-        read_cut: u64,
+        clock: &crate::rd_owner_clock::RdOwnerClockV1,
     ) -> Result<ResearchGoalOwnerResultV2, ResearchGoalOwnerError> {
         let mut transaction = self.pool.begin().await.map_err(|e| storage(&e))?;
+        let read_cut = clock
+            .read(&mut transaction)
+            .await
+            .map_err(|e| storage(&e))?;
         let policy_current = resolve_admission_for_downstream_in_transaction(
             &mut transaction,
             admission,
@@ -3059,8 +3087,8 @@ async fn read_research_v2_from_pool(
     pool: &PgPool,
     request_identity: &str,
 ) -> Result<ResearchGoalOwnerResultV2, ResearchGoalOwnerError> {
-    let read_cut_epoch_ms = current_epoch_ms()?;
     let mut transaction = pool.begin().await.map_err(|e| storage(&e))?;
+    let read_cut_epoch_ms = owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
     let custody = Box::pin(admit_research_v2_custody_read_only_in_transaction(
         &mut transaction,
         request_identity,
@@ -3148,7 +3176,9 @@ async fn list_research_from_pool(
     let mut omitted_count = 0_u32;
     let mut last_cursor = None;
     let mut scanned = 0_usize;
-    let read_cut_epoch_ms = current_epoch_ms()?;
+    let mut observation = pool.begin().await.map_err(|e| storage(&e))?;
+    let read_cut_epoch_ms = owner_clock_epoch_ms_in_transaction(&mut observation).await?;
+    observation.commit().await.map_err(|e| storage(&e))?;
 
     for row in candidates {
         let request_identity = row
@@ -3357,8 +3387,8 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
         let digest = semantic_digest_v2(&request)?;
         let request_identity = request.request_identity.clone();
         let validation = validate_goal_request_v2(request);
-        let now = current_epoch_ms()?;
         let mut transaction = self.pool.begin().await.map_err(|e| storage(&e))?;
+        let now = owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
         let request = validation.as_ref().map_or_else(
             |rejected| rejected.request(),
             ValidatedResearchGoalRequestV2::request,
@@ -3519,14 +3549,15 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
                 return Err(ResearchGoalOwnerError::ConflictingReplay);
             }
             return if source_bound {
-                let return_cut = current_epoch_ms()?;
+                let return_cut = owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
                 let product_edge_policy_current =
                     product_edge_admission.authorizes_first_mutation_at(return_cut);
                 transaction.commit().await.map_err(|e| storage(&e))?;
                 custody.into_v2_result_with_policy_current(return_cut, product_edge_policy_current)
             } else {
+                let return_cut = owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
                 transaction.commit().await.map_err(|e| storage(&e))?;
-                custody.into_v2_result(current_epoch_ms()?)
+                custody.into_v2_result(return_cut)
             };
         }
 
@@ -3534,7 +3565,7 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             Ok(validated) => validated,
             Err(rejected) => {
                 let (request, rejection_code) = rejected.into_parts();
-                let write_cut = current_epoch_ms()?;
+                let write_cut = owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
                 if !product_edge_admission.authorizes_first_mutation_at(write_cut) {
                     storage_diagnostic::refused_by_store(
                         "research_goal_owner.submit_v2.rejected_commit.first_mutation_authority",
@@ -3591,7 +3622,7 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
         let basis = if let Some(custody) = basis_stage {
             custody.basis
         } else {
-            let basis_cut = current_epoch_ms()?;
+            let basis_cut = owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
             if !product_edge_admission.authorizes_first_mutation_at(basis_cut) {
                 storage_diagnostic::refused_by_store(
                     "research_goal_owner.submit_v2.basis.first_mutation_authority",
@@ -3644,7 +3675,8 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             }
         };
         let mut transaction = self.pool.begin().await.map_err(|e| storage(&e))?;
-        let final_authority_read_cut = current_epoch_ms()?;
+        let final_authority_read_cut =
+            owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
         let final_admission = match resolve_admission_for_downstream_in_transaction(
             &mut transaction,
             &validated.request().admission,
@@ -3721,7 +3753,7 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
                     }
                 };
             }
-            let return_cut = current_epoch_ms()?;
+            let return_cut = owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
             let product_edge_policy_current =
                 source_bound && final_admission.authorizes_first_mutation_at(return_cut);
             transaction.commit().await.map_err(|e| storage(&e))?;
@@ -3906,7 +3938,7 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
         // custody are all locked. The terminal receipt/Intent/TrialFamily are
         // new writes, so Product Edge must independently re-admit the original
         // request against the current authority at this final write cut.
-        let write_cut = current_epoch_ms()?;
+        let write_cut = owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
         if !admitted_feedback.is_current_at(write_cut)
             || !final_admission.authorizes_first_mutation_at(write_cut)
         {
@@ -4102,8 +4134,12 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
         request_identity: &str,
         admission: &ProductEdgeAdmissionLocatorV1,
     ) -> Result<ResearchGoalOwnerResultV2, ResearchGoalOwnerError> {
-        let read_cut = current_epoch_ms()?;
-        let terminal = Box::pin(self.resolve_v2_at(request_identity, admission, read_cut)).await?;
+        let terminal = Box::pin(self.resolve_v2_at(
+            request_identity,
+            admission,
+            &crate::rd_owner_clock::RdOwnerClockV1::owner_transaction(),
+        ))
+        .await?;
 
         if terminal.resolution() != ProductEdgeResolution::SubmittedOrUnknown {
             return Ok(terminal);
@@ -4141,13 +4177,27 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
         let completed = self.submit_v2(request).await?;
 
         if completed.resolution() == ProductEdgeResolution::Accepted {
-            return Box::pin(self.resolve_v2_at(request_identity, admission, current_epoch_ms()?))
-                .await;
+            return Box::pin(self.resolve_v2_at(
+                request_identity,
+                admission,
+                &crate::rd_owner_clock::RdOwnerClockV1::owner_transaction(),
+            ))
+            .await;
         }
         Ok(completed)
     }
 }
 
+async fn owner_clock_epoch_ms_in_transaction(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<u64, ResearchGoalOwnerError> {
+    crate::rd_owner_clock::owner_clock_epoch_ms_in_transaction(transaction)
+        .await
+        .map_err(|e| storage(&e))
+}
+
+/// The test process clock; production cuts come from the Owner transaction.
+#[cfg(test)]
 fn current_epoch_ms() -> Result<u64, ResearchGoalOwnerError> {
     let duration = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -4252,6 +4302,53 @@ pub(crate) mod tests {
             Some("intent_json ->> 'intent_identity'::text")
         );
         assert_eq!(intent.predicate, Some("intent_json IS NOT NULL"));
+    }
+
+    /// The last `let {variable} = ...` before `call` in `source`, without its semicolon.
+    fn last_assignment_before<'a>(source: &'a str, call: &str, variable: &str) -> &'a str {
+        let at = source.find(call).expect("call site");
+        let binding = format!("let {variable} = ");
+        let start = source[..at].rfind(&binding).expect("assignment");
+        let end = source[start..].find(';').expect("statement end");
+        &source[start..start + end]
+    }
+
+    /// A research view's projection and expiry are stamped from the cut `decide_commit_v2`
+    /// receives, and the R&D lock and Product Edge compare their own database-clock cuts with them,
+    /// so that cut comes from the Owner transaction's clock too. The successor intent stamps its
+    /// view the same way and reads no other clock.
+    #[rstest]
+    fn a_research_view_is_stamped_from_the_owner_transaction_clock() {
+        let source = include_str!("product_edge_postgres.rs");
+        assert_eq!(
+            last_assignment_before(source, "let commit = decide_commit_v2(", "write_cut"),
+            "let write_cut = owner_clock_epoch_ms_in_transaction(&mut transaction).await?"
+        );
+        // The same reading names a process-clock cut when that is what precedes the call.
+        assert_eq!(
+            last_assignment_before(
+                "let write_cut = current_epoch_ms()?;\n        let commit = decide_commit_v2(",
+                "let commit = decide_commit_v2(",
+                "write_cut",
+            ),
+            "let write_cut = current_epoch_ms()?"
+        );
+
+        let successor = include_str!("successor_intent_postgres.rs");
+        let runtime = successor
+            .split("#[cfg(test)]")
+            .next()
+            .expect("runtime source");
+
+        for read in ["SystemTime", "current_epoch_ms("] {
+            assert!(!runtime.contains(read), "{read}");
+        }
+        assert_eq!(
+            runtime
+                .matches("owner_clock_epoch_ms_in_transaction(&mut transaction).await?")
+                .count(),
+            2
+        );
     }
 
     struct SequencedSourcePolicyV1 {
@@ -4460,7 +4557,9 @@ pub(crate) mod tests {
             .find("if let Some(custody) = existing {")
             .unwrap();
         let existing_return = &initial_existing[existing_custody..];
-        assert!(existing_return.contains("let return_cut = current_epoch_ms()?;"));
+        assert!(existing_return.contains(
+            "let return_cut = owner_clock_epoch_ms_in_transaction(&mut transaction).await?;"
+        ));
         assert!(
             existing_return
                 .contains("product_edge_admission.authorizes_first_mutation_at(return_cut)")
@@ -4469,7 +4568,7 @@ pub(crate) mod tests {
             "custody.into_v2_result_with_policy_current(return_cut, product_edge_policy_current)"
         ));
         assert!(existing_return.contains(
-            "transaction.commit().await.map_err(|e| storage(&e))?;\n                custody.into_v2_result(current_epoch_ms()?)"
+            "let return_cut = owner_clock_epoch_ms_in_transaction(&mut transaction).await?;\n                transaction.commit().await.map_err(|e| storage(&e))?;\n                custody.into_v2_result(return_cut)"
         ));
         assert!(
             !existing_return.contains("product_edge_admission.authorizes_first_mutation_at(now)")
@@ -4778,7 +4877,10 @@ pub(crate) mod tests {
         assert_eq!(catalog.2, "v");
         assert_eq!(catalog.3, "u");
         assert!(catalog.4);
-        assert_eq!(catalog.5, Some(vec!["search_path=pg_catalog".into()]));
+        assert_eq!(
+            catalog.5,
+            Some(vec!["search_path=pg_catalog, pg_temp".into()])
+        );
         let privileges: (bool, bool, bool, bool) = sqlx::query_as(
             "SELECT has_function_privilege('product_edge_owner', to_regprocedure('rd_owner_api.lock_current_research_for_artifact_v1(text,text,text)'), 'EXECUTE'), has_function_privilege('public', to_regprocedure('rd_owner_api.lock_current_research_for_artifact_v1(text,text,text)'), 'EXECUTE'), has_table_privilege('product_edge_owner', 'public.rd_research_request_receipts_v1', 'SELECT'), pg_has_role('product_edge_owner', 'rd_owner', 'MEMBER')",
         )
@@ -4799,7 +4901,10 @@ pub(crate) mod tests {
         assert_eq!(basis_catalog.2, "v");
         assert_eq!(basis_catalog.3, "u");
         assert!(basis_catalog.4);
-        assert_eq!(basis_catalog.5, Some(vec!["search_path=pg_catalog".into()]));
+        assert_eq!(
+            basis_catalog.5,
+            Some(vec!["search_path=pg_catalog, pg_temp".into()])
+        );
         let basis_privileges: (bool, bool, bool, bool, bool, bool, bool) = sqlx::query_as(
             "SELECT has_schema_privilege('qualification_writer', 'rd_owner_api', 'USAGE'), has_function_privilege('qualification_writer', to_regprocedure('rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb)'), 'EXECUTE'), has_function_privilege('qualification_owner', to_regprocedure('rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb)'), 'EXECUTE'), has_function_privilege('public', to_regprocedure('rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb)'), 'EXECUTE'), has_table_privilege('qualification_writer', 'public.rd_independence_bases_v1', 'SELECT'), has_table_privilege('qualification_writer', 'public.rd_owner_outbox_v1', 'SELECT'), to_regprocedure('rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,text,jsonb)') IS NULL",
         )
@@ -5019,10 +5124,13 @@ pub(crate) mod tests {
             .projection_identity()
             .to_string();
 
-        let current =
-            Box::pin(owner.resolve_v2_at(&request_identity, &admission, cut.saturating_sub(1)))
-                .await
-                .unwrap();
+        let current = Box::pin(owner.resolve_v2_at(
+            &request_identity,
+            &admission,
+            &crate::rd_owner_clock::RdOwnerClockV1::fixed(move || cut.saturating_sub(1)),
+        ))
+        .await
+        .unwrap();
         assert_eq!(
             current.research_view().unwrap().availability,
             ResearchViewAvailability::Available
@@ -5032,9 +5140,13 @@ pub(crate) mod tests {
             ResearchNextLegalAction::WaitForRAndDExecution
         );
 
-        let stale = Box::pin(owner.resolve_v2_at(&request_identity, &admission, cut))
-            .await
-            .unwrap();
+        let stale = Box::pin(owner.resolve_v2_at(
+            &request_identity,
+            &admission,
+            &crate::rd_owner_clock::RdOwnerClockV1::fixed(move || cut),
+        ))
+        .await
+        .unwrap();
         assert_eq!(
             stale.resolution(),
             crate::product_edge::ProductEdgeResolution::Accepted
@@ -5297,7 +5409,7 @@ pub(crate) mod tests {
         // committed freeze and its outbox event untouched when it refuses.
         let composition_root = crate::rd_bounded_feature_program_postgres_v1::PostgresResearchBoundedFeatureProgramOwnerV1::with_clock(
             owner.pool.clone(),
-            std::sync::Arc::new(move || read_cut),
+            crate::rd_owner_clock::RdOwnerClockV1::fixed(move || read_cut),
         );
 
         // The one statement this Owner can make about a Design without a program. It is what opens
@@ -5890,7 +6002,7 @@ pub(crate) mod tests {
         };
         let composition_root = PostgresResearchBoundedFeatureProgramOwnerV1::with_clock(
             owner.pool.clone(),
-            std::sync::Arc::new(move || read_cut),
+            crate::rd_owner_clock::RdOwnerClockV1::fixed(move || read_cut),
         );
 
         // Nothing has attested this Design, and nothing can: the Composer operation that would
@@ -5939,7 +6051,7 @@ pub(crate) mod tests {
         let replay_cut = read_cut - 1;
         let replay_root = PostgresResearchBoundedFeatureProgramOwnerV1::with_clock(
             owner.pool.clone(),
-            std::sync::Arc::new(move || replay_cut),
+            crate::rd_owner_clock::RdOwnerClockV1::fixed(move || replay_cut),
         );
         let replayed = replay_root
             .declare(declaration)

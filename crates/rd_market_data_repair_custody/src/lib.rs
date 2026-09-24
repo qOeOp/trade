@@ -324,7 +324,7 @@ async fn validate_function_binding(
              AND procedure.provolatile='v'
              AND procedure.proparallel='u'
              AND procedure.proisstrict
-             AND procedure.proconfig=ARRAY['search_path=pg_catalog']::text[]
+             AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[]
              AND procedure.prosrc=$2
              AND has_schema_privilege('market_data_owner','rd_owner_api','USAGE')
              AND has_function_privilege('market_data_owner', procedure.oid, 'EXECUTE')

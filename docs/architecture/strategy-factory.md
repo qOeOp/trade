@@ -652,9 +652,13 @@ re-resolve every embedded exact Owner locator before native materialization. A c
 request locator only; it cannot supply the constituent list, facts, values, symbols, ordering, resolver, store, or
 fallback. The current slice implements the immutable PostgreSQL ledger, exact-locator recovery, typed Owner-readback
 validator, atomic binding/receipt/outbox issuance, and the fixed initial universe/schedule resolution bridge. The
-authenticated R&D service accepts only the complete sealed Replay locator: its issuance operation resolves the
-sealed preparation, Composer Plan and Artifact, request-bound Instrument Master V2 cut, unique same-account
-economic pair, universe frame, and two BAR schedules before committing the binding through one R&D transaction;
+authenticated R&D service accepts only the complete sealed Replay locator: its issuance operation first has Market
+Data issue the request-keyed Instrument Master V2 cut over the Universe Selection bound by the composition binding that
+the request's sealed V3 record names, and refuses by name a request with no such record rather than choosing a
+binding. That issuance commits in its own Market Data transaction, so an R&D failure after it is retried and reuses the
+cut. The operation then resolves the sealed preparation, Composer Plan and Artifact, request-bound Instrument Master V2
+cut, unique same-account economic pair, universe frame, and two BAR schedules before committing the binding through
+one R&D transaction;
 its read operation returns only an already issued binding projection. A separate consumer composition first reads
 that durable binding, independently re-resolves the exact Composer, Instrument Master V2, economic, universe, and
 schedule inputs, reproduces the stored binding byte-for-byte, and only then materializes the existing native
@@ -664,11 +668,9 @@ with the complete ordered 28-component observation package. R&D source records p
 Replay-authority bytes; accepted Composer custody provides Design, Plan and Artifact bytes; the independently
 reproduced durable binding provides the remaining resolved-input evidence. The existing Backtest preparation Owner
 accepts this sealed resolver directly and still performs its own request, component and execution-locator
-reconciliation before entering ProgramHost. On Owner custody that materialization cannot complete today: it seals
-the frame through the Market Data V1 native scheduling seal, which takes its Quotes strictly after the BAR out of
-the BAR's own one-instant batch, so the resolver stops at
-`native_replay_execution_binding.market_inputs.into_execution_parts` with `EventOrderUnavailable` until the frame
-takes its Quotes from a quote cut of its own.
+reconciliation before entering ProgramHost. The materialization seals each frame through the Market Data V1 native
+scheduling seal, which now takes the frame's Quotes from the frame's own quote cut rather than from the BAR's
+one-instant batch; no proof has yet driven the materialization to completion on Owner custody.
 
 **IMPLEMENTATION_ADMITTED / NOT_CUT_OVER, production Native Replay entry:** the authenticated R&D API's
 `POST /v2/exploratory-replays` is admitted as a production route; its body carries only the exact sealed request

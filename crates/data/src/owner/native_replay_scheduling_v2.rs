@@ -22,8 +22,9 @@ use vibe_model::{
 use super::{
     bar_schedule::BarScheduleReadbackV1,
     native_replay_scheduling_v1::{
-        NativeReplayInitialMarketRequestV1, NativeReplaySchedulingErrorV1,
-        NativeReplaySchedulingResolverV1, seal_native_replay_scheduling_v1,
+        NativeReplayInitialMarketRequestV1, NativeReplayQuoteCutReadbackV1,
+        NativeReplaySchedulingErrorV1, NativeReplaySchedulingResolverV1,
+        seal_native_replay_scheduling_v1,
     },
     pit_snapshot::{
         VerifiedPitObservation, VerifiedPitObservationBatch, authority::canonical_observation_bytes,
@@ -76,10 +77,12 @@ impl NativeReplayQuoteLiquidityEvidenceV2 {
     }
 }
 
-/// One complete two-member BAR/Quote frame, verified from one exact Owner PIT batch.
+/// One complete BAR/Quote frame over one or two members, verified from Owner PIT batches.
 ///
-/// This is deliberately a frame ingredient, not a sequence capability or a persisted
-/// receipt. The constructor remains Owner-local and consumes the V1 scheduling seal.
+/// The BARs come from the frame's own PIT cut and the Quotes from its quote cut, a PIT snapshot
+/// of their own strictly between this frame's BAR and the next frame's. This is deliberately a
+/// frame ingredient, not a sequence capability or a persisted receipt. The constructor remains
+/// Owner-local and consumes the V1 scheduling seal.
 #[derive(Debug)]
 pub struct NativeReplayFrameEvidenceV2 {
     snapshot_identity: BindingDigest,
@@ -87,24 +90,26 @@ pub struct NativeReplayFrameEvidenceV2 {
     observation_batch_digest: BindingDigest,
     source_frontier_digest: BindingDigest,
     correction_frontier_digest: BindingDigest,
+    quote_cut: NativeReplayQuoteCutReadbackV1,
     scheduling_receipt_digest_v1: BindingDigest,
-    member_instruments: [InstrumentId; 2],
+    member_instruments: Vec<InstrumentId>,
     frame_time_ns: u64,
     window_end_ns_exclusive: u64,
-    bar_row_digests: [[BindingDigest; 5]; 2],
-    liquidity: [NativeReplayQuoteLiquidityEvidenceV2; 2],
+    bar_row_digests: Vec<[BindingDigest; 5]>,
+    liquidity: Vec<NativeReplayQuoteLiquidityEvidenceV2>,
     liquidity_receipt: NativeReplayQuoteLiquidityReceiptV2,
-    bar_types: [BarType; 2],
+    bar_types: Vec<BarType>,
     data: Vec<Data>,
 }
 
 impl NativeReplayFrameEvidenceV2 {
+    /// The frame's own PIT cut: the snapshot its BARs were read from.
     #[must_use]
     pub const fn snapshot_identity(&self) -> BindingDigest {
         self.snapshot_identity
     }
 
-    /// The sealed liquidity EVENT receipt for this frame's own PIT cut.
+    /// The sealed liquidity EVENT receipt, sealed against this frame's quote cut.
     ///
     /// A frame that verified always carries this; there is no path that produces frame evidence
     /// with unsealed liquidity.
@@ -133,14 +138,21 @@ impl NativeReplayFrameEvidenceV2 {
         self.correction_frontier_digest
     }
 
+    /// The quote cut this frame's Quotes were read from.
+    #[must_use]
+    pub const fn quote_cut(&self) -> &NativeReplayQuoteCutReadbackV1 {
+        &self.quote_cut
+    }
+
     #[must_use]
     pub const fn scheduling_receipt_digest_v1(&self) -> BindingDigest {
         self.scheduling_receipt_digest_v1
     }
 
+    /// The universe's one or two members, in canonical order.
     #[must_use]
-    pub const fn member_instruments(&self) -> [InstrumentId; 2] {
-        self.member_instruments
+    pub fn member_instruments(&self) -> &[InstrumentId] {
+        &self.member_instruments
     }
 
     #[must_use]
@@ -153,34 +165,37 @@ impl NativeReplayFrameEvidenceV2 {
         self.window_end_ns_exclusive
     }
 
+    /// One member's five BAR row digests per member, in member order.
     #[must_use]
-    pub const fn bar_row_digests(&self) -> [[BindingDigest; 5]; 2] {
-        self.bar_row_digests
+    pub fn bar_row_digests(&self) -> &[[BindingDigest; 5]] {
+        &self.bar_row_digests
     }
 
+    /// One member's Quote liquidity per member, in member order.
     #[must_use]
-    pub const fn liquidity(&self) -> &[NativeReplayQuoteLiquidityEvidenceV2; 2] {
+    pub fn liquidity(&self) -> &[NativeReplayQuoteLiquidityEvidenceV2] {
         &self.liquidity
     }
 
-    /// The two canonical BAR types this frame scheduled, in member order.
+    /// The canonical BAR types this frame scheduled, in member order.
     #[must_use]
-    pub const fn bar_types(&self) -> &[BarType; 2] {
+    pub fn bar_types(&self) -> &[BarType] {
         &self.bar_types
     }
 
     /// Consumes this Owner evidence, preserving the unchanged V1 native value order.
     #[must_use]
-    pub fn into_native_schedule(self) -> ([BarType; 2], Vec<Data>) {
+    pub fn into_native_schedule(self) -> (Vec<BarType>, Vec<Data>) {
         (self.bar_types, self.data)
     }
 }
 
 /// Checks one real frame without claiming a complete request-window census.
 ///
-/// Both inputs are move-only or Owner-verified. The V1 seal supplies native price/quantity
-/// conversion, schedule validation, and exact `[BAR0, BAR1, QUOTE0, QUOTE1]` selection. This
-/// function binds its selected values back to the canonical BAR and Quote row evidence.
+/// Every input is move-only or Owner-verified. The V1 seal supplies native price/quantity
+/// conversion, schedule validation, the quote cut check and the exact `[BAR.., QUOTE..]`
+/// selection. This function binds its selected values back to the canonical BAR rows of the
+/// frame's cut and the Quote rows of its quote cut.
 ///
 /// # Errors
 ///
@@ -191,64 +206,60 @@ impl NativeReplayFrameEvidenceV2 {
 )]
 pub(crate) fn verify_native_replay_frame_evidence_v2(
     batch: VerifiedPitObservationBatch,
-    schedules: [BarScheduleReadbackV1; 2],
-    member_instruments: [InstrumentId; 2],
+    quote_cut: VerifiedPitObservationBatch,
+    schedules: Vec<BarScheduleReadbackV1>,
+    member_instruments: Vec<InstrumentId>,
     frame_time_ns: u64,
     window_end_ns_exclusive: u64,
 ) -> Result<NativeReplayFrameEvidenceV2, NativeReplaySchedulingErrorV1> {
-    if member_instruments[0] >= member_instruments[1] || frame_time_ns >= window_end_ns_exclusive {
-        return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
-    }
-
     let scheduling = seal_native_replay_scheduling_v1(
         batch.clone(),
+        quote_cut.clone(),
         schedules,
-        member_instruments,
+        member_instruments.clone(),
         frame_time_ns,
         window_end_ns_exclusive,
     )?;
     let scheduling_receipt_digest_v1 = scheduling.receipt_digest();
+    let quote_cut_readback = *scheduling.quote_cut();
     let (bar_types, data) = scheduling.into_native_schedule();
-    let bar_types: [BarType; 2] = bar_types
-        .try_into()
-        .map_err(|_| NativeReplaySchedulingErrorV1::FieldCensusMismatch)?;
-    let [
-        Data::Bar(first_bar),
-        Data::Bar(second_bar),
-        Data::Quote(first_quote),
-        Data::Quote(second_quote),
-    ] = data.as_slice()
-    else {
+    let members = member_instruments.len();
+
+    // The seal emits every member's BAR, then every member's Quote, in member order; this binds
+    // each value it selected back to its own Owner rows.
+    if data.len() != members * 2 {
         return Err(NativeReplaySchedulingErrorV1::FieldCensusMismatch);
-    };
-
-    if first_bar.bar_type.instrument_id() != member_instruments[0]
-        || second_bar.bar_type.instrument_id() != member_instruments[1]
-        || first_bar.ts_event.as_u64() != frame_time_ns
-        || second_bar.ts_event.as_u64() != frame_time_ns
-        || first_quote.instrument_id != member_instruments[0]
-        || second_quote.instrument_id != member_instruments[1]
-        || !(frame_time_ns < first_quote.ts_event.as_u64()
-            && first_quote.ts_event.as_u64() < second_quote.ts_event.as_u64()
-            && second_quote.ts_event.as_u64() < window_end_ns_exclusive)
-        || first_quote.ts_init != first_quote.ts_event
-        || second_quote.ts_init != second_quote.ts_event
-    {
-        return Err(NativeReplaySchedulingErrorV1::EventOrderUnavailable);
     }
+    let (bars, quotes) = data.split_at(members);
+    let mut bar_row_digests = Vec::with_capacity(members);
+    let mut liquidity = Vec::with_capacity(members);
 
-    let bar_row_digests = member_instruments.map(|instrument| {
-        exact_row_digests::<5>(&batch, instrument, "BAR", frame_time_ns, &BAR_FIELDS)
-    });
-    let [first_bar_rows, second_bar_rows] = bar_row_digests;
-    let liquidity = [
-        quote_evidence(&batch, member_instruments[0], first_quote.ts_event.as_u64())?,
-        quote_evidence(
+    for ((instrument, bar), quote) in member_instruments.iter().zip(bars).zip(quotes) {
+        let (Data::Bar(bar), Data::Quote(quote)) = (bar, quote) else {
+            return Err(NativeReplaySchedulingErrorV1::FieldCensusMismatch);
+        };
+
+        if bar.bar_type.instrument_id() != *instrument
+            || bar.ts_event.as_u64() != frame_time_ns
+            || quote.instrument_id != *instrument
+            || quote.ts_event.as_u64() != quote_cut_readback.instant_ns()
+            || quote.ts_init != quote.ts_event
+        {
+            return Err(NativeReplaySchedulingErrorV1::EventOrderUnavailable);
+        }
+        bar_row_digests.push(exact_row_digests::<5>(
             &batch,
-            member_instruments[1],
-            second_quote.ts_event.as_u64(),
-        )?,
-    ];
+            *instrument,
+            "BAR",
+            frame_time_ns,
+            &BAR_FIELDS,
+        )?);
+        liquidity.push(quote_evidence(
+            &quote_cut,
+            *instrument,
+            quote_cut_readback.instant_ns(),
+        )?);
+    }
 
     Ok(NativeReplayFrameEvidenceV2 {
         snapshot_identity: batch.snapshot_identity(),
@@ -256,15 +267,16 @@ pub(crate) fn verify_native_replay_frame_evidence_v2(
         observation_batch_digest: batch.digest(),
         source_frontier_digest: batch.source_frontier_digest(),
         correction_frontier_digest: batch.correction_frontier_digest(),
+        quote_cut: quote_cut_readback,
         scheduling_receipt_digest_v1,
         member_instruments,
         frame_time_ns,
         window_end_ns_exclusive,
-        bar_row_digests: [first_bar_rows?, second_bar_rows?],
+        bar_row_digests,
         liquidity_receipt: NativeReplayQuoteLiquidityReceiptV2::seal(
-            batch.snapshot_identity(),
-            batch.fact_digest(),
-            batch.digest(),
+            quote_cut_readback.snapshot_identity(),
+            quote_cut_readback.snapshot_fact_digest(),
+            quote_cut_readback.observation_batch_digest(),
             frame_time_ns,
             window_end_ns_exclusive,
             &liquidity,
@@ -379,7 +391,7 @@ pub enum NativeReplayFrameSequenceRefusalV2 {
 /// The Owner-issued, move-only, request-bound frame sequence.
 ///
 /// `docs/owners/market-data.md` names this capability and fixes its shape: the window's complete
-/// two-member BAR frames, never fewer than two, each with its own Owner-verified Quote liquidity,
+/// BAR frames, never fewer than two, each with its own Owner-verified Quote liquidity,
 /// the first being the independently re-resolved initial V1 frame and every later one issued from
 /// a distinct Owner-verified PIT snapshot and observation batch.
 ///
@@ -884,7 +896,7 @@ where
 pub struct NativeReplayFrameCensusCandidateV2 {
     pub frame_ordinal: u64,
     pub snapshot_identity: BindingDigest,
-    /// Everything both frames must hold in common: the canonical two-member universe, the
+    /// Everything both frames must hold in common: the canonical universe, the
     /// Design/role set, the Instrument Master cut, the timeframe, and the venue/account scope.
     pub scope_digest: BindingDigest,
     /// Identifies which correction branch produced this frame at its ordinal.
@@ -1033,16 +1045,16 @@ const QUOTE_LIQUIDITY_RECEIPT_DOMAIN_V2: &[u8] =
 ///
 /// `docs/owners/market-data.md` requires each frame to carry its own Owner-verified liquidity, and
 /// requires that receipt to seal "the exact Owner-verified Quote row digests, bid/ask prices and
-/// sizes, event/initialization times and member order from that frame's PIT cut". Two halves of
+/// sizes, event/initialization times and member order from that frame's quote cut". Two halves of
 /// that already existed and neither sealed the other: [`NativeReplayQuoteLiquidityEvidenceV2`]
 /// carries the row digests and the exact stored `(mantissa, scale)` values but is never digested,
 /// while the V1 scheduling receipt digests prices and times as Nautilus display strings and binds
-/// no row identity at all. This type seals both halves under one domain, against the frame's own
-/// PIT cut, so a fill can be authorized by an Owner fact rather than by transported values.
+/// no row identity at all. This type seals both halves under one domain, against the frame's quote
+/// cut, so a fill can be authorized by an Owner fact rather than by transported values.
 ///
-/// The bytes are fixed width apart from the two instrument identifiers, which are length-prefixed.
-/// Member order is the canonical universe member order and is part of the sealed meaning: the same
-/// two members in the opposite order seal to a different digest.
+/// The bytes are fixed width apart from the member count and the instrument identifiers, which
+/// are length-prefixed. Member order is the canonical universe member order and is part of the
+/// sealed meaning: the same two members in the opposite order seal to a different digest.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeReplayQuoteLiquidityReceiptV2 {
     canonical_bytes: Vec<u8>,
@@ -1050,23 +1062,23 @@ pub struct NativeReplayQuoteLiquidityReceiptV2 {
 }
 
 impl NativeReplayQuoteLiquidityReceiptV2 {
-    /// Seals one frame's complete two-member Quote liquidity against that frame's PIT cut.
+    /// Seals one frame's complete Quote liquidity against the quote cut it was read from.
     #[must_use]
     pub fn seal(
-        snapshot_identity: BindingDigest,
-        snapshot_fact_digest: BindingDigest,
-        observation_batch_digest: BindingDigest,
+        quote_cut_snapshot_identity: BindingDigest,
+        quote_cut_fact_digest: BindingDigest,
+        quote_cut_observation_batch_digest: BindingDigest,
         frame_time_ns: u64,
         window_end_ns_exclusive: u64,
-        liquidity: &[NativeReplayQuoteLiquidityEvidenceV2; 2],
+        liquidity: &[NativeReplayQuoteLiquidityEvidenceV2],
     ) -> Self {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(QUOTE_LIQUIDITY_RECEIPT_DOMAIN_V2);
         bytes.extend_from_slice(&2_u16.to_be_bytes());
         bytes.extend_from_slice(&0_u16.to_be_bytes());
-        bytes.extend_from_slice(snapshot_identity.as_bytes());
-        bytes.extend_from_slice(snapshot_fact_digest.as_bytes());
-        bytes.extend_from_slice(observation_batch_digest.as_bytes());
+        bytes.extend_from_slice(quote_cut_snapshot_identity.as_bytes());
+        bytes.extend_from_slice(quote_cut_fact_digest.as_bytes());
+        bytes.extend_from_slice(quote_cut_observation_batch_digest.as_bytes());
         bytes.extend_from_slice(&frame_time_ns.to_be_bytes());
         bytes.extend_from_slice(&window_end_ns_exclusive.to_be_bytes());
         bytes.push(u8::try_from(liquidity.len()).unwrap_or(u8::MAX));
@@ -1316,8 +1328,7 @@ mod frame_sequence_resolver_tests {
 
     use super::*;
     use crate::owner::native_replay_scheduling_v1::{
-        NativeReplayInitialMarketReadbackV1, NativeReplaySchedulingReadbackV1,
-        UntrustedNativeReplaySchedulingRequestV1,
+        NativeReplayInitialMarketReadbackV1,
         tests::{frame_readback, window_request},
     };
 
@@ -1384,13 +1395,6 @@ mod frame_sequence_resolver_tests {
                 request.frame_time_ns(),
                 request.window_end_ns_exclusive(),
             ))
-        }
-
-        async fn resolve_native_replay_scheduling_v1(
-            &self,
-            _request: &UntrustedNativeReplaySchedulingRequestV1,
-        ) -> Result<NativeReplaySchedulingReadbackV1, NativeReplaySchedulingErrorV1> {
-            Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)
         }
     }
 
@@ -1563,14 +1567,20 @@ mod frame_sequence_tests {
     /// no rule here reads it. A fixture that resolved them would prove the resolver, not this.
     fn frame(seed: u8, frame_time_ns: u64) -> NativeReplayFrameEvidenceV2 {
         let [first, second] = instruments();
-        let liquidity = [
-            liquidity_member(first, seed, frame_time_ns + 1),
-            liquidity_member(second, seed.wrapping_add(4), frame_time_ns + 2),
+        let quote_cut = NativeReplayQuoteCutReadbackV1::for_test(
+            digest(seed.wrapping_add(100)),
+            digest(seed.wrapping_add(101)),
+            digest(seed.wrapping_add(102)),
+            frame_time_ns + 1,
+        );
+        let liquidity = vec![
+            liquidity_member(first, seed, quote_cut.instant_ns()),
+            liquidity_member(second, seed.wrapping_add(4), quote_cut.instant_ns()),
         ];
         let liquidity_receipt = NativeReplayQuoteLiquidityReceiptV2::seal(
-            digest(seed),
-            digest(seed.wrapping_add(1)),
-            digest(seed.wrapping_add(2)),
+            quote_cut.snapshot_identity(),
+            quote_cut.snapshot_fact_digest(),
+            quote_cut.observation_batch_digest(),
             frame_time_ns,
             WINDOW_END,
             &liquidity,
@@ -1581,14 +1591,15 @@ mod frame_sequence_tests {
             observation_batch_digest: digest(seed.wrapping_add(2)),
             source_frontier_digest: digest(0xA0),
             correction_frontier_digest: digest(0xA1),
+            quote_cut,
             scheduling_receipt_digest_v1: digest(seed.wrapping_add(3)),
-            member_instruments: instruments(),
+            member_instruments: instruments().to_vec(),
             frame_time_ns,
             window_end_ns_exclusive: WINDOW_END,
-            bar_row_digests: [[digest(seed); 5], [digest(seed.wrapping_add(1)); 5]],
+            bar_row_digests: vec![[digest(seed); 5], [digest(seed.wrapping_add(1)); 5]],
             liquidity,
             liquidity_receipt,
-            bar_types: bar_types(),
+            bar_types: bar_types().to_vec(),
             data: Vec::new(),
         }
     }

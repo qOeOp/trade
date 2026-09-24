@@ -12,10 +12,10 @@
 DO $security_definer_search_path$
 DECLARE
   violations text;
+  checked bigint;
+  allowlisted bigint;
 BEGIN
   WITH exception_list(routine_name, search_path) AS (VALUES
-    ('backtest_owner_api.resolve_protected_replay_attempt_frontier_v1', 'pg_catalog'),
-    ('backtest_owner_api.resolve_protected_replay_result_v1', 'pg_catalog'),
     ('execution_api.read_current_paper_adapter_binding_v1', 'pg_catalog, execution_private'),
     ('execution_api.read_paper_account_opening_fact_v1', 'pg_catalog, execution_private'),
     ('governance_api.read_current_execution_scope_v1', 'pg_catalog, governance_private'),
@@ -89,21 +89,6 @@ BEGIN
     ('qualification_api.public_status_expected_opaque_reference_v1', 'pg_catalog'),
     ('qualification_api.public_status_native_source_is_custodied_v1', 'pg_catalog'),
     ('qualification_api.read_public_status_v1', 'pg_catalog'),
-    ('rd_owner_api.lock_artifact_invocation_reservation_v1', 'pg_catalog'),
-    ('rd_owner_api.lock_current_research_for_artifact_v1', 'pg_catalog'),
-    ('rd_owner_api.lock_current_successor_research_for_artifact_v1', 'pg_catalog'),
-    ('rd_owner_api.lock_exploratory_replay_request_for_market_data_v1', 'pg_catalog'),
-    ('rd_owner_api.lock_exploratory_replay_request_v1', 'pg_catalog'),
-    ('rd_owner_api.lock_exploratory_replay_request_v2', 'pg_catalog'),
-    ('rd_owner_api.lock_independence_basis_for_qualification_v1', 'pg_catalog'),
-    ('rd_owner_api.lock_market_data_repair_request_v1', 'pg_catalog'),
-    ('rd_owner_api.lock_ready_for_selection_for_qualification_v1', 'pg_catalog'),
-    ('rd_owner_api.lock_source_acquisition_binding_v1', 'pg_catalog'),
-    ('rd_owner_api.lock_source_invocation_reservation_v1', 'pg_catalog'),
-    ('rd_owner_api.peek_current_research_for_artifact_v1', 'pg_catalog'),
-    ('rd_owner_api.peek_current_successor_research_for_artifact_v1', 'pg_catalog'),
-    ('rd_owner_api.resolve_design_role_intent_for_market_data_v1', 'pg_catalog'),
-    ('rd_owner_api.resolve_native_replay_source_storage_v2', 'pg_catalog'),
     ('scanner_api.read_terminal_receipt_v1', 'pg_catalog')
   ), routines AS (
     SELECT procedure.oid,
@@ -180,10 +165,23 @@ BEGIN
       JOIN exception_list ON exception_list.routine_name=assessed.routine_name
      WHERE assessed.same_name_count>1
   )
-  SELECT pg_catalog.string_agg(finding, E'\n' ORDER BY finding) INTO violations FROM findings;
+  SELECT pg_catalog.string_agg(finding, E'\n' ORDER BY finding),
+         (SELECT pg_catalog.count(*) FROM routines),
+         (SELECT pg_catalog.count(*)
+            FROM assessed
+            JOIN exception_list ON exception_list.routine_name=assessed.routine_name
+                               AND exception_list.search_path=assessed.search_path
+           WHERE assessed.failure IS NOT NULL)
+    INTO violations, checked, allowlisted
+    FROM findings;
 
   IF violations IS NOT NULL THEN
     RAISE EXCEPTION 'SECURITY DEFINER search_path guard failed in database %:%', pg_catalog.current_database(), E'\n' || violations;
   END IF;
+  PERFORM pg_catalog.set_config('vibe.security_definer_guard', checked || ' ' || allowlisted, false);
 END
 $security_definer_search_path$;
+
+-- What this database contributed, as `<routines checked> <routines excused by the list>`: the
+-- chains sum it across databases and fail a run that scanned nothing, so a pass says what it read.
+SELECT pg_catalog.current_setting('vibe.security_definer_guard');
