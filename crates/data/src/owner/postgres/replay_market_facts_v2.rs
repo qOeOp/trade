@@ -2325,7 +2325,7 @@ pub(super) async fn verify_rd_replay_cut_transport_v1(
                     AND procedure.proparallel='u' AND NOT procedure.proleakproof
                     AND procedure.prokind='f' AND procedure.proretset
                     AND procedure.pronargs=$3
-                    AND procedure.proconfig=ARRAY['search_path=pg_catalog']::text[]
+                    AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[]
                     AND pg_catalog.has_function_privilege('rd_owner',procedure.oid,'EXECUTE')
                     AND (SELECT count(*)=2
                            AND count(*) FILTER (WHERE acl.grantee=procedure.proowner AND acl.privilege_type='EXECUTE')=1
