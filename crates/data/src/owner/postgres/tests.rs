@@ -2011,9 +2011,9 @@ struct StrategyInputBindingRegistryFixtureV1 {
 
 /// A universe-member declaration registers on the same custody an exact one does.
 ///
-/// The PIT cut above holds one member, so it is also a one-member universe. A declaration scoped to
-/// that universe binds the role's value for every member at the cut - its Owner-derived universe
-/// frame - and is replayed without a second row. The single-instrument Instrument Master check
+/// The registry oracle's PIT cut holds one member, so it is also a one-member universe. A
+/// declaration scoped to that universe binds the role's value for every member at the cut - its
+/// Owner-derived universe frame - and is replayed without a second row. The single-instrument Instrument Master check
 /// does not apply to it, but the batch-level coordinate still does, and an instrument set is still
 /// refused.
 async fn universe_member_declarations_oracle(
@@ -2589,7 +2589,6 @@ async fn strategy_input_binding_registry_postgres_oracle(
         binding_requests.push(request);
         declarations.push(declaration);
     }
-    universe_member_declarations_oracle(owner, &binding_request, &batch).await;
     let registered = &declarations[0];
     assert_eq!(registered.request(), &binding_requests[0]);
     assert_eq!(
@@ -4124,6 +4123,15 @@ async fn instrument_master_postgres_oracle(owner_url: &str, reader_url: &str, ad
 
     let registry_fixture = Box::pin(strategy_input_binding_registry_postgres_oracle(
         &owner, &source, &readback, &clock, None,
+    ))
+    .await;
+    // Beside the registry oracle rather than inside it: that oracle also builds the replay
+    // composition base fixture, and nesting this under it overflowed the 2 MiB test stack of the
+    // ordered chain's replay composition entry.
+    Box::pin(universe_member_declarations_oracle(
+        &owner,
+        &registry_fixture.binding_requests[0],
+        &registry_fixture.batch,
     ))
     .await;
     Box::pin(persisted_strategy_input_custody_postgres_oracle_v1(
