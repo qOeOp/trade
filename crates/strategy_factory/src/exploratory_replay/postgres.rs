@@ -3357,7 +3357,12 @@ pub(crate) async fn lock_for_backtest_v2(
 pub(crate) enum ReportRequestReadV2 {
     /// The request, read without a row lock.
     Found(Box<SealedExploratoryReplayReadbackV2>),
-    /// A request only Composer V3 custody holds, which the report does not read yet.
+    /// A COMPOSER_V3 request, read from its own stored claim and checked against that claim alone.
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    ComposerV3(Box<composer_readback_v3::SelfVerifiedComposerV3ClaimV1>),
+    /// A COMPOSER_V3 request in a build without the Composer-backed Replay feature, which is the
+    /// only one that can read its claim.
+    #[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
     ComposerV3,
     /// No request at this identity and meaning.
     Absent,
@@ -3366,9 +3371,12 @@ pub(crate) enum ReportRequestReadV2 {
 /// Reads one Replay V2 request for a report, inside the caller's read-only transaction.
 ///
 /// Every statement here is one a `READ ONLY` transaction accepts: the source-kind probe is a plain
-/// primary-key read, and `read_exploratory_replay_request_v2` takes no row lock. The Composer V3
-/// read that `resolve_for_rd_v2` makes under `sealed-source-intake-composer-acceptance` locks rows,
-/// so a request only it holds is named here rather than read or reported absent.
+/// primary-key read, and `read_exploratory_replay_request_v2` takes no row lock. A COMPOSER_V3
+/// request is not re-resolved the way `resolve_for_rd_v2` does it, which locks rows and asks four
+/// other Owners again: it is read through
+/// [`composer_readback_v3::read_self_verified_composer_v3_claim_in_transaction`], which checks the
+/// stored claim's own proof and nothing more. Without the Composer-backed Replay feature it is
+/// named rather than read.
 pub(crate) async fn read_for_report_in_transaction_v2(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     selector: &ExploratoryReplayRecoverySelectorV2,
@@ -3384,7 +3392,7 @@ pub(crate) async fn read_for_report_in_transaction_v2(
 
     match source_kind.as_deref() {
         None => return Ok(ReportRequestReadV2::Absent),
-        Some("COMPOSER_V3") => return Ok(ReportRequestReadV2::ComposerV3),
+        Some("COMPOSER_V3") => return read_composer_v3_for_report(transaction, selector).await,
         Some(_) => {}
     }
     let value: Option<serde_json::Value> =
@@ -3404,6 +3412,34 @@ pub(crate) async fn read_for_report_in_transaction_v2(
         Some(readback) => ReportRequestReadV2::Found(Box::new(readback)),
         None => ReportRequestReadV2::Absent,
     })
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+async fn read_composer_v3_for_report(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    selector: &ExploratoryReplayRecoverySelectorV2,
+) -> Result<ReportRequestReadV2, ExploratoryReplayOwnerError> {
+    Ok(
+        match composer_readback_v3::read_self_verified_composer_v3_claim_in_transaction(
+            transaction,
+            &selector.request_identity,
+            &selector.meaning_digest,
+        )
+        .await?
+        {
+            Some(claim) => ReportRequestReadV2::ComposerV3(Box::new(claim)),
+            None => ReportRequestReadV2::Absent,
+        },
+    )
+}
+
+#[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
+#[allow(clippy::unused_async)] // Async to match the feature build, where it reads the claim.
+async fn read_composer_v3_for_report(
+    _transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    _selector: &ExploratoryReplayRecoverySelectorV2,
+) -> Result<ReportRequestReadV2, ExploratoryReplayOwnerError> {
+    Ok(ReportRequestReadV2::ComposerV3)
 }
 
 pub(crate) async fn resolve_for_rd_v2(

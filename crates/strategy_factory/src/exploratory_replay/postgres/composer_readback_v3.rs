@@ -44,7 +44,9 @@ use crate::{
         composer_exploration_research_view_is_valid_v3,
     },
     replay_execution_profile_binding_v1::ReplayExecutionProfileRequestSealV1,
-    trial_family_postgres::load_trial_family_census_v2_at_frontier_in_transaction,
+    trial_family_postgres::{
+        PostgresReadLockMode, load_trial_family_census_v2_at_frontier_in_transaction,
+    },
 };
 
 /// One internally consistent persisted claim. This type deliberately is not a sealed readback:
@@ -60,6 +62,16 @@ struct StoredComposerReplayClaimV3 {
     outbox_storage_digest: String,
     transition: StoredResearchViewTransitionV3,
 }
+
+/// The reads a COMPOSER_V3 claim's self-proof makes, without their lock clause.
+///
+/// The locking readback appends ` FOR SHARE` to each through [`PostgresReadLockMode::query`], and
+/// the report's lock-free read appends nothing. Nothing else about the two differs, so a claim the
+/// report reads is checked by exactly the statements the locking readback runs.
+pub(crate) const STORED_FROZEN_READ_V3: &str = "SELECT source_kind,frozen_json FROM public.rd_sealed_exploratory_replay_requests_v1 WHERE request_identity=$1";
+pub(crate) const STORED_CLAIM_READ_V3: &str = "SELECT request_identity,request_digest,source_kind,composer_source_json,build_request_identity,attempt_identity,intent_identity,trial_family_identity,artifact_identity,build_receipt_identity,artifact_family_binding_identity,census_frontier_identity,frozen_json,receipt_json,lifecycle_state,committed_at_epoch_ms,v2_canonical_request_bytes,v2_request_storage_digest,v2_meaning_digest,v2_seal_digest,v2_receipt_json,v2_receipt_storage_bytes,v2_receipt_storage_digest,request_schema_version FROM public.rd_sealed_exploratory_replay_requests_v1 WHERE request_identity=$1";
+pub(crate) const OUTBOX_EVENT_READ_V3: &str = "SELECT event_identity,aggregate_identity,event_kind,payload_digest,payload_json,canonical_payload_bytes,canonical_payload_storage_digest,canonical_envelope_bytes,canonical_envelope_storage_digest,committed_at_epoch_ms FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2";
+pub(crate) const RESEARCH_TRANSITION_READ_V3: &str = "SELECT replay_request_identity,research_request_identity,intent_identity,transition_digest,old_view_json,new_view_json,transition_json,committed_at_epoch_ms FROM public.rd_research_view_transitions_v3 WHERE replay_request_identity=$1";
 
 /// A narrow typed proof for historical Composer custody. Callers cannot construct it from JSON.
 pub(crate) struct VerifiedResearchViewTransitionV3 {
@@ -107,9 +119,13 @@ pub(crate) async fn read_verified_research_view_transition_v3_in_transaction(
     if frozen.source.proposal.request_identity != replay_request_identity {
         return Err(corrupt("COMPOSER_V3 transition Replay identity mismatch"));
     }
-    let claim = load_stored_claim(transaction, &frozen.source.proposal)
-        .await?
-        .ok_or_else(|| corrupt("COMPOSER_V3 Replay row disappeared"))?;
+    let claim = load_stored_claim(
+        transaction,
+        &frozen.source.proposal,
+        PostgresReadLockMode::ForShare,
+    )
+    .await?
+    .ok_or_else(|| corrupt("COMPOSER_V3 Replay row disappeared"))?;
     let transition = claim.transition;
     Ok(Some(VerifiedResearchViewTransitionV3 { transition }))
 }
@@ -120,21 +136,15 @@ pub(super) async fn resolve_composer_v3_by_locator_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     locator: &ExploratoryReplayRequestLocatorV2,
 ) -> Result<Option<SealedExploratoryReplayReadbackV2>, ExploratoryReplayOwnerError> {
-    let row = sqlx::query("SELECT source_kind,frozen_json FROM public.rd_sealed_exploratory_replay_requests_v1 WHERE request_identity=$1 FOR SHARE")
-        .bind(&locator.request_identity)
-        .fetch_optional(&mut **transaction)
-        .await
-        .map_err(storage)?;
-    let Some(row) = row else { return Ok(None) };
-    if row.try_get::<String, _>("source_kind").map_err(storage)? != "COMPOSER_V3" {
-        return Err(corrupt("Replay locator is not a COMPOSER_V3 source"));
-    }
-    let frozen: StoredComposerReplayFrozenV3 =
-        decode_exact(&row.try_get::<Value, _>("frozen_json").map_err(storage)?)?;
-
-    if frozen.source.proposal.request_identity != locator.request_identity {
-        return Err(corrupt("COMPOSER_V3 locator and stored source differ"));
-    }
+    let Some(frozen) = load_stored_frozen(
+        transaction,
+        &locator.request_identity,
+        PostgresReadLockMode::ForShare,
+    )
+    .await?
+    else {
+        return Ok(None);
+    };
     let readback = Box::pin(resolve_existing_composer_v3_in_transaction(
         transaction,
         &frozen.source.proposal,
@@ -153,6 +163,94 @@ pub(super) async fn resolve_composer_v3_by_locator_in_transaction(
     Ok(Some(readback))
 }
 
+/// Reads the frozen source a COMPOSER_V3 request row stores, for the request it names.
+async fn load_stored_frozen(
+    transaction: &mut Transaction<'_, Postgres>,
+    request_identity: &str,
+    lock_mode: PostgresReadLockMode,
+) -> Result<Option<StoredComposerReplayFrozenV3>, ExploratoryReplayOwnerError> {
+    let row = sqlx::query(lock_mode.query(STORED_FROZEN_READ_V3, " FOR SHARE"))
+        .bind(request_identity)
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    let Some(row) = row else { return Ok(None) };
+
+    if row.try_get::<String, _>("source_kind").map_err(storage)? != "COMPOSER_V3" {
+        return Err(corrupt("Replay locator is not a COMPOSER_V3 source"));
+    }
+    let frozen: StoredComposerReplayFrozenV3 =
+        decode_exact(&row.try_get::<Value, _>("frozen_json").map_err(storage)?)?;
+
+    if frozen.source.proposal.request_identity != request_identity {
+        return Err(corrupt("COMPOSER_V3 locator and stored source differ"));
+    }
+    Ok(Some(frozen))
+}
+
+/// A COMPOSER_V3 Replay request as its own stored claim proves it, and nothing more.
+///
+/// Only the claim's self-proof was checked: the request and receipt storage digests, the meaning
+/// and seal digests, the V2 seal, the frozen source against its Composer receipt, the outbox event
+/// and the Research View transition, all read from R&D custody. Nothing was resolved again against
+/// another Owner: not the Product Edge admission, the TrialFamily census, the Composer record, the
+/// intent or the Market Data cut, all of which the locking readback re-proves before it returns a
+/// [`SealedExploratoryReplayReadbackV2`]. That is why this is its own type and not that one: a value
+/// of it says the stored claim is intact, not that it would still resolve today.
+///
+/// It exists to state a run that was already committed, whose cross-Owner checks ran when the
+/// claim was sealed, and for nothing that decides anything. Its fields are private and
+/// [`read_self_verified_composer_v3_claim_in_transaction`] is the only way to build one.
+pub(crate) struct SelfVerifiedComposerV3ClaimV1 {
+    request: ReplayRequestV2,
+}
+
+impl SelfVerifiedComposerV3ClaimV1 {
+    /// The Replay request the claim sealed, parsed from its canonical bytes.
+    pub(crate) const fn request(&self) -> &ReplayRequestV2 {
+        &self.request
+    }
+}
+
+/// Reads one COMPOSER_V3 claim and checks only its own proof, taking no row lock.
+///
+/// Every statement is one the locking readback runs, without its `FOR SHARE`: the two share
+/// [`load_stored_frozen`], [`load_stored_claim`] and what those call, and differ in the lock mode
+/// alone. So it runs in a `READ ONLY` transaction. A request with no row, or one whose receipt binds
+/// another meaning, is absent here: the caller asked for one exact meaning.
+pub(crate) async fn read_self_verified_composer_v3_claim_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    request_identity: &str,
+    meaning_digest: &str,
+) -> Result<Option<SelfVerifiedComposerV3ClaimV1>, ExploratoryReplayOwnerError> {
+    let Some(frozen) = load_stored_frozen(
+        transaction,
+        request_identity,
+        PostgresReadLockMode::Snapshot,
+    )
+    .await?
+    else {
+        return Ok(None);
+    };
+    let Some(claim) = load_stored_claim(
+        transaction,
+        &frozen.source.proposal,
+        PostgresReadLockMode::Snapshot,
+    )
+    .await?
+    else {
+        return Ok(None);
+    };
+
+    if claim.frozen != frozen || claim.receipt.meaning_digest != meaning_digest {
+        return Ok(None);
+    }
+    let request_dto: ReplayRequestDtoV2 =
+        serde_json::from_slice(&claim.canonical_request_bytes).map_err(unavailable)?;
+    let request = ReplayRequestV2::try_from(request_dto).map_err(unavailable)?;
+    Ok(Some(SelfVerifiedComposerV3ClaimV1 { request }))
+}
+
 /// Called under the Replay request advisory lock, before any new admission is attempted.
 /// `None` means no row. A row with different meaning is a conflict, and a partial or unverified
 /// row never becomes a positive Replay readback.
@@ -160,7 +258,9 @@ pub(super) async fn resolve_existing_composer_v3_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     proposal: &ComposerBackedExploratoryReplayProposalV3,
 ) -> Result<Option<SealedExploratoryReplayReadbackV2>, ExploratoryReplayOwnerError> {
-    let Some(claim) = load_stored_claim(transaction, proposal).await? else {
+    let Some(claim) =
+        load_stored_claim(transaction, proposal, PostgresReadLockMode::ForShare).await?
+    else {
         return Ok(None);
     };
     let market = resolve_bound_replay_cut_for_rd_in_transaction_v1(
@@ -331,14 +431,13 @@ pub(super) async fn resolve_existing_composer_v3_in_transaction(
 async fn load_stored_claim(
     transaction: &mut Transaction<'_, Postgres>,
     proposal: &ComposerBackedExploratoryReplayProposalV3,
+    lock_mode: PostgresReadLockMode,
 ) -> Result<Option<StoredComposerReplayClaimV3>, ExploratoryReplayOwnerError> {
-    let row = sqlx::query(
-        "SELECT request_identity,request_digest,source_kind,composer_source_json,build_request_identity,attempt_identity,intent_identity,trial_family_identity,artifact_identity,build_receipt_identity,artifact_family_binding_identity,census_frontier_identity,frozen_json,receipt_json,lifecycle_state,committed_at_epoch_ms,v2_canonical_request_bytes,v2_request_storage_digest,v2_meaning_digest,v2_seal_digest,v2_receipt_json,v2_receipt_storage_bytes,v2_receipt_storage_digest,request_schema_version FROM public.rd_sealed_exploratory_replay_requests_v1 WHERE request_identity=$1 FOR SHARE",
-    )
-    .bind(&proposal.request_identity)
-    .fetch_optional(&mut **transaction)
-    .await
-    .map_err(storage)?;
+    let row = sqlx::query(lock_mode.query(STORED_CLAIM_READ_V3, " FOR SHARE"))
+        .bind(&proposal.request_identity)
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(storage)?;
     let Some(row) = row else { return Ok(None) };
     if row.try_get::<String, _>("source_kind").map_err(storage)? != "COMPOSER_V3" {
         return Err(ExploratoryReplayOwnerError::ConflictingReplay);
@@ -452,8 +551,8 @@ async fn load_stored_claim(
         },
     )?;
     let (canonical_outbox_bytes, outbox_storage_digest) =
-        verify_outbox(transaction, &frozen, &receipt).await?;
-    let transition = load_research_transition(transaction, &frozen, &receipt).await?;
+        verify_outbox(transaction, &frozen, &receipt, lock_mode).await?;
+    let transition = load_research_transition(transaction, &frozen, &receipt, lock_mode).await?;
     Ok(Some(StoredComposerReplayClaimV3 {
         frozen,
         receipt,
@@ -471,15 +570,14 @@ async fn verify_outbox(
     transaction: &mut Transaction<'_, Postgres>,
     frozen: &StoredComposerReplayFrozenV3,
     receipt: &StoredReceiptV2,
+    lock_mode: PostgresReadLockMode,
 ) -> Result<(Vec<u8>, String), ExploratoryReplayOwnerError> {
-    let rows = sqlx::query(
-        "SELECT event_identity,aggregate_identity,event_kind,payload_digest,payload_json,canonical_payload_bytes,canonical_payload_storage_digest,canonical_envelope_bytes,canonical_envelope_storage_digest,committed_at_epoch_ms FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2 FOR SHARE",
-    )
-    .bind(&frozen.source.proposal.request_identity)
-    .bind(EXPLORATORY_REPLAY_REQUEST_FROZEN_EVENT_V2)
-    .fetch_all(&mut **transaction)
-    .await
-    .map_err(storage)?;
+    let rows = sqlx::query(lock_mode.query(OUTBOX_EVENT_READ_V3, " FOR SHARE"))
+        .bind(&frozen.source.proposal.request_identity)
+        .bind(EXPLORATORY_REPLAY_REQUEST_FROZEN_EVENT_V2)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(storage)?;
 
     if rows.len() != 1 {
         return Err(corrupt("COMPOSER_V3 Replay outbox cardinality mismatch"));
@@ -555,8 +653,9 @@ async fn load_research_transition(
     transaction: &mut Transaction<'_, Postgres>,
     frozen: &StoredComposerReplayFrozenV3,
     receipt: &StoredReceiptV2,
+    lock_mode: PostgresReadLockMode,
 ) -> Result<StoredResearchViewTransitionV3, ExploratoryReplayOwnerError> {
-    let rows = sqlx::query("SELECT replay_request_identity,research_request_identity,intent_identity,transition_digest,old_view_json,new_view_json,transition_json,committed_at_epoch_ms FROM public.rd_research_view_transitions_v3 WHERE replay_request_identity=$1 FOR SHARE")
+    let rows = sqlx::query(lock_mode.query(RESEARCH_TRANSITION_READ_V3, " FOR SHARE"))
         .bind(&frozen.source.proposal.request_identity)
         .fetch_all(&mut **transaction)
         .await
@@ -632,15 +731,16 @@ async fn load_research_transition(
     {
         return Err(corrupt("COMPOSER_V3 Research View projection mismatch"));
     }
-    verify_research_transition_outbox(transaction, &transition).await?;
+    verify_research_transition_outbox(transaction, &transition, lock_mode).await?;
     Ok(transition)
 }
 
 async fn verify_research_transition_outbox(
     transaction: &mut Transaction<'_, Postgres>,
     transition: &StoredResearchViewTransitionV3,
+    lock_mode: PostgresReadLockMode,
 ) -> Result<(), ExploratoryReplayOwnerError> {
-    let rows = sqlx::query("SELECT event_identity,aggregate_identity,event_kind,payload_digest,payload_json,canonical_payload_bytes,canonical_payload_storage_digest,canonical_envelope_bytes,canonical_envelope_storage_digest,committed_at_epoch_ms FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2 FOR SHARE")
+    let rows = sqlx::query(lock_mode.query(OUTBOX_EVENT_READ_V3, " FOR SHARE"))
         .bind(&transition.replay_request_identity)
         .bind(RESEARCH_VIEW_TRANSITION_EVENT_V3)
         .fetch_all(&mut **transaction)
@@ -718,4 +818,104 @@ async fn verify_research_transition_outbox(
 
 fn corrupt(message: &str) -> ExploratoryReplayOwnerError {
     ExploratoryReplayOwnerError::Unavailable(message.into())
+}
+
+#[cfg(test)]
+mod lock_mode_tests {
+    use sha2::{Digest, Sha256};
+
+    use super::*;
+
+    fn sha256_hex(text: &str) -> String {
+        Sha256::digest(text.as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+    }
+
+    /// The locking readback sends exactly the SQL it sent before its reads took a lock mode. Each
+    /// statement is pinned by the SHA-256 of the literal it replaced, `FOR SHARE` included.
+    #[rstest::rstest]
+    #[case::stored_frozen(
+        STORED_FROZEN_READ_V3,
+        "ef1adb9979bb8a48154bd668e4e218a255cbf2bc80ed3f6025c39234b2ae5b6f"
+    )]
+    #[case::stored_claim(
+        STORED_CLAIM_READ_V3,
+        "105daff7980518c8c62b4aa9d4ef03dbbb14590f13fce07900d20f3fad4ca74e"
+    )]
+    #[case::outbox_event(
+        OUTBOX_EVENT_READ_V3,
+        "db623dafee5f81fc625d5e3ec1784b95335e99669a3305d104f7c289754345db"
+    )]
+    #[case::research_transition(
+        RESEARCH_TRANSITION_READ_V3,
+        "2be93bd4c6efbf7f3669eda3985eee12f53de1e9028c806d11e3799a0c5a4055"
+    )]
+    fn the_locking_reads_are_byte_identical_to_the_ones_they_replaced(
+        #[case] statement: &'static str,
+        #[case] pinned: &str,
+    ) {
+        let locked = PostgresReadLockMode::ForShare.query(statement, " FOR SHARE");
+        assert_eq!(sha256_hex(&locked.0), pinned);
+
+        let unlocked = PostgresReadLockMode::Snapshot.query(statement, " FOR SHARE");
+        assert_eq!(unlocked.0, statement, "the lock-free read adds nothing");
+        assert_eq!(locked.0, format!("{statement} FOR SHARE"));
+        assert!(
+            !statement.contains(" FOR "),
+            "the bare statement locks nothing"
+        );
+    }
+
+    /// The two lock modes differ in the lock clause and nowhere else. A branch on the mode would let
+    /// the report's lock-free read check less (or more) than the locking one, and a claim proven on
+    /// one path would say nothing about the other.
+    #[rstest::rstest]
+    fn nothing_in_this_module_branches_on_the_lock_mode() {
+        let normalized = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+        let source = include_str!("composer_readback_v3.rs");
+        let production = normalized(
+            source
+                .split("#[cfg(test)]")
+                .next()
+                .expect("the module's production half"),
+        );
+        let branches = [
+            "match lock_mode",
+            "matches!(lock_mode",
+            "lock_mode ==",
+            "lock_mode !=",
+            "if let PostgresReadLockMode",
+            "PostgresReadLockMode::ForShare =>",
+            "PostgresReadLockMode::Snapshot =>",
+        ];
+        // Positive control: each needle finds the branch it names in the form rustfmt writes it.
+        for (needle, written) in branches.iter().zip([
+            "match lock_mode {",
+            "if matches!(lock_mode, PostgresReadLockMode::Snapshot) {",
+            "if lock_mode == other {",
+            "if lock_mode != other {",
+            "if let PostgresReadLockMode::Snapshot = lock_mode {",
+            "PostgresReadLockMode::ForShare => check(),",
+            "PostgresReadLockMode::Snapshot => {}",
+        ]) {
+            assert!(
+                normalized(written).contains(needle),
+                "{needle} misses {written}"
+            );
+        }
+
+        for needle in branches {
+            assert!(
+                !production.contains(needle),
+                "the module branches on the lock mode: {needle}"
+            );
+        }
+        assert_eq!(
+            production.matches("lock_mode.query(").count(),
+            5,
+            "every read the claim's proof makes takes its lock clause from the mode"
+        );
+    }
 }

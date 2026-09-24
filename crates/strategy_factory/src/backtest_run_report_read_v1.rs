@@ -473,7 +473,7 @@ pub(crate) async fn read_report_in_transaction(
     let Some(read) = resolve_backtest_run_result_v1(transaction, locator).await? else {
         return Ok(None);
     };
-    let request = match read_for_report_in_transaction_v2(
+    let read_request = read_for_report_in_transaction_v2(
         transaction,
         &ExploratoryReplayRecoverySelectorV2 {
             request_identity: read.run.request_identity.clone(),
@@ -481,9 +481,12 @@ pub(crate) async fn read_report_in_transaction(
         },
     )
     .await
-    .map_err(|e| BacktestRunReportRefusalV1::ReplayRequestUnavailable(e.to_string()))?
-    {
-        ReportRequestReadV2::Found(request) => request,
+    .map_err(|e| BacktestRunReportRefusalV1::ReplayRequestUnavailable(e.to_string()))?;
+    let request = match &read_request {
+        ReportRequestReadV2::Found(readback) => readback.request(),
+        #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+        ReportRequestReadV2::ComposerV3(claim) => claim.request(),
+        #[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
         ReportRequestReadV2::ComposerV3 => {
             return Err(BacktestRunReportRefusalV1::ReplayRequestV3NotYetReported);
         }
@@ -494,7 +497,7 @@ pub(crate) async fn read_report_in_transaction(
         }
     };
     let (strategy, data_window) =
-        resolve_strategy_and_window(transaction, request.request().as_dto()).await?;
+        resolve_strategy_and_window(transaction, request.as_dto()).await?;
 
     Ok(Some(BacktestRunReportProjectionV1 {
         run: read.run,
