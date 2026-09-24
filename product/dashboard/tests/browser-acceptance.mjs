@@ -6,16 +6,16 @@
 // endpoint, or a page condition that never becomes true fails with the observed state instead
 // of hanging the chain.
 
-import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { appendFile, mkdtemp, rm } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
+
+import { startNextServer } from "./preview-instance.mjs";
 
 // A browser is a tree, not a process. Chrome's helper processes inherit the stderr pipe this module
 // reads, and they outlive a signal sent only to the process spawned here: the pipe stays open, Node
@@ -57,38 +57,13 @@ export async function stopProcess(child, label = "child", { group = false } = {}
   throw new Error(`${label} process did not exit after SIGKILL`);
 }
 
-export async function reserveLoopbackPort() {
-  const server = createServer();
-  server.listen(0, "127.0.0.1");
-  await once(server, "listening");
-  const address = server.address();
-  assert.ok(address && typeof address === "object");
-  const port = address.port;
-  server.close();
-  await once(server, "close");
-  return port;
-}
-
-export async function waitForHttp(url, child, { timeoutMs = 60_000, label = "preview" } = {}) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`${label} exited with ${child.exitCode}`);
-    try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(5_000), redirect: "manual" });
-      if (response.ok || (response.status >= 300 && response.status < 400)) return response;
-    } catch {
-      // The bounded local preview is still starting.
-    }
-    await delay(200);
-  }
-  throw new Error(`${label} did not become ready at ${url}`);
-}
-
 /**
- * Builds the Dashboard once and serves the production bundle on the reserved port, so the
- * browser exercises the same server runtime an operator deploys rather than the dev compiler.
+ * Builds the Dashboard once and serves the production bundle, so the browser exercises the same
+ * server runtime an operator deploys rather than the dev compiler. The server takes a port the
+ * system assigns and is ready only when it answers as itself (see preview-instance.mjs); the
+ * caller gets back the origin it announced.
  */
-export async function startProductionPreview({ dashboardRoot, port, env, label = "preview" }) {
+export async function startProductionPreview({ dashboardRoot, env, label = "preview" }) {
   const nextBin = "node_modules/next/dist/bin/next";
   // Callers hold this root either way, and spawn accepts both - but the cache probe below joins it,
   // and join refuses a URL. Normalise here rather than leaving the next caller to find out.
@@ -117,13 +92,8 @@ export async function startProductionPreview({ dashboardRoot, port, env, label =
     await appendFile(process.env.GITHUB_STEP_SUMMARY, `- ${evidence}\n`).catch(() => {});
   }
   if (buildExit !== 0) throw new Error(`${label} build exited with ${buildExit}`);
-  const preview = spawn(process.execPath, [nextBin, "start", "-H", "127.0.0.1", "-p", String(port)], {
-    cwd: root,
-    env: previewEnv,
-    stdio: "inherit",
-  });
-  await waitForHttp(`http://127.0.0.1:${port}/api/health/`, preview, { timeoutMs: 120_000, label });
-  return preview;
+  const { child: preview, origin } = await startNextServer({ dashboardRoot: root, mode: "start", env, label });
+  return { preview, origin };
 }
 
 async function removeBrowserProfile(profile) {
@@ -132,10 +102,12 @@ async function removeBrowserProfile(profile) {
 
 export async function openBrowser(executable, { label = "browser" } = {}) {
   const profile = await mkdtemp(join(tmpdir(), "dashboard-browser-acceptance-"));
-  const debugPort = await reserveLoopbackPort();
   console.error(`[${label}] launching browser`);
+  // Port 0: the browser takes a port the system assigns and writes it to DevToolsActivePort in
+  // its own profile, so the port read below is this browser's. A port reserved and released
+  // beforehand could be taken, and answered, by another browser in between.
   const child = spawn(executable, [
-    "--headless", `--remote-debugging-port=${debugPort}`, "--remote-debugging-address=127.0.0.1",
+    "--headless", "--remote-debugging-port=0", "--remote-debugging-address=127.0.0.1",
     `--user-data-dir=${profile}`, "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu",
     "--disable-background-networking", "--disable-default-apps", "--disable-extensions",
     "--disable-sync", "--metrics-recording-only", "--no-default-browser-check", "--no-first-run",
@@ -149,9 +121,19 @@ export async function openBrowser(executable, { label = "browser" } = {}) {
   try {
     const deadline = Date.now() + 15_000;
     let devToolsReady = false;
+    let debugPort = null;
     while (Date.now() < deadline) {
       if (child.exitCode !== null || child.signalCode !== null) {
         throw new Error(`${label} exited with ${child.exitCode ?? child.signalCode}`);
+      }
+      if (debugPort === null) {
+        const announced = await readFile(join(profile, "DevToolsActivePort"), "utf8").catch(() => "");
+        const port = Number(announced.split("\n")[0]);
+        if (!Number.isSafeInteger(port) || port <= 0) {
+          await delay(100);
+          continue;
+        }
+        debugPort = port;
       }
       try {
         const response = await fetch(`http://127.0.0.1:${debugPort}/json/version`, {
