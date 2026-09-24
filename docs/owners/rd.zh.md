@@ -111,9 +111,11 @@
   权威齐备时该跑的那条路不存在。存在的那条是 `SealedSourceIntakeEnvironmentV1`，
   而同一节规定它是仅供验收的类别、完全不许有外部网络。还缺哪些阶段不记在这里：那个模块里的
   `UNIMPLEMENTED_PRODUCTION_STAGES` 列着它们，且有一条守卫在清单与代码不一致时报红。
-  要当前数目请读那份清单，不要读这一段。另外，这条路由把它陈述为 `SUBMITTED_OR_UNKNOWN` 加
-  `RESOLVE_SAME_REQUEST`，而那个状态是留给传输结果确实未知的情形的；这里结果是已知的，
-  重发同一请求改变不了它。
+  要当前数目请读那份清单，不要读这一段。这条路由把它答为 `SUBMITTED_OR_UNKNOWN` 加
+  `RESOLVE_SAME_REQUEST`，这正是「血缘与保护反馈准入」一节里的拒绝规则给它的答复：拒绝它的是环境，
+  即 Playbook 点名的、缺席的 `LIVE_EXTERNAL` 权威，而不是请求本身；请求本身的拒绝（冲突的 identity、
+  畸形的 body）这条路由已经按名回答。今天重试改变不了答案，是这个构建缺少的能力，列在
+  `UNIMPLEMENTED_PRODUCTION_STAGES` 里；它不是请求的性质，也不需要一种专属的答复。
 - **CURRENT - composer-backed 的 Exploratory Replay 请求路径没有准入标签，解除它封印的条件在上游：**
   `commit_composer_backed_exploratory_replay_request_v3` 及其路由
   `/v3/exploratory-replay-requests/composer-backed` 只存在于 `sealed-source-intake-composer-acceptance`
@@ -527,6 +529,16 @@ source cut clock epoch 与半开有效期。
 `SUBMITTED_OR_UNKNOWN`，且不写 Research receipt Intent TrialFamily root/member/head 或转换 outbox。
 在其他权威均当前时，畸形理由只能产生 `REJECTED_NO_WRITE`。相同 request 理由和规范 Owner cuts
 重放准确相同字节；含义或 cut 改变不能加入。R&D 永不读取保护 payload 或细节。
+
+一次拒绝得到哪种答复，由它否定的是什么决定。否定请求本身的拒绝（它的类型、它的 identity、它所属的
+operation）任何重试都改变不了，所以按自己的名字拒绝，绝不答成 `SUBMITTED_OR_UNKNOWN`：Source Intake
+读面被问到一个不是 Source Intake 请求的 identity，就按这个事实拒绝。否定环境、某项权威或构建能力的
+当前状态的拒绝，可能因重试或重新部署而改变，所以答 `SUBMITTED_OR_UNKNOWN` 加「解析同一请求」的动作
+（这里是 `RESOLVE_SAME_REQUEST_IDENTITY`，Source Intake 路由上是 `RESOLVE_SAME_REQUEST`），即使 Owner
+确知自己什么也没写；其原因经 `refused_by_store` 记在一个具名坐标下，那是操作者去看的地方：当前 replay
+policy catalog V3 的头缺席时，`submit_v2` 就这样回答，并记下
+`research_goal_owner.submit_v2.replay_policy_catalog_v3.resolve_current`。Owner 不判断一种环境状态会持续
+多久（一分钟后发布的头会让同一请求成功），所以权威不可用不另设专属答复。
 
 R&D 的时钟是在使用它的 R&D 事务内读取的 `pg_catalog.clock_timestamp()`。Research Intent 的投影时间、
 `valid_through` 与提交时间都由它盖戳，其锁返回的 `owner_cut` 也是；后继 Research Intent 遵循同一规则。
