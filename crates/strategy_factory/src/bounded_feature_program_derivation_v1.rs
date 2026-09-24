@@ -32,7 +32,7 @@
 //! Derivation is not admission. The result is still a proposal, carries no Owner authority, and
 //! must pass the same canonical verification as one assembled by hand.
 
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, fmt::Display};
 
 use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
@@ -786,6 +786,18 @@ pub enum BoundedFeatureProgramAssemblyErrorV1 {
     Derivation(#[from] BoundedFeatureProgramDerivationErrorV1),
 }
 
+/// Records why the Market Data custody read refused, then returns the refusal the caller is given.
+///
+/// The caller learns `MarketDataUnavailable` whichever step refused; the coordinate names the step
+/// and the cause is that step's own error, so the log says where.
+fn market_data_refused(
+    coordinate: &'static str,
+    cause: &impl Display,
+) -> BoundedFeatureProgramAssemblyErrorV1 {
+    crate::storage_diagnostic::refused_by_store(coordinate, cause);
+    BoundedFeatureProgramAssemblyErrorV1::MarketDataUnavailable
+}
+
 /// Resolves live Owner binding custody for a Design and assembles declared meaning against it.
 ///
 /// This is the four-step custody path `source_research_composer_postgres_v2` performs, lifted out
@@ -820,7 +832,9 @@ pub(crate) async fn assemble_declared_bounded_feature_program_v1(
 
     let coordinate = resolve_pit_request_for_strategy_design_v1(transaction, design_identity)
         .await
-        .map_err(|_| BoundedFeatureProgramAssemblyErrorV1::MarketDataUnavailable)?;
+        .map_err(|cause| {
+            market_data_refused("bfp_derivation.binding.resolve_pit_request", &cause)
+        })?;
 
     let mut declared: Vec<BindingDigest> = design
         .inputs
@@ -831,7 +845,10 @@ pub(crate) async fn assemble_declared_bounded_feature_program_v1(
     declared.sort_unstable();
     stored.sort_unstable();
     if declared != stored {
-        return Err(BoundedFeatureProgramAssemblyErrorV1::MarketDataUnavailable);
+        return Err(market_data_refused(
+            "bfp_derivation.binding.declared_roles",
+            &"the Design's role set differs from the roles Market Data holds for it",
+        ));
     }
 
     let claim = UntrustedStrategyInputCustodyClaimV1 {
@@ -843,12 +860,15 @@ pub(crate) async fn assemble_declared_bounded_feature_program_v1(
     };
     let readback = reread_persisted_strategy_input_custody_for_update_v1(transaction, &claim)
         .await
-        .map_err(|_| BoundedFeatureProgramAssemblyErrorV1::MarketDataUnavailable)?;
+        .map_err(|cause| market_data_refused("bfp_derivation.binding.reread_custody", &cause))?;
 
     if readback.research_request_identity() != design.research_request_identity
         || readback.strategy_design_identity() != design_identity
     {
-        return Err(BoundedFeatureProgramAssemblyErrorV1::MarketDataUnavailable);
+        return Err(market_data_refused(
+            "bfp_derivation.binding.custody_identity",
+            &"the reread custody names another Research request or Design",
+        ));
     }
 
     Ok(derive_bounded_feature_program_proposal_v1(

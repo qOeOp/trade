@@ -681,6 +681,58 @@ projection 准确一致，随后复用既有 Replay V2 issuer 及其未改变的
 frontier。Replay storage meaning 还由 binding identity 约束。既有 unbound row 仍仅可产生负向结果：绝不
 backfill、infer、按 latest 选择或通过 full scan 发现。
 
+**TARGET / IMPLEMENTATION_ADMITTED，universe-member composition binding：** 上文的 W3 binding 只准入一种形状，即
+exact-instrument 第一语料；角色为 universe member（scope `UniverseSelection`）的 Design 无法由它绑定，所以其
+Replay V3 request 没有可携带的 binding。Market Data 为这类 Design 新增第二种 binding 形状，并逐字节保留第一种。
+形状由 record 携带而绝不推断：第一语料保持 schema `u16 = 1` 与 domain
+`vibe.market-data.replay-composition-binding.v1\0`；universe-member 形状是 schema `u16 = 2`，domain 为
+`vibe.market-data.replay-composition-binding.v2\0`，解码后的 record 声明其形状。组成部分与其形状不一致的
+record、claim 或 Replay frontier 按 composition shape mismatch 拒绝。universe-member 形状绑定准确 PIT
+request/snapshot 与 replay window、经过认证的 `StrategyDesignV2`、由 universe-member 角色组成的完整排序 role set
+及其每条 durable registry declaration 与 binding、准确原生 PIT、Source Binding、Universe Selection 与 Market
+Semantics locator，以及 Market Data 由该 request 的 PIT batch 与该 role set 导出的 universe frame。它不绑定
+observation census、joined cut、V4 projection 或 native-join attestation：它们为封存 joined cut 而存在，而
+universe frame 才是证明每个（member, role）在该 cut 上恰有一个值的东西。出于下文的理由，它也不绑定 Instrument
+Master，所以该形状的 record、其 Replay frontier 与解析出的 composition cut 都不携带 Instrument Master。issuance
+在读取 native join 之前按 claim 的形状分支。该形状的 Replay V2 facts 携带四种类 frontier：PIT、Source
+Binding、Universe Selection 与 `StrategyInputUniverseFrameV1`；第一语料保留其七种类 frontier。
+
+durable declaration registry 准入 `UniverseSelection` scope 的 declaration。每条都对照 PIT batch、其 Source
+Binding 与 frontier、batch 所指名且经 Owner 验证的 Universe Selection、batch 层面的 Instrument Master coordinate，
+以及 Market Semantics 除单一 instrument 的 Instrument Master coordinate 之外的全部字段校验；其 Owner binding
+digest 是 Market Data 自行导出的该 role 在该 batch 上的 universe frame 的 digest。该逐 role 的 digest 不是 Replay
+frontier 携带的 universe frame，后者由 Market Data 在 Design 的完整 role set 上导出：declaration 的 digest 标明单个
+role 绑定到了什么，frontier 的 frame 是 R&D 读作 `resolved_owner_inputs` 的值，两者之间不做任何比较。universe Design 在
+composition 时没有可绑定的 Instrument Master 权威：它的 Instrument Master 是 R&D 首次为 native execution 绑定该
+已封存 request 时，Market Data 签发的按 request 定键的 V2 cut。因此 universe role 的 Instrument Master 校验迁移到该
+cut 的签发 `issue_cut_for_bound_replay_v1`：它从恢复出的 selection 自身的 included membership 取 member，所以 member
+集合按构造就是 selection 的；它在 selection 的 owner observation 时刻解析每个 member 的 Instrument Master V2 fact
+chain，该时刻没有 fact 的 member（`MissingFact`）或无法校验的 chain（`ChainMismatch`）会让签发按名拒绝且零写入。随后
+Strategy Factory 的 initial Owner inputs（`resolve_native_replay_initial_owner_inputs_v1`）拒绝 member 与 Plan 的
+selection 不一致的 cut。在两个检查点之间，任何 binding、fact 或读者都不得把 Instrument Master 字段声称或传递为已校验。
+「selection 的某个 member 没有可校验的 Instrument Master fact 时签发按名拒绝且零写入」由 composition binding 以
+universe-member binding 驱动该签发的 Postgres 证明断言。
+
+R&D 从 binding 及其 Replay facts 读取的内容，以及在 universe-member 形状下各自的来源：
+
+| R&D 读取                                  | 第一语料                                            | universe‑member 形状                                                               |
+| ----------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `resolved_owner_inputs`                   | observation census 的 identity 与 digest            | 完整 role set 上的 universe frame receipt digest（BLAKE3，identity 等于 digest）   |
+| `universe_selection`                      | Universe Selection dependency                       | 同一个 Universe Selection dependency                                               |
+| binding locator                           | binding record                                      | 同一个 binding record                                                              |
+| market data scope digest（`pit_scope`）   | 解析出的 composition cut，取自 PIT request 的 scope | 同一来源                                                                           |
+| PIT snapshot、window、request identity    | Replay facts header                                 | 同一个 header                                                                      |
+| Replay facts identity 与 receipt identity | Replay facts                                        | 同一来源                                                                           |
+| Design identity、非空 role set            | binding record                                      | binding record；role set 绝不为空                                                  |
+| Instrument Master 校验                    | registry，逐个 exact instrument                     | composition 时不绑定；按 request 定键的 cut 签发时校验每个 member 的 V2 fact chain |
+
+exact-instrument 第一语料经 Instrument Master V1 解析其 instrument，而 V1 projection 无法构造原生 crypto
+perpetual（`require_complete_native_crypto_perpetual_construction` 恒拒绝），所以任何 exact-instrument 形状都无法
+运行用户准入的 crypto perpetual；universe-member 形状是它们的路线。目前已建成：durable declaration registry 如上段所述
+准入 universe-member declaration，将其绑定到该 role 的 universe frame，并拒绝 role 混用两种 scope 或指名多于一个
+selection 的 Design；联接单行的路径按名拒绝这种 declaration。尚无生产 registration 路径组装它：attested 与 role-intent
+两条 registration 仍把每个 role 组装为 exact instrument。该形状的 binding record、Replay frontier 与 resolved cut 均未建成。
+
 **TARGET，持久 R&D attestation seam：** positive R&D Develop Composer transaction 将一份不可变、完整的
 `StrategyDesignRoleSetReceiptV1` attestation 与 Composer aggregate、receipt 及 outbox 一起规范持久化。它绑定
 准确 Research request、Composer aggregate 与
@@ -1589,6 +1641,48 @@ bytes。exact-locator resolver 不读取 latest/head，也不执行 history scan
 custody、response-loss 或 admission 任一失败时，V4 receipt、readback、outbox 与 W3 binding 均零写入。W3
 只消费该 V4 JOINED_CUT locator/readback。该合同不声称 implementation、migration、registered product
 composition、production startup/write、ProgramHost、Backtest、deployment、runtime 或 trading authority。
+
+**TARGET / IMPLEMENTATION_ADMITTED，universe-frame sample projection：** `StrategyInputUniverseSampleProjectionV1`
+为一个 universe frame 的每个（member, role）值提供 bounded feature program 读取的 Owner sample coordinate。它是
+additive 的：V1 receipt、V2/V3/V4 projection、`SampleFactV1`、`SampleReceiptV1` 与 coordinate codec 均不改变。
+它的 subject 是一个 `StrategyInputUniverseFrameReceipt` 的准确 digest，即 ProgramHost 为该帧接纳的那个
+receipt，绝不是 host 无法与之比较的 digest。它为该帧每个（member, role）值各含一个 component，严格按 member
+ordinal（即 selection 的 canonical member 顺序，也是帧内值遵循的顺序）、再按 input-role identity 排序，并穷尽该帧；缺失、多余或重复的一对都不产生 projection。component 携带
+member ordinal、member key 与 instrument、input-role identity、universe member binding digest、value receipt
+digest、该帧的 trigger digest、timeframe-projection receipt digest、sample identity、原生 `SampleReceiptV1`
+digest、coordinate digest 与 308 字节 coordinate。coordinate 是未改变的现有 codec（schema `1`，domain
+`strategy.input.sample-coordinate.v1\0`）；其 binding 字段承载 universe member binding digest，因为 universe
+member 没有 static binding receipt。universe member 的 sample 就是同一行在 exact-instrument binding 下签发的
+那个与 role 无关的 `SampleFactV1`；只有它的 `TimeframeProjectionReceiptV1` 在 exact binding 绑定其 receipt
+digest 的位置绑定 member binding digest。
+
+BAR 帧的 projection 还绑定每个 member 的 BAR role 读取时所依据的 schedule。其 schedule-dependency set digest 是对
+`market-data.universe-sample-projection-schedule-set.v1\0`、component count `u32LE`，以及按顺序每个 component 的
+member ordinal `u8`、input-role identity 与该 member 的 BAR schedule readback identity（各 `[u8; 32]`）取
+SHA-256。它对 BAR 帧是必填、绝非可选，对 EVENT 帧则不存在，并且是 projection identity 的一部分，所以同一帧在另一
+schedule 下读取就是另一个 projection；timeframe-projection receipt 只绑定 timeframe 而不绑定 schedule，若无此项，
+schedule 改变不会改变被接纳事件的 identity。
+
+其 canonical bytes 依次为：schema `u16LE = 1`、reserved-zero `u16LE`、subject `[u8; 32]`、帧 lifecycle `u8`
+（`1` EVENT，`2` BAR）、对 BAR 帧为 schedule-dependency set digest `[u8; 32]`、正的 component count
+`u32LE`，然后每个 component 依次为 member ordinal `u8`、带长度前缀（`u16LE`）的 member key 与 instrument，以及
+input-role、member-binding、value-receipt、trigger、timeframe-projection、sample-identity、sample-receipt 与
+coordinate digest（各 `[u8; 32]`），最后是 308 字节 coordinate。其 identity 是对
+`market-data.universe-sample-projection-receipt.v1\0 || canonical bytes` 取 SHA-256。
+
+固定 Market Data writer 通过一个 Owner operation 签发 projection；R&D 调用时只传已封存 Replay request
+identity、该 request 的 composition binding locator，以及签哪些帧：request 的首帧，或其 window 消费的全部帧。
+在一个 Market Data transaction 中，它解析每帧经 Owner 验证的 batch（对 window 按上文规则从 frame census 取，所以
+调用方不点名任何帧列表），从 composition binding 已认证的 composer role set 取 Design 与 role set（所以调用方
+不点名任何 role），经产生 host 所接纳之帧的同一 binding 重新导出每帧的 universe frame，提交或复用每个
+（member, role）的 sample 与 timeframe projection（BAR role 取该 member 在该帧的 schedule），并存储每个
+projection 的 receipt、exact-subject readback 与 outbox。一个 window 的 projection 在这一次调用中签发，所以
+持锁的 R&D transaction 无论 window 多长都只做一次跨库调用。request key 与其签发时的 binding 一并记录，同一 key
+下的另一 binding 按名拒绝且零写入；准确 retry 以零 append 返回已存字节。该 operation 从不回调 R&D。R&D 在解析
+帧之前调用它。host 只有在 projection 的（member, role）集合同时等于所接纳帧的值集合与 Plan 的 role 表时才附加它，
+否则拒绝；R&D 更早做的任何比较都只是提前拒绝，不是这条性质的保证。
+exact-subject resolver 按 universe-frame digest 读取一个 projection。目前已建成：无；该合同已准入建造，不声称
+production startup 或 write、deployment、runtime 或 trading authority。
 
 已接纳 correction 是 immutable successor，同时具有准确 series predecessor 与 correction predecessor。
 它创建新的 `SampleFactV1`、`SampleReceiptV1`、`sample_identity` 与 coordinate，并让 sample clock 准确推进
