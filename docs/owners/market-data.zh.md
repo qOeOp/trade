@@ -682,7 +682,7 @@ projection 准确一致，随后复用既有 Replay V2 issuer 及其未改变的
 frontier。Replay storage meaning 还由 binding identity 约束。既有 unbound row 仍仅可产生负向结果：绝不
 backfill、infer、按 latest 选择或通过 full scan 发现。
 
-**TARGET / IMPLEMENTATION_ADMITTED，universe-member composition binding：** 上文的 W3 binding 只准入一种形状，即
+**CURRENT/PARTIAL，universe-member composition binding：** 上文的 W3 binding 只准入一种形状，即
 exact-instrument 第一语料；角色为 universe member（scope `UniverseSelection`）的 Design 无法由它绑定，所以其
 Replay V3 request 没有可携带的 binding。Market Data 为这类 Design 新增第二种 binding 形状，并逐字节保留第一种。
 形状由 record 携带而绝不推断：第一语料保持 schema `u16 = 1` 与 domain
@@ -766,8 +766,18 @@ Design 不指名任何 request，其 universe-member role 按「未指名」拒�
 声明的 scope，两种重读都按名拒绝另一种 scope 的 declaration。有序链路以 `rd_owner` 重读它，并在该事务打开之前注册该
 Design，因为 registration 经 Market Data pool 写入，而重读持有 registration 会等待的锁。该形状的 Replay facts 已建成：
 其四种类 frontier 与三个 reference cut、与第一语料并存的存储、由 PIT batch 与 role set 重新导出 universe frame、拒绝
-形状与其 binding 不符的 facts，以及 Instrument Master V2 cut 处的类别拒绝。该形状的 binding record 与 resolved cut
-尚未建成，目前也没有任何路径签发其 Replay facts。
+形状与其 binding 不符的 facts，以及 Instrument Master V2 cut 处的类别拒绝。该形状的 binding 已建成并已签发：一条只带
+locator 的 `ReplayCompositionUniverseBindingIssuanceRequestV1` 走自己的路由
+`POST /v1/replay-compositions/universe-member-issuances`，在自己的 meaning 域
+`market-data.replay-composition-universe-issuance-meaning.v1\0` 下哈希；它指名 Composer attestation、PIT request、
+Source Binding、replay 窗口、Universe Selection、Reference Fact R0 record、Market Semantics 与 correction policy，
+此外什么都不指名。它在第一语料的两个事务与两个 challenge 中运行，但不做 native-join 读取，并原子地存下 schema 2
+binding、其 Replay facts 与这次 issuance。重试返回已存字节；issuance identity 在两种形状间是同一个命名空间，并经同一个
+resolve 路由恢复；带 exact-instrument declaration 的 Design 按名以 composition shape mismatch 拒绝，零写入。该形状的
+Replay facts 只存在于恰为其 request、其 native authority 与其 frame 签发的 universe-member binding 之下。该形状的
+resolved composition cut 不带 Instrument Master，每个需要它的 Strategy Factory 读者按名以
+`InstrumentMasterAbsentForUniverseShape` 拒绝（HTTP 422 `INSTRUMENT_MASTER_ABSENT_FOR_UNIVERSE_SHAPE`）。schema 2
+binding 为该 request 的 Instrument Master V2 cut 定键，与第一语料 binding 完全相同。
 
 **TARGET，持久 R&D attestation seam：** positive R&D Develop Composer transaction 将一份不可变、完整的
 `StrategyDesignRoleSetReceiptV1` attestation 与 Composer aggregate、receipt 及 outbox 一起规范持久化。它绑定

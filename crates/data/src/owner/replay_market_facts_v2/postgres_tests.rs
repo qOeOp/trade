@@ -1260,24 +1260,10 @@ async fn universe_design_declares_from_a_published_intent_step_v1(
     use crate::owner::strategy_design_role_intent_v1::{
         InitialPitRequestLocatorV1, StrategyDesignRoleIntentV1,
     };
-    use crate::owner::strategy_design_role_set::StrategyDesignRoleEntryV1;
     use crate::owner::strategy_input_binding_admission_v1::StrategyInputBindingAdmissionErrorV1;
 
     let d = vibe_data_binding_digest_for_test;
-    let role = |identity, field: &str| StrategyDesignRoleEntryV1 {
-        role_identity: identity,
-        semantic_id: format!("universe-{field}"),
-        fact_class: "MARKET_DATA".into(),
-        instrument: String::new(),
-        scope: r#"{"kind":"UNIVERSE_MEMBERS"}"#.into(),
-        field_semantic_id: format!("MARKET_DATA.BAR.{field}.PRICE.V1"),
-        channel: "MARKET".into(),
-        timeframe: "1M".into(),
-        unit: "PRICE".into(),
-        scale: 2,
-        value_type: "I128".into(),
-    };
-    let roles = vec![role(d(0x61), "CLOSE"), role(d(0x62), "OPEN")];
+    let roles = universe_design_roles_v1();
     let research = base.binding_requests[0].research_request_identity;
     let request = base.pit.fact().request();
     let named = InitialPitRequestLocatorV1 {
@@ -1340,7 +1326,7 @@ async fn universe_design_declares_from_a_published_intent_step_v1(
         "the refusal writes nothing"
     );
 
-    let design = d(0x67);
+    let design = universe_design_identity_v1();
     publish(
         StrategyDesignRoleIntentV1::from_rd_owner_projection_with_initial_pit(
             research,
@@ -1387,6 +1373,301 @@ async fn universe_design_declares_from_a_published_intent_step_v1(
         before + 2,
         "a replay writes nothing"
     );
+}
+
+/// The universe-member Design the entry declares from a published intent, and later composes.
+fn universe_design_identity_v1() -> crate::owner::source_binding::BindingDigest {
+    vibe_data_binding_digest_for_test(0x67)
+}
+
+/// The universe Design's two roles: close and open, each over every member of the selection.
+fn universe_design_roles_v1()
+-> Vec<crate::owner::strategy_design_role_set::StrategyDesignRoleEntryV1> {
+    let role =
+        |identity, field: &str| crate::owner::strategy_design_role_set::StrategyDesignRoleEntryV1 {
+            role_identity: vibe_data_binding_digest_for_test(identity),
+            semantic_id: format!("universe-{field}"),
+            fact_class: "MARKET_DATA".into(),
+            instrument: String::new(),
+            scope: r#"{"kind":"UNIVERSE_MEMBERS"}"#.into(),
+            field_semantic_id: format!("MARKET_DATA.BAR.{field}.PRICE.V1"),
+            channel: "MARKET".into(),
+            timeframe: "1M".into(),
+            unit: "PRICE".into(),
+            scale: 2,
+            value_type: "I128".into(),
+        };
+    vec![role(0x61, "CLOSE"), role(0x62, "OPEN")]
+}
+
+/// A universe-member composition issues a schema 2 binding, and that binding keys the request's
+/// Instrument Master cut.
+///
+/// The universe Design declared earlier in this entry is attested by a Composer operation of its
+/// own, and composed through the universe-member entry: one binding naming no Instrument Master,
+/// one aggregate of the universe-member shape, one issuance, with no census. A retry returns the
+/// stored bytes and writes nothing; the same identity with another composition, and the exact
+/// Design's attestation offered to this entry, are refused by name with nothing written. R&D reads
+/// the cut back with no Instrument Master. The binding then keys the Instrument Master V2 cut, and
+/// the fixture's one member, which has no Instrument Master V2 fact here, is refused by name with
+/// nothing written: this shared database's append-only Instrument Master ledger takes no fact from
+/// a proof, so the positive cut is proven in the Market Data owner scenario instead.
+fn universe_member_composition_is_issued_v1<'a>(
+    admin: &'a sqlx::PgPool,
+    market_pool: &'a sqlx::PgPool,
+    rd_pool: &'a sqlx::PgPool,
+    owner_url: &'a str,
+    reader_url: &'a str,
+    base: &'a crate::owner::postgres::tests::ReplayCompositionMarketBaseFixtureV1,
+    exact: &'a super::ReplayCompositionLocatorOnlyIssuanceRequestV1,
+) -> ChainEntryStepV1<'a, ()> {
+    Box::pin(universe_member_composition_is_issued_step_v1(
+        admin,
+        market_pool,
+        rd_pool,
+        owner_url,
+        reader_url,
+        base,
+        exact,
+    ))
+}
+
+#[allow(clippy::too_many_lines)]
+async fn universe_member_composition_is_issued_step_v1(
+    admin: &sqlx::PgPool,
+    market_pool: &sqlx::PgPool,
+    rd_pool: &sqlx::PgPool,
+    owner_url: &str,
+    reader_url: &str,
+    base: &crate::owner::postgres::tests::ReplayCompositionMarketBaseFixtureV1,
+    exact: &super::ReplayCompositionLocatorOnlyIssuanceRequestV1,
+) {
+    use crate::owner::{
+        instrument_master_v2::InstrumentMasterCustodyErrorV2,
+        instrument_master_v2_postgres::InstrumentMasterV2PostgresOwner,
+        replay_market_facts_v2::{
+            ReplayCompositionBindingErrorV1, ReplayCompositionBindingLocatorV1,
+            ReplayCompositionLocatorOnlyIssuanceRequestV1, ReplayCompositionOwnerV1,
+            ReplayCompositionUniverseBindingIssuanceRequestV1, ReplayMarketFactsShapeV2,
+            composition::ReplayCompositionNativeLocatorKindV1,
+            postgres::recover_replay_composition_binding_in_transaction_v1,
+        },
+        source_binding::BindingDigest,
+        strategy_design_role_set::{
+            StrategyDesignRoleSetLocatorV1, StrategyDesignRoleSetReceiptV1,
+        },
+    };
+
+    let d = vibe_data_binding_digest_for_test;
+    let composer_locator = StrategyDesignRoleSetLocatorV1 {
+        schema_version: 2,
+        request_identity: "universe-member-replay-composition-v1".into(),
+        operation_receipt_identity: d(0x71),
+        artifact_locator: "artifact:universe-member-replay-composition-v1".into(),
+        artifact_identity: d(0x72),
+        canonical_plan_digest: d(0x73),
+        design_digest: d(0x74),
+    };
+    let role_set = StrategyDesignRoleSetReceiptV1::from_rd_owner_projection(
+        composer_locator.clone(),
+        base.binding_requests[0].research_request_identity,
+        d(0x75),
+        universe_design_identity_v1(),
+        d(0x74),
+        d(0x76),
+        universe_design_roles_v1(),
+        vec![],
+    )
+    .expect("a universe Design's role set carries no native join");
+    let mut composer = admin.begin().await.unwrap();
+    for statement in ["SET LOCAL ROLE composer_owner"] {
+        sqlx::query(statement)
+            .execute(&mut *composer)
+            .await
+            .unwrap();
+    }
+    sqlx::query("INSERT INTO composer_private.rd_develop_designs_v2(design_identity,canonical_bytes) VALUES($1,$2)")
+        .bind(universe_design_identity_v1().as_bytes().as_slice()).bind(b"universe-design".as_slice()).execute(&mut *composer).await.unwrap();
+    sqlx::query("INSERT INTO composer_private.rd_develop_plans_v2(plan_digest,design_identity,canonical_bytes) VALUES($1,$2,$3)")
+        .bind(composer_locator.canonical_plan_digest.as_bytes().as_slice()).bind(universe_design_identity_v1().as_bytes().as_slice()).bind(b"universe-plan".as_slice()).execute(&mut *composer).await.unwrap();
+    sqlx::query("INSERT INTO composer_private.rd_develop_artifacts_v2(artifact_identity,plan_digest,package_bytes) VALUES($1,$2,$3)")
+        .bind(composer_locator.artifact_identity.as_bytes().as_slice()).bind(composer_locator.canonical_plan_digest.as_bytes().as_slice()).bind(b"universe-artifact".as_slice()).execute(&mut *composer).await.unwrap();
+    sqlx::query("INSERT INTO composer_private.rd_develop_operations_v2(request_identity,request_digest,research_request_identity,intent_identity,artifact_identity,canonical_receipt_bytes,response_bytes) VALUES($1,$2,$3,$4,$5,$6,$7)")
+        .bind(&composer_locator.request_identity).bind(d(0x77).as_bytes().as_slice()).bind(role_set.research_request_identity.as_bytes().as_slice()).bind(role_set.intent_identity.as_bytes().as_slice()).bind(composer_locator.artifact_identity.as_bytes().as_slice()).bind(b"universe-operation".as_slice()).bind(b"universe-response".as_slice()).execute(&mut *composer).await.unwrap();
+    sqlx::query("INSERT INTO composer_private.rd_develop_strategy_design_role_set_attestations_v1(request_identity,composer_schema_version,operation_receipt_identity,artifact_locator,artifact_identity,canonical_plan_digest,design_digest,attestation_identity,attestation_digest,canonical_bytes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
+        .bind(&composer_locator.request_identity).bind(i32::from(composer_locator.schema_version)).bind(composer_locator.operation_receipt_identity.as_bytes().as_slice()).bind(&composer_locator.artifact_locator).bind(composer_locator.artifact_identity.as_bytes().as_slice()).bind(composer_locator.canonical_plan_digest.as_bytes().as_slice()).bind(composer_locator.design_digest.as_bytes().as_slice()).bind(role_set.receipt_identity().as_bytes().as_slice()).bind(role_set.receipt_digest().as_bytes().as_slice()).bind(role_set.canonical_bytes()).execute(&mut *composer).await.unwrap();
+    composer.commit().await.unwrap();
+
+    let owner = ReplayCompositionOwnerV1::connect(owner_url, reader_url)
+        .await
+        .expect("the universe-member entry's owner");
+    let w3 = exact.composition();
+    let composition = |composer: StrategyDesignRoleSetLocatorV1, end: i128| {
+        ReplayCompositionUniverseBindingIssuanceRequestV1::from_test_fixture(
+            composer,
+            w3.pit_locator().clone(),
+            w3.source_binding_locator().clone(),
+            50,
+            end,
+            w3.universe_selection_locator(),
+            w3.reference_fact_r0_locator(),
+            w3.market_semantics_locator(),
+            w3.correction_policy_locator(),
+        )
+    };
+    let command = ReplayCompositionLocatorOnlyIssuanceRequestV1::new(
+        d(0x78),
+        composition(composer_locator.clone(), 51),
+    )
+    .unwrap();
+    assert_ne!(
+        command.issuance_locator().request_meaning_digest(),
+        ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(0x78), w3.clone())
+            .unwrap()
+            .issuance_locator()
+            .request_meaning_digest(),
+        "the two shapes' meanings are hashed under different domains"
+    );
+
+    let before = replay_positive_state(market_pool).await;
+    let issued = owner
+        .issue_universe_member_binding_v1(&command)
+        .await
+        .expect("the universe-member composition issues");
+    let after = replay_positive_state(market_pool).await;
+    let delta = after
+        .iter()
+        .zip(&before)
+        .map(|(after, before)| after - before)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        delta,
+        [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 0],
+        "one binding, one aggregate, one issuance, and no census"
+    );
+
+    let (binding_identity, binding_digest): (Vec<u8>, Vec<u8>) = sqlx::query_as(
+        "SELECT binding_identity,binding_digest FROM market_data_private.replay_composition_issuances_v1 WHERE request_identity=$1",
+    )
+    .bind(d(0x78).as_bytes().as_slice())
+    .fetch_one(market_pool)
+    .await
+    .unwrap();
+    let locator = ReplayCompositionBindingLocatorV1::from_untrusted(
+        BindingDigest::from_untrusted_bytes(binding_identity.try_into().unwrap()),
+        BindingDigest::from_untrusted_bytes(binding_digest.try_into().unwrap()),
+    );
+    let mut market = market_pool.begin().await.unwrap();
+    let binding = recover_replay_composition_binding_in_transaction_v1(&mut market, locator)
+        .await
+        .expect("the stored binding verifies");
+    market.rollback().await.unwrap();
+    let record = binding.record();
+    assert_eq!(record.shape(), ReplayMarketFactsShapeV2::UniverseMembers);
+    assert_eq!(&record.canonical_bytes()[..2], &[0, 2]);
+    assert!(
+        record
+            .native_locator(ReplayCompositionNativeLocatorKindV1::InstrumentMaster)
+            .is_none()
+    );
+    assert_eq!(
+        record
+            .native_locator(ReplayCompositionNativeLocatorKindV1::UniverseSelection)
+            .map(|selection| selection.identity),
+        Some(base.universe.record().identity())
+    );
+    assert_eq!(record.role_count(), 2);
+
+    // A retry returns the stored bytes, and so does recovery by locator.
+    assert_eq!(
+        owner
+            .issue_universe_member_binding_v1(&command)
+            .await
+            .expect("the retry rejoins")
+            .canonical_bytes(),
+        issued.canonical_bytes()
+    );
+    assert_eq!(
+        owner
+            .recover_issuance_v1(command.issuance_locator())
+            .await
+            .expect("the issuance recovers")
+            .canonical_bytes(),
+        issued.canonical_bytes()
+    );
+    assert_eq!(replay_positive_state(market_pool).await, after);
+
+    // The same identity with another composition, and the exact Design's attestation offered to
+    // this entry, are refused by name with nothing written.
+    let reused = ReplayCompositionLocatorOnlyIssuanceRequestV1::new(
+        d(0x78),
+        composition(composer_locator.clone(), 52),
+    )
+    .unwrap();
+    assert_eq!(
+        owner.issue_universe_member_binding_v1(&reused).await,
+        Err(ReplayCompositionBindingErrorV1::IssuanceIdentityConflict)
+    );
+    let exact_design = ReplayCompositionLocatorOnlyIssuanceRequestV1::new(
+        d(0x79),
+        composition(w3.composer_locator().clone(), 51),
+    )
+    .unwrap();
+    assert_eq!(
+        owner.issue_universe_member_binding_v1(&exact_design).await,
+        Err(ReplayCompositionBindingErrorV1::CompositionShapeMismatch)
+    );
+    assert_eq!(replay_positive_state(market_pool).await, after);
+
+    // R&D reads the cut back with its universe-member facts and no Instrument Master.
+    let mut rd_transaction = rd_pool.begin().await.unwrap();
+    let rd_cut =
+        crate::owner::replay_market_facts_v2::resolve_bound_replay_cut_for_rd_in_transaction_v1(
+            &mut rd_transaction,
+            locator,
+        )
+        .await
+        .expect("R&D resolves the universe-member cut");
+    rd_transaction.rollback().await.unwrap();
+    assert!(rd_cut.instrument_master().is_none());
+    assert_eq!(
+        rd_cut.market_facts().facts().shape(),
+        ReplayMarketFactsShapeV2::UniverseMembers
+    );
+    assert_eq!(
+        rd_cut.market_facts().facts().universe_frame_digest(),
+        record.universe_frame_digest()
+    );
+
+    // The binding keys the request's Instrument Master V2 cut; the member has no fact here.
+    let instrument_master =
+        InstrumentMasterV2PostgresOwner::install(sqlx::PgPool::connect(owner_url).await.unwrap())
+            .await
+            .expect("the Instrument Master V2 store");
+    let ledger = async || -> Vec<i64> {
+        let mut counts = Vec::new();
+        for query in [
+            "SELECT COUNT(*) FROM market_data_instrument_master_v2.cuts",
+            "SELECT COUNT(*) FROM market_data_instrument_master_v2.bound_replay_issuances",
+            "SELECT append_sequence FROM market_data_instrument_master_v2.state WHERE singleton",
+        ] {
+            counts.push(
+                sqlx::query_scalar(query)
+                    .fetch_one(market_pool)
+                    .await
+                    .unwrap(),
+            );
+        }
+        counts
+    };
+    let settled = ledger().await;
+    assert_eq!(
+        instrument_master
+            .issue_cut_for_bound_replay_v1("universe-member-replay-composition-v1", locator)
+            .await,
+        Err(InstrumentMasterCustodyErrorV2::MissingFact)
+    );
+    assert_eq!(ledger().await, settled, "the refusal writes nothing");
 }
 
 /// Registers a universe-member Design on the same custody and confirms it is committed.
@@ -3139,6 +3420,17 @@ async fn replay_composition_after_base_fixture_step_v1(
         assert!(fresh_owner.issue_binding_v1(&bad).await.is_err());
         assert_eq!(replay_positive_state(market_mutation_pool).await, committed);
     })
+    .await;
+
+    universe_member_composition_is_issued_v1(
+        admin,
+        market_mutation_pool,
+        mutation.pool(CanonicalOwnerTestRoleV1::RdOwner),
+        owner_url,
+        reader_url,
+        &base,
+        &command,
+    )
     .await;
 }
 
