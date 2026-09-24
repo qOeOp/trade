@@ -539,6 +539,13 @@ Decision identity/digest、round、request、Result、attempt、receipt、commit
 Owner custody 中不存在的 evidence state。duplicate、non-monotonic、cross-family、oversized、malformed 或并发不一致
 的 cut 全部 fail closed。经过验证但为空的 Decision list 合法，表示 `AWAITING_REPLAY_RESULT`。
 
+Formation catalog、Iteration timeline 与 historical custody read 的 `observed_at_epoch_ms` 取自 R&D Owner 的时钟，
+即在 Owner 事务内读取的 `pg_catalog.clock_timestamp()`，也就是它们 commit time 的来源。它只与这些 commit time
+比较，从不与可能与之不同的 Dashboard 进程时钟比较。这几个 read 改为在 `x-dashboard-read-nonce` 请求头里携带
+一个新鲜的 128 位 nonce，read API 只在 Owner 为该请求产出的 `200` projection 旁原样返回这个头：不带恰好一个
+合法 nonce 的 read 在任何 Owner 调用之前以 `400` 拒绝，拒绝或失败的回答都不带 nonce。BFF 只接受回显了本次
+read 自己 nonce 的回答，其余一律按 `OWNER_RESPONSE_UNAVAILABLE` 处理。
+
 `/rd/research` 只有在 Formation row 与该 family 的 exact Iteration projection 都 available 且 identity 一致时，
 才可以渲染共享 `JourneyProgress` 原子。Journey 只总结当前 loop，不是第二套业务状态机。任一 projection 仍在
 loading、unavailable、partial 到缺少所选 family，或 malformed 时，route 保留普通 Research directory，且不渲染

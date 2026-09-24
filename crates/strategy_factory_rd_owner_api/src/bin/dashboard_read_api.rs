@@ -58,6 +58,7 @@ mod tests {
     use axum::{
         extract::{Path, Query, State},
         http::{HeaderMap, StatusCode},
+        response::Response,
     };
     use rstest::rstest;
     use sha2::{Digest, Sha256};
@@ -96,7 +97,7 @@ mod tests {
         ExploratoryReplayHistoricalRejectionQueryV1, ExploratoryReplayReadbackOwnerPortV2,
         ExploratoryReplayReadbackQueryV2, ExploratoryReplayResultPathV2,
         ExploratoryReplayResultQueryV2, ExploratoryReplayResultReadbackOwnerPortV2,
-        ResearchDirectoryQueryV1, UnavailableDashboardJourneyReadbackV1,
+        READ_NONCE_HEADER, ResearchDirectoryQueryV1, UnavailableDashboardJourneyReadbackV1,
         UnavailableHistoricalCustodyV1, read_artifact, read_artifact_directory,
         read_artifact_source, read_backtest_run_report, read_develop_composer,
         read_exploratory_replay, read_exploratory_replay_historical_rejection,
@@ -399,6 +400,15 @@ mod tests {
         headers
     }
 
+    const NONCE: &str = "0123456789abcdef0123456789abcdef";
+
+    /// The read credential plus the one request nonce the Owner-clock reads require.
+    fn nonced_headers() -> HeaderMap {
+        let mut headers = headers();
+        headers.insert(READ_NONCE_HEADER, HeaderValue::from_static(NONCE));
+        headers
+    }
+
     #[tokio::test]
     async fn unauthorized_request_makes_zero_owner_calls() {
         let artifact = Arc::new(RecordingArtifact::default());
@@ -505,7 +515,7 @@ mod tests {
         api.formation_catalog = journey.clone();
         api.iteration_timeline = journey.clone();
         assert_eq!(
-            read_formation_catalog(State(api.clone()), headers())
+            read_formation_catalog(State(api.clone()), nonced_headers())
                 .await
                 .status(),
             StatusCode::OK
@@ -514,16 +524,20 @@ mod tests {
             read_iteration_timeline(
                 State(api.clone()),
                 Path("bad identity".to_owned()),
-                headers(),
+                nonced_headers(),
             )
             .await
             .status(),
             StatusCode::BAD_REQUEST
         );
         assert_eq!(
-            read_iteration_timeline(State(api), Path("trial-family-1".to_owned()), headers(),)
-                .await
-                .status(),
+            read_iteration_timeline(
+                State(api),
+                Path("trial-family-1".to_owned()),
+                nonced_headers(),
+            )
+            .await
+            .status(),
             StatusCode::OK
         );
         assert_eq!(journey.formation_calls.load(Ordering::SeqCst), 1);
@@ -575,7 +589,7 @@ mod tests {
         );
         assert_eq!(custody.calls.load(Ordering::SeqCst), 0);
         assert_eq!(
-            read_historical_custodies(State(api), headers())
+            read_historical_custodies(State(api), nonced_headers())
                 .await
                 .status(),
             StatusCode::OK
@@ -593,11 +607,127 @@ mod tests {
             Arc::new(RecordingSourceIntake::default()),
         );
         assert_eq!(
-            read_historical_custodies(State(api), headers())
+            read_historical_custodies(State(api), nonced_headers())
                 .await
                 .status(),
             StatusCode::SERVICE_UNAVAILABLE
         );
+    }
+
+    struct MissingTimeline;
+
+    #[async_trait]
+    impl IterationTimelineOwnerPortV1 for MissingTimeline {
+        async fn read_iteration_timeline(
+            &self,
+            _trial_family_identity: &str,
+        ) -> Result<IterationTimelineReadbackV1, DashboardReadErrorV1> {
+            Err(DashboardReadErrorV1::NotFound)
+        }
+    }
+
+    /// The three reads stamped from the R&D Owner's clock, each answered through `api`.
+    async fn owner_clock_reads(api: &ApiState, headers: &HeaderMap) -> [Response; 3] {
+        [
+            read_formation_catalog(State(api.clone()), headers.clone()).await,
+            read_historical_custodies(State(api.clone()), headers.clone()).await,
+            read_iteration_timeline(
+                State(api.clone()),
+                Path("trial-family-1".to_owned()),
+                headers.clone(),
+            )
+            .await,
+        ]
+    }
+
+    fn echoed_nonce(response: &Response) -> Vec<&[u8]> {
+        response
+            .headers()
+            .get_all(READ_NONCE_HEADER)
+            .iter()
+            .map(HeaderValue::as_bytes)
+            .collect()
+    }
+
+    /// The BFF cannot place these projections in its own request window, because they are stamped
+    /// from the Owner's clock, so the echoed nonce is its only proof that an answer is the one it
+    /// asked for. The nonce therefore comes back only beside an Owner projection: a read without
+    /// exactly one well-formed nonce never reaches the Owner, and a refusal or failure never carries
+    /// one, so no answer that is not this request's projection can pass for it.
+    #[tokio::test]
+    async fn owner_clock_reads_echo_the_request_nonce_only_beside_an_owner_answer() {
+        let journey = Arc::new(RecordingJourney::default());
+        let custody = Arc::new(RecordingHistoricalCustody::default());
+        let mut api = state(
+            Arc::new(RecordingArtifact::default()),
+            Arc::new(RecordingResearch::default()),
+            Arc::new(RecordingSourceIntake::default()),
+        );
+        api.formation_catalog = journey.clone();
+        api.iteration_timeline = journey.clone();
+        api.historical_custody = custody.clone();
+
+        for response in owner_clock_reads(&api, &nonced_headers()).await {
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(echoed_nonce(&response), [NONCE.as_bytes()]);
+        }
+        let calls = |journey: &RecordingJourney, custody: &RecordingHistoricalCustody| {
+            [
+                journey.formation_calls.load(Ordering::SeqCst),
+                custody.calls.load(Ordering::SeqCst),
+                journey.iteration_calls.load(Ordering::SeqCst),
+            ]
+        };
+        assert_eq!(calls(&journey, &custody), [1, 1, 1]);
+
+        let mut repeated = nonced_headers();
+        repeated.append(READ_NONCE_HEADER, HeaderValue::from_static(NONCE));
+        let malformed = [
+            "0123456789ABCDEF0123456789ABCDEF",
+            "0123456789abcdef0123456789abcde",
+            "0123456789abcdef0123456789abcdef0",
+            "0123456789abcdef0123456789abcdeg",
+            "",
+        ];
+        let mut refused = vec![headers(), repeated];
+        refused.extend(malformed.iter().map(|nonce| {
+            let mut headers = headers();
+            headers.insert(READ_NONCE_HEADER, HeaderValue::from_static(nonce));
+            headers
+        }));
+
+        for headers in &refused {
+            for response in owner_clock_reads(&api, headers).await {
+                assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{headers:?}");
+                assert!(echoed_nonce(&response).is_empty());
+            }
+        }
+        assert_eq!(calls(&journey, &custody), [1, 1, 1]);
+
+        let unavailable = state(
+            Arc::new(RecordingArtifact::default()),
+            Arc::new(RecordingResearch::default()),
+            Arc::new(RecordingSourceIntake::default()),
+        );
+
+        for response in owner_clock_reads(&unavailable, &nonced_headers()).await {
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+            assert!(echoed_nonce(&response).is_empty());
+        }
+        let mut missing = unavailable;
+        missing.iteration_timeline = Arc::new(MissingTimeline);
+        let [.., timeline] = owner_clock_reads(&missing, &nonced_headers()).await;
+        assert_eq!(timeline.status(), StatusCode::NOT_FOUND);
+        assert!(echoed_nonce(&timeline).is_empty());
+        let invalid_identity = read_iteration_timeline(
+            State(api),
+            Path("bad identity".to_owned()),
+            nonced_headers(),
+        )
+        .await;
+        assert_eq!(invalid_identity.status(), StatusCode::BAD_REQUEST);
+        assert!(echoed_nonce(&invalid_identity).is_empty());
+        assert_eq!(calls(&journey, &custody), [1, 1, 1]);
     }
 
     #[tokio::test]

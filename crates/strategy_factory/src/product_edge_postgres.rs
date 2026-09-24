@@ -23,8 +23,9 @@ use crate::complex_strategy_develop_evaluation::{
     UntrustedComplexStrategyDevelopEvaluationProposalV1,
 };
 use crate::dashboard_read::{
-    DashboardReadErrorV1, ResearchQuestionAvailabilityV1, ResearchQuestionDirectoryItemV1,
-    ResearchQuestionDirectoryOwnerPortV1, ResearchQuestionDirectoryReadbackV1, ResearchQuestionV1,
+    DashboardReadErrorV1, RdOwnerClockReadPortV1, ResearchQuestionAvailabilityV1,
+    ResearchQuestionDirectoryItemV1, ResearchQuestionDirectoryOwnerPortV1,
+    ResearchQuestionDirectoryReadbackV1, ResearchQuestionV1,
 };
 use crate::exploratory_replay::{
     ExploratoryReplayCommitResultV1, ExploratoryReplayCommitResultV2,
@@ -3270,6 +3271,13 @@ impl ResearchDirectoryOwnerPort for PostgresResearchReadbackOwnerV1 {
         limit: u32,
     ) -> Result<ResearchDirectoryReadbackV1, ResearchGoalOwnerError> {
         list_research_from_pool(&self.pool, after, limit).await
+    }
+}
+
+#[async_trait]
+impl RdOwnerClockReadPortV1 for PostgresResearchReadbackOwnerV1 {
+    async fn read_owner_clock_epoch_ms(&self) -> Result<u64, DashboardReadErrorV1> {
+        crate::dashboard_read::read_owner_clock_epoch_ms_v1(&self.pool).await
     }
 }
 

@@ -26,6 +26,7 @@ import {
   waitForBrowserExpression,
   waitForBrowserExpressionWithRefresh,
 } from "./browser-acceptance.mjs";
+import { newOwnerReadNonceV1, OWNER_READ_NONCE_HEADER } from "../lib/owner-read-nonce.ts";
 
 const browserAcceptance = process.env.DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE === "1";
 const acceptanceCandidate = process.env.DASHBOARD_STRATEGY_VIEWER_ACCEPTANCE_CANDIDATE ?? "";
@@ -76,15 +77,26 @@ function factExpression(group, label) {
 
 // An Owner that refuses still answers: a typed terminal arrives with an error status and its own
 // coordinate and reason, and reading the body only on success throws that away.
-async function ownerJson(url, token) {
+async function ownerJson(url, token, headers = {}) {
   const response = await fetch(url, {
-    headers: { authorization: `Bearer ${token}` },
+    headers: { authorization: `Bearer ${token}`, ...headers },
     signal: AbortSignal.timeout(15_000),
   });
   const text = await response.text();
   let body = null;
   try { body = JSON.parse(text); } catch { body = null; }
-  return { status: response.status, body, text };
+  return { status: response.status, body, text, nonce: response.headers.get(OWNER_READ_NONCE_HEADER) };
+}
+
+// The Formation catalog, historical custody and Iteration timeline are stamped from the R&D Owner's
+// clock, so the read API binds each answer to its request by echoing the request's nonce, and it
+// answers none of them without one. An answer that did not echo this read's own nonce is not
+// counted as the Owner's.
+async function ownerClockJson(url, token) {
+  const nonce = newOwnerReadNonceV1();
+  const answer = await ownerJson(url, token, { [OWNER_READ_NONCE_HEADER]: nonce });
+  assert.equal(answer.nonce, answer.status === 200 ? nonce : null, `${url} echoes only its own read's nonce`);
+  return answer;
 }
 
 // Reports which invariant went unproven, because the spawn failure alone does not say.
@@ -184,7 +196,7 @@ test(browserAcceptance
   // Read through the read API, with the read API's own credential. This read used to go to the
   // write API because that was the only side serving the route, which meant the acceptance proved
   // a path the deployed composition would not take.
-  const custody = await ownerJson(new URL("v1/historical-custodies", readApiUrl), readApiToken);
+  const custody = await ownerClockJson(new URL("v1/historical-custodies", readApiUrl), readApiToken);
   assert.equal(custody.status, 200);
 
   const port = Number(previewPort);
@@ -513,7 +525,7 @@ test(browserAcceptance
       // family carries the committed Decisions. Read the Owner's own answer first, so the browser
       // assertion below is against the Owner's bytes and a single unavailable timeline is named
       // here instead of arriving as an empty table.
-      const catalog = await ownerJson(new URL("v1/formation-catalog", readApiUrl), readApiToken);
+      const catalog = await ownerClockJson(new URL("v1/formation-catalog", readApiUrl), readApiToken);
       assert.equal(catalog.status, 200);
       assert.ok(catalog.body.families.length >= 1, "the acceptance committed a family");
       const acceptanceFamily = catalog.body.families
@@ -521,7 +533,7 @@ test(browserAcceptance
       assert.ok(acceptanceFamily, "the Research this acceptance committed must carry a family");
       const ownerDecisions = [];
       for (const family of catalog.body.families) {
-        const timeline = await ownerJson(new URL(
+        const timeline = await ownerClockJson(new URL(
           `v1/trial-families/${encodeURIComponent(family.trial_family_identity)}/iterations`, readApiUrl,
         ), readApiToken);
         assert.equal(timeline.status, 200, `${family.trial_family_identity} timeline must read back`);

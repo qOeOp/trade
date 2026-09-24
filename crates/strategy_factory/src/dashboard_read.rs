@@ -1,17 +1,13 @@
 //! Read-only, business-facing Dashboard projections assembled from canonical R&D Owner reads.
 
-use std::{
-    collections::BTreeSet,
-    sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::{collections::BTreeSet, sync::Arc};
 
 use async_trait::async_trait;
 use serde::Serialize;
 use sqlx::{PgPool, Row};
 use thiserror::Error;
 
-use crate::postgres_error_message::database_message;
+use crate::{postgres_error_message::database_message, rd_owner_clock::RdOwnerClockV1};
 
 use crate::{
     IterationDecisionResolutionLocatorV1,
@@ -139,12 +135,42 @@ pub trait FormationCatalogOwnerPortV1: Send + Sync {
     ) -> Result<FormationCatalogReadbackV1, DashboardReadErrorV1>;
 }
 
+/// Reads the R&D Owner's clock, the one every commit time a Dashboard projection carries was
+/// stamped from.
+///
+/// A projection's observation time is compared with those commit times, so it is read from the
+/// same clock rather than from this process's.
+#[async_trait]
+pub trait RdOwnerClockReadPortV1: Send + Sync {
+    async fn read_owner_clock_epoch_ms(&self) -> Result<u64, DashboardReadErrorV1>;
+}
+
+/// [`RdOwnerClockV1`] read in its own transaction on `pool`, which is rolled back.
+pub(crate) async fn read_owner_clock_epoch_ms_v1(
+    pool: &PgPool,
+) -> Result<u64, DashboardReadErrorV1> {
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|e| unavailable(database_message(&e)))?;
+    let observed_at_epoch_ms = RdOwnerClockV1::owner_transaction()
+        .read(&mut transaction)
+        .await
+        .map_err(|e| unavailable(database_message(&e)))?;
+    transaction
+        .rollback()
+        .await
+        .map_err(|e| unavailable(database_message(&e)))?;
+    Ok(observed_at_epoch_ms)
+}
+
 #[derive(Clone)]
 pub struct ComposedFormationCatalogOwnerV1 {
     research_directory: Arc<dyn ResearchDirectoryOwnerPort>,
     research_readback: Arc<dyn ResearchReadbackOwnerPortV1>,
     artifact_directory: Arc<dyn ArtifactDirectoryOwnerPort>,
     artifact_readback: Arc<dyn ArtifactReadbackOwnerPortV1>,
+    owner_clock: Arc<dyn RdOwnerClockReadPortV1>,
 }
 
 impl ComposedFormationCatalogOwnerV1 {
@@ -153,12 +179,14 @@ impl ComposedFormationCatalogOwnerV1 {
         research_readback: Arc<dyn ResearchReadbackOwnerPortV1>,
         artifact_directory: Arc<dyn ArtifactDirectoryOwnerPort>,
         artifact_readback: Arc<dyn ArtifactReadbackOwnerPortV1>,
+        owner_clock: Arc<dyn RdOwnerClockReadPortV1>,
     ) -> Self {
         Self {
             research_directory,
             research_readback,
             artifact_directory,
             artifact_readback,
+            owner_clock,
         }
     }
 }
@@ -304,7 +332,8 @@ impl FormationCatalogOwnerPortV1 for ComposedFormationCatalogOwnerV1 {
             } else {
                 FormationCatalogCompletenessV1::Complete
             },
-            observed_at_epoch_ms: current_epoch_ms()?,
+            // Read after every constituent, so no commit time the catalog carries is later.
+            observed_at_epoch_ms: self.owner_clock.read_owner_clock_epoch_ms().await?,
             families,
         })
     }
@@ -621,16 +650,10 @@ impl IterationTimelineOwnerPortV1 for PostgresIterationTimelineOwnerV1 {
             trial_budget,
             state,
             decisions,
-            observed_at_epoch_ms: current_epoch_ms()?,
+            // Read after every Decision resolved, so no commit time the timeline carries is later.
+            observed_at_epoch_ms: read_owner_clock_epoch_ms_v1(&self.pool).await?,
         })
     }
-}
-
-fn current_epoch_ms() -> Result<u64, DashboardReadErrorV1> {
-    let elapsed = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|e| unavailable(e.to_string()))?;
-    u64::try_from(elapsed.as_millis()).map_err(|e| unavailable(e.to_string()))
 }
 
 fn unavailable(message: impl Into<String>) -> DashboardReadErrorV1 {

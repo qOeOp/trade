@@ -978,7 +978,14 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
       response.end(JSON.stringify({ error: "not found" }));
       return;
     }
-    response.writeHead(200, { "content-type": "application/json" });
+    // The Owner-clock reads are bound to their request by the nonce the read API echoes beside
+    // them, and only beside them.
+    const nonce = request.headers["x-dashboard-read-nonce"];
+    const ownerClockRead = request.url === "/v1/formation-catalog" || request.url.endsWith("/iterations");
+    response.writeHead(200, {
+      "content-type": "application/json",
+      ...(ownerClockRead && typeof nonce === "string" ? { "x-dashboard-read-nonce": nonce } : {}),
+    });
     response.end(JSON.stringify(body));
   });
   ownerServer.listen(0, "127.0.0.1");

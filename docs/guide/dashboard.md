@@ -649,6 +649,15 @@ repairs as Replay repairs or manufacture an evidence state absent from Owner cus
 cross-family, oversized, malformed, or concurrently inconsistent cuts fail closed. An empty verified Decision list is
 valid and means `AWAITING_REPLAY_RESULT`.
 
+The Formation catalog, the Iteration timeline, and the historical custody read stamp `observed_at_epoch_ms` from the
+R&D Owner's clock, `pg_catalog.clock_timestamp()` read inside an Owner transaction, which is the clock their commit
+times come from. It is compared only with those commit times, never with the Dashboard process's clock, which can
+differ from it. Each of these reads instead carries a fresh 128-bit nonce in the `x-dashboard-read-nonce` request
+header, and the read API returns that header unchanged only beside a `200` projection the Owner produced for that
+request: a read without exactly one well-formed nonce is refused with `400` before any Owner call, and a refusal or
+failure carries none. The BFF accepts an answer only when it echoes that read's own nonce, and treats any other as
+`OWNER_RESPONSE_UNAVAILABLE`.
+
 The `/rd/research` surface may render the shared `JourneyProgress` atom only after both the Formation row and its
 exact Iteration projection are available and identity-consistent. The Journey summarizes the current loop; it is not
 a second business state machine. While either projection is loading, unavailable, partial in a way that removes the
