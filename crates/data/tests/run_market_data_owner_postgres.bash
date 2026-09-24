@@ -67,6 +67,17 @@ PRECHECK
 }
 
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+
+# A wall clock on every proof; scripts/ci/chain-entry-watchdog.bash says why. 360s is about twice the
+# slowest successful run of this whole runner - 169s, the first proof's compile included, over 7 runs
+# of 2026-09-24 - while the slowest proof itself took 37.7s; it stays under the CI step's 15-minute
+# limit, so a hung proof is stopped and named here rather than by the step timeout. This expires as
+# proofs grow slower: when one routinely passes 180s, re-measure and raise it.
+# MARKET_DATA_PROOF_WALL_CLOCK_SECONDS lowers it to make the watchdog fire on purpose.
+# shellcheck source=scripts/ci/chain-entry-watchdog.bash
+source "$repository_root/scripts/ci/chain-entry-watchdog.bash"
+readonly proof_wall_clock_seconds="${MARKET_DATA_PROOF_WALL_CLOCK_SECONDS:-360}"
+readonly proof_record_dir="$repository_root/target/nextest/market-data-records"
 check_destructive_sql_admission
 
 # The same machine-wide lock as the ordered chain, on the same file: one local Owner chain at a
@@ -90,6 +101,8 @@ cleanup() {
   local primary_status="${1:-0}"
   local cleanup_status=0
   local matching_containers=""
+
+  disarm_chain_entry_watchdog
 
   if ! matching_containers="$(docker ps -aq --filter "name=^/${container}$")"; then
     cleanup_status=1
@@ -175,9 +188,14 @@ provision_database() {
   export VIBE_POSTGRES_TEST_INSTANCE_MARKER="$marker"
 }
 
+rm -rf -- "$proof_record_dir"
+mkdir -p -- "$proof_record_dir"
 ordinal=0
 for test_selection in "${market_data_owner_postgres_tests[@]}"; do
   ordinal=$((ordinal + 1))
+  arm_chain_entry_watchdog "$proof_wall_clock_seconds" \
+    "$(printf '%s/%03d.timeout' "$proof_record_dir" "$ordinal")" \
+    "market-data proof ${ordinal}/${#market_data_owner_postgres_tests[@]} (${test_selection})"
   provision_database "${database_prefix}_${ordinal}" "${marker_prefix}-${ordinal}"
 
   # Selection runs under nextest, not `cargo test --exact`, because the two differ on the case that
@@ -194,6 +212,7 @@ for test_selection in "${market_data_owner_postgres_tests[@]}"; do
     -E "test(=${test_selection})"
   test_status=$?
   set -e
+  disarm_chain_entry_watchdog
 
   if [[ "$test_status" -ne 0 ]]; then
     echo "market-data proof ${ordinal}/${#market_data_owner_postgres_tests[@]} failed: ${test_selection}" >&2
