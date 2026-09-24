@@ -903,7 +903,9 @@ unavailable 或位于不同 cut 时，只撤回它自己的行与计数。两个
   `requester_identity` 提交的请求永远不会被选中。同一 Intent 的后继 PIT 请求只由在它之后发布的 role intent 指名；
   已发布的 role intent 从不改变。
 
-目前已建成：无。
+目前已建成：schema 2 role intent 的编解码。`StrategyDesignRoleIntentV1` 只在 schema 2 下以
+`(pit_request_identity, pit_request_digest)` 指名初始 PIT 请求，每个 schema 在各自的 domain 下取摘要，schema 1 的
+字节与摘要不变。目前还没有任何代码发布 schema 2 intent。
 
 ## 拒绝和禁止事项
 

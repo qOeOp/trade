@@ -11,6 +11,12 @@
 //! contract means by Owner-authenticated Design/role intent: R&D states which Research request and
 //! custody a Design was admitted against and which roles it declares, and states nothing about
 //! members, frames or binding digests, which remain Market Data's to resolve.
+//!
+//! Schema 2 also names the Research Intent's initial PIT request. Market Data registers a
+//! universe-member Design against exactly that request instead of searching for one, and a schema 1
+//! intent names none, so its universe-member roles are refused. Schema 1 bytes and digests are
+//! unchanged: the reference is absent from them rather than null, and each schema digests under its
+//! own domain.
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -18,13 +24,17 @@ use sha2::{Digest, Sha256};
 use super::source_binding::BindingDigest;
 use super::strategy_design_role_set::StrategyDesignRoleEntryV1;
 
-/// Schema version of the published intent.
+/// Schema version of an intent that names no initial PIT request.
 pub const STRATEGY_DESIGN_ROLE_INTENT_SCHEMA_V1: u16 = 1;
+
+/// Schema version of an intent that names its Research Intent's initial PIT request.
+pub const STRATEGY_DESIGN_ROLE_INTENT_SCHEMA_V2: u16 = 2;
 
 /// The most roles one Design may declare through this boundary.
 pub const STRATEGY_DESIGN_ROLE_INTENT_MAX_ROLES_V1: usize = 64;
 
-const INTENT_DOMAIN: &[u8] = b"rd.strategy-design-role-intent.v1\0";
+const INTENT_DOMAIN_V1: &[u8] = b"rd.strategy-design-role-intent.v1\0";
+const INTENT_DOMAIN_V2: &[u8] = b"rd.strategy-design-role-intent.v2\0";
 const MAX_STRING_BYTES: usize = 256;
 
 /// Why a published intent could not be built or accepted.
@@ -38,6 +48,16 @@ pub enum StrategyDesignRoleIntentErrorV1 {
     IntegrityMismatch,
 }
 
+/// The initial PIT request a schema 2 intent names: the claimed request identity and digest the
+/// PIT intake stored the request under, which is the pair Market Data loads its lineage by.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct InitialPitRequestLocatorV1 {
+    /// The PIT request's identity.
+    pub pit_request_identity: BindingDigest,
+    /// The PIT request's canonical digest.
+    pub pit_request_digest: BindingDigest,
+}
+
 /// What R&D publishes about one Design, before any program or artifact exists for it.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct StrategyDesignRoleIntentV1 {
@@ -48,12 +68,15 @@ pub struct StrategyDesignRoleIntentV1 {
     design_identity: BindingDigest,
     design_digest: BindingDigest,
     roles: Vec<StrategyDesignRoleEntryV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    initial_pit_request: Option<InitialPitRequestLocatorV1>,
     canonical_bytes: Vec<u8>,
     intent_digest: BindingDigest,
 }
 
 impl StrategyDesignRoleIntentV1 {
-    /// Builds the projection R&D publishes for a Design it has admitted against Research custody.
+    /// Builds the schema 1 projection R&D publishes for a Design whose Research request names no
+    /// initial PIT request.
     ///
     /// # Errors
     ///
@@ -68,7 +91,7 @@ impl StrategyDesignRoleIntentV1 {
         design_digest: BindingDigest,
         roles: Vec<StrategyDesignRoleEntryV1>,
     ) -> Result<Self, StrategyDesignRoleIntentErrorV1> {
-        let mut intent = Self {
+        Self::build(Unsealed {
             schema_version: STRATEGY_DESIGN_ROLE_INTENT_SCHEMA_V1,
             research_request_identity,
             intent_identity,
@@ -76,13 +99,55 @@ impl StrategyDesignRoleIntentV1 {
             design_identity,
             design_digest,
             roles,
+            initial_pit_request: None,
+        })
+    }
+
+    /// Builds the schema 2 projection, which also names the Research Intent's initial PIT request.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StrategyDesignRoleIntentErrorV1::InvalidProjection`] for every refusal of
+    /// [`Self::from_rd_owner_projection`], and when either half of `initial_pit_request` is all
+    /// zero.
+    pub fn from_rd_owner_projection_with_initial_pit(
+        research_request_identity: BindingDigest,
+        intent_identity: BindingDigest,
+        research_custody_digest: BindingDigest,
+        design_identity: BindingDigest,
+        design_digest: BindingDigest,
+        roles: Vec<StrategyDesignRoleEntryV1>,
+        initial_pit_request: InitialPitRequestLocatorV1,
+    ) -> Result<Self, StrategyDesignRoleIntentErrorV1> {
+        Self::build(Unsealed {
+            schema_version: STRATEGY_DESIGN_ROLE_INTENT_SCHEMA_V2,
+            research_request_identity,
+            intent_identity,
+            research_custody_digest,
+            design_identity,
+            design_digest,
+            roles,
+            initial_pit_request: Some(initial_pit_request),
+        })
+    }
+
+    fn build(unsealed: Unsealed) -> Result<Self, StrategyDesignRoleIntentErrorV1> {
+        let mut intent = Self {
+            schema_version: unsealed.schema_version,
+            research_request_identity: unsealed.research_request_identity,
+            intent_identity: unsealed.intent_identity,
+            research_custody_digest: unsealed.research_custody_digest,
+            design_identity: unsealed.design_identity,
+            design_digest: unsealed.design_digest,
+            roles: unsealed.roles,
+            initial_pit_request: unsealed.initial_pit_request,
             canonical_bytes: Vec::new(),
             intent_digest: BindingDigest::from_untrusted_bytes([0; 32]),
         };
 
-        validate(&intent)?;
+        let domain = validate(&intent)?;
         intent.canonical_bytes = encode(&intent)?;
-        intent.intent_digest = digest(&intent.canonical_bytes);
+        intent.intent_digest = digest(domain, &intent.canonical_bytes);
         Ok(intent)
     }
 
@@ -101,14 +166,19 @@ impl StrategyDesignRoleIntentV1 {
     ) -> Result<Self, StrategyDesignRoleIntentErrorV1> {
         let decoded: Self = serde_json::from_slice(canonical_bytes)
             .map_err(|_| StrategyDesignRoleIntentErrorV1::IntegrityMismatch)?;
-        let rebuilt = Self::from_rd_owner_projection(
-            decoded.research_request_identity,
-            decoded.intent_identity,
-            decoded.research_custody_digest,
-            decoded.design_identity,
-            decoded.design_digest,
-            decoded.roles,
-        )
+        // The stored schema version chooses the rules and the digest domain, so a schema 1 row
+        // that carries a PIT reference, or a schema 2 row without one, is refused rather than
+        // rebuilt as the other schema.
+        let rebuilt = Self::build(Unsealed {
+            schema_version: decoded.schema_version,
+            research_request_identity: decoded.research_request_identity,
+            intent_identity: decoded.intent_identity,
+            research_custody_digest: decoded.research_custody_digest,
+            design_identity: decoded.design_identity,
+            design_digest: decoded.design_digest,
+            roles: decoded.roles,
+            initial_pit_request: decoded.initial_pit_request,
+        })
         .map_err(|_| StrategyDesignRoleIntentErrorV1::IntegrityMismatch)?;
 
         if rebuilt.intent_digest != expected_digest {
@@ -116,6 +186,18 @@ impl StrategyDesignRoleIntentV1 {
         }
 
         Ok(rebuilt)
+    }
+
+    /// The schema this intent was published under.
+    #[must_use]
+    pub const fn schema_version(&self) -> u16 {
+        self.schema_version
+    }
+
+    /// The Research Intent's initial PIT request, which only a schema 2 intent names.
+    #[must_use]
+    pub const fn initial_pit_request(&self) -> Option<InitialPitRequestLocatorV1> {
+        self.initial_pit_request
     }
 
     /// The Research request this Design was admitted against.
@@ -175,15 +257,37 @@ impl StrategyDesignRoleIntentV1 {
     }
 }
 
-fn validate(intent: &StrategyDesignRoleIntentV1) -> Result<(), StrategyDesignRoleIntentErrorV1> {
-    if intent.schema_version != STRATEGY_DESIGN_ROLE_INTENT_SCHEMA_V1
-        || intent.roles.is_empty()
-        || intent.roles.len() > STRATEGY_DESIGN_ROLE_INTENT_MAX_ROLES_V1
-    {
+/// The fields a projection is built from, before its bytes and digest are derived.
+struct Unsealed {
+    schema_version: u16,
+    research_request_identity: BindingDigest,
+    intent_identity: BindingDigest,
+    research_custody_digest: BindingDigest,
+    design_identity: BindingDigest,
+    design_digest: BindingDigest,
+    roles: Vec<StrategyDesignRoleEntryV1>,
+    initial_pit_request: Option<InitialPitRequestLocatorV1>,
+}
+
+/// Validates `intent` and returns the digest domain of its schema.
+fn validate(
+    intent: &StrategyDesignRoleIntentV1,
+) -> Result<&'static [u8], StrategyDesignRoleIntentErrorV1> {
+    let zero = BindingDigest::from_untrusted_bytes([0; 32]);
+
+    let domain = match (intent.schema_version, intent.initial_pit_request) {
+        (STRATEGY_DESIGN_ROLE_INTENT_SCHEMA_V1, None) => INTENT_DOMAIN_V1,
+        (STRATEGY_DESIGN_ROLE_INTENT_SCHEMA_V2, Some(request))
+            if request.pit_request_identity != zero && request.pit_request_digest != zero =>
+        {
+            INTENT_DOMAIN_V2
+        }
+        _ => return Err(StrategyDesignRoleIntentErrorV1::InvalidProjection),
+    };
+
+    if intent.roles.is_empty() || intent.roles.len() > STRATEGY_DESIGN_ROLE_INTENT_MAX_ROLES_V1 {
         return Err(StrategyDesignRoleIntentErrorV1::InvalidProjection);
     }
-
-    let zero = BindingDigest::from_untrusted_bytes([0; 32]);
 
     for digest in [
         intent.research_request_identity,
@@ -225,7 +329,7 @@ fn validate(intent: &StrategyDesignRoleIntentV1) -> Result<(), StrategyDesignRol
         }
     }
 
-    Ok(())
+    Ok(domain)
 }
 
 fn encode(intent: &StrategyDesignRoleIntentV1) -> Result<Vec<u8>, StrategyDesignRoleIntentErrorV1> {
@@ -239,6 +343,7 @@ fn encode(intent: &StrategyDesignRoleIntentV1) -> Result<Vec<u8>, StrategyDesign
         design_identity: intent.design_identity,
         design_digest: intent.design_digest,
         roles: intent.roles.clone(),
+        initial_pit_request: intent.initial_pit_request,
         canonical_bytes: Vec::new(),
         intent_digest: BindingDigest::from_untrusted_bytes([0; 32]),
     })
@@ -256,13 +361,15 @@ struct CanonicalIntentV1 {
     design_identity: BindingDigest,
     design_digest: BindingDigest,
     roles: Vec<StrategyDesignRoleEntryV1>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    initial_pit_request: Option<InitialPitRequestLocatorV1>,
     canonical_bytes: Vec<u8>,
     intent_digest: BindingDigest,
 }
 
-fn digest(bytes: &[u8]) -> BindingDigest {
+fn digest(domain: &[u8], bytes: &[u8]) -> BindingDigest {
     let mut hasher = Sha256::new();
-    hasher.update(INTENT_DOMAIN);
+    hasher.update(domain);
     hasher.update(bytes);
     BindingDigest::from_untrusted_bytes(hasher.finalize().into())
 }
@@ -303,6 +410,151 @@ mod tests {
             vec![role(10), role(11)],
         )
         .expect("a Design with two distinct roles publishes")
+    }
+
+    fn hex(digest: BindingDigest) -> String {
+        use std::fmt::Write as _;
+
+        digest
+            .as_bytes()
+            .iter()
+            .fold(String::with_capacity(64), |mut out, byte| {
+                write!(out, "{byte:02x}").expect("writing to a String cannot fail");
+                out
+            })
+    }
+
+    /// Schema 1 intents are already stored write-once, so schema 2 must leave their bytes and
+    /// digest exactly as they were.
+    #[rstest]
+    fn schema_one_bytes_and_digest_are_unchanged() {
+        let intent = published();
+
+        assert_eq!(
+            intent.schema_version(),
+            STRATEGY_DESIGN_ROLE_INTENT_SCHEMA_V1
+        );
+        assert_eq!(intent.initial_pit_request(), None);
+        assert!(!String::from_utf8_lossy(intent.canonical_bytes()).contains("initial_pit_request"));
+        assert_eq!(
+            hex(intent.intent_digest()),
+            "f6666187c2f108bcb6e2384227975d3a4769390dd5f10ba63211e737a01b64b5"
+        );
+    }
+
+    fn pit(identity: u8, digest: u8) -> InitialPitRequestLocatorV1 {
+        InitialPitRequestLocatorV1 {
+            pit_request_identity: d(identity),
+            pit_request_digest: d(digest),
+        }
+    }
+
+    fn published_with_initial_pit() -> StrategyDesignRoleIntentV1 {
+        StrategyDesignRoleIntentV1::from_rd_owner_projection_with_initial_pit(
+            d(1),
+            d(2),
+            d(3),
+            d(4),
+            d(5),
+            vec![role(10), role(11)],
+            pit(6, 7),
+        )
+        .expect("a Design with an initial PIT request publishes")
+    }
+
+    #[rstest]
+    fn a_schema_two_intent_names_its_initial_pit_request_and_reads_back() {
+        let intent = published_with_initial_pit();
+        let recovered = StrategyDesignRoleIntentV1::from_durable_publication(
+            intent.canonical_bytes(),
+            intent.intent_digest(),
+        )
+        .expect("the published bytes read back");
+
+        assert_eq!(recovered, intent);
+        assert_eq!(
+            recovered.schema_version(),
+            STRATEGY_DESIGN_ROLE_INTENT_SCHEMA_V2
+        );
+        assert_eq!(recovered.initial_pit_request(), Some(pit(6, 7)));
+    }
+
+    /// The same Design under the two schemas never shares a digest: the fields differ, and so
+    /// does the domain, so bytes of one cannot be presented under the other's digest either.
+    #[rstest]
+    fn each_schema_digests_under_its_own_domain() {
+        let first = published();
+        let second = published_with_initial_pit();
+
+        assert_ne!(first.intent_digest(), second.intent_digest());
+        assert_eq!(
+            second.intent_digest(),
+            digest(INTENT_DOMAIN_V2, second.canonical_bytes())
+        );
+        assert_ne!(
+            second.intent_digest(),
+            digest(INTENT_DOMAIN_V1, second.canonical_bytes())
+        );
+        assert_eq!(
+            StrategyDesignRoleIntentV1::from_durable_publication(
+                second.canonical_bytes(),
+                digest(INTENT_DOMAIN_V1, second.canonical_bytes())
+            ),
+            Err(StrategyDesignRoleIntentErrorV1::IntegrityMismatch)
+        );
+    }
+
+    /// A stored row is rebuilt under its own schema's rules, so relabelling the version, adding
+    /// a reference to a schema 1 row, or dropping it from a schema 2 row is refused, even when
+    /// the digest presented is the one the altered bytes would reproduce under that schema.
+    #[rstest]
+    fn a_row_whose_version_and_reference_disagree_is_refused() {
+        let first = String::from_utf8(published().canonical_bytes().to_vec())
+            .expect("canonical bytes are text");
+        let second = String::from_utf8(published_with_initial_pit().canonical_bytes().to_vec())
+            .expect("canonical bytes are text");
+
+        let schema_one_with_reference =
+            second.replacen("\"schema_version\":2", "\"schema_version\":1", 1);
+        let schema_two_without_reference =
+            first.replacen("\"schema_version\":1", "\"schema_version\":2", 1);
+        let unknown_schema = second.replacen("\"schema_version\":2", "\"schema_version\":3", 1);
+        assert_ne!(schema_one_with_reference, second);
+        assert_ne!(schema_two_without_reference, first);
+        assert_ne!(unknown_schema, second);
+
+        for (bytes, domain) in [
+            (schema_one_with_reference, INTENT_DOMAIN_V1),
+            (schema_two_without_reference, INTENT_DOMAIN_V2),
+            (unknown_schema, INTENT_DOMAIN_V2),
+        ] {
+            assert_eq!(
+                StrategyDesignRoleIntentV1::from_durable_publication(
+                    bytes.as_bytes(),
+                    digest(domain, bytes.as_bytes())
+                ),
+                Err(StrategyDesignRoleIntentErrorV1::IntegrityMismatch)
+            );
+        }
+    }
+
+    #[rstest]
+    fn an_initial_pit_request_with_an_unstated_half_is_refused() {
+        for request in [pit(0, 7), pit(6, 0)] {
+            assert_eq!(
+                StrategyDesignRoleIntentV1::from_rd_owner_projection_with_initial_pit(
+                    d(1),
+                    d(2),
+                    d(3),
+                    d(4),
+                    d(5),
+                    vec![role(10)],
+                    request,
+                )
+                .unwrap_err(),
+                StrategyDesignRoleIntentErrorV1::InvalidProjection
+            );
+        }
     }
 
     #[rstest]

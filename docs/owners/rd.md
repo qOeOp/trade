@@ -1044,7 +1044,9 @@ request binds 'the requested instrument or universe scope'."
   caller submitted under a forged `requester_identity` is never picked up. A successor PIT request of the same Intent
   is named only by a role intent published after it; a published role intent never changes.
 
-Built so far: nothing.
+Built so far: the schema 2 role intent codec. `StrategyDesignRoleIntentV1` names the initial PIT request as
+`(pit_request_identity, pit_request_digest)` under schema 2 alone, digests each schema under its own domain, and
+leaves schema 1 bytes and digests unchanged. Nothing publishes a schema 2 intent yet.
 
 ## Rejections and prohibitions
 
