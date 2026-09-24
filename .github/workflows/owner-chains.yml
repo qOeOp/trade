@@ -149,9 +149,12 @@ jobs:
     name: ${{ matrix.chain.name }}
     runs-on: ubuntu-22.04
     timeout-minutes: ${{ matrix.chain.job-timeout-minutes }}
+    # Reads this run's artifacts to wait for the archive (scripts/ci/wait-for-run-artifact.bash).
+    permissions:
+      contents: read
+      actions: read
     needs:
       - owner-chain-plan
-      - rd-owner-archive
     strategy:
       fail-fast: false
       # One entry per leg, and per shard of the R&D leg: scripts/ci/owner-chain-matrix.py holds the
@@ -229,6 +232,15 @@ jobs:
         uses: ./.github/actions/dashboard-browser-acceptance
         with:
           acceptance-candidate: ${{ github.sha }}
+
+      # Not `needs:` on the archive job: this leg does its setup while the archive compiles and
+      # waits only for the artifact, failing at once if that job ends without it.
+      - name: Wait for the R&D chain archive
+        if: matrix.chain.key == 'rd-owner'
+        timeout-minutes: 50
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/wait-for-run-artifact.bash rd-owner-archive "rd owner archive (ubuntu-22.04)" 2700
 
       - name: Download the R&D chain archive
         if: matrix.chain.key == 'rd-owner'

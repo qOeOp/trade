@@ -929,7 +929,6 @@ jobs:
     needs:
       - postgres-owner-chain-plan-linux-x86
       - plan
-      - postgres-owner-chain-archive-linux-x86
     strategy:
       fail-fast: false
       # One entry per leg, and per shard of the R&D leg: scripts/ci/owner-chain-matrix.py holds the
@@ -1019,6 +1018,15 @@ jobs:
         uses: ./.github/actions/dashboard-browser-acceptance
         with:
           acceptance-candidate: ${{ github.sha }}
+
+      # Not `needs:` on the archive job: this leg does its setup while the archive compiles and
+      # waits only for the artifact, failing at once if that job ends without it.
+      - name: Wait for the R&D chain archive
+        if: matrix.chain.key == 'rd-owner'
+        timeout-minutes: 50
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/wait-for-run-artifact.bash rd-owner-archive "rd owner archive (ubuntu-22.04)" 2700
 
       - name: Download the R&D chain archive
         if: matrix.chain.key == 'rd-owner'
