@@ -2375,6 +2375,29 @@ mod tests {
         assert!(FUNCTION_SOURCE.contains("backtest_native_replay_semantic_traces_v2"));
     }
 
+    /// The outcome readback is what the Dashboard's run report reads, inside a browser-driven
+    /// transaction that holds its locks until rollback. A row lock taken there would be held for the
+    /// whole read, the shape entry 28's deadlock had, so neither readback may take one.
+    #[rstest]
+    fn rd_readback_functions_take_no_row_lock() {
+        for (name, source) in [("V2", FUNCTION_SOURCE), ("V3", FUNCTION_SOURCE_V3)] {
+            // The sources are what this test reads; a vacuous source would pass every check below.
+            assert!(
+                source.contains("SELECT result.* INTO locked_result"),
+                "{name}"
+            );
+
+            for row_lock in [
+                "FOR SHARE",
+                "FOR KEY SHARE",
+                "FOR UPDATE",
+                "FOR NO KEY UPDATE",
+            ] {
+                assert!(!source.contains(row_lock), "{name} takes {row_lock}");
+            }
+        }
+    }
+
     fn identity(value: impl Into<String>) -> OpaqueIdentityV2 {
         OpaqueIdentityV2::try_from(value.into()).expect("fixture identity")
     }

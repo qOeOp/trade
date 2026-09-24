@@ -2,23 +2,9 @@ import { NextResponse } from "next/server";
 
 import { decodeExploratoryReplayOpaqueIdentityV2 } from "@/lib/exploratory-replay-identity";
 import { readExploratoryReplayHistoricalRejectionGatewayV1 } from "@/lib/exploratory-replay-historical-rejection-gateway";
+import { losslessQueryEncoding } from "@/lib/lossless-query-encoding";
 
 export const dynamic = "force-dynamic";
-
-function losslessQueryEncoding(search: string): boolean {
-  try {
-    for (const field of search.slice(1).split("&")) {
-      const separator = field.indexOf("=");
-      const key = separator < 0 ? field : field.slice(0, separator);
-      const value = separator < 0 ? "" : field.slice(separator + 1);
-      decodeURIComponent(key.replaceAll("+", " "));
-      decodeURIComponent(value.replaceAll("+", " "));
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 export async function GET(request: Request) {
   const url = new URL(request.url);

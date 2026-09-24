@@ -128,6 +128,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-qualification|vibe_qualification|postgres::postgres_tests::an_eligibility_fact_window_is_derived_and_its_lineage_is_enforced_by_storage'
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::the_authored_frozen_program_runs_the_production_composer'
   'vibe-strategy-factory|vibe_strategy_factory|iteration_decision_postgres::postgres_acceptance_tests::backtest_run_report_postgres_acceptance_tests::backtest_run_report_reads_back_every_point_a_real_run_committed'
+  'vibe-strategy-factory-rd-owner-api|dashboard_read_api|tests::backtest_run_report_browser_acceptance_reads_the_owner_answer'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
@@ -181,8 +182,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 100 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all 100 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 101 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all 101 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -294,7 +295,8 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[96]}" != *'|postgres::postgres_tests::an_eligibility_fact_window_is_derived_and_its_lineage_is_enforced_by_storage' ]] ||
     [[ "${rd_owner_postgres_tests[97]}" != *'|tests::the_authored_frozen_program_runs_the_production_composer' ]] ||
     [[ "${rd_owner_postgres_tests[98]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::backtest_run_report_postgres_acceptance_tests::backtest_run_report_reads_back_every_point_a_real_run_committed' ]] ||
-    [[ "${rd_owner_postgres_tests[99]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[99]}" != *'|tests::backtest_run_report_browser_acceptance_reads_the_owner_answer' ]] ||
+    [[ "${rd_owner_postgres_tests[100]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
@@ -412,7 +414,7 @@ for line in array_body.splitlines():
     entries.append(tuple(fields))
 # The count lives in one place. Writing it into the message as well lets the two drift, and the
 # drifted form reads as nonsense the moment it fires: "must contain 92 entries, found 92".
-expected_entries = 100
+expected_entries = 101
 if len(entries) != expected_entries:
     raise SystemExit(
         f"ERROR: ordered PostgreSQL test literal must contain {expected_entries} entries, found {len(entries)}."
@@ -1640,8 +1642,9 @@ fi
 source "$(dirname "${BASH_SOURCE[0]}")/chain-entry-watchdog.bash"
 readonly chain_entry_wall_clock_seconds="${CHAIN_ENTRY_WALL_CLOCK_SECONDS:-900}"
 
-# Entry 28 drives the Dashboard in a real browser only when three sealed inputs are present. Without
-# them it returns in a few milliseconds and reports PASS, so a chain that never touched a browser
+# Entry 28 drives the Dashboard in a real browser only when three sealed inputs are present, and so
+# does entry 100, the single-run report's acceptance, which reads the same three. Without
+# them each returns in a few milliseconds and reports PASS, so a chain that never touched a browser
 # goes green and says nothing about it. Measured twice on two trees: 0.011s locally against 136.78s
 # on CI, and locally it is the fastest of all ninety-nine entries - three times faster than the one
 # below it, which does a single string assertion. That reading alone rules out starting Next.js and
@@ -1676,14 +1679,14 @@ check_sealed_browser_inputs() {
   if [[ "${RD_OWNER_CHAIN_LOCAL_PREFLIGHT:-}" == "1" ]]; then
     echo "=== The Dashboard browser acceptance will NOT run this round. Absent: ===" >&2
     while read -r name; do echo "===   $name" >&2; done <<< "$absent"
-    echo "=== Entry 28 returns in milliseconds and reports PASS, covering nothing. ===" >&2
-    echo "=== A green chain this round covers every entry except that one. ===" >&2
+    echo "=== Entries 28 and 100 return in milliseconds and report PASS, covering nothing. ===" >&2
+    echo "=== A green chain this round covers every entry except those two. ===" >&2
     return 0
   fi
   echo "ERROR: the sealed Dashboard browser acceptance inputs are absent:" >&2
   while read -r name; do echo "       $name" >&2; done <<< "$absent"
-  echo "       Entry 28 would return in milliseconds and report PASS, so this chain would go" >&2
-  echo "       green while the Dashboard browser acceptance ran nothing at all." >&2
+  echo "       Entries 28 and 100 would return in milliseconds and report PASS, so this chain" >&2
+  echo "       would go green while the Dashboard browser acceptances ran nothing at all." >&2
   echo "       .github/actions/dashboard-browser-acceptance sets all three." >&2
   return 1
 }
