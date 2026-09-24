@@ -28,13 +28,17 @@ export function DetailSheet({
   children: ReactNode;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const reportedClose = useRef(false);
+  // Each showModal() starts a new generation of what the sheet shows; a close the sheet reports
+  // itself records the generation it closed.
+  const generation = useRef(0);
+  const reportedGeneration = useRef(-1);
   const titleId = useId();
 
   useEffect(() => {
     const current = dialog.current;
     if (!current) return;
     if (open && !current.open) {
+      generation.current += 1;
       current.showModal();
     } else if (!open && current.open) {
       current.close();
@@ -58,26 +62,24 @@ export function DetailSheet({
   // That close's own `close` event still arrives, one task later, and hearing it again is not
   // harmless: if the same content was asked for in between, the sheet has reopened and the late
   // event would clear what the page now shows, closing the reopened sheet (the calendar acceptance
-  // measured it: reopened at 2568 ms, closed again from the page's effect at 2574 ms). So a close
-  // this sheet already reported consumes its one event, and an event reaching a sheet that is open
-  // again is not a close of what it shows. Every other close, such as the page closing the sheet
-  // by `open`, is reported when its event arrives.
+  // measured it: reopened at 2568 ms, closed again from the page's effect at 2574 ms). So an event
+  // is matched to a close by identity rather than by arrival order: an event reaching a sheet that
+  // is open again belongs to an earlier generation and closes nothing it shows, and an event for
+  // the generation whose close this sheet already reported has nothing left to report. Every other
+  // close, such as the page closing the sheet by `open`, is reported when its event arrives.
   const requestClose = () => {
-    reportedClose.current = true;
+    reportedGeneration.current = generation.current;
     onClose();
     dialog.current?.close();
   };
   const closed = () => {
-    if (reportedClose.current) {
-      reportedClose.current = false;
-      return;
-    }
-
     if (dialog.current?.open) return;
+
+    if (reportedGeneration.current === generation.current) return;
     onClose();
   };
   const cancelled = () => {
-    reportedClose.current = true;
+    reportedGeneration.current = generation.current;
     onClose();
   };
 
