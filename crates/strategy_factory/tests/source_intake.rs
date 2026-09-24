@@ -1853,7 +1853,7 @@ async fn postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_r
     // Intake production path that produces live custody; this acceptance's custody is sealed.
     let unbound_request_identity = format!("sealed-source-unbound-{suffix}");
     product_edge
-        .admit_request(ProductEdgeAdmissionRequestV1 {
+        .admit_source_intake_request(ProductEdgeAdmissionRequestV1 {
             request_identity: unbound_request_identity.clone(),
             typed_payload: serde_json::json!({
                 "request_identity": unbound_request_identity,
