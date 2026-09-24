@@ -8,8 +8,9 @@ use super::{
     authority::{
         ReplayMarketFactsEvidenceV2, ReplayNativeChainEvidenceV2, ReplayReferenceFactCutProposalV2,
         ReplayReferenceFactProposalV2, ReplayReferenceFactScopeProposalV2,
-        ReplayVerifiedNativeDerivedRecordV2, ReplayVerifiedNativeRecordV2,
-        issue_replay_market_facts_v2, pit_clock_digest,
+        ReplayUniverseMemberFactsEvidenceV2, ReplayVerifiedNativeDerivedRecordV2,
+        ReplayVerifiedNativeRecordV2, issue_replay_market_facts_v2,
+        issue_universe_member_replay_market_facts_v2, pit_clock_digest,
     },
     codec::{MAX_AGGREGATE_BYTES, MAX_CUT_BYTES, MAX_FACTS_PER_CUT, MAX_FIELD_BYTES},
     composition::{
@@ -244,7 +245,7 @@ fn native_chain_v4(seed: u8) -> ReplayNativeChainEvidenceV2 {
     )
 }
 
-fn request(snapshot_byte: u8) -> UntrustedReplayMarketFactsRequestV2 {
+pub(crate) fn request(snapshot_byte: u8) -> UntrustedReplayMarketFactsRequestV2 {
     let frontier = UntrustedCompleteFrontier {
         stream_identity: "stream".into(),
         cut_identity: "cut".into(),
@@ -836,19 +837,21 @@ fn native_subject_chain_cross_splices_fail_at_issuer_and_verifier() {
     );
 
     let mut verifier_joined = readback(1, true);
-    verifier_joined
-        .facts
-        .frontier
-        .native_chain
-        .joined_cut_observation_subject = d(99);
+    let super::ReplayFrontierChainV2::FirstCorpus(chain) =
+        &mut verifier_joined.facts.frontier.chain
+    else {
+        panic!("the fixture is the first corpus");
+    };
+    chain.joined_cut_observation_subject = d(99);
     assert!(!verify_replay_market_facts_readback_v2(&verifier_joined));
 
     let mut verifier_sample = readback(1, true);
-    verifier_sample
-        .facts
-        .frontier
-        .native_chain
-        .sample_projection_joined_cut_subject = d(99);
+    let super::ReplayFrontierChainV2::FirstCorpus(chain) =
+        &mut verifier_sample.facts.frontier.chain
+    else {
+        panic!("the fixture is the first corpus");
+    };
+    chain.sample_projection_joined_cut_subject = d(99);
     assert!(!verify_replay_market_facts_readback_v2(&verifier_sample));
 }
 
@@ -1043,8 +1046,13 @@ fn hex(bytes: &[u8]) -> String {
     })
 }
 
-/// Every stored value of one first-corpus Replay facts readback and its bound storage row.
-fn first_corpus_values(v4: bool) -> Vec<(&'static str, String)> {
+/// One first-corpus binding and the Replay facts composed under it, as the golden tests pin them.
+pub(crate) fn first_corpus_readback(
+    v4: bool,
+) -> (
+    super::ReplayCompositionBindingReadbackV1,
+    super::ReplayMarketFactsReadbackV2,
+) {
     let replay = request(71);
     let binding = issue_replay_composition_binding_v1(&replay, composition_evidence(1))
         .expect("complete binding");
@@ -1067,6 +1075,12 @@ fn first_corpus_values(v4: bool) -> Vec<(&'static str, String)> {
         },
     )
     .expect("exact positive composition");
+    (binding, readback)
+}
+
+/// Every stored value of one first-corpus Replay facts readback and its bound storage row.
+fn first_corpus_values(v4: bool) -> Vec<(&'static str, String)> {
+    let (binding, readback) = first_corpus_readback(v4);
     let facts = readback.facts();
     let frontier = facts.frontier();
     let receipt = readback.receipt();
@@ -1148,4 +1162,281 @@ fn first_corpus_replay_facts_bytes_are_pinned(
         ("storage custody digest", custody_digest.to_owned()),
     ];
     assert_eq!(first_corpus_values(v4), expected);
+}
+
+/// The universe frame the universe-member fixtures bind; content-addressed, so identity is digest.
+fn universe_frame() -> ReplayMarketDependencyRefV2 {
+    ReplayMarketDependencyRefV2::from_verified_owner_record(
+        ReplayMarketDependencyKindV2::StrategyInputUniverseFrameV1,
+        d(95),
+        d(95),
+    )
+}
+
+/// The first-corpus fixture without its Instrument Master and native chain: PIT, Source Binding
+/// and Universe Selection, and the three reference cuts those authorities scope.
+fn universe_member_evidence(seed: u8) -> ReplayUniverseMemberFactsEvidenceV2 {
+    ReplayUniverseMemberFactsEvidenceV2 {
+        base_dependencies: dependencies(seed)
+            .into_iter()
+            .filter(|dependency| {
+                dependency.kind() != ReplayMarketDependencyKindV2::InstrumentMasterCutV1
+            })
+            .collect(),
+        universe_frame: universe_frame(),
+        reference_cuts: cuts(seed, false)
+            .into_iter()
+            .filter(|cut| {
+                matches!(
+                    cut.kind,
+                    ReplayReferenceFactKindV2::MarketSemantics
+                        | ReplayReferenceFactKindV2::CorrectionPolicy
+                        | ReplayReferenceFactKindV2::HistoricalMembership
+                )
+            })
+            .collect(),
+        stable_correlation: d(seed + 40),
+    }
+}
+
+pub(crate) fn universe_member_readback(seed: u8) -> super::ReplayMarketFactsReadbackV2 {
+    issue_universe_member_replay_market_facts_v2(
+        &request(seed + 70),
+        universe_member_evidence(seed),
+    )
+    .expect("canonical universe-member facts")
+}
+
+/// The same aggregate over the frame whose digest is `frame`.
+pub(crate) fn universe_member_readback_over_frame(
+    frame: BindingDigest,
+) -> super::ReplayMarketFactsReadbackV2 {
+    let mut evidence = universe_member_evidence(1);
+    evidence.universe_frame = ReplayMarketDependencyRefV2::from_verified_owner_record(
+        ReplayMarketDependencyKindV2::StrategyInputUniverseFrameV1,
+        frame,
+        frame,
+    );
+    issue_universe_member_replay_market_facts_v2(&request(71), evidence)
+        .expect("canonical universe-member facts")
+}
+
+/// A universe-member aggregate binds four dependencies, the frame among them, and three cuts.
+#[rstest]
+fn universe_member_facts_bind_four_dependencies_and_three_reference_cuts() {
+    let readback = universe_member_readback(1);
+    let facts = readback.facts();
+    assert!(verify_replay_market_facts_readback_v2(&readback));
+    assert_eq!(
+        facts.shape(),
+        super::ReplayMarketFactsShapeV2::UniverseMembers
+    );
+    assert_eq!(
+        facts
+            .frontier()
+            .dependencies()
+            .iter()
+            .map(ReplayMarketDependencyRefV2::kind)
+            .collect::<Vec<_>>(),
+        [
+            ReplayMarketDependencyKindV2::PitSnapshotV1,
+            ReplayMarketDependencyKindV2::SourceBindingV1,
+            ReplayMarketDependencyKindV2::UniverseSelectionV1,
+            ReplayMarketDependencyKindV2::StrategyInputUniverseFrameV1,
+        ]
+    );
+    assert_eq!(
+        facts
+            .reference_cuts()
+            .iter()
+            .map(super::ReplayReferenceFactCutV2::kind)
+            .collect::<Vec<_>>(),
+        [
+            ReplayReferenceFactKindV2::MarketSemantics,
+            ReplayReferenceFactKindV2::CorrectionPolicy,
+            ReplayReferenceFactKindV2::HistoricalMembership,
+        ]
+    );
+    assert_eq!(facts.universe_frame_digest(), Some(d(95)));
+    assert_eq!(&facts.frontier().canonical_bytes()[..2], &[0, 3]);
+    assert_eq!(&facts.canonical_bytes()[..2], &[0, 3]);
+
+    let first = readback_v4(1);
+    assert_eq!(
+        first.facts().shape(),
+        super::ReplayMarketFactsShapeV2::FirstCorpus
+    );
+    assert_eq!(first.facts().universe_frame_digest(), None);
+}
+
+fn readback_v4(seed: u8) -> super::ReplayMarketFactsReadbackV2 {
+    issue_replay_market_facts_v2(
+        &request(seed + 70),
+        ReplayMarketFactsEvidenceV2 {
+            base_dependencies: dependencies(seed),
+            native_chain: native_chain_v4(seed),
+            reference_cuts: cuts(seed, true),
+            stable_correlation: d(seed + 40),
+        },
+    )
+    .expect("canonical first-corpus facts")
+}
+
+/// The universe-member frontier, byte for byte, and the identities it and its aggregate take.
+///
+/// The frontier is its schema, the four dependencies in kind order, and the sorted reference-cut
+/// identities: no native chain. The identities were read twice from this build before being pinned;
+/// the frontier and facts domains are this shape's own, so none of them can equal a first-corpus one.
+#[rstest]
+fn universe_member_frontier_bytes_and_identities_are_pinned() {
+    let readback = universe_member_readback(1);
+    let facts = readback.facts();
+    let frontier = facts.frontier();
+    let mut expected = vec![0, 3, 0, 0, 0, 4];
+    for dependency in frontier.dependencies() {
+        expected.extend_from_slice(&(dependency.kind() as u16).to_be_bytes());
+        expected.extend_from_slice(dependency.identity().as_bytes());
+        expected.extend_from_slice(dependency.digest().as_bytes());
+    }
+    expected.extend_from_slice(&[0, 0, 0, 3]);
+    for identity in frontier.reference_cut_identities() {
+        expected.extend_from_slice(identity.as_bytes());
+    }
+    assert_eq!(frontier.canonical_bytes(), expected.as_slice());
+    assert_eq!(
+        (
+            hex(frontier.identity().as_bytes()),
+            hex(facts.identity().as_bytes()),
+            facts.canonical_bytes().len(),
+            hex(readback.receipt().identity().as_bytes()),
+        ),
+        (
+            "a05a1753a30cd012c3175c299104017eee62550c651db9855b350e6c56bf6436".to_owned(),
+            "81d48fca22f1b349e11e4f90c6504b129a7033fdd715abc6dddb6b06238f573e".to_owned(),
+            2153,
+            "aaaaba47abed713b4f79fd11eed622656d06b485287db6d7c06799fe14d6e541".to_owned(),
+        )
+    );
+}
+
+/// Each way a universe-member aggregate can name the wrong things is refused by name.
+#[rstest]
+#[case::frame_of_another_kind(
+    |evidence: &mut ReplayUniverseMemberFactsEvidenceV2| {
+        evidence.universe_frame = ReplayMarketDependencyRefV2::from_verified_owner_record(
+            ReplayMarketDependencyKindV2::ObservationCensusV1,
+            d(95),
+            d(95),
+        );
+    },
+    ReplayMarketFactsErrorV2::DependencyMismatch
+)]
+#[case::frame_identity_not_its_digest(
+    |evidence: &mut ReplayUniverseMemberFactsEvidenceV2| {
+        evidence.universe_frame = ReplayMarketDependencyRefV2::from_verified_owner_record(
+            ReplayMarketDependencyKindV2::StrategyInputUniverseFrameV1,
+            d(95),
+            d(96),
+        );
+    },
+    ReplayMarketFactsErrorV2::DependencyMismatch
+)]
+#[case::the_frame_and_the_selection_swapped(
+    |evidence: &mut ReplayUniverseMemberFactsEvidenceV2| {
+        let selection = ReplayMarketDependencyRefV2::from_verified_owner_record(
+            ReplayMarketDependencyKindV2::UniverseSelectionV1,
+            d(4),
+            d(4),
+        );
+        evidence.base_dependencies.retain(|dependency| {
+            dependency.kind() != ReplayMarketDependencyKindV2::UniverseSelectionV1
+        });
+        evidence.base_dependencies.push(universe_frame());
+        evidence.universe_frame = selection;
+    },
+    ReplayMarketFactsErrorV2::DependencyMismatch
+)]
+#[case::an_instrument_master_dependency(
+    |evidence: &mut ReplayUniverseMemberFactsEvidenceV2| {
+        evidence.base_dependencies = dependencies(1);
+    },
+    ReplayMarketFactsErrorV2::DependencyMismatch
+)]
+#[case::no_universe_selection(
+    |evidence: &mut ReplayUniverseMemberFactsEvidenceV2| {
+        evidence.base_dependencies.retain(|dependency| {
+            dependency.kind() != ReplayMarketDependencyKindV2::UniverseSelectionV1
+        });
+    },
+    ReplayMarketFactsErrorV2::DependencyMismatch
+)]
+#[case::a_calendar_cut_as_well(
+    |evidence: &mut ReplayUniverseMemberFactsEvidenceV2| {
+        evidence.reference_cuts.push(
+            cuts(1, false)
+                .into_iter()
+                .find(|cut| cut.kind == ReplayReferenceFactKindV2::Calendar)
+                .expect("calendar cut"),
+        );
+    },
+    ReplayMarketFactsErrorV2::IncompleteReferenceCuts
+)]
+#[case::a_calendar_cut_in_place_of_membership(
+    |evidence: &mut ReplayUniverseMemberFactsEvidenceV2| {
+        let calendar = cuts(1, false)
+            .into_iter()
+            .find(|cut| cut.kind == ReplayReferenceFactKindV2::Calendar)
+            .expect("calendar cut");
+        let membership = evidence
+            .reference_cuts
+            .iter_mut()
+            .find(|cut| cut.kind == ReplayReferenceFactKindV2::HistoricalMembership)
+            .expect("membership cut");
+        *membership = calendar;
+    },
+    ReplayMarketFactsErrorV2::DependencyMismatch
+)]
+fn universe_member_issuance_refuses_what_is_not_its_shape(
+    #[case] tamper: fn(&mut ReplayUniverseMemberFactsEvidenceV2),
+    #[case] expected: ReplayMarketFactsErrorV2,
+) {
+    let mut evidence = universe_member_evidence(1);
+    tamper(&mut evidence);
+    assert_eq!(
+        issue_universe_member_replay_market_facts_v2(&request(71), evidence),
+        Err(expected)
+    );
+}
+
+/// A readback whose sealed chain states the other shape never verifies, in either direction.
+#[rstest]
+fn a_readback_claiming_the_other_shape_never_verifies() {
+    let mut universe = universe_member_readback(1);
+    let super::ReplayFrontierChainV2::FirstCorpus(chain) = readback(1, true).facts.frontier.chain
+    else {
+        panic!("the fixture is the first corpus");
+    };
+    universe.facts.frontier.chain = super::ReplayFrontierChainV2::FirstCorpus(chain);
+    assert!(!verify_replay_market_facts_readback_v2(&universe));
+
+    let mut first = readback(1, true);
+    first.facts.frontier.chain = super::ReplayFrontierChainV2::UniverseMembers;
+    assert!(!verify_replay_market_facts_readback_v2(&first));
+}
+
+/// A schema 1 binding is the first corpus, so universe-member facts under it are a shape mismatch.
+#[rstest]
+fn universe_member_facts_under_a_first_corpus_binding_are_a_shape_mismatch() {
+    let (binding, first) = first_corpus_readback(true);
+    assert_eq!(
+        super::composition::require_binding_facts_shape_v1(&binding, first.facts()),
+        Ok(())
+    );
+    assert_eq!(
+        super::composition::require_binding_facts_shape_v1(
+            &binding,
+            universe_member_readback(1).facts()
+        ),
+        Err(ReplayCompositionBindingErrorV1::CompositionShapeMismatch)
+    );
 }
