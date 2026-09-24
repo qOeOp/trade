@@ -1709,7 +1709,6 @@ async fn universe_member_composition_is_issued_step_v1(
         )
         .await
         .expect("R&D resolves the universe-member cut");
-    rd_transaction.rollback().await.unwrap();
     assert!(rd_cut.instrument_master().is_none());
     assert_eq!(
         rd_cut.market_facts().facts().shape(),
@@ -1718,6 +1717,46 @@ async fn universe_member_composition_is_issued_step_v1(
     assert_eq!(
         rd_cut.market_facts().facts().universe_frame_digest(),
         record.universe_frame_digest()
+    );
+
+    // R&D's consumer re-derives the frame the binding bound: the issued Design's own claim, from its
+    // stored coordinate, re-reads to exactly the frame on the binding and its facts. Refusing a
+    // cut whose frame does not re-derive rests on this equality holding for a real issuance.
+    let coordinate =
+        crate::owner::resolve_pit_request_for_strategy_design_v1(&mut rd_transaction, design)
+            .await
+            .expect("rd_owner resolves the issued Design's coordinate");
+    assert_eq!(
+        coordinate.declared_scope,
+        crate::owner::postgres::strategy_input_binding_registry::StrategyInputDeclaredScopeV1::UniverseMembers
+    );
+    assert_eq!(
+        coordinate.pit_request_identity,
+        lineage_request.claimed_request_identity
+    );
+    let custody = crate::owner::postgres::strategy_input_binding_registry::
+        reread_persisted_strategy_input_universe_custody_for_update_v1(
+            &mut rd_transaction,
+            &crate::owner::strategy_input_binding::UntrustedStrategyInputCustodyClaimV1 {
+                research_request_identity: research,
+                strategy_design_identity: design,
+                pit_request_identity: coordinate.pit_request_identity,
+                input_role_identities: coordinate.input_role_identities,
+                decision_cut: coordinate.decision_cut,
+            },
+        )
+        .await
+        .expect("rd_owner re-reads the issued Design's universe custody");
+    rd_transaction.rollback().await.unwrap();
+    assert_eq!(
+        Some(custody.frame().digest()),
+        record.universe_frame_digest(),
+        "the re-read frame is the one the binding bound"
+    );
+    assert_eq!(
+        Some(custody.frame().digest()),
+        rd_cut.market_facts().facts().universe_frame_digest(),
+        "the re-read frame is the one the facts carry"
     );
 
     // The binding keys the request's Instrument Master V2 cut; the member has no fact here.
