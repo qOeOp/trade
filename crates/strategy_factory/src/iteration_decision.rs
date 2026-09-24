@@ -3511,6 +3511,7 @@ pub(crate) mod tests {
             trial_family_identity: census.census_frontier.trial_family_identity().to_string(),
             trial_family_policy_digest: format!("sha256:{}", "c".repeat(64)),
             frozen_at_epoch_ms: 1,
+            instrument_scope: None,
         });
         let FrozenResearchGoalIntent::V2(intent_v2) = &intent else {
             unreachable!("fixture uses V2 intent")
