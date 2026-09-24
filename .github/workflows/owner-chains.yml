@@ -61,7 +61,7 @@ jobs:
             name: market data owner postgres (ubuntu-22.04)
             # Common setup: twice the slowest measured for this chain across build and owner-chains
             # (820s, 2026-09-24). Re-measure and raise it once setup routinely takes half of it.
-            setup-timeout-minutes: 28
+            setup-timeout-minutes: 1
             step-timeout-minutes: 15
             job-timeout-minutes: 40
             make: cargo-test-market-data-owner-postgres-isolated
