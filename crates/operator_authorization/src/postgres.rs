@@ -2668,6 +2668,7 @@ mod tests {
     };
     use rstest::rstest;
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+    use vibe_testkit::source_guard::{crate_production_sources, process_clock_reads};
 
     /// The store clock Operator Authorization compares with, read the way the Owner reads it. A
     /// window or cut a fixture takes from this process's clock instead would put the two sides of
@@ -2688,22 +2689,6 @@ mod tests {
                 .as_millis(),
         )
         .unwrap()
-    }
-
-    /// The process-clock reads a piece of source contains.
-    fn process_clock_reads(source: &str) -> Vec<&'static str> {
-        ["now_ms(", "SystemTime", "current_epoch_ms("]
-            .into_iter()
-            .filter(|read| source.contains(read))
-            .collect()
-    }
-
-    /// The source before a file's first top-level test-only item. An indented `#[cfg(test)]`
-    /// (a test-only method, say) is not the end of production code: cutting there would leave
-    /// every function after it unread, and this guard would pass whatever they read.
-    fn production(source: &str) -> &str {
-        let tests = source.find("\n#[cfg(test)]\n").expect("test module");
-        &source[..tests]
     }
 
     /// The body of the item that starts at `signature`, up to the next item at the same depth.
@@ -2732,14 +2717,23 @@ mod tests {
     fn operator_authorization_reads_only_the_store_clock() {
         let postgres = include_str!("postgres.rs");
         let grant = include_str!("postgres/grant.rs");
-        assert_eq!(
-            process_clock_reads(production(postgres)),
-            Vec::<&str>::new()
-        );
-        assert_eq!(process_clock_reads(production(grant)), Vec::<&str>::new());
-        // What was read reaches the last functions each file defines.
-        assert!(production(postgres).contains("pub async fn recover_expired_manifests("));
-        assert!(production(grant).contains("async fn resolve_locked_grant_readback<"));
+        let sources = crate_production_sources(env!("CARGO_MANIFEST_DIR"));
+        // The walk reached the files the functions below live in.
+        for file in ["src/postgres.rs", "src/postgres/grant.rs"] {
+            assert!(
+                sources.iter().any(|(path, _)| path.ends_with(file)),
+                "{file}"
+            );
+        }
+
+        for (path, production) in &sources {
+            assert_eq!(
+                process_clock_reads(production),
+                Vec::<&str>::new(),
+                "{}",
+                path.display()
+            );
+        }
 
         for signature in [
             "pub async fn issue_genesis(",
@@ -2766,14 +2760,6 @@ mod tests {
         assert!(
             item_body(postgres, "async fn database_now(").contains("pg_catalog.clock_timestamp()")
         );
-        // The reading sees a process clock wherever one is written.
-        for read in [
-            "let now = SystemTime::now();",
-            "let now = now_ms()?;",
-            "let now = current_epoch_ms()?;",
-        ] {
-            assert_eq!(process_clock_reads(read).len(), 1, "{read}");
-        }
     }
 
     #[rstest]

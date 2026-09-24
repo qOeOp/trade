@@ -7047,14 +7047,7 @@ mod tests {
         ProductEdgeManifestBindingV1, STRATEGY_GOVERNANCE_AUDIENCE_V1,
     };
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
-
-    /// The process-clock reads a piece of source contains.
-    fn process_clock_reads(body: &str) -> Vec<&'static str> {
-        ["now_ms(", "SystemTime", "current_epoch_ms("]
-            .into_iter()
-            .filter(|read| body.contains(read))
-            .collect()
-    }
+    use vibe_testkit::source_guard::{crate_production_sources, process_clock_reads};
 
     /// The body of the first item after `signature`, up to the next item at the same indentation.
     fn item_body<'a>(source: &'a str, signature: &str) -> &'a str {
@@ -7186,10 +7179,22 @@ mod tests {
     #[rstest]
     fn product_edge_reads_only_the_store_clock() {
         let source = include_str!("postgres.rs");
-        let tests = source
-            .find("#[cfg(test)]\nmod tests {")
-            .expect("test module");
-        assert_eq!(process_clock_reads(&source[..tests]), Vec::<&str>::new());
+        let sources = crate_production_sources(env!("CARGO_MANIFEST_DIR"));
+        // The walk reached the file the functions below live in.
+        assert!(
+            sources
+                .iter()
+                .any(|(path, _)| path.ends_with("src/postgres.rs"))
+        );
+
+        for (path, production) in &sources {
+            assert_eq!(
+                process_clock_reads(production),
+                Vec::<&str>::new(),
+                "{}",
+                path.display()
+            );
+        }
 
         for signature in [
             "pub async fn bootstrap_genesis(",
@@ -7205,14 +7210,6 @@ mod tests {
                 item_body(source, signature).contains("database_now(&mut transaction).await?"),
                 "{signature}"
             );
-        }
-        // The reading sees a process clock wherever one is written.
-        for read in [
-            "let now = SystemTime::now();",
-            "let now = now_ms()?;",
-            "let now = current_epoch_ms()?;",
-        ] {
-            assert_eq!(process_clock_reads(read).len(), 1, "{read}");
         }
     }
 
