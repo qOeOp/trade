@@ -101,6 +101,44 @@ jobs:
           EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
           RD_OWNER_ARCHIVE_FILE="${RUNNER_TEMP}/rd-owner-archive/rd-owner-tests.tar.zst"
 
+      - name: LANE8 PROBE - size of a dependency-only cache of this graph
+        run: |
+          set -euo pipefail
+          t=target/rust-tests-linux-x86
+          du -sh "$t" ~/.cargo/registry/index ~/.cargo/registry/cache ~/.cargo/git/db 2>/dev/null || true
+          cargo metadata --no-deps --format-version 1 > "$RUNNER_TEMP/ws.json"
+          python3 - "$t" "$RUNNER_TEMP/ws.json" << 'PRUNE'
+          import json, os, shutil, sys
+          from pathlib import Path
+          target, meta = Path(sys.argv[1]), json.load(open(sys.argv[2]))
+          ws = {p["name"].replace("-", "_") for p in meta["packages"]}
+          ws |= {t["name"].replace("-", "_") for p in meta["packages"] for t in p["targets"]}
+          removed = kept = 0
+          for profile in [d for d in target.iterdir() if d.is_dir() and (d / ".fingerprint").is_dir()]:
+              shutil.rmtree(profile / "incremental", ignore_errors=True)
+              for sub in ("deps", "build", ".fingerprint"):
+                  for e in (profile / sub).iterdir() if (profile / sub).is_dir() else []:
+                      stem = e.name.split(".")[0]
+                      stem = stem[3:] if stem.startswith("lib") and sub == "deps" else stem
+                      stem = stem.rsplit("-", 1)[0].replace("-", "_")
+                      if stem in ws:
+                          shutil.rmtree(e) if e.is_dir() and not e.is_symlink() else e.unlink()
+                          removed += 1
+                      else:
+                          kept += 1
+          shutil.rmtree(target / "cargo-timings", ignore_errors=True)
+          print(f"LANE8-DC pruned {removed} workspace entries, kept {kept}; workspace names {len(ws)}")
+          PRUNE
+          du -sh "$t"
+          size() { tar -cf - "$@" | zstd -T0 --long=30 -3 -c | wc -c; }
+          tgt=$(size "$t")
+          reg=$(size -C "$HOME" .cargo/registry/index .cargo/registry/cache $(test -d ~/.cargo/git/db && echo .cargo/git/db))
+          echo "LANE8-DC compressed: target (deps only) $((tgt / 1048576)) MiB, cargo registry+git $((reg / 1048576)) MiB, total $(((tgt + reg) / 1048576)) MiB"
+          start=$SECONDS
+          tar -cf - "$t" | zstd -T0 --long=30 -3 -c > "$RUNNER_TEMP/dep.tzst"
+          mkdir -p "$RUNNER_TEMP/x" && zstd -d --long=30 -c "$RUNNER_TEMP/dep.tzst" | tar -xf - -C "$RUNNER_TEMP/x"
+          echo "LANE8-DC local compress+extract of the target part: $((SECONDS - start)) s"
+
       # Artifacts are Actions storage, not the 10 GB cache quota the Rust cache lives in. Kept one day:
       # the chain job reads it minutes later, and nothing else does.
       - name: Publish the R&D chain archive

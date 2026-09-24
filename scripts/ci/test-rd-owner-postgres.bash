@@ -1651,7 +1651,53 @@ build_nextest_archive() {
     --features "$nextest_archive_features" \
     --profile "$nextest_profile" \
     --cargo-profile "$cargo_ci_profile" \
+    --timings \
     --archive-file "$1"
+  # LANE8 PROBE, NOT FOR MERGE: the critical path of that build, from cargo's own unit timings.
+  python3 - "${CARGO_TARGET_DIR:-target}/cargo-timings/cargo-timing.html" << 'CRITICAL'
+import json
+import re
+import sys
+
+html = open(sys.argv[1], encoding="utf-8").read()
+units = json.loads(re.search(r"const UNIT_DATA = (\[.*?\]);", html, re.S).group(1))
+by_index = {u["i"]: u for u in units}
+end = lambda u: u["start"] + u["duration"]
+unlocked_by = {}
+for u in units:
+    links = [k for k in u if k.endswith("_units")]
+    for key in links:
+        for v in u[key]:
+            unlocked_by.setdefault(v, []).append(u["i"])
+if not unlocked_by:
+    sys.exit("LANE8-CP ERROR: no dependency links found in UNIT_DATA; the critical path cannot be walked")
+ws = lambda u: u["name"].startswith(("vibe", "strategy-factory", "strategy_factory"))
+total = max(end(u) for u in units)
+print(f"LANE8-CP build wall {total:.0f}s, {len(units)} units ({sum(1 for u in units if ws(u))} workspace)")
+path = [max(units, key=end)]
+while path[-1]["i"] in unlocked_by:
+    path.append(max((by_index[i] for i in unlocked_by[path[-1]["i"]]), key=end))
+for u in reversed(path):
+    kind = "ws " if ws(u) else "ext"
+    print(f"LANE8-CP {kind} {u['start']:6.1f}s -> {end(u):6.1f}s ({u['duration']:5.1f}s) {u['name']} {u.get('target', '').strip()} {u.get('mode', '')}")
+last_external_end = max((end(u) for u in units if not ws(u)), default=0)
+print(f"LANE8-CP last external unit ends at {last_external_end:.0f}s; workspace-only tail {total - last_external_end:.0f}s")
+m = re.search(r"const CONCURRENCY_DATA = (\[.*?\]);", html, re.S)
+conc = json.loads(m.group(1)) if m else []
+print("LANE8-CP concurrency keys:", sorted(conc[0]) if conc else "none")
+def mean_over(a, b, key):
+    pts = [c for c in conc if a <= c["t"] <= b]
+    return sum(c.get(key, 0) for c in pts) / len(pts) if pts else float("nan")
+print(f"LANE8-CP tail {last_external_end:.0f}-{total:.0f}s: mean active {mean_over(last_external_end, total, 'active'):.1f}, mean waiting {mean_over(last_external_end, total, 'waiting'):.1f}")
+chain = list(reversed(path))
+for a, b in zip(chain, chain[1:]):
+    if b["start"] > end(a) + 1:
+        print(f"LANE8-CP gap {end(a):.1f}-{b['start']:.1f}s before {b['name']}: mean active {mean_over(end(a), b['start'], 'active'):.1f}, waiting {mean_over(end(a), b['start'], 'waiting'):.1f}")
+ws_cpu = sum(u["duration"] for u in units if ws(u)); ext_cpu = sum(u["duration"] for u in units if not ws(u))
+print(f"LANE8-CP unit-seconds: workspace {ws_cpu:.0f}, external {ext_cpu:.0f}; nproc {__import__('os').cpu_count()}")
+for u in sorted((u for u in units if ws(u)), key=lambda u: -u["duration"])[:15]:
+    print(f"LANE8-CP heavy {u['start']:6.1f}s -> {end(u):6.1f}s ({u['duration']:5.1f}s) {u['name']} {u.get('target', '').strip()}")
+CRITICAL
 }
 nextest_archive_identity() {
   printf 'tree %s\nfeatures %s\ncargo-profile %s\nnextest-profile %s\n' \
