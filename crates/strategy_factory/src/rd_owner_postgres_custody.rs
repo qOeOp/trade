@@ -2548,11 +2548,6 @@ async fn admit_preloaded_research_row_in_transaction(
             2,
         )
     } else {
-        if source_ancestry_locator_json.is_some() || source_ancestry_evidence_digest.is_some() {
-            return Err(ResearchGoalOwnerError::Storage(
-                "rejected V2 custody carries source ancestry".into(),
-            ));
-        }
         let stored = rejected_v2.expect("unique rejected V2 representation");
         if stored.schema_version != 1 {
             return Err(ResearchGoalOwnerError::Storage(
@@ -2560,7 +2555,19 @@ async fn admit_preloaded_research_row_in_transaction(
             ));
         }
         let request = stored.request;
-        verify_research_admission_v2(&product_edge_admission, &request)?;
+        // A rejection is verified against the admission it was made under: a source-bound request
+        // records its Source Intake ancestry with the rejection, as an accepted one does.
+        validate_source_ancestry_custody_v1(
+            &request,
+            source_ancestry_locator_json.as_ref(),
+            source_ancestry_evidence_digest.as_deref(),
+        )?;
+
+        if source_ancestry_locator_json.is_some() {
+            verify_source_bound_research_admission_v2(&product_edge_admission, &request)?;
+        } else {
+            verify_research_admission_v2(&product_edge_admission, &request)?;
+        }
         let effective_principal = product_edge_admission.effective_principal().to_string();
         let authorized_scope = product_edge_admission.authorized_scope().to_vec();
         let digest = semantic_digest_v2(&request)?;

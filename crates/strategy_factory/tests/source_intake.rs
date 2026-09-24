@@ -43,8 +43,9 @@ use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwne
 #[cfg(feature = "sealed-source-intake-research-acceptance")]
 use vibe_strategy_factory::{
     product_edge::{
-        ProductEdgeChannel, ProductEdgeResolution, ResearchGoalOwnerError, TrialFamilyProposalV1,
-        UnsourcedResearchGoalV1, UnsourcedResearchProposalV1,
+        ProductEdgeChannel, ProductEdgeResolution, ResearchGoalOwnerError,
+        ResearchReadbackOwnerPortV1, TrialFamilyProposalV1, UnsourcedResearchGoalV1,
+        UnsourcedResearchProposalV1,
     },
     product_edge_postgres::PostgresResearchGoalOwnerV1,
     source_intake::{
@@ -2087,6 +2088,88 @@ async fn postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_r
         .await
         .unwrap(),
         0
+    );
+
+    // An accepted submission below forms its TrialFamily against the current Replay Policy Catalog
+    // V3 head, which an earlier chain entry publishes; without it the Owner rolls the submission
+    // back unresolved, which reads like a product defect. So the precondition is asserted by name:
+    // a head exists and names the proposal's cost, slippage and capacity models.
+    let catalog = vibe_strategy_factory::read_current_replay_policy_catalog_v3(rd_owner)
+        .await
+        .unwrap_or_else(|e| panic!("missing Replay Policy Catalog V3 head: {e}"));
+    let policy = catalog
+        .replay_policy_v2()
+        .verify()
+        .expect("the current Replay Policy Catalog V3 policy verifies");
+    assert_eq!(
+        (
+            policy.cost.identity.as_str(),
+            policy.slippage.identity.as_str(),
+            policy.capacity.identity.as_str(),
+        ),
+        ("cost-model-v1", "slippage-model-v1", "capacity-model-v1"),
+        "the current Replay Policy Catalog V3 head does not name the proposal's models",
+    );
+
+    // A source-bound request can be rejected, and its rejection is custody like any other: it
+    // records the ancestry it was made under, so re-verification checks it against the admission
+    // it was actually admitted with, reads it back, and replays it exactly.
+    let rejected_identity = format!("sealed-source-research-rejected-{suffix}");
+    let mut rejected_proposal = proposal.clone();
+    rejected_proposal.request_identity = rejected_identity.clone();
+    rejected_proposal.goal.hypothesis = "too short".into();
+    let rejected_admission = product_edge
+        .admit_request(ProductEdgeAdmissionRequestV1 {
+            request_identity: rejected_identity.clone(),
+            typed_payload: serde_json::json!({
+                "request_identity": rejected_identity,
+                "channel": "WINDMILL_PRODUCT_EDGE",
+                "goal": rejected_proposal.goal,
+                "trial_family_proposal": rejected_proposal.trial_family_proposal,
+            }),
+            operation: RESEARCH_GOAL_OPERATION_V2.into(),
+            operation_schema: RESEARCH_GOAL_SCHEMA_V2.into(),
+            target_owner: RESEARCH_OWNER_V1.into(),
+            requested_effects: vec!["R_AND_D_RESEARCH_MUTATION_V1".into()],
+            request_proof_digest: proof_digest.clone(),
+            audit_correlation: format!("source-research-rejected:{suffix}"),
+        })
+        .await
+        .unwrap();
+    rejected_proposal.admission = rejected_admission.locator().clone();
+    let rejected = research_owner
+        .submit_source_intake_research_v1(
+            rejected_proposal.clone(),
+            ancestry.clone(),
+            policy_query.clone(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        rejected.resolution(),
+        ProductEdgeResolution::RejectedNoWrite
+    );
+    assert_eq!(
+        rejected.owner_receipt().unwrap().rejection_code.as_deref(),
+        Some("HYPOTHESIS_INVALID")
+    );
+    assert_eq!(
+        research_owner
+            .read_research_v2(&rejected_identity)
+            .await
+            .unwrap(),
+        rejected
+    );
+    assert_eq!(
+        research_owner
+            .submit_source_intake_research_v1(
+                rejected_proposal,
+                ancestry.clone(),
+                policy_query.clone()
+            )
+            .await
+            .unwrap(),
+        rejected
     );
 
     let accepted = research_owner

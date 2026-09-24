@@ -37,6 +37,12 @@ const INTENT_DOMAIN_V1: &[u8] = b"rd.strategy-design-role-intent.v1\0";
 const INTENT_DOMAIN_V2: &[u8] = b"rd.strategy-design-role-intent.v2\0";
 const MAX_STRING_BYTES: usize = 256;
 
+/// The canonical scope of a role bound to one exact instrument, which it must name.
+const EXACT_INSTRUMENT_SCOPE: &str = r#"{"kind":"EXACT_INSTRUMENT"}"#;
+/// The canonical scope of a role repeated for every member of a universe selection. It names no
+/// instrument: the selection is the PIT request's, never the Design's.
+const UNIVERSE_MEMBERS_SCOPE: &str = r#"{"kind":"UNIVERSE_MEMBERS"}"#;
+
 /// Why a published intent could not be built or accepted.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum StrategyDesignRoleIntentErrorV1 {
@@ -312,11 +318,24 @@ fn validate(
         }
         previous = Some(role.role_identity);
 
+        // A role's scope decides whether it names an instrument, exactly as Market Data matches
+        // it: an exact-instrument role names one, a universe-member role names none, and no other
+        // scope is a role this boundary carries.
+        let names_instrument = match role.scope.as_str() {
+            EXACT_INSTRUMENT_SCOPE => true,
+            UNIVERSE_MEMBERS_SCOPE => false,
+            _ => return Err(StrategyDesignRoleIntentErrorV1::InvalidProjection),
+        };
+
+        if role.instrument.is_empty() == names_instrument
+            || role.instrument.len() > MAX_STRING_BYTES
+        {
+            return Err(StrategyDesignRoleIntentErrorV1::InvalidProjection);
+        }
+
         for value in [
             role.semantic_id.as_str(),
             role.fact_class.as_str(),
-            role.instrument.as_str(),
-            role.scope.as_str(),
             role.field_semantic_id.as_str(),
             role.channel.as_str(),
             role.timeframe.as_str(),
@@ -390,7 +409,7 @@ mod tests {
             semantic_id: format!("role-{value}"),
             fact_class: "BAR".to_owned(),
             instrument: "BTCUSDT".to_owned(),
-            scope: "SPOT".to_owned(),
+            scope: EXACT_INSTRUMENT_SCOPE.to_owned(),
             field_semantic_id: "MARKET_DATA.BAR.CLOSE.PRICE.V1".to_owned(),
             channel: "PRIMARY".to_owned(),
             timeframe: "1M".to_owned(),
@@ -438,7 +457,7 @@ mod tests {
         assert!(!String::from_utf8_lossy(intent.canonical_bytes()).contains("initial_pit_request"));
         assert_eq!(
             hex(intent.intent_digest()),
-            "f6666187c2f108bcb6e2384227975d3a4769390dd5f10ba63211e737a01b64b5"
+            "6346cf0b4c75ffe41039a19d242b52cf93ff0860563029c096779f251f8035b0"
         );
     }
 
@@ -659,5 +678,84 @@ mod tests {
             .unwrap_err(),
             StrategyDesignRoleIntentErrorV1::InvalidProjection
         );
+    }
+
+    fn universe_role(value: u8) -> StrategyDesignRoleEntryV1 {
+        StrategyDesignRoleEntryV1 {
+            instrument: String::new(),
+            scope: UNIVERSE_MEMBERS_SCOPE.to_owned(),
+            ..role(value)
+        }
+    }
+
+    /// A universe-member role names no instrument, so a Design declaring one publishes and reads
+    /// back under either schema, alone or beside an exact-instrument role.
+    #[rstest]
+    fn a_design_with_universe_member_roles_publishes_and_reads_back() {
+        for intent in [
+            StrategyDesignRoleIntentV1::from_rd_owner_projection(
+                d(1),
+                d(2),
+                d(3),
+                d(4),
+                d(5),
+                vec![universe_role(10), role(11)],
+            ),
+            StrategyDesignRoleIntentV1::from_rd_owner_projection_with_initial_pit(
+                d(1),
+                d(2),
+                d(3),
+                d(4),
+                d(5),
+                vec![universe_role(10), universe_role(11)],
+                pit(6, 7),
+            ),
+        ] {
+            let intent = intent.expect("a Design with universe-member roles publishes");
+            assert_eq!(
+                StrategyDesignRoleIntentV1::from_durable_publication(
+                    intent.canonical_bytes(),
+                    intent.intent_digest(),
+                ),
+                Ok(intent.clone())
+            );
+            assert_eq!(intent.role(d(10)).unwrap().instrument, "");
+        }
+    }
+
+    /// The scope and the instrument must agree, as Market Data matches them.
+    #[rstest]
+    fn a_role_whose_scope_and_instrument_disagree_is_refused() {
+        let universe_naming_an_instrument = StrategyDesignRoleEntryV1 {
+            instrument: "BTCUSDT".to_owned(),
+            ..universe_role(10)
+        };
+        let exact_naming_none = StrategyDesignRoleEntryV1 {
+            instrument: String::new(),
+            ..role(10)
+        };
+        let unknown_scope = StrategyDesignRoleEntryV1 {
+            scope: "EXACT_INSTRUMENT".to_owned(),
+            ..role(10)
+        };
+
+        for refused in [
+            universe_naming_an_instrument,
+            exact_naming_none,
+            unknown_scope,
+        ] {
+            assert_eq!(
+                StrategyDesignRoleIntentV1::from_rd_owner_projection(
+                    d(1),
+                    d(2),
+                    d(3),
+                    d(4),
+                    d(5),
+                    vec![refused.clone()]
+                ),
+                Err(StrategyDesignRoleIntentErrorV1::InvalidProjection),
+                "{refused:?}"
+            );
+        }
     }
 }
