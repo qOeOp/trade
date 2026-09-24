@@ -45,3 +45,4 @@ docs-rust: export RUSTDOCFLAGS=--enable-index-page -Zunstable-options $(if $(RUS
 docsrs-check: export DOCS_RS=1
 docsrs-check: export RUSTDOCFLAGS=--cfg docsrs -D warnings
 cargo-test-sim: export RUSTFLAGS=--cfg madsim
+# Control edit: changes only this file, so every rust-cache prefix-key must change.
