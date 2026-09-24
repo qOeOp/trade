@@ -21,10 +21,16 @@
 //! (`recover_single_threshold_request_v1`). A run outside the family is refused as a whole,
 //! because the report answers four questions or none.
 //!
-//! A run inside the family is also refused today, as `STRATEGY_NOT_ANCHORED_TO_RUN`. The request
-//! names a Design, not the program its artifact was built from, and nothing the R&D Owner can read
-//! without a lock ties the two together; see `anchor_frozen_program_to_run`. The data window is the channel's instrument
-//! and timeframe with the request's window, its PIT snapshot count and that snapshot's identity.
+//! A run inside the family is stated only when its artifact is anchored to that pair. The request
+//! names a Design, not the program its artifact was built from, so the anchor is the artifact's
+//! build receipts: every one must be a `PluginBuildV3` receipt carrying the pair's joint freeze
+//! digest (`anchor_frozen_program_to_run`); otherwise the run is refused as
+//! `STRATEGY_NOT_ANCHORED_TO_RUN`. A legacy request's artifact was not built by Composer, so it
+//! never anchors. A Composer V3 request is read through its self-verified claim, without a lock,
+//! in builds with `sealed-source-intake-composer-acceptance`, and refused as
+//! `REPLAY_REQUEST_V3_NOT_YET_REPORTED` in builds without it. The data window is the channel's
+//! instrument and timeframe with the request's window, its PIT snapshot count and that snapshot's
+//! identity.
 //!
 //! It does not carry the statistics maps. They legitimately hold `NaN` (an average winner when
 //! there was no winning trade), and the report contract requires every numeric value to be finite.
