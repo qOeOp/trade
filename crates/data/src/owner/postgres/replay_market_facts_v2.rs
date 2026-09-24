@@ -1980,6 +1980,39 @@ impl ReplayCompositionOwnerV1 {
         Err(StrategyInputBindingAdmissionErrorV1::StoreUnavailable)
     }
 
+    /// The initial PIT request a universe-member Design's published role intent names.
+    ///
+    /// An attestation states roles but no PIT request, so a Design with a universe-member role
+    /// takes it from its own published role intent, read in the same R&D reader transaction; one
+    /// with no such role, or with no published intent, names none, and registration refuses its
+    /// universe-member roles as unnamed.
+    async fn attested_initial_pit_request(
+        transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        receipt: &StrategyDesignRoleSetReceiptV1,
+    ) -> Result<
+        Option<crate::owner::strategy_design_role_intent_v1::InitialPitRequestLocatorV1>,
+        StrategyInputBindingAdmissionErrorV1,
+    > {
+        if !receipt.roles.iter().any(|role| {
+            role.scope == crate::owner::strategy_input_binding::UNIVERSE_MEMBERS_ROLE_SCOPE_V1
+        }) {
+            return Ok(None);
+        }
+        let intent =
+            match Self::resolve_design_role_intent(transaction, receipt.design_identity).await {
+                Ok(intent) => intent,
+                Err(StrategyInputBindingAdmissionErrorV1::UnknownAuthenticatedDesign) => {
+                    return Ok(None);
+                }
+                Err(e) => return Err(e),
+            };
+
+        if intent.research_request_identity() != receipt.research_request_identity {
+            return Err(StrategyInputBindingAdmissionErrorV1::AuthenticatedDesignUntrusted);
+        }
+        Ok(intent.initial_pit_request())
+    }
+
     /// Reads one published intent through R&D's exact-locator function and re-derives its digest.
     ///
     /// The stored bytes are evidence and never authority: `from_durable_publication` rebuilds the
@@ -2034,6 +2067,7 @@ impl ReplayCompositionOwnerV1 {
                     intent,
                 ),
                 intent.roles(),
+                intent.initial_pit_request(),
             )
             .await;
 
@@ -2096,13 +2130,20 @@ impl ReplayCompositionOwnerV1 {
             lock_composer_cut_v1(&mut reader_transaction, &locator.request_identity)
                 .await
                 .map_err(map_admission_reader_error)?;
-            Self::resolve_role_set_attestation(&mut reader_transaction, locator)
-                .await
-                .map_err(map_admission_reader_error)
+            let authenticated =
+                Self::resolve_role_set_attestation(&mut reader_transaction, locator)
+                    .await
+                    .map_err(map_admission_reader_error)?;
+            let initial_pit_request = Self::attested_initial_pit_request(
+                &mut reader_transaction,
+                authenticated.receipt(),
+            )
+            .await?;
+            Ok((authenticated, initial_pit_request))
         }
         .await;
-        let authenticated = match attested {
-            Ok(authenticated) => authenticated,
+        let (authenticated, initial_pit_request) = match attested {
+            Ok(attested) => attested,
             Err(reader_error) => {
                 reader_transaction
                     .rollback()
@@ -2111,7 +2152,9 @@ impl ReplayCompositionOwnerV1 {
                 return Err(reader_error);
             }
         };
-        let outcome = self.register_declarations_v1(authenticated.receipt()).await;
+        let outcome = self
+            .register_declarations_v1(authenticated.receipt(), initial_pit_request)
+            .await;
         reader_transaction
             .rollback()
             .await
@@ -2123,6 +2166,9 @@ impl ReplayCompositionOwnerV1 {
     async fn register_declarations_v1(
         &self,
         receipt: &StrategyDesignRoleSetReceiptV1,
+        initial_pit_request: Option<
+            crate::owner::strategy_design_role_intent_v1::InitialPitRequestLocatorV1,
+        >,
     ) -> Result<StrategyInputBindingAdmissionTerminalV1, StrategyInputBindingAdmissionErrorV1> {
         let mut transaction = self
             .owner
@@ -2137,6 +2183,7 @@ impl ReplayCompositionOwnerV1 {
                     receipt,
                 ),
                 &receipt.roles,
+                initial_pit_request,
             )
             .await;
 

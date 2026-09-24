@@ -30,11 +30,15 @@ use super::strategy_input_binding_registry::{
 ///
 /// The caller owns the transaction because the whole set must land or none of it must: a Design
 /// whose roles are half registered would let a later cycle bind the rest against a different
-/// decision cut.
+/// decision cut. `initial_pit_request` is the PIT request the Design's role intent names; a
+/// universe-member role registers against exactly it and is refused by name without it.
 pub(super) async fn register_authenticated_design_roles_v1(
     transaction: &mut Transaction<'_, Postgres>,
     design: AuthenticatedDesignIdentityV1,
     roles: &[StrategyDesignRoleEntryV1],
+    initial_pit_request: Option<
+        crate::owner::strategy_design_role_intent_v1::InitialPitRequestLocatorV1,
+    >,
 ) -> Result<StrategyInputBindingAdmissionTerminalV1, StrategyInputBindingAdmissionErrorV1> {
     if roles.is_empty() {
         return Err(StrategyInputBindingAdmissionErrorV1::UnsupportedRole);
@@ -42,7 +46,7 @@ pub(super) async fn register_authenticated_design_roles_v1(
     let mut requests = Vec::with_capacity(roles.len());
 
     for role in roles {
-        let resolved = resolve_role_snapshot_v1(transaction, role)
+        let resolved = resolve_role_snapshot_v1(transaction, design, role, initial_pit_request)
             .await
             .map_err(map_admission_resolution_error)?;
         let batch = load_owner_verified_pit_batch_v1(transaction, resolved.snapshot_identity)
@@ -93,6 +97,24 @@ pub(super) fn map_admission_resolution_error(
         }
         PitRoleResolutionErrorV1::AmbiguousSnapshot => {
             StrategyInputBindingAdmissionErrorV1::AmbiguousSnapshot
+        }
+        PitRoleResolutionErrorV1::InitialPitRequestUnnamed => {
+            StrategyInputBindingAdmissionErrorV1::InitialPitRequestUnnamed
+        }
+        PitRoleResolutionErrorV1::InitialPitRequestUnknown => {
+            StrategyInputBindingAdmissionErrorV1::InitialPitRequestUnknown
+        }
+        PitRoleResolutionErrorV1::InitialPitRequestDigestMismatch => {
+            StrategyInputBindingAdmissionErrorV1::InitialPitRequestDigestMismatch
+        }
+        PitRoleResolutionErrorV1::InitialPitRequestNotAvailable => {
+            StrategyInputBindingAdmissionErrorV1::InitialPitRequestNotAvailable
+        }
+        PitRoleResolutionErrorV1::InitialPitRequestRequesterMismatch => {
+            StrategyInputBindingAdmissionErrorV1::InitialPitRequestRequesterMismatch
+        }
+        PitRoleResolutionErrorV1::UniverseUnavailable => {
+            StrategyInputBindingAdmissionErrorV1::BindingUnavailable
         }
         PitRoleResolutionErrorV1::StoreUnavailable => {
             StrategyInputBindingAdmissionErrorV1::StoreUnavailable
