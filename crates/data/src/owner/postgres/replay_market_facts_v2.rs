@@ -2819,6 +2819,80 @@ fn digest_registry(
     crate::owner::source_binding::BindingDigest::from_untrusted_bytes(hasher.finalize().into())
 }
 
+/// Why the Universe Selection a composition binding bound could not be recovered.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::owner) enum BoundUniverseSelectionErrorV1 {
+    /// No binding carries this exact identity and digest.
+    BindingUnavailable,
+    /// The binding, or the selection it names, is not what the store says it bound.
+    CustodyMismatch,
+    StoreUnavailable,
+}
+
+/// Recovers the Universe Selection one exact composition binding bound, taking no row lock.
+///
+/// The bound-replay Instrument Master cut issuance calls this from its own transaction while R&D
+/// may hold `FOR SHARE` locks on the same binding rows in an open transaction of its own. Both
+/// reads here are plain `SELECT`s, so they never wait on that transaction; the binding and the
+/// selection are append-only, so the caller's snapshot is enough.
+pub(in crate::owner) async fn recover_bound_universe_selection_in_transaction_v1(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    locator: ReplayCompositionBindingLocatorV1,
+) -> Result<
+    crate::owner::universe_selection::UniverseSelectionReadbackV1,
+    BoundUniverseSelectionErrorV1,
+> {
+    use crate::owner::replay_market_facts_v2::postgres::ReplayMarketFactsPostgresErrorV2 as Binding;
+    use crate::owner::universe_selection::UniverseSelectionErrorV1 as Selection;
+
+    let binding = recover_replay_composition_binding_in_transaction_v1(transaction, locator)
+        .await
+        .map_err(|e| match e {
+            // A digest that disagrees with the stored binding names no binding either.
+            Binding::BindingUnavailable | Binding::BindingConflict => {
+                BoundUniverseSelectionErrorV1::BindingUnavailable
+            }
+            Binding::StoreUnavailable => BoundUniverseSelectionErrorV1::StoreUnavailable,
+            Binding::InvalidPrepared
+            | Binding::IdentityConflict
+            | Binding::MeaningConflict
+            | Binding::UnknownRecord
+            | Binding::CorruptRecord
+            | Binding::UniverseSelectionUnavailable
+            | Binding::JoinedCutUnavailable
+            | Binding::SampleProjectionUnavailable => {
+                BoundUniverseSelectionErrorV1::CustodyMismatch
+            }
+        })?;
+    let universe = binding
+        .record()
+        .native_locator(ReplayCompositionNativeLocatorKindV1::UniverseSelection)
+        .ok_or(BoundUniverseSelectionErrorV1::CustodyMismatch)?;
+    super::universe_selection::recover_universe_selection_by_record_in_transaction_v1(
+        transaction,
+        universe.identity,
+        universe.digest,
+    )
+    .await
+    .map_err(|e| match e {
+        Selection::StoreUnavailable => BoundUniverseSelectionErrorV1::StoreUnavailable,
+        // Issuing the binding required this selection in the same store, and neither is ever
+        // deleted, so every other answer means the store disagrees with what it bound.
+        Selection::InvalidRequest
+        | Selection::InvalidMembership
+        | Selection::NonCanonicalOrder
+        | Selection::CapacityExceeded
+        | Selection::CodecMismatch
+        | Selection::DigestMismatch
+        | Selection::RequestConflict
+        | Selection::UnknownIdentity
+        | Selection::EvaluatorUnavailable
+        | Selection::StoreUntrusted
+        | Selection::CommitInterrupted
+        | Selection::ResponseLost => BoundUniverseSelectionErrorV1::CustodyMismatch,
+    })
+}
+
 async fn exact_instrument_reference(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     locator: crate::owner::replay_market_facts_v2::ReplayCompositionRequestLocatorV1,

@@ -234,6 +234,11 @@ pub enum NativeReplayExecutionInputBindingErrorV1 {
     Unavailable,
     #[error("Native Replay execution-input binding custody conflict")]
     Conflict,
+    /// The sealed Replay request has no Composer-backed V3 record, so it names no Market Data
+    /// composition binding to issue its Instrument Master cut over. Nothing is guessed in its
+    /// place, and no retry changes the answer.
+    #[error("sealed Replay request names no Market Data composition binding")]
+    NoCompositionBinding,
     #[error("Native Replay execution-input binding storage unavailable: {0}")]
     Storage(#[source] sqlx::Error),
 }

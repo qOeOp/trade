@@ -3,13 +3,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  currentOperationAuditFilterV1,
+  operationAuditFilterCutMatchesV1,
   operationAuditOutcomesV1,
+  operationAuditQueryV1,
   operationAuditRangesV1,
   parseOperationAuditDetailV1,
   parseOperationAuditPageV1,
   type OperationAuditDetailV1,
   type OperationAuditEntryV1,
   type OperationAuditFilterCutV1,
+  type OperationAuditFilterRequestV1,
   type OperationAuditOperationV1,
   type OperationAuditPageV1,
   type OperationAuditPageSizeV1,
@@ -61,18 +65,6 @@ type AvailablePage = OperationAuditPageV1 & {
   summary: NonNullable<OperationAuditPageV1["summary"]>;
 };
 
-function initialCut(): OperationAuditFilterCutV1 {
-  return {
-    schema_version: 1,
-    observed_at: new Date().toISOString(),
-    range: "7d",
-    principal_ref: "all",
-    operation: "all",
-    outcome: "all",
-    search: "",
-  };
-}
-
 function availablePage(value: OperationAuditPageV1 | null): value is AvailablePage {
   return value?.availability === "available" && value.filter_cut !== null
     && value.filter_cut_digest !== null && value.source_cut !== null && value.summary !== null;
@@ -92,20 +84,6 @@ function operationLabel(value: OperationAuditOperationV1) {
   if (value === "source_intake.research.submit_or_resolve.v1") return "Admit source research";
   return value === "dashboard.dependency.cancel.queued.v1"
     ? "Cancel queued dependency" : "Delete operational cache";
-}
-
-function queryFor(cut: OperationAuditFilterCutV1, pageSize: number, cursor?: string | null) {
-  const query = new URLSearchParams({
-    observedAt: cut.observed_at,
-    range: cut.range,
-    principal: cut.principal_ref,
-    operation: cut.operation,
-    outcome: cut.outcome,
-    search: cut.search,
-    pageSize: String(pageSize),
-  });
-  if (cursor) query.set("cursor", cursor);
-  return query;
 }
 
 function AuditDetail({ detail, pending, reason }: {
@@ -166,7 +144,7 @@ function AuditDetail({ detail, pending, reason }: {
 }
 
 export function OperationsAudit() {
-  const [filterCut, setFilterCut] = useState(initialCut);
+  const [filterCut, setFilterCut] = useState<OperationAuditFilterRequestV1>(currentOperationAuditFilterV1);
   const [pageSize, setPageSize] = useState<OperationAuditPageSizeV1>(20);
   const [pages, setPages] = useState<AvailablePage[]>([]);
   const [pageIndex, setPageIndex] = useState(0);
@@ -187,7 +165,7 @@ export function OperationsAudit() {
     append = false,
     requestedPageSize = pageSize,
   }: {
-    cut: OperationAuditFilterCutV1;
+    cut: OperationAuditFilterRequestV1;
     cursor?: string | null;
     append?: boolean;
     requestedPageSize?: OperationAuditPageSizeV1;
@@ -197,7 +175,7 @@ export function OperationsAudit() {
     setPending(true);
     setUnavailableReason(null);
     try {
-      const response = await fetch(`/api/operations/audit/?${queryFor(requestedCut, requestedPageSize, cursor)}`, {
+      const response = await fetch(`/api/operations/audit/?${operationAuditQueryV1(requestedCut, requestedPageSize, cursor)}`, {
         method: "GET",
         cache: "no-store",
       });
@@ -205,7 +183,7 @@ export function OperationsAudit() {
       if (version !== requestVersion.current) return;
       if (!response.ok || !availablePage(parsed)
         || parsed.page_size !== requestedPageSize
-        || JSON.stringify(parsed.filter_cut) !== JSON.stringify(requestedCut)) {
+        || !operationAuditFilterCutMatchesV1(parsed.filter_cut, requestedCut)) {
         setPages([]);
         setPageIndex(0);
         setSelectedIdentity(null);
@@ -282,11 +260,12 @@ export function OperationsAudit() {
     }
   }, [loadDetail, selectedIdentity]);
 
+  // Changing a filter or refreshing asks for the current view; the server cuts at its database's time.
   const replaceFilter = useCallback(<Key extends keyof OperationAuditFilterCutV1>(
     key: Key,
     value: OperationAuditFilterCutV1[Key],
   ) => {
-    const next = { ...filterCut, [key]: value, observed_at: new Date().toISOString() };
+    const next = { ...filterCut, [key]: value, observed_at: null };
     setFilterCut(next);
     setPages([]);
     setPageIndex(0);
@@ -296,7 +275,7 @@ export function OperationsAudit() {
   }, [filterCut, load]);
 
   const refresh = useCallback(() => {
-    const next = { ...filterCut, observed_at: new Date().toISOString() };
+    const next = { ...filterCut, observed_at: null };
     setFilterCut(next);
     void load({ cut: next });
   }, [filterCut, load]);
@@ -404,7 +383,7 @@ export function OperationsAudit() {
                 <label><span>Rows</span><select value={pageSize} onChange={(event) => {
                   const next = Number(event.target.value) as OperationAuditPageSizeV1;
                   setPageSize(next);
-                  void load({ cut: { ...filterCut, observed_at: new Date().toISOString() }, requestedPageSize: next });
+                  void load({ cut: { ...filterCut, observed_at: null }, requestedPageSize: next });
                 }}>{pageSizes.map((size) => <option key={size}>{size}</option>)}</select></label>
                 <Button type="button" variant="outline" size="icon-tool" aria-label="Previous audit page" disabled={pending || pageIndex === 0} onClick={() => {
                   const priorIndex = Math.max(0, pageIndex - 1);

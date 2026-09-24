@@ -5,11 +5,14 @@ import Link from "next/link";
 
 import {
   parseServiceLogBrowserEnvelopeV1,
+  currentServiceLogFilterV1,
   serviceLogFilterCutMatchesV1,
+  serviceLogQueryV1,
   serviceLogSourcesV1,
   type ServiceLogBrowserEnvelopeV1,
   type ServiceLogEntryV1,
   type ServiceLogFilterCutV1,
+  type ServiceLogFilterRequestV1,
   type ServiceLogInstanceV1,
   type ServiceLogSummaryV1,
 } from "../lib/service-log-contract";
@@ -74,40 +77,12 @@ const kinds: readonly ServiceLogKind[] = ["all", "worker", "server"];
 const severities: readonly ServiceLogSeverity[] = ["all", "info", "warning", "error"];
 const pageSizes = [20, 50, 100, 200] as const;
 
-function initialFilterCut(): ServiceLogFilterCutV1 {
-  return {
-    schema_version: 1,
-    observed_at: new Date().toISOString(),
-    range: "1h",
-    kind: "all",
-    service: "all",
-    instance_identity: "all",
-    severity: "all",
-    search: "",
-  };
-}
-
 function displayTime(value: string) {
   return new Date(value).toLocaleString();
 }
 
-function queryFor(cut: ServiceLogFilterCutV1, pageSize: number, cursor?: string | null) {
-  const query = new URLSearchParams({
-    observedAt: cut.observed_at,
-    range: cut.range,
-    kind: cut.kind,
-    service: cut.service,
-    instance: cut.instance_identity,
-    severity: cut.severity,
-    search: cut.search,
-    pageSize: String(pageSize),
-  });
-  if (cursor) query.set("cursor", cursor);
-  return query;
-}
-
 function downloadQueryFor(cut: ServiceLogFilterCutV1) {
-  const query = queryFor(cut, 200);
+  const query = serviceLogQueryV1(cut, 200);
   query.delete("pageSize");
   return query;
 }
@@ -202,7 +177,7 @@ function ServiceLogFilters({
   instances,
   replaceFilter,
 }: {
-  filterCut: ServiceLogFilterCutV1;
+  filterCut: ServiceLogFilterRequestV1;
   instances: readonly ServiceLogInstanceV1[];
   replaceFilter: <Key extends keyof ServiceLogFilterCutV1>(
     key: Key,
@@ -250,7 +225,7 @@ function ServiceLogFilters({
 }
 
 export function OperationsServiceLogs() {
-  const [filterCut, setFilterCut] = useState<ServiceLogFilterCutV1>(initialFilterCut);
+  const [filterCut, setFilterCut] = useState<ServiceLogFilterRequestV1>(currentServiceLogFilterV1);
   const [pageSize, setPageSize] = useState<(typeof pageSizes)[number]>(20);
   const [pages, setPages] = useState<AvailableServiceLogEnvelope[]>([]);
   const [pageIndex, setPageIndex] = useState(0);
@@ -273,7 +248,7 @@ export function OperationsServiceLogs() {
     requestedPageSize = pageSize,
     replaceIf,
   }: {
-    cut: ServiceLogFilterCutV1;
+    cut: ServiceLogFilterRequestV1;
     cursor?: string | null;
     append?: boolean;
     requestedPageSize?: number;
@@ -287,7 +262,7 @@ export function OperationsServiceLogs() {
     setPending(true);
     setUnavailableReason(null);
     try {
-      const response = await fetch(`/api/operations/service-logs/?${queryFor(requestedCut, requestedPageSize, cursor)}`, {
+      const response = await fetch(`/api/operations/service-logs/?${serviceLogQueryV1(requestedCut, requestedPageSize, cursor)}`, {
         method: "GET",
         cache: "no-store",
       });
@@ -346,7 +321,7 @@ export function OperationsServiceLogs() {
         && serviceLogViewportAtTail(logTableRef.current);
       if (!refreshOnlyAtTail()) return;
       void load({
-        cut: { ...filterCut, observed_at: new Date().toISOString() },
+        cut: { ...filterCut, observed_at: null },
         replaceIf: refreshOnlyAtTail,
       });
     }, 10_000);
@@ -388,7 +363,7 @@ export function OperationsServiceLogs() {
     key: Key,
     value: ServiceLogFilterCutV1[Key],
   ) => {
-    const next = { ...filterCut, [key]: value, observed_at: new Date().toISOString() };
+    const next = { ...filterCut, [key]: value, observed_at: null };
     setFilterCut(next);
     setPages([]);
     setPageIndex(0);
@@ -398,7 +373,7 @@ export function OperationsServiceLogs() {
   }, [filterCut, load]);
 
   const refresh = useCallback(() => {
-    const next = { ...filterCut, observed_at: new Date().toISOString() };
+    const next = { ...filterCut, observed_at: null };
     setFilterCut(next);
     setEventDetailOpen(false);
     void load({ cut: next });
@@ -589,7 +564,7 @@ export function OperationsServiceLogs() {
                       <label><span>Rows</span><select value={pageSize} onChange={(event) => {
                         const next = Number(event.target.value) as (typeof pageSizes)[number];
                         setPageSize(next);
-                        void load({ cut: { ...filterCut, observed_at: new Date().toISOString() }, requestedPageSize: next });
+                        void load({ cut: { ...filterCut, observed_at: null }, requestedPageSize: next });
                       }}>{pageSizes.map((size) => <option key={size} value={size}>{size}</option>)}</select></label>
                       <Button type="button" variant="outline" size="icon-tool" aria-label="Previous service-log page" disabled={pending || pageIndex === 0} onClick={() => setPageIndex((value) => Math.max(0, value - 1))}><InterfaceIcons.previous aria-hidden="true" /></Button>
                       <Button type="button" variant="outline" size="icon-tool" aria-label="Next service-log page" disabled={pending || (!pages[pageIndex + 1] && !page.next_cursor)} onClick={() => {
