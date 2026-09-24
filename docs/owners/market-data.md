@@ -1294,9 +1294,10 @@ and never chooses the instruments. This is how:
   Source Binding lineage, because one PIT request binds one Source Binding. The intake still re-verifies the Universe
   Selection R&D then states and the PIT request it freezes, and it admits a scope of one or two members.
 - Requester identity. The initial PIT request's `requester_identity` is SHA-256 over
-  `vibe.market-data.pit-requester.research-request.v1\0` followed by the 32 bytes of the Research request identity.
-  Market Data recomputes it from a Design role intent's Research request identity and compares; it never decodes a
-  requester back into a Research request.
+  `vibe.market-data.pit-requester.research-request.v1\0` followed by the 32-byte Research request identity the Design
+  role intent carries, which is R&D's `rd.develop.request-identity.v2` digest of the request locator, never another
+  digest of the request identity string. Market Data recomputes it from that role intent field and compares; it never
+  decodes a requester back into a Research request.
 - Registration by reference. A Design role intent of schema 2 names its initial PIT request as
   `(pit_request_identity, pit_request_digest)`. Market Data registers every role of that Design against exactly that
   request: it loads the PIT lineage the pair identifies and its head, and refuses by name, with zero writes, when the

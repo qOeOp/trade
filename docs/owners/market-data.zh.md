@@ -1197,9 +1197,10 @@ Data 不依赖 R&D，不拥有也不重新解释 Strategy Design role/join。
   则不返回任何行，因为一个 PIT request 只绑定一个 Source Binding。intake 仍会重新校验 R&D 随后陈述的 Universe
   Selection 与其冻结的 PIT request，并准入一到两个成员的 scope。
 - Requester identity。初始 PIT request 的 `requester_identity` 是对
-  `vibe.market-data.pit-requester.research-request.v1\0` 后接 Research request identity 的 32 字节所做的 SHA-256。
-  Market Data 从 Design role intent 的 Research request identity 重算并比对；它从不把 requester 反解回 Research
-  request。
+  `vibe.market-data.pit-requester.research-request.v1\0` 后接 Design role intent 所携带的 32 字节 Research request
+  identity 所做的 SHA-256；该 identity 即 R&D 对 request locator 所做的 `rd.develop.request-identity.v2` digest，
+  而不是对 request identity 字符串另做的任何 digest。Market Data 从该 role intent 字段重算并比对；它从不把 requester
+  反解回 Research request。
 - 按引用注册。schema 2 的 Design role intent 以 `(pit_request_identity, pit_request_digest)` 指名其初始 PIT
   request。Market Data 恰好针对该 request 注册该 Design 的每个 role：它加载这一对所标识的 PIT lineage 及其 head，并在
   request 未知、digest 不一致、head 不是带 observation batch 的 `AVAILABLE`，或其 `requester_identity` 不是上述针对该
