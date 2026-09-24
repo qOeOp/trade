@@ -642,9 +642,10 @@ time/source/correction 准确相等后重复这些 field。Backtest 保留相同
 ## Replay Market Facts V2 基础
 
 **CURRENT / PARTIAL：** Market Data 定义了 additive、dependency-neutral 的
-`ReplayMarketFactsV2` contract 与规范 codec。一个完整 cut 包含有类型且内容寻址的 calendar-day、
+`ReplayMarketFactsV2` contract 与规范 codec。一个完整的第一语料 cut 包含有类型且内容寻址的 calendar-day、
 session-interval、time-zone ruleset、Market Semantics、successor-only correction-policy、
-corporate-action 与 historical-membership 事实。每条事实绑定半开 effective interval、
+corporate-action 与 historical-membership 事实；universe-member cut 包含 Market Semantics、correction-policy 与
+historical-membership 事实，其余四类在何处被证明由下文 universe-member composition 一节陈述。每条事实绑定半开 effective interval、
 provider-available、retrieval、correction-publication、Owner-observation、decision cut、Source identity
 与 correction identity。Corporate action 携带实际 split、cash-dividend、symbol-change、expiry 或 roll
 条款；historical membership 携带准确 selection、member、instrument 与 inclusion disposition。
@@ -725,6 +726,31 @@ R&D 从 binding 及其 Replay facts 读取的内容，以及在 universe-member 
 | Replay facts identity 与 receipt identity | Replay facts                                        | 同一来源                                                                           |
 | Design identity、非空 role set            | binding record                                      | binding record；role set 绝不为空                                                  |
 | Instrument Master 校验                    | registry，逐个 exact instrument                     | composition 时不绑定；按 request 定键的 cut 签发时校验每个 member 的 V2 fact chain |
+| 每种依赖恰好一个                          | 七种类 frontier                                     | 四种类 frontier：PIT、Source Binding、Universe Selection、universe frame           |
+
+第一语料的 Replay facts 还携带七个 reference cut。universe-member aggregate 只携带其所绑定 authority 覆盖的三个；另外四个
+在每个 member 被解析之处得到证明，而不是被丢弃：
+
+| Reference cut         | 第一语料的 scope 来源    | universe‑member 形状                                                                                                                                                                                             |
+| --------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Calendar              | Instrument Master V1 cut | 迁移到每个 member 的 `BarScheduleFactV1`：它绑定该 member 的 calendar identity，原生 Replay 调度为每个 Master V2 member 读取它                                                                                   |
+| Session               | Instrument Master V1 cut | 迁移到同一 `BarScheduleFactV1`，它绑定 session identity                                                                                                                                                          |
+| Time zone             | Instrument Master V1 cut | 迁移到同一 `BarScheduleFactV1`，它绑定 time‑zone identity                                                                                                                                                        |
+| Market Semantics      | Source Binding           | 同一个 cut，由同一个 Source Binding 限定 scope                                                                                                                                                                   |
+| Correction policy     | Source Binding           | 同一个 cut，由同一个 Source Binding 限定 scope                                                                                                                                                                   |
+| Corporate action      | Instrument Master V1 cut | 迁移到按 request 定键的 Instrument Master V2 cut：其唯一类别是封闭的 crypto perpetual，没有 split、dividend、expiry 或 roll；其签发按名拒绝任何其他类别的 member（`MemberClassCarriesCorporateActions`），零写入 |
+| Historical membership | Universe Selection       | 同一个 cut，由同一个 Universe Selection 限定 scope；它也证明改名，改名在 Instrument Master V2 中记为新的 canonical instrument，而不是 correction                                                                 |
+
+这一类别拒绝今天没有任何运行期输入可以触发，这是故意的：它对每个类别做匹配而不留通配分支，所以 Instrument Master V2
+新增一个类别时，在有人于此决定它是否携带 corporate action 之前无法编译。
+
+存储的 Replay facts 行以 `shape` 列陈述其形状，具名检查 `replay_market_facts_shape_v2` 让每行的列与之相符：第一语料行
+有 joined cut 与 sample projection、没有 universe frame；universe-member 行相反，且必有 binding。该表经一次迁移达到此
+形状：迁移读取系统目录，只改动确切的旧形状，把既有行回填为第一语料，遇到任何其他形状即中止。
+`market_data_rd_api.lock_replay_market_facts_for_replay_v2` 返回形状与 frame；`_v1` 函数逐字节保持原文，因为在该形状
+之前构建的 R&D 二进制在读取任何东西之前，会把每个 rd-api 函数的源码与自身编入的逐字比对。这样的二进制无法经 `_v1`
+读到 universe-member 行：它只在已解码的 binding 下读取 facts，universe-member 行只挂在 schema 2 binding 下，而它在读取
+任何 facts 之前就把 schema 2 binding 作为未知拒绝。移除 `_v1` 要等所有已部署的 R&D 二进制都改读 `_v2`。
 
 exact-instrument 第一语料经 Instrument Master V1 解析其 instrument，而 V1 projection 无法构造原生 crypto perpetual
 （`require_complete_native_crypto_perpetual_construction` 恒拒绝），所以任何 exact-instrument 形状都无法运行用户准入的
@@ -738,8 +764,10 @@ Design 不指名任何 request，其 universe-member role 按「未指名」拒�
 `reread_persisted_strategy_input_universe_custody_for_update_v1` 重读：它采用 exact 重读的 claim 与锁，按已存 digest
 重新导出每个 role，并封存完整 role set 的 universe frame；`resolve_pit_request_for_strategy_design_v1` 陈述该 Design
 声明的 scope，两种重读都按名拒绝另一种 scope 的 declaration。有序链路以 `rd_owner` 重读它，并在该事务打开之前注册该
-Design，因为 registration 经 Market Data pool 写入，而重读持有 registration 会等待的锁。该形状的 binding record、
-Replay frontier 与 resolved cut 均未建成。
+Design，因为 registration 经 Market Data pool 写入，而重读持有 registration 会等待的锁。该形状的 Replay facts 已建成：
+其四种类 frontier 与三个 reference cut、与第一语料并存的存储、由 PIT batch 与 role set 重新导出 universe frame、拒绝
+形状与其 binding 不符的 facts，以及 Instrument Master V2 cut 处的类别拒绝。该形状的 binding record 与 resolved cut
+尚未建成，目前也没有任何路径签发其 Replay facts。
 
 **TARGET，持久 R&D attestation seam：** positive R&D Develop Composer transaction 将一份不可变、完整的
 `StrategyDesignRoleSetReceiptV1` attestation 与 Composer aggregate、receipt 及 outbox 一起规范持久化。它绑定
