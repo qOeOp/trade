@@ -621,15 +621,7 @@ fn admitted_as_source_intake(
         return Ok(false);
     };
     let request = admission.request();
-    if request.operation != SOURCE_INTAKE_OPERATION_V1
-        || request.operation_schema != SOURCE_INTAKE_OPERATION_SCHEMA_V1
-        || request.target_owner != SOURCE_INTAKE_TARGET_OWNER_V1
-        || !request
-            .requested_effects
-            .iter()
-            .map(String::as_str)
-            .eq(SOURCE_INTAKE_REQUIRED_EFFECTS_V1)
-    {
+    if !is_source_intake_request(request) {
         refused_by_store(
             "source_intake.resolve.admission_for_another_operation",
             &format!(
@@ -640,6 +632,20 @@ fn admitted_as_source_intake(
         return Err(SourceIntakeOwnerErrorV1::Conflict);
     }
     Ok(true)
+}
+
+/// Whether an admission request names the Source Intake operation: its operation, schema, target
+/// Owner and exact effects. `canonical_admission_request` builds every request this Owner offers
+/// Product Edge from the same constants, and a test holds the two together.
+fn is_source_intake_request(request: &ProductEdgeAdmissionRequestV1) -> bool {
+    request.operation == SOURCE_INTAKE_OPERATION_V1
+        && request.operation_schema == SOURCE_INTAKE_OPERATION_SCHEMA_V1
+        && request.target_owner == SOURCE_INTAKE_TARGET_OWNER_V1
+        && request
+            .requested_effects
+            .iter()
+            .map(String::as_str)
+            .eq(SOURCE_INTAKE_REQUIRED_EFFECTS_V1)
 }
 
 pub(super) async fn read_terminal(
@@ -987,5 +993,45 @@ mod discarded_cause_tests {
             recorded >= 11,
             "the instrumented sites must not shrink silently: found {recorded}"
         );
+    }
+}
+
+#[cfg(test)]
+mod admission_operation_tests {
+    use rstest::rstest;
+
+    use super::{
+        ProductEdgeGatewayV1, SOURCE_INTAKE_OPERATION_V1, SourceIntakeOperationRequestV1,
+        SourceInterpretationV1, canonical_admission_request, is_source_intake_request,
+    };
+
+    /// The request this Owner offers Product Edge is one its own reads recognize.
+    ///
+    /// The readback refuses an admission that is not a Source Intake request, and the write path
+    /// builds the request it admits. Both read the same constants today; this keeps a change to
+    /// one side from leaving the other refusing every request the Owner itself admitted.
+    #[rstest]
+    fn the_canonical_admission_request_is_a_source_intake_request() {
+        let request = canonical_admission_request(
+            &SourceIntakeOperationRequestV1 {
+                request_identity: "source-request-1".into(),
+                channel: ProductEdgeGatewayV1::WindmillProductEdge,
+                normalized_doi: "10.1234/source-intake".into(),
+                interpretation: SourceInterpretationV1 {
+                    bounded_explanation: "a bounded explanation".into(),
+                    differentiating_prediction: "a differentiating prediction".into(),
+                    falsifier: "a falsifier".into(),
+                    plausible_alternatives: vec!["an alternative".into()],
+                },
+            },
+            &format!("sha256:{}", "7".repeat(64)),
+        );
+        assert!(is_source_intake_request(&request));
+
+        // The same check refuses a request for another operation, so the assertion above is not
+        // one that every request passes.
+        let mut other = request;
+        other.operation = format!("{SOURCE_INTAKE_OPERATION_V1}-other");
+        assert!(!is_source_intake_request(&other));
     }
 }
