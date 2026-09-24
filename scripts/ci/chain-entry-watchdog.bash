@@ -1,4 +1,5 @@
-# Sourced by scripts/ci/test-rd-owner-postgres.bash. A wall clock on each ordered-chain entry.
+# Sourced by the ordered Owner chains - scripts/ci/test-rd-owner-postgres.bash and
+# crates/data/tests/run_market_data_owner_postgres.bash. A wall clock on each chain entry.
 #
 # Run 35900267592 (#912) sat in the R&D chain for 71 minutes against a usual 33 and was cancelled by
 # hand. A cancelled job keeps neither its log nor its artifact, so nobody could say which entry had

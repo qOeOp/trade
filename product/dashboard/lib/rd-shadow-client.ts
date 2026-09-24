@@ -15,6 +15,7 @@ import {
   type LegacyResearchQuarantineProjectionV1,
 } from "./legacy-research-v1-contract.ts";
 import {
+  announcedOwnerReadBudgetMsV1,
   ARTIFACT_SHADOW_RESOLVE_OPERATION,
   LEGACY_RESEARCH_QUARANTINE_READ_OPERATION,
   operationByIdV1,
@@ -248,7 +249,10 @@ export async function resolveResearchShadowV1({
   }
 
   try {
-    const response = await fetcher(endpoint, ownerReadInit(token, operation.timeout_class.milliseconds));
+    const response = await fetcher(
+      endpoint,
+      ownerReadInit(token, announcedOwnerReadBudgetMsV1("rd research readback", operation.timeout_class.milliseconds)),
+    );
     const body = await response.text();
     if (new TextEncoder().encode(body).byteLength > MAX_OWNER_RESPONSE_BYTES) {
       return unavailable(requestIdentity, "OWNER_RESPONSE_UNAVAILABLE", 502);
@@ -317,7 +321,9 @@ export async function resolveLegacyResearchQuarantineShadowV1({
       },
       body: "{}",
       cache: "no-store",
-      signal: AbortSignal.timeout(operation.timeout_class.milliseconds),
+      signal: AbortSignal.timeout(
+        announcedOwnerReadBudgetMsV1("rd legacy research quarantine", operation.timeout_class.milliseconds),
+      ),
     });
     const body = await response.text();
     if (new TextEncoder().encode(body).byteLength > MAX_OWNER_RESPONSE_BYTES) {
@@ -384,7 +390,7 @@ export async function resolveSourceIntakeShadowV1({
   try {
     const raw = await boundedOwnerJson(await fetcher(
       endpoint,
-      ownerReadInit(token, operation.timeout_class.milliseconds),
+      ownerReadInit(token, announcedOwnerReadBudgetMsV1("source intake readback", operation.timeout_class.milliseconds)),
     ));
     const projection = projectSourceIntakeOwnerReadbackV1(raw, requestIdentity);
     if (projection.resolution === "SUBMITTED_OR_UNKNOWN"
@@ -465,7 +471,10 @@ export async function resolveArtifactShadowV1({
   try {
     const researchRaw = await boundedOwnerJson(await fetcher(
       researchEndpoint,
-      ownerReadInit(token, researchOperation.timeout_class.milliseconds),
+      ownerReadInit(
+        token,
+        announcedOwnerReadBudgetMsV1("artifact research readback", researchOperation.timeout_class.milliseconds),
+      ),
     ));
     const research = await projectResearchOwnerResultWithEvidenceV1(
       researchRaw,
@@ -493,7 +502,10 @@ export async function resolveArtifactShadowV1({
     }
     const artifactRaw = await boundedOwnerJson(await fetcher(
       artifactEndpoint,
-      ownerReadInit(token, artifactOperation.timeout_class.milliseconds),
+      ownerReadInit(
+        token,
+        announcedOwnerReadBudgetMsV1("artifact readback", artifactOperation.timeout_class.milliseconds),
+      ),
     ));
     const artifact = await projectArtifactOwnerResultWithEvidenceV1(
       artifactRaw,

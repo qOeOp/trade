@@ -20,6 +20,11 @@ jobs:
     name: docsrs-check
     if: github.repository == 'nautechsystems/nautilus_trader'
     runs-on: ubuntu-22.04
+    # No successful run of this job to measure yet (2026-09-24), so a stand-in: twice the slowest
+    # compile-and-test job measured on these runners, rust tests at 3228s, rounded up. A hang anywhere
+    # in the job stops here rather than at GitHub's six-hour default. Replace with twice this job's
+    # own slowest run after its first successful runs.
+    timeout-minutes: 120
     env:
       # Outside the workspace so it survives actions/checkout's git clean -ffdx,
       # giving us persistent on-disk Rust artifact reuse between runs.
@@ -40,6 +45,11 @@ jobs:
           persist-credentials: false
 
       - name: Common setup
+        # No successful run of this job to measure yet (2026-09-24), so twice the slowest Common setup
+        # measured in any job: 1233s, rust tests. A hung setup fails here with its log instead of
+        # running to the job limit. Replace with this job's own measurement after its first
+        # successful runs.
+        timeout-minutes: 42
         uses: ./.github/actions/common-setup
         with:
           python-version: "3.13"
@@ -64,6 +74,10 @@ jobs:
     name: check-features
     if: github.repository == 'nautechsystems/nautilus_trader'
     runs-on: ubuntu-22.04
+    # Its one successful run took 12495s (2026-09-24); twice that is past GitHub's 360-minute maximum,
+    # so this is the maximum, written out so a re-measure has a line to change. Re-measure once the
+    # job has more successful runs.
+    timeout-minutes: 360
     env:
       # Outside the workspace so it survives actions/checkout's git clean -ffdx,
       # giving us persistent on-disk Rust artifact reuse between runs.
@@ -84,6 +98,11 @@ jobs:
           persist-credentials: false
 
       - name: Common setup
+        # Twice this job's slowest successful Common setup (5 minutes at least): 38s over its last 1 successful
+        # runs (2026-09-24). A hung setup then fails as this step and keeps its log, instead of running
+        # to the job limit and being cancelled with none. Re-measure and raise it once setup
+        # routinely takes half of it.
+        timeout-minutes: 5
         uses: ./.github/actions/common-setup
         with:
           python-version: "3.13"
@@ -105,6 +124,10 @@ jobs:
     name: check-all-targets
     if: github.repository == 'nautechsystems/nautilus_trader'
     runs-on: ubuntu-22.04
+    # Twice this job's slowest successful run: 866s over its last 1 successful runs (2026-09-24).
+    # A hang anywhere in the job stops here rather than at GitHub's six-hour default. Re-measure
+    # and raise it once the job routinely takes half of it.
+    timeout-minutes: 29
     env:
       # Outside the workspace so it survives actions/checkout's git clean -ffdx,
       # giving us persistent on-disk Rust artifact reuse between runs.
@@ -125,6 +148,11 @@ jobs:
           persist-credentials: false
 
       - name: Common setup
+        # Twice this job's slowest successful Common setup (5 minutes at least): 30s over its last 1 successful
+        # runs (2026-09-24). A hung setup then fails as this step and keeps its log, instead of running
+        # to the job limit and being cancelled with none. Re-measure and raise it once setup
+        # routinely takes half of it.
+        timeout-minutes: 5
         uses: ./.github/actions/common-setup
         with:
           python-version: "3.13"

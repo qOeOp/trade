@@ -156,8 +156,9 @@ Backtest Owner 投影存在。该路由原样转达投影的回答、不添加�
 
 经过认证的 read API 路由精确为
 `GET /v1/backtest-run-reports/{result_identity}?request_identity={request_identity}&attempt_identity={attempt_identity}`，
-以 `/backtest` result lookup 已持有的同一个三字段 locator 为键。它在一个总是回滚的 R&D Owner 事务内读取
-Backtest Owner 投影。报告以 `200` 回答，内容就是 Owner 序列化出的投影。不存在的运行以 `404` 回答，Owner
+以 `/backtest` result lookup 已持有的同一个三字段 locator 为键。它通过 Owner 自己的解析器读取 Backtest Owner
+投影；该解析器自行开启一个 `SERIALIZABLE, READ ONLY, DEFERRABLE` 的 R&D Owner 事务，并总是回滚。
+报告以 `200` 回答，内容就是 Owner 序列化出的投影。不存在的运行以 `404` 回答，Owner
 拒绝以 `503` 回答，二者都带一个只含 `state: UNAVAILABLE` 与理由、别无他物的信封：不存在的运行理由是
 `BACKTEST_RUN_ABSENT`，拒绝的理由是 Owner 自己的码，拒绝的原句只留在日志里。Dashboard BFF 不做规范化地绑定
 三个 identity 并转达该回答。它只在任何 Owner 回答到达之前就失败的那一段，或本契约拒绝的报告上，给出自己的理由。
@@ -308,6 +309,17 @@ action panel 仍是未来 blueprint，不能被推断进本工作台。
 cost/capacity assumption 与完整 TrialFamily proposal。它不从 Source custody 反向拼装这些字段，不暴露 Owner
 内部字段，也不接收 raw JSON。三个内容区复用 `DetailInspector`、`FormField`、`Input` 与 `Textarea` 原子；
 action 区复用 `ActionAdmissionGate` 和标准 compact button variant。
+
+**TARGET / IMPLEMENTATION_ADMITTED，Instrument 字段：** 该 control 在研究区增加一个必填的 `Instrument` 字段，填写一个
+规范 Instrument Master 身份（例如 `BTCUSDT-PERP.BINANCE`），只填一次，复用共享的 `FormField` 与 `Input` 原子。有了它，
+control 通过 `sourced-research-goal-v3` operation 提交 `ResearchGoalExecutionInputV3`，其 `instrument_scope` 恰好只含
+这一个身份；建成后 control 只提交 V3。共享 validator 在 dispatch 之前拒绝空值、首尾空白、控制字符或超过 1024 个
+UTF-8 字节的值；该值是否指向可纳入的品种由 R&D 对照 Market Data 回答，而不由表单回答，control 既不推荐也不默认任何
+品种。表单不再发出 V2。输错的品种以 `REJECTED_NO_WRITE` 和 `INSTRUMENT_SCOPE_NOT_RESOLVABLE` 结束并显示为该终态；对于
+接纳时通过检查的品种，Research 回读还按原样显示 Owner 的 `initial_pit` 值：`NOT_ISSUED`、`SUBMITTED_OR_UNKNOWN`，或
+`ResearchPitTerminal` 六态之一及其 primary blocker；早先的 V2 请求为 `null`，显示为没有初始 PIT 请求；从不由一种状态
+推断另一种。这次研究和它的回测都绑定该品种，更换品种意味着
+一个后继研究请求，从不修改已冻结的请求。用户的授权与范围契约陈述于 [R&D Owner 契约](../owners/rd)。目前已建成：无。
 
 client 与 server 导入同一份 pure input validator。plausible alternatives 在校验前规范成唯一 UTF-8 byte order；
 required data 保留输入顺序。`RUN` 在 dispatch 开始时冻结完整 request 并清空 operator access。terminal bounded
