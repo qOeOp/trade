@@ -13,6 +13,9 @@ workspace = true
 [features]
 default = []
 owner-recovery = ["dep:tokio"]
+# The READY lineage identities that Qualification acceptance consumers and their minting fixture
+# both compute. Test and gate code only; no deployed binary enables it.
+ready-lineage-acceptance = []
 
 [package.metadata.cargo-machete]
 # Recovery-owned integration tests use this feature-gated isolation contract through CI.
