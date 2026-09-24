@@ -153,7 +153,7 @@ async fn migrate_successor_artifact_read_port(
         CREATE OR REPLACE FUNCTION rd_owner_api.peek_current_successor_research_for_artifact_v1(
           requested_intent_identity text
         ) RETURNS jsonb LANGUAGE plpgsql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
-        SET search_path = pg_catalog
+        SET search_path = pg_catalog, pg_temp
         AS $function$
         DECLARE sealed record;
         BEGIN
@@ -273,7 +273,7 @@ async fn migrate_successor_artifact_read_port(
           requested_evidence_identity text,
           requested_evidence_digest text
         ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-        SET search_path = pg_catalog
+        SET search_path = pg_catalog, pg_temp
         AS $function$
         DECLARE envelope jsonb; owner_cut_epoch_ms bigint;
         BEGIN

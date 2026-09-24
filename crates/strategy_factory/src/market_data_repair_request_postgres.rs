@@ -124,7 +124,7 @@ async fn publish_market_data_read_port(
             .map_err(unavailable)?;
     }
     sqlx::query(sqlx::AssertSqlSafe(format!(
-        "CREATE OR REPLACE FUNCTION rd_owner_api.lock_market_data_repair_request_v1(requested_request_identity text,requested_request_digest text,requested_receipt_identity text,requested_receipt_digest text) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path=pg_catalog AS $function${MARKET_DATA_REPAIR_LOCK_FUNCTION_SOURCE_V1}$function$"
+        "CREATE OR REPLACE FUNCTION rd_owner_api.lock_market_data_repair_request_v1(requested_request_identity text,requested_request_digest text,requested_receipt_identity text,requested_receipt_digest text) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path=pg_catalog, pg_temp AS $function${MARKET_DATA_REPAIR_LOCK_FUNCTION_SOURCE_V1}$function$"
     )))
     .execute(&mut *transaction)
     .await
@@ -142,7 +142,7 @@ async fn publish_market_data_read_port(
             .map_err(unavailable)?;
     }
     let exact: bool = sqlx::query_scalar(
-        "SELECT role.rolname='rd_owner' AND procedure.prosecdef AND procedure.provolatile='v' AND procedure.proparallel='u' AND procedure.proisstrict AND procedure.proconfig=ARRAY['search_path=pg_catalog']::text[] AND procedure.prosrc=$2 AND has_function_privilege('market_data_owner',procedure.oid,'EXECUTE') AND NOT has_function_privilege('public',procedure.oid,'EXECUTE') FROM pg_proc procedure JOIN pg_roles role ON role.oid=procedure.proowner WHERE procedure.oid=to_regprocedure($1)",
+        "SELECT role.rolname='rd_owner' AND procedure.prosecdef AND procedure.provolatile='v' AND procedure.proparallel='u' AND procedure.proisstrict AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[] AND procedure.prosrc=$2 AND has_function_privilege('market_data_owner',procedure.oid,'EXECUTE') AND NOT has_function_privilege('public',procedure.oid,'EXECUTE') FROM pg_proc procedure JOIN pg_roles role ON role.oid=procedure.proowner WHERE procedure.oid=to_regprocedure($1)",
     )
     .bind(MARKET_DATA_LOCK_FUNCTION_V1)
     .bind(MARKET_DATA_REPAIR_LOCK_FUNCTION_SOURCE_V1)

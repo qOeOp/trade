@@ -104,6 +104,7 @@
       3
     ],
     "channel": {
+      "scope": "EXACT_INSTRUMENT",
       "role_semantic_id": "research.input.close.daily.v1",
       "instrument": "BTCUSDT-PERP.BINANCE",
       "field_semantic_id": "MARKET_DATA.BAR.CLOSE.PRICE.V1",

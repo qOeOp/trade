@@ -2533,7 +2533,20 @@ impl ProgramHostV2 {
             ValueRefV2::OwnerSampleCoordinate {
                 input_id,
                 source_semantic_id,
+            }
+            | ValueRefV2::UniverseMemberSampleCoordinate {
+                input_id,
+                source_semantic_id,
+                ..
             } => {
+                // The exact form is keyed without a member and the member form at its ordinal, and
+                // the Plan-bound row must name the same one, so neither resolves the other's value.
+                let member_ordinal = match reference {
+                    ValueRefV2::UniverseMemberSampleCoordinate { member_ordinal, .. } => {
+                        Some(*member_ordinal)
+                    }
+                    _ => None,
+                };
                 let (plugin_semantic_id, port_id, ordinal) = context
                     .plugin_input
                     .ok_or_else(|| ProgramHostV2Error::Graph(input_id.clone()))?;
@@ -2549,10 +2562,11 @@ impl ProgramHostV2 {
                             && binding.manifest_port_ordinal() == ordinal
                             && binding.coordinate_source_semantic_id() == source_semantic_id
                             && binding.update_clock_source_semantic_id() == source_semantic_id
+                            && binding.member_ordinal() == member_ordinal
                     })
                     .ok_or_else(|| ProgramHostV2Error::Graph(input_id.clone()))?;
                 let coordinate = inputs
-                    .get(&(input_id.as_str(), None))
+                    .get(&(input_id.as_str(), member_ordinal))
                     .and_then(|input| input.owner_coordinate)
                     .filter(|_| {
                         self.plan.input_roles().iter().any(|role| {
@@ -3470,10 +3484,14 @@ fn reaction_input_roles(
     let mut add = |reference: &ValueRefV2| match reference {
         ValueRefV2::Input { input_id }
         | ValueRefV2::OwnerSampleCoordinate { input_id, .. }
-        | ValueRefV2::UniverseMemberInput { input_id, .. } => {
+        | ValueRefV2::UniverseMemberInput { input_id, .. }
+        | ValueRefV2::UniverseMemberSampleCoordinate { input_id, .. } => {
             ids.insert(input_id.clone());
         }
-        _ => {}
+        ValueRefV2::Parameter { .. }
+        | ValueRefV2::PriorState { .. }
+        | ValueRefV2::LifecycleContext { .. }
+        | ValueRefV2::NodeOutput { .. } => {}
     };
 
     for node in &reaction.nodes {
