@@ -62,7 +62,7 @@
 use serde::Serialize;
 use thiserror::Error;
 use vibe_backtest::result::CanonicalBacktestResult;
-use vibe_backtest_owner_contracts::{ContentIdentityV2, ReplayRequestDtoV2};
+use vibe_backtest_owner_contracts::{ContentIdentityV2, ReplayRequestDtoV2, ReplayRequestV2};
 use vibe_backtest_result_custody::{
     BacktestReadbackRefusalV1, BacktestResultCustodyErrorV2, ExploratoryReplayResultLocatorV2,
 };
@@ -482,20 +482,7 @@ pub(crate) async fn read_report_in_transaction(
     )
     .await
     .map_err(|e| BacktestRunReportRefusalV1::ReplayRequestUnavailable(e.to_string()))?;
-    let request = match &read_request {
-        ReportRequestReadV2::Found(readback) => readback.request(),
-        #[cfg(feature = "sealed-source-intake-composer-acceptance")]
-        ReportRequestReadV2::ComposerV3(claim) => claim.request(),
-        #[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
-        ReportRequestReadV2::ComposerV3 => {
-            return Err(BacktestRunReportRefusalV1::ReplayRequestV3NotYetReported);
-        }
-        ReportRequestReadV2::Absent => {
-            return Err(BacktestRunReportRefusalV1::ReplayRequestUnavailable(
-                "no sealed request at the meaning the outcome evidence binds".to_owned(),
-            ));
-        }
-    };
+    let request = request_to_report(&read_request)?;
     let (strategy, data_window) =
         resolve_strategy_and_window(transaction, request.as_dto()).await?;
 
@@ -629,6 +616,34 @@ fn resolved_channel(
         SingleThresholdChannelV1::UniverseMember { .. } => {
             Err(BacktestRunReportRefusalV1::UniverseMemberNotYetReported)
         }
+    }
+}
+
+/// The Replay request a report states, from what the request read found.
+///
+/// A COMPOSER_V3 request is stated from its self-verified claim in the build that can read one, and
+/// refused by name in every other build: that includes the deployed image, which does not build the
+/// Composer-backed Replay feature.
+///
+/// # Errors
+///
+/// [`BacktestRunReportRefusalV1::ReplayRequestV3NotYetReported`] for a COMPOSER_V3 request this build
+/// cannot read, and [`BacktestRunReportRefusalV1::ReplayRequestUnavailable`] when no request is sealed
+/// at the meaning the outcome evidence binds.
+fn request_to_report(
+    read: &ReportRequestReadV2,
+) -> Result<&ReplayRequestV2, BacktestRunReportRefusalV1> {
+    match read {
+        ReportRequestReadV2::Found(readback) => Ok(readback.request()),
+        #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+        ReportRequestReadV2::ComposerV3(claim) => Ok(claim.request()),
+        #[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
+        ReportRequestReadV2::ComposerV3 => {
+            Err(BacktestRunReportRefusalV1::ReplayRequestV3NotYetReported)
+        }
+        ReportRequestReadV2::Absent => Err(BacktestRunReportRefusalV1::ReplayRequestUnavailable(
+            "no sealed request at the meaning the outcome evidence binds".to_owned(),
+        )),
     }
 }
 
@@ -1230,6 +1245,22 @@ mod tests {
             otherwise: outcome("kernel.position.exit.v1", 0),
             falsifier: "the channel never crosses the threshold".to_owned(),
         }
+    }
+
+    /// In a build without the Composer-backed Replay feature - the deployed image, and the one that
+    /// runs this crate's unit tests - a COMPOSER_V3 request is refused by name, not read and not
+    /// reported absent.
+    #[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
+    #[rstest]
+    fn a_composer_v3_request_is_refused_by_name_without_the_feature() {
+        assert!(matches!(
+            request_to_report(&ReportRequestReadV2::ComposerV3),
+            Err(BacktestRunReportRefusalV1::ReplayRequestV3NotYetReported)
+        ));
+        assert!(matches!(
+            request_to_report(&ReportRequestReadV2::Absent),
+            Err(BacktestRunReportRefusalV1::ReplayRequestUnavailable(_))
+        ));
     }
 
     /// Each receipt set against one freeze. Only a non-empty set of V3 builds of that freeze

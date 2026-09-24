@@ -1,5 +1,6 @@
 use std::fmt::Display;
 
+pub(crate) mod composer_claim_reads_v3;
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 pub(crate) mod composer_commit_v3;
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]

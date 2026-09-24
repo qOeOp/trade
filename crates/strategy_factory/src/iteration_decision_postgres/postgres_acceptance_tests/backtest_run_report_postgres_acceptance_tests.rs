@@ -323,8 +323,9 @@ async fn assert_a_composer_v3_claim_is_read_without_a_lock(
 ) {
     use crate::{
         exploratory_replay::ExploratoryReplayOwnerError,
-        exploratory_replay::postgres::composer_readback_v3::{
-            STORED_FROZEN_READ_V3, read_self_verified_composer_v3_claim_in_transaction,
+        exploratory_replay::postgres::{
+            composer_claim_reads_v3::STORED_FROZEN_READ_V3,
+            composer_readback_v3::read_self_verified_composer_v3_claim_in_transaction,
         },
         trial_family_postgres::PostgresReadLockMode,
     };
