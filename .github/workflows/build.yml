@@ -726,6 +726,7 @@ jobs:
        github.ref == 'refs/heads/master')
     name: ${{ matrix.chain.name }}
     runs-on: ubuntu-22.04
+    timeout-minutes: ${{ matrix.chain.job-timeout-minutes }}
     needs:
       - plan
     strategy:
@@ -734,11 +735,15 @@ jobs:
         chain:
           - key: rd-owner
             name: rd owner postgres (ubuntu-22.04)
+            step-timeout-minutes: 70
+            job-timeout-minutes: 100
             make: >-
               cargo-test-rd-owner-postgres-isolated NEXTEST_PROFILE=ci
               EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
           - key: market-data
             name: market data owner postgres (ubuntu-22.04)
+            step-timeout-minutes: 15
+            job-timeout-minutes: 40
             make: cargo-test-market-data-owner-postgres-isolated
     env:
       # Byte-identical to `rust tests`, deliberately: rust-cache folds every CARGO_/RUST_
@@ -819,7 +824,18 @@ jobs:
       - name: Report disk space before the chain
         run: bash scripts/ci/report-disk-space.bash "before ${{ matrix.chain.key }}"
 
+      # The step and job ceilings are about twice what these chains take, measured on the successful
+      # runs of build.yml and owner-chains.yml between 2026-09-19 and 2026-09-23: the R&D chain step
+      # took median 32.8, p90 39.8, max 44.2 minutes over 66 runs (job max 48.5); the Market Data
+      # step median 4.7, max 6.4 over 76 (job max 17.4). Without them a hung chain held the runner
+      # until cancelled by hand, and a cancelled job keeps neither log nor artifact (run 35900267592).
+      # The step ceiling fires first so the `always()` upload below still runs; the job ceiling is
+      # the last resort. Each entry also has its own wall clock in the chain script.
+      # These expire: the chain keeps growing (101 entries on 2026-09-24). When the rolling p90 of the
+      # R&D step passes 55 minutes, or the Market Data step's passes 10, re-measure the same way and
+      # raise both ceilings to about twice the new figures.
       - name: Run the isolated PostgreSQL Owner chain
+        timeout-minutes: ${{ matrix.chain.step-timeout-minutes }}
         run: make ${{ matrix.chain.make }}
 
       # `if: always()`: the run that ends at an entry is the one whose record answers the most.

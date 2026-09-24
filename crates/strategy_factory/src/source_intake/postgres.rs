@@ -1309,7 +1309,7 @@ pub const SOURCE_INTAKE_MIGRATION_SQL_V1: &[&str] = &[
         requested_request_identity text,
         requested_binding_identity text
       ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-      SET search_path = pg_catalog
+      SET search_path = pg_catalog, pg_temp
       AS $function$
       DECLARE locked record;
       BEGIN
@@ -1368,7 +1368,7 @@ pub const SOURCE_INTAKE_MIGRATION_SQL_V1: &[&str] = &[
         requested_reservation_identity text,
         requested_reservation_digest text
       ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-      SET search_path = pg_catalog
+      SET search_path = pg_catalog, pg_temp
       AS $function$
       DECLARE locked record;
       DECLARE reservation jsonb;

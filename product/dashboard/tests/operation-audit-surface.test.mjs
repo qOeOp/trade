@@ -41,6 +41,13 @@ test("Operations Audit API remains GET-only and no-store", () => {
   }
 });
 
+test("Operations Audit asks for the current view and never sends the browser clock as its cut", () => {
+  assert.doesNotMatch(audit, /observed_at: new Date\(/u);
+  assert.equal(audit.match(/observed_at: null/gu)?.length, 3);
+  assert.match(audit, /useState<OperationAuditFilterRequestV1>\(currentOperationAuditFilterV1\)/u);
+  assert.match(audit, /!operationAuditFilterCutMatchesV1\(parsed\.filter_cut, requestedCut\)/u);
+});
+
 test("Operations Audit uses the shared Dashboard cursor authority", () => {
   assert.match(gateway, /process\.env\.DASHBOARD_CURSOR_HMAC_KEY/u);
   assert.doesNotMatch(gateway, /DASHBOARD_RUN_CURSOR_HMAC_KEY/u);

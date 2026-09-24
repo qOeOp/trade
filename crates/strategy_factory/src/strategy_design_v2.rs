@@ -255,6 +255,16 @@ pub enum ValueRefV2 {
         /// Zero-based position in the Owner-canonical selection member order.
         member_ordinal: u8,
     },
+    /// The Owner sample coordinate of one universe member's value, the universe-member
+    /// counterpart of `OwnerSampleCoordinate` as `UniverseMemberInput` is of `Input`. It is a
+    /// separate variant rather than an ordinal added to `OwnerSampleCoordinate`, so that every
+    /// consumer states whether it accepts a member coordinate instead of inheriting one.
+    UniverseMemberSampleCoordinate {
+        input_id: String,
+        /// Zero-based position in the Owner-canonical selection member order.
+        member_ordinal: u8,
+        source_semantic_id: String,
+    },
     Parameter {
         parameter_id: String,
     },
