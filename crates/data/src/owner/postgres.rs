@@ -27,10 +27,15 @@ mod reference_fact_catalog;
 mod reference_fact_coordinates;
 mod replay_market_facts_v2;
 pub(super) use replay_market_facts_v2::resolve_bound_replay_cut_for_rd_in_transaction_v1;
+pub(super) use replay_market_facts_v2::{
+    BoundUniverseSelectionErrorV1, recover_bound_universe_selection_in_transaction_v1,
+};
 #[cfg(test)]
 pub(super) use replay_market_facts_v2::{
     ISSUANCE_BINDING_CONSTRAINT, ISSUANCE_IDENTITY_CONSTRAINT, ISSUANCE_MEANING_CONSTRAINT,
 };
+#[cfg(test)]
+pub(super) use universe_selection::persist_issued_readback_for_test;
 mod sample_projection_v4;
 mod session;
 pub(in crate::owner) mod strategy_input_binding_registry;

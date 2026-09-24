@@ -1114,6 +1114,10 @@ pub enum InstrumentMasterCustodyErrorV2 {
     UnknownLocator,
     StoreUnavailable,
     AclUnavailable,
+    /// The bound-replay request key was already issued under a different composition binding.
+    BoundReplayBindingConflict,
+    /// No composition binding matches the exact locator a bound-replay issuance named.
+    BoundReplayBindingUnavailable,
 }
 
 impl Display for InstrumentMasterCustodyErrorV2 {
