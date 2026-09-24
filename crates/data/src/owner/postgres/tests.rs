@@ -2107,6 +2107,153 @@ pub(crate) async fn universe_member_declarations_oracle(
     vec![request, second]
 }
 
+/// Commits one initial PIT snapshot of the registry fixture's shape, with its own correlation,
+/// requester, scope and rows, and returns it with its Owner-verified observation batch.
+#[allow(clippy::too_many_arguments)]
+async fn commit_registry_pit_fixture_v1(
+    owner: &MarketDataOwnerPostgres,
+    source: &SourceBindingCommit,
+    instrument: &crate::owner::instrument_master::InstrumentMasterReadbackV1,
+    universe: &crate::owner::universe_selection::UniverseSelectionReadbackV1,
+    clock: &MarketDataClockAdmission,
+    correlation_identity: BindingDigest,
+    requester_identity: BindingDigest,
+    scope_digest: BindingDigest,
+    rows: &[(&str, &str, &str, i128)],
+) -> (
+    crate::owner::pit_snapshot::PitSnapshotCommitAggregate,
+    VerifiedPitObservationBatch,
+) {
+    let time_evidence = UntrustedPitSnapshotTimeEvidence {
+        event_effective: UntrustedEventEffectiveTime::from_untrusted(
+            50,
+            &clock.clock_identity,
+            &clock.clock_epoch,
+        ),
+        provider_available: UntrustedProviderAvailableTime::from_untrusted(
+            90,
+            &clock.clock_identity,
+            &clock.clock_epoch,
+        ),
+        retrieval: UntrustedRetrievalTime::from_untrusted(
+            92,
+            &clock.clock_identity,
+            &clock.clock_epoch,
+        ),
+        correction_publication: Some(UntrustedCorrectionPublicationTime::from_untrusted(
+            91,
+            &clock.clock_identity,
+            &clock.clock_epoch,
+        )),
+        decision_cut: UntrustedSnapshotDecisionCut::from_untrusted(
+            100,
+            &clock.clock_identity,
+            &clock.clock_epoch,
+        ),
+        monotonic_sequence: clock.monotonic_sequence,
+        restart_continuity_digest: clock.restart_continuity_digest,
+        skew_bound: clock.skew_bound,
+        uncertainty_bound: clock.uncertainty_bound,
+        observed_at: 100,
+        valid_through: 160,
+    };
+    let mut pit_proposal = UntrustedPitSnapshotProposal {
+        request: UntrustedPitSnapshotRequest {
+            claimed_request_identity: d(0),
+            claimed_request_digest: d(0),
+            correlation_identity,
+            requester_identity,
+            scope_digest,
+            source_binding: source.receipt().locator().clone(),
+            instrument_master_digest: instrument.digest(),
+            universe_selection_digest: universe.record().identity(),
+            market_semantics_identity: d(84),
+            time_evidence,
+        },
+        evidence: UntrustedPitSnapshotEvidence {
+            normalized_records_digest: d(0),
+            source_frontier: source.receipt().locator().source_frontier.clone(),
+            correction_frontier: source.receipt().locator().correction_frontier.clone(),
+            coverage_complete: true,
+            semantics_compatible: true,
+            source_available: true,
+        },
+    };
+    let observation = UntrustedPitObservationBatchProposal {
+        rows: rows
+            .iter()
+            .copied()
+            .map(
+                |(symbolic_key, field, timeframe, value_mantissa)| UntrustedPitObservation {
+                    symbolic_key: symbolic_key.into(),
+                    member_key: "AAPL".into(),
+                    instrument: "AAPL".into(),
+                    channel: "MARKET".into(),
+                    data_kind: "BAR".into(),
+                    timeframe: timeframe.into(),
+                    field: field.into(),
+                    value_mantissa,
+                    value_scale: 2,
+                    event_effective: 50,
+                    provider_available: 90,
+                    retrieval: 92,
+                    correction_publication: 91,
+                    source_binding_identity: source.fact().binding_id(),
+                    source_frontier_digest: d(85),
+                    instrument_master_digest: instrument.digest(),
+                    universe_selection_digest: universe.record().identity(),
+                    market_semantics_identity: d(84),
+                    correction_stream_identity: source
+                        .receipt()
+                        .locator()
+                        .correction_frontier
+                        .stream_identity
+                        .clone(),
+                    correction_sequence: source.receipt().locator().correction_frontier.sequence,
+                    correction_frontier_digest: d(86),
+                },
+            )
+            .collect(),
+    };
+    pit_proposal.evidence.normalized_records_digest =
+        derive_observation_batch_digest(&observation).unwrap();
+    refresh_request_claims(&mut pit_proposal.request);
+    let pit_basis = TestOnlyCanonicalBasisResolver::seal_for_test(
+        pit_proposal.request.clone(),
+        pit_proposal.evidence.clone(),
+        clock.clone(),
+    );
+    let pit = owner
+        .commit_pit_initial_with_observation_batch(pit_proposal, observation, &pit_basis, clock)
+        .await
+        .unwrap();
+    let batch = {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        let aggregate =
+            load_pit_for_update(&mut transaction, pit.fact().snapshot_identity(), false)
+                .await
+                .unwrap()
+                .unwrap();
+        let stored = load_pit_observation_batch_for_update(&mut transaction, &aggregate)
+            .await
+            .unwrap()
+            .unwrap();
+        let batch = verify_observation_batch(
+            &aggregate,
+            stored.source_binding_identity,
+            stored.source_binding_lineage_root,
+            stored.source_binding_lineage_version,
+            stored.digest,
+            &stored.bytes,
+            &stored.rows,
+        )
+        .unwrap();
+        transaction.commit().await.unwrap();
+        batch
+    };
+    (pit, batch)
+}
+
 async fn strategy_input_binding_registry_postgres_oracle(
     owner: &MarketDataOwnerPostgres,
     source: &SourceBindingCommit,
@@ -2174,139 +2321,27 @@ async fn strategy_input_binding_registry_postgres_oracle(
         readback
     };
 
-    let time_evidence = UntrustedPitSnapshotTimeEvidence {
-        event_effective: UntrustedEventEffectiveTime::from_untrusted(
-            50,
-            &clock.clock_identity,
-            &clock.clock_epoch,
-        ),
-        provider_available: UntrustedProviderAvailableTime::from_untrusted(
-            90,
-            &clock.clock_identity,
-            &clock.clock_epoch,
-        ),
-        retrieval: UntrustedRetrievalTime::from_untrusted(
-            92,
-            &clock.clock_identity,
-            &clock.clock_epoch,
-        ),
-        correction_publication: Some(UntrustedCorrectionPublicationTime::from_untrusted(
-            91,
-            &clock.clock_identity,
-            &clock.clock_epoch,
-        )),
-        decision_cut: UntrustedSnapshotDecisionCut::from_untrusted(
-            100,
-            &clock.clock_identity,
-            &clock.clock_epoch,
-        ),
-        monotonic_sequence: clock.monotonic_sequence,
-        restart_continuity_digest: clock.restart_continuity_digest,
-        skew_bound: clock.skew_bound,
-        uncertainty_bound: clock.uncertainty_bound,
-        observed_at: 100,
-        valid_through: 160,
-    };
-    let mut pit_proposal = UntrustedPitSnapshotProposal {
-        request: UntrustedPitSnapshotRequest {
-            claimed_request_identity: d(0),
-            claimed_request_digest: d(0),
-            correlation_identity: d(174),
-            requester_identity: d(175),
-            scope_digest: d(176),
-            source_binding: source.receipt().locator().clone(),
-            instrument_master_digest: instrument.digest(),
-            universe_selection_digest: universe.record().identity(),
-            market_semantics_identity: d(84),
-            time_evidence,
-        },
-        evidence: UntrustedPitSnapshotEvidence {
-            normalized_records_digest: d(0),
-            source_frontier: source.receipt().locator().source_frontier.clone(),
-            correction_frontier: source.receipt().locator().correction_frontier.clone(),
-            coverage_complete: true,
-            semantics_compatible: true,
-            source_available: true,
-        },
-    };
-    let observation = UntrustedPitObservationBatchProposal {
-        rows: [
+    let (pit, batch) = commit_registry_pit_fixture_v1(
+        owner,
+        source,
+        instrument,
+        &universe,
+        clock,
+        d(174),
+        // The requester R&D writes for the fixture's Research request, so a Design of that request
+        // can name this PIT request as its initial one.
+        crate::owner::pit_snapshot::research_pit_requester_identity_v1(d(190)),
+        d(176),
+        &[
             ("AAPL.CLOSE.1H", "CLOSE", "1H", 12_301),
             ("AAPL.CLOSE.1M", "CLOSE", "1M", 12_345),
             ("AAPL.CLOSE.EXCHANGE_SESSION_1D", "CLOSE", "1D", 12_299),
             ("AAPL.HIGH.1M", "HIGH", "1M", 12_401),
             ("AAPL.LOW.1M", "LOW", "1M", 12_211),
             ("AAPL.OPEN.1M", "OPEN", "1M", 12_251),
-        ]
-        .into_iter()
-        .map(
-            |(symbolic_key, field, timeframe, value_mantissa)| UntrustedPitObservation {
-                symbolic_key: symbolic_key.into(),
-                member_key: "AAPL".into(),
-                instrument: "AAPL".into(),
-                channel: "MARKET".into(),
-                data_kind: "BAR".into(),
-                timeframe: timeframe.into(),
-                field: field.into(),
-                value_mantissa,
-                value_scale: 2,
-                event_effective: 50,
-                provider_available: 90,
-                retrieval: 92,
-                correction_publication: 91,
-                source_binding_identity: source.fact().binding_id(),
-                source_frontier_digest: d(85),
-                instrument_master_digest: instrument.digest(),
-                universe_selection_digest: universe.record().identity(),
-                market_semantics_identity: d(84),
-                correction_stream_identity: source
-                    .receipt()
-                    .locator()
-                    .correction_frontier
-                    .stream_identity
-                    .clone(),
-                correction_sequence: source.receipt().locator().correction_frontier.sequence,
-                correction_frontier_digest: d(86),
-            },
-        )
-        .collect(),
-    };
-    pit_proposal.evidence.normalized_records_digest =
-        derive_observation_batch_digest(&observation).unwrap();
-    refresh_request_claims(&mut pit_proposal.request);
-    let pit_basis = TestOnlyCanonicalBasisResolver::seal_for_test(
-        pit_proposal.request.clone(),
-        pit_proposal.evidence.clone(),
-        clock.clone(),
-    );
-    let pit = owner
-        .commit_pit_initial_with_observation_batch(pit_proposal, observation, &pit_basis, clock)
-        .await
-        .unwrap();
-    let batch = {
-        let mut transaction = owner.pool().begin().await.unwrap();
-        let aggregate =
-            load_pit_for_update(&mut transaction, pit.fact().snapshot_identity(), false)
-                .await
-                .unwrap()
-                .unwrap();
-        let stored = load_pit_observation_batch_for_update(&mut transaction, &aggregate)
-            .await
-            .unwrap()
-            .unwrap();
-        let batch = verify_observation_batch(
-            &aggregate,
-            stored.source_binding_identity,
-            stored.source_binding_lineage_root,
-            stored.source_binding_lineage_version,
-            stored.digest,
-            &stored.bytes,
-            &stored.rows,
-        )
-        .unwrap();
-        transaction.commit().await.unwrap();
-        batch
-    };
+        ],
+    )
+    .await;
 
     let pit_locator_bytes = serde_json::to_vec(pit.receipt().locator())
         .unwrap()
@@ -2743,6 +2778,157 @@ async fn read_only_persisted_strategy_input_custody_v1(
     .await;
     transaction.commit().await.unwrap();
     outcome
+}
+
+/// A universe-member Design registers against exactly the initial PIT request it names.
+///
+/// The Design's role intent names the registry fixture's PIT request by its claimed identity and
+/// digest, and that request carries the requester R&D writes for the fixture's Research request.
+/// Registration resolves nothing else: a Design that names no request, an unknown one, the right
+/// one with another digest, or the right one from another Research request is refused by name and
+/// writes nothing. A named request that is not `AVAILABLE` is covered where the decision is made.
+async fn initial_pit_request_registration_oracle_v1(
+    owner: &MarketDataOwnerPostgres,
+    fixture: &StrategyInputBindingRegistryFixtureV1,
+) {
+    use super::authenticated_design_registration_v1::register_authenticated_design_roles_v1;
+    use super::pit_role_resolution_v1::{AuthenticatedDesignIdentityV1, NamedInitialPitRequestV1};
+    use super::strategy_input_binding_registry::{
+        StrategyInputDeclaredScopeV1, resolve_pit_request_for_strategy_design_v1,
+    };
+    use crate::owner::strategy_design_role_set::{
+        StrategyDesignRoleEntryV1, StrategyDesignRoleSetLocatorV1, StrategyDesignRoleSetReceiptV1,
+    };
+    use crate::owner::strategy_input_binding_admission_v1::StrategyInputBindingAdmissionErrorV1 as Admission;
+
+    let role = |identity, field: &str| StrategyDesignRoleEntryV1 {
+        role_identity: identity,
+        semantic_id: format!("universe-{field}"),
+        fact_class: "MARKET_DATA".into(),
+        instrument: String::new(),
+        scope: r#"{"kind":"UNIVERSE_MEMBERS"}"#.into(),
+        field_semantic_id: format!("MARKET_DATA.BAR.{field}.PRICE.V1"),
+        channel: "MARKET".into(),
+        timeframe: "1M".into(),
+        unit: "PRICE".into(),
+        scale: 2,
+        value_type: "I128".into(),
+    };
+    let roles = vec![role(d(246), "CLOSE"), role(d(247), "OPEN")];
+    let design = |research, design| {
+        AuthenticatedDesignIdentityV1::from_role_set(
+            &StrategyDesignRoleSetReceiptV1::from_rd_owner_projection(
+                StrategyDesignRoleSetLocatorV1 {
+                    schema_version: 2,
+                    request_identity: "universe-composer-request".into(),
+                    operation_receipt_identity: d(20),
+                    artifact_locator: "artifact".into(),
+                    artifact_identity: d(21),
+                    canonical_plan_digest: d(22),
+                    design_digest: d(23),
+                },
+                research,
+                d(24),
+                design,
+                d(23),
+                d(25),
+                roles.clone(),
+                vec![],
+            )
+            .unwrap(),
+        )
+    };
+    let request = fixture.pit.fact().request();
+    let named = NamedInitialPitRequestV1 {
+        pit_request_identity: request.claimed_request_identity,
+        pit_request_digest: request.claimed_request_digest,
+    };
+    let register = async |design, named| {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        let outcome = Box::pin(register_authenticated_design_roles_v1(
+            &mut transaction,
+            design,
+            &roles,
+            named,
+        ))
+        .await;
+        transaction.commit().await.unwrap();
+        outcome
+    };
+    let declaration_count = async || -> i64 {
+        sqlx::query_scalar(
+            "SELECT COUNT(*) FROM market_data_private.strategy_input_binding_declarations_v1",
+        )
+        .fetch_one(owner.pool())
+        .await
+        .unwrap()
+    };
+
+    let before = declaration_count().await;
+    let unknown = NamedInitialPitRequestV1 {
+        pit_request_identity: d(250),
+        ..named
+    };
+    let other_digest = NamedInitialPitRequestV1 {
+        pit_request_digest: d(251),
+        ..named
+    };
+
+    for (refused_design, refused_named, expected) in [
+        (
+            design(d(190), d(245)),
+            None,
+            Admission::InitialPitRequestUnnamed,
+        ),
+        (
+            design(d(190), d(245)),
+            Some(unknown),
+            Admission::InitialPitRequestUnknown,
+        ),
+        (
+            design(d(190), d(245)),
+            Some(other_digest),
+            Admission::InitialPitRequestDigestMismatch,
+        ),
+        (
+            design(d(252), d(245)),
+            Some(named),
+            Admission::InitialPitRequestRequesterMismatch,
+        ),
+    ] {
+        assert_eq!(
+            register(refused_design, refused_named).await.map(|_| ()),
+            Err(expected)
+        );
+    }
+    assert_eq!(declaration_count().await, before, "refusals write nothing");
+
+    register(design(d(190), d(245)), Some(named))
+        .await
+        .expect("the Design registers against the PIT request it names");
+    assert_eq!(declaration_count().await, before + 2);
+    let coordinate = {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        let coordinate = resolve_pit_request_for_strategy_design_v1(&mut transaction, d(245))
+            .await
+            .unwrap();
+        transaction.commit().await.unwrap();
+        coordinate
+    };
+    assert_eq!(
+        coordinate.declared_scope,
+        StrategyInputDeclaredScopeV1::UniverseMembers
+    );
+    assert_eq!(coordinate.pit_request_identity, named.pit_request_identity);
+
+    register(design(d(190), d(245)), Some(named))
+        .await
+        .expect("registration replays");
+    assert_eq!(
+        declaration_count().await,
+        before + 2,
+        "a replay writes nothing"
+    );
 }
 
 /// Exercises the universe-member custody re-read against the persisted universe Design.
@@ -4262,6 +4448,11 @@ async fn instrument_master_postgres_oracle(owner_url: &str, reader_url: &str, ad
         &owner,
         &registry_fixture.binding_requests[0],
         &registry_fixture.batch,
+    ))
+    .await;
+    Box::pin(initial_pit_request_registration_oracle_v1(
+        &owner,
+        &registry_fixture,
     ))
     .await;
     Box::pin(persisted_strategy_input_custody_postgres_oracle_v1(

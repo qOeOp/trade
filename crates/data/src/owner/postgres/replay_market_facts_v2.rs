@@ -2034,6 +2034,9 @@ impl ReplayCompositionOwnerV1 {
                     intent,
                 ),
                 intent.roles(),
+                // A role intent names its initial PIT request from schema 2 on; until that
+                // type lands, a universe-member role is refused by name here.
+                None,
             )
             .await;
 
@@ -2137,6 +2140,10 @@ impl ReplayCompositionOwnerV1 {
                     receipt,
                 ),
                 &receipt.roles,
+                // An attestation takes a universe-member Design's initial PIT request from that
+                // Design's published schema 2 role intent; until that type lands, a
+                // universe-member role is refused by name here.
+                None,
             )
             .await;
 
