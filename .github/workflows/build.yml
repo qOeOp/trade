@@ -698,6 +698,8 @@ jobs:
       - name: Install Vibe CLI
         env:
           VIBE_CLI_FORCE_SOURCE: "1"
+          CARGO_LOG: cargo::core::compiler::fingerprint=info
+          CC: cc
         run: bash scripts/ci/install-nautilus-cli.sh
 
       - name: Init postgres schema
@@ -717,6 +719,8 @@ jobs:
 
       - name: Run Rust tests
         id: rust-tests
+        env:
+          CARGO_LOG: cargo::core::compiler::fingerprint=info
         run: >-
           make cargo-test NEXTEST_PROFILE=ci
           EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
