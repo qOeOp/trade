@@ -3632,6 +3632,16 @@ async fn postgres_readback_refuses_an_identity_admitted_for_another_operation() 
         effective_from_epoch_ms: now.saturating_sub(1_000),
         valid_through_epoch_ms: now.saturating_add(600_000),
     };
+    // Operator Authorization takes the bindings in strictly ascending manifest identity.
+    let mut manifest_bindings: Vec<OperationManifestBindingV1> =
+        [&source_manifest, &research_manifest]
+            .into_iter()
+            .map(|manifest| OperationManifestBindingV1 {
+                manifest_identity: manifest.manifest_identity().unwrap(),
+                manifest_digest: manifest.manifest_digest().unwrap(),
+            })
+            .collect();
+    manifest_bindings.sort_by(|left, right| left.manifest_identity.cmp(&right.manifest_identity));
     let issuer = OperatorAuthorizationIssuerPostgresV1::connect(
         database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
     )
@@ -3648,13 +3658,7 @@ async fn postgres_readback_refuses_an_identity_admitted_for_another_operation() 
                 permissions: vec!["research:source-intake".into(), "research:submit".into()],
             },
             request_proof_digest: proof_digest.clone(),
-            operation_manifests: [&source_manifest, &research_manifest]
-                .into_iter()
-                .map(|manifest| OperationManifestBindingV1 {
-                    manifest_identity: manifest.manifest_identity().unwrap(),
-                    manifest_digest: manifest.manifest_digest().unwrap(),
-                })
-                .collect(),
+            operation_manifests: manifest_bindings,
             not_before_epoch_ms: now.saturating_sub(1_000),
             valid_through_epoch_ms: now.saturating_add(600_000),
             expected_revocation_head: "EMPTY".into(),
