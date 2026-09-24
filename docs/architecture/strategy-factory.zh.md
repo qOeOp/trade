@@ -141,7 +141,8 @@ R&D 内的 Develop 能力返回内容寻址 Strategy Artifact 和 Build Receipt�
   Market Data universe selection 在请求时选定，而不是由 Design 选定。角色为 `EXACT_INSTRUMENT` 的 Design 在 Owner
   universe 下仍被拒绝，由实现改动引入的具名拒绝 `ExactInstrumentRolesUnderOwnerUniverse` 给出。universe 纵向切片的输入契约（准确
   一个固定 `OPEN` 与一个固定 `CLOSE` member role）不变；single-threshold 编写面新增 universe-member 形态，其 channel
-  是该成员的日线收盘价，并携带固定的 open role。该形态只在成员序号 0 上消费每个 role，其 bounded feature program
+  是该成员的日线收盘价，并以承载 input 的方式携带固定的 open role，其程序从不读取它。编写请求在必填的 `scope`
+  中写明自己的形态，因此缺少它的请求被拒绝，而不是被当作 exact-instrument 形态读取。该形态只在成员序号 0 上消费每个 role，其 bounded feature program
   仍产出单品种 proposal：在单成员 universe 下，host 把该 proposal 提升为单成员规范 target set，因此该纵向切片仍只提交
   一份规范 target set，只是其产出者从插件移到了 host。在首个正例运行之前，single-threshold 报告族及其 data window
   所指的 instrument 扩展到该形态。target-set schema version 与语义 identity 均不变，准入单成员也不改变任何双成员原像：
@@ -246,6 +247,12 @@ terminal，每个 fan-out 都必须显式且有界，state 只有一个 writer �
 ID、implicit cast、implicit rescale、unit mismatch、unbounded window 或与 manifest 不一致的 bound 都在 source
 generation 前成为 `UNSUPPORTED`。规范排序只使用 schema 定义的 byte key，不使用 source order、map
 iteration、locale、platform、enum ordinal 或 caller-provided digest。对规范 bytes 再 canonicalize 必须字节一致。
+
+每个声明的 input 都必须被读取。唯一的例外是程序列在 `carried_input_role_ids` 中的 input：Design 要求这个
+role，而程序用不到它。承载 input 保留自己的 value port、coordinate port 与 binding，host 像传其他 input 一样传入它。
+graph 读取承载 input，无论作为 value、作为 coordinate，还是作为 node 推进所依据的 clock，都以
+`CarriedInputRead` 拒绝。既未读取也未列出的 input 仍被拒绝，因此豁免只来自这项声明。列表为空时不写入规范
+bytes，没有承载 input 的程序保持原有 bytes。
 
 对于每个 output rule 为 `AvailableFixedAndCoordinate` 的 catalog row，value 与其 provenance coordinate 构成
 一个原子 pair。只有 value projection 可以被引用；引用它即为 graph closure 原子消费 coordinate sidecar。
@@ -623,13 +630,15 @@ production invocation、Paper/Live execution 或 trading。
 **TARGET / NOT_ADMITTED，Owner 封存的 Native Replay 帧序列 V2：** 现有
 `NativeReplayExecutionInputBindingV1`、单帧、28 项观测证据、执行 bundle、请求和 Result 的字节与身份
 均保持不变。新增独立的 `NativeReplayExecutionInputBindingV2`，针对请求窗口内整条相邻、完整且
-分别由 Market Data Owner 签发的双成员 frame 序列。第一帧必须等于重新解析得到的 V1 初始帧；其后每一帧
+分别由 Market Data Owner 签发的 frame 序列。第一帧必须等于重新解析得到的 V1 初始帧；其后每一帧
 都必须来自另一份真实 PIT snapshot 和 observation batch，不能取 PIT correction successor、测试帧或调用方
 输入。Market Data 必须按封存的窗口和决策 cut 枚举完整可用 frame；帧数少于两个、帧间漏帧、重复、乱序或
 证据缺失时，这个 V2 档不可用，而更长的窗口是更长的序列不是一次拒绝。一次运行消费除最后一帧以外的每一
-帧，最后那帧只用来给它前一帧的流动性划界。每帧都绑定自己的 PIT cut、batch、trigger、BAR schedule，以及
-独立经过 Owner 验证的 Quote EVENT 流动性 receipt，包括成员顺序、价量和事件时间；各帧使用同一 Plan/Design
-role schema、两个 canonical member、universe selection、Instrument Master cut、timeframe、venue 和账户。
+帧，最后那帧只用来给它前一帧的流动性划界。每帧都绑定自己的 PIT cut、batch、trigger、BAR schedule（每个成员
+一个 receipt digest），以及独立经过 Owner 验证的 Quote EVENT 流动性 receipt，包括成员顺序、价量和事件时间；
+各帧使用同一 Plan/Design role schema、同一组 canonical member（即 V1 binding 的成员）、universe selection、
+Instrument Master cut、timeframe、venue 和账户。帧宽因此随成员数变化；V2 字节不重复写成员数，而是取自
+V1 binding，双成员 binding 的字节保持不变，恢复时由存储长度反推成员数。
 
 R&D 仅在准确读取 V1 binding 和每一帧的 Owner 能力后，原子托管 V2 binding、确定性 receipt 与 outbox；
 V2 sequence digest 覆盖各帧顺序及全部 frame、schedule、liquidity receipt。精确重试和响应丢失恢复只回读
@@ -714,6 +723,16 @@ manifest input frame 仍只按规范 `PluginManifestV2.input_ports` 顺序排列
 ID、port ordinal、static binding、coordinate codec/digest rule 与 update clock。Plan 只能从准确的 Owner-verified
 coordinate projection 投影该 source；Plan 与 Host 都不得接受 caller 提供或重建的 coordinate bytes。不含这一
 tagged source 的既有 Design 保持逐字节相同的 V2 含义。
+
+universe-member role 的两个 binding 都使用成员版本：value 用 `UniverseMemberInput`，coordinate 用
+`UniverseMemberSampleCoordinate`，两者都写明成员序号，source semantic 与 port ID 规则不变。bounded feature
+program 产出单品种 proposal，所以它只在 Owner universe 准确有一个成员时读取 universe，且只在序号 0 上读取。这类
+role 的 static binding 是该 role 在该成员上的 Owner binding。任何其他成员数的 universe 都被具名拒绝，绝不绑定到
+其第一个成员。Plan 的 role-binding 行携带成员序号，exact-instrument 行省略它，因此其 Plan bytes 不变；Host 按该
+role 与序号解析 coordinate。CURRENT_PARTIAL：Design 变体、Plan 投影、BFP 准备与 Host 解析均已实现，并在单元层
+证明。目前还没有任何 Owner projection 携带 universe 帧的成员 coordinate。这个 projection 是 Market Data 的
+universe-frame sample projection，尚未写明；在它存在之前，Host 在 input admission 时拒绝面向 BFP Plan 的 universe
+帧，因为该帧缺少 coordinate。
 
 唯一通用 `ProgramHostV2` 扩展其既有 Owner-event evidence adapter，而不是扩展 graph opcode set 或 runtime，
 以保留 Owner-verified projection 的准确 coordinate bytes 并解析该 Plan-bound metadata source。它拒绝未被

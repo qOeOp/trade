@@ -135,6 +135,11 @@ pub struct BoundedFeatureProgramMeaningV1 {
     pub warmup: BoundedFeatureWarmupContractV1,
     /// Bounds on the graph's own shape.
     pub graph_bounds: BoundedFeatureGraphBoundsV1,
+    /// Declared input roles the program receives and never reads; see
+    /// `BoundedFeatureProgramProposalV1::carried_input_role_ids`. Absent when empty, so meaning
+    /// without one keeps its bytes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub carried_input_role_ids: Vec<String>,
 }
 
 /// Why declared meaning could not be assembled against a Design.
@@ -289,6 +294,7 @@ pub(crate) fn derive_bounded_feature_program_proposal_v1(
             max_linear_memory_bytes: manifest.max_linear_memory_bytes,
             max_invocations_per_event: manifest.max_invocations_per_event,
         },
+        carried_input_role_ids: meaning.carried_input_role_ids.clone(),
     })
 }
 
@@ -330,6 +336,7 @@ mod tests {
                 max_source_bytes: proposal.bounds.max_source_bytes,
                 max_wasm_bytes: proposal.bounds.max_wasm_bytes,
             },
+            carried_input_role_ids: proposal.carried_input_role_ids.clone(),
         }
     }
 

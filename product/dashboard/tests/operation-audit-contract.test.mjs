@@ -4,6 +4,9 @@ import test from "node:test";
 import {
   canonicalizeOperationAuditFilterCutV1,
   compareOperationAuditEntriesV1,
+  currentOperationAuditFilterV1,
+  operationAuditFilterCutMatchesV1,
+  operationAuditQueryV1,
   operationAuditFilterCutDigestV1,
   operationAuditIdentityForReceiptV1,
   operationAuditSourceCutV1,
@@ -13,6 +16,20 @@ import {
 } from "../lib/operation-audit-contract.ts";
 
 const now = "2026-09-11T04:00:00.000Z";
+
+// Runs `body` with the process clock an hour ahead of the database's statement time, which is what a
+// browser whose clock runs fast looks like to the server.
+function withClockAhead(databaseNow, body) {
+  const RealDate = Date;
+  const ahead = RealDate.parse(databaseNow) + 3_600_000;
+  class AheadDate extends RealDate {
+    constructor(...args) { super(...(args.length === 0 ? [ahead] : args)); }
+    static now() { return ahead; }
+  }
+  globalThis.Date = AheadDate;
+  try { return body(new RealDate(ahead).toISOString()); } finally { globalThis.Date = RealDate; }
+}
+
 const receipt = `dashboard-operational-cancellation-v1-${"a".repeat(64)}`;
 const entry = {
   schema_version: 1,
@@ -110,4 +127,29 @@ test("Audit detail requires one correlation and an ascending verified timeline",
   assert.deepEqual(await parseOperationAuditDetailV1(detail, now), detail);
   assert.equal(await parseOperationAuditDetailV1({ ...detail, timeline: [...timeline].reverse() }, now), null);
   assert.equal(await parseOperationAuditDetailV1({ ...detail, timeline: [{ ...entry, correlation_identity: entry.target_identity.replace(/5$/, "6") }, later] }, now), null);
+});
+
+test("the current view is cut at the database's time even when the browser clock runs ahead", () => {
+  withClockAhead(now, (browserNow) => {
+    const requested = currentOperationAuditFilterV1();
+    const query = operationAuditQueryV1(requested, 20);
+    // The browser sends no clock of its own, so the route passes no observedAt to the gateway.
+    assert.equal(query.has("observedAt"), false);
+    const { filterCut } = canonicalizeOperationAuditFilterCutV1({ pageSize: 20 }, now);
+    assert.equal(filterCut.observed_at, now);
+    assert.equal(operationAuditFilterCutMatchesV1(filterCut, requested), true);
+    // What the browser used to send: its own clock, which the database-time check refuses.
+    assert.throws(
+      () => canonicalizeOperationAuditFilterCutV1({ observedAt: browserNow, pageSize: 20 }, now),
+      /OPERATION_AUDIT_QUERY_INVALID/u,
+    );
+  });
+});
+
+test("a carried cut must come back unchanged, and only a current request accepts the server's instant", () => {
+  const { filterCut } = canonicalizeOperationAuditFilterCutV1({ pageSize: 20 }, now);
+  assert.equal(operationAuditFilterCutMatchesV1(filterCut, { ...filterCut }), true);
+  assert.equal(operationAuditFilterCutMatchesV1(filterCut, { ...filterCut, observed_at: "2026-09-11T03:59:59.000Z" }), false);
+  assert.equal(operationAuditFilterCutMatchesV1(filterCut, { ...currentOperationAuditFilterV1(), range: "24h" }), false);
+  assert.equal(operationAuditQueryV1(filterCut, 20).get("observedAt"), now);
 });

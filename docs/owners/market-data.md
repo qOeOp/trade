@@ -1178,9 +1178,10 @@ with the quote cut paragraph.
 The admission and the user's authority for it are recorded with the one-member target-set vertical in the Strategy
 Factory architecture. For initial Replay composition, the fixed Market Data writer issues the cut through
 `issue_cut` during replay-composition issuance, keyed as the cut-issuance paragraph above states. Built so far: the
-`InstrumentMasterCutV2` cut and its custody table, which an existing table migrates to in place, and economic-terms
-resolution admit one member; the Owner-binding, Native Replay scheduling and the frame sequence do not yet, and
-`issue_cut` has no production caller yet.
+`InstrumentMasterCutV2` cut and its custody table, which an existing table migrates to in place, economic-terms
+resolution, the Owner-binding and the V1 native scheduling seal admit one member; the V1 scheduling receipt hashes a
+two-member universe exactly as before and states the member count for any other. The V2 frame evidence and the frame
+sequence do not admit one member yet, and `issue_cut` has no production caller yet.
 
 **TARGET, durable Strategy Input Binding Registry:** Market Data owns write-once, validated binding declarations
 keyed by the exact PIT request, `StrategyDesignV2` and typed input role. R&D may supply only

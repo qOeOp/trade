@@ -2966,19 +2966,26 @@ mod tests {
     /// line that is emitted are two different histories, and the log a reader greps looks the same
     /// under both, so the absence of that line was read as the handler not having run.
     ///
-    /// `try_init` rather than `init`, because a process may host more than one test.
+    /// It shares the process's one subscriber with the chain's warning collector. Installed as a
+    /// subscriber of its own, it took that slot first and left the collector nowhere to go, so the
+    /// ordered chain reported this entry as not observed. Installed once per process; a process may
+    /// host more than one test.
     #[cfg(all(
         feature = "sealed-artifact-source-browser-acceptance",
         feature = "sealed-source-intake-acceptance"
     ))]
     fn install_acceptance_tracing() {
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(
+        use tracing_subscriber::Layer as _;
+
+        let heard = tracing_subscriber::fmt::layer()
+            .with_test_writer()
+            .with_filter(
                 tracing_subscriber::EnvFilter::try_from_default_env()
                     .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
             )
-            .with_test_writer()
-            .try_init();
+            .boxed();
+        vibe_testkit::postgres::collect_warnings_into_test_log_alongside(Some(heard))
+            .expect("the acceptance subscriber and the warning collector should install");
     }
 
     use std::{
@@ -5065,7 +5072,7 @@ mod tests {
                 research_request_identity: facts.research_request_identity,
                 intent_identity: facts.intent_identity,
                 intent_digest: facts.intent_digest,
-                channel: SingleThresholdChannelV1 {
+                channel: SingleThresholdChannelV1::ExactInstrument {
                     role_semantic_id: "research.input.close.daily.v1".to_owned(),
                     instrument: "AAPL".to_owned(),
                     field_semantic_id: "MARKET_DATA.BAR.CLOSE.PRICE.V1".to_owned(),

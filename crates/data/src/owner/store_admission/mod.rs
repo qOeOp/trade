@@ -3488,7 +3488,7 @@ mod tests {
             snapshot.source_binding_lineage_root,
             snapshot.market_semantics_identity,
             vec![role],
-            ["AAPL.XNAS".into(), "MSFT.XNAS".into()],
+            vec!["AAPL.XNAS".into(), "MSFT.XNAS".into()],
             snapshot.frame_time_ns,
             snapshot.frame_time_ns + 1_000,
         )
