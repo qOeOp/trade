@@ -1334,16 +1334,19 @@ request name one or two canonical Instrument Master identities as its `ResearchI
 admitted on 2026-09-24, and has R&D issue the Intent's initial PIT request from it. Market Data answers that request
 and never chooses the instruments. This is how:
 
-- Fixed-member selection rule. Besides the two rules the canonical evaluator admits today, every frontier member
-  (`[0,1,1]`) and an instrument prefix (`[0,1,2,..]`), a Universe Selection request may carry the fixed-member rule:
-  `[0,1,3]` followed by the scope's canonical bytes, with `selection_rule_identity` equal to the scope identity. Bytes
-  that do not decode as a scope, or any other rule identity, are refused. Market Data evaluates the rule against the
-  eligible-instrument frontier it holds as current at the request's decision cut: the selection includes exactly the
-  requested identities and excludes every other frontier member as `RULE_FILTERED_V1`. A requested identity with no
-  Instrument Master fact at that cut is refused as unresolved, and one with no eligible included fact in the frontier
-  as not in the frontier; neither is dropped from a selection that would then hold fewer members. The current frontier
-  is the latest admitted historical-membership frontier: each admission succeeds the one before it, so Market Data,
-  not the requester, decides which frontier is current.
+- Fixed-member selection rule. Besides the every-member rule (`[0,1,1]`) and the instrument-prefix rule (`[0,1,2,..]`),
+  a Universe Selection request may carry the fixed-member rule: `[0,1,3]` followed by the scope's canonical bytes, with
+  `selection_rule_identity` equal to the scope identity. Bytes that do not decode as a scope, or any other rule
+  identity, are refused as an invalid request. Market Data evaluates the rule against the eligible-instrument frontier
+  it holds as current, and refuses a request that names any other frontier as `UNIVERSE_SELECTION_FRONTIER_NOT_CURRENT`.
+  The selection includes exactly the requested identities and excludes every other frontier member as
+  `RULE_FILTERED_V1`. A requested identity for which the Instrument Master selects no fact in force and observable at
+  the request's instants is refused as `UNIVERSE_SELECTION_MEMBER_UNRESOLVED`, and one that no single member of the
+  frontier includes as `UNIVERSE_SELECTION_MEMBER_NOT_IN_FRONTIER`; neither is dropped from a selection that would then
+  hold fewer members, and no refusal writes a selection. The current frontier is the latest admitted
+  historical-membership frontier: each admission succeeds the one before it, so Market Data, not the requester, decides
+  which frontier is current. A membership fact belongs to the frontier it was admitted under: restating the same fact
+  for another frontier is refused as a conflict.
 - PIT references. R&D resolves every Market Data reference of the initial PIT request through one read,
   `resolve_research_pit_references_v1`, which runs in R&D's own transaction, and supplies nothing of its own. The read
   returns the current eligible-instrument frontier; the locator, lineage root, correction frontier and Market Semantics
@@ -1385,11 +1388,11 @@ and never chooses the instruments. This is how:
   lineage's Source Binding head. The Owner's own decoders and selection rules decide every answer.
 
 Built so far: the PIT intake admits a Universe Selection Record of one or two included members, each keyed by its
-canonical instrument, and refuses any other count or key by name before it writes anything. The current frontier and
-both reads are built: each newly admitted frontier takes the next admission number and the latest numbered one is
-current, a frontier admitted before numbering is never current, and the check and the reference read answer as stated.
-Nothing else: the canonical evaluator admits only the every-member and prefix rules; nothing reads a PIT request by its
-identity; and registration resolves every role by coordinate.
+canonical instrument, and refuses any other count or key by name before it writes anything. The current frontier, the
+fixed-member rule and both reads are built: each newly admitted frontier takes the next admission number and the latest
+numbered one is current, a frontier admitted before numbering is never current, the fixed-member rule and its three
+refusals answer as stated, and so do the check and the reference read. Nothing else: nothing reads a PIT request by its
+identity, and registration resolves every role by coordinate.
 
 Market Data consumes, but does not define or reinterpret, the explicit big-endian R&D canonical binary codec
 specified in the R&D Owner contract. Its JSON representation is not canonical receipt material. Registration

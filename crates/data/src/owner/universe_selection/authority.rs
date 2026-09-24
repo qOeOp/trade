@@ -11,6 +11,9 @@ use super::{
     UntrustedUniverseSelectionRequestV1,
     codec::{self, Decoder, Encoder},
 };
+use crate::owner::research_instrument_scope_v1::{
+    FIXED_MEMBER_SELECTION_RULE_PREFIX_V1, ResearchInstrumentScopeV1,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct HistoricalMembershipFactProposalV1 {
@@ -71,21 +74,47 @@ pub(crate) trait UniverseSelectionRuleEvaluatorV1: Send + Sync {
     ) -> Result<UniverseMembershipDispositionV1, UniverseSelectionErrorV1>;
 }
 
+/// The Research instrument scope a fixed-member rule selects, or `None` for any other rule.
+///
+/// A rule that starts with the fixed-member prefix is that rule or nothing: bytes after the prefix
+/// that do not decode as a scope, or a rule identity that is not the scope's identity, are refused
+/// rather than read as some other rule.
+pub(crate) fn fixed_member_scope_v1(
+    selection_rule_identity: UniverseSelectionIdentity,
+    selection_rule_bytes: &[u8],
+) -> Result<Option<ResearchInstrumentScopeV1>, UniverseSelectionErrorV1> {
+    if !selection_rule_bytes.starts_with(&FIXED_MEMBER_SELECTION_RULE_PREFIX_V1) {
+        return Ok(None);
+    }
+    let scope = ResearchInstrumentScopeV1::from_fixed_member_selection_rule(selection_rule_bytes)
+        .map_err(|_| UniverseSelectionErrorV1::InvalidRequest)?;
+
+    if scope.identity() != selection_rule_identity {
+        return Err(UniverseSelectionErrorV1::InvalidRequest);
+    }
+    Ok(Some(scope))
+}
+
 /// Owner-private deterministic grammar: `00 01 01` selects all; `00 01 02 <prefix>` selects
-/// instruments having the supplied non-empty byte prefix. Unsupported rules fail closed.
+/// instruments having the supplied non-empty byte prefix; `00 01 03 <scope>` selects exactly the
+/// instruments a Research request's scope names. Unsupported rules fail closed.
 pub(crate) struct CanonicalUniverseSelectionRuleEvaluatorV1;
 
 impl UniverseSelectionRuleEvaluatorV1 for CanonicalUniverseSelectionRuleEvaluatorV1 {
     fn evaluate(
         &self,
-        _selection_rule_identity: UniverseSelectionIdentity,
+        selection_rule_identity: UniverseSelectionIdentity,
         selection_rule_bytes: &[u8],
         fact: &HistoricalMembershipSourceFactV1,
     ) -> Result<UniverseMembershipDispositionV1, UniverseSelectionErrorV1> {
         let included = match selection_rule_bytes {
             [0, 1, 1] => true,
             [0, 1, 2, prefix @ ..] if !prefix.is_empty() => fact.instrument().starts_with(prefix),
-            _ => return Err(UniverseSelectionErrorV1::EvaluatorUnavailable),
+            _ => fixed_member_scope_v1(selection_rule_identity, selection_rule_bytes)?
+                .ok_or(UniverseSelectionErrorV1::EvaluatorUnavailable)?
+                .identities()
+                .iter()
+                .any(|identity| identity.as_bytes() == fact.instrument()),
         };
         Ok(UniverseMembershipDispositionV1 {
             included,

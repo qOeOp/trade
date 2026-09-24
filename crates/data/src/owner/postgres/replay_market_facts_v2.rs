@@ -2888,7 +2888,10 @@ pub(in crate::owner) async fn recover_bound_universe_selection_in_transaction_v1
         | Selection::EvaluatorUnavailable
         | Selection::StoreUntrusted
         | Selection::CommitInterrupted
-        | Selection::ResponseLost => BoundUniverseSelectionErrorV1::CustodyMismatch,
+        | Selection::ResponseLost
+        | Selection::FrontierNotCurrent
+        | Selection::FixedMemberUnresolved
+        | Selection::FixedMemberNotInFrontier => BoundUniverseSelectionErrorV1::CustodyMismatch,
     })
 }
 

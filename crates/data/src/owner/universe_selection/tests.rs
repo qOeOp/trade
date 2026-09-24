@@ -197,3 +197,87 @@ fn instrument_master_adapter_consumes_only_owner_selected_members() {
         .unwrap();
     assert_eq!(membership.members, vec!["AAPL.XNAS"]);
 }
+
+fn fixed_member_request(
+    rule_identity: Option<BindingDigest>,
+    rule_bytes: Vec<u8>,
+) -> UntrustedUniverseSelectionRequestV1 {
+    let scope =
+        crate::owner::research_instrument_scope_v1::ResearchInstrumentScopeV1::from_identities(
+            vec!["MSFT.XNAS".into()],
+        )
+        .unwrap();
+    UntrustedUniverseSelectionRequestV1::new(
+        digest(1),
+        "RESEARCH_OWNER_V1",
+        rule_identity.unwrap_or(scope.identity()),
+        if rule_bytes.is_empty() {
+            scope.fixed_member_selection_rule_bytes()
+        } else {
+            rule_bytes
+        },
+        digest(3),
+        10,
+        20,
+        7,
+        digest(4),
+        digest(5),
+        digest(6),
+    )
+}
+
+#[rstest]
+fn the_fixed_member_rule_includes_exactly_the_scopes_instruments() {
+    let readback = select(
+        &fixed_member_request(None, Vec::new()),
+        vec![
+            fact(b"MSFT", b"MSFT.XNAS", 7, 20),
+            fact(b"AAPL", b"AAPL.XNAS", 7, 20),
+        ],
+        &[b"AAPL", b"MSFT"],
+    )
+    .unwrap();
+    let membership = readback
+        .record()
+        .membership()
+        .iter()
+        .map(|member| {
+            (
+                member.instrument(),
+                member.included(),
+                member.exclusion_reason(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        membership,
+        [
+            (
+                b"AAPL.XNAS".as_slice(),
+                false,
+                Some(b"RULE_FILTERED_V1".as_slice())
+            ),
+            (b"MSFT.XNAS".as_slice(), true, None),
+        ]
+    );
+    assert!(verify_universe_selection_readback_v1(&readback));
+}
+
+#[rstest]
+#[case::another_rule_identity(Some(digest(2)), Vec::new())]
+#[case::bytes_that_are_no_scope(None, vec![0, 1, 3, 9])]
+#[case::the_prefix_alone(None, vec![0, 1, 3])]
+fn a_fixed_member_rule_that_does_not_state_its_scope_is_refused(
+    #[case] rule_identity: Option<BindingDigest>,
+    #[case] rule_bytes: Vec<u8>,
+) {
+    assert_eq!(
+        select(
+            &fixed_member_request(rule_identity, rule_bytes),
+            vec![fact(b"MSFT", b"MSFT.XNAS", 7, 20)],
+            &[b"MSFT"],
+        )
+        .unwrap_err(),
+        UniverseSelectionErrorV1::InvalidRequest
+    );
+}

@@ -318,6 +318,18 @@ fn universe_error(error: UniverseSelectionAdmissionErrorV1) -> Response {
             StatusCode::SERVICE_UNAVAILABLE,
             "MARKET_DATA_OWNER_UNAVAILABLE",
         ),
+        UniverseSelectionAdmissionErrorV1::FrontierNotCurrent => (
+            StatusCode::CONFLICT,
+            "UNIVERSE_SELECTION_FRONTIER_NOT_CURRENT",
+        ),
+        UniverseSelectionAdmissionErrorV1::FixedMemberUnresolved => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "UNIVERSE_SELECTION_MEMBER_UNRESOLVED",
+        ),
+        UniverseSelectionAdmissionErrorV1::FixedMemberNotInFrontier => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "UNIVERSE_SELECTION_MEMBER_NOT_IN_FRONTIER",
+        ),
     };
     rejection(status, code)
 }

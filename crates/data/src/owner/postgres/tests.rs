@@ -2444,6 +2444,112 @@ async fn research_scope_reads_oracle_v1(
     );
 }
 
+/// A Universe Selection request under the fixed-member rule selects exactly the instruments a
+/// Research request's scope names, from the frontier Market Data holds as current.
+///
+/// The named instruments are included and every other member is excluded as filtered. A request
+/// naming an older frontier, an instrument with no Instrument Master fact at the request's
+/// instants, or one that is not a member of the current frontier is refused by name, and none of
+/// them writes a selection.
+async fn fixed_member_selection_oracle_v1(
+    owner: &MarketDataOwnerPostgres,
+    source: &SourceBindingCommit,
+) {
+    use super::universe_selection::resolve_universe_selection_in_transaction_v1;
+    use crate::owner::research_instrument_scope_v1::ResearchInstrumentScopeV1;
+    use crate::owner::universe_selection::authority::CanonicalUniverseSelectionRuleEvaluatorV1;
+
+    let cut = super::public_decision_cut_v1(&owner.current_clock_admission_v1().await.unwrap());
+    let lineage = source.fact().lineage_root();
+    let instant = i128::from(cut.decision_cut);
+    let request = |identity: u8, frontier: BindingDigest, identities: &[&str]| {
+        let scope = ResearchInstrumentScopeV1::from_identities(
+            identities
+                .iter()
+                .map(|identity| (*identity).to_owned())
+                .collect(),
+        )
+        .unwrap();
+        UntrustedUniverseSelectionRequestV1::new(
+            d(identity),
+            "rd_owner",
+            scope.identity(),
+            scope.fixed_member_selection_rule_bytes(),
+            frontier,
+            instant,
+            instant,
+            cut.decision_cut,
+            lineage,
+            d(86),
+            d(identity),
+        )
+    };
+    let evaluate = async |request: &UntrustedUniverseSelectionRequestV1| {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        let outcome = resolve_universe_selection_in_transaction_v1(
+            &mut transaction,
+            request,
+            Some(&CanonicalUniverseSelectionRuleEvaluatorV1),
+        )
+        .await;
+        transaction.commit().await.unwrap();
+        outcome
+    };
+    let selections = async || -> i64 {
+        sqlx::query_scalar("SELECT COUNT(*) FROM market_data_private.universe_selection_records_v1")
+            .fetch_one(owner.pool())
+            .await
+            .unwrap()
+    };
+
+    admit_research_frontier_v1(
+        owner,
+        d(213),
+        (99, 93),
+        &[(b"AAPL", lineage, d(86)), (b"MSFT", lineage, d(86))],
+    )
+    .await;
+    let before = selections().await;
+    let selected = evaluate(&request(214, d(213), &["AAPL"]))
+        .await
+        .expect("the current frontier answers a fixed-member request");
+    let membership = selected
+        .record()
+        .membership()
+        .iter()
+        .map(|member| (member.instrument().to_vec(), member.included()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        membership,
+        [(b"AAPL".to_vec(), true), (b"MSFT".to_vec(), false)],
+        "exactly the requested instrument is included"
+    );
+    assert_eq!(selections().await, before + 1);
+
+    admit_research_frontier_v1(owner, d(215), (99, 94), &[(b"MSFT", lineage, d(86))]).await;
+    for (refused, expected) in [
+        (
+            request(216, d(213), &["AAPL"]),
+            UniverseSelectionErrorV1::FrontierNotCurrent,
+        ),
+        (
+            request(217, d(215), &["MSFT", "NOPE"]),
+            UniverseSelectionErrorV1::FixedMemberUnresolved,
+        ),
+        (
+            request(218, d(215), &["AAPL"]),
+            UniverseSelectionErrorV1::FixedMemberNotInFrontier,
+        ),
+    ] {
+        assert_eq!(evaluate(&refused).await.map(|_| ()), Err(expected));
+    }
+    assert_eq!(
+        selections().await,
+        before + 1,
+        "refusals write no selection"
+    );
+}
+
 async fn strategy_input_binding_registry_postgres_oracle(
     owner: &MarketDataOwnerPostgres,
     source: &SourceBindingCommit,
@@ -4480,6 +4586,7 @@ async fn instrument_master_postgres_oracle(owner_url: &str, reader_url: &str, ad
     .await;
     Box::pin(current_eligible_frontier_oracle_v1(&owner, &source)).await;
     Box::pin(research_scope_reads_oracle_v1(&owner, &source)).await;
+    Box::pin(fixed_member_selection_oracle_v1(&owner, &source)).await;
     Box::pin(persisted_strategy_input_custody_postgres_oracle_v1(
         &owner,
         &registry_fixture,

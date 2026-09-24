@@ -1233,14 +1233,16 @@ Data 不依赖 R&D，不拥有也不重新解释 Strategy Design role/join。
 以其 `ResearchInstrumentScopeV1` 指名一到两个规范 Instrument Master identity（用户于 2026-09-24 准入），并由 R&D
 据此签发 Intent 的初始 PIT request。Market Data 回答该 request，从不替用户选择 instrument。具体如下：
 
-- 固定成员 selection rule。在 canonical evaluator 今天准入的两种 rule（全部 frontier member `[0,1,1]` 与
-  instrument 前缀 `[0,1,2,..]`）之外，Universe Selection request 可以携带固定成员 rule：`[0,1,3]` 后接该 scope 的
-  canonical bytes，且 `selection_rule_identity` 等于 scope identity。无法解码为 scope 的 bytes、或任何其他 rule
-  identity 都被拒绝。Market Data 在 request 的 decision cut 上，对其当前持有的 eligible-instrument frontier 求值：
-  selection 恰好包含所请求的 identity，其余 frontier member 一律以 `RULE_FILTERED_V1` 排除。某个请求的 identity
-  在该 cut 上没有 Instrument Master fact 时按「unresolved」拒绝；在 frontier 中没有 eligible 且 included 的 fact
-  时按「不在 frontier 中」拒绝；二者都不会从 selection 中被丢弃而使 selection 成员变少。当前 frontier 是最近一次准入的
-  historical-membership frontier：每次准入都承接前一个 frontier，因此由 Market Data 而非请求方决定哪个 frontier 是当前的。
+- 固定成员 selection rule。在全部成员 rule（`[0,1,1]`）与 instrument 前缀 rule（`[0,1,2,..]`）之外，Universe Selection
+  request 可以携带固定成员 rule：`[0,1,3]` 后接该 scope 的 canonical bytes，且 `selection_rule_identity` 等于 scope
+  identity。无法解码为 scope 的 bytes、或任何其他 rule identity，都按无效请求拒绝。Market Data 对其当前持有的
+  eligible-instrument frontier 求值，指名其他 frontier 的请求按 `UNIVERSE_SELECTION_FRONTIER_NOT_CURRENT` 拒绝。
+  selection 恰好包含所请求的 identity，其余 frontier member 一律以 `RULE_FILTERED_V1` 排除。某个请求的 identity，若
+  Instrument Master 在请求的各时刻上选不出生效且可观察的 fact，按 `UNIVERSE_SELECTION_MEMBER_UNRESOLVED` 拒绝；若
+  frontier 中没有唯一一个 member 包含它，按 `UNIVERSE_SELECTION_MEMBER_NOT_IN_FRONTIER` 拒绝；二者都不会从 selection 中
+  被丢弃而使 selection 成员变少，任何拒绝都不写入 selection。当前 frontier 是最近一次准入的 historical-membership
+  frontier：每次准入都承接前一个 frontier，因此由 Market Data 而非请求方决定哪个 frontier 是当前的。membership fact 属于
+  它被准入时的 frontier：为另一个 frontier 重述同一条 fact 按冲突拒绝。
 - PIT 引用。R&D 通过一个读取 `resolve_research_pit_references_v1` 解析初始 PIT request 的全部 Market Data 引用，该读取在
   R&D 自己的事务里运行，R&D 不自行提供任何值。它返回当前 eligible-instrument frontier；所请求 identity 的 frontier fact
   所指名的那一条 Source Binding lineage 的 locator、lineage root、correction frontier 与 Market Semantics identity；以及
@@ -1276,9 +1278,9 @@ Data 不依赖 R&D，不拥有也不重新解释 Strategy Design role/join。
   decoder 与选择规则决定。
 
 目前已建成：PIT intake 准入含一个或两个 included 成员的 Universe Selection Record，每个成员的 key 即其 canonical
-instrument；其他成员数或 key 在写入任何东西之前按名拒绝。当前 frontier 与两个读取已建成：每个新准入的 frontier 取下一个
-准入序号，序号最大的即为当前 frontier，在编号之前准入的 frontier 永远不是当前的，检查与引用读取按上文作答。除此之外无：
-canonical evaluator 只准入全部成员与前缀两种 rule；没有任何代码按 identity 读取 PIT request；registration 按坐标解析每个
+instrument；其他成员数或 key 在写入任何东西之前按名拒绝。当前 frontier、固定成员 rule 与两个读取已建成：每个新准入的
+frontier 取下一个准入序号，序号最大的即为当前 frontier，在编号之前准入的 frontier 永远不是当前的；固定成员 rule 及其三种
+拒绝按上文作答，检查与引用读取亦然。除此之外无：没有任何代码按 identity 读取 PIT request，registration 按坐标解析每个
 role。
 
 Market Data 只消费、但不定义也不重新解释 R&D Owner contract 中明确规定的 big-endian canonical binary
