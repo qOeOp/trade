@@ -207,19 +207,41 @@ pub(super) async fn resolve_universe_selection_in_transaction_v1(
     let sequence = u64::try_from(sequence).map_err(|_| UniverseSelectionErrorV1::StoreUntrusted)?;
     let readback = issue_universe_selection_readback_v1(request, membership, generation, sequence)?;
     validate_aggregate_size(&readback)?;
+    insert_readback_rows(transaction, &readback, sequence).await?;
+    Ok(readback)
+}
+
+/// Writes one issued selection's record, receipt, and outbox rows; the only writer of all three.
+async fn insert_readback_rows(
+    transaction: &mut Transaction<'_, Postgres>,
+    readback: &UniverseSelectionReadbackV1,
+    sequence: u64,
+) -> Result<(), UniverseSelectionErrorV1> {
+    let record = readback.record();
     sqlx::query("INSERT INTO market_data_private.universe_selection_records_v1(selection_identity,request_identity,request_meaning_digest,record_bytes) VALUES($1,$2,$3,$4)")
-        .bind(readback.record().identity().as_bytes().as_slice()).bind(request.request_identity().as_bytes().as_slice())
-        .bind(request.request_meaning_digest().as_bytes().as_slice()).bind(readback.record().canonical_bytes())
+        .bind(record.identity().as_bytes().as_slice()).bind(record.request_identity().as_bytes().as_slice())
+        .bind(record.request_meaning_digest().as_bytes().as_slice()).bind(record.canonical_bytes())
         .execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     sqlx::query("INSERT INTO market_data_private.universe_selection_receipts_v1(request_identity,request_meaning_digest,selection_identity,receipt_identity,receipt_bytes,append_sequence) VALUES($1,$2,$3,$4,$5,$6)")
-        .bind(request.request_identity().as_bytes().as_slice()).bind(request.request_meaning_digest().as_bytes().as_slice())
-        .bind(readback.record().identity().as_bytes().as_slice()).bind(readback.receipt().identity().as_bytes().as_slice())
+        .bind(record.request_identity().as_bytes().as_slice()).bind(record.request_meaning_digest().as_bytes().as_slice())
+        .bind(record.identity().as_bytes().as_slice()).bind(readback.receipt().identity().as_bytes().as_slice())
         .bind(readback.receipt().canonical_bytes()).bind(i64::try_from(sequence).map_err(|_| UniverseSelectionErrorV1::CapacityExceeded)?)
         .execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
     sqlx::query("INSERT INTO market_data_private.universe_selection_outbox_v1(outbox_identity,request_identity,receipt_bytes) VALUES($1,$2,$3)")
-        .bind(readback.outbox_identity().as_bytes().as_slice()).bind(request.request_identity().as_bytes().as_slice())
+        .bind(readback.outbox_identity().as_bytes().as_slice()).bind(record.request_identity().as_bytes().as_slice())
         .bind(readback.receipt().canonical_bytes()).execute(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
-    Ok(readback)
+    Ok(())
+}
+
+/// Stores a selection the Owner issued in memory through the same rows its resolver writes, for
+/// a test that needs a persisted selection without the membership frontier behind it.
+#[cfg(test)]
+pub(in crate::owner) async fn persist_issued_readback_for_test(
+    transaction: &mut Transaction<'_, Postgres>,
+    readback: &UniverseSelectionReadbackV1,
+    sequence: u64,
+) -> Result<(), UniverseSelectionErrorV1> {
+    insert_readback_rows(transaction, readback, sequence).await
 }
 
 pub(super) async fn recover_universe_selection_in_transaction_v1(
@@ -232,6 +254,34 @@ pub(super) async fn recover_universe_selection_in_transaction_v1(
         .ok_or(UniverseSelectionErrorV1::UnknownIdentity)?;
     if readback.record().request_meaning_digest() != locator.request_meaning_digest() {
         return Err(UniverseSelectionErrorV1::RequestConflict);
+    }
+    Ok(readback)
+}
+
+/// Reads the one Universe Selection with this record identity and digest, without locking it.
+///
+/// A composition binding names the selection it bound by record, not by request, so the
+/// bound-replay Instrument Master cut issuance finds it this way. Selection rows are append-only
+/// and the read runs in the caller's snapshot, so it needs no lock; taking none means it can never
+/// wait on a transaction that holds the selection's rows.
+pub(super) async fn recover_universe_selection_by_record_in_transaction_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    identity: BindingDigest,
+    digest: BindingDigest,
+) -> Result<UniverseSelectionReadbackV1, UniverseSelectionErrorV1> {
+    let request_identity: Vec<u8> = sqlx::query_scalar(
+        "SELECT request_identity FROM market_data_private.universe_selection_records_v1 WHERE selection_identity=$1",
+    )
+    .bind(identity.as_bytes().as_slice())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|cause| store_error(&cause))?
+    .ok_or(UniverseSelectionErrorV1::UnknownIdentity)?;
+    let readback = load_readback(transaction, digest_from_row(request_identity)?, false)
+        .await?
+        .ok_or(UniverseSelectionErrorV1::StoreUntrusted)?;
+    if readback.record().identity() != identity || readback.record().digest() != digest {
+        return Err(UniverseSelectionErrorV1::DigestMismatch);
     }
     Ok(readback)
 }

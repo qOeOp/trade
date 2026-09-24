@@ -531,7 +531,7 @@ async fn validate_market_data_resolution_binding(
              AND procedure.provolatile='v'
              AND procedure.proparallel='u'
              AND procedure.proisstrict
-             AND procedure.proconfig=ARRAY['search_path=pg_catalog']::text[]
+             AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[]
              AND procedure.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
              AND procedure.proargtypes='25 25 25 25'::pg_catalog.oidvector
              AND language.lanname='plpgsql'

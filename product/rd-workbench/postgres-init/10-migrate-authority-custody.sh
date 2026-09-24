@@ -878,7 +878,7 @@ CREATE OR REPLACE FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(
   requested_seal_digest text
 )
 RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
         DECLARE base jsonb;
         DECLARE sealed record;
@@ -1122,7 +1122,7 @@ CREATE OR REPLACE FUNCTION rd_owner_api.lock_exploratory_replay_request_for_mark
   requested_seal_digest text
 )
 RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$DECLARE result jsonb; BEGIN IF session_user <> 'market_data_owner' OR current_user <> 'rd_exploratory_replay_api_owner' OR pg_catalog.current_setting('transaction_isolation') <> 'serializable' THEN RETURN NULL; END IF; result := rd_owner_api.verify_exploratory_replay_request_internal_v3(requested_request_identity,requested_meaning_digest,requested_receipt_identity,requested_seal_digest); IF result IS NOT NULL THEN RETURN result; END IF; RETURN rd_owner_api.verify_exploratory_replay_request_internal_v2(requested_request_identity,requested_meaning_digest,requested_receipt_identity,requested_seal_digest); END$function$;
 -- END MARKET_DATA_LOCK_SOURCE_V1
 
@@ -1706,7 +1706,7 @@ CREATE OR REPLACE FUNCTION backtest_owner_api.resolve_protected_replay_result_v1
   p_request_identity text,
   p_attempt_identity text
 ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE locked jsonb;
 BEGIN
@@ -1763,7 +1763,7 @@ CREATE OR REPLACE FUNCTION backtest_owner_api.resolve_protected_replay_attempt_f
   p_frontier_identity text,
   p_frontier_digest text
 ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE locked jsonb;
 BEGIN
@@ -2325,7 +2325,7 @@ GRANT SELECT, INSERT ON TABLE public.qualification_holdout_treatment_registratio
 
 CREATE OR REPLACE FUNCTION rd_owner_api.lock_ready_for_selection_for_qualification_v1(requested_decision_identity text, requested_result_identity text)
 RETURNS TABLE(candidate_json jsonb, candidate_storage_bytes bytea, candidate_storage_digest text, selection_json jsonb, selection_storage_bytes bytea, selection_storage_digest text, selection_receipt_json jsonb, selection_receipt_storage_bytes bytea, selection_receipt_storage_digest text, candidate_outbox_count bigint, selection_outbox_count bigint, selection_outbox_json jsonb, selection_outbox_digest text, selection_outbox_committed_at_epoch_ms bigint)
-LANGUAGE sql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path = pg_catalog
+LANGUAGE sql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path = pg_catalog, pg_temp
 AS $function$
   SELECT candidate.candidate_json,
          candidate.candidate_storage_bytes,
@@ -3667,7 +3667,7 @@ CREATE OR REPLACE FUNCTION rd_owner_api.lock_independence_basis_for_qualificatio
   requested_request_scope jsonb
 )
 RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
   locked_basis record;

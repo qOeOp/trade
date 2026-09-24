@@ -16,7 +16,6 @@ use sha2::{Digest, Sha256};
 use sqlx::{Postgres, Transaction};
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use strategy_factory_program_sdk::lifecycle_v2::TARGET_SET_BYTES;
-use vibe_common::{clock::Clock, live::clock::LiveClock};
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use vibe_data::owner::pit_snapshot::sealed_acceptance::{
     SealedAcceptanceExactInstrumentBarFrame, SealedAcceptanceStrategyInputUniverseFrame,
@@ -1504,12 +1503,15 @@ impl DevelopComposerReadbackOwnerPortV2 for PostgresDevelopComposerReadbackOwner
         &self,
         request_identity: &str,
     ) -> Result<DevelopComposerOperationResponseV2, DevelopComposerReadbackOwnerErrorV2> {
-        let read_cut_epoch_ms = current_read_cut_epoch_ms();
         let mut transaction = self
             .store
             .begin_read_transaction()
             .await
             .map_err(|_| DevelopComposerReadbackOwnerErrorV2::Unavailable)?;
+        let read_cut_epoch_ms =
+            crate::rd_owner_clock::owner_clock_epoch_ms_in_transaction(&mut transaction)
+                .await
+                .map_err(|_| DevelopComposerReadbackOwnerErrorV2::Unavailable)?;
         let record = self
             .store
             .load_record_in_transaction(&mut transaction, request_identity)
@@ -1592,8 +1594,10 @@ where
         &self,
         research_request_locator: &str,
     ) -> Result<SourceResearchComposerRequestProjectionV2, sqlx::Error> {
-        let read_cut_epoch_ms = current_read_cut_epoch_ms();
         let mut owner_transaction = self.store.begin_read_transaction().await?;
+        let read_cut_epoch_ms =
+            crate::rd_owner_clock::owner_clock_epoch_ms_in_transaction(&mut owner_transaction)
+                .await?;
         let research = self
             .lock_research_for_locator(
                 &mut owner_transaction,
@@ -1625,10 +1629,12 @@ where
         producer: &mut DevelopPluginBuildProducerV3,
         research_request_locator: &str,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
-        let read_cut_epoch_ms = current_read_cut_epoch_ms();
         PrimitiveCatalogV1::verify()
             .map_err(|_| composer_terminal_protocol(bfp_restart_unavailable()))?;
         let mut owner_transaction = self.store.begin_read_transaction().await?;
+        let read_cut_epoch_ms =
+            crate::rd_owner_clock::owner_clock_epoch_ms_in_transaction(&mut owner_transaction)
+                .await?;
         let research = match Box::pin(self.lock_research_for_locator(
             &mut owner_transaction,
             research_request_locator,
@@ -1822,8 +1828,10 @@ where
         research_request_locator: &str,
         control: Option<ComposerRunControlV2>,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
-        let read_cut_epoch_ms = current_read_cut_epoch_ms();
         let mut owner_transaction = self.store.begin_read_transaction().await?;
+        let read_cut_epoch_ms =
+            crate::rd_owner_clock::owner_clock_epoch_ms_in_transaction(&mut owner_transaction)
+                .await?;
         let research = match Box::pin(self.lock_research_for_locator(
             &mut owner_transaction,
             research_request_locator,
@@ -1932,7 +1940,6 @@ where
         request_identity: &str,
         tamper: Option<ComposerResolveTamperV2>,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
-        let read_cut_epoch_ms = current_read_cut_epoch_ms();
         let Some(locator) = self
             .store
             .durable_evidence_locator(request_identity)
@@ -1942,6 +1949,9 @@ where
         };
 
         let mut owner_transaction = self.store.begin_read_transaction().await?;
+        let read_cut_epoch_ms =
+            crate::rd_owner_clock::owner_clock_epoch_ms_in_transaction(&mut owner_transaction)
+                .await?;
         let locked = Box::pin(self.lock_resolve_evidence(
             &mut owner_transaction,
             &locator,
@@ -2523,23 +2533,24 @@ where
         .begin_read_transaction()
         .await
         .map_err(|e| sealed_read_refused("develop_composer.owner_evidence_read.begin", &e))?;
-    let locked = Box::pin(composer.lock_resolve_evidence(
-        &mut transaction,
-        &durable,
-        current_read_cut_epoch_ms(),
-    ))
-    .await
-    .map_err(|e| {
-        sealed_read_refused(
-            "develop_composer.owner_evidence_read.lock_evidence",
-            &format!("{e:?}"),
-        )
-    })?;
+    let read_cut_epoch_ms =
+        crate::rd_owner_clock::owner_clock_epoch_ms_in_transaction(&mut transaction)
+            .await
+            .map_err(|e| sealed_read_refused("develop_composer.owner_evidence_read.clock", &e))?;
+    let locked =
+        Box::pin(composer.lock_resolve_evidence(&mut transaction, &durable, read_cut_epoch_ms))
+            .await
+            .map_err(|e| {
+                sealed_read_refused(
+                    "develop_composer.owner_evidence_read.lock_evidence",
+                    &format!("{e:?}"),
+                )
+            })?;
     let frozen = matching_current_bfp_v3(
         &mut transaction,
         &locked.research,
         &durable,
-        current_read_cut_epoch_ms(),
+        read_cut_epoch_ms,
     )
     .await;
     let readback = if let Some(frozen) = frozen {
@@ -2801,10 +2812,6 @@ fn terminal_response_for_identity(
         coordinate: Some(terminal.coordinate),
         reason: Some(terminal.reason),
     }
-}
-
-fn current_read_cut_epoch_ms() -> u64 {
-    LiveClock::default().timestamp_ms()
 }
 
 #[derive(Clone)]

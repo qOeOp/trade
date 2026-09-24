@@ -71,7 +71,29 @@ pub struct ApiState {
     pub exploratory_replay_historical_rejection_readback:
         Arc<dyn ExploratoryReplayHistoricalRejectionOwnerPortV1>,
     pub historical_custody: Arc<dyn HistoricalCustodyOwnerPortV1>,
+    pub backtest_run_report: Arc<dyn BacktestRunReportOwnerPortV1>,
     pub token_digest: [u8; 32],
+}
+
+/// The Backtest Owner's answer about one run's report, in the three kinds this read API relays.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BacktestRunReportAnswerV1 {
+    /// The Owner's projection, serialized exactly as the Owner defines it.
+    Report(Vec<u8>),
+    /// No run exists for this locator.
+    Absent,
+    /// The Owner refused to state a report, under its own code.
+    Refused(&'static str),
+    /// The Owner could not be asked, so there is no answer to relay.
+    Unavailable,
+}
+
+#[async_trait::async_trait]
+pub trait BacktestRunReportOwnerPortV1: Send + Sync {
+    async fn read_backtest_run_report(
+        &self,
+        locator: ExploratoryReplayResultLocatorV2<'_>,
+    ) -> BacktestRunReportAnswerV1;
 }
 
 #[async_trait::async_trait]
@@ -122,6 +144,30 @@ impl ExploratoryReplayHistoricalRejectionOwnerPortV1 for PostgresExploratoryRepl
     {
         self.read_historical_exploratory_replay_rejection_v1(selector)
             .await
+    }
+}
+
+#[async_trait::async_trait]
+impl BacktestRunReportOwnerPortV1 for PostgresExploratoryReplayReadbackOwnerV2 {
+    async fn read_backtest_run_report(
+        &self,
+        locator: ExploratoryReplayResultLocatorV2<'_>,
+    ) -> BacktestRunReportAnswerV1 {
+        match self.resolve_backtest_run_report_v1(locator).await {
+            Ok(Some(report)) => match serde_json::to_vec(&report) {
+                Ok(bytes) => BacktestRunReportAnswerV1::Report(bytes),
+                Err(e) => {
+                    tracing::warn!(%e, "Backtest run report projection did not serialize");
+                    BacktestRunReportAnswerV1::Unavailable
+                }
+            },
+            Ok(None) => BacktestRunReportAnswerV1::Absent,
+            // The code reaches the page; the sentence, which can carry storage detail, stays here.
+            Err(refusal) => {
+                tracing::warn!(%refusal, code = refusal.code(), "Backtest run report refused");
+                BacktestRunReportAnswerV1::Refused(refusal.code())
+            }
+        }
     }
 }
 
@@ -261,6 +307,16 @@ impl ExploratoryReplayResultReadbackOwnerPortV2 for UnavailableExploratoryReplay
 }
 
 #[async_trait::async_trait]
+impl BacktestRunReportOwnerPortV1 for UnavailableExploratoryReplayReadbackV2 {
+    async fn read_backtest_run_report(
+        &self,
+        _locator: ExploratoryReplayResultLocatorV2<'_>,
+    ) -> BacktestRunReportAnswerV1 {
+        BacktestRunReportAnswerV1::Unavailable
+    }
+}
+
+#[async_trait::async_trait]
 impl ExploratoryReplayHistoricalRejectionOwnerPortV1 for UnavailableExploratoryReplayReadbackV2 {
     async fn read_historical_rejection(
         &self,
@@ -374,6 +430,34 @@ impl DashboardReadApiConfigV1 {
 /// # Errors
 ///
 /// Returns an error when the Research readback adapter cannot connect.
+/// The four read ports one Exploratory Replay readback capability serves, bound together so a
+/// composition cannot take some from one capability and the rest from another.
+struct ExploratoryReplayPortsV1 {
+    readback: Arc<dyn ExploratoryReplayReadbackOwnerPortV2>,
+    result: Arc<dyn ExploratoryReplayResultReadbackOwnerPortV2>,
+    historical_rejection: Arc<dyn ExploratoryReplayHistoricalRejectionOwnerPortV1>,
+    run_report: Arc<dyn BacktestRunReportOwnerPortV1>,
+}
+
+impl ExploratoryReplayPortsV1 {
+    fn of<T>(capability: T) -> Self
+    where
+        T: ExploratoryReplayReadbackOwnerPortV2
+            + ExploratoryReplayResultReadbackOwnerPortV2
+            + ExploratoryReplayHistoricalRejectionOwnerPortV1
+            + BacktestRunReportOwnerPortV1
+            + 'static,
+    {
+        let capability = Arc::new(capability);
+        Self {
+            readback: capability.clone(),
+            result: capability.clone(),
+            historical_rejection: capability.clone(),
+            run_report: capability,
+        }
+    }
+}
+
 pub async fn compose_state(config: &DashboardReadApiConfigV1) -> anyhow::Result<ApiState> {
     let database_url = config.owner_database_url.as_str();
     let (artifact_directory, artifact_readback, artifact_source): (
@@ -411,21 +495,14 @@ pub async fn compose_state(config: &DashboardReadApiConfigV1) -> anyhow::Result<
                 Arc::new(UnavailableDashboardJourneyReadbackV1)
             }
         };
-    let (exploratory_replay, exploratory_replay_result, exploratory_replay_historical_rejection): (
-        Arc<dyn ExploratoryReplayReadbackOwnerPortV2>,
-        Arc<dyn ExploratoryReplayResultReadbackOwnerPortV2>,
-        Arc<dyn ExploratoryReplayHistoricalRejectionOwnerPortV1>,
-    ) = match PostgresExploratoryReplayReadbackOwnerV2::connect(database_url).await {
-        Ok(readback) => {
-            let readback = Arc::new(readback);
-            (readback.clone(), readback.clone(), readback)
-        }
-        Err(_) => {
-            tracing::warn!("Exploratory Replay Dashboard readback capability unavailable");
-            let readback = Arc::new(UnavailableExploratoryReplayReadbackV2);
-            (readback.clone(), readback.clone(), readback)
-        }
-    };
+    let exploratory_replay_ports =
+        match PostgresExploratoryReplayReadbackOwnerV2::connect(database_url).await {
+            Ok(readback) => ExploratoryReplayPortsV1::of(readback),
+            Err(_) => {
+                tracing::warn!("Exploratory Replay Dashboard readback capability unavailable");
+                ExploratoryReplayPortsV1::of(UnavailableExploratoryReplayReadbackV2)
+            }
+        };
     let historical_custody: Arc<dyn HistoricalCustodyOwnerPortV1> =
         match PostgresHistoricalCustodyOwnerV1::connect_read_only(database_url).await {
             Ok(readback) => Arc::new(readback),
@@ -448,10 +525,12 @@ pub async fn compose_state(config: &DashboardReadApiConfigV1) -> anyhow::Result<
         iteration_timeline,
         source_intake_readback,
         composer_readback,
-        exploratory_replay_readback: exploratory_replay,
-        exploratory_replay_result_readback: exploratory_replay_result,
-        exploratory_replay_historical_rejection_readback: exploratory_replay_historical_rejection,
+        exploratory_replay_readback: exploratory_replay_ports.readback,
+        exploratory_replay_result_readback: exploratory_replay_ports.result,
+        exploratory_replay_historical_rejection_readback: exploratory_replay_ports
+            .historical_rejection,
         historical_custody,
+        backtest_run_report: exploratory_replay_ports.run_report,
         token_digest: Sha256::digest(config.token.as_bytes()).into(),
     })
 }
@@ -518,6 +597,10 @@ pub fn router(state: ApiState) -> Router {
         .route(
             "/v1/exploratory-replay-rejections/readback",
             get(read_exploratory_replay_historical_rejection),
+        )
+        .route(
+            "/v1/backtest-run-reports/{result_identity}",
+            get(read_backtest_run_report),
         )
         .with_state(state)
 }
@@ -1057,6 +1140,68 @@ pub async fn read_exploratory_replay_historical_rejection(
         }
     }
 }
+
+/// Relays the Backtest Owner's answer about one run's report and adds nothing to it.
+///
+/// A report is the Owner's bytes. An absent run and a refusal each answer with the unavailable
+/// envelope under the Owner's own reason, so the page can name why no report exists. Only when the
+/// Owner could not be asked at all does the response carry no body.
+pub async fn read_backtest_run_report(
+    State(state): State<ApiState>,
+    Path(path): Path<ExploratoryReplayResultPathV2>,
+    Query(query): Query<ExploratoryReplayResultQueryV2>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
+    if [
+        path.result_identity.as_str(),
+        query.request_identity.as_str(),
+        query.attempt_identity.as_str(),
+    ]
+    .into_iter()
+    .any(|value| OpaqueIdentityV2::try_from(value.to_owned()).is_err())
+    {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+
+    let unavailable = |status: StatusCode, reason: &str| {
+        (
+            status,
+            Json(serde_json::json!({ "state": "UNAVAILABLE", "reason": reason })),
+        )
+            .into_response()
+    };
+
+    match state
+        .backtest_run_report
+        .read_backtest_run_report(ExploratoryReplayResultLocatorV2 {
+            result_identity: &path.result_identity,
+            request_identity: &query.request_identity,
+            attempt_identity: &query.attempt_identity,
+        })
+        .await
+    {
+        BacktestRunReportAnswerV1::Report(bytes) => (
+            StatusCode::OK,
+            [(axum::http::header::CONTENT_TYPE, "application/json")],
+            bytes,
+        )
+            .into_response(),
+        BacktestRunReportAnswerV1::Absent => {
+            unavailable(StatusCode::NOT_FOUND, BACKTEST_RUN_ABSENT_V1)
+        }
+        BacktestRunReportAnswerV1::Refused(code) => {
+            unavailable(StatusCode::SERVICE_UNAVAILABLE, code)
+        }
+        BacktestRunReportAnswerV1::Unavailable => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
+}
+
+/// The reason this read API gives when the Owner answers that no run exists for the locator.
+pub const BACKTEST_RUN_ABSENT_V1: &str = "BACKTEST_RUN_ABSENT";
 
 fn valid_identity(value: &str) -> bool {
     (1..=192).contains(&value.len())

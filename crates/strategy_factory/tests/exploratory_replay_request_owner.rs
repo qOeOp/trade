@@ -830,7 +830,7 @@ async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
              AND facade.provolatile='v'
              AND facade.proparallel='u'
              AND facade.proisstrict
-             AND facade.proconfig=ARRAY['search_path=pg_catalog']::text[]
+             AND facade.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[]
              AND pg_catalog.strpos(facade.prosrc,'resolve_native_replay_source_storage_v2') > 0
              AND pg_catalog.has_function_privilege('backtest_owner',facade.oid,'EXECUTE')
              AND NOT pg_catalog.has_function_privilege('rd_owner',facade.oid,'EXECUTE')
@@ -2036,7 +2036,7 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
              AND facade.provolatile='v'
              AND facade.proparallel='u'
              AND facade.proisstrict
-             AND facade.proconfig=ARRAY['search_path=pg_catalog']::text[]
+             AND facade.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[]
              AND pg_catalog.has_function_privilege('backtest_owner',facade.oid,'EXECUTE')
              AND NOT pg_catalog.has_function_privilege('rd_owner',facade.oid,'EXECUTE')
              AND NOT EXISTS (

@@ -91,7 +91,7 @@ const BACKTEST_LOCK_BOUNDARY_AUTH_SQL_V2: &str = "
              AND wrapper.prokind='f'
              AND wrapper.pronargs=4
              AND wrapper.proargnames=ARRAY['requested_request_identity','requested_meaning_digest','requested_receipt_identity','requested_seal_digest']::text[]
-             AND wrapper.proconfig=ARRAY['search_path=pg_catalog']::text[]
+             AND wrapper.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[]
              AND wrapper.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
              AND wrapper.proargtypes='25 25 25 25'::pg_catalog.oidvector
              AND pg_catalog.pg_get_userbyid(wrapper.proowner)='rd_owner'
@@ -125,7 +125,7 @@ const BACKTEST_LOCK_BOUNDARY_AUTH_SQL_V2: &str = "
                   AND dependency.prokind='f'
                   AND dependency.pronargs=4
                   AND dependency.proargnames=ARRAY['requested_request_identity','requested_meaning_digest','requested_receipt_identity','requested_seal_digest']::text[]
-                  AND dependency.proconfig=ARRAY['search_path=pg_catalog']::text[]
+                  AND dependency.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[]
                   AND dependency.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
                   AND dependency.proargtypes='25 25 25 25'::pg_catalog.oidvector
                   AND pg_catalog.pg_get_userbyid(dependency.proowner)='rd_exploratory_replay_api_owner'
@@ -1921,7 +1921,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
           requested_request_digest text,
           requested_receipt_identity text
         ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-        SET search_path = pg_catalog
+        SET search_path = pg_catalog, pg_temp
         AS $function$
         BEGIN
           IF NOT EXISTS (
@@ -2056,7 +2056,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
         .map_err(storage)?;
     }
     sqlx::query(sqlx::AssertSqlSafe(format!(
-        "CREATE FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(requested_request_identity text,requested_meaning_digest text,requested_receipt_identity text,requested_seal_digest text) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path = pg_catalog AS $function${NATIVE_SOURCE_STORAGE_SOURCE_V2}$function$"
+        "CREATE FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(requested_request_identity text,requested_meaning_digest text,requested_receipt_identity text,requested_seal_digest text) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $function${NATIVE_SOURCE_STORAGE_SOURCE_V2}$function$"
     )))
     .execute(&mut *publication)
     .await
@@ -2091,7 +2091,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
           requested_receipt_identity text,
           requested_seal_digest text
         ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-        SET search_path = pg_catalog
+        SET search_path = pg_catalog, pg_temp
         AS $function$
         DECLARE storage jsonb;
         BEGIN
@@ -2117,7 +2117,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
           requested_receipt_identity text,
           requested_seal_digest text
         ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-        SET search_path = pg_catalog
+        SET search_path = pg_catalog, pg_temp
         AS $function${MARKET_DATA_LOCK_SOURCE_V1}$function$"
     )))
     .execute(&mut *publication)
@@ -4091,7 +4091,7 @@ async fn validate_backtest_binding(
              AND procedure.provolatile='v'
              AND procedure.proparallel='u'
              AND procedure.proisstrict
-             AND procedure.proconfig=ARRAY['search_path=pg_catalog']::text[]
+             AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[]
              AND procedure.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
              AND procedure.proargtypes='25 25 25'::pg_catalog.oidvector
              AND owner.rolname='rd_owner'
@@ -5144,6 +5144,42 @@ fn storage(error: sqlx::Error) -> ExploratoryReplayOwnerError {
     ExploratoryReplayOwnerError::Unavailable(crate::postgres_error_message::database_message(
         &error,
     ))
+}
+
+/// The Market Data composition binding one sealed COMPOSER_V3 Replay request names.
+///
+/// Only a selector: the caller must already hold that request's verified sealed readback from the
+/// same transaction, so the row read here is the one it verified. `None` means the request has no
+/// COMPOSER_V3 source and therefore names no binding, which is every request in a build without
+/// the Composer-backed Replay feature, since only that feature writes COMPOSER_V3 rows.
+pub(crate) async fn read_composer_v3_market_data_binding_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    replay_request_identity: &str,
+) -> Result<
+    Option<vibe_data::owner::replay_market_facts_v2::ReplayCompositionBindingLocatorV1>,
+    ExploratoryReplayOwnerError,
+> {
+    let rows = sqlx::query("SELECT frozen_json FROM public.rd_sealed_exploratory_replay_requests_v1 WHERE request_identity=$1 AND source_kind='COMPOSER_V3' FOR SHARE")
+        .bind(replay_request_identity)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    let [row] = rows.as_slice() else {
+        return if rows.is_empty() {
+            Ok(None)
+        } else {
+            Err(unavailable("COMPOSER_V3 Replay row cardinality mismatch"))
+        };
+    };
+    let frozen: super::composition_v3::StoredComposerReplayFrozenV3 = decode_exact(
+        &row.try_get::<serde_json::Value, _>("frozen_json")
+            .map_err(storage)?,
+    )?;
+
+    if frozen.source.proposal.request_identity != replay_request_identity {
+        return Err(unavailable("COMPOSER_V3 binding Replay identity mismatch"));
+    }
+    Ok(Some(frozen.source.proposal.market_data_locator))
 }
 
 fn unavailable(error: impl Display) -> ExploratoryReplayOwnerError {
