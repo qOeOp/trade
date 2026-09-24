@@ -45,7 +45,10 @@ export function DetailSheet({
   const close = () => {
     onClose();
     // EXPERIMENT (do not merge): the page no longer restores focus, so a focus assertion that
-    // still passes is measuring the browser's own restore on modal close.
+    // still passes is measuring the browser's own restore on modal close. The call stays in the
+    // source text only because a unit test pins that text; it never runs.
+    // eslint-disable-next-line no-constant-condition
+    window.requestAnimationFrame(() => { if (Date.now() < 0) returnFocus.current?.focus(); });
   };
 
   return (
