@@ -17,6 +17,7 @@ readonly market_data_owner_postgres_tests=(
   owner::postgres::pit_intake_member_count_tests::pit_intake_admits_one_or_two_universe_members_and_refuses_the_rest_unwritten
   owner::replay_market_facts_v2::first_corpus_v1_readback_postgres_tests::first_corpus_reads_back_through_the_v1_lock_function_unchanged
   owner::replay_market_facts_v2::universe_member_shape_postgres_tests::replay_facts_table_migrates_and_keeps_each_row_to_its_shape
+  owner::postgres::replay_market_facts_v2::universe_issuance::postgres_tests::postgres_universe_member_composition_issues_a_binding_that_keys_its_cut
 )
 
 # The ordered chain refuses a guarded crate whose test SQL is destructive without dedicated-database
@@ -134,7 +135,11 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-docker run --detach --name "$container" --publish 127.0.0.1::5432 \
+# `--init`, as in the R&D chain (test-rd-owner-postgres.bash says why at its first `docker run`): with
+# PostgreSQL as PID 1, any orphaned shell child of a `docker exec` is reaped by the postmaster, and
+# one killed by a signal restarts every server process. Nothing here drives psql from an in-container
+# heredoc today; this keeps that from mattering if something ever does.
+docker run --detach --init --name "$container" --publish 127.0.0.1::5432 \
   --env POSTGRES_PASSWORD="$admin_password" postgres:16.10-alpine > /dev/null
 
 # The postgres entrypoint runs initdb against a temporary server, stops it, then starts the real

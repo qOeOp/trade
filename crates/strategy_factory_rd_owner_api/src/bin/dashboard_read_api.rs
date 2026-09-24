@@ -1357,14 +1357,30 @@ mod tests {
         attempt_identity: String,
     }
 
+    /// What the request readback answered: its status and, beside a 200, the Owner's availability.
+    #[derive(Debug, PartialEq, Eq)]
+    struct RequestLayer {
+        status: StatusCode,
+        availability: Option<String>,
+    }
+
+    impl RequestLayer {
+        /// The page opens a request only when the Owner states it `AVAILABLE`. A 200 alone is not
+        /// that: the Owner answers 200 with `UNAVAILABLE` for a request it holds no sealed custody
+        /// for, and the page renders that as unavailable, so the result rail never appears.
+        fn opens(&self) -> bool {
+            self.status == StatusCode::OK && self.availability.as_deref() == Some("AVAILABLE")
+        }
+    }
+
     /// Asks the production handlers whether the workbench can open this result: the request
     /// readback first, then the result readback. The report mounts only beneath an opened result,
     /// so a run neither of these answers is a run the page cannot reach.
     async fn workbench_opens(
         api: &ApiState,
         candidate: &OpenableResult,
-    ) -> (StatusCode, StatusCode) {
-        let request = read_exploratory_replay(
+    ) -> (RequestLayer, StatusCode) {
+        let response = read_exploratory_replay(
             State(api.clone()),
             Query(ExploratoryReplayReadbackQueryV2 {
                 request_identity: candidate.request_identity.clone(),
@@ -1372,8 +1388,26 @@ mod tests {
             }),
             headers(),
         )
-        .await
-        .status();
+        .await;
+        let status = response.status();
+        let availability = if status == StatusCode::OK {
+            let body = axum::body::to_bytes(response.into_body(), 1 << 20)
+                .await
+                .unwrap();
+            let body = serde_json::from_slice::<serde_json::Value>(&body).unwrap();
+            Some(
+                body["projection"]["availability"]
+                    .as_str()
+                    .expect("a request readback states its availability")
+                    .to_owned(),
+            )
+        } else {
+            None
+        };
+        let request = RequestLayer {
+            status,
+            availability,
+        };
         let result = read_exploratory_replay_result(
             State(api.clone()),
             Path(ExploratoryReplayResultPathV2 {
@@ -1521,10 +1555,10 @@ mod tests {
         // the page cannot reach names the layer that stopped it instead of reading as a report
         // that did not appear.
         let (request_layer, result_layer) = workbench_opens(&probe, &run).await;
-        assert_eq!(
-            request_layer,
-            StatusCode::OK,
-            "layer 1: the request readback does not open the committed run's request"
+        assert!(
+            request_layer.opens(),
+            "layer 1: the request readback does not open the committed run's request: \
+             {request_layer:?}"
         );
         assert_eq!(
             result_layer,
@@ -1557,7 +1591,9 @@ mod tests {
 
         for row in &without_evidence {
             let candidate = openable(row);
-            if workbench_opens(&probe, &candidate).await != (StatusCode::OK, StatusCode::OK) {
+            let (request_layer, result_layer) = workbench_opens(&probe, &candidate).await;
+
+            if !request_layer.opens() || result_layer != StatusCode::OK {
                 continue;
             }
             let answer = owner

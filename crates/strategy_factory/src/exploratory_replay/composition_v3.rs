@@ -375,7 +375,11 @@ pub(super) fn prepare_composer_backed_replay_v3(
     }
     let binding = market.binding();
     let market_facts = market.market_facts();
-    let instrument_master = market.instrument_master();
+    // A universe-member cut binds no Instrument Master; until this reader handles that shape it
+    // refuses it by this name, so the refusal is findable and says why.
+    let instrument_master = market
+        .instrument_master()
+        .ok_or(ExploratoryReplayOwnerError::InstrumentMasterAbsentForUniverseShape)?;
     Ok(ComposedComposerBackedReplayV3 {
         request,
         source: StoredComposerReplaySourceV3 {

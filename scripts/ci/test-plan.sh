@@ -448,25 +448,32 @@ grep -Fq 'Available disk remains below' "$disk_cleanup"
 # Match literal GitHub expressions.
 # shellcheck disable=SC2016
 grep -Fq 'rust-cache-workspaces: . -> target/py${{ matrix.python-version }}' "$build_workflow"
-# `main` is built by the schedule trigger, not by a push, so every cache-saving job has to save on
-# the scheduled run too: a job that still gates on `push` alone simply stops populating the cache
-# that pull requests restore from, and nothing goes red when it does. Written as a universal rather
-# than as a list of today's entries - the way this decays is a seventh job gating on `push` alone,
-# which an enumeration of six would not notice.
-save_gate_total="$(awk '/save-if:/ && /event_name/ {n++} END {print n+0}' "$build_workflow")"
-save_gate_scheduled="$(awk '/save-if:/ && /event_name/ && /schedule/ {n++} END {print n+0}' "$build_workflow")"
-if [[ "$save_gate_total" != "$save_gate_scheduled" ]]; then
-  echo "build.yml: $((save_gate_total - save_gate_scheduled)) cache-saving job(s) gate on push alone," >&2
-  echo "but main is built on a schedule, so those jobs never save a cache for main:" >&2
-  awk '/save-if:/ && /event_name/ && !/schedule/ {print "  " FILENAME ":" FNR ": " $0}' \
-    "$build_workflow" >&2
+# `main` is built by the schedule and, on demand, by a dispatch on main, never by a push, so every
+# cache-saving job has to save on both: a job that gates on `push` alone simply stops populating the
+# cache that pull requests restore from, and nothing goes red when it does. The schedule has missed
+# slots (2026-09-24: 08:17 and 16:17 never ran, 12:17 ran 75 minutes late), and a cache key change
+# stays cold until main saves again, so the dispatch has to save too. One definition,
+# SAVE_BUILD_CACHES, and every event-gated save uses it - written as a universal, because the way
+# this decays is a new job with its own gate.
+save_gates="$(grep -E '(^|[[:space:]])(rust-cache-)?save-if:' "$build_workflow" | grep -vF '"false"' || true)"
+save_gate_total="$(printf '%s\n' "$save_gates" | grep -c 'save-if:' || true)"
+# Match a literal workflow expression.
+# shellcheck disable=SC2016
+save_gate_shared="$(printf '%s\n' "$save_gates" | grep -cF 'save-if: ${{ env.SAVE_BUILD_CACHES }}' || true)"
+if [[ "$save_gate_total" != "$save_gate_shared" ]]; then
+  echo "build.yml: $((save_gate_total - save_gate_shared)) cache-saving step(s) gate on their own condition" >&2
+  echo "instead of env.SAVE_BUILD_CACHES:" >&2
+  printf '%s\n' "$save_gates" | grep -vF 'env.SAVE_BUILD_CACHES' >&2
   exit 1
 fi
 if [[ "$save_gate_total" -ne 3 ]]; then
-  echo "build.yml has $save_gate_total event-gated save-if entries, expected 3." >&2
-  echo "A removed entry stops saving a cache; a new one must also admit the schedule." >&2
+  echo "build.yml has $save_gate_total cache-saving steps, expected 3." >&2
+  echo "A removed entry stops saving a cache; a new one must use env.SAVE_BUILD_CACHES." >&2
   exit 1
 fi
+save_definition="$(sed -n '/^  SAVE_BUILD_CACHES: >-$/,/}}$/p' "$build_workflow")"
+[[ "$save_definition" == *"github.event_name == 'schedule'"* ]]
+[[ "$save_definition" == *"github.event_name == 'workflow_dispatch' && github.ref_name == 'main'"* ]]
 
 # `main` reaches this workflow as a `schedule` event, never as a push, so anything that selects a
 # Cargo profile or target directory by asking whether the event is a push silently picks the other
@@ -803,10 +810,16 @@ generated_block="$(sed -n '/Restore generated stubs Rust cache/,/Upload wheel ar
 # keeps the entry distinct from the wheel cache in this same job without re-introducing
 # compile inputs.
 [[ "$generated_block" == *'key: py-stubs'* ]]
-if [[ "$generated_block" == *'hashFiles('* ]]; then
+# The one file hashed into every rust-cache prefix is build-env.mk (scripts/ci/check-build-env-file.bash);
+# any other hashFiles in this block is the churn described above.
+generated_prefix="prefix-key: v0-rust-\${{ hashFiles('build-env.mk') }}"
+[[ "$generated_block" == *"$generated_prefix"* ]]
+if [[ "${generated_block//"$generated_prefix"/}" == *'hashFiles('* ]]; then
   echo "Generated stubs cache key must not name compile inputs: rust-cache derives them" >&2
   exit 1
 fi
+bash "$repo_root/scripts/ci/check-build-env-file.bash" --self-test
+bash "$repo_root/scripts/ci/check-build-env-file.bash"
 [[ "$generated_block" == *"runner.environment == 'github-hosted'"* ]]
 [[ "$generated_block" == *"format('{0}/target/py-stubs', github.workspace)"* ]]
 [[ "$generated_block" == *'make py-stubs'* ]]
