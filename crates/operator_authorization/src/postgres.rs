@@ -2751,6 +2751,62 @@ mod tests {
         }
     }
 
+    /// Where an expiring grant's validity window is anchored, and what to report if issuing it is
+    /// refused.
+    ///
+    /// The window is anchored on the Owner's clock, the one `issue_grant_genesis` checks the window
+    /// against, so the comparison does not span two clocks. The window is two seconds wide and the
+    /// issuance takes milliseconds, so a refusal means the anchor and the Owner's check were two
+    /// seconds apart in some other way. The refusal message carries what tells the causes apart: a
+    /// stall shows as wall time of two seconds or more between the anchor and the refusal.
+    struct ExpiryAnchorV1 {
+        owner_now: u64,
+        process_now: u64,
+        read_at: std::time::Instant,
+    }
+
+    impl ExpiryAnchorV1 {
+        async fn read(pool: &PgPool) -> Self {
+            let owner_now: i64 = sqlx::query_scalar(
+                "SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint",
+            )
+            .fetch_one(pool)
+            .await
+            .unwrap();
+            Self {
+                owner_now: u64::try_from(owner_now).unwrap(),
+                process_now: now_ms().unwrap(),
+                read_at: std::time::Instant::now(),
+            }
+        }
+
+        async fn refusal(
+            &self,
+            pool: &PgPool,
+            window: (u64, u64),
+            e: &OperatorAuthorizationError,
+        ) -> String {
+            let elapsed = self.read_at.elapsed();
+            let owner_after: i64 = sqlx::query_scalar(
+                "SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint",
+            )
+            .fetch_one(pool)
+            .await
+            .unwrap_or(-1);
+            format!(
+                "expiring grant refused: {e:?}; window [{}, {}) anchored at Owner clock {}; \
+                 process clock at the anchor {}; Owner clock after the refusal {} (at or after \
+                 committed_at); wall time from the anchor to the refusal {} ms",
+                window.0,
+                window.1,
+                self.owner_now,
+                self.process_now,
+                owner_after,
+                elapsed.as_millis()
+            )
+        }
+    }
+
     async fn oa_table_fingerprint(pool: &PgPool) -> String {
         let value: serde_json::Value = sqlx::query_scalar(
             "SELECT jsonb_build_object(
@@ -3560,11 +3616,21 @@ mod tests {
             }
         }
 
-        let expiry_proposal = portfolio_grant_proposal(&suffix, now_ms().unwrap(), "expiry", 2_000);
-        let expiring = restarted
+        let anchor = ExpiryAnchorV1::read(restarted.pool()).await;
+        let expiry_proposal = portfolio_grant_proposal(&suffix, anchor.owner_now, "expiry", 2_000);
+        let expiring = match restarted
             .issue_portfolio_resource_grant_genesis(expiry_proposal.clone())
             .await
-            .unwrap();
+        {
+            Ok(expiring) => expiring,
+            Err(e) => {
+                let window = (
+                    expiry_proposal.content.effective_at_epoch_ms,
+                    expiry_proposal.content.valid_through_epoch_ms,
+                );
+                panic!("{}", anchor.refusal(restarted.pool(), window, &e).await)
+            }
+        };
         let expiry_request = PortfolioResourceGrantReadRequestV1 {
             locator: expiring.locator(),
             expected_resource: expiry_proposal.content.resource.clone(),
@@ -4496,12 +4562,22 @@ mod tests {
             }
         }
 
+        let anchor = ExpiryAnchorV1::read(restarted.pool()).await;
         let expiry_proposal =
-            autonomous_policy_proposal(&suffix, now_ms().unwrap(), "expiry", 2_000);
-        let expiring = restarted
+            autonomous_policy_proposal(&suffix, anchor.owner_now, "expiry", 2_000);
+        let expiring = match restarted
             .issue_autonomous_policy_authorization_genesis(expiry_proposal.clone())
             .await
-            .unwrap();
+        {
+            Ok(expiring) => expiring,
+            Err(e) => {
+                let window = (
+                    expiry_proposal.content.effective_at_epoch_ms,
+                    expiry_proposal.content.valid_through_epoch_ms,
+                );
+                panic!("{}", anchor.refusal(restarted.pool(), window, &e).await)
+            }
+        };
         let expiry_request = AutonomousPolicyAuthorizationReadRequestV1 {
             locator: expiring.locator(),
             expected_resource: expiry_proposal.content.resource(),

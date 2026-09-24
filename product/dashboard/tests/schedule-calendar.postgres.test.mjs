@@ -411,25 +411,24 @@ test(testName, { skip: !url }, async () => {
       assert.equal(execFileSync("git", ["status", "--porcelain"], {
         cwd: dashboardRoot, encoding: "utf8",
       }), "");
-      const port = 3219;
       // The production bundle, as the other three RunStore acceptances already use. This suite ran
       // the dev compiler, which is a different program: development enables React strict mode, whose
       // double-invoked mount effect reads the Owner twice, and this calendar is keyed on the read
       // envelope - so development carries a remount source that a deployed image does not have. An
       // acceptance for a deployed route has to exercise the runtime that gets deployed.
-      preview = await startProductionPreview({
+      // Its own port and its own server: the preview is ready only once it answers as the instance
+      // this run started, so a second suite on the same machine can never be the one driven.
+      let origin;
+      ({ preview, origin } = await startProductionPreview({
         dashboardRoot,
-        port,
         label: "calendar preview",
         env: {
           ...environment,
           DASHBOARD_LOCAL_OPERATOR_LOGIN_TOKEN: calendarLogin,
           DASHBOARD_SESSION_HMAC_KEY: calendarSessionHmac,
         },
-      });
-      const origin = `http://127.0.0.1:${port}`;
+      }));
       const currentSchedulesUrl = `${origin}/operations/schedules/?view=current`;
-      await waitForHttp(`${origin}/api/health/`, preview);
       const login = await fetch(`${origin}/api/auth/session/`, {
         method: "POST",
         headers: { "content-type": "application/json", origin },
@@ -935,6 +934,39 @@ test(testName, { skip: !url }, async () => {
       await waitForBrowserExpression(browser,
         "document.querySelectorAll('dialog[open]').length === 1 && Boolean(document.querySelector('dialog[open] a[href^=\"/operations/runs/\"]'))");
       console.log("calendar reopen control -> opened");
+      // The late event of a close must not close a sheet reopened before it arrives. The Close
+      // control reports its close at once, and the dialog's own `close` event follows a task later;
+      // a reopen of the same run can land in between, and that late event used to clear what the
+      // page showed and close the reopened sheet (main's product-packages runs after #974). Holding
+      // the event back and delivering it after the reopen makes that ordering happen every time.
+      await readBrowserValue(browser, `(() => {
+        document.addEventListener('close', (event) => {
+          if (event.target instanceof HTMLDialogElement) event.stopImmediatePropagation();
+        }, { capture: true, once: true });
+        document.querySelector('dialog[open] button[aria-label="Close panel"]')?.click();
+        return true;
+      })()`);
+      await waitForBrowserExpression(browser, SHEET_RELEASED);
+      await readBrowserValue(browser, `document.querySelector(
+        '[aria-label="Selected schedule"] [data-run-preview-trigger="${calendarRunOrigins.badge}"]')?.click()`);
+      await waitForBrowserExpression(browser,
+        "document.querySelectorAll('dialog[open]').length === 1 && Boolean(document.querySelector('dialog[open] a[href^=\"/operations/runs/\"]'))");
+      await readBrowserValue(browser, `(() => {
+        document.querySelector('dialog[open]')?.dispatchEvent(new Event('close'));
+        return true;
+      })()`);
+      await delay(300);
+      assert.equal(await readBrowserValue(browser,
+        "document.querySelectorAll('dialog[open]').length === 1 && Boolean(document.querySelector('dialog[open] a[href^=\"/operations/runs/\"]'))"),
+      true, "the late close event of an earlier close leaves the reopened sheet open");
+      console.log("calendar late close event -> reopened sheet stays open");
+      await readBrowserValue(browser,
+        "document.querySelector('dialog[open] button[aria-label=\"Close panel\"]')?.click()");
+      await waitForBrowserExpression(browser, SHEET_RELEASED);
+      await readBrowserValue(browser, `document.querySelector(
+        '[aria-label="Selected schedule"] [data-run-preview-trigger="${calendarRunOrigins.badge}"]')?.click()`);
+      await waitForBrowserExpression(browser,
+        "document.querySelectorAll('dialog[open]').length === 1 && Boolean(document.querySelector('dialog[open] a[href^=\"/operations/runs/\"]'))");
       // What this proves: the page does not depend on the dialog's `close` event to learn that its
       // own Close control closed the sheet. It does not replay a user's timing. That event arrives as
       // a later task, and a request for the same run made before it changed nothing and opened
@@ -1235,13 +1267,13 @@ test(testName, { skip: !url }, async () => {
       await stopPreview(preview);
     } else if (process.env.DASHBOARD_CALENDAR_PREVIEW === "1") {
       // Inspect the real GET/browser boundary even when the consumer assertion below fails.
-      preview = await startProductionPreview({
+      let origin;
+      ({ preview, origin } = await startProductionPreview({
         dashboardRoot,
-        port: 3219,
         label: "calendar preview",
         env: environment,
-      });
-      process.stdout.write("Disposable calendar preview: http://127.0.0.1:3219/operations/schedules/\n");
+      }));
+      process.stdout.write(`Disposable calendar preview: ${origin}/operations/schedules/\n`);
       await once(preview, "exit");
     }
     const envelope = await parseScheduleEnvelopeV1({

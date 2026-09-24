@@ -130,6 +130,9 @@ async fn backtest_run_report_reads_back_every_point_a_real_run_committed() {
         rd_pool,
     )
     .await;
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    assert_a_composer_v3_claim_is_read_without_a_lock(rd_pool, &request_identity, &request_digest)
+        .await;
     // This code is decided only after the replay request read back: a request that did not would
     // have been refused as `REPLAY_REQUEST_UNAVAILABLE` first.
     assert_eq!(refused.code(), "NO_STRATEGY_STATEMENT_FOR_FAMILY");
@@ -290,6 +293,81 @@ async fn assert_the_anchor_holds_real_composer_artifacts_to_their_own_freeze(
     .await
     .expect("this backend's locks");
     assert!(stronger.is_empty(), "the anchor read holds {stronger:?}");
+    transaction.rollback().await.expect("read-only rollback");
+}
+
+/// The COMPOSER_V3 claim read the report makes, held to the same read-only transaction.
+///
+/// No COMPOSER_V3 request is committed anywhere in this chain, so this proves only the refusal
+/// paths and the lock semantics: a request never committed reads as absent, a legacy request is
+/// refused as not a COMPOSER_V3 claim rather than misread as one, and the reads hold nothing
+/// stronger than `AccessShareLock`. The same statement with its `FOR SHARE` is refused by the
+/// read-only transaction, which is what makes the lock-free form the only one the report can run.
+/// A claim that reads back, and one that is tampered with, are proven on a claim the production
+/// path wrote, by the chain entry that first commits one.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+async fn assert_a_composer_v3_claim_is_read_without_a_lock(
+    rd_pool: &PgPool,
+    legacy_request_identity: &str,
+    meaning_digest: &str,
+) {
+    use crate::{
+        exploratory_replay::ExploratoryReplayOwnerError,
+        exploratory_replay::postgres::{
+            composer_claim_reads_v3::STORED_FROZEN_READ_V3,
+            composer_readback_v3::read_self_verified_composer_v3_claim_in_transaction,
+        },
+        trial_family_postgres::PostgresReadLockMode,
+    };
+
+    let mut transaction = begin_report_read_v1(rd_pool, REPORT_STATEMENT_TIMEOUT_MS_V1)
+        .await
+        .expect("the report's read-only transaction");
+    let never_committed = read_self_verified_composer_v3_claim_in_transaction(
+        &mut transaction,
+        &format!("{legacy_request_identity}-never-committed"),
+        meaning_digest,
+    )
+    .await
+    .expect("an absent claim is an answer");
+    assert!(never_committed.is_none());
+    let legacy = read_self_verified_composer_v3_claim_in_transaction(
+        &mut transaction,
+        legacy_request_identity,
+        meaning_digest,
+    )
+    .await;
+    assert!(
+        matches!(&legacy, Err(ExploratoryReplayOwnerError::Unavailable(reason)) if reason.contains("not a COMPOSER_V3 source")),
+        "a legacy request is not read as a COMPOSER_V3 claim"
+    );
+    let stronger: Vec<(String, String, Option<String>)> = sqlx::query_as(
+        "SELECT locktype, mode, relation::pg_catalog.regclass::text
+           FROM pg_catalog.pg_locks
+          WHERE pid = pg_catalog.pg_backend_pid()
+            AND NOT (locktype = 'relation' AND mode = 'AccessShareLock')
+            AND NOT (locktype = 'virtualxid' AND mode = 'ExclusiveLock')",
+    )
+    .fetch_all(&mut *transaction)
+    .await
+    .expect("this backend's locks");
+    assert!(stronger.is_empty(), "the claim read holds {stronger:?}");
+
+    // Last, because the refusal aborts the transaction.
+    let locking =
+        sqlx::query(PostgresReadLockMode::ForShare.query(STORED_FROZEN_READ_V3, " FOR SHARE"))
+            .bind(legacy_request_identity)
+            .fetch_optional(&mut *transaction)
+            .await
+            .expect_err("a read-only transaction refuses the locking form");
+    assert_eq!(
+        locking
+            .as_database_error()
+            .and_then(|e| e.code())
+            .as_deref(),
+        Some("25006"),
+        "refused as a read-only transaction, not for another reason: {locking}"
+    );
     transaction.rollback().await.expect("read-only rollback");
 }
 

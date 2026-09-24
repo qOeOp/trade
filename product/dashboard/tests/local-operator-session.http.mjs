@@ -1,28 +1,15 @@
 import assert from "node:assert/strict";
-import { createServer } from "node:net";
-import { spawn } from "node:child_process";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { issueLocalOperatorSessionV1 } from "../lib/local-operator-session.ts";
+import { startNextServer } from "./preview-instance.mjs";
 
 const LOGIN = "http-login-proof-0123456789-abcdefghijklmnop";
 const HMAC = "http-session-hmac-0123456789-abcdefghijklmnop";
 const EFFECT_BEARER = "http-effect-bearer-0123456789-abcdefghijklmnop";
 
-async function unusedPort() {
-  return await new Promise((resolve, reject) => {
-    const server = createServer();
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      const port = typeof address === "object" && address ? address.port : 0;
-      server.close((error) => error ? reject(error) : resolve(port));
-    });
-  });
-}
-
-const NEXT_BINARY = fileURLToPath(new URL("../node_modules/.bin/next", import.meta.url));
+const DASHBOARD_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 async function stopServerTree(child) {
   const exited = new Promise((resolve) => child.once("exit", resolve));
@@ -52,49 +39,33 @@ async function stopServerTree(child) {
   child.stderr?.destroy();
 }
 
-async function waitForHealth(origin, child) {
-  const deadline = Date.now() + 30_000;
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`Dashboard exited with ${child.exitCode}`);
-    try {
-      const response = await fetch(`${origin}/api/health/`);
-      if (response.ok) return;
-    } catch {}
-    await new Promise((resolve) => setTimeout(resolve, 200));
-  }
-  throw new Error("Dashboard health timeout");
-}
-
 async function withDashboard(configuration, callback) {
-  const port = await unusedPort();
-  const origin = `http://127.0.0.1:${port}`;
   // The server is a tree, not a process: the Next server forks its own workers, and running it
   // through `npm` adds one more parent that does not pass a signal down. The suite reads the tree's
-  // output through pipes, and a surviving worker inherits their write ends, so signalling only the
-  // process spawned here leaves those pipes open, keeps Node's stream handles referenced, and holds
+  // output through a pipe, and a surviving worker inherits its write end, so signalling only the
+  // process spawned here leaves that pipe open, keeps Node's stream handle referenced, and holds
   // the test runner alive long after every test has passed. Start the binary itself, in its own
   // process group, so teardown can address the whole tree.
-  const child = spawn(NEXT_BINARY, ["start", "--hostname", "127.0.0.1", "--port", String(port)], {
-    cwd: new URL("..", import.meta.url),
-    env: {
-      ...process.env,
-      DASHBOARD_LOCAL_OPERATOR_LOGIN_TOKEN: configuration?.login ?? "",
-      DASHBOARD_SESSION_HMAC_KEY: configuration?.hmac ?? "",
-      DASHBOARD_OPERATOR_API_TOKEN: EFFECT_BEARER,
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-    detached: true,
-  });
   let logs = "";
-  child.stdout.on("data", (chunk) => { logs = `${logs}${chunk}`.slice(-8_000); });
-  child.stderr.on("data", (chunk) => { logs = `${logs}${chunk}`.slice(-8_000); });
+  let started;
   try {
-    await waitForHealth(origin, child);
-    await callback(origin);
+    started = await startNextServer({
+      dashboardRoot: DASHBOARD_ROOT,
+      mode: "start",
+      label: "local operator session dashboard",
+      detached: true,
+      forward: { write: (chunk) => { logs = `${logs}${chunk}`.slice(-8_000); } },
+      env: {
+        DASHBOARD_LOCAL_OPERATOR_LOGIN_TOKEN: configuration?.login ?? "",
+        DASHBOARD_SESSION_HMAC_KEY: configuration?.hmac ?? "",
+        DASHBOARD_OPERATOR_API_TOKEN: EFFECT_BEARER,
+      },
+    });
+    await callback(started.origin);
   } catch (error) {
     throw new Error(`${error instanceof Error ? error.message : String(error)}\n${logs}`);
   } finally {
-    await stopServerTree(child);
+    if (started) await stopServerTree(started.child);
   }
 }
 

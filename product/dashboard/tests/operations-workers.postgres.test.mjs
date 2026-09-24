@@ -10,6 +10,8 @@ import test from "node:test";
 
 import pg from "pg";
 
+import { startNextServer } from "./preview-instance.mjs";
+
 import {
   ARTIFACT_SHADOW_RESOLVE_OPERATION,
   operationDispatchBindingForIdV1,
@@ -350,23 +352,20 @@ test(testName, { skip: !url }, async () => {
       DASHBOARD_CURSOR_HMAC_KEY: cursorKey,
       DASHBOARD_DIST_DIR: ".next-test",
     };
-    const port = 3221;
-    preview = spawn(process.execPath, [
-      "node_modules/next/dist/bin/next", "dev", "-H", "127.0.0.1", "-p", String(port),
-    ], {
-      cwd: dashboardRoot,
+    // Its own port and its own server: ready only once it answers as the instance started here.
+    let origin;
+    ({ child: preview, origin } = await startNextServer({
+      dashboardRoot,
+      mode: "dev",
+      label: "workers preview",
       env: {
-        ...process.env,
         ...environment,
         DASHBOARD_LOCAL_OPERATOR_LOGIN_TOKEN: workersLogin,
         DASHBOARD_SESSION_HMAC_KEY: workersSessionHmac,
       },
-      stdio: "inherit",
-    });
-    const origin = `http://127.0.0.1:${port}`;
+    }));
     // Every Operations surface is behind the local operator session, so the acceptance signs in
     // the way an operator does and carries the session it was issued.
-    await waitForHttp(`${origin}/api/health/`, preview);
     const login = await fetch(`${origin}/api/auth/session/`, {
       method: "POST",
       headers: { "content-type": "application/json", origin },

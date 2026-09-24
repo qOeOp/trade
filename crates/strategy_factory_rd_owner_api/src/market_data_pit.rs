@@ -517,6 +517,26 @@ fn strategy_input_binding_error(
             StatusCode::UNPROCESSABLE_ENTITY,
             "STRATEGY_INPUT_ROLE_UNSUPPORTED",
         ),
+        StrategyInputBindingAdmissionErrorV1::InitialPitRequestUnnamed => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "STRATEGY_INPUT_INITIAL_PIT_REQUEST_UNNAMED",
+        ),
+        StrategyInputBindingAdmissionErrorV1::InitialPitRequestUnknown => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "STRATEGY_INPUT_INITIAL_PIT_REQUEST_UNKNOWN",
+        ),
+        StrategyInputBindingAdmissionErrorV1::InitialPitRequestDigestMismatch => (
+            StatusCode::CONFLICT,
+            "STRATEGY_INPUT_INITIAL_PIT_REQUEST_DIGEST_MISMATCH",
+        ),
+        StrategyInputBindingAdmissionErrorV1::InitialPitRequestNotAvailable => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "STRATEGY_INPUT_INITIAL_PIT_REQUEST_NOT_AVAILABLE",
+        ),
+        StrategyInputBindingAdmissionErrorV1::InitialPitRequestRequesterMismatch => (
+            StatusCode::CONFLICT,
+            "STRATEGY_INPUT_INITIAL_PIT_REQUEST_REQUESTER_MISMATCH",
+        ),
         StrategyInputBindingAdmissionErrorV1::NoMatchingSnapshot => (
             StatusCode::UNPROCESSABLE_ENTITY,
             "STRATEGY_INPUT_SNAPSHOT_UNAVAILABLE",

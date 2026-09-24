@@ -24,11 +24,13 @@ use crate::owner::{
         StrategyInputBindingReceipt, StrategyInputBindingUnavailable,
         StrategyInputCustodyDeclarationV1, StrategyInputCustodyReadbackV1,
         StrategyInputCustodyUnavailableV1, StrategyInputEventFrameReceipt,
+        StrategyInputUniverseCustodyDeclarationV1, StrategyInputUniverseCustodyReadbackV1,
         StrategyInputUniverseFrameReceipt, UntrustedStrategyInputBindingRequest,
         UntrustedStrategyInputCustodyClaimV1, UntrustedStrategyInputScope,
         bind_strategy_input_event_frame, bind_strategy_input_role,
         bind_strategy_input_universe_frame, canonical_strategy_input_custody_roles_v1, codec,
         request_matches_authenticated_role_v1, seal_strategy_input_custody_v1,
+        seal_strategy_input_universe_custody_v1,
     },
     universe_selection::{UniverseSelectionReadbackV1, authority::decode_readback_v1},
 };
@@ -464,6 +466,7 @@ pub async fn resolve_pit_request_for_strategy_design_v1(
         })?;
 
     let mut resolved: Option<StrategyDesignPitCoordinateV1> = None;
+    let mut declared_scope = None;
     let mut input_role_identities = Vec::with_capacity(rows.len());
     for row in &rows {
         let bytes: Vec<u8> = row.try_get("pit_request_identity").map_err(|e| {
@@ -487,6 +490,12 @@ pub async fn resolve_pit_request_for_strategy_design_v1(
         // same codec the custody reread uses rather than read from a second source.
         let request = codec::decode_request_v1(&request_bytes)
             .map_err(|_| StrategyInputCustodyUnavailableV1::DeclarationUntrusted)?;
+        let scope = StrategyInputDeclaredScopeV1::of_request(&request)
+            .ok_or(StrategyInputCustodyUnavailableV1::DeclarationUntrusted)?;
+
+        if *declared_scope.get_or_insert(scope) != scope {
+            return Err(StrategyInputCustodyUnavailableV1::ScopeMismatch);
+        }
         let role_bytes: Vec<u8> = row.try_get("input_role_identity").map_err(|e| {
             crate::owner::storage_diagnostic::refused_by_store(
                 "strategy_input_binding_registry.pit_coordinate.column.input_role_identity",
@@ -516,6 +525,7 @@ pub async fn resolve_pit_request_for_strategy_design_v1(
                 resolved = Some(StrategyDesignPitCoordinateV1 {
                     pit_request_identity: candidate.0,
                     decision_cut: candidate.1,
+                    declared_scope: scope,
                     input_role_identities: Vec::new(),
                 });
             }
@@ -541,9 +551,38 @@ pub struct StrategyDesignPitCoordinateV1 {
     pub pit_request_identity: BindingDigest,
     /// The decision cut every one of those declarations was written against.
     pub decision_cut: u64,
+    /// The one scope every one of those declarations was registered under, which selects the
+    /// custody re-read that serves the Design.
+    pub declared_scope: StrategyInputDeclaredScopeV1,
     /// Every input role the Design has a declaration for, in stored order. A caller that knows the
     /// Design still states its own complete role set; this is the recovery path's only source.
     pub input_role_identities: Vec<BindingDigest>,
+}
+
+/// The scope a Design's stored declarations were registered under.
+///
+/// A Design reads one kind of scope - registration refuses a role set that mixes them - so the
+/// scope is a property of the Design's declarations, not of one role, and it names which custody
+/// re-read serves them.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StrategyInputDeclaredScopeV1 {
+    /// Every role reads one exact instrument; served by
+    /// [`reread_persisted_strategy_input_custody_for_update_v1`].
+    ExactInstrument,
+    /// Every role reads each member of one Owner universe selection; served by
+    /// [`reread_persisted_strategy_input_universe_custody_for_update_v1`].
+    UniverseMembers,
+}
+
+impl StrategyInputDeclaredScopeV1 {
+    /// The scope a stored request declares, or nothing for a scope the registry never stores.
+    const fn of_request(request: &UntrustedStrategyInputBindingRequest) -> Option<Self> {
+        match request.scope {
+            UntrustedStrategyInputScope::ExactInstrument { .. } => Some(Self::ExactInstrument),
+            UntrustedStrategyInputScope::UniverseSelection { .. } => Some(Self::UniverseMembers),
+            UntrustedStrategyInputScope::InstrumentSet { .. } => None,
+        }
+    }
 }
 
 /// Re-reads one complete persisted Composer input custody inside the caller's open transaction.
@@ -566,6 +605,40 @@ pub async fn reread_persisted_strategy_input_custody_for_update_v1(
     transaction: &mut Transaction<'_, Postgres>,
     claim: &UntrustedStrategyInputCustodyClaimV1,
 ) -> Result<StrategyInputCustodyReadbackV1, StrategyInputCustodyUnavailableV1> {
+    let mode = locking_custody_read_mode_v1(transaction).await?;
+    reread_persisted_custody_with_mode_v1(transaction, claim, mode, seal_exact_custody_v1).await
+}
+
+/// Re-reads one complete persisted universe-member input custody inside the caller's open
+/// transaction.
+///
+/// It is the universe counterpart of [`reread_persisted_strategy_input_custody_for_update_v1`], with
+/// the same claim, the same locks and the same rejection rules. Every claimed role is re-read from
+/// its write-once declaration and re-bound to its own universe frame, which must still equal the
+/// stored digest; the complete role set is then bound into one universe frame over the live batch,
+/// which is what the readback seals. Only universe-member declarations are served, and an
+/// exact-instrument declaration is refused by name, as the exact re-read refuses a universe one.
+///
+/// # Errors
+///
+/// Returns only a redacted [`StrategyInputCustodyUnavailableV1`] category, including
+/// [`StrategyInputCustodyUnavailableV1::ScopeMismatch`] for a declaration of the other scope. No
+/// error carries store evidence, a partial binding, or a partial frame.
+pub async fn reread_persisted_strategy_input_universe_custody_for_update_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    claim: &UntrustedStrategyInputCustodyClaimV1,
+) -> Result<StrategyInputUniverseCustodyReadbackV1, StrategyInputCustodyUnavailableV1> {
+    let mode = locking_custody_read_mode_v1(transaction).await?;
+    reread_persisted_custody_with_mode_v1(transaction, claim, mode, seal_universe_custody_v1).await
+}
+
+/// The dependency read mode a locking custody re-read takes for the session's principal.
+///
+/// Market Data locks its own rows; R&D reaches them only through the locked facade, after the
+/// transport it depends on has been verified.
+async fn locking_custody_read_mode_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<DependencyReadModeV1, StrategyInputCustodyUnavailableV1> {
     let principal: String = sqlx::query_scalar("SELECT session_user::text")
         .fetch_one(&mut **transaction)
         .await
@@ -576,7 +649,8 @@ pub async fn reread_persisted_strategy_input_custody_for_update_v1(
             );
             StrategyInputCustodyUnavailableV1::StoreUnavailable
         })?;
-    let mode = if principal == "rd_owner" {
+
+    if principal == "rd_owner" {
         super::replay_market_facts_v2::verify_rd_replay_cut_transport_v1(transaction)
             .await
             .map_err(|e| {
@@ -586,11 +660,10 @@ pub async fn reread_persisted_strategy_input_custody_for_update_v1(
                 );
                 StrategyInputCustodyUnavailableV1::StoreUnavailable
             })?;
-        DependencyReadModeV1::RdOwner
+        Ok(DependencyReadModeV1::RdOwner)
     } else {
-        DependencyReadModeV1::LockRows
-    };
-    reread_persisted_strategy_input_custody_with_mode_v1(transaction, claim, mode).await
+        Ok(DependencyReadModeV1::LockRows)
+    }
 }
 
 /// Non-locking form of the persisted Composer input custody re-read.
@@ -605,19 +678,89 @@ pub async fn reread_persisted_strategy_input_custody_read_only_v1(
     transaction: &mut Transaction<'_, Postgres>,
     claim: &UntrustedStrategyInputCustodyClaimV1,
 ) -> Result<StrategyInputCustodyReadbackV1, StrategyInputCustodyUnavailableV1> {
-    reread_persisted_strategy_input_custody_with_mode_v1(
+    reread_persisted_custody_with_mode_v1(
         transaction,
         claim,
         DependencyReadModeV1::ReadOnly,
+        seal_exact_custody_v1,
     )
     .await
 }
 
-async fn reread_persisted_strategy_input_custody_with_mode_v1(
+/// Seals the exact-instrument custody of a re-read claim; any universe-member declaration is
+/// refused by name.
+fn seal_exact_custody_v1(
+    claim: &UntrustedStrategyInputCustodyClaimV1,
+    declarations: &[StrategyInputBindingDeclarationReadbackV1],
+    batch: &VerifiedPitObservationBatch,
+) -> Result<StrategyInputCustodyReadbackV1, StrategyInputCustodyUnavailableV1> {
+    let bindings = declarations
+        .iter()
+        .map(|declaration| declaration.exact_binding().cloned())
+        .collect::<Option<Vec<_>>>()
+        .ok_or(StrategyInputCustodyUnavailableV1::ScopeMismatch)?;
+    let frame = bind_strategy_input_event_frame(&bindings, batch)
+        .map_err(|_| StrategyInputCustodyUnavailableV1::FrameUnavailable)?;
+    let sealed = declarations
+        .iter()
+        .zip(&bindings)
+        .map(|(declaration, binding)| StrategyInputCustodyDeclarationV1 {
+            request: declaration.request(),
+            request_meaning_digest: declaration.request_meaning_digest(),
+            binding,
+        })
+        .collect::<Vec<_>>();
+    seal_strategy_input_custody_v1(claim, &sealed, &frame)
+}
+
+/// Seals the universe-member custody of a re-read claim over the role set's universe frame; any
+/// exact-instrument declaration is refused by name.
+fn seal_universe_custody_v1(
+    claim: &UntrustedStrategyInputCustodyClaimV1,
+    declarations: &[StrategyInputBindingDeclarationReadbackV1],
+    batch: &VerifiedPitObservationBatch,
+) -> Result<StrategyInputUniverseCustodyReadbackV1, StrategyInputCustodyUnavailableV1> {
+    let requests = declarations
+        .iter()
+        .map(|declaration| {
+            declaration
+                .exact_binding()
+                .is_none()
+                .then(|| declaration.request().clone())
+        })
+        .collect::<Option<Vec<_>>>()
+        .ok_or(StrategyInputCustodyUnavailableV1::ScopeMismatch)?;
+    let frame = bind_strategy_input_universe_frame(&requests, batch)
+        .map_err(|_| StrategyInputCustodyUnavailableV1::FrameUnavailable)?;
+    let sealed = declarations
+        .iter()
+        .map(|declaration| StrategyInputUniverseCustodyDeclarationV1 {
+            request: declaration.request(),
+            request_meaning_digest: declaration.request_meaning_digest(),
+            binding_digest: declaration.binding_digest(),
+        })
+        .collect::<Vec<_>>();
+    seal_strategy_input_universe_custody_v1(claim, &sealed, &frame)
+}
+
+/// Re-reads every declaration of one claim and seals them with `seal`.
+///
+/// Each claimed role is recovered from its write-once declaration and re-bound in `mode`, which
+/// refuses a declaration whose re-derived digest differs from the stored one; the stored role set
+/// must then equal the claimed one exactly, so a caller cannot turn a Design into a positive subset
+/// by omitting roles. `seal` is synchronous and runs last, so this is the only async frame on the
+/// re-read path: a debug build keeps an async frame whole while it awaits, and the ordered chain
+/// runs this path on a 2 MiB test stack.
+async fn reread_persisted_custody_with_mode_v1<T>(
     transaction: &mut Transaction<'_, Postgres>,
     claim: &UntrustedStrategyInputCustodyClaimV1,
     mode: DependencyReadModeV1,
-) -> Result<StrategyInputCustodyReadbackV1, StrategyInputCustodyUnavailableV1> {
+    seal: fn(
+        &UntrustedStrategyInputCustodyClaimV1,
+        &[StrategyInputBindingDeclarationReadbackV1],
+        &VerifiedPitObservationBatch,
+    ) -> Result<T, StrategyInputCustodyUnavailableV1>,
+) -> Result<T, StrategyInputCustodyUnavailableV1> {
     let roles = canonical_strategy_input_custody_roles_v1(claim)?;
     let mut declarations = Vec::with_capacity(roles.len());
     for role_identity in &roles {
@@ -699,25 +842,7 @@ async fn reread_persisted_strategy_input_custody_with_mode_v1(
     let batch = resolve_native_pit(transaction, first.request(), mode)
         .await
         .map_err(|e| map_custody_error(&e))?;
-    let bindings = declarations
-        .iter()
-        .map(|declaration| declaration.exact_binding().cloned())
-        .collect::<Option<Vec<_>>>()
-        .ok_or(StrategyInputCustodyUnavailableV1::RoleCoverageMismatch)?;
-    let frame = bind_strategy_input_event_frame(&bindings, &batch)
-        .map_err(|_| StrategyInputCustodyUnavailableV1::FrameUnavailable)?;
-    let sealed = declarations
-        .iter()
-        .map(|declaration| {
-            Some(StrategyInputCustodyDeclarationV1 {
-                request: declaration.request(),
-                request_meaning_digest: declaration.request_meaning_digest(),
-                binding: declaration.exact_binding()?,
-            })
-        })
-        .collect::<Option<Vec<_>>>()
-        .ok_or(StrategyInputCustodyUnavailableV1::RoleCoverageMismatch)?;
-    seal_strategy_input_custody_v1(claim, &sealed, &frame)
+    seal(claim, &declarations, &batch)
 }
 
 /// Projects an internal registry failure onto the redacted public custody category.

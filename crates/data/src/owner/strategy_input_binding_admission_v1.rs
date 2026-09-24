@@ -98,8 +98,19 @@ pub enum StrategyInputBindingAdmissionErrorV1 {
     UnknownAuthenticatedDesign,
     /// The authenticated shape's own digest does not authenticate its bytes.
     AuthenticatedDesignUntrusted,
-    /// A role is not a first-vertical exact-instrument market role this Owner can resolve.
+    /// A role is neither an exact-instrument nor a universe-member market role this Owner can
+    /// resolve.
     UnsupportedRole,
+    /// A universe-member role's Design names no initial PIT request to register against.
+    InitialPitRequestUnnamed,
+    /// No PIT request of this Owner has the identity the Design names.
+    InitialPitRequestUnknown,
+    /// The named PIT request's digest is not the one the Design names.
+    InitialPitRequestDigestMismatch,
+    /// The named PIT request's current snapshot is not `AVAILABLE`.
+    InitialPitRequestNotAvailable,
+    /// The named PIT request was not requested for the Design's Research request.
+    InitialPitRequestRequesterMismatch,
     /// No snapshot of this Owner answers a role at or before its decision cut.
     NoMatchingSnapshot,
     /// More than one lineage answers a role at the selected cut, so nothing is chosen.
@@ -122,6 +133,17 @@ impl Display for StrategyInputBindingAdmissionErrorV1 {
                 "the authenticated Design does not authenticate its own bytes"
             }
             Self::UnsupportedRole => "a role is outside the roles this Owner resolves",
+            Self::InitialPitRequestUnnamed => {
+                "a universe-member role's Design names no initial PIT request"
+            }
+            Self::InitialPitRequestUnknown => "no PIT request has the identity the Design names",
+            Self::InitialPitRequestDigestMismatch => {
+                "the named PIT request's digest is not the one the Design names"
+            }
+            Self::InitialPitRequestNotAvailable => "the named PIT request is not AVAILABLE",
+            Self::InitialPitRequestRequesterMismatch => {
+                "the named PIT request was not requested for the Design's Research request"
+            }
             Self::NoMatchingSnapshot => "no snapshot answers a role at its decision cut",
             Self::AmbiguousSnapshot => "more than one lineage answers a role at that cut",
             Self::SplitCoordinate => "the Design's roles resolved to different PIT requests",

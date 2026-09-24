@@ -1980,6 +1980,33 @@ impl ReplayCompositionOwnerV1 {
         Err(StrategyInputBindingAdmissionErrorV1::StoreUnavailable)
     }
 
+    /// The initial PIT request a universe-member Design's published role intent names.
+    ///
+    /// An attestation states roles but no PIT request, so a Design with a universe-member role
+    /// takes it from its own published role intent, read in the same R&D reader transaction; one
+    /// with no such role, or with no published intent, names none, and registration refuses its
+    /// universe-member roles as unnamed.
+    async fn attested_initial_pit_request(
+        transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        receipt: &StrategyDesignRoleSetReceiptV1,
+    ) -> Result<
+        Option<crate::owner::strategy_design_role_intent_v1::InitialPitRequestLocatorV1>,
+        StrategyInputBindingAdmissionErrorV1,
+    > {
+        if !receipt.roles.iter().any(|role| {
+            role.scope == crate::owner::strategy_input_binding::UNIVERSE_MEMBERS_ROLE_SCOPE_V1
+        }) {
+            return Ok(None);
+        }
+        let intent =
+            match Self::resolve_design_role_intent(transaction, receipt.design_identity).await {
+                Ok(intent) => Some(intent),
+                Err(StrategyInputBindingAdmissionErrorV1::UnknownAuthenticatedDesign) => None,
+                Err(e) => return Err(e),
+            };
+        attested_initial_pit_request_from_intent_v1(receipt, intent.as_ref())
+    }
+
     /// Reads one published intent through R&D's exact-locator function and re-derives its digest.
     ///
     /// The stored bytes are evidence and never authority: `from_durable_publication` rebuilds the
@@ -2034,6 +2061,7 @@ impl ReplayCompositionOwnerV1 {
                     intent,
                 ),
                 intent.roles(),
+                intent.initial_pit_request(),
             )
             .await;
 
@@ -2096,13 +2124,20 @@ impl ReplayCompositionOwnerV1 {
             lock_composer_cut_v1(&mut reader_transaction, &locator.request_identity)
                 .await
                 .map_err(map_admission_reader_error)?;
-            Self::resolve_role_set_attestation(&mut reader_transaction, locator)
-                .await
-                .map_err(map_admission_reader_error)
+            let authenticated =
+                Self::resolve_role_set_attestation(&mut reader_transaction, locator)
+                    .await
+                    .map_err(map_admission_reader_error)?;
+            let initial_pit_request = Self::attested_initial_pit_request(
+                &mut reader_transaction,
+                authenticated.receipt(),
+            )
+            .await?;
+            Ok((authenticated, initial_pit_request))
         }
         .await;
-        let authenticated = match attested {
-            Ok(authenticated) => authenticated,
+        let (authenticated, initial_pit_request) = match attested {
+            Ok(attested) => attested,
             Err(reader_error) => {
                 reader_transaction
                     .rollback()
@@ -2111,7 +2146,9 @@ impl ReplayCompositionOwnerV1 {
                 return Err(reader_error);
             }
         };
-        let outcome = self.register_declarations_v1(authenticated.receipt()).await;
+        let outcome = self
+            .register_declarations_v1(authenticated.receipt(), initial_pit_request)
+            .await;
         reader_transaction
             .rollback()
             .await
@@ -2123,6 +2160,9 @@ impl ReplayCompositionOwnerV1 {
     async fn register_declarations_v1(
         &self,
         receipt: &StrategyDesignRoleSetReceiptV1,
+        initial_pit_request: Option<
+            crate::owner::strategy_design_role_intent_v1::InitialPitRequestLocatorV1,
+        >,
     ) -> Result<StrategyInputBindingAdmissionTerminalV1, StrategyInputBindingAdmissionErrorV1> {
         let mut transaction = self
             .owner
@@ -2137,6 +2177,7 @@ impl ReplayCompositionOwnerV1 {
                     receipt,
                 ),
                 &receipt.roles,
+                initial_pit_request,
             )
             .await;
 
@@ -3972,5 +4013,157 @@ mod composer_facade_tests {
                 "a wrong principal is refused as an unusable store, not as a missing Design"
             );
         }
+    }
+}
+
+/// Decides the initial PIT request an attested Design registers against, from its published role
+/// intent.
+///
+/// A Design with no universe-member role, or with no published intent, names none. An intent of
+/// another Design or another Research request authenticates nothing for this attestation and is
+/// refused, so an attestation can never borrow a different Design's PIT request.
+fn attested_initial_pit_request_from_intent_v1(
+    receipt: &StrategyDesignRoleSetReceiptV1,
+    intent: Option<&StrategyDesignRoleIntentV1>,
+) -> Result<
+    Option<crate::owner::strategy_design_role_intent_v1::InitialPitRequestLocatorV1>,
+    StrategyInputBindingAdmissionErrorV1,
+> {
+    if !receipt.roles.iter().any(|role| {
+        role.scope == crate::owner::strategy_input_binding::UNIVERSE_MEMBERS_ROLE_SCOPE_V1
+    }) {
+        return Ok(None);
+    }
+    let Some(intent) = intent else {
+        return Ok(None);
+    };
+
+    if intent.design_identity() != receipt.design_identity
+        || intent.research_request_identity() != receipt.research_request_identity
+    {
+        return Err(StrategyInputBindingAdmissionErrorV1::AuthenticatedDesignUntrusted);
+    }
+    Ok(intent.initial_pit_request())
+}
+
+#[cfg(test)]
+mod attested_initial_pit_request_tests {
+    use rstest::rstest;
+
+    use super::attested_initial_pit_request_from_intent_v1;
+    use crate::owner::{
+        source_binding::BindingDigest,
+        strategy_design_role_intent_v1::{InitialPitRequestLocatorV1, StrategyDesignRoleIntentV1},
+        strategy_design_role_set::{
+            StrategyDesignRoleEntryV1, StrategyDesignRoleSetLocatorV1,
+            StrategyDesignRoleSetReceiptV1,
+        },
+        strategy_input_binding_admission_v1::StrategyInputBindingAdmissionErrorV1,
+    };
+
+    fn d(value: u8) -> BindingDigest {
+        BindingDigest::from_untrusted_bytes([value; 32])
+    }
+
+    fn role(scope: &str, instrument: &str) -> StrategyDesignRoleEntryV1 {
+        StrategyDesignRoleEntryV1 {
+            role_identity: d(3),
+            semantic_id: "close".into(),
+            fact_class: "MARKET_DATA".into(),
+            instrument: instrument.into(),
+            scope: scope.into(),
+            field_semantic_id: "MARKET_DATA.BAR.CLOSE.PRICE.V1".into(),
+            channel: "MARKET".into(),
+            timeframe: "1M".into(),
+            unit: "PRICE".into(),
+            scale: 2,
+            value_type: "I128".into(),
+        }
+    }
+
+    fn receipt(role: StrategyDesignRoleEntryV1) -> StrategyDesignRoleSetReceiptV1 {
+        StrategyDesignRoleSetReceiptV1::from_rd_owner_projection(
+            StrategyDesignRoleSetLocatorV1 {
+                schema_version: 2,
+                request_identity: "composer-request".into(),
+                operation_receipt_identity: d(20),
+                artifact_locator: "artifact".into(),
+                artifact_identity: d(21),
+                canonical_plan_digest: d(22),
+                design_digest: d(23),
+            },
+            d(1),
+            d(24),
+            d(2),
+            d(23),
+            d(25),
+            vec![role],
+            vec![],
+        )
+        .unwrap()
+    }
+
+    fn locator() -> InitialPitRequestLocatorV1 {
+        InitialPitRequestLocatorV1 {
+            pit_request_identity: d(40),
+            pit_request_digest: d(41),
+        }
+    }
+
+    fn intent(research: BindingDigest, design: BindingDigest) -> StrategyDesignRoleIntentV1 {
+        StrategyDesignRoleIntentV1::from_rd_owner_projection_with_initial_pit(
+            research,
+            d(30),
+            d(31),
+            design,
+            d(23),
+            // The decision reads only the intent's Design, Research request and named request.
+            vec![role(r#"{"kind":"EXACT_INSTRUMENT"}"#, "AAPL")],
+            locator(),
+        )
+        .unwrap()
+    }
+
+    #[rstest]
+    fn an_attestation_takes_only_its_own_designs_initial_pit_request() {
+        let universe = receipt(role(r#"{"kind":"UNIVERSE_MEMBERS"}"#, ""));
+        let exact = receipt(role(r#"{"kind":"EXACT_INSTRUMENT"}"#, "AAPL"));
+
+        assert_eq!(
+            attested_initial_pit_request_from_intent_v1(&universe, Some(&intent(d(1), d(2)))),
+            Ok(Some(locator()))
+        );
+        // Nothing to take: no universe-member role, or no published intent.
+        assert_eq!(
+            attested_initial_pit_request_from_intent_v1(&exact, Some(&intent(d(1), d(2)))),
+            Ok(None)
+        );
+        assert_eq!(
+            attested_initial_pit_request_from_intent_v1(&universe, None),
+            Ok(None)
+        );
+        // An intent of another Design, or of the same Design under another Research request.
+        assert_eq!(
+            attested_initial_pit_request_from_intent_v1(&universe, Some(&intent(d(1), d(9)))),
+            Err(StrategyInputBindingAdmissionErrorV1::AuthenticatedDesignUntrusted)
+        );
+        assert_eq!(
+            attested_initial_pit_request_from_intent_v1(&universe, Some(&intent(d(8), d(2)))),
+            Err(StrategyInputBindingAdmissionErrorV1::AuthenticatedDesignUntrusted)
+        );
+        // A schema 1 intent names no request.
+        let schema_one = StrategyDesignRoleIntentV1::from_rd_owner_projection(
+            d(1),
+            d(30),
+            d(31),
+            d(2),
+            d(23),
+            vec![role(r#"{"kind":"EXACT_INSTRUMENT"}"#, "AAPL")],
+        )
+        .unwrap();
+        assert_eq!(
+            attested_initial_pit_request_from_intent_v1(&universe, Some(&schema_one)),
+            Ok(None)
+        );
     }
 }
