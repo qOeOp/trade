@@ -6,16 +6,70 @@
 // endpoint, or a page condition that never becomes true fails with the observed state instead
 // of hanging the chain.
 
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
 import { appendFile, mkdtemp, readFile, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { startNextServer } from "./preview-instance.mjs";
+
+// The first major version known to spin, as far as the builds at hand can tell. On macOS a full
+// Chrome in headless mode starts spinning its browser main thread after the first key sent with
+// Input.dispatchKeyEvent. The thread stays in AppKit's key-equivalent routing
+// (NSApplication sendEvent: -> routeKeyEquivalent -> performKeyEquivalent -> NSMenu _enableItems)
+// at about 100% CPU and never leaves it. Every DevTools command then waits behind it, for seconds
+// to minutes. Whichever command outlasts a suite's budget reads as a hung page, at a different
+// step each run.
+//
+// Measured 2026-09-24 on a bare page with this harness's flags, one Enter after 10 s idle:
+//   - Chrome 153.0.8010.53 and Chrome for Testing 151.0.7922.34 spin;
+//   - Chrome for Testing 145.0.7632.6 and 144.0.7559.96 return to idle within a second;
+//   - chrome-headless-shell 144, which has no browser UI or menu bar, never spins.
+// No build between 145 and 151 was available without a download, so 146 is the lowest version not
+// shown to be safe. Raise it to the first failing major once that is measured.
+//
+// Linux has no AppKit path, and Chrome for Testing 152 on the Linux runners is unaffected, so this
+// refuses nothing in CI.
+//
+// Only Input.dispatchKeyEvent starts it. On the same Chrome 153 and bare page, three Input.insertText
+// calls (the text landed) left the browser process at 0-12% CPU, while one dispatchKeyEvent in the
+// same session sent it to 97% and it stayed there.
+export const MACOS_SYNTHESIZED_KEY_SPIN_FIRST_MAJOR = 146;
+
+// Refuses, before any work, a suite that will send synthesized keys to a browser that spins on
+// them. Without this the run fails 60 s into a DevTools command, and the timeout reads as a hung
+// page - which is how this was first reported. Callers pass the `--version` output they already
+// read. The browser is asked only when they have not, and only on macOS, so the Linux runners start
+// no extra process for this. `platform` is a parameter so the decision can be tested on any machine.
+export function refuseBrowserThatSpinsOnSynthesizedKeys(executable, {
+  platform = process.platform,
+  versionText,
+} = {}) {
+  if (platform !== "darwin") return;
+  // The shell has no browser UI; it prints the same product name as the full browser, so the
+  // executable's name is the only thing that tells them apart.
+  if (basename(executable) === "chrome-headless-shell") return;
+  versionText ??= execFileSync(executable, ["--version"], { encoding: "utf8", timeout: 30_000 });
+  const major = Number(/(\d+)\.\d+\.\d+\.\d+/.exec(versionText)?.[1]);
+  if (!Number.isSafeInteger(major)) {
+    throw new Error(`cannot read a Chrome version from ${JSON.stringify(versionText.trim())}`);
+  }
+  if (major < MACOS_SYNTHESIZED_KEY_SPIN_FIRST_MAJOR) return;
+  throw new Error([
+    `refusing to drive ${versionText.trim()} on macOS: this suite sends synthesized keys, and on`,
+    `macOS a full Chrome ${MACOS_SYNTHESIZED_KEY_SPIN_FIRST_MAJOR} or later spins its browser main`,
+    "thread in AppKit's key-equivalent routing (NSMenu _enableItems) after the first one, so every",
+    "later DevTools command stalls and the run fails at an arbitrary step. A result from it is not",
+    "evidence about the page either way.",
+    "Acceptance evidence comes from the Linux runners (Chrome for Testing 152). To locate a fault",
+    "locally, point the executable at chrome-headless-shell or at a Chrome for Testing 145 or",
+    "earlier; neither is acceptance evidence, because neither is the browser CI drives.",
+  ].join(" "));
+}
 
 // A browser is a tree, not a process. Chrome's helper processes inherit the stderr pipe this module
 // reads, and they outlive a signal sent only to the process spawned here: the pipe stays open, Node
