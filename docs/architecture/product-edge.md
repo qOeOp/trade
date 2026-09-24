@@ -388,9 +388,11 @@ downstream mutation was not yet receipted, it may proceed only after the immedia
 the final write cut. The zero-`ACTIVE` fence blocks this continuity, and every new admission still requires the
 current `ACTIVE` head.
 
-Product Edge takes every cut it checks and records for an admission or a provider-invocation claim, its read cut
-and its final write cut, as `pg_catalog.clock_timestamp()` read inside its own transaction, never from the
-application process clock. At that cut the research window is checked against the R&D Owner's `owner_cut`,
+Product Edge reads one clock. Every time it checks or records - a binding's genesis, a successor's activation and
+its fence, an admission or a claim's read cut and final write cut, an invocation's start - is
+`pg_catalog.clock_timestamp()` read inside its own transaction, never the application process clock. A binding's
+validity window comes from the operator, who reads no clock on Product Edge's behalf, so genesis and every later
+admission compare that window with the same clock. At an admission's cut the research window is checked against the R&D Owner's `owner_cut`,
 projection time and `valid_through`, which R&D stamps from the same database clock, so both sides of each
 comparison come from one clock. Qualification holds the same authority for its Owner cut. The call is
 schema-qualified so that no function reachable through `search_path` can take its place.
