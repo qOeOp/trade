@@ -411,25 +411,24 @@ test(testName, { skip: !url }, async () => {
       assert.equal(execFileSync("git", ["status", "--porcelain"], {
         cwd: dashboardRoot, encoding: "utf8",
       }), "");
-      const port = 3219;
       // The production bundle, as the other three RunStore acceptances already use. This suite ran
       // the dev compiler, which is a different program: development enables React strict mode, whose
       // double-invoked mount effect reads the Owner twice, and this calendar is keyed on the read
       // envelope - so development carries a remount source that a deployed image does not have. An
       // acceptance for a deployed route has to exercise the runtime that gets deployed.
-      preview = await startProductionPreview({
+      // Its own port and its own server: the preview is ready only once it answers as the instance
+      // this run started, so a second suite on the same machine can never be the one driven.
+      let origin;
+      ({ preview, origin } = await startProductionPreview({
         dashboardRoot,
-        port,
         label: "calendar preview",
         env: {
           ...environment,
           DASHBOARD_LOCAL_OPERATOR_LOGIN_TOKEN: calendarLogin,
           DASHBOARD_SESSION_HMAC_KEY: calendarSessionHmac,
         },
-      });
-      const origin = `http://127.0.0.1:${port}`;
+      }));
       const currentSchedulesUrl = `${origin}/operations/schedules/?view=current`;
-      await waitForHttp(`${origin}/api/health/`, preview);
       const login = await fetch(`${origin}/api/auth/session/`, {
         method: "POST",
         headers: { "content-type": "application/json", origin },
@@ -1268,13 +1267,13 @@ test(testName, { skip: !url }, async () => {
       await stopPreview(preview);
     } else if (process.env.DASHBOARD_CALENDAR_PREVIEW === "1") {
       // Inspect the real GET/browser boundary even when the consumer assertion below fails.
-      preview = await startProductionPreview({
+      let origin;
+      ({ preview, origin } = await startProductionPreview({
         dashboardRoot,
-        port: 3219,
         label: "calendar preview",
         env: environment,
-      });
-      process.stdout.write("Disposable calendar preview: http://127.0.0.1:3219/operations/schedules/\n");
+      }));
+      process.stdout.write(`Disposable calendar preview: ${origin}/operations/schedules/\n`);
       await once(preview, "exit");
     }
     const envelope = await parseScheduleEnvelopeV1({

@@ -144,7 +144,6 @@ test(browserAcceptance
   assert.match(readApiToken, /^\S+$/u);
   assert.match(ownerToken, /^\S+$/u);
   assert.notEqual(readApiToken, ownerToken);
-  const previewPort = required("DASHBOARD_OWNER_READBACK_PREVIEW_PORT", /^[1-9][0-9]{0,4}$/u);
   const researchRequestIdentity = required("DASHBOARD_OWNER_READBACK_RESEARCH_REQUEST_IDENTITY", IDENTITY);
   const researchHypothesis = required("DASHBOARD_OWNER_READBACK_RESEARCH_HYPOTHESIS", /^\S.{7,}$/u);
   const buildRequestIdentity = required("DASHBOARD_OWNER_READBACK_BUILD_REQUEST_IDENTITY", IDENTITY);
@@ -199,17 +198,14 @@ test(browserAcceptance
   const custody = await ownerClockJson(new URL("v1/historical-custodies", readApiUrl), readApiToken);
   assert.equal(custody.status, 200);
 
-  const port = Number(previewPort);
-  assert.ok(port <= 65_535);
-  const origin = `http://127.0.0.1:${port}`;
-  const sourceRoute = `${origin}/rd/artifacts/${encodeURIComponent(buildRequestIdentity)}/attempts/${encodeURIComponent(attemptIdentity)}/`;
   let preview;
+  let origin;
+  let sourceRoute;
   let browser;
   let executionError;
   try {
-    preview = await startProductionPreview({
+    ({ preview, origin } = await startProductionPreview({
       dashboardRoot,
-      port,
       label: "owner-readback-preview",
       env: {
         RD_DASHBOARD_OWNER_READ_API_URL: readApiUrl,
@@ -219,7 +215,8 @@ test(browserAcceptance
         DASHBOARD_LOCAL_OPERATOR_LOGIN_TOKEN: sessionLoginToken,
         DASHBOARD_SESSION_HMAC_KEY: sessionHmacKey,
       },
-    });
+    }));
+    sourceRoute = `${origin}/rd/artifacts/${encodeURIComponent(buildRequestIdentity)}/attempts/${encodeURIComponent(attemptIdentity)}/`;
     browser = await openBrowser(browserExecutable, { label: "owner-readback-browser" });
     await browser.send("Page.enable");
     await browser.send("Browser.grantPermissions", {
