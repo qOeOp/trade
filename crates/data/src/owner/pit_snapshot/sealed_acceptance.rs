@@ -98,6 +98,47 @@ const CLOSE_ROLE_IDENTITY: [u8; 32] = [
     147, 146, 144, 96, 163, 22, 78, 125, 143, 96, 236, 90,
 ];
 const EXACT_INSTRUMENT: &str = "AAPL.XNAS";
+
+/// The fixed members a sealed universe corpus holds.
+///
+/// Each corpus declares its own dataset, membership and universe rules, so a frame sealed from
+/// one member never carries the two-member corpus's semantics. The two-member corpus keeps the
+/// exact bytes it always had.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum UniverseCorpus {
+    AaplMsft,
+    Aapl,
+}
+
+impl UniverseCorpus {
+    const fn dataset_mapping(self) -> &'static str {
+        match self {
+            Self::AaplMsft => "AAPL-MSFT-OHLC-V1",
+            Self::Aapl => "AAPL-OHLC-V1",
+        }
+    }
+
+    const fn membership_rules(self) -> &'static str {
+        match self {
+            Self::AaplMsft => "FIXED_AAPL_MSFT.V1",
+            Self::Aapl => "FIXED_AAPL.V1",
+        }
+    }
+
+    const fn universe_rules(self) -> &'static str {
+        match self {
+            Self::AaplMsft => "SEALED_ACCEPTANCE.EXACT_TWO.V1",
+            Self::Aapl => "SEALED_ACCEPTANCE.EXACT_ONE.V1",
+        }
+    }
+
+    const fn includes(self, member_key: &str) -> bool {
+        match self {
+            Self::AaplMsft => true,
+            Self::Aapl => matches!(member_key.as_bytes(), b"AAPL"),
+        }
+    }
+}
 const EXACT_STRATEGY_DESIGN_IDENTITY: [u8; 32] = [
     232, 30, 172, 0, 47, 173, 169, 207, 3, 192, 21, 222, 146, 9, 22, 17, 25, 200, 60, 250, 74, 245,
     17, 228, 51, 69, 173, 211, 209, 17, 23, 84,
@@ -322,6 +363,7 @@ impl From<StrategyInputBindingUnavailable> for SealedAcceptanceError {
 pub fn issue_strategy_input_universe_frame()
 -> Result<SealedAcceptanceStrategyInputUniverseFrame, SealedAcceptanceError> {
     issue_universe_frame_for_compile_time_corpus(
+        UniverseCorpus::AaplMsft,
         RESEARCH_REQUEST_IDENTITY,
         STRATEGY_DESIGN_IDENTITY,
     )
@@ -339,6 +381,7 @@ pub fn issue_strategy_input_universe_frame()
 pub fn issue_source_intake_composer_universe_frame()
 -> Result<SealedAcceptanceStrategyInputUniverseFrame, SealedAcceptanceError> {
     issue_universe_frame_for_compile_time_corpus(
+        UniverseCorpus::AaplMsft,
         SOURCE_INTAKE_COMPOSER_RESEARCH_REQUEST_IDENTITY,
         SOURCE_INTAKE_COMPOSER_STRATEGY_DESIGN_IDENTITY,
     )
@@ -358,19 +401,47 @@ pub fn issue_source_intake_composer_universe_frame_for_owner_lineage(
     strategy_design_identity: BindingDigest,
 ) -> Result<SealedAcceptanceStrategyInputUniverseFrame, SealedAcceptanceError> {
     issue_universe_frame_for_compile_time_corpus(
+        UniverseCorpus::AaplMsft,
+        *research_request_identity.as_bytes(),
+        *strategy_design_identity.as_bytes(),
+    )
+}
+
+/// Issues the one-member AAPL `SEALED_ACCEPTANCE` universe frame for an Owner-verified lineage.
+///
+/// This is the one-member counterpart of
+/// [`issue_source_intake_composer_universe_frame_for_owner_lineage`]: the same Source Binding
+/// admission, PIT issuance, complete-batch verification and universe-frame binding, over a corpus
+/// that holds AAPL alone and declares one-member membership and universe rules. The selection is
+/// derived by the Owner from that verified batch, never assembled here, and every value is bound
+/// to the supplied Research request and Design, so a Plan compiled for that Design accepts the
+/// frame. It exists for the tests that need a real one-member universe frame: a one-member
+/// `ProgramHost`, the host's attachment of universe sample coordinates, and the first positive
+/// native Replay case.
+///
+/// # Errors
+///
+/// Fails closed if any fixed Source Binding, PIT, or universe-frame invariant is unavailable.
+pub fn issue_single_member_universe_frame_for_owner_lineage(
+    research_request_identity: BindingDigest,
+    strategy_design_identity: BindingDigest,
+) -> Result<SealedAcceptanceStrategyInputUniverseFrame, SealedAcceptanceError> {
+    issue_universe_frame_for_compile_time_corpus(
+        UniverseCorpus::Aapl,
         *research_request_identity.as_bytes(),
         *strategy_design_identity.as_bytes(),
     )
 }
 
 fn issue_universe_frame_for_compile_time_corpus(
+    corpus: UniverseCorpus,
     research_request_identity: [u8; 32],
     strategy_design_identity: [u8; 32],
 ) -> Result<SealedAcceptanceStrategyInputUniverseFrame, SealedAcceptanceError> {
     let source_clock = clock();
     let source_owner = TestOnlyInMemorySourceBindingOwner::default();
     let source = source_owner.commit_initial(
-        source_proposal(),
+        source_proposal_for(corpus),
         OwnerSourceBindingDecision {
             blockers: BTreeSet::new(),
         },
@@ -378,7 +449,7 @@ fn issue_universe_frame_for_compile_time_corpus(
     )?;
 
     let mut snapshot = snapshot_proposal(source.receipt().locator());
-    let observations = observation_proposal(&snapshot);
+    let observations = observation_proposal(&snapshot, corpus);
     snapshot.evidence.normalized_records_digest = derive_observation_batch_digest(&observations)?;
     let prepared = prepare_observation_batch(&snapshot, &observations)?;
     let basis = TestOnlyCanonicalBasisResolver::seal_for_test(
@@ -576,7 +647,7 @@ pub fn issue_market_data_repair_evidence_v1()
         &source_clock,
     )?;
     let mut snapshot = snapshot_proposal(source.receipt().locator());
-    let observations = observation_proposal(&snapshot);
+    let observations = observation_proposal(&snapshot, UniverseCorpus::AaplMsft);
     snapshot.evidence.normalized_records_digest = derive_observation_batch_digest(&observations)?;
     let prepared = prepare_observation_batch(&snapshot, &observations)?;
     let basis = TestOnlyCanonicalBasisResolver::seal_for_test(
@@ -723,6 +794,10 @@ fn clock() -> MarketDataClockAdmission {
 }
 
 fn source_proposal() -> UntrustedSourceBindingProposal {
+    source_proposal_for(UniverseCorpus::AaplMsft)
+}
+
+fn source_proposal_for(corpus: UniverseCorpus) -> UntrustedSourceBindingProposal {
     let mut proposal = UntrustedSourceBindingProposal {
         claimed_binding_id: digest_byte(0),
         schema_version: 1,
@@ -730,7 +805,7 @@ fn source_proposal() -> UntrustedSourceBindingProposal {
             implementation_digest: digest_byte(1),
             configuration_digest: digest_byte(2),
             authenticated_endpoint_identity: "sealed-acceptance://fixed-market-corpus".into(),
-            dataset_mapping: "AAPL-MSFT-OHLC-V1".into(),
+            dataset_mapping: corpus.dataset_mapping().into(),
             account_mapping: "NO_ACCOUNT_SEALED_ACCEPTANCE".into(),
         },
         credential_handle: UntrustedOpaqueCredentialHandle::from_untrusted_identity(
@@ -755,8 +830,8 @@ fn source_proposal() -> UntrustedSourceBindingProposal {
             timezone_rules: "AMERICA_NEW_YORK.V1".into(),
             instrument_lifecycle_rules: "FIXED_EQUITY.V1".into(),
             corporate_action_rules: "NO_ACTIONS.FIXTURE.V1".into(),
-            membership_rules: "FIXED_AAPL_MSFT.V1".into(),
-            universe_rules: "SEALED_ACCEPTANCE.EXACT_TWO.V1".into(),
+            membership_rules: corpus.membership_rules().into(),
+            universe_rules: corpus.universe_rules().into(),
             correction_policy: "SUCCESSOR_ONLY.V1".into(),
         },
         license: UntrustedLicensePolicy {
@@ -859,6 +934,7 @@ fn snapshot_proposal(
 
 fn observation_proposal(
     snapshot: &UntrustedPitSnapshotProposal,
+    corpus: UniverseCorpus,
 ) -> UntrustedPitObservationBatchProposal {
     let rows = [
         ("AAPL.CLOSE", "AAPL", "AAPL.XNAS", "CLOSE", 18_725),
@@ -867,6 +943,7 @@ fn observation_proposal(
         ("MSFT.OPEN", "MSFT", "MSFT.XNAS", "OPEN", 41_981),
     ]
     .into_iter()
+    .filter(|(_, member_key, ..)| corpus.includes(member_key))
     .map(
         |(symbolic_key, member_key, instrument, field, value_mantissa)| UntrustedPitObservation {
             symbolic_key: symbolic_key.into(),
@@ -1017,6 +1094,87 @@ fn exact_binding_request(
 mod tests {
     use super::*;
     use rstest::rstest;
+
+    fn pinned(hex: &str) -> BindingDigest {
+        let bytes: [u8; 32] = (0..hex.len())
+            .step_by(2)
+            .map(|at| u8::from_str_radix(&hex[at..at + 2], 16).unwrap())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        BindingDigest::from_untrusted_bytes(bytes)
+    }
+
+    /// The two-member frames keep the bytes they had before the corpus took a member set. The
+    /// digests are what `main` issued at `b9aecf4a4`.
+    #[rstest]
+    fn two_member_universe_frames_keep_their_bytes() {
+        assert_eq!(
+            issue_strategy_input_universe_frame()
+                .unwrap()
+                .frame()
+                .digest(),
+            pinned("761e727a59e6b109636d7fb097393eb9bb30f7aa063f0dfc2d25a95bcb7b1f07")
+        );
+        assert_eq!(
+            issue_source_intake_composer_universe_frame()
+                .unwrap()
+                .frame()
+                .digest(),
+            pinned("8f62dc769a02e56460b68ce2b27ec6017d3a6096830203498598e9336072aea6")
+        );
+    }
+
+    /// The one-member frame is a real one-member universe, bound to the Design it was asked for.
+    ///
+    /// The selection comes out of the Owner's derivation over the verified AAPL-only batch, and
+    /// every value names the supplied Research request and Design; a second Design gets a frame
+    /// of its own rather than the first one relabelled.
+    #[rstest]
+    fn the_single_member_frame_holds_one_member_bound_to_its_design() {
+        let research = BindingDigest::from_untrusted_bytes([61; 32]);
+        let design = BindingDigest::from_untrusted_bytes([62; 32]);
+        let issued =
+            issue_single_member_universe_frame_for_owner_lineage(research, design).unwrap();
+        let members = issued.frame().selection().members();
+
+        assert_eq!(members.len(), 1);
+        assert_eq!(members[0].instrument(), "AAPL.XNAS");
+        assert_eq!(issued.frame().values().len(), 2, "OPEN and CLOSE for AAPL");
+        assert!(
+            issued
+                .frame()
+                .values()
+                .iter()
+                .all(|value| value.instrument() == "AAPL.XNAS")
+        );
+        assert!(issued.role_bindings().iter().all(|binding| {
+            binding.research_request_identity() == research
+                && binding.strategy_design_identity() == design
+        }));
+
+        let other_design = BindingDigest::from_untrusted_bytes([63; 32]);
+        let other =
+            issue_single_member_universe_frame_for_owner_lineage(research, other_design).unwrap();
+        assert_ne!(other.frame().digest(), issued.frame().digest());
+        assert_eq!(
+            issue_single_member_universe_frame_for_owner_lineage(research, design)
+                .unwrap()
+                .frame()
+                .digest(),
+            issued.frame().digest(),
+            "the same lineage issues the same frame"
+        );
+        assert_ne!(
+            issued.frame().selection().selection_identity(),
+            issue_strategy_input_universe_frame()
+                .unwrap()
+                .frame()
+                .selection()
+                .selection_identity(),
+            "a one-member selection is not the two-member one"
+        );
+    }
 
     #[rstest]
     fn protected_evaluation_shared_time_is_deterministic_and_chains_three_heads() {

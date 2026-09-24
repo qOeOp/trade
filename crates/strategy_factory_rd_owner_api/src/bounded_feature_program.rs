@@ -382,6 +382,9 @@ const fn bounded_feature_program_stage_code(stage: &BoundedFeatureProgramErrorV1
         BoundedFeatureProgramErrorV1::Bounds => "BOUNDED_FEATURE_PROGRAM_BOUNDS_INVALID",
         BoundedFeatureProgramErrorV1::Design => "BOUNDED_FEATURE_PROGRAM_DESIGN_BINDING_INVALID",
         BoundedFeatureProgramErrorV1::Input => "BOUNDED_FEATURE_PROGRAM_INPUT_BINDING_INVALID",
+        BoundedFeatureProgramErrorV1::CarriedInputRead => {
+            "BOUNDED_FEATURE_PROGRAM_CARRIED_INPUT_READ"
+        }
         BoundedFeatureProgramErrorV1::Constant => "BOUNDED_FEATURE_PROGRAM_CONSTANT_INVALID",
         BoundedFeatureProgramErrorV1::Primitive => "BOUNDED_FEATURE_PROGRAM_PRIMITIVE_UNKNOWN",
         BoundedFeatureProgramErrorV1::Type => "BOUNDED_FEATURE_PROGRAM_TYPED_EDGE_INVALID",

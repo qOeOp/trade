@@ -91,7 +91,7 @@ const BACKTEST_LOCK_BOUNDARY_AUTH_SQL_V2: &str = "
              AND wrapper.prokind='f'
              AND wrapper.pronargs=4
              AND wrapper.proargnames=ARRAY['requested_request_identity','requested_meaning_digest','requested_receipt_identity','requested_seal_digest']::text[]
-             AND wrapper.proconfig=ARRAY['search_path=pg_catalog']::text[]
+             AND wrapper.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[]
              AND wrapper.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
              AND wrapper.proargtypes='25 25 25 25'::pg_catalog.oidvector
              AND pg_catalog.pg_get_userbyid(wrapper.proowner)='rd_owner'
@@ -125,7 +125,7 @@ const BACKTEST_LOCK_BOUNDARY_AUTH_SQL_V2: &str = "
                   AND dependency.prokind='f'
                   AND dependency.pronargs=4
                   AND dependency.proargnames=ARRAY['requested_request_identity','requested_meaning_digest','requested_receipt_identity','requested_seal_digest']::text[]
-                  AND dependency.proconfig=ARRAY['search_path=pg_catalog']::text[]
+                  AND dependency.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[]
                   AND dependency.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
                   AND dependency.proargtypes='25 25 25 25'::pg_catalog.oidvector
                   AND pg_catalog.pg_get_userbyid(dependency.proowner)='rd_exploratory_replay_api_owner'
@@ -1895,7 +1895,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
           requested_request_digest text,
           requested_receipt_identity text
         ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-        SET search_path = pg_catalog
+        SET search_path = pg_catalog, pg_temp
         AS $function$
         BEGIN
           IF NOT EXISTS (
@@ -2030,7 +2030,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
         .map_err(storage)?;
     }
     sqlx::query(sqlx::AssertSqlSafe(format!(
-        "CREATE FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(requested_request_identity text,requested_meaning_digest text,requested_receipt_identity text,requested_seal_digest text) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path = pg_catalog AS $function${NATIVE_SOURCE_STORAGE_SOURCE_V2}$function$"
+        "CREATE FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(requested_request_identity text,requested_meaning_digest text,requested_receipt_identity text,requested_seal_digest text) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $function${NATIVE_SOURCE_STORAGE_SOURCE_V2}$function$"
     )))
     .execute(&mut *publication)
     .await
@@ -2054,7 +2054,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
           requested_receipt_identity text,
           requested_seal_digest text
         ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-        SET search_path = pg_catalog
+        SET search_path = pg_catalog, pg_temp
         AS $function$
         DECLARE storage jsonb;
         BEGIN
@@ -2080,7 +2080,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
           requested_receipt_identity text,
           requested_seal_digest text
         ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-        SET search_path = pg_catalog
+        SET search_path = pg_catalog, pg_temp
         AS $function${MARKET_DATA_LOCK_SOURCE_V1}$function$"
     )))
     .execute(&mut *publication)
@@ -3998,7 +3998,7 @@ async fn validate_backtest_binding(
              AND procedure.provolatile='v'
              AND procedure.proparallel='u'
              AND procedure.proisstrict
-             AND procedure.proconfig=ARRAY['search_path=pg_catalog']::text[]
+             AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[]
              AND procedure.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
              AND procedure.proargtypes='25 25 25'::pg_catalog.oidvector
              AND owner.rolname='rd_owner'

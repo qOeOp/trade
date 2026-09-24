@@ -1624,10 +1624,21 @@ fi
 # the machine until entries with a time window fail for load alone. owner-chain-lock.bash says why
 # and how. A hosted runner runs one job, so CI does not take it.
 if [[ "${GITHUB_ACTIONS:-}" != "true" ]]; then
-  # shellcheck source=scripts/ci/owner-chain-lock.bash disable=SC1091
+  # shellcheck source=scripts/ci/owner-chain-lock.bash
   source "$(dirname "${BASH_SOURCE[0]}")/owner-chain-lock.bash"
   acquire_owner_chain_lock || exit 1
 fi
+
+# A wall clock on every entry; chain-entry-watchdog.bash says why. 900s is about six and a half times
+# the slowest entry measured - 135.8s, entry 28, the most any entry took across 25 chain records of
+# 2026-09-22..23 - and stays above nextest's own ten-minute stop (`slow-timeout`, 120s x 5), so a
+# hung test is still named by nextest and only what nextest cannot see reaches this.
+# This expires as entries grow slower: when any entry routinely passes 450s, re-measure from the
+# chain records and raise it. CHAIN_ENTRY_WALL_CLOCK_SECONDS lowers it to make the watchdog fire on
+# purpose.
+# shellcheck source=scripts/ci/chain-entry-watchdog.bash
+source "$(dirname "${BASH_SOURCE[0]}")/chain-entry-watchdog.bash"
+readonly chain_entry_wall_clock_seconds="${CHAIN_ENTRY_WALL_CLOCK_SECONDS:-900}"
 
 # Entry 28 drives the Dashboard in a real browser only when three sealed inputs are present. Without
 # them it returns in a few milliseconds and reports PASS, so a chain that never touched a browser
@@ -1738,6 +1749,7 @@ cleanup() {
   local primary_status="$?"
   local cleanup_failed=false
   trap - EXIT
+  disarm_chain_entry_watchdog
   # `set +e` does not quiet the ERR trap - Bash runs it on any failing command outside a condition,
   # whatever errexit is set to - and everything below is written to tolerate failure and report it in
   # its own words. Without this line a failing chain would end in a run of generic trap lines that
@@ -2072,7 +2084,7 @@ GRANT USAGE ON SCHEMA rd_owner_api TO backtest_owner;
 CREATE FUNCTION rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)
 RETURNS jsonb
 LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path=pg_catalog
+SET search_path=pg_catalog, pg_temp
 AS $function$
 DECLARE encoded text;
 BEGIN
@@ -2089,7 +2101,7 @@ GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v1(text,t
 CREATE FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)
 RETURNS jsonb
 LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path=pg_catalog
+SET search_path=pg_catalog, pg_temp
 AS $function$
 DECLARE encoded text;
 BEGIN
@@ -2526,7 +2538,7 @@ BEGIN
   INSERT INTO vibe_test_admin.rd_exploratory_replay_routine_definition_v1(target,definition)
   VALUES (target,pg_catalog.pg_get_functiondef(target_oid));
   IF target='facade' THEN
-    EXECUTE $ddl$CREATE OR REPLACE FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(requested_request_identity text,requested_meaning_digest text,requested_receipt_identity text,requested_seal_digest text) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path=pg_catalog AS $body$BEGIN INSERT INTO vibe_test_admin.rd_exploratory_replay_routine_sentinel_v1 VALUES ('facade'); RETURN NULL; END$body$$ddl$;
+    EXECUTE $ddl$CREATE OR REPLACE FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(requested_request_identity text,requested_meaning_digest text,requested_receipt_identity text,requested_seal_digest text) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path=pg_catalog, pg_temp AS $body$BEGIN INSERT INTO vibe_test_admin.rd_exploratory_replay_routine_sentinel_v1 VALUES ('facade'); RETURN NULL; END$body$$ddl$;
   ELSIF target='v2' THEN
     EXECUTE $ddl$CREATE OR REPLACE FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(requested_request_identity text,requested_meaning_digest text,requested_receipt_identity text,requested_seal_digest text) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY INVOKER SET search_path=pg_catalog AS $body$BEGIN INSERT INTO vibe_test_admin.rd_exploratory_replay_routine_sentinel_v1 VALUES ('v2'); RETURN NULL; END$body$$ddl$;
   ELSE
@@ -3606,6 +3618,11 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
   chain_position=$((chain_position + 1))
   chain_entry_label="${test_package} ${test_binary} ${test_name}"
   echo "=== ordered chain entry ${chain_position}/${chain_entry_count}: ${chain_entry_label}"
+  # The previous entry's record must not be copied as this one's if this one never writes its own.
+  rm -f -- "$chain_record_source"
+  arm_chain_entry_watchdog "$chain_entry_wall_clock_seconds" \
+    "$(printf '%s/%03d.timeout' "$chain_record_dir" "$chain_position")" \
+    "ordered chain entry ${chain_position}/${chain_entry_count} (${chain_entry_label})"
   # Absolute: nextest runs each test from its package directory.
   VIBE_TEST_LOG_FILE="${PWD}/$(printf '%s/%03d.log' "$chain_record_dir" "$chain_position")"
   export VIBE_TEST_LOG_FILE
@@ -3796,6 +3813,16 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
     echo "=== ordered chain: all ${chain_entry_count} entries passed, ${chain_record_count} recorded"
     report_collected_warnings "$chain_record_dir" "$chain_entry_count"
   fi
+  disarm_chain_entry_watchdog
+done
+
+# Every SECURITY DEFINER routine, in every database the chain materialized, must search pg_temp last
+# and name no schema another role can create in; scripts/ci/check-security-definer-search-path.sql
+# holds the rule and the shrinking list of routines that do not meet it yet.
+for guard_database in $(docker exec "$container" psql -U postgres -d postgres -Atqc "SELECT datname FROM pg_catalog.pg_database WHERE NOT datistemplate AND datallowconn ORDER BY 1"); do
+  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$guard_database" \
+    < "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-security-definer-search-path.sql"
 done
 
 legacy_replay_fingerprint_after="$(legacy_replay_fingerprint)"
@@ -4038,7 +4065,7 @@ BEGIN
       AND procedure.proisstrict
       AND procedure.provolatile = 'v'
       AND procedure.proparallel = 'u'
-      AND procedure.proconfig = ARRAY['search_path=pg_catalog']
+      AND procedure.proconfig = ARRAY['search_path=pg_catalog, pg_temp']
   )
   THEN
     RAISE EXCEPTION 'sealed R&D basis API metadata mismatch';
@@ -4056,7 +4083,7 @@ BEGIN
       AND procedure.proisstrict
       AND procedure.provolatile = 'v'
       AND procedure.proparallel = 'u'
-      AND procedure.proconfig = ARRAY['search_path=pg_catalog']
+      AND procedure.proconfig = ARRAY['search_path=pg_catalog, pg_temp']
   )
      OR NOT pg_catalog.has_schema_privilege('backtest_owner', 'rd_owner_api', 'USAGE')
      OR NOT pg_catalog.has_function_privilege(
@@ -4080,7 +4107,7 @@ BEGIN
       AND procedure.proisstrict
       AND procedure.provolatile = 'v'
       AND procedure.proparallel = 'u'
-      AND procedure.proconfig = ARRAY['search_path=pg_catalog']
+      AND procedure.proconfig = ARRAY['search_path=pg_catalog, pg_temp']
   )
      OR NOT pg_catalog.has_function_privilege(
        'backtest_owner',

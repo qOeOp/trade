@@ -119,11 +119,54 @@ function canonicalFilterJson(value: ServiceLogFilterCutV1) {
   });
 }
 
+/**
+ * The cut a browser asks for. `observed_at: null` asks for the current view: the server cuts at its
+ * database's statement time and returns that cut, so a browser clock ahead of the database cannot
+ * refuse the read and one behind it cannot hide the newest log rows. A non-null value is a cut the
+ * server already returned, carried forward for paging, download and cursor expiry.
+ */
+export type ServiceLogFilterRequestV1 = Omit<ServiceLogFilterCutV1, "observed_at"> & {
+  observed_at: string | null;
+};
+
+export function currentServiceLogFilterV1(): ServiceLogFilterRequestV1 {
+  return {
+    schema_version: 1,
+    observed_at: null,
+    range: "1h",
+    kind: "all",
+    service: "all",
+    instance_identity: "all",
+    severity: "all",
+    search: "",
+  };
+}
+
+export function serviceLogQueryV1(cut: ServiceLogFilterRequestV1, pageSize: number, cursor?: string | null) {
+  const query = new URLSearchParams({
+    ...(cut.observed_at === null ? {} : { observedAt: cut.observed_at }),
+    range: cut.range,
+    kind: cut.kind,
+    service: cut.service,
+    instance: cut.instance_identity,
+    severity: cut.severity,
+    search: cut.search,
+    pageSize: String(pageSize),
+  });
+  if (cursor) query.set("cursor", cursor);
+  return query;
+}
+
+/** Whether the server answered the cut that was asked for; a current request accepts the server's instant. */
 export function serviceLogFilterCutMatchesV1(
   actual: ServiceLogFilterCutV1,
-  requested: ServiceLogFilterCutV1,
+  requested: ServiceLogFilterRequestV1,
 ) {
-  return canonicalFilterJson(actual) === canonicalFilterJson(requested);
+  if (requested.observed_at === null) {
+    return timestamp(actual.observed_at)
+      && canonicalFilterJson(actual) === canonicalFilterJson({ ...requested, observed_at: actual.observed_at });
+  }
+  return canonicalFilterJson(actual) === canonicalFilterJson({ ...requested, observed_at: requested.observed_at });
 }
 
 export async function serviceLogFilterCutDigestV1(value: ServiceLogFilterCutV1) {
@@ -148,9 +191,13 @@ export async function serviceLogInstanceSourceCutDigestV1(
   return `sha256:${[...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
+/**
+ * `serverObservedAt` is the database's statement time for this read, the only clock the log rows' own
+ * times are comparable with. An omitted input cut is that instant; a supplied one may not be later.
+ */
 export function canonicalizeServiceLogFilterCutV1(
-  input: ServiceLogFilterInputV1 = {},
-  serverObservedAt = new Date().toISOString(),
+  input: ServiceLogFilterInputV1,
+  serverObservedAt: string,
 ): { filterCut: ServiceLogFilterCutV1; pageSize: ServiceLogPageSizeV1; cursor?: string } {
   if (!timestamp(serverObservedAt)) throw new Error("SERVICE_LOG_CUT_INVALID");
   const observedAt = input.observedAt ?? serverObservedAt;
