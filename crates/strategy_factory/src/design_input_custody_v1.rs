@@ -110,6 +110,50 @@ const fn scopes_agree(design: &InputScopeV2, declared: StrategyInputDeclaredScop
     )
 }
 
+/// The role identities a custody claim is made with, admitted before any re-read.
+///
+/// With the Design in hand the Design's scope must be the scope the Owner's declarations were
+/// registered under, and its role set the set the Owner holds; the claim then carries the Design's
+/// roles. Without it, the Owner's stored roles are the claim. The scope is checked before the role
+/// sets, because a Design read through the other custody path would be refused there for a reason
+/// that does not name the disagreement. Mixed scopes were refused when the Design was stated, so
+/// every role shares this one scope and the Design-level value is the whole comparison.
+fn admit_claimed_roles_v1(
+    caller: &'static str,
+    declared_scope: StrategyInputDeclaredScopeV1,
+    stored_roles: &[BindingDigest],
+    declared: Option<DeclaredDesignInputsV1>,
+) -> Result<Vec<BindingDigest>, DesignInputCustodyRefusedV1> {
+    let Some(declared) = declared else {
+        return Ok(stored_roles.to_vec());
+    };
+
+    if !scopes_agree(&declared.scope, declared_scope) {
+        return Err(refused(
+            caller,
+            "design_input_custody.declared_scope",
+            &format_args!(
+                "Design scope {} (all {} roles agree); Owner declares {}",
+                design_scope_name(&declared.scope),
+                declared.roles.len(),
+                declared_scope_name(declared_scope),
+            ),
+        ));
+    }
+    let mut stored = stored_roles.to_vec();
+    let mut expected = declared.roles.clone();
+    stored.sort_unstable();
+    expected.sort_unstable();
+    if stored != expected {
+        return Err(refused(
+            caller,
+            "design_input_custody.declared_roles",
+            &"the Design's role set differs from the roles Market Data holds for it",
+        ));
+    }
+    Ok(declared.roles)
+}
+
 /// Re-reads the Market Data custody that serves a Design's inputs, under the caller's R&D
 /// transaction, and returns the bindings a Plan compiles against.
 ///
@@ -125,40 +169,12 @@ pub(crate) async fn reread_design_input_custody_v1(
     let coordinate = resolve_pit_request_for_strategy_design_v1(transaction, design_identity)
         .await
         .map_err(|cause| refused(caller, "design_input_custody.resolve_pit_request", &cause))?;
-
-    let input_role_identities = match declared {
-        Some(declared) => {
-            // Checked before the role sets, because a Design read through the other custody path
-            // would be refused there for a reason that does not name the disagreement. Mixed scopes
-            // were refused when the Design was stated, so every role shares this one scope and the
-            // Design-level value is the whole comparison.
-            if !scopes_agree(&declared.scope, coordinate.declared_scope) {
-                return Err(refused(
-                    caller,
-                    "design_input_custody.declared_scope",
-                    &format_args!(
-                        "Design scope {} (all {} roles agree); Owner declares {}",
-                        design_scope_name(&declared.scope),
-                        declared.roles.len(),
-                        declared_scope_name(coordinate.declared_scope),
-                    ),
-                ));
-            }
-            let mut stored = coordinate.input_role_identities.clone();
-            let mut expected = declared.roles.clone();
-            stored.sort_unstable();
-            expected.sort_unstable();
-            if stored != expected {
-                return Err(refused(
-                    caller,
-                    "design_input_custody.declared_roles",
-                    &"the Design's role set differs from the roles Market Data holds for it",
-                ));
-            }
-            declared.roles
-        }
-        None => coordinate.input_role_identities.clone(),
-    };
+    let input_role_identities = admit_claimed_roles_v1(
+        caller,
+        coordinate.declared_scope,
+        &coordinate.input_role_identities,
+        declared,
+    )?;
 
     let claim = UntrustedStrategyInputCustodyClaimV1 {
         research_request_identity,
@@ -216,5 +232,156 @@ pub(crate) async fn reread_design_input_custody_v1(
                 design_identity,
             ))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+    use std::sync::{Arc, Mutex};
+
+    use tracing_subscriber::fmt::MakeWriter;
+    use vibe_data::owner::{StrategyInputDeclaredScopeV1, source_binding::BindingDigest};
+
+    use super::{DeclaredDesignInputsV1, DesignInputCustodyRefusedV1, admit_claimed_roles_v1};
+    use crate::{
+        strategy_design_v2::{InputRoleV2, InputScopeV2},
+        strategy_plan_v2::{
+            UNIVERSE_CLOSE_FIELD_SEMANTIC_ID_V2, UNIVERSE_OPEN_FIELD_SEMANTIC_ID_V2,
+            strategy_input_role_identity_v2, universe_member_role_v2,
+        },
+    };
+
+    #[derive(Clone, Default)]
+    struct Sink(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for Sink {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().expect("sink lock").extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> MakeWriter<'a> for Sink {
+        type Writer = Self;
+
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    /// Runs the admission with every recorded refusal captured, and returns both.
+    fn admit(
+        declared_scope: StrategyInputDeclaredScopeV1,
+        stored_roles: &[BindingDigest],
+        design_inputs: Option<&[InputRoleV2]>,
+    ) -> (
+        Result<Vec<BindingDigest>, DesignInputCustodyRefusedV1>,
+        String,
+    ) {
+        let sink = Sink::default();
+        let subscriber = tracing_subscriber::fmt().with_writer(sink.clone()).finish();
+        let admitted = tracing::subscriber::with_default(subscriber, || {
+            let declared = design_inputs.map(|inputs| {
+                DeclaredDesignInputsV1::of("test", inputs).expect("the Design states one scope")
+            });
+            admit_claimed_roles_v1("test", declared_scope, stored_roles, declared)
+        });
+        let written = String::from_utf8(sink.0.lock().expect("sink lock").clone())
+            .expect("subscriber output is UTF-8");
+        (admitted, written)
+    }
+
+    fn universe_roles() -> Vec<InputRoleV2> {
+        vec![
+            universe_member_role_v2("OPEN", UNIVERSE_OPEN_FIELD_SEMANTIC_ID_V2),
+            universe_member_role_v2("CLOSE", UNIVERSE_CLOSE_FIELD_SEMANTIC_ID_V2),
+        ]
+    }
+
+    fn exact_roles() -> Vec<InputRoleV2> {
+        universe_roles()
+            .into_iter()
+            .map(|role| InputRoleV2 {
+                instrument: "BTCUSDT-PERP.BINANCE".to_owned(),
+                scope: InputScopeV2::ExactInstrument,
+                ..role
+            })
+            .collect()
+    }
+
+    fn identities(roles: &[InputRoleV2]) -> Vec<BindingDigest> {
+        roles.iter().map(strategy_input_role_identity_v2).collect()
+    }
+
+    #[rstest::rstest]
+    #[case::exact_design_universe_owner(
+        exact_roles(),
+        StrategyInputDeclaredScopeV1::UniverseMembers
+    )]
+    #[case::universe_design_exact_owner(
+        universe_roles(),
+        StrategyInputDeclaredScopeV1::ExactInstrument
+    )]
+    fn a_design_whose_scope_the_owner_does_not_declare_is_refused_by_name(
+        #[case] design: Vec<InputRoleV2>,
+        #[case] owner_scope: StrategyInputDeclaredScopeV1,
+    ) {
+        // The Owner holds exactly the Design's roles, so only the scope disagrees: without the scope
+        // check this admits and the claim goes down the custody path the Design does not use.
+        let (admitted, written) = admit(owner_scope, &identities(&design), Some(&design));
+
+        assert_eq!(admitted, Err(DesignInputCustodyRefusedV1));
+        assert!(
+            written.contains("design_input_custody.declared_scope"),
+            "{written}"
+        );
+        assert!(written.contains("(all 2 roles agree)"), "{written}");
+    }
+
+    #[rstest::rstest]
+    fn a_design_whose_role_set_differs_is_refused_by_name() {
+        let design = universe_roles();
+        let stored = identities(&design[..1]);
+        let (admitted, written) = admit(
+            StrategyInputDeclaredScopeV1::UniverseMembers,
+            &stored,
+            Some(&design),
+        );
+
+        assert_eq!(admitted, Err(DesignInputCustodyRefusedV1));
+        assert!(
+            written.contains("design_input_custody.declared_roles"),
+            "{written}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[case::exact(exact_roles(), StrategyInputDeclaredScopeV1::ExactInstrument)]
+    #[case::universe(universe_roles(), StrategyInputDeclaredScopeV1::UniverseMembers)]
+    fn an_agreeing_design_claims_its_own_roles_whatever_order_the_owner_stores(
+        #[case] design: Vec<InputRoleV2>,
+        #[case] owner_scope: StrategyInputDeclaredScopeV1,
+    ) {
+        let mut stored = identities(&design);
+        stored.reverse();
+        let (admitted, written) = admit(owner_scope, &stored, Some(&design));
+
+        assert_eq!(admitted, Ok(identities(&design)));
+        assert!(written.is_empty(), "{written}");
+    }
+
+    #[rstest::rstest]
+    fn without_the_design_the_owner_stored_roles_are_the_claim() {
+        let stored = identities(&universe_roles());
+        let (admitted, written) =
+            admit(StrategyInputDeclaredScopeV1::UniverseMembers, &stored, None);
+
+        assert_eq!(admitted, Ok(stored));
+        assert!(written.is_empty(), "{written}");
     }
 }
