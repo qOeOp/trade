@@ -861,7 +861,7 @@ unavailable 或位于不同 cut 时，只撤回它自己的行与计数。两个
 - `ProductEdgeResearchGoalRequestV3` 等于 `ProductEdgeResearchGoalRequestV2` 加一个必填的 `instrument_scope`，即
   `ResearchInstrumentScopeV1`：一到两个互不相同的规范 Instrument Master 身份（例如 `BTCUSDT-PERP.BINANCE`），按字节
   升序排列，与 universe 纵向切片准入的成员数一致；单品种路径只陈述一个。其规范字节依次为 schema `u16LE = 1`、成员数
-  `u8`，以及按序排列、各带长度前缀（`u16LE`）的身份；其身份为对 `rd.research-instrument-scope.v1\0 || 规范字节` 的
+  `u8`，以及按序排列、各带长度前缀（`u16LE`）的身份；其身份为对 `rd.research-instrument-scope.v1\0 || canonical bytes` 的
   SHA-256。它在传输中是 JSON 对象 `{"schema_version": 1, "identities": ["BTCUSDT-PERP.BINANCE"]}`；本 Owner 拒绝未知的
   schema、空的、重复的或未排序的列表，以及为空、带首尾空白、含控制字符或超过 1024 个 UTF-8 字节的身份，并自行计算规范
   字节与身份，从不取自调用方。接纳之前，本 Owner 通过 Market Data 已准入的读取面询问：每个身份能否解析，且是否在
