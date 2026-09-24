@@ -1651,7 +1651,34 @@ build_nextest_archive() {
     --features "$nextest_archive_features" \
     --profile "$nextest_profile" \
     --cargo-profile "$cargo_ci_profile" \
+    --timings \
     --archive-file "$1"
+  # LANE8 PROBE, NOT FOR MERGE: the critical path of that build, from cargo's own unit timings.
+  python3 - "${CARGO_TARGET_DIR:-target}/cargo-timings/cargo-timing.html" << 'CRITICAL'
+import json
+import re
+import sys
+
+html = open(sys.argv[1], encoding="utf-8").read()
+units = json.loads(re.search(r"const UNIT_DATA = (\[.*?\]);", html, re.S).group(1))
+by_index = {u["i"]: u for u in units}
+end = lambda u: u["start"] + u["duration"]
+unlocked_by = {}
+for u in units:
+    for v in u.get("unlocked_units", []) + u.get("unlocked_rmeta_units", []):
+        unlocked_by.setdefault(v, []).append(u["i"])
+ws = lambda u: u["name"].startswith(("vibe", "strategy-factory", "strategy_factory"))
+total = max(end(u) for u in units)
+print(f"LANE8-CP build wall {total:.0f}s, {len(units)} units ({sum(1 for u in units if ws(u))} workspace)")
+path = [max(units, key=end)]
+while path[-1]["i"] in unlocked_by:
+    path.append(max((by_index[i] for i in unlocked_by[path[-1]["i"]]), key=end))
+for u in reversed(path):
+    kind = "ws " if ws(u) else "ext"
+    print(f"LANE8-CP {kind} {u['start']:6.1f}s -> {end(u):6.1f}s ({u['duration']:5.1f}s) {u['name']} {u.get('target', '').strip()} {u.get('mode', '')}")
+last_external_end = max((end(u) for u in units if not ws(u)), default=0)
+print(f"LANE8-CP last external unit ends at {last_external_end:.0f}s; workspace-only tail {total - last_external_end:.0f}s")
+CRITICAL
 }
 nextest_archive_identity() {
   printf 'tree %s\nfeatures %s\ncargo-profile %s\nnextest-profile %s\n' \
