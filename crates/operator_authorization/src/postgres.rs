@@ -5041,9 +5041,7 @@ mod tests {
         assert!(function_catalog.4, "resolver must be STRICT");
         assert_eq!(
             function_catalog.5,
-            Some(vec![
-                "search_path=pg_catalog, operator_authorization_private, pg_temp".to_string()
-            ])
+            Some(vec!["search_path=pg_catalog, pg_temp".to_string()])
         );
 
         for schema in [

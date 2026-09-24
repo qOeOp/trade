@@ -323,7 +323,7 @@ RETURNS jsonb
 LANGUAGE plpgsql
 STRICT VOLATILE PARALLEL UNSAFE
 SECURITY DEFINER
-SET search_path = pg_catalog, operator_authorization_private, pg_temp
+SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
   hinted_resource_digest text;
