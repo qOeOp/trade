@@ -2463,6 +2463,7 @@ fn request(request_identity: &str) -> ProductEdgeResearchGoalRequestV2 {
             independence_rationale: "No known local predecessor before Owner resolution."
                 .to_string(),
         },
+        instrument_scope: None,
     }
 }
 

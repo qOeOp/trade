@@ -6233,6 +6233,7 @@ mod postgres_freshness_tests {
                 independence_rationale: "No known local predecessor before Owner resolution."
                     .to_string(),
             },
+            instrument_scope: None,
         }
     }
 
