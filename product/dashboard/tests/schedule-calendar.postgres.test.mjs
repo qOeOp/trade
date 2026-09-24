@@ -10,7 +10,7 @@ import test from "node:test";
 import pg from "pg";
 import { PostgresRunStoreV1 } from "../lib/run-store.ts";
 import { configuredShadowScheduleSetV1 } from "../lib/shadow-scheduler.ts";
-import { startProductionPreview } from "./browser-acceptance.mjs";
+import { refuseBrowserThatSpinsOnSynthesizedKeys, startProductionPreview } from "./browser-acceptance.mjs";
 import { parseScheduleEnvelopeV1 } from "../lib/schedule-projection.ts";
 import { scheduleCalendarGroupsV1 } from "../lib/schedule-calendar.ts";
 import { compatibleEnvironmentV1 } from "./compatibility-fixture.mjs";
@@ -327,6 +327,9 @@ async function dispatchBrowserKey(browser, key) {
 }
 
 test(testName, { skip: !url }, async () => {
+  // Every keyboard step here synthesizes keys, so a browser that spins on them is refused before any
+  // database or build work, rather than 60 s into a stalled DevTools command at an arbitrary step.
+  if (browserAcceptance) refuseBrowserThatSpinsOnSynthesizedKeys(browserExecutable);
   const parsed = new URL(url);
   assert.equal(parsed.hostname, "127.0.0.1");
   assert.match(parsed.pathname, process.env.DASHBOARD_CALENDAR_PREVIEW === "1" ? /^\/dashboard_calendar_preview(?:_\d+)?$/ : /^\/dashboard_calendar$/);
