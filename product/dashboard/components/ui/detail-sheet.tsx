@@ -28,7 +28,6 @@ export function DetailSheet({
   children: ReactNode;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const reportedClose = useRef(false);
   const titleId = useId();
 
   useEffect(() => {
@@ -53,32 +52,10 @@ export function DetailSheet({
   // closes at once but its `close` event arrives as a later task, and until the page has heard it
   // the page still names the content it was showing: asking for that same content again in between
   // (Escape then Enter, a double click, a fast assistive-technology action) changes no state and
-  // opens nothing.
-  //
-  // That close's own `close` event still arrives, one task later, and hearing it again is not
-  // harmless: if the same content was asked for in between, the sheet has reopened and the late
-  // event would clear what the page now shows, closing the reopened sheet (the calendar acceptance
-  // measured it: reopened at 2568 ms, closed again from the page's effect at 2574 ms). So a close
-  // this sheet already reported consumes its one event, and an event reaching a sheet that is open
-  // again is not a close of what it shows. Every other close, such as the page closing the sheet
-  // by `open`, is reported when its event arrives.
+  // opens nothing. Every caller's `onClose` only clears state, so hearing it twice is harmless.
   const requestClose = () => {
-    reportedClose.current = true;
     onClose();
     dialog.current?.close();
-  };
-  const closed = () => {
-    if (reportedClose.current) {
-      reportedClose.current = false;
-      return;
-    }
-
-    if (dialog.current?.open) return;
-    onClose();
-  };
-  const cancelled = () => {
-    reportedClose.current = true;
-    onClose();
   };
 
   return (
@@ -86,8 +63,8 @@ export function DetailSheet({
       ref={dialog}
       className={styles.sheet}
       aria-labelledby={titleId}
-      onClose={closed}
-      onCancel={cancelled}
+      onClose={onClose}
+      onCancel={onClose}
       onClick={(event) => {
         if (event.target === event.currentTarget) requestClose();
       }}
