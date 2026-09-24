@@ -223,6 +223,12 @@ async function readBrowserValue(browser, expression) {
 // Observe the key instead of assuming it. A delivery that never happened is retried; a key that did
 // reach the trigger and still opened nothing is the page's defect and fails, naming the element the
 // key actually arrived at and whether clicking it works.
+// A preview sheet is released when no dialog is open and none still holds a run preview. The dialog
+// alone closes at once; what matters is that the page has let go of the run, since that is what a
+// following request for the same run depends on.
+const SHEET_RELEASED = "document.querySelector('dialog[open]') === null"
+  + " && !document.querySelector('dialog a[href^=\"/operations/runs/\"]')";
+
 let pressOrdinalCounter = 0;
 
 async function pressEnterAndWaitFor(browser, expression, attempts = 3) {
@@ -619,7 +625,10 @@ test(testName, { skip: !url }, async () => {
       assert.equal(runPreview.focusInside, true);
       await readBrowserValue(browser,
         "document.querySelector('dialog[open] button[aria-label=\"Close panel\"]')?.click()");
-      await waitForBrowserExpression(browser, "document.querySelector('dialog[open]') === null");
+      await waitForBrowserExpression(browser, SHEET_RELEASED);
+      // The property dashboard.md states ("Close returns focus to that exact table trigger", :108 and
+      // the other sheet origins). The browser's modal close provides it, not DetailSheet; this and the
+      // calendar origins' focus assertions are what prove it (see detail-sheet.tsx).
       assert.equal(await readBrowserValue(browser,
         `document.activeElement?.matches('table ${previewTriggerSelector}') ?? false`),
       true, "closing current-schedule run preview returns focus to its trigger");
@@ -666,7 +675,7 @@ test(testName, { skip: !url }, async () => {
         `document.activeElement?.matches('dialog[open] ${previewTriggerSelector}') ?? false`);
       await readBrowserValue(browser,
         "document.querySelector('dialog[open] button[aria-label=\"Close panel\"]')?.click()");
-      await waitForBrowserExpression(browser, "document.querySelector('dialog[open]') === null");
+      await waitForBrowserExpression(browser, SHEET_RELEASED);
       assert.equal(await readBrowserValue(browser,
         `document.activeElement?.matches('table ${scheduleTriggerSelector}') ?? false`),
       true, "closing compact schedule returns focus to its table trigger");
@@ -858,7 +867,9 @@ test(testName, { skip: !url }, async () => {
         }, originKind);
         await readBrowserValue(browser,
           "document.querySelector('dialog[open] button[aria-label=\"Close panel\"]')?.click()");
-        await waitForBrowserExpression(browser, "document.querySelector('dialog[open]') === null");
+        await waitForBrowserExpression(browser, SHEET_RELEASED);
+        // Focus return is the browser's modal close (dashboard.md:108; see detail-sheet.tsx), so this
+        // proves the stated property but not that the page handled the close: SHEET_RELEASED above does.
         const returned = await readBrowserValue(browser, `(() => {
           const active = document.activeElement;
           return {
@@ -911,9 +922,20 @@ test(testName, { skip: !url }, async () => {
           throw new Error(`${timedOut.message}; inspector click: ${JSON.stringify(inspectorClick)}; sheets after it: ${
             JSON.stringify(sheets)}`);
         });
+      // Closing the sheet and asking for the same run again before the page's next task must open it
+      // again. Before the sheet told the page about its own close inside that close, this opened
+      // nothing and left the page on the schedule preview (35962774207): the red this case first met.
+      await readBrowserValue(browser, `(() => {
+        document.querySelector('dialog[open] button[aria-label="Close panel"]')?.click();
+        document.querySelector(
+          '[aria-label="Selected schedule"] [data-run-preview-trigger="${calendarRunOrigins.badge}"]')?.click();
+        return true;
+      })()`);
+      await waitForBrowserExpression(browser,
+        "document.querySelectorAll('dialog[open]').length === 1 && Boolean(document.querySelector('dialog[open] a[href^=\"/operations/runs/\"]'))");
       await readBrowserValue(browser,
         "document.querySelector('dialog[open] button[aria-label=\"Close panel\"]')?.click()");
-      await waitForBrowserExpression(browser, "document.querySelector('dialog[open]') === null");
+      await waitForBrowserExpression(browser, SHEET_RELEASED);
       await driveCalendarRunOrigin("badge", calendarRunOrigins.badge);
 
       await browser.send("Emulation.setDeviceMetricsOverride", {
