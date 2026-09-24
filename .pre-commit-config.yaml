@@ -209,6 +209,20 @@ repos:
         language: system
         files: ^scripts/ci/(chain-entry-watchdog|test-chain-entry-watchdog)\.bash$
         pass_filenames: false
+      - id: check-chain-channel-environment
+        name: check owner-chains builds like build's chain job
+        description: Both channels are Owner acceptance, so their Cargo environments must match
+        entry: python3 -B scripts/ci/check-chain-channel-environment.py
+        language: system
+        files: ^(\.github/workflows/(build|owner-chains)\.yml|scripts/ci/check-chain-channel-environment\.py)$
+        pass_filenames: false
+      - id: test-check-chain-channel-environment
+        name: test the chain channel environment check
+        description: The check accepts an agreeing pair and refuses each mutation by name
+        entry: python3 -B scripts/ci/check-chain-channel-environment_test.py
+        language: system
+        files: ^scripts/ci/check-chain-channel-environment(_test)?\.py$
+        pass_filenames: false
       - id: test-owner-chain-lock
         name: test Owner chain machine lock
         description: A second local Owner chain is refused and named; a dead holder releases the lock
