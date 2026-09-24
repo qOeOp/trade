@@ -1,6 +1,6 @@
 use std::{
     sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use rstest::rstest;
@@ -2057,6 +2057,7 @@ async fn cleanup_prerequisites(mutation: &CanonicalOwnerPostgresTestMutationV1<'
 
 struct TestProductEdge {
     owner: ProductEdgePostgresOwnerV1,
+    anchor: OwnerClockAnchorV1,
     operator_authorization_url: String,
     deployment_identity: String,
     binding_identity: String,
@@ -2096,7 +2097,11 @@ impl TestProductEdge {
         suffix: &str,
         validity_ms: u64,
     ) -> Self {
-        let now = current_epoch_ms();
+        // The windows are checked against the Owner's clock, so they are anchored on it: Product
+        // Edge reads its admission cut from `clock_timestamp()`, and a window cut from this
+        // process's clock is compared across two clocks.
+        let anchor = OwnerClockAnchorV1::read(product_edge_url).await;
+        let now = anchor.owner_epoch_ms;
         let valid_from_epoch_ms = now.saturating_sub(1_000);
         let valid_through_epoch_ms = now.saturating_add(validity_ms);
         let request_proof_digest = "sha256:test-proof".to_string();
@@ -2188,6 +2193,7 @@ impl TestProductEdge {
             .unwrap();
         Self {
             owner,
+            anchor,
             operator_authorization_url: operator_authorization_url.to_string(),
             deployment_identity,
             binding_identity,
@@ -2315,8 +2321,75 @@ impl TestProductEdge {
         } else {
             self.owner.admit_request(request).await
         };
-        readback.unwrap().locator().clone()
+
+        match readback {
+            Ok(readback) => readback.locator().clone(),
+            Err(refusal) => panic!(
+                "admission refused: {refusal:?}; binding window [{}, {}) {}",
+                self.valid_from_epoch_ms,
+                self.valid_through_epoch_ms,
+                self.anchor.describe_after_refusal().await,
+            ),
+        }
     }
+}
+
+/// The Owner-clock reading the harness's windows are cut from, and what it needs to explain a
+/// refusal of one of them.
+///
+/// A window refused as not current after it was anchored on the clock that checks it leaves two
+/// explanations: a stall between the anchor and the check, or a step in the Owner's clock. The
+/// description tells them apart: a stall shows as wall time of the window's margin or more, and a
+/// clock step as little wall time with at least that much advance on the Owner's clock.
+struct OwnerClockAnchorV1 {
+    owner_epoch_ms: u64,
+    process_epoch_ms: u64,
+    taken_at: Instant,
+    owner_url: String,
+}
+
+impl OwnerClockAnchorV1 {
+    async fn read(owner_url: &str) -> Self {
+        let process_epoch_ms = current_epoch_ms();
+        let taken_at = Instant::now();
+        let owner_epoch_ms = owner_clock_epoch_ms(owner_url)
+            .await
+            .expect("the Owner clock reads");
+        Self {
+            owner_epoch_ms,
+            process_epoch_ms,
+            taken_at,
+            owner_url: owner_url.to_owned(),
+        }
+    }
+
+    async fn describe_after_refusal(&self) -> String {
+        let wall_ms = self.taken_at.elapsed().as_millis();
+        let owner_after = owner_clock_epoch_ms(&self.owner_url).await.map_or_else(
+            |e| format!("unreadable ({e})"),
+            |epoch_ms| epoch_ms.to_string(),
+        );
+        format!(
+            "anchored at Owner clock {}; process clock at the anchor {}; Owner clock after the \
+             refusal {owner_after} (at or after the admission's cut); wall time from the anchor to \
+             the refusal {wall_ms} ms",
+            self.owner_epoch_ms, self.process_epoch_ms,
+        )
+    }
+}
+
+async fn owner_clock_epoch_ms(owner_url: &str) -> Result<u64, sqlx::Error> {
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(owner_url)
+        .await?;
+    let epoch_ms: i64 = sqlx::query_scalar(
+        "SELECT pg_catalog.floor(EXTRACT(epoch FROM pg_catalog.clock_timestamp()) * 1000)::bigint",
+    )
+    .fetch_one(&pool)
+    .await?;
+    pool.close().await;
+    Ok(u64::try_from(epoch_ms).expect("the Owner clock is after the epoch"))
 }
 
 fn test_manifest(
