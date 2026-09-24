@@ -1595,7 +1595,6 @@ run_authority_migration_for_database() {
     "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
 }
 
-check_postgres_containers_run_under_init
 check_static_isolation
 check_nextest_graph_contract
 check_backtest_result_function_source
@@ -2251,7 +2250,6 @@ impersonator_volume_created=true
 # the killed pid as the heredoc writer, with no connection of its own.
 docker run \
   --detach \
-  --init \
   --name "$container" \
   --publish 127.0.0.1::5432 \
   --mount "type=volume,source=${volume},target=/var/lib/postgresql/data" \
@@ -2265,7 +2263,6 @@ docker run \
 container_created=true
 docker run \
   --detach \
-  --init \
   --name "$impersonator_container" \
   --publish 127.0.0.1::5432 \
   --mount "type=volume,source=${impersonator_volume},target=/var/lib/postgresql/data" \
