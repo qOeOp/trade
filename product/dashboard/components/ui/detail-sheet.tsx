@@ -44,7 +44,8 @@ export function DetailSheet({
 
   const close = () => {
     onClose();
-    window.requestAnimationFrame(() => returnFocus.current?.focus());
+    // EXPERIMENT (do not merge): the page no longer restores focus, so a focus assertion that
+    // still passes is measuring the browser's own restore on modal close.
   };
 
   return (
