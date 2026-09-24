@@ -242,7 +242,7 @@ impl PaperAdapterBindingPostgresV1 {
                 UNIQUE (stream_identity, sequence))",
             "CREATE OR REPLACE FUNCTION execution_api.read_current_paper_adapter_binding_v1(scope_identity text) \
              RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER \
-             SET search_path = pg_catalog, execution_private AS $$ \
+             SET search_path = pg_catalog, pg_temp AS $$ \
                 SELECT jsonb_build_object( \
                     'fact_identity', fact.fact_identity, \
                     'content_digest', fact.content_digest, \
@@ -255,7 +255,7 @@ impl PaperAdapterBindingPostgresV1 {
              $$",
             "CREATE OR REPLACE FUNCTION execution_api.read_paper_account_opening_fact_v1(namespace text) \
              RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER \
-             SET search_path = pg_catalog, execution_private AS $$ \
+             SET search_path = pg_catalog, pg_temp AS $$ \
                 SELECT jsonb_build_object( \
                     'fact_identity', fact.fact_identity, \
                     'sequence', fact.sequence, \

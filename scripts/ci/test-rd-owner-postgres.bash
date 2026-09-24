@@ -3866,7 +3866,7 @@ fi
 
 # Every SECURITY DEFINER routine, in every database the chain materialized, must search pg_temp last
 # and name no schema another role can create in; scripts/ci/check-security-definer-search-path.sql
-# holds the rule and the shrinking list of routines that do not meet it yet.
+# holds the rule, and no routine is exempt from it.
 bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/run-security-definer-guard.bash" "$container" \
   postgres "$test_database" "$catalog_admin_database" "$origin_current_database" \
   "$legacy_replay_database" "$program_host_acceptance_database" "$composer_sealed_read_database"

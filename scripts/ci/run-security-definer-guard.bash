@@ -30,23 +30,21 @@ if [[ "$scanned_databases" != "$expected_databases" ]]; then
 fi
 
 checked_routines=0
-allowlisted_routines=0
 checked_databases=0
 
 while IFS= read -r database; do
-  counts="$(docker exec --interactive "$container" psql --quiet --no-align --tuples-only \
+  checked="$(docker exec --interactive "$container" psql --quiet --no-align --tuples-only \
     --set ON_ERROR_STOP=1 --username postgres --dbname "$database" < "$guard_sql")"
 
-  if [[ ! "$counts" =~ ^([0-9]+)\ ([0-9]+)$ ]]; then
-    echo "ERROR: security-definer search_path: database ${database} answered '${counts}', not '<checked> <allowlisted>'" >&2
+  if [[ ! "$checked" =~ ^([0-9]+)$ ]]; then
+    echo "ERROR: security-definer search_path: database ${database} answered '${checked}', not one count of checked routines" >&2
     exit 1
   fi
   checked_routines=$((checked_routines + BASH_REMATCH[1]))
-  allowlisted_routines=$((allowlisted_routines + BASH_REMATCH[2]))
   checked_databases=$((checked_databases + 1))
 done <<< "$scanned_databases"
 
-echo "security-definer search_path: checked ${checked_routines} functions (${allowlisted_routines} allowlisted) in ${checked_databases} databases"
+echo "security-definer search_path: checked ${checked_routines} functions in ${checked_databases} databases"
 
 if ((checked_routines == 0)); then
   echo "ERROR: security-definer search_path: no SECURITY DEFINER routine in any database; the guard read nothing" >&2
