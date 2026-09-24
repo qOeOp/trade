@@ -1043,8 +1043,13 @@ fn hex(bytes: &[u8]) -> String {
     })
 }
 
-/// Every stored value of one first-corpus Replay facts readback and its bound storage row.
-fn first_corpus_values(v4: bool) -> Vec<(&'static str, String)> {
+/// One first-corpus binding and the Replay facts composed under it, as the golden tests pin them.
+pub(crate) fn first_corpus_readback(
+    v4: bool,
+) -> (
+    super::ReplayCompositionBindingReadbackV1,
+    super::ReplayMarketFactsReadbackV2,
+) {
     let replay = request(71);
     let binding = issue_replay_composition_binding_v1(&replay, composition_evidence(1))
         .expect("complete binding");
@@ -1067,6 +1072,12 @@ fn first_corpus_values(v4: bool) -> Vec<(&'static str, String)> {
         },
     )
     .expect("exact positive composition");
+    (binding, readback)
+}
+
+/// Every stored value of one first-corpus Replay facts readback and its bound storage row.
+fn first_corpus_values(v4: bool) -> Vec<(&'static str, String)> {
+    let (binding, readback) = first_corpus_readback(v4);
     let facts = readback.facts();
     let frontier = facts.frontier();
     let receipt = readback.receipt();

@@ -40,6 +40,8 @@ pub(super) mod composition;
 pub(super) mod postgres;
 
 #[cfg(test)]
+mod first_corpus_v1_readback_postgres_tests;
+#[cfg(test)]
 mod postgres_tests;
 #[cfg(test)]
 pub(crate) mod tests;
