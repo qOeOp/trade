@@ -1015,8 +1015,10 @@ request binds 'the requested instrument or universe scope'."
   Universe Selection intake: the fixed-member rule, `[0,1,3]` followed by the scope's canonical bytes, with the scope
   identity as its rule identity, which Market Data evaluates against its eligible-instrument frontier at its published
   decision cut. R&D chooses no frontier and no member beyond the ones the user requested: the request carries the
-  current eligible-instrument frontier Market Data's read returns. It then freezes the PIT Market Snapshot Request: `requester_identity` is
-  the canonical digest of the Research request identity, written by this Owner and never taken from a caller;
+  current eligible-instrument frontier Market Data's read returns. It then freezes the PIT Market Snapshot Request:
+  `requester_identity` is Market Data's requester digest of the 32-byte Research request identity this Owner's Design
+  role intent carries (`rd.develop.request-identity.v2\0` over the request locator), so Market Data recomputes the
+  same value from the intent; this Owner writes it and never takes it from a caller;
   `scope_digest` is the scope identity; the correlation is derived from the Intent identity; and the Source Binding,
   Instrument Master, Market Semantics and decision-cut references are the ones Market Data's own read surfaces
   resolve for that scope, as the Market Data contract states. The frozen request is stored write-once under the

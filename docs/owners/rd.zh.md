@@ -880,8 +880,10 @@ unavailable 或位于不同 cut 时，只撤回它自己的行与计数。两个
 - Intent 冻结之后、任何探索性消费之前，本 Owner 在自己的步骤中签发初始 PIT 请求，调用方只提供 Intent locator。它先向
   Market Data 的 Universe Selection intake 陈述选择规则：固定成员规则，即 `[0,1,3]` 后接范围的规范字节，以范围身份作为
   其规则身份，由 Market Data 在其已发布的 decision cut 上以其 eligible-instrument frontier 求值。R&D 不自选任何 frontier，
-  也不选用户所请求之外的任何成员：请求携带的是 Market Data 读取所返回的当前 eligible-instrument frontier。随后它冻结 PIT Market Snapshot Request：`requester_identity` 是 Research request 身份的规范摘要，
-  由本 Owner 写入，从不取自调用方；`scope_digest` 是范围身份；关联身份由 Intent 身份派生；Source Binding、
+  也不选用户所请求之外的任何成员：请求携带的是 Market Data 读取所返回的当前 eligible-instrument frontier。随后它冻结
+  PIT Market Snapshot Request：`requester_identity` 是 Market Data 的 requester 摘要，作用于本 Owner 的 Design role
+  intent 所携带的 32 字节 Research request 身份（对请求 locator 做 `rd.develop.request-identity.v2\0` 摘要所得），因此
+  Market Data 能从该 intent 重算出同一个值；它由本 Owner 写入，从不取自调用方；`scope_digest` 是范围身份；关联身份由 Intent 身份派生；Source Binding、
   Instrument Master、Market Semantics 与 decision cut 的引用，是 Market Data 自有读取面为该范围解析出的那些，由
   Market Data 契约陈述。冻结的请求在发送之前按 Intent 一次性写入，每次重试都发送这些已存储的字节，因此相同身份与摘要
   加入同一次 Market Data 尝试：再次签发是幂等的。若拒绝重试，首次发送以 `SUBMITTED_OR_UNKNOWN` 结束的 Intent 就会
