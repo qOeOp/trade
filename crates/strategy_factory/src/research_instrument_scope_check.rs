@@ -31,20 +31,6 @@ pub(crate) enum InstrumentScopeCheckUnavailableV1 {
     StoreUnavailable,
 }
 
-impl InstrumentScopeCheckUnavailableV1 {
-    /// The diagnostic coordinate an unresolved request is refused under.
-    pub(crate) const fn coordinate(self) -> &'static str {
-        match self {
-            Self::ClockUnavailable => {
-                "research_goal_owner.submit_v2.instrument_scope_check.clock_unavailable"
-            }
-            Self::StoreUnavailable => {
-                "research_goal_owner.submit_v2.instrument_scope_check.store_unavailable"
-            }
-        }
-    }
-}
-
 /// Where the R&D Owner reads the early check.
 #[async_trait]
 pub(crate) trait InstrumentScopeCheckPortV1: Send + Sync {

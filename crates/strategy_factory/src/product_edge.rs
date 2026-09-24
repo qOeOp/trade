@@ -311,8 +311,20 @@ pub(crate) enum InstrumentScopeOutcomeV1 {
     /// An identity is not admissible against a current frontier: the request closes
     /// `INSTRUMENT_SCOPE_NOT_RESOLVABLE` with the answer stored.
     Reject,
-    /// The answer is not about the request; it stays unresolved, refused under this coordinate.
-    Unresolved(&'static str),
+    /// The answer is not about the request; it stays unresolved.
+    Unresolved(InstrumentScopeUnresolvedV1),
+}
+
+/// Why Market Data's answer is not about the request it answers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub(crate) enum InstrumentScopeUnresolvedV1 {
+    /// Market Data held no current eligible-instrument frontier, so it denied the environment
+    /// rather than the instruments.
+    #[error("Market Data held no current eligible-instrument frontier to answer against")]
+    NoCurrentFrontier,
+    /// The answer does not answer exactly the requested identities, or states no usable frontier.
+    #[error("Market Data's instrument scope answer is not about this request")]
+    MalformedAnswer,
 }
 
 /// How Market Data's early check answered one requested identity.
@@ -364,13 +376,13 @@ impl InstrumentScopeCheckRecordV1 {
     ) -> InstrumentScopeOutcomeV1 {
         if self.eligible_instrument_frontier.is_none() {
             return InstrumentScopeOutcomeV1::Unresolved(
-                "research_goal_owner.submit_v2.instrument_scope_check.no_current_frontier",
+                InstrumentScopeUnresolvedV1::NoCurrentFrontier,
             );
         }
 
         if self.validate_against(scope).is_err() {
             return InstrumentScopeOutcomeV1::Unresolved(
-                "research_goal_owner.submit_v2.instrument_scope_check.malformed_answer",
+                InstrumentScopeUnresolvedV1::MalformedAnswer,
             );
         }
 
@@ -3438,9 +3450,7 @@ mod v2_sealing_tests {
         }
         assert_eq!(
             check(None, &[(btc, NotInEligibleFrontier)]).outcome_for(&scope),
-            InstrumentScopeOutcomeV1::Unresolved(
-                "research_goal_owner.submit_v2.instrument_scope_check.no_current_frontier"
-            )
+            InstrumentScopeOutcomeV1::Unresolved(InstrumentScopeUnresolvedV1::NoCurrentFrontier)
         );
         assert_eq!(
             check(
@@ -3448,9 +3458,7 @@ mod v2_sealing_tests {
                 &[("ETHUSDT-PERP.BINANCE", NotInEligibleFrontier)]
             )
             .outcome_for(&scope),
-            InstrumentScopeOutcomeV1::Unresolved(
-                "research_goal_owner.submit_v2.instrument_scope_check.malformed_answer"
-            )
+            InstrumentScopeOutcomeV1::Unresolved(InstrumentScopeUnresolvedV1::MalformedAnswer)
         );
     }
 }

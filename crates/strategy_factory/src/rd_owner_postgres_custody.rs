@@ -1742,8 +1742,8 @@ pub(crate) fn rejected_request_and_code_v2(
                 InstrumentScopeOutcomeV1::Admit => {
                     Err(mismatch("stored scope check admits the rejected scope"))
                 }
-                InstrumentScopeOutcomeV1::Unresolved(coordinate) => Err(mismatch(&format!(
-                    "stored scope check could not have rejected: {coordinate}"
+                InstrumentScopeOutcomeV1::Unresolved(reason) => Err(mismatch(&format!(
+                    "stored scope check could not have rejected: {reason}"
                 ))),
             }
         }

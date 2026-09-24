@@ -40,15 +40,15 @@ use crate::exploratory_replay::{
 use crate::product_edge::{
     FrozenResearchGoalIntent, INSTRUMENT_SCOPE_NOT_RESOLVABLE, IndependenceBasisReadbackV1,
     IndependenceBasisReceiptV1, InstrumentScopeCheckRecordV1, InstrumentScopeOutcomeV1,
-    ProductEdgeResearchGoalRequestV2, ProductEdgeResolution, ResearchDirectoryCompletenessV1,
-    ResearchDirectoryCursorV1, ResearchDirectoryItemV1, ResearchDirectoryOwnerPort,
-    ResearchDirectoryReadbackV1, ResearchExploratoryDiagnosisGateErrorV1,
-    ResearchExploratoryDiagnosisGateProjectionV1, ResearchExploratoryDiagnosisLocatorV1,
-    ResearchGoalOwnerError, ResearchGoalOwnerPortV2, ResearchGoalOwnerResultV1,
-    ResearchGoalOwnerResultV2, ResearchLineageResolutionV1, ResearchReadbackOwnerPortV1,
-    ResearchRequestReceiptV1, StoredAdmittedResearchRequestV2, StoredIndependenceBasisV1,
-    StoredProtectedFeedbackProjectionV1, StoredRejectedResearchRequestV2,
-    UnsourcedResearchProposalV1, ValidatedResearchGoalRequestV2,
+    InstrumentScopeUnresolvedV1, ProductEdgeResearchGoalRequestV2, ProductEdgeResolution,
+    ResearchDirectoryCompletenessV1, ResearchDirectoryCursorV1, ResearchDirectoryItemV1,
+    ResearchDirectoryOwnerPort, ResearchDirectoryReadbackV1,
+    ResearchExploratoryDiagnosisGateErrorV1, ResearchExploratoryDiagnosisGateProjectionV1,
+    ResearchExploratoryDiagnosisLocatorV1, ResearchGoalOwnerError, ResearchGoalOwnerPortV2,
+    ResearchGoalOwnerResultV1, ResearchGoalOwnerResultV2, ResearchLineageResolutionV1,
+    ResearchReadbackOwnerPortV1, ResearchRequestReceiptV1, StoredAdmittedResearchRequestV2,
+    StoredIndependenceBasisV1, StoredProtectedFeedbackProjectionV1,
+    StoredRejectedResearchRequestV2, UnsourcedResearchProposalV1, ValidatedResearchGoalRequestV2,
     assemble_partial_source_intake_research_admission_input, decide_commit_v2,
     decide_rejected_commit_v2, semantic_digest_v2, unresolved_result, unresolved_result_v2,
     validate_goal_request_v2, verify_research_admission_v2,
@@ -61,7 +61,7 @@ use crate::rd_owner_postgres_custody::{
     resolve_exploratory_replay_result_for_rd_in_transaction, resolve_verified_artifact_family,
 };
 use crate::research_instrument_scope_check::{
-    InstrumentScopeCheckPortV1, MarketDataInstrumentScopeCheckV1,
+    InstrumentScopeCheckPortV1, InstrumentScopeCheckUnavailableV1, MarketDataInstrumentScopeCheckV1,
 };
 use crate::{
     replay_policy_catalog_postgres_v2::resolve_current_v3_for_trial_family_formation,
@@ -3715,7 +3715,20 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             {
                 Ok(check) => check,
                 Err(e) => {
-                    storage_diagnostic::refused_by_store(e.coordinate(), &e);
+                    match e {
+                        InstrumentScopeCheckUnavailableV1::ClockUnavailable => {
+                            storage_diagnostic::refused_by_store(
+                                "research_goal_owner.submit_v2.instrument_scope_check.clock_unavailable",
+                                &e,
+                            );
+                        }
+                        InstrumentScopeCheckUnavailableV1::StoreUnavailable => {
+                            storage_diagnostic::refused_by_store(
+                                "research_goal_owner.submit_v2.instrument_scope_check.store_unavailable",
+                                &e,
+                            );
+                        }
+                    }
                     transaction.rollback().await.map_err(|e| storage(&e))?;
                     return Ok(unresolved_result_v2(&request_identity));
                 }
@@ -3723,11 +3736,21 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
 
             match check.outcome_for(scope) {
                 InstrumentScopeOutcomeV1::Admit => {}
-                InstrumentScopeOutcomeV1::Unresolved(coordinate) => {
-                    storage_diagnostic::refused_by_store(
-                        coordinate,
-                        &"Market Data's instrument scope answer is not about this request",
-                    );
+                InstrumentScopeOutcomeV1::Unresolved(reason) => {
+                    match reason {
+                        InstrumentScopeUnresolvedV1::NoCurrentFrontier => {
+                            storage_diagnostic::refused_by_store(
+                                "research_goal_owner.submit_v2.instrument_scope_check.no_current_frontier",
+                                &reason,
+                            );
+                        }
+                        InstrumentScopeUnresolvedV1::MalformedAnswer => {
+                            storage_diagnostic::refused_by_store(
+                                "research_goal_owner.submit_v2.instrument_scope_check.malformed_answer",
+                                &reason,
+                            );
+                        }
+                    }
                     transaction.rollback().await.map_err(|e| storage(&e))?;
                     return Ok(unresolved_result_v2(&request_identity));
                 }
