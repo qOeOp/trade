@@ -2276,6 +2276,7 @@ cargo nextest archive \
   --config "target.x86_64-unknown-linux-gnu.linker=\"${lane8_linker}\"" \
   --archive-file "$nextest_archive_file"
 echo "LANE8-PROBE archive wall: $((SECONDS - lane8_started))s"
+echo "LANE8-PROBE archive size: $(du -h "$nextest_archive_file" | cut -f1) ($(stat -c %s "$nextest_archive_file") bytes); target dir: $(du -sh "${CARGO_TARGET_DIR:-target}" | cut -f1)"
 python3 - "$lane8_link_log" "${CARGO_TARGET_DIR:-target}/cargo-timings/cargo-timing.html" << 'SUMMARY'
 import json
 import re
