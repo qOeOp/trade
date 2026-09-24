@@ -726,12 +726,20 @@ R&D 从 binding 及其 Replay facts 读取的内容，以及在 universe-member 
 | Design identity、非空 role set            | binding record                                      | binding record；role set 绝不为空                                                  |
 | Instrument Master 校验                    | registry，逐个 exact instrument                     | composition 时不绑定；按 request 定键的 cut 签发时校验每个 member 的 V2 fact chain |
 
-exact-instrument 第一语料经 Instrument Master V1 解析其 instrument，而 V1 projection 无法构造原生 crypto
-perpetual（`require_complete_native_crypto_perpetual_construction` 恒拒绝），所以任何 exact-instrument 形状都无法
-运行用户准入的 crypto perpetual；universe-member 形状是它们的路线。目前已建成：durable declaration registry 如上段所述
-准入 universe-member declaration，将其绑定到该 role 的 universe frame，并拒绝 role 混用两种 scope 或指名多于一个
-selection 的 Design；联接单行的路径按名拒绝这种 declaration。尚无生产 registration 路径组装它：attested 与 role-intent
-两条 registration 仍把每个 role 组装为 exact instrument。该形状的 binding record、Replay frontier 与 resolved cut 均未建成。
+exact-instrument 第一语料经 Instrument Master V1 解析其 instrument，而 V1 projection 无法构造原生 crypto perpetual
+（`require_complete_native_crypto_perpetual_construction` 恒拒绝），所以任何 exact-instrument 形状都无法运行用户准入的
+crypto perpetual；universe-member 形状是它们的路线。目前已建成：durable declaration registry 如上段所述准入
+universe-member declaration，将其绑定到该 role 的 universe frame，并拒绝 role 混用两种 scope 或指名多于一个 selection
+的 Design；联接单行的路径按名拒绝这种 declaration。registration 恰好针对 Design role intent 所指名的初始 PIT request
+组装 universe-member role，并按名拒绝（零写入）未指名任何 request 的 Design、未知的 request、digest 不一致的 request、
+head 不是 `AVAILABLE` 的 request，以及为另一个 Research request 所请求的 request；role-intent registration 从 schema 2
+role intent 取该引用，attestation 从其 Design 已发布的 schema 2 role intent 取；schema 1 intent 或没有已发布 intent 的
+Design 不指名任何 request，其 universe-member role 按「未指名」拒绝。universe-member Design 的 custody 由
+`reread_persisted_strategy_input_universe_custody_for_update_v1` 重读：它采用 exact 重读的 claim 与锁，按已存 digest
+重新导出每个 role，并封存完整 role set 的 universe frame；`resolve_pit_request_for_strategy_design_v1` 陈述该 Design
+声明的 scope，两种重读都按名拒绝另一种 scope 的 declaration。有序链路以 `rd_owner` 重读它，并在该事务打开之前注册该
+Design，因为 registration 经 Market Data pool 写入，而重读持有 registration 会等待的锁。该形状的 binding record、
+Replay frontier 与 resolved cut 均未建成。
 
 **TARGET，持久 R&D attestation seam：** positive R&D Develop Composer transaction 将一份不可变、完整的
 `StrategyDesignRoleSetReceiptV1` attestation 与 Composer aggregate、receipt 及 outbox 一起规范持久化。它绑定

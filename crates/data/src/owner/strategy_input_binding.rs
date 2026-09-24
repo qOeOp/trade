@@ -16,6 +16,12 @@ use super::{
     strategy_design_role_set::StrategyDesignRoleEntryV1,
 };
 
+/// The canonical scope an authenticated exact-instrument role carries.
+pub(crate) const EXACT_INSTRUMENT_ROLE_SCOPE_V1: &str = r#"{"kind":"EXACT_INSTRUMENT"}"#;
+
+/// The canonical scope an authenticated universe-member role carries.
+pub(crate) const UNIVERSE_MEMBERS_ROLE_SCOPE_V1: &str = r#"{"kind":"UNIVERSE_MEMBERS"}"#;
+
 /// Verifies that a legacy V1 request repeats one authenticated Design role without changing any
 /// Research-owned semantic coordinate. PIT/lineage coordinates remain Market Data-owned checks.
 pub(crate) fn request_matches_authenticated_role_v1(
@@ -31,10 +37,10 @@ pub(crate) fn request_matches_authenticated_role_v1(
     // still refused.
     let (scope, instrument) = match &request.scope {
         UntrustedStrategyInputScope::ExactInstrument { instrument } => {
-            (r#"{"kind":"EXACT_INSTRUMENT"}"#, instrument.as_str())
+            (EXACT_INSTRUMENT_ROLE_SCOPE_V1, instrument.as_str())
         }
         UntrustedStrategyInputScope::UniverseSelection { .. } => {
-            (r#"{"kind":"UNIVERSE_MEMBERS"}"#, "")
+            (UNIVERSE_MEMBERS_ROLE_SCOPE_V1, "")
         }
         UntrustedStrategyInputScope::InstrumentSet { .. } => return false,
     };
@@ -830,6 +836,10 @@ pub enum StrategyInputCustodyUnavailableV1 {
     PitRequestMismatch,
     /// The stored declarations do not cover exactly the claimed roles.
     RoleCoverageMismatch,
+    /// The stored declarations are not all of the scope this re-read serves: an exact-instrument
+    /// re-read met a universe-member declaration, or the reverse, or one Design's declarations
+    /// name both scopes.
+    ScopeMismatch,
     /// A stored declaration was cut before the decision cut the caller requires.
     StaleDecisionCut,
     /// A stored declaration was cut after the decision cut the caller requires.
@@ -999,38 +1009,13 @@ pub(super) fn seal_strategy_input_custody_v1(
         .request;
 
     for (declaration, role_identity) in declarations.iter().zip(&roles) {
-        let request = declaration.request;
-        if declaration.request_meaning_digest.as_bytes() == &[0; 32] {
-            return Err(StrategyInputCustodyUnavailableV1::DeclarationUntrusted);
-        }
-
-        if request.research_request_identity != claim.research_request_identity {
-            return Err(StrategyInputCustodyUnavailableV1::ResearchRequestMismatch);
-        }
-
-        if request.strategy_design_identity != claim.strategy_design_identity {
-            return Err(StrategyInputCustodyUnavailableV1::DesignMismatch);
-        }
-
-        if request.pit_request_identity != claim.pit_request_identity {
-            return Err(StrategyInputCustodyUnavailableV1::PitRequestMismatch);
-        }
-
-        if request.input_role_identity != *role_identity {
-            return Err(StrategyInputCustodyUnavailableV1::RoleCoverageMismatch);
-        }
-
-        if request.decision_cut < claim.decision_cut {
-            return Err(StrategyInputCustodyUnavailableV1::StaleDecisionCut);
-        }
-
-        if request.decision_cut > claim.decision_cut {
-            return Err(StrategyInputCustodyUnavailableV1::UnexpectedDecisionCut);
-        }
-
-        if !shares_custody_lineage_cut_v1(first, request) {
-            return Err(StrategyInputCustodyUnavailableV1::LineageDrift);
-        }
+        check_custody_request_v1(
+            claim,
+            first,
+            declaration.request,
+            declaration.request_meaning_digest,
+            *role_identity,
+        )?;
         let locator = declaration.binding.locator();
         if locator.research_request_identity() != claim.research_request_identity
             || locator.strategy_design_identity() != claim.strategy_design_identity
@@ -1082,18 +1067,8 @@ pub(super) fn seal_strategy_input_custody_v1(
     }
     let custody_digest = digest(&encoder.finish());
 
-    let mut claim_encoder = Encoder::new(b"VIBE_STRATEGY_INPUT_CUSTODY_CLAIM_V1");
-    claim_encoder.digest(claim.research_request_identity);
-    claim_encoder.digest(claim.strategy_design_identity);
-    claim_encoder.digest(claim.pit_request_identity);
-    claim_encoder.u64(claim.decision_cut);
-    claim_encoder.u64(roles.len() as u64);
-    for role_identity in &roles {
-        claim_encoder.digest(*role_identity);
-    }
-
     Ok(StrategyInputCustodyReadbackV1 {
-        claim_identity: digest(&claim_encoder.finish()),
+        claim_identity: custody_claim_identity_v1(claim, &roles),
         research_request_identity: claim.research_request_identity,
         strategy_design_identity: claim.strategy_design_identity,
         pit_request_identity: claim.pit_request_identity,
@@ -1106,6 +1081,241 @@ pub(super) fn seal_strategy_input_custody_v1(
             .into_boxed_slice(),
         frame: frame.clone(),
         digest: custody_digest,
+    })
+}
+
+/// Checks one stored request against the claim it is re-read for, in canonical role position.
+///
+/// Every custody re-read applies these, whatever the declaration's scope: the request must repeat
+/// the claim's Research request, Design and PIT request, sit at its role's canonical position, be
+/// cut at exactly the required decision cut, and share the first request's Owner lineage cut.
+fn check_custody_request_v1(
+    claim: &UntrustedStrategyInputCustodyClaimV1,
+    first: &UntrustedStrategyInputBindingRequest,
+    request: &UntrustedStrategyInputBindingRequest,
+    request_meaning_digest: BindingDigest,
+    role_identity: BindingDigest,
+) -> Result<(), StrategyInputCustodyUnavailableV1> {
+    if request_meaning_digest.as_bytes() == &[0; 32] {
+        return Err(StrategyInputCustodyUnavailableV1::DeclarationUntrusted);
+    }
+
+    if request.research_request_identity != claim.research_request_identity {
+        return Err(StrategyInputCustodyUnavailableV1::ResearchRequestMismatch);
+    }
+
+    if request.strategy_design_identity != claim.strategy_design_identity {
+        return Err(StrategyInputCustodyUnavailableV1::DesignMismatch);
+    }
+
+    if request.pit_request_identity != claim.pit_request_identity {
+        return Err(StrategyInputCustodyUnavailableV1::PitRequestMismatch);
+    }
+
+    if request.input_role_identity != role_identity {
+        return Err(StrategyInputCustodyUnavailableV1::RoleCoverageMismatch);
+    }
+
+    if request.decision_cut < claim.decision_cut {
+        return Err(StrategyInputCustodyUnavailableV1::StaleDecisionCut);
+    }
+
+    if request.decision_cut > claim.decision_cut {
+        return Err(StrategyInputCustodyUnavailableV1::UnexpectedDecisionCut);
+    }
+
+    if !shares_custody_lineage_cut_v1(first, request) {
+        return Err(StrategyInputCustodyUnavailableV1::LineageDrift);
+    }
+    Ok(())
+}
+
+/// The Owner-derived identity of one canonical custody claim, whatever the declarations' scope.
+fn custody_claim_identity_v1(
+    claim: &UntrustedStrategyInputCustodyClaimV1,
+    roles: &[BindingDigest],
+) -> BindingDigest {
+    let mut encoder = Encoder::new(b"VIBE_STRATEGY_INPUT_CUSTODY_CLAIM_V1");
+    encoder.digest(claim.research_request_identity);
+    encoder.digest(claim.strategy_design_identity);
+    encoder.digest(claim.pit_request_identity);
+    encoder.u64(claim.decision_cut);
+    encoder.u64(roles.len() as u64);
+    for role_identity in roles {
+        encoder.digest(*role_identity);
+    }
+    digest(&encoder.finish())
+}
+
+/// One re-read universe-member declaration and the digest of the role's universe frame, which the
+/// registry has already re-derived and found equal to the stored digest.
+pub(super) struct StrategyInputUniverseCustodyDeclarationV1<'a> {
+    pub(super) request: &'a UntrustedStrategyInputBindingRequest,
+    pub(super) request_meaning_digest: BindingDigest,
+    pub(super) binding_digest: BindingDigest,
+}
+
+/// Owner-sealed complete input custody for one persisted universe-member Design role set.
+///
+/// It is the universe counterpart of [`StrategyInputCustodyReadbackV1`]. A universe-member role
+/// has no single-row binding, so what is sealed is the universe frame Market Data re-derives over
+/// the Design's complete role set from the live batch: its selection and one value per (member,
+/// role), each carrying the member binding digest a host compares. That frame is not any one
+/// declaration's digest - each declaration stores the frame of its own role alone - and the custody
+/// digest binds both. The receipt has no public constructor and does not implement `Deserialize`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StrategyInputUniverseCustodyReadbackV1 {
+    claim_identity: BindingDigest,
+    research_request_identity: BindingDigest,
+    strategy_design_identity: BindingDigest,
+    pit_request_identity: BindingDigest,
+    decision_cut: u64,
+    observation_batch_digest: BindingDigest,
+    frame: StrategyInputUniverseFrameReceipt,
+    digest: BindingDigest,
+}
+
+impl StrategyInputUniverseCustodyReadbackV1 {
+    /// Returns the Owner-derived identity of the exact claim this custody answers.
+    #[must_use]
+    pub const fn claim_identity(&self) -> BindingDigest {
+        self.claim_identity
+    }
+
+    /// Returns the R&D request identity every stored declaration repeated.
+    #[must_use]
+    pub const fn research_request_identity(&self) -> BindingDigest {
+        self.research_request_identity
+    }
+
+    /// Returns the `StrategyDesignV2` identity every stored declaration repeated.
+    #[must_use]
+    pub const fn strategy_design_identity(&self) -> BindingDigest {
+        self.strategy_design_identity
+    }
+
+    /// Returns the PIT request identity every stored declaration repeated.
+    #[must_use]
+    pub const fn pit_request_identity(&self) -> BindingDigest {
+        self.pit_request_identity
+    }
+
+    /// Returns the exact decision cut shared by every re-read declaration.
+    #[must_use]
+    pub const fn decision_cut(&self) -> u64 {
+        self.decision_cut
+    }
+
+    /// Returns the complete observation-batch digest shared by every re-read declaration.
+    #[must_use]
+    pub const fn observation_batch_digest(&self) -> BindingDigest {
+        self.observation_batch_digest
+    }
+
+    /// Returns the universe frame re-derived over the complete role set.
+    #[must_use]
+    pub const fn frame(&self) -> &StrategyInputUniverseFrameReceipt {
+        &self.frame
+    }
+
+    /// Returns the digest binding the claim, every stored meaning and role digest, and the frame.
+    #[must_use]
+    pub const fn digest(&self) -> BindingDigest {
+        self.digest
+    }
+}
+
+/// Seals one complete persisted universe-member input custody from freshly re-derived evidence.
+///
+/// Declarations must arrive in canonical ascending role order, one per claimed role, together with
+/// the universe frame re-derived over all of their requests.
+///
+/// # Errors
+///
+/// Returns the same redacted categories as [`seal_strategy_input_custody_v1`], plus
+/// [`StrategyInputCustodyUnavailableV1::ScopeMismatch`] for a request that is not
+/// universe-member scoped, and [`StrategyInputCustodyUnavailableV1::FrameUnavailable`] for a
+/// frame over another selection, batch or role set. No error carries a partial receipt.
+pub(super) fn seal_strategy_input_universe_custody_v1(
+    claim: &UntrustedStrategyInputCustodyClaimV1,
+    declarations: &[StrategyInputUniverseCustodyDeclarationV1<'_>],
+    frame: &StrategyInputUniverseFrameReceipt,
+) -> Result<StrategyInputUniverseCustodyReadbackV1, StrategyInputCustodyUnavailableV1> {
+    let roles = canonical_strategy_input_custody_roles_v1(claim)?;
+    if declarations.len() != roles.len() {
+        return Err(StrategyInputCustodyUnavailableV1::RoleCoverageMismatch);
+    }
+    let first = declarations
+        .first()
+        .ok_or(StrategyInputCustodyUnavailableV1::RoleCoverageMismatch)?
+        .request;
+
+    for (declaration, role_identity) in declarations.iter().zip(&roles) {
+        check_custody_request_v1(
+            claim,
+            first,
+            declaration.request,
+            declaration.request_meaning_digest,
+            *role_identity,
+        )?;
+        let UntrustedStrategyInputScope::UniverseSelection { selection_identity } =
+            declaration.request.scope
+        else {
+            return Err(StrategyInputCustodyUnavailableV1::ScopeMismatch);
+        };
+
+        if selection_identity != frame.selection().selection_identity() {
+            return Err(StrategyInputCustodyUnavailableV1::FrameUnavailable);
+        }
+    }
+
+    let trigger = frame.trigger();
+    if trigger.observation_batch_digest() != first.observation_batch_digest
+        || trigger.snapshot_identity() != first.snapshot_identity
+        || trigger.snapshot_fact_digest() != first.snapshot_fact_digest
+    {
+        return Err(StrategyInputCustodyUnavailableV1::LineageDrift);
+    }
+    // One value per (member, role), exactly over the claimed roles.
+    let mut frame_roles = frame
+        .values()
+        .iter()
+        .map(StrategyInputUniverseValueReceipt::input_role_identity)
+        .collect::<Vec<_>>();
+    frame_roles.sort_unstable_by(|left, right| left.as_bytes().cmp(right.as_bytes()));
+    frame_roles.dedup();
+    if frame_roles != roles
+        || frame.values().len() != roles.len() * frame.selection().members().len()
+        || frame
+            .values()
+            .iter()
+            .any(|value| value.observation_batch_digest() != first.observation_batch_digest)
+    {
+        return Err(StrategyInputCustodyUnavailableV1::FrameUnavailable);
+    }
+
+    let mut encoder = Encoder::new(b"VIBE_STRATEGY_INPUT_UNIVERSE_CUSTODY_V1");
+    encoder.digest(claim.research_request_identity);
+    encoder.digest(claim.strategy_design_identity);
+    encoder.digest(claim.pit_request_identity);
+    encoder.u64(claim.decision_cut);
+    encoder.u64(roles.len() as u64);
+    encoder.digest(frame.digest());
+    for declaration in declarations {
+        encoder.digest(declaration.request.input_role_identity);
+        encoder.digest(declaration.request_meaning_digest);
+        encoder.digest(declaration.binding_digest);
+    }
+
+    Ok(StrategyInputUniverseCustodyReadbackV1 {
+        claim_identity: custody_claim_identity_v1(claim, &roles),
+        research_request_identity: claim.research_request_identity,
+        strategy_design_identity: claim.strategy_design_identity,
+        pit_request_identity: claim.pit_request_identity,
+        decision_cut: claim.decision_cut,
+        observation_batch_digest: first.observation_batch_digest,
+        frame: frame.clone(),
+        digest: digest(&encoder.finish()),
     })
 }
 
@@ -2523,6 +2733,167 @@ mod tests {
         assert_eq!(
             seal_strategy_input_custody_v1(&unclaimed, &declarations, &frame),
             Err(StrategyInputCustodyUnavailableV1::RoleCoverageMismatch)
+        );
+    }
+
+    fn universe_custody_declarations<'a>(
+        requests: &'a [UntrustedStrategyInputBindingRequest],
+        verified: &VerifiedPitObservationBatch,
+    ) -> Vec<StrategyInputUniverseCustodyDeclarationV1<'a>> {
+        requests
+            .iter()
+            .enumerate()
+            .map(
+                |(ordinal, request)| StrategyInputUniverseCustodyDeclarationV1 {
+                    request,
+                    request_meaning_digest: d(200 + u8::try_from(ordinal).expect("bounded roles")),
+                    binding_digest: bind_strategy_input_universe_frame(
+                        std::slice::from_ref(request),
+                        verified,
+                    )
+                    .expect("the role's own universe frame")
+                    .digest(),
+                },
+            )
+            .collect()
+    }
+
+    #[rstest]
+    fn universe_custody_seals_the_role_set_frame_and_binds_every_role_digest() {
+        let verified = batch(complete_universe_rows());
+        let requests = universe_requests(&verified);
+        let frame = bind_strategy_input_universe_frame(&requests, &verified).unwrap();
+        let declarations = universe_custody_declarations(&requests, &verified);
+
+        let sealed =
+            seal_strategy_input_universe_custody_v1(&custody_claim(), &declarations, &frame)
+                .expect("complete universe custody");
+        assert_eq!(sealed.frame(), &frame);
+        assert_eq!(sealed.frame().values().len(), 4, "two members by two roles");
+        assert_eq!(sealed.research_request_identity(), d(20));
+        assert_eq!(sealed.strategy_design_identity(), d(21));
+        assert_eq!(sealed.pit_request_identity(), d(1));
+        assert_eq!(sealed.decision_cut(), 40);
+        assert_eq!(sealed.observation_batch_digest(), d(5));
+        // What a declaration stores is its own role's frame, never the role set's.
+        for declaration in &declarations {
+            assert_ne!(declaration.binding_digest, frame.digest());
+        }
+        // A member binding digest does not depend on the other roles, so the role-set frame
+        // carries the same one each role's own frame does.
+        for request in &requests {
+            let own = bind_strategy_input_universe_frame(std::slice::from_ref(request), &verified)
+                .unwrap();
+
+            for value in own.values() {
+                assert!(sealed.frame().values().iter().any(|sealed_value| {
+                    sealed_value.input_role_identity() == value.input_role_identity()
+                        && sealed_value.member_key() == value.member_key()
+                        && sealed_value.binding_digest() == value.binding_digest()
+                }));
+            }
+        }
+
+        let mut reordered = custody_claim();
+        reordered.input_role_identities.reverse();
+        let replay = seal_strategy_input_universe_custody_v1(&reordered, &declarations, &frame)
+            .expect("arrival order is not caller authority");
+        assert_eq!(replay, sealed);
+
+        let mut retampered = universe_custody_declarations(&requests, &verified);
+        retampered[1].binding_digest = d(211);
+        let moved = seal_strategy_input_universe_custody_v1(&custody_claim(), &retampered, &frame)
+            .expect("a stored role digest is evidence, not authority");
+        assert_ne!(moved.digest(), sealed.digest());
+        assert_eq!(moved.claim_identity(), sealed.claim_identity());
+    }
+
+    #[rstest]
+    fn universe_custody_refuses_an_exact_declaration_and_a_frame_over_other_roles() {
+        let verified = batch(complete_universe_rows());
+        let requests = universe_requests(&verified);
+        let frame = bind_strategy_input_universe_frame(&requests, &verified).unwrap();
+
+        let mut exact = requests.clone();
+        exact[0].scope = UntrustedStrategyInputScope::ExactInstrument {
+            instrument: "AAPL.XNAS".into(),
+        };
+        assert_eq!(
+            seal_strategy_input_universe_custody_v1(
+                &custody_claim(),
+                &universe_custody_declarations(&requests, &verified)
+                    .into_iter()
+                    .zip(&exact)
+                    .map(
+                        |(declaration, request)| StrategyInputUniverseCustodyDeclarationV1 {
+                            request,
+                            ..declaration
+                        }
+                    )
+                    .collect::<Vec<_>>(),
+                &frame,
+            ),
+            Err(StrategyInputCustodyUnavailableV1::ScopeMismatch)
+        );
+
+        let one_role = bind_strategy_input_universe_frame(&requests[..1], &verified).unwrap();
+        assert_eq!(
+            seal_strategy_input_universe_custody_v1(
+                &custody_claim(),
+                &universe_custody_declarations(&requests, &verified),
+                &one_role,
+            ),
+            Err(StrategyInputCustodyUnavailableV1::FrameUnavailable)
+        );
+
+        // As many values as the claim needs, but over another role: the count alone cannot tell.
+        let mut other_role = requests.clone();
+        other_role[1].input_role_identity = d(24);
+        let other_role_frame = bind_strategy_input_universe_frame(&other_role, &verified).unwrap();
+        assert_eq!(other_role_frame.values().len(), frame.values().len());
+        assert_eq!(
+            seal_strategy_input_universe_custody_v1(
+                &custody_claim(),
+                &universe_custody_declarations(&requests, &verified),
+                &other_role_frame,
+            ),
+            Err(StrategyInputCustodyUnavailableV1::FrameUnavailable)
+        );
+
+        let mut other_selection = requests.clone();
+        for request in &mut other_selection {
+            request.scope = UntrustedStrategyInputScope::UniverseSelection {
+                selection_identity: d(99),
+            };
+        }
+        assert_eq!(
+            seal_strategy_input_universe_custody_v1(
+                &custody_claim(),
+                &universe_custody_declarations(&requests, &verified)
+                    .into_iter()
+                    .zip(&other_selection)
+                    .map(
+                        |(declaration, request)| StrategyInputUniverseCustodyDeclarationV1 {
+                            request,
+                            ..declaration
+                        }
+                    )
+                    .collect::<Vec<_>>(),
+                &frame,
+            ),
+            Err(StrategyInputCustodyUnavailableV1::FrameUnavailable)
+        );
+
+        // The claim checks are the exact custody's, applied unchanged.
+        let mut other_design = custody_claim();
+        other_design.strategy_design_identity = d(91);
+        assert_eq!(
+            seal_strategy_input_universe_custody_v1(
+                &other_design,
+                &universe_custody_declarations(&requests, &verified),
+                &frame,
+            ),
+            Err(StrategyInputCustodyUnavailableV1::DesignMismatch)
         );
     }
 

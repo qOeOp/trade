@@ -171,6 +171,28 @@ pub struct UntrustedPitSnapshotEvidence {
 
 /// Seals the request identity and content digest the Owner derives from a request's own content.
 ///
+/// Domain of the `requester_identity` a Research request's initial PIT request carries.
+const RESEARCH_PIT_REQUESTER_DOMAIN_V1: &[u8] =
+    b"vibe.market-data.pit-requester.research-request.v1\0";
+
+/// The `requester_identity` a Research request's initial PIT request carries.
+///
+/// It is SHA-256 over the domain and the 32-byte Research request identity a Design role intent
+/// carries (R&D's `rd.develop.request-identity.v2` digest of the request locator), never a digest
+/// of the request identity string. R&D writes it into the request; Market Data recomputes it from a
+/// role intent when it registers declarations against that request, and compares.
+#[must_use]
+pub fn research_pit_requester_identity_v1(
+    research_request_identity: BindingDigest,
+) -> BindingDigest {
+    use sha2::{Digest as _, Sha256};
+
+    let mut hash = Sha256::new();
+    hash.update(RESEARCH_PIT_REQUESTER_DOMAIN_V1);
+    hash.update(research_request_identity.as_bytes());
+    BindingDigest::from_untrusted_bytes(hash.finalize().into())
+}
+
 /// A frozen request has to carry the identity Market Data would compute for it, so a requester must
 /// be able to compute it too. This derives both claims in place and grants nothing: an identity is
 /// not an admission, and a request whose content later differs derives a different identity.

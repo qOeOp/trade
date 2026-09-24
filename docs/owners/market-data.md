@@ -780,9 +780,18 @@ construct a native crypto perpetual (`require_complete_native_crypto_perpetual_c
 exact-instrument shape can run the crypto perpetuals the user admitted; the universe-member shape is their route.
 Built so far: the durable declaration registry admits a universe-member declaration as the paragraph above states,
 binding it to its role's universe frame, and refuses a Design whose roles mix the two scopes or name more than one
-selection. The paths that join single rows refuse such a declaration by name. No production registration path composes
-one yet: both the attested and the role-intent registration still compose every role as an exact instrument. The
-binding record, Replay frontier and resolved cut of this shape are not built.
+selection. The paths that join single rows refuse such a declaration by name. Registration composes a universe-member
+role against exactly the initial PIT request its Design's role intent names, and refuses by name, writing nothing, a
+Design that names none, an unknown request, one whose digest differs, one whose head is not `AVAILABLE`, and one
+requested for another Research request. Role-intent registration takes the reference from a schema 2 role intent, and
+an attestation from its Design's published schema 2 role intent; a schema 1 intent, or a Design with no published
+intent, names none, and its universe-member roles are refused as unnamed. A universe-member Design's custody is
+re-read by `reread_persisted_strategy_input_universe_custody_for_update_v1`, which takes the exact re-read's claim and
+locks, re-derives every role against its stored digest, and seals the universe frame of the complete role set;
+`resolve_pit_request_for_strategy_design_v1` states the Design's declared scope, and each re-read refuses the other
+scope's declarations by name. The ordered chain re-reads it as `rd_owner` and registers the Design before that
+transaction opens, because registration writes through the Market Data pool while the re-reads hold locks it would
+wait on. The binding record, Replay frontier and resolved cut of this shape are not built.
 
 **TARGET, durable R&D attestation seam:** the positive R&D Develop Composer transaction canonically persists one
 immutable complete `StrategyDesignRoleSetReceiptV1` attestation together with the Composer aggregate, receipt and
