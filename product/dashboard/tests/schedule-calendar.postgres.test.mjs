@@ -922,12 +922,27 @@ test(testName, { skip: !url }, async () => {
           throw new Error(`${timedOut.message}; inspector click: ${JSON.stringify(inspectorClick)}; sheets after it: ${
             JSON.stringify(sheets)}`);
         });
-      // The sheet's own Close control must tell the page, not only the dialog's `close` event: that
-      // event arrives as a later task, and a request for the same run made before it changed nothing
-      // and opened nothing (35962774207; the red this case first met). Holding that one event back
-      // makes the ordering deterministic: without the page hearing it from the control, the click
-      // below opens nothing every time. The two clicks stay separate evaluations, as two user inputs
-      // are separate tasks.
+      // Control for the check below: the same two steps with nothing held back, and the page given
+      // time to handle the close in between, reopen the run on any version of the page. It runs first
+      // so a version that fails the check below has already recorded this. (Without the wait, a page
+      // that learns of a close only from the dialog's `close` event would make the control itself the
+      // intermittent race this case first met.)
+      await readBrowserValue(browser,
+        "document.querySelector('dialog[open] button[aria-label=\"Close panel\"]')?.click()");
+      await waitForBrowserExpression(browser, SHEET_RELEASED);
+      await readBrowserValue(browser, `document.querySelector(
+        '[aria-label="Selected schedule"] [data-run-preview-trigger="${calendarRunOrigins.badge}"]')?.click()`);
+      await waitForBrowserExpression(browser,
+        "document.querySelectorAll('dialog[open]').length === 1 && Boolean(document.querySelector('dialog[open] a[href^=\"/operations/runs/\"]'))");
+      console.log("calendar reopen control -> opened");
+      // What this proves: the page does not depend on the dialog's `close` event to learn that its
+      // own Close control closed the sheet. It does not replay a user's timing. That event arrives as
+      // a later task, and a request for the same run made before it changed nothing and opened
+      // nothing (35962774207, the red this case first met); holding it back once is the limit of
+      // "late" and makes the dependency fail every time. Clicking Close and the trigger in one
+      // evaluation is not a faithful stand-in: that is one task, React applies the first click's
+      // update only after it, the two updates cancel, and nothing opens even on a correct page. User
+      // inputs are separate tasks, so the two clicks stay separate evaluations here too.
       await readBrowserValue(browser, `(() => {
         document.addEventListener('close', (event) => {
           if (event.target instanceof HTMLDialogElement) event.stopImmediatePropagation();
