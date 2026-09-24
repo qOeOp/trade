@@ -25,8 +25,22 @@ on:
   # This trigger cannot make a red tree green - a scheduled run validates the same tree a push
   # would have - so the only failure it can introduce is a verdict arriving later than a merge,
   # never a false green.
+  #
+  # The minute is off the hour. Measured 2026-09-24T06:26Z over every slot since this trigger landed
+  # (2026-09-21 04:00 to 2026-09-24 04:00 UTC, 19 slots), the on-the-hour cron started 12 runs: 7
+  # slots never ran at all (every 04:00 and 12:00), and of the 12 that did, 10 started 58 minutes to
+  # 3h06m late. (Each run counted for the nearest slot before it: runs never start early, so that is
+  # the smallest delay that fits.) This expires 48 hours after it lands: re-measure the slots, with
+  # 04:17 and 12:17 seen at least twice each. If they arrive and the delays shrink, the hour was the
+  # cause and this stays. If 04 and 12 still go missing, the hours are the cause: move to
+  # "17 2,6,10,14,18,22 * * *", clear of both, and measure again.
   schedule:
-    - cron: "0 */4 * * *"
+    - cron: "17 */4 * * *"
+  # A same-tree verdict on `main` on demand, without creating a branch to push to. `ready-gate` and
+  # `scripts/ci/plan.sh` must route it like `schedule`, to full validation; scripts/ci/test-plan.sh
+  # runs both with this event and fails if either would skip. It shares `main`'s concurrency group,
+  # so it supersedes a scheduled run still in progress on the same branch, as a newer tip would.
+  workflow_dispatch:
   # `ready-gate` admits exactly `ready_for_review`, `opened:false` and `reopened:false`, so these
   # are the only events it can answer `run-full` for. `synchronize` is deliberately absent: a push
   # would fail the gate rather than validate, and re-validating after a push is the Draft -> Ready
