@@ -1254,13 +1254,15 @@ Data 不依赖 R&D，不拥有也不重新解释 Strategy Design role/join。
 - PIT 引用。R&D 通过一个读取 `resolve_research_pit_references_v1` 解析初始 PIT request 的全部 Market Data 引用，该读取在
   R&D 自己的事务里运行，R&D 不自行提供任何值。它返回当前 eligible-instrument frontier；所请求 identity 的 frontier fact
   所指名的那一条 Source Binding lineage 的 locator、lineage root、correction frontier 与 Market Semantics identity；以及
-  Market Data 当前的 decision cut 连同 PIT intake 要逐字比对的 clock 证据。它不返回 Instrument Master digest：R&D 冻结
-  request 时把 `instrument_master_digest` 填为全零，intake 在校验或持久化该 request 之前，以它自己的 Instrument Master
-  readback 的 digest 覆盖该字段。该 readback 由一次以 request 的 correlation 与 event instant 为键的写入铸出，任何对
-  scope 的读取都无法复现它；因此 terminal 报告的 request identity 与 digest 是 Market Data 重新 seal 后的值，从不是冻结
-  bytes 自身的值。以下情况按名拒绝：某个 identity 不可准入；这些 identity 的 fact 指名了不止一条 Source Binding lineage
-  或 correction frontier，因为一个 PIT request 只绑定一个 Source Binding；该 lineage 没有已准入的 head；Market Data 没有
-  clock head。intake 仍会重新校验 R&D 随后陈述的 Universe Selection 与其冻结的 PIT request，并准入一到两个成员的 scope。
+  Market Data 当前的 decision cut 连同 PIT intake 要逐字比对的 clock 证据。它不返回 Instrument Master digest，R&D 提交的
+  request 也不陈述它。PIT request 所绑定的 Instrument Master readback 由 intake 自己的一次写入铸出，以 request 的
+  correlation 与 event instant 为键，任何对 scope 的读取都无法复现它。因此 R&D 提交的 request 不带 Instrument Master 字
+  段，也不带 claimed identity 或 digest；intake 盖上它自己的 readback digest，按它将要提交的内容 seal request 的
+  identity 与 digest，并按名拒绝陈述了 Instrument Master digest 的提交，因此任何替代值（全零或其他）都不会被当作 digest
+  读取。terminal 报告的 request identity 与 digest 是 Market Data 的。以下情况按名拒绝：某个 identity 不可准入；这些
+  identity 的 fact 指名了不止一条 Source Binding lineage 或 correction frontier，因为一个 PIT request 只绑定一个 Source
+  Binding；该 lineage 没有已准入的 head；Market Data 没有 clock head。intake 仍会重新校验 R&D 随后陈述的 Universe
+  Selection 与其冻结的 PIT request，并准入一到两个成员的 scope。
 - Requester identity。初始 PIT request 的 `requester_identity` 是对
   `vibe.market-data.pit-requester.research-request.v1\0` 后接 Design role intent 所携带的 32 字节 Research request
   identity 所做的 SHA-256；该 identity 即 R&D 对 request locator 所做的 `rd.develop.request-identity.v2` digest，
@@ -1286,10 +1288,11 @@ Data 不依赖 R&D，不拥有也不重新解释 Strategy Design role/join。
   decoder 与选择规则决定。
 
 目前已建成：PIT intake 准入含一个或两个 included 成员的 Universe Selection Record，每个成员的 key 即其 canonical
-目前已建成：本节中 Market Data 的一半。PIT intake 准入含一个或两个 included 成员的 Universe Selection Record，每个成员的
-key 即其 canonical instrument；其他成员数或 key 在写入任何东西之前按名拒绝。按引用注册让 Design 恰好针对其 role intent
-指名的初始 PIT request 注册，拒绝如上文所述。每个新准入的 frontier 取下一个准入序号，序号最大的即为当前 frontier；在编号
-之前准入的 frontier 永远不是当前的。固定成员 rule 及其三种拒绝、检查与引用读取均按上文作答。
+目前已建成：本节中 Market Data 的一半，不带 Instrument Master 字段的提交除外：intake 仍接收带该字段的 request，并在校验
+之前覆盖它，尚无任何代码拒绝陈述了 digest 的提交。PIT intake 准入含一个或两个 included 成员的 Universe Selection Record，
+每个成员的 key 即其 canonical instrument；其他成员数或 key 在写入任何东西之前按名拒绝。按引用注册让 Design 恰好针对其
+role intent 指名的初始 PIT request 注册，拒绝如上文所述。每个新准入的 frontier 取下一个准入序号，序号最大的即为当前
+frontier；在编号之前准入的 frontier 永远不是当前的。固定成员 rule 及其三种拒绝、检查与引用读取均按上文作答。
 
 Market Data 只消费、但不定义也不重新解释 R&D Owner contract 中明确规定的 big-endian canonical binary
 codec；其 JSON 表示不是 canonical receipt material。registration 必须通过固定 R&D adapter 取得
