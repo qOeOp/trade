@@ -1148,6 +1148,103 @@ fn fixture_row() -> super::postgres::StoredReplayMarketFactsRowV2 {
     row
 }
 
+/// Registers a universe-member Design on the same custody and confirms it is committed.
+///
+/// It runs before the `rd_owner` transaction opens, and must: registration writes through the Market
+/// Data pool, and the `rd_owner` re-reads hold locks that registration would wait on, so the test
+/// would block against itself until the runner's timeout. The committed-row count makes that order
+/// an assertion rather than a convention.
+async fn universe_design_registered_before_rd_owner_v1(
+    market: &crate::owner::postgres::MarketDataOwnerPostgres,
+    base: &crate::owner::postgres::tests::ReplayCompositionMarketBaseFixtureV1,
+    market_pool: &sqlx::PgPool,
+) -> Vec<crate::owner::strategy_input_binding::UntrustedStrategyInputBindingRequest> {
+    let universe_requests = Box::pin(
+        crate::owner::postgres::tests::universe_member_declarations_oracle(
+            market,
+            &base.binding_requests[0],
+            &base.batch,
+        ),
+    )
+    .await;
+    let committed: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM market_data_private.strategy_input_binding_declarations_v1 WHERE strategy_design_identity=$1",
+    )
+    .bind(universe_requests[0].strategy_design_identity.as_bytes().as_slice())
+    .fetch_one(market_pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        committed,
+        i64::try_from(universe_requests.len()).unwrap(),
+        "the universe Design is committed before the rd_owner transaction takes its locks"
+    );
+    universe_requests
+}
+
+/// A universe-member Design on the same custody re-reads through its own entry point as `rd_owner`.
+///
+/// The facade path binds the same role-set universe frame the Owner derives, the exact re-read
+/// refuses it by name, and the coordinate says which re-read serves the Design. It is a function of
+/// its own, not part of the test body: in a debug build that body's frame is live for the whole
+/// test, and holding these locals in it overflowed the 2 MiB test stack at the base fixture.
+async fn universe_custody_rereads_as_rd_owner_v1(
+    universe_requests: &[crate::owner::strategy_input_binding::UntrustedStrategyInputBindingRequest],
+    base: &crate::owner::postgres::tests::ReplayCompositionMarketBaseFixtureV1,
+    rd_transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) {
+    use crate::owner::strategy_input_binding::{
+        StrategyInputCustodyUnavailableV1, UntrustedStrategyInputCustodyClaimV1,
+    };
+
+    let universe_claim = UntrustedStrategyInputCustodyClaimV1 {
+        research_request_identity: universe_requests[0].research_request_identity,
+        strategy_design_identity: universe_requests[0].strategy_design_identity,
+        pit_request_identity: universe_requests[0].pit_request_identity,
+        input_role_identities: universe_requests
+            .iter()
+            .map(|request| request.input_role_identity)
+            .collect(),
+        decision_cut: universe_requests[0].decision_cut,
+    };
+    let universe_custody = crate::owner::postgres::strategy_input_binding_registry::
+        reread_persisted_strategy_input_universe_custody_for_update_v1(
+            &mut *rd_transaction,
+            &universe_claim,
+        )
+        .await
+        .expect("rd_owner re-derives the universe custody");
+    assert_eq!(
+        universe_custody.frame(),
+        &crate::owner::strategy_input_binding::bind_strategy_input_universe_frame(
+            universe_requests,
+            &base.batch,
+        )
+        .unwrap()
+    );
+    assert_eq!(
+        crate::owner::postgres::strategy_input_binding_registry::
+            reread_persisted_strategy_input_custody_for_update_v1(
+                &mut *rd_transaction,
+                &universe_claim,
+            )
+            .await,
+        Err(StrategyInputCustodyUnavailableV1::ScopeMismatch)
+    );
+    assert_eq!(
+        crate::owner::postgres::strategy_input_binding_registry::
+            resolve_pit_request_for_strategy_design_v1(
+                &mut *rd_transaction,
+                universe_claim.strategy_design_identity,
+            )
+            .await
+            .expect("rd_owner resolves the universe Design's coordinate")
+            .declared_scope,
+        crate::owner::postgres::strategy_input_binding_registry::
+            StrategyInputDeclaredScopeV1::UniverseMembers
+    );
+}
+
 #[tokio::test]
 #[ignore = "requires the admitted disposable R&D Owner PostgreSQL topology"]
 async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_market_transaction_overlap()
@@ -2294,6 +2391,12 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         .resolve_bound_replay_cut_v1(binding_locator)
         .await
         .unwrap();
+    let universe_requests = Box::pin(universe_design_registered_before_rd_owner_v1(
+        &market,
+        &base,
+        market_mutation_pool,
+    ))
+    .await;
     let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
     let mut rd_transaction = rd_pool.begin().await.unwrap();
     let rd_cut = owner
@@ -2351,6 +2454,18 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     stored_roles.sort_unstable();
     declared_roles.sort_unstable();
     assert_eq!(stored_roles, declared_roles);
+
+    Box::pin(universe_custody_rereads_as_rd_owner_v1(
+        &universe_requests,
+        &base,
+        &mut rd_transaction,
+    ))
+    .await;
+    assert_eq!(
+        coordinate.declared_scope,
+        crate::owner::postgres::strategy_input_binding_registry::
+            StrategyInputDeclaredScopeV1::ExactInstrument
+    );
 
     // A Design with no declaration has no cut to bind against, and inventing one is the whole
     // failure this resolver exists to prevent.
