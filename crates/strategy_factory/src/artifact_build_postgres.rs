@@ -334,8 +334,8 @@ impl PostgresArtifactBuildOwnerV1 {
             clock: crate::rd_owner_clock::RdOwnerClockV1::owner_transaction(),
         };
 
-        if materialization {
-            owner.migrate().await?;
+        if let Some(admitted) = materialization {
+            owner.migrate(&admitted).await?;
             crate::schema_materialization::verify_materialized_public_tables(
                 &owner.pool,
                 ARTIFACT_BUILD_TABLES,
@@ -416,7 +416,10 @@ impl PostgresArtifactBuildOwnerV1 {
         Ok(owner)
     }
 
-    async fn migrate(&self) -> Result<(), ArtifactBuildError> {
+    async fn migrate(
+        &self,
+        admitted: &crate::schema_materialization::PreCutoverMaterializationAdmitted,
+    ) -> Result<(), ArtifactBuildError> {
         for (relation_name, statement) in [
             (
                 "rd_artifact_build_attempts_v1",
@@ -512,7 +515,7 @@ impl PostgresArtifactBuildOwnerV1 {
                 .await
                 .map_err(storage)?;
         }
-        migrate_trial_family(&self.pool)
+        migrate_trial_family(&self.pool, admitted)
             .await
             .map_err(|e| trial_family_storage(&e))?;
         materialize_legacy_drain_family(&self.pool).await?;
