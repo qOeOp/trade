@@ -3048,9 +3048,23 @@ WITH clones(database_name) AS (
     ('scanner_writer'),
     ('vibe_test_owner_topology_admin')
 )
-SELECT (
-  NOT EXISTS (
-    SELECT 1
+SELECT (pg_catalog.count(*)=0)::int AS cloned_database_custody_ok,
+       COALESCE(pg_catalog.string_agg(finding, E'\n' ORDER BY finding), '')
+         AS cloned_database_custody_findings
+  FROM (
+    SELECT clones.database_name || ': ' || CASE
+             WHEN database_entry.oid IS NULL THEN 'does not exist'
+             WHEN pg_catalog.pg_get_userbyid(database_entry.datdba)<>'rd_database_owner'
+               THEN 'is owned by ' || pg_catalog.pg_get_userbyid(database_entry.datdba)
+             ELSE 'grants PUBLIC ' || (
+               SELECT pg_catalog.string_agg(database_acl.privilege_type, ', ' ORDER BY database_acl.privilege_type)
+                 FROM pg_catalog.aclexplode(COALESCE(
+                   database_entry.datacl,
+                   pg_catalog.acldefault('d',database_entry.datdba)
+                 )) database_acl
+                WHERE database_acl.grantee=0
+                  AND database_acl.privilege_type IN ('CONNECT','CREATE','TEMPORARY'))
+           END AS finding
       FROM clones
       LEFT JOIN pg_catalog.pg_database database_entry
         ON database_entry.datname=clones.database_name
@@ -3065,36 +3079,56 @@ SELECT (
            WHERE database_acl.grantee=0
              AND database_acl.privilege_type IN ('CONNECT','CREATE','TEMPORARY')
         )
-  )
-  AND NOT EXISTS (
-    SELECT 1
+    UNION ALL
+    SELECT roles.role_name || ' cannot CONNECT to ' || clones.database_name
       FROM clones
+      JOIN pg_catalog.pg_database database_entry
+        ON database_entry.datname=clones.database_name
       CROSS JOIN roles
-     WHERE NOT pg_catalog.has_database_privilege(roles.role_name,clones.database_name,'CONNECT')
-  )
-  -- CREATE and TEMPORARY are refused to every login role, not to the list above: a role added later
-  -- is covered without being named. TEMPORARY is what lets a caller put a relation or a type in
-  -- pg_temp, which a SECURITY DEFINER routine whose search_path does not end in pg_temp resolves
-  -- first. A role counts with every role it can SET ROLE to, because has_database_privilege does
-  -- not follow a membership granted WITH INHERIT FALSE.
-  AND NOT EXISTS (
-    SELECT 1
+     WHERE NOT pg_catalog.has_database_privilege(roles.role_name,database_entry.oid,'CONNECT')
+    UNION ALL
+    -- CREATE and TEMPORARY are refused to every login role, not to the list above: a role added
+    -- later is covered without being named. TEMPORARY is what lets a caller put a relation or a
+    -- type in pg_temp, which a SECURITY DEFINER routine whose search_path does not end in pg_temp
+    -- resolves first. A role counts with every role it can SET ROLE to, because
+    -- has_database_privilege does not follow a membership granted WITH INHERIT FALSE.
+    --
+    -- One grant is exempt, and only as the role itself: the Instrument Owner's CREATE on the Owner
+    -- database, which the R&D database bootstrap gives it so that it can create its own schema. A
+    -- schema it creates is not on any SECURITY DEFINER search_path, because
+    -- check-security-definer-search-path.sql refuses a path that names a schema which does not
+    -- exist. No clone carries that grant, and a role that can SET ROLE to instrument_owner is
+    -- still refused.
+    SELECT login_role.rolname
+           || CASE WHEN reachable.oid=login_role.oid THEN '' ELSE ' (as ' || reachable.rolname || ')' END
+           || ' holds ' || privilege.name || ' on ' || database_entry.datname
       FROM pg_catalog.pg_database database_entry
       CROSS JOIN pg_catalog.pg_roles login_role
       JOIN pg_catalog.pg_roles reachable
         ON pg_catalog.pg_has_role(login_role.oid,reachable.oid,'SET')
+      CROSS JOIN (VALUES ('CREATE'), ('TEMPORARY')) AS privilege(name)
      WHERE pg_catalog.pg_get_userbyid(database_entry.datdba)='rd_database_owner'
        AND login_role.rolcanlogin
        AND NOT login_role.rolsuper
-       AND (pg_catalog.has_database_privilege(reachable.oid,database_entry.oid,'CREATE')
-         OR pg_catalog.has_database_privilege(reachable.oid,database_entry.oid,'TEMPORARY'))
-  )
-)::int AS cloned_database_custody_ok
+       AND pg_catalog.has_database_privilege(reachable.oid,database_entry.oid,privilege.name)
+       AND NOT (privilege.name='CREATE'
+                AND login_role.rolname='instrument_owner'
+                AND reachable.oid=login_role.oid
+                AND database_entry.datname=:'test_database')
+  ) findings
 \gset
 \if :cloned_database_custody_ok
 \else
-  \echo 'ERROR: cloned R&D database custody mismatch.'
-  \quit 1
+  -- \quit takes no exit status, so the refusal is an error that ON_ERROR_STOP turns into one.
+  SELECT pg_catalog.set_config('vibe_test.cloned_database_custody_findings',
+                               :'cloned_database_custody_findings', false) AS custody_findings_set
+  \gset
+  DO $custody$
+  BEGIN
+    RAISE EXCEPTION 'cloned R&D database custody mismatch:%',
+      E'\n' || pg_catalog.current_setting('vibe_test.cloned_database_custody_findings');
+  END
+  $custody$;
 \endif
 SQL
 
