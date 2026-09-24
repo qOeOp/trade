@@ -641,12 +641,13 @@ fn ensure_source_intake_admission(
 ) -> Result<(), SourceIntakeOwnerErrorV1> {
     let request = admission.request();
     if !is_source_intake_request(request) {
-        refused_by_store(
-            "source_intake.resolve.admission_for_another_operation",
-            &format!(
-                "Product Edge admitted this identity for {} {}",
-                request.operation, request.operation_schema
-            ),
+        // The response names this refusal (409 CONFLICTING_SEMANTICS_FOR_REQUEST_IDENTITY), so it
+        // is outside the `refused_by_store` channel, whose scope is a refusal the response does
+        // not name. Which operation the admission was for is still worth a line.
+        tracing::info!(
+            operation = %request.operation,
+            operation_schema = %request.operation_schema,
+            "Source Intake refused an identity Product Edge admitted for another operation"
         );
         return Err(SourceIntakeOwnerErrorV1::Conflict);
     }
