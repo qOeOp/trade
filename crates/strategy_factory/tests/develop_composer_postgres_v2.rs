@@ -490,6 +490,101 @@ async fn postgres_every_transaction_write_boundary_fault_leaves_zero_positive_ro
     }
 }
 
+/// One stored column at a time, each tampered alone: the sealed read must refuse it and read the
+/// exact custody again once it is restored. Each restore undoes its own tamper, so the rows stay
+/// independent.
+/// A stored column, how to tamper it, how to undo that, and - when the store itself refuses the
+/// tamper - the SQLSTATE and constraint that refuse it.
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+type StoredColumnTamper = (
+    &'static str,
+    &'static str,
+    &'static str,
+    Option<(&'static str, &'static str)>,
+);
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+const STORED_COLUMN_TAMPERS: &[StoredColumnTamper] = &[
+    (
+        "rd_develop_artifacts_v2.package_bytes",
+        "UPDATE composer_private.rd_develop_artifacts_v2 SET package_bytes=package_bytes||'\\x00'::bytea WHERE artifact_identity=$2::bytea",
+        "UPDATE composer_private.rd_develop_artifacts_v2 SET package_bytes=substring(package_bytes FROM 1 FOR length(package_bytes)-1) WHERE artifact_identity=$2::bytea",
+        None,
+    ),
+    (
+        "rd_develop_artifact_modules_v2.module_bytes",
+        "UPDATE composer_private.rd_develop_artifact_modules_v2 SET module_bytes=module_bytes||'\\x00'::bytea WHERE artifact_identity=$2::bytea AND ordinal=0",
+        "UPDATE composer_private.rd_develop_artifact_modules_v2 SET module_bytes=substring(module_bytes FROM 1 FOR length(module_bytes)-1) WHERE artifact_identity=$2::bytea AND ordinal=0",
+        None,
+    ),
+    (
+        "rd_develop_artifact_build_receipt_uses_v2.receipt_identity",
+        "UPDATE composer_private.rd_develop_artifact_build_receipt_uses_v2 SET receipt_identity=set_byte(receipt_identity,0,(get_byte(receipt_identity,0)+1)%256) WHERE artifact_identity=$2::bytea AND ordinal=0",
+        "UPDATE composer_private.rd_develop_artifact_build_receipt_uses_v2 SET receipt_identity=set_byte(receipt_identity,0,(get_byte(receipt_identity,0)+255)%256) WHERE artifact_identity=$2::bytea AND ordinal=0",
+        Some((
+            "23503",
+            "rd_develop_artifact_build_receipt_uses_v2_receipt_identity_fkey",
+        )),
+    ),
+    (
+        "rd_develop_artifact_build_receipt_uses_v2.artifact_identity",
+        "UPDATE composer_private.rd_develop_artifact_build_receipt_uses_v2 SET artifact_identity=set_byte(artifact_identity,0,(get_byte(artifact_identity,0)+1)%256) WHERE artifact_identity=$2::bytea AND ordinal=0",
+        "UPDATE composer_private.rd_develop_artifact_build_receipt_uses_v2 SET artifact_identity=$2::bytea WHERE artifact_identity=set_byte($2::bytea,0,(get_byte($2::bytea,0)+1)%256) AND ordinal=0",
+        Some((
+            "23503",
+            "rd_develop_artifact_build_receipt_uses_v_artifact_identity_fkey",
+        )),
+    ),
+    (
+        "rd_develop_artifact_build_receipt_uses_v2.ordinal",
+        "UPDATE composer_private.rd_develop_artifact_build_receipt_uses_v2 SET ordinal=ordinal+1 WHERE artifact_identity=$2::bytea AND ordinal=0",
+        "UPDATE composer_private.rd_develop_artifact_build_receipt_uses_v2 SET ordinal=0 WHERE artifact_identity=$2::bytea AND ordinal=1 AND NOT EXISTS (SELECT 1 FROM composer_private.rd_develop_artifact_build_receipt_uses_v2 u WHERE u.artifact_identity=$2::bytea AND u.ordinal=0)",
+        None,
+    ),
+    (
+        "rd_develop_composer_receipts_v2.canonical_bytes",
+        "UPDATE composer_private.rd_develop_composer_receipts_v2 SET canonical_bytes=canonical_bytes||'\\x00'::bytea WHERE artifact_identity=$2::bytea",
+        "UPDATE composer_private.rd_develop_composer_receipts_v2 SET canonical_bytes=substring(canonical_bytes FROM 1 FOR length(canonical_bytes)-1) WHERE artifact_identity=$2::bytea",
+        None,
+    ),
+    (
+        "rd_develop_host_receipts_v2.canonical_bytes",
+        "UPDATE composer_private.rd_develop_host_receipts_v2 SET canonical_bytes=canonical_bytes||'\\x00'::bytea WHERE artifact_identity=$2::bytea",
+        "UPDATE composer_private.rd_develop_host_receipts_v2 SET canonical_bytes=substring(canonical_bytes FROM 1 FOR length(canonical_bytes)-1) WHERE artifact_identity=$2::bytea",
+        None,
+    ),
+    (
+        "rd_develop_operations_v2.canonical_receipt_bytes",
+        "UPDATE composer_private.rd_develop_operations_v2 SET canonical_receipt_bytes=canonical_receipt_bytes||'\\x00'::bytea WHERE request_identity=$1::text",
+        "UPDATE composer_private.rd_develop_operations_v2 SET canonical_receipt_bytes=substring(canonical_receipt_bytes FROM 1 FOR length(canonical_receipt_bytes)-1) WHERE request_identity=$1::text",
+        None,
+    ),
+    (
+        "rd_develop_operations_v2.response_bytes",
+        "UPDATE composer_private.rd_develop_operations_v2 SET response_bytes=response_bytes||'\\x00'::bytea WHERE request_identity=$1::text",
+        "UPDATE composer_private.rd_develop_operations_v2 SET response_bytes=substring(response_bytes FROM 1 FOR length(response_bytes)-1) WHERE request_identity=$1::text",
+        None,
+    ),
+    (
+        "rd_develop_strategy_design_role_set_attestations_v1.canonical_bytes",
+        "UPDATE composer_private.rd_develop_strategy_design_role_set_attestations_v1 SET canonical_bytes=canonical_bytes||'\\x00'::bytea WHERE request_identity=$1::text",
+        "UPDATE composer_private.rd_develop_strategy_design_role_set_attestations_v1 SET canonical_bytes=substring(canonical_bytes FROM 1 FOR length(canonical_bytes)-1) WHERE request_identity=$1::text",
+        None,
+    ),
+    (
+        "rd_develop_strategy_design_role_set_attestations_v1.attestation_digest",
+        "UPDATE composer_private.rd_develop_strategy_design_role_set_attestations_v1 SET attestation_digest=set_byte(attestation_digest,0,(get_byte(attestation_digest,0)+1)%256) WHERE request_identity=$1::text",
+        "UPDATE composer_private.rd_develop_strategy_design_role_set_attestations_v1 SET attestation_digest=set_byte(attestation_digest,0,(get_byte(attestation_digest,0)+255)%256) WHERE request_identity=$1::text",
+        None,
+    ),
+    (
+        "rd_develop_outbox_v2.canonical_bytes",
+        "UPDATE composer_private.rd_develop_outbox_v2 SET canonical_bytes=canonical_bytes||'\\x00'::bytea WHERE request_identity=$1::text",
+        "UPDATE composer_private.rd_develop_outbox_v2 SET canonical_bytes=substring(canonical_bytes FROM 1 FOR length(canonical_bytes)-1) WHERE request_identity=$1::text",
+        None,
+    ),
+];
+
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 #[tokio::test]
 #[ignore = "requires an admitted disposable RD_OWNER_TEST_DATABASE_URL and local Rust toolchain"]
@@ -605,6 +700,67 @@ async fn sealed_read_port_is_restart_exact_fail_closed_and_query_only() {
             .expect("read after corruption rollback"),
         first
     );
+
+    for (column, tamper, restore, store_refusal) in STORED_COLUMN_TAMPERS {
+        let tampered = sqlx::query(*tamper)
+            .bind(&locator.request_identity)
+            .bind(locator.artifact_identity.as_bytes().as_slice())
+            .execute(topology_admin_pool)
+            .await;
+
+        if let Some((code, constraint)) = store_refusal {
+            // The store itself refuses this change, so there is nothing for the read to see. The
+            // exact constraint is pinned: a refusal for any other reason would not be this one.
+            assert!(
+                matches!(
+                    &tampered,
+                    Err(sqlx::Error::Database(e))
+                        if e.code().as_deref() == Some(*code) && e.constraint() == Some(*constraint)
+                ),
+                "tamper {column} was not refused by {constraint} ({code}): {tampered:?}",
+            );
+            assert_eq!(
+                restarted
+                    .read_accepted(&locator)
+                    .await
+                    .unwrap_or_else(|e| panic!("read after refused {column}: {e:?}")),
+                first,
+                "a refused tamper of {column} changed the readback",
+            );
+            continue;
+        }
+        let changed = tampered
+            .unwrap_or_else(|e| panic!("tamper {column}: {e}"))
+            .rows_affected();
+        assert_eq!(
+            changed, 1,
+            "tamper {column} must change exactly one stored row"
+        );
+        assert_eq!(
+            restarted.read_accepted(&locator).await,
+            Err(DevelopComposerSealedReadErrorV2::Unavailable),
+            "sealed read accepted tampered {column}",
+        );
+        let restored = sqlx::query(*restore)
+            .bind(&locator.request_identity)
+            .bind(locator.artifact_identity.as_bytes().as_slice())
+            .execute(topology_admin_pool)
+            .await
+            .unwrap_or_else(|e| panic!("restore {column}: {e}"))
+            .rows_affected();
+        assert_eq!(
+            restored, 1,
+            "restore {column} must change exactly one stored row"
+        );
+        assert_eq!(
+            restarted
+                .read_accepted(&locator)
+                .await
+                .unwrap_or_else(|e| panic!("read after restoring {column}: {e:?}")),
+            first,
+            "restoring {column} did not restore the exact readback",
+        );
+    }
 
     sqlx::query(
         "UPDATE composer_private.rd_develop_plans_v2

@@ -1674,6 +1674,16 @@ async fn postgres_source_invocation_lifecycle_is_canonical_once_only_and_acl_sea
     assert_eq!(acl, (false, true, false, true, false));
 }
 
+/// A stored Research or Source Intake ancestry column; the (table, trigger) immutability guard set
+/// aside while it changes, if any; the statement that changes it; and the one that restores it.
+#[cfg(feature = "sealed-source-intake-research-acceptance")]
+type ResearchColumnTamper = (
+    &'static str,
+    Option<(&'static str, &'static str)>,
+    &'static str,
+    &'static str,
+);
+
 #[cfg(feature = "sealed-source-intake-research-acceptance")]
 #[tokio::test]
 #[ignore = "requires the canonical isolated R&D Owner PostgreSQL harness"]
@@ -2098,6 +2108,190 @@ async fn postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_r
         .await
         .unwrap();
     assert_eq!(replay.owner_receipt(), accepted.owner_receipt());
+    // Every Owner-derived Research input and every Source Intake ancestry member (product-edge.md
+    // A2 typed ancestry, acceptance gate 6), each changed alone. A replay re-admits the stored
+    // Research through the same custody admission Composer uses, then locks and re-reads the
+    // ancestry through the Source Intake handoff: each change must keep it from being accepted, and
+    // restoring it must bring the exact receipt back. The shape-valid wrong digest is a different
+    // well-formed sha256 in place of the stored one. Rows that change immutable Source Intake custody
+    // set the store's guard aside for the change and put it back.
+    let original_ancestry_digest: String = sqlx::query_scalar(
+        "SELECT source_ancestry_evidence_digest FROM public.rd_research_request_receipts_v1 WHERE request_identity=$1",
+    )
+    .bind(&research_request_identity)
+    .fetch_one(rd_owner)
+    .await
+    .unwrap();
+    let research_tampers: [ResearchColumnTamper; 14] = [
+        (
+            "rd_research_request_receipts_v1.semantic_digest",
+            None,
+            "UPDATE public.rd_research_request_receipts_v1 SET semantic_digest=semantic_digest||'-stored-tamper' WHERE request_identity=$1 AND semantic_digest IS NOT NULL",
+            "UPDATE public.rd_research_request_receipts_v1 SET semantic_digest=left(semantic_digest,length(semantic_digest)-length('-stored-tamper')) WHERE request_identity=$1 AND semantic_digest IS NOT NULL",
+        ),
+        (
+            "rd_research_request_receipts_v1.request_json",
+            None,
+            "UPDATE public.rd_research_request_receipts_v1 SET request_json=request_json||'{\"stored_tamper\":true}'::jsonb WHERE request_identity=$1 AND request_json IS NOT NULL",
+            "UPDATE public.rd_research_request_receipts_v1 SET request_json=request_json-'stored_tamper' WHERE request_identity=$1 AND request_json IS NOT NULL",
+        ),
+        (
+            "rd_research_request_receipts_v1.receipt_json",
+            None,
+            "UPDATE public.rd_research_request_receipts_v1 SET receipt_json=receipt_json||'{\"stored_tamper\":true}'::jsonb WHERE request_identity=$1 AND receipt_json IS NOT NULL",
+            "UPDATE public.rd_research_request_receipts_v1 SET receipt_json=receipt_json-'stored_tamper' WHERE request_identity=$1 AND receipt_json IS NOT NULL",
+        ),
+        (
+            "rd_research_request_receipts_v1.intent_json",
+            None,
+            "UPDATE public.rd_research_request_receipts_v1 SET intent_json=intent_json||'{\"stored_tamper\":true}'::jsonb WHERE request_identity=$1 AND intent_json IS NOT NULL",
+            "UPDATE public.rd_research_request_receipts_v1 SET intent_json=intent_json-'stored_tamper' WHERE request_identity=$1 AND intent_json IS NOT NULL",
+        ),
+        (
+            "rd_research_request_receipts_v1.view_json",
+            None,
+            "UPDATE public.rd_research_request_receipts_v1 SET view_json=view_json||'{\"stored_tamper\":true}'::jsonb WHERE request_identity=$1 AND view_json IS NOT NULL",
+            "UPDATE public.rd_research_request_receipts_v1 SET view_json=view_json-'stored_tamper' WHERE request_identity=$1 AND view_json IS NOT NULL",
+        ),
+        (
+            "rd_research_request_receipts_v1.artifact_evidence_digest",
+            None,
+            "UPDATE public.rd_research_request_receipts_v1 SET artifact_evidence_digest=artifact_evidence_digest||'-stored-tamper' WHERE request_identity=$1 AND artifact_evidence_digest IS NOT NULL",
+            "UPDATE public.rd_research_request_receipts_v1 SET artifact_evidence_digest=left(artifact_evidence_digest,length(artifact_evidence_digest)-length('-stored-tamper')) WHERE request_identity=$1 AND artifact_evidence_digest IS NOT NULL",
+        ),
+        (
+            "rd_research_request_receipts_v1.artifact_evidence_json",
+            None,
+            "UPDATE public.rd_research_request_receipts_v1 SET artifact_evidence_json=artifact_evidence_json||'{\"stored_tamper\":true}'::jsonb WHERE request_identity=$1 AND artifact_evidence_json IS NOT NULL",
+            "UPDATE public.rd_research_request_receipts_v1 SET artifact_evidence_json=artifact_evidence_json-'stored_tamper' WHERE request_identity=$1 AND artifact_evidence_json IS NOT NULL",
+        ),
+        (
+            "rd_research_request_receipts_v1.source_ancestry_locator_json",
+            None,
+            "UPDATE public.rd_research_request_receipts_v1 SET source_ancestry_locator_json=source_ancestry_locator_json||'{\"stored_tamper\":true}'::jsonb WHERE request_identity=$1 AND source_ancestry_locator_json IS NOT NULL",
+            "UPDATE public.rd_research_request_receipts_v1 SET source_ancestry_locator_json=source_ancestry_locator_json-'stored_tamper' WHERE request_identity=$1 AND source_ancestry_locator_json IS NOT NULL",
+        ),
+        (
+            "rd_research_request_receipts_v1.source_ancestry_evidence_digest",
+            None,
+            "UPDATE public.rd_research_request_receipts_v1 SET source_ancestry_evidence_digest=source_ancestry_evidence_digest||'-stored-tamper' WHERE request_identity=$1 AND source_ancestry_evidence_digest IS NOT NULL",
+            "UPDATE public.rd_research_request_receipts_v1 SET source_ancestry_evidence_digest=left(source_ancestry_evidence_digest,length(source_ancestry_evidence_digest)-length('-stored-tamper')) WHERE request_identity=$1 AND source_ancestry_evidence_digest IS NOT NULL",
+        ),
+        (
+            "rd_research_request_receipts_v1.source_ancestry_evidence_digest (shape-valid, wrong value)",
+            None,
+            "UPDATE public.rd_research_request_receipts_v1 SET source_ancestry_evidence_digest='sha256:'||encode(sha256('stored-tamper'::bytea),'hex') WHERE request_identity=$1 AND source_ancestry_evidence_digest IS NOT NULL",
+            "UPDATE public.rd_research_request_receipts_v1 SET source_ancestry_evidence_digest=$2 WHERE request_identity=$1",
+        ),
+        (
+            "rd_source_intake_receipts_v1.receipt_json (ancestry member)",
+            Some((
+                "rd_source_intake_receipts_v1",
+                "rd_source_intake_receipt_immutable_v1",
+            )),
+            "UPDATE public.rd_source_intake_receipts_v1 s SET receipt_json=s.receipt_json||'{\"stored_tamper\":true}'::jsonb FROM public.rd_research_request_receipts_v1 r WHERE r.request_identity=$1 AND s.request_identity=r.source_ancestry_locator_json->>'request_identity'",
+            "UPDATE public.rd_source_intake_receipts_v1 s SET receipt_json=s.receipt_json-'stored_tamper' FROM public.rd_research_request_receipts_v1 r WHERE r.request_identity=$1 AND s.request_identity=r.source_ancestry_locator_json->>'request_identity'",
+        ),
+        (
+            "rd_research_source_provenance_v1.provenance_json (ancestry member)",
+            Some((
+                "rd_research_source_provenance_v1",
+                "rd_research_source_provenance_immutable_v1",
+            )),
+            "UPDATE public.rd_research_source_provenance_v1 s SET provenance_json=s.provenance_json||'{\"stored_tamper\":true}'::jsonb FROM public.rd_research_request_receipts_v1 r WHERE r.request_identity=$1 AND s.receipt_identity=r.source_ancestry_locator_json->>'terminal_receipt_identity'",
+            "UPDATE public.rd_research_source_provenance_v1 s SET provenance_json=s.provenance_json-'stored_tamper' FROM public.rd_research_request_receipts_v1 r WHERE r.request_identity=$1 AND s.receipt_identity=r.source_ancestry_locator_json->>'terminal_receipt_identity'",
+        ),
+        (
+            "rd_source_candidates_v1.candidate_json (ancestry member)",
+            Some((
+                "rd_source_candidates_v1",
+                "rd_source_candidate_immutable_v1",
+            )),
+            "UPDATE public.rd_source_candidates_v1 c SET candidate_json=c.candidate_json||'{\"stored_tamper\":true}'::jsonb FROM public.rd_research_source_provenance_v1 p, public.rd_research_request_receipts_v1 r WHERE r.request_identity=$1 AND p.receipt_identity=r.source_ancestry_locator_json->>'terminal_receipt_identity' AND c.provenance_identity=p.provenance_identity",
+            "UPDATE public.rd_source_candidates_v1 c SET candidate_json=c.candidate_json-'stored_tamper' FROM public.rd_research_source_provenance_v1 p, public.rd_research_request_receipts_v1 r WHERE r.request_identity=$1 AND p.receipt_identity=r.source_ancestry_locator_json->>'terminal_receipt_identity' AND c.provenance_identity=p.provenance_identity",
+        ),
+        (
+            "rd_owner_outbox_v1.payload_json (ancestry member)",
+            None,
+            "UPDATE public.rd_owner_outbox_v1 o SET payload_json=o.payload_json||'{\"stored_tamper\":true}'::jsonb FROM public.rd_research_request_receipts_v1 r WHERE r.request_identity=$1 AND o.aggregate_identity=r.source_ancestry_locator_json->>'request_identity' AND o.event_kind='SOURCE_INTAKE_TERMINATED_V1'",
+            "UPDATE public.rd_owner_outbox_v1 o SET payload_json=o.payload_json-'stored_tamper' FROM public.rd_research_request_receipts_v1 r WHERE r.request_identity=$1 AND o.aggregate_identity=r.source_ancestry_locator_json->>'request_identity' AND o.event_kind='SOURCE_INTAKE_TERMINATED_V1'",
+        ),
+    ];
+
+    let mut accepted_tampers = Vec::new();
+
+    for (column, guard, tamper, restore) in research_tampers {
+        for (statement, action) in [(tamper, "tamper"), (restore, "restore")] {
+            if let Some((table, trigger)) = guard {
+                sqlx::query(sqlx::AssertSqlSafe(format!(
+                    "ALTER TABLE public.{table} DISABLE TRIGGER {trigger}"
+                )))
+                .execute(rd_owner)
+                .await
+                .unwrap_or_else(|e| panic!("disable {trigger} for {column}: {e}"));
+            }
+            let changed = sqlx::query(statement)
+                .bind(&research_request_identity)
+                .bind(&original_ancestry_digest)
+                .execute(rd_owner)
+                .await
+                .unwrap_or_else(|e| panic!("{action} {column}: {e}"))
+                .rows_affected();
+
+            if let Some((table, trigger)) = guard {
+                sqlx::query(sqlx::AssertSqlSafe(format!(
+                    "ALTER TABLE public.{table} ENABLE TRIGGER {trigger}"
+                )))
+                .execute(rd_owner)
+                .await
+                .unwrap_or_else(|e| panic!("enable {trigger} for {column}: {e}"));
+            }
+            assert_eq!(
+                changed, 1,
+                "{action} {column} must change exactly one stored row"
+            );
+            let replayed = restarted_research_owner
+                .submit_source_intake_research_v1(
+                    proposal.clone(),
+                    ancestry.clone(),
+                    policy_query.clone(),
+                )
+                .await;
+
+            if action == "tamper" {
+                // Every cell is reported before the test fails, so one run names each refusal.
+                let outcome = match &replayed {
+                    Ok(resolved) => format!("Ok({:?})", resolved.resolution()),
+                    Err(e) => format!("Err({e:?})"),
+                };
+                eprintln!("stored tamper {column}: {outcome}");
+
+                if matches!(&replayed, Ok(resolved) if resolved.resolution() == ProductEdgeResolution::Accepted)
+                {
+                    accepted_tampers.push(column);
+                }
+            } else {
+                let replay =
+                    replayed.unwrap_or_else(|e| panic!("replay after restoring {column}: {e:?}"));
+                assert_eq!(
+                    replay.owner_receipt(),
+                    accepted.owner_receipt(),
+                    "restoring {column} did not restore the exact receipt",
+                );
+            }
+        }
+    }
+    // Registered gap, not a pass: nothing on the Research replay path reads the artifact evidence
+    // columns, so changing either alone still resolves to the accepted receipt. The rows stay so
+    // the day a reader refuses them this assertion fails and the list must shrink.
+    assert_eq!(
+        accepted_tampers,
+        [
+            "rd_research_request_receipts_v1.artifact_evidence_digest",
+            "rd_research_request_receipts_v1.artifact_evidence_json",
+        ],
+        "the set of stored Research columns a replay does not refuse changed",
+    );
     let mut changed = proposal;
     changed.goal.hypothesis.push_str(" changed meaning");
     assert!(matches!(
@@ -2652,6 +2846,110 @@ async fn postgres_readback_rejects_tampered_raw_payload() {
             .and_then(|value| value["content_digest"].as_str()),
         Some(content_digest)
     );
+
+    // Each Source Intake column below, tampered alone, must make the sealed readback refuse, and
+    // restoring it must bring the exact readback back. Each restore undoes its own tamper.
+    let stored_column_tampers: [(&str, &str, &str, &'static str, &'static str); 2] = [
+        (
+            "rd_source_intake_bindings_v1.binding_json",
+            "rd_source_intake_bindings_v1",
+            "rd_source_intake_binding_guard_v1",
+            "UPDATE public.rd_source_intake_bindings_v1 SET binding_json=binding_json||'{\"stored_tamper\":true}'::jsonb WHERE request_identity=$1::text",
+            "UPDATE public.rd_source_intake_bindings_v1 SET binding_json=binding_json-'stored_tamper' WHERE request_identity=$1::text",
+        ),
+        (
+            "rd_source_candidates_v1.candidate_json",
+            "rd_source_candidates_v1",
+            "rd_source_candidate_immutable_v1",
+            "UPDATE public.rd_source_candidates_v1 SET candidate_json=candidate_json||'{\"stored_tamper\":true}'::jsonb WHERE provenance_identity=$3::text",
+            "UPDATE public.rd_source_candidates_v1 SET candidate_json=candidate_json-'stored_tamper' WHERE provenance_identity=$3::text",
+        ),
+    ];
+
+    for (column, table, guard, tamper, restore) in stored_column_tampers {
+        for (statement, action) in [(tamper, "tamper"), (restore, "restore")] {
+            sqlx::query(sqlx::AssertSqlSafe(format!(
+                "ALTER TABLE public.{table} DISABLE TRIGGER {guard}"
+            )))
+            .execute(rd_owner)
+            .await
+            .unwrap_or_else(|e| panic!("disable {guard} for {column}: {e}"));
+            let changed = sqlx::query(statement)
+                .bind(&binding.request_identity)
+                .bind(&receipt.receipt_identity)
+                .bind(&provenance.provenance_identity)
+                .execute(rd_owner)
+                .await
+                .unwrap_or_else(|e| panic!("{action} {column}: {e}"))
+                .rows_affected();
+            sqlx::query(sqlx::AssertSqlSafe(format!(
+                "ALTER TABLE public.{table} ENABLE TRIGGER {guard}"
+            )))
+            .execute(rd_owner)
+            .await
+            .unwrap_or_else(|e| panic!("enable {guard} for {column}: {e}"));
+            assert_eq!(
+                changed, 1,
+                "{action} {column} must change exactly one stored row"
+            );
+            let read: Option<serde_json::Value> =
+                sqlx::query_scalar("SELECT rd_owner_api.read_source_intake_v1($1)")
+                    .bind(&binding.request_identity)
+                    .fetch_one(rd_owner)
+                    .await
+                    .unwrap();
+
+            if action == "tamper" {
+                assert!(read.is_none(), "sealed readback accepted tampered {column}");
+            } else {
+                assert_eq!(
+                    read.as_ref()
+                        .and_then(|value| value["content_digest"].as_str()),
+                    Some(content_digest),
+                    "restoring {column} did not restore the readback",
+                );
+            }
+        }
+    }
+
+    // The receipt's raw-payload link cannot be tampered at all: Source provenance references it by
+    // (receipt_identity, content_digest), so the store refuses the change even with the link's own
+    // immutability trigger out of the way. That refusal is the fail-close, asserted where it happens.
+    sqlx::query(
+        "ALTER TABLE public.rd_source_raw_receipt_links_v1 DISABLE TRIGGER rd_source_raw_receipt_link_immutable_v1",
+    )
+    .execute(rd_owner)
+    .await
+    .unwrap();
+    let refused = sqlx::query(
+        "UPDATE public.rd_source_raw_receipt_links_v1 SET content_digest=content_digest||'-stored-tamper' WHERE receipt_identity=$1",
+    )
+    .bind(&receipt.receipt_identity)
+    .execute(rd_owner)
+    .await;
+    sqlx::query(
+        "ALTER TABLE public.rd_source_raw_receipt_links_v1 ENABLE TRIGGER rd_source_raw_receipt_link_immutable_v1",
+    )
+    .execute(rd_owner)
+    .await
+    .unwrap();
+    assert!(
+        matches!(
+            &refused,
+            Err(sqlx::Error::Database(e))
+                if e.code().as_deref() == Some("23503")
+                    && e.constraint() == Some("rd_research_source_provenance_receipt_identity_content_dig_fkey")
+        ),
+        "tampering the raw-payload link was not refused by the provenance foreign key: {refused:?}",
+    );
+    let link_after_refusal: String = sqlx::query_scalar(
+        "SELECT content_digest FROM public.rd_source_raw_receipt_links_v1 WHERE receipt_identity=$1",
+    )
+    .bind(&receipt.receipt_identity)
+    .fetch_one(rd_owner)
+    .await
+    .unwrap();
+    assert_eq!(link_after_refusal, content_digest);
 
     sqlx::query(
         "ALTER TABLE public.rd_source_raw_payloads_v1 DISABLE TRIGGER rd_source_raw_payload_immutable_v1",
