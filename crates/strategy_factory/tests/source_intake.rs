@@ -2104,9 +2104,7 @@ async fn postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_r
     // ancestry through the Source Intake handoff: each change must keep it from being accepted, and
     // restoring it must bring the exact receipt back. The shape-valid wrong digest is a different
     // well-formed sha256 in place of the stored one. Rows that change immutable Source Intake custody
-    // set the store's guard aside for the change and put it back. These are the Research and
-    // ancestry cases the stored-tamper probe (`source_research_composer_stored_tamper_probe`)
-    // checked by hand and no chain entry did.
+    // set the store's guard aside for the change and put it back.
     let original_ancestry_digest: String = sqlx::query_scalar(
         "SELECT source_ancestry_evidence_digest FROM public.rd_research_request_receipts_v1 WHERE request_identity=$1",
     )
@@ -2839,8 +2837,7 @@ async fn postgres_readback_rejects_tampered_raw_payload() {
         Some(content_digest)
     );
 
-    // The columns the stored-tamper probe (`source_research_composer_stored_tamper_probe`) checked
-    // by hand and no chain entry did: each tampered alone must make the sealed readback refuse, and
+    // Each Source Intake column below, tampered alone, must make the sealed readback refuse, and
     // restoring it must bring the exact readback back. Each restore undoes its own tamper.
     let stored_column_tampers: [(&str, &str, &str, &'static str, &'static str); 2] = [
         (

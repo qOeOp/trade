@@ -491,9 +491,8 @@ async fn postgres_every_transaction_write_boundary_fault_leaves_zero_positive_ro
 }
 
 /// One stored column at a time, each tampered alone: the sealed read must refuse it and read the
-/// exact custody again once it is restored. These are the Composer cases the stored-tamper probe
-/// (`source_research_composer_stored_tamper_probe`) checked by hand and no chain entry did.
-/// Each restore undoes its own tamper, so the rows stay independent.
+/// exact custody again once it is restored. Each restore undoes its own tamper, so the rows stay
+/// independent.
 /// A stored column, how to tamper it, how to undo that, and - when the store itself refuses the
 /// tamper - the SQLSTATE and constraint that refuse it.
 #[cfg(feature = "sealed-develop-composer-acceptance")]
