@@ -194,6 +194,14 @@ runs:
       # https://github.com/Swatinem/rust-cache
       uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
       with:
+        # rust-cache never saves over an exact key hit, and its own key sees the Cargo manifests,
+        # the toolchain and this job's CARGO*/RUST*/CC*/CXX* variables, not what make exports. The
+        # prefix is the one part of the key both `key` and `shared-key` entries carry (rust-cache
+        # ignores `key` whenever `shared-key` is set), so the compile environment make adds is
+        # hashed here: see build-env.mk. CAPNP_VERSION is set before this step and the capnp
+        # build script does not track the compiler binary, so it joins the hashed variables.
+        prefix-key: v0-rust-${{ hashFiles('build-env.mk') }}
+        env-vars: CAPNP
         workspaces: ${{ inputs.rust-cache-workspaces || '. -> target' }}
         cache-on-failure: ${{ inputs.rust-cache-on-failure }}
         cache-workspace-crates: ${{ inputs.rust-cache-workspace-crates }}

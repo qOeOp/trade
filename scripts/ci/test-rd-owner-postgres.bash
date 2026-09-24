@@ -130,6 +130,10 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|vibe_strategy_factory|iteration_decision_postgres::postgres_acceptance_tests::backtest_run_report_postgres_acceptance_tests::backtest_run_report_reads_back_every_point_a_real_run_committed'
   'vibe-strategy-factory-rd-owner-api|dashboard_read_api|tests::backtest_run_report_browser_acceptance_reads_the_owner_answer'
   'vibe-strategy-factory|source_intake|postgres_readback_refuses_an_identity_admitted_for_another_operation'
+  'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::postgres_v3_request_binds_its_instrument_scope_into_the_intent'
+  'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::postgres_v3_scope_market_data_does_not_admit_closes_with_its_bound_check'
+  'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::postgres_v3_request_market_data_cannot_place_is_rejected_by_its_own_answer'
+  'vibe-product-edge|vibe_product_edge|deployment_acceptance::tests::deployment_fixture_is_admitted_idempotent_and_refuses_other_content_by_name'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
@@ -151,7 +155,7 @@ readonly nextest_graph_args=(
 )
 # The incoming Makefile union also contains workspace-root features that none of
 # the three selected packages expose. Keep the archive projection package-scoped.
-readonly nextest_archive_features='vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-composer-acceptance'
+readonly nextest_archive_features='vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-composer-acceptance,vibe-product-edge/sealed-deployment-acceptance'
 # The schema materializer is the archive's own `strategy-factory-rd-owner-api` binary, so it has no
 # feature set of its own. It needs rd-owner-api's `sealed-develop-composer-acceptance`, which
 # `sealed-source-intake-composer-acceptance` above already implies; check_nextest_graph_contract
@@ -191,8 +195,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 102 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all 102 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 106 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all 106 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -306,12 +310,16 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[98]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::backtest_run_report_postgres_acceptance_tests::backtest_run_report_reads_back_every_point_a_real_run_committed' ]] ||
     [[ "${rd_owner_postgres_tests[99]}" != *'|tests::backtest_run_report_browser_acceptance_reads_the_owner_answer' ]] ||
     [[ "${rd_owner_postgres_tests[100]}" != *'|postgres_readback_refuses_an_identity_admitted_for_another_operation' ]] ||
-    [[ "${rd_owner_postgres_tests[101]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[101]}" != *'|product_edge_postgres::tests::postgres_v3_request_binds_its_instrument_scope_into_the_intent' ]] ||
+    [[ "${rd_owner_postgres_tests[102]}" != *'|product_edge_postgres::tests::postgres_v3_scope_market_data_does_not_admit_closes_with_its_bound_check' ]] ||
+    [[ "${rd_owner_postgres_tests[103]}" != *'|product_edge_postgres::tests::postgres_v3_request_market_data_cannot_place_is_rejected_by_its_own_answer' ]] ||
+    [[ "${rd_owner_postgres_tests[104]}" != *'|deployment_acceptance::tests::deployment_fixture_is_admitted_idempotent_and_refuses_other_content_by_name' ]] ||
+    [[ "${rd_owner_postgres_tests[105]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
   if [[ "${nextest_graph_args[*]}" != '--locked --package vibe-strategy-factory --package vibe-strategy-factory-rd-owner-api --package vibe-product-edge --package vibe-operator-authorization --package vibe-backtest-owner --package vibe-data --package vibe-qualification --package vibe-execution-owner --package vibe-portfolio-owner --package vibe-strategy-governance --package vibe-scanner-custody --package vibe-risk-owner --lib --tests' ]] ||
-    [[ "$nextest_archive_features" != 'vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-composer-acceptance' ]] ||
+    [[ "$nextest_archive_features" != 'vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-composer-acceptance,vibe-product-edge/sealed-deployment-acceptance' ]] ||
     [[ "${nextest_execution_args[*]}" != '--fail-fast --run-ignored ignored-only --success-output final --no-tests=fail' ]]; then
     echo "ERROR: shared nextest graph, schema feature union, or sequential ignored-only execution changed." >&2
     return 1
@@ -338,7 +346,7 @@ MANIFEST
   local repository_root
   repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
   if ! rg -Fxq \
-    'RD_OWNER_POSTGRES_FEATURES := $(CARGO_FEATURES),vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-composer-acceptance' \
+    'RD_OWNER_POSTGRES_FEATURES := $(CARGO_FEATURES),vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-composer-acceptance,vibe-product-edge/sealed-deployment-acceptance' \
     "$repository_root/Makefile" || ! rg -Uq \
     'cargo-test-rd-owner-postgres-isolated: check-nextest-installed.*\n\tNEXTEST_PROFILE="\$\(NEXTEST_PROFILE\)".*\n\tCARGO_CI_PROFILE="\$\(CARGO_CI_PROFILE\)".*\n\tRD_OWNER_POSTGRES_FEATURES="\$\(RD_OWNER_POSTGRES_FEATURES\)"' \
     "$repository_root/Makefile"; then
@@ -439,7 +447,7 @@ for line in array_body.splitlines():
     entries.append(tuple(fields))
 # The count lives in one place. Writing it into the message as well lets the two drift, and the
 # drifted form reads as nonsense the moment it fires: "must contain 92 entries, found 92".
-expected_entries = 102
+expected_entries = 106
 if len(entries) != expected_entries:
     raise SystemExit(
         f"ERROR: ordered PostgreSQL test literal must contain {expected_entries} entries, found {len(entries)}."
@@ -565,9 +573,29 @@ if invocation != expected_invocation:
     )
 PY
   if ! rg -Uq \
-    "strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody'.*\n[[:space:]]+\[\[.*successor_artifact_enters_exploratory_replay_with_exact_owner_custody'.*\n[[:space:]]+\[\[.*analysis_request_completion_resolve_restart_and_tamper_are_atomic'.*\n[[:space:]]+\[\[.*backtest_run_report_reads_back_every_point_a_real_run_committed'.*\n[[:space:]]+\[\[.*positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic'.*\n[[:space:]]+\[\[.*test_binary.*trial_family_owner'.*\n[[:space:]]+\[\[.*test_name.*artifact_build_postgres::postgres_freshness_tests::\*.*\n[[:space:]]+\[\[.*test_binary.*source_intake'.*\n[[:space:]]+\[\[.*test_binary.*vibe_qualification'.*\n[[:space:]]+\[\[.*postgres_protected_v3_results_and_attempt_frontiers_close_every_terminal_lineage'.*\n[[:space:]]+\[\[.*second_request_under_one_principal_resolves_through_the_frontier_arm'.*\n[[:space:]]+RUST_MIN_STACK=16777216.*\n[[:space:]]+cargo nextest run" \
+    "strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody'.*\n[[:space:]]+\[\[.*successor_artifact_enters_exploratory_replay_with_exact_owner_custody'.*\n[[:space:]]+\[\[.*analysis_request_completion_resolve_restart_and_tamper_are_atomic'.*\n[[:space:]]+\[\[.*backtest_run_report_reads_back_every_point_a_real_run_committed'.*\n[[:space:]]+\[\[.*positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic'.*\n[[:space:]]+\[\[.*test_binary.*trial_family_owner'.*\n[[:space:]]+\[\[.*test_name.*artifact_build_postgres::postgres_freshness_tests::\*.*\n[[:space:]]+\[\[.*test_binary.*source_intake'.*\n[[:space:]]+\[\[.*test_binary.*vibe_qualification'.*\n[[:space:]]+\[\[.*postgres_protected_v3_results_and_attempt_frontiers_close_every_terminal_lineage'.*\n[[:space:]]+\[\[.*second_request_under_one_principal_resolves_through_the_frontier_arm'.*\n[[:space:]]+\[\[.*test_name.*product_edge_postgres::tests::postgres_v3_\*.*\n[[:space:]]+RUST_MIN_STACK=16777216.*\n[[:space:]]+cargo nextest run" \
     "${BASH_SOURCE[0]}"; then
     echo "ERROR: large composed acceptances must use their admitted test-thread stack." >&2
+    return 1
+  fi
+}
+
+# Both PostgreSQL containers start under an init. Without one the postmaster is PID 1 and reaps the
+# orphaned heredoc writer of every refused authority migration as a crashed backend (the comment at
+# the first `docker run` says how), so the cluster crash-restarts mid-chain.
+check_postgres_containers_run_under_init() {
+  local runs inits
+  runs="$(rg -c '^docker run \\$' "${BASH_SOURCE[0]}" || true)"
+  inits="$(rg -U -c '^docker run \\\n  --detach \\\n  --init \\$' "${BASH_SOURCE[0]}" || true)"
+  if [[ "${runs:-0}" -ne 2 || "${inits:-0}" -ne 2 ]]; then
+    echo "ERROR: the chain's PostgreSQL containers must start with --init: ${runs:-0} docker run, ${inits:-0} with --init." >&2
+    return 1
+  fi
+  local market_data
+  market_data="$(dirname "${BASH_SOURCE[0]}")/../../crates/data/tests/run_market_data_owner_postgres.bash"
+  if [[ "$(rg -c '^docker run ' "$market_data" || true)" -ne 1 ]] ||
+    ! rg -q '^docker run --detach --init ' "$market_data"; then
+    echo "ERROR: the Market Data chain's PostgreSQL container must start with --init, as this chain's do." >&2
     return 1
   fi
 }
@@ -1570,6 +1598,7 @@ run_authority_migration_for_database() {
     "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
 }
 
+check_postgres_containers_run_under_init
 check_static_isolation
 check_nextest_graph_contract
 check_backtest_result_function_source
@@ -2016,8 +2045,20 @@ docker volume create "$volume" > /dev/null
 volume_created=true
 docker volume create "$impersonator_volume" > /dev/null
 impersonator_volume_created=true
+# `--init`: PostgreSQL must not be PID 1 here. The authority migration runs through
+# `docker exec … sh -s`, and its SQL is one large heredoc, which busybox sh feeds to psql from a
+# forked writer. When the migration is refused on purpose (the fault drills, entry 19's restore),
+# psql exits, `set -e` takes sh with it, and the writer, still writing, is orphaned to PID 1. As
+# PID 1 the postmaster reaps it; the writer dies of SIGPIPE on the closed pipe, and the postmaster
+# reads any child killed by a signal as a crashed backend and restarts every server process - three
+# crash recoveries in every chain run, logged as "server process (PID n) was terminated by signal 13"
+# with n two below the migration's backend. With an init as PID 1, the orphan is its to reap.
+# Reproduced in a disposable postgres:16.4-alpine: a 369 KB heredoc crashes the cluster, a 551-byte
+# one (no writer forked) and the same 369 KB heredoc under --init do not; a process snapshot names
+# the killed pid as the heredoc writer, with no connection of its own.
 docker run \
   --detach \
+  --init \
   --name "$container" \
   --publish 127.0.0.1::5432 \
   --mount "type=volume,source=${volume},target=/var/lib/postgresql/data" \
@@ -2031,6 +2072,7 @@ docker run \
 container_created=true
 docker run \
   --detach \
+  --init \
   --name "$impersonator_container" \
   --publish 127.0.0.1::5432 \
   --mount "type=volume,source=${impersonator_volume},target=/var/lib/postgresql/data" \
@@ -3829,7 +3871,8 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
     [[ "$test_binary" == 'source_intake' ]] ||
     [[ "$test_binary" == 'vibe_qualification' ]] ||
     [[ "$test_name" == 'tests::postgres_protected_v3_results_and_attempt_frontiers_close_every_terminal_lineage' ]] ||
-    [[ "$test_name" == 'product_edge_postgres::tests::second_request_under_one_principal_resolves_through_the_frontier_arm' ]]; then
+    [[ "$test_name" == 'product_edge_postgres::tests::second_request_under_one_principal_resolves_through_the_frontier_arm' ]] ||
+    [[ "$test_name" == product_edge_postgres::tests::postgres_v3_* ]]; then # ci-pr 2026-09-24: v3_request overflows 2 MiB, passes 3 MiB; the scope sibling passes 2 MiB.
     RUST_MIN_STACK=16777216 \
       cargo nextest run \
       "${nextest_reuse_args[@]}" \

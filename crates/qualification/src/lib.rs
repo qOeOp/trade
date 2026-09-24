@@ -10,6 +10,8 @@ mod protected_replay_request;
 mod protected_robustness_assessment;
 mod status_summary;
 
+#[cfg(any(test, feature = "ready-lineage-acceptance"))]
+mod ready_lineage_acceptance;
 #[cfg(feature = "owner-recovery")]
 mod recovery;
 
@@ -31,6 +33,11 @@ pub use protected_replay_request::{
 pub use protected_robustness_assessment::{
     ProtectedAssessmentInvalidCommitV1, ProtectedAssessmentStatusV1, ProtectedCellAssessmentV1,
     ProtectedEligibilityStatusV1, ProtectedIneligibleCommitV1, ProtectedQualifiedCommitV1,
+};
+#[cfg(any(test, feature = "ready-lineage-acceptance"))]
+pub use ready_lineage_acceptance::{
+    ORDERED_CHAIN_READY_FIXTURE_KEY_V1, ReadyLineageAcceptanceIdentityV1, ReadyLineageV1,
+    ready_lineage_acceptance_identity_v1,
 };
 #[cfg(feature = "owner-recovery")]
 pub use recovery::{RecoveryReceiptV1, run_owner_recovery_cli};
