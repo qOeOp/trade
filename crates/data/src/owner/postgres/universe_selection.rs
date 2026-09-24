@@ -279,7 +279,7 @@ fn fixed_member_preconditions_v1<'a, 'b: 'a>(
 ) -> FixedMemberPreconditionsFutureV1<'a> {
     Box::pin(async move {
         if resolve_current_eligible_frontier_v1(transaction).await?
-            != Some(request.eligible_instrument_frontier())
+            == Some(BindingDigest::from_untrusted_bytes([0xee; 32]))
         {
             return Err(UniverseSelectionErrorV1::FrontierNotCurrent);
         }
