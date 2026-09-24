@@ -87,6 +87,10 @@ if [[ "${GITHUB_ACTIONS:-}" != "true" ]]; then
   # shellcheck source=scripts/ci/owner-chain-lock.bash
   source "${repository_root}/scripts/ci/owner-chain-lock.bash"
   acquire_owner_chain_lock || exit 1
+  # Binaries built by another worktree must not run here; cargo-target-in-worktree.bash says why.
+  # shellcheck source=scripts/ci/cargo-target-in-worktree.bash
+  source "${repository_root}/scripts/ci/cargo-target-in-worktree.bash"
+  require_cargo_target_inside_worktree || exit 1
 fi
 
 container="vibe-md-d1-${PPID}-$$"
