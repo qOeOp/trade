@@ -3124,6 +3124,83 @@ async fn read_research_v2_from_pool(
     Ok(result)
 }
 
+impl PostgresResearchGoalOwnerV1 {
+    /// Commits a `REJECTED_NO_WRITE` receipt for `request` and reads it back through custody.
+    ///
+    /// A source-bound request records its Source Intake ancestry with the rejection, exactly as an
+    /// accepted one does, so custody re-verifies it against the admission it was actually made
+    /// under.
+    async fn commit_rejected_v2(
+        &self,
+        mut transaction: sqlx::Transaction<'_, sqlx::Postgres>,
+        product_edge_admission: &ProductEdgeAdmissionReadbackV1,
+        request: ProductEdgeResearchGoalRequestV2,
+        digest: String,
+        rejection_code: &'static str,
+    ) -> Result<ResearchGoalOwnerResultV2, ResearchGoalOwnerError> {
+        let request_identity = request.request_identity.clone();
+        let write_cut = owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
+        if !product_edge_admission.authorizes_first_mutation_at(write_cut) {
+            storage_diagnostic::refused_by_store(
+                "research_goal_owner.submit_v2.rejected_commit.first_mutation_authority",
+                &"Product Edge admission no longer authorizes a first mutation at the rejected-commit write cut",
+            );
+            transaction.rollback().await.map_err(|e| storage(&e))?;
+            return Ok(unresolved_result_v2(&request_identity));
+        }
+        self.verify_admission_v2(product_edge_admission, &request)?;
+        let stored_request = StoredRejectedResearchRequestV2 {
+            schema_version: 1,
+            request: request.clone(),
+            rejection_code: rejection_code.to_string(),
+        };
+        let commit = decide_rejected_commit_v2(request, digest, rejection_code, write_cut);
+        let (request_json, request_bytes, request_storage_digest) = research_source_storage(
+            crate::native_replay_rd_sources_v2::RESEARCH_REQUEST_STORAGE_DOMAIN_V1,
+            &stored_request,
+        )?;
+        let (receipt_json, receipt_bytes, receipt_storage_digest) = research_source_storage(
+            crate::native_replay_rd_sources_v2::RESEARCH_RECEIPT_STORAGE_DOMAIN_V1,
+            &commit.receipt,
+        )?;
+        let source_ancestry_locator_json = self
+            .source_submission
+            .as_ref()
+            .map(|source| serde_json::to_value(&source.ancestry))
+            .transpose()
+            .map_err(json_storage)?;
+        let source_ancestry_evidence_digest = self
+            .source_submission
+            .as_ref()
+            .map(|source| source.evidence_digest.clone());
+        sqlx::query("INSERT INTO rd_research_request_receipts_v1 (request_identity, semantic_digest, request_json, receipt_json, intent_json, view_json, source_ancestry_locator_json, source_ancestry_evidence_digest, request_storage_bytes,request_storage_digest,receipt_storage_bytes,receipt_storage_digest,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,NULL,NULL,$5,$6,$7,$8,$9,$10,$11)")
+            .bind(&commit.receipt.request_identity)
+            .bind(&commit.receipt.semantic_digest)
+            .bind(request_json)
+            .bind(receipt_json)
+            .bind(source_ancestry_locator_json)
+            .bind(source_ancestry_evidence_digest)
+            .bind(request_bytes)
+            .bind(request_storage_digest)
+            .bind(receipt_bytes)
+            .bind(receipt_storage_digest)
+            .bind(i64::try_from(commit.receipt.committed_at_epoch_ms).map_err(json_storage)?)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|e| storage(&e))?;
+        let custody = Box::pin(admit_research_custody_in_transaction(
+            &mut transaction,
+            ResearchCustodyLookupV1::RequestV2(&request_identity),
+        ))
+        .await?
+        .ok_or_else(|| {
+            ResearchGoalOwnerError::Storage("committed rejected S1 V2 custody missing".to_string())
+        })?;
+        transaction.commit().await.map_err(|e| storage(&e))?;
+        custody.into_v2_result(write_cut)
+    }
+}
+
 #[async_trait]
 impl ResearchReadbackOwnerPortV1 for PostgresResearchGoalOwnerV1 {
     async fn read_research_v2(
@@ -3591,58 +3668,15 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             Ok(validated) => validated,
             Err(rejected) => {
                 let (request, rejection_code) = rejected.into_parts();
-                let write_cut = owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
-                if !product_edge_admission.authorizes_first_mutation_at(write_cut) {
-                    storage_diagnostic::refused_by_store(
-                        "research_goal_owner.submit_v2.rejected_commit.first_mutation_authority",
-                        &"Product Edge admission no longer authorizes a first mutation at the rejected-commit write cut",
-                    );
-                    transaction.rollback().await.map_err(|e| storage(&e))?;
-                    return Ok(unresolved_result_v2(&request_identity));
-                }
-                self.verify_admission_v2(&product_edge_admission, &request)?;
-                let stored_request = StoredRejectedResearchRequestV2 {
-                    schema_version: 1,
-                    request: request.clone(),
-                    rejection_code: rejection_code.to_string(),
-                };
-                let commit =
-                    decide_rejected_commit_v2(request, digest.clone(), rejection_code, write_cut);
-                let (request_json, request_bytes, request_storage_digest) =
-                    research_source_storage(
-                        crate::native_replay_rd_sources_v2::RESEARCH_REQUEST_STORAGE_DOMAIN_V1,
-                        &stored_request,
-                    )?;
-                let (receipt_json, receipt_bytes, receipt_storage_digest) =
-                    research_source_storage(
-                        crate::native_replay_rd_sources_v2::RESEARCH_RECEIPT_STORAGE_DOMAIN_V1,
-                        &commit.receipt,
-                    )?;
-                sqlx::query("INSERT INTO rd_research_request_receipts_v1 (request_identity, semantic_digest, request_json, receipt_json, intent_json, view_json, request_storage_bytes,request_storage_digest,receipt_storage_bytes,receipt_storage_digest,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,NULL,NULL,$5,$6,$7,$8,$9)")
-                    .bind(&commit.receipt.request_identity)
-                    .bind(&commit.receipt.semantic_digest)
-                    .bind(request_json)
-                    .bind(receipt_json)
-                    .bind(request_bytes)
-                    .bind(request_storage_digest)
-                    .bind(receipt_bytes)
-                    .bind(receipt_storage_digest)
-                    .bind(i64::try_from(commit.receipt.committed_at_epoch_ms).map_err(json_storage)?)
-                    .execute(&mut *transaction)
-                    .await
-                    .map_err(|e| storage(&e))?;
-                let custody = Box::pin(admit_research_custody_in_transaction(
-                    &mut transaction,
-                    ResearchCustodyLookupV1::RequestV2(&request_identity),
-                ))
-                .await?
-                .ok_or_else(|| {
-                    ResearchGoalOwnerError::Storage(
-                        "committed rejected S1 V2 custody missing".to_string(),
+                return self
+                    .commit_rejected_v2(
+                        transaction,
+                        &product_edge_admission,
+                        request,
+                        digest,
+                        rejection_code,
                     )
-                })?;
-                transaction.commit().await.map_err(|e| storage(&e))?;
-                return custody.into_v2_result(write_cut);
+                    .await;
             }
         };
         let basis = if let Some(custody) = basis_stage {
