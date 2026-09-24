@@ -381,7 +381,8 @@ by R&D against Market Data, not by the form, and the control neither suggests no
 longer emits V2. A mistyped instrument closes as `REJECTED_NO_WRITE` with `INSTRUMENT_SCOPE_NOT_RESOLVABLE` and is
 shown as that terminal; the Research readback also shows the Owner's `initial_pit` value as it is stated -
 `NOT_ISSUED`, `SUBMITTED_OR_UNKNOWN`, or one of the six `ResearchPitTerminal` dispositions with its primary blocker -
-for an instrument that passed at acceptance, and never derives one state from another. The research and its
+for an instrument that passed at acceptance, and `null` for an earlier V2 request, shown as having no initial PIT
+request; it never derives one state from another. The research and its
 backtests are bound to that instrument, and changing it means a successor research request, never an edit of a
 frozen one.
 The user's authority and the scope contract are stated in the [R&D Owner contract](../owners/rd). Built so far:

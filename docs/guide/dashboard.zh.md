@@ -303,7 +303,8 @@ control 通过 `sourced-research-goal-v3` operation 提交 `ResearchGoalExecutio
 UTF-8 字节的值；该值是否指向可纳入的品种由 R&D 对照 Market Data 回答，而不由表单回答，control 既不推荐也不默认任何
 品种。表单不再发出 V2。输错的品种以 `REJECTED_NO_WRITE` 和 `INSTRUMENT_SCOPE_NOT_RESOLVABLE` 结束并显示为该终态；对于
 接纳时通过检查的品种，Research 回读还按原样显示 Owner 的 `initial_pit` 值：`NOT_ISSUED`、`SUBMITTED_OR_UNKNOWN`，或
-`ResearchPitTerminal` 六态之一及其 primary blocker，从不由一种状态推断另一种。这次研究和它的回测都绑定该品种，更换品种意味着
+`ResearchPitTerminal` 六态之一及其 primary blocker；早先的 V2 请求为 `null`，显示为没有初始 PIT 请求；从不由一种状态
+推断另一种。这次研究和它的回测都绑定该品种，更换品种意味着
 一个后继研究请求，从不修改已冻结的请求。用户的授权与范围契约陈述于 [R&D Owner 契约](../owners/rd)。目前已建成：无。
 
 client 与 server 导入同一份 pure input validator。plausible alternatives 在校验前规范成唯一 UTF-8 byte order；
