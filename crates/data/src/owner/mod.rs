@@ -648,11 +648,11 @@ async fn consume_native_replay_scheduling_store_admission_bootstrap_v1(
                 .map_err(|_| NativeReplaySchedulingBootstrapErrorV1 {
                     failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
                 })?;
-            let port = capability.into_bar_schedule_snapshot_port().map_err(|_| {
-                NativeReplaySchedulingBootstrapErrorV1 {
+            let port = capability
+                .into_native_replay_scheduling_snapshot_port_v2()
+                .map_err(|_| NativeReplaySchedulingBootstrapErrorV1 {
                     failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
-                }
-            })?;
+                })?;
             Ok(Some(Arc::new(MarketDataReadPostgres::from_admitted(port))))
         }
     }

@@ -189,6 +189,20 @@ impl NativeReplayCutCoordinatesV2 {
     }
 }
 
+/// The exclusive bound a frame's quote cut must precede.
+///
+/// It is the next frame's BAR when that frame lies inside the window, and the window's end
+/// otherwise: a quote cut after the next frame's BAR belongs to that frame, and one at or after
+/// the window's end belongs to no frame the request consumes.
+pub(crate) fn native_replay_quote_cut_bound_v2(
+    next_frame_ns: Option<u64>,
+    window_end_ns_exclusive: u64,
+) -> u64 {
+    next_frame_ns.map_or(window_end_ns_exclusive, |next| {
+        next.min(window_end_ns_exclusive)
+    })
+}
+
 /// Verifies that `quote_cut` can serve as `frame`'s liquidity.
 ///
 /// It must be a quote cut, strictly later than the frame, on the frame's scope, Instrument Master,
@@ -237,6 +251,22 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
+
+    #[rstest]
+    #[case::no_later_frame(None, 200, 200)]
+    #[case::a_later_frame_inside_the_window(Some(150), 200, 150)]
+    #[case::a_later_frame_at_the_window_end(Some(200), 200, 200)]
+    #[case::a_later_frame_past_the_window(Some(250), 200, 200)]
+    fn a_quote_cut_is_bounded_by_the_next_frame_inside_the_window(
+        #[case] next_frame_ns: Option<u64>,
+        #[case] window_end_ns_exclusive: u64,
+        #[case] bound: u64,
+    ) {
+        assert_eq!(
+            native_replay_quote_cut_bound_v2(next_frame_ns, window_end_ns_exclusive),
+            bound
+        );
+    }
 
     fn d(value: u8) -> BindingDigest {
         BindingDigest::from_untrusted_bytes([value; 32])
