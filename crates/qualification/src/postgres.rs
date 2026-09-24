@@ -6249,6 +6249,9 @@ mod postgres_tests {
     use rstest::rstest;
 
     use super::*;
+    use crate::{
+        ORDERED_CHAIN_READY_FIXTURE_KEY_V1, ReadyLineageV1, ready_lineage_acceptance_identity_v1,
+    };
 
     /// The Qualification database a PostgreSQL proof here runs against, with the ordered chain's
     /// warning collector installed first.
@@ -6769,8 +6772,11 @@ mod postgres_tests {
     /// The Candidate lineages the ordered gate's READY entry mints for the protected-evaluation
     /// terminals, one per terminal because a Candidate reserves holdout and seals one request set
     /// exactly once.
-    const PROTECTED_TERMINAL_LINEAGES_V1: [&str; 3] =
-        ["economic-pass", "economic-failure", "all-not-applicable"];
+    const PROTECTED_TERMINAL_LINEAGES_V1: [ReadyLineageV1; 3] = [
+        ReadyLineageV1::EconomicPass,
+        ReadyLineageV1::EconomicFailure,
+        ReadyLineageV1::AllNotApplicable,
+    ];
 
     /// Exact row counts of every Qualification relation, one `name=count` per non-empty table.
     ///
@@ -6793,27 +6799,80 @@ mod postgres_tests {
         .collect()
     }
 
+    /// The review request identity the ordered chain's READY entry mints `lineage` under.
+    fn chain_lineage_review_request_identity(lineage: ReadyLineageV1) -> String {
+        ready_lineage_acceptance_identity_v1(ORDERED_CHAIN_READY_FIXTURE_KEY_V1, lineage)
+            .review_request_identity()
+            .to_owned()
+    }
+
+    /// The one row `rows` holds for `lineage`, failing by name when there is none or more than one.
+    ///
+    /// None means the READY entry that mints the lineage never ran against this store, which this
+    /// entry must not paper over by taking some other lineage. More than one means the lineage's
+    /// identity is not unique, which the derivation exists to rule out.
+    fn exactly_one_for_lineage<T>(rows: Vec<T>, lineage: ReadyLineageV1, what: &str) -> T {
+        let count = rows.len();
+        let mut rows = rows.into_iter();
+        match (rows.next(), rows.next()) {
+            (Some(row), None) => row,
+            (None, _) => panic!(
+                "qualification.ready_lineage_fixture.not_ensured: no {what} for the {} lineage",
+                lineage.review_slug()
+            ),
+            _ => panic!(
+                "qualification.ready_lineage_fixture.not_unique: {count} {what} rows for the {} \
+                 lineage",
+                lineage.review_slug()
+            ),
+        }
+    }
+
+    /// The intake receipt of one exact gate lineage, with its status and public phase.
+    async fn lineage_intake(
+        pool: &PgPool,
+        lineage: ReadyLineageV1,
+    ) -> (crate::CandidateIntakeReceiptV1, String, Option<i64>) {
+        let rows: Vec<(serde_json::Value, String, Option<i64>)> = sqlx::query_as(
+            "SELECT receipt.receipt_json, receipt.status, head.phase_sequence::BIGINT \
+             FROM public.qualification_candidate_intake_receipts_v1 receipt \
+             LEFT JOIN public.qualification_public_status_heads_v1 head \
+               ON head.review_request_identity=receipt.review_request_identity \
+             WHERE receipt.review_request_identity=$1",
+        )
+        .bind(chain_lineage_review_request_identity(lineage))
+        .fetch_all(pool)
+        .await
+        .expect("gate lineage intake");
+        let (intake_json, status, phase) = exactly_one_for_lineage(rows, lineage, "intake");
+        (
+            decode_intake_receipt_v1(&intake_json).expect("canonical intake"),
+            status,
+            phase,
+        )
+    }
+
     /// The `ADMITTED` intake of one exact gate lineage. Its public status has not reached a
     /// terminal phase, so this entry owns the lineage's protected attempt.
     async fn admitted_intake_for_lineage(
         pool: &PgPool,
-        lineage: &str,
+        lineage: ReadyLineageV1,
     ) -> crate::CandidateIntakeReceiptV1 {
-        let intake_json: serde_json::Value = sqlx::query_scalar(
-            "SELECT receipt.receipt_json \
-             FROM public.qualification_candidate_intake_receipts_v1 receipt \
-             JOIN public.qualification_public_status_heads_v1 head \
-               ON head.review_request_identity=receipt.review_request_identity \
-             WHERE receipt.status='ADMITTED' AND head.phase_sequence<3 \
-               AND receipt.review_request_identity LIKE 'qualification-review-' || $1 || '-%' \
-             ORDER BY receipt.committed_at_epoch_ms DESC, receipt.review_request_identity DESC \
-             LIMIT 1",
-        )
-        .bind(lineage)
-        .fetch_one(pool)
-        .await
-        .expect("gate lineage ADMITTED intake");
-        decode_intake_receipt_v1(&intake_json).expect("canonical intake")
+        let (intake, status, phase) = lineage_intake(pool, lineage).await;
+
+        assert_eq!(
+            status,
+            "ADMITTED",
+            "qualification.ready_lineage_fixture.not_admitted: the {} lineage",
+            lineage.review_slug()
+        );
+        assert!(
+            phase.is_some_and(|phase| phase < 3),
+            "qualification.ready_lineage_fixture.already_terminal: the {} lineage is at phase \
+             {phase:?}",
+            lineage.review_slug()
+        );
+        intake
     }
 
     async fn authority_source_for_intake(
@@ -6848,14 +6907,7 @@ mod postgres_tests {
         let owner = PostgresQualificationOwnerV1::connect(&qualification_url)
             .await
             .expect("Qualification topology");
-        let intake_json: serde_json::Value = sqlx::query_scalar(
-            "SELECT receipt_json FROM public.qualification_candidate_intake_receipts_v1 \
-             WHERE status='ADMITTED' ORDER BY committed_at_epoch_ms DESC, review_request_identity DESC LIMIT 1",
-        )
-        .fetch_one(&owner.pool)
-        .await
-        .expect("prior exact ADMITTED intake");
-        let intake = decode_intake_receipt_v1(&intake_json).expect("canonical intake");
+        let intake = admitted_intake_for_lineage(&owner.pool, ReadyLineageV1::Origin).await;
         let reservation_identity = intake
             .holdout_reservation_identity()
             .expect("ADMITTED intake reservation")
@@ -6883,7 +6935,7 @@ mod postgres_tests {
             intake.decision_identity().to_string(),
             intake.result_identity().to_string(),
             intake.candidate_identity().to_string(),
-            intake_json["selection_identity"]
+            serde_json::to_value(&intake).expect("intake receipt serialises")["selection_identity"]
                 .as_str()
                 .expect("selection identity")
                 .to_string(),
@@ -8229,7 +8281,7 @@ mod postgres_tests {
     async fn seal_protected_request_set_for_lineage(
         owner: &PostgresQualificationOwnerV1,
         backtest: &PgPool,
-        lineage: &str,
+        lineage: ReadyLineageV1,
     ) {
         use crate::protected_replay_request::{
             ProtectedReplayRequestProposalV1, ProtectedReplayRequestProposalV2,
@@ -8477,9 +8529,15 @@ mod postgres_tests {
         let backtest = PgPool::connect(&backtest_url).await.expect("Backtest pool");
 
         for (lineage, terminal) in [
-            ("economic-pass", ProtectedTerminalV1::Qualified),
-            ("economic-failure", ProtectedTerminalV1::Ineligible),
-            ("all-not-applicable", ProtectedTerminalV1::AssessmentInvalid),
+            (ReadyLineageV1::EconomicPass, ProtectedTerminalV1::Qualified),
+            (
+                ReadyLineageV1::EconomicFailure,
+                ProtectedTerminalV1::Ineligible,
+            ),
+            (
+                ReadyLineageV1::AllNotApplicable,
+                ProtectedTerminalV1::AssessmentInvalid,
+            ),
         ] {
             Box::pin(close_protected_terminal_for_lineage(
                 &owner, &backtest, lineage, terminal,
@@ -8516,7 +8574,7 @@ mod postgres_tests {
     async fn close_protected_terminal_for_lineage(
         owner: &PostgresQualificationOwnerV1,
         backtest: &PgPool,
-        lineage: &str,
+        lineage: ReadyLineageV1,
         terminal: ProtectedTerminalV1,
     ) {
         use crate::{ProtectedAssessmentStatusV1, ProtectedEligibilityStatusV1};
@@ -8524,20 +8582,24 @@ mod postgres_tests {
 
         // Backtest custody and Qualification custody are read under their own identities: the
         // sealed request set names this lineage, and Backtest answers only about the frontier.
-        let (request_set_identity, request_set_digest, review_request_identity): (
-            String,
-            String,
-            String,
-        ) = sqlx::query_as(
+        lineage_intake(&owner.pool, lineage).await;
+        let request_sets: Vec<(String, String, String)> = sqlx::query_as(
             "SELECT request_set_identity,request_set_digest,review_request_identity \
              FROM public.qualification_protected_replay_request_sets_v1 \
-             WHERE review_request_identity LIKE 'qualification-review-' || $1 || '-%' \
-             ORDER BY committed_at_epoch_ms DESC,request_set_identity DESC LIMIT 1",
+             WHERE review_request_identity=$1",
         )
-        .bind(lineage)
-        .fetch_one(&owner.pool)
+        .bind(chain_lineage_review_request_identity(lineage))
+        .fetch_all(&owner.pool)
         .await
         .expect("sealed request set of this gate lineage");
+        let [(request_set_identity, request_set_digest, review_request_identity)] =
+            <[_; 1]>::try_from(request_sets).unwrap_or_else(|rows| {
+                panic!(
+                    "the {} lineage has {} sealed request sets, not one",
+                    lineage.review_slug(),
+                    rows.len()
+                )
+            });
         let (frontier_identity, frontier_digest, receipt_identity, receipt_digest): (
             String,
             String,
@@ -8884,18 +8946,12 @@ mod postgres_tests {
         // renew and corrupt its custody without touching a lineage the terminal entries own. Its
         // review request and its Research request share the gate suffix, the only correlation
         // Qualification can follow without a raw R&D read.
-        let review_request_identity: String = sqlx::query_scalar(
-            "SELECT review_request_identity FROM public.qualification_candidate_intake_receipts_v1 \
-             WHERE review_request_identity LIKE 'qualification-review-inadequate-plan-%' \
-             ORDER BY committed_at_epoch_ms DESC LIMIT 1",
-        )
-        .fetch_one(&owner.pool)
-        .await
-        .expect("inadequate-plan lineage intake");
-        let suffix = review_request_identity
-            .strip_prefix("qualification-review-inadequate-plan-")
-            .expect("gate lineage suffix")
-            .to_string();
+        lineage_intake(&owner.pool, ReadyLineageV1::InadequatePlan).await;
+        let lineage_identity = ready_lineage_acceptance_identity_v1(
+            ORDERED_CHAIN_READY_FIXTURE_KEY_V1,
+            ReadyLineageV1::InadequatePlan,
+        );
+        let suffix = lineage_identity.suffix().to_owned();
         let request_identity = format!("repair-replay-research-{suffix}");
         let basis_row = sqlx::query(
             "SELECT basis_identity,basis_digest,principal,request_scope_json \
