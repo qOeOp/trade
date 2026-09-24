@@ -212,7 +212,7 @@ impl SourceIntakeReadbackOwnerPort for PostgresSourceIntakeReadbackOwnerV1 {
             .is_none()
         {
             refused_by_store(
-                "source_intake.production_readback.admission_absent",
+                "source_intake.production_readback.readback_empty",
                 &"Product Edge holds no admission for this request under this request proof",
             );
             return Ok(None);
@@ -229,7 +229,7 @@ impl SourceIntakeReadbackOwnerPort for PostgresSourceIntakeReadbackOwnerV1 {
             // and when a binding fails the integrity checks inside the function, so this names the
             // function's silence rather than one of its causes.
             refused_by_store(
-                "source_intake.production_readback.readback_empty",
+                "source_intake.production_readback.admission_absent",
                 &"rd_owner_api.read_source_intake_v1 returned no row for an admitted request",
             );
         }
