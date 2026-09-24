@@ -23,6 +23,7 @@ pub mod pit_observation_source_v1;
 pub mod pit_snapshot;
 pub mod replay_market_facts_v2;
 pub mod research_instrument_scope_v1;
+pub mod research_pit_references_v1;
 pub mod research_pit_terminal;
 pub mod sample_fact;
 pub mod sample_projection;
@@ -87,6 +88,13 @@ pub use postgres::strategy_input_binding_registry::{
     StrategyDesignPitCoordinateV1, reread_persisted_strategy_input_custody_for_update_v1,
     reread_persisted_strategy_input_custody_read_only_v1,
     resolve_pit_request_for_strategy_design_v1,
+};
+
+/// What Market Data answers about a Research request's instrument scope, read in the caller's own
+/// R&D transaction: the early check of each identity, and every reference of the initial PIT
+/// request.
+pub use postgres::research_pit_references_v1::{
+    check_research_instrument_scope_v1, resolve_research_pit_references_v1,
 };
 
 /// Opens the sole configured Instrument Owner economic-terms authority.

@@ -898,6 +898,42 @@ pub fn verify_instrument_master_readback(readback: &InstrumentMasterReadbackV1) 
         && codec::identity(codec::READBACK_DOMAIN, &readback.canonical_bytes) == readback.identity
 }
 
+/// The Owner clock position a fact must have been minted at or before to be observable.
+///
+/// It is the part of a clock projection that fact selection reads, so a caller holding only the
+/// Owner's current clock head can select exactly as a resolution against that head would.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ObservationClockV1 {
+    pub(crate) clock_identity: [u8; 32],
+    pub(crate) clock_epoch: [u8; 32],
+    pub(crate) monotonic_sequence: u64,
+}
+
+impl ObservationClockV1 {
+    /// The position of an Owner clock head, or `None` when its identity or epoch is not 32 bytes.
+    pub(crate) fn from_owner_head(
+        clock_identity: &str,
+        clock_epoch: &str,
+        monotonic_sequence: u64,
+    ) -> Option<Self> {
+        Some(Self {
+            clock_identity: exact_32(clock_identity).ok()?,
+            clock_epoch: exact_32(clock_epoch).ok()?,
+            monotonic_sequence,
+        })
+    }
+}
+
+impl ClockProjection {
+    const fn observation_clock(&self) -> ObservationClockV1 {
+        ObservationClockV1 {
+            clock_identity: self.clock_identity,
+            clock_epoch: self.clock_epoch,
+            monotonic_sequence: self.monotonic_sequence,
+        }
+    }
+}
+
 pub(crate) fn select_facts(
     facts: &[InstrumentMasterFactV1],
     members: &[String],
@@ -905,6 +941,25 @@ pub(crate) fn select_facts(
     observation: i128,
     cut: u64,
     clock: &ClockProjection,
+) -> Result<Vec<InstrumentMasterFactV1>, InstrumentMasterError> {
+    select_facts_observed(
+        facts,
+        members,
+        effective,
+        observation,
+        cut,
+        clock.observation_clock(),
+    )
+}
+
+/// Selects, per member, the one maximal fact effective at `effective` and observable at the cut.
+pub(crate) fn select_facts_observed(
+    facts: &[InstrumentMasterFactV1],
+    members: &[String],
+    effective: i128,
+    observation: i128,
+    cut: u64,
+    clock: ObservationClockV1,
 ) -> Result<Vec<InstrumentMasterFactV1>, InstrumentMasterError> {
     let mut selected = Vec::with_capacity(members.len());
     for member in members {
@@ -962,7 +1017,7 @@ pub(crate) fn select_facts(
         let eligible = all
             .into_iter()
             .filter(|fact| {
-                effective_contains(fact, effective) && observable(fact, observation, cut, clock)
+                effective_contains(fact, effective) && observable_at(fact, observation, cut, clock)
             })
             .collect::<Vec<_>>();
         let eligible_digests = eligible
@@ -1061,6 +1116,15 @@ pub(super) fn observable(
     observation: i128,
     cut: u64,
     clock: &ClockProjection,
+) -> bool {
+    observable_at(fact, observation, cut, clock.observation_clock())
+}
+
+fn observable_at(
+    fact: &InstrumentMasterFactV1,
+    observation: i128,
+    cut: u64,
+    clock: ObservationClockV1,
 ) -> bool {
     fact.clock.clock_identity == clock.clock_identity
         && fact.clock.clock_epoch == clock.clock_epoch

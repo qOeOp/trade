@@ -2113,7 +2113,9 @@ async fn current_eligible_frontier_oracle_v1(
         persist_historical_membership_frontier_v1, resolve_current_eligible_frontier_v1,
     };
 
-    let admit = async |frontier: BindingDigest| {
+    // Each frontier states its own AAPL fact: the fixture's frontiers already hold the one at
+    // owner observation 99, and a fact belongs to one frontier.
+    let admit = async |frontier: BindingDigest, owner_observation_ns: i128| {
         let mut transaction = owner.pool().begin().await.unwrap();
         persist_historical_membership_frontier_v1(
             &mut transaction,
@@ -2127,7 +2129,7 @@ async fn current_eligible_frontier_oracle_v1(
                 provider_available_ns: 90,
                 retrieval_ns: 92,
                 correction_publication_ns: 91,
-                owner_observation_ns: 99,
+                owner_observation_ns,
                 decision_cut: 100,
                 source_binding_lineage_root: source.fact().lineage_root(),
                 correction_frontier_digest: d(86),
@@ -2146,11 +2148,11 @@ async fn current_eligible_frontier_oracle_v1(
         current
     };
 
-    admit(d(203)).await;
+    admit(d(203), 93).await;
     assert_eq!(current().await, Some(d(203)));
-    admit(d(204)).await;
+    admit(d(204), 94).await;
     assert_eq!(current().await, Some(d(204)));
-    admit(d(203)).await;
+    admit(d(203), 93).await;
     assert_eq!(
         current().await,
         Some(d(204)),
@@ -2167,6 +2169,278 @@ async fn current_eligible_frontier_oracle_v1(
         current().await,
         Some(d(204)),
         "a frontier from before numbering is never current"
+    );
+}
+
+/// Admits one frontier whose members are keyed by the instruments they name.
+///
+/// Every fact is recorded at `decision_cut` and observed at `owner_observation_ns`, which each
+/// call chooses so that its facts are its own: a fact belongs to one frontier.
+async fn admit_research_frontier_v1(
+    owner: &MarketDataOwnerPostgres,
+    frontier: BindingDigest,
+    (decision_cut, owner_observation_ns): (u64, i128),
+    members: &[(&[u8], BindingDigest, BindingDigest)],
+) {
+    let mut transaction = owner.pool().begin().await.unwrap();
+    super::universe_selection::persist_historical_membership_frontier_v1(
+        &mut transaction,
+        frontier,
+        members
+            .iter()
+            .map(
+                |(instrument, lineage_root, correction)| HistoricalMembershipFactProposalV1 {
+                    member_key: instrument.to_vec(),
+                    instrument: instrument.to_vec(),
+                    predecessor_identity: None,
+                    effective_from_ns: 1,
+                    effective_until_ns: None,
+                    provider_available_ns: 90,
+                    retrieval_ns: 92,
+                    correction_publication_ns: 91,
+                    owner_observation_ns,
+                    decision_cut,
+                    source_binding_lineage_root: *lineage_root,
+                    correction_frontier_digest: *correction,
+                },
+            )
+            .collect(),
+    )
+    .await
+    .unwrap();
+    transaction.commit().await.unwrap();
+}
+
+/// Opens the kind of transaction R&D reads in, made read-only so that a write or a row lock fails
+/// loudly (`25006`) instead of passing.
+async fn read_only_transaction_v1(
+    owner: &MarketDataOwnerPostgres,
+) -> sqlx::Transaction<'static, sqlx::Postgres> {
+    let mut transaction = owner.pool().begin().await.unwrap();
+    sqlx::query("SET TRANSACTION READ ONLY")
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+    transaction
+}
+
+/// R&D's two reads of a Research request's instrument scope answer from Market Data's own
+/// custody, read only and without row locks.
+///
+/// Runs where the current frontier holds AAPL alone, named under the Source Binding's lineage,
+/// and both AAPL and MSFT have Instrument Master facts in force at the Owner's cut.
+async fn research_scope_reads_oracle_v1(
+    owner: &MarketDataOwnerPostgres,
+    source: &SourceBindingCommit,
+) {
+    use crate::owner::{
+        check_research_instrument_scope_v1,
+        research_instrument_scope_v1::ResearchInstrumentScopeV1,
+        research_pit_references_v1::{
+            ResearchInstrumentAdmissibilityV1::{Admissible, NotInEligibleFrontier, Unresolved},
+            ResearchPitReferencesErrorV1,
+        },
+        resolve_research_pit_references_v1,
+    };
+
+    let scope = |identities: &[&str]| {
+        ResearchInstrumentScopeV1::from_identities(
+            identities
+                .iter()
+                .map(|identity| (*identity).to_owned())
+                .collect(),
+        )
+        .unwrap()
+    };
+    let check = async |identities: &[&str]| {
+        let mut transaction = read_only_transaction_v1(owner).await;
+        let check = check_research_instrument_scope_v1(&mut transaction, &scope(identities))
+            .await
+            .unwrap();
+        transaction.rollback().await.unwrap();
+        check
+    };
+    let references = async |identities: &[&str]| {
+        let mut transaction = read_only_transaction_v1(owner).await;
+        let references =
+            resolve_research_pit_references_v1(&mut transaction, &scope(identities)).await;
+        transaction.rollback().await.unwrap();
+        references
+    };
+    let standing =
+        |check: &crate::owner::research_pit_references_v1::ResearchInstrumentScopeCheckV1| {
+            check
+                .rows()
+                .iter()
+                .map(|row| (row.identity().to_owned(), row.admissibility()))
+                .collect::<Vec<_>>()
+        };
+
+    // Positive control for the read-only harness: a locking read of the same face is refused.
+    let mut transaction = read_only_transaction_v1(owner).await;
+    let locking =
+        sqlx::query("SELECT * FROM market_data_rd_api.lock_source_for_strategy_input_v1($1)")
+            .bind(source.fact().binding_id().as_bytes().as_slice())
+            .fetch_optional(&mut *transaction)
+            .await
+            .expect_err("a row lock in a read-only transaction is refused");
+    assert_eq!(
+        locking
+            .as_database_error()
+            .and_then(sqlx::error::DatabaseError::code)
+            .as_deref(),
+        Some("25006")
+    );
+    transaction.rollback().await.unwrap();
+
+    let cut = super::public_decision_cut_v1(&owner.current_clock_admission_v1().await.unwrap());
+    let only_aapl = check(&["AAPL"]).await;
+    assert_eq!(standing(&only_aapl), [("AAPL".to_owned(), Admissible)]);
+    assert!(only_aapl.is_admissible());
+    assert_eq!(only_aapl.eligible_instrument_frontier(), Some(d(204)));
+    assert_eq!(only_aapl.decision_cut(), &cut);
+    assert_eq!(
+        standing(&check(&["AAPL", "NOPE"]).await),
+        [
+            ("AAPL".to_owned(), Admissible),
+            ("NOPE".to_owned(), Unresolved)
+        ],
+        "an identity with no Instrument Master fact is unresolved"
+    );
+    assert_eq!(
+        standing(&check(&["AAPL", "MSFT"]).await),
+        [
+            ("AAPL".to_owned(), Admissible),
+            ("MSFT".to_owned(), NotInEligibleFrontier)
+        ],
+        "an identity that resolves but is not a member of the current frontier is refused as such"
+    );
+
+    let resolved = references(&["AAPL"]).await.unwrap();
+    assert_eq!(resolved.eligible_instrument_frontier(), d(204));
+    assert_eq!(resolved.source_binding(), source.receipt().locator());
+    assert_eq!(
+        resolved.source_binding_lineage_root(),
+        source.fact().lineage_root()
+    );
+    assert_eq!(resolved.correction_frontier_digest(), d(86));
+    assert_eq!(
+        resolved.market_semantics_identity(),
+        derive_market_semantics_compatibility_identity_v1(&source.fact().proposal().semantics)
+    );
+    assert_eq!(resolved.decision_cut(), &cut);
+    assert_eq!(
+        references(&["AAPL", "MSFT"]).await,
+        Err(ResearchPitReferencesErrorV1::InstrumentNotAdmissible)
+    );
+    assert_eq!(
+        references(&["NOPE"]).await,
+        Err(ResearchPitReferencesErrorV1::InstrumentNotAdmissible)
+    );
+
+    let lineage = source.fact().lineage_root();
+    admit_research_frontier_v1(
+        owner,
+        d(206),
+        (100, 95),
+        &[(b"AAPL", lineage, d(86)), (b"MSFT", d(207), d(86))],
+    )
+    .await;
+    assert!(check(&["AAPL", "MSFT"]).await.is_admissible());
+    assert_eq!(
+        references(&["AAPL", "MSFT"]).await,
+        Err(ResearchPitReferencesErrorV1::SourceBindingLineagesDiffer),
+        "two lineages cannot bind one PIT request"
+    );
+    admit_research_frontier_v1(
+        owner,
+        d(208),
+        (100, 96),
+        &[(b"AAPL", lineage, d(86)), (b"MSFT", lineage, d(87))],
+    )
+    .await;
+    assert_eq!(
+        references(&["AAPL", "MSFT"]).await,
+        Err(ResearchPitReferencesErrorV1::SourceBindingLineagesDiffer),
+        "nor can two correction frontiers of one lineage"
+    );
+    assert_eq!(
+        references(&["MSFT"])
+            .await
+            .unwrap()
+            .correction_frontier_digest(),
+        d(87)
+    );
+    admit_research_frontier_v1(owner, d(209), (100, 97), &[(b"AAPL", d(210), d(86))]).await;
+    assert_eq!(
+        references(&["AAPL"]).await,
+        Err(ResearchPitReferencesErrorV1::SourceBindingUnavailable),
+        "a lineage with no Source Binding head binds nothing"
+    );
+    assert_eq!(
+        check(&["AAPL"]).await.eligible_instrument_frontier(),
+        Some(d(209))
+    );
+    admit_research_frontier_v1(
+        owner,
+        d(211),
+        (cut.decision_cut + 1, 98),
+        &[(b"AAPL", lineage, d(86))],
+    )
+    .await;
+    assert_eq!(
+        standing(&check(&["AAPL"]).await),
+        [("AAPL".to_owned(), NotInEligibleFrontier)],
+        "a membership fact recorded after the Owner's cut is not yet in force"
+    );
+
+    // A fact belongs to one frontier: restating d(211)'s fact for another is refused by name and
+    // leaves the current frontier where it was.
+    let mut transaction = owner.pool().begin().await.unwrap();
+    assert_eq!(
+        super::universe_selection::persist_historical_membership_frontier_v1(
+            &mut transaction,
+            d(212),
+            vec![HistoricalMembershipFactProposalV1 {
+                member_key: b"AAPL".to_vec(),
+                instrument: b"AAPL".to_vec(),
+                predecessor_identity: None,
+                effective_from_ns: 1,
+                effective_until_ns: None,
+                provider_available_ns: 90,
+                retrieval_ns: 92,
+                correction_publication_ns: 91,
+                owner_observation_ns: 98,
+                decision_cut: cut.decision_cut + 1,
+                source_binding_lineage_root: lineage,
+                correction_frontier_digest: d(86),
+            }],
+        )
+        .await,
+        Err(UniverseSelectionErrorV1::RequestConflict)
+    );
+    transaction.rollback().await.unwrap();
+    assert_eq!(
+        check(&["AAPL"]).await.eligible_instrument_frontier(),
+        Some(d(211))
+    );
+
+    let reads: Vec<(String, String)> = sqlx::query_as(
+        "SELECT p.proname::text, p.provolatile::text FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='market_data_rd_api' AND p.proname LIKE '%\\_for\\_research\\_v1' ORDER BY 1",
+    )
+    .fetch_all(owner.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        reads,
+        [
+            "read_eligible_frontier_members_for_research_v1",
+            "read_instrument_facts_for_research_v1",
+            "read_owner_clock_head_for_research_v1",
+            "read_source_binding_head_for_research_v1",
+        ]
+        .map(|name| (name.to_owned(), "s".to_owned())),
+        "every research read is STABLE"
     );
 }
 
@@ -4205,6 +4479,7 @@ async fn instrument_master_postgres_oracle(owner_url: &str, reader_url: &str, ad
     ))
     .await;
     Box::pin(current_eligible_frontier_oracle_v1(&owner, &source)).await;
+    Box::pin(research_scope_reads_oracle_v1(&owner, &source)).await;
     Box::pin(persisted_strategy_input_custody_postgres_oracle_v1(
         &owner,
         &registry_fixture,

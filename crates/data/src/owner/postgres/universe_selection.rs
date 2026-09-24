@@ -39,6 +39,10 @@ pub(super) const UNIVERSE_SELECTION_SCHEMA_V1: &[&str] = &[
     "CREATE SEQUENCE IF NOT EXISTS market_data_private.historical_membership_frontier_admissions_v1 AS BIGINT MINVALUE 1",
     "ALTER TABLE market_data_private.historical_membership_frontiers_v1 ADD COLUMN IF NOT EXISTS admission_sequence BIGINT UNIQUE CHECK (admission_sequence > 0)",
     "REVOKE ALL ON SEQUENCE market_data_private.historical_membership_frontier_admissions_v1 FROM PUBLIC",
+    // The one statement of which frontier is current, for the Owner's own evaluation and for the
+    // reads it answers R&D with alike.
+    "CREATE OR REPLACE FUNCTION market_data_private.current_eligible_frontier_v1() RETURNS BYTEA LANGUAGE SQL STABLE SET search_path=pg_catalog, pg_temp AS $function$ SELECT f.eligible_frontier FROM market_data_private.historical_membership_frontiers_v1 f WHERE f.admission_sequence IS NOT NULL ORDER BY f.admission_sequence DESC LIMIT 1 $function$",
+    "REVOKE ALL ON FUNCTION market_data_private.current_eligible_frontier_v1() FROM PUBLIC",
     "CREATE TABLE IF NOT EXISTS market_data_private.historical_membership_facts_v1 (fact_identity BYTEA PRIMARY KEY CHECK(octet_length(fact_identity)=32), eligible_frontier BYTEA NOT NULL CHECK(octet_length(eligible_frontier)=32), member_key BYTEA NOT NULL CHECK(octet_length(member_key)>0), instrument BYTEA NOT NULL CHECK(octet_length(instrument)>0), predecessor_identity BYTEA NULL REFERENCES market_data_private.historical_membership_facts_v1(fact_identity), decision_cut BIGINT NOT NULL CHECK(decision_cut>0), owner_observation_ns TEXT NOT NULL CHECK(owner_observation_ns<>''), fact_bytes BYTEA NOT NULL CHECK(octet_length(fact_bytes)>0), UNIQUE(eligible_frontier,member_key,fact_identity))",
     "CREATE TABLE IF NOT EXISTS market_data_private.historical_membership_heads_v1 (eligible_frontier BYTEA NOT NULL CHECK(octet_length(eligible_frontier)=32), member_key BYTEA NOT NULL CHECK(octet_length(member_key)>0), fact_identity BYTEA UNIQUE NOT NULL REFERENCES market_data_private.historical_membership_facts_v1(fact_identity), PRIMARY KEY(eligible_frontier,member_key))",
     "CREATE TABLE IF NOT EXISTS market_data_private.historical_membership_manifest_v1 (eligible_frontier BYTEA NOT NULL CHECK(octet_length(eligible_frontier)=32), ordinal BIGINT NOT NULL CHECK(ordinal>0), member_key BYTEA NOT NULL CHECK(octet_length(member_key)>0), PRIMARY KEY(eligible_frontier,ordinal), UNIQUE(eligible_frontier,member_key))",
@@ -67,12 +71,11 @@ pub(super) async fn install_universe_selection_schema_v1(
 pub(super) async fn resolve_current_eligible_frontier_v1(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<Option<BindingDigest>, UniverseSelectionErrorV1> {
-    let current: Option<Vec<u8>> = sqlx::query_scalar(
-        "SELECT eligible_frontier FROM market_data_private.historical_membership_frontiers_v1 WHERE admission_sequence IS NOT NULL ORDER BY admission_sequence DESC LIMIT 1",
-    )
-    .fetch_optional(&mut **transaction)
-    .await
-    .map_err(|cause| store_error(&cause))?;
+    let current: Option<Vec<u8>> =
+        sqlx::query_scalar("SELECT market_data_private.current_eligible_frontier_v1()")
+            .fetch_one(&mut **transaction)
+            .await
+            .map_err(|cause| store_error(&cause))?;
     current
         .map(|bytes| {
             <[u8; 32]>::try_from(bytes.as_slice())
@@ -153,10 +156,15 @@ pub(super) async fn persist_historical_membership_frontier_v1(
                 return Err(UniverseSelectionErrorV1::InvalidMembership);
             }
         }
-        let existing: Option<Vec<u8>> = sqlx::query_scalar("SELECT fact_bytes FROM market_data_private.historical_membership_facts_v1 WHERE fact_identity=$1 FOR UPDATE")
+        // A fact's identity does not name its frontier, but its row does: the same fact stated
+        // for a second frontier is a caller conflict, refused here rather than left to surface as
+        // the heads table's unique violation.
+        let existing: Option<(Vec<u8>, Vec<u8>)> = sqlx::query_as("SELECT eligible_frontier,fact_bytes FROM market_data_private.historical_membership_facts_v1 WHERE fact_identity=$1 FOR UPDATE")
             .bind(fact.identity().as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(|cause| store_error(&cause))?;
-        if let Some(bytes) = existing {
-            if bytes != fact.canonical_bytes() {
+        if let Some((frontier, bytes)) = existing {
+            if frontier != eligible_frontier.as_bytes().as_slice()
+                || bytes != fact.canonical_bytes()
+            {
                 return Err(UniverseSelectionErrorV1::RequestConflict);
             }
         } else {

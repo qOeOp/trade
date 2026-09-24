@@ -254,48 +254,18 @@ pub(crate) fn select_complete_membership_v1(
     }
     let mut selected = Vec::with_capacity(expected.len());
     for member_key in expected {
-        let mut candidates: Vec<_> = source_facts
-            .iter()
-            .filter(|fact| {
-                fact.member_key() == member_key
-                    && fact.proposal.effective_from_ns <= request.effective_at_ns
-                    && fact
-                        .proposal
-                        .effective_until_ns
-                        .is_none_or(|until| request.effective_at_ns < until)
-                    && fact.proposal.provider_available_ns <= request.owner_observation_ns
-                    && fact.proposal.retrieval_ns <= request.owner_observation_ns
-                    && fact.proposal.correction_publication_ns <= request.owner_observation_ns
-                    && fact.proposal.owner_observation_ns <= request.owner_observation_ns
-                    && fact.proposal.decision_cut <= request.decision_cut
-                    && fact.proposal.source_binding_lineage_root
-                        == request.source_binding_lineage_root
-                    && fact.proposal.correction_frontier_digest
-                        == request.correction_frontier_digest
-            })
-            .collect();
-        candidates.sort_by_key(|fact| {
-            (
-                fact.proposal.decision_cut,
-                fact.proposal.owner_observation_ns,
-                fact.identity(),
-            )
-        });
-        let fact = candidates
-            .pop()
-            .ok_or(UniverseSelectionErrorV1::InvalidMembership)?;
-
-        if candidates.last().is_some_and(|other| {
-            (
-                other.proposal.decision_cut,
-                other.proposal.owner_observation_ns,
-            ) == (
-                fact.proposal.decision_cut,
-                fact.proposal.owner_observation_ns,
-            )
-        }) {
-            return Err(UniverseSelectionErrorV1::InvalidMembership);
-        }
+        let fact = latest_membership_fact_v1(source_facts.iter().filter(|fact| {
+            fact.member_key() == member_key
+                && membership_fact_in_force_v1(
+                    fact,
+                    request.effective_at_ns,
+                    request.owner_observation_ns,
+                    request.decision_cut,
+                )
+                && fact.proposal.source_binding_lineage_root == request.source_binding_lineage_root
+                && fact.proposal.correction_frontier_digest == request.correction_frontier_digest
+        }))
+        .ok_or(UniverseSelectionErrorV1::InvalidMembership)?;
         let disposition = evaluator.evaluate(
             request.selection_rule_identity,
             &request.selection_rule_bytes,
@@ -319,6 +289,53 @@ pub(crate) fn select_complete_membership_v1(
         return Err(UniverseSelectionErrorV1::InvalidMembership);
     }
     Ok(selected)
+}
+
+/// Whether a membership fact is in force at `effective_at_ns` and observable at the cut.
+pub(crate) fn membership_fact_in_force_v1(
+    fact: &HistoricalMembershipSourceFactV1,
+    effective_at_ns: i128,
+    owner_observation_ns: i128,
+    decision_cut: u64,
+) -> bool {
+    fact.proposal.effective_from_ns <= effective_at_ns
+        && fact
+            .proposal
+            .effective_until_ns
+            .is_none_or(|until| effective_at_ns < until)
+        && fact.proposal.provider_available_ns <= owner_observation_ns
+        && fact.proposal.retrieval_ns <= owner_observation_ns
+        && fact.proposal.correction_publication_ns <= owner_observation_ns
+        && fact.proposal.owner_observation_ns <= owner_observation_ns
+        && fact.proposal.decision_cut <= decision_cut
+}
+
+/// The one latest candidate, by decision cut then owner observation.
+///
+/// `None` when there is no candidate, or when two share the latest decision cut and observation:
+/// then no single fact states the member, and picking one by identity would be arbitrary.
+pub(crate) fn latest_membership_fact_v1<'a>(
+    candidates: impl Iterator<Item = &'a HistoricalMembershipSourceFactV1>,
+) -> Option<&'a HistoricalMembershipSourceFactV1> {
+    let mut candidates: Vec<_> = candidates.collect();
+    candidates.sort_by_key(|fact| {
+        (
+            fact.proposal.decision_cut,
+            fact.proposal.owner_observation_ns,
+            fact.identity(),
+        )
+    });
+    let fact = candidates.pop()?;
+    let tied = candidates.last().is_some_and(|other| {
+        (
+            other.proposal.decision_cut,
+            other.proposal.owner_observation_ns,
+        ) == (
+            fact.proposal.decision_cut,
+            fact.proposal.owner_observation_ns,
+        )
+    });
+    (!tied).then_some(fact)
 }
 
 fn issue_membership(

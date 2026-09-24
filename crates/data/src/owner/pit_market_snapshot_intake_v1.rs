@@ -258,6 +258,40 @@ pub struct MarketDataDecisionCutV1 {
     pub skew_bound: u64,
 }
 
+const DECISION_CUT_DOMAIN_V1: &[u8] = b"vibe.market-data.decision-cut.v1\0";
+
+impl MarketDataDecisionCutV1 {
+    /// The digest a consumer stores to name exactly this cut.
+    ///
+    /// SHA-256 over `vibe.market-data.decision-cut.v1\0`, then the clock identity and the clock
+    /// epoch, each prefixed by its UTF-8 length as `u16LE`, then `decision_cut` and
+    /// `monotonic_sequence` as `u64LE`, the 32-byte restart-continuity digest, and `valid_through`,
+    /// `uncertainty_bound` and `skew_bound` as `u64LE`. `None` when the identity or the epoch is
+    /// longer than a `u16` length can state; the Owner's own are 32 bytes each.
+    #[must_use]
+    pub fn digest(&self) -> Option<BindingDigest> {
+        use sha2::{Digest, Sha256};
+
+        let identity_length = u16::try_from(self.clock_identity.len()).ok()?;
+        let epoch_length = u16::try_from(self.clock_epoch.len()).ok()?;
+        let mut hasher = Sha256::new();
+        hasher.update(DECISION_CUT_DOMAIN_V1);
+        hasher.update(identity_length.to_le_bytes());
+        hasher.update(self.clock_identity.as_bytes());
+        hasher.update(epoch_length.to_le_bytes());
+        hasher.update(self.clock_epoch.as_bytes());
+        hasher.update(self.decision_cut.to_le_bytes());
+        hasher.update(self.monotonic_sequence.to_le_bytes());
+        hasher.update(self.restart_continuity_digest.as_bytes());
+        hasher.update(self.valid_through.to_le_bytes());
+        hasher.update(self.uncertainty_bound.to_le_bytes());
+        hasher.update(self.skew_bound.to_le_bytes());
+        Some(BindingDigest::from_untrusted_bytes(
+            hasher.finalize().into(),
+        ))
+    }
+}
+
 /// The sealed production intake. Strategy Factory cannot implement or construct it.
 #[async_trait]
 pub trait PitMarketSnapshotIntakeV1: Send + Sync + sealed::Sealed {
@@ -300,4 +334,67 @@ pub async fn pit_market_snapshot_intake_from_environment_v1(
     observations: Arc<dyn PitObservationSourceV1>,
 ) -> Result<Arc<dyn PitMarketSnapshotIntakeV1>, PitMarketSnapshotIntakeErrorV1> {
     super::postgres::pit_market_snapshot_intake_from_environment_v1(observations).await
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    fn cut() -> MarketDataDecisionCutV1 {
+        MarketDataDecisionCutV1 {
+            clock_identity: "market-data.owner-clock.v1-00001".into(),
+            clock_epoch: "market-data.owner-epoch.v1-00001".into(),
+            decision_cut: 1_000,
+            monotonic_sequence: 7,
+            restart_continuity_digest: BindingDigest::from_untrusted_bytes([0x11; 32]),
+            valid_through: 2_000,
+            uncertainty_bound: 3,
+            skew_bound: 5,
+        }
+    }
+
+    fn from_hex(value: &str) -> Vec<u8> {
+        (0..value.len())
+            .step_by(2)
+            .map(|at| u8::from_str_radix(&value[at..at + 2], 16).unwrap())
+            .collect()
+    }
+
+    // The expected bytes were computed outside this crate, from the layout the digest documents.
+    #[rstest]
+    fn the_decision_cut_digest_is_sha256_over_its_documented_layout() {
+        assert_eq!(
+            cut().digest().unwrap().as_bytes().to_vec(),
+            from_hex("f07756bd5cbd90cffac86ed64f13ee7aedbd91576eb202701b26dd35d09d60df")
+        );
+    }
+
+    #[rstest]
+    #[case::clock_identity(|cut: &mut MarketDataDecisionCutV1| cut.clock_identity.push('x'))]
+    #[case::clock_epoch(|cut: &mut MarketDataDecisionCutV1| cut.clock_epoch.push('x'))]
+    #[case::decision_cut(|cut: &mut MarketDataDecisionCutV1| cut.decision_cut += 1)]
+    #[case::monotonic_sequence(|cut: &mut MarketDataDecisionCutV1| cut.monotonic_sequence += 1)]
+    #[case::restart_continuity(|cut: &mut MarketDataDecisionCutV1| {
+        cut.restart_continuity_digest = BindingDigest::from_untrusted_bytes([0x12; 32]);
+    })]
+    #[case::valid_through(|cut: &mut MarketDataDecisionCutV1| cut.valid_through += 1)]
+    #[case::uncertainty_bound(|cut: &mut MarketDataDecisionCutV1| cut.uncertainty_bound += 1)]
+    #[case::skew_bound(|cut: &mut MarketDataDecisionCutV1| cut.skew_bound += 1)]
+    #[case::identity_epoch_boundary(|cut: &mut MarketDataDecisionCutV1| {
+        cut.clock_epoch.insert(0, cut.clock_identity.pop().unwrap());
+    })]
+    fn every_field_of_the_cut_moves_its_digest(#[case] change: fn(&mut MarketDataDecisionCutV1)) {
+        let mut changed = cut();
+        change(&mut changed);
+        assert_ne!(changed.digest(), cut().digest());
+    }
+
+    #[rstest]
+    fn a_cut_whose_identity_no_u16_length_can_state_has_no_digest() {
+        let mut oversized = cut();
+        oversized.clock_identity = "x".repeat(usize::from(u16::MAX) + 1);
+        assert_eq!(oversized.digest(), None);
+    }
 }
