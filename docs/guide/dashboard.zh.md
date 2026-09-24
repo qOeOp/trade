@@ -156,8 +156,9 @@ Backtest Owner 投影存在。该路由原样转达投影的回答、不添加�
 
 经过认证的 read API 路由精确为
 `GET /v1/backtest-run-reports/{result_identity}?request_identity={request_identity}&attempt_identity={attempt_identity}`，
-以 `/backtest` result lookup 已持有的同一个三字段 locator 为键。它在一个总是回滚的 R&D Owner 事务内读取
-Backtest Owner 投影。报告以 `200` 回答，内容就是 Owner 序列化出的投影。不存在的运行以 `404` 回答，Owner
+以 `/backtest` result lookup 已持有的同一个三字段 locator 为键。它通过 Owner 自己的解析器读取 Backtest Owner
+投影；该解析器自行开启一个 `SERIALIZABLE, READ ONLY, DEFERRABLE` 的 R&D Owner 事务，并总是回滚。
+报告以 `200` 回答，内容就是 Owner 序列化出的投影。不存在的运行以 `404` 回答，Owner
 拒绝以 `503` 回答，二者都带一个只含 `state: UNAVAILABLE` 与理由、别无他物的信封：不存在的运行理由是
 `BACKTEST_RUN_ABSENT`，拒绝的理由是 Owner 自己的码，拒绝的原句只留在日志里。Dashboard BFF 不做规范化地绑定
 三个 identity 并转达该回答。它只在任何 Owner 回答到达之前就失败的那一段，或本契约拒绝的报告上，给出自己的理由。

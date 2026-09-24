@@ -219,6 +219,69 @@ pub(crate) async fn read_research_bounded_feature_program_historical_in_transact
     Ok(stored)
 }
 
+/// Reads the Design and program frozen under one Design identity, for a report that states them.
+///
+/// It takes no row lock. The readers above lock `FOR SHARE` because a composition step decides
+/// something under the row it read; a report decides nothing, and a shared lock taken on a read
+/// path is what deadlocked the Dashboard read in entry 28, against a writer that locked the same
+/// rows in the other order. A report that lost a race with a writer reads the committed row it
+/// saw, which is the row it is reporting on.
+///
+/// The row is not trusted for what it claims. The Design must hash to the identity and digest the
+/// caller asked for, and the program must parse canonically against that Design and hash to the
+/// digest stored beside it. A row that fails either is `Unavailable`, not absent.
+///
+/// # Errors
+///
+/// Returns [`ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable`] when the row cannot be read
+/// or does not verify.
+pub(crate) async fn read_frozen_design_program_in_transaction_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    design_identity: BindingDigest,
+    design_digest: BindingDigest,
+) -> Result<
+    Option<(
+        StrategyDesignV2,
+        crate::bounded_feature_program_v1::CanonicalBoundedFeatureProgramV1,
+    )>,
+    ResearchBoundedFeatureProgramFreezeErrorV1,
+> {
+    let Some(row) = sqlx::query(
+        "SELECT design_digest, design_bytes, program_digest, program_bytes
+           FROM public.rd_bounded_feature_program_freezes_v1
+          WHERE design_identity=$1",
+    )
+    .bind(design_identity.as_bytes().as_slice())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|_| ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)?
+    else {
+        return Ok(None);
+    };
+    let design: StrategyDesignV2 = serde_json::from_slice(&row_bytes(&row, "design_bytes")?)
+        .map_err(|_| ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)?;
+    let verified = matches!(
+        crate::strategy_plan_v2::prepare_strategy_design_v2(&design),
+        crate::strategy_plan_v2::StrategyDesignPreparationV2::Prepared {
+            design_identity: prepared_identity,
+            design_digest: prepared_digest,
+        } if prepared_identity == design_identity && prepared_digest == design_digest
+    );
+
+    if !verified || row_digest(&row, "design_digest")? != design_digest {
+        return Err(ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable);
+    }
+    let program = crate::bounded_feature_program_v1::parse_bounded_feature_program_v1(
+        &row_bytes(&row, "program_bytes")?,
+        &design,
+    )
+    .map_err(|_| ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)?;
+    if program.digest() != row_digest(&row, "program_digest")? {
+        return Err(ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable);
+    }
+    Ok(Some((design, program)))
+}
+
 /// Rebuilds the stored freeze from its own bytes under the catalog version those bytes declare.
 fn validate_stored_freeze(
     custody: &CurrentResearchDevelopCustodyV2,

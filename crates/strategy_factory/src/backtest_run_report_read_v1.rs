@@ -1,22 +1,30 @@
-//! The Backtest Owner's read of one committed run's economics, for `BacktestRunReport`.
+//! The read of one committed run's `BacktestRunReport`: its strategy, its data, and its result.
 //!
 //! A committed exploratory run already persists the engine's canonical result beside its outcome
 //! evidence, and that evidence already binds the exact bytes by digest and length. This module
-//! reads those bytes back through the Owner's own outcome readback, projects them into the named
-//! result fields the Dashboard report contract asks for, and carries the run identity and the
-//! bytes' digest with them, so a consumer can tell which committed result a number came from.
+//! reads those bytes back through the Backtest Owner's outcome readback and projects them into the
+//! named result fields the Dashboard report contract asks for. It adds no second computation:
+//! `OwnerBacktestReportV1` already reads a canonical result into a return series, net return,
+//! maximum drawdown and executions.
 //!
-//! It adds no second computation. `OwnerBacktestReportV1` already reads a canonical result into a
-//! return series, net return, maximum drawdown and executions; this is the read surface that had
-//! been missing between that computation and the report that renders it.
+//! ## Where each half comes from
 //!
-//! ## What the projection carries, and what it does not
+//! The report contract says the strategy statement and the data window come from upstream rather
+//! than from the backtest result, and a canonical result contains neither. So the read is three
+//! reads in one transaction the report opens as `SERIALIZABLE, READ ONLY, DEFERRABLE`: the outcome
+//! readback, the replay request the run answered, and the Design and program frozen under the
+//! Design that request names. `READ ONLY` is what keeps row locks off this path, by having
+//! PostgreSQL refuse them.
 //!
-//! It carries only what a canonical backtest result contains: the observed series, net return,
-//! maximum drawdown, and every execution. The report contract states that the strategy statement,
-//! the instrument, the granularity, the snapshot count and the cut identity come from upstream
-//! rather than from the backtest result, so none of them appears here, and a reader looking for a
-//! threshold in this projection will not find one.
+//! The strategy is stated only for the admitted single-threshold family, and only when authoring
+//! the statement read back from the frozen pair reproduces that pair's canonical program exactly
+//! (`recover_single_threshold_request_v1`). A run outside the family is refused as a whole,
+//! because the report answers four questions or none.
+//!
+//! A run inside the family is also refused today, as `STRATEGY_NOT_ANCHORED_TO_RUN`. The request
+//! names a Design, not the program its artifact was built from, and nothing the R&D Owner can read
+//! without a lock ties the two together; see `anchor_frozen_program_to_run`. The data window is the channel's instrument
+//! and timeframe with the request's window, its PIT snapshot count and that snapshot's identity.
 //!
 //! It does not carry the statistics maps. They legitimately hold `NaN` (an average winner when
 //! there was no winning trade), and the report contract requires every numeric value to be finite.
@@ -54,23 +62,39 @@
 use serde::Serialize;
 use thiserror::Error;
 use vibe_backtest::result::CanonicalBacktestResult;
+use vibe_backtest_owner_contracts::{ContentIdentityV2, ReplayRequestDtoV2};
 use vibe_backtest_result_custody::{
     BacktestReadbackRefusalV1, BacktestResultCustodyErrorV2, ExploratoryReplayResultLocatorV2,
-    LockedExploratoryReplayResultV3,
 };
 use vibe_core::{UnixNanos, datetime::unix_nanos_to_iso8601};
 
 use crate::{
+    bounded_feature_program_v1::BoundedFeaturePredicateV1,
+    develop_composer_v2::parse_digest_suffix,
+    exploratory_replay::{
+        ExploratoryReplayRecoverySelectorV2,
+        postgres::{ReportRequestReadV2, read_for_report_in_transaction_v2},
+    },
     owner_backtest_report_v1::{OwnerBacktestFillV1, OwnerBacktestReportV1},
+    rd_bounded_feature_program_v1::read_frozen_design_program_in_transaction_v1,
     rd_owner_postgres_custody::resolve_exploratory_replay_outcome_for_rd_in_transaction,
+    single_threshold_authoring_v1::{
+        SingleThresholdChannelV1, SingleThresholdOutcomeV1, recover_single_threshold_request_v1,
+    },
 };
 
 /// Why a committed run's report could not be read.
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
 pub enum BacktestRunReportRefusalV1 {
     /// The Backtest Owner answered and named why it could not answer with this run. Its code is the
-    /// Owner's own, such as `OUTCOME_EVIDENCE_ABSENT` for a result committed without outcome
-    /// evidence, so the cause reaches the consumer rather than a generic refusal.
+    /// Owner's own, passed through so the cause reaches the consumer rather than a generic refusal:
+    /// `OUTCOME_EVIDENCE_ABSENT` when a result, its receipt, outbox and semantic trace are committed
+    /// but its outcome evidence is not.
+    ///
+    /// When more than one piece is missing, the code names the first the readback finds missing,
+    /// and that order is not a contract. A result with neither a semantic trace nor outcome
+    /// evidence answers `SEMANTIC_TRACE_ABSENT` today; a consumer must not rely on which of several
+    /// missing pieces is named.
     #[error("the Backtest Owner refused the outcome readback: {0}")]
     OutcomeEvidenceRefused(BacktestReadbackRefusalV1),
     /// The Backtest Owner's custody could not be read at all.
@@ -91,9 +115,68 @@ pub enum BacktestRunReportRefusalV1 {
     /// An execution's price or quantity is not a plain decimal the report can display as written.
     #[error("execution {field} {value} is not a plain decimal")]
     DecimalNotPlain { field: &'static str, value: String },
+    /// The report's read-only transaction could not be opened or closed.
+    #[error("the report's read-only transaction is unavailable: {0}")]
+    ReadTransactionUnavailable(String),
+    /// No safe snapshot became available within the report's bound: concurrent serializable
+    /// writers were still open when it ran out.
+    #[error("no safe snapshot within {0} ms")]
+    ReportSnapshotUnavailable(u64),
+    /// The replay request the run answered could not be read back from R&D custody.
+    #[error("the run's replay request is unavailable: {0}")]
+    ReplayRequestUnavailable(String),
+    /// The run's replay request is held only by Composer V3 custody, which this report does not
+    /// read yet: that read locks rows, and the report reads in a read-only transaction.
+    #[error(
+        "the run's replay request is a Composer V3 request, which this report does not read yet"
+    )]
+    ReplayRequestV3NotYetReported,
+    /// The frozen Design the request names could not be read, or did not verify.
+    #[error("the run's frozen Design is unavailable")]
+    FrozenDesignUnavailable,
+    /// The run's program is not one the admitted single-threshold family authors, so no Owner
+    /// statement of its strategy exists.
+    #[error("no Owner statement of strategy exists for this program family")]
+    NoStrategyStatementForFamily,
+    /// The run's program is in the family, but nothing proves it is the program the run's
+    /// artifact was built from, so stating it could describe a strategy the run did not execute.
+    #[error("the frozen program cannot be anchored to the artifact this run executed")]
+    StrategyNotAnchoredToRun,
+    /// The run's program is in the family's universe-member form, whose channel instrument is the
+    /// member the run's universe selected. This report does not read that selection yet, so it
+    /// states no channel and no data window for the run.
+    #[error("the run reads a universe member, whose instrument this report does not read yet")]
+    UniverseMemberNotYetReported,
 }
 
 impl BacktestRunReportRefusalV1 {
+    /// Whether this refusal is the Owner's conclusion about the run, rather than a failure to read
+    /// it.
+    ///
+    /// A consumer shows a conclusion as the report's state and treats a failure to read as the read
+    /// being unavailable. The match lists every variant and has no wildcard arm, so a new variant
+    /// does not compile until someone decides which it is, here where it is defined.
+    #[must_use]
+    pub const fn is_owner_judgement(&self) -> bool {
+        match self {
+            Self::OutcomeEvidenceUnavailable(_)
+            | Self::ReadTransactionUnavailable(_)
+            | Self::ReportSnapshotUnavailable(_)
+            | Self::ReplayRequestUnavailable(_)
+            | Self::FrozenDesignUnavailable => false,
+            Self::OutcomeEvidenceRefused(_)
+            | Self::EngineResultNoncanonical(_)
+            | Self::NonFiniteValue(_)
+            | Self::DuplicateSeriesTime(_)
+            | Self::UnknownSide(_)
+            | Self::DecimalNotPlain { .. }
+            | Self::ReplayRequestV3NotYetReported
+            | Self::NoStrategyStatementForFamily
+            | Self::StrategyNotAnchoredToRun
+            | Self::UniverseMemberNotYetReported => true,
+        }
+    }
+
     /// Returns the stable code a consumer asserts on, rather than a sentence it would have to
     /// match.
     #[must_use]
@@ -106,6 +189,14 @@ impl BacktestRunReportRefusalV1 {
             Self::DuplicateSeriesTime(_) => "DUPLICATE_SERIES_TIME",
             Self::UnknownSide(_) => "UNKNOWN_SIDE",
             Self::DecimalNotPlain { .. } => "DECIMAL_NOT_PLAIN",
+            Self::ReadTransactionUnavailable(_) => "READ_TRANSACTION_UNAVAILABLE",
+            Self::ReportSnapshotUnavailable(_) => "REPORT_SNAPSHOT_UNAVAILABLE",
+            Self::ReplayRequestUnavailable(_) => "REPLAY_REQUEST_UNAVAILABLE",
+            Self::ReplayRequestV3NotYetReported => "REPLAY_REQUEST_V3_NOT_YET_REPORTED",
+            Self::FrozenDesignUnavailable => "FROZEN_DESIGN_UNAVAILABLE",
+            Self::NoStrategyStatementForFamily => "NO_STRATEGY_STATEMENT_FOR_FAMILY",
+            Self::StrategyNotAnchoredToRun => "STRATEGY_NOT_ANCHORED_TO_RUN",
+            Self::UniverseMemberNotYetReported => "UNIVERSE_MEMBER_NOT_YET_REPORTED",
         }
     }
 }
@@ -168,13 +259,90 @@ pub struct BacktestRunReportFillV1 {
     pub quantity: String,
 }
 
-/// The named result fields of one committed run, for `BacktestRunReport`.
+/// The strategy a run executed, as the admitted single-threshold family states it.
 ///
-/// This type's serialization is the wire shape: field names as written here, absent quantities as
-/// `null` rather than omitted, and every number finite, so a consumer never has to define it.
+/// Every field is read back from the frozen Design and program and then proven by authoring them
+/// again, so this is the statement the program runs, not a description of it.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct BacktestRunStrategyV1 {
+    /// Always [`SINGLE_THRESHOLD_FAMILY_V1`]: a run outside the family has no statement at all.
+    pub family: &'static str,
+    /// The one Market Data channel the program reads, which is also its decision clock.
+    pub channel: BacktestRunChannelV1,
+    /// The threshold as a plain decimal in the channel's unit, at the channel's scale.
+    pub threshold: String,
+    /// How the channel is compared against the threshold, e.g. `GREATER`.
+    pub comparison: BoundedFeaturePredicateV1,
+    /// What the program proposes when the comparison holds.
+    pub when_true: SingleThresholdOutcomeV1,
+    /// What it proposes otherwise.
+    pub otherwise: SingleThresholdOutcomeV1,
+    /// The statement the program can be wrong about.
+    pub falsifier: String,
+}
+
+/// The channel a run's program read, resolved to what it read rather than how it was authored.
+///
+/// The report states the channel in its own type, not as the authoring request's channel. An
+/// authoring form can name a channel indirectly - a universe member, whose instrument the run's
+/// universe selects - and the report states the instrument the run read. Serializing the authoring
+/// type here would also make every change to how a channel is authored a change to this report's
+/// wire shape, which the Dashboard checks key by key.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct BacktestRunChannelV1 {
+    /// Identifier the Design and the graph both use for this role.
+    pub role_semantic_id: String,
+    /// Instrument the channel was read for.
+    pub instrument: String,
+    /// Market Data fact the channel carries.
+    pub field_semantic_id: String,
+    /// Bar timeframe.
+    pub timeframe: String,
+    /// Unit of the channel's value.
+    pub unit: String,
+    /// Fixed-point scale of the channel's value.
+    pub scale: u8,
+}
+
+/// The one strategy family this report can state.
+pub const SINGLE_THRESHOLD_FAMILY_V1: &str = "SINGLE_THRESHOLD_V1";
+
+/// The data a run consumed, as its replay request bound it.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct BacktestRunDataWindowV1 {
+    /// The channel's instrument.
+    pub instrument: String,
+    /// The channel's bar timeframe.
+    pub granularity: String,
+    /// Canonical UTC of the window's first event.
+    pub start: String,
+    /// Canonical UTC of the window's end. The end is exclusive: no event at this instant is in
+    /// the window.
+    pub end_exclusive: String,
+    /// How many PIT snapshots the request binds.
+    pub snapshot_count: u64,
+    /// The identity of the PIT snapshot the request binds, which is the data cut the run consumed.
+    pub cut_identity: String,
+}
+
+/// One committed run's `BacktestRunReport`: which run, what strategy, on which data, and what it
+/// produced.
+///
+/// This type's serialization is the wire shape: one flat object, field names as written here,
+/// absent quantities as `null` rather than omitted, and every number finite, so a consumer never
+/// has to define it.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct BacktestRunReportProjectionV1 {
     pub run: BacktestRunIdentityV1,
+    pub strategy: BacktestRunStrategyV1,
+    pub data_window: BacktestRunDataWindowV1,
+    #[serde(flatten)]
+    pub result: BacktestRunResultV1,
+}
+
+/// What a run produced, read from its committed canonical result.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct BacktestRunResultV1 {
     /// Decided by the Owner from the series, so a consumer never infers it.
     pub state: BacktestRunReportStateV1,
     /// Every observation the run recorded, strictly ordered by time.
@@ -206,18 +374,159 @@ pub fn canonical_utc_v1(nanos: u64) -> String {
     unix_nanos_to_iso8601(UnixNanos::from(nanos))
 }
 
-/// Projects one committed run's outcome readback into its report fields.
+/// Reads one committed run's report through the R&D Owner pool.
+///
+/// Three reads, all in one transaction this function opens as `SERIALIZABLE, READ ONLY,
+/// DEFERRABLE` (see `begin_report_read_v1` for why not `REPEATABLE READ`): the run's outcome
+/// readback from Backtest custody, the replay request it answered, and the Design and program
+/// frozen under the Design that request names. The three share one safe snapshot. `READ ONLY` makes
+/// PostgreSQL refuse any row lock on this path, so a read that locks fails on its first call and
+/// names itself, instead of holding a lock until the report returns. A shared row lock held on a
+/// read path is what deadlocked the Dashboard read in entry 28.
 ///
 /// # Errors
 ///
-/// Returns the refusal naming the first thing the committed bytes do not supply in the shape the
-/// report contract requires. No partial projection is produced.
-pub fn project_backtest_run_report_v1(
-    locked: &LockedExploratoryReplayResultV3,
-) -> Result<BacktestRunReportProjectionV1, BacktestRunReportRefusalV1> {
+/// Returns the refusal naming why the read could not be answered. `Ok(None)` is an address with no
+/// committed run behind it, which is an empty result rather than a refusal. A run whose program is
+/// outside the single-threshold family is refused as a whole with
+/// [`BacktestRunReportRefusalV1::NoStrategyStatementForFamily`]: the report answers four questions
+/// or none.
+pub async fn resolve_backtest_run_report_v1(
+    pool: &sqlx::PgPool,
+    locator: ExploratoryReplayResultLocatorV2<'_>,
+) -> Result<Option<BacktestRunReportProjectionV1>, BacktestRunReportRefusalV1> {
+    let mut transaction = begin_report_read_v1(pool, REPORT_STATEMENT_TIMEOUT_MS_V1).await?;
+    let report = read_report_in_transaction(&mut transaction, locator).await;
+    // Nothing a read-only transaction did can need keeping, and a refusal is still a completed
+    // read, so the transaction ends the same way on every path.
+    transaction
+        .rollback()
+        .await
+        .map_err(|e| BacktestRunReportRefusalV1::ReadTransactionUnavailable(e.to_string()))?;
+    report
+}
+
+/// How long the report waits for a safe snapshot, and how long any one of its statements may run.
+///
+/// The three reads took 134 ms on the ordered chain's Linux runner; the bound leaves about fifteen
+/// times that, and is there so that a report never hangs the page that asked for it, not to be
+/// reached.
+pub(crate) const REPORT_STATEMENT_TIMEOUT_MS_V1: u64 = 2_000;
+
+/// Opens the report's `SERIALIZABLE, READ ONLY, DEFERRABLE` transaction.
+///
+/// `SET TRANSACTION` must be the transaction's first statement, which is why the report opens its
+/// own rather than taking one from its caller.
+///
+/// Not `REPEATABLE READ`. The request read goes through
+/// `rd_owner_api.resolve_native_replay_source_storage_v2`, which returns nothing unless
+/// `transaction_isolation` is `read committed` or `serializable`: its helpers fence the request with
+/// an advisory lock, and under `REPEATABLE READ` the snapshot is taken before that fence, so waiting
+/// on it would not make a writer's commit visible. `SERIALIZABLE` keeps that rule and still gives
+/// the three reads one snapshot. `READ ONLY` makes PostgreSQL refuse any row lock, and `DEFERRABLE`
+/// waits for a snapshot no concurrent serializable writer can invalidate, so the read never aborts
+/// with a serialization failure. That wait happens on the first statement, which is why one is run
+/// here: a timeout on it is named as the snapshot being unavailable, not as a failed read.
+pub(crate) async fn begin_report_read_v1(
+    pool: &sqlx::PgPool,
+    statement_timeout_ms: u64,
+) -> Result<sqlx::Transaction<'static, sqlx::Postgres>, BacktestRunReportRefusalV1> {
+    let unavailable =
+        |e: sqlx::Error| BacktestRunReportRefusalV1::ReadTransactionUnavailable(e.to_string());
+    let mut transaction = pool.begin().await.map_err(unavailable)?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE, READ ONLY, DEFERRABLE")
+        .execute(&mut *transaction)
+        .await
+        .map_err(unavailable)?;
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SET LOCAL statement_timeout = {statement_timeout_ms}"
+    )))
+    .execute(&mut *transaction)
+    .await
+    .map_err(unavailable)?;
+
+    match sqlx::query("SELECT 1").execute(&mut *transaction).await {
+        Ok(_) => Ok(transaction),
+        Err(e) if e.as_database_error().and_then(|e| e.code()).as_deref() == Some("57014") => Err(
+            BacktestRunReportRefusalV1::ReportSnapshotUnavailable(statement_timeout_ms),
+        ),
+        Err(e) => Err(unavailable(e)),
+    }
+}
+
+/// The report's three reads inside a transaction the caller opened with [`begin_report_read_v1`].
+pub(crate) async fn read_report_in_transaction(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    locator: ExploratoryReplayResultLocatorV2<'_>,
+) -> Result<Option<BacktestRunReportProjectionV1>, BacktestRunReportRefusalV1> {
+    let Some(read) = resolve_backtest_run_result_v1(transaction, locator).await? else {
+        return Ok(None);
+    };
+    let request = match read_for_report_in_transaction_v2(
+        transaction,
+        &ExploratoryReplayRecoverySelectorV2 {
+            request_identity: read.run.request_identity.clone(),
+            meaning_digest: read.request_meaning_digest.clone(),
+        },
+    )
+    .await
+    .map_err(|e| BacktestRunReportRefusalV1::ReplayRequestUnavailable(e.to_string()))?
+    {
+        ReportRequestReadV2::Found(request) => request,
+        ReportRequestReadV2::ComposerV3 => {
+            return Err(BacktestRunReportRefusalV1::ReplayRequestV3NotYetReported);
+        }
+        ReportRequestReadV2::Absent => {
+            return Err(BacktestRunReportRefusalV1::ReplayRequestUnavailable(
+                "no sealed request at the meaning the outcome evidence binds".to_owned(),
+            ));
+        }
+    };
+    let (strategy, data_window) =
+        resolve_strategy_and_window(transaction, request.request().as_dto()).await?;
+
+    Ok(Some(BacktestRunReportProjectionV1 {
+        run: read.run,
+        strategy,
+        data_window,
+        result: read.result,
+    }))
+}
+
+/// The result half of one run's report, with what the other half needs to find its request.
+pub(crate) struct BacktestRunResultReadV1 {
+    pub(crate) run: BacktestRunIdentityV1,
+    pub(crate) request_meaning_digest: String,
+    pub(crate) result: BacktestRunResultV1,
+}
+
+/// Reads only what a run produced, from Backtest custody, in the caller's transaction.
+///
+/// It is the first of [`resolve_backtest_run_report_v1`]'s reads, separate so that what a run
+/// produced can be read and proven for a run whose strategy this report cannot state.
+///
+/// # Errors
+///
+/// The same outcome and engine-result refusals as [`resolve_backtest_run_report_v1`].
+pub(crate) async fn resolve_backtest_run_result_v1(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    locator: ExploratoryReplayResultLocatorV2<'_>,
+) -> Result<Option<BacktestRunResultReadV1>, BacktestRunReportRefusalV1> {
+    let Some(locked) =
+        resolve_exploratory_replay_outcome_for_rd_in_transaction(transaction, locator)
+            .await
+            .map_err(|e| match e {
+                BacktestResultCustodyErrorV2::Refused(refusal) => {
+                    BacktestRunReportRefusalV1::OutcomeEvidenceRefused(refusal)
+                }
+                other => BacktestRunReportRefusalV1::OutcomeEvidenceUnavailable(other.to_string()),
+            })?
+    else {
+        return Ok(None);
+    };
     let evidence = locked.outcome_evidence();
-    project_engine_result_v1(
-        BacktestRunIdentityV1 {
+    Ok(Some(BacktestRunResultReadV1 {
+        run: BacktestRunIdentityV1 {
             result_identity: evidence.result_identity.as_str().to_owned(),
             request_identity: evidence.request_identity.as_str().to_owned(),
             attempt_identity: evidence.attempt_identity.as_str().to_owned(),
@@ -227,38 +536,134 @@ pub fn project_backtest_run_report_v1(
                 .as_str()
                 .to_owned(),
         },
-        locked.engine_canonical_result_bytes(),
-    )
+        request_meaning_digest: evidence.request_meaning_digest.as_str().to_owned(),
+        result: project_engine_result_v1(locked.engine_canonical_result_bytes())?,
+    }))
 }
 
-/// Reads one committed run's report under the caller's R&D transaction.
+/// States the strategy and data window of the run a replay request describes.
+async fn resolve_strategy_and_window(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    request: &ReplayRequestDtoV2,
+) -> Result<(BacktestRunStrategyV1, BacktestRunDataWindowV1), BacktestRunReportRefusalV1> {
+    // Composer-backed requests name their Design as `sha256:` identity and digest. A Design named
+    // any other way was not frozen with a bounded program, so no program of this family exists.
+    let (Some(design_identity), Some(design_digest)) = (
+        parse_digest_suffix(request.strategy_design.identity.as_str(), "sha256:"),
+        parse_digest_suffix(request.strategy_design.digest.as_str(), "sha256:"),
+    ) else {
+        return Err(BacktestRunReportRefusalV1::NoStrategyStatementForFamily);
+    };
+    let (design, program) =
+        read_frozen_design_program_in_transaction_v1(transaction, design_identity, design_digest)
+            .await
+            .map_err(|_| BacktestRunReportRefusalV1::FrozenDesignUnavailable)?
+            .ok_or(BacktestRunReportRefusalV1::NoStrategyStatementForFamily)?;
+    let authored = recover_single_threshold_request_v1(&design, &program)
+        .ok_or(BacktestRunReportRefusalV1::NoStrategyStatementForFamily)?;
+    anchor_frozen_program_to_run(request)?;
+
+    // Typed on purpose. The request binds one PIT snapshot today; when it binds several, this
+    // field changes type and the annotation stops compiling, instead of `from_ref` quietly
+    // counting one collection as one snapshot.
+    let snapshots: &[ContentIdentityV2] = std::slice::from_ref(&request.pit_snapshot);
+    let channel = resolved_channel(authored.channel)?;
+    let data_window = BacktestRunDataWindowV1 {
+        instrument: channel.instrument.clone(),
+        granularity: channel.timeframe.clone(),
+        start: canonical_utc_v1(request.window.start_event_ns),
+        end_exclusive: canonical_utc_v1(request.window.end_event_ns_exclusive),
+        snapshot_count: u64::try_from(snapshots.len()).unwrap_or(u64::MAX),
+        cut_identity: request.pit_snapshot.identity.as_str().to_owned(),
+    };
+    let strategy = BacktestRunStrategyV1 {
+        family: SINGLE_THRESHOLD_FAMILY_V1,
+        threshold: fixed_point_decimal(authored.threshold_coefficient, channel.scale),
+        channel,
+        comparison: authored.comparison,
+        when_true: authored.when_true,
+        otherwise: authored.otherwise,
+        falsifier: authored.falsifier,
+    };
+    Ok((strategy, data_window))
+}
+
+/// The channel the run read, from the channel its request authored.
+///
+/// A universe member's instrument is not in the request: the run's universe selected it. Until
+/// this report reads that selection it refuses the form by name rather than state a channel
+/// without an instrument.
+fn resolved_channel(
+    authored: SingleThresholdChannelV1,
+) -> Result<BacktestRunChannelV1, BacktestRunReportRefusalV1> {
+    match authored {
+        SingleThresholdChannelV1::ExactInstrument {
+            role_semantic_id,
+            instrument,
+            field_semantic_id,
+            timeframe,
+            unit,
+            scale,
+        } => Ok(BacktestRunChannelV1 {
+            role_semantic_id,
+            instrument,
+            field_semantic_id,
+            timeframe,
+            unit,
+            scale,
+        }),
+        SingleThresholdChannelV1::UniverseMember { .. } => {
+            Err(BacktestRunReportRefusalV1::UniverseMemberNotYetReported)
+        }
+    }
+}
+
+/// Proves the frozen program is the one the run's artifact was built from, or refuses.
+///
+/// The request names its Design, and the freeze table holds one program per Design, but a Design
+/// does not decide which program a run executed: the artifact does. Composer seals a V3 plugin
+/// build to the joint freeze it was built from, and the anchor is that build receipt's
+/// `joint_freeze_digest` equalling the freeze row's. A V2 build carries no joint freeze at all,
+/// and Composer accepts one for any Design, so an artifact built that way can never be anchored.
+///
+/// The build receipts live in Composer custody, and no Composer Owner API function lets the R&D
+/// Owner read them without locking: the only one it may call, `lock_accepted_develop_composer_v2`,
+/// takes a table-level SHARE lock on Composer custody, which blocks Composer's writers for as long
+/// as the caller's transaction runs, and a report must not hold that on a read path. Until a lock-free read exists, nothing can prove the anchor, so every run is
+/// refused here rather than stated from its Design alone. Stating a strategy the run did not
+/// execute is the error this report exists to rule out.
+///
+/// It takes the request because the anchor it will check is the request's `artifact`.
 ///
 /// # Errors
 ///
-/// Returns the refusal naming why the read could not be answered. `Ok(None)` is an address with no
-/// committed run behind it, which is an empty result rather than a refusal.
-pub async fn resolve_backtest_run_report_v1(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    locator: ExploratoryReplayResultLocatorV2<'_>,
-) -> Result<Option<BacktestRunReportProjectionV1>, BacktestRunReportRefusalV1> {
-    let locked = resolve_exploratory_replay_outcome_for_rd_in_transaction(transaction, locator)
-        .await
-        .map_err(|e| match e {
-            BacktestResultCustodyErrorV2::Refused(refusal) => {
-                BacktestRunReportRefusalV1::OutcomeEvidenceRefused(refusal)
-            }
-            other => BacktestRunReportRefusalV1::OutcomeEvidenceUnavailable(other.to_string()),
-        })?;
-    locked
-        .as_ref()
-        .map(project_backtest_run_report_v1)
-        .transpose()
+/// Always [`BacktestRunReportRefusalV1::StrategyNotAnchoredToRun`] today.
+const fn anchor_frozen_program_to_run(
+    _request: &ReplayRequestDtoV2,
+) -> Result<(), BacktestRunReportRefusalV1> {
+    Err(BacktestRunReportRefusalV1::StrategyNotAnchoredToRun)
+}
+
+/// Writes a fixed-point coefficient as a plain decimal with exactly `scale` fractional digits.
+///
+/// Exact for every `i128`, which a conversion through a decimal type with a narrower mantissa is
+/// not, and in the same plain form the report uses for prices.
+fn fixed_point_decimal(coefficient: i128, scale: u8) -> String {
+    let digits = coefficient.unsigned_abs().to_string();
+    let scale = usize::from(scale);
+    let digits = format!("{digits:0>width$}", width = scale + 1);
+    let (whole, fraction) = digits.split_at(digits.len() - scale);
+    let sign = if coefficient < 0 { "-" } else { "" };
+    if fraction.is_empty() {
+        format!("{sign}{whole}")
+    } else {
+        format!("{sign}{whole}.{fraction}")
+    }
 }
 
 fn project_engine_result_v1(
-    run: BacktestRunIdentityV1,
     engine_result_bytes: &[u8],
-) -> Result<BacktestRunReportProjectionV1, BacktestRunReportRefusalV1> {
+) -> Result<BacktestRunResultV1, BacktestRunReportRefusalV1> {
     let canonical = CanonicalBacktestResult::from_slice(engine_result_bytes)
         .map_err(|e| BacktestRunReportRefusalV1::EngineResultNoncanonical(format!("{e:#}")))?;
     let report = OwnerBacktestReportV1::from_canonical_result(&canonical)
@@ -287,8 +692,7 @@ fn project_engine_result_v1(
         BacktestRunReportStateV1::Available
     };
 
-    Ok(BacktestRunReportProjectionV1 {
-        run,
+    Ok(BacktestRunResultV1 {
         state,
         series,
         net_return: report.net_return,
@@ -489,7 +893,7 @@ pub(crate) mod report_test_support_v1 {
     /// It is one function so that the mutations proven against the unit test prove this comparison
     /// wherever it runs, rather than a copy of it.
     pub(crate) fn assert_series_reads_back_every_counted_point(
-        projection: &super::BacktestRunReportProjectionV1,
+        series: &[super::BacktestRunReportPointV1],
         engine_result_bytes: &[u8],
     ) {
         let expected = independently_counted_points(engine_result_bytes);
@@ -498,8 +902,7 @@ pub(crate) mod report_test_support_v1 {
             "a dropped point is only visible when the run recorded at least two, it recorded {}",
             expected.len()
         );
-        let read_back = projection
-            .series
+        let read_back = series
             .iter()
             .map(|point| (instant_of(&point.at), point.value))
             .collect::<Vec<_>>();
@@ -603,15 +1006,14 @@ mod tests {
     #[rstest]
     fn a_real_multi_day_run_projects_every_point_it_recorded_and_nothing_else() {
         let bytes = engine_bytes();
-        let projection = project_engine_result_v1(run(), &bytes).expect("report projection");
+        let result = project_engine_result_v1(&bytes).expect("result projection");
 
-        assert_eq!(projection.run, run());
-        assert_eq!(projection.state, BacktestRunReportStateV1::Available);
-        assert_series_reads_back_every_counted_point(&projection, &bytes);
-        assert!(projection.net_return.is_some_and(f64::is_finite));
-        assert!(projection.max_drawdown.is_some_and(|value| value <= 0.0));
-        assert!(!projection.fills.is_empty(), "the run must have traded");
-        assert_eq!(projection.fill_count, projection.fills.len() as u64);
+        assert_eq!(result.state, BacktestRunReportStateV1::Available);
+        assert_series_reads_back_every_counted_point(&result.series, &bytes);
+        assert!(result.net_return.is_some_and(f64::is_finite));
+        assert!(result.max_drawdown.is_some_and(|value| value <= 0.0));
+        assert!(!result.fills.is_empty(), "the run must have traded");
+        assert_eq!(result.fill_count, result.fills.len() as u64);
     }
 
     #[rstest]
@@ -621,13 +1023,13 @@ mod tests {
         document["statistics"]["returns_series"] = serde_json::json!([]);
         let bytes = serde_json::to_vec(&document).expect("edited engine bytes");
 
-        let projection = project_engine_result_v1(run(), &bytes).expect("report projection");
+        let result = project_engine_result_v1(&bytes).expect("result projection");
 
-        assert_eq!(projection.state, BacktestRunReportStateV1::Empty);
-        assert!(projection.series.is_empty());
-        assert_eq!(projection.net_return, None);
-        assert_eq!(projection.max_drawdown, None);
-        assert!(!projection.fills.is_empty());
+        assert_eq!(result.state, BacktestRunReportStateV1::Empty);
+        assert!(result.series.is_empty());
+        assert_eq!(result.net_return, None);
+        assert_eq!(result.max_drawdown, None);
+        assert!(!result.fills.is_empty());
     }
 
     #[rstest]
@@ -636,7 +1038,7 @@ mod tests {
         bytes.push(b' ');
 
         assert_eq!(
-            project_engine_result_v1(run(), &bytes)
+            project_engine_result_v1(&bytes)
                 .expect_err("trailing byte")
                 .code(),
             "ENGINE_RESULT_NONCANONICAL"
@@ -740,21 +1142,82 @@ mod tests {
         assert_eq!(instant_of(at), nanos);
     }
 
+    fn strategy() -> BacktestRunStrategyV1 {
+        let outcome = |position: &str, units| SingleThresholdOutcomeV1 {
+            position_intent_semantic_id: position.to_owned(),
+            target_variant_semantic_id: "kernel.target.position.v1".to_owned(),
+            target_position_units: units,
+        };
+        BacktestRunStrategyV1 {
+            family: SINGLE_THRESHOLD_FAMILY_V1,
+            channel: BacktestRunChannelV1 {
+                role_semantic_id: "research.input.close.daily.v1".to_owned(),
+                instrument: "BTCUSDT-PERP.BINANCE".to_owned(),
+                field_semantic_id: "MARKET_DATA.BAR.CLOSE.PRICE.V1".to_owned(),
+                timeframe: "1D".to_owned(),
+                unit: "PRICE".to_owned(),
+                scale: 2,
+            },
+            threshold: fixed_point_decimal(10_000, 2),
+            comparison: BoundedFeaturePredicateV1::Greater,
+            when_true: outcome("kernel.position.enter.v1", 1),
+            otherwise: outcome("kernel.position.exit.v1", 0),
+            falsifier: "the channel never crosses the threshold".to_owned(),
+        }
+    }
+
+    /// An exact-instrument channel is stated field for field; a universe member is refused by name,
+    /// because its instrument is the run's universe selection and not part of the request.
+    #[rstest]
+    fn the_report_states_an_exact_channel_and_refuses_a_universe_member() {
+        let exact = SingleThresholdChannelV1::ExactInstrument {
+            role_semantic_id: "research.input.close.daily.v1".to_owned(),
+            instrument: "BTCUSDT-PERP.BINANCE".to_owned(),
+            field_semantic_id: "MARKET_DATA.BAR.CLOSE.PRICE.V1".to_owned(),
+            timeframe: "1D".to_owned(),
+            unit: "PRICE".to_owned(),
+            scale: 2,
+        };
+        assert_eq!(resolved_channel(exact), Ok(strategy().channel));
+
+        let member = SingleThresholdChannelV1::UniverseMember {
+            close_role_semantic_id: "research.input.close.daily.v1".to_owned(),
+            open_role_semantic_id: "research.input.open.daily.v1".to_owned(),
+        };
+        assert_eq!(
+            resolved_channel(member),
+            Err(BacktestRunReportRefusalV1::UniverseMemberNotYetReported)
+        );
+    }
+
+    fn data_window() -> BacktestRunDataWindowV1 {
+        BacktestRunDataWindowV1 {
+            instrument: "BTCUSDT-PERP.BINANCE".to_owned(),
+            granularity: "1D".to_owned(),
+            start: canonical_utc_v1(1_704_067_200_000_000_000),
+            end_exclusive: canonical_utc_v1(1_704_412_800_000_000_000),
+            snapshot_count: 1,
+            cut_identity: format!("sha256:{}", "c".repeat(64)),
+        }
+    }
+
     #[rstest]
     fn the_wire_shape_is_the_owner_s_and_keeps_absent_quantities_as_null() {
         let mut document: serde_json::Value =
             serde_json::from_slice(&engine_bytes()).expect("engine JSON");
-        let available = serde_json::to_value(
-            project_engine_result_v1(run(), &serde_json::to_vec(&document).expect("bytes"))
-                .expect("available projection"),
-        )
-        .expect("available wire value");
+        let projection = |document: &serde_json::Value| {
+            serde_json::to_value(BacktestRunReportProjectionV1 {
+                run: run(),
+                strategy: strategy(),
+                data_window: data_window(),
+                result: project_engine_result_v1(&serde_json::to_vec(document).expect("bytes"))
+                    .expect("result projection"),
+            })
+            .expect("wire value")
+        };
+        let available = projection(&document);
         document["statistics"]["returns_series"] = serde_json::json!([]);
-        let empty = serde_json::to_value(
-            project_engine_result_v1(run(), &serde_json::to_vec(&document).expect("bytes"))
-                .expect("empty projection"),
-        )
-        .expect("empty wire value");
+        let empty = projection(&document);
 
         // Sorted, so the comparison does not depend on whether `serde_json` preserves order in
         // whichever feature set this build unified.
@@ -768,7 +1231,9 @@ mod tests {
             keys.sort();
             keys
         };
+        // One flat object: the result half is flattened into it, not nested under a key.
         let expected = [
+            "data_window",
             "fill_count",
             "fills",
             "max_drawdown",
@@ -776,6 +1241,7 @@ mod tests {
             "run",
             "series",
             "state",
+            "strategy",
         ];
         assert_eq!(keys(&available), expected);
         assert_eq!(keys(&empty), expected);
@@ -786,6 +1252,54 @@ mod tests {
                 "engine_result_digest",
                 "request_identity",
                 "result_identity"
+            ]
+        );
+        assert_eq!(
+            keys(&available["strategy"]),
+            [
+                "channel",
+                "comparison",
+                "falsifier",
+                "family",
+                "otherwise",
+                "threshold",
+                "when_true"
+            ]
+        );
+        // The Dashboard's contract checks this key set exactly (`CHANNEL_KEYS`), so a channel
+        // stated in any other shape - an authoring scope tag, a universe member's roles - is
+        // refused there even when this Owner answers.
+        assert_eq!(
+            keys(&available["strategy"]["channel"]),
+            [
+                "field_semantic_id",
+                "instrument",
+                "role_semantic_id",
+                "scale",
+                "timeframe",
+                "unit"
+            ]
+        );
+        assert_eq!(
+            keys(&available["strategy"]["when_true"]),
+            [
+                "position_intent_semantic_id",
+                "target_position_units",
+                "target_variant_semantic_id"
+            ]
+        );
+        assert_eq!(available["strategy"]["family"], "SINGLE_THRESHOLD_V1");
+        assert_eq!(available["strategy"]["comparison"], "GREATER");
+        assert_eq!(available["strategy"]["threshold"], "100.00");
+        assert_eq!(
+            keys(&available["data_window"]),
+            [
+                "cut_identity",
+                "end_exclusive",
+                "granularity",
+                "instrument",
+                "snapshot_count",
+                "start"
             ]
         );
         assert_eq!(keys(&available["series"][0]), ["at", "value"]);
@@ -802,6 +1316,23 @@ mod tests {
         assert!(empty["net_return"].is_null());
         assert!(empty["max_drawdown"].is_null());
         assert_eq!(empty["series"], serde_json::json!([]));
+    }
+
+    #[rstest]
+    #[case(10_000, 2, "100.00")]
+    #[case(-12_345, 2, "-123.45")]
+    #[case(5, 3, "0.005")]
+    #[case(-5, 3, "-0.005")]
+    #[case(0, 2, "0.00")]
+    #[case(-7, 0, "-7")]
+    #[case(i128::MIN, 0, "-170141183460469231731687303715884105728")]
+    #[case(i128::MAX, 38, "1.70141183460469231731687303715884105727")]
+    fn a_threshold_is_written_exactly_at_its_scale(
+        #[case] coefficient: i128,
+        #[case] scale: u8,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(fixed_point_decimal(coefficient, scale), expected);
     }
 
     #[rstest]
@@ -827,6 +1358,176 @@ mod tests {
         );
     }
 
+    /// Source lines with comments removed, so a doc that names a lock does not read as taking one.
+    fn code_of(source: &str) -> String {
+        source
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// The text from `start` to the end of the item it opens, which ends at the first line that is a
+    /// lone closing brace or string terminator.
+    fn item<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+        let at = source
+            .find(start)
+            .unwrap_or_else(|| panic!("{start} is in its file"));
+        let rest = &source[at..];
+        &rest[..rest.find(end).unwrap_or_else(|| panic!("{start} ends"))]
+    }
+
+    /// The report path names no read that takes a row lock.
+    ///
+    /// `READ ONLY` refuses such a read at run time; this refuses naming one at all, so the next
+    /// reader added to the path is checked before a database is in reach. The positive control
+    /// runs first: the locking resolver's own source must show its lock to this probe, or a probe
+    /// that saw nothing would pass everything.
+    #[rstest]
+    fn the_report_read_path_names_no_locking_read() {
+        let replay = include_str!("exploratory_replay/postgres.rs");
+        let locking = item(
+            replay,
+            "const SELECTOR_RESOLVER_SOURCE_V2: &str = \"",
+            "\";\n",
+        );
+        assert!(locking.contains("FOR SHARE"), "the probe sees a lock");
+
+        let forbidden = [
+            "FOR SHARE",
+            "FOR UPDATE",
+            "LOCK TABLE",
+            "pg_advisory",
+            "resolve_exploratory_replay_request_v2",
+            "resolve_for_rd_v2",
+            "lock_accepted_develop_composer",
+        ];
+        let report = code_of(item(
+            include_str!("backtest_run_report_read_v1.rs"),
+            "use serde::Serialize;",
+            "#[cfg(test)]\npub(crate) mod report_test_support_v1",
+        ));
+        let request_read = code_of(item(
+            replay,
+            "pub(crate) async fn read_for_report_in_transaction_v2(",
+            "\n}\n",
+        ));
+        let lock_free_sql = item(replay, "const READ_SELECTOR_SOURCE_V2: &str = \"", "\";\n");
+        let frozen_read = code_of(item(
+            include_str!("rd_bounded_feature_program_v1.rs"),
+            "pub(crate) async fn read_frozen_design_program_in_transaction_v1(",
+            "\n}\n",
+        ));
+        assert!(request_read.contains("rd_owner_api.read_exploratory_replay_request_v2("));
+        assert!(report.contains("READ ONLY"));
+
+        for (name, text) in [
+            ("report", report.as_str()),
+            ("request read", request_read.as_str()),
+            ("lock-free SQL", lock_free_sql),
+            ("frozen read", frozen_read.as_str()),
+        ] {
+            for word in forbidden {
+                assert!(!text.contains(word), "{name} names {word}");
+            }
+        }
+    }
+
+    /// Every variant, sorted by whether it is a conclusion. The list is the classification written
+    /// down a second time on purpose: a variant moved between classes without updating this is a
+    /// change of meaning a consumer relies on, and it should fail here first.
+    #[rstest]
+    #[case(
+        BacktestRunReportRefusalV1::OutcomeEvidenceUnavailable(String::new()),
+        false
+    )]
+    #[case(
+        BacktestRunReportRefusalV1::ReadTransactionUnavailable(String::new()),
+        false
+    )]
+    #[case(BacktestRunReportRefusalV1::ReportSnapshotUnavailable(0), false)]
+    #[case(
+        BacktestRunReportRefusalV1::ReplayRequestUnavailable(String::new()),
+        false
+    )]
+    #[case(BacktestRunReportRefusalV1::FrozenDesignUnavailable, false)]
+    #[case(
+        BacktestRunReportRefusalV1::OutcomeEvidenceRefused(
+            BacktestReadbackRefusalV1::SemanticTraceAbsent
+        ),
+        true
+    )]
+    #[case(
+        BacktestRunReportRefusalV1::EngineResultNoncanonical(String::new()),
+        true
+    )]
+    #[case(BacktestRunReportRefusalV1::NonFiniteValue("series"), true)]
+    #[case(BacktestRunReportRefusalV1::DuplicateSeriesTime(0), true)]
+    #[case(BacktestRunReportRefusalV1::UnknownSide(String::new()), true)]
+    #[case(
+        BacktestRunReportRefusalV1::DecimalNotPlain { field: "price", value: String::new() },
+        true
+    )]
+    #[case(BacktestRunReportRefusalV1::ReplayRequestV3NotYetReported, true)]
+    #[case(BacktestRunReportRefusalV1::NoStrategyStatementForFamily, true)]
+    #[case(BacktestRunReportRefusalV1::StrategyNotAnchoredToRun, true)]
+    #[case(BacktestRunReportRefusalV1::UniverseMemberNotYetReported, true)]
+    fn every_refusal_is_either_a_conclusion_or_a_failure_to_read(
+        #[case] refusal: BacktestRunReportRefusalV1,
+        #[case] conclusion: bool,
+    ) {
+        assert_eq!(
+            refusal.is_owner_judgement(),
+            conclusion,
+            "{}",
+            refusal.code()
+        );
+    }
+
+    /// The report takes its two lock-bearing steps in the migration's order, before any business
+    /// read: the Backtest topology fence, then the role catalogs, then the tables it reads. The
+    /// migration takes the same fence exclusively first and the same catalogs next, so the two
+    /// meet at the fence and never hold one lock each while waiting for the other's. `pg_locks`
+    /// shows which locks are held but not in what order, so the order is pinned here.
+    #[rstest]
+    fn the_report_takes_its_fences_before_any_business_read() {
+        let custody = include_str!("../../backtest_result_custody/src/lib.rs");
+        let readback = item(
+            custody,
+            "pub async fn resolve_exploratory_replay_result_v3(",
+            "\n}\n",
+        );
+        let first_await = readback
+            .find(".await")
+            .expect("the readback awaits something");
+        assert!(
+            readback[..first_await].contains("acquire_topology_fence(transaction)"),
+            "the topology fence is the readback's first statement"
+        );
+        let fence = item(custody, "async fn acquire_topology_fence(", "\n}\n");
+        let advisory = fence
+            .find("pg_advisory_xact_lock_shared")
+            .expect("the fence takes the shared advisory lock");
+        let catalogs = fence
+            .find("lock_authority_catalogs_v1()")
+            .expect("the fence locks the role catalogs");
+        assert!(
+            advisory < catalogs,
+            "the advisory fence precedes the catalogs"
+        );
+
+        let report = item(
+            include_str!("backtest_run_report_read_v1.rs"),
+            "pub(crate) async fn read_report_in_transaction(",
+            "\n}\n",
+        );
+        let first_read = report.find(".await").expect("the report reads");
+        assert!(
+            report[..first_read].contains("resolve_backtest_run_result_v1("),
+            "the Backtest readback is the report's first read"
+        );
+    }
+
     #[rstest]
     fn every_refusal_and_state_has_its_own_code() {
         let codes = [
@@ -844,6 +1545,14 @@ mod tests {
                 value: String::new(),
             }
             .code(),
+            BacktestRunReportRefusalV1::ReadTransactionUnavailable(String::new()).code(),
+            BacktestRunReportRefusalV1::ReportSnapshotUnavailable(0).code(),
+            BacktestRunReportRefusalV1::ReplayRequestUnavailable(String::new()).code(),
+            BacktestRunReportRefusalV1::ReplayRequestV3NotYetReported.code(),
+            BacktestRunReportRefusalV1::FrozenDesignUnavailable.code(),
+            BacktestRunReportRefusalV1::NoStrategyStatementForFamily.code(),
+            BacktestRunReportRefusalV1::StrategyNotAnchoredToRun.code(),
+            BacktestRunReportRefusalV1::UniverseMemberNotYetReported.code(),
             BacktestRunReportStateV1::Available.code(),
             BacktestRunReportStateV1::Empty.code(),
         ];

@@ -1065,8 +1065,8 @@ AS $function$
         END
 $function$;
 -- END NATIVE_SOURCE_STORAGE_SOURCE_V2
--- BEGIN SELECTOR_RESOLVER_SOURCE_V2
-CREATE OR REPLACE FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(
+-- BEGIN READ_SELECTOR_SOURCE_V2
+CREATE OR REPLACE FUNCTION rd_owner_api.read_exploratory_replay_request_v2(
   requested_request_identity text,
   requested_meaning_digest text
 )
@@ -1083,8 +1083,7 @@ AS $function$
            WHERE request_identity=requested_request_identity
              AND request_schema_version=2
              AND frozen_json->>'request_schema_version'='2'
-             AND v2_meaning_digest=requested_meaning_digest
-           FOR SHARE;
+             AND v2_meaning_digest=requested_meaning_digest;
           IF stored_receipt_identity IS NULL OR stored_seal_digest IS NULL THEN RETURN NULL; END IF;
           storage := rd_owner_api.resolve_native_replay_source_storage_v2(
             requested_request_identity,requested_meaning_digest,
@@ -1093,6 +1092,25 @@ AS $function$
           IF storage IS NULL OR storage->>'custody_state'='CORRUPT_PARTIAL' THEN RETURN NULL; END IF;
           RETURN storage->'replay';
         EXCEPTION WHEN no_data_found OR too_many_rows THEN RETURN NULL;
+        END
+        $function$;
+-- END READ_SELECTOR_SOURCE_V2
+-- BEGIN SELECTOR_RESOLVER_SOURCE_V2
+CREATE OR REPLACE FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(
+  requested_request_identity text,
+  requested_meaning_digest text
+)
+RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY INVOKER
+SET search_path = pg_catalog
+AS $function$
+        BEGIN
+          PERFORM 1
+             FROM public.rd_sealed_exploratory_replay_requests_v1
+            WHERE request_identity=requested_request_identity
+            FOR SHARE;
+          RETURN rd_owner_api.read_exploratory_replay_request_v2(
+            requested_request_identity,requested_meaning_digest
+          );
         END
         $function$;
 -- END SELECTOR_RESOLVER_SOURCE_V2
@@ -1113,6 +1131,7 @@ ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,t
 ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner;
 ALTER FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner;
 ALTER FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) OWNER TO rd_owner;
+ALTER FUNCTION rd_owner_api.read_exploratory_replay_request_v2(text,text) OWNER TO rd_owner;
 ALTER FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner;
 REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text) FROM PUBLIC, rd_fact_writer, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner;
 REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) FROM PUBLIC, rd_fact_writer, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner;
@@ -1148,6 +1167,8 @@ END
 $replay_internal_verifier_acl$;
 REVOKE ALL ON FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) FROM PUBLIC, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_writer, operator_authorization_writer;
 GRANT EXECUTE ON FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) TO rd_owner;
+REVOKE ALL ON FUNCTION rd_owner_api.read_exploratory_replay_request_v2(text,text) FROM PUBLIC, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_writer, operator_authorization_writer;
+GRANT EXECUTE ON FUNCTION rd_owner_api.read_exploratory_replay_request_v2(text,text) TO rd_owner;
 REVOKE ALL ON FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text) FROM PUBLIC, rd_owner, rd_fact_writer, market_data_reader, backtest_owner, product_edge_owner, qualification_writer, operator_authorization_writer;
 GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text) TO market_data_owner;
 GRANT SELECT ON TABLE

@@ -272,14 +272,41 @@ history; it says nothing about whether the path has ever run in some other envir
     them. Its entry in `product/dashboard/lib/operation-registry.ts` permits `terminal`,
     `reconciliation_summary`, `diagnostic_summary` and `semantic_trace_presence`, and no economic field.
   - The run report, `resolve_backtest_run_report_v1` in
-    `crates/strategy_factory/src/backtest_run_report_read_v1.rs`, carries the named `BacktestRunReport` result
-    fields that `OwnerBacktestReportV1` derives from those same committed bytes: the run's result, request and
-    attempt identities with the engine-result digest its outcome evidence binds, an Owner-decided state
-    (`AVAILABLE` or `EMPTY`), every return observation the run recorded in canonical UTC, net return, maximum
-    drawdown, and every execution with its side and with price and quantity exactly as the engine wrote them.
-    It carries no statistics map, because those legitimately hold non-finite values, and no strategy
-    statement, instrument or data window, because none of those is in a backtest result. It reads under the
-    caller's R&D transaction so the reads that supply those upstream fields can share it.
+    `crates/strategy_factory/src/backtest_run_report_read_v1.rs`, carries the named `BacktestRunReport`
+    fields. What the run produced is what `OwnerBacktestReportV1` derives from those same committed
+    bytes: the run's result, request and attempt identities with the engine-result digest its outcome
+    evidence binds, an Owner-decided state (`AVAILABLE` or `EMPTY`), every return observation the run
+    recorded in canonical UTC, net return, maximum drawdown, and every execution with its side and with
+    price and quantity exactly as the engine wrote them. It carries no statistics map, because those
+    legitimately hold non-finite values. The strategy and the data window are not in a backtest result,
+    so they come from upstream: the replay request the run answered, and the Design and program
+    frozen under the Design it names. All three reads run in one transaction the report opens as
+    `SERIALIZABLE, READ ONLY, DEFERRABLE`: a safe snapshot the three share, with the request storage
+    function's isolation rule kept (it answers only under `read committed` or `serializable`, because
+    under `repeatable read` its snapshot predates its request fence), and PostgreSQL refusing any row
+    lock on the path. Waiting for that snapshot is bounded, and a report that runs out of time is
+    refused as `REPORT_SNAPSHOT_UNAVAILABLE` rather than left waiting. The request is read through `rd_owner_api.read_exploratory_replay_request_v2`, which
+    takes none; `resolve_exploratory_replay_request_v2` keeps its lock for the caller that writes
+    afterwards and reads through the same function. The strategy is stated only
+    for the admitted single-threshold family, and only when authoring the statement read back from that
+    frozen pair reproduces the pair's canonical program exactly; any other run is refused as a whole
+    for that named reason. The family carries no version, so a program an earlier author froze and the
+    current author no longer reproduces is refused the same way. A run inside the family is refused too, as
+    `STRATEGY_NOT_ANCHORED_TO_RUN`, until the frozen program can be anchored to the artifact the run
+    executed: the request names a Design, not the program its artifact was built from. The anchor is
+    the artifact's Composer build receipt carrying the freeze's `joint_freeze_digest`, and a V2 build,
+    which carries none, can never meet it. Those receipts are in Composer custody, and the only
+    Composer Owner API function the R&D Owner may call that returns them,
+    `lock_accepted_develop_composer_v2`, takes a table-level SHARE lock that blocks Composer's writers. A lock-free Composer read of an artifact's build receipts is the
+    follow-up that lets an in-family run be stated; until it exists, every in-family run is refused. The channel is
+    stated as the run read it - role, instrument, fact, timeframe, unit and scale - and not in the form
+    its request authored it, so an authoring form that names the instrument indirectly still yields
+    those six fields, and a change to how a channel is authored does not change this handoff. The
+    universe-member form names its instrument only through the run's universe selection, which this
+    report does not read yet, so a run in that form is refused as `UNIVERSE_MEMBER_NOT_YET_REPORTED`
+    rather than stated without an instrument. The data window is the channel's instrument and timeframe, the request's
+    window with an exclusive end, the number of PIT snapshots the request binds, and that snapshot's
+    identity as the cut.
 
   The series is not one point per bar: portfolio returns are daily, and a run whose portfolio snapshots
   span fewer than two UTC days falls back to one return per closed position. Every series value, the net
@@ -291,7 +318,9 @@ history; it says nothing about whether the path has ever run in some other envir
   basis, read back from the canonical result. The run
   report has no HTTP caller yet. Its PostgreSQL proof reads back a real engine run, but that run reaches
   custody through the acceptance module's own writer rather than through `run_exploratory_replay_v2`, which
-  no ordered-chain entry drives.
+  no ordered-chain entry drives, and its program is outside the family, so the chain proves the refusal
+  and the result half. A run inside the family is not constructible in the chain today: no entry
+  composes a replay request from an authored Design.
 
 ## Rejections and prohibitions
 

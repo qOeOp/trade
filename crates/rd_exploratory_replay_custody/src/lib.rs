@@ -24,7 +24,11 @@ pub mod replay_runner_operational_profile_v1;
 const RD_RESOLVE_FUNCTION_V2: &str =
     "rd_owner_api.resolve_exploratory_replay_request_v2(text,text)";
 const RD_RESOLVE_FUNCTION_SOURCE_SHA256_V2: &str =
-    "6662a791a3416e4ef3f97b9e5e37cf649cd209c9f6beac081e9ba6ee04356562";
+    "d154a9a40fd535982db9f417afd2c26ffba2258433ae8fd3a67ebf8a52e0b2c8";
+/// The lock-free read the resolver above calls after taking its row lock.
+const RD_READ_FUNCTION_V2: &str = "rd_owner_api.read_exploratory_replay_request_v2(text,text)";
+const RD_READ_FUNCTION_SOURCE_SHA256_V2: &str =
+    "ba43bc167b209ffabd9b3ed75c924410b780c606ae05dc479fca36344b2d9e1e";
 const INTERNAL_VERIFY_FUNCTION_V2: &str =
     "rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text)";
 const INTERNAL_VERIFY_FUNCTION_V3: &str =
@@ -794,6 +798,31 @@ async fn validate_resolution_binding(
                       )
                  )
              )
+             AND EXISTS (
+               SELECT 1 FROM pg_catalog.pg_proc reader
+               JOIN pg_catalog.pg_roles reader_owner ON reader_owner.oid=reader.proowner
+               JOIN pg_catalog.pg_language reader_language ON reader_language.oid=reader.prolang
+               WHERE reader.oid=pg_catalog.to_regprocedure($7)
+                 AND reader_owner.rolname='rd_owner'
+                 AND NOT reader.prosecdef
+                 AND reader.provolatile='v'
+                 AND reader.proparallel='u'
+                 AND reader.proisstrict
+                 AND reader.proconfig=ARRAY['search_path=pg_catalog']::text[]
+                 AND reader.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
+                 AND reader.proargtypes='25 25'::pg_catalog.oidvector
+                 AND reader_language.lanname='plpgsql'
+                 AND pg_catalog.encode(
+                       pg_catalog.sha256(pg_catalog.convert_to(reader.prosrc,'UTF8')),
+                       'hex'
+                     )=$8
+                 AND pg_catalog.has_function_privilege('rd_owner',reader.oid,'EXECUTE')
+                 AND NOT EXISTS (
+                   SELECT 1 FROM pg_catalog.aclexplode(reader.proacl) reader_acl
+                    WHERE reader_acl.privilege_type='EXECUTE'
+                      AND reader_acl.grantee <> reader_owner.oid
+                 )
+             )
            FROM pg_catalog.pg_proc procedure
            JOIN pg_catalog.pg_roles owner ON owner.oid=procedure.proowner
            JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang
@@ -805,6 +834,8 @@ async fn validate_resolution_binding(
     .bind(INTERNAL_VERIFY_FUNCTION_SOURCE_SHA256_V2)
     .bind(INTERNAL_VERIFY_FUNCTION_V3)
     .bind(INTERNAL_VERIFY_FUNCTION_SOURCE_SHA256_V3)
+    .bind(RD_READ_FUNCTION_V2)
+    .bind(RD_READ_FUNCTION_SOURCE_SHA256_V2)
     .fetch_optional(rd_pool)
     .await
     .map_err(storage)?
