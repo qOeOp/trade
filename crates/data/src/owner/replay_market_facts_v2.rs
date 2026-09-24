@@ -42,7 +42,7 @@ pub(super) mod postgres;
 #[cfg(test)]
 mod postgres_tests;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 pub use authority::verify_replay_market_facts_readback_v2;
 pub use composition::{

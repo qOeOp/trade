@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC1091,SC2154
 # Every environment variable the Owner API requires unconditionally must be delivered to its
 # container.
 #
@@ -16,8 +15,8 @@
 
 set -euo pipefail
 
-# shellcheck source=product/rd-workbench/scripts/check/common.bash
 check_self_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+# shellcheck source=product/rd-workbench/scripts/check/common.bash
 . "$check_self_dir/common.bash"
 
 service=rd-owner-api

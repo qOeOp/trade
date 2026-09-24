@@ -1343,6 +1343,11 @@ fn execution_input_binding_error(
             "NATIVE_REPLAY_EXECUTION_INPUT_BINDING_UNAVAILABLE",
             request_identity,
         ),
+        NativeReplayExecutionInputBindingErrorV1::NoCompositionBinding => rejection(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "REPLAY_REQUEST_NAMES_NO_COMPOSITION_BINDING",
+            request_identity,
+        ),
     }
 }
 

@@ -3,13 +3,29 @@ import test from "node:test";
 
 import {
   canonicalizeServiceLogFilterCutV1,
+  currentServiceLogFilterV1,
   parseServiceLogBrowserEnvelopeV1,
+  serviceLogQueryV1,
   serviceLogFilterCutDigestV1,
   serviceLogFilterCutMatchesV1,
   serviceLogInstanceSourceCutDigestV1,
 } from "../lib/service-log-contract.ts";
 
 const observedAt = "2026-09-08T04:00:00.000Z";
+
+// Runs `body` with the process clock an hour ahead of the database's statement time, which is what a
+// browser whose clock runs fast looks like to the server.
+function withClockAhead(databaseNow, body) {
+  const RealDate = Date;
+  const ahead = RealDate.parse(databaseNow) + 3_600_000;
+  class AheadDate extends RealDate {
+    constructor(...args) { super(...(args.length === 0 ? [ahead] : args)); }
+    static now() { return ahead; }
+  }
+  globalThis.Date = AheadDate;
+  try { return body(new RealDate(ahead).toISOString()); } finally { globalThis.Date = RealDate; }
+}
+
 
 async function availableEnvelope() {
   const { filterCut } = canonicalizeServiceLogFilterCutV1({
@@ -146,4 +162,27 @@ test("unavailable projection exposes no stale positive state", async () => {
   };
   assert.deepEqual(await parseServiceLogBrowserEnvelopeV1(unavailable), unavailable);
   assert.equal(await parseServiceLogBrowserEnvelopeV1({ ...unavailable, summary: { error: 0, warning: 0, info: 0, worker: 0, server: 0 } }), null);
+});
+
+test("the current log view is cut at the database's time even when the browser clock runs ahead", () => {
+  withClockAhead(observedAt, (browserNow) => {
+    const requested = currentServiceLogFilterV1();
+    const query = serviceLogQueryV1(requested, 50);
+    assert.equal(query.has("observedAt"), false);
+    const { filterCut } = canonicalizeServiceLogFilterCutV1({ pageSize: 50 }, observedAt);
+    assert.equal(filterCut.observed_at, observedAt);
+    assert.equal(serviceLogFilterCutMatchesV1(filterCut, requested), true);
+    assert.throws(
+      () => canonicalizeServiceLogFilterCutV1({ observedAt: browserNow, pageSize: 50 }, observedAt),
+      { message: "SERVICE_LOG_QUERY_INVALID" },
+    );
+  });
+});
+
+test("a carried log cut must come back unchanged, and only a current request accepts the server's instant", () => {
+  const { filterCut } = canonicalizeServiceLogFilterCutV1({ pageSize: 50 }, observedAt);
+  assert.equal(serviceLogFilterCutMatchesV1(filterCut, { ...filterCut }), true);
+  assert.equal(serviceLogFilterCutMatchesV1(filterCut, { ...filterCut, observed_at: "2026-09-08T03:59:59.000Z" }), false);
+  assert.equal(serviceLogFilterCutMatchesV1(filterCut, { ...currentServiceLogFilterV1(), range: "6h" }), false);
+  assert.equal(serviceLogQueryV1(filterCut, 50).get("observedAt"), observedAt);
 });
