@@ -1188,7 +1188,7 @@ impl PostgresResearchGoalOwnerV1 {
                 requested_design_identity bytea
             ) RETURNS TABLE(intent_digest bytea, canonical_bytes bytea)
             LANGUAGE sql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
-            SET search_path = pg_catalog
+            SET search_path = pg_catalog, pg_temp
             AS $function$
             SELECT intent.intent_digest, intent.canonical_bytes
             FROM public.rd_design_role_intents_v1 intent
@@ -1209,7 +1209,7 @@ impl PostgresResearchGoalOwnerV1 {
             "
             CREATE OR REPLACE FUNCTION rd_owner_api.peek_current_research_for_artifact_v1(requested_intent_identity text)
             RETURNS jsonb LANGUAGE plpgsql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
-            SET search_path = pg_catalog
+            SET search_path = pg_catalog, pg_temp
             AS $function$
             DECLARE sealed record; source_handoff jsonb;
             BEGIN
@@ -1317,7 +1317,7 @@ impl PostgresResearchGoalOwnerV1 {
             CREATE OR REPLACE FUNCTION rd_owner_api.lock_current_research_for_artifact_v1(
               requested_intent_identity text, requested_evidence_identity text, requested_evidence_digest text
             ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-            SET search_path = pg_catalog
+            SET search_path = pg_catalog, pg_temp
             AS $function$
             DECLARE sealed record; source_handoff jsonb;
             BEGIN
@@ -1484,7 +1484,7 @@ impl PostgresResearchGoalOwnerV1 {
               requested_principal text,
               requested_request_scope jsonb
             ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-            SET search_path = pg_catalog
+            SET search_path = pg_catalog, pg_temp
             AS $function$
             DECLARE
               locked_basis record;
@@ -4802,7 +4802,10 @@ pub(crate) mod tests {
         assert_eq!(catalog.2, "v");
         assert_eq!(catalog.3, "u");
         assert!(catalog.4);
-        assert_eq!(catalog.5, Some(vec!["search_path=pg_catalog".into()]));
+        assert_eq!(
+            catalog.5,
+            Some(vec!["search_path=pg_catalog, pg_temp".into()])
+        );
         let privileges: (bool, bool, bool, bool) = sqlx::query_as(
             "SELECT has_function_privilege('product_edge_owner', to_regprocedure('rd_owner_api.lock_current_research_for_artifact_v1(text,text,text)'), 'EXECUTE'), has_function_privilege('public', to_regprocedure('rd_owner_api.lock_current_research_for_artifact_v1(text,text,text)'), 'EXECUTE'), has_table_privilege('product_edge_owner', 'public.rd_research_request_receipts_v1', 'SELECT'), pg_has_role('product_edge_owner', 'rd_owner', 'MEMBER')",
         )
@@ -4823,7 +4826,10 @@ pub(crate) mod tests {
         assert_eq!(basis_catalog.2, "v");
         assert_eq!(basis_catalog.3, "u");
         assert!(basis_catalog.4);
-        assert_eq!(basis_catalog.5, Some(vec!["search_path=pg_catalog".into()]));
+        assert_eq!(
+            basis_catalog.5,
+            Some(vec!["search_path=pg_catalog, pg_temp".into()])
+        );
         let basis_privileges: (bool, bool, bool, bool, bool, bool, bool) = sqlx::query_as(
             "SELECT has_schema_privilege('qualification_writer', 'rd_owner_api', 'USAGE'), has_function_privilege('qualification_writer', to_regprocedure('rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb)'), 'EXECUTE'), has_function_privilege('qualification_owner', to_regprocedure('rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb)'), 'EXECUTE'), has_function_privilege('public', to_regprocedure('rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb)'), 'EXECUTE'), has_table_privilege('qualification_writer', 'public.rd_independence_bases_v1', 'SELECT'), has_table_privilege('qualification_writer', 'public.rd_owner_outbox_v1', 'SELECT'), to_regprocedure('rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,text,jsonb)') IS NULL",
         )
