@@ -1,4 +1,5 @@
 import {
+  announcedOwnerReadBudgetMsV1,
   operationByIdV1,
   ownerOperationUrlV1,
   RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION,
@@ -225,7 +226,7 @@ export async function resolveHistoricalCustodyShadowV1({ baseUrl, token, fetcher
   if (!endpoint || !token) return unavailable("OWNER_CONFIGURATION_UNAVAILABLE", 503, now());
   const startedAt = now();
   try {
-    const response = await fetcher(endpoint, { method: "GET", headers: { authorization: `Bearer ${token}` }, cache: "no-store", signal: AbortSignal.timeout(operationByIdV1(RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION).timeout_class.milliseconds) });
+    const response = await fetcher(endpoint, { method: "GET", headers: { authorization: `Bearer ${token}` }, cache: "no-store", signal: AbortSignal.timeout(announcedOwnerReadBudgetMsV1("rd historical custody", operation.timeout_class.milliseconds)) });
     const body = await response.text();
     const observedAt = now();
     if (new TextEncoder().encode(body).byteLength > MAX_OWNER_RESPONSE_BYTES) return unavailable("OWNER_RESPONSE_UNAVAILABLE", 502, observedAt);

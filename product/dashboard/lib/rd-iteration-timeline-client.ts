@@ -1,4 +1,5 @@
 import {
+  announcedOwnerReadBudgetMsV1,
   operationByIdV1,
   ownerOperationUrlV1,
   RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION,
@@ -270,7 +271,9 @@ export async function resolveRdIterationTimelineShadowV1({
       method: "GET",
       headers: { authorization: `Bearer ${token}` },
       cache: "no-store",
-      signal: AbortSignal.timeout(operation.timeout_class.milliseconds),
+      signal: AbortSignal.timeout(
+        announcedOwnerReadBudgetMsV1("rd iteration timeline", operation.timeout_class.milliseconds),
+      ),
     });
     const body = await response.text();
     const observedAt = now();

@@ -1,5 +1,6 @@
 import { validExploratoryReplayOpaqueIdentityV2 } from "./exploratory-replay-identity.ts";
 import {
+  announcedOwnerReadBudgetMsV1,
   EXPLORATORY_REPLAY_RESULT_SHADOW_READ_OPERATION,
   operationByIdV1,
   ownerOperationUrlV1,
@@ -266,7 +267,9 @@ export async function readExploratoryReplayResultGatewayV1({
       method: "GET",
       headers: { authorization: `Bearer ${target.token}` },
       cache: "no-store",
-      signal: AbortSignal.timeout(operation.timeout_class.milliseconds),
+      signal: AbortSignal.timeout(
+        announcedOwnerReadBudgetMsV1("exploratory replay result", operation.timeout_class.milliseconds),
+      ),
     });
     const body = await response.text();
     if (new TextEncoder().encode(body).byteLength > MAX_OWNER_RESPONSE_BYTES) {
