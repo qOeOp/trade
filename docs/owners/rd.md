@@ -1044,11 +1044,12 @@ request binds 'the requested instrument or universe scope'."
 - How a scope rejection is proved. A rejected request is proved by replay: validating the stored request again
   reproduces the stored code. `INSTRUMENT_SCOPE_NOT_RESOLVABLE` cannot be reproduced that way, because Market Data
   answers at its own decision cut, so that rejection is proved instead by the check record stored with it: the
-  eligible-instrument frontier Market Data held as current, or none, the `MarketDataDecisionCutV1` it answered at, and
-  one row per requested identity in request order. Custody accepts it only when the stored request is otherwise valid,
-  the record answers exactly its scope, a stated frontier is not all zero and an absent one leaves every identity
-  outside the frontier, the cut precedes its own validity bound, and the record does not admit the scope; a later
-  check never rewrites it. Every other rejection is still proved by replay, and a record beside any other code is
+  eligible-instrument frontier Market Data held as current, the `MarketDataDecisionCutV1` it answered at, and one row
+  per requested identity in request order. Only an answer given against a current frontier rejects: without one,
+  Market Data has denied the environment rather than the instruments, so the request stays unresolved, as it does when
+  the check cannot be answered at all. Custody accepts a stored rejection only when the stored request is otherwise
+  valid, the record answers exactly its scope against a stated frontier that is not all zero, the cut precedes its
+  own validity bound, and the record does not admit the scope; a later check never rewrites it. Every other rejection is still proved by replay, and a record beside any other code is
   refused. A source-bound rejection records its Source Intake ancestry as an accepted request does, and is re-verified
   against the admission it was made under.
 - A V2 request is still accepted unchanged. It states no scope, so no initial PIT request is issued for it, and the

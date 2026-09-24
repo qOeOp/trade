@@ -904,10 +904,11 @@ unavailable 或位于不同 cut 时，只撤回它自己的行与计数。两个
   身份方案，由于含义摘要覆盖范围，身份依然唯一。两条 resolve 路由都按身份解析已存储的请求，不论它由哪个 schema 准入。
 - 范围拒绝如何被证明。被拒请求由重放证明：再次校验已存储的请求会复现已存储的拒绝码。
   `INSTRUMENT_SCOPE_NOT_RESOLVABLE` 无法这样复现，因为 Market Data 在它自己的 decision cut 上作答，所以该拒绝改由与它
-  一同存储的检查记录证明：Market Data 当时视为当前的 eligible-instrument frontier（或没有）、它作答时的
-  `MarketDataDecisionCutV1`，以及按请求顺序每个身份一行。只有当已存储的请求在其他方面有效、记录恰好回答其范围、所陈述的
-  frontier 不全为零且缺席的 frontier 让每个身份都在 frontier 之外、该 cut 早于其自身有效期上界、并且记录不接纳该范围时，
-  custody 才接受它；之后的检查永远不会改写它。其他每一种拒绝仍由重放证明，与其他拒绝码并存的记录会被拒绝。
+  一同存储的检查记录证明：Market Data 当时视为当前的 eligible-instrument frontier、它作答时的
+  `MarketDataDecisionCutV1`，以及按请求顺序每个身份一行。只有针对当前 frontier 作出的答复才会造成拒绝：没有当前
+  frontier 时，Market Data 否定的是环境而不是所请求的品种，因此请求保持未决，与检查根本无法作答时一样。只有当已存储的
+  请求在其他方面有效、记录针对一个不全为零的已陈述 frontier 恰好回答其范围、该 cut 早于其自身有效期上界、并且记录不
+  接纳该范围时，custody 才接受已存储的拒绝；之后的检查永远不会改写它。其他每一种拒绝仍由重放证明，与其他拒绝码并存的记录会被拒绝。
   source-bound 的拒绝与已接纳的请求一样记录其 Source Intake ancestry，并按它当时所依据的准入重新校验。
 - V2 请求仍原样接纳。它不陈述范围，因此不为它签发初始 PIT 请求，它能发布的 Design role intent 也不指名任何 PIT
   请求；Market Data 对来自这种 intent 的 universe-member 声明按名拒绝。

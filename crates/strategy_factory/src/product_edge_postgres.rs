@@ -39,15 +39,16 @@ use crate::exploratory_replay::{
 };
 use crate::product_edge::{
     FrozenResearchGoalIntent, INSTRUMENT_SCOPE_NOT_RESOLVABLE, IndependenceBasisReadbackV1,
-    IndependenceBasisReceiptV1, InstrumentScopeCheckRecordV1, ProductEdgeResearchGoalRequestV2,
-    ProductEdgeResolution, ResearchDirectoryCompletenessV1, ResearchDirectoryCursorV1,
-    ResearchDirectoryItemV1, ResearchDirectoryOwnerPort, ResearchDirectoryReadbackV1,
-    ResearchExploratoryDiagnosisGateErrorV1, ResearchExploratoryDiagnosisGateProjectionV1,
-    ResearchExploratoryDiagnosisLocatorV1, ResearchGoalOwnerError, ResearchGoalOwnerPortV2,
-    ResearchGoalOwnerResultV1, ResearchGoalOwnerResultV2, ResearchLineageResolutionV1,
-    ResearchReadbackOwnerPortV1, ResearchRequestReceiptV1, StoredAdmittedResearchRequestV2,
-    StoredIndependenceBasisV1, StoredProtectedFeedbackProjectionV1,
-    StoredRejectedResearchRequestV2, UnsourcedResearchProposalV1, ValidatedResearchGoalRequestV2,
+    IndependenceBasisReceiptV1, InstrumentScopeCheckRecordV1, InstrumentScopeOutcomeV1,
+    ProductEdgeResearchGoalRequestV2, ProductEdgeResolution, ResearchDirectoryCompletenessV1,
+    ResearchDirectoryCursorV1, ResearchDirectoryItemV1, ResearchDirectoryOwnerPort,
+    ResearchDirectoryReadbackV1, ResearchExploratoryDiagnosisGateErrorV1,
+    ResearchExploratoryDiagnosisGateProjectionV1, ResearchExploratoryDiagnosisLocatorV1,
+    ResearchGoalOwnerError, ResearchGoalOwnerPortV2, ResearchGoalOwnerResultV1,
+    ResearchGoalOwnerResultV2, ResearchLineageResolutionV1, ResearchReadbackOwnerPortV1,
+    ResearchRequestReceiptV1, StoredAdmittedResearchRequestV2, StoredIndependenceBasisV1,
+    StoredProtectedFeedbackProjectionV1, StoredRejectedResearchRequestV2,
+    UnsourcedResearchProposalV1, ValidatedResearchGoalRequestV2,
     assemble_partial_source_intake_research_admission_input, decide_commit_v2,
     decide_rejected_commit_v2, semantic_digest_v2, unresolved_result, unresolved_result_v2,
     validate_goal_request_v2, verify_research_admission_v2,
@@ -3711,35 +3712,37 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
                 .instrument_scope_check
                 .check(&mut transaction, scope)
                 .await
-                .map_err(|e| e.to_string())
-                .and_then(|check| {
-                    check
-                        .validate_against(scope)
-                        .map(|()| check)
-                        .map_err(str::to_string)
-                }) {
+            {
                 Ok(check) => check,
                 Err(e) => {
-                    storage_diagnostic::refused_by_store(
-                        "research_goal_owner.submit_v2.instrument_scope_check",
-                        &e,
-                    );
+                    storage_diagnostic::refused_by_store(e.coordinate(), &e);
                     transaction.rollback().await.map_err(|e| storage(&e))?;
                     return Ok(unresolved_result_v2(&request_identity));
                 }
             };
 
-            if !check.admits() {
-                return self
-                    .commit_rejected_v2(
-                        transaction,
-                        &product_edge_admission,
-                        validated.into_request(),
-                        digest,
-                        INSTRUMENT_SCOPE_NOT_RESOLVABLE,
-                        Some(check),
-                    )
-                    .await;
+            match check.outcome_for(scope) {
+                InstrumentScopeOutcomeV1::Admit => {}
+                InstrumentScopeOutcomeV1::Unresolved(coordinate) => {
+                    storage_diagnostic::refused_by_store(
+                        coordinate,
+                        &"Market Data's instrument scope answer is not about this request",
+                    );
+                    transaction.rollback().await.map_err(|e| storage(&e))?;
+                    return Ok(unresolved_result_v2(&request_identity));
+                }
+                InstrumentScopeOutcomeV1::Reject => {
+                    return self
+                        .commit_rejected_v2(
+                            transaction,
+                            &product_edge_admission,
+                            validated.into_request(),
+                            digest,
+                            INSTRUMENT_SCOPE_NOT_RESOLVABLE,
+                            Some(check),
+                        )
+                        .await;
+                }
             }
         }
         let basis = if let Some(custody) = basis_stage {
@@ -7044,7 +7047,7 @@ pub(crate) mod tests {
         let unanswered = connected
             .clone()
             .bind_instrument_scope_check_for_test(answering(Err(
-                crate::research_instrument_scope_check::InstrumentScopeCheckUnavailableV1,
+                crate::research_instrument_scope_check::InstrumentScopeCheckUnavailableV1::ClockUnavailable,
             )));
         let pending = unanswered
             .submit_v2(request_v3(
@@ -7069,11 +7072,43 @@ pub(crate) mod tests {
             0
         );
 
-        // Answered at a cut where no frontier holds the identity: rejected with that record.
-        let owner = connected
+        // Answered, but without a current frontier: the answer denies the environment rather than
+        // the instrument, so the request stays unresolved and nothing is written.
+        let no_frontier = connected
             .clone()
             .bind_instrument_scope_check_for_test(answering(Ok(scope_check(
                 None,
+                &[(mistyped, NotInEligibleFrontier)],
+            ))));
+        assert_eq!(
+            no_frontier
+                .submit_v2(request_v3(
+                    &request_identity,
+                    admission.clone(),
+                    &[mistyped]
+                ))
+                .await
+                .unwrap()
+                .resolution(),
+            ProductEdgeResolution::SubmittedOrUnknown
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM rd_research_request_receipts_v1 WHERE request_identity = $1"
+            )
+            .bind(&request_identity)
+            .fetch_one(&connected.pool)
+            .await
+            .unwrap(),
+            0
+        );
+
+        // Answered against a current frontier that does not hold the identity: rejected with
+        // that record.
+        let owner = connected
+            .clone()
+            .bind_instrument_scope_check_for_test(answering(Ok(scope_check(
+                Some([7; 32]),
                 &[(mistyped, NotInEligibleFrontier)],
             ))));
         let rejected = owner
@@ -7156,6 +7191,11 @@ pub(crate) mod tests {
         assert!(
             !answer.is_admissible(),
             "an unknown instrument cannot be admissible"
+        );
+        assert!(
+            answer.eligible_instrument_frontier().is_some(),
+            "Market Data's current eligible frontier, which the replay composition entry admits, \
+             must precede this entry"
         );
 
         let admission =

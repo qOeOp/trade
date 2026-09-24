@@ -18,10 +18,32 @@ use crate::product_edge::{
     InstrumentAdmissibilityV1, InstrumentScopeCheckRecordV1, InstrumentScopeCheckRowV1,
 };
 
-/// The check could not be answered; the request stays unresolved rather than rejected.
+/// Why the check could not be answered. Either way the request stays unresolved rather than
+/// rejected; the two are kept apart because they last differently: Market Data has no clock head
+/// until it admits one, while an unreadable store is usually transient.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
-#[error("Market Data's instrument scope check is unavailable")]
-pub(crate) struct InstrumentScopeCheckUnavailableV1;
+pub(crate) enum InstrumentScopeCheckUnavailableV1 {
+    /// Market Data holds no clock head yet.
+    #[error("Market Data holds no clock head to answer the instrument scope check at")]
+    ClockUnavailable,
+    /// Market Data's store could not be read, or returned evidence it does not trust.
+    #[error("Market Data's store could not answer the instrument scope check")]
+    StoreUnavailable,
+}
+
+impl InstrumentScopeCheckUnavailableV1 {
+    /// The diagnostic coordinate an unresolved request is refused under.
+    pub(crate) const fn coordinate(self) -> &'static str {
+        match self {
+            Self::ClockUnavailable => {
+                "research_goal_owner.submit_v2.instrument_scope_check.clock_unavailable"
+            }
+            Self::StoreUnavailable => {
+                "research_goal_owner.submit_v2.instrument_scope_check.store_unavailable"
+            }
+        }
+    }
+}
 
 /// Where the R&D Owner reads the early check.
 #[async_trait]
@@ -45,14 +67,15 @@ impl InstrumentScopeCheckPortV1 for MarketDataInstrumentScopeCheckV1 {
         transaction: &mut Transaction<'_, Postgres>,
         scope: &ResearchInstrumentScopeV1,
     ) -> Result<InstrumentScopeCheckRecordV1, InstrumentScopeCheckUnavailableV1> {
-        // Both refusals mean Market Data could not answer now, which leaves the request unresolved
-        // rather than rejected: only an answer can close it.
+        // Neither refusal is an answer about the request, so neither can close it.
         let check = check_research_instrument_scope_v1(transaction, scope)
             .await
             .map_err(|e| match e {
-                ResearchInstrumentScopeReadErrorV1::ClockUnavailable
-                | ResearchInstrumentScopeReadErrorV1::StoreUnavailable => {
-                    InstrumentScopeCheckUnavailableV1
+                ResearchInstrumentScopeReadErrorV1::ClockUnavailable => {
+                    InstrumentScopeCheckUnavailableV1::ClockUnavailable
+                }
+                ResearchInstrumentScopeReadErrorV1::StoreUnavailable => {
+                    InstrumentScopeCheckUnavailableV1::StoreUnavailable
                 }
             })?;
         Ok(record_of(&check))

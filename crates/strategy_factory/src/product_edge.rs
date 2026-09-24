@@ -303,6 +303,18 @@ pub(crate) struct StoredRejectedResearchRequestV2 {
     pub(crate) instrument_scope_check: Option<InstrumentScopeCheckRecordV1>,
 }
 
+/// What Market Data's early answer does to a V3 request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InstrumentScopeOutcomeV1 {
+    /// Every identity is admissible: the request may be accepted.
+    Admit,
+    /// An identity is not admissible against a current frontier: the request closes
+    /// `INSTRUMENT_SCOPE_NOT_RESOLVABLE` with the answer stored.
+    Reject,
+    /// The answer is not about the request; it stays unresolved, refused under this coordinate.
+    Unresolved(&'static str),
+}
+
 /// How Market Data's early check answered one requested identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -341,9 +353,37 @@ impl InstrumentScopeCheckRecordV1 {
             .all(|row| row.admissibility == InstrumentAdmissibilityV1::Admissible)
     }
 
-    /// Checks that this record answers exactly `scope` and is well formed: one row per requested
-    /// identity in request order, a frontier that is either stated and non-zero or absent with
-    /// every identity outside it, and a decision cut before its own validity bound.
+    /// What this answer does to the request it answers.
+    ///
+    /// Only an answer given against a current frontier is about the request. Without one, Market
+    /// Data has denied the environment rather than the instruments, and a terminal rejection would
+    /// strand a request whose instruments may be fine, so it stays unresolved.
+    pub(crate) fn outcome_for(
+        &self,
+        scope: &ResearchInstrumentScopeV1,
+    ) -> InstrumentScopeOutcomeV1 {
+        if self.eligible_instrument_frontier.is_none() {
+            return InstrumentScopeOutcomeV1::Unresolved(
+                "research_goal_owner.submit_v2.instrument_scope_check.no_current_frontier",
+            );
+        }
+
+        if self.validate_against(scope).is_err() {
+            return InstrumentScopeOutcomeV1::Unresolved(
+                "research_goal_owner.submit_v2.instrument_scope_check.malformed_answer",
+            );
+        }
+
+        if self.admits() {
+            InstrumentScopeOutcomeV1::Admit
+        } else {
+            InstrumentScopeOutcomeV1::Reject
+        }
+    }
+
+    /// Checks that this record answers exactly `scope` against a current frontier and is well
+    /// formed: one row per requested identity in request order, a stated non-zero frontier, and a
+    /// decision cut before its own validity bound.
     pub(crate) fn validate_against(
         &self,
         scope: &ResearchInstrumentScopeV1,
@@ -359,16 +399,11 @@ impl InstrumentScopeCheckRecordV1 {
         }
 
         match self.eligible_instrument_frontier {
-            None if self.rows.iter().any(|row| {
-                row.admissibility != InstrumentAdmissibilityV1::NotInEligibleFrontier
-            }) =>
-            {
-                return Err("a check without a frontier admits or resolves an identity");
-            }
+            None => return Err("the check was answered without a current frontier"),
             Some(frontier) if frontier.as_bytes() == &[0; 32] => {
                 return Err("the check states an all-zero frontier");
             }
-            _ => {}
+            Some(_) => {}
         }
 
         let cut = &self.decision_cut;
@@ -3361,17 +3396,16 @@ mod v2_sealing_tests {
         assert_eq!(refusing.validate_against(&scope), Ok(()));
         assert!(!refusing.admits());
 
+        // An answer without a current frontier is not a valid record of a rejection.
         let no_frontier = check(
             None,
             &[(btc, NotInEligibleFrontier), (eth, NotInEligibleFrontier)],
         );
-        assert_eq!(no_frontier.validate_against(&scope), Ok(()));
-        assert!(!no_frontier.admits());
+        assert!(no_frontier.validate_against(&scope).is_err());
 
         for malformed in [
             check(Some([9; 32]), &[(eth, Admissible), (btc, Admissible)]),
             check(Some([9; 32]), &[(btc, Admissible)]),
-            check(None, &[(btc, Unresolved), (eth, NotInEligibleFrontier)]),
             check(Some([0; 32]), &[(btc, Unresolved), (eth, Unresolved)]),
         ] {
             assert!(malformed.validate_against(&scope).is_err(), "{malformed:?}");
@@ -3380,5 +3414,43 @@ mod v2_sealing_tests {
         let mut stale = refusing;
         stale.decision_cut.valid_through = stale.decision_cut.decision_cut;
         assert!(stale.validate_against(&scope).is_err());
+    }
+
+    /// Only an answer against a current frontier is about the request: without one Market Data
+    /// has denied the environment, so the request stays unresolved rather than being rejected.
+    #[rstest]
+    fn an_answer_decides_the_request_only_against_a_current_frontier() {
+        use InstrumentAdmissibilityV1::{Admissible, NotInEligibleFrontier, Unresolved};
+
+        let btc = "BTCUSDT-PERP.BINANCE";
+        let scope = ResearchInstrumentScopeV1::from_wire(scope_wire(&[btc])).unwrap();
+
+        assert_eq!(
+            check(Some([9; 32]), &[(btc, Admissible)]).outcome_for(&scope),
+            InstrumentScopeOutcomeV1::Admit
+        );
+
+        for refusing in [Unresolved, NotInEligibleFrontier] {
+            assert_eq!(
+                check(Some([9; 32]), &[(btc, refusing)]).outcome_for(&scope),
+                InstrumentScopeOutcomeV1::Reject
+            );
+        }
+        assert_eq!(
+            check(None, &[(btc, NotInEligibleFrontier)]).outcome_for(&scope),
+            InstrumentScopeOutcomeV1::Unresolved(
+                "research_goal_owner.submit_v2.instrument_scope_check.no_current_frontier"
+            )
+        );
+        assert_eq!(
+            check(
+                Some([9; 32]),
+                &[("ETHUSDT-PERP.BINANCE", NotInEligibleFrontier)]
+            )
+            .outcome_for(&scope),
+            InstrumentScopeOutcomeV1::Unresolved(
+                "research_goal_owner.submit_v2.instrument_scope_check.malformed_answer"
+            )
+        );
     }
 }
