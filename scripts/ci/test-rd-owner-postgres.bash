@@ -1604,6 +1604,60 @@ check_market_data_principal_bootstrap_order
 check_trial_family_candidate_experiment_cutover
 check_composer_acceptance_stays_in_the_chain
 check_collected_warning_report
+# A PostgreSQL crash-reinit leaves the postmaster running, so its start time does not move; what
+# records it is a LOG line, which the lock-and-error excerpt printed at cleanup filters out. Measured
+# before --init: every round's authority-migration drills made the postmaster reap an orphaned shell
+# killed by SIGPIPE, log "terminating any other active server processes", and reset every
+# connection of every database - three times a round, with the chain still green. These lines are
+# therefore counted in the raw server log of each container, and crash recovery also resets the
+# cumulative statistics, which gives a second, independent reading.
+readonly postgres_crash_pattern='was terminated by signal|terminating any other active server processes|all server processes terminated; reinitializing|database system was interrupted'
+
+postgres_crash_lines() {
+  grep -aE "$postgres_crash_pattern" || true
+}
+
+postgres_stats_reset() {
+  docker exec "$1" psql --quiet --no-align --tuples-only --username postgres --dbname postgres \
+    --command 'SELECT stats_reset FROM pg_catalog.pg_stat_bgwriter'
+}
+
+# Fails the chain, naming each line, if a container crashed or reset its statistics.
+require_no_postgres_crash() {
+  local name="$1" target="$2" stats_reset_before="$3" lines stats_reset_after
+  lines="$(docker logs "$target" 2>&1 | postgres_crash_lines)"
+  stats_reset_after="$(postgres_stats_reset "$target")"
+  if [[ -n "$lines" || "$stats_reset_after" != "$stats_reset_before" ]]; then
+    echo "ERROR: the ${name} PostgreSQL container crashed and reset every connection during the chain." >&2
+    echo "statistics reset before the entries: ${stats_reset_before:-none}; after: ${stats_reset_after:-none}" >&2
+    printf '%s\n' "$lines" >&2
+    return 1
+  fi
+}
+
+# The crash reading and its positive control, on fixed lines: each line the postmaster writes
+# around a crash-reinit is counted, and ordinary shutdown, restart, ERROR and FATAL lines are not.
+check_postgres_crash_reading() {
+  local crash clean
+  crash="$(printf '%s\n' \
+    '2026-09-24 16:47:44.893 UTC [1] LOG:  server process (PID 2285) was terminated by signal 13: Broken pipe' \
+    '2026-09-24 16:47:44.893 UTC [1] LOG:  terminating any other active server processes' \
+    '2026-09-24 16:47:44.894 UTC [1] LOG:  all server processes terminated; reinitializing' \
+    '2026-09-24 16:47:44.901 UTC [2288] LOG:  database system was interrupted; last known up at 2026-09-24 16:44:41 UTC' |
+    postgres_crash_lines | grep -c '' || true)"
+  clean="$(printf '%s\n' \
+    '2026-09-24 16:39:49.101 UTC [1] LOG:  received fast shutdown request' \
+    '2026-09-24 16:39:49.300 UTC [1] LOG:  database system is shut down' \
+    '2026-09-24 16:39:50.215 UTC [1] LOG:  database system is ready to accept connections' \
+    '2026-09-24 16:44:38.557 UTC [293] ERROR:  Backtest Result topology mismatch' \
+    '2026-09-24 16:44:38.632 UTC [303] FATAL:  the database system is in recovery mode' |
+    postgres_crash_lines | grep -c '' || true)"
+  if [[ "$crash" -ne 4 || "$clean" -ne 0 ]]; then
+    echo "ERROR: the crash reading counts ${crash} of the four crash-reinit lines and ${clean} ordinary lines." >&2
+    return 1
+  fi
+}
+
 # The chain's verdict from its records alone, so a run split across jobs is judged by the same
 # report a serial run prints. Records are named by global chain position, so the directories of
 # several jobs merge into the layout one serial run leaves. Every position must hold exactly one
@@ -1704,6 +1758,7 @@ check_chain_record_report() {
 }
 
 check_chain_record_report
+check_postgres_crash_reading
 
 if [[ "${1:-}" == "--report-records" ]]; then
   if [[ "$#" -ne 2 ]]; then
@@ -3897,6 +3952,12 @@ SQL
   run_authority_migration
 }
 
+# Taken after the pre-loop drills, once both servers have settled; the raw-log count at the end
+# covers the whole life of each container, drills included.
+chain_stats_reset_before="$(postgres_stats_reset "$container")"
+impersonator_stats_reset_before="$(postgres_stats_reset "$impersonator_container")"
+readonly chain_stats_reset_before impersonator_stats_reset_before
+
 # The Catalog administrator, two replay migration filters, and Program Host acceptance use separate
 # fresh databases. In the shared database, run the complete Instrument Owner storage/ACL oracle only
 # after its consumers because its final inheritance fault poisons that private store. Keep the
@@ -4111,6 +4172,9 @@ if [[ "$legacy_replay_fingerprint_after" != "$legacy_replay_fingerprint_before" 
   echo "ERROR: legacy exploratory Replay table data or catalog changed." >&2
   exit 1
 fi
+
+require_no_postgres_crash chain "$container" "$chain_stats_reset_before"
+require_no_postgres_crash impersonating "$impersonator_container" "$impersonator_stats_reset_before"
 
 # Every SECURITY DEFINER routine, in every database the chain materialized, must search pg_temp last
 # and name no schema another role can create in; scripts/ci/check-security-definer-search-path.sql
