@@ -8,8 +8,8 @@ use sqlx::PgPool;
 
 use crate::storage_diagnostic::refused_by_store;
 use vibe_product_edge::{
-    ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionRequestV1, ProductEdgeError,
-    ProductEdgePostgresAdmissionPointReadPortV1, ProductEdgePostgresOwnerV1,
+    ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionReadbackV1, ProductEdgeAdmissionRequestV1,
+    ProductEdgeError, ProductEdgePostgresAdmissionPointReadPortV1, ProductEdgePostgresOwnerV1,
     ProductEdgeSourceInvocationStartRequestV1, SOURCE_INTAKE_OPERATION_SCHEMA_V1,
     SOURCE_INTAKE_OPERATION_V1, SOURCE_INTAKE_REQUIRED_EFFECTS_V1, SOURCE_INTAKE_TARGET_OWNER_V1,
 };
@@ -201,13 +201,12 @@ impl SourceIntakeReadbackOwnerPort for PostgresSourceIntakeReadbackOwnerV1 {
     ) -> Result<Option<SourceIntakeTerminalAtomV1>, SourceIntakeOwnerErrorV1> {
         validate_identity(request_identity)?;
 
-        if self
+        let admission = self
             .product_edge
             .resolve_admission(request_identity, &self.request_proof_digest)
             .await
-            .map_err(|e| product_edge_error(&e))?
-            .is_none()
-        {
+            .map_err(|e| product_edge_error(&e))?;
+        if !admitted_as_source_intake(admission.as_ref())? {
             return Ok(None);
         }
         read_terminal(
@@ -595,15 +594,52 @@ pub(super) async fn resolve_terminal(
     request_proof_digest: &str,
     authority: &SourceAcquisitionAuthorityBindingV1,
 ) -> Result<Option<SourceIntakeTerminalAtomV1>, SourceIntakeOwnerErrorV1> {
-    if product_edge
+    let admission = product_edge
         .resolve_admission(request_identity, request_proof_digest)
         .await
-        .map_err(|e| product_edge_error(&e))?
-        .is_none()
-    {
+        .map_err(|e| product_edge_error(&e))?;
+    if !admitted_as_source_intake(admission.as_ref())? {
         return Ok(None);
     }
     read_terminal(owner_pool, request_identity, authority).await
+}
+
+/// Whether Product Edge admitted this identity as a Source Intake request.
+///
+/// A request identity names one admission of one operation, and only a Source Intake admission
+/// can ever carry a Source Intake terminal. An identity Product Edge admitted for another
+/// operation is therefore refused by name here. Answering it as "admitted, no terminal yet"
+/// would send the caller to poll for a terminal that can never exist.
+///
+/// # Errors
+///
+/// Returns [`SourceIntakeOwnerErrorV1::Conflict`] when the admission is for another operation.
+fn admitted_as_source_intake(
+    admission: Option<&ProductEdgeAdmissionReadbackV1>,
+) -> Result<bool, SourceIntakeOwnerErrorV1> {
+    let Some(admission) = admission else {
+        return Ok(false);
+    };
+    let request = admission.request();
+    if request.operation != SOURCE_INTAKE_OPERATION_V1
+        || request.operation_schema != SOURCE_INTAKE_OPERATION_SCHEMA_V1
+        || request.target_owner != SOURCE_INTAKE_TARGET_OWNER_V1
+        || !request
+            .requested_effects
+            .iter()
+            .map(String::as_str)
+            .eq(SOURCE_INTAKE_REQUIRED_EFFECTS_V1)
+    {
+        refused_by_store(
+            "source_intake.resolve.admission_for_another_operation",
+            &format!(
+                "Product Edge admitted this identity for {} {}",
+                request.operation, request.operation_schema
+            ),
+        );
+        return Err(SourceIntakeOwnerErrorV1::Conflict);
+    }
+    Ok(true)
 }
 
 pub(super) async fn read_terminal(
