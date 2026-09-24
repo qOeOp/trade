@@ -583,6 +583,13 @@ check_postgres_containers_run_under_init() {
     echo "ERROR: the chain's PostgreSQL containers must start with --init: ${runs:-0} docker run, ${inits:-0} with --init." >&2
     return 1
   fi
+  local market_data
+  market_data="$(dirname "${BASH_SOURCE[0]}")/../../crates/data/tests/run_market_data_owner_postgres.bash"
+  if [[ "$(rg -c '^docker run ' "$market_data" || true)" -ne 1 ]] ||
+    ! rg -q '^docker run --detach --init ' "$market_data"; then
+    echo "ERROR: the Market Data chain's PostgreSQL container must start with --init, as this chain's do." >&2
+    return 1
+  fi
 }
 
 check_static_isolation() {
