@@ -813,6 +813,14 @@ cargo-test-rd-owner-postgres-isolated: check-nextest-installed  #-- Run destruct
 	RD_OWNER_POSTGRES_FEATURES="$(RD_OWNER_POSTGRES_FEATURES)" \
 	bash scripts/ci/test-rd-owner-postgres.bash
 
+.PHONY: cargo-archive-rd-owner-postgres
+cargo-archive-rd-owner-postgres: check-nextest-installed  #-- Build the R&D Owner chain's nextest archive into RD_OWNER_ARCHIVE_FILE, for another job to run
+	@test -n "$(RD_OWNER_ARCHIVE_FILE)" || { echo "RD_OWNER_ARCHIVE_FILE must name the archive to write" >&2; exit 1; }
+	NEXTEST_PROFILE="$(NEXTEST_PROFILE)" \
+	CARGO_CI_PROFILE="$(CARGO_CI_PROFILE)" \
+	RD_OWNER_POSTGRES_FEATURES="$(RD_OWNER_POSTGRES_FEATURES)" \
+	bash scripts/ci/test-rd-owner-postgres.bash --archive-only "$(RD_OWNER_ARCHIVE_FILE)"
+
 .PHONY: report-chain-red-rate
 report-chain-red-rate:  #-- How often the ordered Owner chain goes red, split by day and by branch
 	bash scripts/ci/report-chain-red-rate.bash
