@@ -934,6 +934,39 @@ test(testName, { skip: !url }, async () => {
       await waitForBrowserExpression(browser,
         "document.querySelectorAll('dialog[open]').length === 1 && Boolean(document.querySelector('dialog[open] a[href^=\"/operations/runs/\"]'))");
       console.log("calendar reopen control -> opened");
+      // The late event of a close must not close a sheet reopened before it arrives. The Close
+      // control reports its close at once, and the dialog's own `close` event follows a task later;
+      // a reopen of the same run can land in between, and that late event used to clear what the
+      // page showed and close the reopened sheet (main's product-packages runs after #974). Holding
+      // the event back and delivering it after the reopen makes that ordering happen every time.
+      await readBrowserValue(browser, `(() => {
+        document.addEventListener('close', (event) => {
+          if (event.target instanceof HTMLDialogElement) event.stopImmediatePropagation();
+        }, { capture: true, once: true });
+        document.querySelector('dialog[open] button[aria-label="Close panel"]')?.click();
+        return true;
+      })()`);
+      await waitForBrowserExpression(browser, SHEET_RELEASED);
+      await readBrowserValue(browser, `document.querySelector(
+        '[aria-label="Selected schedule"] [data-run-preview-trigger="${calendarRunOrigins.badge}"]')?.click()`);
+      await waitForBrowserExpression(browser,
+        "document.querySelectorAll('dialog[open]').length === 1 && Boolean(document.querySelector('dialog[open] a[href^=\"/operations/runs/\"]'))");
+      await readBrowserValue(browser, `(() => {
+        document.querySelector('dialog[open]')?.dispatchEvent(new Event('close'));
+        return true;
+      })()`);
+      await delay(300);
+      assert.equal(await readBrowserValue(browser,
+        "document.querySelectorAll('dialog[open]').length === 1 && Boolean(document.querySelector('dialog[open] a[href^=\"/operations/runs/\"]'))"),
+      true, "the late close event of an earlier close leaves the reopened sheet open");
+      console.log("calendar late close event -> reopened sheet stays open");
+      await readBrowserValue(browser,
+        "document.querySelector('dialog[open] button[aria-label=\"Close panel\"]')?.click()");
+      await waitForBrowserExpression(browser, SHEET_RELEASED);
+      await readBrowserValue(browser, `document.querySelector(
+        '[aria-label="Selected schedule"] [data-run-preview-trigger="${calendarRunOrigins.badge}"]')?.click()`);
+      await waitForBrowserExpression(browser,
+        "document.querySelectorAll('dialog[open]').length === 1 && Boolean(document.querySelector('dialog[open] a[href^=\"/operations/runs/\"]'))");
       // What this proves: the page does not depend on the dialog's `close` event to learn that its
       // own Close control closed the sheet. It does not replay a user's timing. That event arrives as
       // a later task, and a request for the same run made before it changed nothing and opened
