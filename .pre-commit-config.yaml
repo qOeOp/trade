@@ -202,6 +202,13 @@ repos:
         language: system
         files: ^(rust-toolchain\.toml|scripts/rust-toolchain\.sh|scripts/ci/test-rust-toolchain\.bash)$
         pass_filenames: false
+      - id: test-chain-entry-watchdog
+        name: test ordered-chain entry watchdog
+        description: A chain entry past its wall clock is stopped by name and leaves a record
+        entry: bash scripts/ci/test-chain-entry-watchdog.bash
+        language: system
+        files: ^scripts/ci/(chain-entry-watchdog|test-chain-entry-watchdog)\.bash$
+        pass_filenames: false
       - id: test-owner-chain-lock
         name: test Owner chain machine lock
         description: A second local Owner chain is refused and named; a dead holder releases the lock
