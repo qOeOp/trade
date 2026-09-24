@@ -21,6 +21,7 @@ use crate::{
         load_composer_artifact_family_binding_for_replay_v3,
     },
     composer_replay_intent_v3::resolve_composer_replay_intent_in_transaction,
+    develop_composer_postgres_v2::read_accepted_for_replay_in_transaction,
     exploratory_replay::{
         ComposerBackedExploratoryReplayProposalV3, EXPLORATORY_REPLAY_MUTATION_EFFECT_V3,
         EXPLORATORY_REPLAY_OPERATION_V3, EXPLORATORY_REPLAY_REQUEST_FROZEN_EVENT_V2,
@@ -36,7 +37,6 @@ use crate::{
         RESEARCH_OWNER_V1, RESEARCH_SCOPE_V1, ResearchViewAvailability, ResearchViewPhase,
         ResearchViewV1, canonical_research_view_identity_v2,
     },
-    develop_composer_postgres_v2::read_accepted_for_replay_in_transaction,
     source_research_composer_postgres_v2::PostgresSourceResearchComposerBindingOwnerV2,
     trial_family_postgres::load_trial_family_census_v2_by_family_in_transaction,
 };

@@ -19,7 +19,8 @@ use sqlx::{Postgres, Transaction};
 use vibe_data::owner::{
     StrategyInputDeclaredScopeV1, reread_persisted_strategy_input_custody_for_update_v1,
     reread_persisted_strategy_input_universe_custody_for_update_v1,
-    resolve_pit_request_for_strategy_design_v1, source_binding::BindingDigest,
+    resolve_pit_request_for_strategy_design_v1,
+    source_binding::BindingDigest,
     strategy_input_binding::{
         StrategyInputUniverseCustodyReadbackV1, UntrustedStrategyInputCustodyClaimV1,
     },
@@ -300,15 +301,16 @@ async fn reread_universe_custody_v1(
     caller: &'static str,
     claim: &UntrustedStrategyInputCustodyClaimV1,
 ) -> Result<StrategyInputUniverseCustodyReadbackV1, DesignInputCustodyRefusedV1> {
-    let readback = reread_persisted_strategy_input_universe_custody_for_update_v1(transaction, claim)
-        .await
-        .map_err(|cause| {
-            refused(
-                caller,
-                "design_input_custody.reread_universe_custody",
-                &cause,
-            )
-        })?;
+    let readback =
+        reread_persisted_strategy_input_universe_custody_for_update_v1(transaction, claim)
+            .await
+            .map_err(|cause| {
+                refused(
+                    caller,
+                    "design_input_custody.reread_universe_custody",
+                    &cause,
+                )
+            })?;
     require_names_design_v1(
         caller,
         claim,

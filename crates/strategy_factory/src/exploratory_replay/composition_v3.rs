@@ -85,6 +85,7 @@ impl StoredComposerReplaySourceV3 {
             self.instrument_master_receipt_identity,
             self.instrument_master_outbox_identity,
         ];
+
         match self.schema_version {
             FIRST_CORPUS_SOURCE_SCHEMA_V3 if instrument_master.iter().all(Option::is_some) => {
                 Ok(ReplayMarketFactsShapeV2::FirstCorpus)
@@ -254,6 +255,7 @@ pub(super) fn issue_composer_replay_frozen_v3(
     ExploratoryReplayOwnerError,
 > {
     source.shape()?;
+
     if committed_at_epoch_ms == 0
         || !canonical_sha256(&product_edge_request_semantic_digest)
         || pre_transition_research_view.phase
@@ -414,6 +416,7 @@ fn admit_replay_market_shape_v3(
     if evidence.binding_shape != evidence.facts_shape {
         return Err(ComposerReplayShapeRefusalV1::BindingAndFactsShapeDiffer);
     }
+
     match evidence.facts_shape {
         ReplayMarketFactsShapeV2::FirstCorpus => {
             if evidence.binding_frame.is_some()
@@ -428,12 +431,14 @@ fn admit_replay_market_shape_v3(
             let Some((identity, digest)) = evidence.frame_dependency else {
                 return Err(ComposerReplayShapeRefusalV1::UniverseFrameDependencyDiffers);
             };
+
             if identity != digest
                 || evidence.facts_frame != Some(digest)
                 || evidence.binding_frame != Some(digest)
             {
                 return Err(ComposerReplayShapeRefusalV1::UniverseFrameDependencyDiffers);
             }
+
             if evidence.rederived_frame != Some(digest) {
                 return Err(ComposerReplayShapeRefusalV1::UniverseFrameNotRederived);
             }
@@ -446,16 +451,13 @@ fn admit_replay_market_shape_v3(
 fn universe_frame_dependency(
     facts: &ReplayMarketFactsV2,
 ) -> Result<Option<(BindingDigest, BindingDigest)>, ExploratoryReplayOwnerError> {
-    let mut frames = facts
-        .frontier()
-        .dependencies()
-        .iter()
-        .filter(|dependency| {
-            dependency.kind() == ReplayMarketDependencyKindV2::StrategyInputUniverseFrameV1
-        });
+    let mut frames = facts.frontier().dependencies().iter().filter(|dependency| {
+        dependency.kind() == ReplayMarketDependencyKindV2::StrategyInputUniverseFrameV1
+    });
     let frame = frames
         .next()
         .map(|dependency| (dependency.identity(), dependency.digest()));
+
     if frames.next().is_some() {
         return Err(shape_refused(
             ComposerReplayShapeRefusalV1::UniverseFrameDependencyDiffers,
@@ -498,10 +500,9 @@ pub(super) fn prepare_composer_backed_replay_v3(
     // until the native initial binding verifies the request-keyed V2 cut, so nothing is recorded.
     let (schema_version, instrument_master) =
         match (admitted.universe_frame, market.instrument_master()) {
-            (None, Some(instrument_master)) => (
-                FIRST_CORPUS_SOURCE_SCHEMA_V3,
-                Some(instrument_master),
-            ),
+            (None, Some(instrument_master)) => {
+                (FIRST_CORPUS_SOURCE_SCHEMA_V3, Some(instrument_master))
+            }
             (Some(_), None) => (UNIVERSE_MEMBER_SOURCE_SCHEMA_V3, None),
             _ => {
                 return Err(shape_refused(
@@ -736,14 +737,13 @@ fn unavailable(error: impl Display) -> ExploratoryReplayOwnerError {
     ExploratoryReplayOwnerError::Unavailable(error.to_string())
 }
 
-const fn shape_refused(
-    refusal: ComposerReplayShapeRefusalV1,
-) -> ExploratoryReplayOwnerError {
+const fn shape_refused(refusal: ComposerReplayShapeRefusalV1) -> ExploratoryReplayOwnerError {
     ExploratoryReplayOwnerError::ComposerReplayShapeRefused(refusal)
 }
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use vibe_data::owner::{
         replay_market_facts_v2::ReplayCompositionBindingLocatorV1, source_binding::BindingDigest,
     };
@@ -877,13 +877,13 @@ mod tests {
     fn refusal(error: ExploratoryReplayOwnerError) -> ComposerReplayShapeRefusalV1 {
         match error {
             ExploratoryReplayOwnerError::ComposerReplayShapeRefused(refusal) => refusal,
-            other => panic!("expected a named shape refusal, got {other:?}"),
+            other => panic!("expected a named shape refusal, found {other:?}"),
         }
     }
 
     /// The bytes were read from this fixture on the tree before schema 4 existed (73bf32923), and
     /// are the first corpus's stored source, frozen claim and receipt.
-    #[test]
+    #[rstest]
     fn a_first_corpus_source_keeps_its_bytes() {
         let source = first_corpus_source();
         let bytes = serde_json::to_vec(&source).unwrap();
@@ -894,7 +894,10 @@ mod tests {
         let decoded: StoredComposerReplaySourceV3 = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(decoded, source);
         assert_eq!(serde_json::to_vec(&decoded).unwrap(), bytes);
-        assert_eq!(source.shape().unwrap(), ReplayMarketFactsShapeV2::FirstCorpus);
+        assert_eq!(
+            source.shape().unwrap(),
+            ReplayMarketFactsShapeV2::FirstCorpus
+        );
 
         let (frozen, receipt) = frozen(source).unwrap();
         assert_eq!(
@@ -911,7 +914,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn a_universe_member_source_carries_no_instrument_master() {
         let source = universe_member_source();
         let json = serde_json::to_value(&source).unwrap();
@@ -933,7 +936,7 @@ mod tests {
         verify_composer_replay_frozen_v3(&frozen, &receipt).unwrap();
     }
 
-    #[rstest::rstest]
+    #[rstest]
     #[case::schema_3_without_the_identity(3, [None, Some(20), Some(21)], ComposerReplayShapeRefusalV1::FirstCorpusSourceLacksInstrumentMaster)]
     #[case::schema_3_without_the_receipt(3, [Some(19), None, Some(21)], ComposerReplayShapeRefusalV1::FirstCorpusSourceLacksInstrumentMaster)]
     #[case::schema_3_without_the_outbox(3, [Some(19), Some(20), None], ComposerReplayShapeRefusalV1::FirstCorpusSourceLacksInstrumentMaster)]
@@ -960,7 +963,7 @@ mod tests {
         assert_eq!(refusal(frozen(source).unwrap_err()), expected);
     }
 
-    #[test]
+    #[rstest]
     fn a_source_is_read_only_under_a_binding_of_its_own_shape() {
         let first = first_corpus_source();
         let universe = universe_member_source();
@@ -970,6 +973,7 @@ mod tests {
         universe
             .require_binding_shape(ReplayMarketFactsShapeV2::UniverseMembers)
             .unwrap();
+
         for (source, binding_shape) in [
             (first, ReplayMarketFactsShapeV2::UniverseMembers),
             (universe, ReplayMarketFactsShapeV2::FirstCorpus),
@@ -1004,16 +1008,19 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn each_shape_is_admitted_with_its_own_owner_inputs() {
-        assert_eq!(admit_replay_market_shape_v3(&first_corpus_evidence()), Ok(None));
+        assert_eq!(
+            admit_replay_market_shape_v3(&first_corpus_evidence()),
+            Ok(None)
+        );
         assert_eq!(
             admit_replay_market_shape_v3(&universe_evidence()),
             Ok(Some(digest(30)))
         );
     }
 
-    #[rstest::rstest]
+    #[rstest]
     #[case::binding_first_corpus_facts_universe(
         ReplayMarketShapeEvidenceV3 { binding_shape: ReplayMarketFactsShapeV2::FirstCorpus, ..universe_evidence() },
         ComposerReplayShapeRefusalV1::BindingAndFactsShapeDiffer,
