@@ -50,27 +50,10 @@ PIP_AUDIT_IGNORE_FLAGS :=
 # TARGET_DIR controls where Cargo places build artifacts
 TARGET_DIR ?= $(CURDIR)/target
 
-# Compiler configuration
-# Uses clang by default (required by ed25519-blake2b and other deps).
-# When sccache is available, wraps the compiler for build caching.
-# Set CARGO_INCREMENTAL=0 with sccache for better cache hit rates.
-# To disable sccache: make build SCCACHE=
-SCCACHE ?= $(shell command -v sccache 2>/dev/null)
-
-ifeq ($(SCCACHE),)
-CC ?= clang
-CXX ?= clang++
-else
-CC ?= sccache clang
-CXX ?= sccache clang++
-RUSTC_WRAPPER ?= sccache
-CARGO_INCREMENTAL ?= 0
-export RUSTC_WRAPPER
-export CARGO_INCREMENTAL
-endif
-
-export CC
-export CXX
+# Compiler configuration: everything make adds to the compile environment of the cargo runs it
+# starts is in build-env.mk, including target-specific flags, because CI keys its Rust caches on
+# that file alone. Do not set a compiler, flag or wrapper variable in this file.
+include $(dir $(lastword $(MAKEFILE_LIST)))build-env.mk
 
 # FAIL_FAST controls whether `cargo nextest` should stop after the first test
 # failure. When set to `true` the `--no-fail-fast` flag is omitted so tests
@@ -550,13 +533,10 @@ docs-python:  #-- Build Python documentation with Sphinx
 RUSTDOC_EXTRA_HEAD ?=
 
 .PHONY: docs-rust
-docs-rust: export RUSTDOCFLAGS=--enable-index-page -Zunstable-options $(if $(RUSTDOC_EXTRA_HEAD),--html-in-header $(RUSTDOC_EXTRA_HEAD))
 docs-rust:  #-- Build Rust documentation with cargo doc
 	cargo +nightly doc --all-features --no-deps --workspace
 
 .PHONY: docsrs-check
-docsrs-check: export DOCS_RS=1
-docsrs-check: export RUSTDOCFLAGS=--cfg docsrs -D warnings
 docsrs-check: check-hack-installed #-- Check documentation builds for docs.rs compatibility
 	cargo +nightly hack --workspace --ignore-private --ignore-unknown-features \
 		--features arrow,capnp,cloud,defi,display \
@@ -942,7 +922,6 @@ endif
 # DST scope.
 .PHONY: cargo-test-sim
 cargo-test-sim: export RUST_BACKTRACE=1
-cargo-test-sim: export RUSTFLAGS=--cfg madsim
 cargo-test-sim: check-nextest-installed
 cargo-test-sim:  #-- Run DST simulation smoke tests (cfg madsim + simulation feature)
 	$(info $(M) Building in-scope crates under simulation (compile gate)...)

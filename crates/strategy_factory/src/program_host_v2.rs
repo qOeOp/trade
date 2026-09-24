@@ -1,6 +1,9 @@
 //! Generic StrategyPlanV2 interpreter and failure-atomic lifecycle host.
 
-use std::{collections::BTreeMap, rc::Rc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    rc::Rc,
+};
 
 use sha2::{Digest, Sha256};
 use strategy_factory_program_sdk::lifecycle_v1::{
@@ -116,6 +119,84 @@ struct OwnerEventEvidenceV2 {
 struct SourceBindingLineageVersionV2 {
     root: BindingDigest,
     version: u64,
+}
+
+/// One universe member's Owner sample coordinate for one role, as the host attaches it to a
+/// universe frame.
+///
+/// Its one production source is Market Data's per-(member, role) universe sample projection, which
+/// does not exist yet. The fields are private to this module and the only constructor here is
+/// test-only, so no production path can build one. Until that projection exists, a BFP universe
+/// Plan admits no frame at all, because the host cannot invent a coordinate for a member.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct UniverseMemberSampleCoordinateV1 {
+    member_ordinal: u8,
+    input_role_identity: BindingDigest,
+    evidence: OwnerSampleCoordinateEvidenceV2,
+}
+
+#[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
+impl UniverseMemberSampleCoordinateV1 {
+    /// A coordinate for one member and role of `frame`, standing in for the one Market Data's
+    /// universe sample projection will issue: it names the frame as its subject and carries a
+    /// nonzero BAR schedule dependency.
+    pub(crate) fn for_frame_test(
+        frame: &StrategyInputUniverseFrameReceipt,
+        member_ordinal: u8,
+        input_role_identity: BindingDigest,
+    ) -> Self {
+        let mut canonical = [0_u8; OWNER_SAMPLE_COORDINATE_BYTES_V1 as usize];
+        canonical[..4].copy_from_slice(&1_u32.to_le_bytes());
+        canonical[4..36].copy_from_slice(input_role_identity.as_bytes());
+        canonical[36] = member_ordinal;
+        let evidence_digest = |domain| domain_digest(domain, &canonical);
+        Self {
+            member_ordinal,
+            input_role_identity,
+            evidence: OwnerSampleCoordinateEvidenceV2 {
+                canonical,
+                projection_receipt_digest: evidence_digest(
+                    b"strategy.program-host.test-universe-sample-projection-receipt.v1\0",
+                ),
+                projection_subject_identity: frame.digest(),
+                schedule_dependency_set_digest: Some(evidence_digest(
+                    b"strategy.program-host.test-schedule-dependency-set.v1\0",
+                )),
+                timeframe_projection_digest: evidence_digest(
+                    b"strategy.program-host.test-timeframe-projection.v1\0",
+                ),
+                sample_identity: evidence_digest(
+                    b"strategy.program-host.test-sample-identity.v1\0",
+                ),
+                sample_receipt_digest: evidence_digest(
+                    b"strategy.program-host.test-sample-receipt.v1\0",
+                ),
+            },
+        }
+    }
+
+    pub(crate) fn with_member_ordinal_for_test(mut self, member_ordinal: u8) -> Self {
+        self.member_ordinal = member_ordinal;
+        self
+    }
+
+    pub(crate) fn with_schedule_dependency_for_test(
+        mut self,
+        schedule_dependency_set_digest: Option<BindingDigest>,
+    ) -> Self {
+        self.evidence.schedule_dependency_set_digest = schedule_dependency_set_digest;
+        self
+    }
+
+    pub(crate) fn with_projection_receipt_for_test(mut self, receipt: BindingDigest) -> Self {
+        self.evidence.projection_receipt_digest = receipt;
+        self
+    }
+
+    pub(crate) fn with_subject_for_test(mut self, subject: BindingDigest) -> Self {
+        self.evidence.projection_subject_identity = subject;
+        self
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1325,7 +1406,108 @@ fn attach_owner_sample_coordinates_v4(
     Ok(event)
 }
 
+/// Admits one complete Owner-sealed universe frame that carries no member coordinates.
+///
+/// This is the universe admission for a Plan with no coordinate rows. A Plan that has them, a BFP
+/// universe Plan, admits no frame through here, because the frame would carry fewer coordinates
+/// than the Plan binds.
 pub(crate) fn admit_market_data_universe_program_event_v2(
+    plan: &StrategyPlanV2,
+    frame: &StrategyInputUniverseFrameReceipt,
+) -> Result<AdmittedProgramEventV2, ProgramHostV2Error> {
+    admit_market_data_coordinated_universe_program_event_v2(plan, frame, &[])
+}
+
+/// Admits one complete Owner-sealed universe frame together with its members' Owner sample
+/// coordinates.
+///
+/// The Plan's coordinate rows say exactly which (member, role) pairs the frame must carry a
+/// coordinate for, and the coordinates supplied must be that set: one more or one fewer is refused.
+/// This is the one place that pairing is enforced. Each coordinate must name this frame as its
+/// subject and, on a BAR, carry the BAR schedule dependency, which then enters the admitted event
+/// identity.
+pub(crate) fn admit_market_data_coordinated_universe_program_event_v2(
+    plan: &StrategyPlanV2,
+    frame: &StrategyInputUniverseFrameReceipt,
+    coordinates: &[UniverseMemberSampleCoordinateV1],
+) -> Result<AdmittedProgramEventV2, ProgramHostV2Error> {
+    let event = admit_universe_frame_values_v2(plan, frame)?;
+    attach_universe_member_sample_coordinates_v1(plan, event, frame.digest(), coordinates)
+}
+
+fn attach_universe_member_sample_coordinates_v1(
+    plan: &StrategyPlanV2,
+    mut event: AdmittedProgramEventV2,
+    frame_receipt_digest: BindingDigest,
+    coordinates: &[UniverseMemberSampleCoordinateV1],
+) -> Result<AdmittedProgramEventV2, ProgramHostV2Error> {
+    let required = plan
+        .bfp_role_bindings()
+        .iter()
+        .filter(|row| row.kind() == BfpRoleBindingKindV1::Coordinate)
+        .map(|row| {
+            row.member_ordinal()
+                .map(|member_ordinal| (member_ordinal, row.input_role_identity()))
+                .ok_or(ProgramHostV2Error::InputCoverage)
+        })
+        .collect::<Result<BTreeSet<_>, _>>()?;
+    let mut supplied = BTreeSet::new();
+
+    for coordinate in coordinates {
+        if !supplied.insert((coordinate.member_ordinal, coordinate.input_role_identity)) {
+            return Err(ProgramHostV2Error::InputCoverage);
+        }
+    }
+
+    if supplied != required {
+        return Err(ProgramHostV2Error::InputCoverage);
+    }
+
+    if coordinates.is_empty() {
+        return Ok(event);
+    }
+
+    // The member schedule a coordinate depends on is a BAR schedule. No Owner projection defines a
+    // universe coordinate for an EVENT yet, so a coordinated EVENT frame is refused, not admitted
+    // with a coordinate that names no schedule.
+    if event.envelope.order_key.kind != lifecycle_v1::LifecycleKind::Bar {
+        return Err(ProgramHostV2Error::InputCoverage);
+    }
+    let zero = BindingDigest::from_untrusted_bytes([0; 32]);
+
+    for coordinate in coordinates {
+        let input = event
+            .inputs
+            .iter_mut()
+            .find(|input| {
+                input.member_ordinal == Some(coordinate.member_ordinal)
+                    && input.owner_event.input_role_identity == coordinate.input_role_identity
+            })
+            .ok_or(ProgramHostV2Error::InputCoverage)?;
+        let evidence = &coordinate.evidence;
+
+        if evidence.projection_receipt_digest == zero
+            || evidence.projection_subject_identity != frame_receipt_digest
+            || evidence
+                .schedule_dependency_set_digest
+                .is_none_or(|digest| digest == zero)
+        {
+            return Err(ProgramHostV2Error::InputCoverage);
+        }
+        input.owner_event.sample_coordinate = Some(evidence.clone());
+    }
+    event.identity = admitted_event_identity(
+        plan,
+        event.envelope,
+        &event.inputs,
+        &event.source_binding_lineages,
+        event.input_join_identity,
+        event.universe_frame,
+    );
+    Ok(event)
+}
+
+fn admit_universe_frame_values_v2(
     plan: &StrategyPlanV2,
     frame: &StrategyInputUniverseFrameReceipt,
 ) -> Result<AdmittedProgramEventV2, ProgramHostV2Error> {

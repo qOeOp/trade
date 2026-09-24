@@ -2110,6 +2110,7 @@ async fn postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_r
             capacity_model_identity: "capacity-model-v1".into(),
             independence_rationale: "Genesis has no semantic predecessor.".into(),
         },
+        instrument_scope: None,
     };
     let research_owner = PostgresResearchGoalOwnerV1::connect(
         database.database_url(CanonicalOwnerTestRoleV1::RdOwner),

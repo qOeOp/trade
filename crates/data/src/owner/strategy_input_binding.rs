@@ -2758,6 +2758,85 @@ mod tests {
             .collect()
     }
 
+    /// A universe-member Replay aggregate's frame is re-derived from the batch and the complete
+    /// role set; any other role set, or first-corpus facts, is refused by name.
+    #[rstest]
+    fn the_replay_frame_is_rederived_from_the_batch_and_the_complete_role_set() {
+        use crate::owner::replay_market_facts_v2::{
+            ReplayCompositionBindingErrorV1,
+            composition::verify_universe_member_replay_facts_frame_v2 as verify,
+            tests::{first_corpus_readback, universe_member_readback_over_frame},
+        };
+
+        let verified = batch(complete_universe_rows());
+        let requests = universe_requests(&verified);
+        let frame = bind_strategy_input_universe_frame(&requests, &verified).unwrap();
+        let bound = universe_member_readback_over_frame(frame.digest());
+        assert_eq!(verify(bound.facts(), &verified, &requests), Ok(()));
+        assert_eq!(
+            verify(bound.facts(), &verified, &requests[..1]),
+            Err(ReplayCompositionBindingErrorV1::UniverseFrameMismatch),
+            "one role of two derives a different frame"
+        );
+        assert_eq!(
+            verify(bound.facts(), &verified, &[]),
+            Err(ReplayCompositionBindingErrorV1::UniverseFrameMismatch),
+            "no role set derives no frame"
+        );
+        assert_eq!(
+            verify(first_corpus_readback(true).1.facts(), &verified, &requests),
+            Err(ReplayCompositionBindingErrorV1::CompositionShapeMismatch)
+        );
+    }
+
+    /// A universe-member Replay aggregate is issued only over a frame of its own PIT snapshot, its
+    /// Source Binding lineage and exactly the members its Universe Selection includes.
+    #[rstest]
+    fn a_replay_frame_binds_only_its_own_snapshot_lineage_and_members() {
+        use crate::owner::replay_market_facts_v2::composition::universe_frame_binds_request_v2 as binds;
+
+        let verified = batch(complete_universe_rows());
+        let frame =
+            bind_strategy_input_universe_frame(&universe_requests(&verified), &verified).unwrap();
+        let snapshot = frame.trigger().snapshot_identity();
+        let fact = frame.trigger().snapshot_fact_digest();
+        let lineage = frame.selection().source_binding_lineage_root();
+        let members: [(&[u8], &[u8]); 2] = [
+            (b"MSFT".as_slice(), b"MSFT.XNAS".as_slice()),
+            (b"AAPL".as_slice(), b"AAPL.XNAS".as_slice()),
+        ];
+        assert!(
+            binds(&frame, snapshot, fact, lineage, &members),
+            "any order"
+        );
+        assert!(
+            !binds(&frame, d(99), fact, lineage, &members),
+            "another snapshot"
+        );
+        assert!(
+            !binds(&frame, snapshot, d(99), lineage, &members),
+            "another fact"
+        );
+        assert!(
+            !binds(&frame, snapshot, fact, d(99), &members),
+            "another lineage"
+        );
+        assert!(
+            !binds(&frame, snapshot, fact, lineage, &members[..1]),
+            "fewer members"
+        );
+        assert!(
+            !binds(
+                &frame,
+                snapshot,
+                fact,
+                lineage,
+                &[members[0], (b"AAPL".as_slice(), b"AAPL.XNYS".as_slice())]
+            ),
+            "a member keyed to another instrument"
+        );
+    }
+
     #[rstest]
     fn universe_custody_seals_the_role_set_frame_and_binds_every_role_digest() {
         let verified = batch(complete_universe_rows());

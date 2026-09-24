@@ -95,6 +95,15 @@ env:
     || !github.event.pull_request.user.login
     || github.event.pull_request.user.login == 'dependabot[bot]') }}
   PACKAGE_DIR: python
+  # Whether this run saves the build caches, for every step that saves one. main is built by the
+  # schedule and, on demand, by a dispatch on main, never by a push; both save, because the
+  # schedule misses slots and a cache key change stays cold until main saves again. The name must
+  # not start with CARGO, CC, CFLAGS, CXX, CMAKE or RUST: rust-cache hashes such variables into its
+  # key, and one that differs between pull requests and main would stop pull requests restoring
+  # main's entries.
+  SAVE_BUILD_CACHES: >-
+    ${{ github.event_name == 'push' || github.event_name == 'schedule'
+    || github.event_name == 'workflow_dispatch' && github.ref_name == 'main' }}
 
 jobs:
   ready-gate:
@@ -423,7 +432,7 @@ jobs:
             ${{ hashFiles('python/pyproject.toml') }}
           rust-cache-workspaces: . -> target/py${{ matrix.python-version }}
           rust-cache-on-failure: "false"
-          rust-cache-save-if: ${{ github.event_name == 'push' || github.event_name == 'schedule' }}
+          rust-cache-save-if: ${{ env.SAVE_BUILD_CACHES }}
           rust-cache-workspace-crates: "true"
 
       - name: Update version in pyproject.toml
@@ -460,6 +469,10 @@ jobs:
           workspaces: . -> target/py-stubs
           cache-on-failure: "false"
           cache-workspace-crates: "true"
+          # The same prefix common-setup gives every other rust-cache step: `make py-stubs` builds
+          # under the compile environment in build-env.mk, which rust-cache cannot see.
+          prefix-key: v0-rust-${{ hashFiles('build-env.mk') }}
+          env-vars: CAPNP
           # A literal, for the reason already recorded on `rust tests` below: rust-cache derives
           # the rest of the key itself, so naming compile inputs here can only lose entries.
           # This key hashed `build.yml`, `Cargo.lock` and the `Makefile`, three files that change
@@ -469,7 +482,7 @@ jobs:
           # largest single step in the gate. The wheel cache in this same job hashes only
           # `python/pyproject.toml` and does restore.
           key: py-stubs
-          save-if: ${{ github.event_name == 'push' || github.event_name == 'schedule' }}
+          save-if: ${{ env.SAVE_BUILD_CACHES }}
 
       - name: Check generated file drift
         # Keep this 3.13 condition in sync with the matrix so drift is checked once per run.
@@ -687,7 +700,7 @@ jobs:
           rust-cache-shared-key: rust-tests-linux-x86
           rust-cache-workspaces: . -> target/rust-tests-linux-x86
           rust-cache-on-failure: "false"
-          rust-cache-save-if: ${{ github.event_name == 'push' || github.event_name == 'schedule' }}
+          rust-cache-save-if: ${{ env.SAVE_BUILD_CACHES }}
           rust-cache-workspace-crates: "true"
 
       # The tests are uniformly small (26353 of them averaging 88ms, one single `slow`), so this

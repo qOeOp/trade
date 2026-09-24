@@ -10,6 +10,10 @@ use vibe_backtest_result_custody::{
     BacktestReadbackRefusalV1, ExploratoryReplayResultReceiptReferenceV1,
     LockedExploratoryReplayResultV2,
 };
+use vibe_data::owner::pit_market_snapshot_intake_v1::MarketDataDecisionCutV1;
+use vibe_data::owner::research_instrument_scope_v1::{
+    ResearchInstrumentScopeV1, ResearchInstrumentScopeWireV1,
+};
 use vibe_data::owner::source_binding::BindingDigest;
 use vibe_product_edge::{ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionReadbackV1};
 
@@ -29,6 +33,13 @@ pub(crate) const RESEARCH_GOAL_OPERATION_V1: &str = "research_goal.submit_or_res
 pub(crate) const RESEARCH_GOAL_SCHEMA_V1: &str = "sourced-research-goal-v1";
 pub const RESEARCH_GOAL_OPERATION_V2: &str = "research_goal.submit_or_resolve.v2";
 pub const RESEARCH_GOAL_SCHEMA_V2: &str = "sourced-research-goal-v2";
+pub const RESEARCH_GOAL_OPERATION_V3: &str = "research_goal.submit_or_resolve.v3";
+pub const RESEARCH_GOAL_SCHEMA_V3: &str = "sourced-research-goal-v3";
+/// A V3 request whose instrument scope is not canonical.
+pub const INSTRUMENT_SCOPE_INVALID: &str = "INSTRUMENT_SCOPE_INVALID";
+/// A V3 request naming an instrument that Market Data's early check did not find resolvable in
+/// its eligible-instrument frontier.
+pub const INSTRUMENT_SCOPE_NOT_RESOLVABLE: &str = "INSTRUMENT_SCOPE_NOT_RESOLVABLE";
 pub const RESEARCH_OWNER_V1: &str = "R_AND_D";
 pub const RESEARCH_SCOPE_V1: &str = "research:submit";
 pub const RESEARCH_VIEW_SCOPE_V1: &str = "research:view";
@@ -44,6 +55,13 @@ pub(crate) struct ProductEdgeResearchGoalRequestV1 {
     pub(crate) goal: SourcedResearchGoalV1,
 }
 
+/// The Research request this Owner stores, for V2 and V3 alike.
+///
+/// A V3 request (`sourced-research-goal-v3`) is a V2 request plus the instrument scope it studies,
+/// and everything the Owner derives from a request - basis, protected feedback, TrialFamily,
+/// Intent, view - is the same for both. So there is one stored request: `instrument_scope` is
+/// present exactly for a V3 request and absent, not null, for a V2 one, which leaves every stored
+/// V2 request, digest and admission payload unchanged.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProductEdgeResearchGoalRequestV2 {
@@ -52,6 +70,19 @@ pub struct ProductEdgeResearchGoalRequestV2 {
     pub admission: ProductEdgeAdmissionLocatorV1,
     pub goal: SourcedResearchGoalV2,
     pub trial_family_proposal: TrialFamilyProposalV1,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instrument_scope: Option<ResearchInstrumentScopeWireV1>,
+}
+
+impl ProductEdgeResearchGoalRequestV2 {
+    /// The Product Edge operation and schema this request is admitted under.
+    pub(crate) const fn admitted_operation(&self) -> (&'static str, &'static str) {
+        if self.instrument_scope.is_some() {
+            (RESEARCH_GOAL_OPERATION_V3, RESEARCH_GOAL_SCHEMA_V3)
+        } else {
+            (RESEARCH_GOAL_OPERATION_V2, RESEARCH_GOAL_SCHEMA_V2)
+        }
+    }
 }
 
 /// Untrusted Research V2 proposal whose source frontier is intentionally
@@ -64,6 +95,9 @@ pub struct UnsourcedResearchProposalV1 {
     pub admission: ProductEdgeAdmissionLocatorV1,
     pub goal: UnsourcedResearchGoalV1,
     pub trial_family_proposal: TrialFamilyProposalV1,
+    /// Present exactly for a V3 proposal; see [`ProductEdgeResearchGoalRequestV2`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instrument_scope: Option<ResearchInstrumentScopeWireV1>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -263,6 +297,136 @@ pub(crate) struct StoredRejectedResearchRequestV2 {
     pub(crate) schema_version: u32,
     pub(crate) request: ProductEdgeResearchGoalRequestV2,
     pub(crate) rejection_code: String,
+    /// Present exactly for [`INSTRUMENT_SCOPE_NOT_RESOLVABLE`]: the answer that rejection rests
+    /// on, which a later read cannot reproduce because it depends on Market Data's cut.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) instrument_scope_check: Option<InstrumentScopeCheckRecordV1>,
+}
+
+/// What Market Data's early answer does to a V3 request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InstrumentScopeOutcomeV1 {
+    /// Every identity is admissible: the request may be accepted.
+    Admit,
+    /// An identity is not admissible against a current frontier: the request closes
+    /// `INSTRUMENT_SCOPE_NOT_RESOLVABLE` with the answer stored.
+    Reject,
+    /// The answer is not about the request; it stays unresolved.
+    Unresolved(InstrumentScopeUnresolvedV1),
+}
+
+/// Why Market Data's answer is not about the request it answers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub(crate) enum InstrumentScopeUnresolvedV1 {
+    /// Market Data held no current eligible-instrument frontier, so it denied the environment
+    /// rather than the instruments.
+    #[error("Market Data held no current eligible-instrument frontier to answer against")]
+    NoCurrentFrontier,
+    /// The answer does not answer exactly the requested identities, or states no usable frontier.
+    #[error("Market Data's instrument scope answer is not about this request")]
+    MalformedAnswer,
+}
+
+/// How Market Data's early check answered one requested identity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum InstrumentAdmissibilityV1 {
+    Admissible,
+    Unresolved,
+    NotInEligibleFrontier,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct InstrumentScopeCheckRowV1 {
+    pub(crate) identity: String,
+    pub(crate) admissibility: InstrumentAdmissibilityV1,
+}
+
+/// Market Data's early answer for a V3 request's scope, recorded with the basis it was given on:
+/// the eligible-instrument frontier Market Data held as current, absent when it held none, and
+/// the decision cut it answered at.
+///
+/// A rejection recorded from it is proved by this binding rather than by replay: a later check
+/// answers at a later cut, so it may differ, and the record is what the rejection rests on.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct InstrumentScopeCheckRecordV1 {
+    pub(crate) eligible_instrument_frontier: Option<BindingDigest>,
+    pub(crate) decision_cut: MarketDataDecisionCutV1,
+    pub(crate) rows: Vec<InstrumentScopeCheckRowV1>,
+}
+
+impl InstrumentScopeCheckRecordV1 {
+    /// Whether every requested identity is admissible.
+    pub(crate) fn admits(&self) -> bool {
+        self.rows
+            .iter()
+            .all(|row| row.admissibility == InstrumentAdmissibilityV1::Admissible)
+    }
+
+    /// What this answer does to the request it answers.
+    ///
+    /// Only an answer given against a current frontier is about the request. Without one, Market
+    /// Data has denied the environment rather than the instruments, and a terminal rejection would
+    /// strand a request whose instruments may be fine, so it stays unresolved.
+    pub(crate) fn outcome_for(
+        &self,
+        scope: &ResearchInstrumentScopeV1,
+    ) -> InstrumentScopeOutcomeV1 {
+        if self.eligible_instrument_frontier.is_none() {
+            return InstrumentScopeOutcomeV1::Unresolved(
+                InstrumentScopeUnresolvedV1::NoCurrentFrontier,
+            );
+        }
+
+        if self.validate_against(scope).is_err() {
+            return InstrumentScopeOutcomeV1::Unresolved(
+                InstrumentScopeUnresolvedV1::MalformedAnswer,
+            );
+        }
+
+        if self.admits() {
+            InstrumentScopeOutcomeV1::Admit
+        } else {
+            InstrumentScopeOutcomeV1::Reject
+        }
+    }
+
+    /// Checks that this record answers exactly `scope` against a current frontier and is well
+    /// formed: one row per requested identity in request order, a stated non-zero frontier, and a
+    /// decision cut before its own validity bound.
+    pub(crate) fn validate_against(
+        &self,
+        scope: &ResearchInstrumentScopeV1,
+    ) -> Result<(), &'static str> {
+        if self.rows.len() != scope.identities().len()
+            || self
+                .rows
+                .iter()
+                .zip(scope.identities())
+                .any(|(row, identity)| &row.identity != identity)
+        {
+            return Err("the check does not answer the requested identities in order");
+        }
+
+        match self.eligible_instrument_frontier {
+            None => return Err("the check was answered without a current frontier"),
+            Some(frontier) if frontier.as_bytes() == &[0; 32] => {
+                return Err("the check states an all-zero frontier");
+            }
+            Some(_) => {}
+        }
+
+        let cut = &self.decision_cut;
+        if cut.clock_identity.is_empty()
+            || cut.clock_epoch.is_empty()
+            || cut.decision_cut >= cut.valid_through
+        {
+            return Err("the check's decision cut is not well formed");
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -349,6 +513,64 @@ pub struct FrozenResearchGoalIntentV2 {
     pub trial_family_identity: String,
     pub trial_family_policy_digest: String,
     pub frozen_at_epoch_ms: u64,
+    /// The scope a V3 Intent binds; a V3 Intent has schema 3 and a V2 Intent schema 2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instrument_scope: Option<FrozenResearchInstrumentScopeV1>,
+}
+
+/// The instrument scope a V3 Research Intent binds: the identity and canonical bytes this Owner
+/// computed from the request, in lowercase hex.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FrozenResearchInstrumentScopeV1 {
+    pub scope_identity: String,
+    pub canonical_bytes: String,
+}
+
+impl FrozenResearchInstrumentScopeV1 {
+    pub(crate) fn from_scope(scope: &ResearchInstrumentScopeV1) -> Self {
+        Self {
+            scope_identity: lower_hex(scope.identity().as_bytes()),
+            canonical_bytes: lower_hex(scope.canonical_bytes()),
+        }
+    }
+}
+
+/// Intent schema of a V2 request.
+pub(crate) const RESEARCH_INTENT_SCHEMA_V2: u32 = 2;
+/// Intent schema of a V3 request, which also binds the instrument scope.
+pub(crate) const RESEARCH_INTENT_SCHEMA_V3: u32 = 3;
+
+/// The Intent schema a request freezes under, and the scope that Intent binds.
+pub(crate) fn expected_intent_scope(
+    request: &ProductEdgeResearchGoalRequestV2,
+) -> Result<(u32, Option<FrozenResearchInstrumentScopeV1>), ResearchGoalOwnerError> {
+    match &request.instrument_scope {
+        None => Ok((RESEARCH_INTENT_SCHEMA_V2, None)),
+        Some(wire) => ResearchInstrumentScopeV1::from_wire(wire.clone())
+            .map(|scope| {
+                (
+                    RESEARCH_INTENT_SCHEMA_V3,
+                    Some(FrozenResearchInstrumentScopeV1::from_scope(&scope)),
+                )
+            })
+            .map_err(|e| {
+                ResearchGoalOwnerError::Storage(format!(
+                    "stored request instrument scope is not canonical: {e}"
+                ))
+            }),
+    }
+}
+
+fn lower_hex(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+
+    bytes
+        .iter()
+        .fold(String::with_capacity(bytes.len() * 2), |mut out, byte| {
+            write!(out, "{byte:02x}").expect("writing to a String cannot fail");
+            out
+        })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -394,7 +616,7 @@ impl FrozenResearchGoalIntent {
     pub(crate) fn schema_version(&self) -> u32 {
         match self {
             Self::V1(_) => 1,
-            Self::V2(_) => 2,
+            Self::V2(intent) => intent.schema_version,
         }
     }
 }
@@ -1070,6 +1292,7 @@ pub(crate) struct ResearchGoalCommitV2 {
 
 pub(crate) struct ValidatedResearchGoalRequestV2 {
     request: ProductEdgeResearchGoalRequestV2,
+    instrument_scope: Option<ResearchInstrumentScopeV1>,
 }
 
 pub(crate) struct RejectedResearchGoalRequestV2 {
@@ -1084,6 +1307,11 @@ impl ValidatedResearchGoalRequestV2 {
 
     pub(crate) fn into_request(self) -> ProductEdgeResearchGoalRequestV2 {
         self.request
+    }
+
+    /// The validated scope of a V3 request; `None` for a V2 request.
+    pub(crate) const fn instrument_scope(&self) -> Option<&ResearchInstrumentScopeV1> {
+        self.instrument_scope.as_ref()
     }
 }
 
@@ -1142,6 +1370,7 @@ pub(crate) fn assemble_partial_source_intake_research_admission_input(
             }],
         },
         trial_family_proposal: proposal.trial_family_proposal,
+        instrument_scope: proposal.instrument_scope,
     };
     validate_goal_request_v2(request).map(|validated| PartialSourceIntakeResearchAdmissionInputV1 {
         validated,
@@ -1265,18 +1494,23 @@ fn semantic_digest_v1_meaning(
 pub fn semantic_digest_v2(
     request: &ProductEdgeResearchGoalRequestV2,
 ) -> Result<String, ResearchGoalOwnerError> {
+    // The scope is part of the meaning, so one request identity with another scope is a changed
+    // meaning; it is absent from a V2 meaning, whose digest is therefore unchanged.
     #[derive(Serialize)]
     struct Meaning<'a> {
         request_identity: &'a str,
         admission: &'a ProductEdgeAdmissionLocatorV1,
         goal: &'a SourcedResearchGoalV2,
         trial_family_proposal: &'a TrialFamilyProposalV1,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        instrument_scope: Option<&'a ResearchInstrumentScopeWireV1>,
     }
     let bytes = serde_json::to_vec(&Meaning {
         request_identity: &request.request_identity,
         admission: &request.admission,
         goal: &request.goal,
         trial_family_proposal: &request.trial_family_proposal,
+        instrument_scope: request.instrument_scope.as_ref(),
     })
     .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
     Ok(format!("sha256:{:x}", Sha256::digest(bytes)))
@@ -1305,18 +1539,20 @@ pub(crate) fn verify_research_admission_v2(
     admission: &ProductEdgeAdmissionReadbackV1,
     request: &ProductEdgeResearchGoalRequestV2,
 ) -> Result<(), ResearchGoalOwnerError> {
-    let payload = serde_json::json!({
+    let mut payload = serde_json::json!({
         "request_identity": request.request_identity,
         "channel": request.channel,
         "goal": request.goal,
         "trial_family_proposal": request.trial_family_proposal,
     });
+    with_instrument_scope(&mut payload, request);
+    let (operation, schema) = request.admitted_operation();
     verify_research_admission(
         admission,
         &request.admission,
         &request.request_identity,
-        RESEARCH_GOAL_OPERATION_V2,
-        RESEARCH_GOAL_SCHEMA_V2,
+        operation,
+        schema,
         &payload,
     )?;
 
@@ -1328,7 +1564,8 @@ pub(crate) fn verify_source_bound_research_admission_v2(
     request: &ProductEdgeResearchGoalRequestV2,
 ) -> Result<(), ResearchGoalOwnerError> {
     let goal = &request.goal;
-    let transport_neutral_payload = serde_json::json!({
+    let (operation, schema) = request.admitted_operation();
+    let mut transport_neutral_payload = serde_json::json!({
         "request_identity": request.request_identity,
         "goal": {
             "hypothesis": goal.hypothesis,
@@ -1341,14 +1578,22 @@ pub(crate) fn verify_source_bound_research_admission_v2(
         },
         "trial_family_proposal": request.trial_family_proposal,
     });
+    with_instrument_scope(&mut transport_neutral_payload, request);
     let transport_neutral = verify_research_admission(
         admission,
         &request.admission,
         &request.request_identity,
-        RESEARCH_GOAL_OPERATION_V2,
-        RESEARCH_GOAL_SCHEMA_V2,
+        operation,
+        schema,
         &transport_neutral_payload,
     );
+
+    // A V3 request was never admitted through the legacy shape, so only a V2 request falls back.
+    if transport_neutral.is_err() && request.instrument_scope.is_some() {
+        return Err(ResearchGoalOwnerError::Unauthorized(
+            "canonical source-bound Product Edge admission mismatch",
+        ));
+    }
 
     if transport_neutral.is_err() {
         // Transitional compatibility for V1 requests and durable admissions
@@ -1375,6 +1620,22 @@ pub(crate) fn verify_source_bound_research_admission_v2(
     }
 
     verify_research_admission_v2_authority(admission)
+}
+
+/// Adds a V3 request's scope to its admission payload, exactly as the request states it.
+fn with_instrument_scope(
+    payload: &mut serde_json::Value,
+    request: &ProductEdgeResearchGoalRequestV2,
+) {
+    if let (Some(scope), Some(object)) = (&request.instrument_scope, payload.as_object_mut()) {
+        object.insert(
+            "instrument_scope".to_string(),
+            serde_json::json!({
+                "schema_version": scope.schema_version,
+                "identities": scope.identities,
+            }),
+        );
+    }
 }
 
 fn verify_research_admission_v2_authority(
@@ -1432,6 +1693,13 @@ pub(crate) fn decide_commit_v2(
     admission: &ProductEdgeAdmissionReadbackV1,
     now_epoch_ms: u64,
 ) -> Result<ResearchGoalCommitV2, ResearchGoalOwnerError> {
+    let (intent_schema_version, instrument_scope) = match &validated.instrument_scope {
+        None => (RESEARCH_INTENT_SCHEMA_V2, None),
+        Some(scope) => (
+            RESEARCH_INTENT_SCHEMA_V3,
+            Some(FrozenResearchInstrumentScopeV1::from_scope(scope)),
+        ),
+    };
     let request = validated.request;
     let suffix = digest_text(&format!(
         "v2:{}:{semantic_digest}",
@@ -1449,7 +1717,7 @@ pub(crate) fn decide_commit_v2(
     )
     .map_err(|e| trial_family_storage(&e))?;
     let intent = FrozenResearchGoalIntentV2 {
-        schema_version: 2,
+        schema_version: intent_schema_version,
         intent_identity: intent_identity.clone(),
         request_identity: request.request_identity.clone(),
         semantic_digest: semantic_digest.clone(),
@@ -1464,6 +1732,7 @@ pub(crate) fn decide_commit_v2(
         trial_family_identity: initial_family.root.trial_family_identity().to_string(),
         trial_family_policy_digest: initial_family.root.policy_digest().to_string(),
         frozen_at_epoch_ms: now_epoch_ms,
+        instrument_scope,
     };
     let mut view = ResearchViewV1 {
         schema_version: 1,
@@ -1855,8 +2124,21 @@ pub(crate) fn validate_successor_goal_v1(goal: &SourcedResearchGoalV2) -> Result
 pub(crate) fn validate_goal_request_v2(
     request: ProductEdgeResearchGoalRequestV2,
 ) -> Result<ValidatedResearchGoalRequestV2, RejectedResearchGoalRequestV2> {
-    match validate_goal_request_v2_fields(&request) {
-        Ok(()) => Ok(ValidatedResearchGoalRequestV2 { request }),
+    // The scope is checked after every V2 field, so a V2 request keeps its rejection codes.
+    let checked = validate_goal_request_v2_fields(&request).and_then(|()| {
+        request
+            .instrument_scope
+            .clone()
+            .map(ResearchInstrumentScopeV1::from_wire)
+            .transpose()
+            .map_err(|_| INSTRUMENT_SCOPE_INVALID)
+    });
+
+    match checked {
+        Ok(instrument_scope) => Ok(ValidatedResearchGoalRequestV2 {
+            request,
+            instrument_scope,
+        }),
         Err(rejection_code) => Err(RejectedResearchGoalRequestV2 {
             request: Box::new(request),
             rejection_code,
@@ -2805,6 +3087,7 @@ mod v2_sealing_tests {
             admission: _,
             goal,
             trial_family_proposal: _,
+            instrument_scope: _,
         } = proposal.clone();
         let UnsourcedResearchGoalV1 {
             hypothesis: _,
@@ -2881,6 +3164,7 @@ mod v2_sealing_tests {
                 capacity_model_identity: "capacity-model-v1".into(),
                 independence_rationale: "No protected feedback informed this proposal.".into(),
             },
+            instrument_scope: None,
         }
     }
 
@@ -2923,6 +3207,7 @@ mod v2_sealing_tests {
                 independence_rationale: "No known local predecessor before Owner resolution."
                     .to_string(),
             },
+            instrument_scope: None,
         }
     }
 
@@ -2954,5 +3239,226 @@ mod v2_sealing_tests {
             exploration: None,
             next_legal_action: ResearchNextLegalAction::WaitForRAndDExecution,
         }
+    }
+
+    fn scope_wire(identities: &[&str]) -> ResearchInstrumentScopeWireV1 {
+        ResearchInstrumentScopeWireV1 {
+            schema_version: 1,
+            identities: identities
+                .iter()
+                .map(|identity| (*identity).to_string())
+                .collect(),
+        }
+    }
+
+    fn request_v3(request_identity: &str, identities: &[&str]) -> ProductEdgeResearchGoalRequestV2 {
+        ProductEdgeResearchGoalRequestV2 {
+            instrument_scope: Some(scope_wire(identities)),
+            ..request_v2(request_identity)
+        }
+    }
+
+    /// A V2 request is stored, digested and admitted exactly as before the scope existed: the
+    /// field is absent from its bytes, and its meaning digest is the four-field digest.
+    #[rstest]
+    fn a_v2_request_keeps_its_bytes_and_meaning_digest() {
+        // The digest before the scope existed: these four fields, in this order.
+        #[derive(Serialize)]
+        struct FourFields<'a> {
+            request_identity: &'a str,
+            admission: &'a ProductEdgeAdmissionLocatorV1,
+            goal: &'a SourcedResearchGoalV2,
+            trial_family_proposal: &'a TrialFamilyProposalV1,
+        }
+
+        let request = request_v2("research-request-v2-bytes-0001");
+        let bytes = serde_json::to_value(&request).unwrap();
+        assert!(bytes.get("instrument_scope").is_none());
+
+        let four_fields = serde_json::to_vec(&FourFields {
+            request_identity: &request.request_identity,
+            admission: &request.admission,
+            goal: &request.goal,
+            trial_family_proposal: &request.trial_family_proposal,
+        })
+        .unwrap();
+        assert_eq!(
+            semantic_digest_v2(&request).unwrap(),
+            format!("sha256:{:x}", Sha256::digest(four_fields))
+        );
+        assert_eq!(
+            request.admitted_operation(),
+            (RESEARCH_GOAL_OPERATION_V2, RESEARCH_GOAL_SCHEMA_V2)
+        );
+    }
+
+    #[rstest]
+    fn the_scope_is_part_of_a_v3_request_meaning() {
+        let one = request_v3("research-request-v3-meaning-01", &["BTCUSDT-PERP.BINANCE"]);
+        let other = request_v3("research-request-v3-meaning-01", &["ETHUSDT-PERP.BINANCE"]);
+        let v2 = request_v2("research-request-v3-meaning-01");
+
+        assert_ne!(
+            semantic_digest_v2(&one).unwrap(),
+            semantic_digest_v2(&other).unwrap()
+        );
+        assert_ne!(
+            semantic_digest_v2(&one).unwrap(),
+            semantic_digest_v2(&v2).unwrap()
+        );
+        assert_eq!(
+            one.admitted_operation(),
+            (RESEARCH_GOAL_OPERATION_V3, RESEARCH_GOAL_SCHEMA_V3)
+        );
+    }
+
+    #[rstest]
+    #[case::empty(&[])]
+    #[case::unordered(&["ETHUSDT-PERP.BINANCE", "BTCUSDT-PERP.BINANCE"])]
+    #[case::padded(&[" BTCUSDT-PERP.BINANCE"])]
+    fn a_scope_that_is_not_canonical_is_rejected_by_name(#[case] identities: &[&str]) {
+        let rejected =
+            validate_goal_request_v2(request_v3("research-request-v3-invalid-01", identities))
+                .err()
+                .expect("a non-canonical scope is rejected");
+        assert_eq!(rejected.into_parts().1, INSTRUMENT_SCOPE_INVALID);
+    }
+
+    /// Every V2 field is checked first, so a V2 rejection code is never displaced by the scope.
+    #[rstest]
+    fn a_v2_field_rejection_precedes_the_scope() {
+        let mut request = request_v3("research-request-v3-order-0001", &[]);
+        request.goal.hypothesis = "short".to_string();
+
+        let rejected = validate_goal_request_v2(request).err().expect("rejected");
+        assert_eq!(rejected.into_parts().1, "HYPOTHESIS_INVALID");
+    }
+
+    #[rstest]
+    fn a_valid_scope_freezes_a_schema_three_intent_that_binds_it() {
+        let scope =
+            ResearchInstrumentScopeV1::from_wire(scope_wire(&["BTCUSDT-PERP.BINANCE"])).unwrap();
+        let (schema, frozen) = expected_intent_scope(&request_v3(
+            "research-request-v3-intent-01",
+            &["BTCUSDT-PERP.BINANCE"],
+        ))
+        .unwrap();
+
+        assert_eq!(schema, RESEARCH_INTENT_SCHEMA_V3);
+        assert_eq!(
+            frozen,
+            Some(FrozenResearchInstrumentScopeV1 {
+                scope_identity: lower_hex(scope.identity().as_bytes()),
+                canonical_bytes: lower_hex(scope.canonical_bytes()),
+            })
+        );
+        assert_eq!(
+            expected_intent_scope(&request_v2("research-request-v3-intent-01")).unwrap(),
+            (RESEARCH_INTENT_SCHEMA_V2, None)
+        );
+    }
+
+    fn decision_cut() -> MarketDataDecisionCutV1 {
+        MarketDataDecisionCutV1 {
+            clock_identity: "market-data-clock-test".to_string(),
+            clock_epoch: "epoch-1".to_string(),
+            decision_cut: 1_000,
+            monotonic_sequence: 7,
+            restart_continuity_digest: BindingDigest::from_untrusted_bytes([3; 32]),
+            valid_through: 2_000,
+            uncertainty_bound: 1,
+            skew_bound: 1,
+        }
+    }
+
+    fn check(
+        frontier: Option<[u8; 32]>,
+        rows: &[(&str, InstrumentAdmissibilityV1)],
+    ) -> InstrumentScopeCheckRecordV1 {
+        InstrumentScopeCheckRecordV1 {
+            eligible_instrument_frontier: frontier.map(BindingDigest::from_untrusted_bytes),
+            decision_cut: decision_cut(),
+            rows: rows
+                .iter()
+                .map(|(identity, admissibility)| InstrumentScopeCheckRowV1 {
+                    identity: (*identity).to_string(),
+                    admissibility: *admissibility,
+                })
+                .collect(),
+        }
+    }
+
+    #[rstest]
+    fn a_check_record_must_answer_exactly_the_scope_on_a_stated_basis() {
+        use InstrumentAdmissibilityV1::{Admissible, NotInEligibleFrontier, Unresolved};
+
+        let scope = ResearchInstrumentScopeV1::from_wire(scope_wire(&[
+            "BTCUSDT-PERP.BINANCE",
+            "ETHUSDT-PERP.BINANCE",
+        ]))
+        .unwrap();
+        let btc = "BTCUSDT-PERP.BINANCE";
+        let eth = "ETHUSDT-PERP.BINANCE";
+
+        let admitting = check(Some([9; 32]), &[(btc, Admissible), (eth, Admissible)]);
+        assert_eq!(admitting.validate_against(&scope), Ok(()));
+        assert!(admitting.admits());
+
+        let refusing = check(Some([9; 32]), &[(btc, Admissible), (eth, Unresolved)]);
+        assert_eq!(refusing.validate_against(&scope), Ok(()));
+        assert!(!refusing.admits());
+
+        // An answer without a current frontier is not a valid record of a rejection.
+        let no_frontier = check(
+            None,
+            &[(btc, NotInEligibleFrontier), (eth, NotInEligibleFrontier)],
+        );
+        assert!(no_frontier.validate_against(&scope).is_err());
+
+        for malformed in [
+            check(Some([9; 32]), &[(eth, Admissible), (btc, Admissible)]),
+            check(Some([9; 32]), &[(btc, Admissible)]),
+            check(Some([0; 32]), &[(btc, Unresolved), (eth, Unresolved)]),
+        ] {
+            assert!(malformed.validate_against(&scope).is_err(), "{malformed:?}");
+        }
+
+        let mut stale = refusing;
+        stale.decision_cut.valid_through = stale.decision_cut.decision_cut;
+        assert!(stale.validate_against(&scope).is_err());
+    }
+
+    /// Only an answer against a current frontier is about the request: without one Market Data
+    /// has denied the environment, so the request stays unresolved rather than being rejected.
+    #[rstest]
+    fn an_answer_decides_the_request_only_against_a_current_frontier() {
+        use InstrumentAdmissibilityV1::{Admissible, NotInEligibleFrontier, Unresolved};
+
+        let btc = "BTCUSDT-PERP.BINANCE";
+        let scope = ResearchInstrumentScopeV1::from_wire(scope_wire(&[btc])).unwrap();
+
+        assert_eq!(
+            check(Some([9; 32]), &[(btc, Admissible)]).outcome_for(&scope),
+            InstrumentScopeOutcomeV1::Admit
+        );
+
+        for refusing in [Unresolved, NotInEligibleFrontier] {
+            assert_eq!(
+                check(Some([9; 32]), &[(btc, refusing)]).outcome_for(&scope),
+                InstrumentScopeOutcomeV1::Reject
+            );
+        }
+        assert_eq!(
+            check(None, &[(btc, NotInEligibleFrontier)]).outcome_for(&scope),
+            InstrumentScopeOutcomeV1::Unresolved(InstrumentScopeUnresolvedV1::NoCurrentFrontier)
+        );
+        assert_eq!(
+            check(
+                Some([9; 32]),
+                &[("ETHUSDT-PERP.BINANCE", NotInEligibleFrontier)]
+            )
+            .outcome_for(&scope),
+            InstrumentScopeOutcomeV1::Unresolved(InstrumentScopeUnresolvedV1::MalformedAnswer)
+        );
     }
 }
