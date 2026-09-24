@@ -668,7 +668,13 @@ jobs:
           build-type: "test"
           free-disk-space: "true"
           free-disk-space-max-build: ${{ runner.environment == 'github-hosted' && 'true' || 'false' }}
-          minimum-free-space-gb: "110"
+          # Measured on three pull request runs (35994104295, 36001760102, 35974183716): a hosted
+          # runner had 86G free before any cleanup, and this job then took about 54G - about 35G of
+          # restored cache and 19G of build and test output - so without the cleanup it ends with
+          # about 32G free. At 110 the cleanup ran on every runner and took 226-303s of the critical
+          # path. At 70 it is skipped on such a runner and still runs on any that starts below 70.
+          # Re-measure if the job's own use nears 60G.
+          minimum-free-space-gb: "70"
           rust-cache-enabled: >-
             ${{ (runner.environment == 'github-hosted'
             || github.event_name == 'push'
