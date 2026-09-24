@@ -1,4 +1,5 @@
 import { dashboardReadApiTargetV1 } from "./owner-api-target.ts";
+import { announcedOwnerReadBudgetMsV1 } from "./operation-registry.ts";
 
 const IDENTITY = /^[A-Za-z0-9._:/-]{1,192}$/u;
 const MAX_RESPONSE_BYTES = 512 * 1024;
@@ -318,7 +319,7 @@ export async function readResearchDirectoryGatewayV1({
       method: "GET",
       headers: { authorization: `Bearer ${configuredTarget.token}` },
       cache: "no-store",
-      signal: AbortSignal.timeout(8_000),
+      signal: AbortSignal.timeout(announcedOwnerReadBudgetMsV1("rd research directory", 8_000)),
     });
     if (!response.ok) {
       return { status: response.status >= 500 ? 503 : 502, projection: unavailable("OWNER_RESPONSE_UNAVAILABLE") };

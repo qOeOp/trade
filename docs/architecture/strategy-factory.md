@@ -151,8 +151,9 @@ The maturity boundary is explicit:
   product scope, in these words (translated): "widen the execution chain's member count from exactly two to also
   support one; it is a bounded slice written in these documents; widening it changes the documents and removes no
   property". A single-instrument strategy is a Design whose roles use `UniverseMembers` scope, run against a
-  one-member Owner-sealed universe; the Market Data universe selection chooses the instrument at request time, not
-  the Design. A Design with `EXACT_INSTRUMENT` roles stays refused under an Owner universe, by a named refusal,
+  one-member Owner-sealed universe; the Research request names the instrument, which Market Data's universe selection
+  evaluates at request time, so neither the Design nor R&D chooses it (the R&D Owner contract states that request
+  scope). A Design with `EXACT_INSTRUMENT` roles stays refused under an Owner universe, by a named refusal,
   `ExactInstrumentRolesUnderOwnerUniverse`, which the implementing change introduces. The universe vertical's input contract of exactly one fixed `OPEN` and one
   fixed `CLOSE` member role is unchanged; the single-threshold authoring surface gains a universe-member form whose
   channel is the member's daily close and which carries the fixed open role, as a carried input its program never

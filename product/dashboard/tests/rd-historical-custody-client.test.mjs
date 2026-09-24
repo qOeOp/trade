@@ -6,6 +6,15 @@ import {
   parseHistoricalCustodyOwnerV1,
   resolveHistoricalCustodyShadowV1,
 } from "../lib/rd-historical-custody-client.ts";
+import { OWNER_READ_NONCE_HEADER } from "../lib/owner-read-nonce.ts";
+
+// The read API's side of the binding: the nonce this read sent comes back beside the projection.
+function echoing(init, body) {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { [OWNER_READ_NONCE_HEADER]: init.headers[OWNER_READ_NONCE_HEADER] },
+  });
+}
 
 function ownerReadback(overrides = {}) {
   return {
@@ -38,38 +47,36 @@ function ownerReadback(overrides = {}) {
 }
 
 test("Owner candidate projection preserves point-read-only semantics", () => {
-  const projection = parseHistoricalCustodyOwnerV1(ownerReadback(), 1_000, 2_000);
+  const projection = parseHistoricalCustodyOwnerV1(ownerReadback());
   assert.equal(projection?.resolution, "RETRIEVED");
   assert.equal(projection?.research[0].projectionState, "POINT_READ_REQUIRED");
   assert.equal(projection?.artifactAttempts[0].projectionState, "POINT_READ_REQUIRED");
   assert.equal(projection?.bindings[0].projectionState, "POINT_READ_REQUIRED");
   assert.equal("disposition" in projection.research[0], false);
-  assert.equal(parseHistoricalCustodyOwnerV1(ownerReadback(), Number.NaN, 2_000), null);
-  assert.equal(parseHistoricalCustodyOwnerV1(ownerReadback(), 2_001, 2_000), null);
-  assert.equal(parseHistoricalCustodyOwnerV1(ownerReadback({ research_total: 2 }), 1_000, 2_000), null);
-  assert.equal(parseHistoricalCustodyOwnerV1(ownerReadback({ completeness: "PARTIAL_TRUNCATED" }), 1_000, 2_000), null);
+  assert.equal(parseHistoricalCustodyOwnerV1(ownerReadback({ research_total: 2 })), null);
+  assert.equal(parseHistoricalCustodyOwnerV1(ownerReadback({ completeness: "PARTIAL_TRUNCATED" })), null);
   assert.equal(parseHistoricalCustodyOwnerV1(ownerReadback({
     completeness: "PARTIAL_TRUNCATED",
     research_total: 2,
-  }), 1_000, 2_000)?.completeness, "PARTIAL_TRUNCATED");
+  }))?.completeness, "PARTIAL_TRUNCATED");
   assert.equal(parseHistoricalCustodyOwnerV1(ownerReadback({
     research: [ownerReadback().research[0], ownerReadback().research[0]],
     research_total: 2,
-  }), 1_000, 2_000), null);
+  })), null);
   assert.equal(parseHistoricalCustodyOwnerV1(ownerReadback({
     research: [{ ...ownerReadback().research[0], committed_at_epoch_ms: 1_501 }],
-  }), 1_000, 2_000), null);
+  })), null);
   for (const requestIdentity of [".", ".."]) {
     assert.equal(parseHistoricalCustodyOwnerV1(ownerReadback({
       research: [{ ...ownerReadback().research[0], request_identity: requestIdentity }],
-    }), 1_000, 2_000), null);
+    })), null);
   }
   assert.equal(parseHistoricalCustodyOwnerV1(ownerReadback({
     artifact_attempts: [{ ...ownerReadback().artifact_attempts[0], attempt_identity: "." }],
-  }), 1_000, 2_000), null);
+  })), null);
   assert.equal(parseHistoricalCustodyOwnerV1(ownerReadback({
     bindings: [{ ...ownerReadback().bindings[0], trial_family_identity: ".." }],
-  }), 1_000, 2_000), null);
+  })), null);
 });
 
 test("missing configuration is an explicit zero-effect unavailable projection", async () => {
@@ -99,58 +106,65 @@ test("authenticated GET accepts only the exact bounded Owner wire", async () => 
       assert.equal(init.method, "GET");
       assert.equal(init.cache, "no-store");
       assert.equal(init.headers.authorization, "Bearer opaque-test-token");
-      return new Response(JSON.stringify(ownerReadback()), { status: 200 });
+      return echoing(init, ownerReadback());
     },
   });
   assert.equal(result.status, 200);
   assert.equal(result.envelope.availability, "available");
   assert.equal(result.envelope.projection.artifactAttemptTotal, 1);
 
-  assert.equal(parseHistoricalCustodyOwnerV1(
-    ownerReadback({ smuggled_resolution: "SUCCESS" }),
-    1_000,
-    2_000,
-  ), null);
+  assert.equal(parseHistoricalCustodyOwnerV1(ownerReadback({ smuggled_resolution: "SUCCESS" })), null);
 });
 
-test("transport admits bounded Owner clock skew but rejects an observation outside the read window", async () => {
-  const withinWindow = await resolveHistoricalCustodyShadowV1({
+async function read(fetcher) {
+  return resolveHistoricalCustodyShadowV1({
     baseUrl: "http://owner.test",
     token: "opaque-test-token",
     now: (() => {
       const times = [10_000, 10_020];
       return () => times.shift() ?? 10_020;
     })(),
-    fetcher: async () => new Response(JSON.stringify(ownerReadback({
-      observed_at_epoch_ms: 9_990,
-      research: [{ ...ownerReadback().research[0], committed_at_epoch_ms: 9_980 }],
-      artifact_attempts: [{ ...ownerReadback().artifact_attempts[0], prepared_at_epoch_ms: 9_980 }],
-      bindings: [{ ...ownerReadback().bindings[0], committed_at_epoch_ms: 9_980 }],
-    }))),
+    fetcher,
   });
-  assert.equal(withinWindow.status, 200);
+}
 
-  const outsideWindow = await resolveHistoricalCustodyShadowV1({
-    baseUrl: "http://owner.test",
-    token: "opaque-test-token",
-    now: (() => {
-      const times = [10_000, 10_020];
-      return () => times.shift() ?? 10_020;
-    })(),
-    fetcher: async () => new Response(JSON.stringify(ownerReadback({
-      observed_at_epoch_ms: 1_999,
-    }))),
+// The Owner stamps its observation from its own clock, which can run ahead of this process's: a
+// Docker Desktop VM's does. The echoed nonce, not this process's clock, is what binds the answer.
+test("an Owner observation on a clock ahead of this process's is this read's answer", async () => {
+  const nonces = [];
+  const ahead = await read(async (_url, init) => {
+    nonces.push(init.headers[OWNER_READ_NONCE_HEADER]);
+    return echoing(init, ownerReadback({ observed_at_epoch_ms: 20_000 }));
   });
-  assert.equal(outsideWindow.status, 502);
-  assert.equal(outsideWindow.envelope.availability, "unavailable");
+  assert.equal(ahead.status, 200);
+  assert.equal(ahead.envelope.projection.observedAtEpochMs, 20_000);
+  await read(async (_url, init) => {
+    nonces.push(init.headers[OWNER_READ_NONCE_HEADER]);
+    return echoing(init, ownerReadback());
+  });
+  for (const nonce of nonces) assert.match(nonce, /^[0-9a-f]{32}$/u);
+  assert.notEqual(nonces[0], nonces[1]);
+});
+
+test("an answer that does not echo this read's nonce is not its answer", async () => {
+  for (const echo of [
+    () => undefined,
+    () => "0".repeat(32),
+    (nonce) => nonce.toUpperCase(),
+    (nonce) => `${nonce}, ${nonce}`,
+  ]) {
+    const result = await read(async (_url, init) => {
+      const echoed = echo(init.headers[OWNER_READ_NONCE_HEADER]);
+      return new Response(JSON.stringify(ownerReadback()), {
+        headers: echoed === undefined ? {} : { [OWNER_READ_NONCE_HEADER]: echoed },
+      });
+    });
+    assert.deepEqual([result.status, result.envelope.unavailable_reason], [502, "OWNER_RESPONSE_UNAVAILABLE"]);
+  }
 });
 
 test("browser envelope accepts only the exact journal-bound projection", () => {
-  const projection = parseHistoricalCustodyOwnerV1(
-    ownerReadback({ observed_at_epoch_ms: 9_500 }),
-    1_000,
-    10_000,
-  );
+  const projection = parseHistoricalCustodyOwnerV1(ownerReadback({ observed_at_epoch_ms: 9_500 }));
   const envelope = {
     schema_version: 1,
     operation: "rd_historical_custody.shadow_read.v1",

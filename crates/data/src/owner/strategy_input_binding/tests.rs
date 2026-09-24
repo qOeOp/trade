@@ -100,16 +100,16 @@ fn declaration_codec_rejects_version_trailing_bytes_and_caps() {
     );
 }
 
-/// Two declarations naming different universes must not authenticate against one role.
+/// A universe-member request matches its role on the attested coordinates, and the role never
+/// names a universe.
 ///
-/// This pins a repair rather than a behaviour anyone relied on. The projection used to map a
-/// universe scope to the constant `{"kind":"UNIVERSE_MEMBERS"}` with an empty instrument, which
-/// discarded the scope's `selection_identity`: the two requests below differed in exactly that
-/// payload and compared equal on all ten fields. Nothing in production could reach the branch, so
-/// no test failed and none would have. The hazard was that one authenticated role would have
-/// covered two different universes if anything ever did reach it.
+/// A Design declares `UniverseMembers` with an empty instrument, so a role cannot tell two
+/// universes apart; that is left to the registry, which binds the selection through the PIT
+/// request's declaration key and the Owner-derived universe frame, and refuses a declaration set
+/// whose universe roles name two selections. This pins the other half: the role still has to match
+/// on scope, instrument and every semantic coordinate.
 #[rstest]
-fn a_universe_scope_is_refused_rather_than_compared_without_its_selection() {
+fn a_universe_role_matches_on_its_attested_coordinates() {
     let role = StrategyDesignRoleEntryV1 {
         role_identity: d(3),
         semantic_id: "role-universe".into(),
@@ -123,20 +123,40 @@ fn a_universe_scope_is_refused_rather_than_compared_without_its_selection() {
         scale: 4,
         value_type: "I128".into(),
     };
-
-    let mut one = request();
-    one.scope = UntrustedStrategyInputScope::UniverseSelection {
+    let mut universe = request();
+    universe.scope = UntrustedStrategyInputScope::UniverseSelection {
         selection_identity: d(200),
     };
-    let mut other = request();
-    other.scope = UntrustedStrategyInputScope::UniverseSelection {
-        selection_identity: d(201),
-    };
+    assert!(request_matches_authenticated_role_v1(&universe, &role));
 
-    // The role matches both on every field this function compares, so acceptance would have been
-    // indistinguishable between them. Refusal is what makes them distinguishable.
-    assert!(!request_matches_authenticated_role_v1(&one, &role));
-    assert!(!request_matches_authenticated_role_v1(&other, &role));
+    for mismatched in [
+        StrategyDesignRoleEntryV1 {
+            instrument: "XNAS:AAPL".into(),
+            ..role.clone()
+        },
+        StrategyDesignRoleEntryV1 {
+            scope: r#"{"kind":"EXACT_INSTRUMENT"}"#.into(),
+            ..role.clone()
+        },
+        StrategyDesignRoleEntryV1 {
+            timeframe: "PT1H".into(),
+            ..role.clone()
+        },
+    ] {
+        assert!(!request_matches_authenticated_role_v1(
+            &universe,
+            &mismatched
+        ));
+    }
+
+    let mut instrument_set = request();
+    instrument_set.scope = UntrustedStrategyInputScope::InstrumentSet {
+        instruments: vec!["XNAS:AAPL".into()],
+    };
+    assert!(!request_matches_authenticated_role_v1(
+        &instrument_set,
+        &role
+    ));
 
     // The exact-instrument path is untouched: the repair narrows one branch, not the function.
     let exact_role = StrategyDesignRoleEntryV1 {

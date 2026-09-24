@@ -1,4 +1,5 @@
 import {
+  announcedOwnerReadBudgetMsV1,
   DEVELOP_COMPOSER_SHADOW_READ_OPERATION,
   operationByIdV1,
   ownerOperationUrlV1,
@@ -227,7 +228,9 @@ export async function readDevelopComposerGatewayV1({
       headers: { authorization: `Bearer ${target.token}` },
       redirect: "error",
       cache: "no-store",
-      signal: AbortSignal.timeout(operation.timeout_class.milliseconds),
+      signal: AbortSignal.timeout(
+        announcedOwnerReadBudgetMsV1("develop composer readback", operation.timeout_class.milliseconds),
+      ),
     });
     const body = await response.text();
     if (new TextEncoder().encode(body).byteLength > MAX_OWNER_RESPONSE_BYTES) {

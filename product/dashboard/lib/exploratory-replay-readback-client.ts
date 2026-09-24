@@ -1,4 +1,5 @@
 import {
+  announcedOwnerReadBudgetMsV1,
   EXPLORATORY_REPLAY_SHADOW_READ_OPERATION,
   operationByIdV1,
   ownerOperationUrlV1,
@@ -369,7 +370,9 @@ export async function resolveExploratoryReplayShadowV2({
       method: "GET",
       headers: { authorization: `Bearer ${token}` },
       cache: "no-store",
-      signal: AbortSignal.timeout(operation.timeout_class.milliseconds),
+      signal: AbortSignal.timeout(
+        announcedOwnerReadBudgetMsV1("exploratory replay readback", operation.timeout_class.milliseconds),
+      ),
     });
     const body = await response.text();
     if (new TextEncoder().encode(body).byteLength > MAX_OWNER_RESPONSE_BYTES) {

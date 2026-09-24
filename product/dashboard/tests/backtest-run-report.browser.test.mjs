@@ -158,8 +158,8 @@ test(browserAcceptance
 
   // What the Owner answers for each, read through the read API before any browser runs, so every
   // browser assertion below compares against the Owner's own answer rather than a constant.
-  // The chain read this code from Backtest custody's named refusal of this result, so it is the
-  // Owner's judgement and not a transport or storage failure. Which code it is depends on which check
+  // The chain took this code only from a refusal the Owner classifies as its judgement about the
+  // result (`is_owner_judgement`), so it is not a transport or storage failure. Which code it is depends on which check
   // the result fails first, so none is written here. Measured 2026-09-23: `SEMANTIC_TRACE_ABSENT`,
   // because the result chosen carries neither a semantic trace nor outcome evidence.
   const refusedOwnerCode = required("DASHBOARD_RUN_REPORT_REFUSED_OWNER_CODE", /^[A-Z][A-Z0-9_]*$/u);
@@ -168,17 +168,18 @@ test(browserAcceptance
     status: 503,
     body: { state: "UNAVAILABLE", reason: refusedOwnerCode },
   }, "the read API relays the Owner's refusal under the Owner's own code");
+  // The committed run's code, read the same way: the chain took it from the Owner's judgement
+  // about the run. Measured 2026-09-24: `NO_STRATEGY_STATEMENT_FOR_FAMILY`, because that run's
+  // engine executed a fixture program the single-threshold family does not author.
+  const runOwnerCode = required("DASHBOARD_RUN_REPORT_RUN_OWNER_CODE", /^[A-Z][A-Z0-9_]*$/u);
+  // With equal codes the run's case could not tell this run's answer from the other refusal's,
+  // and would pass on either.
+  assert.notEqual(runOwnerCode, refusedOwnerCode, "the two cases must render distinct Owner reasons");
   const runAnswer = await readApi(reportQuery(run), readApiUrl, readApiToken);
-  assert.equal(runAnswer.status, 200);
-  const { engine_result_digest: engineResultDigest, ...runLocator } = runAnswer.body.run;
-  assert.deepEqual(runLocator, {
-    result_identity: run.resultIdentity,
-    request_identity: run.requestIdentity,
-    attempt_identity: run.attemptIdentity,
-  });
-  assert.match(engineResultDigest, /^blake3:[0-9a-f]{64}$/u);
-  assert.equal(runAnswer.body.state, "AVAILABLE");
-  assert.ok(runAnswer.body.series.length >= 2, "the preceding entry committed at least two points");
+  assert.deepEqual(runAnswer, {
+    status: 503,
+    body: { state: "UNAVAILABLE", reason: runOwnerCode },
+  }, "the read API relays the Owner's refusal of the committed run under the Owner's own code");
 
   const origin = `http://127.0.0.1:${port}`;
   let preview;
@@ -217,19 +218,17 @@ test(browserAcceptance
       });
     });
 
-    // The Owner's projection states the result, the series and the fills, and not yet the strategy
-    // or the data window the document requires beside them, so the contract refuses it under a
-    // reason naming both. The available state is not constructible today: no request in the chain
-    // references a single-threshold Design (the preceding entry's run uses a repair fixture
-    // program), so once the Owner carries both blocks this run is refused by the Owner itself as
-    // outside the family, and the available state still needs a run that is inside it.
-    await t.test("the committed run's report is refused while the projection lacks strategy and data window", async () => {
-      assert.equal(Object.hasOwn(runAnswer.body, "strategy"), false);
-      assert.equal(Object.hasOwn(runAnswer.body, "data_window"), false);
+    // The Owner states a report only with its strategy and data window, and it states a strategy
+    // only for a program the single-threshold family authors. The preceding entry's run uses a
+    // repair fixture program, so the Owner refuses it as outside the family and the page renders
+    // that refusal. The available state is not constructible today: it needs a committed run of an
+    // authored single-threshold program, and an in-family run is still refused until its frozen
+    // program is anchored to the artifact it executed.
+    await t.test("the committed run's report renders the Owner's refusal under the Owner's reason", async () => {
       await openResult(browser, origin, run);
       assert.deepEqual(await readBrowserValue(browser, renderedReport()), {
         state: "unavailable",
-        reason: "BACKTEST_RUN_REPORT_KEYS_MISSING: data_window, strategy",
+        reason: runAnswer.body.reason,
         reports: 1,
       });
     });

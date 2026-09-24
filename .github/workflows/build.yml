@@ -217,6 +217,10 @@ jobs:
     name: pre-commit
     needs: plan
     runs-on: ubuntu-22.04
+    # Twice this job's slowest successful run: 1400s over its last 12 successful runs (2026-09-24).
+    # A hang anywhere in the job stops here rather than at GitHub's six-hour default. Re-measure
+    # and raise it once the job routinely takes half of it.
+    timeout-minutes: 47
     env:
       CARGO_TARGET_DIR: ${{ github.workspace }}/target/pre-commit
       CARGO_CI_PROFILE: ci-pr
@@ -249,6 +253,11 @@ jobs:
         run: bash scripts/ci/verify-ci-inputs.sh post-checkout
 
       - name: Common setup
+        # Twice this job's slowest successful Common setup (5 minutes at least): 48s over its last 12 successful
+        # runs (2026-09-24). A hung setup then fails as this step and keeps its log, instead of running
+        # to the job limit and being cancelled with none. Re-measure and raise it once setup
+        # routinely takes half of it.
+        timeout-minutes: 5
         uses: ./.github/actions/common-setup
         with:
           python-version: "3.13"
@@ -343,6 +352,10 @@ jobs:
           || fromJSON('["3.12", "3.13", "3.14"]') }}
     name: build - python ${{ matrix.python-version }} (ubuntu-22.04)
     runs-on: ubuntu-22.04
+    # Twice this job's slowest successful run: 2037s over its last 11 successful runs (2026-09-24).
+    # A hang anywhere in the job stops here rather than at GitHub's six-hour default. Re-measure
+    # and raise it once the job routinely takes half of it.
+    timeout-minutes: 68
     defaults:
       run:
         shell: bash
@@ -374,6 +387,11 @@ jobs:
         run: bash scripts/ci/verify-ci-inputs.sh post-checkout
 
       - name: Common setup
+        # Twice this job's slowest successful Common setup (5 minutes at least): 106s over its last 11 successful
+        # runs (2026-09-24). A hung setup then fails as this step and keeps its log, instead of running
+        # to the job limit and being cancelled with none. Re-measure and raise it once setup
+        # routinely takes half of it.
+        timeout-minutes: 5
         uses: ./.github/actions/common-setup
         with:
           python-version: ${{ matrix.python-version }}
@@ -469,6 +487,10 @@ jobs:
        github.ref == 'refs/heads/master')
     name: rust doctests (ubuntu-22.04)
     runs-on: ubuntu-22.04
+    # Twice this job's slowest successful run: 801s over its last 11 successful runs (2026-09-24).
+    # A hang anywhere in the job stops here rather than at GitHub's six-hour default. Re-measure
+    # and raise it once the job routinely takes half of it.
+    timeout-minutes: 27
     needs:
       - plan
     env:
@@ -501,6 +523,11 @@ jobs:
         run: bash scripts/ci/verify-ci-inputs.sh post-checkout
 
       - name: Common setup
+        # Twice this job's slowest successful Common setup (5 minutes at least): 107s over its last 11 successful
+        # runs (2026-09-24). A hung setup then fails as this step and keeps its log, instead of running
+        # to the job limit and being cancelled with none. Re-measure and raise it once setup
+        # routinely takes half of it.
+        timeout-minutes: 5
         uses: ./.github/actions/common-setup
         with:
           python-version: "3.13"
@@ -540,6 +567,10 @@ jobs:
        github.ref == 'refs/heads/master')
     name: rust tests (ubuntu-22.04)
     runs-on: ubuntu-22.04
+    # Twice this job's slowest successful run: 3228s over its last 10 successful runs (2026-09-24).
+    # A hang anywhere in the job stops here rather than at GitHub's six-hour default. Re-measure
+    # and raise it once the job routinely takes half of it.
+    timeout-minutes: 108
     needs:
       - plan
     env:
@@ -612,6 +643,11 @@ jobs:
         run: bash scripts/ci/verify-ci-inputs.sh post-checkout
 
       - name: Common setup
+        # Twice this job's slowest successful Common setup: 1233s over its last 10 successful
+        # runs (2026-09-24). A hung setup then fails as this step and keeps its log, instead of running
+        # to the job limit and being cancelled with none. Re-measure and raise it once setup
+        # routinely takes half of it.
+        timeout-minutes: 42
         uses: ./.github/actions/common-setup
         with:
           python-version: "3.13"
@@ -735,6 +771,9 @@ jobs:
         chain:
           - key: rd-owner
             name: rd owner postgres (ubuntu-22.04)
+            # Common setup: twice the slowest measured for this chain across build and owner-chains
+            # (530s, 2026-09-24). Re-measure and raise it once setup routinely takes half of it.
+            setup-timeout-minutes: 18
             step-timeout-minutes: 70
             job-timeout-minutes: 100
             make: >-
@@ -742,6 +781,9 @@ jobs:
               EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
           - key: market-data
             name: market data owner postgres (ubuntu-22.04)
+            # Common setup: twice the slowest measured for this chain across build and owner-chains
+            # (820s, 2026-09-24). Re-measure and raise it once setup routinely takes half of it.
+            setup-timeout-minutes: 28
             step-timeout-minutes: 15
             job-timeout-minutes: 40
             make: cargo-test-market-data-owner-postgres-isolated
@@ -786,6 +828,7 @@ jobs:
         run: bash scripts/ci/verify-ci-inputs.sh post-checkout
 
       - name: Common setup
+        timeout-minutes: ${{ matrix.chain.setup-timeout-minutes }}
         uses: ./.github/actions/common-setup
         with:
           python-version: "3.13"
@@ -853,6 +896,18 @@ jobs:
           name: chain-record-${{ matrix.chain.key }}
           path: target/nextest/chain-records/
           if-no-files-found: error
+          retention-days: 7
+
+      # A Market Data proof that ran past its wall clock leaves a record naming it
+      # (run_market_data_owner_postgres.bash); a run with none leaves nothing to publish.
+      - name: Publish which Market Data proof timed out
+        if: always() && matrix.chain.key == 'market-data'
+        # https://github.com/actions/upload-artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: chain-record-${{ matrix.chain.key }}
+          path: target/nextest/market-data-records/
+          if-no-files-found: ignore
           retention-days: 7
 
       - name: Clean Dashboard browser acceptance inputs

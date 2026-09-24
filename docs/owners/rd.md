@@ -336,7 +336,8 @@ origin, and no artifact-bound shape could supply one: a program's identity folds
 receipts the registration issues. This Owner therefore publishes a Design-level role intent, which
 names a Design, the Research request and custody it was admitted against, and the roles it declares,
 and nothing else. `POST /v1/strategy-designs/publish-role-intent` derives it from currently accepted
-custody and stores it write-once per Design;
+custody and stores it write-once per Design; from schema 2 it also names the Intent's initial PIT request, as the
+requested-instrument-scope contract below states;
 `rd_owner_api.resolve_design_role_intent_for_market_data_v1` exposes it to the Market Data reader
 principal alone. The ordered PostgreSQL chain witnesses a Design that nothing in
 `composer_private` names moving from no PIT coordinate to the one Market Data resolved, beside the attested admission it
@@ -887,8 +888,10 @@ Decision, Selection, and Candidate. Changing one creates a successor lineage rat
   initial PIT Market Snapshot Request it returns one move-only, Market Data-sealed `ResearchPitTerminal` correlated
   to the exact request identity and content digest, carrying the canonical six-state disposition `AVAILABLE`,
   `INSUFFICIENT`, `STALE`, `UNLICENSED`, `AMBIGUOUS`, or `UNAVAILABLE` and the exact Universe Selection Record
-  identity and digest. Only `AVAILABLE` may enter a frozen or successor Intent; every other state freezes only the
-  dependent Intent, and an absent response remains unknown. For a committed Market Data Repair Request it
+  identity and digest. The request binds the Intent identity, so it exists only after that Intent is frozen and its
+  terminal cannot enter that Intent: only an `AVAILABLE` initial terminal may be named by the Intent's Design role
+  intent or consumed by its exploratory Replay, every other state blocks only that Intent's downstream consumption,
+  and an absent response remains unknown. For a committed Market Data Repair Request it
   separately returns the correlated `AVAILABLE` or `UNAVAILABLE` terminal.
 - [Backtest](./backtest/) returns, for each R&D-owned Exploratory Replay Request, one Exploratory Run Result in
   exactly one of `RUN_REJECTED`, `IN_PROGRESS_OR_UNKNOWN`, `TERMINAL_RESULT`, or `INVALID_REPLAY_EVIDENCE`. The
@@ -923,6 +926,7 @@ Decision, Selection, and Candidate. Changing one creates a successor lineage rat
   content digest; the same identity and digest join one Market Data attempt, while a changed scope, cut,
   provenance, license, correction, or meaning requires a successor request. Transport success leaves the request
   `SUBMITTED_OR_UNKNOWN` and proves no snapshot availability.
+
 - To [Market Data](./market-data/): only a committed `REPAIR_INPUTS` Iteration Decision may produce a Market Data
   Repair Request. The request asks its native Owner to repair evidence; it does not prescribe an adapter, rewrite
   the old snapshot, or claim availability.
@@ -980,6 +984,67 @@ cut nor a row beyond its bound, so a consumer cannot state a coordinate this Own
 are independent: one answering unavailable or at a different cut withdraws only its own rows and counts. Neither
 read admits a Plan, Artifact, receipt bytes, source text, or any mutation, and neither is a Selection, Candidate or
 Qualification fact.
+
+**TARGET / IMPLEMENTATION_ADMITTED, the requested instrument scope and the initial PIT request:** a Research request
+states the instrument scope it studies, and this Owner never chooses it. The user admitted this on 2026-09-24,
+choosing, in these words (translated): "Specify it when submitting the research request (recommended): the research
+request form gains an 'instrument' field; this research and its backtests are bound to that instrument; to change the
+instrument, submit a successor research request. This agrees with the existing documented design: the initial PIT
+request binds 'the requested instrument or universe scope'."
+
+- `ProductEdgeResearchGoalRequestV3` is `ProductEdgeResearchGoalRequestV2` plus a required `instrument_scope`, a
+  `ResearchInstrumentScopeV1`: one or two distinct canonical Instrument Master identities, such as
+  `BTCUSDT-PERP.BINANCE`, in ascending byte order, matching the member counts the universe vertical admits. The
+  single-instrument route states one. Its canonical bytes are schema `u16LE = 1`, the member count `u8`, and each
+  identity length-prefixed (`u16LE`) in order; its identity is SHA-256 over
+  `rd.research-instrument-scope.v1\0 || canonical bytes`. On the wire it is the JSON object
+  `{"schema_version": 1, "identities": ["BTCUSDT-PERP.BINANCE"]}`; this Owner refuses an unknown schema, an empty,
+  duplicated or unordered list, or an identity that is empty, padded, holds a control character or exceeds 1024 UTF-8
+  bytes, and it computes the canonical bytes and identity itself, never taking them from a caller. Before accepting,
+  this Owner asks Market Data's admitted read surface whether every identity resolves and lies in the eligible
+  instrument frontier at Market Data's current decision cut; if one does not, the request closes
+  `REJECTED_NO_WRITE` with `INSTRUMENT_SCOPE_NOT_RESOLVABLE` and no Intent is frozen, so a mistyped instrument leaves
+  no accepted research that could never be backtested. That check only refuses early: Market Data's decision when the
+  initial PIT request is issued remains the guarantee, as in the universe-member binding. Which Market Data read
+  function answers it is agreed with Market Data; if none is admitted yet, providing one is part of this slice, never
+  a reason to skip the check. The request travels as
+  the `sourced-research-goal-v3` operation, submitted with `POST /v3/source-intake-research` and resolved with
+  `POST /v3/research-goals/{request_identity}/resolve`, beside the unchanged V2 routes. The scope is part of the
+  request's meaning, so the same
+  request identity with another scope is a changed meaning and is rejected. The frozen Research Intent (V3) binds the
+  scope identity and bytes. Changing the instrument means a successor Research request, with its own Intent and its
+  own initial PIT request; nothing rebinds an accepted Intent to another instrument.
+- A V2 request is still accepted unchanged. It states no scope, so no initial PIT request is issued for it, and the
+  Design role intent it can publish names no PIT request; Market Data refuses a universe-member declaration from such
+  an intent by name.
+- After the Intent is frozen and before any exploratory consumption, this Owner issues the initial PIT request in its
+  own step, taking only the Intent locator from its caller. It first states the selection rule to Market Data's
+  Universe Selection intake: the fixed-member rule, `[0,1,3]` followed by the scope's canonical bytes, with the scope
+  identity as its rule identity, which Market Data evaluates against its eligible-instrument frontier at its published
+  decision cut. R&D chooses no frontier and no member beyond the ones the user requested: the request carries the
+  current eligible-instrument frontier Market Data's read returns. It then freezes the PIT Market Snapshot Request:
+  `requester_identity` is Market Data's requester digest of the 32-byte Research request identity this Owner's Design
+  role intent carries (`rd.develop.request-identity.v2\0` over the request locator), so Market Data recomputes the
+  same value from the intent; this Owner writes it and never takes it from a caller;
+  `scope_digest` is the scope identity; the correlation is derived from the Intent identity; and the Source Binding,
+  Instrument Master, Market Semantics and decision-cut references are the ones Market Data's own read surfaces
+  resolve for that scope, as the Market Data contract states. The frozen request is stored write-once under the
+  Intent before it is sent, and every retry sends those stored bytes, so the same identity and digest join one
+  Market Data attempt: issuing again is idempotent. A refusal would strand an Intent whose first send ended
+  `SUBMITTED_OR_UNKNOWN`, which is why a retry joins rather than conflicts. The returned `ResearchPitTerminal` is
+  recorded against the Intent. The Research readback carries it as `initial_pit`: `null` for a V2 request,
+  `NOT_ISSUED` before this Owner has frozen the request, `SUBMITTED_OR_UNKNOWN` once it is sent and before a terminal
+  is recorded, and otherwise the recorded disposition, one of the six, with its primary blocker or `null`; a reader
+  never infers one of these from another. An instrument that passed the check
+  at acceptance but is not eligible at the request's decision cut still ends in a terminal that is not `AVAILABLE`:
+  nothing downstream of that Intent may consume it, and the remedy is a successor request.
+- The Design role intent (schema 2) additionally names that initial PIT request, read from this Owner's custody and
+  never from the publishing caller, and it is published only once the recorded terminal is `AVAILABLE`. Market Data
+  registers the Design's declarations against exactly that request instead of searching for one, so a request a
+  caller submitted under a forged `requester_identity` is never picked up. A successor PIT request of the same Intent
+  is named only by a role intent published after it; a published role intent never changes.
+
+Built so far: nothing.
 
 ## Rejections and prohibitions
 

@@ -211,7 +211,8 @@ and static rendering alone still establish neither live data nor deployed-browse
 The authenticated read API route is exactly
 `GET /v1/backtest-run-reports/{result_identity}?request_identity={request_identity}&attempt_identity={attempt_identity}`,
 keyed by the same three-field locator the `/backtest` result lookup already holds. It reads the Backtest
-Owner projection inside one R&D Owner transaction that is always rolled back. A report answers `200` with
+Owner projection through the Owner's own resolver, which opens its own `SERIALIZABLE, READ ONLY, DEFERRABLE`
+R&D Owner transaction and always rolls it back. A report answers `200` with
 the projection exactly as the Owner serialized it. An absent run answers `404` and an Owner refusal answers
 `503`, each with an envelope that carries `state: UNAVAILABLE` and the reason and nothing else: the absent
 run's reason is `BACKTEST_RUN_ABSENT`, a refusal's is the Owner's own code, and the refusal's sentence stays
@@ -389,6 +390,23 @@ interpretation, falsifiable goal, required-data list, cost and capacity assumpti
 proposal. It does not reconstruct these fields from Source custody, expose Owner internals, or accept raw JSON.
 The three content regions reuse shared `DetailInspector`, `FormField`, `Input`, and `Textarea` atoms; the action
 region reuses `ActionAdmissionGate` and the standard compact button variants.
+
+**TARGET / IMPLEMENTATION_ADMITTED, the Instrument field:** the control gains one required `Instrument` field in the
+research region, a canonical Instrument Master identity such as `BTCUSDT-PERP.BINANCE`, entered once and reusing the
+shared `FormField` and `Input` atoms. With it the control submits `ResearchGoalExecutionInputV3`, whose
+`instrument_scope` holds exactly that one identity, through the `sourced-research-goal-v3` operation; once built,
+the control submits only V3. The shared validator refuses an empty value, leading or trailing whitespace, a control
+character, or more than 1024 UTF-8 bytes before dispatch; whether the value names an eligible instrument is answered
+by R&D against Market Data, not by the form, and the control neither suggests nor defaults an instrument. The form no
+longer emits V2. A mistyped instrument closes as `REJECTED_NO_WRITE` with `INSTRUMENT_SCOPE_NOT_RESOLVABLE` and is
+shown as that terminal; the Research readback also shows the Owner's `initial_pit` value as it is stated -
+`NOT_ISSUED`, `SUBMITTED_OR_UNKNOWN`, or one of the six `ResearchPitTerminal` dispositions with its primary blocker -
+for an instrument that passed at acceptance, and `null` for an earlier V2 request, shown as having no initial PIT
+request; it never derives one state from another. The research and its
+backtests are bound to that instrument, and changing it means a successor research request, never an edit of a
+frozen one.
+The user's authority and the scope contract are stated in the [R&D Owner contract](../owners/rd). Built so far:
+nothing.
 
 Client and server import the same pure input validator. Plausible alternatives are canonicalized into unique
 UTF-8 byte order before validation; required data preserves the entered order. `RUN` freezes the complete request
@@ -648,6 +666,15 @@ action class. The action classes are exactly `SUBMIT_REPAIR_REQUEST`, `CREATE_SU
 repairs as Replay repairs or manufacture an evidence state absent from Owner custody. Duplicate, non-monotonic,
 cross-family, oversized, malformed, or concurrently inconsistent cuts fail closed. An empty verified Decision list is
 valid and means `AWAITING_REPLAY_RESULT`.
+
+The Formation catalog, the Iteration timeline, and the historical custody read stamp `observed_at_epoch_ms` from the
+R&D Owner's clock, `pg_catalog.clock_timestamp()` read inside an Owner transaction, which is the clock their commit
+times come from. It is compared only with those commit times, never with the Dashboard process's clock, which can
+differ from it. Each of these reads instead carries a fresh 128-bit nonce in the `x-dashboard-read-nonce` request
+header, and the read API returns that header unchanged only beside a `200` projection the Owner produced for that
+request: a read without exactly one well-formed nonce is refused with `400` before any Owner call, and a refusal or
+failure carries none. The BFF accepts an answer only when it echoes that read's own nonce, and treats any other as
+`OWNER_RESPONSE_UNAVAILABLE`.
 
 The `/rd/research` surface may render the shared `JourneyProgress` atom only after both the Formation row and its
 exact Iteration projection are available and identity-consistent. The Journey summarizes the current loop; it is not

@@ -23,8 +23,9 @@ use crate::complex_strategy_develop_evaluation::{
     UntrustedComplexStrategyDevelopEvaluationProposalV1,
 };
 use crate::dashboard_read::{
-    DashboardReadErrorV1, ResearchQuestionAvailabilityV1, ResearchQuestionDirectoryItemV1,
-    ResearchQuestionDirectoryOwnerPortV1, ResearchQuestionDirectoryReadbackV1, ResearchQuestionV1,
+    DashboardReadErrorV1, RdOwnerClockReadPortV1, ResearchQuestionAvailabilityV1,
+    ResearchQuestionDirectoryItemV1, ResearchQuestionDirectoryOwnerPortV1,
+    ResearchQuestionDirectoryReadbackV1, ResearchQuestionV1,
 };
 use crate::exploratory_replay::{
     ExploratoryReplayCommitResultV1, ExploratoryReplayCommitResultV2,
@@ -145,9 +146,11 @@ impl PostgresExploratoryReplayReadbackOwnerV2 {
 
     /// Reads one committed run's report through the Backtest Owner's run-report read.
     ///
-    /// Like the result read above, the transaction is always rolled back and this adapter exposes
-    /// no mutation method. A transaction that cannot begin or end is the Owner's custody being
-    /// unreadable, so it is named as that refusal rather than as a new one.
+    /// The Owner opens its own transaction: `SET TRANSACTION` must be a transaction's first
+    /// statement, and the report reads under `SERIALIZABLE, READ ONLY, DEFERRABLE`, so it cannot
+    /// take one from its caller. That transaction is always rolled back, and this adapter exposes
+    /// no mutation method. A transaction that cannot begin is the Owner's own refusal,
+    /// `READ_TRANSACTION_UNAVAILABLE`, not a new one here.
     pub async fn resolve_backtest_run_report_v1(
         &self,
         locator: crate::ExploratoryReplayResultLocatorV2<'_>,
@@ -155,16 +158,8 @@ impl PostgresExploratoryReplayReadbackOwnerV2 {
         Option<crate::backtest_run_report_read_v1::BacktestRunReportProjectionV1>,
         crate::backtest_run_report_read_v1::BacktestRunReportRefusalV1,
     > {
-        use crate::backtest_run_report_read_v1::{
-            BacktestRunReportRefusalV1, resolve_backtest_run_report_v1,
-        };
-
-        let unavailable =
-            |e: sqlx::Error| BacktestRunReportRefusalV1::OutcomeEvidenceUnavailable(e.to_string());
-        let mut transaction = self.pool.begin().await.map_err(unavailable)?;
-        let report = resolve_backtest_run_report_v1(&mut transaction, locator).await;
-        transaction.rollback().await.map_err(unavailable)?;
-        report
+        crate::backtest_run_report_read_v1::resolve_backtest_run_report_v1(&self.pool, locator)
+            .await
     }
 }
 
@@ -1033,11 +1028,12 @@ impl PostgresResearchGoalOwnerV1 {
             .connect(database_url)
             .await
             .map_err(|e| storage(&e))?;
-        if crate::schema_materialization::pre_cutover_materialization_is_admitted(&pool)
-            .await
-            .map_err(|e| storage(&e))?
+        if let Some(admitted) =
+            crate::schema_materialization::pre_cutover_materialization_is_admitted(&pool)
+                .await
+                .map_err(|e| storage(&e))?
         {
-            Self::migrate_rd_storage(&pool).await?;
+            Self::migrate_rd_storage(&pool, &admitted).await?;
             Self::verify_public_relation_shapes(&pool, true).await
         } else {
             Self::verify_public_relation_shapes(&pool, false).await?;
@@ -1089,7 +1085,10 @@ impl PostgresResearchGoalOwnerV1 {
         Ok(owner)
     }
 
-    async fn migrate_rd_storage(pool: &PgPool) -> Result<(), ResearchGoalOwnerError> {
+    async fn migrate_rd_storage(
+        pool: &PgPool,
+        admitted: &crate::schema_materialization::PreCutoverMaterializationAdmitted,
+    ) -> Result<(), ResearchGoalOwnerError> {
         require_rd_owner_api_schema(pool)
             .await
             .map_err(|e| storage(&e))?;
@@ -1478,10 +1477,10 @@ impl PostgresResearchGoalOwnerV1 {
                 .await
                 .map_err(|e| storage(&e))?;
         }
-        migrate_trial_family(pool)
+        migrate_trial_family(pool, admitted)
             .await
             .map_err(|e| trial_family_storage(&e))?;
-        crate::exploratory_replay::postgres::migrate(pool)
+        crate::exploratory_replay::postgres::migrate(pool, admitted)
             .await
             .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
         crate::complex_strategy_develop_evaluation::migrate(pool)
@@ -3290,6 +3289,13 @@ impl ResearchDirectoryOwnerPort for PostgresResearchReadbackOwnerV1 {
         limit: u32,
     ) -> Result<ResearchDirectoryReadbackV1, ResearchGoalOwnerError> {
         list_research_from_pool(&self.pool, after, limit).await
+    }
+}
+
+#[async_trait]
+impl RdOwnerClockReadPortV1 for PostgresResearchReadbackOwnerV1 {
+    async fn read_owner_clock_epoch_ms(&self) -> Result<u64, DashboardReadErrorV1> {
+        crate::dashboard_read::read_owner_clock_epoch_ms_v1(&self.pool).await
     }
 }
 

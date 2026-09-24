@@ -713,8 +713,7 @@ async fn validate_replay_first_corpus_claim_v1(
             .iter()
             .find(|dependency| {
                 dependency.role_identity == *request.input_role_identity.as_bytes()
-                    && dependency.binding_receipt_digest
-                        == *declaration.binding().digest().as_bytes()
+                    && dependency.binding_receipt_digest == *declaration.binding_digest().as_bytes()
             })
             .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
         let schedule = super::load_bar_schedule_readback(
@@ -1425,8 +1424,8 @@ impl ReplayCompositionOwnerV1 {
                 role_identity: role.role_identity,
                 declaration_identity: declaration.request_meaning_digest(),
                 declaration_digest: declaration.request_meaning_digest(),
-                binding_identity: declaration.binding().digest(),
-                binding_digest: declaration.binding().digest(),
+                binding_identity: declaration.binding_digest(),
+                binding_digest: declaration.binding_digest(),
             });
             declarations.push(declaration);
         }
@@ -2325,7 +2324,7 @@ pub(super) async fn verify_rd_replay_cut_transport_v1(
                     AND procedure.proparallel='u' AND NOT procedure.proleakproof
                     AND procedure.prokind='f' AND procedure.proretset
                     AND procedure.pronargs=$3
-                    AND procedure.proconfig=ARRAY['search_path=pg_catalog']::text[]
+                    AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[]
                     AND pg_catalog.has_function_privilege('rd_owner',procedure.oid,'EXECUTE')
                     AND (SELECT count(*)=2
                            AND count(*) FILTER (WHERE acl.grantee=procedure.proowner AND acl.privilege_type='EXECUTE')=1

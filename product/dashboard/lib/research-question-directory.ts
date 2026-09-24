@@ -1,6 +1,7 @@
 import { dashboardReadApiTargetV1 } from "./owner-api-target.ts";
 import type { HistoricalCustodyProjectionV1 } from "./rd-historical-custody-client.ts";
 import type { ResearchReadbackProjectionV1 } from "./research-readback-gateway.ts";
+import { announcedOwnerReadBudgetMsV1 } from "./operation-registry.ts";
 
 const MAX_RESPONSE_BYTES = 512 * 1024;
 const IDENTITY = /^[A-Za-z0-9._:/-]{16,128}$/u;
@@ -111,13 +112,17 @@ export function researchQuestionForReadbackV1(
     : null;
 }
 
-export async function readResearchQuestionDirectoryV1({ fetcher = fetch }: { fetcher?: Fetcher } = {}) {
-  const target = dashboardReadApiTargetV1();
+export async function readResearchQuestionDirectoryV1({
+  fetcher = fetch,
+  environment = process.env,
+}: { fetcher?: Fetcher; environment?: Record<string, string | undefined> } = {}) {
+  const target = dashboardReadApiTargetV1(environment);
   if (!target.baseUrl || !target.token) return { status: 503 as const, projection: null };
   try {
     const endpoint = new URL("/v1/research-goals/question-directory", target.baseUrl);
     const response = await fetcher(endpoint, { method: "GET", headers: { authorization: `Bearer ${target.token}` },
-      cache: "no-store", signal: AbortSignal.timeout(8_000) });
+      cache: "no-store",
+      signal: AbortSignal.timeout(announcedOwnerReadBudgetMsV1("rd research question directory", 8_000)) });
     const body = await response.text();
     if (!response.ok || new TextEncoder().encode(body).byteLength > MAX_RESPONSE_BYTES) {
       return { status: 502 as const, projection: null };

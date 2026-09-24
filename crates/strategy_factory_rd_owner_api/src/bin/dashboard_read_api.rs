@@ -58,6 +58,7 @@ mod tests {
     use axum::{
         extract::{Path, Query, State},
         http::{HeaderMap, StatusCode},
+        response::Response,
     };
     use rstest::rstest;
     use sha2::{Digest, Sha256};
@@ -96,7 +97,7 @@ mod tests {
         ExploratoryReplayHistoricalRejectionQueryV1, ExploratoryReplayReadbackOwnerPortV2,
         ExploratoryReplayReadbackQueryV2, ExploratoryReplayResultPathV2,
         ExploratoryReplayResultQueryV2, ExploratoryReplayResultReadbackOwnerPortV2,
-        ResearchDirectoryQueryV1, UnavailableDashboardJourneyReadbackV1,
+        READ_NONCE_HEADER, ResearchDirectoryQueryV1, UnavailableDashboardJourneyReadbackV1,
         UnavailableHistoricalCustodyV1, read_artifact, read_artifact_directory,
         read_artifact_source, read_backtest_run_report, read_develop_composer,
         read_exploratory_replay, read_exploratory_replay_historical_rejection,
@@ -399,6 +400,15 @@ mod tests {
         headers
     }
 
+    const NONCE: &str = "0123456789abcdef0123456789abcdef";
+
+    /// The read credential plus the one request nonce the Owner-clock reads require.
+    fn nonced_headers() -> HeaderMap {
+        let mut headers = headers();
+        headers.insert(READ_NONCE_HEADER, HeaderValue::from_static(NONCE));
+        headers
+    }
+
     #[tokio::test]
     async fn unauthorized_request_makes_zero_owner_calls() {
         let artifact = Arc::new(RecordingArtifact::default());
@@ -505,7 +515,7 @@ mod tests {
         api.formation_catalog = journey.clone();
         api.iteration_timeline = journey.clone();
         assert_eq!(
-            read_formation_catalog(State(api.clone()), headers())
+            read_formation_catalog(State(api.clone()), nonced_headers())
                 .await
                 .status(),
             StatusCode::OK
@@ -514,16 +524,20 @@ mod tests {
             read_iteration_timeline(
                 State(api.clone()),
                 Path("bad identity".to_owned()),
-                headers(),
+                nonced_headers(),
             )
             .await
             .status(),
             StatusCode::BAD_REQUEST
         );
         assert_eq!(
-            read_iteration_timeline(State(api), Path("trial-family-1".to_owned()), headers(),)
-                .await
-                .status(),
+            read_iteration_timeline(
+                State(api),
+                Path("trial-family-1".to_owned()),
+                nonced_headers(),
+            )
+            .await
+            .status(),
             StatusCode::OK
         );
         assert_eq!(journey.formation_calls.load(Ordering::SeqCst), 1);
@@ -575,7 +589,7 @@ mod tests {
         );
         assert_eq!(custody.calls.load(Ordering::SeqCst), 0);
         assert_eq!(
-            read_historical_custodies(State(api), headers())
+            read_historical_custodies(State(api), nonced_headers())
                 .await
                 .status(),
             StatusCode::OK
@@ -593,11 +607,127 @@ mod tests {
             Arc::new(RecordingSourceIntake::default()),
         );
         assert_eq!(
-            read_historical_custodies(State(api), headers())
+            read_historical_custodies(State(api), nonced_headers())
                 .await
                 .status(),
             StatusCode::SERVICE_UNAVAILABLE
         );
+    }
+
+    struct MissingTimeline;
+
+    #[async_trait]
+    impl IterationTimelineOwnerPortV1 for MissingTimeline {
+        async fn read_iteration_timeline(
+            &self,
+            _trial_family_identity: &str,
+        ) -> Result<IterationTimelineReadbackV1, DashboardReadErrorV1> {
+            Err(DashboardReadErrorV1::NotFound)
+        }
+    }
+
+    /// The three reads stamped from the R&D Owner's clock, each answered through `api`.
+    async fn owner_clock_reads(api: &ApiState, headers: &HeaderMap) -> [Response; 3] {
+        [
+            read_formation_catalog(State(api.clone()), headers.clone()).await,
+            read_historical_custodies(State(api.clone()), headers.clone()).await,
+            read_iteration_timeline(
+                State(api.clone()),
+                Path("trial-family-1".to_owned()),
+                headers.clone(),
+            )
+            .await,
+        ]
+    }
+
+    fn echoed_nonce(response: &Response) -> Vec<&[u8]> {
+        response
+            .headers()
+            .get_all(READ_NONCE_HEADER)
+            .iter()
+            .map(HeaderValue::as_bytes)
+            .collect()
+    }
+
+    /// The BFF cannot place these projections in its own request window, because they are stamped
+    /// from the Owner's clock, so the echoed nonce is its only proof that an answer is the one it
+    /// asked for. The nonce therefore comes back only beside an Owner projection: a read without
+    /// exactly one well-formed nonce never reaches the Owner, and a refusal or failure never carries
+    /// one, so no answer that is not this request's projection can pass for it.
+    #[tokio::test]
+    async fn owner_clock_reads_echo_the_request_nonce_only_beside_an_owner_answer() {
+        let journey = Arc::new(RecordingJourney::default());
+        let custody = Arc::new(RecordingHistoricalCustody::default());
+        let mut api = state(
+            Arc::new(RecordingArtifact::default()),
+            Arc::new(RecordingResearch::default()),
+            Arc::new(RecordingSourceIntake::default()),
+        );
+        api.formation_catalog = journey.clone();
+        api.iteration_timeline = journey.clone();
+        api.historical_custody = custody.clone();
+
+        for response in owner_clock_reads(&api, &nonced_headers()).await {
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(echoed_nonce(&response), [NONCE.as_bytes()]);
+        }
+        let calls = |journey: &RecordingJourney, custody: &RecordingHistoricalCustody| {
+            [
+                journey.formation_calls.load(Ordering::SeqCst),
+                custody.calls.load(Ordering::SeqCst),
+                journey.iteration_calls.load(Ordering::SeqCst),
+            ]
+        };
+        assert_eq!(calls(&journey, &custody), [1, 1, 1]);
+
+        let mut repeated = nonced_headers();
+        repeated.append(READ_NONCE_HEADER, HeaderValue::from_static(NONCE));
+        let malformed = [
+            "0123456789ABCDEF0123456789ABCDEF",
+            "0123456789abcdef0123456789abcde",
+            "0123456789abcdef0123456789abcdef0",
+            "0123456789abcdef0123456789abcdeg",
+            "",
+        ];
+        let mut refused = vec![headers(), repeated];
+        refused.extend(malformed.iter().map(|nonce| {
+            let mut headers = headers();
+            headers.insert(READ_NONCE_HEADER, HeaderValue::from_static(nonce));
+            headers
+        }));
+
+        for headers in &refused {
+            for response in owner_clock_reads(&api, headers).await {
+                assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{headers:?}");
+                assert!(echoed_nonce(&response).is_empty());
+            }
+        }
+        assert_eq!(calls(&journey, &custody), [1, 1, 1]);
+
+        let unavailable = state(
+            Arc::new(RecordingArtifact::default()),
+            Arc::new(RecordingResearch::default()),
+            Arc::new(RecordingSourceIntake::default()),
+        );
+
+        for response in owner_clock_reads(&unavailable, &nonced_headers()).await {
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+            assert!(echoed_nonce(&response).is_empty());
+        }
+        let mut missing = unavailable;
+        missing.iteration_timeline = Arc::new(MissingTimeline);
+        let [.., timeline] = owner_clock_reads(&missing, &nonced_headers()).await;
+        assert_eq!(timeline.status(), StatusCode::NOT_FOUND);
+        assert!(echoed_nonce(&timeline).is_empty());
+        let invalid_identity = read_iteration_timeline(
+            State(api),
+            Path("bad identity".to_owned()),
+            nonced_headers(),
+        )
+        .await;
+        assert_eq!(invalid_identity.status(), StatusCode::BAD_REQUEST);
+        assert!(echoed_nonce(&invalid_identity).is_empty());
+        assert_eq!(calls(&journey, &custody), [1, 1, 1]);
     }
 
     #[tokio::test]
@@ -1071,48 +1201,57 @@ mod tests {
         assert_eq!(cross_spliced.status(), StatusCode::NOT_FOUND);
     }
 
-    /// The code under which Backtest custody itself refused a run's report, or `None` when the
-    /// answer is anything else.
+    /// The code of the Owner's judgement about a run's report, or `None` when the answer is
+    /// anything else.
     ///
-    /// Only custody's named refusal is the Owner's judgement. A report, an absent run, a failed
-    /// transaction or storage read (`OUTCOME_EVIDENCE_UNAVAILABLE`), and a projection fault are not,
-    /// so an acceptance that took any of those as "the Owner refused" would go green on a database
-    /// hiccup.
-    fn custody_refusal_code(
+    /// Which refusals are the Owner's conclusion about the run, rather than a failure to read it,
+    /// is the Owner's to say: `BacktestRunReportRefusalV1::is_owner_judgement` lists every variant
+    /// with no wildcard arm. A report, an absent run, and a failed transaction, snapshot or storage
+    /// read are not judgements, so an acceptance that took them as "the Owner refused" would go
+    /// green on a database hiccup.
+    fn owner_judgement_code(
         answer: &Result<Option<BacktestRunReportProjectionV1>, BacktestRunReportRefusalV1>,
     ) -> Option<&'static str> {
         match answer {
-            Err(BacktestRunReportRefusalV1::OutcomeEvidenceRefused(refusal)) => {
-                Some(refusal.code())
-            }
+            Err(refusal) if refusal.is_owner_judgement() => Some(refusal.code()),
             _ => None,
         }
     }
 
     #[rstest]
-    fn only_custodys_named_refusal_counts_as_the_owners_code() {
-        let named = Err(BacktestRunReportRefusalV1::OutcomeEvidenceRefused(
-            BacktestReadbackRefusalV1::SemanticTraceAbsent,
-        ));
-        assert_eq!(custody_refusal_code(&named), Some("SEMANTIC_TRACE_ABSENT"));
+    fn only_the_owners_judgement_counts_as_its_code() {
+        for (judgement, code) in [
+            (
+                BacktestRunReportRefusalV1::OutcomeEvidenceRefused(
+                    BacktestReadbackRefusalV1::SemanticTraceAbsent,
+                ),
+                "SEMANTIC_TRACE_ABSENT",
+            ),
+            (
+                BacktestRunReportRefusalV1::NoStrategyStatementForFamily,
+                "NO_STRATEGY_STATEMENT_FOR_FAMILY",
+            ),
+        ] {
+            assert_eq!(owner_judgement_code(&Err(judgement)), Some(code));
+        }
 
-        // Negative controls: each of these reaches the page as a code, and none is custody's own.
+        // Negative controls: each of these reaches the page as a code, and none is a judgement.
         for answer in [
             Err(BacktestRunReportRefusalV1::OutcomeEvidenceUnavailable(
                 "storage unavailable".to_owned(),
             )),
-            Err(BacktestRunReportRefusalV1::EngineResultNoncanonical(
-                "truncated".to_owned(),
+            Err(BacktestRunReportRefusalV1::ReadTransactionUnavailable(
+                "could not serialize".to_owned(),
             )),
-            Err(BacktestRunReportRefusalV1::NonFiniteValue("net_return")),
+            Err(BacktestRunReportRefusalV1::ReportSnapshotUnavailable(1)),
+            Err(BacktestRunReportRefusalV1::ReplayRequestUnavailable(
+                "storage unavailable".to_owned(),
+            )),
+            Err(BacktestRunReportRefusalV1::FrozenDesignUnavailable),
             Ok(None),
         ] {
-            assert_eq!(custody_refusal_code(&answer), None, "{answer:?}");
+            assert_eq!(owner_judgement_code(&answer), None, "{answer:?}");
         }
-        assert_eq!(
-            BacktestRunReportRefusalV1::OutcomeEvidenceUnavailable(String::new()).code(),
-            "OUTCOME_EVIDENCE_UNAVAILABLE"
-        );
     }
 
     /// One exploratory result and the selector the `/backtest` workbench opens it with.
@@ -1190,10 +1329,11 @@ mod tests {
     ///
     /// It proves the unavailable state from a real Owner reason: a result the workbench can open,
     /// committed without outcome evidence, which the Backtest Owner refuses under its own code. It
-    /// then opens the run the preceding chain entry committed from a
-    /// real engine run and asserts what that run renders today. That run's engine bytes are real, but
-    /// its input is constructed quotes and it reached custody through a test writer, not through a
-    /// production-produced run. This entry must follow that one.
+    /// then opens the run the preceding chain entry committed from a real engine run, which the
+    /// Owner refuses too: its program is not one the single-threshold family authors, so the Owner
+    /// states no strategy for it. That run's engine bytes are real, but its input is constructed
+    /// quotes and it reached custody through a test writer, not through a production-produced run.
+    /// This entry must follow that one.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[ignore = "requires the ordered chain's committed run report, Dashboard dependencies and Chrome acceptance admission"]
     async fn backtest_run_report_browser_acceptance_reads_the_owner_answer() {
@@ -1296,7 +1436,7 @@ mod tests {
                 })
                 .await;
 
-            if let Some(code) = custody_refusal_code(&answer) {
+            if let Some(code) = owner_judgement_code(&answer) {
                 refused = Some((candidate, code));
                 break;
             }
@@ -1304,10 +1444,24 @@ mod tests {
         let (refused, refused_code) = refused.unwrap_or_else(|| {
             panic!(
                 "none of the {} results committed without outcome evidence both opens in the \
-                 workbench and is refused by name by Backtest custody, so no real Owner refusal \
-                 is reachable from the page",
+                 workbench and is refused by the Owner's judgement, so no real Owner refusal is \
+                 reachable from the page",
                 without_evidence.len()
             )
+        });
+
+        // The committed run's answer, read from the Owner the same way. It must be the Owner's
+        // judgement about the run: a transaction or storage failure also arrives as a code, and a
+        // browser held to that code would pass on a database hiccup.
+        let run_answer = owner
+            .resolve_backtest_run_report_v1(ExploratoryReplayResultLocatorV2 {
+                result_identity: &run.result_identity,
+                request_identity: &run.request_identity,
+                attempt_identity: &run.attempt_identity,
+            })
+            .await;
+        let run_code = owner_judgement_code(&run_answer).unwrap_or_else(|| {
+            panic!("the committed run's report is not an Owner refusal: {run_answer:?}")
         });
 
         let before = report_relation_counts(backtest_pool, rd_pool).await;
@@ -1348,7 +1502,8 @@ mod tests {
                 format!("http://{read_address}/"),
             )
             .env("RD_DASHBOARD_OWNER_READ_API_TOKEN", read_token)
-            .env("DASHBOARD_RUN_REPORT_REFUSED_OWNER_CODE", refused_code);
+            .env("DASHBOARD_RUN_REPORT_REFUSED_OWNER_CODE", refused_code)
+            .env("DASHBOARD_RUN_REPORT_RUN_OWNER_CODE", run_code);
 
         for (prefix, selected) in [("RUN", &run), ("REFUSED", &refused)] {
             browser

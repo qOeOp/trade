@@ -728,7 +728,10 @@ R&D 从 binding 及其 Replay facts 读取的内容，以及在 universe-member 
 
 exact-instrument 第一语料经 Instrument Master V1 解析其 instrument，而 V1 projection 无法构造原生 crypto
 perpetual（`require_complete_native_crypto_perpetual_construction` 恒拒绝），所以任何 exact-instrument 形状都无法
-运行用户准入的 crypto perpetual；universe-member 形状是它们的路线。目前已建成：无。
+运行用户准入的 crypto perpetual；universe-member 形状是它们的路线。目前已建成：durable declaration registry 如上段所述
+准入 universe-member declaration，将其绑定到该 role 的 universe frame，并拒绝 role 混用两种 scope 或指名多于一个
+selection 的 Design；联接单行的路径按名拒绝这种 declaration。尚无生产 registration 路径组装它：attested 与 role-intent
+两条 registration 仍把每个 role 组装为 exact instrument。该形状的 binding record、Replay frontier 与 resolved cut 均未建成。
 
 **TARGET，持久 R&D attestation seam：** positive R&D Develop Composer transaction 将一份不可变、完整的
 `StrategyDesignRoleSetReceiptV1` attestation 与 Composer aggregate、receipt 及 outbox 一起规范持久化。它绑定
@@ -1225,6 +1228,47 @@ declaration 而被拒；而 attestation 的作用域限于单个 Design，所以
 **NOT_ADMITTED：** caller-proposed Design/role/join 字段、receipt/readback/token、receipt
 hash、latest/history/full scan、raw R&D table parsing 或 Market Data storage 都不能认证 Design meaning；Market
 Data 不依赖 R&D，不拥有也不重新解释 Strategy Design role/join。
+
+**TARGET / IMPLEMENTATION_ADMITTED，Research request 的 instrument scope：** R&D Owner contract 允许 Research request
+以其 `ResearchInstrumentScopeV1` 指名一到两个规范 Instrument Master identity（用户于 2026-09-24 准入），并由 R&D
+据此签发 Intent 的初始 PIT request。Market Data 回答该 request，从不替用户选择 instrument。具体如下：
+
+- 固定成员 selection rule。在 canonical evaluator 今天准入的两种 rule（全部 frontier member `[0,1,1]` 与
+  instrument 前缀 `[0,1,2,..]`）之外，Universe Selection request 可以携带固定成员 rule：`[0,1,3]` 后接该 scope 的
+  canonical bytes，且 `selection_rule_identity` 等于 scope identity。无法解码为 scope 的 bytes、或任何其他 rule
+  identity 都被拒绝。Market Data 在 request 的 decision cut 上，对其当前持有的 eligible-instrument frontier 求值：
+  selection 恰好包含所请求的 identity，其余 frontier member 一律以 `RULE_FILTERED_V1` 排除。某个请求的 identity
+  在该 cut 上没有 Instrument Master fact 时按「unresolved」拒绝；在 frontier 中没有 eligible 且 included 的 fact
+  时按「不在 frontier 中」拒绝；二者都不会从 selection 中被丢弃而使 selection 成员变少。当前 frontier 是最近一次准入的
+  historical-membership frontier：每次准入都承接前一个 frontier，因此由 Market Data 而非请求方决定哪个 frontier 是当前的。
+- PIT 引用。R&D 通过一个读取函数 `market_data_rd_api.resolve_research_pit_references_v1(identities)` 解析初始 PIT
+  request 的全部 Market Data 引用，不自行提供任何值。该函数返回当前 eligible-instrument frontier；所请求 identity 的
+  frontier fact 所指名的那一条 Source Binding lineage 的 locator、lineage root、correction frontier 与 Market
+  Semantics identity；为它们解析出的 Instrument Master V1 digest；以及 Market Data 当前的 decision cut 连同 PIT intake
+  要逐字比对的 clock 证据。若某个 identity 不可准入，或这些 identity 的 fact 指名了不止一条 Source Binding lineage，
+  则不返回任何行，因为一个 PIT request 只绑定一个 Source Binding。intake 仍会重新校验 R&D 随后陈述的 Universe
+  Selection 与其冻结的 PIT request，并准入一到两个成员的 scope。
+- Requester identity。初始 PIT request 的 `requester_identity` 是对
+  `vibe.market-data.pit-requester.research-request.v1\0` 后接 Design role intent 所携带的 32 字节 Research request
+  identity 所做的 SHA-256；该 identity 即 R&D 对 request locator 所做的 `rd.develop.request-identity.v2` digest，
+  而不是对 request identity 字符串另做的任何 digest。Market Data 从该 role intent 字段重算并比对；它从不把 requester
+  反解回 Research request。
+- 按引用注册。schema 2 的 Design role intent 以 `(pit_request_identity, pit_request_digest)` 指名其初始 PIT
+  request。Market Data 恰好针对该 request 注册该 Design 的每个 role：它加载这一对所标识的 PIT lineage 及其 head，并在
+  request 未知、digest 不一致、head 不是带 observation batch 的 `AVAILABLE`，或其 `requester_identity` 不是上述针对该
+  intent 的 Research request 的值时按名拒绝，且零写入。universe-member role 以该 batch 导出的 Universe Selection
+  组装；exact-instrument role 在同一 batch 中绑定其 instrument。schema 1 的 intent 不指名任何 request：其
+  exact-instrument role 仍如上文各段所述按坐标解析，其 universe-member role 按名拒绝。universe-member Design 的
+  Composer attestation 从该 Design 已发布的 schema 2 role intent 取其 PIT request，从不取自 attestation。
+- 提前检查。R&D 在接纳 Research request 之前调用
+  `market_data_rd_api.check_research_instrument_scope_v1(identities)`，它按顺序为每个 identity 返回一行，在 Market
+  Data 当前的 decision cut 上取值 `ADMISSIBLE`、`UNRESOLVED` 或 `NOT_IN_ELIGIBLE_FRONTIER`。它是 `STABLE` 的，在调用方的
+  R&D 事务内不加行锁地运行，且不写入任何东西。它只做提前拒绝：PIT request 处的固定成员求值仍是决定，在检查时可准入的
+  identity 仍可能以非 `AVAILABLE` 的 terminal 结束。
+
+目前已建成：无。canonical evaluator 只准入全部成员与前缀两种 rule；eligible-instrument frontier 是调用方选定、
+没有任何准入去承接的 digest；没有任何读取能从 identity 解析出 Source Binding、Instrument Master fact 或 eligibility；
+PIT intake 只准入恰好一个成员；没有任何代码按 identity 读取 PIT request；registration 按坐标解析每个 role。
 
 Market Data 只消费、但不定义也不重新解释 R&D Owner contract 中明确规定的 big-endian canonical binary
 codec；其 JSON 表示不是 canonical receipt material。registration 必须通过固定 R&D adapter 取得

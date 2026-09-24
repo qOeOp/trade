@@ -5,6 +5,11 @@ import {
   RD_FORMATION_CATALOG_SHADOW_READ_OPERATION,
 } from "./operation-registry.ts";
 import { validOperationalRunReferenceV1 } from "./operational-run-reference.ts";
+import {
+  newOwnerReadNonceV1,
+  OWNER_READ_NONCE_HEADER,
+  ownerReadNonceEchoedV1,
+} from "./owner-read-nonce.ts";
 
 const MAX_OWNER_RESPONSE_BYTES = 1_048_576;
 const IDENTITY = /^[A-Za-z0-9._:/-]{1,256}$/;
@@ -20,10 +25,6 @@ const RESEARCH_NEXT_LEGAL_ACTIONS = [
 
 type Json = Record<string, unknown>;
 type Fetcher = typeof fetch;
-type ObservationWindowV1 = {
-  requestStartedAtEpochMs: number;
-  responseObservedAtEpochMs: number;
-};
 
 export type RdFormationCatalogAttemptResolutionV1 = typeof ATTEMPT_RESOLUTIONS[number];
 export type RdFormationCatalogResearchViewAvailabilityV1 = typeof RESEARCH_VIEW_AVAILABILITIES[number];
@@ -186,10 +187,10 @@ function parseFamily(value: unknown): RdFormationCatalogFamilyV1 | null {
   };
 }
 
-export function parseRdFormationCatalogOwnerV1(
-  value: unknown,
-  observationWindow: ObservationWindowV1,
-): RdFormationCatalogProjectionV1 | null {
+// The observation time is the R&D Owner's clock, so it is compared only with the commit times that
+// clock stamped, never with this process's; `resolveRdFormationCatalogShadowV1` binds the answer
+// to its request by the echoed nonce instead.
+export function parseRdFormationCatalogOwnerV1(value: unknown): RdFormationCatalogProjectionV1 | null {
   if (!object(value) || !exactKeys(value, [
     "schema_version", "operation", "completeness", "observed_at_epoch_ms", "families",
   ]) || value.schema_version !== 1 || value.operation !== "rd.formation_catalog.read.v1"
@@ -197,11 +198,6 @@ export function parseRdFormationCatalogOwnerV1(
     || !["COMPLETE", "PARTIAL_UNAVAILABLE"].includes(value.completeness)
     || !epoch(value.observed_at_epoch_ms) || !Array.isArray(value.families)) return null;
   const observedAtEpochMs = value.observed_at_epoch_ms;
-  if (!epoch(observationWindow.requestStartedAtEpochMs)
-    || !epoch(observationWindow.responseObservedAtEpochMs)
-    || observationWindow.requestStartedAtEpochMs > observationWindow.responseObservedAtEpochMs
-    || observedAtEpochMs < observationWindow.requestStartedAtEpochMs
-    || observedAtEpochMs > observationWindow.responseObservedAtEpochMs) return null;
   const families = value.families.map(parseFamily);
   if (families.some((entry) => entry === null)) return null;
   const parsed = families as RdFormationCatalogFamilyV1[];
@@ -241,10 +237,7 @@ export function parseRdFormationCatalogOwnerV1(
   };
 }
 
-function parseDashboardProjection(
-  value: unknown,
-  transportObservedAtEpochMs: number,
-): RdFormationCatalogProjectionV1 | null {
+function parseDashboardProjection(value: unknown): RdFormationCatalogProjectionV1 | null {
   if (!object(value) || !exactKeys(value, [
     "resolution", "completeness", "observedAtEpochMs", "families",
   ]) || typeof value.resolution !== "string"
@@ -306,11 +299,7 @@ function parseDashboardProjection(
     observed_at_epoch_ms: value.observedAtEpochMs,
     families: ownerFamilies,
   };
-  const operation = operationByIdV1(RD_FORMATION_CATALOG_SHADOW_READ_OPERATION);
-  return parseRdFormationCatalogOwnerV1(ownerShape, {
-    requestStartedAtEpochMs: transportObservedAtEpochMs - operation.timeout_class.milliseconds,
-    responseObservedAtEpochMs: transportObservedAtEpochMs,
-  });
+  return parseRdFormationCatalogOwnerV1(ownerShape);
 }
 
 export function parseRdFormationCatalogDirectEnvelopeV1(
@@ -323,7 +312,7 @@ export function parseRdFormationCatalogDirectEnvelopeV1(
     || value.operation !== RD_FORMATION_CATALOG_SHADOW_READ_OPERATION
     || value.channel !== "DASHBOARD_SHADOW_READ" || !isoInstant(value.transport_observed_at)
     || value.availability !== "available" || value.unavailable_reason !== null) return null;
-  return parseDashboardProjection(value.projection, Date.parse(value.transport_observed_at));
+  return parseDashboardProjection(value.projection);
 }
 
 export function parseRdFormationCatalogShadowEnvelopeV1(
@@ -343,8 +332,7 @@ export function parseRdFormationCatalogShadowEnvelopeV1(
       "schema_version", "availability", "unavailable_reason", "run_identity", "state",
       "owner_outcome_state", "transition_version",
     ])) return null;
-  const transportObservedAtEpochMs = Date.parse(value.transport_observed_at);
-  const projection = parseDashboardProjection(value.projection, transportObservedAtEpochMs);
+  const projection = parseDashboardProjection(value.projection);
   if (!projection || !validOperationalRunReferenceV1(
     value.operational_run,
     value.availability === "available" ? "available" : "unavailable",
@@ -411,11 +399,12 @@ export async function resolveRdFormationCatalogShadowV1({
     console.error(`rd formation catalog: reading with an overridden ${budgetMs}ms budget, not the declared ${
       operation.timeout_class.milliseconds}ms`);
   }
+  const nonce = newOwnerReadNonceV1();
   const requestStartedAtEpochMs = now();
   try {
     const response = await fetcher(endpoint, {
       method: "GET",
-      headers: { authorization: `Bearer ${token}` },
+      headers: { authorization: `Bearer ${token}`, [OWNER_READ_NONCE_HEADER]: nonce },
       cache: "no-store",
       signal: AbortSignal.timeout(budgetMs),
     });
@@ -439,18 +428,14 @@ export async function resolveRdFormationCatalogShadowV1({
         responseObservedAtEpochMs - requestStartedAtEpochMs}ms`);
       return unavailable("OWNER_TRANSPORT_UNAVAILABLE", 503, responseObservedAtEpochMs);
     }
-    if (!response.ok) return unavailable("OWNER_RESPONSE_UNAVAILABLE", 502, responseObservedAtEpochMs);
+    if (!response.ok || !ownerReadNonceEchoedV1(response, nonce)) {
+      return unavailable("OWNER_RESPONSE_UNAVAILABLE", 502, responseObservedAtEpochMs);
+    }
     let raw: unknown;
     try { raw = JSON.parse(body); } catch {
       return unavailable("OWNER_RESPONSE_UNAVAILABLE", 502, responseObservedAtEpochMs);
     }
-    const projection = parseRdFormationCatalogOwnerV1(raw, {
-      requestStartedAtEpochMs: Math.max(
-        0,
-        requestStartedAtEpochMs - budgetMs,
-      ),
-      responseObservedAtEpochMs,
-    });
+    const projection = parseRdFormationCatalogOwnerV1(raw);
     if (!projection) return unavailable("OWNER_RESPONSE_UNAVAILABLE", 502, responseObservedAtEpochMs);
     return {
       status: 200,

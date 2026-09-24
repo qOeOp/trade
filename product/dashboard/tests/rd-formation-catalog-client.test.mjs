@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { OWNER_READ_NONCE_HEADER } from "../lib/owner-read-nonce.ts";
 import { resolveRdFormationCatalogShadowV1 } from "../lib/rd-formation-catalog-client.ts";
 
 function ownerReadback(observedAtEpochMs, families = []) {
@@ -44,35 +45,68 @@ function clock() {
   return () => times.shift() ?? 10_020;
 }
 
-test("transport admits bounded Owner clock skew", async () => {
-  const result = await resolveRdFormationCatalogShadowV1({
+// The read API's side of the binding: the nonce this read sent comes back beside the projection.
+function owner(body, { echo = (nonce) => nonce, status = 200 } = {}) {
+  const nonces = [];
+  const fetcher = async (_url, init) => {
+    const nonce = init.headers[OWNER_READ_NONCE_HEADER];
+    nonces.push(nonce);
+    const echoed = echo(nonce);
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: echoed === undefined ? {} : { [OWNER_READ_NONCE_HEADER]: echoed },
+    });
+  };
+  return { fetcher, nonces };
+}
+
+async function read(fetcher) {
+  return resolveRdFormationCatalogShadowV1({
     baseUrl: "http://owner.test",
     token: "opaque-test-token",
     now: clock(),
-    fetcher: async () => new Response(JSON.stringify(ownerReadback(9_990))),
+    fetcher,
   });
-  assert.equal(result.status, 200);
-  assert.equal(result.envelope.availability, "available");
+}
+
+test("each read sends its own fresh nonce", async () => {
+  const { fetcher, nonces } = owner(ownerReadback(9_990));
+  assert.equal((await read(fetcher)).status, 200);
+  assert.equal((await read(fetcher)).status, 200);
+  assert.equal(nonces.length, 2);
+  for (const nonce of nonces) assert.match(nonce, /^[0-9a-f]{32}$/u);
+  assert.notEqual(nonces[0], nonces[1]);
 });
 
-test("transport rejects an Owner observation outside the read window", async () => {
-  const result = await resolveRdFormationCatalogShadowV1({
-    baseUrl: "http://owner.test",
-    token: "opaque-test-token",
-    now: clock(),
-    fetcher: async () => new Response(JSON.stringify(ownerReadback(1_999))),
-  });
-  assert.equal(result.status, 502);
-  assert.equal(result.envelope.availability, "unavailable");
+// The Owner stamps its observation from its own clock, which can run ahead of this process's: a
+// Docker Desktop VM's does. The echoed nonce, not this process's clock, is what binds the answer.
+test("an Owner observation on a clock ahead of this process's is this read's answer", async () => {
+  const result = await read(owner(ownerReadback(20_000, [completeFamily()])).fetcher);
+  assert.equal(result.status, 200);
+  assert.equal(result.envelope.availability, "available");
+  assert.equal(result.envelope.projection.observedAtEpochMs, 20_000);
+});
+
+test("an answer that does not echo this read's nonce is not its answer", async () => {
+  for (const echo of [
+    () => undefined,
+    () => "0".repeat(32),
+    (nonce) => nonce.toUpperCase(),
+    (nonce) => `${nonce}, ${nonce}`,
+  ]) {
+    const result = await read(owner(ownerReadback(9_990), { echo }).fetcher);
+    assert.deepEqual([result.status, result.envelope.unavailable_reason], [502, "OWNER_RESPONSE_UNAVAILABLE"]);
+    assert.equal(result.envelope.projection.families.length, 0);
+  }
+});
+
+test("a commit later than the Owner's own observation fails closed", async () => {
+  const result = await read(owner(ownerReadback(9_940, [completeFamily()])).fetcher);
+  assert.deepEqual([result.status, result.envelope.unavailable_reason], [502, "OWNER_RESPONSE_UNAVAILABLE"]);
 });
 
 test("typed formation catalog retains exact attempt and Research enums", async () => {
-  const result = await resolveRdFormationCatalogShadowV1({
-    baseUrl: "http://owner.test",
-    token: "opaque-test-token",
-    now: clock(),
-    fetcher: async () => new Response(JSON.stringify(ownerReadback(9_990, [completeFamily()]))),
-  });
+  const result = await read(owner(ownerReadback(9_990, [completeFamily()])).fetcher);
   assert.equal(result.status, 200);
   const family = result.envelope.projection.families[0];
   assert.equal(family.research.viewAvailability, "AVAILABLE");
@@ -90,12 +124,7 @@ test("unknown attempt and Research enums fail closed", async () => {
   ]) {
     const family = completeFamily();
     mutate(family);
-    const result = await resolveRdFormationCatalogShadowV1({
-      baseUrl: "http://owner.test",
-      token: "opaque-test-token",
-      now: clock(),
-      fetcher: async () => new Response(JSON.stringify(ownerReadback(9_990, [family]))),
-    });
+    const result = await read(owner(ownerReadback(9_990, [family])).fetcher);
     assert.equal(result.status, 502);
     assert.equal(result.envelope.availability, "unavailable");
     assert.equal(result.envelope.projection.families.length, 0);

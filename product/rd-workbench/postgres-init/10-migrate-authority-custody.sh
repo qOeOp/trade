@@ -1065,8 +1065,8 @@ AS $function$
         END
 $function$;
 -- END NATIVE_SOURCE_STORAGE_SOURCE_V2
--- BEGIN SELECTOR_RESOLVER_SOURCE_V2
-CREATE OR REPLACE FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(
+-- BEGIN READ_SELECTOR_SOURCE_V2
+CREATE OR REPLACE FUNCTION rd_owner_api.read_exploratory_replay_request_v2(
   requested_request_identity text,
   requested_meaning_digest text
 )
@@ -1083,8 +1083,7 @@ AS $function$
            WHERE request_identity=requested_request_identity
              AND request_schema_version=2
              AND frozen_json->>'request_schema_version'='2'
-             AND v2_meaning_digest=requested_meaning_digest
-           FOR SHARE;
+             AND v2_meaning_digest=requested_meaning_digest;
           IF stored_receipt_identity IS NULL OR stored_seal_digest IS NULL THEN RETURN NULL; END IF;
           storage := rd_owner_api.resolve_native_replay_source_storage_v2(
             requested_request_identity,requested_meaning_digest,
@@ -1093,6 +1092,25 @@ AS $function$
           IF storage IS NULL OR storage->>'custody_state'='CORRUPT_PARTIAL' THEN RETURN NULL; END IF;
           RETURN storage->'replay';
         EXCEPTION WHEN no_data_found OR too_many_rows THEN RETURN NULL;
+        END
+        $function$;
+-- END READ_SELECTOR_SOURCE_V2
+-- BEGIN SELECTOR_RESOLVER_SOURCE_V2
+CREATE OR REPLACE FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(
+  requested_request_identity text,
+  requested_meaning_digest text
+)
+RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY INVOKER
+SET search_path = pg_catalog
+AS $function$
+        BEGIN
+          PERFORM 1
+             FROM public.rd_sealed_exploratory_replay_requests_v1
+            WHERE request_identity=requested_request_identity
+            FOR SHARE;
+          RETURN rd_owner_api.read_exploratory_replay_request_v2(
+            requested_request_identity,requested_meaning_digest
+          );
         END
         $function$;
 -- END SELECTOR_RESOLVER_SOURCE_V2
@@ -1113,6 +1131,7 @@ ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,t
 ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner;
 ALTER FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner;
 ALTER FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) OWNER TO rd_owner;
+ALTER FUNCTION rd_owner_api.read_exploratory_replay_request_v2(text,text) OWNER TO rd_owner;
 ALTER FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner;
 REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text) FROM PUBLIC, rd_fact_writer, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner;
 REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) FROM PUBLIC, rd_fact_writer, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner;
@@ -1148,6 +1167,8 @@ END
 $replay_internal_verifier_acl$;
 REVOKE ALL ON FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) FROM PUBLIC, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_writer, operator_authorization_writer;
 GRANT EXECUTE ON FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) TO rd_owner;
+REVOKE ALL ON FUNCTION rd_owner_api.read_exploratory_replay_request_v2(text,text) FROM PUBLIC, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_writer, operator_authorization_writer;
+GRANT EXECUTE ON FUNCTION rd_owner_api.read_exploratory_replay_request_v2(text,text) TO rd_owner;
 REVOKE ALL ON FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text) FROM PUBLIC, rd_owner, rd_fact_writer, market_data_reader, backtest_owner, product_edge_owner, qualification_writer, operator_authorization_writer;
 GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text) TO market_data_owner;
 GRANT SELECT ON TABLE
@@ -2340,7 +2361,7 @@ CREATE OR REPLACE FUNCTION qualification_api.lock_protected_replay_request_v1(
   requested_seal_digest text
 )
 RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE locked jsonb;
 BEGIN
@@ -2429,7 +2450,7 @@ CREATE OR REPLACE FUNCTION qualification_api.lock_protected_replay_request_set_v
   requested_request_set_digest text
 )
 RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE locked jsonb;
 BEGIN
@@ -2516,7 +2537,7 @@ CREATE OR REPLACE FUNCTION qualification_api.lock_projection_for_basis_v1(
   requested_principal_scope_key text
 )
 RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
   owner_cut_epoch_ms bigint;
@@ -2585,7 +2606,7 @@ GRANT EXECUTE ON FUNCTION qualification_api.lock_projection_for_basis_v1(text,te
 
 CREATE OR REPLACE FUNCTION qualification_api.canonical_json_text_v1(value jsonb)
 RETURNS text LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
   SELECT CASE pg_catalog.jsonb_typeof(value)
     WHEN 'object' THEN COALESCE((
@@ -2610,7 +2631,7 @@ REVOKE ALL ON FUNCTION qualification_api.canonical_json_text_v1(jsonb) FROM PUBL
 
 CREATE OR REPLACE FUNCTION qualification_api.canonical_json_digest_v1(domain text, value jsonb)
 RETURNS text LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
   SELECT 'sha256:' || pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(
     '{"domain":' || pg_catalog.to_json(domain)::text || ',"value":' || qualification_api.canonical_json_text_v1(value) || '}',
@@ -2622,7 +2643,7 @@ REVOKE ALL ON FUNCTION qualification_api.canonical_json_digest_v1(text,jsonb) FR
 
 CREATE OR REPLACE FUNCTION qualification_api.canonical_bytes_storage_digest_v1(domain text, value bytea)
 RETURNS text LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
   SELECT 'sha256:' || pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(
     '{"domain":' || pg_catalog.to_json(domain)::text || ',"value":[' || COALESCE((
@@ -2637,7 +2658,7 @@ REVOKE ALL ON FUNCTION qualification_api.canonical_bytes_storage_digest_v1(text,
 
 CREATE OR REPLACE FUNCTION qualification_api.canonical_ordered_json_digest_v1(domain text, value_text text)
 RETURNS text LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
   SELECT CASE WHEN value_text::jsonb IS NULL THEN NULL ELSE
     'sha256:' || pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(
@@ -2656,7 +2677,7 @@ CREATE OR REPLACE FUNCTION qualification_api.protected_replay_request_semantic_d
   requested_request_digest text
 )
 RETURNS boolean LANGUAGE plpgsql IMMUTABLE STRICT PARALLEL SAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
   request_text text := pg_catalog.convert_from(canonical_request_bytes, 'UTF8');
@@ -2732,7 +2753,7 @@ CREATE OR REPLACE FUNCTION qualification_api.protected_replay_request_set_is_cus
   requested_request_set_identity text
 )
 RETURNS boolean LANGUAGE sql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
   SELECT EXISTS (
     SELECT 1
@@ -2930,7 +2951,7 @@ CREATE OR REPLACE FUNCTION qualification_api.public_status_expected_opaque_refer
   native_source_digest text
 )
 RETURNS text LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
   SELECT 'qualification-public-reference-v1-' || pg_catalog.replace(
     qualification_api.canonical_ordered_json_digest_v1(
@@ -2957,7 +2978,7 @@ CREATE OR REPLACE FUNCTION qualification_api.public_status_expected_fact_digest_
   source_frontier_is_current boolean
 )
 RETURNS text LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
   SELECT qualification_api.canonical_ordered_json_digest_v1(
     'qualification.public-status-fact.v1',
@@ -2983,7 +3004,7 @@ CREATE OR REPLACE FUNCTION qualification_api.public_status_native_source_is_cust
   requested_committed_at_epoch_ms bigint
 )
 RETURNS boolean LANGUAGE sql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
   SELECT CASE requested_phase_sequence
     WHEN 1 THEN EXISTS (
@@ -3281,7 +3302,7 @@ CREATE OR REPLACE FUNCTION qualification_api.read_public_status_v1(
   requested_review_request_identity text
 )
 RETURNS jsonb LANGUAGE sql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
   SELECT pg_catalog.jsonb_build_object(
            'schema_version', 1,
@@ -3447,7 +3468,7 @@ REVOKE ALL ON ALL TABLES IN SCHEMA operator_authorization_private FROM PUBLIC, r
 
 CREATE OR REPLACE FUNCTION operator_authorization_api.lock_current_authorization_v1(requested_authorization_identity text, requested_issuance_receipt_identity text)
 RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path = pg_catalog, operator_authorization_private
+SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
   issuance operator_authorization_private.operator_authorization_issuances_v1%ROWTYPE;
@@ -3491,7 +3512,7 @@ GRANT EXECUTE ON FUNCTION operator_authorization_api.lock_current_authorization_
 
 CREATE OR REPLACE FUNCTION operator_authorization_api.resolve_authorization_snapshot_v1(requested_authorization_identity text, requested_issuance_receipt_identity text)
 RETURNS jsonb LANGUAGE plpgsql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
-SET search_path = pg_catalog, operator_authorization_private
+SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
   issuance operator_authorization_private.operator_authorization_issuances_v1%ROWTYPE;
@@ -3735,7 +3756,7 @@ $product_edge_ownership$;
 
 CREATE OR REPLACE FUNCTION product_edge_api.lock_legacy_prepared_attempt_drain_effects_v1()
 RETURNS jsonb LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
 BEGIN
   IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF;
@@ -3754,7 +3775,7 @@ CREATE OR REPLACE FUNCTION product_edge_api.read_legacy_prepared_attempt_absence
   requested_attempt_identity text
 )
 RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
   admission_count bigint;
@@ -3798,7 +3819,7 @@ CREATE OR REPLACE FUNCTION product_edge_api.lock_downstream_admission_v1(
   requested_admission_digest text
 )
 RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
   hinted_admission public.product_edge_request_admissions_v1%ROWTYPE;
@@ -3950,7 +3971,7 @@ CREATE OR REPLACE FUNCTION product_edge_api.resolve_historical_downstream_admiss
   requested_admission_digest text
 )
 RETURNS jsonb LANGUAGE plpgsql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
   hinted_admission public.product_edge_request_admissions_v1%ROWTYPE;
@@ -4042,7 +4063,7 @@ CREATE OR REPLACE FUNCTION product_edge_api.lock_source_invocation_state_v1(
   requested_state text
 )
 RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
   locked_admission record;
@@ -4149,7 +4170,7 @@ CREATE OR REPLACE FUNCTION product_edge_api.lock_source_invocation_claim_v1(
   requested_attempt_identity text
 )
 RETURNS jsonb LANGUAGE sql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
   SELECT product_edge_api.lock_source_invocation_state_v1($1,$2,$3,'CLAIMED')
 $function$;
@@ -4163,7 +4184,7 @@ CREATE OR REPLACE FUNCTION product_edge_api.lock_source_invocation_started_v1(
   requested_attempt_identity text
 )
 RETURNS jsonb LANGUAGE sql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
   SELECT product_edge_api.lock_source_invocation_state_v1($1,$2,$3,'INVOCATION_STARTED')
 $function$;
@@ -4179,7 +4200,7 @@ CREATE OR REPLACE FUNCTION product_edge_api.lock_portfolio_read_policy_v1(
   requested_admission_digest text
 )
 RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
   operator_authorization_envelope jsonb;

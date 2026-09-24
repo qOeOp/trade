@@ -84,8 +84,9 @@ mod tests {
     use rstest::rstest;
 
     /// The research-custody sources: everything that stamps a research view or compares a cut
-    /// with one.
-    const RESEARCH_CUSTODY_SOURCES: [(&str, &str); 7] = [
+    /// with one, and the Dashboard projections whose observation time is compared with the commit
+    /// times they carry.
+    const RESEARCH_CUSTODY_SOURCES: [(&str, &str); 9] = [
         ("rd_owner_clock.rs", include_str!("rd_owner_clock.rs")),
         (
             "product_edge_postgres.rs",
@@ -110,6 +111,11 @@ mod tests {
         (
             "rd_owner_postgres_custody.rs",
             include_str!("rd_owner_postgres_custody.rs"),
+        ),
+        ("dashboard_read.rs", include_str!("dashboard_read.rs")),
+        (
+            "rd_historical_custody_postgres.rs",
+            include_str!("rd_historical_custody_postgres.rs"),
         ),
     ];
 

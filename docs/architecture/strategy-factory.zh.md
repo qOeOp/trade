@@ -138,7 +138,8 @@ R&D 内的 Develop 能力返回内容寻址 Strategy Artifact 和 Build Receipt�
   成员的 universe；准入单成员不改变任何双成员的行为或字节。用户于 2026-09-24 选定加密永续合约与单品种策略为首个产品范围时准入了这一点，
   原话为："我会把执行链的成员数从「恰好 2」放宽到支持 1 个，这是文档里写着的有界切片，放宽要改文档但不移除任何性质"。
   单品种策略是一份角色使用 `UniverseMembers` scope 的 Design，运行在单成员的 Owner-sealed universe 上；instrument 由
-  Market Data universe selection 在请求时选定，而不是由 Design 选定。角色为 `EXACT_INSTRUMENT` 的 Design 在 Owner
+  Research request 指名，由 Market Data universe selection 在请求时求值，因此既不由 Design 也不由 R&D 选定（该请求
+  范围由 R&D Owner 契约陈述）。角色为 `EXACT_INSTRUMENT` 的 Design 在 Owner
   universe 下仍被拒绝，由实现改动引入的具名拒绝 `ExactInstrumentRolesUnderOwnerUniverse` 给出。universe 纵向切片的输入契约（准确
   一个固定 `OPEN` 与一个固定 `CLOSE` member role）不变；single-threshold 编写面新增 universe-member 形态，其 channel
   是该成员的日线收盘价，并以承载 input 的方式携带固定的 open role，其程序从不读取它。编写请求在必填的 `scope`

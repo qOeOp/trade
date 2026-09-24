@@ -67,6 +67,11 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Common setup without Actions caches
+        # No successful run of this job to measure yet (2026-09-24), so twice the slowest Common setup
+        # measured in any job: 1233s, rust tests. A hung setup fails here with its log instead of
+        # running to the job limit. Replace with this job's own measurement after its first
+        # successful runs.
+        timeout-minutes: 42
         uses: ./.github/actions/common-setup
         with:
           python-version: "3.13"

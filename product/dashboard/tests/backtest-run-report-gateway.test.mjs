@@ -77,8 +77,9 @@ function report() {
   };
 }
 
-// The wire shape the Owner's resolver answers today: the run and its result, and neither the
-// strategy statement nor the data window the document requires beside them.
+// A projection carrying the run and its result but neither the strategy statement nor the data
+// window the document requires beside them. The Owner answered this shape before it stated both
+// (#912); the contract still has to refuse it by name rather than render a partial report.
 function resultOnly() {
   const { strategy: _strategy, data_window: _dataWindow, ...rest } = report();
   return rest;
@@ -133,7 +134,7 @@ test("an Owner answer is relayed as the Owner wrote it, including its reason", a
 });
 
 test("a report the contract refuses is not relayed, and the refusal names why", async () => {
-  // Today's Owner shape: no strategy and no data window, so no report can be stated from it.
+  // No strategy and no data window, so no report can be stated from it.
   assert.deepEqual((await read(200, resultOnly())).body, {
     state: "UNAVAILABLE",
     reason: `${BACKTEST_RUN_REPORT_KEYS_MISSING}: data_window, strategy`,

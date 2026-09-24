@@ -10,6 +10,7 @@ use crate::{
         HistoricalCustodyProjectionStateV1, HistoricalCustodyQuarantineV1,
         HistoricalResearchCustodyCandidateV1, RD_HISTORICAL_CUSTODY_OPERATION_V1,
     },
+    rd_owner_clock::RdOwnerClockV1,
     rd_owner_postgres_custody::require_rd_owner_api_schema,
 };
 
@@ -61,13 +62,18 @@ impl HistoricalCustodyOwnerPortV1 for PostgresHistoricalCustodyOwnerV1 {
             .execute(&mut *transaction)
             .await
             .map_err(storage)?;
+        // The R&D Owner's clock, read as the snapshot's first statement: every row the snapshot
+        // shows committed before it, so no commit time stamped from this clock is later.
+        let observed_at_epoch_ms = RdOwnerClockV1::owner_transaction()
+            .read(&mut transaction)
+            .await
+            .map_err(storage)?;
         let summary = sqlx::query(
-            "SELECT floor(extract(epoch FROM statement_timestamp()) * 1000)::bigint AS observed_at_epoch_ms, (SELECT count(*) FROM rd_research_request_receipts_v1)::bigint AS research_total, (SELECT count(*) FROM rd_artifact_build_attempts_v1)::bigint AS artifact_attempt_total, (SELECT count(*) FROM rd_artifact_trial_family_bindings_v1)::bigint AS binding_total",
+            "SELECT (SELECT count(*) FROM rd_research_request_receipts_v1)::bigint AS research_total, (SELECT count(*) FROM rd_artifact_build_attempts_v1)::bigint AS artifact_attempt_total, (SELECT count(*) FROM rd_artifact_trial_family_bindings_v1)::bigint AS binding_total",
         )
         .fetch_one(&mut *transaction)
         .await
         .map_err(storage)?;
-        let observed_at_epoch_ms = nonnegative(&summary, "observed_at_epoch_ms")?;
         let research_total = nonnegative(&summary, "research_total")?;
         let artifact_attempt_total = nonnegative(&summary, "artifact_attempt_total")?;
         let binding_total = nonnegative(&summary, "binding_total")?;

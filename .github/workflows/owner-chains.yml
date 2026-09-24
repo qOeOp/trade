@@ -49,6 +49,9 @@ jobs:
         chain:
           - key: rd-owner
             name: rd owner postgres (ubuntu-22.04)
+            # Common setup: twice the slowest measured for this chain across build and owner-chains
+            # (530s, 2026-09-24). Re-measure and raise it once setup routinely takes half of it.
+            setup-timeout-minutes: 18
             step-timeout-minutes: 70
             job-timeout-minutes: 100
             make: >-
@@ -56,6 +59,9 @@ jobs:
               EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
           - key: market-data
             name: market data owner postgres (ubuntu-22.04)
+            # Common setup: twice the slowest measured for this chain across build and owner-chains
+            # (820s, 2026-09-24). Re-measure and raise it once setup routinely takes half of it.
+            setup-timeout-minutes: 28
             step-timeout-minutes: 15
             job-timeout-minutes: 40
             make: cargo-test-market-data-owner-postgres-isolated
@@ -89,6 +95,7 @@ jobs:
         run: bash scripts/ci/verify-ci-inputs.sh post-checkout
 
       - name: Common setup
+        timeout-minutes: ${{ matrix.chain.setup-timeout-minutes }}
         uses: ./.github/actions/common-setup
         with:
           python-version: "3.13"
@@ -157,6 +164,18 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      # A Market Data proof that ran past its wall clock leaves a record naming it
+      # (run_market_data_owner_postgres.bash); a run with none leaves nothing to publish.
+      - name: Publish which Market Data proof timed out
+        if: always() && matrix.chain.key == 'market-data'
+        # https://github.com/actions/upload-artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: chain-record-${{ matrix.chain.key }}
+          path: target/nextest/market-data-records/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Clean Dashboard browser acceptance inputs
         if: always() && matrix.chain.key == 'rd-owner'
         run: |
@@ -187,6 +206,11 @@ jobs:
     # from a venue's network policy.
     if: startsWith(github.ref_name, 'test-chain/market-data')
     runs-on: ubuntu-22.04
+    # No successful run of this job to measure yet (2026-09-24), so a stand-in: twice the slowest
+    # compile-and-test job measured on these runners, rust tests at 3228s, rounded up. A hang anywhere
+    # in the job stops here rather than at GitHub's six-hour default. Replace with twice this job's
+    # own slowest run after its first successful runs.
+    timeout-minutes: 120
     env:
       # The same environment the chain jobs above are given, so this leg and they differ in what
       # they run and in nothing else.
@@ -216,6 +240,11 @@ jobs:
         run: bash scripts/ci/verify-ci-inputs.sh post-checkout
 
       - name: Common setup
+        # No successful run of this job to measure yet (2026-09-24), so twice the slowest Common setup
+        # measured in any job: 1233s, rust tests. A hung setup fails here with its log instead of
+        # running to the job limit. Replace with this job's own measurement after its first
+        # successful runs.
+        timeout-minutes: 42
         uses: ./.github/actions/common-setup
         with:
           python-version: "3.13"

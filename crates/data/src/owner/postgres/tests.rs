@@ -1812,7 +1812,7 @@ async fn sample_projection_postgres_oracle_v2(owner_url: &str, reader_url: &str,
     assert!(resolver_security_definer);
     let resolver_config: Vec<String> = sqlx::query_scalar("SELECT p.proconfig FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid=p.pronamespace WHERE n.nspname='market_data_private' AND p.proname='resolve_strategy_input_sample_projection_v2'")
         .fetch_one(admin).await.unwrap();
-    assert_eq!(resolver_config, ["search_path=pg_catalog"]);
+    assert_eq!(resolver_config, ["search_path=pg_catalog, pg_temp"]);
 
     // Content hashes alone are not Owner authority: even a structurally valid projection whose
     // coordinate and outer digests were both recomputed cannot be promoted through durable
@@ -2007,6 +2007,97 @@ struct StrategyInputBindingRegistryFixtureV1 {
     semantics: crate::owner::market_semantics::MarketSemanticsReadbackV1,
     binding_requests: Vec<UntrustedStrategyInputBindingRequest>,
     bindings: Vec<crate::owner::strategy_input_binding::StrategyInputBindingReceipt>,
+}
+
+/// A universe-member declaration registers on the same custody an exact one does.
+///
+/// The registry oracle's PIT cut holds one member, so it is also a one-member universe. A
+/// declaration scoped to that universe binds the role's value for every member at the cut - its
+/// Owner-derived universe frame - and is replayed without a second row. The single-instrument Instrument Master check
+/// does not apply to it, but the batch-level coordinate still does, and an instrument set is still
+/// refused.
+async fn universe_member_declarations_oracle(
+    owner: &MarketDataOwnerPostgres,
+    exact: &UntrustedStrategyInputBindingRequest,
+    batch: &VerifiedPitObservationBatch,
+) {
+    use super::strategy_input_binding_registry::{
+        StrategyInputBindingRegistryErrorV1 as Registry,
+        register_strategy_input_binding_declaration_v1,
+    };
+
+    let selection_identity = crate::owner::strategy_input_binding::derive_universe_selection(batch)
+        .expect("the cut is a one-member universe")
+        .selection_identity();
+    let universe_request = |role: u8| {
+        let mut request = exact.clone();
+        request.strategy_design_identity = d(230);
+        request.input_role_identity = d(role);
+        request.field_semantic = MarketDataFieldSemantic::BarClosePrice;
+        request.timeframe = "1M".into();
+        request.scope = UntrustedStrategyInputScope::UniverseSelection { selection_identity };
+        request
+    };
+    let declaration_count = async || -> i64 {
+        sqlx::query_scalar(
+            "SELECT COUNT(*) FROM market_data_private.strategy_input_binding_declarations_v1",
+        )
+        .fetch_one(owner.pool())
+        .await
+        .unwrap()
+    };
+    let register = async |request: &UntrustedStrategyInputBindingRequest| {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        let result =
+            register_strategy_input_binding_declaration_v1(&mut transaction, request).await;
+        transaction.commit().await.unwrap();
+        result
+    };
+
+    let request = universe_request(231);
+    let before = declaration_count().await;
+    let declaration = register(&request)
+        .await
+        .expect("a universe-member declaration");
+    let expected = crate::owner::strategy_input_binding::bind_strategy_input_universe_frame(
+        std::slice::from_ref(&request),
+        batch,
+    )
+    .unwrap();
+    assert_eq!(
+        declaration.binding_digest(),
+        expected.digest(),
+        "the declaration binds the role's Owner-derived universe frame"
+    );
+    assert!(declaration.exact_binding().is_none());
+    assert_eq!(declaration_count().await, before + 1);
+
+    let replayed = register(&request)
+        .await
+        .expect("the same declaration replays");
+    assert_eq!(replayed.binding_digest(), declaration.binding_digest());
+    assert_eq!(
+        declaration_count().await,
+        before + 1,
+        "a replay writes no second row"
+    );
+
+    let mut other_master = universe_request(232);
+    other_master.instrument_master_digest = d(233);
+    assert!(matches!(
+        register(&other_master).await,
+        Err(Registry::InstrumentMasterBatchDigestUnavailable)
+    ));
+    let mut instrument_set = universe_request(234);
+    instrument_set.scope = UntrustedStrategyInputScope::InstrumentSet {
+        instruments: vec!["AAPL".into()],
+    };
+    assert!(register(&instrument_set).await.is_err());
+    assert_eq!(
+        declaration_count().await,
+        before + 1,
+        "refusals write nothing"
+    );
 }
 
 async fn strategy_input_binding_registry_postgres_oracle(
@@ -2501,7 +2592,11 @@ async fn strategy_input_binding_registry_postgres_oracle(
     let registered = &declarations[0];
     assert_eq!(registered.request(), &binding_requests[0]);
     assert_eq!(
-        registered.binding().locator().input_role_identity(),
+        registered
+            .exact_binding()
+            .unwrap()
+            .locator()
+            .input_role_identity(),
         binding_requests[0].input_role_identity,
     );
     let recovered = {
@@ -2523,7 +2618,7 @@ async fn strategy_input_binding_registry_postgres_oracle(
         recovered.request_meaning_digest(),
         registered.request_meaning_digest(),
     );
-    assert_eq!(recovered.binding(), registered.binding());
+    assert_eq!(recovered.exact_binding(), registered.exact_binding());
 
     let receipt = sqlx::query("SELECT request_meaning_digest,cut_identity,receipt_identity,receipt_bytes,append_sequence FROM market_data_private.instrument_master_receipts_v1 WHERE request_identity=$1")
         .bind(instrument.cut().request_identity.as_bytes().as_slice())
@@ -2590,10 +2685,10 @@ async fn strategy_input_binding_registry_postgres_oracle(
         )
         .await
         .unwrap();
-    assert_eq!(restored.binding(), registered.binding());
+    assert_eq!(restored.exact_binding(), registered.exact_binding());
     let bindings = declarations
         .iter()
-        .map(|declaration| declaration.binding().clone())
+        .map(|declaration| declaration.exact_binding().unwrap().clone())
         .collect();
     StrategyInputBindingRegistryFixtureV1 {
         source_readback,
@@ -4028,6 +4123,15 @@ async fn instrument_master_postgres_oracle(owner_url: &str, reader_url: &str, ad
 
     let registry_fixture = Box::pin(strategy_input_binding_registry_postgres_oracle(
         &owner, &source, &readback, &clock, None,
+    ))
+    .await;
+    // Beside the registry oracle rather than inside it: that oracle also builds the replay
+    // composition base fixture, and nesting this under it overflowed the 2 MiB test stack of the
+    // ordered chain's replay composition entry.
+    Box::pin(universe_member_declarations_oracle(
+        &owner,
+        &registry_fixture.binding_requests[0],
+        &registry_fixture.batch,
     ))
     .await;
     Box::pin(persisted_strategy_input_custody_postgres_oracle_v1(

@@ -286,7 +286,14 @@ pub enum IterationDecisionPostgresErrorV1 {
     Storage(String),
 }
 
-pub(crate) async fn migrate(pool: &PgPool) -> Result<(), IterationDecisionPostgresErrorV1> {
+/// Materializes the Iteration Decision relations and the successor Research Intent relation.
+///
+/// The successor relation is one the run report reads, so this migration takes the same proof as
+/// its only caller, [`crate::trial_family_postgres::migrate`], and passes it on.
+pub(crate) async fn migrate(
+    pool: &PgPool,
+    admitted: &crate::schema_materialization::PreCutoverMaterializationAdmitted,
+) -> Result<(), IterationDecisionPostgresErrorV1> {
     crate::schema_materialization::materialize_public_table(
         pool,
         "rd_iteration_decisions_v1",
@@ -325,7 +332,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), IterationDecisionPostgr
     crate::market_data_repair_request_postgres::migrate(pool)
         .await
         .map_err(|e| storage(e.to_string()))?;
-    crate::successor_intent_postgres::migrate(pool)
+    crate::successor_intent_postgres::migrate(pool, admitted)
         .await
         .map_err(|e| storage(e.to_string()))
 }

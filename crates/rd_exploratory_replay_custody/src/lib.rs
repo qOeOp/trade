@@ -9,7 +9,7 @@ use std::fmt::Display;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Postgres, Transaction};
+use sqlx::{Postgres, Transaction};
 use thiserror::Error;
 use vibe_backtest_owner_contracts::{ReplayNamespaceV2, ReplayRequestDtoV2, ReplayRequestV2};
 use vibe_product_edge::ProductEdgeAdmissionLocatorV1;
@@ -21,10 +21,6 @@ pub mod replay_execution_policy_v2;
 pub mod replay_policy_catalog_v2;
 pub mod replay_runner_operational_profile_v1;
 
-const RD_RESOLVE_FUNCTION_V2: &str =
-    "rd_owner_api.resolve_exploratory_replay_request_v2(text,text)";
-const RD_RESOLVE_FUNCTION_SOURCE_SHA256_V2: &str =
-    "6662a791a3416e4ef3f97b9e5e37cf649cd209c9f6beac081e9ba6ee04356562";
 const INTERNAL_VERIFY_FUNCTION_V2: &str =
     "rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text)";
 const INTERNAL_VERIFY_FUNCTION_V3: &str =
@@ -436,25 +432,6 @@ struct StoredOutboxPayloadV2 {
     committed_at_epoch_ms: u64,
 }
 
-/// Resolve existing Replay V2 custody without creating or mutating any R&D fact.
-pub async fn resolve_sealed_exploratory_replay_request_v2(
-    rd_pool: &PgPool,
-    selector: &ExploratoryReplayRecoverySelectorV2,
-) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayCustodyError> {
-    if selector.request_identity.trim().is_empty() || selector.meaning_digest.trim().is_empty() {
-        return Err(ExploratoryReplayCustodyError::Unavailable);
-    }
-    validate_resolution_binding(rd_pool).await?;
-    let value: Option<serde_json::Value> =
-        sqlx::query_scalar("SELECT rd_owner_api.resolve_exploratory_replay_request_v2($1,$2)")
-            .bind(&selector.request_identity)
-            .bind(&selector.meaning_digest)
-            .fetch_one(rd_pool)
-            .await
-            .map_err(storage)?;
-    decode_owner_envelope(selector, value)
-}
-
 /// Locks and verifies one exact already-issued sealed request through the
 /// fixed `market_data_owner` PostgreSQL principal in a SERIALIZABLE transaction. The caller retains the
 /// transaction and therefore the request-scoped advisory read fence and snapshot; this port performs no write.
@@ -711,109 +688,6 @@ fn decode_market_data_envelope(
         return Ok(unavailable(&selector));
     }
     Ok(result)
-}
-
-async fn validate_resolution_binding(
-    rd_pool: &PgPool,
-) -> Result<(), ExploratoryReplayCustodyError> {
-    let function_ok: bool = sqlx::query_scalar(
-        "SELECT current_user='rd_owner'
-             AND NOT procedure.prosecdef
-             AND procedure.provolatile='v'
-             AND procedure.proparallel='u'
-             AND procedure.proisstrict
-             AND procedure.proconfig=ARRAY['search_path=pg_catalog']::text[]
-             AND procedure.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
-             AND procedure.proargtypes='25 25'::pg_catalog.oidvector
-             AND owner.rolname='rd_owner'
-             AND language.lanname='plpgsql'
-             AND pg_catalog.encode(
-                   pg_catalog.sha256(pg_catalog.convert_to(procedure.prosrc,'UTF8')),
-                   'hex'
-                 )=$2
-             AND pg_catalog.has_function_privilege('rd_owner',procedure.oid,'EXECUTE')
-             AND NOT EXISTS (
-               SELECT 1 FROM pg_catalog.aclexplode(procedure.proacl) acl
-                WHERE acl.privilege_type='EXECUTE' AND acl.grantee <> owner.oid
-             )
-             AND EXISTS (
-               SELECT 1 FROM pg_catalog.pg_proc helper
-               JOIN pg_catalog.pg_roles helper_owner ON helper_owner.oid=helper.proowner
-               JOIN pg_catalog.pg_language helper_language ON helper_language.oid=helper.prolang
-               WHERE helper.oid=pg_catalog.to_regprocedure($3)
-                 AND helper_owner.rolname='rd_exploratory_replay_api_owner'
-                 AND NOT helper.prosecdef
-                 AND helper.provolatile='v'
-                 AND helper.proparallel='u'
-                 AND helper.proisstrict
-                 AND helper.proconfig=ARRAY['search_path=pg_catalog']::text[]
-                 AND helper.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
-                 AND helper.proargtypes='25 25 25 25'::pg_catalog.oidvector
-                 AND helper_language.lanname='plpgsql'
-                 AND pg_catalog.encode(
-                       pg_catalog.sha256(pg_catalog.convert_to(helper.prosrc,'UTF8')),
-                       'hex'
-                     )=$4
-                 AND pg_catalog.has_function_privilege('rd_owner',helper.oid,'EXECUTE')
-                 AND NOT pg_catalog.has_function_privilege('backtest_owner',helper.oid,'EXECUTE')
-                 AND NOT EXISTS (
-                   SELECT 1 FROM pg_catalog.aclexplode(helper.proacl) helper_acl
-                    WHERE helper_acl.privilege_type='EXECUTE'
-                      AND helper_acl.grantee NOT IN (
-                        helper_owner.oid,
-                        (SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner')
-                      )
-                 )
-             )
-             AND EXISTS (
-               SELECT 1 FROM pg_catalog.pg_proc helper
-               JOIN pg_catalog.pg_roles helper_owner ON helper_owner.oid=helper.proowner
-               JOIN pg_catalog.pg_language helper_language ON helper_language.oid=helper.prolang
-               WHERE helper.oid=pg_catalog.to_regprocedure($5)
-                 AND helper_owner.rolname='rd_exploratory_replay_api_owner'
-                 AND NOT helper.prosecdef
-                 AND helper.provolatile='v'
-                 AND helper.proparallel='u'
-                 AND helper.proisstrict
-                 AND helper.proconfig=ARRAY['search_path=pg_catalog']::text[]
-                 AND helper.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
-                 AND helper.proargtypes='25 25 25 25'::pg_catalog.oidvector
-                 AND helper_language.lanname='plpgsql'
-                 AND pg_catalog.encode(
-                       pg_catalog.sha256(pg_catalog.convert_to(helper.prosrc,'UTF8')),
-                       'hex'
-                     )=$6
-                 AND pg_catalog.has_function_privilege('rd_owner',helper.oid,'EXECUTE')
-                 AND NOT pg_catalog.has_function_privilege('backtest_owner',helper.oid,'EXECUTE')
-                 AND NOT EXISTS (
-                   SELECT 1 FROM pg_catalog.aclexplode(helper.proacl) helper_acl
-                    WHERE helper_acl.privilege_type='EXECUTE'
-                      AND helper_acl.grantee NOT IN (
-                        helper_owner.oid,
-                        (SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner')
-                      )
-                 )
-             )
-           FROM pg_catalog.pg_proc procedure
-           JOIN pg_catalog.pg_roles owner ON owner.oid=procedure.proowner
-           JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang
-          WHERE procedure.oid=pg_catalog.to_regprocedure($1)",
-    )
-    .bind(RD_RESOLVE_FUNCTION_V2)
-    .bind(RD_RESOLVE_FUNCTION_SOURCE_SHA256_V2)
-    .bind(INTERNAL_VERIFY_FUNCTION_V2)
-    .bind(INTERNAL_VERIFY_FUNCTION_SOURCE_SHA256_V2)
-    .bind(INTERNAL_VERIFY_FUNCTION_V3)
-    .bind(INTERNAL_VERIFY_FUNCTION_SOURCE_SHA256_V3)
-    .fetch_optional(rd_pool)
-    .await
-    .map_err(storage)?
-    .unwrap_or(false);
-
-    if !function_ok {
-        return Err(ExploratoryReplayCustodyError::Unavailable);
-    }
-    Ok(())
 }
 
 fn decode_owner_envelope(
