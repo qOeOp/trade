@@ -108,7 +108,12 @@ pub enum SuccessorResearchIntentPostgresErrorV1 {
     Storage(String),
 }
 
-pub(crate) async fn migrate(pool: &PgPool) -> Result<(), SuccessorResearchIntentPostgresErrorV1> {
+/// Materializes `rd_successor_research_intents_v1`, a relation the run report reads, so it runs only
+/// before cutover. See [`crate::schema_materialization::PreCutoverMaterializationAdmitted`].
+pub(crate) async fn migrate(
+    pool: &PgPool,
+    _admitted: &crate::schema_materialization::PreCutoverMaterializationAdmitted,
+) -> Result<(), SuccessorResearchIntentPostgresErrorV1> {
     crate::schema_materialization::materialize_public_table(
         pool,
         "rd_successor_research_intents_v1",

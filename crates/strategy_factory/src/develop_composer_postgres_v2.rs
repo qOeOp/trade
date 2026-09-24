@@ -3020,7 +3020,10 @@ impl PostgresDevelopComposerStoreV2 {
             .connect(database_url)
             .await?;
 
-        if !crate::schema_materialization::pre_cutover_materialization_is_admitted(&pool).await? {
+        if crate::schema_materialization::pre_cutover_materialization_is_admitted(&pool)
+            .await?
+            .is_none()
+        {
             return Self::migrate(&pool).await;
         }
 
