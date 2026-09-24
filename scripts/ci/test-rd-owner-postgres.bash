@@ -577,6 +577,26 @@ PY
   fi
 }
 
+# Both PostgreSQL containers start under an init. Without one the postmaster is PID 1 and reaps the
+# orphaned heredoc writer of every refused authority migration as a crashed backend (the comment at
+# the first `docker run` says how), so the cluster crash-restarts mid-chain.
+check_postgres_containers_run_under_init() {
+  local runs inits
+  runs="$(rg -c '^docker run \\$' "${BASH_SOURCE[0]}" || true)"
+  inits="$(rg -U -c '^docker run \\\n  --detach \\\n  --init \\$' "${BASH_SOURCE[0]}" || true)"
+  if [[ "${runs:-0}" -ne 2 || "${inits:-0}" -ne 2 ]]; then
+    echo "ERROR: the chain's PostgreSQL containers must start with --init: ${runs:-0} docker run, ${inits:-0} with --init." >&2
+    return 1
+  fi
+  local market_data
+  market_data="$(dirname "${BASH_SOURCE[0]}")/../../crates/data/tests/run_market_data_owner_postgres.bash"
+  if [[ "$(rg -c '^docker run ' "$market_data" || true)" -ne 1 ]] ||
+    ! rg -q '^docker run --detach --init ' "$market_data"; then
+    echo "ERROR: the Market Data chain's PostgreSQL container must start with --init, as this chain's do." >&2
+    return 1
+  fi
+}
+
 check_static_isolation() {
   local forbidden_fallback
   forbidden_fallback='RD_OWNER_TEST_DATABASE_URL or RD_OWNER_DATABASE_URL|or_else\(\|\| std::env::var\("(RD_OWNER|PRODUCT_EDGE|OPERATOR_AUTHORIZATION|WINDMILL)_DATABASE_URL"\)'
@@ -1575,6 +1595,7 @@ run_authority_migration_for_database() {
     "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
 }
 
+check_postgres_containers_run_under_init
 check_static_isolation
 check_nextest_graph_contract
 check_backtest_result_function_source
@@ -2162,8 +2183,20 @@ docker volume create "$volume" > /dev/null
 volume_created=true
 docker volume create "$impersonator_volume" > /dev/null
 impersonator_volume_created=true
+# `--init`: PostgreSQL must not be PID 1 here. The authority migration runs through
+# `docker exec … sh -s`, and its SQL is one large heredoc, which busybox sh feeds to psql from a
+# forked writer. When the migration is refused on purpose (the fault drills, entry 19's restore),
+# psql exits, `set -e` takes sh with it, and the writer, still writing, is orphaned to PID 1. As
+# PID 1 the postmaster reaps it; the writer dies of SIGPIPE on the closed pipe, and the postmaster
+# reads any child killed by a signal as a crashed backend and restarts every server process - three
+# crash recoveries in every chain run, logged as "server process (PID n) was terminated by signal 13"
+# with n two below the migration's backend. With an init as PID 1, the orphan is its to reap.
+# Reproduced in a disposable postgres:16.4-alpine: a 369 KB heredoc crashes the cluster, a 551-byte
+# one (no writer forked) and the same 369 KB heredoc under --init do not; a process snapshot names
+# the killed pid as the heredoc writer, with no connection of its own.
 docker run \
   --detach \
+  --init \
   --name "$container" \
   --publish 127.0.0.1::5432 \
   --mount "type=volume,source=${volume},target=/var/lib/postgresql/data" \
@@ -2177,6 +2210,7 @@ docker run \
 container_created=true
 docker run \
   --detach \
+  --init \
   --name "$impersonator_container" \
   --publish 127.0.0.1::5432 \
   --mount "type=volume,source=${impersonator_volume},target=/var/lib/postgresql/data" \
