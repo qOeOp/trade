@@ -447,7 +447,7 @@ impl PostgresArtifactBuildOwnerV1 {
               requested_reservation_identity text,
               requested_reservation_digest text
             ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-            SET search_path = pg_catalog
+            SET search_path = pg_catalog, pg_temp
             AS $function$
             DECLARE sealed record;
             DECLARE reservation jsonb;

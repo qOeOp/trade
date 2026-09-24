@@ -48,6 +48,60 @@ export type OperationAuditFilterCutV1 = {
   search: string;
 };
 
+/**
+ * The cut a browser asks for. `observed_at: null` asks for the current view: the server cuts at its
+ * database's statement time and returns that cut, so a browser clock ahead of the database cannot
+ * refuse the read and one behind it cannot hide the newest rows. A non-null value is a cut the server
+ * already returned, carried forward for paging.
+ */
+export type OperationAuditFilterRequestV1 = Omit<OperationAuditFilterCutV1, "observed_at"> & {
+  observed_at: string | null;
+};
+
+export function currentOperationAuditFilterV1(): OperationAuditFilterRequestV1 {
+  return {
+    schema_version: 1,
+    observed_at: null,
+    range: "7d",
+    principal_ref: "all",
+    operation: "all",
+    outcome: "all",
+    search: "",
+  };
+}
+
+export function operationAuditQueryV1(
+  cut: OperationAuditFilterRequestV1,
+  pageSize: number,
+  cursor?: string | null,
+) {
+  const query = new URLSearchParams({
+    ...(cut.observed_at === null ? {} : { observedAt: cut.observed_at }),
+    range: cut.range,
+    principal: cut.principal_ref,
+    operation: cut.operation,
+    outcome: cut.outcome,
+    search: cut.search,
+    pageSize: String(pageSize),
+  });
+  if (cursor) query.set("cursor", cursor);
+  return query;
+}
+
+/** Whether the server answered the cut that was asked for; a current request accepts the server's instant. */
+export function operationAuditFilterCutMatchesV1(
+  actual: OperationAuditFilterCutV1,
+  requested: OperationAuditFilterRequestV1,
+) {
+  return actual.schema_version === requested.schema_version
+    && (requested.observed_at === null ? timestamp(actual.observed_at) : actual.observed_at === requested.observed_at)
+    && actual.range === requested.range
+    && actual.principal_ref === requested.principal_ref
+    && actual.operation === requested.operation
+    && actual.outcome === requested.outcome
+    && actual.search === requested.search;
+}
+
 export type OperationAuditSummaryV1 = {
   execute: number;
   create_update: number;
@@ -139,9 +193,13 @@ export async function operationAuditSourceCutV1(entries: readonly OperationAudit
   return digest(entries);
 }
 
+/**
+ * `serverObservedAt` is the database's statement time for this read, the only clock the audit rows'
+ * own times are comparable with. An omitted input cut is that instant; a supplied one may not be later.
+ */
 export function canonicalizeOperationAuditFilterCutV1(
-  input: OperationAuditFilterInputV1 = {},
-  serverObservedAt = new Date().toISOString(),
+  input: OperationAuditFilterInputV1,
+  serverObservedAt: string,
 ): { filterCut: OperationAuditFilterCutV1; pageSize: OperationAuditPageSizeV1; cursor?: string } {
   if (!timestamp(serverObservedAt)) throw new Error("OPERATION_AUDIT_CUT_INVALID");
   const observedAt = input.observedAt ?? serverObservedAt;
