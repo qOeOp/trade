@@ -2361,7 +2361,7 @@ CREATE OR REPLACE FUNCTION qualification_api.lock_protected_replay_request_v1(
   requested_seal_digest text
 )
 RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE locked jsonb;
 BEGIN
@@ -2450,7 +2450,7 @@ CREATE OR REPLACE FUNCTION qualification_api.lock_protected_replay_request_set_v
   requested_request_set_digest text
 )
 RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE locked jsonb;
 BEGIN
@@ -2537,7 +2537,7 @@ CREATE OR REPLACE FUNCTION qualification_api.lock_projection_for_basis_v1(
   requested_principal_scope_key text
 )
 RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
   owner_cut_epoch_ms bigint;
@@ -2606,7 +2606,7 @@ GRANT EXECUTE ON FUNCTION qualification_api.lock_projection_for_basis_v1(text,te
 
 CREATE OR REPLACE FUNCTION qualification_api.canonical_json_text_v1(value jsonb)
 RETURNS text LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
   SELECT CASE pg_catalog.jsonb_typeof(value)
     WHEN 'object' THEN COALESCE((
@@ -2631,7 +2631,7 @@ REVOKE ALL ON FUNCTION qualification_api.canonical_json_text_v1(jsonb) FROM PUBL
 
 CREATE OR REPLACE FUNCTION qualification_api.canonical_json_digest_v1(domain text, value jsonb)
 RETURNS text LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
   SELECT 'sha256:' || pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(
     '{"domain":' || pg_catalog.to_json(domain)::text || ',"value":' || qualification_api.canonical_json_text_v1(value) || '}',
@@ -2643,7 +2643,7 @@ REVOKE ALL ON FUNCTION qualification_api.canonical_json_digest_v1(text,jsonb) FR
 
 CREATE OR REPLACE FUNCTION qualification_api.canonical_bytes_storage_digest_v1(domain text, value bytea)
 RETURNS text LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
   SELECT 'sha256:' || pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(
     '{"domain":' || pg_catalog.to_json(domain)::text || ',"value":[' || COALESCE((
@@ -2658,7 +2658,7 @@ REVOKE ALL ON FUNCTION qualification_api.canonical_bytes_storage_digest_v1(text,
 
 CREATE OR REPLACE FUNCTION qualification_api.canonical_ordered_json_digest_v1(domain text, value_text text)
 RETURNS text LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
   SELECT CASE WHEN value_text::jsonb IS NULL THEN NULL ELSE
     'sha256:' || pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(
@@ -2677,7 +2677,7 @@ CREATE OR REPLACE FUNCTION qualification_api.protected_replay_request_semantic_d
   requested_request_digest text
 )
 RETURNS boolean LANGUAGE plpgsql IMMUTABLE STRICT PARALLEL SAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
   request_text text := pg_catalog.convert_from(canonical_request_bytes, 'UTF8');
@@ -2753,7 +2753,7 @@ CREATE OR REPLACE FUNCTION qualification_api.protected_replay_request_set_is_cus
   requested_request_set_identity text
 )
 RETURNS boolean LANGUAGE sql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
   SELECT EXISTS (
     SELECT 1
@@ -2951,7 +2951,7 @@ CREATE OR REPLACE FUNCTION qualification_api.public_status_expected_opaque_refer
   native_source_digest text
 )
 RETURNS text LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
   SELECT 'qualification-public-reference-v1-' || pg_catalog.replace(
     qualification_api.canonical_ordered_json_digest_v1(
@@ -2978,7 +2978,7 @@ CREATE OR REPLACE FUNCTION qualification_api.public_status_expected_fact_digest_
   source_frontier_is_current boolean
 )
 RETURNS text LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
   SELECT qualification_api.canonical_ordered_json_digest_v1(
     'qualification.public-status-fact.v1',
@@ -3004,7 +3004,7 @@ CREATE OR REPLACE FUNCTION qualification_api.public_status_native_source_is_cust
   requested_committed_at_epoch_ms bigint
 )
 RETURNS boolean LANGUAGE sql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
   SELECT CASE requested_phase_sequence
     WHEN 1 THEN EXISTS (
@@ -3302,7 +3302,7 @@ CREATE OR REPLACE FUNCTION qualification_api.read_public_status_v1(
   requested_review_request_identity text
 )
 RETURNS jsonb LANGUAGE sql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
-SET search_path = pg_catalog
+SET search_path = pg_catalog, pg_temp
 AS $function$
   SELECT pg_catalog.jsonb_build_object(
            'schema_version', 1,
