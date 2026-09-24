@@ -1664,9 +1664,14 @@ units = json.loads(re.search(r"const UNIT_DATA = (\[.*?\]);", html, re.S).group(
 by_index = {u["i"]: u for u in units}
 end = lambda u: u["start"] + u["duration"]
 unlocked_by = {}
+print("LANE8-CP unit keys:", sorted(units[0]))
 for u in units:
-    for v in u.get("unlocked_units", []) + u.get("unlocked_rmeta_units", []):
-        unlocked_by.setdefault(v, []).append(u["i"])
+    links = [k for k in u if k.endswith("_units")]
+    for key in links:
+        for v in u[key]:
+            unlocked_by.setdefault(v, []).append(u["i"])
+if not unlocked_by:
+    sys.exit("LANE8-CP ERROR: no dependency links found in UNIT_DATA; the critical path cannot be walked")
 ws = lambda u: u["name"].startswith(("vibe", "strategy-factory", "strategy_factory"))
 total = max(end(u) for u in units)
 print(f"LANE8-CP build wall {total:.0f}s, {len(units)} units ({sum(1 for u in units if ws(u))} workspace)")
