@@ -1382,10 +1382,11 @@ and never chooses the instruments. This is how:
   fixed-member evaluation at the PIT request remains the decision, and an identity admissible at the check can still
   end in a terminal that is not `AVAILABLE`.
 
-Built so far: nothing. The canonical evaluator admits only the every-member and prefix rules; an eligible-instrument
-frontier is a caller-chosen digest that no admission succeeds; no read resolves a Source Binding, an Instrument Master
-fact or eligibility from an identity; the PIT intake admits exactly one member; nothing reads a PIT request by its
-identity; and registration resolves every role by coordinate.
+Built so far: the PIT intake admits a Universe Selection Record of one or two included members, each keyed by its
+canonical instrument, and refuses any other count or key by name before it writes anything. Nothing else: the
+canonical evaluator admits only the every-member and prefix rules; an eligible-instrument frontier is a caller-chosen
+digest that no admission succeeds; no read resolves a Source Binding, an Instrument Master fact or eligibility from an
+identity; nothing reads a PIT request by its identity; and registration resolves every role by coordinate.
 
 Market Data consumes, but does not define or reinterpret, the explicit big-endian R&D canonical binary codec
 specified in the R&D Owner contract. Its JSON representation is not canonical receipt material. Registration

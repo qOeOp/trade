@@ -392,6 +392,14 @@ fn intake_error(error: PitMarketSnapshotIntakeErrorV1) -> Response {
         PitMarketSnapshotIntakeErrorV1::InstrumentMasterUnavailable => {
             (StatusCode::CONFLICT, "PIT_INSTRUMENT_MASTER_UNAVAILABLE")
         }
+        PitMarketSnapshotIntakeErrorV1::UniverseMemberCountUnadmitted => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "PIT_UNIVERSE_MEMBER_COUNT_UNADMITTED",
+        ),
+        PitMarketSnapshotIntakeErrorV1::UniverseMemberKeyIsNotInstrument => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "PIT_UNIVERSE_MEMBER_KEY_IS_NOT_INSTRUMENT",
+        ),
         PitMarketSnapshotIntakeErrorV1::ClockUnavailable => (
             StatusCode::SERVICE_UNAVAILABLE,
             "MARKET_DATA_CLOCK_UNAVAILABLE",

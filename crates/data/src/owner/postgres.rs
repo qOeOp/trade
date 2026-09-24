@@ -21,6 +21,8 @@ mod live_market_stream_v1;
 mod market_data_rd_api_authorization_postgres_tests;
 mod market_semantics;
 mod observation_census;
+#[cfg(test)]
+mod pit_intake_member_count_tests;
 mod pit_role_resolution_v1;
 mod rd_strategy_input_custody;
 mod reference_fact_catalog;
@@ -129,7 +131,10 @@ use super::store_admission::{
     MarketDataPitTerminalStorageEvidence, MarketDataSourceBindingStorageEvidence,
     StrategyInputSampleProjectionStorageEvidenceV2, StrategyInputSampleProjectionStorageEvidenceV3,
 };
-use super::universe_selection::{UniverseSelectionErrorV1, UntrustedUniverseSelectionLocatorV1};
+use super::universe_selection::{
+    UniverseSelectionErrorV1, UniverseSelectionIdentity, UniverseSelectionReadbackV1,
+    UntrustedUniverseSelectionLocatorV1,
+};
 use super::{
     bar_schedule::{
         BarScheduleCompletionV1, BarScheduleIdentity, BarScheduleKindV1, BarScheduleLabelV1,
@@ -1394,38 +1399,29 @@ impl MarketDataOwnerPostgres {
 
         // The scope carries the Owner's resolution of the selection rule. A record the Owner
         // cannot recover leaves the scope empty, which becomes insufficient coverage rather than a
-        // licence for the client to choose its own members.
-        let members = match universe_selection::recover_universe_selection_in_transaction_v1(
-            &mut transaction,
-            universe_locator,
-        )
-        .await
-        {
-            Ok(readback) if readback.record().identity() == request.universe_selection_digest => {
-                readback
-                    .record()
-                    .membership()
-                    .iter()
-                    .filter(|member| member.included())
-                    .map(|member| String::from_utf8(member.member_key().to_vec()))
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|_| PitSnapshotError::ObservationBatchUnavailable)?
-            }
-            Ok(_) => Vec::new(),
-            Err(UniverseSelectionErrorV1::StoreUnavailable) => {
-                return Err(PitSnapshotError::PersistenceUnavailable);
-            }
-            Err(_) => Vec::new(),
-        };
+        // licence for the client to choose its own members. A record it recovers but does not
+        // admit is refused by name here, before anything is written.
+        let (members, universe) = pit_intake_scope_v1(
+            universe_selection::recover_universe_selection_in_transaction_v1(
+                &mut transaction,
+                universe_locator,
+            )
+            .await,
+            request.universe_selection_digest,
+        )?;
 
         // The request-supplied instrument master digest is a claim. The Owner replaces it with
-        // the digest of its own resolution cut for the scoped instrument at this decision cut,
+        // the digest of its own resolution cut for the scoped instruments at this decision cut,
         // then re-seals the request identity over what it will actually commit.
         let mut request = request;
-        request.instrument_master_digest = Box::pin(
-            self.resolve_instrument_master_digest_for_pit_request_v1(&request, &members, clock),
-        )
-        .await?;
+        request.instrument_master_digest =
+            Box::pin(self.resolve_instrument_master_digest_for_pit_request_v1(
+                &request,
+                &members,
+                universe.as_deref(),
+                clock,
+            ))
+            .await?;
         seal_request_claims_v1(&mut request);
 
         let time = &request.time_evidence;
@@ -10269,9 +10265,178 @@ pub(super) async fn pit_market_snapshot_intake_from_environment_v1(
     }))
 }
 
-/// The durable intake. It retains the Owner and the Data Client and exposes neither.
+/// The domain of a PIT request's Instrument Master resolution over one member.
 const INSTRUMENT_MASTER_PIT_REQUEST_DOMAIN: &[u8] =
     b"vibe.market-data.instrument-master-pit-request.v1\0";
+/// The domain of a PIT request's Instrument Master resolution over a two-member universe. The
+/// one-member preimage carries no member count, so a separate domain is what keeps the two
+/// encodings from ever producing the same bytes.
+const INSTRUMENT_MASTER_PIT_REQUEST_MEMBERS_DOMAIN: &[u8] =
+    b"vibe.market-data.instrument-master-pit-request.members.v1\0";
+/// The most members a PIT request may be scoped to.
+const PIT_INTAKE_MAX_MEMBERS: usize = 2;
+
+/// The scope a PIT request names: the members of the record it was frozen against, and the record.
+///
+/// A record the Owner cannot recover, or one that is not the request's, scopes nothing. Kept out of
+/// the async caller so its temporaries never sit in that caller's poll frame.
+fn pit_intake_scope_v1(
+    recovered: Result<UniverseSelectionReadbackV1, UniverseSelectionErrorV1>,
+    universe_selection_digest: UniverseSelectionIdentity,
+) -> Result<(Vec<String>, Option<Box<UniverseSelectionReadbackV1>>), PitSnapshotError> {
+    match recovered {
+        Ok(readback) if readback.record().identity() == universe_selection_digest => {
+            Ok((pit_intake_members_v1(&readback)?, Some(Box::new(readback))))
+        }
+        Ok(_) => Ok((Vec::new(), None)),
+        Err(UniverseSelectionErrorV1::StoreUnavailable) => {
+            Err(PitSnapshotError::PersistenceUnavailable)
+        }
+        Err(_) => Ok((Vec::new(), None)),
+    }
+}
+
+/// The members a PIT request is scoped to: the recovered record's included members, in its order.
+///
+/// Each one must be keyed by the canonical instrument it names, because the Instrument Master
+/// resolution reads the record's instruments while the observation scope carries its member
+/// keys; a record where the two differ would bind one set of instruments and observe another.
+fn pit_intake_members_v1(
+    readback: &UniverseSelectionReadbackV1,
+) -> Result<Vec<String>, PitSnapshotError> {
+    let included = readback
+        .record()
+        .membership()
+        .iter()
+        .filter(|member| member.included())
+        .collect::<Vec<_>>();
+
+    if included.is_empty() || included.len() > PIT_INTAKE_MAX_MEMBERS {
+        return Err(PitSnapshotError::UniverseMemberCountUnadmitted);
+    }
+    included
+        .into_iter()
+        .map(|member| {
+            if member.member_key() != member.instrument() {
+                return Err(PitSnapshotError::UniverseMemberKeyIsNotInstrument);
+            }
+            String::from_utf8(member.member_key().to_vec())
+                .map_err(|_| PitSnapshotError::ObservationBatchUnavailable)
+        })
+        .collect()
+}
+
+/// The bytes a PIT request's Instrument Master request identity is the SHA-256 of.
+///
+/// One member keeps the encoding it has always had. Two members bind the selection record and
+/// every member, each length-prefixed, in canonical order.
+fn pit_instrument_master_identity_preimage_v1(
+    correlation: BindingDigest,
+    selection: UniverseSelectionIdentity,
+    members: &[String],
+    effective: i128,
+    decision_cut: u64,
+) -> Result<Vec<u8>, PitSnapshotError> {
+    let mut preimage = Vec::new();
+    if let [member] = members {
+        preimage.extend_from_slice(INSTRUMENT_MASTER_PIT_REQUEST_DOMAIN);
+        preimage.extend_from_slice(correlation.as_bytes());
+        preimage.extend_from_slice(member.as_bytes());
+    } else {
+        preimage.extend_from_slice(INSTRUMENT_MASTER_PIT_REQUEST_MEMBERS_DOMAIN);
+        preimage.extend_from_slice(correlation.as_bytes());
+        preimage.extend_from_slice(selection.as_bytes());
+        let count = u64::try_from(members.len())
+            .map_err(|_| PitSnapshotError::UniverseMemberCountUnadmitted)?;
+        preimage.extend_from_slice(&count.to_be_bytes());
+
+        for member in members {
+            let length = u16::try_from(member.len())
+                .map_err(|_| PitSnapshotError::InstrumentMasterUnavailable)?;
+            preimage.extend_from_slice(&length.to_be_bytes());
+            preimage.extend_from_slice(member.as_bytes());
+        }
+    }
+    preimage.extend_from_slice(&effective.to_be_bytes());
+    preimage.extend_from_slice(&decision_cut.to_be_bytes());
+    Ok(preimage)
+}
+
+/// The record and its members in canonical order, when the scope has one or two members.
+fn pit_instrument_master_members_v1<'a>(
+    universe: Option<&'a UniverseSelectionReadbackV1>,
+    members: &[String],
+) -> Result<(&'a UniverseSelectionReadbackV1, Vec<String>), PitSnapshotError> {
+    let (Some(universe), 1..=PIT_INTAKE_MAX_MEMBERS) = (universe, members.len()) else {
+        return Err(PitSnapshotError::InstrumentMasterUnavailable);
+    };
+    let mut members = members.to_vec();
+    members.sort();
+    Ok((universe, members))
+}
+
+/// States one PIT request to the Instrument Master under the frontiers of its selected facts.
+///
+/// `members` is in canonical order and `selected` answers it member for member. The request takes
+/// the first fact's frontiers; the resolution refuses a second fact that disagrees with them. It is
+/// boxed because the async caller holds it across the resolution, in a debug build's poll frame.
+fn pit_instrument_master_request_v1(
+    request: &UntrustedPitSnapshotRequest,
+    selection: UniverseSelectionIdentity,
+    members: &[String],
+    selected: &[InstrumentMasterFactV1],
+    clock: &MarketDataClockAdmission,
+    clock_head: UntrustedClockHeadLocator,
+) -> Result<Box<UntrustedInstrumentMasterRequestV1>, PitSnapshotError> {
+    let ([first, ..], true) = (selected, selected.len() == members.len()) else {
+        return Err(PitSnapshotError::InstrumentMasterUnavailable);
+    };
+    let time = &request.time_evidence;
+    let effective = i128::from(time.event_effective.value);
+    let (domain, scope) = match members {
+        [member] => (
+            INSTRUMENT_MASTER_PIT_REQUEST_DOMAIN,
+            InstrumentMasterScopeV1::ExactInstrument(member.clone()),
+        ),
+        _ => (
+            INSTRUMENT_MASTER_PIT_REQUEST_MEMBERS_DOMAIN,
+            InstrumentMasterScopeV1::UniverseSelectionRecord(selection),
+        ),
+    };
+    let request_identity = BindingDigest::from_untrusted_bytes(
+        Sha256::digest(pit_instrument_master_identity_preimage_v1(
+            request.correlation_identity,
+            selection,
+            members,
+            effective,
+            clock.decision_cut,
+        )?)
+        .into(),
+    );
+    let mut meaning = Sha256::new();
+    meaning.update(domain);
+    meaning.update(request_identity.as_bytes());
+    for fact in selected {
+        meaning.update(fact.digest().as_bytes());
+    }
+    Ok(Box::new(UntrustedInstrumentMasterRequestV1 {
+        request_identity,
+        request_meaning_digest: BindingDigest::from_untrusted_bytes(meaning.finalize().into()),
+        consumer_role: super::instrument_master::BACKTEST_OWNER_V1.into(),
+        scope,
+        effective_instant: effective,
+        owner_observation: i128::from(time.observed_at),
+        decision_cut: clock.decision_cut,
+        clock_head,
+        lifecycle_frontier: first.proposal.lifecycle_frontier,
+        corporate_action_frontier: first.proposal.corporate_action_frontier,
+        historical_membership_frontier: first.proposal.historical_membership_frontier,
+        market_semantics_identity: first.proposal.market_semantics_identity,
+        source_frontier: first.proposal.source_frontier,
+        correction_frontier: first.proposal.correction_frontier,
+        stable_correlation: request.correlation_identity,
+    }))
+}
 
 impl MarketDataOwnerPostgres {
     /// The locator of the Owner's current clock head, for custody that must bind it exactly.
@@ -10320,20 +10485,21 @@ impl MarketDataOwnerPostgres {
 
     /// The digest of the Owner's own Instrument Master resolution for one PIT request.
     ///
-    /// The request scopes exactly one instrument through its Universe Selection Record. The Owner
-    /// selects the fact effective at the request's event instant and observable at its cut, states
-    /// the request under that fact's own frontiers, resolves the write-once cut, and hands back
-    /// the readback digest a declaration will later compare against. A universe of any other size
-    /// has no single instrument to bind and is refused rather than approximated.
+    /// The request scopes one or two instruments through its Universe Selection Record. The Owner
+    /// selects, member by member in canonical order, the fact effective at the request's event
+    /// instant and observable at its cut, states the request under those facts' own frontiers,
+    /// resolves the write-once cut, and hands back the readback digest a declaration will later
+    /// compare against. One member is resolved as that exact instrument; two are resolved as the
+    /// record itself, whose membership the Instrument Master reads back from `universe`. A scope
+    /// with no member has no instrument to bind and is refused rather than approximated.
     async fn resolve_instrument_master_digest_for_pit_request_v1(
         &self,
         request: &UntrustedPitSnapshotRequest,
         members: &[String],
+        universe: Option<&UniverseSelectionReadbackV1>,
         clock: &MarketDataClockAdmission,
     ) -> Result<BindingDigest, PitSnapshotError> {
-        let [member] = members else {
-            return Err(PitSnapshotError::InstrumentMasterUnavailable);
-        };
+        let (universe, members) = pit_instrument_master_members_v1(universe, members)?;
         let time = &request.time_evidence;
         let effective = i128::from(time.event_effective.value);
         let observation = i128::from(time.observed_at);
@@ -10351,13 +10517,11 @@ impl MarketDataOwnerPostgres {
         let selected = async {
             let (handoff, proof) = current_instrument_clock(&mut transaction, &locator).await?;
             let projection = instrument_clock_projection(&handoff, proof.as_ref())?;
-            let facts =
-                load_instrument_facts(&mut transaction, std::slice::from_ref(member), false)
-                    .await?;
+            let facts = load_instrument_facts(&mut transaction, &members, false).await?;
             validate_instrument_fact_graph(&facts)?;
             select_instrument_facts(
                 &facts,
-                std::slice::from_ref(member),
+                &members,
                 effective,
                 observation,
                 clock.decision_cut,
@@ -10376,41 +10540,18 @@ impl MarketDataOwnerPostgres {
             .rollback()
             .await
             .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
-        let [fact] = selected.as_slice() else {
-            return Err(PitSnapshotError::InstrumentMasterUnavailable);
-        };
 
-        let mut identity = Sha256::new();
-        identity.update(INSTRUMENT_MASTER_PIT_REQUEST_DOMAIN);
-        identity.update(request.correlation_identity.as_bytes());
-        identity.update(member.as_bytes());
-        identity.update(effective.to_be_bytes());
-        identity.update(clock.decision_cut.to_be_bytes());
-        let request_identity = BindingDigest::from_untrusted_bytes(identity.finalize().into());
-        let mut meaning = Sha256::new();
-        meaning.update(INSTRUMENT_MASTER_PIT_REQUEST_DOMAIN);
-        meaning.update(request_identity.as_bytes());
-        meaning.update(fact.digest().as_bytes());
-        let request_meaning_digest = BindingDigest::from_untrusted_bytes(meaning.finalize().into());
-
-        let resolution = UntrustedInstrumentMasterRequestV1 {
-            request_identity,
-            request_meaning_digest,
-            consumer_role: super::instrument_master::BACKTEST_OWNER_V1.into(),
-            scope: InstrumentMasterScopeV1::ExactInstrument(member.clone()),
-            effective_instant: effective,
-            owner_observation: observation,
-            decision_cut: clock.decision_cut,
-            clock_head: locator,
-            lifecycle_frontier: fact.proposal.lifecycle_frontier,
-            corporate_action_frontier: fact.proposal.corporate_action_frontier,
-            historical_membership_frontier: fact.proposal.historical_membership_frontier,
-            market_semantics_identity: fact.proposal.market_semantics_identity,
-            source_frontier: fact.proposal.source_frontier,
-            correction_frontier: fact.proposal.correction_frontier,
-            stable_correlation: request.correlation_identity,
-        };
-        let readback = Box::pin(self.resolve_instrument_master(&resolution, None))
+        let resolution = pit_instrument_master_request_v1(
+            request,
+            universe.record().identity(),
+            &members,
+            &selected,
+            clock,
+            locator,
+        )?;
+        let membership: Option<&dyn InstrumentMasterUniverseMembershipResolver> =
+            (members.len() > 1).then_some(universe);
+        let readback = Box::pin(self.resolve_instrument_master(&resolution, membership))
             .await
             .map_err(|e| {
                 super::storage_diagnostic::refused_by_store(
@@ -10975,6 +11116,7 @@ impl InstrumentMasterAdmissionV1 for InstrumentMasterAdmissionPostgresV1 {
     }
 }
 
+/// The durable intake. It retains the Owner and the Data Client and exposes neither.
 struct MarketDataPitIntakePostgresV1 {
     owner: MarketDataOwnerPostgres,
     observations: std::sync::Arc<dyn PitObservationSourceV1>,

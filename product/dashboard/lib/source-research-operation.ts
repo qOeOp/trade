@@ -315,7 +315,6 @@ export async function executeClaimedSourceResearchOperationV1({
       transport: ownerTransport,
     })
     : await executeResearchGoalOperationV2({
-      action: "RUN",
       input: request.research,
       ancestry: sourceResult.ancestry,
       transport: ownerTransport,
@@ -534,18 +533,24 @@ export async function executeSourceResearchOperationV1({
     return unavailable("EXECUTION_RUN_STORE_TRANSITION_UNAVAILABLE", 503, currentRun);
   }
 
+  // Every resolve of the Research stage, the requested one or a recovery of an earlier run, reads
+  // the Owner through the route the orchestration contract names; only a fresh run submits.
   let researchResult = request.action === "RESOLVE"
     ? await resolveResearchGoalOperationV2({
       requestIdentity: request.research_request_identity,
       transport: ownerTransport,
     })
-    : await executeResearchGoalOperationV2({
-      action: started.execution_mode === "FRESH_RUN" ? effectiveAction : "RESOLVE",
-      input: runInput?.research ?? request.research,
-      ancestry: sourceResult.ancestry,
-      transport: ownerTransport,
-      routing: routing.research,
-    });
+    : started.execution_mode !== "FRESH_RUN" || effectiveAction === "RESOLVE"
+      ? await resolveResearchGoalOperationV2({
+        requestIdentity: (runInput?.research ?? request.research).request_identity,
+        transport: ownerTransport,
+      })
+      : await executeResearchGoalOperationV2({
+        input: runInput?.research ?? request.research,
+        ancestry: sourceResult.ancestry,
+        transport: ownerTransport,
+        routing: routing.research,
+      });
   if (started.execution_mode === "RESOLVE_ONLY"
     && !recoveryPhases.has("RESEARCH_OWNER_AVAILABLE")
     && ["RESEARCH_OWNER_ABSENT", "RESEARCH_OWNER_UNKNOWN"].includes(
@@ -553,7 +558,6 @@ export async function executeSourceResearchOperationV1({
     )
     && canResumeMissingStage) {
     researchResult = await executeResearchGoalOperationV2({
-      action: "RUN",
       input: runInput.research,
       ancestry: sourceResult.ancestry,
       transport: ownerTransport,

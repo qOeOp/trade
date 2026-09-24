@@ -28,23 +28,34 @@ export function DetailSheet({
   children: ReactNode;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const returnFocus = useRef<HTMLElement | null>(null);
   const titleId = useId();
 
   useEffect(() => {
     const current = dialog.current;
     if (!current) return;
     if (open && !current.open) {
-      returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       current.showModal();
     } else if (!open && current.open) {
       current.close();
     }
   }, [open]);
 
-  const close = () => {
+  // Closing returns focus to the control that opened the sheet (dashboard.md: "Close returns focus
+  // to that exact table trigger", and the same property for every sheet origin). The browser
+  // provides it: closing a modal dialog, by the user or by `close()` above, focuses the element that
+  // held focus when `showModal()` ran. This component used to repeat that in an animation frame,
+  // and removing the repetition changed no browser acceptance, because it always chose the same
+  // element. The acceptances' focus-return assertions are what prove the property. A dialog removed
+  // from the page while open returns focus nowhere, with or without that repetition.
+  //
+  // A close the sheet performs itself tells the page inside the event that asked for it. The dialog
+  // closes at once but its `close` event arrives as a later task, and until the page has heard it
+  // the page still names the content it was showing: asking for that same content again in between
+  // (Escape then Enter, a double click, a fast assistive-technology action) changes no state and
+  // opens nothing. Every caller's `onClose` only clears state, so hearing it twice is harmless.
+  const requestClose = () => {
     onClose();
-    window.requestAnimationFrame(() => returnFocus.current?.focus());
+    dialog.current?.close();
   };
 
   return (
@@ -52,9 +63,10 @@ export function DetailSheet({
       ref={dialog}
       className={styles.sheet}
       aria-labelledby={titleId}
-      onClose={close}
+      onClose={onClose}
+      onCancel={onClose}
       onClick={(event) => {
-        if (event.target === event.currentTarget) event.currentTarget.close();
+        if (event.target === event.currentTarget) requestClose();
       }}
     >
       <PanelFrame className={styles.frame} as="aside">
@@ -63,7 +75,7 @@ export function DetailSheet({
           title={title}
           titleId={titleId}
           description={description}
-          onClose={() => dialog.current?.close()}
+          onClose={requestClose}
         />
         <PanelFrameBody className={styles.body} density="compact">{children}</PanelFrameBody>
         {canonicalHref ? (

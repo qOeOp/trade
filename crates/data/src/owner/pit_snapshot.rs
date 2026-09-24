@@ -811,6 +811,10 @@ pub enum PitSnapshotError {
     ConsumerBindingMismatch,
     /// No Instrument Master V1 fact of this Owner answers the request's instrument at its cut.
     InstrumentMasterUnavailable,
+    /// The recovered Universe Selection Record includes no member, or more than two.
+    UniverseMemberCountUnadmitted,
+    /// An included member's key is not the canonical instrument it names.
+    UniverseMemberKeyIsNotInstrument,
 }
 
 impl Display for PitSnapshotError {

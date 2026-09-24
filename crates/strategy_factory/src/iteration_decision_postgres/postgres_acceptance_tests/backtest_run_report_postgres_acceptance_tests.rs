@@ -5,13 +5,14 @@ use super::{
     *,
 };
 use crate::backtest_run_report_read_v1::{
-    BacktestRunReportStateV1, REPORT_STATEMENT_TIMEOUT_MS_V1, begin_report_read_v1,
-    read_report_in_transaction,
+    BacktestRunReportRefusalV1, BacktestRunReportStateV1, REPORT_STATEMENT_TIMEOUT_MS_V1,
+    anchor_artifact_to_freeze, begin_report_read_v1, read_report_in_transaction,
     report_test_support_v1::{
         assert_series_reads_back_every_counted_point, run_multi_day_round_trip_v1,
     },
     resolve_backtest_run_report_v1, resolve_backtest_run_result_v1,
 };
+use crate::rd_bounded_feature_program_v1::read_frozen_design_program_in_transaction_v1;
 
 /// Reads one real run's report back through the R&D role and checks every point against the bytes
 /// Backtest custody actually holds.
@@ -25,9 +26,10 @@ use crate::backtest_run_report_read_v1::{
 /// single-threshold family authors, so the whole report is refused for a named reason while its
 /// result half still reads back. A run inside the family is not constructible in this chain
 /// today: no entry composes a replay request from an authored Design, and the one that runs the
-/// Composer on an authored Design stops at the Artifact. The positive case is proven below the
-/// database instead, by authoring, freezing and reading back in
-/// `single_threshold_authoring_v1`.
+/// Composer on an authored Design stops at the Artifact. The family's positive case is proven
+/// below the database, by authoring, freezing and reading back in `single_threshold_authoring_v1`,
+/// and the anchor's against that Artifact and the fixture run's, in the report's own read-only
+/// transaction.
 #[tokio::test]
 #[ignore = "requires the canonical disposable R&D and Backtest Owner PostgreSQL topology"]
 async fn backtest_run_report_reads_back_every_point_a_real_run_committed() {
@@ -123,6 +125,11 @@ async fn backtest_run_report_reads_back_every_point_a_real_run_committed() {
         &request_digest,
     )
     .await;
+    assert_the_anchor_holds_real_composer_artifacts_to_their_own_freeze(
+        database.owner_topology_admin_pool(),
+        rd_pool,
+    )
+    .await;
     // This code is decided only after the replay request read back: a request that did not would
     // have been refused as `REPLAY_REQUEST_UNAVAILABLE` first.
     assert_eq!(refused.code(), "NO_STRATEGY_STATEMENT_FOR_FAMILY");
@@ -151,6 +158,149 @@ async fn backtest_run_report_reads_back_every_point_a_real_run_committed() {
     assert!(committed_fills > 0, "the real run must have traded");
     assert_eq!(read.result.fills.len(), committed_fills);
     assert_eq!(read.result.fill_count, committed_fills as u64);
+}
+
+/// One Design frozen in R&D custody, and the Composer artifact composed from it if there is one.
+struct FrozenDesignV1 {
+    design_identity: Vec<u8>,
+    design_digest: Vec<u8>,
+    artifact: Option<Vec<u8>>,
+}
+
+/// Anchors the artifacts the production Composer built earlier in this chain, in the report's own
+/// read-only transaction.
+///
+/// No run in this chain reaches the anchor through a report. A legacy request's artifact was not
+/// built by Composer, so it can never anchor, and a Composer V3 request is refused before the
+/// anchor because its request read locks rows. The anchor is therefore proven on its own, against
+/// real Composer custody: the Artifact the authored Design was composed to two entries back, and
+/// the fixture run's. Each artifact is found by the Design its plan was composed from, never by a
+/// receipt digest, so the selection cannot decide the answer. Each must anchor to its own Design's
+/// freeze and to no other freeze in the database, and the reads must hold no lock stronger than
+/// `AccessShareLock`.
+async fn assert_the_anchor_holds_real_composer_artifacts_to_their_own_freeze(
+    admin: &PgPool,
+    rd_pool: &PgPool,
+) {
+    // The freezes are R&D custody and the artifacts Composer's, and no one role reads both, so each
+    // is read by a role that may and the two are joined here, on the Design identity.
+    let frozen: Vec<(Vec<u8>, Vec<u8>)> = sqlx::query_as(
+        "SELECT design_identity, design_digest
+           FROM public.rd_bounded_feature_program_freezes_v1
+          ORDER BY design_identity",
+    )
+    .fetch_all(rd_pool)
+    .await
+    .expect("every freeze");
+    let composed: Vec<(Vec<u8>, Vec<u8>)> = sqlx::query_as(
+        "SELECT plan.design_identity, artifact.artifact_identity
+           FROM composer_private.rd_develop_plans_v2 plan
+           JOIN composer_private.rd_develop_artifacts_v2 artifact
+             ON artifact.plan_digest = plan.plan_digest",
+    )
+    .fetch_all(admin)
+    .await
+    .expect("every Composer artifact and the Design its plan was composed from");
+    let freezes: Vec<FrozenDesignV1> = frozen
+        .into_iter()
+        .map(|(design_identity, design_digest)| {
+            let artifact = composed
+                .iter()
+                .find(|(composed_from, _)| *composed_from == design_identity)
+                .map(|(_, artifact)| artifact.clone());
+            FrozenDesignV1 {
+                design_identity,
+                design_digest,
+                artifact,
+            }
+        })
+        .collect();
+    let digest = |bytes: &[u8]| {
+        BindingDigest::from_untrusted_bytes(bytes.try_into().expect("a 32-byte digest"))
+    };
+    let mut transaction = begin_report_read_v1(rd_pool, REPORT_STATEMENT_TIMEOUT_MS_V1)
+        .await
+        .expect("the report's read-only transaction");
+    // A freeze that does not verify is one the report refuses as `FROZEN_DESIGN_UNAVAILABLE`, and
+    // it anchors nothing. The chain holds one on purpose: the Product Edge joint-freeze entry
+    // appends a byte to its program and leaves it there, to prove lowering closes on it. Every
+    // freeze a Composer artifact was built from must verify.
+    let mut joint_freeze_digests = Vec::with_capacity(freezes.len());
+
+    for FrozenDesignV1 {
+        design_identity,
+        design_digest,
+        artifact,
+    } in &freezes
+    {
+        let frozen = read_frozen_design_program_in_transaction_v1(
+            &mut transaction,
+            digest(design_identity),
+            digest(design_digest),
+        )
+        .await;
+        let joint_freeze_digest = match frozen {
+            Ok(Some(frozen)) => Some(frozen.joint_freeze_digest),
+            Err(_) if artifact.is_none() => None,
+            other => panic!(
+                "a freeze a Composer artifact was built from does not verify: {:?}",
+                other.map(|found| found.is_some())
+            ),
+        };
+        joint_freeze_digests.push(joint_freeze_digest);
+    }
+    let built = freezes
+        .iter()
+        .filter(|freeze| freeze.artifact.is_some())
+        .count();
+    let verified = joint_freeze_digests.iter().flatten().count();
+    assert!(
+        built >= 1 && verified >= 2,
+        "the anchor needs an artifact the production Composer built and a verified freeze it was \
+         not built from: {built} of {} freezes have an artifact and {verified} verify",
+        freezes.len()
+    );
+
+    for (built_from, FrozenDesignV1 { artifact, .. }) in freezes.iter().enumerate() {
+        let Some(artifact) = artifact else {
+            continue;
+        };
+
+        for (freeze, joint_freeze_digest) in joint_freeze_digests.iter().enumerate() {
+            let Some(joint_freeze_digest) = joint_freeze_digest else {
+                continue;
+            };
+            let anchored =
+                anchor_artifact_to_freeze(&mut transaction, digest(artifact), *joint_freeze_digest)
+                    .await;
+
+            if freeze == built_from {
+                assert_eq!(
+                    anchored,
+                    Ok(()),
+                    "an artifact anchors to its own Design's freeze"
+                );
+            } else {
+                assert_eq!(
+                    anchored,
+                    Err(BacktestRunReportRefusalV1::StrategyNotAnchoredToRun),
+                    "an artifact does not anchor to another Design's freeze"
+                );
+            }
+        }
+    }
+    let stronger: Vec<(String, String, Option<String>)> = sqlx::query_as(
+        "SELECT locktype, mode, relation::pg_catalog.regclass::text
+           FROM pg_catalog.pg_locks
+          WHERE pid = pg_catalog.pg_backend_pid()
+            AND NOT (locktype = 'relation' AND mode = 'AccessShareLock')
+            AND NOT (locktype = 'virtualxid' AND mode = 'ExclusiveLock')",
+    )
+    .fetch_all(&mut *transaction)
+    .await
+    .expect("this backend's locks");
+    assert!(stronger.is_empty(), "the anchor read holds {stronger:?}");
+    transaction.rollback().await.expect("read-only rollback");
 }
 
 /// The two request reads, each against the property it exists for.

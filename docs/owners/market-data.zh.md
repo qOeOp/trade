@@ -1274,9 +1274,11 @@ Data 不依赖 R&D，不拥有也不重新解释 Strategy Design role/join。
   R&D 事务内不加行锁地运行，且不写入任何东西。它只做提前拒绝：PIT request 处的固定成员求值仍是决定，在检查时可准入的
   identity 仍可能以非 `AVAILABLE` 的 terminal 结束。
 
-目前已建成：无。canonical evaluator 只准入全部成员与前缀两种 rule；eligible-instrument frontier 是调用方选定、
-没有任何准入去承接的 digest；没有任何读取能从 identity 解析出 Source Binding、Instrument Master fact 或 eligibility；
-PIT intake 只准入恰好一个成员；没有任何代码按 identity 读取 PIT request；registration 按坐标解析每个 role。
+目前已建成：PIT intake 准入含一个或两个 included 成员的 Universe Selection Record，每个成员的 key 即其 canonical
+instrument；其他成员数或 key 在写入任何东西之前按名拒绝。除此之外无：canonical evaluator 只准入全部成员与前缀两种
+rule；eligible-instrument frontier 是调用方选定、没有任何准入去承接的 digest；没有任何读取能从 identity 解析出
+Source Binding、Instrument Master fact 或 eligibility；没有任何代码按 identity 读取 PIT request；registration 按坐标
+解析每个 role。
 
 Market Data 只消费、但不定义也不重新解释 R&D Owner contract 中明确规定的 big-endian canonical binary
 codec；其 JSON 表示不是 canonical receipt material。registration 必须通过固定 R&D adapter 取得

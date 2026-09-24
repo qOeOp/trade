@@ -352,6 +352,43 @@ if [[ "$build_triggers" != *"merge_group:"* ]] ||
   echo "build.yml must answer merge_group: a queue drops entries it gets no verdict for" >&2
   exit 1
 fi
+# `workflow_dispatch` is how `main` gets a same-tree verdict between scheduled runs, so it has to be
+# routed exactly like `schedule`: `run-full=true` from ready-gate and full validation from plan.sh.
+# Both are run here with each event rather than read, so a case that sends dispatch to a skip - in
+# the gate's shell or in plan.sh - turns this red.
+if [[ "$build_triggers" != *"workflow_dispatch:"* ]]; then
+  echo "build.yml must keep workflow_dispatch: it is the on-demand verdict for main" >&2
+  exit 1
+fi
+ready_gate_script="$(awk '
+  /^  ready-gate:/ { in_job = 1; next }
+  in_job && /^  [a-z]/ { exit }
+  in_job && /^        run: [|]$/ { in_run = 1; next }
+  in_run && /^$/ { print ""; next }
+  in_run && /^          / { sub(/^          /, ""); print; next }
+  in_run { exit }
+' "$repo_root/.github/workflows/build.yml")"
+if [[ "$ready_gate_script" != *'run-full='* ]]; then
+  echo "could not read ready-gate's classification script from build.yml" >&2
+  exit 1
+fi
+for event in schedule workflow_dispatch; do
+  gate_output="$(mktemp "${TMPDIR:-/tmp}/trade-ci-gate-output.XXXXXX")"
+  EVENT_NAME="$event" ACTION='' DRAFT='' GITHUB_OUTPUT="$gate_output" \
+    bash -c "$ready_gate_script" > /dev/null
+  if [[ "$(cat "$gate_output")" != 'run-full=true' ]]; then
+    echo "ready-gate must answer run-full=true for $event, got: $(cat "$gate_output")" >&2
+    exit 1
+  fi
+  rm -f "$gate_output"
+  plan_output="$(mktemp "${TMPDIR:-/tmp}/trade-ci-plan-output.XXXXXX")"
+  (cd "$source_repo" && EVENT_NAME="$event" GITHUB_OUTPUT="$plan_output" bash scripts/ci/plan.sh > /dev/null)
+  for assertion in "${fail_closed[@]}"; do
+    assert_output "$plan_output" "${assertion%%=*}" "${assertion#*=}"
+  done
+  rm -f "$plan_output"
+done
+echo "ok: workflow_dispatch is routed like schedule, to full validation"
 ready_gate_cases="$(sed -n '/ready-gate:/,/^  plan:/p' "$repo_root/.github/workflows/build.yml")"
 for pr_case in 'ready_for_review:' 'opened:false' 'reopened:false'; do
   if [[ "$ready_gate_cases" != *"$pr_case"* ]]; then

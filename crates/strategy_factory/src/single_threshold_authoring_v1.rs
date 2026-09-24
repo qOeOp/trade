@@ -1864,21 +1864,7 @@ mod tests {
     fn a_universe_member_pair_compiles_into_a_one_member_plan() {
         let (design, _) = author_single_threshold_program_v1(&universe_request())
             .expect("the universe-member request is authorable");
-        let manifest = &design.plugins[0];
-        let receipt = issue_plugin_implementation_receipt_v2_for_test(
-            manifest,
-            digest(71),
-            digest(72),
-            digest(73),
-            digest(74),
-            "strategy.plugin.compute.v2",
-            manifest.abi_version,
-            design
-                .capabilities
-                .iter()
-                .map(|capability| (capability.semantic_id.clone(), capability.version))
-                .collect(),
-        );
+        let receipt = implementation_receipt(&design);
         let compile = |instruments: &[&str]| {
             compile_strategy_design_v2_with_verified_bindings(
                 design.clone(),
@@ -1930,6 +1916,137 @@ mod tests {
                 StrategyCompilationV2::Compiled(_)
             ),
             "the same Design does not compile against two members",
+        );
+    }
+
+    /// A plugin implementation receipt for the Design's one plugin. The Plan compiles against its
+    /// digests; no module is built.
+    fn implementation_receipt(
+        design: &StrategyDesignV2,
+    ) -> crate::strategy_plan_v2::PluginImplementationReceiptV2 {
+        let manifest = &design.plugins[0];
+        issue_plugin_implementation_receipt_v2_for_test(
+            manifest,
+            digest(71),
+            digest(72),
+            digest(73),
+            digest(74),
+            "strategy.plugin.compute.v2",
+            manifest.abi_version,
+            design
+                .capabilities
+                .iter()
+                .map(|capability| (capability.semantic_id.clone(), capability.version))
+                .collect(),
+        )
+    }
+
+    fn plan_digest_hex(result: StrategyCompilationV2) -> String {
+        let StrategyCompilationV2::Compiled(plan) = result else {
+            panic!("the Design compiles: {result:?}");
+        };
+        plan.canonical_plan_digest()
+            .as_bytes()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+    }
+
+    /// The Plan each input scope compiles to, pinned by digest, and the refusal of a Design that
+    /// mixes them. How a Design's input scope is classified is shared by the Plan compiler and by
+    /// the R&D reads that must choose an Owner custody path for the Design; these pin that moving
+    /// the classification between them changes no Plan byte and no refusal.
+    #[rstest]
+    fn each_input_scope_compiles_to_its_pinned_plan() {
+        let (exact, _) = author_single_threshold_program_v1(&request())
+            .expect("the exact request is authorable");
+        let (universe, _) = author_single_threshold_program_v1(&universe_request())
+            .expect("the universe request is authorable");
+
+        let exact_digest = plan_digest_hex(compile_strategy_design_v2_with_verified_bindings(
+            exact.clone(),
+            bindings(&exact),
+            &[implementation_receipt(&exact)],
+        ));
+        let universe_digest = plan_digest_hex(compile_strategy_design_v2_with_verified_bindings(
+            universe.clone(),
+            verified_universe_bindings_for_test(&universe, &["BTCUSDT-PERP.BINANCE"]),
+            &[implementation_receipt(&universe)],
+        ));
+
+        assert_eq!(
+            (exact_digest.as_str(), universe_digest.as_str()),
+            (
+                "0a6f7ca9688276240ca5768eb072cad5e29bcf45e573a5214461ab563572ceb0",
+                "9e1b19650443285b7cb48852613094d15c8623c8871cd7a4c0931344a52a3dd1",
+            ),
+        );
+    }
+
+    /// A Design whose roles mix the two scopes is refused under its own reason, before any binding
+    /// is consulted.
+    #[rstest]
+    fn a_design_mixing_input_scopes_is_refused() {
+        let (mut mixed, _) = author_single_threshold_program_v1(&universe_request())
+            .expect("the universe request is authorable");
+        // One role becomes exact-instrument, read the way an exact role is read - as itself, with
+        // its coordinate on the port its new identity derives - so the Design is a well-formed
+        // graph that mixes scopes, not one the graph validation refuses first.
+        let old_port = coordinate_port_id(strategy_input_role_identity_v2(&mixed.inputs[0]));
+        mixed.inputs[0].scope = InputScopeV2::ExactInstrument;
+        mixed.inputs[0].instrument = "BTCUSDT-PERP.BINANCE".to_owned();
+        let exact_role = mixed.inputs[0].semantic_id.clone();
+        let new_port = coordinate_port_id(strategy_input_role_identity_v2(&mixed.inputs[0]));
+        for port in &mut mixed.plugins[0].input_ports {
+            if port.semantic_id == old_port {
+                port.semantic_id.clone_from(&new_port);
+            }
+        }
+        mixed.plugins[0]
+            .input_ports
+            .sort_by(|a, b| a.semantic_id.as_bytes().cmp(b.semantic_id.as_bytes()));
+
+        for node in mixed
+            .reactions
+            .iter_mut()
+            .flat_map(|reaction| &mut reaction.nodes)
+        {
+            for binding in &mut node.input_bindings {
+                match &binding.source {
+                    ValueRefV2::UniverseMemberInput { input_id, .. } if *input_id == exact_role => {
+                        binding.source = ValueRefV2::Input {
+                            input_id: exact_role.clone(),
+                        };
+                    }
+                    ValueRefV2::UniverseMemberSampleCoordinate {
+                        input_id,
+                        source_semantic_id,
+                        ..
+                    } if *input_id == exact_role => {
+                        binding.port_id.clone_from(&new_port);
+                        binding.source = ValueRefV2::OwnerSampleCoordinate {
+                            input_id: exact_role.clone(),
+                            source_semantic_id: source_semantic_id.clone(),
+                        };
+                    }
+                    _ => {}
+                }
+            }
+            node.input_bindings
+                .sort_by(|a, b| a.port_id.as_bytes().cmp(b.port_id.as_bytes()));
+        }
+
+        assert_eq!(
+            compile_strategy_design_v2_with_verified_bindings(
+                mixed.clone(),
+                bindings(&mixed),
+                &[implementation_receipt(&mixed)],
+            ),
+            StrategyCompilationV2::Unsupported(CompilationIssueV2 {
+                coordinate: "inputs.scope".to_owned(),
+                reason: "exact-instrument and universe-member roles cannot be mixed".to_owned(),
+                refusal: None,
+            }),
         );
     }
 }

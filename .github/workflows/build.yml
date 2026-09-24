@@ -25,8 +25,22 @@ on:
   # This trigger cannot make a red tree green - a scheduled run validates the same tree a push
   # would have - so the only failure it can introduce is a verdict arriving later than a merge,
   # never a false green.
+  #
+  # The minute is off the hour. Measured 2026-09-24T06:26Z over every slot since this trigger landed
+  # (2026-09-21 04:00 to 2026-09-24 04:00 UTC, 19 slots), the on-the-hour cron started 12 runs: 7
+  # slots never ran at all (every 04:00 and 12:00), and of the 12 that did, 10 started 58 minutes to
+  # 3h06m late. (Each run counted for the nearest slot before it: runs never start early, so that is
+  # the smallest delay that fits.) This expires 48 hours after it lands: re-measure the slots, with
+  # 04:17 and 12:17 seen at least twice each. If they arrive and the delays shrink, the hour was the
+  # cause and this stays. If 04 and 12 still go missing, the hours are the cause: move to
+  # "17 2,6,10,14,18,22 * * *", clear of both, and measure again.
   schedule:
-    - cron: "0 */4 * * *"
+    - cron: "17 */4 * * *"
+  # A same-tree verdict on `main` on demand, without creating a branch to push to. `ready-gate` and
+  # `scripts/ci/plan.sh` must route it like `schedule`, to full validation; scripts/ci/test-plan.sh
+  # runs both with this event and fails if either would skip. It shares `main`'s concurrency group,
+  # so it supersedes a scheduled run still in progress on the same branch, as a newer tip would.
+  workflow_dispatch:
   # `ready-gate` admits exactly `ready_for_review`, `opened:false` and `reopened:false`, so these
   # are the only events it can answer `run-full` for. `synchronize` is deliberately absent: a push
   # would fail the gate rather than validate, and re-validating after a push is the Draft -> Ready
@@ -771,21 +785,33 @@ jobs:
         chain:
           - key: rd-owner
             name: rd owner postgres (ubuntu-22.04)
-            # Common setup: twice the slowest measured for this chain across build and owner-chains
-            # (530s, 2026-09-24). Re-measure and raise it once setup routinely takes half of it.
-            setup-timeout-minutes: 18
+            # Common setup: the slowest each part of it took across 45 rd/md chain jobs (2026-09-24) -
+            # freeing disk 915s, rust-cache 340s, everything else 59s - is 1314s together; 30 minutes
+            # leaves room above that. Freeing disk is bimodal: 42 jobs took 116-341s and 3 took
+            # 839-915s on slow runners, so a sample without one of those reads far too low (this was
+            # 18 and 28 minutes, and cut #979's setup at 18). Re-measure the parts, not the total,
+            # and raise it once any of them routinely nears half of it.
+            setup-timeout-minutes: 30
             step-timeout-minutes: 70
-            job-timeout-minutes: 100
+            # Above the step limits added together (30 + 70) and the short steps around them, so a
+            # step timeout, which keeps its log, fires before the job limit, which does not.
+            job-timeout-minutes: 105
             make: >-
               cargo-test-rd-owner-postgres-isolated NEXTEST_PROFILE=ci
               EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
           - key: market-data
             name: market data owner postgres (ubuntu-22.04)
-            # Common setup: twice the slowest measured for this chain across build and owner-chains
-            # (820s, 2026-09-24). Re-measure and raise it once setup routinely takes half of it.
-            setup-timeout-minutes: 28
+            # Common setup: the slowest each part of it took across 45 rd/md chain jobs (2026-09-24) -
+            # freeing disk 915s, rust-cache 340s, everything else 59s - is 1314s together; 30 minutes
+            # leaves room above that. Freeing disk is bimodal: 42 jobs took 116-341s and 3 took
+            # 839-915s on slow runners, so a sample without one of those reads far too low (this was
+            # 18 and 28 minutes, and cut #979's setup at 18). Re-measure the parts, not the total,
+            # and raise it once any of them routinely nears half of it.
+            setup-timeout-minutes: 30
             step-timeout-minutes: 15
-            job-timeout-minutes: 40
+            # Above the step limits added together (30 + 15) and the short steps around them, so a
+            # step timeout, which keeps its log, fires before the job limit, which does not.
+            job-timeout-minutes: 50
             make: cargo-test-market-data-owner-postgres-isolated
     env:
       # Byte-identical to `rust tests`, deliberately: rust-cache folds every CARGO_/RUST_

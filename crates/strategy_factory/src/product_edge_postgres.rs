@@ -5680,7 +5680,26 @@ pub(crate) mod tests {
             .expect("frozen program lowers again");
         assert_eq!(relowered, lowered);
 
-        sqlx::query(
+        // The tamper below is committed, because the lowerer reads through its own connection and
+        // would not see an uncommitted one. The chain's database is shared and never reset, so the
+        // freeze is restored to its exact bytes before the test ends: a freeze that no longer
+        // verifies would stay behind for every later test that enumerates freezes.
+        let freeze_row_digest = "SELECT pg_catalog.md5(stored::text)
+               FROM rd_bounded_feature_program_freezes_v1 stored
+              WHERE stored.request_identity=$1";
+        let original_row_digest: String = sqlx::query_scalar(freeze_row_digest)
+            .bind(&request_identity)
+            .fetch_one(&owner.pool)
+            .await
+            .unwrap();
+        let original_program_bytes: Vec<u8> = sqlx::query_scalar(
+            "SELECT program_bytes FROM rd_bounded_feature_program_freezes_v1 WHERE request_identity=$1",
+        )
+        .bind(&request_identity)
+        .fetch_one(&owner.pool)
+        .await
+        .unwrap();
+        let tampered_rows = sqlx::query(
             "UPDATE rd_bounded_feature_program_freezes_v1
                 SET program_bytes=program_bytes || decode('00','hex')
               WHERE request_identity=$1",
@@ -5688,7 +5707,9 @@ pub(crate) mod tests {
         .bind(&request_identity)
         .execute(&owner.pool)
         .await
-        .unwrap();
+        .unwrap()
+        .rows_affected();
+        assert_eq!(tampered_rows, 1);
         let mut tampered = owner.pool.begin().await.unwrap();
         assert_eq!(
             Box::pin(crate::rd_bounded_feature_program_v1::read_research_bounded_feature_program_in_transaction_v1(
@@ -5707,6 +5728,45 @@ pub(crate) mod tests {
             composition_root.lower(&request_identity).await,
             Err(crate::rd_bounded_feature_program_postgres_v1::ResearchBoundedFeatureProgramLoweringErrorV1::Unavailable)
         ));
+
+        let restored_rows = sqlx::query(
+            "UPDATE rd_bounded_feature_program_freezes_v1 SET program_bytes=$2 WHERE request_identity=$1",
+        )
+        .bind(&request_identity)
+        .bind(&original_program_bytes)
+        .execute(&owner.pool)
+        .await
+        .unwrap()
+        .rows_affected();
+        assert_eq!(restored_rows, 1);
+        let restored_row_digest: String = sqlx::query_scalar(freeze_row_digest)
+            .bind(&request_identity)
+            .fetch_one(&owner.pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            restored_row_digest, original_row_digest,
+            "the freeze is restored byte for byte"
+        );
+        let mut restored = owner.pool.begin().await.unwrap();
+        assert!(
+            Box::pin(crate::rd_bounded_feature_program_v1::read_research_bounded_feature_program_in_transaction_v1(
+                &mut restored,
+                &request_identity,
+                read_cut
+            ))
+            .await
+            .is_ok(),
+            "the restored freeze verifies again"
+        );
+        restored.rollback().await.unwrap();
+        assert_eq!(
+            composition_root
+                .lower(&request_identity)
+                .await
+                .expect("the restored freeze lowers again"),
+            lowered
+        );
     }
 
     /// A proposer declares meaning only, and the Owner assembles it against live binding custody.
