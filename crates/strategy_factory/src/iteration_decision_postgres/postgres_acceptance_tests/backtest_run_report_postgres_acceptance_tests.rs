@@ -221,16 +221,14 @@ async fn assert_the_anchor_holds_real_composer_artifacts_to_their_own_freeze(
     let mut transaction = begin_report_read_v1(rd_pool, REPORT_STATEMENT_TIMEOUT_MS_V1)
         .await
         .expect("the report's read-only transaction");
-    // A freeze that does not verify is one the report refuses as `FROZEN_DESIGN_UNAVAILABLE`, and
-    // it anchors nothing. The chain holds one on purpose: the Product Edge joint-freeze entry
-    // appends a byte to its program and leaves it there, to prove lowering closes on it. Every
-    // freeze a Composer artifact was built from must verify.
+    // Every freeze in the database must verify: an entry that tampers with a freeze restores it
+    // before it ends, so a freeze that does not verify here is custody this chain corrupted.
     let mut joint_freeze_digests = Vec::with_capacity(freezes.len());
 
     for FrozenDesignV1 {
         design_identity,
         design_digest,
-        artifact,
+        ..
     } in &freezes
     {
         let frozen = read_frozen_design_program_in_transaction_v1(
@@ -238,14 +236,10 @@ async fn assert_the_anchor_holds_real_composer_artifacts_to_their_own_freeze(
             digest(design_identity),
             digest(design_digest),
         )
-        .await;
-        let joint_freeze_digest = match frozen {
-            Ok(Some(frozen)) => Some(frozen.joint_freeze_digest),
-            Err(_) if artifact.is_none() => None,
-            other => panic!(
-                "a freeze a Composer artifact was built from does not verify: {:?}",
-                other.map(|found| found.is_some())
-            ),
+        .await
+        .map(|found| found.map(|frozen| frozen.joint_freeze_digest));
+        let Ok(Some(joint_freeze_digest)) = frozen else {
+            panic!("a freeze in this database does not verify: {frozen:?}");
         };
         joint_freeze_digests.push(joint_freeze_digest);
     }
@@ -253,11 +247,10 @@ async fn assert_the_anchor_holds_real_composer_artifacts_to_their_own_freeze(
         .iter()
         .filter(|freeze| freeze.artifact.is_some())
         .count();
-    let verified = joint_freeze_digests.iter().flatten().count();
     assert!(
-        built >= 1 && verified >= 2,
-        "the anchor needs an artifact the production Composer built and a verified freeze it was \
-         not built from: {built} of {} freezes have an artifact and {verified} verify",
+        built >= 1 && freezes.len() >= 2,
+        "the anchor needs an artifact the production Composer built and a freeze it was not built \
+         from: {built} of {} freezes have an artifact",
         freezes.len()
     );
 
@@ -267,9 +260,6 @@ async fn assert_the_anchor_holds_real_composer_artifacts_to_their_own_freeze(
         };
 
         for (freeze, joint_freeze_digest) in joint_freeze_digests.iter().enumerate() {
-            let Some(joint_freeze_digest) = joint_freeze_digest else {
-                continue;
-            };
             let anchored =
                 anchor_artifact_to_freeze(&mut transaction, digest(artifact), *joint_freeze_digest)
                     .await;
