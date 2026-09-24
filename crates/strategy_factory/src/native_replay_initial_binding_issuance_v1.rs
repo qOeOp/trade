@@ -5,7 +5,10 @@ use std::fmt::Display;
 use sqlx::{Postgres, Transaction};
 use vibe_data::owner::{
     instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresOwnerV1,
-    instrument_master_v2::{InstrumentMasterResolverV2, native_replay_request_identity_v2},
+    instrument_master_v2::{
+        InstrumentMasterCustodyErrorV2, InstrumentMasterResolverV2,
+        native_replay_request_identity_v2,
+    },
     instrument_master_v2_postgres::InstrumentMasterV2PostgresOwner,
     native_replay_scheduling_v1::NativeReplaySchedulingResolverV1,
 };
@@ -28,9 +31,12 @@ use crate::{
 ///
 /// Every stage before the final issue collapses into `Unavailable`, which names none of them, so
 /// each first records its cause under a coordinate naming the stage: grep
-/// `native_replay_initial_binding.` to find which one it was. The final issue's own error is not
-/// collapsed and not recorded here: it already names `Conflict` and `Storage`, and a cause the
-/// caller can be told should be told rather than logged.
+/// `native_replay_initial_binding.` to find which one it was. Two earlier answers are named
+/// instead: a request with no composition binding is `NoCompositionBinding`, and an Instrument
+/// Master cut already issued for the request under another binding is `Conflict`, recorded under
+/// its coordinate the same way. The final issue's own error is not collapsed and not recorded
+/// here: it already names `Conflict` and `Storage`, and a cause the caller can be told should be
+/// told rather than logged.
 fn unavailable(
     coordinate: &'static str,
     cause: &impl Display,
@@ -65,6 +71,45 @@ where
                 "native_replay_initial_binding.instrument_master.request_identity",
                 &e,
             )
+        })?;
+    let composition_binding =
+        crate::exploratory_replay::postgres::read_composer_v3_market_data_binding_in_transaction(
+            transaction,
+            request.request_identity.as_str(),
+        )
+        .await
+        .map_err(|e| unavailable("native_replay_initial_binding.composition_binding.read", &e))?
+        .ok_or(NativeReplayExecutionInputBindingErrorV1::NoCompositionBinding)?;
+    // Market Data issues the request-keyed cut in its own transaction before this one resolves it
+    // under the same key. It is not atomic with this transaction: when a later stage here fails,
+    // the cut stays and the retry reuses it. Moving this after the resolve, or dropping it, leaves
+    // the resolve with no cut to find for any request.
+    instrument_master_owner
+        .issue_cut_for_bound_replay_v1(request.request_identity.as_str(), composition_binding)
+        .await
+        .map_err(|e| {
+            let coordinate = "native_replay_initial_binding.instrument_master.issue";
+
+            match e {
+                InstrumentMasterCustodyErrorV2::BoundReplayBindingConflict
+                | InstrumentMasterCustodyErrorV2::RequestConflict => {
+                    crate::storage_diagnostic::refused_by_store(coordinate, &e);
+                    NativeReplayExecutionInputBindingErrorV1::Conflict
+                }
+                InstrumentMasterCustodyErrorV2::InvalidRequest
+                | InstrumentMasterCustodyErrorV2::InvalidUniverseSelection
+                | InstrumentMasterCustodyErrorV2::MissingFact
+                | InstrumentMasterCustodyErrorV2::ChainMismatch
+                | InstrumentMasterCustodyErrorV2::CodecMismatch
+                | InstrumentMasterCustodyErrorV2::CrossSpliced
+                | InstrumentMasterCustodyErrorV2::IdentityConflict
+                | InstrumentMasterCustodyErrorV2::UnknownLocator
+                | InstrumentMasterCustodyErrorV2::StoreUnavailable
+                | InstrumentMasterCustodyErrorV2::AclUnavailable
+                | InstrumentMasterCustodyErrorV2::BoundReplayBindingUnavailable => {
+                    unavailable(coordinate, &e)
+                }
+            }
         })?;
     let instrument_master = instrument_master_owner
         .resolve_instrument_master_v2_for_native_replay_request(request.request_identity.as_str())

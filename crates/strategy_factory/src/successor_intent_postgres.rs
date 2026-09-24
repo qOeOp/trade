@@ -1,7 +1,6 @@
 //! PostgreSQL custody for Decision-selected successor Research Intents.
 
 use std::fmt::Display;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -148,7 +147,7 @@ async fn migrate_successor_artifact_read_port(
         CREATE OR REPLACE FUNCTION rd_owner_api.peek_current_successor_research_for_artifact_v1(
           requested_intent_identity text
         ) RETURNS jsonb LANGUAGE plpgsql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
-        SET search_path = pg_catalog
+        SET search_path = pg_catalog, pg_temp
         AS $function$
         DECLARE sealed record;
         BEGIN
@@ -268,7 +267,7 @@ async fn migrate_successor_artifact_read_port(
           requested_evidence_identity text,
           requested_evidence_digest text
         ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
-        SET search_path = pg_catalog
+        SET search_path = pg_catalog, pg_temp
         AS $function$
         DECLARE envelope jsonb; owner_cut_epoch_ms bigint;
         BEGIN
@@ -330,7 +329,7 @@ pub(crate) async fn compose_successor_research_intent_v1(
         Some(&request),
     )
     .await?;
-    let admission_cut = current_epoch_ms()?;
+    let admission_cut = owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
     let admission = resolve_admission_for_downstream_in_transaction(
         &mut transaction,
         &request.admission,
@@ -387,7 +386,7 @@ pub(crate) async fn compose_successor_research_intent_v1(
         &decision,
     ))
     .await?;
-    let committed_at_epoch_ms = current_epoch_ms()?;
+    let committed_at_epoch_ms = owner_clock_epoch_ms_in_transaction(&mut transaction).await?;
     if !admission.authorizes_first_mutation_at(committed_at_epoch_ms) {
         return Err(storage(
             "Product Edge successor admission expired before mutation",
@@ -1275,12 +1274,11 @@ fn valid_identity(value: &str) -> bool {
     is_valid_iteration_decision_locator_v1(value)
 }
 
-fn current_epoch_ms() -> Result<u64, SuccessorResearchIntentPostgresErrorV1> {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(storage)?
-        .as_millis()
-        .try_into()
+async fn owner_clock_epoch_ms_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<u64, SuccessorResearchIntentPostgresErrorV1> {
+    crate::rd_owner_clock::owner_clock_epoch_ms_in_transaction(transaction)
+        .await
         .map_err(storage)
 }
 

@@ -55,7 +55,10 @@ use crate::{
         ProposalWiringV2, ReactionGraphV2, ResourceBoundsV2, STRATEGY_DESIGN_SCHEMA_V2,
         StateCellV2, StateWriteV2, StrategyDesignV2, TypedConstantV2, ValueRefV2, ValueTypeV2,
     },
-    strategy_plan_v2::strategy_input_role_identity_v2,
+    strategy_plan_v2::{
+        UNIVERSE_CLOSE_FIELD_SEMANTIC_ID_V2, UNIVERSE_OPEN_FIELD_SEMANTIC_ID_V2,
+        strategy_input_role_identity_v2, universe_member_role_v2,
+    },
 };
 
 /// The bounded plugin every program in this family is authored against.
@@ -80,28 +83,113 @@ const COMPARISON_NODE: &str = "channel-against-threshold";
 const COMPARISON_PORT: &str = "value";
 /// The manifest port the channel's value arrives on.
 const CHANNEL_VALUE_PORT: &str = "input.channel.v1";
+/// Plugin input port the carried role's value arrives on, in the form that has one.
+const CARRIED_VALUE_PORT: &str = "input.carried.v1";
 /// How wide the plugin's serialized state may be.
 const PLUGIN_STATE_MAX_BYTES: u32 = 4096;
 
-/// The one channel this family reads, as the author declares it.
+/// The one channel this family reads, as the author declares it, and which instrument it is read
+/// for.
 ///
-/// `channel` and `fact_class` are absent on purpose: the family reads Market Data, and an author
-/// that could name another Owner would be authoring a different family.
+/// `scope` is required and has no default: a request that did not say which form it is must not
+/// become the exact-instrument form by omission. `channel` and `fact_class` are absent from both
+/// forms on purpose: the family reads Market Data, and an author that could name another Owner would
+/// be authoring a different family.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct SingleThresholdChannelV1 {
-    /// Identifier the Design and the graph both use for this role.
-    pub role_semantic_id: String,
-    /// Instrument the channel is read for.
-    pub instrument: String,
-    /// Market Data fact this channel carries.
-    pub field_semantic_id: String,
-    /// Bar timeframe.
-    pub timeframe: String,
-    /// Unit of the channel's value.
-    pub unit: String,
-    /// Fixed-point scale of the channel's value.
-    pub scale: u8,
+#[serde(
+    tag = "scope",
+    rename_all = "SCREAMING_SNAKE_CASE",
+    deny_unknown_fields
+)]
+pub enum SingleThresholdChannelV1 {
+    /// A channel read for one instrument the author names.
+    ExactInstrument {
+        /// Identifier the Design and the graph both use for this role.
+        role_semantic_id: String,
+        /// Instrument the channel is read for.
+        instrument: String,
+        /// Market Data fact this channel carries.
+        field_semantic_id: String,
+        /// Bar timeframe.
+        timeframe: String,
+        /// Unit of the channel's value.
+        unit: String,
+        /// Fixed-point scale of the channel's value.
+        scale: u8,
+    },
+    /// The daily close of the one member of an Owner universe, which Market Data selects when the
+    /// run is requested rather than the author here.
+    ///
+    /// The field, timeframe, unit and scale are the universe vertical's fixed contract, so they are
+    /// not asked: an author could only restate them or disagree. The vertical also fixes an `OPEN`
+    /// role beside `CLOSE`; the program carries it without reading it, and the author names it
+    /// because it is a Design role like any other.
+    UniverseMember {
+        /// Identifier of the `CLOSE` role, the channel the graph reads and its decision clock.
+        close_role_semantic_id: String,
+        /// Identifier of the carried `OPEN` role.
+        open_role_semantic_id: String,
+    },
+}
+
+impl SingleThresholdChannelV1 {
+    /// The role the graph reads and takes its decision clock from.
+    fn role(&self) -> &str {
+        match self {
+            Self::ExactInstrument {
+                role_semantic_id, ..
+            } => role_semantic_id,
+            Self::UniverseMember {
+                close_role_semantic_id,
+                ..
+            } => close_role_semantic_id,
+        }
+    }
+
+    /// The Design role of the channel.
+    fn role_v2(&self) -> InputRoleV2 {
+        match self {
+            Self::ExactInstrument {
+                role_semantic_id,
+                instrument,
+                field_semantic_id,
+                timeframe,
+                unit,
+                scale,
+            } => InputRoleV2 {
+                semantic_id: role_semantic_id.clone(),
+                fact_class: InputFactClassV2::MarketData,
+                instrument: instrument.clone(),
+                scope: InputScopeV2::ExactInstrument,
+                field_semantic_id: field_semantic_id.clone(),
+                channel: "MARKET".to_owned(),
+                timeframe: timeframe.clone(),
+                unit: unit.clone(),
+                scale: *scale,
+                value_type: ValueTypeV2::I128,
+            },
+            Self::UniverseMember {
+                close_role_semantic_id,
+                ..
+            } => {
+                universe_member_role_v2(close_role_semantic_id, UNIVERSE_CLOSE_FIELD_SEMANTIC_ID_V2)
+            }
+        }
+    }
+
+    /// The Design role the program carries without reading, if this form has one.
+    fn carried_role_v2(&self) -> Option<InputRoleV2> {
+        match self {
+            Self::ExactInstrument { .. } => None,
+            Self::UniverseMember {
+                open_role_semantic_id,
+                ..
+            } => Some(universe_member_role_v2(
+                open_role_semantic_id,
+                UNIVERSE_OPEN_FIELD_SEMANTIC_ID_V2,
+            )),
+        }
+    }
 }
 
 /// What the program proposes on one side of the threshold.
@@ -190,17 +278,29 @@ pub enum SingleThresholdAuthoringErrorV1 {
 pub fn author_single_threshold_program_v1(
     request: &SingleThresholdAuthoringRequestV1,
 ) -> Result<(StrategyDesignV2, BoundedFeatureProgramMeaningV1), SingleThresholdAuthoringErrorV1> {
-    exact(
-        &request.channel.role_semantic_id,
-        "channel.role_semantic_id",
-    )?;
-    exact(&request.channel.instrument, "channel.instrument")?;
-    exact(
-        &request.channel.field_semantic_id,
-        "channel.field_semantic_id",
-    )?;
-    exact(&request.channel.timeframe, "channel.timeframe")?;
-    exact(&request.channel.unit, "channel.unit")?;
+    match &request.channel {
+        SingleThresholdChannelV1::ExactInstrument {
+            role_semantic_id,
+            instrument,
+            field_semantic_id,
+            timeframe,
+            unit,
+            scale: _,
+        } => {
+            exact(role_semantic_id, "channel.role_semantic_id")?;
+            exact(instrument, "channel.instrument")?;
+            exact(field_semantic_id, "channel.field_semantic_id")?;
+            exact(timeframe, "channel.timeframe")?;
+            exact(unit, "channel.unit")?;
+        }
+        SingleThresholdChannelV1::UniverseMember {
+            close_role_semantic_id,
+            open_role_semantic_id,
+        } => {
+            exact(close_role_semantic_id, "channel.close_role_semantic_id")?;
+            exact(open_role_semantic_id, "channel.open_role_semantic_id")?;
+        }
+    }
     exact(&request.falsifier, "falsifier")?;
 
     for (outcome, position_field, target_field) in [
@@ -230,11 +330,10 @@ pub fn author_single_threshold_program_v1(
     // consuming reaction's kind to equal it. This surface emitted both a Bar-triggered and an
     // Event-triggered consumer of the same role, which is refused for every possible input:
     // whichever kind the binding carries, the other reaction contradicts it.
-    let semantic = MarketDataFieldSemantic::from_identity(&request.channel.field_semantic_id)
-        .ok_or_else(|| {
-            SingleThresholdAuthoringErrorV1::UnknownFieldSemantic(
-                request.channel.field_semantic_id.clone(),
-            )
+    let channel = request.channel.role_v2();
+    let semantic =
+        MarketDataFieldSemantic::from_identity(&channel.field_semantic_id).ok_or_else(|| {
+            SingleThresholdAuthoringErrorV1::UnknownFieldSemantic(channel.field_semantic_id.clone())
         })?;
     let bar_triggered = semantic.data_kind() == "BAR";
     let design = design_for(request, bar_triggered);
@@ -250,19 +349,64 @@ fn exact(value: &str, field: &'static str) -> Result<(), SingleThresholdAuthorin
     Ok(())
 }
 
-/// The input role the Design declares, which is also what the role identity is taken over.
-fn input_role(request: &SingleThresholdAuthoringRequestV1) -> InputRoleV2 {
-    InputRoleV2 {
-        semantic_id: request.channel.role_semantic_id.clone(),
-        fact_class: InputFactClassV2::MarketData,
-        instrument: request.channel.instrument.clone(),
-        scope: InputScopeV2::ExactInstrument,
-        field_semantic_id: request.channel.field_semantic_id.clone(),
-        channel: "MARKET".to_owned(),
-        timeframe: request.channel.timeframe.clone(),
-        unit: request.channel.unit.clone(),
-        scale: request.channel.scale,
-        value_type: ValueTypeV2::I128,
+/// One Design role the plugin receives, with the value port it arrives on and the coordinate port
+/// its Owner sample coordinate arrives on.
+struct ReceivedRole {
+    role: InputRoleV2,
+    value_port: &'static str,
+    coordinate_port: String,
+}
+
+impl ReceivedRole {
+    fn new(role: InputRoleV2, value_port: &'static str) -> Self {
+        let coordinate_port = coordinate_port_id(strategy_input_role_identity_v2(&role));
+        Self {
+            role,
+            value_port,
+            coordinate_port,
+        }
+    }
+
+    /// The two plugin input bindings of this role.
+    ///
+    /// An exact-instrument role is read as itself. A universe-member role is read at member 0: the
+    /// program emits one instrument's proposal, and under a one-member universe the host lifts it
+    /// into the universe's target set.
+    fn bindings(&self) -> [PortBindingV2; 2] {
+        let input_id = self.role.semantic_id.clone();
+        let source_semantic_id = format!("{OWNER_SAMPLE_COORDINATE_SOURCE_V1}({input_id})");
+        let (value, coordinate) = match self.role.scope {
+            InputScopeV2::ExactInstrument => (
+                ValueRefV2::Input {
+                    input_id: input_id.clone(),
+                },
+                ValueRefV2::OwnerSampleCoordinate {
+                    input_id,
+                    source_semantic_id,
+                },
+            ),
+            InputScopeV2::UniverseMembers => (
+                ValueRefV2::UniverseMemberInput {
+                    input_id: input_id.clone(),
+                    member_ordinal: 0,
+                },
+                ValueRefV2::UniverseMemberSampleCoordinate {
+                    input_id,
+                    member_ordinal: 0,
+                    source_semantic_id,
+                },
+            ),
+        };
+        [
+            PortBindingV2 {
+                port_id: self.value_port.to_owned(),
+                source: value,
+            },
+            PortBindingV2 {
+                port_id: self.coordinate_port.clone(),
+                source: coordinate,
+            },
+        ]
     }
 }
 
@@ -270,25 +414,51 @@ fn design_for(
     request: &SingleThresholdAuthoringRequestV1,
     bar_triggered: bool,
 ) -> StrategyDesignV2 {
-    let input = input_role(request);
-    let coordinate_port = coordinate_port_id(strategy_input_role_identity_v2(&input));
-    let role = input.semantic_id.clone();
+    let mut received = vec![ReceivedRole::new(
+        request.channel.role_v2(),
+        CHANNEL_VALUE_PORT,
+    )];
+    received.extend(
+        request
+            .channel
+            .carried_role_v2()
+            .map(|role| ReceivedRole::new(role, CARRIED_VALUE_PORT)),
+    );
+    // The host binds a plugin's inputs to its manifest ports by position, so the node's bindings
+    // and the manifest's ports are listed in one order, the canonical one of the port ids.
+    let mut bindings = received
+        .iter()
+        .flat_map(ReceivedRole::bindings)
+        .collect::<Vec<_>>();
+    bindings.sort_by(|a, b| a.port_id.as_bytes().cmp(b.port_id.as_bytes()));
+    let input_ports = bindings
+        .iter()
+        .map(|binding| match binding.source {
+            ValueRefV2::Input { .. } | ValueRefV2::UniverseMemberInput { .. } => PortContractV2 {
+                semantic_id: binding.port_id.clone(),
+                value_type: ValueTypeV2::I128,
+                max_bytes: 16,
+            },
+            _ => PortContractV2 {
+                semantic_id: binding.port_id.clone(),
+                value_type: ValueTypeV2::Bytes,
+                max_bytes: 308,
+            },
+        })
+        .collect();
+
+    // An exact-instrument role is consumed only by the lifecycle its Owner data kind triggers:
+    // the Plan refuses a BAR role read by the EVENT reaction, and the reverse. A universe frame
+    // carries both kinds, and the universe vertical requires exactly one compute node in each of
+    // BAR and EVENT, so the universe-member form reads its roles in both.
+    let universe = request.channel.role_v2().scope == InputScopeV2::UniverseMembers;
+    let reacts_to_bar = universe || bar_triggered;
+    let reacts_to_event = universe || !bar_triggered;
 
     let manifest = PluginManifestV2 {
         semantic_id: PLUGIN_SEMANTIC_ID.to_owned(),
         abi_version: BOUNDED_FEATURE_PLUGIN_ABI_V1,
-        input_ports: vec![
-            PortContractV2 {
-                semantic_id: CHANNEL_VALUE_PORT.to_owned(),
-                value_type: ValueTypeV2::I128,
-                max_bytes: 16,
-            },
-            PortContractV2 {
-                semantic_id: coordinate_port.clone(),
-                value_type: ValueTypeV2::Bytes,
-                max_bytes: 308,
-            },
-        ],
+        input_ports,
         output_ports: BOUNDED_FEATURE_PROPOSAL_OUTPUT_PORTS_V1
             .iter()
             .map(|(semantic_id, value_type)| PortContractV2 {
@@ -316,7 +486,10 @@ fn design_for(
         research_request_identity: request.research_request_identity,
         intent_identity: request.intent_identity,
         intent_digest: request.intent_digest,
-        inputs: vec![input],
+        inputs: received
+            .iter()
+            .map(|received| received.role.clone())
+            .collect(),
         joins: vec![],
         // One channel joins nothing and needs no parameter: the threshold is a frozen graph
         // constant, not a Design parameter, because a proposer declares it and the Design does not.
@@ -329,15 +502,15 @@ fn design_for(
         }],
         reactions: vec![
             empty_reaction(LifecycleKindV2::Start),
-            if bar_triggered {
-                bounded_reaction(LifecycleKindV2::Bar, BAR_NODE, &role, &coordinate_port)
+            if reacts_to_bar {
+                bounded_reaction(LifecycleKindV2::Bar, BAR_NODE, &bindings)
             } else {
                 empty_reaction(LifecycleKindV2::Bar)
             },
-            if bar_triggered {
-                empty_reaction(LifecycleKindV2::Event)
+            if reacts_to_event {
+                bounded_reaction(LifecycleKindV2::Event, EVENT_NODE, &bindings)
             } else {
-                bounded_reaction(LifecycleKindV2::Event, EVENT_NODE, &role, &coordinate_port)
+                empty_reaction(LifecycleKindV2::Event)
             },
             empty_reaction(LifecycleKindV2::Fill),
             empty_reaction(LifecycleKindV2::Timer),
@@ -350,7 +523,7 @@ fn design_for(
         }],
         plugins: vec![manifest],
         resources: ResourceBoundsV2 {
-            max_inputs: 1,
+            max_inputs: u16::try_from(received.len()).expect("a form declares at most two roles"),
             max_nodes_per_reaction: 1,
             max_dependency_edges: 256,
             max_state_bytes: PLUGIN_STATE_MAX_BYTES,
@@ -374,27 +547,12 @@ fn empty_reaction(kind: LifecycleKindV2) -> ReactionGraphV2 {
 fn bounded_reaction(
     kind: LifecycleKindV2,
     node_id: &str,
-    role: &str,
-    coordinate_port: &str,
+    bindings: &[PortBindingV2],
 ) -> ReactionGraphV2 {
     let compute = ComputeNodeV2 {
         semantic_id: node_id.to_owned(),
         plugin_semantic_id: PLUGIN_SEMANTIC_ID.to_owned(),
-        input_bindings: vec![
-            PortBindingV2 {
-                port_id: CHANNEL_VALUE_PORT.to_owned(),
-                source: ValueRefV2::Input {
-                    input_id: role.to_owned(),
-                },
-            },
-            PortBindingV2 {
-                port_id: coordinate_port.to_owned(),
-                source: ValueRefV2::OwnerSampleCoordinate {
-                    input_id: role.to_owned(),
-                    source_semantic_id: format!("{OWNER_SAMPLE_COORDINATE_SOURCE_V1}({role})"),
-                },
-            },
-        ],
+        input_bindings: bindings.to_vec(),
         pre_state: ValueRefV2::PriorState {
             state_id: PLUGIN_STATE_CELL.to_owned(),
         },
@@ -453,19 +611,30 @@ const TRAILING_DISTANCE: &str = "trailing-distance";
 const TRAILING_STOP: &str = "trailing-stop";
 
 fn meaning_for(request: &SingleThresholdAuthoringRequestV1) -> BoundedFeatureProgramMeaningV1 {
-    let role = request.channel.role_semantic_id.clone();
+    let role = request.channel.role().to_owned();
+    let carried = request.channel.carried_role_v2();
+    let mut inputs = vec![BoundedFeatureInputMeaningV1 {
+        role_semantic_id: role.clone(),
+        value_port_semantic_id: CHANNEL_VALUE_PORT.to_owned(),
+        // The family's decision clock is the declared channel itself. With one channel there is
+        // nothing to sample against, so the clock is its trigger.
+        update_clock: BoundedFeatureClockV1::Trigger {
+            input_role_id: role.clone(),
+        },
+    }];
+    // The carried role arrives in the same Owner frame as the channel, one sample per trigger,
+    // which is what a trigger clock states. Nothing advances on it, because nothing reads it.
+    inputs.extend(carried.iter().map(|carried| BoundedFeatureInputMeaningV1 {
+        role_semantic_id: carried.semantic_id.clone(),
+        value_port_semantic_id: CARRIED_VALUE_PORT.to_owned(),
+        update_clock: BoundedFeatureClockV1::Trigger {
+            input_role_id: carried.semantic_id.clone(),
+        },
+    }));
 
     BoundedFeatureProgramMeaningV1 {
         plugin_semantic_id: PLUGIN_SEMANTIC_ID.to_owned(),
-        inputs: vec![BoundedFeatureInputMeaningV1 {
-            role_semantic_id: role.clone(),
-            value_port_semantic_id: CHANNEL_VALUE_PORT.to_owned(),
-            // The family's decision clock is the declared channel itself. With one channel there
-            // is nothing to sample against, so the clock is its trigger.
-            update_clock: BoundedFeatureClockV1::Trigger {
-                input_role_id: role.clone(),
-            },
-        }],
+        inputs,
         constants: constants(request),
         // The comparison is memoryless: it reads this sample and the frozen threshold. A state
         // cell would have to be written by some node, and there is no second node to write one.
@@ -557,10 +726,13 @@ fn meaning_for(request: &SingleThresholdAuthoringRequestV1) -> BoundedFeaturePro
             max_source_bytes: 262_144,
             max_wasm_bytes: 1_048_576,
         },
+        carried_input_role_ids: carried.into_iter().map(|role| role.semantic_id).collect(),
     }
 }
 
 fn constants(request: &SingleThresholdAuthoringRequestV1) -> Vec<BoundedFeatureConstantV1> {
+    // The threshold is compared at the channel's own unit and scale, which the Design role states.
+    let channel = request.channel.role_v2();
     let outcome = |ids: (&str, &str, &str), o: &SingleThresholdOutcomeV1| {
         [
             (
@@ -590,8 +762,8 @@ fn constants(request: &SingleThresholdAuthoringRequestV1) -> Vec<BoundedFeatureC
         // and scale. Nothing here can disagree with the channel, because nothing here restates it.
         BoundedFeatureConstantValueV1::FixedI128 {
             coefficient: request.threshold_coefficient,
-            unit: request.channel.unit.clone(),
-            scale: request.channel.scale,
+            unit: channel.unit,
+            scale: channel.scale,
         },
     )];
     values.extend(outcome(
@@ -787,10 +959,17 @@ mod tests {
     use super::*;
     use crate::{
         bounded_feature_program_derivation_v1::derive_bounded_feature_program_proposal_v1,
-        bounded_feature_program_v1::prepare_bounded_feature_program_v1,
+        bounded_feature_program_v1::{
+            BoundedFeatureProgramErrorV1, BoundedFeatureProgramProposalV1,
+            parse_bounded_feature_program_v1, prepare_bounded_feature_program_v1,
+        },
         strategy_plan_v2::{
-            StrategyDesignPreparationV2, prepare_strategy_design_v2,
-            verified_strategy_input_bindings_for_test,
+            BfpRoleBindingKindV1, CompilationIssueV2, StrategyCompilationV2,
+            StrategyDesignPreparationV2, compile_strategy_design_v2_with_verified_bindings,
+            issue_plugin_implementation_receipt_v2_for_test, prepare_strategy_design_v2,
+            project_bfp_role_bindings_for_test, strategy_input_role_identity_v2,
+            validate_universe_target_set_contract_for_test,
+            verified_strategy_input_bindings_for_test, verified_universe_bindings_for_test,
         },
     };
 
@@ -834,7 +1013,7 @@ mod tests {
             research_request_identity: digest(1),
             intent_identity: digest(2),
             intent_digest: digest(3),
-            channel: SingleThresholdChannelV1 {
+            channel: SingleThresholdChannelV1::ExactInstrument {
                 role_semantic_id: "research.input.close.daily.v1".to_owned(),
                 instrument: "BTCUSDT-PERP.BINANCE".to_owned(),
                 field_semantic_id: "MARKET_DATA.BAR.CLOSE.PRICE.V1".to_owned(),
@@ -973,12 +1152,15 @@ mod tests {
             .find(|constant| constant.constant_id == THRESHOLD)
             .expect("the graph declares its threshold");
 
+        let SingleThresholdChannelV1::ExactInstrument { unit, scale, .. } = &source.channel else {
+            panic!("the base request is the exact-instrument form");
+        };
         assert_eq!(
             threshold.value,
             BoundedFeatureConstantValueV1::FixedI128 {
                 coefficient: source.threshold_coefficient,
-                unit: source.channel.unit.clone(),
-                scale: source.channel.scale,
+                unit: unit.clone(),
+                scale: *scale,
             },
         );
     }
@@ -989,7 +1171,13 @@ mod tests {
     #[case::padded(" research.input.close.daily.v1 ")]
     fn an_inexact_identifier_is_refused(#[case] role: &str) {
         let mut inexact = request();
-        inexact.channel.role_semantic_id = role.to_owned();
+        let SingleThresholdChannelV1::ExactInstrument {
+            role_semantic_id, ..
+        } = &mut inexact.channel
+        else {
+            panic!("the base request is the exact-instrument form");
+        };
+        *role_semantic_id = role.to_owned();
 
         assert_eq!(
             author_single_threshold_program_v1(&inexact),
@@ -1040,6 +1228,377 @@ mod tests {
                 "4725d44ade0ad56f07f3a47beffb25b373eaf52b7d1af347c48c39d05ee1a05f".to_owned(),
                 "f10012aea9be5dc29cbf37a32ed12ef76682fe908b26f575b3d83f8ba25b0daa".to_owned(),
             ),
+        );
+    }
+
+    const UNIVERSE_CLOSE_ROLE: &str = "research.input.close.daily.v1";
+    const UNIVERSE_OPEN_ROLE: &str = "research.input.open.daily.v1";
+
+    /// The base request in the universe-member form: the same statement, read for the one member
+    /// of an Owner universe.
+    fn universe_request() -> SingleThresholdAuthoringRequestV1 {
+        SingleThresholdAuthoringRequestV1 {
+            channel: SingleThresholdChannelV1::UniverseMember {
+                close_role_semantic_id: UNIVERSE_CLOSE_ROLE.to_owned(),
+                open_role_semantic_id: UNIVERSE_OPEN_ROLE.to_owned(),
+            },
+            ..request()
+        }
+    }
+
+    /// The universe-member pair assembled into a program, before preparation judges it.
+    fn universe_proposal() -> (StrategyDesignV2, BoundedFeatureProgramProposalV1) {
+        let (design, meaning) = author_single_threshold_program_v1(&universe_request())
+            .expect("the universe-member request is authorable");
+        let proposal = derive_bounded_feature_program_proposal_v1(
+            &design,
+            PrimitiveCatalogV1::verify().expect("a published catalog verifies"),
+            &meaning,
+            &bindings(&design),
+        )
+        .unwrap_or_else(|e| panic!("authored universe-member meaning does not assemble: {e}"));
+        (design, proposal)
+    }
+
+    /// The universe-member form survives the same two steps as the exact-instrument form, and
+    /// carries the fixed `OPEN` role without reading it.
+    #[rstest]
+    fn a_universe_member_pair_derives_and_prepares() {
+        let (design, proposal) = universe_proposal();
+
+        assert_eq!(
+            design
+                .inputs
+                .iter()
+                .map(|role| (
+                    role.semantic_id.as_str(),
+                    role.scope.clone(),
+                    role.instrument.as_str()
+                ))
+                .collect::<Vec<_>>(),
+            vec![
+                (UNIVERSE_CLOSE_ROLE, InputScopeV2::UniverseMembers, ""),
+                (UNIVERSE_OPEN_ROLE, InputScopeV2::UniverseMembers, ""),
+            ],
+            "the Design declares the vertical's two member roles and names no instrument",
+        );
+        assert_eq!(
+            proposal.carried_input_role_ids,
+            vec![UNIVERSE_OPEN_ROLE.to_owned()]
+        );
+
+        let prepared = prepare_bounded_feature_program_v1(proposal, &design)
+            .unwrap_or_else(|e| panic!("the universe-member program does not prepare: {e}"));
+        // The canonical bytes carry the carried role, and they are the canonical encoding of the
+        // program they decode to.
+        let reparsed = parse_bounded_feature_program_v1(prepared.canonical_bytes(), &design)
+            .expect("the canonical bytes parse back");
+        assert_eq!(reparsed.canonical_bytes(), prepared.canonical_bytes());
+        assert_eq!(
+            reparsed.program().carried_input_role_ids,
+            vec![UNIVERSE_OPEN_ROLE.to_owned()]
+        );
+    }
+
+    /// The authored Design is one the universe contract admits for a one-member universe, and is
+    /// refused for two, where the vertical needs a whole target set the program does not emit.
+    #[rstest]
+    fn the_universe_member_design_is_admitted_for_one_member_only() {
+        let (design, _) = author_single_threshold_program_v1(&universe_request())
+            .expect("the universe-member request is authorable");
+
+        assert_eq!(
+            validate_universe_target_set_contract_for_test(design.clone(), Some(1)),
+            Ok(()),
+        );
+        assert!(matches!(
+            validate_universe_target_set_contract_for_test(design, Some(2)),
+            Err(StrategyCompilationV2::NeedsResearchRefinement(CompilationIssueV2 { reason, .. }))
+                if reason.contains("more than one member requires one complete instrument target set")
+        ));
+    }
+
+    /// Under a one-member universe each role binds the Owner's binding of that role at member 0,
+    /// for both its value and its coordinate.
+    #[rstest]
+    fn the_bfp_role_table_binds_the_sole_member() {
+        let (design, _) = author_single_threshold_program_v1(&universe_request())
+            .expect("the universe-member request is authorable");
+        let (close_digest, open_digest) = (digest(40), digest(41));
+        let table = project_bfp_role_bindings_for_test(
+            &design,
+            vec![],
+            vec![
+                (design.inputs[0].clone(), vec![close_digest]),
+                (design.inputs[1].clone(), vec![open_digest]),
+            ],
+        )
+        .expect("a one-member universe projects");
+
+        let mut rows = table
+            .iter()
+            .map(|row| {
+                (
+                    row.input_role_id().to_owned(),
+                    row.kind(),
+                    row.member_ordinal(),
+                    row.static_binding_receipt_digest(),
+                )
+            })
+            .collect::<Vec<_>>();
+        rows.sort_by(|a, b| (&a.0, a.1).cmp(&(&b.0, b.1)));
+        assert_eq!(
+            rows,
+            vec![
+                (
+                    UNIVERSE_CLOSE_ROLE.to_owned(),
+                    BfpRoleBindingKindV1::Value,
+                    Some(0),
+                    close_digest
+                ),
+                (
+                    UNIVERSE_CLOSE_ROLE.to_owned(),
+                    BfpRoleBindingKindV1::Coordinate,
+                    Some(0),
+                    close_digest
+                ),
+                (
+                    UNIVERSE_OPEN_ROLE.to_owned(),
+                    BfpRoleBindingKindV1::Value,
+                    Some(0),
+                    open_digest
+                ),
+                (
+                    UNIVERSE_OPEN_ROLE.to_owned(),
+                    BfpRoleBindingKindV1::Coordinate,
+                    Some(0),
+                    open_digest
+                ),
+            ],
+        );
+    }
+
+    /// With two members, the table is refused by name instead of binding the first member.
+    ///
+    /// Taking `members[0]` would bind the program to one instrument of a universe it cannot trade,
+    /// and nothing downstream would notice. The control is the same Design with one member.
+    #[rstest]
+    fn a_two_member_universe_is_refused_by_name_not_bound_to_its_first_member() {
+        let (design, _) = author_single_threshold_program_v1(&universe_request())
+            .expect("the universe-member request is authorable");
+        let roles = |members: usize| {
+            design
+                .inputs
+                .iter()
+                .map(|role| {
+                    (
+                        role.clone(),
+                        (0..members).map(|m| digest(50 + m as u8)).collect(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+
+        assert!(project_bfp_role_bindings_for_test(&design, vec![], roles(1)).is_ok());
+        assert_eq!(
+            project_bfp_role_bindings_for_test(&design, vec![], roles(2)),
+            Err(StrategyCompilationV2::Unsupported(CompilationIssueV2 {
+                coordinate: "universe_bindings.members".to_owned(),
+                reason:
+                    "a bounded feature program reads a universe only when it has exactly one member"
+                        .to_owned(),
+                refusal: None,
+            })),
+        );
+    }
+
+    /// A graph that reads the carried role is refused under that name.
+    ///
+    /// The mutation points the comparison at `OPEN`, so `CLOSE` also goes unread; the refusal
+    /// must still be the carried one, which is why it is checked first.
+    #[rstest]
+    fn a_graph_that_reads_the_carried_role_is_refused_by_name() {
+        let (design, mut proposal) = universe_proposal();
+        proposal.nodes[0].input_bindings[0].source = BoundedFeatureValueRefV1::InputValue {
+            input_role_id: UNIVERSE_OPEN_ROLE.to_owned(),
+        };
+
+        assert_eq!(
+            prepare_bounded_feature_program_v1(proposal, &design).map(|_| ()),
+            Err(BoundedFeatureProgramErrorV1::CarriedInputRead),
+        );
+    }
+
+    /// The exemption from the unread-input rule is the carried declaration alone: the same
+    /// program with the declaration removed is refused, because `OPEN` is then an input left
+    /// unread. The control is the program as authored, which prepares.
+    #[rstest]
+    fn an_undeclared_unread_input_is_still_refused() {
+        let (design, proposal) = universe_proposal();
+        let mut undeclared = proposal.clone();
+        undeclared.carried_input_role_ids.clear();
+
+        assert!(prepare_bounded_feature_program_v1(proposal, &design).is_ok());
+        assert_eq!(
+            prepare_bounded_feature_program_v1(undeclared, &design).map(|_| ()),
+            Err(BoundedFeatureProgramErrorV1::State),
+        );
+    }
+
+    /// A carried section written out empty is not the canonical form of any program: the encoder
+    /// writes the section only when it is non-empty, so accepting an empty one would give an
+    /// ordinary program a second encoding.
+    #[rstest]
+    fn an_empty_carried_section_is_not_canonical() {
+        let (design, meaning) =
+            author_single_threshold_program_v1(&request()).expect("the request is authorable");
+        let proposal = derive_bounded_feature_program_proposal_v1(
+            &design,
+            PrimitiveCatalogV1::verify().expect("a published catalog verifies"),
+            &meaning,
+            &bindings(&design),
+        )
+        .expect("the exact-instrument pair assembles");
+        let prepared = prepare_bounded_feature_program_v1(proposal, &design).expect("it prepares");
+        let mut padded = prepared.canonical_bytes().to_vec();
+        // An empty sequence: its length prefix and nothing after it.
+        padded.extend_from_slice(&0u16.to_le_bytes());
+
+        assert!(parse_bounded_feature_program_v1(prepared.canonical_bytes(), &design).is_ok());
+        assert_eq!(
+            parse_bounded_feature_program_v1(&padded, &design).map(|_| ()),
+            Err(BoundedFeatureProgramErrorV1::NonCanonical),
+        );
+    }
+
+    /// A request that does not say which form it is, is refused rather than read as the
+    /// exact-instrument form. The channel is written out by hand without its tag, so the refusal
+    /// is judged on input a caller could send; the control is the same request with the tag,
+    /// which parses back to itself.
+    #[rstest]
+    #[case::exact_instrument(request(), "EXACT_INSTRUMENT")]
+    #[case::universe_member(universe_request(), "UNIVERSE_MEMBER")]
+    fn a_request_without_its_scope_is_refused(
+        #[case] source: SingleThresholdAuthoringRequestV1,
+        #[case] scope: &str,
+    ) {
+        let untagged_channel = match &source.channel {
+            SingleThresholdChannelV1::ExactInstrument {
+                role_semantic_id,
+                instrument,
+                field_semantic_id,
+                timeframe,
+                unit,
+                scale,
+            } => serde_json::json!({
+                "role_semantic_id": role_semantic_id,
+                "instrument": instrument,
+                "field_semantic_id": field_semantic_id,
+                "timeframe": timeframe,
+                "unit": unit,
+                "scale": scale,
+            }),
+            SingleThresholdChannelV1::UniverseMember {
+                close_role_semantic_id,
+                open_role_semantic_id,
+            } => serde_json::json!({
+                "close_role_semantic_id": close_role_semantic_id,
+                "open_role_semantic_id": open_role_semantic_id,
+            }),
+        };
+        let mut untagged = serde_json::to_value(&source).expect("the request serialises");
+        untagged["channel"] = untagged_channel;
+
+        let refusal = serde_json::from_value::<SingleThresholdAuthoringRequestV1>(untagged)
+            .expect_err("a channel without its scope is refused");
+        assert!(refusal.to_string().contains("scope"), "{refusal}");
+
+        let tagged = serde_json::to_value(&source).expect("the request serialises");
+        assert_eq!(tagged["channel"]["scope"], scope);
+        assert_eq!(
+            serde_json::from_value::<SingleThresholdAuthoringRequestV1>(tagged)
+                .expect("the tagged request parses"),
+            source,
+        );
+    }
+
+    /// The universe-member pair compiles into a Plan against one-member Owner universe authority,
+    /// the whole way a Plan is compiled, and the Plan binds each role's value and coordinate to the
+    /// Owner binding of that role at the one member.
+    ///
+    /// The authority is Owner-shaped values, not Owner custody; the ordered chain is where custody
+    /// is proven. The control is the same Design against a two-member universe, which does not
+    /// compile, because the vertical then needs a whole target set this program does not emit.
+    #[rstest]
+    fn a_universe_member_pair_compiles_into_a_one_member_plan() {
+        let (design, _) = author_single_threshold_program_v1(&universe_request())
+            .expect("the universe-member request is authorable");
+        let manifest = &design.plugins[0];
+        let receipt = issue_plugin_implementation_receipt_v2_for_test(
+            manifest,
+            digest(71),
+            digest(72),
+            digest(73),
+            digest(74),
+            "strategy.plugin.compute.v2",
+            manifest.abi_version,
+            design
+                .capabilities
+                .iter()
+                .map(|capability| (capability.semantic_id.clone(), capability.version))
+                .collect(),
+        );
+        let compile = |instruments: &[&str]| {
+            compile_strategy_design_v2_with_verified_bindings(
+                design.clone(),
+                verified_universe_bindings_for_test(&design, instruments),
+                std::slice::from_ref(&receipt),
+            )
+        };
+
+        let StrategyCompilationV2::Compiled(plan) = compile(&["BTCUSDT-PERP.BINANCE"]) else {
+            panic!(
+                "the universe-member Design compiles against one member: {:?}",
+                compile(&["BTCUSDT-PERP.BINANCE"])
+            );
+        };
+        let rows = plan.bfp_role_bindings();
+        assert_eq!(
+            rows.len(),
+            4,
+            "a value and a coordinate row for each of two roles"
+        );
+
+        for row in rows {
+            assert_eq!(row.member_ordinal(), Some(0));
+            assert_eq!(
+                Some(row.static_binding_receipt_digest()),
+                plan.universe_binding_digest(
+                    row.input_role_identity(),
+                    "member-0",
+                    "BTCUSDT-PERP.BINANCE"
+                ),
+                "{} binds the Owner binding of its role at the one member",
+                row.input_role_id(),
+            );
+        }
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.input_role_identity())
+                .collect::<std::collections::BTreeSet<_>>(),
+            design
+                .inputs
+                .iter()
+                .map(strategy_input_role_identity_v2)
+                .collect(),
+        );
+
+        assert!(
+            !matches!(
+                compile(&["BTCUSDT-PERP.BINANCE", "ETHUSDT-PERP.BINANCE"]),
+                StrategyCompilationV2::Compiled(_)
+            ),
+            "the same Design does not compile against two members",
         );
     }
 }
