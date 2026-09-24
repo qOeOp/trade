@@ -101,6 +101,9 @@ pub struct ProductEdgeDeploymentAcceptanceFixtureV1 {
     pub permissions: Vec<String>,
     pub authorization: OperatorAuthorizationLocatorV1,
     pub authorization_trust: ProductEdgeAuthorizationTrustV1,
+    /// The request proof the authorization was issued with; every admission into this deployment
+    /// presents the same one.
+    pub request_proof_digest: String,
     pub operations: Vec<DeploymentAcceptanceBoundOperationV1>,
     pub valid_from_epoch_ms: u64,
     pub valid_through_epoch_ms: u64,
@@ -294,6 +297,7 @@ pub async fn ensure_product_edge_deployment_acceptance_fixture_v1(
         permissions: proposal.permissions.clone(),
         authorization,
         authorization_trust,
+        request_proof_digest: REQUEST_PROOF_DIGEST.to_string(),
         operations,
         valid_from_epoch_ms: VALID_FROM_EPOCH_MS,
         valid_through_epoch_ms: VALID_THROUGH_EPOCH_MS,
@@ -330,6 +334,7 @@ mod tests {
     }
 
     fn request(
+        deployment: &ProductEdgeDeploymentAcceptanceFixtureV1,
         identity: &str,
         operation: &DeploymentAcceptanceOperationV1,
     ) -> ProductEdgeAdmissionRequestV1 {
@@ -340,7 +345,7 @@ mod tests {
             operation_schema: operation.operation_schema.clone(),
             target_owner: AUDIENCE.to_string(),
             requested_effects: operation.allowed_effects.clone(),
-            request_proof_digest: REQUEST_PROOF_DIGEST.to_string(),
+            request_proof_digest: deployment.request_proof_digest.clone(),
             audit_correlation: format!("acceptance:{identity}"),
         }
     }
@@ -383,11 +388,15 @@ mod tests {
         // returned a handle to nothing, fails here.
         let edge = first.connect_owner(pe_url).await.unwrap();
         let admitted = edge
-            .admit_request(request(&format!("{key}-alpha"), &operation("alpha")))
+            .admit_request(request(
+                &first,
+                &format!("{key}-alpha"),
+                &operation("alpha"),
+            ))
             .await
             .unwrap();
         let resolved = edge
-            .resolve_admission(&format!("{key}-alpha"), REQUEST_PROOF_DIGEST)
+            .resolve_admission(&format!("{key}-alpha"), &first.request_proof_digest)
             .await
             .unwrap()
             .expect("the admission the Owner just recorded");
@@ -395,7 +404,7 @@ mod tests {
 
         // An operation the deployment did not bind at genesis is not admitted.
         assert!(
-            edge.admit_request(request(&format!("{key}-beta"), &operation("beta")))
+            edge.admit_request(request(&first, &format!("{key}-beta"), &operation("beta")))
                 .await
                 .is_err()
         );
