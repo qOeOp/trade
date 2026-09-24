@@ -3739,20 +3739,23 @@ async fn postgres_readback_refuses_an_identity_admitted_for_another_operation() 
 
     // A Source Intake admission with no terminal yet, and an identity nobody admitted, are both
     // answered "nothing to read yet": the first will gain a terminal, and the second is not known.
-    assert!(matches!(
-        readback.read_source_intake(&source_identity).await,
-        Ok(None)
-    ));
-    assert!(matches!(
-        readback
-            .read_source_intake(&format!("never-admitted-{suffix}"))
-            .await,
-        Ok(None)
-    ));
+    let source = readback.read_source_intake(&source_identity).await;
+    assert!(
+        matches!(source, Ok(None)),
+        "Source Intake admission: {source:?}"
+    );
+    let unknown = readback
+        .read_source_intake(&format!("never-admitted-{suffix}"))
+        .await;
+    assert!(
+        matches!(unknown, Ok(None)),
+        "unadmitted identity: {unknown:?}"
+    );
     // A Research admission's identity names a request that can never carry a Source Intake
     // terminal, so it is refused by name rather than left to be polled.
-    assert!(matches!(
-        readback.read_source_intake(&research_identity).await,
-        Err(SourceIntakeOwnerErrorV1::Conflict)
-    ));
+    let research = readback.read_source_intake(&research_identity).await;
+    assert!(
+        matches!(research, Err(SourceIntakeOwnerErrorV1::Conflict)),
+        "Research admission: {research:?}"
+    );
 }
