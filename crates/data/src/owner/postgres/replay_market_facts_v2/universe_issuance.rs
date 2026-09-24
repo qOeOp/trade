@@ -9,10 +9,9 @@
 //! R&D first binds the sealed request for native execution.
 
 use super::{
-    OpenIssuanceV1, UniverseMemberReplayFactsSourcesV2, canonical_issuance_command_bytes_v1,
-    coordinates_from_r0, digest_registry,
-    persist_universe_member_replay_market_facts_in_transaction_v2, record_issuance_v1,
-    replayed_issuance_v1, universe_member_native_locators_v1,
+    UniverseMemberReplayFactsSourcesV2, canonical_issuance_command_bytes_v1, coordinates_from_r0,
+    digest_registry, persist_universe_member_replay_market_facts_in_transaction_v2,
+    record_issuance_v1, replayed_issuance_v1, universe_member_native_locators_v1,
 };
 use crate::owner::{
     correction_policy_projection::{CorrectionPolicyAuthenticatedInputsV1, project_first_v1},
@@ -29,6 +28,7 @@ use crate::owner::{
         },
         postgres::persist_replay_composition_binding_in_transaction_v1,
     },
+    strategy_design_role_set::StrategyDesignRoleSetReceiptV1,
     strategy_input_binding::{
         bind_strategy_input_universe_frame, request_matches_authenticated_role_v1,
     },
@@ -64,7 +64,8 @@ impl ReplayCompositionOwnerV1 {
             )
             .await?;
         let outcome = Box::pin(issue_universe_members_in_transaction_v1(
-            &mut issuance,
+            &mut issuance.transaction,
+            issuance.role_set.receipt(),
             request,
             issuance_locator,
             &request_bytes,
@@ -77,14 +78,16 @@ impl ReplayCompositionOwnerV1 {
 
 /// Resolves a universe-member composition's exact custody in the Owner transaction and stores its
 /// binding and Replay facts.
+///
+/// `transaction` is the Owner transaction the shared opening holds, and `receipt` the role set the
+/// R&D reader authenticated.
 async fn issue_universe_members_in_transaction_v1(
-    issuance: &mut OpenIssuanceV1,
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    receipt: &StrategyDesignRoleSetReceiptV1,
     request: &ReplayCompositionUniverseBindingIssuanceRequestV1,
     issuance_locator: ReplayCompositionIssuanceLocatorV1,
     request_bytes: &[u8],
 ) -> Result<ReplayCompositionDurableIssuanceResponseV1, ReplayCompositionBindingErrorV1> {
-    let transaction = &mut issuance.transaction;
-    let receipt = issuance.role_set.receipt();
     let replay = request.replay_request();
     let pit = request.pit_locator();
 
@@ -248,4 +251,386 @@ async fn issue_universe_members_in_transaction_v1(
         &replay_readback,
     )
     .await
+}
+
+#[cfg(test)]
+mod postgres_tests {
+    use super::issue_universe_members_in_transaction_v1;
+    use crate::owner::{
+        correction_policy_projection::{CorrectionPolicyAuthenticatedInputsV1, project_first_v1},
+        instrument_master_v2::{InstrumentMasterCustodyErrorV2, tests::fact_for_observed_at},
+        instrument_master_v2_postgres::InstrumentMasterV2PostgresOwner,
+        postgres::{
+            MarketDataOwnerPostgres,
+            tests::{
+                replay_composition_market_base_fixture_v1, universe_member_declarations_oracle,
+            },
+        },
+        replay_market_facts_v2::{
+            ReplayCompositionBindingErrorV1, ReplayCompositionBindingLocatorV1,
+            ReplayCompositionContentLocatorV1, ReplayCompositionDurableIssuanceResponseV1,
+            ReplayCompositionLocatorOnlyIssuanceRequestV1, ReplayCompositionRequestLocatorV1,
+            ReplayCompositionUniverseBindingIssuanceRequestV1, ReplayMarketFactsShapeV2,
+            composition::ReplayCompositionNativeLocatorKindV1,
+            postgres::recover_replay_composition_binding_in_transaction_v1,
+        },
+        source_binding::BindingDigest,
+        strategy_design_role_set::{
+            StrategyDesignRoleEntryV1, StrategyDesignRoleSetLocatorV1,
+            StrategyDesignRoleSetReceiptV1,
+        },
+        strategy_input_binding::{
+            EXACT_INSTRUMENT_ROLE_SCOPE_V1, UNIVERSE_MEMBERS_ROLE_SCOPE_V1,
+            UntrustedStrategyInputCustodyClaimV1, UntrustedStrategyInputScope,
+        },
+    };
+
+    fn d(value: u8) -> BindingDigest {
+        BindingDigest::from_untrusted_bytes([value; 32])
+    }
+
+    /// Rows in every table a universe-member issuance writes, and in the census it must not.
+    async fn issuance_state(pool: &sqlx::PgPool) -> Vec<i64> {
+        let mut counts = Vec::new();
+
+        for query in [
+            "SELECT COUNT(*) FROM market_data_private.replay_composition_bindings_v1",
+            "SELECT COUNT(*) FROM market_data_private.replay_composition_binding_receipts_v1",
+            "SELECT COUNT(*) FROM market_data_private.replay_composition_binding_outbox_v1",
+            "SELECT COUNT(*) FROM market_data_private.replay_market_facts_v2",
+            "SELECT COUNT(*) FROM market_data_private.replay_market_facts_receipts_v2",
+            "SELECT COUNT(*) FROM market_data_private.replay_market_facts_outbox_v2",
+            "SELECT COUNT(*) FROM market_data_private.replay_composition_issuances_v1",
+            "SELECT COUNT(*) FROM market_data_private.observation_census_records_v1",
+        ] {
+            counts.push(sqlx::query_scalar(query).fetch_one(pool).await.unwrap());
+        }
+        counts
+    }
+
+    /// Instrument Master V2 cut custody and its append sequence.
+    async fn cut_state(pool: &sqlx::PgPool) -> Vec<i64> {
+        let mut counts = Vec::new();
+
+        for query in [
+            "SELECT COUNT(*) FROM market_data_instrument_master_v2.cuts",
+            "SELECT COUNT(*) FROM market_data_instrument_master_v2.bound_replay_issuances",
+            "SELECT append_sequence FROM market_data_instrument_master_v2.state WHERE singleton",
+        ] {
+            counts.push(sqlx::query_scalar(query).fetch_one(pool).await.unwrap());
+        }
+        counts
+    }
+
+    /// A universe-member composition issues one schema 2 binding and its Replay facts, and that
+    /// binding keys a one-member Instrument Master V2 cut.
+    ///
+    /// The issuance runs its Owner-transaction body over the replay composition base fixture and
+    /// the fixture's universe-member Design, under a role set R&D would have authenticated. The
+    /// entry's reader/Owner challenges, which need R&D's Composer attestation in the same database,
+    /// are proven by the ordered chain's replay composition entry; this database carries only
+    /// Market Data, where a Design can be issued without a second Composer operation for its
+    /// Research request.
+    ///
+    /// It writes one binding, one aggregate and one issuance and no census. The binding names no
+    /// Instrument Master; the resolved cut carries none; and the Design's universe custody re-reads
+    /// to exactly the frame the binding and its facts carry. A retry returns the stored bytes, the
+    /// same identity with another composition is refused by name, and an exact-instrument role set
+    /// is refused by name, each writing nothing. The binding then keys the request's Instrument
+    /// Master V2 cut: refused by name with nothing written while the member has no fact, and one
+    /// member once it has.
+    #[tokio::test]
+    #[ignore = "requires a disposable Market Data PostgreSQL database"]
+    #[allow(clippy::too_many_lines)]
+    async fn postgres_universe_member_composition_issues_a_binding_that_keys_its_cut() {
+        let owner_url = std::env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL").unwrap();
+        let base = Box::pin(replay_composition_market_base_fixture_v1(&owner_url)).await;
+        let market = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
+        let pool = market.pool().clone();
+        let requests = Box::pin(universe_member_declarations_oracle(
+            &market,
+            &base.binding_requests[0],
+            &base.batch,
+        ))
+        .await;
+
+        let locator = StrategyDesignRoleSetLocatorV1 {
+            schema_version: 2,
+            request_identity: "universe-member-replay-composition-v1".into(),
+            operation_receipt_identity: d(0x71),
+            artifact_locator: "artifact:universe-member-replay-composition-v1".into(),
+            artifact_identity: d(0x72),
+            canonical_plan_digest: d(0x73),
+            design_digest: d(0x74),
+        };
+        let role_set = |requests: &[crate::owner::strategy_input_binding::UntrustedStrategyInputBindingRequest]| {
+            StrategyDesignRoleSetReceiptV1::from_rd_owner_projection(
+                locator.clone(),
+                requests[0].research_request_identity,
+                d(0x75),
+                requests[0].strategy_design_identity,
+                d(0x74),
+                d(0x76),
+                requests
+                    .iter()
+                    .map(|request| StrategyDesignRoleEntryV1 {
+                        role_identity: request.input_role_identity,
+                        semantic_id: format!("role-{}", request.timeframe),
+                        fact_class: "MARKET_DATA".into(),
+                        instrument: match &request.scope {
+                            UntrustedStrategyInputScope::ExactInstrument { instrument } => {
+                                instrument.clone()
+                            }
+                            _ => String::new(),
+                        },
+                        scope: match &request.scope {
+                            UntrustedStrategyInputScope::ExactInstrument { .. } => {
+                                EXACT_INSTRUMENT_ROLE_SCOPE_V1.into()
+                            }
+                            _ => UNIVERSE_MEMBERS_ROLE_SCOPE_V1.into(),
+                        },
+                        field_semantic_id: request.field_semantic.identity().into(),
+                        channel: request.channel.canonical().into(),
+                        timeframe: request.timeframe.clone(),
+                        unit: request.unit.canonical().into(),
+                        scale: request.scale,
+                        value_type: "I128".into(),
+                    })
+                    .collect(),
+                vec![],
+            )
+            .expect("a universe Design's role set carries no native join")
+        };
+        let universe_role_set = role_set(&requests);
+        let correction = project_first_v1(CorrectionPolicyAuthenticatedInputsV1 {
+            source_binding: &base.source_readback,
+            coordinates: &base.coordinates,
+            r0_coordinate_identity: base.r0.record().identity(),
+            r0_coordinate_digest: base.r0.record().digest(),
+        })
+        .unwrap();
+        let composition = |end: i128| {
+            ReplayCompositionUniverseBindingIssuanceRequestV1::from_test_fixture(
+                locator.clone(),
+                base.pit.receipt().locator().clone(),
+                base.source.receipt().locator().clone(),
+                50,
+                end,
+                ReplayCompositionRequestLocatorV1::from_untrusted(
+                    base.universe.receipt().request_identity(),
+                    base.universe.receipt().request_meaning_digest(),
+                ),
+                ReplayCompositionRequestLocatorV1::from_untrusted(
+                    base.r0.receipt().request_identity,
+                    base.r0.receipt().request_meaning_digest,
+                ),
+                ReplayCompositionRequestLocatorV1::from_untrusted(
+                    base.semantics.receipt().request_identity,
+                    base.semantics.receipt().request_meaning_digest,
+                ),
+                ReplayCompositionContentLocatorV1::from_untrusted(
+                    correction.identity(),
+                    correction.identity(),
+                ),
+            )
+        };
+        let issue = async |role_set: &StrategyDesignRoleSetReceiptV1,
+                           command: &ReplayCompositionLocatorOnlyIssuanceRequestV1<
+            ReplayCompositionUniverseBindingIssuanceRequestV1,
+        >|
+               -> Result<
+            ReplayCompositionDurableIssuanceResponseV1,
+            ReplayCompositionBindingErrorV1,
+        > {
+            let request_bytes = super::super::canonical_issuance_command_bytes_v1(command)?;
+            let mut transaction = pool
+                .begin_with("BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+                .await
+                .unwrap();
+            let issued = Box::pin(issue_universe_members_in_transaction_v1(
+                &mut transaction,
+                role_set,
+                command.composition(),
+                command.issuance_locator(),
+                &request_bytes,
+            ))
+            .await;
+            if issued.is_ok() {
+                transaction.commit().await.unwrap();
+            } else {
+                transaction.rollback().await.unwrap();
+            }
+            issued
+        };
+
+        let command =
+            ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(0x78), composition(51)).unwrap();
+        let before = issuance_state(&pool).await;
+        let issued = issue(&universe_role_set, &command)
+            .await
+            .expect("the universe-member composition issues");
+        let after = issuance_state(&pool).await;
+        assert_eq!(
+            after
+                .iter()
+                .zip(&before)
+                .map(|(after, before)| after - before)
+                .collect::<Vec<_>>(),
+            [1, 1, 1, 1, 1, 1, 1, 0],
+            "one binding, one aggregate, one issuance, and no census"
+        );
+
+        let (binding_identity, binding_digest): (Vec<u8>, Vec<u8>) = sqlx::query_as(
+            "SELECT binding_identity,binding_digest FROM market_data_private.replay_composition_issuances_v1 WHERE request_identity=$1",
+        )
+        .bind(d(0x78).as_bytes().as_slice())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let binding_locator = ReplayCompositionBindingLocatorV1::from_untrusted(
+            BindingDigest::from_untrusted_bytes(binding_identity.try_into().unwrap()),
+            BindingDigest::from_untrusted_bytes(binding_digest.try_into().unwrap()),
+        );
+        let mut transaction = pool.begin().await.unwrap();
+        let binding =
+            recover_replay_composition_binding_in_transaction_v1(&mut transaction, binding_locator)
+                .await
+                .expect("the stored binding verifies");
+        let cut = super::super::resolve_bound_replay_cut_in_transaction_v1(
+            &mut transaction,
+            binding_locator,
+        )
+        .await
+        .expect("the Owner resolves the universe-member cut");
+        let custody = crate::owner::postgres::strategy_input_binding_registry::
+            reread_persisted_strategy_input_universe_custody_for_update_v1(
+                &mut transaction,
+                &UntrustedStrategyInputCustodyClaimV1 {
+                    research_request_identity: requests[0].research_request_identity,
+                    strategy_design_identity: requests[0].strategy_design_identity,
+                    pit_request_identity: requests[0].pit_request_identity,
+                    input_role_identities: requests
+                        .iter()
+                        .map(|request| request.input_role_identity)
+                        .collect(),
+                    decision_cut: requests[0].decision_cut,
+                },
+            )
+            .await
+            .expect("the Design's universe custody re-reads");
+        transaction.rollback().await.unwrap();
+
+        let record = binding.record();
+        assert_eq!(record.shape(), ReplayMarketFactsShapeV2::UniverseMembers);
+        assert_eq!(&record.canonical_bytes()[..2], &[0, 2]);
+        assert_eq!(record.role_count(), requests.len());
+        assert!(
+            record
+                .native_locator(ReplayCompositionNativeLocatorKindV1::InstrumentMaster)
+                .is_none()
+        );
+        assert_eq!(
+            record
+                .native_locator(ReplayCompositionNativeLocatorKindV1::UniverseSelection)
+                .map(|selection| (selection.identity, selection.digest)),
+            Some((
+                base.universe.record().identity(),
+                base.universe.record().digest()
+            ))
+        );
+        assert!(cut.instrument_master().is_none());
+        assert_eq!(
+            cut.market_facts().facts().shape(),
+            ReplayMarketFactsShapeV2::UniverseMembers
+        );
+        assert_eq!(
+            Some(custody.frame().digest()),
+            record.universe_frame_digest(),
+            "the re-read frame is the one the binding bound"
+        );
+        assert_eq!(
+            Some(custody.frame().digest()),
+            cut.market_facts().facts().universe_frame_digest(),
+            "the re-read frame is the one the facts carry"
+        );
+
+        // A retry returns the stored bytes; another composition under the same identity and an
+        // exact-instrument role set are refused by name; none of them writes.
+        assert_eq!(
+            issue(&universe_role_set, &command)
+                .await
+                .expect("the retry rejoins")
+                .canonical_bytes(),
+            issued.canonical_bytes()
+        );
+        assert_eq!(
+            issue(
+                &universe_role_set,
+                &ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(0x78), composition(52))
+                    .unwrap()
+            )
+            .await,
+            Err(ReplayCompositionBindingErrorV1::IssuanceIdentityConflict)
+        );
+        let exact_role_set = role_set(&base.binding_requests);
+        assert_eq!(
+            issue(
+                &exact_role_set,
+                &ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(0x79), composition(51))
+                    .unwrap()
+            )
+            .await,
+            Err(ReplayCompositionBindingErrorV1::CompositionShapeMismatch),
+            "an exact-instrument Design is refused by name, not composed into this shape"
+        );
+        assert_eq!(issuance_state(&pool).await, after);
+
+        // The binding keys the request's Instrument Master V2 cut from the selection it bound.
+        let instrument_master = InstrumentMasterV2PostgresOwner::install(pool.clone())
+            .await
+            .expect("the Instrument Master V2 store");
+        let settled = cut_state(&pool).await;
+        assert_eq!(
+            instrument_master
+                .issue_cut_for_bound_replay_v1("universe-member-replay", binding_locator)
+                .await,
+            Err(InstrumentMasterCustodyErrorV2::MissingFact),
+            "a member with no Instrument Master V2 fact at the selection's observation"
+        );
+        assert_eq!(
+            cut_state(&pool).await,
+            settled,
+            "the refusal writes nothing"
+        );
+        instrument_master
+            .append_fact(&fact_for_observed_at(
+                "AAPL",
+                "AAPL",
+                40,
+                base.universe.record().owner_observation_ns(),
+            ))
+            .await
+            .unwrap();
+        let member_cut = instrument_master
+            .issue_cut_for_bound_replay_v1("universe-member-replay", binding_locator)
+            .await
+            .expect("a one-member cut keyed by the universe-member binding");
+        assert_eq!(
+            member_cut
+                .cut()
+                .members()
+                .iter()
+                .map(|member| member.fact().canonical_identity())
+                .collect::<Vec<_>>(),
+            ["AAPL"]
+        );
+        assert_eq!(
+            member_cut.cut().universe_selection_identity(),
+            base.universe.record().identity()
+        );
+        assert_eq!(
+            member_cut.cut().decision_cut(),
+            base.universe.record().decision_cut()
+        );
+    }
 }

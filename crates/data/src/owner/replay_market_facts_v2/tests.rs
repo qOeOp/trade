@@ -1671,3 +1671,23 @@ fn universe_member_facts_are_stored_only_under_their_own_binding() {
         Err(ReplayCompositionBindingErrorV1::DependencyMismatch)
     );
 }
+
+/// Each composition shape hashes its meaning under its own domain, and the first corpus keeps the
+/// domain its stored issuances were hashed under, so one issuance identity cannot mean a
+/// composition of either shape.
+#[rstest]
+fn each_issuance_shape_hashes_its_meaning_under_its_own_domain() {
+    use super::{
+        ReplayCompositionBindingIssuanceRequestV1, ReplayCompositionIssuanceCompositionV1,
+        ReplayCompositionUniverseBindingIssuanceRequestV1,
+    };
+
+    assert_eq!(
+        <ReplayCompositionBindingIssuanceRequestV1 as ReplayCompositionIssuanceCompositionV1>::MEANING_DOMAIN,
+        b"market-data.replay-composition-issuance-meaning.v1\0"
+    );
+    assert_ne!(
+        <ReplayCompositionBindingIssuanceRequestV1 as ReplayCompositionIssuanceCompositionV1>::MEANING_DOMAIN,
+        <ReplayCompositionUniverseBindingIssuanceRequestV1 as ReplayCompositionIssuanceCompositionV1>::MEANING_DOMAIN
+    );
+}
