@@ -16,6 +16,10 @@ cleanup() {
 trap cleanup EXIT
 
 export OWNER_CHAIN_LOCK_FILE="${test_root}/owner-chain.lock"
+# Taking the lock also reaps orphaned chain containers. A test must not reach this machine's real
+# Docker - it would remove another lane's orphans - so the reaper talks to `true`, which lists nothing.
+# test-owner-chain-reap.bash exercises the reaper itself.
+export OWNER_CHAIN_DOCKER=true
 
 take_lock() {
   bash -c 'source "$1" && acquire_owner_chain_lock' _ "$LOCK_SCRIPT"
