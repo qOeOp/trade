@@ -781,71 +781,94 @@ test(testName, { skip: !url }, async () => {
 
       await waitForBrowserExpression(browser,
         "document.querySelectorAll('[data-slot=\"calendar-month-view\"]').length === 1");
-      const calendarRunOrigin = await readBrowserValue(browser, `(() => {
-        const identity = ${JSON.stringify(previewRunIdentity)};
+      // A day cell draws a badge for each of its first three groups by time and folds the rest into
+      // one overflow trigger, so which of the two opens a run depends on where that run falls in its
+      // day. Choosing one run and following whichever trigger holds it covered one branch per run,
+      // decided by the clock, and the badge branch went unexecuted for twenty runs in a row. The seed
+      // ticks all thirty schedules, so every run puts observed runs in both places: take one of each
+      // from the page and drive both, and fail if either is missing rather than cover one silently.
+      const calendarRunOrigins = await readBrowserValue(browser, `(() => {
         const month = document.querySelector('[data-slot="calendar-month-view"]');
-        const badge = month?.querySelector('[data-slot="calendar-event-badge"][data-run-identity="' + identity + '"]');
-        const overflow = month?.querySelector('[data-run-identities~="' + identity + '"]');
-        const trigger = badge ?? overflow;
-        trigger?.focus();
-        const rect = trigger?.getBoundingClientRect();
+        const badge = month?.querySelector('[data-slot="calendar-event-badge"][data-kind="observed"][data-run-identity]');
+        const overflow = [...(month?.querySelectorAll('[data-run-identities]') ?? [])]
+          .find((button) => button.getAttribute('data-run-identities').split(' ').length > 0);
         return {
-          kind: badge ? 'badge' : overflow ? 'overflow' : null,
-          focused: document.activeElement === trigger,
-          width: rect?.width ?? 0,
-          height: rect?.height ?? 0,
-          disabled: trigger?.disabled ?? null,
+          badge: badge?.getAttribute('data-run-identity') ?? null,
+          overflow: overflow?.getAttribute('data-run-identities').split(' ')[0] ?? null,
         };
       })()`);
-      // This accepts either shape, so which one runs is decided by where the verified run falls in
-      // its day - not by the assertion. A green run is then silent about which of the two it
-      // covered, and the branch that went red on Linux is the one local data never produces. Say it.
-      console.log(`calendar run origin trigger -> ${calendarRunOrigin.kind}`);
-      assert.match(calendarRunOrigin.kind ?? "", /^(?:badge|overflow)$/u,
-        "calendar exposes the verified observed-run group");
-      assert.equal(calendarRunOrigin.focused, true, JSON.stringify(calendarRunOrigin));
-      assert.ok(calendarRunOrigin.width > 0 && calendarRunOrigin.height > 0, JSON.stringify(calendarRunOrigin));
-      assert.equal(calendarRunOrigin.disabled, false);
-      await pressEnterAndWaitFor(browser,
-        "Boolean(document.querySelector('dialog[open][aria-label$=\"UTC\"]'))");
-      const calendarRunSelected = await readBrowserValue(browser, `(() => {
-        const option = document.querySelector('dialog[open] option[data-run-identity="${previewRunIdentity}"]');
-        const select = option?.closest('select');
-        if (!option || !select) return false;
-        select.value = option.value;
-        select.dispatchEvent(new Event('change', { bubbles: true }));
-        return true;
-      })()`);
-      assert.equal(calendarRunSelected, true, "calendar inspection selects the verified observed-run group");
-      await waitForBrowserExpression(browser,
-        "Boolean(document.querySelector('dialog[open] [data-run-preview-trigger]'))");
-      await readBrowserValue(browser,
-        "document.querySelector('dialog[open] [data-run-preview-trigger]')?.click()");
-      await waitForBrowserExpression(browser,
-        "document.querySelectorAll('dialog[open]').length === 1 && Boolean(document.querySelector('dialog[open] a[href^=\"/operations/runs/\"]'))");
-      const calendarRunPreview = await readBrowserValue(browser, `(() => {
-        const dialog = document.querySelector('dialog[open]');
-        return {
-          url: location.href,
-          title: dialog?.querySelector('h2')?.textContent?.trim() ?? null,
-          focusInside: Boolean(dialog?.contains(document.activeElement)),
-        };
-      })()`);
-      assert.deepEqual(calendarRunPreview, {
-        url: schedulesUrl,
-        title: "Observed run",
-        focusInside: true,
-      });
-      await readBrowserValue(browser,
-        "document.querySelector('dialog[open] button[aria-label=\"Close panel\"]')?.click()");
-      await waitForBrowserExpression(browser, "document.querySelector('dialog[open]') === null");
-      assert.equal(await readBrowserValue(browser, `(() => {
-        const identity = ${JSON.stringify(previewRunIdentity)};
-        const originKind = ${JSON.stringify(calendarRunOrigin.kind)};
-        return originKind === 'badge'
-          ? document.activeElement?.matches('[data-slot="calendar-event-badge"][data-run-identity="' + identity + '"]') ?? false
-          : document.activeElement?.matches('[data-run-identities~="' + identity + '"]') ?? false;
-      })()`), true, "closing a calendar-origin run preview returns focus to its exact trigger");
+      assert.deepEqual(Object.keys(calendarRunOrigins).filter((kind) => calendarRunOrigins[kind] === null), [],
+        `the month view carries an observed run behind a badge and behind an overflow trigger at ${
+          new Date().toISOString()}: ${JSON.stringify(calendarRunOrigins)}`);
+      for (const [originKind, identity] of Object.entries(calendarRunOrigins)) {
+        const verified = await fetch(`${origin}/api/operations/runs/${encodeURIComponent(identity)}/`,
+          { headers: { cookie } });
+        assert.equal(verified.status, 200, `${originKind} run ${identity} has a verified preview`);
+        assert.equal((await verified.json()).run_identity, identity);
+        const originSelector = originKind === "badge"
+          ? `[data-slot="calendar-event-badge"][data-run-identity="${identity}"]`
+          : `[data-run-identities~="${identity}"]`;
+        const calendarRunOrigin = await readBrowserValue(browser, `(() => {
+          const trigger = document.querySelector('[data-slot="calendar-month-view"] ${originSelector}');
+          trigger?.focus();
+          const rect = trigger?.getBoundingClientRect();
+          return {
+            focused: Boolean(trigger) && document.activeElement === trigger,
+            width: rect?.width ?? 0,
+            height: rect?.height ?? 0,
+            disabled: trigger?.disabled ?? null,
+          };
+        })()`);
+        console.log(`calendar run origin trigger -> ${originKind} (${identity})`);
+        assert.equal(calendarRunOrigin.focused, true, `${originKind}: ${JSON.stringify(calendarRunOrigin)}`);
+        assert.ok(calendarRunOrigin.width > 0 && calendarRunOrigin.height > 0,
+          `${originKind}: ${JSON.stringify(calendarRunOrigin)}`);
+        assert.equal(calendarRunOrigin.disabled, false, originKind);
+        await pressEnterAndWaitFor(browser,
+          "Boolean(document.querySelector('dialog[open][aria-label$=\"UTC\"]'))");
+        const calendarRunSelected = await readBrowserValue(browser, `(() => {
+          const option = document.querySelector('dialog[open] option[data-run-identity="${identity}"]');
+          const select = option?.closest('select');
+          if (!option || !select) return false;
+          select.value = option.value;
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+          return true;
+        })()`);
+        assert.equal(calendarRunSelected, true, `${originKind}: calendar inspection selects the observed-run group`);
+        await waitForBrowserExpression(browser,
+          `Boolean(document.querySelector('dialog[open] [data-run-preview-trigger="${identity}"]'))`);
+        await readBrowserValue(browser,
+          `document.querySelector('dialog[open] [data-run-preview-trigger="${identity}"]')?.click()`);
+        await waitForBrowserExpression(browser,
+          "document.querySelectorAll('dialog[open]').length === 1 && Boolean(document.querySelector('dialog[open] a[href^=\"/operations/runs/\"]'))");
+        const calendarRunPreview = await readBrowserValue(browser, `(() => {
+          const dialog = document.querySelector('dialog[open]');
+          return {
+            url: location.href,
+            title: dialog?.querySelector('h2')?.textContent?.trim() ?? null,
+            focusInside: Boolean(dialog?.contains(document.activeElement)),
+          };
+        })()`);
+        assert.deepEqual(calendarRunPreview, {
+          url: schedulesUrl,
+          title: "Observed run",
+          focusInside: true,
+        }, originKind);
+        await readBrowserValue(browser,
+          "document.querySelector('dialog[open] button[aria-label=\"Close panel\"]')?.click()");
+        await waitForBrowserExpression(browser, "document.querySelector('dialog[open]') === null");
+        const returned = await readBrowserValue(browser, `(() => {
+          const active = document.activeElement;
+          return {
+            returned: active?.matches('[data-slot="calendar-month-view"] ${originSelector}') ?? false,
+            connected: active?.isConnected ?? false,
+            active: active ? active.tagName + ' ' + (active.getAttribute('aria-label') ?? active.getAttribute('data-slot') ?? '') : null,
+          };
+        })()`);
+        assert.equal(returned.returned, true,
+          `closing a calendar-origin run preview returns focus to its exact ${originKind} trigger: ${
+            JSON.stringify(returned)}`);
+      }
 
       await browser.send("Emulation.setDeviceMetricsOverride", {
         width: 760, height: 900, deviceScaleFactor: 1, mobile: false,
