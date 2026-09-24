@@ -30,6 +30,11 @@ jobs:
   dst-smoke:
     name: dst smoke (cfg madsim)
     runs-on: ubuntu-22.04
+    # No successful run of this job to measure yet (2026-09-24), so a stand-in: twice the slowest
+    # compile-and-test job measured on these runners, rust tests at 3228s, rounded up. A hang anywhere
+    # in the job stops here rather than at GitHub's six-hour default. Replace with twice this job's
+    # own slowest run after its first successful runs.
+    timeout-minutes: 120
     env:
       RUST_BACKTRACE: 1
       # Persistent target dir outside the workspace so it survives
@@ -57,6 +62,11 @@ jobs:
           persist-credentials: false
 
       - name: Common setup
+        # No successful run of this job to measure yet (2026-09-24), so twice the slowest Common setup
+        # measured in any job: 1233s, rust tests. A hung setup fails here with its log instead of
+        # running to the job limit. Replace with this job's own measurement after its first
+        # successful runs.
+        timeout-minutes: 42
         uses: ./.github/actions/common-setup
         with:
           python-version: "3.13"

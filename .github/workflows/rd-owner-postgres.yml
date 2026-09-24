@@ -65,6 +65,11 @@ jobs:
         run: bash scripts/ci/verify-ci-inputs.sh post-checkout
 
       - name: Common setup
+        # Twice this job's slowest successful Common setup: 483s over its last 15 successful
+        # runs (2026-09-24). A hung setup then fails as this step and keeps its log, instead of running
+        # to the job limit and being cancelled with none. Re-measure and raise it once setup
+        # routinely takes half of it.
+        timeout-minutes: 17
         uses: ./.github/actions/common-setup
         with:
           python-version: "3.13"

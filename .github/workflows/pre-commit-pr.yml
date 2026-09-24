@@ -37,6 +37,10 @@ jobs:
   hooks:
     name: pre-commit (no-compile hooks)
     runs-on: ubuntu-22.04
+    # Twice this job's slowest successful run: 561s over its last 15 successful runs (2026-09-24).
+    # A hang anywhere in the job stops here rather than at GitHub's six-hour default. Re-measure
+    # and raise it once the job routinely takes half of it.
+    timeout-minutes: 19
     steps:
       # https://github.com/step-security/harden-runner
       - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
@@ -58,6 +62,11 @@ jobs:
       # The same setup `build.yml`'s pre-commit job uses, so the two cannot drift into disagreeing
       # about toolchains. The Rust cache stays off: no hook here compiles anything.
       - name: Common setup
+        # Twice this job's slowest successful Common setup (5 minutes at least): 49s over its last 15 successful
+        # runs (2026-09-24). A hung setup then fails as this step and keeps its log, instead of running
+        # to the job limit and being cancelled with none. Re-measure and raise it once setup
+        # routinely takes half of it.
+        timeout-minutes: 5
         uses: ./.github/actions/common-setup
         with:
           python-version: "3.13"
