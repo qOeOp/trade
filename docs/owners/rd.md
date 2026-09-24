@@ -623,8 +623,8 @@ bytes; changed meaning or changed cuts cannot join. R&D never reads protected pa
 
 Which answer a refusal gets is decided by what it negates. A refusal that negates the request itself - its type,
 its identity, the operation it belongs to - cannot be changed by any retry, so it is refused under its own name and
-never answered as `SUBMITTED_OR_UNKNOWN`: a Source Intake read asked about an identity that is not a Source Intake
-request is refused as such. A refusal that negates the current state of the environment, of an authority, or of the
+never answered as `SUBMITTED_OR_UNKNOWN`: the Source Intake route answers a request identity whose stored semantics
+conflict with the request as `CONFLICTING_SEMANTICS_FOR_REQUEST_IDENTITY`. A refusal that negates the current state of the environment, of an authority, or of the
 build's capability may be changed by a retry or a new deployment, so it answers `SUBMITTED_OR_UNKNOWN` with the
 resolve-same-request action (`RESOLVE_SAME_REQUEST_IDENTITY` here, `RESOLVE_SAME_REQUEST` on the Source Intake
 route), even when the Owner knows it wrote nothing, and its cause is recorded through `refused_by_store` under a

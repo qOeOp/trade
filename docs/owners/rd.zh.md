@@ -532,7 +532,7 @@ source cut clock epoch 与半开有效期。
 
 一次拒绝得到哪种答复，由它否定的是什么决定。否定请求本身的拒绝（它的类型、它的 identity、它所属的
 operation）任何重试都改变不了，所以按自己的名字拒绝，绝不答成 `SUBMITTED_OR_UNKNOWN`：Source Intake
-读面被问到一个不是 Source Intake 请求的 identity，就按这个事实拒绝。否定环境、某项权威或构建能力的
+路由遇到一个已存语义与本次请求冲突的 request identity，答 `CONFLICTING_SEMANTICS_FOR_REQUEST_IDENTITY`。否定环境、某项权威或构建能力的
 当前状态的拒绝，可能因重试或重新部署而改变，所以答 `SUBMITTED_OR_UNKNOWN` 加「解析同一请求」的动作
 （这里是 `RESOLVE_SAME_REQUEST_IDENTITY`，Source Intake 路由上是 `RESOLVE_SAME_REQUEST`），即使 Owner
 确知自己什么也没写；其原因经 `refused_by_store` 记在一个具名坐标下，那是操作者去看的地方：当前 replay
