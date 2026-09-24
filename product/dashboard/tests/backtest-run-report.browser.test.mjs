@@ -172,6 +172,9 @@ test(browserAcceptance
   // about the run. Measured 2026-09-24: `NO_STRATEGY_STATEMENT_FOR_FAMILY`, because that run's
   // engine executed a fixture program the single-threshold family does not author.
   const runOwnerCode = required("DASHBOARD_RUN_REPORT_RUN_OWNER_CODE", /^[A-Z][A-Z0-9_]*$/u);
+  // With equal codes the run's case could not tell this run's answer from the other refusal's,
+  // and would pass on either.
+  assert.notEqual(runOwnerCode, refusedOwnerCode, "the two cases must render distinct Owner reasons");
   const runAnswer = await readApi(reportQuery(run), readApiUrl, readApiToken);
   assert.deepEqual(runAnswer, {
     status: 503,
