@@ -390,14 +390,34 @@ fn decode_current_research_artifact_readback(
 ) -> Result<CurrentResearchArtifactReadbackV1, ResearchGoalOwnerError> {
     let readback: CurrentResearchArtifactReadbackV1 =
         serde_json::from_value(value.clone()).map_err(json_storage)?;
-    if &serde_json::to_value(&readback).map_err(json_storage)? != value
-        || readback.owner_cut_epoch_ms.is_some() != locked
-        || readback.evidence.schema_version != 1
-        || current_research_artifact_evidence_digest(&readback.evidence)?
-            != readback.evidence_digest
-    {
-        return Err(ResearchGoalOwnerError::Storage(
-            "current Research artifact readback mismatch".into(),
+    // Four different conditions, each named: a stored readback whose JSON was tampered and one whose
+    // evidence digest was are refused at the same boundary, and a caller learns the same thing
+    // either way, but the Owner's log should say which it was.
+    let mismatch = |condition: &str| {
+        ResearchGoalOwnerError::Storage(format!(
+            "current Research artifact readback mismatch: {condition}"
+        ))
+    };
+
+    if &serde_json::to_value(&readback).map_err(json_storage)? != value {
+        return Err(mismatch(
+            "the stored JSON is not the canonical form of what it decodes to",
+        ));
+    }
+
+    if readback.owner_cut_epoch_ms.is_some() != locked {
+        return Err(mismatch(
+            "the owner cut is present on an unlocked read, or absent on a locked one",
+        ));
+    }
+
+    if readback.evidence.schema_version != 1 {
+        return Err(mismatch("the evidence schema version is not 1"));
+    }
+
+    if current_research_artifact_evidence_digest(&readback.evidence)? != readback.evidence_digest {
+        return Err(mismatch(
+            "the evidence digest is not the digest of the evidence",
         ));
     }
     Ok(readback)
@@ -4476,6 +4496,91 @@ pub(crate) mod tests {
         );
         assert!(submission.contains("&product_edge_admission.immutable_lineage()"));
         assert!(submission.contains("&final_admission.immutable_lineage()"));
+    }
+
+    /// Each check the artifact readback decode makes names its own condition.
+    ///
+    /// The Composer's stored-custody entry tampers the artifact evidence two ways - its JSON
+    /// extended, its evidence digest changed - and both are refused here, at one boundary, with an
+    /// answer the caller cannot tell apart. The Owner's log should: the caller's refusal is the same,
+    /// the recorded cause is not. Each tamper below breaks exactly one condition, so each message is
+    /// asserted exactly, and the four are asserted pairwise distinct.
+    #[rstest]
+    fn each_artifact_readback_check_names_its_own_condition() {
+        let evidence = CurrentResearchArtifactEvidenceV1 {
+            schema_version: 1,
+            evidence_identity: current_research_artifact_evidence_identity(
+                "research-receipt-1",
+                "research-intent-1",
+                "research-view-1",
+                None,
+                None,
+            )
+            .unwrap(),
+            request_identity: "research-request-1".into(),
+            semantic_digest: format!("sha256:{}", "6".repeat(64)),
+            source_admission: ProductEdgeAdmissionLocatorV1 {
+                request_identity: "research-request-1".into(),
+                admission_identity: "research-admission-1".into(),
+                admission_digest: format!("sha256:{}", "7".repeat(64)),
+            },
+            effective_principal: "rd-owner".into(),
+            authorized_scope: vec!["research".into()],
+            receipt_identity: "research-receipt-1".into(),
+            intent_identity: "research-intent-1".into(),
+            view_identity: "research-view-1".into(),
+            projection_at_epoch_ms: 10,
+            valid_through_epoch_ms: 20,
+            source_ancestry_locator: None,
+            source_ancestry_evidence_digest: None,
+        };
+        let value = serde_json::to_value(CurrentResearchArtifactReadbackV1 {
+            evidence_digest: current_research_artifact_evidence_digest(&evidence).unwrap(),
+            evidence,
+            owner_cut_epoch_ms: None,
+        })
+        .unwrap();
+        let refusal = |value: &serde_json::Value, locked: bool| {
+            match decode_current_research_artifact_readback(value, locked) {
+                Err(ResearchGoalOwnerError::Storage(message)) => message,
+                other => panic!("expected a named storage refusal, received {other:?}"),
+            }
+        };
+        // The control: the untampered readback decodes, so each refusal below is its tamper's.
+        assert!(decode_current_research_artifact_readback(&value, false).is_ok());
+
+        let mut extended = value.clone();
+        extended["stored_tamper"] = serde_json::json!(true);
+        let mut schema = value.clone();
+        schema["evidence"]["schema_version"] = serde_json::json!(2);
+        let mut digest = value.clone();
+        digest["evidence_digest"] = serde_json::json!("sha256:changed");
+        let messages = [
+            refusal(&extended, false),
+            refusal(&value, true),
+            refusal(&schema, false),
+            refusal(&digest, false),
+        ];
+
+        let prefix = "current Research artifact readback mismatch: ";
+        assert_eq!(
+            messages,
+            [
+                "the stored JSON is not the canonical form of what it decodes to",
+                "the owner cut is present on an unlocked read, or absent on a locked one",
+                "the evidence schema version is not 1",
+                "the evidence digest is not the digest of the evidence",
+            ]
+            .map(|condition| format!("{prefix}{condition}")),
+        );
+        assert_eq!(
+            messages
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len(),
+            messages.len(),
+            "the four conditions read differently",
+        );
     }
 
     #[rstest]
