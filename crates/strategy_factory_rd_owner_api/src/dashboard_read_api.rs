@@ -396,13 +396,34 @@ impl DashboardReadApiConfigV1 {
     ///
     /// Returns an error when the Owner database URL or the bearer token is missing.
     pub fn from_environment() -> anyhow::Result<Self> {
+        Self::from_lookup(|name| env::var(name).ok())
+    }
+
+    /// Reads the configuration from `lookup`, keyed by the deployment's environment names.
+    ///
+    /// The binary passes the process environment. The ordered chain passes its own values under
+    /// the same names, so the read API it serves to a browser is composed by this one rule rather
+    /// than by a second, hand-written configuration that could bind fewer ports than deployment.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Owner database URL or the bearer token is missing or empty.
+    pub fn from_lookup(lookup: impl Fn(&str) -> Option<String>) -> anyhow::Result<Self> {
+        let required = |name: &str| -> anyhow::Result<String> {
+            let value = lookup(name).ok_or_else(|| {
+                anyhow::anyhow!("required environment variable {name} is missing")
+            })?;
+
+            if value.trim().is_empty() {
+                anyhow::bail!("required environment variable {name} is set but carries no value");
+            }
+            Ok(value)
+        };
         let product_edge_database_url =
-            env::var("RD_DASHBOARD_SOURCE_INTAKE_PRODUCT_EDGE_DATABASE_URL")
-                .ok()
+            lookup("RD_DASHBOARD_SOURCE_INTAKE_PRODUCT_EDGE_DATABASE_URL")
                 .filter(|value| !value.is_empty());
-        let request_proof = env::var("RD_DASHBOARD_SOURCE_INTAKE_REQUEST_PROOF")
-            .ok()
-            .filter(|value| !value.is_empty());
+        let request_proof =
+            lookup("RD_DASHBOARD_SOURCE_INTAKE_REQUEST_PROOF").filter(|value| !value.is_empty());
         let source_intake = match (product_edge_database_url, request_proof) {
             (Some(product_edge_database_url), Some(request_proof)) => {
                 Some(SourceIntakeReadConfigV1 {
@@ -413,11 +434,11 @@ impl DashboardReadApiConfigV1 {
             _ => None,
         };
         Ok(Self {
-            owner_database_url: crate::required_env("RD_DASHBOARD_OWNER_READ_DATABASE_URL")?,
-            token: crate::required_env("RD_DASHBOARD_OWNER_READ_API_TOKEN")?,
+            owner_database_url: required("RD_DASHBOARD_OWNER_READ_DATABASE_URL")?,
+            token: required("RD_DASHBOARD_OWNER_READ_API_TOKEN")?,
             source_intake,
-            bind: env::var("RD_DASHBOARD_OWNER_READ_BIND")
-                .unwrap_or_else(|_| "0.0.0.0:8082".to_string()),
+            bind: lookup("RD_DASHBOARD_OWNER_READ_BIND")
+                .unwrap_or_else(|| "0.0.0.0:8082".to_string()),
         })
     }
 }
