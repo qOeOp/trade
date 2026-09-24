@@ -291,14 +291,18 @@ history; it says nothing about whether the path has ever run in some other envir
     for the admitted single-threshold family, and only when authoring the statement read back from that
     frozen pair reproduces the pair's canonical program exactly; any other run is refused as a whole
     for that named reason. The family carries no version, so a program an earlier author froze and the
-    current author no longer reproduces is refused the same way. A run inside the family is refused too, as
-    `STRATEGY_NOT_ANCHORED_TO_RUN`, until the frozen program can be anchored to the artifact the run
-    executed: the request names a Design, not the program its artifact was built from. The anchor is
-    the artifact's Composer build receipt carrying the freeze's `joint_freeze_digest`, and a V2 build,
-    which carries none, can never meet it. Those receipts are in Composer custody, and the only
-    Composer Owner API function the R&D Owner may call that returns them,
-    `lock_accepted_develop_composer_v2`, takes a table-level SHARE lock that blocks Composer's writers. A lock-free Composer read of an artifact's build receipts is the
-    follow-up that lets an in-family run be stated; until it exists, every in-family run is refused. The channel is
+    current author no longer reproduces is refused the same way. A run inside the family is stated only
+    when the frozen program is anchored to the artifact the run executed: the request names a Design,
+    not the program its artifact was built from. The anchor is the artifact's Composer build receipts,
+    read through the Composer Owner's lock-free receipt read inside the report's transaction: there
+    must be at least one, and every one must be a V3 plugin build carrying the freeze's
+    `joint_freeze_digest`, which the report derives again from the freeze row. A V2 build carries no
+    freeze and never anchors. An unanchored run is refused as `STRATEGY_NOT_ANCHORED_TO_RUN`, and
+    receipts that cannot be read as `ARTIFACT_BUILD_RECEIPTS_UNAVAILABLE`. No in-family run is stated
+    end to end today: a legacy request's artifact was not built by Composer, so it never anchors, and
+    a Composer V3 request is refused as `REPLAY_REQUEST_V3_NOT_YET_REPORTED` before the anchor,
+    because its request read locks rows. A lock-free read of that request is the follow-up that lets
+    an in-family run be stated. The channel is
     stated as the run read it - role, instrument, fact, timeframe, unit and scale - and not in the form
     its request authored it, so an authoring form that names the instrument indirectly still yields
     those six fields, and a change to how a channel is authored does not change this handoff. The

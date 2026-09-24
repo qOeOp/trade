@@ -242,14 +242,15 @@ production write、provider effect、Paper、Live 或交易权威。
     `rd_owner_api.read_exploratory_replay_request_v2` 读取，它不加锁；`resolve_exploratory_replay_request_v2`
     为之后还要写入的调用方保留它的锁，并经同一个函数读取。策略只对已准入的单阈值族陈述，而且只有当把从那对冻结值读回的陈述重新编写一遍、能逐字节复现该对
     的规范程序时才陈述；任何其他运行都以这个具名理由整体拒绝。这个族不带版本，所以由更早的编写器冻结、
-    而当前编写器已不能复现的程序，也以同样方式被拒绝。族内的运行也会被拒绝，码为
-    `STRATEGY_NOT_ANCHORED_TO_RUN`，直到冻结程序能锚定到该次运行实际执行的 artifact：请求点名的是
-    Design，而不是其 artifact 构建所依据的程序。锚点是 artifact 的 Composer 构建回执带有该冻结的
-    `joint_freeze_digest`；V2 构建不带这个值，因此永远满足不了。那些回执在 Composer 托管里，而 R&D Owner
-    能调用、又能返回它们的唯一一个 Composer Owner API 函数 `lock_accepted_develop_composer_v2` 取表级 SHARE 锁，
-    会挡住 Composer 的写者。一个
-    不上锁、读取 artifact 构建回执的 Composer 读取是让族内运行得以陈述的后续事项；在它存在之前，所有族内
-    运行都被拒绝。通道按运行实际读取的样子陈述（角色、品种、事实、时间粒度、单位与精度），而不是按请求
+    而当前编写器已不能复现的程序，也以同样方式被拒绝。族内的运行只有在冻结程序锚定到该次运行实际执行的
+    artifact 时才被陈述：请求点名的是 Design，而不是其 artifact 构建所依据的程序。锚点是 artifact 的
+    Composer 构建回执，在报告的事务内经 Composer Owner 不上锁的回执读取读出：至少要有一条，而且每一条都必须是
+    带有该冻结 `joint_freeze_digest` 的 V3 插件构建，这个值由报告从冻结行重新推导。V2 构建不带冻结，
+    永远锚不上。未锚定的运行以 `STRATEGY_NOT_ANCHORED_TO_RUN` 拒绝，读不出回执则以
+    `ARTIFACT_BUILD_RECEIPTS_UNAVAILABLE` 拒绝。今天没有任何族内运行能端到端被陈述：legacy 请求的 artifact
+    不是 Composer 构建的，所以永远锚不上；Composer V3 请求在锚点之前就以 `REPLAY_REQUEST_V3_NOT_YET_REPORTED`
+    拒绝，因为它的请求读取要上行锁。不上锁地读取这种请求，是让族内运行得以陈述的后续事项。
+    通道按运行实际读取的样子陈述（角色、品种、事实、时间粒度、单位与精度），而不是按请求
     编写它的形式；因此间接指定品种的编写形式同样给出这六个字段，编写通道的方式变了，这份交接也不变。
     universe 成员形态只通过运行的 universe 选择给出品种，而本报告目前还不读取那份选择，所以该形态的运行
     以 `UNIVERSE_MEMBER_NOT_YET_REPORTED` 拒绝，而不是在缺少品种的情况下陈述。
