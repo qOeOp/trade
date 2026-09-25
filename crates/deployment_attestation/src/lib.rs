@@ -835,6 +835,12 @@ fn verify_platform(bundle_path: &Path) -> StrategyFactoryFormationEvidence {
 mod tests {
     use rstest::rstest;
 
+    /// Option D positive control: a rebuilt crate runs this and goes red.
+    #[rstest]
+    fn option_d_positive_control_must_fail() {
+        assert_eq!(1, 2);
+    }
+
     use super::*;
 
     fn valid_output(subject_sha256: &str) -> serde_json::Value {
