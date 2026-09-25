@@ -68,7 +68,7 @@ const ISSUER_KEY_VERSION: &str = "acceptance-key-v1";
 /// The request proof the authorization is issued with and every admission into these deployments
 /// presents. It is a canonical digest, `sha256:` and 64 lowercase hex digits, because consumers
 /// such as Source Intake refuse any other shape; it is the SHA-256 of a fixed domain string.
-fn request_proof_digest() -> String {
+pub fn request_proof_digest() -> String {
     format!(
         "sha256:{:x}",
         Sha256::digest(b"vibe-product-edge/deployment-acceptance/request-proof/v1")
