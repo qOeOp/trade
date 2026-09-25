@@ -20,10 +20,13 @@
 //! by name. Custody whose Research View validity has passed on the R&D Owner clock is refused as
 //! [`CurrentSourceBoundResearchAcceptanceErrorV1::Expired`] before any step is replayed.
 //!
-//! The Product Edge deployment is the caller's. Its genesis must already admit both
-//! `SOURCE_INTAKE_OPERATION_V1` and `RESEARCH_GOAL_OPERATION_V2`, with the `research:source-intake`,
-//! `research:submit` and `research:view` permissions, because Product Edge fixes a deployment's
-//! operation set at genesis. This module only uses that deployment, and does not extend it.
+//! The Product Edge deployment is the caller's: it passes the handle
+//! `ensure_product_edge_deployment_acceptance_fixture_v1` returned, and this module admits its
+//! requests through that deployment's own Owner and request proof. Product Edge fixes a
+//! deployment's operations at genesis, so the caller must have ensured it with both
+//! `SOURCE_INTAKE_OPERATION_V1` and `RESEARCH_GOAL_OPERATION_V2`, with `SOURCE_INTAKE_TARGET_OWNER_V1`
+//! as its audience and the `research:submit` and `research:view` permissions. This module only
+//! checks the operations, and refuses by name when one is missing; it never extends a deployment.
 //!
 //! Named gaps, all inherited from the sealed Source Intake rather than introduced here:
 //! the terminal is the fixed-corpus OpenAlex response for `10.5555/sealed-success`, not a recorded
@@ -34,7 +37,8 @@ use std::sync::Arc;
 
 use thiserror::Error;
 use vibe_product_edge::{
-    ProductEdgeAdmissionRequestV1, ProductEdgeError, ProductEdgePostgresOwnerV1,
+    ProductEdgeAdmissionRequestV1, ProductEdgeError, SOURCE_INTAKE_OPERATION_V1,
+    deployment_acceptance::ProductEdgeDeploymentAcceptanceFixtureV1,
 };
 
 use crate::{
@@ -58,6 +62,8 @@ use crate::{
     },
 };
 
+/// The operations a source-bound Research admits, which the caller's deployment must bind.
+const REQUIRED_OPERATIONS: [&str; 2] = [SOURCE_INTAKE_OPERATION_V1, RESEARCH_GOAL_OPERATION_V2];
 /// The only DOI the sealed Source Intake provider answers `RETRIEVED` for.
 const SEALED_SOURCE_DOI: &str = "10.5555/sealed-success";
 /// The effect a Research Goal V2 admission requests.
@@ -97,6 +103,12 @@ pub enum CurrentSourceBoundResearchAcceptanceErrorV1 {
     /// A Research identity must be a non-empty ASCII identity the Owners accept.
     #[error("the Research identity is not a valid Owner identity")]
     InvalidResearchIdentity,
+    /// The caller's deployment was ensured without an operation this Research admits.
+    #[error("the Product Edge deployment does not admit {operation}")]
+    OperationNotDeployed { operation: &'static str },
+    /// The caller's deployment's Product Edge Owner could not be connected.
+    #[error("the Product Edge deployment is unavailable: {0}")]
+    ProductEdge(#[source] ProductEdgeError),
     /// An Owner database did not accept the connection.
     #[error("the {owner} database is unreachable: {source}")]
     Connect {
@@ -157,9 +169,9 @@ type Error = CurrentSourceBoundResearchAcceptanceErrorV1;
 
 /// Creates or exact-resolves current source-bound Research for `research_identity`.
 ///
-/// `product_edge` is the caller's deployment and `request_proof_digest` the proof digest its
-/// authorization was issued for; see the module documentation for what its genesis must admit.
-/// The Source Intake request is `{research_identity}-source`. `catalog_admin_url` is the Replay
+/// `pe_deployment` is the caller's deployment, reached at `product_edge_url`; see the module
+/// documentation for what its genesis must admit. The Source Intake request is
+/// `{research_identity}-source`. `catalog_admin_url` is the Replay
 /// Policy Catalog administrator role; `rd_owner_url` and `qualification_writer_url` are the R&D
 /// Owner and Qualification writer roles the Research Owner connects as.
 ///
@@ -171,11 +183,24 @@ pub async fn ensure_current_source_bound_research_acceptance_fixture_v1(
     rd_owner_url: &str,
     qualification_writer_url: &str,
     catalog_admin_url: &str,
-    product_edge: Arc<ProductEdgePostgresOwnerV1>,
-    request_proof_digest: &str,
+    product_edge_url: &str,
+    pe_deployment: &ProductEdgeDeploymentAcceptanceFixtureV1,
     research_identity: &str,
 ) -> Result<CurrentSourceBoundResearchV1, Error> {
     let source_intake_request_identity = source_intake_request_identity(research_identity)?;
+
+    for operation in REQUIRED_OPERATIONS {
+        if pe_deployment.operation(operation).is_none() {
+            return Err(Error::OperationNotDeployed { operation });
+        }
+    }
+    let request_proof_digest = pe_deployment.request_proof_digest.as_str();
+    let product_edge = Arc::new(
+        pe_deployment
+            .connect_owner(product_edge_url)
+            .await
+            .map_err(Error::ProductEdge)?,
+    );
 
     let research_owner =
         PostgresResearchGoalOwnerV1::connect(rd_owner_url, qualification_writer_url)
@@ -274,6 +299,9 @@ pub async fn ensure_current_source_bound_research_acceptance_fixture_v1(
                 admission: admission.locator().clone(),
                 goal,
                 trial_family_proposal,
+                // A V2 request, as the deployment's `RESEARCH_GOAL_OPERATION_V2` admits: it states
+                // no instrument scope.
+                instrument_scope: None,
             },
             SourceIntakeResearchAncestryProposalV1 {
                 request_identity: source_intake_request_identity.clone(),

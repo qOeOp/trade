@@ -19,6 +19,7 @@ sealed-source-intake-research-acceptance = ["sealed-source-intake-acceptance"]
 sealed-source-intake-composer-acceptance = [
   "sealed-source-intake-research-acceptance",
   "sealed-develop-composer-acceptance",
+  "vibe-product-edge/sealed-deployment-acceptance",
 ]
 sealed-strategy-input-acceptance = [
   "vibe-data/sealed-strategy-input-acceptance",
