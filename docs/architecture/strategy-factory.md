@@ -658,7 +658,7 @@ Data issue the request-keyed Instrument Master V2 cut over the Universe Selectio
 the request's sealed V3 record names, and refuses by name a request with no such record rather than choosing a
 binding. That issuance commits in its own Market Data transaction, so an R&D failure after it is retried and reuses the
 cut. The operation then resolves the sealed preparation, Composer Plan and Artifact, request-bound Instrument Master V2
-cut, unique same-account economic pair, universe frame, and two BAR schedules before committing the binding through
+cut, one same-account economic-terms fact per member, universe frame, and one BAR schedule per member before committing the binding through
 one R&D transaction;
 its read operation returns only an already issued binding projection. A separate consumer composition first reads
 that durable binding, independently re-resolves the exact Composer, Instrument Master V2, economic, universe, and

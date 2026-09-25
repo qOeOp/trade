@@ -238,7 +238,7 @@ impl NativeReplayInitialUniverseRoleV1 {
     }
 }
 
-/// Bounded request for reconstructing the initial universe frame and its two BAR schedules.
+/// Bounded request for reconstructing the initial universe frame and one BAR schedule per member.
 ///
 /// Every Owner coordinate absent from this type is derived from the verified PIT batch. The two
 /// schedule locators and the account scope are deliberately not caller inputs.
