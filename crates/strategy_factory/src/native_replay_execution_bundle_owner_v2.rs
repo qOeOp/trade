@@ -93,6 +93,12 @@ pub enum NativeReplayExecutionPrerequisitesErrorV2 {
     NativeSchedulingDataUnavailable,
     #[error("Native Replay execution bundle composition is unavailable: {0}")]
     ExecutionBundleUnavailable(String),
+    /// The Replay composition cut has no Instrument Master, because its binding is of the
+    /// universe-member shape; these prerequisites bind only the exact-instrument first corpus.
+    #[error(
+        "the Replay composition cut is of the universe-member shape and has no Instrument Master"
+    )]
+    InstrumentMasterAbsentForUniverseShape,
 }
 
 /// Resolves persistent Market Data scheduling custody and composes the exact Sim execution bundle.
@@ -150,6 +156,10 @@ pub fn prepare_native_replay_execution_prerequisites_v2(
     instrument_terms: &[InstrumentEconomicTermsReadbackV1],
 ) -> Result<NativeReplayExecutionPrerequisitesV2, NativeReplayExecutionPrerequisitesErrorV2> {
     let (composition, market_facts, instrument_master) = replay_cut.into_parts();
+    // A universe-member cut binds no Instrument Master; until these prerequisites handle that
+    // shape they refuse it by this name, so the refusal is findable and says why.
+    let instrument_master = instrument_master
+        .ok_or(NativeReplayExecutionPrerequisitesErrorV2::InstrumentMasterAbsentForUniverseShape)?;
     validate_available_owner_bindings(
         &preparation,
         &market_facts,

@@ -333,7 +333,7 @@ epoch 严格递增，并使用历史中从未出现过的 binding identity。零
 head。已由合法前驱准入的请求保留原 request 与 binding 身份，新 head 生效后仍按该原绑定解析，
 不会发生写入重叠或裸重试。如果其首次 downstream mutation 尚无回执，则只有在直接政策等价 successor 已成为 `ACTIVE`、原始存储 lineage 仍准确匹配且原 Operator Authorization 在 final write cut 仍 current 时才可继续。零 `ACTIVE` fence 会阻断这种连续性，所有新 admission 仍必须使用当前 `ACTIVE` head。
 
-Product Edge 只读一个时钟。它检查或记录的每个时刻，即 binding 的 genesis、successor 的激活及其 fence、admission 或 claim 的 read cut 与 final write cut、invocation 的 start，都取自在其自身事务内读取的 `pg_catalog.clock_timestamp()`，从不取自应用进程时钟。binding 的有效窗口来自操作员，操作员不代 Product Edge 读取任何时钟，因此 genesis 与之后每次 admission 都用同一个时钟比较该窗口。在 admission 的 cut 上，研究窗口与 R&D Owner 的 `owner_cut`、投影时间和 `valid_through` 比较，而 R&D 用同一数据库时钟为它们盖戳，因此每次比较的两侧都来自同一个时钟。Qualification 对其 Owner cut 持有同一权威。该调用带 schema 限定，因此经 `search_path` 可达的任何函数都无法取代它。
+Product Edge 只读一个时钟。它检查或记录的每个时刻，即 binding 的 genesis、successor 的激活及其 fence、admission 或 claim 的 read cut 与 final write cut、invocation 的 start，都取自在其自身事务内读取的 `pg_catalog.clock_timestamp()`，从不取自应用进程时钟。binding 的有效窗口来自操作员，操作员不代 Product Edge 读取任何时钟，因此 genesis 与之后每次 admission 都用同一个时钟比较该窗口。在 admission 的 cut 上，研究窗口与 R&D Owner 的 `owner_cut`、投影时间和 `valid_through` 比较，而 R&D 用同一数据库时钟为它们盖戳，因此每次比较的两侧都来自同一个时钟。Qualification 对其 Owner cut 持有同一权威。Operator Authorization Issuer 判定或盖戳的一切都读取同一个 store 时钟：授权的签发、撤销、后继与过期 manifest 恢复，以及 grant 的签发、后继与撤销。授权的窗口在签发时由 Issuer 判定，在 genesis 与每次 admission 时再由 Product Edge 判定；两个判官读取同一个时钟，因此任何时钟偏差都不会让某个窗口对一方 current 而对另一方不是。每次调用都带 schema 限定，因此经 `search_path` 可达的任何函数都无法取代它。
 
 ### 管理员 bootstrap 与控制面 writer
 

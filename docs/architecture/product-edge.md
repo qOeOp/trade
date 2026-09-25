@@ -394,7 +394,11 @@ its fence, an admission or a claim's read cut and final write cut, an invocation
 validity window comes from the operator, who reads no clock on Product Edge's behalf, so genesis and every later
 admission compare that window with the same clock. At an admission's cut the research window is checked against the R&D Owner's `owner_cut`,
 projection time and `valid_through`, which R&D stamps from the same database clock, so both sides of each
-comparison come from one clock. Qualification holds the same authority for its Owner cut. The call is
+comparison come from one clock. Qualification holds the same authority for its Owner cut. The Operator Authorization
+Issuer reads the same store clock for everything it judges or stamps: an authorization's issuance, revocation,
+succession and expired-manifest recovery, and a grant's issuance, succession and revocation. An authorization's
+window is judged by the Issuer at issuance and again by Product Edge at genesis and at every admission; both judges
+read one clock, so no skew can leave a window current for one and not for the other. Each call is
 schema-qualified so that no function reachable through `search_path` can take its place.
 
 ### Administrative bootstrap and control-plane writers

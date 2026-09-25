@@ -604,8 +604,8 @@ PostgreSQL ledger、exact-locator recovery、typed Owner-readback validator、bi
 locator：签发操作首先让 Market Data 以该 request 为 key，在其 sealed V3 记录所指 composition binding 已绑定的
 Universe Selection 上签发 Instrument Master V2 cut；没有这份记录的 request 按名拒绝，而不是自行选择 binding。
 该签发在 Market Data 自己的 transaction 中提交，因此其后 R&D 一步失败时，重试会复用这份 cut。随后签发操作解析
-sealed preparation、Composer Plan 与 Artifact、请求绑定的 Instrument Master V2 cut、唯一同账户 economic pair、
-universe frame 和两份 BAR schedule，再通过一笔 R&D transaction 提交 binding；
+sealed preparation、Composer Plan 与 Artifact、请求绑定的 Instrument Master V2 cut、每个成员一份同账户 economic terms fact、
+universe frame 和每个成员一份 BAR schedule，再通过一笔 R&D transaction 提交 binding；
 读取操作只返回已签发 binding 的 projection。独立 consumer composition 会先读取该 durable binding，再重新
 解析准确 Composer、Instrument Master V2、economic、universe 与 schedule input，逐字节复现持久 binding 后才
 materialize 现有 native execution bundle。现有 sealed production R&D resolver 会在一笔

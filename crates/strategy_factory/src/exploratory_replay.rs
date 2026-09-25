@@ -698,6 +698,12 @@ pub enum ExploratoryReplayOwnerError {
     InvalidProposal(&'static str),
     #[error("R&D exploratory replay custody unavailable: {0}")]
     Unavailable(String),
+    /// The Replay composition cut has no Instrument Master, because its binding is of the
+    /// universe-member shape; this reader handles only the exact-instrument first corpus.
+    #[error(
+        "the Replay composition cut is of the universe-member shape and has no Instrument Master"
+    )]
+    InstrumentMasterAbsentForUniverseShape,
 }
 
 #[cfg(test)]
