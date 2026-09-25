@@ -1664,6 +1664,93 @@ check_postgres_crash_reading() {
   fi
 }
 
+# The shard list: one row per chain entry, `shard<TAB>component<TAB>test name<TAB>browser`, rows
+# in chain order. A component is a set of entries that must share one database in chain order;
+# different components never read each other's rows, so each starts from the state before the
+# first entry.
+chain_shard_list="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/rd-owner-chain-shards.tsv"
+readonly chain_shard_list
+
+load_chain_shard() {
+  local shard="$1" row_shard component name position selection known
+  if [[ ! -f "$chain_shard_list" ]]; then
+    echo "ERROR: RD_OWNER_CHAIN_SHARD=${shard} but there is no shard list at ${chain_shard_list}." >&2
+    exit 1
+  fi
+  while IFS=$'\t' read -r row_shard component name _; do
+    [[ "$row_shard" == "$shard" ]] || continue
+    known=''
+    position=0
+    for selection in "${rd_owner_postgres_tests[@]}"; do
+      position=$((position + 1))
+      if [[ "${selection##*|}" == "$name" ]]; then
+        known="$position"
+        break
+      fi
+    done
+    if [[ -z "$known" ]]; then
+      echo "ERROR: shard ${shard} lists ${name}, which is not a chain entry." >&2
+      exit 1
+    fi
+    chain_shard_component["$name"]="$component"
+    chain_shard_entry_count=$((chain_shard_entry_count + 1))
+    if [[ "$known" -gt "$chain_shard_last_position" ]]; then
+      chain_shard_last_position="$known"
+    fi
+  done < "$chain_shard_list"
+  if [[ "$chain_shard_entry_count" -eq 0 ]]; then
+    echo "ERROR: the shard list names no entry for shard ${shard}." >&2
+    exit 1
+  fi
+}
+
+# Every database an entry can write, snapshotted as a template once the pre-loop setup has
+# settled. A template clone carries neither the database ACL nor its role settings, and its owner
+# must be named, so all three are kept beside it and restored on every rebuild.
+chain_snapshot_databases() {
+  printf '%s\n' "$test_database" "$catalog_admin_database" "$origin_current_database" \
+    "$legacy_replay_database" "$program_host_acceptance_database" "$composer_sealed_read_database"
+}
+
+chain_admin_psql() {
+  docker exec "$container" psql --quiet --no-align --tuples-only --set ON_ERROR_STOP=1 \
+    --username postgres --dbname postgres --command "$1"
+}
+
+declare -A chain_database_owner=()
+declare -A chain_database_acl=()
+
+snapshot_chain_databases() {
+  local database
+  while IFS= read -r database; do
+    chain_database_owner["$database"]="$(chain_admin_psql "SELECT pg_catalog.pg_get_userbyid(datdba) FROM pg_catalog.pg_database WHERE datname = '${database}'")"
+    chain_database_acl["$database"]="$(chain_admin_psql "SELECT COALESCE(datacl::text, '') FROM pg_catalog.pg_database WHERE datname = '${database}'")"
+    chain_admin_psql "CREATE DATABASE \"${database}_t0\" WITH TEMPLATE \"${database}\" OWNER \"${chain_database_owner[$database]}\"" > /dev/null
+  done < <(chain_snapshot_databases)
+  chain_admin_psql "DROP TABLE IF EXISTS vibe_chain_role_settings_t0" > /dev/null
+  chain_admin_psql "CREATE TABLE vibe_chain_role_settings_t0 AS SELECT database_entry.datname, setting.setrole, setting.setconfig FROM pg_catalog.pg_db_role_setting setting JOIN pg_catalog.pg_database database_entry ON database_entry.oid = setting.setdatabase" > /dev/null
+}
+
+reset_chain_databases() {
+  local database
+  while IFS= read -r database; do
+    chain_admin_psql "DROP DATABASE \"${database}\" WITH (FORCE)" > /dev/null
+    chain_admin_psql "CREATE DATABASE \"${database}\" WITH TEMPLATE \"${database}_t0\" OWNER \"${chain_database_owner[$database]}\"" > /dev/null
+    if [[ -n "${chain_database_acl[$database]}" ]]; then
+      chain_admin_psql "UPDATE pg_catalog.pg_database SET datacl = '${chain_database_acl[$database]}'::aclitem[] WHERE datname = '${database}'" > /dev/null
+    fi
+    chain_admin_psql "INSERT INTO pg_catalog.pg_db_role_setting SELECT database_entry.oid, saved.setrole, saved.setconfig FROM vibe_chain_role_settings_t0 saved JOIN pg_catalog.pg_database database_entry ON database_entry.datname = saved.datname WHERE saved.datname = '${database}'" > /dev/null
+  done < <(chain_snapshot_databases)
+}
+
+drop_chain_database_snapshots() {
+  local database
+  while IFS= read -r database; do
+    chain_admin_psql "DROP DATABASE IF EXISTS \"${database}_t0\"" > /dev/null
+  done < <(chain_snapshot_databases)
+  chain_admin_psql "DROP TABLE IF EXISTS vibe_chain_role_settings_t0" > /dev/null
+}
+
 # The chain's verdict from its records alone, so a run split across jobs is judged by the same
 # report a serial run prints. Records are named by global chain position, so the directories of
 # several jobs merge into the layout one serial run leaves. Every position must hold exactly one
@@ -1810,7 +1897,26 @@ done
 # so the archive carries an identity - the source tree, the features and both profiles - and a chain
 # given an archive refuses one whose identity is not its own, by name, rather than running binaries
 # from some other tree.
+# The production provisioning binary for Operator Authorization and Product Edge, built as the
+# deployment image builds it (no features) and staged where .config/nextest.toml's
+# [profile.ci.archive] include picks it up, so it reaches every job that runs from the archive.
+chain_provisioning_binary=product-edge-authority-bootstrap
+build_chain_provisioning_binary() {
+  local target_dir profile_dir
+  target_dir="${CARGO_TARGET_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/target}"
+  case "$cargo_ci_profile" in
+    dev | test) profile_dir=debug ;;
+    release | bench) profile_dir=release ;;
+    *) profile_dir="$cargo_ci_profile" ;;
+  esac
+  cargo build --locked --package vibe-product-edge-admin --bin "$chain_provisioning_binary" \
+    --profile "$cargo_ci_profile"
+  mkdir -p -- "${target_dir}/chain-provisioning"
+  cp -- "${target_dir}/${profile_dir}/${chain_provisioning_binary}" "${target_dir}/chain-provisioning/"
+}
+
 build_nextest_archive() {
+  build_chain_provisioning_binary
   cargo nextest archive \
     "${nextest_graph_args[@]}" \
     --features "$nextest_archive_features" \
@@ -1978,6 +2084,21 @@ nextest_extract_dir=''
 # number is the entry it stopped at, not only the test nextest names: an Owner's acceptance is its
 # own entries passing, and this is what says how far the run got.
 chain_entry_count="${#rd_owner_postgres_tests[@]}"
+# One shard of the chain runs only the entries the shard list gives it, each dependency component
+# on databases rebuilt from the state before the first entry; unset, every entry runs in order.
+readonly chain_shard="${RD_OWNER_CHAIN_SHARD:-}"
+declare -A chain_shard_component=()
+chain_shard_last_position=0
+chain_shard_entry_count=0
+if [[ -n "$chain_shard" ]]; then
+  load_chain_shard "$chain_shard"
+fi
+chain_last_position="$chain_entry_count"
+if [[ -n "$chain_shard" ]]; then
+  chain_last_position="$chain_shard_last_position"
+fi
+readonly chain_last_position
+chain_current_component=''
 readonly chain_entry_count
 chain_position=0
 chain_entry_label=''
@@ -3958,11 +4079,32 @@ SQL
   run_authority_migration
 }
 
+# Production provisioning runs in three steps (product/rd-workbench/docker-compose.yml): the R&D
+# schema materializer and the authority-custody migration, both run above, then
+# `authority-schema-materialize`, which materializes the Operator Authorization and Product Edge
+# schemas. Without the third, the template holds only Operator Authorization's four legacy
+# relations: `connect_existing` counts sixteen (its admitted relations include both grant kinds')
+# and refuses with TopologyNotAdmitted, and Product Edge holds no relation at all. Entries passed
+# anyway only because an earlier entry's `connect()` migrated them, which is an order dependency the
+# serial chain hid and a shard starting from this template would not have.
+chain_provisioning="${nextest_extract_dir}/target/chain-provisioning/${chain_provisioning_binary}"
+if [[ ! -x "$chain_provisioning" ]]; then
+  echo "ERROR: the archive holds no ${chain_provisioning_binary} at ${chain_provisioning}." >&2
+  exit 1
+fi
+OPERATOR_AUTHORIZATION_DATABASE_URL="postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}" \
+  PRODUCT_EDGE_DATABASE_URL="postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}" \
+  "$chain_provisioning" materialize-schema
+
 # Taken after the pre-loop drills, once both servers have settled; the raw-log count at the end
 # covers the whole life of each container, drills included.
 chain_stats_reset_before="$(postgres_stats_reset "$container")"
 impersonator_stats_reset_before="$(postgres_stats_reset "$impersonator_container")"
 readonly chain_stats_reset_before impersonator_stats_reset_before
+
+if [[ -n "$chain_shard" ]]; then
+  snapshot_chain_databases
+fi
 
 # The Catalog administrator, two replay migration filters, and Program Host acceptance use separate
 # fresh databases. In the shared database, run the complete Instrument Owner storage/ACL oracle only
@@ -3972,6 +4114,13 @@ readonly chain_stats_reset_before impersonator_stats_reset_before
 for test_selection in "${rd_owner_postgres_tests[@]}"; do
   IFS='|' read -r test_package test_binary test_name <<< "$test_selection"
   chain_position=$((chain_position + 1))
+  if [[ -n "$chain_shard" ]]; then
+    [[ -n "${chain_shard_component[$test_name]:-}" ]] || continue
+    if [[ -n "$chain_current_component" && "${chain_shard_component[$test_name]}" != "$chain_current_component" ]]; then
+      reset_chain_databases
+    fi
+    chain_current_component="${chain_shard_component[$test_name]}"
+  fi
   chain_entry_label="${test_package} ${test_binary} ${test_name}"
   echo "=== ordered chain entry ${chain_position}/${chain_entry_count}: ${chain_entry_label}"
   # The previous entry's record must not be copied as this one's if this one never writes its own.
@@ -4154,21 +4303,31 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
   if [[ -n "$backtest_result_fault" ]]; then
     restore_backtest_result_fault "$backtest_result_fault"
   fi
-  if [[ "$chain_position" -eq "$chain_entry_count" ]]; then
+  if [[ "$chain_position" -eq "$chain_last_position" ]]; then
     # One record per entry, counted against the array rather than checked for being non-empty: a
     # non-empty directory only rules out "nothing ran at all", not "ran thirty and the copy stopped
     # answering". A short count here means the record is incomplete while the chain says it passed,
     # which is the one combination that would let a reader trust a record that is missing entries.
     chain_record_count="$(find "$chain_record_dir" -name '*.xml' -type f | grep -c '' || true)"
-    if [[ "$chain_record_count" -ne "$chain_entry_count" ]]; then
-      echo "ERROR: the chain passed ${chain_entry_count} entries but left ${chain_record_count}" >&2
+    chain_expected_records="$chain_entry_count"
+    if [[ -n "$chain_shard" ]]; then
+      chain_expected_records="$chain_shard_entry_count"
+    fi
+    if [[ "$chain_record_count" -ne "$chain_expected_records" ]]; then
+      echo "ERROR: the chain passed ${chain_expected_records} entries but left ${chain_record_count}" >&2
       echo "record(s) in ${chain_record_dir}. Every entry must leave one, or the published record" >&2
       echo "is missing entries while reporting success." >&2
       exit 1
     fi
     chain_completed=true
-    echo "=== ordered chain: all ${chain_entry_count} entries passed, ${chain_record_count} recorded"
-    report_collected_warnings "$chain_record_dir" "$chain_entry_count"
+    if [[ -n "$chain_shard" ]]; then
+      # The chain's two summary lines come from the merged records of every shard
+      # (--report-records), so one shard reports only itself.
+      echo "=== chain shard ${chain_shard}: all ${chain_shard_entry_count} entries passed, ${chain_record_count} recorded"
+    else
+      echo "=== ordered chain: all ${chain_entry_count} entries passed, ${chain_record_count} recorded"
+      report_collected_warnings "$chain_record_dir" "$chain_entry_count"
+    fi
   fi
   disarm_chain_entry_watchdog
 done
@@ -4178,6 +4337,10 @@ readonly legacy_replay_fingerprint_after
 if [[ "$legacy_replay_fingerprint_after" != "$legacy_replay_fingerprint_before" ]]; then
   echo "ERROR: legacy exploratory Replay table data or catalog changed." >&2
   exit 1
+fi
+
+if [[ -n "$chain_shard" ]]; then
+  drop_chain_database_snapshots
 fi
 
 require_no_postgres_crash chain "$container" "$chain_stats_reset_before"
