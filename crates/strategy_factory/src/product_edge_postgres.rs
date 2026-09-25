@@ -2230,7 +2230,7 @@ impl PostgresResearchGoalOwnerV1 {
             .begin()
             .await
             .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
             .execute(&mut *transaction)
             .await
             .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
