@@ -955,3 +955,5 @@ mod tests {
         );
     }
 }
+
+// Option D experiment: a leaf-crate change.
