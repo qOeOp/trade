@@ -601,6 +601,8 @@ jobs:
     needs:
       - plan
     env:
+      # [DO NOT MERGE] experiment: the commit main's current rust-tests cache was built from.
+      VIBE_SOURCE_COMMIT_WHEN_UNRECORDED: a67eeacbe18ec831a86631c0ab1b1bd774972704
       # `rust-cache` folds every CARGO_* and RUST_* variable into its key, so a job stating a
       # different profile or target directory than the run that saved the cache can never restore
       # it. Same-repository pull requests used to state `nextest` and an out-of-workspace target
