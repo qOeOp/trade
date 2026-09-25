@@ -62,6 +62,7 @@ pub mod events;
 
 #[cfg(feature = "postgres")]
 pub mod postgres;
+pub mod source_guard;
 
 #[cfg(feature = "datasets")]
 pub mod files;
