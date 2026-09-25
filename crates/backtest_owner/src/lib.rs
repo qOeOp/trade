@@ -869,9 +869,13 @@ mod tests {
     }
 
     fn request() -> ReplayRequestV2 {
+        request_identified("request")
+    }
+
+    fn request_identified(request_identity: &str) -> ReplayRequestV2 {
         ReplayRequestV2::try_from(ReplayRequestDtoV2 {
             schema_version: 2,
-            request_identity: identity("request"),
+            request_identity: identity(request_identity),
             frozen_research_intent: content("frozen-research-intent", 'b'),
             trial_family: content("trial-family", 'c'),
             trial_family_census_frontier: content("trial-family-census-frontier", 'd'),
@@ -1195,14 +1199,126 @@ mod tests {
             Some("EXPLORATORY_RESULT_ABSENT")
         );
 
-        // The six deeper refusals this function and its V3 sibling publish - the missing receipt,
-        // outbox event, semantic trace, outcome evidence, its receipt and its outbox event - are
-        // not reachable from here, and the reason is a property rather than an oversight: custody
-        // commits an aggregate whole, which `postgres_result_mid_commit_failure_rolls_back_every_
-        // aggregate_row` proves, so no committed Result can be missing one of its siblings. They
-        // are driven against a scratch database where partial custody can be written, and they
-        // stay named here so a future partial write says which row it was missing rather than
-        // answering the same NULL as an unknown identity.
+        // The deeper refusals name custody the schema admits but no production writer leaves: the
+        // only writer of a trace and outcome evidence, the runner's aggregate commit, writes a
+        // Result together with all six of its siblings in one transaction, and
+        // `postgres_result_mid_commit_failure_rolls_back_every_aggregate_row` proves a failure
+        // leaves none of them. The four outcome refusals are driven below by writing the missing
+        // pieces one at a time. The Result's own receipt and outbox refusals stay undriven: the
+        // Result writer below commits the three together, and nothing here writes a Result alone.
+        Box::pin(assert_v3_readback_names_the_first_missing_outcome_piece(
+            &backtest_pool,
+            rd_pool,
+        ))
+        .await;
+    }
+
+    /// Drives each outcome refusal of `resolve_exploratory_replay_result_v3` once, in the order
+    /// the function checks the pieces, and proves each is decided by its own piece: adding the
+    /// missing piece must move the answer to the next refusal, and adding the last one to the
+    /// envelope.
+    ///
+    /// The Result, receipt and outbox come from the Result writer. The trace and the three outcome
+    /// rows are written here, as the `backtest_owner` role the chain admits (an Owner role, not a
+    /// superuser, holding `SELECT, INSERT` on each table): production cannot construct these
+    /// partial states, so no production function can write them. Their content is not what the
+    /// function reads - it checks presence only - so the rows carry probe bytes, and the request
+    /// is this run's own, so no reader that selects the canonical `request`/`attempt` pair, or a
+    /// `backtest-attempt-run-report-%` attempt, can pick them up.
+    async fn assert_v3_readback_names_the_first_missing_outcome_piece(
+        backtest_pool: &sqlx::PgPool,
+        rd_pool: &sqlx::PgPool,
+    ) {
+        let request = request_identified(&format!(
+            "request-partial-outcome-custody-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock after the epoch")
+                .as_nanos()
+        ));
+        let result = commit_owner_result(&request, draft(&request))
+            .expect("Backtest-internal sealed persistence fixture");
+        expect_committed(
+            PostgresReplayResultOwnerV2::from_admitted_pool(backtest_pool.clone())
+                .await
+                .expect("Backtest writer principal")
+                .commit_exploratory_replay_result_v2(&result)
+                .await
+                .expect("atomic Result/receipt/outbox submission"),
+        );
+        let result_identity = result.result_identity().as_str();
+        let request_identity = request.request_identity().as_str();
+        let attempt_identity = "attempt";
+
+        let answer = || async {
+            sqlx::query_scalar::<_, serde_json::Value>(
+                "SELECT backtest_owner_api.resolve_exploratory_replay_result_v3($1,$2,$3)",
+            )
+            .bind(result_identity)
+            .bind(request_identity)
+            .bind(attempt_identity)
+            .fetch_one(rd_pool)
+            .await
+            .expect("R&D reads the V3 readback")
+        };
+        let probe = |piece: &str| format!("probe-{piece}-{result_identity}");
+        // Each statement writes one piece as the aggregate writer would, with probe content; the
+        // trace carries no request or attempt column, the outcome rows carry both.
+        let pieces: [(&str, &str, bool); 4] = [
+            (
+                "SEMANTIC_TRACE_ABSENT",
+                "INSERT INTO public.backtest_native_replay_semantic_traces_v2(result_identity,locator_reference,locator_digest,canonical_bytes) VALUES($1,$2,$2,$3)",
+                false,
+            ),
+            (
+                "OUTCOME_EVIDENCE_ABSENT",
+                "INSERT INTO public.backtest_native_replay_outcome_evidence_v1(result_identity,evidence_identity,evidence_digest,result_digest,request_identity,request_meaning_digest,attempt_identity,canonical_bytes,canonical_bytes_blake3,engine_canonical_result_bytes,engine_canonical_result_bytes_blake3) VALUES($1,$2,$2,$2,$4,$2,$5,$3,$2,$3,$2)",
+                true,
+            ),
+            (
+                "OUTCOME_EVIDENCE_RECEIPT_ABSENT",
+                "INSERT INTO public.backtest_native_replay_outcome_evidence_receipts_v1(result_identity,receipt_identity,receipt_digest,evidence_identity,evidence_digest,result_digest,request_identity,request_meaning_digest,attempt_identity,outbox_event_identity,committed_at_epoch_ms,canonical_bytes,canonical_bytes_blake3) VALUES($1,$2,$2,$2,$2,$2,$4,$2,$5,$2,0,$3,$2)",
+                true,
+            ),
+            (
+                "OUTCOME_EVIDENCE_OUTBOX_ABSENT",
+                "INSERT INTO public.backtest_native_replay_outcome_evidence_outbox_v1(result_identity,event_identity,event_digest,receipt_identity,evidence_identity,evidence_digest,result_digest,request_identity,request_meaning_digest,attempt_identity,payload_digest,committed_at_epoch_ms,canonical_bytes,canonical_bytes_blake3) VALUES($1,$2,$2,$2,$2,$2,$2,$4,$2,$5,$2,0,$3,$2)",
+                true,
+            ),
+        ];
+
+        for (refusal, write_the_missing_piece, carries_the_locator) in pieces {
+            assert_eq!(
+                answer()
+                    .await
+                    .get("refusal")
+                    .and_then(serde_json::Value::as_str),
+                Some(refusal),
+                "the V3 readback must name {refusal} while that piece is the first one missing"
+            );
+            let write = sqlx::query(write_the_missing_piece)
+                .bind(result_identity)
+                .bind(probe(refusal))
+                .bind(refusal.as_bytes());
+            let write = if carries_the_locator {
+                write.bind(request_identity).bind(attempt_identity)
+            } else {
+                write
+            };
+            write
+                .execute(backtest_pool)
+                .await
+                .unwrap_or_else(|e| panic!("backtest_owner writes the piece {refusal} names: {e}"));
+        }
+        let whole = answer().await;
+        assert_eq!(whole.get("refusal"), None, "{whole}");
+        assert_eq!(
+            whole
+                .get("schema_version")
+                .and_then(serde_json::Value::as_u64),
+            Some(4)
+        );
     }
 
     #[tokio::test]
