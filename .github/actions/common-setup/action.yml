@@ -47,6 +47,13 @@ inputs:
     description: Whether to retain compiled workspace crates in the Rust cache
     required: false
     default: "false"
+  rust-cache-source-mtimes:
+    description: >-
+      Date checked-out sources from the commit the restored Rust cache was built from, so cargo
+      rebuilds only the crates a change reaches (scripts/ci/restore-source-mtimes.bash). Needs
+      CARGO_TARGET_DIR.
+    required: false
+    default: "false"
   rust-cache-save-if:
     description: Whether to save the Rust cache (set to false for read-only cache on PR builds)
     required: false
@@ -208,6 +215,11 @@ runs:
         key: ${{ inputs.rust-cache-key }}
         shared-key: ${{ inputs.rust-cache-shared-key }}
         save-if: ${{ inputs.rust-cache-save-if }}
+
+    - name: Date sources from the Rust cache's commit
+      if: inputs.rust-cache-enabled == 'true' && inputs.rust-cache-source-mtimes == 'true'
+      shell: bash
+      run: bash scripts/ci/restore-source-mtimes.bash "${CARGO_TARGET_DIR:?the source commit lives in the target directory}"
 
     - name: Get cargo-nextest version
       if: inputs.build-type == 'test'

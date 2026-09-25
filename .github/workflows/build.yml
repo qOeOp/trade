@@ -702,6 +702,7 @@ jobs:
           rust-cache-on-failure: "false"
           rust-cache-save-if: ${{ env.SAVE_BUILD_CACHES }}
           rust-cache-workspace-crates: "true"
+          rust-cache-source-mtimes: "true"
 
       # The tests are uniformly small (26353 of them averaging 88ms, one single `slow`), so this
       # job reads the whole machine rather than the `ci` profile's `test-threads = 2`, which came
