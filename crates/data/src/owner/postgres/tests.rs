@@ -5372,6 +5372,7 @@ async fn assert_detached_clock_history_unavailable(
 /// A Data Client that answers exactly the scope Market Data issued.
 struct ScopeFaithfulObservationSourceV1 {
     member_key: String,
+    instrument: String,
 }
 
 #[async_trait::async_trait]
@@ -5381,9 +5382,9 @@ impl PitObservationSourceV1 for ScopeFaithfulObservationSourceV1 {
         scope: &PitObservationScopeV1,
     ) -> Result<Vec<VendorObservationV1>, PitObservationSourceErrorV1> {
         Ok(vec![VendorObservationV1 {
-            symbolic_key: "AAPL.CLOSE.1M".into(),
+            symbolic_key: format!("{}.CLOSE.1M", self.instrument),
             member_key: self.member_key.clone(),
-            instrument: "AAPL".into(),
+            instrument: self.instrument.clone(),
             channel: "MARKET".into(),
             data_kind: "BAR".into(),
             timeframe: "1M".into(),
@@ -5847,6 +5848,7 @@ async fn production_pit_mint_postgres_oracle_v1(
                 request_only(213),
                 &ScopeFaithfulObservationSourceV1 {
                     member_key: "AAPL".into(),
+                    instrument: "AAPL".into(),
                 },
                 &universe_locator,
                 clock,
@@ -5884,6 +5886,7 @@ async fn production_pit_mint_postgres_oracle_v1(
             request_only(213),
             &ScopeFaithfulObservationSourceV1 {
                 member_key: "AAPL".into(),
+                instrument: "AAPL".into(),
             },
             &universe_locator,
             clock,
@@ -5952,6 +5955,7 @@ async fn production_pit_mint_postgres_oracle_v1(
             request_only(213),
             &ScopeFaithfulObservationSourceV1 {
                 member_key: "AAPL".into(),
+                instrument: "AAPL".into(),
             },
             &universe_locator,
             clock,
@@ -5983,6 +5987,7 @@ async fn production_pit_mint_postgres_oracle_v1(
             request_only(214),
             &ScopeFaithfulObservationSourceV1 {
                 member_key: "MSFT".into(),
+                instrument: "AAPL".into(),
             },
             &universe_locator,
             clock,
@@ -9323,4 +9328,347 @@ async fn native_replay_frame_sequence_custody_oracle(owner: &MarketDataOwnerPost
         .expect("readback after refused mutations")
         .expect("history survives");
     assert_matches_record(&after, &record);
+}
+
+/// A one-member universe for `instrument` under `source`: its frontier and the selection over it.
+async fn one_member_universe_v1(
+    owner: &MarketDataOwnerPostgres,
+    source: &SourceBindingCommit,
+    instrument: &str,
+    seed: u8,
+) -> (
+    UntrustedUniverseSelectionLocatorV1,
+    crate::owner::universe_selection::UniverseSelectionIdentity,
+) {
+    let correction_digest = source.receipt().locator().correction_frontier.digest;
+    let frontier = d(seed);
+    let universe_request = UntrustedUniverseSelectionRequestV1::new(
+        d(seed + 1),
+        "RESEARCH_OWNER_V1",
+        d(seed + 2),
+        vec![0, 1, 1],
+        frontier,
+        10,
+        39,
+        40,
+        source.fact().lineage_root(),
+        correction_digest,
+        d(seed + 3),
+    );
+    let universe = {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        super::universe_selection::persist_historical_membership_frontier_v1(
+            &mut transaction,
+            frontier,
+            vec![HistoricalMembershipFactProposalV1 {
+                member_key: instrument.as_bytes().to_vec(),
+                instrument: instrument.as_bytes().to_vec(),
+                predecessor_identity: None,
+                effective_from_ns: 1,
+                effective_until_ns: None,
+                provider_available_ns: 20,
+                retrieval_ns: 30,
+                correction_publication_ns: 25,
+                owner_observation_ns: 39,
+                decision_cut: 40,
+                source_binding_lineage_root: source.fact().lineage_root(),
+                correction_frontier_digest: correction_digest,
+            }],
+        )
+        .await
+        .unwrap();
+        let readback = super::universe_selection::resolve_universe_selection_in_transaction_v1(
+            &mut transaction,
+            &universe_request,
+            Some(&CanonicalUniverseSelectionRuleEvaluatorV1),
+        )
+        .await
+        .unwrap();
+        transaction.commit().await.unwrap();
+        readback
+    };
+    (
+        UntrustedUniverseSelectionLocatorV1::from_untrusted(
+            universe_request.request_identity(),
+            universe_request.request_meaning_digest(),
+        ),
+        universe.record().identity(),
+    )
+}
+
+/// One Research request's AVAILABLE PIT snapshot for `instrument`, minted from a frozen request by
+/// the production path under `source`, over `universe`.
+async fn research_request_pit_v1(
+    owner: &MarketDataOwnerPostgres,
+    source: &SourceBindingCommit,
+    instrument: &str,
+    universe: &(
+        UntrustedUniverseSelectionLocatorV1,
+        crate::owner::universe_selection::UniverseSelectionIdentity,
+    ),
+    seed: u8,
+) -> crate::owner::pit_snapshot::PitSnapshotCommitAggregate {
+    let mut request = UntrustedPitSnapshotRequest {
+        claimed_request_identity: d(0),
+        claimed_request_digest: d(0),
+        correlation_identity: d(seed + 4),
+        requester_identity: d(seed + 5),
+        scope_digest: d(205),
+        source_binding: source.receipt().locator().clone(),
+        instrument_master_digest: d(206),
+        universe_selection_digest: universe.1,
+        market_semantics_identity: derive_market_semantics_compatibility_identity_v1(
+            &source.fact().proposal().semantics,
+        ),
+        time_evidence: pit_time(40, 1),
+    };
+    refresh_request_claims(&mut request);
+    let pit = owner
+        .commit_pit_initial_from_request_v1(
+            request,
+            &ScopeFaithfulObservationSourceV1 {
+                member_key: instrument.into(),
+                instrument: instrument.into(),
+            },
+            &universe.0,
+            &clock(40, 1),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        pit.fact().disposition(),
+        PitSnapshotDisposition::Available,
+        "each Research request's snapshot is minted AVAILABLE"
+    );
+    pit
+}
+
+/// Declares one exact-instrument close role against `pit`'s own verified batch.
+async fn declare_close_role_v1(
+    owner: &MarketDataOwnerPostgres,
+    pit: &crate::owner::pit_snapshot::PitSnapshotCommitAggregate,
+    instrument: &str,
+    seed: u8,
+) -> Result<(), super::strategy_input_binding_registry::StrategyInputBindingRegistryErrorV1> {
+    let mut transaction = owner.pool().begin().await.unwrap();
+    let batch = super::strategy_input_binding_registry::load_owner_verified_pit_batch_v1(
+        &mut transaction,
+        pit.fact().snapshot_identity(),
+    )
+    .await?;
+    let request = UntrustedStrategyInputBindingRequest {
+        research_request_identity: d(seed),
+        strategy_design_identity: d(seed + 1),
+        input_role_identity: d(seed + 2),
+        scope: UntrustedStrategyInputScope::ExactInstrument {
+            instrument: instrument.into(),
+        },
+        field_semantic: MarketDataFieldSemantic::BarClosePrice,
+        channel: StrategyInputChannel::Market,
+        timeframe: "1M".into(),
+        unit: StrategyInputUnit::Price,
+        scale: 2,
+        pit_request_identity: batch.request_identity(),
+        pit_request_digest: batch.request_digest(),
+        snapshot_identity: batch.snapshot_identity(),
+        snapshot_fact_digest: batch.fact_digest(),
+        observation_batch_digest: batch.digest(),
+        source_binding_identity: batch.source_binding_identity(),
+        source_frontier_digest: batch.source_frontier_digest(),
+        correction_frontier_digest: batch.correction_frontier_digest(),
+        instrument_master_digest: batch.instrument_master_digest(),
+        universe_selection_digest: batch.universe_selection_digest(),
+        market_semantics_identity: batch.market_semantics_identity(),
+        decision_cut: batch.time_evidence().decision_cut.value,
+    };
+    let declared =
+        super::strategy_input_binding_registry::register_strategy_input_binding_declaration_v1(
+            &mut transaction,
+            &request,
+        )
+        .await
+        .map(|_| ());
+
+    if declared.is_ok() {
+        transaction.commit().await.unwrap();
+    } else {
+        transaction.rollback().await.unwrap();
+    }
+    declared
+}
+
+/// A second Research request under one Source Binding cannot get Market Semantics, so it cannot
+/// declare a role - whichever instrument it names. A first request under another binding can.
+///
+/// The Market Semantics admission derives its compatibility scope from the Source Binding, heads
+/// one chain per scope, and always proposes a fact with no predecessor; a fact binds one PIT
+/// snapshot, and a declaration accepts only the fact bound to its own snapshot. Each case below is
+/// a prediction written before the run:
+///
+/// - A, the binding's first request (AAPL): admitted, and its role declares.
+/// - B, a second request for the same instrument: its snapshot mints AVAILABLE, but the admission
+///   is refused as `AdmissionConflict`, and the declaration is refused because the scope's one
+///   fact is bound to A's snapshot. The refusal is named `InstrumentMasterDigestUnavailable`, not
+///   `MarketSemanticsUnavailable` as first predicted: the exact-instrument path selects the
+///   Instrument Master readback through that fact before it compares the fact with the batch, so
+///   the first coordinate found not to be B's is A's Instrument Master cut.
+/// - C, a request for another instrument (MSFT) under the same binding: refused exactly as B,
+///   because the scope is the binding's, not the instrument's.
+/// - D, the control: the first request under a second binding (NVDA) is admitted and declares, so
+///   the refusals are about a scope already headed, not about a request coming second.
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+#[allow(clippy::too_many_lines)]
+async fn postgres_a_second_research_request_under_one_binding_gets_no_market_semantics() {
+    use super::strategy_input_binding_registry::StrategyInputBindingRegistryErrorV1 as Registry;
+    use crate::owner::market_semantics_admission_v1::{
+        MarketSemanticsAdmissionErrorV1, MarketSemanticsFactSubmissionV1,
+        MarketSemanticsValueSubmissionV1,
+    };
+
+    let owner_url = env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL").unwrap();
+    let owner = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
+    let decision = OwnerSourceBindingDecision {
+        blockers: BTreeSet::new(),
+    };
+    let first_binding = owner
+        .commit_source_initial(source_proposal(10, 40), decision.clone(), &clock(40, 1))
+        .await
+        .unwrap();
+    let mut second_value = source_proposal(10, 40);
+    second_value.semantics.normalization = "normalization-v2".into();
+    second_value.time_evidence.claimed_evidence_identity =
+        derive_time_evidence_identity(&second_value.time_evidence);
+    second_value.claimed_binding_id = derive_binding_id(&second_value);
+    let second_binding = owner
+        .commit_source_initial(second_value, decision, &clock(40, 1))
+        .await
+        .unwrap();
+    let scope_of = |source: &SourceBindingCommit| {
+        derive_market_semantics_compatibility_identity_v1(&source.fact().proposal().semantics)
+    };
+    assert_ne!(
+        scope_of(&first_binding),
+        scope_of(&second_binding),
+        "the control binding has a compatibility scope of its own"
+    );
+
+    for (source, instrument) in [
+        (&first_binding, "AAPL"),
+        (&first_binding, "MSFT"),
+        (&second_binding, "NVDA"),
+    ] {
+        owner
+            .admit_instrument_master_fact_v1(oracle_instrument_submission_v1(
+                instrument,
+                scope_of(source),
+                source.fact().source_frontier().digest,
+                source.receipt().locator().correction_frontier.digest,
+            ))
+            .await
+            .expect("the instrument's fact is admitted under its binding's scope");
+    }
+    let admit =
+        async |source: &SourceBindingCommit,
+               pit: &crate::owner::pit_snapshot::PitSnapshotCommitAggregate| {
+            owner
+                .admit_market_semantics_fact_v1(MarketSemanticsFactSubmissionV1 {
+                    source_binding: source.receipt().locator().clone(),
+                    pit_snapshot: pit.receipt().locator().clone(),
+                    value: MarketSemanticsValueSubmissionV1 {
+                        normalization_identity: d(180),
+                        price_adjustment: "RAW".into(),
+                        timestamp_basis: "EVENT_EFFECTIVE".into(),
+                        price_unit_identity: d(181),
+                        size_unit_identity: d(182),
+                    },
+                })
+                .await
+                .map(|_| ())
+        };
+
+    // A: the binding's first Research request.
+    // Every request for one instrument reads that instrument's one current membership: a
+    // membership fact names no frontier, so restating it under a second frontier is refused.
+    let aapl = one_member_universe_v1(&owner, &first_binding, "AAPL", 20).await;
+    let first = research_request_pit_v1(&owner, &first_binding, "AAPL", &aapl, 20).await;
+    assert_eq!(admit(&first_binding, &first).await, Ok(()));
+    assert!(
+        declare_close_role_v1(&owner, &first, "AAPL", 30)
+            .await
+            .is_ok(),
+        "the first request's role declares"
+    );
+
+    // B: a second Research request for the same instrument.
+    let second = research_request_pit_v1(&owner, &first_binding, "AAPL", &aapl, 40).await;
+    let second_admission = admit(&first_binding, &second).await;
+    eprintln!("B admission: {second_admission:?}");
+    assert_eq!(
+        second_admission,
+        Err(MarketSemanticsAdmissionErrorV1::AdmissionConflict)
+    );
+    let scope_head =
+        async |source: &SourceBindingCommit,
+               pit: &crate::owner::pit_snapshot::PitSnapshotCommitAggregate| {
+            let mut transaction = owner.pool().begin().await.unwrap();
+            let time = pit.fact().request().time_evidence.clone();
+            let head = super::market_semantics::resolve_market_semantics_scope_in_transaction_v1(
+                &mut transaction,
+                scope_of(source),
+                i128::from(time.event_effective.value),
+                i128::from(time.observed_at),
+                time.decision_cut.value,
+            )
+            .await
+            .expect("the scope has one fact in force");
+            transaction.rollback().await.unwrap();
+            let [fact] = head.facts() else {
+                panic!("one fact in the scope");
+            };
+            fact.pit_snapshot_identity
+        };
+    assert_eq!(
+        scope_head(&first_binding, &second).await,
+        first.fact().snapshot_identity(),
+        "the fact B's declaration reads is bound to A's snapshot, not B's"
+    );
+    let second_declaration = declare_close_role_v1(&owner, &second, "AAPL", 50).await;
+    eprintln!("B declaration: {second_declaration:?}");
+    assert!(matches!(
+        second_declaration,
+        Err(Registry::InstrumentMasterDigestUnavailable)
+    ));
+
+    // C: another instrument under the same binding.
+    let msft = one_member_universe_v1(&owner, &first_binding, "MSFT", 60).await;
+    let other = research_request_pit_v1(&owner, &first_binding, "MSFT", &msft, 60).await;
+    let other_admission = admit(&first_binding, &other).await;
+    eprintln!("C admission: {other_admission:?}");
+    assert_eq!(
+        other_admission,
+        Err(MarketSemanticsAdmissionErrorV1::AdmissionConflict)
+    );
+    assert_eq!(
+        scope_head(&first_binding, &other).await,
+        first.fact().snapshot_identity(),
+        "the fact C's declaration reads is bound to A's snapshot, not C's"
+    );
+    let other_declaration = declare_close_role_v1(&owner, &other, "MSFT", 70).await;
+    eprintln!("C declaration: {other_declaration:?}");
+    assert!(matches!(
+        other_declaration,
+        Err(Registry::InstrumentMasterDigestUnavailable)
+    ));
+
+    // D, the control: the first request under a second binding.
+    let nvda = one_member_universe_v1(&owner, &second_binding, "NVDA", 80).await;
+    let control = research_request_pit_v1(&owner, &second_binding, "NVDA", &nvda, 80).await;
+    assert_eq!(admit(&second_binding, &control).await, Ok(()));
+    assert!(
+        declare_close_role_v1(&owner, &control, "NVDA", 90)
+            .await
+            .is_ok(),
+        "the first request under its own scope declares"
+    );
 }
