@@ -4679,16 +4679,17 @@ mod postgres_acceptance_tests {
         Box::pin(assert_ready_tamper_closure(&harness)).await;
     }
 
-    /// Execution-input binding issuance opens its transaction where the R&D source boundary it
-    /// reads through answers.
+    /// Execution-input binding issuance opens its transaction at the one isolation every Owner read
+    /// on the way answers under.
     ///
-    /// The storage functions behind that boundary answer NULL below READ COMMITTED or SERIALIZABLE,
-    /// and issuance used to open REPEATABLE READ, so every request was refused at the boundary as
-    /// "R&D Owner source read unavailable" and the route answered 503 for all of them. Under the
-    /// transaction issuance opens now, a legacy Replay request passes the boundary and is refused
-    /// one step later, where its `blake3:` Artifact digest cannot name a Composer package. The
-    /// control opens REPEATABLE READ by hand and must still be refused at the boundary, so the
-    /// assertion can tell the two apart.
+    /// The R&D storage functions behind the native source boundary answer NULL outside READ
+    /// COMMITTED or SERIALIZABLE, and issuance used to open REPEATABLE READ, so every request was
+    /// refused at the boundary as "R&D Owner source read unavailable" and the route answered 503
+    /// for all of them. The Product Edge admission read after the boundary refuses anything but READ
+    /// COMMITTED. Under the transaction issuance opens now, a legacy Replay request passes both and
+    /// is refused where its `blake3:` Artifact digest cannot name a Composer package. The control
+    /// opens REPEATABLE READ by hand and must still be refused at the boundary, so the assertion can
+    /// tell the two apart.
     ///
     /// Issuance itself is not driven: its Instrument Master, economic terms and Market Data
     /// scheduling collaborators are built only from production environment variables, and a legacy
