@@ -105,3 +105,5 @@ pub use crate::{
 /// the panic is the idiomatic and safe approach, as continuing with
 /// potentially corrupted data would violate safety invariants.
 pub const MUTEX_POISONED: &str = "Mutex poisoned";
+
+// Option D experiment: a vibe-core change.
