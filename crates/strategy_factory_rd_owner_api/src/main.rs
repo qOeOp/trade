@@ -204,6 +204,8 @@ struct DevelopComposerA0ExecutionsV1 {
 use vibe_strategy_factory_rd_owner_api::required_env;
 
 mod bounded_feature_program;
+#[cfg(all(test, feature = "sealed-source-intake-acceptance"))]
+mod dashboard_run_routing_acceptance;
 mod exploratory_replay;
 mod iteration_analysis;
 mod iteration_decision;

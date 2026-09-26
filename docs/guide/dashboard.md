@@ -416,8 +416,13 @@ the field and its validator, which is tested against the same vector file as R&D
 the V2 route it was admitted under; and the `INSTRUMENT_SCOPE_NOT_RESOLVABLE` terminal shown by that name, while an
 answer that leaves the scope unresolved stays `SUBMITTED_OR_UNKNOWN`. The `initial_pit` readback is not built yet;
 it waits for the Owner result to carry that value. A run is admitted only when Product Edge's operation routing
-answers `ACTIVE / TRADE_DASHBOARD`, and no deployed service answers that lookup yet, so a deployed Dashboard cannot
-start this run until one does.
+answers `ACTIVE / TRADE_DASHBOARD` for both keys the run depends on, Source Intake and Research V3.
+`product-edge-routing-read-api` answers that lookup and ships in the deployment, but no deployment has committed
+such a binding. Committing one in a deployed or shared environment is a separately gated effect that needs the
+user's explicit authorization; until one is committed, a deployed Dashboard cannot start this run. The ordered Owner chain drives the run through that read port
+with bindings committed by `product-edge-authority-bootstrap route`: an absent, `WINDMILL`, zero-active or stale
+Research V3 answer each refuses the run before any Owner call, and `ACTIVE / TRADE_DASHBOARD` admits it, records the
+exact bindings, and reaches Source Intake.
 
 Client and server import the same pure input validator. Plausible alternatives are canonicalized into unique
 UTF-8 byte order before validation; required data preserves the entered order. `RUN` freezes the complete request
