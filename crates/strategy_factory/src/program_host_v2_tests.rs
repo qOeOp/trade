@@ -1808,3 +1808,75 @@ fn a_plan_without_coordinate_rows_refuses_a_supplied_coordinate() {
         Err(ProgramHostV2Error::InputCoverage)
     );
 }
+
+/// Market Data's sample projection over `frame`, sealed by the real codec, with a BAR schedule
+/// per (member, role) derived from the pair so every schedule is distinct and nonzero.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn market_data_projection(
+    frame: &StrategyInputUniverseFrameReceipt,
+) -> vibe_data::owner::universe_sample_projection_v1::StrategyInputUniverseSampleProjectionReadbackV1
+{
+    vibe_data::owner::universe_sample_projection_v1::sealed_acceptance::issue_sealed_acceptance_universe_sample_projection_v1(
+        frame,
+        |member_ordinal, role| {
+            let mut bytes = *role.as_bytes();
+            bytes[0] ^= member_ordinal.wrapping_add(1);
+            BindingDigest::from_untrusted_bytes(bytes)
+        },
+    )
+}
+
+/// The control on the production pairing: the frame paired with the projection Market Data issued
+/// for it is admitted through the host's pairing entry and runs the program.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn a_frame_paired_with_its_market_data_projection_runs_the_program() {
+    use super::program_host_v2::{OwnerUniverseFrameV1, admit_owner_universe_program_event_v2};
+
+    let (plan, artifact, frame) = universe_bfp_fixture();
+    let projection = market_data_projection(&frame);
+    let paired = OwnerUniverseFrameV1::from_owner_projection_v1(frame, &projection)
+        .expect("the projection Market Data issued for this frame pairs with it");
+
+    let event = admit_owner_universe_program_event_v2(&plan, &paired)
+        .expect("the paired frame is admitted");
+    let mut host = started_universe_host(&plan, &artifact);
+    host.apply_event(&event)
+        .expect("the program runs on the paired frame");
+    assert_eq!(host.plugin_calls(), 1);
+}
+
+/// The refusal on the same entry: a Plan that reads member coordinates admits no frame paired
+/// without them.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn a_coordinate_plan_refuses_its_frame_paired_without_coordinates() {
+    use super::program_host_v2::{
+        OwnerUniverseFrameV1, ProgramHostV2Error, admit_owner_universe_program_event_v2,
+    };
+
+    let (plan, _, frame) = universe_bfp_fixture();
+
+    assert_eq!(
+        admit_owner_universe_program_event_v2(&plan, &OwnerUniverseFrameV1::uncoordinated(frame)),
+        Err(ProgramHostV2Error::InputCoverage)
+    );
+}
+
+/// A projection Market Data issued for another frame pairs with no frame but its own.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn another_frames_projection_does_not_pair_with_this_frame() {
+    use super::program_host_v2::{OwnerUniverseFrameV1, ProgramHostV2Error};
+
+    let (_, _, frame) = universe_bfp_fixture();
+    let (_, _, other) = super::program_host_v2_target_set_backtest_tests::fixture()
+        .expect("the two-member target-set fixture");
+    assert_ne!(other.digest(), frame.digest());
+
+    assert_eq!(
+        OwnerUniverseFrameV1::from_owner_projection_v1(frame, &market_data_projection(&other))
+            .err(),
+        Some(ProgramHostV2Error::InputCoverage)
+    );
+}
