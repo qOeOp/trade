@@ -107,3 +107,4 @@ deployment_acceptance::tests::deployment_fixture_is_admitted_idempotent_and_refu
 iteration_decision_postgres::postgres_acceptance_tests::legacy_replay_request_passes_the_source_boundary_under_issuance_isolation	NONE	-	-	-	VERIFY 40e955899 (template step 3): passes alone
 artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only	NONE	-	-	-	ABLATE 2dd2b43e9 (destructive drain; last in its shard)
 postgres_tests::the_operation_routing_read_port_answers_every_routing_state_over_http	NONE	-	-	-	ABLATE 6d086bdb3 (alone on a fresh cluster: passed, 1 test, 0 skipped)
+dashboard_run_routing_acceptance::a_dashboard_run_starts_only_on_the_routing_the_writer_committed_and_reaches_the_owner	NONE	-	-	-	ABLATE 0b1ee3458 (alone on a fresh local cluster: passed, 1 test, 0 skipped)
