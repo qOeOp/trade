@@ -1,7 +1,8 @@
 # Seconds per chain entry on Linux CI, from the entry lines of each shard of owner-chains run
 # 36226049378 (tree 91418119d, 107 entries; an entry that ends its component also carries the
 # next component's database reset), and for the operation-routing entry from the serial build run
-# 36228219698 (tree 137afe272). Re-measure when the chain changes shape.
+# 36228219698 (tree 137afe272), and for the initial PIT issuance entry from the serial owner-chains
+# run 36237148747 (tree 8204c6ef1). Re-measure when the chain changes shape.
 replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed	9.7
 legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back	9.8
 origin_current_replay_table_renames_with_exact_v1_v2_read_continuity	9.3
@@ -109,4 +110,5 @@ product_edge_postgres::tests::postgres_v3_request_market_data_cannot_place_is_re
 deployment_acceptance::tests::deployment_fixture_is_admitted_idempotent_and_refuses_other_content_by_name	1.4
 iteration_decision_postgres::postgres_acceptance_tests::legacy_replay_request_passes_the_source_boundary_under_issuance_isolation	4.8
 postgres_tests::the_operation_routing_read_port_answers_every_routing_state_over_http	2.6
+research_initial_pit_postgres_tests::a_v3_research_request_issues_its_initial_pit_request_over_http	37.1
 artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only	3.5
