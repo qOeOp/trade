@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import {
+  researchGoalInputIsV3,
   type SourceResearchRunRequestV1,
   validSourceResearchOperationRequestV1,
 } from "./source-research-input-contract.ts";
@@ -65,6 +66,16 @@ export function canonicalSourceResearchRunRequestV1(
         capacity_model_identity: request.research.trial_family_proposal.capacity_model_identity,
         independence_rationale: request.research.trial_family_proposal.independence_rationale,
       },
+      // Present exactly for a V3 request, so a V2 request recorded before V3 keeps its bytes and
+      // its digest; request schema 1 holds both, as R&D's one stored request does.
+      ...(researchGoalInputIsV3(request.research)
+        ? {
+          instrument_scope: {
+            schema_version: 1 as const,
+            identities: [request.research.instrument_scope.identities[0]] as [string],
+          },
+        }
+        : {}),
     },
   };
 }
