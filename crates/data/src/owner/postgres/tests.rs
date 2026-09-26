@@ -9851,6 +9851,7 @@ async fn postgres_market_semantics_heads_migrate_to_one_head_per_snapshot() {
         .unwrap();
     let aapl = one_member_universe_v1(&owner, &binding, "AAPL", 20).await;
     let pit = research_request_pit_v1(&owner, &binding, "AAPL", &aapl, 20).await;
+    let later = research_request_pit_v1(&owner, &binding, "AAPL", &aapl, 40).await;
     admit_market_semantics_v1(&owner, &binding, &pit, "RAW")
         .await
         .unwrap();
@@ -9880,6 +9881,33 @@ async fn postgres_market_semantics_heads_migrate_to_one_head_per_snapshot() {
         .await
         .unwrap();
 
+    // A binary running before the store is migrated: `owner` connected earlier and does not
+    // install again, as a runtime connection never does. Its append finds no per-snapshot table
+    // and fails closed, and it writes nothing to the old table, whose triggers are gone here.
+    let legacy_rows = |owner: &MarketDataOwnerPostgres| {
+        let pool = owner.pool().clone();
+        async move {
+            sqlx::query_as::<_, (Vec<u8>, Vec<u8>)>(
+                "SELECT compatibility_scope_identity,fact_identity FROM market_data_private.market_semantics_heads_v1",
+            )
+            .fetch_all(&pool)
+            .await
+            .unwrap()
+        }
+    };
+    let legacy_before = legacy_rows(&owner).await;
+    let refused = admit_market_semantics_v1(&owner, &binding, &later, "RAW").await;
+    eprintln!("before migration: {refused:?}");
+    assert_eq!(
+        refused,
+        Err(crate::owner::market_semantics_admission_v1::MarketSemanticsAdmissionErrorV1::StoreUnavailable)
+    );
+    assert_eq!(
+        legacy_rows(&owner).await,
+        legacy_before,
+        "nothing is written to the old table"
+    );
+
     let migrated = MarketDataOwnerPostgres::connect(&owner_url)
         .await
         .expect("the one-head store migrates");
@@ -9892,12 +9920,20 @@ async fn postgres_market_semantics_heads_migrate_to_one_head_per_snapshot() {
         retired(&migrated).await,
         "the migrated store's old table is retired"
     );
+    assert_eq!(
+        admit_market_semantics_v1(&migrated, &binding, &later, "RAW").await,
+        Ok(()),
+        "once migrated, the same submission is admitted"
+    );
     let reconnected = MarketDataOwnerPostgres::connect(&owner_url)
         .await
         .expect("a migrated store connects again without migrating twice");
     assert_eq!(
-        market_semantics_scope_heads_v1(&reconnected, scope).await,
-        heads
+        market_semantics_scope_heads_v1(&reconnected, scope)
+            .await
+            .len(),
+        2,
+        "the carried head and the one admitted after the migration"
     );
 
     // An old table of any other shape stops the installation rather than being guessed at.
