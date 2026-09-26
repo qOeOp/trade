@@ -1843,6 +1843,36 @@ drop_chain_database_snapshots() {
   chain_admin_psql "DROP TABLE IF EXISTS vibe_chain_role_settings_t0" > /dev/null
 }
 
+# The shard list is the planner's output and nothing else. It is regenerated here with the shard
+# count its own header states, and must match byte for byte, so a hand edit cannot drift away from
+# the declared needs it is derived from. The planner also refuses a declaration that names an entry
+# not in the chain, a need that does not run before its entry, a missing entry, an unresolved need
+# ("?"), and a replay without its reason; each replay it prints, with why it is there and what
+# replaces it.
+check_chain_shard_plan() {
+  local planner shard_count planned
+  planner="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/rd-owner-chain-shard-plan.py"
+  if [[ ! -f "$chain_needs_list" || ! -f "$chain_shard_list" ]]; then
+    echo "ERROR: the chain runs as shards and needs both ${chain_needs_list} and ${chain_shard_list}." >&2
+    return 1
+  fi
+  shard_count="$(sed -n 's/^# \([0-9][0-9]*\) shards;.*/\1/p' "$chain_shard_list")"
+  if [[ -z "$shard_count" ]]; then
+    echo "ERROR: ${chain_shard_list} does not state its shard count in its header." >&2
+    return 1
+  fi
+  if ! planned="$(python3 "$planner" "$shard_count")"; then
+    echo "ERROR: the shard planner refuses the declared needs (above)." >&2
+    return 1
+  fi
+  if [[ "$planned"$'\n' != "$(cat "$chain_shard_list")"$'\n' ]]; then
+    echo "ERROR: ${chain_shard_list} is not the planner's output for ${shard_count} shards; regenerate it with" >&2
+    echo "       python3 scripts/ci/rd-owner-chain-shard-plan.py ${shard_count} > scripts/ci/rd-owner-chain-shards.tsv" >&2
+    diff <(printf '%s\n' "$planned") "$chain_shard_list" | head -20 >&2
+    return 1
+  fi
+}
+
 # The chain's verdict from its records alone, so a run split across jobs is judged by the same
 # report a serial run prints. Records are named by global chain position, so the directories of
 # several jobs merge into the layout one serial run leaves. Every position must hold exactly one
@@ -1945,6 +1975,7 @@ check_chain_record_report() {
 check_chain_record_report
 check_postgres_crash_reading
 check_chain_sleep_reading
+check_chain_shard_plan
 
 if [[ "${1:-}" == "--report-records" ]]; then
   if [[ "$#" -ne 2 ]]; then

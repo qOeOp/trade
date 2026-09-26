@@ -6,7 +6,9 @@ GITHUB_OUTPUT line.
 Both workflows used to spell the same two legs out by hand. The legs now live here once, and the
 R&D leg becomes one entry per shard of scripts/ci/rd-owner-chain-shards.tsv
 (`shard <TAB> component <TAB> test name <TAB> needs browser 0|1`, one row per entry, in run order).
-Until that file exists the R&D leg is a single entry that runs the whole chain, exactly as before.
+The list is required: a missing list is refused by name rather than read as "run the whole chain
+as one job", which would make deleting the list a silent return to the serial chain. The chain
+script's --check requires the list to be the shard planner's exact output.
 
 Usage: owner-chain-matrix.py <shards.tsv>   ->   matrix={"chain": [...]}
 
@@ -43,16 +45,9 @@ MARKET_DATA = {
 
 def rd_shards(path: Path) -> list[dict]:
     if not path.exists():
-        return [
-            {
-                "key": "rd-owner",
-                "shard": "",
-                "name": "rd owner postgres (ubuntu-22.04)",
-                "browser": 1,
-                **RD_LIMITS,
-                "make": RD_MAKE,
-            },
-        ]
+        raise SystemExit(
+            f"ERROR: there is no shard list at {path}; the R&D chain runs only as its shards.",
+        )
     shards: dict[str, int] = {}
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         if not line.strip() or line.startswith("#"):
