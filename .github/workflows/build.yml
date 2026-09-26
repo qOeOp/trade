@@ -34,13 +34,29 @@ on:
   # 04:17 and 12:17 seen at least twice each. If they arrive and the delays shrink, the hour was the
   # cause and this stays. If 04 and 12 still go missing, the hours are the cause: move to
   # "17 2,6,10,14,18,22 * * *", clear of both, and measure again.
+  #
+  # The six slots are two lines only so a run can tell which one started it: 20:17 runs the R&D
+  # chain serially, every entry after every earlier one on one cluster, as it ran before it was
+  # sharded (scripts/ci/owner-chain-matrix.py). The shards' order rests on the dependencies
+  # scripts/ci/rd-owner-chain-needs.tsv declares; a daily serial pass beside them is what shows a
+  # declaration that missed one. 20:17 UTC is clear of the 10:37 CodeQL, the 12:00 nightlies and
+  # the 13:00 Miri run.
   schedule:
-    - cron: "17 */4 * * *"
+    - cron: "17 0,4,8,12,16 * * *"
+    - cron: "17 20 * * *"
   # A same-tree verdict on `main` on demand, without creating a branch to push to. `ready-gate` and
   # `scripts/ci/plan.sh` must route it like `schedule`, to full validation; scripts/ci/test-plan.sh
   # runs both with this event and fails if either would skip. It shares `main`'s concurrency group,
   # so it supersedes a scheduled run still in progress on the same branch, as a newer tip would.
   workflow_dispatch:
+    inputs:
+      rd-chain:
+        description: "Run the R&D chain as its shards, or serially as the 20:17 run does"
+        type: choice
+        options:
+          - shards
+          - serial
+        default: shards
   # `ready-gate` admits exactly `ready_for_review`, `opened:false` and `reopened:false`, so these
   # are the only events it can answer `run-full` for. `synchronize` is deliberately absent: a push
   # would fail the gate rather than validate, and re-validating after a push is the Draft -> Ready
@@ -907,6 +923,7 @@ jobs:
       - plan
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
+      rd-chain: ${{ steps.matrix.outputs.rd-chain }}
     steps:
       # https://github.com/step-security/harden-runner
       - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
@@ -927,7 +944,13 @@ jobs:
 
       - name: Read the chain matrix
         id: matrix
-        run: python3 scripts/ci/owner-chain-matrix.py scripts/ci/rd-owner-chain-shards.tsv >> "$GITHUB_OUTPUT"
+        env:
+          RD_CHAIN: >-
+            ${{ (github.event.schedule == '17 20 * * *' || inputs.rd-chain == 'serial')
+            && 'serial' || 'shards' }}
+        run: >-
+          python3 scripts/ci/owner-chain-matrix.py --rd-chain "$RD_CHAIN"
+          scripts/ci/rd-owner-chain-shards.tsv >> "$GITHUB_OUTPUT"
 
   postgres-owner-chains-linux-x86:
     if: >
@@ -1139,6 +1162,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     needs:
+      - postgres-owner-chain-plan-linux-x86
       - postgres-owner-chains-linux-x86
     steps:
       # https://github.com/step-security/harden-runner
@@ -1158,25 +1182,32 @@ jobs:
         with:
           persist-credentials: false
 
+      # A serial run uploads one artifact, chain-record-rd-owner, with its records at the top
+      # level: nothing to merge, and the report reads them as they are.
       - name: Download every shard's records
         # https://github.com/actions/download-artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: chain-record-rd-owner-*
+          pattern: >-
+            ${{ needs.postgres-owner-chain-plan-linux-x86.outputs.rd-chain == 'serial'
+            && 'chain-record-rd-owner' || 'chain-record-rd-owner-*' }}
           path: ${{ runner.temp }}/chain-records
           # Each artifact holds <shard>/NNN.*, so merged they give one directory per shard.
           merge-multiple: true
 
       - name: Merge the shards' records
+        if: needs.postgres-owner-chain-plan-linux-x86.outputs.rd-chain == 'shards'
         run: >-
           bash scripts/ci/merge-chain-shard-records.bash
           "${RUNNER_TEMP}/chain-records" "${RUNNER_TEMP}/chain-records-merged"
           scripts/ci/rd-owner-chain-shards.tsv
 
       - name: Report the whole chain
-        run: >-
-          bash scripts/ci/test-rd-owner-postgres.bash
-          --report-records "${RUNNER_TEMP}/chain-records-merged"
+        env:
+          RECORDS: >-
+            ${{ needs.postgres-owner-chain-plan-linux-x86.outputs.rd-chain == 'serial'
+            && 'chain-records' || 'chain-records-merged' }}
+        run: bash scripts/ci/test-rd-owner-postgres.bash --report-records "${RUNNER_TEMP}/${RECORDS}"
 
   quality:
     name: quality

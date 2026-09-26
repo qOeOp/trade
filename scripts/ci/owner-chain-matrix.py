@@ -12,7 +12,15 @@ script's --check requires the list to be the shard planner's exact output. The s
 name order, numbers compared as numbers, so the checks list reads shard-1, shard-2, ... whatever
 order the planner interleaves their entries in.
 
-Usage: owner-chain-matrix.py <shards.tsv>   ->   matrix={"chain": [...]}
+`--rd-chain serial` runs the R&D chain as one job instead, every entry after every earlier one on a
+single cluster: the meaning the chain had before it was sharded. `build.yml` runs it once a day on
+`main`, so a dependency the shard list's declarations miss shows up as a serial pass that its shards
+cannot reproduce, or the reverse. The list is still read and checked in that mode, so the one
+schedule cannot hide a broken list. A second output line, `rd-chain=<mode>`, tells the report job
+which records to read.
+
+Usage: owner-chain-matrix.py [--rd-chain shards|serial] <shards.tsv>
+    ->   matrix={"chain": [...]} and rd-chain=<mode>
 
 """
 
@@ -78,13 +86,33 @@ def rd_shards(path: Path) -> list[dict]:
     ]
 
 
+def rd_serial() -> dict:
+    return {
+        "key": "rd-owner",
+        "shard": "",
+        "name": "rd owner postgres serial (ubuntu-22.04)",
+        "browser": 1,
+        **RD_LIMITS,
+        "make": RD_MAKE,
+    }
+
+
 def shard_order(name: str) -> list[int | str]:
     return [int(part) if part.isdigit() else part for part in re.split(r"(\d+)", name)]
 
 
 def main() -> int:
-    matrix = {"chain": [*rd_shards(Path(sys.argv[1])), MARKET_DATA]}
+    arguments = sys.argv[1:]
+    mode = "shards"
+    if arguments[:1] == ["--rd-chain"]:
+        mode, arguments = arguments[1] if len(arguments) > 1 else "", arguments[2:]
+    if mode not in ("shards", "serial") or len(arguments) != 1:
+        raise SystemExit("usage: owner-chain-matrix.py [--rd-chain shards|serial] <shards.tsv>")
+    shards = rd_shards(Path(arguments[0]))
+    rd = shards if mode == "shards" else [rd_serial()]
+    matrix = {"chain": [*rd, MARKET_DATA]}
     print(f"matrix={json.dumps(matrix, separators=(',', ':'))}")
+    print(f"rd-chain={mode}")
     return 0
 
 
