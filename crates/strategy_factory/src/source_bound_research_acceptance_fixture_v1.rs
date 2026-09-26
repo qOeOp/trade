@@ -45,13 +45,13 @@
 //! binding, reservation and terminal commit times are fixed constants, not Owner clock readings.
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
-use std::sync::Arc;
+use std::{future::Future, pin::Pin, sync::Arc};
 
 use thiserror::Error;
 use vibe_product_edge::ProductEdgeError;
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use vibe_product_edge::{
-    ProductEdgeAdmissionRequestV1, SOURCE_INTAKE_OPERATION_V1,
+    ProductEdgeAdmissionRequestV1, ProductEdgePostgresOwnerV1, SOURCE_INTAKE_OPERATION_V1,
     deployment_acceptance::ProductEdgeDeploymentAcceptanceFixtureV1,
 };
 
@@ -218,6 +218,11 @@ pub async fn ensure_current_source_bound_research_acceptance_fixture_v1(
     pe_deployment: &ProductEdgeDeploymentAcceptanceFixtureV1,
     research_identity: &str,
 ) -> Result<CurrentSourceBoundResearchV1, Error> {
+    // Every Owner call below is made by a step: a plain function that builds the call's future in
+    // its own frame and returns it boxed, so this function's frame holds a pointer across each
+    // await instead of the future itself. Its callers are ordered-chain entries that run on a
+    // 2 MiB test stack in a debug build, where an async frame reserves room for every temporary
+    // it ever builds.
     let source_intake_request_identity = source_intake_request_identity(research_identity)?;
 
     for operation in REQUIRED_OPERATIONS {
@@ -226,140 +231,35 @@ pub async fn ensure_current_source_bound_research_acceptance_fixture_v1(
         }
     }
     let request_proof_digest = pe_deployment.request_proof_digest.as_str();
-    let product_edge = Arc::new(
-        pe_deployment
-            .connect_owner(product_edge_url)
-            .await
-            .map_err(Error::ProductEdge)?,
-    );
-
-    let research_owner =
-        PostgresResearchGoalOwnerV1::connect(rd_owner_url, qualification_writer_url)
-            .await
-            .map_err(Error::Research)?
-            .bind_sealed_source_intake_research_policy();
-    let rd_pool = connect("R&D Owner", rd_owner_url).await?;
+    let (product_edge, research_owner, rd_pool) = connect_owners(
+        rd_owner_url,
+        qualification_writer_url,
+        product_edge_url,
+        pe_deployment,
+    )
+    .await?;
 
     // An existing Research is judged on the Owner clock before anything is replayed: a replay
     // after the Product Edge authorization lapsed would otherwise be refused by a step that cannot
     // say the custody expired.
-    let existing = research_owner
-        .read_research_v2(research_identity)
-        .await
-        .map_err(Error::Research)?;
-
-    if let Some(view) = existing.research_view() {
-        refuse_expired(
-            view.valid_through_epoch_ms,
-            owner_clock_epoch_ms(&rd_pool).await?,
-        )?;
-    }
-
-    let catalog_pool = connect("Replay Policy Catalog", catalog_admin_url).await?;
-    let catalog = ensure_replay_policy_catalog_fixture_v3(&catalog_pool)
-        .await
-        .map_err(Error::Catalog)?;
-    catalog_pool.close().await;
-    let policy = catalog
-        .replay_policy_v2()
-        .verify()
-        .map_err(Error::Catalog)?;
-    let actual = (
-        policy.cost.identity.as_str().to_owned(),
-        policy.slippage.identity.as_str().to_owned(),
-        policy.capacity.identity.as_str().to_owned(),
-    );
-
-    if (actual.0.as_str(), actual.1.as_str(), actual.2.as_str()) != CATALOG_MODELS {
-        return Err(Error::CatalogModels { actual });
-    }
-
-    let source_intake = SourceIntakeOwnerV1::sealed_acceptance(
-        SealedSourceIntakeEnvironmentV1::new(
-            product_edge.clone(),
-            rd_pool.clone(),
-            request_proof_digest.to_owned(),
-        )
-        .map_err(Error::SourceIntake)?,
-    );
-    let terminal = match source_intake
-        .resolve(&source_intake_request_identity)
-        .await
-        .map_err(Error::SourceIntake)?
-    {
-        Some(terminal) => terminal,
-        None => source_intake
-            .run(SourceIntakeOperationRequestV1 {
-                request_identity: source_intake_request_identity.clone(),
-                channel: ProductEdgeGatewayV1::WindmillProductEdge,
-                normalized_doi: SEALED_SOURCE_DOI.into(),
-                interpretation: source_interpretation(),
-            })
-            .await
-            .map_err(Error::SourceIntake)?
-            .ok_or(Error::SourceIntakeUnresolved)?,
-    };
-
-    if terminal.terminal != AcquisitionTerminalV1::Retrieved {
-        return Err(Error::SourceIntakeNotRetrieved(terminal.terminal));
-    }
-
-    let (goal, trial_family_proposal) = research_proposal();
-    let admission = product_edge
-        .admit_request(ProductEdgeAdmissionRequestV1 {
-            request_identity: research_identity.to_owned(),
-            typed_payload: research_admission_payload(
-                research_identity,
-                &goal,
-                &trial_family_proposal,
-            ),
-            operation: RESEARCH_GOAL_OPERATION_V2.into(),
-            operation_schema: RESEARCH_GOAL_SCHEMA_V2.into(),
-            target_owner: RESEARCH_OWNER_V1.into(),
-            requested_effects: vec![RESEARCH_MUTATION_EFFECT.into()],
-            request_proof_digest: request_proof_digest.to_owned(),
-            audit_correlation: format!("source-bound-research-fixture:{research_identity}"),
-        })
-        .await
-        .map_err(Error::ResearchAdmission)?;
-    let accepted = research_owner
-        .submit_source_intake_research_v2(
-            UnsourcedResearchProposalV1 {
-                request_identity: research_identity.to_owned(),
-                channel: ProductEdgeChannel::WindmillProductEdge,
-                admission: admission.locator().clone(),
-                goal,
-                trial_family_proposal,
-                // A V2 request, as the deployment's `RESEARCH_GOAL_OPERATION_V2` admits: it states
-                // no instrument scope.
-                instrument_scope: None,
-            },
-            SourceIntakeResearchAncestryProposalV1 {
-                request_identity: source_intake_request_identity.clone(),
-                attempt_identity: terminal.binding_identity.clone(),
-                terminal_receipt_identity: terminal.receipt.receipt_identity.clone(),
-            },
-        )
-        .await
-        .map_err(Error::Research)?;
-    let accepted = AcceptedResearchV1::from_owner_answer(&accepted, research_identity)?;
-
-    let facts_owner = PostgresResearchBoundedFeatureProgramOwnerV1::new(rd_pool.clone());
-    let authoring = Box::pin(facts_owner.read_research_authoring_facts_v1(research_identity)).await;
-    let authoring = match authoring {
-        Ok(authoring) => authoring,
-        Err(e) => {
-            refuse_expired(
-                accepted.valid_through_epoch_ms,
-                owner_clock_epoch_ms(&rd_pool).await?,
-            )?;
-            return Err(Error::NotCurrent(e));
-        }
-    };
-
-    if authoring.falsifier != FALSIFICATION_QUESTION {
-        return Err(Error::ContentMismatch("falsifier"));
-    }
+    refuse_existing_expired(&research_owner, &rd_pool, research_identity).await?;
+    ensure_catalog_models(catalog_admin_url).await?;
+    let ancestry = source_intake_terminal(
+        &product_edge,
+        &rd_pool,
+        request_proof_digest,
+        &source_intake_request_identity,
+    )
+    .await?;
+    let accepted = submit_research(
+        &product_edge,
+        &research_owner,
+        request_proof_digest,
+        research_identity,
+        ancestry,
+    )
+    .await?;
+    let authoring = current_authoring_facts(&rd_pool, research_identity, &accepted).await?;
 
     Ok(CurrentSourceBoundResearchV1 {
         research_request_locator: research_identity.to_owned(),
@@ -370,6 +270,234 @@ pub async fn ensure_current_source_bound_research_acceptance_fixture_v1(
         independence_basis_identity: accepted.independence_basis_identity,
         source_intake_request_identity,
         valid_through_epoch_ms: accepted.valid_through_epoch_ms,
+    })
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+type Step<'a, T> = Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'a>>;
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+type ConnectedOwnersV1 = (
+    Arc<ProductEdgePostgresOwnerV1>,
+    PostgresResearchGoalOwnerV1,
+    sqlx::PgPool,
+);
+
+/// The deployment's Product Edge Owner, the Research Owner bound to the sealed Source Intake policy,
+/// and an R&D Owner pool.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+fn connect_owners<'a>(
+    rd_owner_url: &'a str,
+    qualification_writer_url: &'a str,
+    product_edge_url: &'a str,
+    pe_deployment: &'a ProductEdgeDeploymentAcceptanceFixtureV1,
+) -> Step<'a, ConnectedOwnersV1> {
+    Box::pin(async move {
+        let product_edge = Arc::new(
+            pe_deployment
+                .connect_owner(product_edge_url)
+                .await
+                .map_err(Error::ProductEdge)?,
+        );
+        let research_owner =
+            PostgresResearchGoalOwnerV1::connect(rd_owner_url, qualification_writer_url)
+                .await
+                .map_err(Error::Research)?
+                .bind_sealed_source_intake_research_policy();
+        let rd_pool = connect("R&D Owner", rd_owner_url).await?;
+        Ok((product_edge, research_owner, rd_pool))
+    })
+}
+
+/// Refuses an already committed Research whose Research View validity has passed.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+fn refuse_existing_expired<'a>(
+    research_owner: &'a PostgresResearchGoalOwnerV1,
+    rd_pool: &'a sqlx::PgPool,
+    research_identity: &'a str,
+) -> Step<'a, ()> {
+    Box::pin(async move {
+        let existing = research_owner
+            .read_research_v2(research_identity)
+            .await
+            .map_err(Error::Research)?;
+
+        if let Some(view) = existing.research_view() {
+            refuse_expired(
+                view.valid_through_epoch_ms,
+                owner_clock_epoch_ms(rd_pool).await?,
+            )?;
+        }
+        Ok(())
+    })
+}
+
+/// Ensures the current Replay Policy Catalog V3 head and that it names the proposal's models.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+fn ensure_catalog_models(catalog_admin_url: &str) -> Step<'_, ()> {
+    Box::pin(async move {
+        let catalog_pool = connect("Replay Policy Catalog", catalog_admin_url).await?;
+        let catalog = ensure_replay_policy_catalog_fixture_v3(&catalog_pool)
+            .await
+            .map_err(Error::Catalog)?;
+        catalog_pool.close().await;
+        let policy = catalog
+            .replay_policy_v2()
+            .verify()
+            .map_err(Error::Catalog)?;
+        let actual = (
+            policy.cost.identity.as_str().to_owned(),
+            policy.slippage.identity.as_str().to_owned(),
+            policy.capacity.identity.as_str().to_owned(),
+        );
+
+        if (actual.0.as_str(), actual.1.as_str(), actual.2.as_str()) != CATALOG_MODELS {
+            return Err(Error::CatalogModels { actual });
+        }
+        Ok(())
+    })
+}
+
+/// Resolves the sealed Source Intake terminal for the request, running it when nothing is terminal
+/// yet, and returns the ancestry a source-bound Research names.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+fn source_intake_terminal<'a>(
+    product_edge: &'a Arc<ProductEdgePostgresOwnerV1>,
+    rd_pool: &'a sqlx::PgPool,
+    request_proof_digest: &'a str,
+    source_intake_request_identity: &'a str,
+) -> Step<'a, SourceIntakeResearchAncestryProposalV1> {
+    Box::pin(async move {
+        let source_intake = SourceIntakeOwnerV1::sealed_acceptance(
+            SealedSourceIntakeEnvironmentV1::new(
+                product_edge.clone(),
+                rd_pool.clone(),
+                request_proof_digest.to_owned(),
+            )
+            .map_err(Error::SourceIntake)?,
+        );
+        let terminal = match source_intake
+            .resolve(source_intake_request_identity)
+            .await
+            .map_err(Error::SourceIntake)?
+        {
+            Some(terminal) => terminal,
+            None => source_intake
+                .run(SourceIntakeOperationRequestV1 {
+                    request_identity: source_intake_request_identity.to_owned(),
+                    channel: ProductEdgeGatewayV1::WindmillProductEdge,
+                    normalized_doi: SEALED_SOURCE_DOI.into(),
+                    interpretation: source_interpretation(),
+                })
+                .await
+                .map_err(Error::SourceIntake)?
+                .ok_or(Error::SourceIntakeUnresolved)?,
+        };
+
+        if terminal.terminal != AcquisitionTerminalV1::Retrieved {
+            return Err(Error::SourceIntakeNotRetrieved(terminal.terminal));
+        }
+        Ok(SourceIntakeResearchAncestryProposalV1 {
+            request_identity: source_intake_request_identity.to_owned(),
+            attempt_identity: terminal.binding_identity,
+            terminal_receipt_identity: terminal.receipt.receipt_identity,
+        })
+    })
+}
+
+/// Admits the Research Goal V2 request through the deployment and submits it, bound to the
+/// Source Intake ancestry, to the Research Owner.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+fn submit_research<'a>(
+    product_edge: &'a Arc<ProductEdgePostgresOwnerV1>,
+    research_owner: &'a PostgresResearchGoalOwnerV1,
+    request_proof_digest: &'a str,
+    research_identity: &'a str,
+    ancestry: SourceIntakeResearchAncestryProposalV1,
+) -> Step<'a, AcceptedResearchV1> {
+    Box::pin(async move {
+        let (goal, trial_family_proposal) = research_proposal();
+        let admission = product_edge
+            .admit_request(ProductEdgeAdmissionRequestV1 {
+                request_identity: research_identity.to_owned(),
+                typed_payload: research_admission_payload(
+                    research_identity,
+                    &goal,
+                    &trial_family_proposal,
+                ),
+                operation: RESEARCH_GOAL_OPERATION_V2.into(),
+                operation_schema: RESEARCH_GOAL_SCHEMA_V2.into(),
+                target_owner: RESEARCH_OWNER_V1.into(),
+                requested_effects: vec![RESEARCH_MUTATION_EFFECT.into()],
+                request_proof_digest: request_proof_digest.to_owned(),
+                audit_correlation: format!("source-bound-research-fixture:{research_identity}"),
+            })
+            .await
+            .map_err(Error::ResearchAdmission)?;
+        let answer = research_owner
+            .submit_source_intake_research_v2(
+                UnsourcedResearchProposalV1 {
+                    request_identity: research_identity.to_owned(),
+                    channel: ProductEdgeChannel::WindmillProductEdge,
+                    admission: admission.locator().clone(),
+                    goal,
+                    trial_family_proposal,
+                    // A V2 request, as the deployment's `RESEARCH_GOAL_OPERATION_V2` admits: it
+                    // states no instrument scope.
+                    instrument_scope: None,
+                },
+                ancestry,
+            )
+            .await
+            .map_err(Error::Research)?;
+        AcceptedResearchV1::from_owner_answer(&answer, research_identity)
+    })
+}
+
+/// The R&D Owner's authoring-facts read, whose future alone is some 24 KB.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+fn read_authoring_facts<'a>(
+    facts_owner: &'a PostgresResearchBoundedFeatureProgramOwnerV1,
+    research_identity: &'a str,
+) -> Pin<
+    Box<
+        dyn Future<
+                Output = Result<
+                    ResearchAuthoringFactsV1,
+                    ResearchBoundedFeatureProgramOwnerErrorV1,
+                >,
+            > + Send
+            + 'a,
+    >,
+> {
+    Box::pin(facts_owner.read_research_authoring_facts_v1(research_identity))
+}
+
+/// Reads the accepted Research's authoring facts at an R&D Owner clock cut, which proves it current,
+/// and checks they are the facts this module submitted.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+fn current_authoring_facts<'a>(
+    rd_pool: &'a sqlx::PgPool,
+    research_identity: &'a str,
+    accepted: &'a AcceptedResearchV1,
+) -> Step<'a, ResearchAuthoringFactsV1> {
+    Box::pin(async move {
+        let facts_owner = PostgresResearchBoundedFeatureProgramOwnerV1::new(rd_pool.clone());
+        let authoring = match read_authoring_facts(&facts_owner, research_identity).await {
+            Ok(authoring) => authoring,
+            Err(e) => {
+                refuse_expired(
+                    accepted.valid_through_epoch_ms,
+                    owner_clock_epoch_ms(rd_pool).await?,
+                )?;
+                return Err(Error::NotCurrent(e));
+            }
+        };
+
+        if authoring.falsifier != FALSIFICATION_QUESTION {
+            return Err(Error::ContentMismatch("falsifier"));
+        }
+        Ok(authoring)
     })
 }
 
