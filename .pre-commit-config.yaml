@@ -271,6 +271,19 @@ repos:
         language: system
         files: ^scripts/ci/(cargo-target-in-worktree|test-cargo-target-in-worktree)\.bash$
         pass_filenames: false
+      - id: check-git-isolation
+        name: check git isolation
+        description: A script that creates, clones or configures a repository must isolate git first
+        entry: python3 scripts/check-git-isolation.py
+        language: system
+        files: \.(sh|bash|py)$
+      - id: test-git-isolation
+        name: test git isolation
+        description: Un-isolated git is refused by name, and the helper keeps a hook off the caller's repository
+        entry: bash scripts/lib/test-git-isolation.bash
+        language: system
+        files: ^scripts/(lib/(git-isolation\.bash|git_isolation\.py|test-git-isolation\.bash)|check-git-isolation\.py)$
+        pass_filenames: false
       - id: test-owner-chain-lock
         name: test Owner chain machine lock
         description: A second local Owner chain is refused and named; a dead holder releases the lock
@@ -596,7 +609,8 @@ repos:
 
             \.pre-commit-config\.yaml|
             scripts/production-producer-check\.py|
-            scripts/flattened-error-variants(_test|_mutations)?\.py
+            scripts/flattened-error-variants(_test|_mutations)?\.py|
+            scripts/lib/git_isolation\.py
 
           )$
         pass_filenames: false

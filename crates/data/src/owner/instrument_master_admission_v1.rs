@@ -1,7 +1,12 @@
 //! The Owner-sealed intake through which Operations admits one Instrument Master V1 fact.
 //!
 //! Operations describes an instrument; Market Data admits it. The submission carries the fact's
-//! meaning and nothing about its custody: no digest, no clock, no receipt. The Owner binds the fact
+//! meaning and nothing about its custody: no digest, no clock, no receipt. It names the admitted
+//! Source Binding the fact is observed under, and the Owner takes the fact's Market Semantics
+//! Compatibility identity, source frontier and correction frontier from that binding, exactly as the
+//! Market Semantics admission derives its scope: a submitter stating a scope could state one no
+//! binding claims, and every later snapshot of the instrument would then be refused its Market
+//! Semantics fact. The Owner binds the fact
 //! to its own current clock head, refuses a predecessor it does not hold, a branch, a cycle or an
 //! overlapping interval, and appends through the unchanged write-once path, so a replayed
 //! submission rejoins the fact it admitted the first time.
@@ -24,7 +29,7 @@ use super::{
         InstrumentClass, InstrumentDecimal, InstrumentMasterError, InstrumentMasterFactProposalV1,
         InstrumentVenueSourceMapping,
     },
-    source_binding::BindingDigest,
+    source_binding::{BindingDigest, UntrustedSourceBindingLocator},
 };
 
 /// One venue and source mapping as Operations states it.
@@ -51,8 +56,10 @@ pub struct InstrumentDecimalSubmissionV1 {
 
 /// The Instrument Master V1 fact Operations submits.
 ///
-/// Every field is meaning the Owner cannot know on its own. The clock coordinates, the fact digest
-/// and the receipt are the Owner's and are absent here on purpose.
+/// Every field is meaning the Owner cannot know on its own, plus the Source Binding it is observed
+/// under. The clock coordinates, the fact digest and the receipt are the Owner's and are absent here
+/// on purpose, and so are the Market Semantics Compatibility identity and the source and correction
+/// frontiers, which the Owner takes from that binding.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct InstrumentMasterFactSubmissionV1 {
@@ -90,12 +97,10 @@ pub struct InstrumentMasterFactSubmissionV1 {
     pub corporate_action_frontier: BindingDigest,
     /// Historical membership frontier this fact was observed under.
     pub historical_membership_frontier: BindingDigest,
-    /// Market Semantics Compatibility identity the fact is stated under.
-    pub market_semantics_identity: BindingDigest,
-    /// Source frontier this fact was observed under.
-    pub source_frontier: BindingDigest,
-    /// Correction frontier this fact was observed under.
-    pub correction_frontier: BindingDigest,
+    /// The admitted Source Binding this fact is observed under. The fact's Market Semantics
+    /// Compatibility identity is the one the Owner derives from this binding's semantics, and its
+    /// source and correction frontiers are this binding's.
+    pub source_binding: UntrustedSourceBindingLocator,
     /// Start of the half-open effective interval, in nanoseconds.
     pub effective_from: i128,
     /// Exclusive end of the effective interval, or open.
@@ -111,9 +116,11 @@ pub struct InstrumentMasterFactSubmissionV1 {
 }
 
 impl InstrumentMasterFactSubmissionV1 {
-    /// Converts the submission into the Owner's proposal, refusing an unknown class.
+    /// Converts the submission into the Owner's proposal under the coordinates the Owner took from
+    /// the named binding, refusing an unknown class.
     pub(crate) fn into_proposal(
         self,
+        binding: InstrumentMasterBindingCoordinatesV1,
     ) -> Result<InstrumentMasterFactProposalV1, InstrumentMasterAdmissionErrorV1> {
         let instrument_class = instrument_class_from_canonical(&self.instrument_class)
             .ok_or(InstrumentMasterAdmissionErrorV1::InvalidSubmission)?;
@@ -143,9 +150,9 @@ impl InstrumentMasterFactSubmissionV1 {
             lifecycle_frontier: self.lifecycle_frontier,
             corporate_action_frontier: self.corporate_action_frontier,
             historical_membership_frontier: self.historical_membership_frontier,
-            market_semantics_identity: self.market_semantics_identity,
-            source_frontier: self.source_frontier,
-            correction_frontier: self.correction_frontier,
+            market_semantics_identity: binding.market_semantics_identity,
+            source_frontier: binding.source_frontier,
+            correction_frontier: binding.correction_frontier,
             effective_from: self.effective_from,
             effective_until: self.effective_until,
             provider_available: self.provider_available,
@@ -154,6 +161,17 @@ impl InstrumentMasterFactSubmissionV1 {
             owner_observation: self.owner_observation,
         })
     }
+}
+
+/// What the Owner takes from the admitted Source Binding a submission names.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct InstrumentMasterBindingCoordinatesV1 {
+    /// The compatibility scope derived from the binding's semantics.
+    pub(crate) market_semantics_identity: BindingDigest,
+    /// The binding's source frontier.
+    pub(crate) source_frontier: BindingDigest,
+    /// The binding's correction frontier.
+    pub(crate) correction_frontier: BindingDigest,
 }
 
 const fn decimal(value: InstrumentDecimalSubmissionV1) -> InstrumentDecimal {
@@ -250,6 +268,8 @@ impl InstrumentMasterAdmissionTerminalV1 {
 pub enum InstrumentMasterAdmissionErrorV1 {
     /// The submission is malformed, names an unknown class, or fails the fact's own validation.
     InvalidSubmission,
+    /// Market Data holds no admitted Source Binding under exactly the locator the submission names.
+    SourceBindingUnavailable,
     /// The predecessor is absent, already succeeded, cyclic, or the interval overlaps another chain.
     PredecessorUnavailable,
     /// The same fact digest is already stored with different content.
@@ -264,6 +284,9 @@ impl Display for InstrumentMasterAdmissionErrorV1 {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let text = match self {
             Self::InvalidSubmission => "the Instrument Master submission is malformed",
+            Self::SourceBindingUnavailable => {
+                "no admitted Source Binding is stored under the submitted locator"
+            }
             Self::PredecessorUnavailable => {
                 "the submission's predecessor or interval does not fit the instrument's history"
             }

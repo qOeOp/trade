@@ -418,9 +418,11 @@ the field and its validator, which is tested against the same vector file as R&D
 the V2 route it was admitted under; and the `INSTRUMENT_SCOPE_NOT_RESOLVABLE` terminal shown by that name, while an
 answer that leaves the scope unresolved stays `SUBMITTED_OR_UNKNOWN`; and the Research readback's `initial_pit`, shown
 as the Owner states it and checked against the same state vectors the Owner's test reads
-(`product/rd-owner-client/fixtures/research_initial_pit_state_vectors_v1.json`). A V2/V3 label on the readback is not
-built: the Owner's readback states no request version yet, and inferring one from which fields are present would read
-a V3 request that was not accepted as V2. A run is admitted only when Product Edge's operation routing
+(`product/rd-owner-client/fixtures/research_initial_pit_state_vectors_v1.json`); and the readback's request version,
+shown as `V2` or `V3` exactly as the Owner states it from the request's Product Edge admission, with the admitted
+instruments beside it. A rejected V3 request shows `V3`; an unresolved request shows its version as unknown, and a
+historical record keeps its historical label with the version unknown; the page never infers a version from which
+fields are present. A run is admitted only when Product Edge's operation routing
 answers `ACTIVE / TRADE_DASHBOARD` for both keys the run depends on, Source Intake and Research V3.
 `product-edge-routing-read-api` answers that lookup and ships in the deployment, but no deployment has committed
 such a binding. Committing one in a deployed or shared environment is a separately gated effect that needs the

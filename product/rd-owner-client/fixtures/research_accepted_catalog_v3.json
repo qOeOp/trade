@@ -19496,5 +19496,7 @@
   }
  },
  "trial_family_resolution": "AVAILABLE",
- "initial_pit": null
+ "initial_pit": null,
+ "request_schema_version": 2,
+ "instrument_scope": null
 }
