@@ -22,6 +22,7 @@ import {
 import {
   deriveResearchConsumerProjectionV1,
   deriveVerifiedS1ConsumerContextV1,
+  RESEARCH_OWNER_OPERATION_V2,
   unknownArtifactProjectionV1,
 } from "../../rd-owner-client/consumer_projection_v1.ts";
 import {
@@ -284,8 +285,11 @@ test("a claimed queued Artifact RUN performs first Owner prepare, claim, and inv
     identity_mode: "GENERATE",
   };
   const context = await deriveVerifiedS1ConsumerContextV1(
-    await deriveResearchConsumerProjectionV1(acceptedResearch, acceptedResearch.request_identity),
+    await deriveResearchConsumerProjectionV1(
+      acceptedResearch, acceptedResearch.request_identity, RESEARCH_OWNER_OPERATION_V2,
+    ),
     acceptedResearch.request_identity,
+    RESEARCH_OWNER_OPERATION_V2,
   );
   assert.ok(context);
   const generated = await deriveGeneratedArtifactIdentitiesV1(

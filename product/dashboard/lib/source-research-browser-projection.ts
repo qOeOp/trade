@@ -1,4 +1,7 @@
-import { projectResearchOwnerResultWithEvidenceV1 } from "../../rd-owner-client/consumer_projection_v1.ts";
+import {
+  projectResearchOwnerResultWithEvidenceV1,
+  RESEARCH_OWNER_OPERATION_V2,
+} from "../../rd-owner-client/consumer_projection_v1.ts";
 import { projectOwnerReadbackV1 as projectSourceOwnerReadbackV1 } from "../../rd-owner-client/source_intake_v1.ts";
 
 import type { SourceResearchOperationResponseV1 } from "./source-research-operation.ts";
@@ -52,9 +55,11 @@ export async function projectSourceResearchBrowserEnvelopeV1({
     || typeof sourceReceipt?.receipt_identity !== "string") {
     return unavailable("SOURCE_OWNER_PROJECTION_UNAVAILABLE", result.envelope.operational_run);
   }
+  // The Research half of a Source-to-Research run is submitted and resolved through V2 today.
   const projected = await projectResearchOwnerResultWithEvidenceV1(
     result.envelope.research,
     researchRequestIdentity,
+    RESEARCH_OWNER_OPERATION_V2,
   );
   const research = projected.projection as Json;
   const resolution = research.resolution;
