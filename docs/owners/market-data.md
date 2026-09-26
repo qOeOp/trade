@@ -89,6 +89,17 @@ never runs in CI.
   field `_market_data_research_pit`. Cleared by the production resolver, signer, anti-rollback witness, credential
   resolver and direct-measurement adapters named in `docs/guide/architecture-rules.md`, plus one consumer that
   reads the port.
+  The acceptance chain covers the segment after Store Admission, and not Admission itself. In a build that enables
+  `sealed-strategy-input-acceptance`, which no deployed binary does,
+  `native_replay_scheduling_resolver_for_sealed_acceptance_v1` runs the native Replay scheduling read path with the
+  admitted resolver's raw reads, verification and selection, but with no admission before a read and no revalidation
+  after one. It connects as a least-privilege test principal that the disposable database grants exactly
+  `NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1`, and its evidence carries the marker
+  `SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1` where an admitted read carries a receipt; only a build that carries that
+  port accepts the marker. Admission itself, including the principal it leases and the grants on that gate, is still
+  `B3`. No production role holds that gate today: the deployed ACL cutover revokes `USAGE` on `market_data_private`
+  from every role but the owner, and the scheduling floors a Store Admission measures do not cover the PIT evaluation
+  reads the path makes.
   Reading a BAR schedule has **two custody strategies**, one per build, and this document has until now described
   neither. A test build opens its own `REPEATABLE READ READ ONLY` transaction and validates the schedule's history
   itself; a production build takes its snapshot from the admitted port's evidence and revalidates before returning.
