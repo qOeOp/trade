@@ -1873,6 +1873,65 @@ check_chain_shard_plan() {
   fi
 }
 
+# What no database clone isolates: roles and their attributes, role membership, role settings that
+# apply cluster-wide, the database list with owners and ACLs, server settings and tablespaces. Six
+# fault entries flip role attributes and membership and restore them before they end; the chain is
+# fail-fast, so a mid-entry failure stops it anyway, but an entry that passes and restores only part
+# of what it changed would leave the rest to every entry after it, and nothing else reads it. So the
+# chain reads this state once before its first entry and again after its last, and they must match.
+chain_cluster_state() {
+  docker exec "$container" psql --quiet --no-align --tuples-only --set ON_ERROR_STOP=1 \
+    --username postgres --dbname postgres --field-separator=$'\t' << 'SQL'
+SELECT 'role', rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin,
+       rolreplication, rolbypassrls, rolconnlimit, COALESCE(rolvaliduntil::text, '')
+  FROM pg_catalog.pg_authid ORDER BY rolname;
+SELECT 'member', granted.rolname, grantee.rolname, membership.admin_option,
+       membership.inherit_option, membership.set_option
+  FROM pg_catalog.pg_auth_members membership
+  JOIN pg_catalog.pg_authid granted ON granted.oid = membership.roleid
+  JOIN pg_catalog.pg_authid grantee ON grantee.oid = membership.member
+ ORDER BY 2, 3;
+SELECT 'role_setting', COALESCE(database_entry.datname, '*'), COALESCE(role_entry.rolname, '*'),
+       setting.setconfig::text
+  FROM pg_catalog.pg_db_role_setting setting
+  LEFT JOIN pg_catalog.pg_database database_entry ON database_entry.oid = setting.setdatabase
+  LEFT JOIN pg_catalog.pg_authid role_entry ON role_entry.oid = setting.setrole
+ ORDER BY 2, 3;
+SELECT 'database', datname, pg_catalog.pg_get_userbyid(datdba), COALESCE(datacl::text, ''),
+       datallowconn, datconnlimit
+  FROM pg_catalog.pg_database ORDER BY datname;
+SELECT 'setting', name, setting, source
+  FROM pg_catalog.pg_settings
+ WHERE source NOT IN ('default', 'override', 'client', 'session', 'environment variable', 'command line')
+ ORDER BY name;
+SELECT 'file_setting', COALESCE(sourcefile, ''), name, COALESCE(setting, ''), applied
+  FROM pg_catalog.pg_file_settings ORDER BY 2, 3;
+SELECT 'tablespace', spcname, pg_catalog.pg_get_userbyid(spcowner)
+  FROM pg_catalog.pg_tablespace ORDER BY spcname;
+SQL
+}
+
+require_unchanged_cluster_state() {
+  local after
+  after="$(chain_cluster_state)"
+  if [[ "$after" != "$chain_cluster_state_before" ]]; then
+    echo "ERROR: cluster-global state changed between the first entry and the last; no database clone isolates it:" >&2
+    diff <(printf '%s\n' "$chain_cluster_state_before") <(printf '%s\n' "$after") >&2
+    return 1
+  fi
+}
+
+# On a failed run the comparison only reports: what the run left behind is the first thing to read.
+report_changed_cluster_state() {
+  local after
+  [[ -n "${chain_cluster_state_before:-}" ]] || return 0
+  after="$(chain_cluster_state 2> /dev/null)" || return 0
+  if [[ "$after" != "$chain_cluster_state_before" ]]; then
+    echo "=== cluster-global state this run left changed (before < > after) ===" >&2
+    diff <(printf '%s\n' "$chain_cluster_state_before") <(printf '%s\n' "$after") >&2
+  fi
+}
+
 # The chain's verdict from its records alone, so a run split across jobs is judged by the same
 # report a serial run prints. Records are named by global chain position, so the directories of
 # several jobs merge into the layout one serial run leaves. Every position must hold exactly one
@@ -2263,6 +2322,9 @@ cleanup() {
   trap - EXIT
   disarm_chain_entry_watchdog
   report_chain_host_sleep
+  if [[ "$primary_status" -ne 0 && "${container_created:-}" == true ]]; then
+    report_changed_cluster_state
+  fi
   # `set +e` does not quiet the ERR trap - Bash runs it on any failing command outside a condition,
   # whatever errexit is set to - and everything below is written to tolerate failure and report it in
   # its own words. Without this line a failing chain would end in a run of generic trap lines that
@@ -4234,6 +4296,8 @@ OPERATOR_AUTHORIZATION_DATABASE_URL="postgresql://operator_authorization_writer:
 chain_stats_reset_before="$(postgres_stats_reset "$container")"
 impersonator_stats_reset_before="$(postgres_stats_reset "$impersonator_container")"
 readonly chain_stats_reset_before impersonator_stats_reset_before
+chain_cluster_state_before="$(chain_cluster_state)"
+readonly chain_cluster_state_before
 
 if [[ -n "$chain_shard" ]]; then
   snapshot_chain_databases
@@ -4484,6 +4548,7 @@ if [[ -n "$chain_shard" ]]; then
   drop_chain_database_snapshots
 fi
 
+require_unchanged_cluster_state
 require_no_postgres_crash chain "$container" "$chain_stats_reset_before"
 require_no_postgres_crash impersonating "$impersonator_container" "$impersonator_stats_reset_before"
 
@@ -5071,17 +5136,22 @@ BEGIN
       RAISE EXCEPTION '% crossed the R&D/Qualification custody boundary', role_name;
     END IF;
     forbidden_role_source := NULL;
-    SELECT table_name INTO forbidden_role_source
-    FROM information_schema.tables
-    WHERE table_schema = 'public'
-      AND table_name LIKE 'rd_%'
+    -- By oid, never by name: SQL does not order the conditions of a WHERE, and a name built as
+    -- 'public.' || relname for a same-named relation in another schema (composer_private holds
+    -- rd_develop_artifact_build_receipt_uses_v2) raised "does not exist" whenever the planner
+    -- tested privileges before the schema. Which order it chose followed the catalog's statistics:
+    -- a serial chain passed, and every shard, starting from a fresh clone, failed here.
+    SELECT relation.relname INTO forbidden_role_source
+    FROM pg_catalog.pg_class relation
+    JOIN pg_catalog.pg_namespace namespace ON namespace.oid = relation.relnamespace
+    WHERE namespace.nspname = 'public'
+      AND relation.relkind IN ('r', 'p', 'v', 'f')
+      AND relation.relname LIKE 'rd_%'
       AND (
-        pg_catalog.has_table_privilege(
-          role_name, pg_catalog.format('public.%I', table_name), 'SELECT'
-        )
+        pg_catalog.has_table_privilege(role_name, relation.oid, 'SELECT')
         OR (SELECT pg_catalog.bool_or(pg_catalog.has_table_privilege(
           role_name,
-          pg_catalog.format('public.%I', table_name),
+          relation.oid,
           checked_privilege
         )) FROM pg_catalog.unnest(ARRAY['INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) checked_privilege)
       )
