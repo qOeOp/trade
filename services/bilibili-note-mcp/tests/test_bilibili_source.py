@@ -267,3 +267,57 @@ async def test_downloaded_media_identity_drift_fails_closed(
         ).acquire(USER_URL, tmp_path, NullProgressReporter())  # type: ignore[arg-type]
     assert failure.value.code == "SOURCE_CHANGED"
     assert failure.value.reason == "media_video_identity_changed"
+
+
+# Each refusal names its cause. They used to collapse into ACCESS_DENIED/source_access_denied: a
+# 412 risk-control block, a 403 and a 451 regional restriction all read the same, so nobody could
+# tell whether to wait, sign in, or give up on the video.
+@pytest.mark.parametrize(
+    ("status", "code", "reason"),
+    (
+        (401, "ACCESS_DENIED", "source_login_required"),
+        (403, "ACCESS_DENIED", "source_access_forbidden"),
+        (412, "RATE_LIMITED", "source_risk_control_blocked"),
+        (429, "RATE_LIMITED", "source_rate_limited"),
+        (451, "ACCESS_DENIED", "source_region_restricted"),
+        (500, "SOURCE_UNAVAILABLE", "source_http_failed"),
+        (302, "SOURCE_UNAVAILABLE", "source_http_failed"),
+    ),
+)
+def test_metadata_http_status_names_its_cause(status: int, code: str, reason: str) -> None:
+    with pytest.raises(BilibiliNoteFailure) as failure:
+        SafeHttpClient._check_status(status)
+
+    assert (failure.value.code, failure.value.reason) == (code, reason)
+
+
+def test_metadata_http_success_passes() -> None:
+    SafeHttpClient._check_status(200)
+
+
+# Bilibili also refuses inside a 200: the envelope's own code. -412 is its risk-control block and
+# -403 its permission refusal; any other non-zero code stays a plain rejection.
+@pytest.mark.parametrize(
+    ("envelope_code", "code", "reason"),
+    (
+        (-412, "RATE_LIMITED", "source_risk_control_blocked"),
+        (-403, "ACCESS_DENIED", "source_access_forbidden"),
+        (-400, "SOURCE_UNAVAILABLE", "source_metadata_rejected"),
+    ),
+)
+async def test_source_metadata_envelope_code_names_its_cause(
+    tmp_path: Path, envelope_code: int, code: str, reason: str
+) -> None:
+    transcript = FakeTranscript()
+    media = FakeMedia()
+
+    with pytest.raises(BilibiliNoteFailure) as failure:
+        await BilibiliSource(
+            transcript,
+            media=media,
+            http=PayloadHttp({"code": envelope_code, "message": "refused"}),
+        ).acquire(USER_URL, tmp_path, NullProgressReporter())  # type: ignore[arg-type]
+
+    assert (failure.value.code, failure.value.reason) == (code, reason)
+    assert media.urls == []
+    assert transcript.calls == 0

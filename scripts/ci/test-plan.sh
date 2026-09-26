@@ -476,8 +476,8 @@ if [[ "$save_gate_total" != "$save_gate_shared" ]]; then
   printf '%s\n' "$save_gates" | grep -vF 'save-if: ${{ env.SAVE_BUILD_CACHES }}' >&2
   exit 1
 fi
-if [[ "$save_gate_total" -ne 3 ]]; then
-  echo "build.yml has $save_gate_total cache-saving steps, expected 3." >&2
+if [[ "$save_gate_total" -ne 4 ]]; then
+  echo "build.yml has $save_gate_total cache-saving steps, expected 4." >&2
   echo "A removed entry stops saving a cache; a new one must use env.SAVE_BUILD_CACHES." >&2
   exit 1
 fi
@@ -937,6 +937,11 @@ if [[ -z "$required_job" ]] || [[ "$quality_job" != *'bash scripts/ci/require-wo
   exit 1
 fi
 echo "ok: pull requests keep their pre-commit coverage across the two jobs"
+
+# The merge of the R&D chain shards' records before the whole-chain report. (The shards' wait for
+# the archive has its own pre-commit hook, test-wait-for-run-artifact.)
+bash "$repo_root/scripts/ci/test-merge-chain-shard-records.bash"
+echo "ok: the chain shards' record merge"
 
 # Every PostgreSQL and Redis image CI runs is pinned by digest, in services and in scripts alike. The
 # digest is what lets scripts/ci/pull-pinned-image.bash take the image from mirror.gcr.io or from

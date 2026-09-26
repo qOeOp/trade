@@ -2233,6 +2233,10 @@ fact, and retrieval after the cut never backfills an earlier decision.
 - Every ordinary Research response repeats the exact initial PIT Market Snapshot Request and correlation bindings;
   changed meaning requires a successor request and silence creates no Market Data or Research transition.
 - Consumers receive explicit insufficiency or staleness instead of synthetic success.
+- A Data Client that answers no rows reports insufficient coverage, not a malformed batch. The snapshot commits
+  `INSUFFICIENT` with its coverage blocker and stores no observation batch, because a batch holds at least one row. Its
+  records digest is the digest of the canonical encoding of zero rows, which no batch of rows has. The same request
+  again rejoins a committed snapshot whatever its disposition, and writes nothing.
 - Re-running a snapshot against the same admitted versions yields the same canonical inputs.
 - Snapshot outcomes are explicit: `AVAILABLE`, `INSUFFICIENT`, `STALE`, `UNLICENSED`, `AMBIGUOUS`, or
   `UNAVAILABLE`. Every repair response additionally repeats the repair request identity, stable correlation, and

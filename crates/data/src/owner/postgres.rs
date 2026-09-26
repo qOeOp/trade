@@ -22,6 +22,8 @@ mod market_data_rd_api_authorization_postgres_tests;
 mod market_semantics;
 mod observation_census;
 #[cfg(test)]
+mod pit_empty_observation_tests;
+#[cfg(test)]
 mod pit_initial_intake_correlation_tests;
 #[cfg(test)]
 mod pit_intake_member_count_tests;
@@ -211,8 +213,8 @@ use super::{
         authority::{
             CanonicalBasisResolverV1, ObservedPitObservationNativeRow, OwnerCanonicalBasisV1,
             OwnerSnapshotDeterminationV1, PreparedPitObservationBatch,
-            derive_observation_batch_digest, prepare_correction_aggregate,
-            prepare_initial_aggregate, prepare_observation_batch,
+            derive_observation_batch_digest, empty_observation_batch_digest_v1,
+            prepare_correction_aggregate, prepare_initial_aggregate, prepare_observation_batch,
             verify_aggregate as verify_pit_aggregate, verify_observation_batch,
         },
     },
@@ -1520,10 +1522,18 @@ impl MarketDataOwnerPostgres {
             source_fact,
         ))
         .await?;
+        // An empty answer is insufficient coverage, not a malformed batch: the Data Client's
+        // contract says so, and a batch holds at least one row. Such a snapshot stores no batch,
+        // and its records digest is the canonical empty batch's, which no batch of rows has.
+        let records_digest = if batch.rows.is_empty() {
+            empty_observation_batch_digest_v1()
+        } else {
+            derive_observation_batch_digest(&batch)?
+        };
         let owner_basis = OwnerCanonicalBasisV1::resolve_from_owner_custody(
             &request,
             source_fact,
-            derive_observation_batch_digest(&batch)?,
+            records_digest,
             determination,
             clock,
         );
@@ -1531,9 +1541,18 @@ impl MarketDataOwnerPostgres {
             request,
             evidence: owner_basis.owner_evidence().clone(),
         };
-        let prepared = prepare_observation_batch(&proposal, &batch)?;
+        let prepared = if batch.rows.is_empty() {
+            None
+        } else {
+            Some(prepare_observation_batch(&proposal, &batch)?)
+        };
         let aggregate = prepare_initial_aggregate(proposal, &owner_basis, source_fact, clock)?;
+
         if aggregate.fact().disposition() == PitSnapshotDisposition::Available {
+            // Coverage is complete only over rows, so an `AVAILABLE` snapshot always has a batch.
+            let prepared = prepared
+                .as_ref()
+                .ok_or(PitSnapshotError::InvalidObservationBatch)?;
             verify_observation_batch(
                 &aggregate,
                 aggregate.fact().source_binding_identity(),
@@ -1547,7 +1566,7 @@ impl MarketDataOwnerPostgres {
         Box::pin(persist_pit(
             transaction,
             aggregate,
-            Some(prepared),
+            prepared,
             clock,
             PostgresCommitFault::None,
             PitPersistCompanionV1::OwnerR0RecordAndInitialCorrelation,
@@ -6029,15 +6048,21 @@ async fn persist_pit(
             {
                 return Err(PitSnapshotError::ReplayConflict);
             }
-            verify_observation_batch(
-                &stored,
-                observed.source_binding_identity,
-                observed.source_binding_lineage_root,
-                observed.source_binding_lineage_version,
-                observed.digest,
-                &observed.bytes,
-                &observed.rows,
-            )?;
+
+            // Only an `AVAILABLE` snapshot's batch is verified as its evidence; a negative one's
+            // batch is the answer it recorded, which the byte comparison above already matched.
+            // Verifying it here refused every retry of a committed negative.
+            if stored.fact().disposition() == PitSnapshotDisposition::Available {
+                verify_observation_batch(
+                    &stored,
+                    observed.source_binding_identity,
+                    observed.source_binding_lineage_root,
+                    observed.source_binding_lineage_version,
+                    observed.digest,
+                    &observed.bytes,
+                    &observed.rows,
+                )?;
+            }
         }
         return Ok(stored);
     }
