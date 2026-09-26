@@ -22,6 +22,10 @@ readonly market_data_owner_postgres_tests=(
   owner::postgres::tests::postgres_each_research_request_under_one_binding_gets_its_own_market_semantics
   owner::postgres::tests::postgres_production_admits_market_semantics_for_the_chain_fixture_instrument
   owner::postgres::tests::the_market_base_corpus_is_named_by_its_snapshot_after_a_production_admission
+  owner::postgres::chain_market_base_v1_tests::the_acceptance_basis_is_written_once_and_rejoined_without_moving_a_pointer
+  owner::postgres::chain_market_base_v1_tests::a_store_on_another_clock_refuses_the_basis_at_its_source_binding
+  owner::postgres::chain_market_base_v1_tests::a_base_snapshot_over_another_source_binding_is_refused_on_rejoin
+  owner::postgres::chain_market_base_v1_tests::the_basis_rejoins_the_base_the_replay_composition_entry_writes
   owner::postgres::tests::postgres_concurrent_values_under_one_binding_leave_one_value
   owner::postgres::tests::postgres_market_semantics_heads_migrate_to_one_head_per_snapshot
   owner::postgres::pit_initial_intake_correlation_tests::postgres_an_initial_intake_claims_its_correlation_once_and_reads_back_by_it
