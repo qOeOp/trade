@@ -19,6 +19,13 @@ export const PRODUCT_EDGE_RESEARCH_GOAL_ROUTING_KEY_V2 = {
   channel: "WINDMILL_PRODUCT_EDGE",
 } as const satisfies ProductEdgeRoutingLookupKeyV1;
 
+// A key's version is its operation name's `.vN` suffix (Product Edge's routing contract).
+export const PRODUCT_EDGE_RESEARCH_GOAL_ROUTING_KEY_V3 = {
+  operation: "research_goal.submit_or_resolve.v3",
+  version: 3,
+  channel: "WINDMILL_PRODUCT_EDGE",
+} as const satisfies ProductEdgeRoutingLookupKeyV1;
+
 export const PRODUCT_EDGE_ARTIFACT_BUILD_ROUTING_KEY_V1 = {
   operation: "artifact_build.submit_or_resolve.v1",
   version: 1,
@@ -244,7 +251,7 @@ function exactRoutingKey(
     && raw.channel === expectedKey.channel;
 }
 
-function canonicalDigestV1(domain: string, value: unknown): string {
+export function canonicalDigestV1(domain: string, value: unknown): string {
   const bytes = Buffer.from(JSON.stringify(value));
   return `sha256:${createHash("sha256")
     .update(u64(domain.length))
@@ -254,7 +261,7 @@ function canonicalDigestV1(domain: string, value: unknown): string {
     .digest("hex")}`;
 }
 
-function identityV1(domain: string, parts: readonly string[]): string {
+export function identityV1(domain: string, parts: readonly string[]): string {
   const hash = createHash("sha256").update(u64(domain.length)).update(domain);
   for (const part of parts) hash.update(u64(Buffer.byteLength(part))).update(part);
   return `${domain.replaceAll(".", "-")}-${hash.digest("hex")}`;

@@ -122,6 +122,47 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  product-edge-routing-read-api:
+    profiles: ["dashboard-preview"]
+    build:
+      context: ../..
+      dockerfile: product/rd-workbench/Dockerfile.owner
+    entrypoint: ["/usr/local/bin/product-edge-routing-read-api"]
+    restart: unless-stopped
+    # Read-only: it answers from the routing history and never commits a binding. Only
+    # `product-edge-authority-bootstrap route` writes one, so until an administrator does, every
+    # key answers OPERATION_ROUTING_ABSENT and the Dashboard admits no fresh RUN.
+    environment:
+      PRODUCT_EDGE_DATABASE_URL: ${PRODUCT_EDGE_DATABASE_URL:?set PRODUCT_EDGE_DATABASE_URL}
+      PRODUCT_EDGE_DEPLOYMENT_IDENTITY: ${PRODUCT_EDGE_DEPLOYMENT_IDENTITY:?set PRODUCT_EDGE_DEPLOYMENT_IDENTITY}
+      # Not `:?`: Compose interpolates every profile on every command, so a required variable here
+      # would stop default startup for a deployment that never enables this profile. The binary
+      # refuses to start without a token, and dashboard-web waits for it to be healthy.
+      PRODUCT_EDGE_ROUTING_READ_API_TOKEN: ${PRODUCT_EDGE_ROUTING_READ_API_TOKEN:-}
+      PRODUCT_EDGE_ROUTING_READ_API_BIND: 0.0.0.0:8083
+      RUST_LOG: info
+    expose:
+      - 8083
+    # The routing relations exist only once `materialize-schema` has run; before that the
+    # service would answer every read with OPERATION_ROUTING_UNAVAILABLE.
+    depends_on:
+      authority-schema-materialize:
+        condition: service_completed_successfully
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=16m,uid=10001,gid=10001,mode=0700
+    cap_drop:
+      - ALL
+    pids_limit: 64
+    mem_limit: 128m
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8083'"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    security_opt:
+      - no-new-privileges:true
+
   schema-materialize:
     build:
       context: ../..
@@ -357,6 +398,8 @@ services:
         condition: service_completed_successfully
       rd-dashboard-owner-read-api:
         condition: service_healthy
+      product-edge-routing-read-api:
+        condition: service_healthy
     environment:
       DASHBOARD_DATABASE_URL: ${DASHBOARD_DATABASE_URL:-}
       DASHBOARD_CURSOR_HMAC_KEY: ${DASHBOARD_CURSOR_HMAC_KEY:-}
@@ -379,7 +422,8 @@ services:
         ${DASHBOARD_DISPOSABLE_EXPLORATORY_REPLAY_EXECUTION:-}
       DASHBOARD_DISPOSABLE_SOURCE_RESEARCH_EXECUTION: >-
         ${DASHBOARD_DISPOSABLE_SOURCE_RESEARCH_EXECUTION:-}
-      PRODUCT_EDGE_ROUTING_READ_API_URL: ${PRODUCT_EDGE_ROUTING_READ_API_URL:-}
+      PRODUCT_EDGE_ROUTING_READ_API_URL: >-
+        ${PRODUCT_EDGE_ROUTING_READ_API_URL:-http://product-edge-routing-read-api:8083}
       PRODUCT_EDGE_ROUTING_READ_API_TOKEN: ${PRODUCT_EDGE_ROUTING_READ_API_TOKEN:-}
       PRODUCT_EDGE_DEPLOYMENT_IDENTITY: ${PRODUCT_EDGE_DEPLOYMENT_IDENTITY:-}
       DASHBOARD_COMPATIBILITY_ENVELOPES_JSON: ${DASHBOARD_COMPATIBILITY_ENVELOPES_JSON:-}

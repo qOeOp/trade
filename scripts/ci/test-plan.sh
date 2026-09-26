@@ -938,4 +938,53 @@ if [[ -z "$required_job" ]] || [[ "$quality_job" != *'bash scripts/ci/require-wo
 fi
 echo "ok: pull requests keep their pre-commit coverage across the two jobs"
 
+# Every PostgreSQL and Redis image CI runs is pinned by digest, in services and in scripts alike. The
+# digest is what lets scripts/ci/pull-pinned-image.bash take the image from mirror.gcr.io or from
+# public.ecr.aws and still run the same bytes; a tag-only reference could change under a job. Every
+# PostgreSQL digest is also the deployment's (product/rd-workbench/docker-compose.yml), so the Owner
+# acceptances run on the server production runs. The pull script's own test uses reference fixtures,
+# and comments are prose.
+python3 - "$repo_root" << 'PINNED'
+import re
+import subprocess
+import sys
+
+root = sys.argv[1]
+files = subprocess.run(
+    ["git", "-C", root, "ls-files", ".github/workflows/*.yml", "scripts/ci/*.bash", "scripts/ci/*.sh",
+     "crates/data/tests/*.bash"],
+    capture_output=True, text=True, check=True,
+).stdout.split()
+reference = re.compile(r"(postgres|redis):[0-9][^\s\"'@]*(@sha256:[0-9a-f]{64})?")
+compose = "product/rd-workbench/docker-compose.yml"
+deployed = set(re.findall(r"image: postgres:[^@\s]+@(sha256:[0-9a-f]{64})", open(f"{root}/{compose}", encoding="utf-8").read()))
+if len(deployed) != 1:
+    print(f"{compose} must run exactly one PostgreSQL digest, found {sorted(deployed)}.", file=sys.stderr)
+    sys.exit(1)
+(deployed,) = deployed
+unpinned = []
+drifted = []
+for path in files:
+    if path == "scripts/ci/test-pull-pinned-image.bash":
+        continue
+    for number, line in enumerate(open(f"{root}/{path}", encoding="utf-8"), start=1):
+        if line.lstrip().startswith("#"):
+            continue
+        for m in reference.finditer(line):
+            if not m.group(2):
+                unpinned.append(f"{path}:{number}: {m.group(0)}")
+            elif m.group(1) == "postgres" and m.group(2) != f"@{deployed}":
+                drifted.append(f"{path}:{number}: {m.group(0)}")
+if drifted:
+    print(f"PostgreSQL images CI runs must be the deployment's ({compose}: {deployed}):", file=sys.stderr)
+    print("\n".join(drifted), file=sys.stderr)
+    sys.exit(1)
+if unpinned:
+    print("PostgreSQL/Redis images CI runs must be pinned by digest (image:tag@sha256:...):", file=sys.stderr)
+    print("\n".join(unpinned), file=sys.stderr)
+    sys.exit(1)
+PINNED
+bash "$repo_root/scripts/ci/test-pull-pinned-image.bash"
+echo "ok: every PostgreSQL/Redis image CI runs is pinned by digest, PostgreSQL to the deployment's"
+
 echo "All CI plan cases passed"

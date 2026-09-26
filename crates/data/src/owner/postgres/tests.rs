@@ -5473,6 +5473,7 @@ async fn assert_detached_clock_history_unavailable(
 /// A Data Client that answers exactly the scope Market Data issued.
 struct ScopeFaithfulObservationSourceV1 {
     member_key: String,
+    instrument: String,
 }
 
 #[async_trait::async_trait]
@@ -5482,9 +5483,9 @@ impl PitObservationSourceV1 for ScopeFaithfulObservationSourceV1 {
         scope: &PitObservationScopeV1,
     ) -> Result<Vec<VendorObservationV1>, PitObservationSourceErrorV1> {
         Ok(vec![VendorObservationV1 {
-            symbolic_key: "AAPL.CLOSE.1M".into(),
+            symbolic_key: format!("{}.CLOSE.1M", self.instrument),
             member_key: self.member_key.clone(),
-            instrument: "AAPL".into(),
+            instrument: self.instrument.clone(),
             channel: "MARKET".into(),
             data_kind: "BAR".into(),
             timeframe: "1M".into(),
@@ -5948,6 +5949,7 @@ async fn production_pit_mint_postgres_oracle_v1(
                 request_only(213),
                 &ScopeFaithfulObservationSourceV1 {
                     member_key: "AAPL".into(),
+                    instrument: "AAPL".into(),
                 },
                 &universe_locator,
                 clock,
@@ -5985,6 +5987,7 @@ async fn production_pit_mint_postgres_oracle_v1(
             request_only(213),
             &ScopeFaithfulObservationSourceV1 {
                 member_key: "AAPL".into(),
+                instrument: "AAPL".into(),
             },
             &universe_locator,
             clock,
@@ -6033,7 +6036,7 @@ async fn production_pit_mint_postgres_oracle_v1(
             .admit_market_semantics_fact_v1(semantics_submission("SPLIT_ADJUSTED"))
             .await
             .unwrap_err(),
-        crate::owner::market_semantics_admission_v1::MarketSemanticsAdmissionErrorV1::AdmissionConflict,
+        crate::owner::market_semantics_admission_v1::MarketSemanticsAdmissionErrorV1::SnapshotValueConflict,
         "a second value for the same registry key is a conflict, never an overwrite"
     );
 
@@ -6053,6 +6056,7 @@ async fn production_pit_mint_postgres_oracle_v1(
             request_only(213),
             &ScopeFaithfulObservationSourceV1 {
                 member_key: "AAPL".into(),
+                instrument: "AAPL".into(),
             },
             &universe_locator,
             clock,
@@ -6084,6 +6088,7 @@ async fn production_pit_mint_postgres_oracle_v1(
             request_only(214),
             &ScopeFaithfulObservationSourceV1 {
                 member_key: "MSFT".into(),
+                instrument: "AAPL".into(),
             },
             &universe_locator,
             clock,
@@ -9424,4 +9429,695 @@ async fn native_replay_frame_sequence_custody_oracle(owner: &MarketDataOwnerPost
         .expect("readback after refused mutations")
         .expect("history survives");
     assert_matches_record(&after, &record);
+}
+
+/// A one-member universe for `instrument` under `source`: its frontier and the selection over it.
+async fn one_member_universe_v1(
+    owner: &MarketDataOwnerPostgres,
+    source: &SourceBindingCommit,
+    instrument: &str,
+    seed: u8,
+) -> (
+    UntrustedUniverseSelectionLocatorV1,
+    crate::owner::universe_selection::UniverseSelectionIdentity,
+) {
+    let correction_digest = source.receipt().locator().correction_frontier.digest;
+    let frontier = d(seed);
+    let universe_request = UntrustedUniverseSelectionRequestV1::new(
+        d(seed + 1),
+        "RESEARCH_OWNER_V1",
+        d(seed + 2),
+        vec![0, 1, 1],
+        frontier,
+        10,
+        39,
+        40,
+        source.fact().lineage_root(),
+        correction_digest,
+        d(seed + 3),
+    );
+    let universe = {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        super::universe_selection::persist_historical_membership_frontier_v1(
+            &mut transaction,
+            frontier,
+            vec![HistoricalMembershipFactProposalV1 {
+                member_key: instrument.as_bytes().to_vec(),
+                instrument: instrument.as_bytes().to_vec(),
+                predecessor_identity: None,
+                effective_from_ns: 1,
+                effective_until_ns: None,
+                provider_available_ns: 20,
+                retrieval_ns: 30,
+                correction_publication_ns: 25,
+                owner_observation_ns: 39,
+                decision_cut: 40,
+                source_binding_lineage_root: source.fact().lineage_root(),
+                correction_frontier_digest: correction_digest,
+            }],
+        )
+        .await
+        .unwrap();
+        let readback = super::universe_selection::resolve_universe_selection_in_transaction_v1(
+            &mut transaction,
+            &universe_request,
+            Some(&CanonicalUniverseSelectionRuleEvaluatorV1),
+        )
+        .await
+        .unwrap();
+        transaction.commit().await.unwrap();
+        readback
+    };
+    (
+        UntrustedUniverseSelectionLocatorV1::from_untrusted(
+            universe_request.request_identity(),
+            universe_request.request_meaning_digest(),
+        ),
+        universe.record().identity(),
+    )
+}
+
+/// One Research request's AVAILABLE PIT snapshot for `instrument`, minted from a frozen request by
+/// the production path under `source`, over `universe`.
+async fn research_request_pit_v1(
+    owner: &MarketDataOwnerPostgres,
+    source: &SourceBindingCommit,
+    instrument: &str,
+    universe: &(
+        UntrustedUniverseSelectionLocatorV1,
+        crate::owner::universe_selection::UniverseSelectionIdentity,
+    ),
+    seed: u8,
+) -> crate::owner::pit_snapshot::PitSnapshotCommitAggregate {
+    let mut request = UntrustedPitSnapshotRequest {
+        claimed_request_identity: d(0),
+        claimed_request_digest: d(0),
+        correlation_identity: d(seed + 4),
+        requester_identity: d(seed + 5),
+        scope_digest: d(205),
+        source_binding: source.receipt().locator().clone(),
+        instrument_master_digest: d(206),
+        universe_selection_digest: universe.1,
+        market_semantics_identity: derive_market_semantics_compatibility_identity_v1(
+            &source.fact().proposal().semantics,
+        ),
+        time_evidence: pit_time(40, 1),
+    };
+    refresh_request_claims(&mut request);
+    let pit = owner
+        .commit_pit_initial_from_request_v1(
+            request,
+            &ScopeFaithfulObservationSourceV1 {
+                member_key: instrument.into(),
+                instrument: instrument.into(),
+            },
+            &universe.0,
+            &clock(40, 1),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        pit.fact().disposition(),
+        PitSnapshotDisposition::Available,
+        "each Research request's snapshot is minted AVAILABLE"
+    );
+    pit
+}
+
+/// Declares one exact-instrument close role against `pit`'s own verified batch.
+async fn declare_close_role_v1(
+    owner: &MarketDataOwnerPostgres,
+    pit: &crate::owner::pit_snapshot::PitSnapshotCommitAggregate,
+    instrument: &str,
+    seed: u8,
+) -> Result<(), super::strategy_input_binding_registry::StrategyInputBindingRegistryErrorV1> {
+    let mut transaction = owner.pool().begin().await.unwrap();
+    let batch = super::strategy_input_binding_registry::load_owner_verified_pit_batch_v1(
+        &mut transaction,
+        pit.fact().snapshot_identity(),
+    )
+    .await?;
+    let request = UntrustedStrategyInputBindingRequest {
+        research_request_identity: d(seed),
+        strategy_design_identity: d(seed + 1),
+        input_role_identity: d(seed + 2),
+        scope: UntrustedStrategyInputScope::ExactInstrument {
+            instrument: instrument.into(),
+        },
+        field_semantic: MarketDataFieldSemantic::BarClosePrice,
+        channel: StrategyInputChannel::Market,
+        timeframe: "1M".into(),
+        unit: StrategyInputUnit::Price,
+        scale: 2,
+        pit_request_identity: batch.request_identity(),
+        pit_request_digest: batch.request_digest(),
+        snapshot_identity: batch.snapshot_identity(),
+        snapshot_fact_digest: batch.fact_digest(),
+        observation_batch_digest: batch.digest(),
+        source_binding_identity: batch.source_binding_identity(),
+        source_frontier_digest: batch.source_frontier_digest(),
+        correction_frontier_digest: batch.correction_frontier_digest(),
+        instrument_master_digest: batch.instrument_master_digest(),
+        universe_selection_digest: batch.universe_selection_digest(),
+        market_semantics_identity: batch.market_semantics_identity(),
+        decision_cut: batch.time_evidence().decision_cut.value,
+    };
+    let declared =
+        super::strategy_input_binding_registry::register_strategy_input_binding_declaration_v1(
+            &mut transaction,
+            &request,
+        )
+        .await
+        .map(|_| ());
+
+    if declared.is_ok() {
+        transaction.commit().await.unwrap();
+    } else {
+        transaction.rollback().await.unwrap();
+    }
+    declared
+}
+
+/// The typed value a Market Semantics submission states, by price-adjustment tag.
+fn market_semantics_value_v1(
+    price_adjustment: &str,
+) -> crate::owner::market_semantics_admission_v1::MarketSemanticsValueSubmissionV1 {
+    crate::owner::market_semantics_admission_v1::MarketSemanticsValueSubmissionV1 {
+        normalization_identity: d(180),
+        price_adjustment: price_adjustment.into(),
+        timestamp_basis: "EVENT_EFFECTIVE".into(),
+        price_unit_identity: d(181),
+        size_unit_identity: d(182),
+    }
+}
+
+/// Admits a Market Semantics fact for `pit` under `source`, stating `price_adjustment`.
+async fn admit_market_semantics_v1(
+    owner: &MarketDataOwnerPostgres,
+    source: &SourceBindingCommit,
+    pit: &crate::owner::pit_snapshot::PitSnapshotCommitAggregate,
+    price_adjustment: &str,
+) -> Result<(), crate::owner::market_semantics_admission_v1::MarketSemanticsAdmissionErrorV1> {
+    owner
+        .admit_market_semantics_fact_v1(
+            crate::owner::market_semantics_admission_v1::MarketSemanticsFactSubmissionV1 {
+                source_binding: source.receipt().locator().clone(),
+                pit_snapshot: pit.receipt().locator().clone(),
+                value: market_semantics_value_v1(price_adjustment),
+            },
+        )
+        .await
+        .map(|_| ())
+}
+
+/// The heads a compatibility scope holds, as (PIT snapshot, fact) pairs in snapshot order.
+async fn market_semantics_scope_heads_v1(
+    owner: &MarketDataOwnerPostgres,
+    scope: BindingDigest,
+) -> Vec<(Vec<u8>, Vec<u8>)> {
+    sqlx::query_as(
+        "SELECT pit_snapshot_identity,fact_identity FROM market_data_private.market_semantics_heads_v2 WHERE compatibility_scope_identity=$1 ORDER BY pit_snapshot_identity",
+    )
+    .bind(scope.as_bytes().as_slice())
+    .fetch_all(owner.pool())
+    .await
+    .unwrap()
+}
+
+/// The fact in force for `pit` in its binding's scope, at `pit`'s own instants, as the snapshot
+/// that fact binds; `None` when no fact answers.
+async fn market_semantics_fact_snapshot_v1(
+    owner: &MarketDataOwnerPostgres,
+    source: &SourceBindingCommit,
+    pit: &crate::owner::pit_snapshot::PitSnapshotCommitAggregate,
+    at: &crate::owner::pit_snapshot::PitSnapshotCommitAggregate,
+) -> Option<BindingDigest> {
+    let mut transaction = owner.pool().begin().await.unwrap();
+    let time = at.fact().request().time_evidence.clone();
+    let resolved = super::market_semantics::resolve_market_semantics_scope_in_transaction_v1(
+        &mut transaction,
+        derive_market_semantics_compatibility_identity_v1(&source.fact().proposal().semantics),
+        pit.fact().snapshot_identity(),
+        i128::from(time.event_effective.value),
+        i128::from(time.observed_at),
+        time.decision_cut.value,
+    )
+    .await;
+    transaction.rollback().await.unwrap();
+    let readback = resolved.ok()?;
+    let [fact] = readback.facts() else {
+        panic!("a resolved scope answers with one fact");
+    };
+    Some(fact.pit_snapshot_identity)
+}
+
+/// Every Research request under one Source Binding gets its own Market Semantics fact, and one
+/// binding still states one price adjustment.
+///
+/// A fact is proven by one PIT snapshot's evidence, so each snapshot keeps its own chain under the
+/// binding's compatibility scope. Each case below is a prediction written before the run:
+///
+/// - A, the binding's first request (AAPL): admitted, and its role declares.
+/// - B, a second request for the same instrument: admitted, and its role declares. At B's
+///   instants A's fact is in force too, and each snapshot resolves to its own fact.
+/// - C, another instrument (MSFT) under the same binding: admitted, and its role declares.
+/// - D, the control, the first request under a second binding (NVDA): admitted, and it declares.
+/// - E, B's snapshot submitted again with the same value rejoins B's fact, and with another value
+///   is refused as `SnapshotValueConflict`; the scope still holds one head for B's snapshot.
+/// - F, a new snapshot under the first binding stating another price adjustment: refused as
+///   `ScopeValueConflict`, with no head written for it. Without that rule
+///   nothing else refuses it: its registry key names its own snapshot, and overlap is per snapshot.
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+#[allow(clippy::too_many_lines)]
+async fn postgres_each_research_request_under_one_binding_gets_its_own_market_semantics() {
+    use super::strategy_input_binding_registry::StrategyInputBindingRegistryErrorV1 as Registry;
+    use crate::owner::market_semantics_admission_v1::MarketSemanticsAdmissionErrorV1;
+
+    let owner_url = env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL").unwrap();
+    let owner = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
+    let decision = OwnerSourceBindingDecision {
+        blockers: BTreeSet::new(),
+    };
+    let first_binding = owner
+        .commit_source_initial(source_proposal(10, 40), decision.clone(), &clock(40, 1))
+        .await
+        .unwrap();
+    let mut second_value = source_proposal(10, 40);
+    second_value.semantics.normalization = "normalization-v2".into();
+    second_value.time_evidence.claimed_evidence_identity =
+        derive_time_evidence_identity(&second_value.time_evidence);
+    second_value.claimed_binding_id = derive_binding_id(&second_value);
+    let second_binding = owner
+        .commit_source_initial(second_value, decision, &clock(40, 1))
+        .await
+        .unwrap();
+    let scope_of = |source: &SourceBindingCommit| {
+        derive_market_semantics_compatibility_identity_v1(&source.fact().proposal().semantics)
+    };
+    assert_ne!(
+        scope_of(&first_binding),
+        scope_of(&second_binding),
+        "the control binding has a compatibility scope of its own"
+    );
+
+    for (source, instrument) in [
+        (&first_binding, "AAPL"),
+        (&first_binding, "MSFT"),
+        (&second_binding, "NVDA"),
+    ] {
+        owner
+            .admit_instrument_master_fact_v1(oracle_instrument_submission_v1(
+                instrument,
+                scope_of(source),
+                source.fact().source_frontier().digest,
+                source.receipt().locator().correction_frontier.digest,
+            ))
+            .await
+            .expect("the instrument's fact is admitted under its binding's scope");
+    }
+
+    // A: the binding's first Research request.
+    // Every request for one instrument reads that instrument's one current membership: a
+    // membership fact names no frontier, so restating it under a second frontier is refused.
+    let aapl = one_member_universe_v1(&owner, &first_binding, "AAPL", 20).await;
+    let first = research_request_pit_v1(&owner, &first_binding, "AAPL", &aapl, 20).await;
+    assert_eq!(
+        admit_market_semantics_v1(&owner, &first_binding, &first, "RAW").await,
+        Ok(())
+    );
+    assert_eq!(
+        declare_close_role_v1(&owner, &first, "AAPL", 30).await,
+        Ok(())
+    );
+
+    // B: a second Research request for the same instrument.
+    let second = research_request_pit_v1(&owner, &first_binding, "AAPL", &aapl, 40).await;
+    assert_eq!(
+        admit_market_semantics_v1(&owner, &first_binding, &second, "RAW").await,
+        Ok(())
+    );
+    assert_eq!(
+        market_semantics_fact_snapshot_v1(&owner, &first_binding, &first, &second).await,
+        Some(first.fact().snapshot_identity()),
+        "A's fact is in force at B's instants too"
+    );
+    assert_eq!(
+        market_semantics_fact_snapshot_v1(&owner, &first_binding, &second, &second).await,
+        Some(second.fact().snapshot_identity()),
+        "B's snapshot resolves to its own fact, not to A's"
+    );
+    assert_eq!(
+        declare_close_role_v1(&owner, &second, "AAPL", 50).await,
+        Ok(())
+    );
+
+    // C: another instrument under the same binding.
+    let msft = one_member_universe_v1(&owner, &first_binding, "MSFT", 60).await;
+    let other = research_request_pit_v1(&owner, &first_binding, "MSFT", &msft, 60).await;
+    assert_eq!(
+        admit_market_semantics_v1(&owner, &first_binding, &other, "RAW").await,
+        Ok(())
+    );
+    assert_eq!(
+        declare_close_role_v1(&owner, &other, "MSFT", 70).await,
+        Ok(())
+    );
+
+    // D, the control: the first request under a second binding.
+    let nvda = one_member_universe_v1(&owner, &second_binding, "NVDA", 80).await;
+    let control = research_request_pit_v1(&owner, &second_binding, "NVDA", &nvda, 80).await;
+    assert_eq!(
+        admit_market_semantics_v1(&owner, &second_binding, &control, "RAW").await,
+        Ok(())
+    );
+    assert_eq!(
+        declare_close_role_v1(&owner, &control, "NVDA", 90).await,
+        Ok(())
+    );
+
+    // E: B's snapshot again. The same value rejoins B's fact; another value is refused, and the
+    // snapshot keeps one head.
+    let heads_before = market_semantics_scope_heads_v1(&owner, scope_of(&first_binding)).await;
+    assert_eq!(heads_before.len(), 3, "one head for each of A, B and C");
+    assert_eq!(
+        admit_market_semantics_v1(&owner, &first_binding, &second, "RAW").await,
+        Ok(())
+    );
+    assert_eq!(
+        admit_market_semantics_v1(&owner, &first_binding, &second, "SPLIT_ADJUSTED").await,
+        Err(MarketSemanticsAdmissionErrorV1::SnapshotValueConflict)
+    );
+    assert_eq!(
+        market_semantics_scope_heads_v1(&owner, scope_of(&first_binding)).await,
+        heads_before,
+        "a snapshot submitted again adds no chain and moves no head"
+    );
+
+    // F: a new snapshot under the first binding stating another price adjustment.
+    let later = research_request_pit_v1(&owner, &first_binding, "AAPL", &aapl, 100).await;
+    assert_eq!(
+        admit_market_semantics_v1(&owner, &first_binding, &later, "SPLIT_ADJUSTED").await,
+        Err(MarketSemanticsAdmissionErrorV1::ScopeValueConflict)
+    );
+    assert_eq!(
+        market_semantics_scope_heads_v1(&owner, scope_of(&first_binding)).await,
+        heads_before,
+        "a refused value writes no head"
+    );
+    assert_eq!(
+        market_semantics_fact_snapshot_v1(&owner, &first_binding, &later, &later).await,
+        None,
+        "the refused snapshot has no fact"
+    );
+    assert!(matches!(
+        declare_close_role_v1(&owner, &later, "AAPL", 110).await,
+        Err(Registry::MarketSemanticsUnavailable)
+    ));
+    assert_eq!(
+        admit_market_semantics_v1(&owner, &first_binding, &later, "RAW").await,
+        Ok(()),
+        "the same snapshot stating the binding's value is admitted"
+    );
+}
+
+/// Two snapshots under one binding stating different values, submitted at once, cannot both be
+/// admitted: the appends are ordered, the second reads the first's head, and exactly one value is
+/// left in the scope.
+///
+/// The interleaving is made, not hoped for. Appends to one scope are ordered twice: by the binding's
+/// Source Binding rows, which every append locks `FOR UPDATE` before it reads anything of the scope,
+/// and by the scope's advisory lock. The test holds both, waits until both appends are queued, and
+/// only then releases them, so either order alone still queues them and an append with neither
+/// never queues. Each append then reads the heads under its own statement snapshot; an append whose
+/// snapshot was fixed before it queued would not see the other's head.
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+async fn postgres_concurrent_values_under_one_binding_leave_one_value() {
+    use crate::owner::market_semantics_admission_v1::MarketSemanticsAdmissionErrorV1;
+
+    let owner_url = env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL").unwrap();
+    let owner = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
+    let binding = owner
+        .commit_source_initial(
+            source_proposal(10, 40),
+            OwnerSourceBindingDecision {
+                blockers: BTreeSet::new(),
+            },
+            &clock(40, 1),
+        )
+        .await
+        .unwrap();
+    let scope =
+        derive_market_semantics_compatibility_identity_v1(&binding.fact().proposal().semantics);
+    owner
+        .admit_instrument_master_fact_v1(oracle_instrument_submission_v1(
+            "AAPL",
+            scope,
+            binding.fact().source_frontier().digest,
+            binding.receipt().locator().correction_frontier.digest,
+        ))
+        .await
+        .unwrap();
+    let aapl = one_member_universe_v1(&owner, &binding, "AAPL", 20).await;
+    let raw = research_request_pit_v1(&owner, &binding, "AAPL", &aapl, 20).await;
+    let split = research_request_pit_v1(&owner, &binding, "AAPL", &aapl, 40).await;
+
+    let mut holder = owner.pool().begin().await.unwrap();
+    sqlx::query(
+        "SELECT 1 FROM market_data_private.source_binding_facts_v1 WHERE binding_id=$1 FOR UPDATE",
+    )
+    .bind(binding.receipt().locator().binding_id.as_bytes().as_slice())
+    .fetch_one(&mut *holder)
+    .await
+    .unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended(encode($1::bytea,'hex'),0))")
+        .bind(scope.as_bytes().as_slice())
+        .execute(&mut *holder)
+        .await
+        .unwrap();
+    let release = async {
+        let queued = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+            loop {
+                let waiting: i64 = sqlx::query_scalar(
+                    "SELECT pg_catalog.count(*) FROM pg_catalog.pg_stat_activity WHERE datname=pg_catalog.current_database() AND wait_event_type='Lock'",
+                )
+                .fetch_one(owner.pool())
+                .await
+                .unwrap();
+
+                if waiting == 2 {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        holder.rollback().await.unwrap();
+        queued
+    };
+
+    let (raw_admission, split_admission, queued) = tokio::join!(
+        admit_market_semantics_v1(&owner, &binding, &raw, "RAW"),
+        admit_market_semantics_v1(&owner, &binding, &split, "SPLIT_ADJUSTED"),
+        release,
+    );
+    assert!(
+        queued.is_ok(),
+        "both appends queue behind an order before either reads the scope's heads"
+    );
+    let outcomes = [raw_admission, split_admission];
+    assert_eq!(
+        outcomes.iter().filter(|outcome| outcome.is_ok()).count(),
+        1,
+        "{outcomes:?}"
+    );
+    assert!(
+        outcomes
+            .iter()
+            .any(|outcome| outcome == &Err(MarketSemanticsAdmissionErrorV1::ScopeValueConflict)),
+        "{outcomes:?}"
+    );
+    assert_eq!(
+        market_semantics_scope_heads_v1(&owner, scope).await.len(),
+        1,
+        "the scope holds the admitted snapshot's head alone"
+    );
+}
+
+/// A store that keeps one Market Semantics head per scope migrates to one head per scope and PIT
+/// snapshot, and the old table is retired so an earlier binary fails on its first write.
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+async fn postgres_market_semantics_heads_migrate_to_one_head_per_snapshot() {
+    let owner_url = env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL").unwrap();
+    let database = env::var("VIBE_POSTGRES_TEST_DATABASE_NAME").unwrap();
+    assert!(
+        database.starts_with("vibe_test_"),
+        "this proof reshapes tables; it runs only against a disposable database"
+    );
+    let owner = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
+    let retired = |owner: &MarketDataOwnerPostgres| {
+        let pool = owner.pool().clone();
+        async move {
+            sqlx::query("INSERT INTO market_data_private.market_semantics_heads_v1 VALUES($1,$2)")
+                .bind(vec![1_u8; 32])
+                .bind(vec![2_u8; 32])
+                .execute(&pool)
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("market_semantics_heads_v1 is retired")
+        }
+    };
+    assert!(
+        retired(&owner).await,
+        "a fresh store carries the old table already retired"
+    );
+
+    let binding = owner
+        .commit_source_initial(
+            source_proposal(10, 40),
+            OwnerSourceBindingDecision {
+                blockers: BTreeSet::new(),
+            },
+            &clock(40, 1),
+        )
+        .await
+        .unwrap();
+    let scope =
+        derive_market_semantics_compatibility_identity_v1(&binding.fact().proposal().semantics);
+    owner
+        .admit_instrument_master_fact_v1(oracle_instrument_submission_v1(
+            "AAPL",
+            scope,
+            binding.fact().source_frontier().digest,
+            binding.receipt().locator().correction_frontier.digest,
+        ))
+        .await
+        .unwrap();
+    let aapl = one_member_universe_v1(&owner, &binding, "AAPL", 20).await;
+    let pit = research_request_pit_v1(&owner, &binding, "AAPL", &aapl, 20).await;
+    let later = research_request_pit_v1(&owner, &binding, "AAPL", &aapl, 40).await;
+    admit_market_semantics_v1(&owner, &binding, &pit, "RAW")
+        .await
+        .unwrap();
+    let heads = market_semantics_scope_heads_v1(&owner, scope).await;
+    let [(snapshot, fact)] = heads.as_slice() else {
+        panic!("one head: {heads:?}");
+    };
+    assert_eq!(
+        snapshot.as_slice(),
+        pit.fact().snapshot_identity().as_bytes().as_slice()
+    );
+
+    // Put the store back as an earlier build left it: the fact headed in the one-head table, no
+    // per-snapshot table, and the migration not yet recorded.
+    for statement in [
+        "DROP TRIGGER market_semantics_heads_v1_retired ON market_data_private.market_semantics_heads_v1",
+        "DROP TRIGGER market_semantics_heads_v1_retired_truncate ON market_data_private.market_semantics_heads_v1",
+        "DROP TABLE market_data_private.market_semantics_heads_v2",
+        "UPDATE market_data_private.owner_migrations_v1 SET migration_id=migration_id||'-reverted' WHERE migration_id='market-data-owner-market-semantics-snapshot-heads-v1'",
+    ] {
+        sqlx::query(statement).execute(owner.pool()).await.unwrap();
+    }
+    sqlx::query("INSERT INTO market_data_private.market_semantics_heads_v1 VALUES($1,$2)")
+        .bind(scope.as_bytes().as_slice())
+        .bind(fact.as_slice())
+        .execute(owner.pool())
+        .await
+        .unwrap();
+
+    // A binary running before the store is migrated: `owner` connected earlier and does not
+    // install again, as a runtime connection never does. Its append finds no per-snapshot table
+    // and fails closed, and it writes nothing to the old table, whose triggers are gone here.
+    let legacy_rows = |owner: &MarketDataOwnerPostgres| {
+        let pool = owner.pool().clone();
+        async move {
+            sqlx::query_as::<_, (Vec<u8>, Vec<u8>)>(
+                "SELECT compatibility_scope_identity,fact_identity FROM market_data_private.market_semantics_heads_v1",
+            )
+            .fetch_all(&pool)
+            .await
+            .unwrap()
+        }
+    };
+    let legacy_before = legacy_rows(&owner).await;
+    let refused = admit_market_semantics_v1(&owner, &binding, &later, "RAW").await;
+    eprintln!("before migration: {refused:?}");
+    assert_eq!(
+        refused,
+        Err(crate::owner::market_semantics_admission_v1::MarketSemanticsAdmissionErrorV1::StoreUnavailable)
+    );
+    assert_eq!(
+        legacy_rows(&owner).await,
+        legacy_before,
+        "nothing is written to the old table"
+    );
+
+    let migrated = MarketDataOwnerPostgres::connect(&owner_url)
+        .await
+        .expect("the one-head store migrates");
+    assert_eq!(
+        market_semantics_scope_heads_v1(&migrated, scope).await,
+        heads,
+        "the old head is carried over, keyed by the snapshot its fact binds"
+    );
+    assert!(
+        retired(&migrated).await,
+        "the migrated store's old table is retired"
+    );
+
+    for statement in [
+        "UPDATE market_data_private.market_semantics_heads_v1 SET fact_identity=fact_identity",
+        "DELETE FROM market_data_private.market_semantics_heads_v1",
+        "TRUNCATE TABLE market_data_private.market_semantics_heads_v1",
+    ] {
+        let refused = sqlx::query(statement)
+            .execute(migrated.pool())
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(
+            refused.contains("market_semantics_heads_v1 is retired"),
+            "{statement}: {refused}"
+        );
+    }
+    assert_eq!(
+        legacy_rows(&migrated).await,
+        legacy_before,
+        "the retired table keeps its rows through every refused write"
+    );
+    assert_eq!(
+        admit_market_semantics_v1(&migrated, &binding, &later, "RAW").await,
+        Ok(()),
+        "once migrated, the same submission is admitted"
+    );
+    let reconnected = MarketDataOwnerPostgres::connect(&owner_url)
+        .await
+        .expect("a migrated store connects again without migrating twice");
+    assert_eq!(
+        market_semantics_scope_heads_v1(&reconnected, scope)
+            .await
+            .len(),
+        2,
+        "the carried head and the one admitted after the migration"
+    );
+
+    // An old table of any other shape stops the installation rather than being guessed at.
+    for statement in [
+        "DROP TRIGGER market_semantics_heads_v1_retired ON market_data_private.market_semantics_heads_v1",
+        "DROP TRIGGER market_semantics_heads_v1_retired_truncate ON market_data_private.market_semantics_heads_v1",
+        // Without the per-snapshot table the migration would otherwise succeed again, so only the
+        // old table's shape can stop it.
+        "DROP TABLE market_data_private.market_semantics_heads_v2",
+        "ALTER TABLE market_data_private.market_semantics_heads_v1 ADD COLUMN unexpected BYTEA",
+        "UPDATE market_data_private.owner_migrations_v1 SET migration_id=migration_id||'-reshaped' WHERE migration_id='market-data-owner-market-semantics-snapshot-heads-v1'",
+    ] {
+        sqlx::query(statement).execute(owner.pool()).await.unwrap();
+    }
+    assert!(
+        MarketDataOwnerPostgres::connect(&owner_url).await.is_err(),
+        "an unrecognised old table is refused"
+    );
 }

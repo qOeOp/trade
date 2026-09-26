@@ -10721,17 +10721,7 @@ impl MarketDataOwnerPostgres {
             source_readback.binding_id(),
         )?;
         market_semantics::register_market_semantics_registry_entry_v1(&mut transaction, &entry)
-            .await
-            .map_err(|e| match e {
-                // The registry is write-once per key: that registration inserts on conflict do
-                // nothing and then reads back, so a readback that does not equal what this
-                // submission offered means the key already carries different content. That is the
-                // submitter's conflict, not a store fault.
-                super::market_semantics::MarketSemanticsErrorV1::StoreUntrusted => {
-                    MarketSemanticsAdmissionErrorV1::AdmissionConflict
-                }
-                other => MarketSemanticsAdmissionErrorV1::from(other),
-            })?;
+            .await?;
 
         let mut instrument_locator_bytes = Vec::with_capacity(64);
         instrument_locator_bytes.extend_from_slice(instrument.request_identity.as_bytes());
