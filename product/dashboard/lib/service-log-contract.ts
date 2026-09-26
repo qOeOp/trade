@@ -311,9 +311,12 @@ function parseSummary(value: unknown): ServiceLogSummaryV1 | null {
   return value as ServiceLogSummaryV1;
 }
 
+// `observed_at` is the database's statement time (or, for an unavailable envelope, the server's), so
+// it is checked only against times from that same answer. Comparing it with this browser's clock
+// would let a browser running behind the database refuse a current read, which the cut exists to
+// prevent (see ServiceLogFilterRequestV1).
 export async function parseServiceLogBrowserEnvelopeV1(
   value: unknown,
-  receivedAt = new Date().toISOString(),
 ): Promise<ServiceLogBrowserEnvelopeV1 | null> {
   if (!object(value) || !exactKeys(value, [
     "schema_version", "projection_version", "operation", "availability", "unavailable_reason", "completeness",
@@ -323,8 +326,7 @@ export async function parseServiceLogBrowserEnvelopeV1(
     || value.operation !== "dashboard.service_log_gateway.read.v1"
     || !["available", "unavailable"].includes(String(value.availability))
     || !["complete", "partial_unavailable"].includes(String(value.completeness))
-    || !timestamp(receivedAt) || !timestamp(value.observed_at)
-    || Date.parse(value.observed_at) > Date.parse(receivedAt) || value.retention_limit !== 512
+    || !timestamp(value.observed_at) || value.retention_limit !== 512
     || !serviceLogPageSizesV1.includes(value.page_size as ServiceLogPageSizeV1)
     || !Array.isArray(value.instances) || !Array.isArray(value.entries)
     || (value.next_cursor !== null && (typeof value.next_cursor !== "string" || value.next_cursor.length > 1_024))) return null;

@@ -16,6 +16,14 @@
 //! and a successor authorization may differ only in identity and lifetime), so the caller passes
 //! every operation it will admit. One key per caller keeps callers from sharing a history head.
 //!
+//! Precondition: both Owners' topologies are provisioned the way a deployment provisions them,
+//! by `10-migrate-authority-custody.sh` and then `product-edge-authority-bootstrap
+//! materialize-schema` (Operator Authorization's and Product Edge's `materialize_schema`). The
+//! fixture connects with `connect_existing`, which refuses an unprovisioned topology with
+//! `TopologyNotAdmitted` (Operator Authorization checks all sixteen of its relations); it does not
+//! provision, so a template that skipped a deployment step fails here by name instead of passing
+//! because some earlier caller happened to migrate.
+//!
 //! A research entry, for example, binds the source-intake and research-goal operations:
 //!
 //! ```ignore
@@ -162,10 +170,32 @@ pub enum DeploymentAcceptanceFixtureErrorV1 {
         valid_from_epoch_ms: u64,
         valid_through_epoch_ms: u64,
     },
-    #[error(transparent)]
-    OperatorAuthorization(OperatorAuthorizationError),
-    #[error(transparent)]
-    ProductEdge(ProductEdgeError),
+    /// An Operator Authorization call refused; `step` names the call.
+    #[error("{step}: {error}")]
+    OperatorAuthorization {
+        step: &'static str,
+        #[source]
+        error: OperatorAuthorizationError,
+    },
+    /// A Product Edge call refused; `step` names the call.
+    #[error("{step}: {error}")]
+    ProductEdge {
+        step: &'static str,
+        #[source]
+        error: ProductEdgeError,
+    },
+}
+
+fn operator_authorization(
+    step: &'static str,
+) -> impl Fn(OperatorAuthorizationError) -> DeploymentAcceptanceFixtureErrorV1 {
+    move |e| DeploymentAcceptanceFixtureErrorV1::OperatorAuthorization { step, error: e }
+}
+
+fn product_edge(
+    step: &'static str,
+) -> impl Fn(ProductEdgeError) -> DeploymentAcceptanceFixtureErrorV1 {
+    move |e| DeploymentAcceptanceFixtureErrorV1::ProductEdge { step, error: e }
 }
 
 /// Ensures the deployment `proposal.fixture_key` names exists, admitted and current, and returns
@@ -198,12 +228,12 @@ pub async fn ensure_product_edge_deployment_acceptance_fixture_v1(
         operations.push(DeploymentAcceptanceBoundOperationV1 {
             operation: operation.clone(),
             manifest: OperationManifestBindingV1 {
-                manifest_identity: manifest
-                    .manifest_identity()
-                    .map_err(DeploymentAcceptanceFixtureErrorV1::ProductEdge)?,
-                manifest_digest: manifest
-                    .manifest_digest()
-                    .map_err(DeploymentAcceptanceFixtureErrorV1::ProductEdge)?,
+                manifest_identity: manifest.manifest_identity().map_err(product_edge(
+                    "AgentOperationManifestProposalV1::manifest_identity",
+                ))?,
+                manifest_digest: manifest.manifest_digest().map_err(product_edge(
+                    "AgentOperationManifestProposalV1::manifest_digest",
+                ))?,
             },
         });
     }
@@ -218,7 +248,9 @@ pub async fn ensure_product_edge_deployment_acceptance_fixture_v1(
         operator_authorization_database_url,
     )
     .await
-    .map_err(DeploymentAcceptanceFixtureErrorV1::OperatorAuthorization)?;
+    .map_err(operator_authorization(
+        "OperatorAuthorizationIssuerPostgresV1::connect_existing",
+    ))?;
     let authorization = issuer
         .issue_genesis(OperatorAuthorizationIssuanceProposalV1 {
             authorization_identity: format!("acceptance-authorization-{key}"),
@@ -243,7 +275,7 @@ pub async fn ensure_product_edge_deployment_acceptance_fixture_v1(
                     owner: "Operator Authorization",
                 }
             }
-            e => DeploymentAcceptanceFixtureErrorV1::OperatorAuthorization(e),
+            e => operator_authorization("OperatorAuthorizationIssuerPostgresV1::issue_genesis")(e),
         })?
         .locator();
 
@@ -258,11 +290,12 @@ pub async fn ensure_product_edge_deployment_acceptance_fixture_v1(
         authorization_trust.clone(),
     )
     .await
-    .map_err(DeploymentAcceptanceFixtureErrorV1::ProductEdge)?;
+    .map_err(product_edge("ProductEdgePostgresOwnerV1::connect_existing"))?;
     let owner_now_epoch_ms = edge
         .store_clock_ms()
         .await
-        .map_err(DeploymentAcceptanceFixtureErrorV1::ProductEdge)?;
+        .map_err(product_edge("ProductEdgePostgresOwnerV1::store_clock_ms"))?;
+
     if !(VALID_FROM_EPOCH_MS..VALID_THROUGH_EPOCH_MS).contains(&owner_now_epoch_ms) {
         return Err(DeploymentAcceptanceFixtureErrorV1::BindingNotCurrent {
             deployment_identity,
@@ -285,7 +318,7 @@ pub async fn ensure_product_edge_deployment_acceptance_fixture_v1(
             valid_through_epoch_ms: VALID_THROUGH_EPOCH_MS,
             authorization: authorization.clone(),
             manifests: AgentOperationManifestSetV1::new(manifests)
-                .map_err(DeploymentAcceptanceFixtureErrorV1::ProductEdge)?,
+                .map_err(product_edge("AgentOperationManifestSetV1::new"))?,
         })
         .await
         .map_err(|e| match e {
@@ -295,7 +328,7 @@ pub async fn ensure_product_edge_deployment_acceptance_fixture_v1(
                     owner: "Product Edge",
                 }
             }
-            e => DeploymentAcceptanceFixtureErrorV1::ProductEdge(e),
+            e => product_edge("ProductEdgePostgresOwnerV1::bootstrap_genesis")(e),
         })?;
 
     Ok(ProductEdgeDeploymentAcceptanceFixtureV1 {
@@ -358,6 +391,30 @@ mod tests {
             request_proof_digest: deployment.request_proof_digest.clone(),
             audit_correlation: format!("acceptance:{identity}"),
         }
+    }
+
+    /// A refusal names the production call that refused: an ablation that saw only
+    /// `TopologyNotAdmitted` could not tell the issuer's topology check from Product Edge's.
+    #[rstest]
+    fn a_refusal_names_the_call_that_refused() {
+        let refusal = operator_authorization(
+            "OperatorAuthorizationIssuerPostgresV1::connect_existing",
+        )(OperatorAuthorizationError::ConflictingReplay);
+        assert!(
+            refusal
+                .to_string()
+                .starts_with("OperatorAuthorizationIssuerPostgresV1::connect_existing: "),
+            "{refusal}"
+        );
+        let refusal = product_edge("ProductEdgePostgresOwnerV1::bootstrap_genesis")(
+            ProductEdgeError::ConflictingReplay,
+        );
+        assert!(
+            refusal
+                .to_string()
+                .starts_with("ProductEdgePostgresOwnerV1::bootstrap_genesis: "),
+            "{refusal}"
+        );
     }
 
     /// Source Intake's own check, `validate_digest`, refuses anything but `sha256:` and 64

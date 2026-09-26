@@ -1752,7 +1752,12 @@ check_sealed_browser_inputs() {
 }
 check_sealed_browser_inputs
 
-readonly postgres_image="public.ecr.aws/docker/library/postgres:16.4-alpine@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c"
+# One image, two sources: mirror.gcr.io first, public.ecr.aws if it does not serve. The digest names
+# the bytes, so either source gives this chain the same server (scripts/ci/pull-pinned-image.bash).
+readonly postgres_image_sources=(
+  "mirror.gcr.io/library/postgres:16.4-alpine@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c"
+  "public.ecr.aws/docker/library/postgres:16.4-alpine@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c"
+)
 suffix="$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')-$$"
 readonly suffix
 readonly container="vibe-rd-owner-test-${suffix}"
@@ -2040,9 +2045,8 @@ select_reachable_postgres_endpoint() {
   printf '%s %s\n' "$host" "$port"
 }
 
-if ! docker image inspect "$postgres_image" > /dev/null 2>&1; then
-  bash scripts/ci/docker-pull-retry.sh "$postgres_image" 3
-fi
+postgres_image="$(bash scripts/ci/pull-pinned-image.bash "${postgres_image_sources[@]}")"
+readonly postgres_image
 docker volume create "$volume" > /dev/null
 volume_created=true
 docker volume create "$impersonator_volume" > /dev/null
@@ -2290,6 +2294,21 @@ if [[ ! -d "$nextest_temp_root" ]]; then
 fi
 nextest_archive_dir="$(mktemp -d "${nextest_temp_root%/}/vibe-rd-owner-nextest.XXXXXXXX")"
 nextest_archive_file="${nextest_archive_dir}/rd-owner-tests.tar.zst"
+# The production provisioning binary for Operator Authorization and Product Edge, built as the
+# deployment image builds it (no features) and staged where .config/nextest.toml's
+# [profile.ci.archive] include puts it into the archive, so a job that runs from the archive has it.
+readonly chain_provisioning_binary=product-edge-authority-bootstrap
+chain_target_dir="${CARGO_TARGET_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/target}"
+case "$cargo_ci_profile" in
+  dev | test) chain_profile_dir=debug ;;
+  release | bench) chain_profile_dir=release ;;
+  *) chain_profile_dir="$cargo_ci_profile" ;;
+esac
+cargo build --locked --package vibe-product-edge-admin --bin "$chain_provisioning_binary" \
+  --profile "$cargo_ci_profile"
+mkdir -p -- "${chain_target_dir}/chain-provisioning"
+cp -- "${chain_target_dir}/${chain_profile_dir}/${chain_provisioning_binary}" \
+  "${chain_target_dir}/chain-provisioning/"
 cargo nextest archive \
   "${nextest_graph_args[@]}" \
   --features "$nextest_archive_features" \
@@ -3755,6 +3774,25 @@ SQL
   run_authority_migration
 }
 
+# Production provisioning runs in three steps (product/rd-workbench/docker-compose.yml): the R&D
+# schema materializer and the authority-custody migration, both run above, then
+# `authority-schema-materialize`, which materializes the Operator Authorization and Product Edge
+# schemas. Without the third, the template holds only Operator Authorization's four legacy
+# relations while `connect_existing` counts every admitted relation, both grant kinds' included
+# (`admitted_relations` and its check in crates/operator_authorization/src/postgres.rs at b55f8c03d),
+# and refuses with TopologyNotAdmitted. Product Edge is short three of its thirteen relations (the
+# admission event stream, admission events and expired-manifest recoveries). Entries passed anyway
+# only because an earlier entry's `connect()` migrated them: an order dependency the chain hid, and
+# one that a precondition built on a fresh database meets at once.
+chain_provisioning="${nextest_extract_dir}/target/chain-provisioning/${chain_provisioning_binary}"
+if [[ ! -x "$chain_provisioning" ]]; then
+  echo "ERROR: the archive holds no ${chain_provisioning_binary} at ${chain_provisioning}." >&2
+  exit 1
+fi
+OPERATOR_AUTHORIZATION_DATABASE_URL="postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}" \
+  PRODUCT_EDGE_DATABASE_URL="postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}" \
+  "$chain_provisioning" materialize-schema
+
 # The Catalog administrator, two replay migration filters, and Program Host acceptance use separate
 # fresh databases. In the shared database, run the complete Instrument Owner storage/ACL oracle only
 # after its consumers because its final inheritance fault poisons that private store. Keep the
@@ -4555,17 +4593,22 @@ BEGIN
       RAISE EXCEPTION '% crossed the R&D/Qualification custody boundary', role_name;
     END IF;
     forbidden_role_source := NULL;
-    SELECT table_name INTO forbidden_role_source
-    FROM information_schema.tables
-    WHERE table_schema = 'public'
-      AND table_name LIKE 'rd_%'
+    -- By oid, never by name: SQL does not order the conditions of a WHERE, and a name built as
+    -- 'public.' || relname for a same-named relation in another schema (composer_private holds
+    -- rd_develop_artifact_build_receipt_uses_v2) raises "does not exist" whenever the planner tests
+    -- privileges before the schema. Which order it chooses follows the catalog's statistics: the
+    -- serial chain has passed, and a run from a freshly cloned database failed here.
+    SELECT relation.relname INTO forbidden_role_source
+    FROM pg_catalog.pg_class relation
+    JOIN pg_catalog.pg_namespace namespace ON namespace.oid = relation.relnamespace
+    WHERE namespace.nspname = 'public'
+      AND relation.relkind IN ('r', 'p', 'v', 'f')
+      AND relation.relname LIKE 'rd_%'
       AND (
-        pg_catalog.has_table_privilege(
-          role_name, pg_catalog.format('public.%I', table_name), 'SELECT'
-        )
+        pg_catalog.has_table_privilege(role_name, relation.oid, 'SELECT')
         OR (SELECT pg_catalog.bool_or(pg_catalog.has_table_privilege(
           role_name,
-          pg_catalog.format('public.%I', table_name),
+          relation.oid,
           checked_privilege
         )) FROM pg_catalog.unnest(ARRAY['INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) checked_privilege)
       )

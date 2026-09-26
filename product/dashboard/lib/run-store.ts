@@ -59,6 +59,7 @@ import {
   sourceResearchRunOperationV1,
   unavailableSourceResearchRoutingAdmissionV1,
   validSourceResearchExecutionAdmissionV1,
+  researchOperationOfAdmissionV1,
   validSourceResearchRoutingAdmissionV1,
   type SourceResearchExecutionAdmissionV1,
   type SourceResearchRoutingAdmissionV1,
@@ -69,7 +70,14 @@ import {
   type SourceResearchRunInputCustodyStateV1,
   type SourceResearchRunInputReadbackV1,
 } from "./source-research-run-input-custody.ts";
-import type { SourceResearchRunRequestV1 } from "./source-research-input-contract.ts";
+import {
+  RESEARCH_OWNER_OPERATION_V3,
+  type ResearchOwnerOperationV1,
+} from "../../rd-owner-client/consumer_projection_v1.ts";
+import {
+  researchGoalInputIsV3,
+  type SourceResearchRunRequestV1,
+} from "./source-research-input-contract.ts";
 import {
   operationalCacheDeletionReceiptIdentityV1,
   parseOperationalCacheDeletionReceiptV1,
@@ -290,6 +298,8 @@ export type SourceResearchRecoverySnapshotV1 = {
   schema_version: 1;
   run: OperationRunV1;
   requested_action: "RUN" | "RESOLVE";
+  // The Research operation this run was admitted under, which every later resolve of it uses.
+  research_operation: ResearchOwnerOperationV1;
   routing: SourceResearchRoutingAdmissionV1;
   input_custody: SourceResearchRunInputReadbackV1;
   observed_phases: readonly ("SOURCE_OWNER_AVAILABLE" | "RESEARCH_OWNER_AVAILABLE")[];
@@ -441,6 +451,20 @@ function projectCancellationReceiptV1(row: CancellationRow): OperationalCancella
   const parsed = parseOperationalCancellationReceiptV1(receipt);
   if (!parsed) throw new Error("RUN_CANCELLATION_ROW_INVALID");
   return parsed;
+}
+
+/**
+ * An operational receipt and the moment the database observed it, read in the receipt's own
+ * transaction. The page checks the receipt's time against `observed_at`, so both must come from the
+ * database clock the receipt was stamped with; a server stamp here would let a server clock running
+ * behind the database refuse an effect that has already happened.
+ */
+export type OperationalReceiptAnswerV1<Receipt> = Readonly<{ receipt: Receipt; observed_at: string }>;
+
+async function databaseObservedAtV1(client: PoolClient): Promise<string> {
+  return (await client.query<{ observed_at: Date }>(
+    "SELECT clock_timestamp() AS observed_at",
+  )).rows[0].observed_at.toISOString();
 }
 
 function actionIdentityPayloadV1(value: Omit<OperationalActionEnvelopeV1, "action_identity">): string {
@@ -2331,7 +2355,9 @@ export class PostgresRunStoreV1 {
         research_compatibility_envelope_digest: row.research_compatibility_envelope_digest,
         routing,
       };
-      if (!validSourceResearchExecutionAdmissionV1(row.requested_action, storedAdmission)) {
+      const researchOperation = researchOperationOfAdmissionV1(storedAdmission);
+      if (!validSourceResearchExecutionAdmissionV1(row.requested_action, storedAdmission)
+        || !researchOperation) {
         throw new Error("SOURCE_RESEARCH_RECOVERY_INVALID");
       }
       const inputCustody = readSourceResearchRunInputCustodyV1({
@@ -2341,10 +2367,17 @@ export class PostgresRunStoreV1 {
         request: row.run_request_json,
         requestDigest: row.run_request_digest,
       });
+      // The input a run kept and the operation it was admitted under must name the same request.
+      if (inputCustody.availability === "available"
+        && researchGoalInputIsV3(inputCustody.request.research)
+          !== (researchOperation === RESEARCH_OWNER_OPERATION_V3)) {
+        throw new Error("SOURCE_RESEARCH_RECOVERY_INVALID");
+      }
       return {
         schema_version: 1,
         run: record(row),
         requested_action: row.requested_action,
+        research_operation: researchOperation,
         routing,
         input_custody: inputCustody,
         observed_phases: logs.rows.map(({ event_code }) => event_code) as
@@ -2402,7 +2435,12 @@ export class PostgresRunStoreV1 {
       || (dispatchMode === "queue" && (action !== "RUN" || existingRecoveryOnly
         || !queuedRequest || !queuedRequestDigest || !queuedTarget || !queuedTargetDigest))
       || (runRequest && (runRequest.source.request_identity !== canonical.source_request_identity
-        || runRequest.research.request_identity !== canonical.research_request_identity))) {
+        || runRequest.research.request_identity !== canonical.research_request_identity
+        || researchGoalInputIsV3(runRequest.research)
+          !== (researchOperationOfAdmissionV1(admission) === RESEARCH_OWNER_OPERATION_V3)))
+      // A new run is admitted only as V3.
+      || (action === "RUN" && !existingRecoveryOnly
+        && researchOperationOfAdmissionV1(admission) !== RESEARCH_OWNER_OPERATION_V3)) {
       throw new Error("SOURCE_RESEARCH_SUBMISSION_INVALID");
     }
     const routing = admission.routing;
@@ -4258,7 +4296,7 @@ export class PostgresRunStoreV1 {
     expectedTransitionVersion: number;
     authorizationDigest: string;
     principalRef?: string;
-  }): Promise<OperationalCacheDeletionReceiptV1> {
+  }): Promise<OperationalReceiptAnswerV1<OperationalCacheDeletionReceiptV1>> {
     if (!isRunIdentityV1(runIdentity) || !Number.isSafeInteger(expectedTransitionVersion)
       || expectedTransitionVersion < 1 || !DIGEST.test(authorizationDigest)
       || !/^[A-Za-z0-9._:/-]{1,96}$/.test(principalRef)) {
@@ -4291,8 +4329,9 @@ export class PostgresRunStoreV1 {
           receiptIdentity: receipt.receipt_identity,
           authorizationDigest: receipt.authorization_digest,
         });
+        const observedAt = await databaseObservedAtV1(client);
         await client.query("COMMIT");
-        return receipt;
+        return { receipt, observed_at: observedAt };
       }
       const run = record(row);
       if (!["succeeded", "failed", "cancelled", "unknown"].includes(run.state)) {
@@ -4335,8 +4374,9 @@ export class PostgresRunStoreV1 {
         receiptIdentity,
         authorizationDigest,
       });
+      const observedAt = await databaseObservedAtV1(client);
       await client.query("COMMIT");
-      return receipt;
+      return { receipt, observed_at: observedAt };
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
@@ -4355,7 +4395,7 @@ export class PostgresRunStoreV1 {
     actionEnvelope: OperationalActionEnvelopeV1;
     authorizationDigest: string;
     principalRef?: string;
-  }): Promise<OperationalCancellationReceiptV1> {
+  }): Promise<OperationalReceiptAnswerV1<OperationalCancellationReceiptV1>> {
     const action = parseOperationalActionEnvelopeV1(actionEnvelope);
     if (!isRunIdentityV1(runIdentity) || !action || action.run_identity !== runIdentity
       || !DIGEST.test(authorizationDigest) || action.authorization_digest !== authorizationDigest
@@ -4453,8 +4493,9 @@ export class PostgresRunStoreV1 {
         receiptIdentity,
         authorizationDigest,
       });
+      const observedAt = await databaseObservedAtV1(client);
       await client.query("COMMIT");
-      return receipt;
+      return { receipt, observed_at: observedAt };
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;

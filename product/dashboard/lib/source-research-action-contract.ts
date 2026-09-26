@@ -3,6 +3,7 @@ import type { OperationalRunReferenceV1 } from "./operational-run-reference.ts";
 
 const IDENTITY = /^[A-Za-z0-9._:/-]{1,192}$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
+const CODE = /^[A-Z][A-Z0-9_]{0,127}$/;
 
 export type SourceResearchActionEnvelopeV1 = {
   schema_version: 1;
@@ -24,6 +25,9 @@ export type SourceResearchActionEnvelopeV1 = {
     resolution: "ACCEPTED" | "REJECTED_NO_WRITE";
     intent_identity: string | null;
     trial_family_identity: string | null;
+    // The Owner's code for a request it closed without writing, such as
+    // INSTRUMENT_SCOPE_NOT_RESOLVABLE for an instrument Market Data does not admit; null when accepted.
+    rejection_code: string | null;
     next_legal_action: string;
   } | null;
   operational_run: OperationalRunReferenceV1;
@@ -99,7 +103,8 @@ export function parseSourceResearchActionEnvelopeV1(
       typeof entry === "string" && IDENTITY.test(entry)
     )) || typeof value.source.content_digest !== "string" || !DIGEST.test(value.source.content_digest)
     || !exactKeys(value.research, [
-      "schema_version", "request_identity", "resolution", "intent_identity", "trial_family_identity", "next_legal_action",
+      "schema_version", "request_identity", "resolution", "intent_identity", "trial_family_identity",
+      "rejection_code", "next_legal_action",
     ]) || value.research.schema_version !== 1 || value.research.request_identity !== researchRequestIdentity
     || !["ACCEPTED", "REJECTED_NO_WRITE"].includes(String(value.research.resolution))
     || typeof value.research.next_legal_action !== "string"
@@ -114,7 +119,9 @@ export function parseSourceResearchActionEnvelopeV1(
     || accepted !== (typeof value.research.trial_family_identity === "string"
       && IDENTITY.test(value.research.trial_family_identity))
     || (!accepted && (value.research.intent_identity !== null
-      || value.research.trial_family_identity !== null))) return null;
+      || value.research.trial_family_identity !== null))
+    || (accepted ? value.research.rejection_code !== null
+      : typeof value.research.rejection_code !== "string" || !CODE.test(value.research.rejection_code))) return null;
   const expectedOutcome = accepted ? "available" : "rejected";
   const expectedState = accepted ? "succeeded" : "failed";
   return run.availability === "available" && run.owner_outcome_state === expectedOutcome

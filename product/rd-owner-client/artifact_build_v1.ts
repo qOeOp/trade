@@ -39,6 +39,7 @@ import {
   deriveResearchConsumerProjectionV1,
   deriveVerifiedArtifactS1ContextV1,
   deriveVerifiedS1ConsumerContextV1,
+  RESEARCH_OWNER_OPERATION_V2,
   verifyArtifactConsumerProjectionV1,
   type VerifiedS1ConsumerContextV1,
 } from "./consumer_projection_v1.ts"
@@ -439,8 +440,8 @@ async function resolveS1Context(
     `/v2/research-goals/${encodeURIComponent(requestIdentity)}/resolve`,
     {},
   )
-  const projection = await deriveResearchConsumerProjectionV1(raw, requestIdentity)
-  return await deriveVerifiedS1ConsumerContextV1(projection, requestIdentity)
+  const projection = await deriveResearchConsumerProjectionV1(raw, requestIdentity, RESEARCH_OWNER_OPERATION_V2)
+  return await deriveVerifiedS1ConsumerContextV1(projection, requestIdentity, RESEARCH_OWNER_OPERATION_V2)
 }
 
 export type ArtifactBuildPreflightV1 =

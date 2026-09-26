@@ -1,6 +1,7 @@
 // Shared Trade-owned Owner projection contract consumed by both adapters.
 export const RESEARCH_CONSUMER_OPERATION_V1 = "research_goal.consumer_projection.v1"
 export const RESEARCH_OWNER_OPERATION_V2 = "research_goal.submit_or_resolve.v2"
+export const RESEARCH_OWNER_OPERATION_V3 = "research_goal.submit_or_resolve.v3"
 export const ARTIFACT_CONSUMER_OPERATION_V1 = "artifact_build.consumer_projection.v1"
 export const ARTIFACT_OWNER_OPERATION_V1 = "artifact_build.submit_or_resolve.v1"
 
@@ -39,7 +40,18 @@ function stamp(operation: string, ownerOperation: string, ownerSchema: string) {
   return { schema_version: 1, operation, owner_operation: ownerOperation, owner_schema: ownerSchema }
 }
 
-const researchStamp = stamp(RESEARCH_CONSUMER_OPERATION_V1, RESEARCH_OWNER_OPERATION_V2, "sourced-research-goal-v2")
+// The Research Owner operation a result came from: the one the caller invoked. V2 and V3 answer in
+// one shape, so a result cannot say which it is; the caller that sent the request can, and states it.
+export type ResearchOwnerOperationV1 = typeof RESEARCH_OWNER_OPERATION_V2 | typeof RESEARCH_OWNER_OPERATION_V3
+
+const RESEARCH_OWNER_SCHEMAS = {
+  [RESEARCH_OWNER_OPERATION_V2]: "sourced-research-goal-v2",
+  [RESEARCH_OWNER_OPERATION_V3]: "sourced-research-goal-v3",
+} as const
+
+function researchStamp(operation: ResearchOwnerOperationV1) {
+  return stamp(RESEARCH_CONSUMER_OPERATION_V1, operation, RESEARCH_OWNER_SCHEMAS[operation])
+}
 const artifactStamp = stamp(ARTIFACT_CONSUMER_OPERATION_V1, ARTIFACT_OWNER_OPERATION_V1, "rd-artifact-build-request-v1")
 
 function exactStamp(value: unknown, expected: ReturnType<typeof stamp>): boolean {
@@ -48,9 +60,9 @@ function exactStamp(value: unknown, expected: ReturnType<typeof stamp>): boolean
     && value.owner_operation === expected.owner_operation && value.owner_schema === expected.owner_schema
 }
 
-export function unknownResearchProjectionV1(requestIdentity: string) {
+export function unknownResearchProjectionV1(requestIdentity: string, operation: ResearchOwnerOperationV1) {
   return {
-    schema_version: 2, consumer_projection: researchStamp, resolution: "SUBMITTED_OR_UNKNOWN",
+    schema_version: 2, consumer_projection: researchStamp(operation), resolution: "SUBMITTED_OR_UNKNOWN",
     request_identity: requestIdentity, owner_receipt: null, research_view: null,
     independence_basis: null, protected_feedback: null, trial_family_resolution: "UNAVAILABLE",
     trial_family: null, next_legal_action: "RESOLVE_SAME_REQUEST_IDENTITY",
@@ -451,9 +463,13 @@ function rawEnvelope(value: unknown, keys: string[], expectedStamp: ReturnType<t
   return raw
 }
 
-export async function deriveResearchConsumerProjectionV1(value: unknown, requestIdentity: string) {
-  const unknown = unknownResearchProjectionV1(requestIdentity)
-  const raw = rawEnvelope(value, researchOwnerKeys, researchStamp)
+export async function deriveResearchConsumerProjectionV1(
+  value: unknown,
+  requestIdentity: string,
+  operation: ResearchOwnerOperationV1,
+) {
+  const unknown = unknownResearchProjectionV1(requestIdentity, operation)
+  const raw = rawEnvelope(value, researchOwnerKeys, researchStamp(operation))
   if (!raw || raw.schema_version !== 2 || raw.request_identity !== requestIdentity) return unknown
   if (raw.resolution === "LEGACY_TERMINAL_QUARANTINED") {
     const receiptDisposition = object(raw.owner_receipt)
@@ -570,7 +586,7 @@ export async function deriveResearchConsumerProjectionV1(value: unknown, request
       raw.trial_family, intent, raw.owner_receipt.semantic_digest,
     )) return unknown
   return {
-    schema_version: 2, consumer_projection: researchStamp, resolution: "ACCEPTED",
+    schema_version: 2, consumer_projection: researchStamp(operation), resolution: "ACCEPTED",
     request_identity: requestIdentity, owner_receipt: raw.owner_receipt, research_view: raw.research_view,
     independence_basis: raw.independence_basis, protected_feedback: raw.protected_feedback,
     trial_family_resolution: "AVAILABLE", trial_family: raw.trial_family,
@@ -578,14 +594,23 @@ export async function deriveResearchConsumerProjectionV1(value: unknown, request
   }
 }
 
-export async function verifyResearchConsumerProjectionV1(value: unknown, requestIdentity: string) {
-  return object(value) && "consumer_projection" in value && exactStamp(value.consumer_projection, researchStamp)
-    ? await deriveResearchConsumerProjectionV1(value, requestIdentity)
-    : unknownResearchProjectionV1(requestIdentity)
+export async function verifyResearchConsumerProjectionV1(
+  value: unknown,
+  requestIdentity: string,
+  operation: ResearchOwnerOperationV1,
+) {
+  return object(value) && "consumer_projection" in value
+    && exactStamp(value.consumer_projection, researchStamp(operation))
+    ? await deriveResearchConsumerProjectionV1(value, requestIdentity, operation)
+    : unknownResearchProjectionV1(requestIdentity, operation)
 }
 
-function validUnknownResearchOwnerResultV1(value: unknown, requestIdentity: string): boolean {
-  const raw = rawEnvelope(value, researchOwnerKeys, researchStamp)
+function validUnknownResearchOwnerResultV1(
+  value: unknown,
+  requestIdentity: string,
+  operation: ResearchOwnerOperationV1,
+): boolean {
+  const raw = rawEnvelope(value, researchOwnerKeys, researchStamp(operation))
   return !!raw && raw.schema_version === 2 && raw.resolution === "SUBMITTED_OR_UNKNOWN"
     && raw.request_identity === requestIdentity && raw.owner_receipt === null
     && raw.research_view === null && raw.independence_basis === null
@@ -596,27 +621,34 @@ function validUnknownResearchOwnerResultV1(value: unknown, requestIdentity: stri
 export async function projectResearchOwnerResultWithEvidenceV1(
   value: unknown,
   requestIdentity: string,
+  operation: ResearchOwnerOperationV1,
 ) {
   const projection = await verifyResearchConsumerProjectionV1(
-    await deriveResearchConsumerProjectionV1(value, requestIdentity),
+    await deriveResearchConsumerProjectionV1(value, requestIdentity, operation),
     requestIdentity,
+    operation,
   )
   return {
     projection,
     verified: projection.resolution !== "SUBMITTED_OR_UNKNOWN"
-      || validUnknownResearchOwnerResultV1(value, requestIdentity),
+      || validUnknownResearchOwnerResultV1(value, requestIdentity, operation),
   }
 }
 
-export async function projectResearchOwnerResultV1(value: unknown, requestIdentity: string) {
-  return (await projectResearchOwnerResultWithEvidenceV1(value, requestIdentity)).projection
+export async function projectResearchOwnerResultV1(
+  value: unknown,
+  requestIdentity: string,
+  operation: ResearchOwnerOperationV1,
+) {
+  return (await projectResearchOwnerResultWithEvidenceV1(value, requestIdentity, operation)).projection
 }
 
 export async function deriveVerifiedS1ConsumerContextV1(
   value: unknown,
   requestIdentity: string,
+  operation: ResearchOwnerOperationV1,
 ): Promise<VerifiedS1ConsumerContextV1 | null> {
-  const projected = await deriveResearchConsumerProjectionV1(value, requestIdentity)
+  const projected = await deriveResearchConsumerProjectionV1(value, requestIdentity, operation)
   if (projected.resolution !== "ACCEPTED"
     || !["AVAILABLE", "STALE"].includes(projected.research_view?.availability)
     || projected.request_identity !== requestIdentity || !projected.owner_receipt

@@ -52,9 +52,15 @@ export async function projectSourceResearchBrowserEnvelopeV1({
     || typeof sourceReceipt?.receipt_identity !== "string") {
     return unavailable("SOURCE_OWNER_PROJECTION_UNAVAILABLE", result.envelope.operational_run);
   }
+  // Stamped with the Research operation the run was admitted under, which answered this result.
+  const researchOperation = result.envelope.research_operation;
+  if (!researchOperation) {
+    return unavailable("RESEARCH_OWNER_PROJECTION_UNAVAILABLE", result.envelope.operational_run);
+  }
   const projected = await projectResearchOwnerResultWithEvidenceV1(
     result.envelope.research,
     researchRequestIdentity,
+    researchOperation,
   );
   const research = projected.projection as Json;
   const resolution = research.resolution;
@@ -69,8 +75,10 @@ export async function projectSourceResearchBrowserEnvelopeV1({
   const trialFamilyRoot = object(trialFamily?.root) ? trialFamily.root : null;
   const projectedIntentIdentity = ownerReceipt?.resulting_research_intent_identity;
   const projectedFamilyIdentity = trialFamilyRoot?.trial_family_identity;
+  const rejectionCode = accepted ? null : ownerReceipt?.rejection_code;
   if (accepted && (typeof projectedIntentIdentity !== "string"
-    || typeof projectedFamilyIdentity !== "string")) {
+    || typeof projectedFamilyIdentity !== "string")
+    || !accepted && typeof rejectionCode !== "string") {
     return unavailable("RESEARCH_OWNER_PROJECTION_UNAVAILABLE", result.envelope.operational_run);
   }
   return {
@@ -93,6 +101,7 @@ export async function projectSourceResearchBrowserEnvelopeV1({
       resolution,
       intent_identity: accepted ? projectedIntentIdentity as string : null,
       trial_family_identity: accepted ? projectedFamilyIdentity as string : null,
+      rejection_code: accepted ? null : rejectionCode as string,
       next_legal_action: nextLegalAction,
     },
     operational_run: result.envelope.operational_run,
