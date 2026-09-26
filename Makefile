@@ -761,12 +761,12 @@ CARGO_TEST_EXCLUDE_FLAGS := $(addprefix --exclude ,$(CARGO_TEST_EXCLUDED_PACKAGE
 # which is that test's own crate. A relative CARGO_TARGET_DIR - CI's `target/rust-tests-linux-x86` -
 # then resolves under each crate: `crates/<crate>/target/rust-tests-linux-x86/tests/trybuild`, one
 # per compile_fail crate, outside the directory the Rust cache saves. So all five compiled trybuild
-# from nothing on every run (backtest-owner's alone 301-591 s on CI; 253.8 s cold against 3 s warm
+# from nothing on every run (backtest-owner's alone 301-615 s on CI; 253.8 s cold against 3 s warm
 # locally, 2026-09-26). Absolute, it resolves to the one cached `tests/trybuild` the five share.
 # Only this target's environment changes: the job's CARGO_TARGET_DIR, which the Rust cache key
 # reads, stays as the workflow sets it.
 ifneq ($(CARGO_TARGET_DIR),)
-cargo-test: export CARGO_TARGET_DIR := $(CARGO_TARGET_DIR)
+cargo-test: export CARGO_TARGET_DIR := $(abspath $(CARGO_TARGET_DIR))
 endif
 
 .PHONY: cargo-test
