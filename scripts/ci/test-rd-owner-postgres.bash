@@ -159,6 +159,15 @@ readonly nextest_graph_args=(
   --lib
   --tests
 )
+# The number of entries in the chain: the N the report judges ("all N entries passed, N
+# recorded"). A caller deciding whether an earlier run's verdict covers this tree compares its N
+# with this one, so it must count the same array the report does, not re-derive it. It answers
+# before any check runs, so it needs no rg, docker or python.
+if [[ "${1:-}" == "--entry-count" ]]; then
+  echo "${#rd_owner_postgres_tests[@]}"
+  exit 0
+fi
+
 # The incoming Makefile union also contains workspace-root features that none of
 # the three selected packages expose. Keep the archive projection package-scoped.
 readonly nextest_archive_features='vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-composer-acceptance,vibe-product-edge/sealed-deployment-acceptance'

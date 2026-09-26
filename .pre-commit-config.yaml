@@ -257,6 +257,13 @@ repos:
             crates/.*\.rs
           )$
         pass_filenames: false
+      - id: test-chain-entry-count
+        name: test the chain's entry count
+        description: The count equals the chain array, follows an added or removed entry, and needs only bash
+        entry: bash scripts/ci/test-chain-entry-count.bash
+        language: system
+        files: ^scripts/ci/(test-rd-owner-postgres|test-chain-entry-count)\.bash$
+        pass_filenames: false
       - id: test-check-chain-channel-environment
         name: test the chain channel environment check
         description: The check accepts an agreeing pair and refuses each mutation by name
