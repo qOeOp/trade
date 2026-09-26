@@ -2595,9 +2595,11 @@ async fn strategy_input_binding_registry_postgres_oracle(
         crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1,
     >,
 ) -> StrategyInputBindingRegistryFixtureV1 {
-    // The instrument is the one the caller's Instrument Master cut holds, so this oracle serves the
-    // chain's base fixture (the chain fixtures' instrument) and the Market Data oracle ("AAPL")
-    // without naming either.
+    // The instrument comes from `instrument`, the caller's Instrument Master cut, never from a name
+    // written here. This oracle has two callers with two identities - the chain's replay composition
+    // base fixture (the chain fixtures' instrument) and the Market Data Instrument Master oracle
+    // ("AAPL") - and naming one here broke the other: the Market Data suite failed with
+    // `InstrumentMasterCutUnavailable` when this named the chain's instrument.
     let instrument_identity = exact_instrument_identity_v1(instrument)
         .expect("the registry oracle binds one exact instrument")
         .to_owned();
