@@ -463,7 +463,9 @@ save_gate_shared="$(printf '%s\n' "$save_gates" | grep -cF 'save-if: ${{ env.SAV
 if [[ "$save_gate_total" != "$save_gate_shared" ]]; then
   echo "build.yml: $((save_gate_total - save_gate_shared)) cache-saving step(s) gate on their own condition" >&2
   echo "instead of env.SAVE_BUILD_CACHES:" >&2
-  printf '%s\n' "$save_gates" | grep -vF 'env.SAVE_BUILD_CACHES' >&2
+  # Match a literal workflow expression.
+  # shellcheck disable=SC2016
+  printf '%s\n' "$save_gates" | grep -vF 'save-if: ${{ env.SAVE_BUILD_CACHES }}' >&2
   exit 1
 fi
 if [[ "$save_gate_total" -ne 3 ]]; then
@@ -521,11 +523,13 @@ for py_version in 3.12 3.13 3.14; do
   fi
 done
 # `grep -v '^ *#'`: the comment above the matrix quotes this same condition to explain itself, so
-# counting raw occurrences would count the explanation as one of the things it explains.
+# counting raw occurrences would count the explanation as one of the things it explains. The three:
+# the wheel job's Rust cache (only the version pull requests build uses it), the generated stubs'
+# Rust cache and the drift check.
 drift_gates="$(grep -v '^ *#' "$build_workflow" |
   grep -c "matrix.python-version == '3.13'" || true)"
-if [[ "$drift_gates" -ne 2 ]]; then
-  echo "build.yml gates $drift_gates step(s) on Python 3.13; expected 2. If that set changes, the" >&2
+if [[ "$drift_gates" -ne 3 ]]; then
+  echo "build.yml gates $drift_gates step(s) on Python 3.13; expected 3. If that set changes, the" >&2
   echo "version a pull request keeps has to change with it, or those steps stop running there." >&2
   exit 1
 fi
