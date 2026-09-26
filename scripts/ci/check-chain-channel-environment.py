@@ -16,6 +16,11 @@ into the key.
 value `build` takes on the events that admit to `main` - a pull request, the merge queue, `main`
 and `test-ci` - and refuses if the condition stops naming those events.
 
+It also refuses a Rust cache restore in either archive job. The chain's 12-package graph unifies
+dependency features differently from the workspace build whose entry `main` saves, so a
+full-match restore still compiled all 792 units (owner-chains run 36063327107) and only added the
+restore's 225 s (run 36061606498). common-setup restores by default, so the job must say "false".
+
 Stdlib only: the pre-commit job has no YAML library, and the two blocks read here are plain
 `KEY: value` lines, optionally folded with `>-`.
 
@@ -38,6 +43,11 @@ CONDITIONAL = re.compile(
     r"^\$\{\{\s*\((?P<condition>.*)\)\s*&&\s*'(?P<then>[^']*)'\s*\|\|\s*'[^']*'\s*\}\}$",
 )
 CARGO_ENVIRONMENT = re.compile(r"^(CARGO_|RUST)")
+RUST_CACHE_INPUT = re.compile(r"^\s+(rust-cache-[a-z-]+):\s*(.*)$")
+ARCHIVE_JOBS = (
+    ("owner-chains.yml", "rd-owner-archive"),
+    ("build.yml", "postgres-owner-chain-archive-linux-x86"),
+)
 
 
 def job_block(text: str, job: str) -> list[str]:
@@ -80,6 +90,30 @@ def env_of(text: str, job: str) -> dict[str, str]:
         else:
             raise SystemExit(f"ERROR: unreadable env line in `{job}`: {line!r}")
     return env
+
+
+def rust_cache_inputs(text: str, job: str) -> dict[str, str]:
+    return {
+        match.group(1): match.group(2)
+        for line in job_block(text, job)
+        if (match := RUST_CACHE_INPUT.match(line))
+    }
+
+
+def archive_cache_failures(texts: dict[str, str]) -> list[str]:
+    failures = []
+    for workflow, job in ARCHIVE_JOBS:
+        inputs = rust_cache_inputs(texts[workflow], job)
+        if inputs != {"rust-cache-enabled": '"false"'}:
+            spelled = ", ".join(f"{name}: {value}" for name, value in inputs.items())
+            spelled = spelled or "rust-cache-enabled unset, which common-setup defaults to true"
+            failures.append(
+                f"{workflow} job `{job}` restores the Rust cache ({spelled}). "
+                'It must set exactly rust-cache-enabled: "false": '
+                "a full-match restore of `rust tests`'s entry still compiled 792 of 792 chain units "
+                "(run 36063327107) and cost 225 s (run 36061606498).",
+            )
+    return failures
 
 
 def on_acceptance(name: str, value: str) -> str:
@@ -141,7 +175,7 @@ def check(root: Path) -> list[str]:
                 f"{workflow} job `{job}` sets {name}, which build.yml's chain job does not."
                 for name in sorted(set(actual) - set(expected))
             ]
-    return failures
+    return failures + archive_cache_failures({"build.yml": build, "owner-chains.yml": chains})
 
 
 def main() -> int:
@@ -157,7 +191,10 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
-    print("owner-chains builds its chains with build's acceptance-time Cargo environment.")
+    print(
+        "owner-chains builds its chains with build's acceptance-time Cargo environment, "
+        "and neither archive job restores the Rust cache.",
+    )
     return 0
 
 
