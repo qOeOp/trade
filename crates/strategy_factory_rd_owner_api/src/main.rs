@@ -5401,8 +5401,6 @@ mod tests {
         };
 
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
-        #[cfg(feature = "sealed-source-intake-acceptance")]
-        ensure_sealed_catalog_v3(&test_database).await;
 
         let rd_pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(2)

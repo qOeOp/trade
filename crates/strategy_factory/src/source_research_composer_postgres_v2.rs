@@ -90,8 +90,8 @@ use crate::{
     },
     strategy_design_v2::*,
     strategy_plan_v2::{
-        StrategyDesignPreparationV2, VerifiedStrategyInputBindingsV2, prepare_strategy_design_v2,
-        strategy_input_role_identity_v2,
+        StrategyDesignPreparationV2, VerifiedStrategyInputBindingsV2, input_scope_of_design_v2,
+        prepare_strategy_design_v2, strategy_input_role_identity_v2,
     },
     successor_intent_postgres::{
         lock_by_intent_in_transaction, lock_successor_research_view_in_transaction,
@@ -555,19 +555,11 @@ fn derive_source_research_composer_bfp_v3_request(
         ));
     }
 
-    let binding_requests = design
-        .inputs
-        .iter()
-        .enumerate()
-        .map(|(ordinal, input)| {
-            bfp_binding_request(
-                input,
-                design.research_request_identity,
-                design_identity,
-                ordinal as u8,
-            )
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let binding_requests = bfp_binding_requests(
+        &design.inputs,
+        design.research_request_identity,
+        design_identity,
+    )?;
     let mut manifests = design.plugins.clone();
     manifests.sort_by(|left, right| left.semantic_id.cmp(&right.semantic_id));
     let plugin_source_capsules = manifests
@@ -602,29 +594,89 @@ fn derive_source_research_composer_bfp_v3_request(
     })
 }
 
+/// The production frozen-program request's binding claims, one per role of a Design, under the one
+/// input scope its roles state.
+fn bfp_binding_requests(
+    inputs: &[InputRoleV2],
+    research_request_identity: BindingDigest,
+    design_identity: BindingDigest,
+) -> Result<Vec<UntrustedStrategyInputBindingRequest>, DevelopComposerTerminalV2> {
+    let Ok(Some(scope)) = input_scope_of_design_v2(inputs) else {
+        return Err(bfp_binding_claim_refused(
+            "bounded_feature_program.input_scope",
+            "the frozen Design's roles do not state one input scope",
+        ));
+    };
+    inputs
+        .iter()
+        .enumerate()
+        .map(|(ordinal, input)| {
+            bfp_binding_request(
+                input,
+                &scope,
+                research_request_identity,
+                design_identity,
+                ordinal as u8,
+            )
+        })
+        .collect()
+}
+
+/// One role's binding claim in the production frozen-program request.
+///
+/// The claim's Owner evidence is placeholder, not custody: every PIT, snapshot, Source Binding,
+/// frontier, Instrument Master and Universe Selection digest below, and a universe role's
+/// selection identity, is an `a2_digest` seed, and the decision cut is a constant. They enter the
+/// request digest, so the durable Composer record binds them, but nothing reads them from Market
+/// Data or checks them against it. Preflight checks only that the claims cover the Design's roles
+/// under its Research request and Design identity; the custody the program runs on is the binding
+/// Owner's re-read in `lock_for_frozen_program`. Replacing these values with custody-derived ones
+/// is open production work, which moves the claim after that re-read and changes the request
+/// digest.
+///
+/// What the claim does state from the Design is each role's identity, field, timeframe, unit,
+/// scale and scope: an exact-instrument role names its instrument, and a universe-member role
+/// names none and claims a Universe Selection scope.
 fn bfp_binding_request(
     input: &InputRoleV2,
+    design_scope: &InputScopeV2,
     research_request_identity: BindingDigest,
     strategy_design_identity: BindingDigest,
     seed: u8,
 ) -> Result<UntrustedStrategyInputBindingRequest, DevelopComposerTerminalV2> {
     let field_semantic = MarketDataFieldSemantic::from_identity(&input.field_semantic_id)
-        .ok_or_else(market_data_unavailable)?;
+        .ok_or_else(|| {
+            bfp_binding_claim_refused(
+                "bounded_feature_program.input_field",
+                "a role names a field semantic Market Data does not define",
+            )
+        })?;
 
-    if input.scope != InputScopeV2::ExactInstrument
-        || input.instrument.is_empty()
-        || input.channel != "MARKET"
-        || input.unit != "PRICE"
-    {
-        return Err(market_data_unavailable());
+    if input.channel != "MARKET" || input.unit != "PRICE" {
+        return Err(bfp_binding_claim_refused(
+            "bounded_feature_program.input_field",
+            "a role is not a Market price",
+        ));
     }
+    let scope = match (design_scope, input.instrument.is_empty()) {
+        (InputScopeV2::ExactInstrument, false) => UntrustedStrategyInputScope::ExactInstrument {
+            instrument: input.instrument.clone(),
+        },
+        (InputScopeV2::UniverseMembers, true) => UntrustedStrategyInputScope::UniverseSelection {
+            selection_identity: a2_digest(seed.wrapping_add(121)),
+        },
+        _ => {
+            return Err(bfp_binding_claim_refused(
+                "bounded_feature_program.input_scope",
+                "a role's instrument does not agree with its input scope",
+            ));
+        }
+    };
     Ok(UntrustedStrategyInputBindingRequest {
         research_request_identity,
         strategy_design_identity,
         input_role_identity: strategy_input_role_identity_v2(input),
-        scope: UntrustedStrategyInputScope::ExactInstrument {
-            instrument: input.instrument.clone(),
-        },
+        scope,
         field_semantic,
         channel: StrategyInputChannel::Market,
         timeframe: input.timeframe.clone(),
@@ -964,6 +1016,12 @@ fn a2_fixed_binding_request(
         market_semantics_identity: a2_digest(111),
         decision_cut: 40,
     }
+}
+
+/// A production frozen-program request the Composer refuses before reading any custody, under its
+/// own coordinate. The sealed acceptance runs keep their own refusal text.
+fn bfp_binding_claim_refused(coordinate: &str, reason: &str) -> DevelopComposerTerminalV2 {
+    DevelopComposerTerminalV2::unavailable(coordinate, reason)
 }
 
 fn a2_digest(seed: u8) -> BindingDigest {
@@ -1415,6 +1473,10 @@ fn verify_sealed_a2_market_authority(
     Ok(())
 }
 
+/// The sealed acceptance runs' Market Data refusal. The production frozen-program request refuses
+/// under its own coordinates (`bfp_binding_claim_refused`), so this text never reads as a
+/// production cause.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 fn market_data_unavailable() -> DevelopComposerTerminalV2 {
     DevelopComposerTerminalV2::unavailable(
         "market_data_binding",
@@ -3504,5 +3566,150 @@ mod tests {
                 .expect("fixed A2 input is present");
             assert_ne!(request_digest(&tampered), canonical_digest, "{selector:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod bfp_binding_claim_tests {
+    use rstest::rstest;
+
+    use super::*;
+    use crate::develop_composer_v2::DevelopComposerTerminalKindV2;
+
+    fn role(semantic_id: &str, scope: InputScopeV2, instrument: &str) -> InputRoleV2 {
+        InputRoleV2 {
+            semantic_id: semantic_id.to_owned(),
+            fact_class: InputFactClassV2::MarketData,
+            instrument: instrument.to_owned(),
+            scope,
+            field_semantic_id: "MARKET_DATA.BAR.CLOSE.PRICE.V1".to_owned(),
+            channel: "MARKET".to_owned(),
+            timeframe: "1D".to_owned(),
+            unit: "PRICE".to_owned(),
+            scale: 2,
+            value_type: ValueTypeV2::I128,
+        }
+    }
+
+    fn claim(
+        input: &InputRoleV2,
+    ) -> Result<UntrustedStrategyInputBindingRequest, DevelopComposerTerminalV2> {
+        bfp_binding_request(input, &input.scope, a2_digest(1), a2_digest(2), 3)
+    }
+
+    /// An exact-instrument role's claim is the one this request always carried: the role's own
+    /// instrument and the fixed placeholder evidence, so no existing request digest changes.
+    #[rstest]
+    fn an_exact_instrument_role_claims_what_it_always_claimed() {
+        let input = role(
+            "research.input.close.v1",
+            InputScopeV2::ExactInstrument,
+            "BTCUSDT-PERP.BINANCE",
+        );
+
+        assert_eq!(
+            claim(&input).expect("an exact-instrument role is claimed"),
+            UntrustedStrategyInputBindingRequest {
+                research_request_identity: a2_digest(1),
+                strategy_design_identity: a2_digest(2),
+                input_role_identity: strategy_input_role_identity_v2(&input),
+                scope: UntrustedStrategyInputScope::ExactInstrument {
+                    instrument: "BTCUSDT-PERP.BINANCE".to_owned(),
+                },
+                field_semantic: MarketDataFieldSemantic::from_identity(
+                    "MARKET_DATA.BAR.CLOSE.PRICE.V1"
+                )
+                .expect("a Market Data field"),
+                channel: StrategyInputChannel::Market,
+                timeframe: "1D".to_owned(),
+                unit: StrategyInputUnit::Price,
+                scale: 2,
+                pit_request_identity: a2_digest(14),
+                pit_request_digest: a2_digest(24),
+                snapshot_identity: a2_digest(34),
+                snapshot_fact_digest: a2_digest(44),
+                observation_batch_digest: a2_digest(54),
+                source_binding_identity: a2_digest(64),
+                source_frontier_digest: a2_digest(74),
+                correction_frontier_digest: a2_digest(84),
+                instrument_master_digest: a2_digest(94),
+                universe_selection_digest: a2_digest(104),
+                market_semantics_identity: a2_digest(111),
+                decision_cut: 40,
+            },
+        );
+    }
+
+    /// A universe-member role names no instrument and claims a Universe Selection scope; the rest
+    /// of its claim is the same placeholder evidence an exact role's is.
+    #[rstest]
+    fn a_universe_member_role_claims_a_universe_selection_scope() {
+        let exact = claim(&role(
+            "research.input.close.v1",
+            InputScopeV2::ExactInstrument,
+            "BTCUSDT-PERP.BINANCE",
+        ))
+        .expect("an exact-instrument role is claimed");
+        let input = role("research.input.close.v1", InputScopeV2::UniverseMembers, "");
+        let universe = claim(&input).expect("a universe-member role is claimed");
+
+        assert_eq!(
+            universe.scope,
+            UntrustedStrategyInputScope::UniverseSelection {
+                selection_identity: a2_digest(124),
+            },
+        );
+        assert_eq!(
+            universe.input_role_identity,
+            strategy_input_role_identity_v2(&input)
+        );
+        assert_eq!(
+            UntrustedStrategyInputBindingRequest {
+                scope: exact.scope.clone(),
+                input_role_identity: exact.input_role_identity,
+                ..universe
+            },
+            exact,
+            "only the scope and the role identity it derives differ",
+        );
+    }
+
+    /// Each refusal before custody is read is the production Composer's own, named by coordinate,
+    /// and none reads as the sealed acceptance frame.
+    #[rstest]
+    #[case::universe_role_naming_an_instrument(
+        vec![role("research.input.close.v1", InputScopeV2::UniverseMembers, "BTCUSDT-PERP.BINANCE")],
+        "bounded_feature_program.input_scope"
+    )]
+    #[case::exact_role_naming_no_instrument(
+        vec![role("research.input.close.v1", InputScopeV2::ExactInstrument, "")],
+        "bounded_feature_program.input_scope"
+    )]
+    #[case::mixed_scopes(
+        vec![
+            role("research.input.close.v1", InputScopeV2::ExactInstrument, "BTCUSDT-PERP.BINANCE"),
+            role("research.input.open.v1", InputScopeV2::UniverseMembers, ""),
+        ],
+        "bounded_feature_program.input_scope"
+    )]
+    #[case::no_roles(vec![], "bounded_feature_program.input_scope")]
+    #[case::not_a_market_price(
+        vec![InputRoleV2 { unit: "QUANTITY".to_owned(), ..role("research.input.close.v1", InputScopeV2::UniverseMembers, "") }],
+        "bounded_feature_program.input_field"
+    )]
+    fn a_claim_the_production_composer_cannot_make_is_refused_by_name(
+        #[case] inputs: Vec<InputRoleV2>,
+        #[case] coordinate: &str,
+    ) {
+        let refusal = bfp_binding_requests(&inputs, a2_digest(1), a2_digest(2))
+            .expect_err("the claim is refused before custody is read");
+
+        assert_eq!(refusal.kind, DevelopComposerTerminalKindV2::Unavailable);
+        assert_eq!(refusal.coordinate, coordinate);
+        assert!(
+            !refusal.reason.contains("sealed"),
+            "a production refusal does not read as the sealed acceptance frame: {}",
+            refusal.reason,
+        );
     }
 }

@@ -10,3 +10,17 @@
 
 /// The chain fixtures' instrument, not a product choice.
 pub const CHAIN_FIXTURE_INSTRUMENT_V1: &str = "AAPL.XNAS";
+
+/// The correlation the chain's market base submits its initial PIT request under.
+///
+/// The base's PIT request cannot be rebuilt from constants: its Instrument Master digest, its
+/// universe selection and its clock evidence come from the store it runs in. Its correlation and its
+/// requester are constants, so an entry that binds a Design to the base's corpus finds the base's
+/// snapshot as the one initial snapshot whose request carries both. The base commits its snapshot
+/// directly rather than through the initial-intake submission, so nothing keys the snapshot by its
+/// correlation; the lookup refuses by name when more than one initial snapshot carries both.
+pub const CHAIN_MARKET_BASE_PIT_CORRELATION_V1: [u8; 32] = [174; 32];
+
+/// The Research request the chain's market base requests its PIT snapshot for; its requester is
+/// the one R&D writes for that request.
+pub const CHAIN_MARKET_BASE_RESEARCH_REQUEST_V1: [u8; 32] = [190; 32];
