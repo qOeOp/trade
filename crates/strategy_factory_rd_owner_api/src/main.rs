@@ -5257,12 +5257,12 @@ mod tests {
     /// that was already frozen rejoins its freeze and also answers 200, so the count is what
     /// separates a first declaration from a replay, and the stored bytes are compared against what
     /// was authored because some other Design's freeze would satisfy the count too.
-    // It authors on the chain fixtures' instrument, which only the sealed acceptance build (the one
-    // the ordered chain runs) exposes; outside that build the test is `ignore`d anyway.
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    // It authors on the chain fixtures' instrument and commits its own source-bound Research, both
+    // of which only the sealed acceptance build the ordered chain runs exposes; outside that build
+    // the test is `ignore`d anyway.
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[ignore = "requires the ordered chain's PostgreSQL and the Market Data basis an earlier entry commits"]
-    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     async fn an_authored_design_is_published_bound_and_frozen_over_http() {
         use axum::body::Body;
         use axum::extract::Request;
