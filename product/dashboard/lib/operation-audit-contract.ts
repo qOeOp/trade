@@ -304,9 +304,11 @@ function parseSummary(value: unknown): OperationAuditSummaryV1 | null {
   return value as OperationAuditSummaryV1;
 }
 
+// `observed_at` is the database's statement time (or, for an unavailable answer, the server's), so the
+// audit parsers check it only against times from that same answer, never against this browser's
+// clock: a browser running behind the database must not refuse a current read.
 export async function parseOperationAuditPageV1(
   value: unknown,
-  receivedAt = new Date().toISOString(),
 ): Promise<OperationAuditPageV1 | null> {
   if (!object(value) || !exactKeys(value, [
     "schema_version", "projection_version", "operation", "availability", "unavailable_reason",
@@ -316,8 +318,7 @@ export async function parseOperationAuditPageV1(
     || value.operation !== "dashboard.operation_audit.read.v1"
     || !["available", "unavailable"].includes(String(value.availability))
     || !["complete", "partial_unavailable"].includes(String(value.completeness))
-    || !timestamp(receivedAt) || !timestamp(value.observed_at)
-    || Date.parse(value.observed_at) > Date.parse(receivedAt) || value.retention_limit !== 512
+    || !timestamp(value.observed_at) || value.retention_limit !== 512
     || !operationAuditPageSizesV1.includes(value.page_size as OperationAuditPageSizeV1)
     || !Array.isArray(value.principals) || !Array.isArray(value.operations) || !Array.isArray(value.entries)
     || (value.next_cursor !== null && (typeof value.next_cursor !== "string" || value.next_cursor.length > 1_024))) return null;
@@ -351,7 +352,6 @@ export async function parseOperationAuditPageV1(
 
 export async function parseOperationAuditDetailV1(
   value: unknown,
-  receivedAt = new Date().toISOString(),
 ): Promise<OperationAuditDetailV1 | null> {
   if (!object(value) || !exactKeys(value, [
     "schema_version", "projection_version", "operation", "availability", "unavailable_reason",
@@ -360,8 +360,7 @@ export async function parseOperationAuditDetailV1(
     || value.operation !== "dashboard.operation_audit.detail.read.v1"
     || !["available", "unavailable"].includes(String(value.availability))
     || !["complete", "partial_unavailable"].includes(String(value.completeness))
-    || !timestamp(receivedAt) || !timestamp(value.observed_at)
-    || Date.parse(value.observed_at) > Date.parse(receivedAt) || !Array.isArray(value.timeline)) return null;
+    || !timestamp(value.observed_at) || !Array.isArray(value.timeline)) return null;
   if (value.availability === "unavailable") {
     return typeof value.unavailable_reason === "string" && IDENTITY.test(value.unavailable_reason)
       && value.completeness === "partial_unavailable" && value.source_cut === null
