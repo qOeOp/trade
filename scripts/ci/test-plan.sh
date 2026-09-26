@@ -1005,4 +1005,21 @@ for composite in common-test-data common-setup; do
 done
 echo "ok: rust tests caches dependencies only; pull requests save no ref-scoped test-data or prek entry"
 
+# A pull request build takes the Owner chains' verdict from an owner-chains run only on its exact
+# checkout tree (scripts/ci/chain_verdict_reuse.py), and then runs none of the chain jobs; quality
+# then requires them skipped and the two trees equal, and otherwise requires them green as before.
+chain_plan_job="$(sed -n '/^  postgres-owner-chain-plan-linux-x86:/,/^  postgres-owner-chains-linux-x86:/p' "$build_workflow")"
+[[ "$(grep -A8 'name: Reuse an owner-chains verdict on this exact tree' <<< "$chain_plan_job" | grep -c "if: github.event_name == 'pull_request'")" -eq 1 ]]
+[[ "$(grep -c 'run: python3 scripts/ci/chain_verdict_reuse.py' "$build_workflow")" -eq 1 ]]
+for chain_job in postgres-owner-chain-archive-linux-x86 postgres-owner-chains-linux-x86; do
+  [[ "$(workflow_job_block "$build_workflow" "$chain_job" | grep -c "needs.postgres-owner-chain-plan-linux-x86.outputs.reuse-run == ''")" -eq 1 ]]
+done
+quality_job="$(workflow_job_block "$build_workflow" quality)"
+# shellcheck disable=SC2016 # the workflow's literal shell text, not this shell's
+[[ "$quality_job" == *'test "$CHAIN_REUSE_TREE" = "$CHAIN_THIS_TREE"'* ]]
+# shellcheck disable=SC2016 # the workflow's literal shell text, not this shell's
+[[ "$(grep -c 'test "$POSTGRES_CHAINS_RESULT" = skipped' <<< "$quality_job")" -ge 2 ]]
+python3 -B "$repo_root/scripts/ci/chain_verdict_reuse_test.py" > /dev/null
+echo "ok: a pull request reuses an owner-chains verdict only on its exact tree, and quality checks the reuse"
+
 echo "All CI plan cases passed"
