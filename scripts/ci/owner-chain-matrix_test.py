@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Exercise owner-chain-matrix.py: the whole chain when no shard list exists, one R&D entry
-per shard in first-seen order when one does, and a refusal by line for a malformed or
-empty list. Also require both workflows to take their chain matrix from it, so a hand-
-written matrix cannot creep back.
+Exercise owner-chain-matrix.py: a missing shard list refused by name, one R&D entry per
+shard in first-seen order when one does, and a refusal by line for a malformed or empty
+list. Also require both workflows to take their chain matrix from it, so a hand- written
+matrix cannot creep back.
 
 Run: python3 -B scripts/ci/owner-chain-matrix_test.py
 
@@ -43,13 +43,12 @@ def matrix(result: subprocess.CompletedProcess[str]) -> list[dict]:
     return json.loads(result.stdout[len("matrix=") :])["chain"]
 
 
-def check_whole_chain() -> list[str]:
-    whole = matrix(run(None))
-    if [(e["key"], e["shard"], e["name"], e["browser"]) for e in whole] != [
-        ("rd-owner", "", "rd owner postgres (ubuntu-22.04)", 1),
-        ("market-data", "", "market data owner postgres (ubuntu-22.04)", 0),
-    ]:
-        return [f"without a shard list the matrix is not the whole chain plus Market Data: {whole}"]
+def check_missing_list_refused() -> list[str]:
+    missing = run(None)
+    if missing.returncode == 0 or "there is no shard list" not in missing.stderr:
+        return [
+            f"a missing shard list is not refused by name: rc={missing.returncode} {missing.stderr!r}",
+        ]
     return []
 
 
@@ -113,13 +112,13 @@ def check_workflows() -> list[str]:
 
 
 def main() -> int:
-    failures = check_whole_chain() + check_shards() + check_refusals() + check_workflows()
+    failures = check_missing_list_refused() + check_shards() + check_refusals() + check_workflows()
     for failure in failures:
         print(f"FAIL: {failure}", file=sys.stderr)
     if failures:
         return 1
     print(
-        "owner-chain-matrix: whole chain without a shard list, one entry per shard with one, "
+        "owner-chain-matrix: a missing shard list refused, one entry per shard with one, "
         "malformed and empty lists refused, both workflows use it",
     )
     return 0

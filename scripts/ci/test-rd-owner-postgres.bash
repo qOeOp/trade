@@ -486,7 +486,7 @@ if sum(test_name == bootstrap_test for _, _, test_name in entries) != 1:
     raise SystemExit(
         "ERROR: catalog V3 bootstrap route test must occur exactly once as a parsed test name."
     )
-loop_open = 'for test_selection in "${rd_owner_postgres_tests[@]}"; do\n'
+loop_open = 'for chain_step in "${chain_run_order[@]}"; do\n'
 loop_close = "\ndone\n\nlegacy_replay_fingerprint_after="
 if source.count(loop_open) != 1:
     raise SystemExit("ERROR: ordered PostgreSQL execution loop is unavailable.")
@@ -1614,6 +1614,378 @@ check_market_data_principal_bootstrap_order
 check_trial_family_candidate_experiment_cutover
 check_composer_acceptance_stays_in_the_chain
 check_collected_warning_report
+# A PostgreSQL crash-reinit leaves the postmaster running, so its start time does not move; what
+# records it is a LOG line, which the lock-and-error excerpt printed at cleanup filters out. Measured
+# before --init: every round's authority-migration drills made the postmaster reap an orphaned shell
+# killed by SIGPIPE, log "terminating any other active server processes", and reset every
+# connection of every database - three times a round, with the chain still green. These lines are
+# therefore counted in the raw server log of each container, and crash recovery also resets the
+# cumulative statistics, which gives a second, independent reading.
+readonly postgres_crash_pattern='was terminated by signal|terminating any other active server processes|all server processes terminated; reinitializing|database system was interrupted'
+
+postgres_crash_lines() {
+  grep -aE "$postgres_crash_pattern" || true
+}
+
+postgres_stats_reset() {
+  docker exec "$1" psql --quiet --no-align --tuples-only --username postgres --dbname postgres \
+    --command 'SELECT stats_reset FROM pg_catalog.pg_stat_bgwriter'
+}
+
+# Fails the chain, naming each line, if a container crashed or reset its statistics.
+require_no_postgres_crash() {
+  local name="$1" target="$2" stats_reset_before="$3" lines stats_reset_after
+  lines="$(docker logs "$target" 2>&1 | postgres_crash_lines)"
+  stats_reset_after="$(postgres_stats_reset "$target")"
+  if [[ -n "$lines" || "$stats_reset_after" != "$stats_reset_before" ]]; then
+    echo "ERROR: the ${name} PostgreSQL container crashed and reset every connection during the chain." >&2
+    echo "statistics reset before the entries: ${stats_reset_before:-none}; after: ${stats_reset_after:-none}" >&2
+    printf '%s\n' "$lines" >&2
+    return 1
+  fi
+}
+
+# The crash reading and its positive control, on fixed lines: each line the postmaster writes
+# around a crash-reinit is counted, and ordinary shutdown, restart, ERROR and FATAL lines are not.
+check_postgres_crash_reading() {
+  local crash clean
+  crash="$(printf '%s\n' \
+    '2026-09-24 16:47:44.893 UTC [1] LOG:  server process (PID 2285) was terminated by signal 13: Broken pipe' \
+    '2026-09-24 16:47:44.893 UTC [1] LOG:  terminating any other active server processes' \
+    '2026-09-24 16:47:44.894 UTC [1] LOG:  all server processes terminated; reinitializing' \
+    '2026-09-24 16:47:44.901 UTC [2288] LOG:  database system was interrupted; last known up at 2026-09-24 16:44:41 UTC' |
+    postgres_crash_lines | grep -c '' || true)"
+  clean="$(printf '%s\n' \
+    '2026-09-24 16:39:49.101 UTC [1] LOG:  received fast shutdown request' \
+    '2026-09-24 16:39:49.300 UTC [1] LOG:  database system is shut down' \
+    '2026-09-24 16:39:50.215 UTC [1] LOG:  database system is ready to accept connections' \
+    '2026-09-24 16:44:38.557 UTC [293] ERROR:  Backtest Result topology mismatch' \
+    '2026-09-24 16:44:38.632 UTC [303] FATAL:  the database system is in recovery mode' |
+    postgres_crash_lines | grep -c '' || true)"
+  if [[ "$crash" -ne 4 || "$clean" -ne 0 ]]; then
+    echo "ERROR: the crash reading counts ${crash} of the four crash-reinit lines and ${clean} ordinary lines." >&2
+    return 1
+  fi
+}
+
+# A host that sleeps during a run stops the database, the browser and every clock but the wall
+# clock. Measured on a local preflight (2026-09-24): macOS entered "Dark Wake Thermal Emergency" and
+# slept 972 seconds in the middle of entry 28; the server log is empty for those minutes, nextest
+# reported 193.5 s and Node, which counts the wall clock, 1154 s, and the entry failed on an Owner
+# read "after 970882ms against its 25000ms budget". That failure is about the host, not the chain.
+# So every run compares the wall clock with a monotonic clock that stops during sleep, and a run
+# that slept more than chain_sleep_tolerance_seconds is named as invalid evidence, pass or fail. A
+# stepped wall clock (an NTP correction that jumps rather than slews) widens the gap the same way;
+# that errs toward invalidating a run, and `pmset -g log` tells the two apart.
+readonly chain_sleep_tolerance_seconds=30
+
+chain_clock_reading() {
+  python3 -c 'import time; print(int(time.time()), int(time.monotonic()))'
+}
+
+# Seconds the host slept between two readings: wall-clock elapsed minus monotonic elapsed.
+chain_slept_seconds() {
+  local wall_start="$1" mono_start="$2" wall_end="$3" mono_end="$4"
+  echo $(((wall_end - wall_start) - (mono_end - mono_start)))
+}
+
+report_chain_host_sleep() {
+  local wall_now mono_now slept
+  [[ -n "${chain_wall_start:-}" ]] || return 0
+  read -r wall_now mono_now <<< "$(chain_clock_reading)"
+  slept="$(chain_slept_seconds "$chain_wall_start" "$chain_mono_start" "$wall_now" "$mono_now")"
+  if [[ "$slept" -gt "$chain_sleep_tolerance_seconds" ]]; then
+    echo "=== INVALID EVIDENCE: the wall clock ran ${slept} s ahead of the monotonic clock during this run: the host slept, or its clock was stepped (pmset -g log tells which). ===" >&2
+    echo "=== Its timings, and any timeout or failure inside the sleep, are not evidence about the chain. ===" >&2
+  fi
+}
+
+# The sleep reading and its positive control, on fixed numbers: the measured 972-second sleep must be
+# named, and a run whose two clocks agree within the tolerance must not be.
+check_chain_sleep_reading() {
+  local slept
+  slept="$(chain_slept_seconds 1000 5000 2154 5182)"
+  if [[ "$slept" -ne 972 ]] || [[ "$slept" -le "$chain_sleep_tolerance_seconds" ]]; then
+    echo "ERROR: the sleep reading gives ${slept} s for a run that slept 972 s." >&2
+    return 1
+  fi
+  slept="$(chain_slept_seconds 1000 5000 2400 6398)"
+  if [[ "$slept" -gt "$chain_sleep_tolerance_seconds" ]]; then
+    echo "ERROR: the sleep reading names a ${slept} s sleep in a run whose clocks agree within two seconds." >&2
+    return 1
+  fi
+}
+
+# The shard list: one row per chain entry, `shard<TAB>component<TAB>test name<TAB>browser`, rows
+# in chain order. A component is a set of entries that must share one database in chain order;
+# different components never read each other's rows, so each starts from the state before the
+# first entry. Components run one after another, never interleaved: interleaving would rebuild the
+# databases in the middle of a component and drop what its earlier entries wrote.
+#
+# The needs list (`rd-owner-chain-needs.tsv`) may name, per entry, `replays`: entries run again as
+# preconditions at the start of that entry's component, because the state it needs is produced by
+# an entry whose own component runs elsewhere. A replay leaves no record and counts for nothing;
+# the entry it repeats is judged where it runs as itself.
+chain_shard_list="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/rd-owner-chain-shards.tsv"
+chain_needs_list="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/rd-owner-chain-needs.tsv"
+readonly chain_shard_list chain_needs_list
+
+# Prints the 1-based chain position of a test name, or nothing.
+chain_position_of() {
+  local name="$1" position=0 selection
+  for selection in "${rd_owner_postgres_tests[@]}"; do
+    position=$((position + 1))
+    if [[ "${selection##*|}" == "$name" ]]; then
+      echo "$position"
+      return 0
+    fi
+  done
+}
+
+load_chain_shard() {
+  local shard="$1" row_shard component name position replays replay replayed first
+  local -a components=()
+  local -A component_entries=() component_replays=()
+  if [[ ! -f "$chain_shard_list" ]]; then
+    echo "ERROR: RD_OWNER_CHAIN_SHARD=${shard} but there is no shard list at ${chain_shard_list}." >&2
+    exit 1
+  fi
+  while IFS=$'\t' read -r row_shard component name _; do
+    [[ "$row_shard" == "$shard" ]] || continue
+    position="$(chain_position_of "$name")"
+    if [[ -z "$position" ]]; then
+      echo "ERROR: shard ${shard} lists ${name}, which is not a chain entry." >&2
+      exit 1
+    fi
+    if [[ -z "${component_entries[$component]+set}" ]]; then
+      components+=("$component")
+      component_entries["$component"]=''
+      component_replays["$component"]=''
+    fi
+    component_entries["$component"]+="${position} "
+    chain_shard_entry_count=$((chain_shard_entry_count + 1))
+    replays=''
+    if [[ -f "$chain_needs_list" ]]; then
+      replays="$(awk -F'\t' -v name="$name" '$1 == name { print $4 }' "$chain_needs_list")"
+    fi
+    if [[ -n "$replays" && "$replays" != '-' ]]; then
+      IFS=',' read -r -a replayed <<< "$replays"
+      for replay in "${replayed[@]}"; do
+        first="$(chain_position_of "$replay")"
+        if [[ -z "$first" ]]; then
+          echo "ERROR: ${name} replays ${replay}, which is not a chain entry." >&2
+          exit 1
+        fi
+        component_replays["$component"]+="${first} "
+      done
+    fi
+  done < "$chain_shard_list"
+  if [[ "$chain_shard_entry_count" -eq 0 ]]; then
+    echo "ERROR: the shard list names no entry for shard ${shard}." >&2
+    exit 1
+  fi
+  for component in "${components[@]}"; do
+    read -r -a replayed <<< "${component_replays[$component]}"
+    for position in $(printf '%s\n' "${replayed[@]}" | sort -n -u); do
+      chain_run_order+=("${position}|replay|${component}")
+    done
+    read -r -a replayed <<< "${component_entries[$component]}"
+    for position in "${replayed[@]}"; do
+      chain_run_order+=("${position}|entry|${component}")
+    done
+  done
+}
+
+# Every database an entry can write, snapshotted as a template once the pre-loop setup has
+# settled. A template clone carries neither the database ACL nor its role settings, and its owner
+# must be named, so all three are kept beside it and restored on every rebuild.
+chain_snapshot_databases() {
+  printf '%s\n' "$test_database" "$catalog_admin_database" "$origin_current_database" \
+    "$legacy_replay_database" "$program_host_acceptance_database" "$composer_sealed_read_database"
+}
+
+chain_admin_psql() {
+  docker exec "$container" psql --quiet --no-align --tuples-only --set ON_ERROR_STOP=1 \
+    --username postgres --dbname postgres --command "$1"
+}
+
+declare -A chain_database_owner=()
+declare -A chain_database_acl=()
+
+snapshot_chain_databases() {
+  local database
+  while IFS= read -r database; do
+    chain_database_owner["$database"]="$(chain_admin_psql "SELECT pg_catalog.pg_get_userbyid(datdba) FROM pg_catalog.pg_database WHERE datname = '${database}'")"
+    chain_database_acl["$database"]="$(chain_admin_psql "SELECT COALESCE(datacl::text, '') FROM pg_catalog.pg_database WHERE datname = '${database}'")"
+    chain_admin_psql "CREATE DATABASE \"${database}_t0\" WITH TEMPLATE \"${database}\" OWNER \"${chain_database_owner[$database]}\"" > /dev/null
+  done < <(chain_snapshot_databases)
+  chain_admin_psql "DROP TABLE IF EXISTS vibe_chain_role_settings_t0" > /dev/null
+  chain_admin_psql "CREATE TABLE vibe_chain_role_settings_t0 AS SELECT database_entry.datname, setting.setrole, setting.setconfig FROM pg_catalog.pg_db_role_setting setting JOIN pg_catalog.pg_database database_entry ON database_entry.oid = setting.setdatabase" > /dev/null
+}
+
+reset_chain_databases() {
+  local database
+  while IFS= read -r database; do
+    chain_admin_psql "DROP DATABASE \"${database}\" WITH (FORCE)" > /dev/null
+    chain_admin_psql "CREATE DATABASE \"${database}\" WITH TEMPLATE \"${database}_t0\" OWNER \"${chain_database_owner[$database]}\"" > /dev/null
+    if [[ -n "${chain_database_acl[$database]}" ]]; then
+      chain_admin_psql "UPDATE pg_catalog.pg_database SET datacl = '${chain_database_acl[$database]}'::aclitem[] WHERE datname = '${database}'" > /dev/null
+    fi
+    chain_admin_psql "INSERT INTO pg_catalog.pg_db_role_setting SELECT database_entry.oid, saved.setrole, saved.setconfig FROM vibe_chain_role_settings_t0 saved JOIN pg_catalog.pg_database database_entry ON database_entry.datname = saved.datname WHERE saved.datname = '${database}'" > /dev/null
+  done < <(chain_snapshot_databases)
+}
+
+drop_chain_database_snapshots() {
+  local database
+  while IFS= read -r database; do
+    chain_admin_psql "DROP DATABASE IF EXISTS \"${database}_t0\"" > /dev/null
+  done < <(chain_snapshot_databases)
+  chain_admin_psql "DROP TABLE IF EXISTS vibe_chain_role_settings_t0" > /dev/null
+}
+
+# The shard list is the planner's output and nothing else. It is regenerated here with the shard
+# count its own header states, and must match byte for byte, so a hand edit cannot drift away from
+# the declared needs it is derived from. The planner also refuses a declaration that names an entry
+# not in the chain, a need that does not run before its entry, a missing entry, an unresolved need
+# ("?"), and a replay without its reason; each replay it prints, with why it is there and what
+# replaces it.
+check_chain_shard_plan() {
+  local planner shard_count planned
+  planner="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/rd-owner-chain-shard-plan.py"
+  if [[ ! -f "$chain_needs_list" || ! -f "$chain_shard_list" ]]; then
+    echo "ERROR: the chain runs as shards and needs both ${chain_needs_list} and ${chain_shard_list}." >&2
+    return 1
+  fi
+  shard_count="$(sed -n 's/^# \([0-9][0-9]*\) shards;.*/\1/p' "$chain_shard_list")"
+  if [[ -z "$shard_count" ]]; then
+    echo "ERROR: ${chain_shard_list} does not state its shard count in its header." >&2
+    return 1
+  fi
+  if ! planned="$(python3 "$planner" "$shard_count")"; then
+    echo "ERROR: the shard planner refuses the declared needs (above)." >&2
+    return 1
+  fi
+  if [[ "$planned"$'\n' != "$(cat "$chain_shard_list")"$'\n' ]]; then
+    echo "ERROR: ${chain_shard_list} is not the planner's output for ${shard_count} shards; regenerate it with" >&2
+    echo "       python3 scripts/ci/rd-owner-chain-shard-plan.py ${shard_count} > scripts/ci/rd-owner-chain-shards.tsv" >&2
+    diff <(printf '%s\n' "$planned") "$chain_shard_list" | head -20 >&2
+    return 1
+  fi
+}
+
+# The chain's verdict from its records alone, so a run split across jobs is judged by the same
+# report a serial run prints. Records are named by global chain position, so the directories of
+# several jobs merge into the layout one serial run leaves. Every position must hold exactly one
+# junit record naming the test the array puts there, with one test run and none failed, errored or
+# skipped: a record under the wrong number, a skip-shaped pass and a missing entry are each named.
+# The two summary lines then come from the same code the serial chain calls.
+report_chain_records() {
+  local record_dir="$1" position selection package binary name record header problems=0
+  local expected_count="${#rd_owner_postgres_tests[@]}"
+  if [[ ! -d "$record_dir" ]]; then
+    echo "ERROR: no chain record directory at ${record_dir}." >&2
+    return 1
+  fi
+  for position in $(seq 1 "$expected_count"); do
+    selection="${rd_owner_postgres_tests[$((position - 1))]}"
+    IFS='|' read -r package binary name <<< "$selection"
+    record="$(printf '%s/%03d.xml' "$record_dir" "$position")"
+    if [[ ! -f "$record" ]]; then
+      echo "ERROR: entry ${position} (${name}) left no record at ${record}." >&2
+      problems=$((problems + 1))
+      continue
+    fi
+    header="$(grep -m 1 -o '<testsuites [^>]*>' -- "$record" || true)"
+    if [[ "$header" != *' tests="1" skipped="0" failures="0" errors="0" '* ]]; then
+      echo "ERROR: entry ${position} (${name}) did not record exactly one passing test: ${header:-no testsuites element}" >&2
+      problems=$((problems + 1))
+    fi
+    if ! grep -Fq "<testcase name=\"${name}\" classname=\"${package}" -- "$record"; then
+      echo "ERROR: record ${record} is not entry ${position} (${name}); it names $(grep -m 1 -o '<testcase name="[^"]*"' -- "$record" || echo 'no test case')." >&2
+      problems=$((problems + 1))
+    fi
+  done
+  while IFS= read -r record; do
+    position="$(basename -- "$record" .xml)"
+    if [[ ! "$position" =~ ^[0-9]{3}$ ]] || ((10#$position < 1 || 10#$position > expected_count)); then
+      echo "ERROR: ${record} is not the record of any of the ${expected_count} entries." >&2
+      problems=$((problems + 1))
+    fi
+  done < <(find "$record_dir" -maxdepth 1 -name '*.xml' -type f | sort)
+  if [[ "$problems" -ne 0 ]]; then
+    echo "ERROR: ${problems} problem(s) in the chain records at ${record_dir}." >&2
+    return 1
+  fi
+  echo "=== ordered chain: all ${expected_count} entries passed, ${expected_count} recorded"
+  report_collected_warnings "$record_dir" "$expected_count"
+}
+
+# The record verdict and its positive control, on records built from the array itself. A complete
+# set must pass and print the serial chain's own lines; each way a merged set can be wrong must be
+# named: a missing entry, a record under another entry's number, a skip-shaped pass, and a record
+# for a position the array does not have.
+check_chain_record_report() {
+  local fixtures position selection package binary name report
+  fixtures="$(mktemp -d)"
+  for position in $(seq 1 "${#rd_owner_postgres_tests[@]}"); do
+    selection="${rd_owner_postgres_tests[$((position - 1))]}"
+    IFS='|' read -r package binary name <<< "$selection"
+    printf '<testsuites name="nextest-run" tests="1" skipped="0" failures="0" errors="0" time="1">\n<testcase name="%s" classname="%s::%s" time="1"/>\n</testsuites>\n' \
+      "$name" "$package" "$binary" > "$(printf '%s/%03d.xml' "$fixtures" "$position")"
+    printf '%s\n' "$chain_log_collecting_marker" > "$(printf '%s/%03d.log' "$fixtures" "$position")"
+  done
+  if ! report="$(report_chain_records "$fixtures" 2>&1)" ||
+    [[ "$report" != "=== ordered chain: all ${#rd_owner_postgres_tests[@]} entries passed, ${#rd_owner_postgres_tests[@]} recorded"$'\n'"=== owner warnings: collected for ${#rd_owner_postgres_tests[@]}/${#rd_owner_postgres_tests[@]} entries; refusals in 0, other warnings in 0, 0 sqlx performance hint(s) in total" ]]; then
+    rm -rf -- "$fixtures"
+    echo "ERROR: the record verdict refuses a complete set of records or prints other lines:" >&2
+    printf '%s\n' "$report" >&2
+    return 1
+  fi
+  mv -- "$fixtures/002.xml" "$fixtures/002.held"
+  if report_chain_records "$fixtures" > /dev/null 2>&1; then
+    rm -rf -- "$fixtures"
+    echo "ERROR: the record verdict accepts a set with entry 2 missing." >&2
+    return 1
+  fi
+  cp -- "$fixtures/001.xml" "$fixtures/002.xml"
+  if report_chain_records "$fixtures" > /dev/null 2>&1; then
+    rm -rf -- "$fixtures"
+    echo "ERROR: the record verdict accepts entry 1's record under entry 2's number." >&2
+    return 1
+  fi
+  mv -- "$fixtures/002.held" "$fixtures/002.xml"
+  sed -e 's/ skipped="0" / skipped="1" /' "$fixtures/001.xml" > "$fixtures/001.skipped"
+  mv -- "$fixtures/001.xml" "$fixtures/001.held"
+  mv -- "$fixtures/001.skipped" "$fixtures/001.xml"
+  if report_chain_records "$fixtures" > /dev/null 2>&1; then
+    rm -rf -- "$fixtures"
+    echo "ERROR: the record verdict accepts a skip-shaped record." >&2
+    return 1
+  fi
+  mv -- "$fixtures/001.held" "$fixtures/001.xml"
+  cp -- "$fixtures/001.xml" "$(printf '%s/%03d.xml' "$fixtures" "$((${#rd_owner_postgres_tests[@]} + 1))")"
+  if report_chain_records "$fixtures" > /dev/null 2>&1; then
+    rm -rf -- "$fixtures"
+    echo "ERROR: the record verdict accepts a record for a position the chain does not have." >&2
+    return 1
+  fi
+  rm -rf -- "$fixtures"
+}
+
+check_chain_record_report
+check_postgres_crash_reading
+check_chain_sleep_reading
+check_chain_shard_plan
+
+if [[ "${1:-}" == "--report-records" ]]; then
+  if [[ "$#" -ne 2 ]]; then
+    echo "usage: $0 --report-records <chain record directory>" >&2
+    exit 2
+  fi
+  report_chain_records "$2"
+  exit
+fi
+
 if [[ "${1:-}" == "--check" ]]; then
   exit 0
 fi
@@ -1649,7 +2021,26 @@ done
 # so the archive carries an identity - the source tree, the features and both profiles - and a chain
 # given an archive refuses one whose identity is not its own, by name, rather than running binaries
 # from some other tree.
+# The production provisioning binary for Operator Authorization and Product Edge, built as the
+# deployment image builds it (no features) and staged where .config/nextest.toml's
+# [profile.ci.archive] include picks it up, so it reaches every job that runs from the archive.
+chain_provisioning_binary=product-edge-authority-bootstrap
+build_chain_provisioning_binary() {
+  local target_dir profile_dir
+  target_dir="${CARGO_TARGET_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/target}"
+  case "$cargo_ci_profile" in
+    dev | test) profile_dir=debug ;;
+    release | bench) profile_dir=release ;;
+    *) profile_dir="$cargo_ci_profile" ;;
+  esac
+  cargo build --locked --package vibe-product-edge-admin --bin "$chain_provisioning_binary" \
+    --profile "$cargo_ci_profile"
+  mkdir -p -- "${target_dir}/chain-provisioning"
+  cp -- "${target_dir}/${profile_dir}/${chain_provisioning_binary}" "${target_dir}/chain-provisioning/"
+}
+
 build_nextest_archive() {
+  build_chain_provisioning_binary
   cargo nextest archive \
     "${nextest_graph_args[@]}" \
     --features "$nextest_archive_features" \
@@ -1705,6 +2096,9 @@ if [[ "$(uname -s)" != "Linux" ]]; then
   echo "=== RD_OWNER_CHAIN_LOCAL_PREFLIGHT=1: running on $(uname -s), not Linux. ===" >&2
   echo "=== This is a preflight. Acceptance is these entries passing on Linux CI. ===" >&2
 fi
+read -r chain_wall_start chain_mono_start <<< "$(chain_clock_reading)"
+readonly chain_wall_start chain_mono_start
+
 if ! command -v docker > /dev/null 2>&1; then
   echo "ERROR: Docker is required for isolated R&D Owner PostgreSQL tests." >&2
   exit 1
@@ -1817,6 +2211,24 @@ nextest_extract_dir=''
 # number is the entry it stopped at, not only the test nextest names: an Owner's acceptance is its
 # own entries passing, and this is what says how far the run got.
 chain_entry_count="${#rd_owner_postgres_tests[@]}"
+# One shard of the chain runs only the entries the shard list gives it, each dependency component
+# on databases rebuilt from the state before the first entry; unset, every entry runs in order.
+readonly chain_shard="${RD_OWNER_CHAIN_SHARD:-}"
+chain_shard_entry_count=0
+# What the loop runs, in order: `position|entry|component` or `position|replay|component`. Without a
+# shard it is every entry, in chain order.
+chain_run_order=()
+if [[ -n "$chain_shard" ]]; then
+  load_chain_shard "$chain_shard"
+else
+  for chain_position in $(seq 1 "$chain_entry_count"); do
+    chain_run_order+=("${chain_position}|entry|")
+  done
+  chain_position=0
+fi
+readonly chain_run_order
+chain_run_index=0
+chain_current_component=''
 readonly chain_entry_count
 chain_position=0
 chain_entry_label=''
@@ -1850,6 +2262,7 @@ cleanup() {
   local cleanup_failed=false
   trap - EXIT
   disarm_chain_entry_watchdog
+  report_chain_host_sleep
   # `set +e` does not quiet the ERR trap - Bash runs it on any failing command outside a condition,
   # whatever errexit is set to - and everything below is written to tolerate failure and report it in
   # its own words. Without this line a failing chain would end in a run of generic trap lines that
@@ -3797,16 +4210,55 @@ SQL
   run_authority_migration
 }
 
+# Production provisioning runs in three steps (product/rd-workbench/docker-compose.yml): the R&D
+# schema materializer and the authority-custody migration, both run above, then
+# `authority-schema-materialize`, which materializes the Operator Authorization and Product Edge
+# schemas. Without the third, the template holds only Operator Authorization's four legacy
+# relations while `connect_existing` counts every admitted relation, both grant kinds' included
+# (`admitted_relations` and its check in crates/operator_authorization/src/postgres.rs at b55f8c03d),
+# and refuses with TopologyNotAdmitted. Product Edge is short three of its thirteen relations (the
+# admission event stream, admission events and expired-manifest recoveries). Entries passed anyway
+# only because an earlier entry's `connect()` migrated them: an order dependency the chain hid, and
+# one that a precondition built on a fresh database meets at once.
+chain_provisioning="${nextest_extract_dir}/target/chain-provisioning/${chain_provisioning_binary}"
+if [[ ! -x "$chain_provisioning" ]]; then
+  echo "ERROR: the archive holds no ${chain_provisioning_binary} at ${chain_provisioning}." >&2
+  exit 1
+fi
+OPERATOR_AUTHORIZATION_DATABASE_URL="postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}" \
+  PRODUCT_EDGE_DATABASE_URL="postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}" \
+  "$chain_provisioning" materialize-schema
+
+# Taken after the pre-loop drills, once both servers have settled; the raw-log count at the end
+# covers the whole life of each container, drills included.
+chain_stats_reset_before="$(postgres_stats_reset "$container")"
+impersonator_stats_reset_before="$(postgres_stats_reset "$impersonator_container")"
+readonly chain_stats_reset_before impersonator_stats_reset_before
+
+if [[ -n "$chain_shard" ]]; then
+  snapshot_chain_databases
+fi
+
 # The Catalog administrator, two replay migration filters, and Program Host acceptance use separate
 # fresh databases. In the shared database, run the complete Instrument Owner storage/ACL oracle only
 # after its consumers because its final inheritance fault poisons that private store. Keep the
 # destructive legacy PREPARED drain probe final because it removes receipt storage required by every
 # positive Artifact Owner consumer.
-for test_selection in "${rd_owner_postgres_tests[@]}"; do
+for chain_step in "${chain_run_order[@]}"; do
+  IFS='|' read -r chain_position chain_step_kind chain_step_component <<< "$chain_step"
+  chain_run_index=$((chain_run_index + 1))
+  test_selection="${rd_owner_postgres_tests[$((chain_position - 1))]}"
   IFS='|' read -r test_package test_binary test_name <<< "$test_selection"
-  chain_position=$((chain_position + 1))
+  if [[ -n "$chain_current_component" && "$chain_step_component" != "$chain_current_component" ]]; then
+    reset_chain_databases
+  fi
+  chain_current_component="$chain_step_component"
   chain_entry_label="${test_package} ${test_binary} ${test_name}"
-  echo "=== ordered chain entry ${chain_position}/${chain_entry_count}: ${chain_entry_label}"
+  if [[ "$chain_step_kind" == replay ]]; then
+    echo "=== replayed precondition ${chain_position}/${chain_entry_count} for component ${chain_step_component}: ${chain_entry_label}"
+  else
+    echo "=== ordered chain entry ${chain_position}/${chain_entry_count}: ${chain_entry_label}"
+  fi
   # The previous entry's record must not be copied as this one's if this one never writes its own.
   rm -f -- "$chain_record_source"
   arm_chain_entry_watchdog "$chain_entry_wall_clock_seconds" \
@@ -3814,6 +4266,9 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
     "ordered chain entry ${chain_position}/${chain_entry_count} (${chain_entry_label})"
   # Absolute: nextest runs each test from its package directory.
   VIBE_TEST_LOG_FILE="${PWD}/$(printf '%s/%03d.log' "$chain_record_dir" "$chain_position")"
+  if [[ "$chain_step_kind" == replay ]]; then
+    VIBE_TEST_LOG_FILE="${PWD}/$(printf '%s/%03d.replay.log' "$chain_record_dir" "$chain_position")"
+  fi
   export VIBE_TEST_LOG_FILE
   test_filter="package(${test_package}) & binary(${test_binary}) & test(=${test_name})"
   backtest_result_fault=''
@@ -3980,28 +4435,40 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       "${nextest_execution_args[@]}" \
       -E "$test_filter"
   fi
-  keep_chain_record "$chain_position"
-  if [[ "$test_name" == 'durable_owner_is_atomic_restart_exact_and_fail_closed' ]]; then
+  if [[ "$chain_step_kind" != replay ]]; then
+    keep_chain_record "$chain_position"
+  fi
+  if [[ "$chain_step_kind" != replay && "$test_name" == 'durable_owner_is_atomic_restart_exact_and_fail_closed' ]]; then
     require_collected_positive_control "$chain_record_dir" "$chain_position"
   fi
   if [[ -n "$backtest_result_fault" ]]; then
     restore_backtest_result_fault "$backtest_result_fault"
   fi
-  if [[ "$chain_position" -eq "$chain_entry_count" ]]; then
+  if [[ "$chain_run_index" -eq "${#chain_run_order[@]}" ]]; then
     # One record per entry, counted against the array rather than checked for being non-empty: a
     # non-empty directory only rules out "nothing ran at all", not "ran thirty and the copy stopped
     # answering". A short count here means the record is incomplete while the chain says it passed,
     # which is the one combination that would let a reader trust a record that is missing entries.
     chain_record_count="$(find "$chain_record_dir" -name '*.xml' -type f | grep -c '' || true)"
-    if [[ "$chain_record_count" -ne "$chain_entry_count" ]]; then
-      echo "ERROR: the chain passed ${chain_entry_count} entries but left ${chain_record_count}" >&2
+    chain_expected_records="$chain_entry_count"
+    if [[ -n "$chain_shard" ]]; then
+      chain_expected_records="$chain_shard_entry_count"
+    fi
+    if [[ "$chain_record_count" -ne "$chain_expected_records" ]]; then
+      echo "ERROR: the chain passed ${chain_expected_records} entries but left ${chain_record_count}" >&2
       echo "record(s) in ${chain_record_dir}. Every entry must leave one, or the published record" >&2
       echo "is missing entries while reporting success." >&2
       exit 1
     fi
     chain_completed=true
-    echo "=== ordered chain: all ${chain_entry_count} entries passed, ${chain_record_count} recorded"
-    report_collected_warnings "$chain_record_dir" "$chain_entry_count"
+    if [[ -n "$chain_shard" ]]; then
+      # The chain's two summary lines come from the merged records of every shard
+      # (--report-records), so one shard reports only itself.
+      echo "=== chain shard ${chain_shard}: all ${chain_shard_entry_count} entries passed, ${chain_record_count} recorded"
+    else
+      echo "=== ordered chain: all ${chain_entry_count} entries passed, ${chain_record_count} recorded"
+      report_collected_warnings "$chain_record_dir" "$chain_entry_count"
+    fi
   fi
   disarm_chain_entry_watchdog
 done
@@ -4012,6 +4479,13 @@ if [[ "$legacy_replay_fingerprint_after" != "$legacy_replay_fingerprint_before" 
   echo "ERROR: legacy exploratory Replay table data or catalog changed." >&2
   exit 1
 fi
+
+if [[ -n "$chain_shard" ]]; then
+  drop_chain_database_snapshots
+fi
+
+require_no_postgres_crash chain "$container" "$chain_stats_reset_before"
+require_no_postgres_crash impersonating "$impersonator_container" "$impersonator_stats_reset_before"
 
 # Every SECURITY DEFINER routine, in every database the chain materialized, must search pg_temp last
 # and name no schema another role can create in; scripts/ci/check-security-definer-search-path.sql
