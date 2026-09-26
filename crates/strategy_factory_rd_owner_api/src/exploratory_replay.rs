@@ -25,6 +25,7 @@ use vibe_backtest_owner_contracts::{
 use vibe_data::owner::source_binding::BindingDigest;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 use vibe_data::owner::{
+    UniverseSampleProjectionOwnerV1,
     instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresOwnerV1,
     instrument_master_v2_postgres::InstrumentMasterV2PostgresOwner,
     native_replay_scheduling_v1::NativeReplaySchedulingResolverV1,
@@ -214,6 +215,7 @@ impl NativeReplayExecutionServiceV2 {
         instrument_master_owner: Arc<InstrumentMasterV2PostgresOwner>,
         instrument_terms_owner: Arc<InstrumentEconomicTermsPostgresOwnerV1>,
         market_data: Arc<dyn NativeReplaySchedulingResolverV1>,
+        sample_projections: Arc<UniverseSampleProjectionOwnerV1>,
     ) -> anyhow::Result<Self> {
         let rd_relock_pool = sqlx::PgPool::connect(rd_database_url).await?;
         let backtest_pool = sqlx::PgPool::connect(backtest_database_url).await?;
@@ -225,6 +227,7 @@ impl NativeReplayExecutionServiceV2 {
             instrument_master_owner,
             instrument_terms_owner,
             market_data,
+            sample_projections,
         ));
         let preparation_owner = Arc::new(PostgresNativeReplayPreparationOwnerV2::new(
             rd_relock_pool,

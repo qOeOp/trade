@@ -498,6 +498,7 @@ async fn main() -> anyhow::Result<()> {
                     instrument_master_v2.clone(),
                     instrument_economic_terms.clone(),
                     market_data,
+                    universe_sample_projection.clone(),
                 )
                 .await?,
             ))

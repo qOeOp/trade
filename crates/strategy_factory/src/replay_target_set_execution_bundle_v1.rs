@@ -9,9 +9,9 @@ use sha2::{Digest, Sha256};
 use vibe_data::owner::instrument_master_v2::ValidatedCryptoPerpetualPublicTermsV2;
 use vibe_data::owner::native_replay_scheduling_v1::NativeReplaySchedulingReadbackV1;
 use vibe_data::owner::native_replay_scheduling_v2::NativeReplayFrameSequenceReadbackV2;
-use vibe_data::owner::strategy_input_binding::{
-    StrategyInputEventKind, StrategyInputUniverseFrameReceipt,
-};
+use vibe_data::owner::strategy_input_binding::StrategyInputEventKind;
+#[cfg(test)]
+use vibe_data::owner::strategy_input_binding::StrategyInputUniverseFrameReceipt;
 use vibe_model::{
     data::{Bar, BarType, Data, HasTsInit, QuoteTick},
     identifiers::{AccountId, StrategyId},
@@ -22,7 +22,7 @@ use crate::{
     artifact_v2::StrategyArtifactV2,
     exploratory_replay::ExploratoryReplayRequestLocatorV2,
     native_replay_execution_input_binding_v2::NativeReplayExecutionInputBindingReadbackV2,
-    program_host_v2::admit_market_data_universe_program_event_v2,
+    program_host_v2::{OwnerUniverseFrameV1, admit_owner_universe_program_event_v2},
     replay_economic_configuration_v1::{ReplayEconomicConfigurationV1, ReplayFixedDecimalV1},
     replay_execution_profile_binding_v1::{
         BoundInstrumentEconomicTermsV1, InstrumentMarginModelSelectionV1,
@@ -338,7 +338,7 @@ impl ReplayTargetSetExecutionCensusV1 {
 pub struct ReplayTargetSetExecutionBundleV1 {
     pub(crate) plan: StrategyPlanV2,
     pub(crate) artifact: StrategyArtifactV2,
-    pub(crate) universe_frames: Vec<StrategyInputUniverseFrameReceipt>,
+    pub(crate) universe_frames: Vec<OwnerUniverseFrameV1>,
     pub(crate) native_profile: ReplayNativeExecutionProfileV1,
     pub(crate) account_scope_id: AccountId,
     pub(crate) strategy_id: StrategyId,
@@ -419,7 +419,7 @@ impl ReplayTargetSetExecutionBundleV1 {
         authority: OwnerIssuedReplayExecutionProfileBindingV1,
         plan: StrategyPlanV2,
         artifact: StrategyArtifactV2,
-        universe_frames: Vec<StrategyInputUniverseFrameReceipt>,
+        universe_frames: Vec<OwnerUniverseFrameV1>,
         strategy_id: StrategyId,
         run_id: String,
         public_terms: Vec<ValidatedCryptoPerpetualPublicTermsV2>,
@@ -453,6 +453,7 @@ impl ReplayTargetSetExecutionBundleV1 {
                     && frame.window_end_ns_exclusive() == request_window.end_event_ns_exclusive
                     && *frame.observation_batch_digest().as_bytes()
                         == *universe_frame
+                            .frame()
                             .selection()
                             .observation_batch_digest()
                             .as_bytes(),
@@ -505,7 +506,7 @@ impl ReplayTargetSetExecutionBundleV1 {
         authority: OwnerIssuedReplayExecutionProfileBindingV1,
         plan: StrategyPlanV2,
         artifact: StrategyArtifactV2,
-        universe_frame: StrategyInputUniverseFrameReceipt,
+        universe_frame: OwnerUniverseFrameV1,
         strategy_id: StrategyId,
         run_id: String,
         public_terms: Vec<ValidatedCryptoPerpetualPublicTermsV2>,
@@ -523,6 +524,7 @@ impl ReplayTargetSetExecutionBundleV1 {
                 && scheduling.window_end_ns_exclusive() == request_window.end_event_ns_exclusive
                 && *scheduling.observation_batch_digest().as_bytes()
                     == *universe_frame
+                        .frame()
                         .selection()
                         .observation_batch_digest()
                         .as_bytes(),
@@ -552,7 +554,7 @@ impl ReplayTargetSetExecutionBundleV1 {
         authority: OwnerIssuedReplayExecutionProfileBindingV1,
         plan: StrategyPlanV2,
         artifact: StrategyArtifactV2,
-        universe_frames: Vec<StrategyInputUniverseFrameReceipt>,
+        universe_frames: Vec<OwnerUniverseFrameV1>,
         strategy_id: StrategyId,
         run_id: String,
         instruments: BoundedMembers<InstrumentAny>,
@@ -586,8 +588,9 @@ impl ReplayTargetSetExecutionBundleV1 {
             .ok_or_else(|| anyhow::anyhow!("request execution bundle value census overflows"))?;
         let mut admitted_frame_times = Vec::with_capacity(universe_frames.len());
 
-        for universe_frame in &universe_frames {
-            let admitted = admit_market_data_universe_program_event_v2(&plan, universe_frame)?;
+        for owner_frame in &universe_frames {
+            let admitted = admit_owner_universe_program_event_v2(&plan, owner_frame)?;
+            let universe_frame = owner_frame.frame();
             anyhow::ensure!(
                 matches!(
                     universe_frame.trigger().lifecycle().kind(),
@@ -623,7 +626,7 @@ impl ReplayTargetSetExecutionBundleV1 {
         let artifact_digest = *artifact.identity().as_bytes();
         // The request pins one universe selection for the whole window, so the series' selection
         // is the first frame's and every later frame was checked against the same member set.
-        let first_frame = &universe_frames[0];
+        let first_frame = universe_frames[0].frame();
         let selection_identity = *first_frame.selection().selection_identity().as_bytes();
         let selection_digest = *first_frame.selection().selection_digest().as_bytes();
         anyhow::ensure!(
@@ -746,7 +749,10 @@ impl ReplayTargetSetExecutionBundleV1 {
             authority,
             plan,
             artifact,
-            universe_frames,
+            universe_frames
+                .into_iter()
+                .map(OwnerUniverseFrameV1::uncoordinated)
+                .collect(),
             strategy_id,
             run_id,
             instruments,
@@ -767,7 +773,7 @@ impl ReplayTargetSetExecutionBundleV1 {
 /// field of its own because a digest cannot answer how many, and a one-frame series has to be
 /// distinguishable from a series that carried none.
 fn digest_frame_sequence(
-    universe_frames: &[StrategyInputUniverseFrameReceipt],
+    universe_frames: &[OwnerUniverseFrameV1],
     owner_scheduling_receipt_digests: &[[u8; 32]],
 ) -> anyhow::Result<[u8; 32]> {
     anyhow::ensure!(
@@ -783,6 +789,7 @@ fn digest_frame_sequence(
         .zip(owner_scheduling_receipt_digests)
         .enumerate()
     {
+        let universe_frame = universe_frame.frame();
         hasher.update(u64::try_from(ordinal)?.to_be_bytes());
         hasher.update(universe_frame.digest().as_bytes());
         hasher.update(

@@ -2249,6 +2249,7 @@ impl PostgresResearchGoalOwnerV1 {
         instrument_master_owner: &InstrumentMasterV2PostgresOwner,
         instrument_terms_owner: &InstrumentEconomicTermsPostgresOwnerV1,
         market_data: &R,
+        sample_projections: &UniverseSampleProjectionOwnerV1,
         strategy_id: StrategyId,
         run_id: String,
     ) -> Result<
@@ -2271,6 +2272,7 @@ impl PostgresResearchGoalOwnerV1 {
             instrument_master_owner,
             instrument_terms_owner,
             market_data,
+            sample_projections,
             strategy_id,
             run_id,
         )

@@ -31,6 +31,9 @@ use vibe_data::owner::{
     strategy_input_joined_cut::{
         StrategyInputJoinedCutReceiptV1, derive_strategy_input_join_identity_v2,
     },
+    universe_sample_projection_v1::{
+        StrategyInputUniverseSampleProjectionReadbackV1, UniverseSampleProjectionLifecycleV1,
+    },
 };
 
 use crate::target_set_members::{BoundedMembers, is_admitted_member_count};
@@ -124,15 +127,133 @@ struct SourceBindingLineageVersionV2 {
 /// One universe member's Owner sample coordinate for one role, as the host attaches it to a
 /// universe frame.
 ///
-/// Its one production source is Market Data's per-(member, role) universe sample projection, which
-/// does not exist yet. The fields are private to this module and the only constructor here is
-/// test-only, so no production path can build one. Until that projection exists, a BFP universe
-/// Plan admits no frame at all, because the host cannot invent a coordinate for a member.
+/// Its one production source is Market Data's universe-frame sample projection, read through
+/// [`OwnerUniverseFrameV1::from_owner_projection_v1`]. The fields are private to this module, so no
+/// other path can build one.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct UniverseMemberSampleCoordinateV1 {
     member_ordinal: u8,
     input_role_identity: BindingDigest,
     evidence: OwnerSampleCoordinateEvidenceV2,
+}
+
+/// One Owner-sealed universe frame together with the member coordinates the host attaches to it.
+///
+/// A frame is admitted with exactly the coordinates its Plan reads: a Plan with coordinate rows
+/// admits it only from Market Data's sample projection over this very frame, and a Plan without
+/// them only without coordinates. Pairing the two in one value keeps a frame from reaching the host
+/// with another frame's coordinates.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OwnerUniverseFrameV1 {
+    frame: StrategyInputUniverseFrameReceipt,
+    coordinates: Vec<UniverseMemberSampleCoordinateV1>,
+}
+
+impl OwnerUniverseFrameV1 {
+    /// A frame with no member coordinates, for a Plan that reads none. A Plan with coordinate rows
+    /// refuses it at admission.
+    pub(crate) const fn uncoordinated(frame: StrategyInputUniverseFrameReceipt) -> Self {
+        Self {
+            frame,
+            coordinates: Vec::new(),
+        }
+    }
+
+    /// A frame with the coordinates Market Data's sample projection issued for it.
+    ///
+    /// The host, not R&D, holds the guarantee that a projection belongs to the frame it attaches
+    /// to (`docs/owners/market-data.md`, universe-frame sample projection): its subject is this
+    /// frame's receipt, its lifecycle is the frame's, a BAR frame's projection binds a schedule
+    /// set, and its (member, role) set equals the frame's value set - each component naming the
+    /// member, binding, value receipt and trigger of the value it covers. Equality with the Plan's
+    /// coordinate rows is checked where the coordinates are attached. Any mismatch is refused as
+    /// [`ProgramHostV2Error::InputCoverage`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProgramHostV2Error::InputCoverage`] when the projection is not this frame's.
+    pub(crate) fn from_owner_projection_v1(
+        frame: StrategyInputUniverseFrameReceipt,
+        projection: &StrategyInputUniverseSampleProjectionReadbackV1,
+    ) -> Result<Self, ProgramHostV2Error> {
+        let frame_lifecycle = match frame.trigger().lifecycle().kind() {
+            StrategyInputEventKind::Bar => UniverseSampleProjectionLifecycleV1::Bar,
+            StrategyInputEventKind::Event => UniverseSampleProjectionLifecycleV1::Event,
+        };
+        let schedule_set_agrees = match projection.lifecycle() {
+            UniverseSampleProjectionLifecycleV1::Bar => projection
+                .schedule_dependency_set_digest()
+                .is_some_and(|digest| digest != BindingDigest::from_untrusted_bytes([0; 32])),
+            UniverseSampleProjectionLifecycleV1::Event => {
+                projection.schedule_dependency_set_digest().is_none()
+            }
+        };
+
+        if projection.subject() != frame.digest()
+            || projection.lifecycle() != frame_lifecycle
+            || !schedule_set_agrees
+            || projection.components().len() != frame.values().len()
+        {
+            return Err(ProgramHostV2Error::InputCoverage);
+        }
+        let members = frame.selection().members();
+        let mut coordinates = Vec::with_capacity(frame.values().len());
+
+        for value in frame.values() {
+            let member_ordinal = members
+                .iter()
+                .position(|member| member.member_key() == value.member_key())
+                .and_then(|ordinal| u8::try_from(ordinal).ok())
+                .ok_or(ProgramHostV2Error::InputCoverage)?;
+            let component = projection
+                .component(member_ordinal, value.input_role_identity())
+                .ok_or(ProgramHostV2Error::InputCoverage)?;
+
+            if component.member_key() != value.member_key()
+                || component.instrument() != value.instrument()
+                || component.member_binding_digest() != value.binding_digest()
+                || component.value_receipt_digest() != value.digest()
+                || component.trigger_digest() != value.trigger_digest()
+            {
+                return Err(ProgramHostV2Error::InputCoverage);
+            }
+            coordinates.push(UniverseMemberSampleCoordinateV1 {
+                member_ordinal,
+                input_role_identity: value.input_role_identity(),
+                evidence: OwnerSampleCoordinateEvidenceV2 {
+                    canonical: *component.coordinate(),
+                    projection_receipt_digest: projection.identity(),
+                    projection_subject_identity: projection.subject(),
+                    schedule_dependency_set_digest: projection.schedule_dependency_set_digest(),
+                    timeframe_projection_digest: component.timeframe_projection_digest(),
+                    sample_identity: component.sample_identity(),
+                    sample_receipt_digest: component.sample_receipt_digest(),
+                },
+            });
+        }
+        Ok(Self { frame, coordinates })
+    }
+
+    #[must_use]
+    pub const fn frame(&self) -> &StrategyInputUniverseFrameReceipt {
+        &self.frame
+    }
+}
+
+/// Whether a Plan reads any universe member's Owner sample coordinate: whether it has a coordinate
+/// row, the same rows a frame's attached coordinates must equal.
+pub(crate) fn plan_reads_universe_member_coordinates_v1(plan: &StrategyPlanV2) -> bool {
+    plan.bfp_role_bindings()
+        .iter()
+        .any(|row| row.kind() == BfpRoleBindingKindV1::Coordinate)
+}
+
+/// Admits one Owner-sealed universe frame with exactly the coordinates it was paired with.
+pub(crate) fn admit_owner_universe_program_event_v2(
+    plan: &StrategyPlanV2,
+    frame: &OwnerUniverseFrameV1,
+) -> Result<AdmittedProgramEventV2, ProgramHostV2Error> {
+    admit_market_data_coordinated_universe_program_event_v2(plan, &frame.frame, &frame.coordinates)
 }
 
 #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
