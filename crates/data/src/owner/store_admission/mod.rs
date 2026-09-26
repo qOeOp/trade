@@ -3,8 +3,9 @@
 //! This private boundary is deliberately not a business Owner. It can seal a store-admission receipt only
 //! after resolving and verifying custodian-owned signed history, consulting an independent
 //! anti-rollback witness, resolving an opaque credential lease, and directly measuring the target.
-//! The production resolver, signature verifier, witness, and credential resolver are intentionally
-//! unavailable until their deployment authorities exist.
+//! The production signature verifier pins one Ed25519 public key (`signature`); the production
+//! resolver, witness, and credential resolver are intentionally unavailable until their deployment
+//! authorities exist, and the composition root still wires the unavailable verifier until then.
 
 #![allow(
     dead_code,
@@ -12,6 +13,7 @@
 )]
 
 mod postgres;
+mod signature;
 pub(super) use postgres::RawSharedTimeEvidenceSnapshotV1;
 #[cfg(test)]
 pub(super) use postgres::RawSharedTimeHistoryRowV1;
@@ -32,6 +34,8 @@ use postgres::{
     PostgresCredentialLease, PostgresDirectMeasurer, PostgresMeasurement, PostgresMeasurementSpec,
     PostgresTlsIdentity,
 };
+#[cfg(test)]
+use signature::PinnedEd25519SignatureVerifier;
 
 /// Exact business Owner admitted by the first deployment-store consumer.
 pub(super) const MARKET_DATA_OWNER: &str = "MARKET_DATA_OWNER_V1";
@@ -2016,7 +2020,7 @@ mod tests {
         },
     };
 
-    use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+    use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
     use rstest::rstest;
 
     use super::*;
@@ -2141,13 +2145,27 @@ mod tests {
         }
     }
 
-    struct Ed25519Verifier {
-        key: VerifyingKey,
+    /// The production verifier, pinned to the fixture's key, counting how often it is asked.
+    struct CountingVerifier {
+        pinned: PinnedEd25519SignatureVerifier,
         calls: Arc<AtomicUsize>,
     }
 
+    impl CountingVerifier {
+        fn pinned(signer_identity: &str, key: &VerifyingKey, calls: Arc<AtomicUsize>) -> Self {
+            Self {
+                pinned: PinnedEd25519SignatureVerifier::from_public_key_hex(
+                    signer_identity,
+                    &signature::lower_hex(key.as_bytes()),
+                )
+                .unwrap(),
+                calls,
+            }
+        }
+    }
+
     #[async_trait]
-    impl SignatureVerifier for Ed25519Verifier {
+    impl SignatureVerifier for CountingVerifier {
         async fn verify(
             &self,
             signer_identity: &str,
@@ -2155,29 +2173,9 @@ mod tests {
             signature: &[u8],
         ) -> Result<bool, ()> {
             self.calls.fetch_add(1, Ordering::SeqCst);
-
-            if signer_identity != SIGNER {
-                return Ok(false);
-            }
-            let signature = Signature::try_from(signature).map_err(|_| ())?;
-            Ok(self.key.verify(message, &signature).is_ok())
-        }
-    }
-
-    struct AnyTestSignerVerifier {
-        key: VerifyingKey,
-    }
-
-    #[async_trait]
-    impl SignatureVerifier for AnyTestSignerVerifier {
-        async fn verify(
-            &self,
-            _signer_identity: &str,
-            message: &[u8],
-            signature: &[u8],
-        ) -> Result<bool, ()> {
-            let signature = Signature::try_from(signature).map_err(|_| ())?;
-            Ok(self.key.verify(message, &signature).is_ok())
+            self.pinned
+                .verify(signer_identity, message, signature)
+                .await
         }
     }
 
@@ -2422,10 +2420,11 @@ mod tests {
         ) -> Custodian {
             self.custodian_with_ports(
                 self.custody(),
-                Arc::new(Ed25519Verifier {
-                    key: self.signing_key.verifying_key(),
-                    calls: signature_calls,
-                }),
+                Arc::new(CountingVerifier::pinned(
+                    SIGNER,
+                    &self.signing_key.verifying_key(),
+                    signature_calls,
+                )),
                 Arc::new(FakeMeasurer {
                     value: self.measurement.clone(),
                     calls: measurement_calls,
@@ -2594,10 +2593,11 @@ mod tests {
         let custody = fixture.custody();
         let custodian = Custodian::new(
             Arc::new(custody.clone()),
-            Arc::new(Ed25519Verifier {
-                key: fixture.signing_key.verifying_key(),
-                calls: Arc::new(AtomicUsize::new(0)),
-            }),
+            Arc::new(CountingVerifier::pinned(
+                SIGNER,
+                &fixture.signing_key.verifying_key(),
+                Arc::new(AtomicUsize::new(0)),
+            )),
             Arc::new(FakeWitness {
                 observation: fixture.witness.clone(),
             }),
@@ -2626,9 +2626,11 @@ mod tests {
         let first_receipt = first
             .custodian_with_ports(
                 first.custody(),
-                Arc::new(AnyTestSignerVerifier {
-                    key: first.signing_key.verifying_key(),
-                }),
+                Arc::new(CountingVerifier::pinned(
+                    SIGNER,
+                    &first.signing_key.verifying_key(),
+                    Arc::new(AtomicUsize::new(0)),
+                )),
                 Arc::new(FakeMeasurer {
                     value: first.measurement.clone(),
                     calls: Arc::new(AtomicUsize::new(0)),
@@ -2641,9 +2643,11 @@ mod tests {
         let second_receipt = second
             .custodian_with_ports(
                 second.custody(),
-                Arc::new(AnyTestSignerVerifier {
-                    key: second.signing_key.verifying_key(),
-                }),
+                Arc::new(CountingVerifier::pinned(
+                    "deployment-store-other-signer-v2",
+                    &second.signing_key.verifying_key(),
+                    Arc::new(AtomicUsize::new(0)),
+                )),
                 Arc::new(FakeMeasurer {
                     value: second.measurement.clone(),
                     calls: Arc::new(AtomicUsize::new(0)),
@@ -2663,10 +2667,11 @@ mod tests {
         let now = Arc::new(AtomicU64::new(NOW));
         let custodian = fixture.custodian_with_ports(
             fixture.custody(),
-            Arc::new(Ed25519Verifier {
-                key: fixture.signing_key.verifying_key(),
-                calls: Arc::new(AtomicUsize::new(0)),
-            }),
+            Arc::new(CountingVerifier::pinned(
+                SIGNER,
+                &fixture.signing_key.verifying_key(),
+                Arc::new(AtomicUsize::new(0)),
+            )),
             Arc::new(ExpiringMeasurer {
                 value: fixture.measurement.clone(),
                 now: now.clone(),
@@ -2684,10 +2689,11 @@ mod tests {
         let custody = fixture.custody();
         let custodian = fixture.custodian_with_ports(
             custody.clone(),
-            Arc::new(Ed25519Verifier {
-                key: fixture.signing_key.verifying_key(),
-                calls: Arc::new(AtomicUsize::new(0)),
-            }),
+            Arc::new(CountingVerifier::pinned(
+                SIGNER,
+                &fixture.signing_key.verifying_key(),
+                Arc::new(AtomicUsize::new(0)),
+            )),
             Arc::new(WitnessSwitchingMeasurer {
                 value: fixture.measurement.clone(),
                 custody,
@@ -2769,10 +2775,11 @@ mod tests {
                     now_epoch_ms: NOW + 10,
                 })),
             }),
-            Arc::new(Ed25519Verifier {
-                key: changed.signing_key.verifying_key(),
-                calls: Arc::new(AtomicUsize::new(0)),
-            }),
+            Arc::new(CountingVerifier::pinned(
+                SIGNER,
+                &changed.signing_key.verifying_key(),
+                Arc::new(AtomicUsize::new(0)),
+            )),
             Arc::new(FakeWitness {
                 observation: changed.witness.clone(),
             }),
@@ -3582,10 +3589,11 @@ mod tests {
         let fixture = Fixture::with_spec_and_measurement(spec, measured);
         Custodian::new(
             Arc::new(fixture.custody()),
-            Arc::new(Ed25519Verifier {
-                key: fixture.signing_key.verifying_key(),
-                calls: Arc::new(AtomicUsize::new(0)),
-            }),
+            Arc::new(CountingVerifier::pinned(
+                SIGNER,
+                &fixture.signing_key.verifying_key(),
+                Arc::new(AtomicUsize::new(0)),
+            )),
             Arc::new(FakeWitness {
                 observation: fixture.witness.clone(),
             }),
@@ -3812,10 +3820,11 @@ mod tests {
         let calls = Arc::new(AtomicUsize::new(0));
         let custodian = Custodian::new(
             Arc::new(fixture.custody()),
-            Arc::new(Ed25519Verifier {
-                key: fixture.signing_key.verifying_key(),
-                calls: Arc::new(AtomicUsize::new(0)),
-            }),
+            Arc::new(CountingVerifier::pinned(
+                SIGNER,
+                &fixture.signing_key.verifying_key(),
+                Arc::new(AtomicUsize::new(0)),
+            )),
             Arc::new(FakeWitness {
                 observation: fixture.witness.clone(),
             }),
@@ -4017,10 +4026,11 @@ mod tests {
         let calls = Arc::new(AtomicUsize::new(0));
         let custodian = Custodian::new(
             Arc::new(fixture.custody()),
-            Arc::new(Ed25519Verifier {
-                key: fixture.signing_key.verifying_key(),
-                calls: Arc::new(AtomicUsize::new(0)),
-            }),
+            Arc::new(CountingVerifier::pinned(
+                SIGNER,
+                &fixture.signing_key.verifying_key(),
+                Arc::new(AtomicUsize::new(0)),
+            )),
             Arc::new(FakeWitness {
                 observation: fixture.witness.clone(),
             }),
