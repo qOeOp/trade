@@ -2193,15 +2193,7 @@ impl PostgresResearchGoalOwnerV1 {
         P: crate::develop_composer_postgres_v2::DevelopComposerSealedReadPortV2 + ?Sized,
         R: NativeReplaySchedulingResolverV1 + ?Sized,
     {
-        let mut transaction = self
-            .pool
-            .begin()
-            .await
-            .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-            .execute(&mut *transaction)
-            .await
-            .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
+        let mut transaction = self.begin_native_replay_issuance_transaction_v1().await?;
         let readback = crate::native_replay_initial_binding_issuance_v1::issue_native_replay_initial_binding_v1_in_transaction(
             &mut transaction,
             locator,
@@ -2216,6 +2208,33 @@ impl PostgresResearchGoalOwnerV1 {
             .await
             .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
         Ok(readback)
+    }
+
+    /// Opens the transaction one execution-input binding is issued in.
+    ///
+    /// It is READ COMMITTED because that is the one level every Owner read on the way answers
+    /// under. The R&D storage functions behind the native source boundary answer only under READ
+    /// COMMITTED or SERIALIZABLE and return nothing under REPEATABLE READ, whose snapshot predates
+    /// the request fence their locks take. The Product Edge historical admission read that follows
+    /// refuses anything but READ COMMITTED by name, `ISOLATION_NOT_READ_COMMITTED`. Both take their
+    /// locks and then read, which READ COMMITTED serves: each statement sees what the lock admits.
+    /// Changing the level here refuses every request again, at one of the two.
+    pub(crate) async fn begin_native_replay_issuance_transaction_v1(
+        &self,
+    ) -> Result<
+        sqlx::Transaction<'static, sqlx::Postgres>,
+        crate::NativeReplayExecutionInputBindingErrorV1,
+    > {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
+            .execute(&mut *transaction)
+            .await
+            .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
+        Ok(transaction)
     }
 
     /// Re-resolves one issued binding into the existing native execution capability.

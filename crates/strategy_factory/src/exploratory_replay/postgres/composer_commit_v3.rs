@@ -21,13 +21,15 @@ use crate::{
         load_composer_artifact_family_binding_for_replay_v3,
     },
     composer_replay_intent_v3::resolve_composer_replay_intent_in_transaction,
+    develop_composer_postgres_v2::read_accepted_for_replay_in_transaction,
     exploratory_replay::{
         ComposerBackedExploratoryReplayProposalV3, EXPLORATORY_REPLAY_MUTATION_EFFECT_V3,
         EXPLORATORY_REPLAY_OPERATION_V3, EXPLORATORY_REPLAY_REQUEST_FROZEN_EVENT_V2,
         EXPLORATORY_REPLAY_SCHEMA_V3, ExploratoryReplayCommitResultV2, ExploratoryReplayOwnerError,
         composition_v3::{
-            prepare_composer_backed_replay_v3, prepare_composer_replay_seal_v3,
-            project_composer_replay_view_v3, verify_composer_replay_frozen_v3,
+            admit_composer_replay_market_in_transaction_v3, prepare_composer_backed_replay_v3,
+            prepare_composer_replay_seal_v3, project_composer_replay_view_v3,
+            verify_composer_replay_frozen_v3,
         },
         exploratory_replay_admission_payload_v3,
     },
@@ -35,9 +37,7 @@ use crate::{
         RESEARCH_OWNER_V1, RESEARCH_SCOPE_V1, ResearchViewAvailability, ResearchViewPhase,
         ResearchViewV1, canonical_research_view_identity_v2,
     },
-    source_research_composer_postgres_v2::{
-        SealedSourceResearchComposerBindingOwnerV2, read_sealed_accepted_for_replay_in_transaction,
-    },
+    source_research_composer_postgres_v2::PostgresSourceResearchComposerBindingOwnerV2,
     trial_family_postgres::load_trial_family_census_v2_by_family_in_transaction,
 };
 
@@ -234,7 +234,7 @@ pub(crate) async fn commit_composer_v3(
     ensure_composer_artifact_family_binding_for_replay_v3(
         pool,
         &proposal,
-        &SealedSourceResearchComposerBindingOwnerV2,
+        &PostgresSourceResearchComposerBindingOwnerV2,
     )
     .await
     .map_err(unavailable)?;
@@ -280,9 +280,10 @@ pub(crate) async fn commit_composer_v3(
     )
     .await
     .map_err(unavailable)?;
-    let composer = read_sealed_accepted_for_replay_in_transaction(
+    let composer = read_accepted_for_replay_in_transaction(
         &mut transaction,
         &proposal.composer_locator,
+        &PostgresSourceResearchComposerBindingOwnerV2,
         first_cut,
     )
     .await
@@ -304,6 +305,9 @@ pub(crate) async fn commit_composer_v3(
     )
     .await
     .map_err(unavailable)?;
+    let admitted =
+        admit_composer_replay_market_in_transaction_v3(&mut transaction, &composer, &market)
+            .await?;
     let old_view = lock_exact_research_view(&mut transaction, &intent, &composer).await?;
     if old_view.availability != ResearchViewAvailability::Available
         || old_view.phase != ResearchViewPhase::IntentFrozen
@@ -333,6 +337,7 @@ pub(crate) async fn commit_composer_v3(
         &composer,
         &artifact_family,
         &market,
+        &admitted,
     )?;
     let prepared = prepare_composer_replay_seal_v3(
         composed,

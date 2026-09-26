@@ -40,7 +40,6 @@ use crate::develop_composer_postgres_v2::sealed_read_refused;
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::develop_composer_postgres_v2::{
     DevelopComposerAcceptanceWriteBoundaryV2, PreparedPostgresDevelopComposerRunV2,
-    read_accepted_for_replay_in_transaction,
 };
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::develop_plugin_build_v2::{
@@ -2087,23 +2086,6 @@ pub(crate) async fn lock_resolve_evidence_with_binding(
     Ok(DevelopComposerLockedEvidenceV2 { research, bindings })
 }
 
-/// Production Replay admission always uses the compiled, sealed Market Data binding Owner.
-/// Keeping that Owner private prevents an API caller from substituting receipt-shaped data.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
-pub(crate) async fn read_sealed_accepted_for_replay_in_transaction(
-    transaction: &mut Transaction<'_, Postgres>,
-    locator: &DevelopComposerSealedReadLocatorV2,
-    read_cut_epoch_ms: u64,
-) -> Result<SealedDevelopComposerReadbackV2, DevelopComposerSealedReadErrorV2> {
-    read_accepted_for_replay_in_transaction(
-        transaction,
-        locator,
-        &SealedSourceResearchComposerBindingOwnerV2,
-        read_cut_epoch_ms,
-    )
-    .await
-}
-
 /// Locks current initial or successor Research custody for a durable Composer identity in the
 /// caller's transaction. Binding authority is deliberately supplied by the consuming Owner path.
 pub(crate) async fn lock_current_research_for_composer_replay_in_transaction(
@@ -2435,15 +2417,24 @@ pub(crate) async fn resolve_composer_record_for_historical_replay_in_transaction
     ))
     .await?;
     let frozen = matching_historical_bfp_v3(transaction, &research, &locator).await;
+    // The Replay re-reads the Market Data custody the production Composer bound, never the
+    // acceptance corpus's fixed frame, so a Plan compiled against real receipts rebuilds equal.
     let bindings = if let Some(frozen) = frozen.as_ref() {
-        bfp_owner_bindings(frozen).map_err(|e| {
-            sealed_read_refused(
-                "develop_composer.historical_replay.bfp_bindings",
-                &format!("{e:?}"),
+        PostgresSourceResearchComposerBindingOwnerV2
+            .lock_for_frozen_program(
+                transaction,
+                frozen,
+                expected_current_view.projection_at_epoch_ms,
             )
-        })?
+            .await
+            .map_err(|e| {
+                sealed_read_refused(
+                    "develop_composer.historical_replay.bfp_bindings",
+                    &format!("{e:?}"),
+                )
+            })?
     } else {
-        SealedSourceResearchComposerBindingOwnerV2
+        PostgresSourceResearchComposerBindingOwnerV2
             .lock_for_resolve(
                 transaction,
                 &locator,
