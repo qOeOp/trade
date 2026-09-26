@@ -1880,3 +1880,42 @@ fn another_frames_projection_does_not_pair_with_this_frame() {
         Some(ProgramHostV2Error::InputCoverage)
     );
 }
+
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+use vibe_data::owner::universe_sample_projection_v1::sealed_acceptance::SealedUniverseSampleProjectionTamperV1 as Tamper;
+
+/// A projection changed in any one field it binds to the frame, and resealed by Market Data's real
+/// codec so that it still decodes, pairs with the frame no longer. Each case changes one field of
+/// the projection the control pairs.
+///
+/// Three changes cannot be built at all and are not listed: a BAR projection without a schedule
+/// set or with a zero one, and a duplicated component, each fail Market Data's decoder as
+/// non-canonical, so no consumer can be handed one. A BAR projection whose schedule set is another nonzero digest is not refused
+/// here: the host holds no schedule to compare it with, and the set enters the admitted event's
+/// identity instead.
+#[rstest]
+#[case::another_subject(Tamper::Subject(BindingDigest::from_untrusted_bytes([0x5A; 32])))]
+#[case::event_lifecycle(Tamper::Lifecycle {
+    schedule_set: BindingDigest::from_untrusted_bytes([0x5B; 32]),
+})]
+#[case::one_component_fewer(Tamper::DropLastComponent)]
+#[case::one_component_more(Tamper::ExtraComponent)]
+#[case::another_trigger(Tamper::Trigger(BindingDigest::from_untrusted_bytes([0x5C; 32])))]
+#[case::another_value_receipt(Tamper::ValueReceipt(0, BindingDigest::from_untrusted_bytes([0x5D; 32])))]
+#[case::another_member_binding(Tamper::MemberBinding(0, BindingDigest::from_untrusted_bytes([0x5E; 32])))]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn a_projection_changed_in_one_field_does_not_pair_with_its_frame(#[case] tamper: Tamper) {
+    use super::program_host_v2::{OwnerUniverseFrameV1, ProgramHostV2Error};
+    use vibe_data::owner::universe_sample_projection_v1::sealed_acceptance::reseal_sealed_acceptance_universe_sample_projection_v1;
+
+    let (_, _, frame) = universe_bfp_fixture();
+    let tampered = reseal_sealed_acceptance_universe_sample_projection_v1(
+        &market_data_projection(&frame),
+        tamper,
+    );
+
+    assert_eq!(
+        OwnerUniverseFrameV1::from_owner_projection_v1(frame, &tampered).err(),
+        Some(ProgramHostV2Error::InputCoverage)
+    );
+}
