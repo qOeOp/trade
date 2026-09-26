@@ -348,6 +348,11 @@ fn owner_error(
         ResearchBoundedFeatureProgramOwnerErrorV1::Conflict => {
             (StatusCode::CONFLICT, "JOINT_FREEZE_CHANGED_MEANING")
         }
+        // A V3 Research request's role intent names its initial PIT request, so it waits for
+        // that request's AVAILABLE terminal; issuing it is a separate step the caller can take.
+        ResearchBoundedFeatureProgramOwnerErrorV1::InitialPitNotAvailable => {
+            (StatusCode::CONFLICT, "INITIAL_PIT_REQUEST_NOT_AVAILABLE")
+        }
         // The two assembly variants tell a proposer to do opposite things - change the meaning, or
         // wait for an Owner gap it cannot affect - so they cannot share one code. Collapsing them
         // left a proposer holding a 422 with no way to know which of the two it was.
@@ -463,6 +468,7 @@ mod assembly_rejection_tests {
             ResearchBoundedFeatureProgramOwnerErrorV1::Design,
             ResearchBoundedFeatureProgramOwnerErrorV1::Conflict,
             ResearchBoundedFeatureProgramOwnerErrorV1::CatalogUnavailable,
+            ResearchBoundedFeatureProgramOwnerErrorV1::InitialPitNotAvailable,
         ] {
             let header = code_of(&error);
             let body = body_of(&error).await;

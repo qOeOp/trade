@@ -65,7 +65,7 @@ export function unknownResearchProjectionV1(requestIdentity: string, operation: 
     schema_version: 2, consumer_projection: researchStamp(operation), resolution: "SUBMITTED_OR_UNKNOWN",
     request_identity: requestIdentity, owner_receipt: null, research_view: null,
     independence_basis: null, protected_feedback: null, trial_family_resolution: "UNAVAILABLE",
-    trial_family: null, next_legal_action: "RESOLVE_SAME_REQUEST_IDENTITY",
+    trial_family: null, next_legal_action: "RESOLVE_SAME_REQUEST_IDENTITY", initial_pit: null,
   }
 }
 
@@ -453,7 +453,32 @@ function validTrialFamily(
 const researchOwnerKeys = [
   "schema_version", "resolution", "request_identity", "owner_receipt", "research_view",
   "independence_basis", "protected_feedback", "trial_family_resolution", "trial_family", "next_legal_action",
+  "initial_pit",
 ]
+
+// Market Data derives a terminal's disposition from its primary blocker, one to one, so a stated
+// pair outside this table is not one the Owner can state. `AVAILABLE` alone has no blocker.
+const initialPitBlockerOf: Record<string, string> = {
+  UNLICENSED: "RIGHTS_UNLICENSED",
+  AMBIGUOUS: "IDENTITY_SEMANTICS_OR_TIME_AMBIGUOUS",
+  STALE: "EVIDENCE_STALE",
+  INSUFFICIENT: "COVERAGE_INSUFFICIENT",
+  UNAVAILABLE: "SOURCE_UNAVAILABLE",
+}
+
+// The Owner reads each initial PIT state from its custody and states it; this side accepts exactly
+// the stated shapes and never derives one state from another. `null` is a request whose Intent binds
+// no instrument scope. product/rd-owner-client/fixtures/research_initial_pit_state_vectors_v1.json
+// lists every accepted and a set of refused values, read by the Owner's test too.
+function validInitialPit(value: unknown): boolean {
+  if (value === null) return true
+  if (!object(value)) return false
+  if (value.state === "NOT_ISSUED" || value.state === "SUBMITTED_OR_UNKNOWN") return exactKeys(value, ["state"])
+  if (value.state !== "TERMINAL" || !exactKeys(value, ["state", "disposition", "primary_blocker"])) return false
+  if (value.disposition === "AVAILABLE") return value.primary_blocker === null
+  return typeof value.disposition === "string" && Object.hasOwn(initialPitBlockerOf, value.disposition)
+    && value.primary_blocker === initialPitBlockerOf[value.disposition]
+}
 
 function rawEnvelope(value: unknown, keys: string[], expectedStamp: ReturnType<typeof stamp>): Json | null {
   if (!object(value)) return null
@@ -479,7 +504,7 @@ export async function deriveResearchConsumerProjectionV1(
       || !["ACCEPTED", "REJECTED_NO_WRITE"].includes(receiptDisposition)
       || raw.research_view !== null || raw.independence_basis !== null
       || raw.protected_feedback !== null || raw.trial_family_resolution !== "UNAVAILABLE"
-      || raw.trial_family !== null
+      || raw.trial_family !== null || raw.initial_pit !== null
       || raw.next_legal_action !== "RESOLVE_SAME_REQUEST_IDENTITY") return unknown
     return {
       ...unknown,
@@ -491,6 +516,7 @@ export async function deriveResearchConsumerProjectionV1(
     if (!await validResearchReceipt(raw.owner_receipt, requestIdentity, raw.resolution)
       || raw.research_view !== null || raw.independence_basis !== null || raw.protected_feedback !== null
       || raw.trial_family_resolution !== "UNAVAILABLE" || raw.trial_family !== null
+      || raw.initial_pit !== null
       || raw.next_legal_action !== "CORRECT_INPUT_AND_CREATE_SUCCESSOR_REQUEST") return unknown
     return { ...unknown, resolution: raw.resolution, owner_receipt: raw.owner_receipt,
       next_legal_action: raw.next_legal_action }
@@ -569,7 +595,7 @@ export async function deriveResearchConsumerProjectionV1(
     || !sourceCutValid || !viewWindowValid || !nextLegalActionValid
     || raw.research_view.trusted_principal !== raw.independence_basis?.principal
     || JSON.stringify(raw.research_view.authorized_scope) !== JSON.stringify(raw.independence_basis?.request_scope)
-    || !basisValid || !feedbackValid
+    || !basisValid || !feedbackValid || !validInitialPit(raw.initial_pit)
     || raw.trial_family_resolution !== "AVAILABLE"
     || !validTrialFamily(raw.trial_family, intent, raw.owner_receipt.semantic_digest,
       raw.independence_basis, raw.protected_feedback)) return unknown
@@ -590,7 +616,7 @@ export async function deriveResearchConsumerProjectionV1(
     request_identity: requestIdentity, owner_receipt: raw.owner_receipt, research_view: raw.research_view,
     independence_basis: raw.independence_basis, protected_feedback: raw.protected_feedback,
     trial_family_resolution: "AVAILABLE", trial_family: raw.trial_family,
-    next_legal_action: raw.next_legal_action,
+    next_legal_action: raw.next_legal_action, initial_pit: raw.initial_pit,
   }
 }
 
@@ -616,6 +642,7 @@ function validUnknownResearchOwnerResultV1(
     && raw.research_view === null && raw.independence_basis === null
     && raw.protected_feedback === null && raw.trial_family_resolution === "UNAVAILABLE"
     && raw.trial_family === null && raw.next_legal_action === "RESOLVE_SAME_REQUEST_IDENTITY"
+    && raw.initial_pit === null
 }
 
 export async function projectResearchOwnerResultWithEvidenceV1(

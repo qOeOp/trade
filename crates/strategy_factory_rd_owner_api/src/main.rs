@@ -106,6 +106,7 @@ use vibe_strategy_factory::{
         identity_conflict_result, identity_conflict_result_v2, rejected_result, unresolved_result,
         unresolved_result_v2,
     },
+    product_edge_postgres::research_initial_pit::MarketDataInitialPitPortsV1,
     product_edge_postgres::{PostgresResearchGoalOwnerV1, ResearchRequestIdentityPreflightV1},
     rd_bounded_feature_program_postgres_v1::PostgresResearchBoundedFeatureProgramOwnerV1,
     rd_historical_custody::{HistoricalCustodyErrorV1, HistoricalCustodyOwnerPortV1},
@@ -211,6 +212,9 @@ mod log_capture;
 mod market_data_pit;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 mod market_data_repair;
+mod research_initial_pit;
+#[cfg(test)]
+mod research_initial_pit_postgres_tests;
 mod source_intake;
 mod source_intake_research;
 
@@ -701,6 +705,15 @@ async fn main() -> anyhow::Result<()> {
             owner.clone(),
             token_digest,
             request_proof_digest.clone(),
+        ))
+        // The issuance holds the same two Market Data ports its routes serve, not a second pair.
+        .merge(research_initial_pit::router(
+            owner.clone(),
+            market_data_universe_selection
+                .clone()
+                .zip(market_data_pit_intake.clone())
+                .map(|(universe, intake)| MarketDataInitialPitPortsV1::new(universe, intake)),
+            token_digest,
         ))
         .merge(source_intake_research::router(
             product_edge,
@@ -3292,7 +3305,7 @@ mod tests {
 
     /// Bootstraps the Research and Artifact manifests plus any extra operation manifests and
     /// Operator Authorization permissions one acceptance needs beyond that pair.
-    async fn bootstrap_api_test_product_edge_with(
+    pub(super) async fn bootstrap_api_test_product_edge_with(
         test_database: &CanonicalOwnerPostgresTestDatabaseV1,
         suffix: &str,
         request_proof_digest: &str,
@@ -5602,7 +5615,7 @@ mod tests {
         );
     }
 
-    fn bearer_headers(token: &str) -> HeaderMap {
+    pub(super) fn bearer_headers(token: &str) -> HeaderMap {
         let mut headers = HeaderMap::new();
         headers.insert(
             axum::http::header::AUTHORIZATION,
@@ -5611,7 +5624,7 @@ mod tests {
         headers
     }
 
-    async fn response_json(response: Response) -> serde_json::Value {
+    pub(super) async fn response_json(response: Response) -> serde_json::Value {
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();

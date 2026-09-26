@@ -137,6 +137,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-product-edge|vibe_product_edge|deployment_acceptance::tests::deployment_fixture_is_admitted_idempotent_and_refuses_other_content_by_name'
   'vibe-strategy-factory|vibe_strategy_factory|iteration_decision_postgres::postgres_acceptance_tests::legacy_replay_request_passes_the_source_boundary_under_issuance_isolation'
   'vibe-product-edge-routing-api|vibe_product_edge_routing_api|postgres_tests::the_operation_routing_read_port_answers_every_routing_state_over_http'
+  'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|research_initial_pit_postgres_tests::a_v3_research_request_issues_its_initial_pit_request_over_http'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
@@ -199,8 +200,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 108 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all 108 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 109 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all 109 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -320,7 +321,8 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[104]}" != *'|deployment_acceptance::tests::deployment_fixture_is_admitted_idempotent_and_refuses_other_content_by_name' ]] ||
     [[ "${rd_owner_postgres_tests[105]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::legacy_replay_request_passes_the_source_boundary_under_issuance_isolation' ]] ||
     [[ "${rd_owner_postgres_tests[106]}" != *'|postgres_tests::the_operation_routing_read_port_answers_every_routing_state_over_http' ]] ||
-    [[ "${rd_owner_postgres_tests[107]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[107]}" != *'|research_initial_pit_postgres_tests::a_v3_research_request_issues_its_initial_pit_request_over_http' ]] ||
+    [[ "${rd_owner_postgres_tests[108]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
@@ -458,7 +460,7 @@ for line in array_body.splitlines():
     entries.append(tuple(fields))
 # The count lives in one place. Writing it into the message as well lets the two drift, and the
 # drifted form reads as nonsense the moment it fires: "must contain 92 entries, found 92".
-expected_entries = 108
+expected_entries = 109
 if len(entries) != expected_entries:
     raise SystemExit(
         f"ERROR: ordered PostgreSQL test literal must contain {expected_entries} entries, found {len(entries)}."

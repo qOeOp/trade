@@ -56,6 +56,7 @@ const rejectedResearch = {
   trial_family_resolution: "UNAVAILABLE",
   trial_family: null,
   next_legal_action: "CORRECT_INPUT_AND_CREATE_SUCCESSOR_REQUEST",
+  initial_pit: null,
 };
 const unknownSource = {
   resolution: "SUBMITTED_OR_UNKNOWN",
@@ -73,6 +74,7 @@ const unknownResearch = {
   trial_family_resolution: "UNAVAILABLE",
   trial_family: null,
   next_legal_action: "RESOLVE_SAME_REQUEST_IDENTITY",
+  initial_pit: null,
 };
 
 const request = {
