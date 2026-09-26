@@ -1959,52 +1959,65 @@ binding. W3 consumes only this V4 JOINED_CUT locator/readback. This contract cla
 registered product composition, production startup/write, ProgramHost, Backtest, deployment, runtime or trading
 authority.
 
-**TARGET / IMPLEMENTATION_ADMITTED, universe-frame sample projection:** `StrategyInputUniverseSampleProjectionV1`
-gives each (member, role) value of one universe frame the Owner sample coordinate a bounded feature program reads. It
-is additive: no V1 receipt, V2, V3 or V4 projection, `SampleFactV1`, `SampleReceiptV1` or coordinate codec changes.
-Its subject is the exact digest of one `StrategyInputUniverseFrameReceipt`, the receipt a ProgramHost admits for
-that frame, never a digest the host cannot compare with it. It holds one component per (member, role) value of that
-frame, strictly ordered by member ordinal - the selection's canonical member order, which a frame's values follow -
-and then input-role identity, exhausting the frame; a missing, extra or duplicated pair produces no projection. A component carries the member ordinal, member key and instrument, the
-input-role identity, the universe member binding digest, the value receipt digest, the frame's trigger digest, the
-timeframe-projection receipt digest, the sample identity, the native `SampleReceiptV1` digest, the coordinate digest
-and the 308 coordinate bytes. The coordinate is the existing codec unchanged (schema `1`, domain
-`strategy.input.sample-coordinate.v1\0`); its binding field holds the universe member binding digest, because a
-universe member has no static binding receipt. A universe member's sample is the same role-free `SampleFactV1` that
-an exact-instrument binding of the same row issues; only its `TimeframeProjectionReceiptV1` binds the member binding
-digest where an exact binding binds its receipt digest.
+**CURRENT/PARTIAL, universe-frame sample projection:** `StrategyInputUniverseSampleProjectionV1` gives each (member,
+role) value of one universe frame the Owner sample coordinate a bounded feature program reads. It is additive: no V1
+receipt, V2, V3 or V4 projection, `SampleFactV1`, `SampleReceiptV1` or coordinate codec changes. Its subject is the
+exact digest of one `StrategyInputUniverseFrameReceipt`, the receipt a ProgramHost admits for that frame, never a digest
+the host cannot compare with it. It holds one component per (member, role) value of that frame, strictly ordered by
+member ordinal - the selection's canonical member order, which a frame's values follow - and then input-role identity,
+exhausting the frame; a missing, extra or duplicated pair produces no projection. A component carries the member
+ordinal, member key and instrument, the input-role identity, the universe member binding digest, the value receipt
+digest, the frame's trigger digest, the timeframe-projection receipt digest, the sample identity, the native
+`SampleReceiptV1` digest, the coordinate digest and the 308 coordinate bytes. The coordinate is the existing codec
+unchanged (schema `1`, domain `strategy.input.sample-coordinate.v1\0`); its binding field holds the universe member
+binding digest, because a universe member has no static binding receipt. A sample is keyed by the row it reads, never by
+the binding that reads it: its series, and its slot, which the snapshot's fact digest keys. A universe member's sample
+is therefore the same role-free `SampleFactV1` that every binding reading the same row of the same snapshot reads. Each
+binding reads it through a `TimeframeProjectionReceiptV1` of its own, which binds the universe member binding digest
+where an exact binding binds its receipt digest; Market Data attaches that projection to the sample instead of folding
+it into the sample's custody, so a second binding reading a row that already has a sample attaches its projection and
+reuses the sample, which is never written twice.
 
-A BAR frame's projection also binds the schedule each member's BAR role was read under. Its schedule-dependency
-set digest is SHA-256 over `market-data.universe-sample-projection-schedule-set.v1\0`, the component count `u32LE`,
-and per component in order the member ordinal `u8`, input-role identity and that member's BAR schedule readback
-identity (`[u8; 32]` each). It is required, never optional, for a BAR frame and absent for an EVENT frame, and it is
-part of the projection's identity, so the same frame read under another schedule is another projection; a
-timeframe-projection receipt binds the timeframe but not the schedule, so without it a schedule change would leave
-the admitted event's identity unchanged.
+A BAR frame's projection also binds the schedule each member's BAR role was read under. Its schedule-dependency set
+digest is SHA-256 over `market-data.universe-sample-projection-schedule-set.v1\0`, the component count `u32LE`, and per
+component in order the member ordinal `u8`, input-role identity and that member's BAR schedule readback identity
+(`[u8; 32]` each). It is required, never optional, for a BAR frame and absent for an EVENT frame, and it is part of the
+projection's identity, so the same frame read under another schedule is a different projection, which the
+one-projection-per-frame rule below refuses; a timeframe-projection receipt binds the timeframe but not the schedule, so
+without it a schedule change would leave the admitted event's identity unchanged.
 
-Its canonical bytes are, in order: schema `u16LE = 1`, reserved-zero `u16LE`, subject `[u8; 32]`, frame lifecycle
-`u8` (`1` EVENT, `2` BAR), for a BAR frame the schedule-dependency set digest `[u8; 32]`, positive component
-count `u32LE`, then per component the member ordinal `u8`, length-prefixed (`u16LE`) member key and instrument, and
-the input-role, member-binding, value-receipt, trigger, timeframe-projection, sample-identity, sample-receipt and
-coordinate digests (`[u8; 32]` each) followed by the 308 coordinate bytes. Its identity is SHA-256 over
-`market-data.universe-sample-projection-receipt.v1\0 || canonical bytes`.
+Its canonical bytes are, in order: schema `u16LE = 1`, reserved-zero `u16LE`, subject `[u8; 32]`, frame lifecycle `u8`
+(`1` EVENT, `2` BAR, the values the V3 and V4 projections use, not the trigger's own encoding), for a BAR frame the
+schedule-dependency set digest `[u8; 32]`, positive component count `u32LE`, then per component the member ordinal `u8`,
+length-prefixed (`u16LE`) member key and instrument, and the input-role, member-binding, value-receipt, trigger,
+timeframe-projection, sample-identity, sample-receipt and coordinate digests (`[u8; 32]` each) followed by the 308
+coordinate bytes. Its identity is SHA-256 over `market-data.universe-sample-projection-receipt.v1\0 || canonical bytes`.
 
-The fixed Market Data writer issues projections through one Owner operation, called by R&D with only the sealed
-Replay request identity, that request's composition binding locator and which frames: the request's initial frame,
-or every frame its window consumes. In one Market Data transaction it resolves each frame's Owner-verified batch -
-for a window, from the frame census by the rules above, so the caller names no frame list - takes the Design and
-role set from the composition binding's authenticated composer role set, so the caller names no role, re-derives
-each frame's universe frame through the same binding that produces the frame a host admits, commits or reuses each
-(member, role) sample and timeframe projection (a BAR role takes that member's schedule for the frame), and stores
-each projection's receipt, exact-subject readback and outbox. A window's projections are issued in that one call,
-so an R&D transaction that holds locks makes one cross-database call however long the window is. The request key
-is recorded with the binding it was issued under, and another binding under that key is refused by name with zero
-writes; an exact retry returns the stored bytes with zero append. The operation never calls R&D. R&D calls it
-before it resolves the frames. A host attaches a projection only when its (member, role) set equals both the
-admitted frame's value set and the Plan's role table, and refuses it otherwise; any comparison R&D makes earlier is
-an early refusal, not that guarantee. The exact-subject resolver reads one projection by its universe-frame
-digest. Built so far: nothing; the contract is admitted to be built, and it claims no production startup or write,
-deployment, runtime or trading authority.
+The fixed Market Data writer issues projections through one Owner operation, called by R&D with only the sealed Replay
+request identity, that request's composition binding locator and which frames: the request's initial frame, or every
+frame its window consumes. In one Market Data transaction it resolves each frame's Owner-verified batch - for a window,
+from the frame census by the rules above, so the caller names no frame list - takes the Design and the role set the
+composition binding recorded when its issuance authenticated the composer's, with each role's declaration Market Data
+stores, so the caller names no role and the operation never reads R&D, re-derives each frame's universe frame through
+the same binding that produces the frame a host admits, commits or reuses each (member, role) sample and timeframe
+projection (a BAR role takes that member's schedule for the frame), and stores each projection's receipt, exact-subject
+readback and outbox. Every sample it writes extends its series' one head, which every snapshot, binding and Design
+reading that series shares: the operation locks and reads the series head and the row's slot head in its own transaction
+before it prepares a sample, reuses the sample a slot already holds, and prepares a new row's sample against the current
+series head. A window's projections are issued in that one call, so an R&D transaction that holds locks makes one
+cross-database call however long the window is. The request key, the sealed Replay request identity with the frame
+scope, is recorded with the binding it was issued under, and another binding under that key is refused by name with zero
+writes; an exact retry returns the stored bytes with zero append. The operation never calls R&D. R&D calls it before it
+resolves the frames. A host attaches a projection only when its (member, role) set equals both the admitted frame's
+value set and the Plan's role table, and refuses it otherwise; any comparison R&D makes earlier is an early refusal, not
+that guarantee. A universe frame has at most one projection: a projection for a frame that already has a different one
+is refused by name as `SubjectConflict`, with zero writes, so the exact-subject resolver reads exactly one projection by
+its universe-frame digest. Built so far: the initial frame. The operation issues a sealed Replay request's initial frame
+projection as stated, and the exact-subject resolver reads it; R&D calls it from the initial execution-input binding
+issuance, after the request's Instrument Master cut and before it resolves the frame, and refuses early when the
+projection names another frame than the one it resolves. Sample custody attaches each binding's projection to the row's
+one sample and reuses a slot's sample, as stated. A window's frames, and the host's attachment of a projection to the
+frame it admits, are not built yet. It claims no production startup or write, deployment, runtime or trading authority.
 
 An accepted correction is an immutable successor with both an exact series predecessor and correction
 predecessor. It creates a new `SampleFactV1`, `SampleReceiptV1`, `sample_identity`, and coordinate and advances the

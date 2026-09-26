@@ -46,12 +46,16 @@ pub(super) use replay_market_facts_v2::{
 pub(super) use universe_selection::persist_issued_readback_for_test;
 mod sample_projection_v4;
 mod session;
+mod source_sample_custody_v1;
 pub(in crate::owner) mod strategy_input_binding_registry;
 #[cfg(feature = "isolated-event-replay-acceptance")]
 pub(in crate::owner) mod strategy_input_event_binding_v1;
 #[cfg(not(feature = "isolated-event-replay-acceptance"))]
 mod strategy_input_event_binding_v1;
 mod time_zone;
+pub(in crate::owner) mod universe_sample_projection_v1;
+#[cfg(test)]
+mod universe_sample_projection_v1_tests;
 mod universe_selection;
 
 // The resolver is needed in every build: the arrangement that reads a frame's inputs is no longer
@@ -984,6 +988,8 @@ impl MarketDataOwnerPostgres {
             .iter()
             .chain(research_pit_references_v1::SCHEMA_V1)
             .chain(research_pit_terminal_v1::SCHEMA_V1)
+            .chain(source_sample_custody_v1::SCHEMA_V1)
+            .chain(universe_sample_projection_v1::SCHEMA_V1)
         {
             sqlx::query(*statement)
                 .execute(&mut *transaction)
@@ -2983,14 +2989,6 @@ impl MarketDataOwnerPostgres {
         binding_receipt_digest: [u8; 32],
         receipt_bytes: &[u8],
     ) -> Result<(), SampleCustodyErrorV1> {
-        if zero_digest(receipt_digest)
-            || zero_digest(binding_receipt_digest)
-            || receipt_bytes.is_empty()
-        {
-            return Err(SampleCustodyErrorV1::InvalidInput);
-        }
-        let custody_digest =
-            projection_custody_digest(receipt_digest, binding_receipt_digest, receipt_bytes);
         let mut transaction = self
             .pool
             .begin()
@@ -3000,38 +2998,13 @@ impl MarketDataOwnerPostgres {
             .execute(&mut *transaction)
             .await
             .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
-        sqlx::query("SELECT pg_advisory_xact_lock($1)")
-            .bind(sample_advisory_key(binding_receipt_digest))
-            .execute(&mut *transaction)
-            .await
-            .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
-
-        if let Some(row) = sqlx::query("SELECT receipt_digest,receipt_bytes,custody_digest FROM market_data_private.timeframe_projection_receipts_v1 WHERE binding_receipt_digest=$1")
-            .bind(binding_receipt_digest.as_slice())
-            .fetch_optional(&mut *transaction)
-            .await
-            .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?
-        {
-            let stored_bytes: Vec<u8> = row.try_get("receipt_bytes").map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
-            let stored_custody = sample_digest_column(&row, "custody_digest")?;
-            let stored_digest = sample_digest_column(&row, "receipt_digest")?;
-            if stored_digest != receipt_digest
-                || stored_bytes != receipt_bytes
-                || stored_custody != custody_digest
-            {
-                return Err(SampleCustodyErrorV1::ProjectionConflict);
-            }
-            transaction.commit().await.map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
-            return Ok(());
-        }
-        sqlx::query("INSERT INTO market_data_private.timeframe_projection_receipts_v1(receipt_digest,binding_receipt_digest,receipt_bytes,custody_digest) VALUES ($1,$2,$3,$4)")
-            .bind(receipt_digest.as_slice())
-            .bind(binding_receipt_digest.as_slice())
-            .bind(receipt_bytes)
-            .bind(custody_digest.as_slice())
-            .execute(&mut *transaction)
-            .await
-            .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
+        store_timeframe_projection_receipt_in_transaction_v1(
+            &mut transaction,
+            receipt_digest,
+            binding_receipt_digest,
+            receipt_bytes,
+        )
+        .await?;
         transaction
             .commit()
             .await
@@ -3077,64 +3050,12 @@ impl MarketDataOwnerPostgres {
             .execute(&mut *transaction)
             .await
             .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
-        let mut locks = [
-            sample_advisory_key(prepared.series_identity),
-            sample_advisory_key(prepared.correction_slot_identity),
-        ];
-        locks.sort_unstable();
-        for lock in locks {
-            sqlx::query("SELECT pg_advisory_xact_lock($1)")
-                .bind(lock)
-                .execute(&mut *transaction)
-                .await
-                .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
-        }
-
-        validate_projection_in_transaction(&mut transaction, prepared).await?;
-        if let Some(stored) = load_sample_custody(&mut transaction, prepared.receipt_digest).await?
-        {
-            if stored.prepared == *prepared {
-                transaction
-                    .commit()
-                    .await
-                    .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
-                return Ok(SampleCustodyReadbackV1 {
-                    receipt_digest: prepared.receipt_digest,
-                    receipt_bytes: stored.prepared.receipt_bytes,
-                });
-            }
-            return Err(SampleCustodyErrorV1::IdentityConflict);
-        }
-        let identity_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM market_data_private.sample_facts_v1 WHERE sample_identity=$1 OR fact_digest=$2 UNION ALL SELECT 1 FROM market_data_private.sample_receipts_v1 WHERE receipt_digest=$3 UNION ALL SELECT 1 FROM market_data_private.sample_outbox_v1 WHERE outbox_identity=$4)")
-            .bind(prepared.sample_identity.as_slice()).bind(prepared.fact_digest.as_slice()).bind(prepared.receipt_digest.as_slice()).bind(prepared.outbox_identity.as_slice())
-            .fetch_one(&mut *transaction).await.map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
-        if identity_exists {
-            return Err(SampleCustodyErrorV1::IdentityConflict);
-        }
-        validate_series_predecessor(&mut transaction, prepared).await?;
-        validate_correction_predecessor(&mut transaction, prepared).await?;
-
-        let fact_custody = sample_fact_custody_digest(prepared);
-        sqlx::query("INSERT INTO market_data_private.sample_facts_v1(sample_identity,fact_digest,series_identity,series_predecessor_identity,series_sequence,correction_slot_identity,correction_predecessor_identity,correction_sequence,logical_time,lineage_version,projection_receipt_digest,fact_bytes,custody_digest) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)")
-            .bind(prepared.sample_identity.as_slice()).bind(prepared.fact_digest.as_slice()).bind(prepared.series_identity.as_slice()).bind(prepared.series_predecessor_identity.map(|v| v.to_vec())).bind(sample_i64(prepared.series_sequence)?).bind(prepared.correction_slot_identity.as_slice()).bind(prepared.correction_predecessor_identity.map(|v| v.to_vec())).bind(sample_i64(prepared.correction_sequence)?).bind(sample_i64(prepared.logical_time)?).bind(sample_i64(prepared.lineage_version)?).bind(prepared.projection_receipt_digest.as_slice()).bind(&prepared.fact_bytes).bind(fact_custody.as_slice())
-            .execute(&mut *transaction).await.map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
-        let receipt_custody = sample_receipt_custody_digest(
-            prepared.sample_identity,
-            prepared.receipt_digest,
-            &prepared.receipt_bytes,
-        );
-        sqlx::query("INSERT INTO market_data_private.sample_receipts_v1(sample_identity,receipt_digest,receipt_bytes,custody_digest) VALUES ($1,$2,$3,$4)")
-            .bind(prepared.sample_identity.as_slice()).bind(prepared.receipt_digest.as_slice()).bind(&prepared.receipt_bytes).bind(receipt_custody.as_slice())
-            .execute(&mut *transaction).await.map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
-        let outbox_custody = sample_outbox_custody_digest(prepared);
-        sqlx::query("INSERT INTO market_data_private.sample_outbox_v1(outbox_identity,sample_identity,payload_digest,payload_bytes,custody_digest) VALUES ($1,$2,$3,$4,$5)")
-            .bind(prepared.outbox_identity.as_slice()).bind(prepared.sample_identity.as_slice()).bind(prepared.outbox_payload_digest.as_slice()).bind(&prepared.outbox_payload_bytes).bind(outbox_custody.as_slice())
-            .execute(&mut *transaction).await.map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
-        if rollback_before_heads {
-            return Err(SampleCustodyErrorV1::CommitInterrupted);
-        }
-        cas_series_head(&mut transaction, prepared).await?;
-        cas_correction_head(&mut transaction, prepared).await?;
+        let readback = commit_sample_custody_in_transaction_v1(
+            &mut transaction,
+            prepared,
+            rollback_before_heads,
+        )
+        .await?;
         transaction
             .commit()
             .await
@@ -3142,10 +3063,7 @@ impl MarketDataOwnerPostgres {
         if response_loss {
             Err(SampleCustodyErrorV1::ResponseLost)
         } else {
-            Ok(SampleCustodyReadbackV1 {
-                receipt_digest: prepared.receipt_digest,
-                receipt_bytes: prepared.receipt_bytes.clone(),
-            })
+            Ok(readback)
         }
     }
 
@@ -4673,6 +4591,125 @@ fn map_sample_projection_insert_error_v2(error: &sqlx::Error) -> SampleProjectio
     } else {
         SampleProjectionCustodyErrorV2::StoreUnavailable
     }
+}
+
+/// Persists one sample inside the caller's Owner transaction and compare-and-swap advances both of
+/// its heads. The caller commits; an exact replay of stored custody returns it and writes nothing.
+async fn commit_sample_custody_in_transaction_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    prepared: &PreparedSampleCustodyV1,
+    rollback_before_heads: bool,
+) -> Result<SampleCustodyReadbackV1, SampleCustodyErrorV1> {
+    validate_prepared_sample(prepared)?;
+    let mut locks = [
+        sample_advisory_key(prepared.series_identity),
+        sample_advisory_key(prepared.correction_slot_identity),
+    ];
+    locks.sort_unstable();
+    for lock in locks {
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(lock)
+            .execute(&mut **transaction)
+            .await
+            .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
+    }
+
+    validate_projection_in_transaction(transaction, prepared).await?;
+    if let Some(stored) = load_sample_custody(transaction, prepared.receipt_digest).await? {
+        if stored.prepared == *prepared {
+            return Ok(SampleCustodyReadbackV1 {
+                receipt_digest: prepared.receipt_digest,
+                receipt_bytes: stored.prepared.receipt_bytes,
+            });
+        }
+        return Err(SampleCustodyErrorV1::IdentityConflict);
+    }
+    let identity_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM market_data_private.sample_facts_v1 WHERE sample_identity=$1 OR fact_digest=$2 UNION ALL SELECT 1 FROM market_data_private.sample_receipts_v1 WHERE receipt_digest=$3 UNION ALL SELECT 1 FROM market_data_private.sample_outbox_v1 WHERE outbox_identity=$4)")
+        .bind(prepared.sample_identity.as_slice()).bind(prepared.fact_digest.as_slice()).bind(prepared.receipt_digest.as_slice()).bind(prepared.outbox_identity.as_slice())
+        .fetch_one(&mut **transaction).await.map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
+    if identity_exists {
+        return Err(SampleCustodyErrorV1::IdentityConflict);
+    }
+    validate_series_predecessor(transaction, prepared).await?;
+    validate_correction_predecessor(transaction, prepared).await?;
+
+    let fact_custody = sample_fact_custody_digest(prepared);
+    sqlx::query("INSERT INTO market_data_private.sample_facts_v1(sample_identity,fact_digest,series_identity,series_predecessor_identity,series_sequence,correction_slot_identity,correction_predecessor_identity,correction_sequence,logical_time,lineage_version,projection_receipt_digest,fact_bytes,custody_digest) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)")
+        .bind(prepared.sample_identity.as_slice()).bind(prepared.fact_digest.as_slice()).bind(prepared.series_identity.as_slice()).bind(prepared.series_predecessor_identity.map(|v| v.to_vec())).bind(sample_i64(prepared.series_sequence)?).bind(prepared.correction_slot_identity.as_slice()).bind(prepared.correction_predecessor_identity.map(|v| v.to_vec())).bind(sample_i64(prepared.correction_sequence)?).bind(sample_i64(prepared.logical_time)?).bind(sample_i64(prepared.lineage_version)?).bind(prepared.projection_receipt_digest.as_slice()).bind(&prepared.fact_bytes).bind(fact_custody.as_slice())
+        .execute(&mut **transaction).await.map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
+    let receipt_custody = sample_receipt_custody_digest(
+        prepared.sample_identity,
+        prepared.receipt_digest,
+        &prepared.receipt_bytes,
+    );
+    sqlx::query("INSERT INTO market_data_private.sample_receipts_v1(sample_identity,receipt_digest,receipt_bytes,custody_digest) VALUES ($1,$2,$3,$4)")
+        .bind(prepared.sample_identity.as_slice()).bind(prepared.receipt_digest.as_slice()).bind(&prepared.receipt_bytes).bind(receipt_custody.as_slice())
+        .execute(&mut **transaction).await.map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
+    let outbox_custody = sample_outbox_custody_digest(prepared);
+    sqlx::query("INSERT INTO market_data_private.sample_outbox_v1(outbox_identity,sample_identity,payload_digest,payload_bytes,custody_digest) VALUES ($1,$2,$3,$4,$5)")
+        .bind(prepared.outbox_identity.as_slice()).bind(prepared.sample_identity.as_slice()).bind(prepared.outbox_payload_digest.as_slice()).bind(&prepared.outbox_payload_bytes).bind(outbox_custody.as_slice())
+        .execute(&mut **transaction).await.map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
+    if rollback_before_heads {
+        return Err(SampleCustodyErrorV1::CommitInterrupted);
+    }
+    cas_series_head(transaction, prepared).await?;
+    cas_correction_head(transaction, prepared).await?;
+    Ok(SampleCustodyReadbackV1 {
+        receipt_digest: prepared.receipt_digest,
+        receipt_bytes: prepared.receipt_bytes.clone(),
+    })
+}
+
+/// Stores one timeframe projection receipt inside the caller's Owner transaction.
+///
+/// One binding has at most one timeframe projection: the same receipt again writes nothing, and a
+/// different one for the same binding is a conflict.
+async fn store_timeframe_projection_receipt_in_transaction_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    receipt_digest: [u8; 32],
+    binding_receipt_digest: [u8; 32],
+    receipt_bytes: &[u8],
+) -> Result<(), SampleCustodyErrorV1> {
+    if zero_digest(receipt_digest)
+        || zero_digest(binding_receipt_digest)
+        || receipt_bytes.is_empty()
+    {
+        return Err(SampleCustodyErrorV1::InvalidInput);
+    }
+    let custody_digest =
+        projection_custody_digest(receipt_digest, binding_receipt_digest, receipt_bytes);
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(sample_advisory_key(binding_receipt_digest))
+        .execute(&mut **transaction)
+        .await
+        .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
+
+    if let Some(row) = sqlx::query("SELECT receipt_digest,receipt_bytes,custody_digest FROM market_data_private.timeframe_projection_receipts_v1 WHERE binding_receipt_digest=$1")
+        .bind(binding_receipt_digest.as_slice())
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?
+    {
+        let stored_bytes: Vec<u8> = row.try_get("receipt_bytes").map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
+        let stored_custody = sample_digest_column(&row, "custody_digest")?;
+        let stored_digest = sample_digest_column(&row, "receipt_digest")?;
+        if stored_digest != receipt_digest
+            || stored_bytes != receipt_bytes
+            || stored_custody != custody_digest
+        {
+            return Err(SampleCustodyErrorV1::ProjectionConflict);
+        }
+        return Ok(());
+    }
+    sqlx::query("INSERT INTO market_data_private.timeframe_projection_receipts_v1(receipt_digest,binding_receipt_digest,receipt_bytes,custody_digest) VALUES ($1,$2,$3,$4)")
+        .bind(receipt_digest.as_slice())
+        .bind(binding_receipt_digest.as_slice())
+        .bind(receipt_bytes)
+        .bind(custody_digest.as_slice())
+        .execute(&mut **transaction)
+        .await
+        .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
+    Ok(())
 }
 
 fn validate_prepared_sample(value: &PreparedSampleCustodyV1) -> Result<(), SampleCustodyErrorV1> {
@@ -8631,7 +8668,9 @@ async fn resolve_native_replay_initial_market_from_pool_v1(
 }
 
 /// Every schedule one instrument holds, in the order the candidate function returns them.
-#[cfg(test)]
+///
+/// The same set, in the same order, the admitted port's candidate function returns, read in the
+/// caller's transaction without locks.
 async fn load_bar_schedule_candidates(
     transaction: &mut Transaction<'_, Postgres>,
     canonical_instrument: &str,

@@ -59,20 +59,22 @@ def check_missing_list_refused() -> list[str]:
 
 def check_shards() -> list[str]:
     failures = []
-    # Each shard's browser flag must come from any of its rows: shard-10's browser entry is its last
-    # row, shard-2's its first, shard-1 has none. First seen is 10, 2, 1; name order is 1, 2, 10 - a
-    # plain string sort would put 10 before 2.
+    # Each shard's flags come from any of its rows: shard-10's browser entry is its last row,
+    # shard-2's its first, shard-3 has only a node entry and shard-1 neither. First seen is 10, 2, 3,
+    # 1; name order is 1, 2, 3, 10 - a plain string sort would put 10 before 2. A browser entry sets
+    # both flags; a node entry sets only `node`.
     sharded = matrix(
         run(
-            "# comment\nshard-10\tc1\ttest_a\t0\nshard-2\tc2\ttest_b\t1\nshard-10\tc3\ttest_c\t1\n\n"
-            "shard-2\tc2\ttest_d\t0\nshard-1\tc4\ttest_e\t0\n",
+            "# comment\nshard-10\tc1\ttest_a\t-\nshard-2\tc2\ttest_b\tbrowser\nshard-10\tc3\ttest_c\tbrowser\n\n"
+            "shard-2\tc2\ttest_d\tnode\nshard-3\tc5\ttest_f\tnode\nshard-1\tc4\ttest_e\t-\n",
         ),
     )
-    if [(e["key"], e["shard"], e["browser"]) for e in sharded] != [
-        ("rd-owner", "shard-1", 0),
-        ("rd-owner", "shard-2", 1),
-        ("rd-owner", "shard-10", 1),
-        ("market-data", "", 0),
+    if [(e["key"], e["shard"], e["node"], e["browser"]) for e in sharded] != [
+        ("rd-owner", "shard-1", 0, 0),
+        ("rd-owner", "shard-2", 1, 1),
+        ("rd-owner", "shard-3", 1, 0),
+        ("rd-owner", "shard-10", 1, 1),
+        ("market-data", "", 0, 0),
     ]:
         failures.append(
             f"a three-shard list did not give one R&D entry per shard in name order: {sharded}",
@@ -86,16 +88,16 @@ def check_shards() -> list[str]:
 
 def check_serial() -> list[str]:
     failures = []
-    listed = "shard-2\tc1\ttest_a\t0\nshard-1\tc2\ttest_b\t1\n"
+    listed = "shard-2\tc1\ttest_a\t-\nshard-1\tc2\ttest_b\tbrowser\n"
     serial = run(listed, "--rd-chain", "serial")
-    if [(e["key"], e["shard"], e["browser"]) for e in matrix(serial)] != [
-        ("rd-owner", "", 1),
-        ("market-data", "", 0),
+    if [(e["key"], e["shard"], e["node"], e["browser"]) for e in matrix(serial)] != [
+        ("rd-owner", "", 1, 1),
+        ("market-data", "", 0, 0),
     ]:
         failures.append(f"--rd-chain serial did not give one unsharded R&D job: {matrix(serial)}")
     if outputs(serial)["rd-chain"] != "serial" or outputs(run(listed))["rd-chain"] != "shards":
         failures.append("the rd-chain output does not name the mode, or the default is not shards")
-    broken = run("alpha\tc1\ttest_a\n", "--rd-chain", "serial")
+    broken = run("alpha\tc1\ttest_a\t1\n", "--rd-chain", "serial")
     if broken.returncode == 0:
         failures.append("--rd-chain serial accepted a malformed shard list")
     failures.extend(
@@ -109,8 +111,14 @@ def check_serial() -> list[str]:
 def check_refusals() -> list[str]:
     failures = []
     for tsv, expected in (
-        ("alpha\tc1\ttest_a\n", ":1: expected shard, component, test name, browser 0|1"),
-        ("alpha\tc1\ttest_a\t2\n", ":1: expected shard, component, test name, browser 0|1"),
+        (
+            "alpha\tc1\ttest_a\n",
+            ":1: expected shard, component, test name, capability -|node|browser",
+        ),
+        (
+            "alpha\tc1\ttest_a\t1\n",
+            ":1: expected shard, component, test name, capability -|node|browser",
+        ),
         ("# only a comment\n", "lists no entries"),
     ):
         result = run(tsv)

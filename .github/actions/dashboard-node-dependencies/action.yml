@@ -1,0 +1,25 @@
+name: Dashboard node dependencies
+description: >-
+  Installs the Dashboard's npm dependencies, which R&D chain entries that run a Dashboard script
+  load, with or without a browser.
+
+# A chain entry that runs a Dashboard script loads packages from product/dashboard/node_modules, and a
+# shard installs them only when one of its entries is declared to need them: a browser entry, which
+# gets them through dashboard-browser-acceptance, or one in chain_dashboard_node_entries, which gets
+# them here alone. scripts/ci/test-rd-owner-postgres.bash --check reads every entry's scripts and
+# refuses an undeclared one, and checks that each chain channel carries this step.
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js for the Dashboard
+      # https://github.com/actions/setup-node
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: "24"
+        cache: npm
+        cache-dependency-path: product/dashboard/package-lock.json
+
+    - name: Install the Dashboard's npm dependencies
+      shell: bash
+      run: npm ci --prefix product/dashboard

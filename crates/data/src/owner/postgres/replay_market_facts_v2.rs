@@ -80,7 +80,7 @@ use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, Row, postgres::PgPoolOptions};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-mod universe_issuance;
+pub(in crate::owner) mod universe_issuance;
 
 const REPLAY_COMPOSITION_ISSUANCE_SCHEMA_V1: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS market_data_private.replay_composition_issuances_v1 (request_identity BYTEA PRIMARY KEY, request_meaning_digest BYTEA NOT NULL UNIQUE, request_bytes BYTEA NOT NULL, binding_identity BYTEA NOT NULL UNIQUE, binding_digest BYTEA NOT NULL, response_bytes BYTEA NOT NULL)",
