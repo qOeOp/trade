@@ -5,7 +5,7 @@
 
 use std::fmt::Debug;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{
     AssertSqlSafe, Connection, PgConnection, Row,
@@ -16,7 +16,8 @@ use url::Url;
 use zeroize::Zeroizing;
 
 /// TLS identity observed for the exact PostgreSQL session.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct PostgresTlsIdentity {
     pub(crate) enabled: bool,
     pub(crate) server_name: String,
@@ -50,12 +51,38 @@ impl PostgresTlsIdentity {
 }
 
 /// Exact catalog surfaces directly measured through the credential lease.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+///
+/// A signed manifest carries one; reading it back goes through [`Self::new`], so stored bytes can
+/// never produce a specification the constructor would refuse.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(try_from = "PostgresMeasurementSpecFields")]
 pub(super) struct PostgresMeasurementSpec {
     schema_name: String,
     migration_relation: String,
     function_signatures: Vec<String>,
     acl_relations: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PostgresMeasurementSpecFields {
+    schema_name: String,
+    migration_relation: String,
+    function_signatures: Vec<String>,
+    acl_relations: Vec<String>,
+}
+
+impl TryFrom<PostgresMeasurementSpecFields> for PostgresMeasurementSpec {
+    type Error = PostgresMeasurementError;
+
+    fn try_from(fields: PostgresMeasurementSpecFields) -> Result<Self, Self::Error> {
+        Self::new(
+            fields.schema_name,
+            fields.migration_relation,
+            fields.function_signatures,
+            fields.acl_relations,
+        )
+    }
 }
 
 impl PostgresMeasurementSpec {
@@ -1515,7 +1542,8 @@ pub(crate) async fn read_market_data_pit_evaluation_snapshot(
 }
 
 /// Canonical direct measurement of one PostgreSQL target and its governed catalog surface.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[allow(
     clippy::struct_field_names,
     reason = "each field is an independently content-addressed measured identity"

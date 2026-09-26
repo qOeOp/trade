@@ -45,6 +45,12 @@ connect with those raw DSNs directly, outside store admission. Store admission
 proves which store the service reached; it isolates no credential until those
 DSNs move behind the custodian.
 
+`postgres-init/20-deployment-store-custody.sh` provisions the custody store:
+its schema, its functions, and its publisher and custodian principals. The
+compose file does not run it yet. When it does, it needs
+`DEPLOYMENT_STORE_PUBLISHER_DB_PASSWORD` and
+`DEPLOYMENT_STORE_CUSTODIAN_DB_PASSWORD`.
+
 ## Start
 
 Create a private environment file outside the repository or copy `.env.example` and replace every
