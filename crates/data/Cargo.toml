@@ -55,6 +55,7 @@ anyhow = { workspace = true }
 async-trait = { workspace = true }
 blake3 = { workspace = true }
 bon = { workspace = true }
+ed25519-dalek = { workspace = true }
 futures = { workspace = true }
 indexmap = { workspace = true }
 jiff = { workspace = true }
@@ -78,7 +79,6 @@ vibe-serialization = { workspace = true, features = ["arrow"] }
 vibe-testkit = { workspace = true, features = ["postgres"] }
 
 criterion = { workspace = true }
-ed25519-dalek = { workspace = true }
 proptest = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["test-util", "macros", "rt"] }
