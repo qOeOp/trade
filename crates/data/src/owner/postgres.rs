@@ -62,7 +62,7 @@ mod universe_member_composition_basis_v1_tests;
 pub(in crate::owner) mod universe_sample_projection_v1;
 #[cfg(test)]
 mod universe_sample_projection_v1_tests;
-mod universe_selection;
+pub(in crate::owner) mod universe_selection;
 
 // The resolver is needed in every build: the arrangement that reads a frame's inputs is no longer
 // inside a `cfg(not(test))` arm, so that its order can be driven rather than only deployed.
@@ -997,6 +997,7 @@ impl MarketDataOwnerPostgres {
             .chain(source_sample_custody_v1::SCHEMA_V1)
             .chain(universe_sample_projection_v1::SCHEMA_V1)
             .chain(universe_member_composition_basis_v1::SCHEMA_V1)
+            .chain(universe_selection::RD_READ_SCHEMA_V1)
         {
             sqlx::query(*statement)
                 .execute(&mut *transaction)

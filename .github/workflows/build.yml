@@ -683,6 +683,14 @@ jobs:
             ${{ vars.COMMON_ALLOWED_ENDPOINTS }}
             ${{ vars.CI_ALLOWED_ENDPOINTS }}
 
+      - name: Runner hardware
+        # Hosted runners differ by about 1.85x on every stage of this job (runs 36249061673 and
+        # 36255351574, 2026-09-26), so a timing means little without the machine that produced it.
+        # Printed only: nothing enters the environment, so the Rust cache key is unchanged.
+        run: |
+          echo "cpu: $(lscpu | sed -n 's/^Model name: *//p')"
+          echo "cores: $(nproc), memory: $(free -g | awk '/^Mem:/ {print $2}') GiB"
+
       - name: Checkout repository
         # https://github.com/actions/checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
