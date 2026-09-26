@@ -3,6 +3,10 @@ import {
 } from "./operation-registry.ts";
 import { ownerApiTargetForOperationV1 } from "./owner-api-target.ts";
 import {
+  validResearchInitialPitV1,
+  type ResearchInitialPitV1,
+} from "../../rd-owner-client/consumer_projection_v1.ts";
+import {
   resolveResearchShadowV1,
   type ResearchShadowResponse,
   type ResearchShadowUnavailableReason,
@@ -25,6 +29,9 @@ export type ResearchReadbackOutcomeV1 = Readonly<{
   intentIdentity: string | null;
   rejectionCode: string | null;
   committedAt: string;
+  // The Owner's initial PIT request for an accepted Intent, as stated; `null` means none, which is
+  // every rejected or historical record and implies no request version.
+  initialPit: ResearchInitialPitV1 | null;
 }>;
 
 export type ResearchReadbackViewV1 = Readonly<{
@@ -166,6 +173,7 @@ function projectResponse(
         intentIdentity: accepted ? receipt.resulting_research_intent_identity : null,
         rejectionCode: accepted ? null : receipt.rejection_code,
         committedAt,
+        initialPit: accepted ? projection.initial_pit : null,
       },
       view,
       technical: {
@@ -206,8 +214,10 @@ export function parseResearchReadbackBrowserProjectionV1(
       : null;
   }
   if (!object(value.outcome) || !exactKeys(value.outcome, [
-    "resolution", "historicalDisposition", "intentIdentity", "rejectionCode", "committedAt",
+    "resolution", "historicalDisposition", "intentIdentity", "rejectionCode", "committedAt", "initialPit",
   ]) || !["accepted", "rejected", "quarantined"].includes(String(value.outcome.resolution))
+    || !validResearchInitialPitV1(value.outcome.initialPit)
+    || (value.outcome.resolution !== "accepted" && value.outcome.initialPit !== null)
     || !(value.outcome.historicalDisposition === null
       || ["accepted", "rejected"].includes(String(value.outcome.historicalDisposition)))
     || !(value.outcome.intentIdentity === null || identity(value.outcome.intentIdentity))
