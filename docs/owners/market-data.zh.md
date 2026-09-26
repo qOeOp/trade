@@ -1304,8 +1304,10 @@ Data 不依赖 R&D，不拥有也不重新解释 Strategy Design role/join。
 - 每个 correlation 一次初始 intake。intake 对每个 correlation 至多提交一个初始 PIT snapshot。它在提交该 snapshot 的
   事务里认领该 correlation；在已被认领的 correlation 下，seal 出不同 request 的提交按名拒绝为
   `CorrelationAlreadyCommitted`，且不写入任何东西。重发已存储的提交，只有在 Market Data 的 clock head 仍是该提交切出时
-  的那一个时，才会加入已提交的 terminal：intake 会把提交的 clock 证据与当前 head 比对，因此 head 移动之后重发会被拒绝，
-  无法恢复这次尝试。所以 R&D 恢复一次没有收到响应的发送时，读回它的 correlation，从不重发。
+  的那一个时，才会加入已提交的 terminal：intake 在查看 correlation 之前，先把提交的 clock 证据与当前 head 逐字比对，因此
+  head 移动之后，任何在旧 head 上切出的提交都在写入任何东西之前按名拒绝为 `ClockEvidenceNotCurrent`，无论其
+  correlation 是否已提交。intake 运行期间 head 移动的，在提交时以同一个名字拒绝。所以一次发送没有收到响应，或者被以上两种之一拒绝时，R&D 读回它的 correlation 来恢复，从不重发；只有读回
+  什么也不返回时，才在当前 cut 冻结一个新的提交。
   `resolve_research_pit_terminal_by_correlation_v1` 在 R&D 自己的事务里运行，不加行锁，也不写入任何东西。它返回已提交
   snapshot 的 terminal（与 intake 当时的应答相同）以及其 request 携带的 requester；Market Data 从未在该 correlation 下提
   交过初始 intake 时，它什么也不返回。无法执行的读取，以及与其所指 snapshot 核对不上的已存储认领，都是错误，绝不是「什么

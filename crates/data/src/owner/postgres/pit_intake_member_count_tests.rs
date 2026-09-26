@@ -298,6 +298,25 @@ impl Fixture {
         &self.intake.owner
     }
 
+    /// Moves Market Data's clock head one same-epoch step past the one every request here is cut
+    /// at, through the Owner's own clock admission.
+    pub(super) async fn advance_clock(&self) {
+        let successor = MarketDataClockAdmission::seal_for_test(
+            CLOCK_IDENTITY,
+            CLOCK_EPOCH,
+            2,
+            DECISION_CUT + 5,
+            DECISION_CUT + 5,
+            DECISION_CUT + 65,
+            d(7),
+            1,
+            2,
+        );
+        let mut transaction = self.owner().pool().begin().await.unwrap();
+        admit_clock(&mut transaction, &successor).await.unwrap();
+        transaction.commit().await.unwrap();
+    }
+
     pub(super) async fn admit_instrument(&self, identity: &str, lifecycle_frontier: BindingDigest) {
         self.owner()
             .admit_instrument_master_fact_v1(instrument_submission(

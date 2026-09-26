@@ -1416,20 +1416,24 @@ and never chooses the instruments. This is how:
   PIT request binds one Source Binding; when that lineage has no admitted head; and when Market Data holds no clock
   head. The intake still re-verifies the Universe Selection R&D then states and the PIT request it freezes, and it
   admits a scope of one or two members.
-- One initial intake per correlation. The intake commits at most one initial PIT snapshot per correlation. It claims
-  the correlation in the transaction that commits the snapshot, and refuses by name as `CorrelationAlreadyCommitted`,
-  with nothing written, a submission that seals to a different request under a correlation already claimed. Re-sending
-  the stored submission joins the committed terminal only while Market Data's clock head is still the one the
-  submission was cut at: the intake compares the submission's clock evidence with the current head, so after the head
-  moves the re-send is refused and cannot recover the attempt. R&D therefore recovers a send that ended without a
-  response by reading its correlation back, never by re-sending. `resolve_research_pit_terminal_by_correlation_v1` runs
-  in R&D's own transaction, takes no row locks and writes nothing. It returns the committed snapshot's terminal as the
-  intake answered it, with the requester its request carried, or nothing when Market Data has never committed an
-  initial intake under that correlation. A read that cannot run, and a stored claim that does not verify against the
-  snapshot it names, are errors and never nothing. The terminal carries the Instrument Master digest the intake stamped;
-  sealing the stored submission over it reproduces the request identity and digest the terminal reports, which proves
-  which attempt the terminal answers. What crosses into `market_data_rd_api` for this read is one more `STABLE`
-  `SECURITY DEFINER` function that returns the claim and the snapshot it names.
+- One initial intake per correlation. The intake commits at most one initial PIT snapshot per correlation. It claims the
+  correlation in the transaction that commits the snapshot, and refuses by name as `CorrelationAlreadyCommitted`, with
+  nothing written, a submission that seals to a different request under a correlation already claimed. Re-sending the
+  stored submission joins the committed terminal only while Market Data's clock head is still the one the submission was
+  cut at: the intake compares the submission's clock evidence with the current head exactly, before it looks at the
+  correlation, so after the head moves any submission cut at the old head is refused by name as
+  `ClockEvidenceNotCurrent`, before anything is written, whether or not its correlation committed. A head that moves
+  while an intake is already running refuses it by the same name when it commits. R&D therefore recovers a send that
+  ended without a response, or was refused as either of those, by reading its correlation back, never by re-sending, and
+  freezes a new submission at the current cut only when the read returns nothing.
+  `resolve_research_pit_terminal_by_correlation_v1` runs in R&D's own transaction, takes no row locks and writes
+  nothing. It returns the committed snapshot's terminal as the intake answered it, with the requester its request
+  carried, or nothing when Market Data has never committed an initial intake under that correlation. A read that cannot
+  run, and a stored claim that does not verify against the snapshot it names, are errors and never nothing. The terminal
+  carries the Instrument Master digest the intake stamped; sealing the stored submission over it reproduces the request
+  identity and digest the terminal reports, which proves which attempt the terminal answers. What crosses into
+  `market_data_rd_api` for this read is one more `STABLE` `SECURITY DEFINER` function that returns the claim and the
+  snapshot it names.
 - Requester identity. The initial PIT request's `requester_identity` is SHA-256 over
   `vibe.market-data.pit-requester.research-request.v1\0` followed by the 32-byte Research request identity the Design
   role intent carries, which is R&D's `rd.develop.request-identity.v2` digest of the request locator, never another

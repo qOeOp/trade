@@ -192,6 +192,14 @@ pub enum PitMarketSnapshotIntakeErrorV1 {
     /// snapshot for it. The committed one is read back by correlation; a second, different
     /// request under the same correlation is refused here and writes nothing.
     CorrelationAlreadyCommitted,
+    /// The request's clock evidence is not Market Data's current clock head.
+    ///
+    /// The intake compares a request's decision cut and clock evidence with the current head
+    /// exactly, before it looks at the correlation. A request cut at a head that has since moved is
+    /// refused here and writes nothing, whether or not an intake under its correlation committed.
+    /// The requester reads its correlation back, and freezes a new request at the current cut only
+    /// when nothing committed.
+    ClockEvidenceNotCurrent,
 }
 
 impl Display for PitMarketSnapshotIntakeErrorV1 {
@@ -215,6 +223,9 @@ impl Display for PitMarketSnapshotIntakeErrorV1 {
             }
             Self::CorrelationAlreadyCommitted => {
                 "an initial intake is already committed under this correlation"
+            }
+            Self::ClockEvidenceNotCurrent => {
+                "the request's clock evidence is not Market Data's current clock head"
             }
         };
         formatter.write_str(text)
@@ -241,6 +252,7 @@ impl From<PitSnapshotError> for PitMarketSnapshotIntakeErrorV1 {
                 Self::UniverseMemberKeyIsNotInstrument
             }
             PitSnapshotError::CorrelationAlreadyCommitted => Self::CorrelationAlreadyCommitted,
+            PitSnapshotError::TrustedClockMismatch => Self::ClockEvidenceNotCurrent,
             _ => Self::InvalidRequest,
         }
     }

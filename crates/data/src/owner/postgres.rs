@@ -1390,8 +1390,9 @@ impl MarketDataOwnerPostgres {
     /// the Owner does not hold, [`PitSnapshotError::ObservationBatchUnavailable`] when the
     /// retrieval fails or exceeds the admitted batch,
     /// [`PitSnapshotError::CorrelationAlreadyCommitted`] when another initial intake holds the
-    /// correlation, and the usual persistence failures otherwise. An empty or partial retrieval is
-    /// not an error: it becomes insufficient coverage.
+    /// correlation, [`PitSnapshotError::TrustedClockMismatch`] when the submission was not cut at
+    /// `clock`, and the usual persistence failures otherwise. An empty or partial retrieval is not
+    /// an error: it becomes insufficient coverage.
     pub(crate) async fn commit_pit_initial_from_submission_v1(
         &self,
         submission: PitSnapshotSubmissionV1,
@@ -1399,6 +1400,11 @@ impl MarketDataOwnerPostgres {
         universe_locator: &UntrustedUniverseSelectionLocatorV1,
         clock: &MarketDataClockAdmission,
     ) -> Result<PitSnapshotCommitAggregate, PitSnapshotError> {
+        // A submission cut at a head that is no longer current is refused before anything runs:
+        // resolving its Instrument Master digest below would mint a readback for a request that can
+        // never commit. The commit compares the same evidence again, against a head that may have
+        // moved since.
+        super::pit_snapshot::authority::validate_commit_clock(&submission.time_evidence, clock)?;
         let mut transaction = self
             .pool
             .begin()

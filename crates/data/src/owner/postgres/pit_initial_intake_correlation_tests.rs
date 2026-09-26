@@ -42,6 +42,9 @@ async fn read_back(
 ///   is the one the mapping names.
 /// - Two different submissions racing on one correlation converge: exactly one commits, the other
 ///   is refused by name, and the correlation reads back as the committed one.
+/// - Once Market Data's clock head moves, a request cut at the old head is refused by name as
+///   `ClockEvidenceNotCurrent` and writes nothing, whether its correlation committed or not; the
+///   committed one still reads back, and the uncommitted one still reads back as `None`.
 /// - `None` means never committed and nothing else: a read that cannot run, and a correlation row
 ///   whose snapshot was requested under another correlation, are errors.
 #[tokio::test]
@@ -150,6 +153,26 @@ async fn postgres_an_initial_intake_claims_its_correlation_once_and_reads_back_b
             .terminal(),
         &committed
     );
+
+    // Once the clock head moves, the stored submission is refused by name before its correlation
+    // is consulted, and writes nothing: re-sending cannot recover the attempt, reading back can.
+    let unsent = fixture.request(224, &universe);
+    fixture.advance_clock().await;
+    let moved = fixture.store().await;
+
+    for stale in [submission.clone(), unsent] {
+        assert_eq!(
+            fixture.intake.submit(stale, locator).await,
+            Err(PitMarketSnapshotIntakeErrorV1::ClockEvidenceNotCurrent)
+        );
+    }
+    assert_eq!(
+        fixture.store().await,
+        moved,
+        "a stale request writes nothing"
+    );
+    assert_eq!(read_back(&fixture, correlation).await, Ok(Some(recovered)));
+    assert_eq!(read_back(&fixture, d(224)).await, Ok(None));
 
     // A read that cannot run is an error, never "never committed".
     let mut aborted = fixture.owner().pool().begin().await.unwrap();

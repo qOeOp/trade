@@ -439,6 +439,9 @@ fn intake_error(error: PitMarketSnapshotIntakeErrorV1) -> Response {
         PitMarketSnapshotIntakeErrorV1::CorrelationAlreadyCommitted => {
             (StatusCode::CONFLICT, "PIT_CORRELATION_ALREADY_COMMITTED")
         }
+        PitMarketSnapshotIntakeErrorV1::ClockEvidenceNotCurrent => {
+            (StatusCode::CONFLICT, "PIT_CLOCK_EVIDENCE_NOT_CURRENT")
+        }
         PitMarketSnapshotIntakeErrorV1::ClockUnavailable => (
             StatusCode::SERVICE_UNAVAILABLE,
             "MARKET_DATA_CLOCK_UNAVAILABLE",
@@ -747,18 +750,25 @@ mod tests {
         );
     }
 
-    /// The correlation constraint's refusal is the one 409 a requester recovers from by reading
-    /// its correlation back.
+    /// The two refusals a requester recovers from by reading its correlation back are each a 409
+    /// under a name of its own: another request already committed under the correlation, and a
+    /// request cut at a clock head that has since moved.
     #[rstest]
-    fn a_committed_correlation_is_a_409_by_name() {
+    #[case::correlation(
+        PitMarketSnapshotIntakeErrorV1::CorrelationAlreadyCommitted,
+        "PIT_CORRELATION_ALREADY_COMMITTED"
+    )]
+    #[case::clock(
+        PitMarketSnapshotIntakeErrorV1::ClockEvidenceNotCurrent,
+        "PIT_CLOCK_EVIDENCE_NOT_CURRENT"
+    )]
+    fn a_recoverable_refusal_is_a_409_by_name(
+        #[case] error: PitMarketSnapshotIntakeErrorV1,
+        #[case] name: &str,
+    ) {
         assert_eq!(
-            code(&intake_error(
-                PitMarketSnapshotIntakeErrorV1::CorrelationAlreadyCommitted
-            )),
-            (
-                StatusCode::CONFLICT,
-                Some("PIT_CORRELATION_ALREADY_COMMITTED")
-            )
+            code(&intake_error(error)),
+            (StatusCode::CONFLICT, Some(name))
         );
     }
 }
