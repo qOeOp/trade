@@ -1106,7 +1106,9 @@ mod tests {
 
     use super::*;
     use crate::{
-        bounded_feature_program_derivation_v1::derive_bounded_feature_program_proposal_v1,
+        bounded_feature_program_derivation_v1::{
+            BoundedFeatureProgramDerivationErrorV1, derive_bounded_feature_program_proposal_v1,
+        },
         bounded_feature_program_v1::{
             BoundedFeatureProgramErrorV1, BoundedFeatureProgramProposalV1,
             parse_bounded_feature_program_v1, prepare_bounded_feature_program_v1,
@@ -1500,6 +1502,11 @@ mod tests {
     }
 
     /// The universe-member pair assembled into a program, before preparation judges it.
+    ///
+    /// It is assembled against universe authority of one member, the only authority an Owner
+    /// issues for a universe-member Design. Exact-instrument receipts for its roles would assemble
+    /// too, but no Owner ever issues them for it, and assembling against them hid that derivation
+    /// could not read universe authority at all.
     fn universe_proposal() -> (StrategyDesignV2, BoundedFeatureProgramProposalV1) {
         let (design, meaning) = author_single_threshold_program_v1(&universe_request())
             .expect("the universe-member request is authorable");
@@ -1507,7 +1514,7 @@ mod tests {
             &design,
             PrimitiveCatalogV1::verify().expect("a published catalog verifies"),
             &meaning,
-            &bindings(&design),
+            &verified_universe_bindings_for_test(&design, &["BTCUSDT-PERP.BINANCE"]),
         )
         .unwrap_or_else(|e| panic!("authored universe-member meaning does not assemble: {e}"));
         (design, proposal)
@@ -1916,6 +1923,68 @@ mod tests {
                 StrategyCompilationV2::Compiled(_)
             ),
             "the same Design does not compile against two members",
+        );
+    }
+
+    /// Declared meaning over a universe-member Design assembles against the universe authority an
+    /// Owner issues for it, and each input folds in the binding the Plan binds that role to: the
+    /// Owner binding of the role at the one member. Against two members it does not assemble, for
+    /// the reason the Plan does not compile.
+    #[rstest]
+    fn a_universe_member_meaning_assembles_against_owner_universe_authority() {
+        let (design, meaning) = author_single_threshold_program_v1(&universe_request())
+            .expect("the universe-member request is authorable");
+        let assemble = |instruments: &[&str]| {
+            derive_bounded_feature_program_proposal_v1(
+                &design,
+                PrimitiveCatalogV1::verify().expect("a published catalog verifies"),
+                &meaning,
+                &verified_universe_bindings_for_test(&design, instruments),
+            )
+        };
+        let proposal = assemble(&["BTCUSDT-PERP.BINANCE"]).unwrap_or_else(|e| {
+            panic!("the meaning assembles against one-member universe authority: {e}")
+        });
+        let StrategyCompilationV2::Compiled(plan) =
+            compile_strategy_design_v2_with_verified_bindings(
+                design.clone(),
+                verified_universe_bindings_for_test(&design, &["BTCUSDT-PERP.BINANCE"]),
+                &[implementation_receipt(&design)],
+            )
+        else {
+            panic!("the universe-member Design compiles against one member");
+        };
+
+        assert_eq!(
+            proposal
+                .inputs
+                .iter()
+                .map(|input| (
+                    input.input_role_identity,
+                    input.static_binding_receipt_digest
+                ))
+                .collect::<std::collections::BTreeSet<_>>(),
+            design
+                .inputs
+                .iter()
+                .map(|role| {
+                    let role = strategy_input_role_identity_v2(role);
+                    let bound = plan
+                        .universe_binding_digest(role, "member-0", "BTCUSDT-PERP.BINANCE")
+                        .expect("the Plan binds every role at the one member");
+                    (role, bound)
+                })
+                .collect(),
+            "every input folds in the Plan's binding of its role at the one member",
+        );
+        assert_eq!(
+            assemble(&["BTCUSDT-PERP.BINANCE", "ETHUSDT-PERP.BINANCE"]).map(|_| ()),
+            Err(
+                BoundedFeatureProgramDerivationErrorV1::UniverseNotOneMember(
+                    UNIVERSE_CLOSE_ROLE.to_owned()
+                )
+            ),
+            "a two-member universe is refused by name, never bound to its first member",
         );
     }
 

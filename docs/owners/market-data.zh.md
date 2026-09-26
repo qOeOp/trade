@@ -98,6 +98,17 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   占位，所以这是**一条自述未建的缝**而不是缺陷 - 但整片 `cfg(not(test))` 实现的存在理由是"等那天"，不是"今天在跑"。
   真实部署会不会设成 `Required` 是一个关于部署配置的问题，代码里答不出；而无论哪种，只要准入恒为失败，
   `from_admitted` 就到不了。
+  **解除 `B3` 证明的是 `rd-owner-api` 连到了哪个库，并不把凭据挡在这个进程之外**。同一进程启动时就持有两条裸 DSN：
+  `MARKET_DATA_OWNER_DATABASE_URL`，即 Owner 的写主体 `market_data_owner`，`product/rd-workbench/docker-compose.yml`
+  要求必填；以及 `MARKET_DATA_RD_ROLE_SET_DATABASE_URL`，即读者 `market_data_reader`。其默认构建里有六个 Market Data
+  admission 直接用它们连接，而不经过 store-admission custodian - PIT intake、Source Binding、universe selection、
+  strategy-input binding（两条 DSN 都用）、Instrument Master 与 Market Semantics，由 `main.rs` 中的
+  `bootstrap_market_data_*` 函数组装。它们唯一的门是角色与拓扑检查 `MarketDataOwnerPostgres::ADMISSION_SQL_V1`。
+  在这两条 DSN 以租用句柄的形式搬到 custodian 之后以前，`B3` 带来的是防替换 - 一个签过名、处于当前、经直接测量的库 -
+  而不是凭据隔离。
+  下文 `ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1` 有两处表述与代码尚不一致；都不挡生产路线。该档要求由单独执行的主体测量
+  目标，而 `DirectMeasurer` 是在 custodian 内用租到的凭据测量。该档还要求准入回执交叉绑定 trust bundle，而
+  `SealedDeploymentStoreAdmissionReceipt` 带 witness identity，却没有 signer key fingerprint 或 bundle identity。
 - **`B4` 消费者未编入已部署镜像。** `product/rd-workbench/Dockerfile.owner` 以默认 feature 构建
   `strategy-factory-rd-owner-api`，使 `sealed-develop-composer-acceptance` 处于关闭，而 dashboard 读取二进制不触及任何
   Market Data 表面。解除条件：把该消费者移出 acceptance feature。

@@ -122,6 +122,20 @@ never runs in CI.
   exists for the day that changes, not because anything runs it now. Whether a real deployment sets `Required` is a
   question about deployment configuration that the code cannot answer; either way `from_admitted` is unreachable
   while the admission fails closed.
+  **Clearing `B3` proves which store `rd-owner-api` reached; it does not keep credentials out of that process.**
+  The same process starts with two raw DSNs: `MARKET_DATA_OWNER_DATABASE_URL`, the Owner's write principal
+  `market_data_owner`, which `product/rd-workbench/docker-compose.yml` requires, and
+  `MARKET_DATA_RD_ROLE_SET_DATABASE_URL`, the reader `market_data_reader`. Six Market Data admissions in its default
+  build connect with them directly instead of through the store-admission custodian - PIT intake, Source Binding,
+  universe selection, strategy-input binding (both DSNs), Instrument Master and Market Semantics, composed by the
+  `bootstrap_market_data_*` functions in `main.rs`. Their only gate is the role and topology check
+  `MarketDataOwnerPostgres::ADMISSION_SQL_V1`. Until those DSNs move behind the custodian as leased handles, `B3` adds
+  anti-substitution - a signed, current, directly measured store - and no credential isolation.
+  Two statements of `ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1` below do not yet match the code; neither blocks the
+  production route. That profile has the target measured by a separately executed principal, while `DirectMeasurer`
+  measures inside the custodian with the leased credential. It also has the admission receipt cross-bind the trust
+  bundle, while `SealedDeploymentStoreAdmissionReceipt` carries the witness identity but no signer key fingerprint
+  or bundle identity.
 - **`B4` consumer not compiled into the deployed image.** `product/rd-workbench/Dockerfile.owner` builds
   `strategy-factory-rd-owner-api` with default features, which leaves `sealed-develop-composer-acceptance` off, and
   the dashboard read binary touches no Market Data surface. Cleared by moving the consumer out of an acceptance
