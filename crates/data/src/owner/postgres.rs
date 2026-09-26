@@ -6012,20 +6012,15 @@ async fn persist_pit(
                 return Err(PitSnapshotError::ReplayConflict);
             }
 
-            // Only an `AVAILABLE` snapshot's batch is verified as its evidence; a negative one's
-            // batch is the answer it recorded, which the byte comparison above already matched.
-            // Verifying it here refused every retry of a committed negative.
-            if stored.fact().disposition() == PitSnapshotDisposition::Available {
-                verify_observation_batch(
-                    &stored,
-                    observed.source_binding_identity,
-                    observed.source_binding_lineage_root,
-                    observed.source_binding_lineage_version,
-                    observed.digest,
-                    &observed.bytes,
-                    &observed.rows,
-                )?;
-            }
+            verify_observation_batch(
+                &stored,
+                observed.source_binding_identity,
+                observed.source_binding_lineage_root,
+                observed.source_binding_lineage_version,
+                observed.digest,
+                &observed.bytes,
+                &observed.rows,
+            )?;
         }
         return Ok(stored);
     }
