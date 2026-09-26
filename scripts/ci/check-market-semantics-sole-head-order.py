@@ -12,9 +12,20 @@ instrument does exactly that. Entries of one shard component run in chain-array 
 constraint is positional: every entry that registers that way must come before every entry that
 admits production Market Semantics. This names the pair that breaks it.
 
-An entry registers when its test function, or a function of the same file it names, calls the
-registration. It admits when one of them calls `admit_market_semantics_fact_v1` or names the Owner
-route `/v1/market-data/market-semantics`. Composing the route without calling it does not admit.
+A function admits when it calls `admit_market_semantics_fact_v1`, sends a request naming the Owner
+route `/v1/market-data/market-semantics` (the route's own `.route(...)` definition does not), or builds
+a `MarketSemanticsFactSubmissionV1`, which every admission, through any trait or route, needs. It
+registers when it calls the registration. Either holds for every function that calls one that does,
+across every file of the crates the chain's packages depend on, so a helper in another module or
+crate counts.
+
+Calls are matched by name. A name defined in up to three places makes every caller of any of them
+count, which can refuse a safe order but never passes an unsafe one. A name defined more often than
+that is a dispatch name (`admit`, `new`, `run`) and carries nothing: through one, every function would
+count and the check would refuse every order. A seed's own name carries only when it is unique, since
+a trait method's production implementation is a seed and shares its name with other traits' methods. What it can miss is an admission reached only through
+such a name, and that path still builds the submission type somewhere a seed sees. A handler passed to
+a router as a value is not called by it, so composing the route admits nothing.
 
 This check stands in for the registration taking its corpus snapshot from its caller instead of
 reading the sole head. When the registration does that, this check and its call go.
@@ -26,10 +37,10 @@ Usage: check-market-semantics-sole-head-order.py <chain script>
 
 from __future__ import annotations
 
-import functools
 import re
 import sys
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -37,10 +48,21 @@ ROOT = Path(__file__).resolve().parents[2]
 REGISTERS = "register_bar_joined_cut_declarations_for_published_design_v1"
 ADMITS_CALL = "admit_market_semantics_fact_v1"
 ADMITS_ROUTE = "/v1/market-data/market-semantics"
-FN_HEAD = re.compile(r"\bfn\s+(\w+)\s*(?:<[^>{}]*>)?\s*\(")
+ADMITS_TYPE = "MarketSemanticsFactSubmissionV1"
+AMBIGUITY_LIMIT = 3
 IDENTIFIER = re.compile(r"[A-Za-z_]\w*")
-RAW_STRING = re.compile(r'b?r(#*)"')
-CHAR_LITERAL = re.compile(r"'(?:\\.|[^\\'])'")
+FN_HEAD = re.compile(r"\bfn\s+(\w+)\s*(?:<[^>{}]*>)?\s*\(")
+# A call: a name followed by `(`, optionally through a turbofish.
+CALL = re.compile(r"\b([A-Za-z_]\w*)\s*(?:::\s*<[^;{}()]*>\s*)?\(")
+TOKENS = re.compile(
+    r"""(?P<line>//[^\n]*)"""
+    r"""|(?P<block>/\*.*?\*/)"""
+    r"""|(?P<raw>\bb?r(?P<hashes>\#*)"(?P<raw_body>.*?)"(?P=hashes))"""
+    r"""|(?P<string>\bb?"(?P<string_body>(?:\\.|[^"\\])*)"|"(?P<plain_body>(?:\\.|[^"\\])*)")"""
+    r"""|(?P<char>'(?:\\.|[^\\'\n])')""",
+    re.DOTALL,
+)
+ROUTE_DEFINITION = re.compile(r"\.\s*route\s*\(\s*$")
 
 
 def fail(message: str) -> None:
@@ -49,124 +71,116 @@ def fail(message: str) -> None:
 
 def masked(source: str) -> tuple[str, list[tuple[int, str]]]:
     """
-    Return the source with comments and string literals blanked, and the string
-    literals.
-
-    Blanking keeps offsets, so the braces left are the code's own and a name inside a
-    comment or a string is not read as a call.
-
+    Return the source with comments and literals blanked (offsets and newlines kept),
+    and the string literals with their offsets.
     """
-    code = list(source)
     literals: list[tuple[int, str]] = []
-    at = 0
-    while at < len(source):
-        if source.startswith("//", at):
-            end = source.find("\n", at)
-            end = len(source) if end == -1 else end
-            code[at:end] = " " * (end - at)
-            at = end
-            continue
-        if source.startswith("/*", at):
-            end = source.find("*/", at + 2)
-            end = len(source) if end == -1 else end + 2
-            code[at:end] = [c if c == "\n" else " " for c in source[at:end]]
-            at = end
-            continue
-        raw = RAW_STRING.match(source, at) if source[at] in "br" else None
-        if raw and (at == 0 or not (source[at - 1].isalnum() or source[at - 1] == "_")):
-            closing = '"' + raw.group(1)
-            end = source.find(closing, raw.end())
-            end = len(source) if end == -1 else end
-            literals.append((at, source[raw.end() : end]))
-            stop = end + len(closing)
-            code[at:stop] = [c if c == "\n" else " " for c in source[at:stop]]
-            at = stop
-            continue
-        if source[at] == '"':
-            end = at + 1
-            while end < len(source) and source[end] != '"':
-                end += 2 if source[end] == "\\" else 1
-            literals.append((at, source[at + 1 : end]))
-            code[at : end + 1] = [c if c == "\n" else " " for c in source[at : end + 1]]
-            at = end + 1
-            continue
-        char = CHAR_LITERAL.match(source, at) if source[at] == "'" else None
-        if char:
-            code[at : char.end()] = " " * (char.end() - at)
-            at = char.end()
-            continue
-        at += 1
-    return "".join(code), literals
+
+    def blank(match: re.Match[str]) -> str:
+        body = match.group("raw_body")
+        if body is None:
+            body = match.group("string_body")
+        if body is None:
+            body = match.group("plain_body")
+        if body is not None:
+            literals.append((match.start(), body))
+        return "".join(c if c == "\n" else " " for c in match.group(0))
+
+    return TOKENS.sub(blank, source), literals
 
 
-def function_bodies(code: str) -> dict[str, list[tuple[int, int]]]:
-    bodies: dict[str, list[tuple[int, int]]] = {}
+@dataclass(frozen=True)
+class Function:
+    name: str
+    path: Path
+    calls: frozenset[str]
+    names: frozenset[str]
+    requests_route: bool
+
+
+def functions_of(path: Path) -> list[Function]:
+    code, literals = masked(path.read_text(encoding="utf-8"))
+    closing: dict[int, int] = {}
+    stack: list[int] = []
+    for brace in re.finditer(r"[{}]", code):
+        if brace.group() == "{":
+            stack.append(brace.start())
+        elif stack:
+            closing[stack.pop()] = brace.start()
+    found = []
     for head in FN_HEAD.finditer(code):
         opening = code.find("{", head.end())
         semicolon = code.find(";", head.end())
-        if opening == -1 or (semicolon != -1 and semicolon < opening):
+        if opening == -1 or (semicolon != -1 and semicolon < opening) or opening not in closing:
             continue
-        depth = 0
-        for offset in range(opening, len(code)):
-            if code[offset] == "{":
-                depth += 1
-            elif code[offset] == "}":
-                depth -= 1
-                if depth == 0:
-                    bodies.setdefault(head.group(1), []).append((opening, offset))
-                    break
-    return bodies
+        end = closing[opening]
+        calls = frozenset(match.group(1) for match in CALL.finditer(code, opening, end))
+        names = frozenset(IDENTIFIER.findall(code, opening, end))
+        requests = any(
+            opening < offset < end
+            and ADMITS_ROUTE in text
+            and not ROUTE_DEFINITION.search(code[max(0, offset - 40) : offset])
+            for offset, text in literals
+        )
+        found.append(Function(head.group(1), path, calls, names, requests))
+    return found
 
 
-@functools.cache
-def parsed(path: Path) -> tuple[str, tuple[tuple[int, str], ...], dict[str, list[tuple[int, int]]]]:
-    code, literals = masked(path.read_text(encoding="utf-8"))
-    return code, tuple(literals), function_bodies(code)
-
-
-def reached(path: Path, test: str) -> tuple[set[str], list[str]]:
+def tainted(functions: list[Function], seed: callable) -> set[Function]:
     """
-    Return the names and string literals the test function reaches within its own file.
+    Every function that is a seed or calls, by a name defined at most AMBIGUITY_LIMIT
+    times, one that is tainted.
     """
-    code, literals, bodies = parsed(path)
-    if test not in bodies:
-        fail(f"{path} defines no test function {test}")
-    named = {
-        name: {word for a, b in spans for word in IDENTIFIER.findall(code, a, b)}
-        for name, spans in bodies.items()
-    }
-    seen = {test}
-    frontier = [test]
-    while frontier:
-        for other in named.get(frontier.pop(), set()) & bodies.keys() - seen:
-            seen.add(other)
-            frontier.append(other)
-    spans = [span for name in seen for span in bodies[name]]
-    words = {word for name in seen for word in named[name]}
-    texts = [text for offset, text in literals if any(a < offset < b for a, b in spans)]
-    return words, texts
+    definitions: dict[str, int] = {}
+    for function in functions:
+        definitions[function.name] = definitions.get(function.name, 0) + 1
+    carries = {name for name, count in definitions.items() if count <= AMBIGUITY_LIMIT}
+    marked = {function for function in functions if seed(function)}
+    # A seed's own name carries only when it names nothing else: the production implementation of
+    # a trait method such as `admit_fact` is a seed, and every other `admit_fact` would otherwise
+    # carry its taint. Its real callers build the submission type and are seeds themselves.
+    names = {function.name for function in marked if definitions[function.name] == 1}
+    changed = True
+    while changed:
+        changed = False
+        for function in functions:
+            if function not in marked and function.calls & names:
+                marked.add(function)
+                if function.name in carries:
+                    names.add(function.name)
+                changed = True
+    return marked
 
 
-def violations(entries: list[tuple[str, Path, str]]) -> list[str]:
+def violations(entries: list[tuple[str, Function]], functions: list[Function]) -> list[str]:
     """
     Name every registering entry that an admitting entry precedes, by chain position.
     """
+    admitting = tainted(
+        functions,
+        lambda function: (
+            ADMITS_CALL in function.calls
+            or function.requests_route
+            or ADMITS_TYPE in function.names
+        ),
+    )
+    registering = tainted(functions, lambda function: REGISTERS in function.calls)
     first_admitter: tuple[int, str] | None = None
-    registering = 0
+    registers_seen = 0
     found = []
-    for position, (label, path, test) in enumerate(entries, start=1):
-        words, texts = reached(path, test)
-        registering += REGISTERS in words
-        if REGISTERS in words and first_admitter is not None:
-            found.append(
-                f"entry {position} ({label}) finds its corpus as the sole Market Semantics head, "
-                f"but entry {first_admitter[0]} ({first_admitter[1]}) admits a production Market "
-                "Semantics fact before it; move the admitting entry after every registering one",
-            )
-        admits = ADMITS_CALL in words or any(ADMITS_ROUTE in text for text in texts)
-        if admits and first_admitter is None:
+    for position, (label, function) in enumerate(entries, start=1):
+        if function in registering:
+            registers_seen += 1
+            if first_admitter is not None:
+                found.append(
+                    f"entry {position} ({label}) finds its corpus as the sole Market Semantics "
+                    f"head, but entry {first_admitter[0]} ({first_admitter[1]}) admits a production "
+                    "Market Semantics fact before it; move the admitting entry after every "
+                    "registering one",
+                )
+        if function in admitting and first_admitter is None:
             first_admitter = (position, label)
-    if not registering:
+    if not registers_seen:
         # A check that finds nothing to order passes whatever the order is. No entry registering
         # means the registration was renamed or replaced: follow it, or remove this check with it.
         found.append(f"no chain entry calls {REGISTERS}; this check has nothing to order")
@@ -183,46 +197,53 @@ def chain_entries(chain: Path) -> list[tuple[str, str]]:
     return [(row.split("|")[0], row.split("|")[2]) for row in rows if row]
 
 
-def crate_directories(root: Path) -> dict[str, Path]:
+def workspace_crates(root: Path) -> dict[str, tuple[Path, set[str]]]:
+    """
+    Every workspace crate by package name, with the names its manifest depends on.
+    """
     crates = {}
     for manifest in root.glob("crates/**/Cargo.toml"):
-        match = re.search(
-            r'^name\s*=\s*"([^"]+)"',
-            manifest.read_text(encoding="utf-8"),
-            re.MULTILINE,
-        )
-        if match:
-            crates[match.group(1)] = manifest.parent
+        text = manifest.read_text(encoding="utf-8")
+        name = re.search(r'^name\s*=\s*"([^"]+)"', text, re.MULTILINE)
+        if name:
+            depends = set(re.findall(r"^([A-Za-z0-9_-]+)\s*=", text, re.MULTILINE))
+            crates[name.group(1)] = (manifest.parent, depends)
     return crates
 
 
-@functools.cache
-def crate_functions(crate: Path) -> dict[str, tuple[Path, ...]]:
-    """
-    Every function name the crate's files define, with the files that define it.
-    """
-    index: dict[str, list[Path]] = {}
-    for path in sorted(crate.rglob("*.rs")):
-        for name in set(re.findall(r"\bfn\s+(\w+)\s*[<(]", path.read_text(encoding="utf-8"))):
-            index.setdefault(name, []).append(path)
-    return {name: tuple(paths) for name, paths in index.items()}
-
-
-def test_file(crate: Path, test: str) -> Path:
-    matches = crate_functions(crate).get(test.rsplit("::", 1)[-1], ())
-    if len(matches) != 1:
-        fail(f"test {test} is defined in exactly one file of {crate}, found {len(matches)}")
-    return matches[0]
+def closure(crates: dict[str, tuple[Path, set[str]]], packages: set[str]) -> list[Path]:
+    reached = set()
+    frontier = list(packages)
+    while frontier:
+        package = frontier.pop()
+        if package in reached or package not in crates:
+            continue
+        reached.add(package)
+        frontier.extend(crates[package][1] & crates.keys())
+    return [crates[package][0] for package in sorted(reached)]
 
 
 def check(chain: Path, root: Path = ROOT) -> None:
-    crates = crate_directories(root)
+    crates = workspace_crates(root)
+    rows = chain_entries(chain)
+    missing = sorted({package for package, _ in rows} - crates.keys())
+    if missing:
+        fail(f"the chain names packages with no crate: {', '.join(missing)}")
+    functions = [
+        function
+        for directory in closure(crates, {package for package, _ in rows})
+        for path in sorted(directory.rglob("*.rs"))
+        for function in functions_of(path)
+    ]
     entries = []
-    for package, test in chain_entries(chain):
-        if package not in crates:
-            fail(f"the chain names a package with no crate: {package}")
-        entries.append((test, test_file(crates[package], test), test.rsplit("::", 1)[-1]))
-    found = violations(entries)
+    for package, test in rows:
+        name = test.rsplit("::", 1)[-1]
+        directory = crates[package][0]
+        matches = [f for f in functions if f.name == name and directory in f.path.parents]
+        if len(matches) != 1:
+            fail(f"test {test} is defined exactly once in {directory}, found {len(matches)}")
+        entries.append((test, matches[0]))
+    found = violations(entries, functions)
     for message in found:
         print(f"ERROR: {message}", file=sys.stderr)
     if found:
@@ -230,37 +251,92 @@ def check(chain: Path, root: Path = ROOT) -> None:
 
 
 def self_test() -> None:
-    with tempfile.TemporaryDirectory() as directory:
-        source = Path(directory) / "tests.rs"
-        source.write_text(
-            """
-fn helper() { register_bar_joined_cut_declarations_for_published_design_v1(); }
-fn registers() { helper(); }
-fn admits_by_call() { owner.admit_market_semantics_fact_v1(x); }
-fn admits_by_route() { post("/v1/market-data/market-semantics"); }
-fn composes_only() { let r = router(bootstrap_market_data_market_semantics_admission()); }
-fn names_it_in_a_comment() { // admit_market_semantics_fact_v1
-}
-fn names_it_in_a_string() { let s = "admit_market_semantics_fact_v1"; }
+    sources = {
+        "registration.rs": """
+fn register_through_a_helper() { register_bar_joined_cut_declarations_for_published_design_v1(); }
 """,
-            encoding="utf-8",
-        )
+        "fixture.rs": """
+fn ensure_admitted() { owner.admit_market_semantics_fact_v1(x); }
+fn ensure_through_the_route() { post("/v1/market-data/market-semantics"); }
+fn router() -> Router {
+    Router::new().route("/v1/market-data/market-semantics", post(admit_semantics))
+}
+fn admit_semantics() { admission.admit_market_semantics_fact_v1(x); }
+fn ensure_through_a_trait() {
+    let submission = MarketSemanticsFactSubmissionV1 { value };
+    semantics.admit_fact(submission);
+}
+fn run() {}
+fn admit_fact() { owner.admit_market_semantics_fact_v1(x); }
+""",
+        "scanner.rs": """
+fn admit_fact() {}
+fn uses_the_other_admit_fact() { admit_fact(); }
+""",
+        "other_fixture.rs": """
+fn run() { ensure_admitted(); }
+fn helper_twice() { ensure_admitted(); }
+""",
+        "third_fixture.rs": """
+fn run() {}
+fn helper_twice() {}
+""",
+        "fourth_fixture.rs": """
+fn run() {}
+""",
+        "tests.rs": """
+fn registers() { register_through_a_helper(); }
+fn admits_through_another_file() { ensure_admitted(); }
+fn admits_through_the_route_in_another_file() { ensure_through_the_route(); }
+fn composes_only() { let app = router(); }
+fn admits_through_a_trait_in_another_file() { ensure_through_a_trait(); }
+fn admits_through_a_name_defined_twice() { helper_twice(); }
+fn calls_a_dispatch_name() { run(); }
+fn calls_another_traits_method() { uses_the_other_admit_fact(); }
+fn names_it_in_a_comment() { // ensure_admitted()
+}
+fn names_it_in_a_string() { let s = "ensure_admitted()"; }
+""",
+    }
+    with tempfile.TemporaryDirectory() as directory:
+        functions = []
+        for name, text in sources.items():
+            path = Path(directory) / name
+            path.write_text(text, encoding="utf-8")
+            functions += functions_of(path)
+        by_name = {function.name: function for function in functions}
 
         def order(*tests: str) -> list[str]:
-            return violations([(test, source, test) for test in tests])
+            return violations([(test, by_name[test]) for test in tests], functions)
 
-        assert order("registers", "admits_by_call") == [], "admitting after registering is fine"
-        assert order("admits_by_call") == [
+        assert order("registers", "admits_through_another_file") == [], "admitting after is fine"
+        assert order("admits_through_another_file") == [
             f"no chain entry calls {REGISTERS}; this check has nothing to order",
         ], "a chain with no registering entry is refused, not passed"
-        assert len(order("admits_by_call", "registers")) == 1, "a call before is refused"
-        assert len(order("admits_by_route", "registers")) == 1, "the route before is refused"
+        assert len(order("admits_through_another_file", "registers")) == 1, (
+            "a call in a helper of another file, before, is refused"
+        )
+        assert len(order("admits_through_the_route_in_another_file", "registers")) == 1, (
+            "a request to the route from a helper of another file, before, is refused"
+        )
         assert order("composes_only", "registers") == [], "composing the route admits nothing"
-        assert order("names_it_in_a_comment", "registers") == [], "a comment admits nothing"
-        assert order("names_it_in_a_string", "registers") == [], "a plain string admits nothing"
-        refused = order("admits_by_route", "registers")[0]
+        assert len(order("admits_through_a_trait_in_another_file", "registers")) == 1, (
+            "building the submission for a trait admission, before, is refused"
+        )
+        assert len(order("admits_through_a_name_defined_twice", "registers")) == 1, (
+            "a name defined in a few places carries: every caller counts"
+        )
+        assert order("calls_another_traits_method", "registers") == [], (
+            "a seed's name shared with another trait's method carries nothing"
+        )
+        assert order("calls_a_dispatch_name", "registers") == [], (
+            "a name defined in more than AMBIGUITY_LIMIT places carries nothing"
+        )
+        assert order("names_it_in_a_comment", "registers") == [], "a comment calls nothing"
+        assert order("names_it_in_a_string", "registers") == [], "a string calls nothing"
+        refused = order("admits_through_another_file", "registers")[0]
         assert "entry 2 (registers)" in refused, refused
-        assert "entry 1 (admits_by_route)" in refused, refused
+        assert "entry 1 (admits_through_another_file)" in refused, refused
     print("market semantics sole-head order self-test: passed")
 
 

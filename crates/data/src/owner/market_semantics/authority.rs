@@ -40,31 +40,31 @@ pub(crate) fn derive_registry_key_v1(
             verify_instrument_master_readback(instrument),
         ),
         (
-            MarketSemanticsRegistryDependencyV1::PitSnapshotIdentity,
+            MarketSemanticsRegistryDependencyV1::R0PitSnapshotIdentity,
             pit.snapshot_identity() == evidence.pit_snapshot_identity,
         ),
         (
-            MarketSemanticsRegistryDependencyV1::PitFactDigest,
+            MarketSemanticsRegistryDependencyV1::R0PitFactDigest,
             pit.fact_digest() == evidence.pit_fact_digest,
         ),
         (
-            MarketSemanticsRegistryDependencyV1::ObservationBatchDigest,
+            MarketSemanticsRegistryDependencyV1::R0ObservationBatchDigest,
             pit.digest() == evidence.observation_batch_digest,
         ),
         (
-            MarketSemanticsRegistryDependencyV1::SourceBindingIdentity,
+            MarketSemanticsRegistryDependencyV1::R0SourceBindingIdentity,
             source.binding_id() == evidence.source_binding_identity,
         ),
         (
-            MarketSemanticsRegistryDependencyV1::SourceBindingFactDigest,
+            MarketSemanticsRegistryDependencyV1::R0SourceBindingFactDigest,
             source.fact_digest() == evidence.source_binding_fact_digest,
         ),
         (
-            MarketSemanticsRegistryDependencyV1::SourceBindingLineageRoot,
+            MarketSemanticsRegistryDependencyV1::R0SourceBindingLineageRoot,
             source.lineage_root() == evidence.source_binding_lineage_root,
         ),
         (
-            MarketSemanticsRegistryDependencyV1::SourceBindingLineageVersion,
+            MarketSemanticsRegistryDependencyV1::R0SourceBindingLineageVersion,
             source.lineage_version() == evidence.source_binding_lineage_version,
         ),
         (
@@ -92,11 +92,11 @@ pub(crate) fn derive_registry_key_v1(
             instrument_fact.market_semantics_identity() == compatibility_scope_identity,
         ),
         (
-            MarketSemanticsRegistryDependencyV1::InstrumentFactSourceFrontier,
+            MarketSemanticsRegistryDependencyV1::R0InstrumentFactSourceFrontier,
             instrument_fact.source_frontier() == evidence.source_frontier_digest,
         ),
         (
-            MarketSemanticsRegistryDependencyV1::InstrumentFactCorrectionFrontier,
+            MarketSemanticsRegistryDependencyV1::R0InstrumentFactCorrectionFrontier,
             instrument_fact.correction_frontier() == evidence.correction_frontier_digest,
         ),
     ];

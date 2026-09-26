@@ -330,17 +330,21 @@ impl MarketSemanticsReadbackV1 {
 /// One condition a Market Semantics registry key requires of the Source Binding, PIT snapshot,
 /// Instrument Master cut and R0 record it is derived from. A refusal names the first that failed,
 /// because every one of them answers the requester the same way and only this says which it was.
+///
+/// A name starting `R0` compares the other dependency with what the R0 record's evidence names: a
+/// failed `R0PitSnapshotIdentity` is an R0 record pointing at another snapshot, not a wrong snapshot.
+/// The rest compare two dependencies directly, or one with the key's compatibility scope.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum MarketSemanticsRegistryDependencyV1 {
     SourceAdmitted,
     InstrumentMasterVerified,
-    PitSnapshotIdentity,
-    PitFactDigest,
-    ObservationBatchDigest,
-    SourceBindingIdentity,
-    SourceBindingFactDigest,
-    SourceBindingLineageRoot,
-    SourceBindingLineageVersion,
+    R0PitSnapshotIdentity,
+    R0PitFactDigest,
+    R0ObservationBatchDigest,
+    R0SourceBindingIdentity,
+    R0SourceBindingFactDigest,
+    R0SourceBindingLineageRoot,
+    R0SourceBindingLineageVersion,
     PitSourceBindingIdentity,
     PitSourceBindingLineageRoot,
     PitSourceBindingLineageVersion,
@@ -349,8 +353,8 @@ pub(crate) enum MarketSemanticsRegistryDependencyV1 {
     PitMarketSemantics,
     /// The Instrument Master fact's Market Semantics identity is the key's compatibility scope.
     InstrumentFactMarketSemantics,
-    InstrumentFactSourceFrontier,
-    InstrumentFactCorrectionFrontier,
+    R0InstrumentFactSourceFrontier,
+    R0InstrumentFactCorrectionFrontier,
 }
 
 impl Display for MarketSemanticsRegistryDependencyV1 {
