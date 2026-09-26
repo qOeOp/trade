@@ -21,7 +21,7 @@ shard() { # case, shard name, positions...
   done
 }
 
-printf '# header\nshard-1\tc\tt1\t0\nshard-2\tc\tt2\t0\nshard-1\tc\tt3\t1\n' > "${root}/shards.tsv"
+printf '# header\nshard-1\tc\tt1\t-\nshard-2\tc\tt2\tnode\nshard-1\tc\tt3\tbrowser\n' > "${root}/shards.tsv"
 
 run_case() { # case, expected exit, expected output fragment
   local status=0

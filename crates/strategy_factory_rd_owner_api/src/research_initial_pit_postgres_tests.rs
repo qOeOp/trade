@@ -93,6 +93,8 @@ enum ChainFixtureMembersV1 {
     EveryIssuedMember,
     /// One member, whatever the scope names.
     Only(&'static str),
+    /// Nothing: the provider holds no data for the issued window.
+    Nothing,
 }
 
 #[async_trait]
@@ -104,6 +106,7 @@ impl PitObservationSourceV1 for ChainFixtureObservationsV1 {
         let members = match self.answers_for {
             ChainFixtureMembersV1::EveryIssuedMember => scope.members().to_vec(),
             ChainFixtureMembersV1::Only(member) => vec![member.to_owned()],
+            ChainFixtureMembersV1::Nothing => Vec::new(),
         };
         Ok(members
             .iter()
@@ -735,29 +738,109 @@ async fn issues_its_initial_pit_request() {
     );
     assert_eq!(intakes(&market_data, correlation).await, intakes_before);
 
-    // N4: a Data Client that answers for a member outside the selection. The observed members
-    // then differ from the selection's, so Market Data derives INSUFFICIENT itself, and the
-    // readback states it with its primary blocker. An empty answer would be the plainer case, but
-    // Market Data refuses an empty batch as not canonical today, contrary to its own Data Client
-    // contract; that is Market Data's to repair, and this form reaches the same terminal now.
-    let uncovered = format!("rd-initial-pit-n4-{suffix}");
-    accept(&product_edge, &owner, &uncovered, Some(&scope)).await;
+    // N4: a Data Client of the chain's type that has no data for the window, the case Market
+    // Data's Data Client contract names: Market Data derives INSUFFICIENT itself, commits no
+    // observation batch and no locator, and the readback states the terminal with its blocker.
+    let insufficient = ResearchInitialPitV1::Terminal {
+        disposition: PitMarketSnapshotDispositionV1::Insufficient,
+        primary_blocker: Some(PitMarketSnapshotBlockerV1::CoverageInsufficient),
+    };
+    let empty = format!("rd-initial-pit-n4-{suffix}");
+    let empty_intent = intent_of(&accept(&product_edge, &owner, &empty, Some(&scope)).await);
+    let empty_correlation = expected_correlation(&empty_intent);
+    let empty_intake =
+        pit_market_snapshot_intake_from_environment_v1(Arc::new(ChainFixtureObservationsV1 {
+            answers_for: ChainFixtureMembersV1::Nothing,
+        }))
+        .await
+        .unwrap();
+    let empty_ports = MarketDataInitialPitPortsV1::new(universe.clone(), empty_intake);
+    assert_eq!(
+        owner
+            .issue_research_initial_pit_v1(&empty, &empty_ports)
+            .await,
+        Ok(insufficient)
+    );
+    assert_eq!(
+        owner.read_research_v2(&empty).await.unwrap().initial_pit(),
+        Some(insufficient)
+    );
+    let mut read = rd.begin().await.unwrap();
+    let empty_terminal = vibe_data::owner::resolve_research_pit_terminal_by_correlation_v1(
+        &mut read,
+        BindingDigest::from_untrusted_bytes(empty_correlation),
+    )
+    .await
+    .unwrap()
+    .expect("Market Data holds the committed INSUFFICIENT intake")
+    .terminal()
+    .clone();
+    read.rollback().await.unwrap();
+    assert_eq!(
+        empty_terminal.disposition(),
+        PitMarketSnapshotDispositionV1::Insufficient
+    );
+    assert_eq!(
+        empty_terminal.primary_blocker(),
+        Some(PitMarketSnapshotBlockerV1::CoverageInsufficient)
+    );
+    assert!(empty_terminal.locator().is_none());
+    assert_eq!(
+        batches(&market_data, empty_terminal.snapshot_identity()).await,
+        0
+    );
+
+    // I5: the same submission sent again after Market Data committed its negative terminal
+    // rejoins that terminal: the same request, no second intake, and still no observation batch.
+    let (_, stored) = attempts(&rd, &empty).await.remove(0);
+    let resubmission =
+        PitSnapshotSubmissionV1::from_json_value_v1(serde_json::from_slice(&stored).unwrap())
+            .unwrap();
+    let intakes_before = intakes(&market_data, empty_correlation).await;
+    let rejoined = empty_ports
+        .submit(resubmission, universe_selection_locator(&rd, &empty).await)
+        .await
+        .unwrap();
+    assert_eq!(
+        rejoined.request_identity(),
+        empty_terminal.request_identity()
+    );
+    assert_eq!(rejoined.request_digest(), empty_terminal.request_digest());
+    assert_eq!(
+        rejoined.disposition(),
+        PitMarketSnapshotDispositionV1::Insufficient
+    );
+    assert_eq!(
+        rejoined.primary_blocker(),
+        Some(PitMarketSnapshotBlockerV1::CoverageInsufficient)
+    );
+    assert!(rejoined.locator().is_none());
+    assert_eq!(
+        intakes(&market_data, empty_correlation).await,
+        intakes_before
+    );
+    assert_eq!(
+        batches(&market_data, empty_terminal.snapshot_identity()).await,
+        0
+    );
+
+    // N4, a second way: a Data Client of the same type answering for a member outside the
+    // selection. The observed members differ from the selection's, so Market Data derives the same
+    // terminal.
+    let uncovered = format!("rd-initial-pit-n4b-{suffix}");
+    let uncovered_intent =
+        intent_of(&accept(&product_edge, &owner, &uncovered, Some(&scope)).await);
+    let uncovered_correlation = expected_correlation(&uncovered_intent);
     let uncovering_intake =
         pit_market_snapshot_intake_from_environment_v1(Arc::new(ChainFixtureObservationsV1 {
             answers_for: ChainFixtureMembersV1::Only("MSFT.XNAS"),
         }))
         .await
         .unwrap();
-    let insufficient = ResearchInitialPitV1::Terminal {
-        disposition: PitMarketSnapshotDispositionV1::Insufficient,
-        primary_blocker: Some(PitMarketSnapshotBlockerV1::CoverageInsufficient),
-    };
+    let uncovering_ports = MarketDataInitialPitPortsV1::new(universe.clone(), uncovering_intake);
     assert_eq!(
         owner
-            .issue_research_initial_pit_v1(
-                &uncovered,
-                &MarketDataInitialPitPortsV1::new(universe.clone(), uncovering_intake),
-            )
+            .issue_research_initial_pit_v1(&uncovered, &uncovering_ports)
             .await,
         Ok(insufficient)
     );
@@ -769,10 +852,57 @@ async fn issues_its_initial_pit_request() {
             .initial_pit(),
         Some(insufficient)
     );
+    // I5, with a batch: this negative snapshot recorded the rows its Data Client answered, so its
+    // retry reaches the replay that compares a stored batch. It rejoins as well: the same request,
+    // no second intake, and the one batch it recorded, unchanged.
+    let mut read = rd.begin().await.unwrap();
+    let uncovered_terminal = vibe_data::owner::resolve_research_pit_terminal_by_correlation_v1(
+        &mut read,
+        BindingDigest::from_untrusted_bytes(uncovered_correlation),
+    )
+    .await
+    .unwrap()
+    .expect("Market Data holds the committed INSUFFICIENT intake")
+    .terminal()
+    .clone();
+    read.rollback().await.unwrap();
+    assert_eq!(
+        batches(&market_data, uncovered_terminal.snapshot_identity()).await,
+        1
+    );
+    let (_, stored) = attempts(&rd, &uncovered).await.remove(0);
+    let rejoined = uncovering_ports
+        .submit(
+            PitSnapshotSubmissionV1::from_json_value_v1(serde_json::from_slice(&stored).unwrap())
+                .unwrap(),
+            universe_selection_locator(&rd, &uncovered).await,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        rejoined.request_identity(),
+        uncovered_terminal.request_identity()
+    );
+    assert_eq!(
+        rejoined.request_digest(),
+        uncovered_terminal.request_digest()
+    );
+    assert_eq!(
+        rejoined.primary_blocker(),
+        Some(PitMarketSnapshotBlockerV1::CoverageInsufficient)
+    );
+    assert_eq!(intakes(&market_data, uncovered_correlation).await, 1);
+    assert_eq!(
+        batches(&market_data, uncovered_terminal.snapshot_identity()).await,
+        1
+    );
 }
 
-/// The Universe Selection locator the request's attempt names, as Market Data's route reads it.
-async fn submission_locator(rd: &PgPool, request_identity: &str) -> serde_json::Value {
+/// The Universe Selection locator the request's first attempt names.
+async fn universe_selection_locator(
+    rd: &PgPool,
+    request_identity: &str,
+) -> UntrustedUniverseSelectionLocatorV1 {
     let (identity, meaning): (Vec<u8>, Vec<u8>) = sqlx::query_as(
         "SELECT universe_selection_request_identity, universe_selection_request_meaning_digest
            FROM rd_research_initial_pit_attempts_v1
@@ -782,9 +912,25 @@ async fn submission_locator(rd: &PgPool, request_identity: &str) -> serde_json::
     .fetch_one(rd)
     .await
     .unwrap();
-    serde_json::to_value(UntrustedUniverseSelectionLocatorV1::from_untrusted(
+    UntrustedUniverseSelectionLocatorV1::from_untrusted(
         BindingDigest::from_untrusted_bytes(identity.try_into().unwrap()),
         BindingDigest::from_untrusted_bytes(meaning.try_into().unwrap()),
-    ))
+    )
+}
+
+/// The same locator, as Market Data's route reads it.
+async fn submission_locator(rd: &PgPool, request_identity: &str) -> serde_json::Value {
+    serde_json::to_value(universe_selection_locator(rd, request_identity).await).unwrap()
+}
+
+/// Market Data's observation batches for one snapshot.
+async fn batches(market_data: &PgPool, snapshot_identity: BindingDigest) -> i64 {
+    sqlx::query_scalar(
+        "SELECT count(*) FROM market_data_private.pit_observation_batches_v1
+          WHERE snapshot_identity = $1",
+    )
+    .bind(snapshot_identity.as_bytes().as_slice())
+    .fetch_one(market_data)
+    .await
     .unwrap()
 }

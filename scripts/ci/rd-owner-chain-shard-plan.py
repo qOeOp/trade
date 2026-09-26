@@ -34,18 +34,43 @@ NEEDS = ROOT / "rd-owner-chain-needs.tsv"
 DURATIONS = ROOT / "rd-owner-chain-durations.tsv"
 
 
-def browser_entries() -> set[str]:
+def declared_entries(array: str) -> set[str]:
     """
-    Read the entries that run a browser from the chain script, where they are named
-    once.
+    Read one list of entries from the chain script, where each is named once: the
+    entries that run a browser, or that load the Dashboard's node_modules without one.
     """
     source = CHAIN.read_text()
-    opening = "readonly chain_browser_entries=(\n"
+    opening = f"readonly {array}=(\n"
     if source.count(opening) != 1:
-        fail("the chain script names no browser entries")
+        fail(f"the chain script defines no {array}")
     body = source[source.index(opening) + len(opening) :]
+    if body.startswith(")\n"):
+        return set()
     body = body[: body.index("\n)\n")]
     return {line.strip().strip("'") for line in body.splitlines() if line.strip()}
+
+
+def capabilities(entries: list[str]) -> dict[str, str]:
+    """
+    Return what each entry needs installed: `browser`, `node` or `-`.
+    """
+    browser = declared_entries("chain_browser_entries")
+    node = declared_entries("chain_dashboard_node_entries")
+    for array, names in (
+        ("chain_browser_entries", browser),
+        ("chain_dashboard_node_entries", node),
+    ):
+        unknown = sorted(names - set(entries))
+        if unknown:
+            fail(f"{array} names entries that are not chain entries: {', '.join(unknown)}")
+    both = sorted(browser & node)
+    if both:
+        fail(
+            f"entries declared as both browser and node (a browser entry implies node): {', '.join(both)}",
+        )
+    return {
+        name: "browser" if name in browser else "node" if name in node else "-" for name in entries
+    }
 
 
 def fail(message: str) -> None:
@@ -183,12 +208,7 @@ def plan(shard_count: int) -> str:
     if len(position) != len(entries):
         fail("the chain array names one test twice")
     edges, replays_of = read_declarations(entries, position)
-    browser = browser_entries()
-    unknown = sorted(browser - set(entries))
-    if unknown:
-        fail(
-            f"the chain script names browser entries that are not chain entries: {', '.join(unknown)}",
-        )
+    capability = capabilities(entries)
     named = components_of(entries, edges)
     seconds = {name: float(value) for name, value in read_tsv(DURATIONS, 2)}
     slowest = max(seconds.values()) if seconds else 60.0
@@ -218,7 +238,7 @@ def plan(shard_count: int) -> str:
         + "\n",
     ]
     lines.extend(
-        f"shard-{shard_of[name] + 1}\t{component_of[name]}\t{name}\t{1 if name in browser else 0}\n"
+        f"shard-{shard_of[name] + 1}\t{component_of[name]}\t{name}\t{capability[name]}\n"
         for name in entries
     )
     return "".join(lines)

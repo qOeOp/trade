@@ -724,7 +724,12 @@ jobs:
           rust-cache-workspaces: . -> target/rust-tests-linux-x86
           rust-cache-on-failure: "false"
           rust-cache-save-if: ${{ env.SAVE_BUILD_CACHES }}
-          rust-cache-workspace-crates: "true"
+          # Dependencies only. Checkout gives every source file a new mtime, so cargo rebuilds all
+          # 112 workspace crates on every run whatever the entry holds (0 external and 112
+          # workspace `Compiling` lines, run 36241288847); caching their artifacts only grew the
+          # entry, to 5.47 GB on 2026-09-26, and the quota evicted py-stubs for it. Turn this back
+          # on only together with a fix for the mtimes (Option D, option_d_source_mtimes_stopped).
+          rust-cache-workspace-crates: "false"
 
       # The tests are uniformly small (26353 of them averaging 88ms, one single `slow`), so this
       # job reads the whole machine rather than the `ci` profile's `test-threads = 2`, which came
@@ -778,18 +783,21 @@ jobs:
           mkdir -p junit
           cp target/nextest/ci/junit.xml junit/workspace.xml
 
-      # Deliberately not captured: `test-toolchain-proofs.bash` loops, running one
-      # `cargo nextest run` per proof, so a single junit.xml holds the last proof and would look
-      # like a record of all of them. It prints `--- <proof>` per iteration instead, which is what
-      # the Owner chain does and is why the chain publishes no record either.
       - name: Run the toolchain proofs
         # These are `#[ignore]`, so `make cargo-test` never selects them. They need the pinned
         # wasm target this job already installs, or Docker, and no database.
         #
-        # They report whether or not the step above passed. They share nothing with it, and a proof
-        # that only speaks when its neighbour succeeds is one an unrelated failure can silence.
+        # They run in the build the step above made - the same EXTRA_FEATURES, and the Makefile
+        # hands them that step's packages and Cargo profile - so they compile nothing: on their own
+        # build they spent 1m44s-2m47s compiling for about 40 s of proofs. They still report
+        # whether or not the step above passed; a proof that only speaks when its neighbour
+        # succeeds is one an unrelated failure can silence. The script asserts that exactly its
+        # proofs were selected and records them, each passed, in junit/toolchain-proofs.xml.
         if: ${{ !cancelled() }}
-        run: make cargo-test-toolchain-proofs NEXTEST_PROFILE=ci
+        run: >-
+          make cargo-test-toolchain-proofs NEXTEST_PROFILE=ci
+          EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
+          TOOLCHAIN_PROOFS_JUNIT=junit/toolchain-proofs.xml
 
       - name: Publish which tests ran
         if: always()
@@ -1054,6 +1062,12 @@ jobs:
         uses: ./.github/actions/dashboard-browser-acceptance
         with:
           acceptance-candidate: ${{ github.sha }}
+
+      # A shard whose entries run a Dashboard script but no browser needs the Dashboard's
+      # node_modules alone; a browser shard already has them from the step above.
+      - name: Install the Dashboard's node dependencies
+        if: matrix.chain.node == 1 && matrix.chain.browser != 1
+        uses: ./.github/actions/dashboard-node-dependencies
 
       # Not `needs:` on the archive job: this leg does its setup while the archive compiles and
       # waits only for the artifact, failing at once if that job ends without it.

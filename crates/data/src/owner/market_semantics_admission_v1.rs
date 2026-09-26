@@ -77,7 +77,86 @@ impl MarketSemanticsValueSubmissionV1 {
             size_unit_identity: self.size_unit_identity,
         })
     }
+
+    /// The submission that states `value`: the inverse of [`Self::into_value`], word for tag.
+    pub(crate) fn from_value(value: &MarketSemanticsValueV1) -> Self {
+        let price_adjustment = match value.price_adjustment {
+            MarketSemanticsPriceAdjustmentV1::Raw => "RAW",
+            MarketSemanticsPriceAdjustmentV1::SplitAdjusted => "SPLIT_ADJUSTED",
+            MarketSemanticsPriceAdjustmentV1::TotalReturnAdjusted => "TOTAL_RETURN_ADJUSTED",
+            MarketSemanticsPriceAdjustmentV1::Unknown => "UNKNOWN",
+        };
+        let timestamp_basis = match value.timestamp_basis {
+            MarketSemanticsTimestampBasisV1::EventEffective => "EVENT_EFFECTIVE",
+            MarketSemanticsTimestampBasisV1::IntervalOpen => "INTERVAL_OPEN",
+            MarketSemanticsTimestampBasisV1::IntervalClose => "INTERVAL_CLOSE",
+        };
+        Self {
+            normalization_identity: value.normalization_identity,
+            price_adjustment: price_adjustment.into(),
+            timestamp_basis: timestamp_basis.into(),
+            price_unit_identity: value.price_unit_identity,
+            size_unit_identity: value.size_unit_identity,
+        }
+    }
 }
+
+/// The value one compatibility scope states today.
+///
+/// One Source Binding states one value: every head of its scope carries the same one, and a new
+/// snapshot's fact stating another is refused as `ScopeValueConflict`. A submitter for a new
+/// snapshot under the binding therefore reads the value here instead of restating it from memory.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MarketSemanticsScopeValueV1 {
+    compatibility_scope_identity: BindingDigest,
+    value: Option<MarketSemanticsValueSubmissionV1>,
+}
+
+impl MarketSemanticsScopeValueV1 {
+    pub(crate) const fn new(
+        compatibility_scope_identity: BindingDigest,
+        value: Option<MarketSemanticsValueSubmissionV1>,
+    ) -> Self {
+        Self {
+            compatibility_scope_identity,
+            value,
+        }
+    }
+
+    /// The compatibility scope the Owner derives from the binding's semantics.
+    #[must_use]
+    pub const fn compatibility_scope_identity(&self) -> BindingDigest {
+        self.compatibility_scope_identity
+    }
+
+    /// The value every head of the scope states, as a submission states it; `None` while the scope
+    /// has no head, when any value may be the first.
+    #[must_use]
+    pub const fn value(&self) -> Option<&MarketSemanticsValueSubmissionV1> {
+        self.value.as_ref()
+    }
+}
+
+/// Why no scope value was returned.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MarketSemanticsScopeValueErrorV1 {
+    /// Market Data holds no Source Binding under exactly this locator.
+    SourceBindingUnavailable,
+    /// The store is unreachable, or returned evidence Market Data does not trust; heads of one
+    /// scope stating different values are such evidence.
+    StoreUnavailable,
+}
+
+impl Display for MarketSemanticsScopeValueErrorV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::SourceBindingUnavailable => "no Source Binding is stored under this locator",
+            Self::StoreUnavailable => "the Market Data store is unavailable",
+        })
+    }
+}
+
+impl std::error::Error for MarketSemanticsScopeValueErrorV1 {}
 
 /// What Operations submits: which binding and snapshot the statement is about, and what it says.
 ///
@@ -200,6 +279,7 @@ impl From<MarketSemanticsErrorV1> for MarketSemanticsAdmissionErrorV1 {
         match error {
             MarketSemanticsErrorV1::UnauthenticatedInput
             | MarketSemanticsErrorV1::DependencyMismatch
+            | MarketSemanticsErrorV1::RegistryKeyDependencyMismatch(_)
             | MarketSemanticsErrorV1::UnknownIdentity => Self::DependencyUnavailable,
             MarketSemanticsErrorV1::RequestConflict
             | MarketSemanticsErrorV1::InvalidOverlap
@@ -285,6 +365,23 @@ mod tests {
             value("RAW", "LATEST").into_value(),
             Err(MarketSemanticsAdmissionErrorV1::InvalidSubmission)
         );
+    }
+
+    /// Every typed value reads back as the submission that states it, so a value read from a scope
+    /// can be submitted again unchanged. The matches in `from_value` are exhaustive; this pins that
+    /// each arm names the word `into_value` reads as the same tag.
+    #[rstest]
+    fn every_value_reads_back_as_the_submission_that_states_it() {
+        for adjustment in ["RAW", "SPLIT_ADJUSTED", "TOTAL_RETURN_ADJUSTED", "UNKNOWN"] {
+            for basis in ["EVENT_EFFECTIVE", "INTERVAL_OPEN", "INTERVAL_CLOSE"] {
+                let submission = value(adjustment, basis);
+                let typed = submission.clone().into_value().unwrap();
+                assert_eq!(
+                    MarketSemanticsValueSubmissionV1::from_value(&typed),
+                    submission
+                );
+            }
+        }
     }
 
     /// A misspelling must stay an invalid submission rather than become a declared unknown.

@@ -22,13 +22,10 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Set up Node.js for Dashboard browser acceptance
-      # https://github.com/actions/setup-node
-      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-      with:
-        node-version: "24"
-        cache: npm
-        cache-dependency-path: product/dashboard/package-lock.json
+    # The browser entries run Dashboard scripts too, so they get the same node_modules every node
+    # entry gets, from the one action that installs them.
+    - name: Install the Dashboard's node dependencies
+      uses: ./.github/actions/dashboard-node-dependencies
 
     # The version and digest are pinned for reproducibility, not because this build is known good
     # and a newer one is not. #720 ran the Dashboard acceptances on whatever browser the image
@@ -60,7 +57,6 @@ runs:
           https://storage.googleapis.com/chrome-for-testing-public/152.0.7977.83/linux64/chrome-linux64.zip
       run: |
         set -euo pipefail
-        npm ci --prefix product/dashboard
         browser_root="${RUNNER_TEMP}/dashboard-strategy-viewer-chrome"
         mkdir -p "$browser_root"
         curl --fail --location --retry 3 \

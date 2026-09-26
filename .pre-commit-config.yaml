@@ -243,6 +243,20 @@ repos:
             scripts/ci/rd-owner-chain-shards\.tsv
           )$
         pass_filenames: false
+      - id: check-chain-node-entries
+        name: check the chain's node entries are declared
+        description: A chain entry whose scripts load a Dashboard package is declared, so its shard installs them
+        entry: python3 -B scripts/ci/chain-node-entries.py --hook
+        language: system
+        files: >-
+          (?x)^(
+            scripts/ci/chain-node-entries\.py|
+            scripts/ci/test-rd-owner-postgres\.bash|
+            product/dashboard/(tests|scripts|lib)/.*|
+            product/rd-owner-client/.*|
+            crates/.*\.rs
+          )$
+        pass_filenames: false
       - id: test-check-chain-channel-environment
         name: test the chain channel environment check
         description: The check accepts an agreeing pair and refuses each mutation by name

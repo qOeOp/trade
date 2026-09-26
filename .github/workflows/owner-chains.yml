@@ -238,6 +238,12 @@ jobs:
         with:
           acceptance-candidate: ${{ github.sha }}
 
+      # A shard whose entries run a Dashboard script but no browser needs the Dashboard's
+      # node_modules alone; a browser shard already has them from the step above.
+      - name: Install the Dashboard's node dependencies
+        if: matrix.chain.node == 1 && matrix.chain.browser != 1
+        uses: ./.github/actions/dashboard-node-dependencies
+
       # Not `needs:` on the archive job: this leg does its setup while the archive compiles and
       # waits only for the artifact, failing at once if that job ends without it.
       - name: Wait for the R&D chain archive

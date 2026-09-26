@@ -55,35 +55,99 @@ readonly admitted_host_wasm_proofs=(
 readonly docker_seal_proof='materially_different_external_project_is_artifact_only_and_exactly_recoverable'
 
 selected_proofs=("${portable_wasm_proofs[@]}" "${admitted_host_wasm_proofs[@]}")
-
-echo "Running ${#selected_proofs[@]} toolchain proof(s) against the tools they name..."
-
-# Each proof reports, whatever its neighbours did. Stopping at the first failure would hide the rest
-# behind it, and a proof nobody hears from is the thing this script exists to prevent.
-#
-# `--no-tests=fail` states a property rather than inheriting one. The filter is an exact match, so
-# a name with the wrong module path selects nothing, and whether that fails is the `--no-tests`
-# default - which depends on the nextest version and the profile, neither of which this script
-# pins. Measured on 0.9.143 here: an unmatched filter already exits 4 with or without the flag,
-# with or without `--profile ci`, with or without `CI` set. So today the flag changes nothing; it
-# means the behaviour stops depending on a default nobody is watching.
 refused=()
 
-for proof in "${selected_proofs[@]}"; do
-  echo "--- $proof"
-  if ! cargo nextest run \
-    --locked \
-    --package vibe-strategy-factory \
-    --lib \
-    --features "$wasm_proof_features" \
-    --profile "$nextest_profile" \
-    --run-ignored ignored-only \
-    --no-tests=fail \
-    --fail-fast \
-    -E "test(=${proof})"; then
-    refused+=("$proof")
+# The wasm proofs run in the build `make cargo-test` has just made - its packages, features and
+# Cargo profile, which the Makefile hands over as CARGO_TEST_SCOPE_FLAGS, CARGO_FEATURES and
+# CARGO_CI_PROFILE - so nextest compiles nothing and runs only them. Built on their own (one package,
+# one feature, the default `test` profile) they recompiled vibe-strategy-factory and its dependencies
+# for about 40 s of proofs: 1m44s-2m47s of compile in `rust tests` (runs 36240226575, 36241288847).
+for variable in CARGO_TEST_SCOPE_FLAGS CARGO_FEATURES CARGO_CI_PROFILE; do
+  if [[ -z "${!variable:-}" ]]; then
+    echo "ERROR: ${variable} is empty; run this through \`make cargo-test-toolchain-proofs\`." >&2
+    exit 1
   fi
 done
+if [[ ",${CARGO_FEATURES}," != *",vibe-strategy-factory/${wasm_proof_features},"* ]]; then
+  echo "ERROR: CARGO_FEATURES lacks vibe-strategy-factory/${wasm_proof_features}, which the proofs" >&2
+  echo "       compile behind. Pass it in EXTRA_FEATURES, as build.yml's \`rust tests\` does." >&2
+  exit 1
+fi
+# shellcheck disable=SC2206 # The Makefile's flag list is space-separated and holds no quoting.
+graph=(${CARGO_TEST_SCOPE_FLAGS} --features "$CARGO_FEATURES" --cargo-profile "$CARGO_CI_PROFILE")
+# The package and kind are binary-level predicates, so nextest lists only the one test binary that
+# holds the proofs; without them `list` and `run` each enumerated all 160 binaries - two minutes
+# of the step on run 36245175294 for 26 s of proofs.
+filter=""
+for proof in "${selected_proofs[@]}"; do
+  filter+="${filter:+ | }test(=${proof})"
+done
+filter="package(vibe-strategy-factory) & kind(lib) & (${filter})"
+
+# Selected is asserted, not assumed: a filter that matched fewer tests would run the rest and pass,
+# in the same shape as all of them passing.
+echo "Running ${#selected_proofs[@]} toolchain proof(s) against the tools they name..."
+selected_count="$(
+  cargo nextest list --locked "${graph[@]}" --run-ignored ignored-only -E "$filter" \
+    --message-format json |
+    python3 -c '
+import json, sys
+listing = json.load(sys.stdin)
+print(sum(
+    1
+    for suite in listing["rust-suites"].values()
+    for case in suite["testcases"].values()
+    if case["filter-match"]["status"] == "matches"
+))
+'
+)"
+if [[ "$selected_count" -ne "${#selected_proofs[@]}" ]]; then
+  echo "ERROR: the proof filter selects ${selected_count} test(s), not ${#selected_proofs[@]}:" >&2
+  printf '  %s\n' "${selected_proofs[@]}" >&2
+  exit 1
+fi
+
+# Every proof reports, whatever its neighbours did: a proof nobody hears from is the thing this
+# script exists to prevent. `--no-tests=fail` states the property rather than inheriting a default.
+if ! cargo nextest run --locked "${graph[@]}" \
+  --profile "$nextest_profile" \
+  --run-ignored ignored-only \
+  --no-tests=fail \
+  --no-fail-fast \
+  -E "$filter"; then
+  refused+=("the shared-build wasm proofs (nextest names each failure above)")
+fi
+
+# The record, when asked for: exactly these proofs, each passed, by name.
+if [[ -n "${TOOLCHAIN_PROOFS_JUNIT:-}" ]]; then
+  # nextest's store directory is <workspace>/target/nextest whatever CARGO_TARGET_DIR says.
+  junit="target/nextest/${nextest_profile}/junit.xml"
+  mkdir -p "$(dirname "$TOOLCHAIN_PROOFS_JUNIT")"
+  cp -- "$junit" "$TOOLCHAIN_PROOFS_JUNIT"
+  python3 - "$TOOLCHAIN_PROOFS_JUNIT" "${selected_proofs[@]}" << 'RECORD'
+import sys
+import xml.etree.ElementTree as ElementTree
+
+cases = {
+    case.get("name"): case
+    for case in ElementTree.parse(sys.argv[1]).getroot().iter("testcase")
+}
+expected = set(sys.argv[2:])
+missing = sorted(expected - set(cases))
+extra = sorted(set(cases) - expected)
+failed = sorted(
+    name for name in expected & set(cases) if cases[name].find("failure") is not None
+    or cases[name].find("error") is not None or cases[name].find("skipped") is not None
+)
+if missing or extra or failed:
+    print(f"ERROR: the proof record is not these {len(expected)} proofs, each passed:", file=sys.stderr)
+    for label, names in (("missing", missing), ("unexpected", extra), ("not passed", failed)):
+        for name in names:
+            print(f"  {label}: {name}", file=sys.stderr)
+    sys.exit(1)
+print(f"Recorded {len(expected)} toolchain proof(s), each passed, in {sys.argv[1]}")
+RECORD
+fi
 
 if [[ "$(uname -m)" == "arm64" || "$(uname -m)" == "aarch64" ]]; then
   echo "--- $docker_seal_proof"

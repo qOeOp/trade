@@ -701,35 +701,7 @@ pub(crate) fn issue_native_replay_initial_market_readback_v1(
             return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
         }
     }
-    let binding_requests = request
-        .roles
-        .iter()
-        .map(|role| UntrustedStrategyInputBindingRequest {
-            research_request_identity: request.research_request_identity,
-            strategy_design_identity: request.strategy_design_identity,
-            input_role_identity: role.input_role_identity,
-            scope: UntrustedStrategyInputScope::UniverseSelection {
-                selection_identity: request.universe_selection_identity,
-            },
-            field_semantic: role.field_semantic,
-            channel: role.channel,
-            timeframe: role.timeframe.clone(),
-            unit: role.unit,
-            scale: role.scale,
-            pit_request_identity: batch.request_identity(),
-            pit_request_digest: batch.request_digest(),
-            snapshot_identity: batch.snapshot_identity(),
-            snapshot_fact_digest: batch.fact_digest(),
-            observation_batch_digest: batch.digest(),
-            source_binding_identity: batch.source_binding_identity(),
-            source_frontier_digest: batch.source_frontier_digest(),
-            correction_frontier_digest: batch.correction_frontier_digest(),
-            instrument_master_digest: batch.instrument_master_digest(),
-            universe_selection_digest: batch.universe_selection_digest(),
-            market_semantics_identity: batch.market_semantics_identity(),
-            decision_cut: batch.time_evidence().decision_cut.value,
-        })
-        .collect::<Vec<_>>();
+    let binding_requests = native_replay_universe_binding_requests_v1(request, &batch);
     let universe_frame = bind_strategy_input_universe_frame(&binding_requests, &batch)
         .map_err(|_| NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
     let members = universe_frame.selection().members();
@@ -757,6 +729,46 @@ pub(crate) fn issue_native_replay_initial_market_readback_v1(
     })
 }
 
+/// The binding requests the host's initial frame is bound from: one per role of the request,
+/// scoped to its Owner universe and stating the frame's batch coordinates.
+///
+/// Market Data re-derives a universe frame from the same requests, so this is the one place they
+/// are built; a frame built any other way would not be the frame a host admits.
+pub(crate) fn native_replay_universe_binding_requests_v1(
+    request: &NativeReplayInitialMarketRequestV1,
+    batch: &VerifiedPitObservationBatch,
+) -> Vec<UntrustedStrategyInputBindingRequest> {
+    request
+        .roles
+        .iter()
+        .map(|role| UntrustedStrategyInputBindingRequest {
+            research_request_identity: request.research_request_identity,
+            strategy_design_identity: request.strategy_design_identity,
+            input_role_identity: role.input_role_identity,
+            scope: UntrustedStrategyInputScope::UniverseSelection {
+                selection_identity: request.universe_selection_identity,
+            },
+            field_semantic: role.field_semantic,
+            channel: role.channel,
+            timeframe: role.timeframe.clone(),
+            unit: role.unit,
+            scale: role.scale,
+            pit_request_identity: batch.request_identity(),
+            pit_request_digest: batch.request_digest(),
+            snapshot_identity: batch.snapshot_identity(),
+            snapshot_fact_digest: batch.fact_digest(),
+            observation_batch_digest: batch.digest(),
+            source_binding_identity: batch.source_binding_identity(),
+            source_frontier_digest: batch.source_frontier_digest(),
+            correction_frontier_digest: batch.correction_frontier_digest(),
+            instrument_master_digest: batch.instrument_master_digest(),
+            universe_selection_digest: batch.universe_selection_digest(),
+            market_semantics_identity: batch.market_semantics_identity(),
+            decision_cut: batch.time_evidence().decision_cut.value,
+        })
+        .collect()
+}
+
 #[cfg_attr(
     test,
     allow(
@@ -781,14 +793,27 @@ pub(crate) fn select_native_replay_schedule_v1(
     timeframe: &str,
     frame_time_ns: u64,
 ) -> Result<BarScheduleReadbackV1, NativeReplaySchedulingErrorV1> {
+    select_native_replay_schedule_for_member_v1(
+        candidates,
+        batch,
+        &instrument.to_string(),
+        timeframe,
+        frame_time_ns,
+    )
+}
+
+/// [`select_native_replay_schedule_v1`] for a member named by its canonical instrument.
+pub(crate) fn select_native_replay_schedule_for_member_v1(
+    candidates: Vec<BarScheduleReadbackV1>,
+    batch: &VerifiedPitObservationBatch,
+    canonical_instrument: &str,
+    timeframe: &str,
+    frame_time_ns: u64,
+) -> Result<BarScheduleReadbackV1, NativeReplaySchedulingErrorV1> {
     let mut matches = candidates.into_iter().filter(|schedule| {
-        native_replay_schedule_matches_request_v1(
-            schedule,
-            batch,
-            instrument,
-            timeframe,
-            frame_time_ns,
-        )
+        schedule_bar_specification_at_frame_v1(schedule, batch, canonical_instrument, frame_time_ns)
+            .is_ok()
+            && schedule_timeframe(schedule.fact()) == timeframe
     });
     let selected = matches
         .next()
@@ -798,17 +823,6 @@ pub(crate) fn select_native_replay_schedule_v1(
         return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
     }
     Ok(selected)
-}
-
-pub(crate) fn native_replay_schedule_matches_request_v1(
-    schedule: &BarScheduleReadbackV1,
-    batch: &VerifiedPitObservationBatch,
-    instrument: InstrumentId,
-    timeframe: &str,
-    frame_time_ns: u64,
-) -> bool {
-    validated_bar_type(schedule, batch, instrument, frame_time_ns).is_ok()
-        && schedule_timeframe(schedule.fact()) == timeframe
 }
 
 /// Seals one exact `[BAR0, BAR1, QUOTE0, QUOTE1]` native schedule from Owner readbacks.
@@ -930,8 +944,33 @@ fn validated_bar_type(
     instrument_id: InstrumentId,
     frame_time_ns: u64,
 ) -> Result<BarType, NativeReplaySchedulingErrorV1> {
+    let specification = schedule_bar_specification_at_frame_v1(
+        schedule,
+        batch,
+        &instrument_id.to_string(),
+        frame_time_ns,
+    )?;
+    Ok(BarType::new(
+        instrument_id,
+        specification,
+        AggregationSource::External,
+    ))
+}
+
+/// The native bar specification of one member's schedule, when that schedule answers the member's
+/// BAR role at the frame: it names the member's canonical instrument, closes complete bars, is in
+/// force and cut at the frame's instant, and was admitted over the frame's batch coordinates.
+///
+/// This is the whole of the rule. The host's frame names its members as native instruments, and
+/// Market Data's own reads name them by canonical instrument; both ask it here.
+fn schedule_bar_specification_at_frame_v1(
+    schedule: &BarScheduleReadbackV1,
+    batch: &VerifiedPitObservationBatch,
+    canonical_instrument: &str,
+    frame_time_ns: u64,
+) -> Result<BarSpecification, NativeReplaySchedulingErrorV1> {
     let fact = schedule.fact();
-    if fact.canonical_instrument() != instrument_id.to_string()
+    if fact.canonical_instrument() != canonical_instrument
         || fact.label() != BarScheduleLabelV1::IntervalClose
         || fact.completion() != BarScheduleCompletionV1::CompleteOnly
         || fact.effective_from() > i128::from(frame_time_ns)
@@ -957,13 +996,8 @@ fn validated_bar_type(
     };
     let step = usize::try_from(fact.step())
         .map_err(|_| NativeReplaySchedulingErrorV1::NativeRepresentation)?;
-    let specification = BarSpecification::new_checked(step, aggregation, PriceType::Last)
-        .map_err(|_| NativeReplaySchedulingErrorV1::NativeRepresentation)?;
-    Ok(BarType::new(
-        instrument_id,
-        specification,
-        AggregationSource::External,
-    ))
+    BarSpecification::new_checked(step, aggregation, PriceType::Last)
+        .map_err(|_| NativeReplaySchedulingErrorV1::NativeRepresentation)
 }
 
 fn schedule_timeframe(fact: &super::bar_schedule::BarScheduleFactV1) -> String {

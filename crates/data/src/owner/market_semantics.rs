@@ -327,12 +327,50 @@ impl MarketSemanticsReadbackV1 {
     }
 }
 
+/// One condition a Market Semantics registry key requires of the Source Binding, PIT snapshot,
+/// Instrument Master cut and R0 record it is derived from. A refusal names the first that failed,
+/// because every one of them answers the requester the same way and only this says which it was.
+///
+/// A name starting `R0` compares the other dependency with what the R0 record's evidence names: a
+/// failed `R0PitSnapshotIdentity` is an R0 record pointing at another snapshot, not a wrong snapshot.
+/// The rest compare two dependencies directly, or one with the key's compatibility scope.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum MarketSemanticsRegistryDependencyV1 {
+    SourceAdmitted,
+    InstrumentMasterVerified,
+    R0PitSnapshotIdentity,
+    R0PitFactDigest,
+    R0ObservationBatchDigest,
+    R0SourceBindingIdentity,
+    R0SourceBindingFactDigest,
+    R0SourceBindingLineageRoot,
+    R0SourceBindingLineageVersion,
+    PitSourceBindingIdentity,
+    PitSourceBindingLineageRoot,
+    PitSourceBindingLineageVersion,
+    PitInstrumentMasterDigest,
+    /// The snapshot's Market Semantics identity is the key's compatibility scope.
+    PitMarketSemantics,
+    /// The Instrument Master fact's Market Semantics identity is the key's compatibility scope.
+    InstrumentFactMarketSemantics,
+    R0InstrumentFactSourceFrontier,
+    R0InstrumentFactCorrectionFrontier,
+}
+
+impl Display for MarketSemanticsRegistryDependencyV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{self:?}")
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum MarketSemanticsErrorV1 {
     InvalidRequest,
     InvalidRegistryEntry,
     UnauthenticatedInput,
     DependencyMismatch,
+    /// A registry key's dependencies disagree, named by the first condition that failed.
+    RegistryKeyDependencyMismatch(MarketSemanticsRegistryDependencyV1),
     InvalidFact,
     InvalidCorrection,
     MissingPredecessor,

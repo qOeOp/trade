@@ -100,7 +100,7 @@ fn sample_projection_v2_migration_closes_kind_registry_to_frame_and_joined_cut()
     }));
 }
 
-fn d(byte: u8) -> BindingDigest {
+pub(super) fn d(byte: u8) -> BindingDigest {
     BindingDigest::from_untrusted_bytes([byte; 32])
 }
 
@@ -109,7 +109,7 @@ fn d(byte: u8) -> BindingDigest {
 const TEST_CLOCK_IDENTITY_V1: &str = "market-clock.identity.v1-0000001";
 const TEST_CLOCK_EPOCH_V1: &str = "market-clock.epoch.v1-0000000001";
 
-fn clock(cut: u64, sequence: u64) -> MarketDataClockAdmission {
+pub(super) fn clock(cut: u64, sequence: u64) -> MarketDataClockAdmission {
     shared_clock(
         TEST_CLOCK_IDENTITY_V1,
         TEST_CLOCK_EPOCH_V1,
@@ -275,7 +275,32 @@ fn shared_time_raw_history_rejects_tampered_historical_epoch_proof() {
     ));
 }
 
-fn source_proposal(sequence: u64, cut: u64) -> UntrustedSourceBindingProposal {
+/// The semantics every fixture Source Binding here states.
+fn fixture_semantics_v1() -> UntrustedMarketSemantics {
+    UntrustedMarketSemantics {
+        normalization: "normalization-v1".into(),
+        adjustment: "raw-v1".into(),
+        price_meaning: "quote-currency-per-base-v1".into(),
+        calendar_rules: "calendar-v1".into(),
+        session_rules: "session-v1".into(),
+        timezone_rules: "iana-2026a".into(),
+        instrument_lifecycle_rules: "instrument-lifecycle-v1".into(),
+        corporate_action_rules: "corporate-actions-v1".into(),
+        membership_rules: "historical-membership-v1".into(),
+        universe_rules: "requester-rule-evaluation-v1".into(),
+        correction_policy: "successor-only-v1".into(),
+    }
+}
+
+/// The Market Semantics compatibility scope of a fixture Source Binding, derived from its semantics
+/// by the function production admits under. It is derived, never written: an Instrument Master fact
+/// naming any other scope fails the registry key's `InstrumentFactMarketSemantics` condition for
+/// every fact production admits under the binding.
+fn fixture_market_semantics_identity_v1() -> BindingDigest {
+    derive_market_semantics_compatibility_identity_v1(&fixture_semantics_v1())
+}
+
+pub(super) fn source_proposal(sequence: u64, cut: u64) -> UntrustedSourceBindingProposal {
     let successor = sequence > 10;
     let mut proposal = UntrustedSourceBindingProposal {
         claimed_binding_id: d(0),
@@ -300,19 +325,7 @@ fn source_proposal(sequence: u64, cut: u64) -> UntrustedSourceBindingProposal {
             identity: "trust-policy".into(),
             version: 1,
         },
-        semantics: UntrustedMarketSemantics {
-            normalization: "normalization-v1".into(),
-            adjustment: "raw-v1".into(),
-            price_meaning: "quote-currency-per-base-v1".into(),
-            calendar_rules: "calendar-v1".into(),
-            session_rules: "session-v1".into(),
-            timezone_rules: "iana-2026a".into(),
-            instrument_lifecycle_rules: "instrument-lifecycle-v1".into(),
-            corporate_action_rules: "corporate-actions-v1".into(),
-            membership_rules: "historical-membership-v1".into(),
-            universe_rules: "requester-rule-evaluation-v1".into(),
-            correction_policy: "successor-only-v1".into(),
-        },
+        semantics: fixture_semantics_v1(),
         license: UntrustedLicensePolicy {
             use_scope: "acquire-cache-archive-backtest-model-display".into(),
             redistribution_scope: "derived-only".into(),
@@ -1946,7 +1959,7 @@ fn instrument_fact(
         lifecycle_frontier: d(81),
         corporate_action_frontier: d(82),
         historical_membership_frontier: d(83),
-        market_semantics_identity: d(84),
+        market_semantics_identity: fixture_market_semantics_identity_v1(),
         source_frontier: d(85),
         correction_frontier: d(correction),
         effective_from: 10,
@@ -1975,7 +1988,7 @@ fn instrument_request(
         lifecycle_frontier: d(81),
         corporate_action_frontier: d(82),
         historical_membership_frontier: d(83),
-        market_semantics_identity: d(84),
+        market_semantics_identity: fixture_market_semantics_identity_v1(),
         source_frontier: d(85),
         correction_frontier: d(86),
         stable_correlation: d(identity.wrapping_add(2)),
@@ -1983,6 +1996,8 @@ fn instrument_request(
 }
 
 pub(crate) struct ReplayCompositionMarketBaseFixtureV1 {
+    /// The clock the base was provisioned on; a later snapshot over the base is minted on it.
+    pub(crate) clock: MarketDataClockAdmission,
     pub(crate) source: SourceBindingCommit,
     pub(crate) source_readback: SourceBindingOwnerReadback,
     pub(crate) instrument: crate::owner::instrument_master::InstrumentMasterReadbackV1,
@@ -2586,6 +2601,44 @@ fn a_registry_oracle_binds_exactly_one_instrument() {
     assert_eq!(exact_instrument_identity_v1(&two), None);
 }
 
+/// The time evidence the chain market base mints its snapshots under, on the fixture's `clock`:
+/// after the base's Instrument Master fact is observable, so a snapshot minted with it binds that fact.
+fn market_base_pit_time_v1(clock: &MarketDataClockAdmission) -> UntrustedPitSnapshotTimeEvidence {
+    UntrustedPitSnapshotTimeEvidence {
+        event_effective: UntrustedEventEffectiveTime::from_untrusted(
+            50,
+            &clock.clock_identity,
+            &clock.clock_epoch,
+        ),
+        provider_available: UntrustedProviderAvailableTime::from_untrusted(
+            90,
+            &clock.clock_identity,
+            &clock.clock_epoch,
+        ),
+        retrieval: UntrustedRetrievalTime::from_untrusted(
+            92,
+            &clock.clock_identity,
+            &clock.clock_epoch,
+        ),
+        correction_publication: Some(UntrustedCorrectionPublicationTime::from_untrusted(
+            91,
+            &clock.clock_identity,
+            &clock.clock_epoch,
+        )),
+        decision_cut: UntrustedSnapshotDecisionCut::from_untrusted(
+            100,
+            &clock.clock_identity,
+            &clock.clock_epoch,
+        ),
+        monotonic_sequence: clock.monotonic_sequence,
+        restart_continuity_digest: clock.restart_continuity_digest,
+        skew_bound: clock.skew_bound,
+        uncertainty_bound: clock.uncertainty_bound,
+        observed_at: 100,
+        valid_through: 160,
+    }
+}
+
 async fn strategy_input_binding_registry_postgres_oracle(
     owner: &MarketDataOwnerPostgres,
     source: &SourceBindingCommit,
@@ -2595,6 +2648,9 @@ async fn strategy_input_binding_registry_postgres_oracle(
         crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1,
     >,
 ) -> StrategyInputBindingRegistryFixtureV1 {
+    // The scope production derives for this binding, never a written one.
+    let scope =
+        derive_market_semantics_compatibility_identity_v1(&source.fact().proposal().semantics);
     // The instrument comes from `instrument`, the caller's Instrument Master cut, never from a name
     // written here. This oracle has two callers with two identities - the chain's replay composition
     // base fixture (the chain fixtures' instrument) and the Market Data Instrument Master oracle
@@ -2661,39 +2717,7 @@ async fn strategy_input_binding_registry_postgres_oracle(
         readback
     };
 
-    let time_evidence = UntrustedPitSnapshotTimeEvidence {
-        event_effective: UntrustedEventEffectiveTime::from_untrusted(
-            50,
-            &clock.clock_identity,
-            &clock.clock_epoch,
-        ),
-        provider_available: UntrustedProviderAvailableTime::from_untrusted(
-            90,
-            &clock.clock_identity,
-            &clock.clock_epoch,
-        ),
-        retrieval: UntrustedRetrievalTime::from_untrusted(
-            92,
-            &clock.clock_identity,
-            &clock.clock_epoch,
-        ),
-        correction_publication: Some(UntrustedCorrectionPublicationTime::from_untrusted(
-            91,
-            &clock.clock_identity,
-            &clock.clock_epoch,
-        )),
-        decision_cut: UntrustedSnapshotDecisionCut::from_untrusted(
-            100,
-            &clock.clock_identity,
-            &clock.clock_epoch,
-        ),
-        monotonic_sequence: clock.monotonic_sequence,
-        restart_continuity_digest: clock.restart_continuity_digest,
-        skew_bound: clock.skew_bound,
-        uncertainty_bound: clock.uncertainty_bound,
-        observed_at: 100,
-        valid_through: 160,
-    };
+    let time_evidence = market_base_pit_time_v1(clock);
     let mut pit_proposal = UntrustedPitSnapshotProposal {
         request: UntrustedPitSnapshotRequest {
             claimed_request_identity: d(0),
@@ -2708,7 +2732,7 @@ async fn strategy_input_binding_registry_postgres_oracle(
             source_binding: source.receipt().locator().clone(),
             instrument_master_digest: instrument.digest(),
             universe_selection_digest: universe.record().identity(),
-            market_semantics_identity: d(84),
+            market_semantics_identity: scope,
             time_evidence,
         },
         evidence: UntrustedPitSnapshotEvidence {
@@ -2749,7 +2773,7 @@ async fn strategy_input_binding_registry_postgres_oracle(
                 source_frontier_digest: d(85),
                 instrument_master_digest: instrument.digest(),
                 universe_selection_digest: universe.record().identity(),
-                market_semantics_identity: d(84),
+                market_semantics_identity: scope,
                 correction_stream_identity: source
                     .receipt()
                     .locator()
@@ -2917,7 +2941,7 @@ async fn strategy_input_binding_registry_postgres_oracle(
         size_unit_identity: d(182),
     };
     let registry_key = market_semantics_authority::derive_registry_key_v1(
-        d(84),
+        scope,
         &source_readback,
         &batch,
         instrument,
@@ -2947,7 +2971,7 @@ async fn strategy_input_binding_registry_postgres_oracle(
         request_identity: d(188),
         request_meaning_digest: d(0),
         consumer: MarketSemanticsConsumerV1::StrategyInputBindingRegistry,
-        compatibility_scope_identity: d(84),
+        compatibility_scope_identity: scope,
         predecessor_identity: None,
         value: semantics_value,
         effective_from_ns: 50,
@@ -3672,6 +3696,9 @@ async fn persist_historical_native_r0_fixture_v1(
     instrument: &crate::owner::instrument_master::InstrumentMasterReadbackV1,
     clock: &MarketDataClockAdmission,
 ) -> crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1 {
+    // The scope production derives for this binding, never a written one.
+    let scope =
+        derive_market_semantics_compatibility_identity_v1(&source.fact().proposal().semantics);
     let membership_frontier = d(240);
     let universe_request = UntrustedUniverseSelectionRequestV1::new(
         d(241),
@@ -3761,7 +3788,7 @@ async fn persist_historical_native_r0_fixture_v1(
             source_binding: source.receipt().locator().clone(),
             instrument_master_digest: instrument.digest(),
             universe_selection_digest: universe.record().identity(),
-            market_semantics_identity: d(84),
+            market_semantics_identity: scope,
             time_evidence,
         },
         evidence: UntrustedPitSnapshotEvidence {
@@ -3802,7 +3829,7 @@ async fn persist_historical_native_r0_fixture_v1(
                 source_frontier_digest: d(85),
                 instrument_master_digest: instrument.digest(),
                 universe_selection_digest: universe.record().identity(),
-                market_semantics_identity: d(84),
+                market_semantics_identity: scope,
                 correction_stream_identity: source
                     .receipt()
                     .locator()
@@ -4004,6 +4031,7 @@ pub(crate) async fn replay_composition_market_base_fixture_v1(
     );
     let coordinates = replay_reference_coordinates_v1(&fixture.r0);
     ReplayCompositionMarketBaseFixtureV1 {
+        clock: clock.clone(),
         source,
         source_readback: fixture.source_readback,
         instrument,
@@ -5543,7 +5571,7 @@ async fn owner_r0_readback_v1(
 /// the binding's own Market Semantics Compatibility identity and frontiers, which is what later
 /// lets a Market Semantics fact derive one registry key over the instrument, the snapshot and the
 /// binding together.
-fn oracle_instrument_submission_v1(
+pub(super) fn oracle_instrument_submission_v1(
     identity: &str,
     market_semantics_identity: BindingDigest,
     source_frontier: BindingDigest,
@@ -9386,7 +9414,7 @@ async fn native_replay_frame_sequence_custody_oracle(owner: &MarketDataOwnerPost
 }
 
 /// A one-member universe for `instrument` under `source`: its frontier and the selection over it.
-async fn one_member_universe_v1(
+pub(super) async fn one_member_universe_v1(
     owner: &MarketDataOwnerPostgres,
     source: &SourceBindingCommit,
     instrument: &str,
@@ -9453,7 +9481,7 @@ async fn one_member_universe_v1(
 
 /// One Research request's AVAILABLE PIT snapshot for `instrument`, minted from a frozen request by
 /// the production path under `source`, over `universe`.
-async fn research_request_pit_v1(
+pub(super) async fn research_request_pit_v1(
     owner: &MarketDataOwnerPostgres,
     source: &SourceBindingCommit,
     instrument: &str,
@@ -9462,6 +9490,32 @@ async fn research_request_pit_v1(
         crate::owner::universe_selection::UniverseSelectionIdentity,
     ),
     seed: u8,
+) -> crate::owner::pit_snapshot::PitSnapshotCommitAggregate {
+    research_request_pit_on_v1(
+        owner,
+        source,
+        instrument,
+        universe,
+        seed,
+        pit_time(40, 1),
+        &clock(40, 1),
+    )
+    .await
+}
+
+/// [`research_request_pit_v1`] minted under `time_evidence` on `clock`, for a snapshot over a base
+/// provisioned on a clock of its own.
+async fn research_request_pit_on_v1(
+    owner: &MarketDataOwnerPostgres,
+    source: &SourceBindingCommit,
+    instrument: &str,
+    universe: &(
+        UntrustedUniverseSelectionLocatorV1,
+        crate::owner::universe_selection::UniverseSelectionIdentity,
+    ),
+    seed: u8,
+    time_evidence: UntrustedPitSnapshotTimeEvidence,
+    clock: &MarketDataClockAdmission,
 ) -> crate::owner::pit_snapshot::PitSnapshotCommitAggregate {
     let submission = crate::owner::pit_snapshot::PitSnapshotSubmissionV1 {
         correlation_identity: d(seed + 4),
@@ -9472,7 +9526,7 @@ async fn research_request_pit_v1(
         market_semantics_identity: derive_market_semantics_compatibility_identity_v1(
             &source.fact().proposal().semantics,
         ),
-        time_evidence: pit_time(40, 1),
+        time_evidence,
     };
     let pit = owner
         .commit_pit_initial_from_submission_v1(
@@ -9482,7 +9536,7 @@ async fn research_request_pit_v1(
                 instrument: instrument.into(),
             },
             &universe.0,
-            &clock(40, 1),
+            clock,
         )
         .await
         .unwrap();
@@ -9549,7 +9603,7 @@ async fn declare_close_role_v1(
 }
 
 /// The typed value a Market Semantics submission states, by price-adjustment tag.
-fn market_semantics_value_v1(
+pub(super) fn market_semantics_value_v1(
     price_adjustment: &str,
 ) -> crate::owner::market_semantics_admission_v1::MarketSemanticsValueSubmissionV1 {
     crate::owner::market_semantics_admission_v1::MarketSemanticsValueSubmissionV1 {
@@ -9562,7 +9616,7 @@ fn market_semantics_value_v1(
 }
 
 /// Admits a Market Semantics fact for `pit` under `source`, stating `price_adjustment`.
-async fn admit_market_semantics_v1(
+pub(super) async fn admit_market_semantics_v1(
     owner: &MarketDataOwnerPostgres,
     source: &SourceBindingCommit,
     pit: &crate::owner::pit_snapshot::PitSnapshotCommitAggregate,
@@ -9619,6 +9673,168 @@ async fn market_semantics_fact_snapshot_v1(
         panic!("a resolved scope answers with one fact");
     };
     Some(fact.pit_snapshot_identity)
+}
+
+/// A Market Semantics fact for the chain fixtures' instrument, admitted through production against
+/// the ordered chain's own market base (entry 6's fixture): its Source Binding, its Instrument Master
+/// cut and its universe, with a new snapshot minted by the production PIT path.
+///
+/// Production derives the fact's compatibility scope from the binding's semantics, and the registry
+/// key requires the Instrument Master fact to name that same scope. The fixture's fact once named a
+/// written scope instead, so every such admission was refused with `DependencyUnavailable`, which
+/// names nothing. The key's conditions are therefore checked here directly, on exactly the inputs
+/// admission resolves and with the function it uses, so a failure names the condition that failed.
+///
+/// The control restores that state for a second instrument, through production Instrument Master
+/// admission, which stores the scope it is handed: its snapshot is refused on
+/// `InstrumentFactMarketSemantics` and on nothing earlier, so the pass above is the fix and not a
+/// check that cannot fail.
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+async fn postgres_production_admits_market_semantics_for_the_chain_fixture_instrument() {
+    use crate::owner::market_semantics::{
+        MarketSemanticsErrorV1, MarketSemanticsRegistryDependencyV1,
+    };
+    use crate::owner::market_semantics_admission_v1::{
+        MarketSemanticsAdmissionErrorV1, MarketSemanticsFactSubmissionV1,
+    };
+
+    let owner_url = env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL").unwrap();
+    let base = Box::pin(replay_composition_market_base_fixture_v1(&owner_url)).await;
+    let owner = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
+    let universe = (
+        UntrustedUniverseSelectionLocatorV1::from_untrusted(
+            base.universe.receipt().request_identity(),
+            base.universe.receipt().request_meaning_digest(),
+        ),
+        base.universe.record().identity(),
+    );
+    let pit = research_request_pit_on_v1(
+        &owner,
+        &base.source,
+        CHAIN_FIXTURE_INSTRUMENT_V1,
+        &universe,
+        120,
+        market_base_pit_time_v1(&base.clock),
+        &base.clock,
+    )
+    .await;
+    let submission = MarketSemanticsFactSubmissionV1 {
+        source_binding: base.source.receipt().locator().clone(),
+        pit_snapshot: pit.receipt().locator().clone(),
+        value: market_semantics_value_v1("RAW"),
+    };
+
+    // Every condition of the registry key holds on the inputs admission resolves.
+    let inputs = {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        let inputs =
+            super::load_market_semantics_admission_inputs_v1(&mut transaction, &submission)
+                .await
+                .expect("admission resolves every dependency of the new snapshot");
+        transaction.rollback().await.unwrap();
+        inputs
+    };
+    // Production resolves a cut of its own for the new request, over the fixture's fact.
+    assert_eq!(
+        inputs
+            .instrument
+            .facts()
+            .iter()
+            .map(crate::owner::instrument_master::InstrumentMasterFactV1::digest)
+            .collect::<Vec<_>>(),
+        base.instrument
+            .facts()
+            .iter()
+            .map(crate::owner::instrument_master::InstrumentMasterFactV1::digest)
+            .collect::<Vec<_>>(),
+        "the new snapshot binds the chain fixture's own Instrument Master fact"
+    );
+    let key = market_semantics_authority::derive_registry_key_v1(
+        inputs.scope,
+        &inputs.source_readback,
+        &inputs.batch,
+        &inputs.instrument,
+        &inputs.r0,
+    );
+    assert!(
+        key.is_ok(),
+        "the registry key's condition that failed: {:?}",
+        key.err()
+    );
+
+    // And production admits the fact under the scope it derives from the binding.
+    assert_eq!(
+        owner
+            .admit_market_semantics_fact_v1(submission)
+            .await
+            .map(|terminal| terminal.compatibility_scope_identity()),
+        Ok(derive_market_semantics_compatibility_identity_v1(
+            &base.source.fact().proposal().semantics
+        ))
+    );
+
+    // The control: an Instrument Master fact naming a written scope, the state the fixture used to
+    // leave. Production Instrument Master admission stores the scope it is handed, so the fact goes
+    // in; the key then refuses it on exactly the condition that names it, and admission answers
+    // only `DependencyUnavailable`.
+    //
+    // When Instrument Master admission derives the scope from a named binding (#1075), this path is
+    // refused at that admission instead: change this control to assert that refusal then.
+    let written_scope = d(84);
+    owner
+        .admit_instrument_master_fact_v1(oracle_instrument_submission_v1(
+            "MSFT.XNAS",
+            written_scope,
+            base.source.fact().source_frontier().digest,
+            base.source.receipt().locator().correction_frontier.digest,
+        ))
+        .await
+        .expect("Instrument Master admission stores the scope it is handed");
+    let other_universe = one_member_universe_v1(&owner, &base.source, "MSFT.XNAS", 140).await;
+    let other = research_request_pit_on_v1(
+        &owner,
+        &base.source,
+        "MSFT.XNAS",
+        &other_universe,
+        150,
+        market_base_pit_time_v1(&base.clock),
+        &base.clock,
+    )
+    .await;
+    let refused = MarketSemanticsFactSubmissionV1 {
+        source_binding: base.source.receipt().locator().clone(),
+        pit_snapshot: other.receipt().locator().clone(),
+        value: market_semantics_value_v1("RAW"),
+    };
+    let inputs = {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        let inputs = super::load_market_semantics_admission_inputs_v1(&mut transaction, &refused)
+            .await
+            .expect("admission resolves every dependency of the control snapshot");
+        transaction.rollback().await.unwrap();
+        inputs
+    };
+    assert_eq!(
+        market_semantics_authority::derive_registry_key_v1(
+            inputs.scope,
+            &inputs.source_readback,
+            &inputs.batch,
+            &inputs.instrument,
+            &inputs.r0,
+        )
+        .err(),
+        Some(MarketSemanticsErrorV1::RegistryKeyDependencyMismatch(
+            MarketSemanticsRegistryDependencyV1::InstrumentFactMarketSemantics
+        ))
+    );
+    assert_eq!(
+        owner
+            .admit_market_semantics_fact_v1(refused)
+            .await
+            .map(|terminal| terminal.compatibility_scope_identity()),
+        Err(MarketSemanticsAdmissionErrorV1::DependencyUnavailable)
+    );
 }
 
 /// Every Research request under one Source Binding gets its own Market Semantics fact, and one
