@@ -126,7 +126,9 @@ Backtest 拥有结果 ordered semantic trace 与规范 replay fact，但不拥�
 trace 绑定每个 normalized event order key、前后 checkpoint digest、plugin invocation 与有界 result、kernel
 primitive semantic ID、target/protection transition、模拟 order/fill reconciliation、position、cost 和终态
 result。首个已接纳纵向切片是确定性 stateful-trend corpus；cross-sectional rebalance 与 multi-leg/
-multi-timeframe regime 是必需验收 corpus，不授权编造缺失 binding 或实现第三个 runtime。
+multi-timeframe regime 是必需验收 corpus，不授权编造缺失 binding 或实现第三个 runtime。多帧运行从 Market Data 的 PIT
+窗口托管读取它的帧，这是策略形状包络的 TARGET；它的 Result 托管绑定托管 identity 与它消费的各帧视图的有序
+identity，所以一次窗口运行由这些来证明，绝不由单帧的证据来证明。
 
 正向 Run Result 的实际消费记录只能由 Backtest 在内部根据 Native Replay、`ProgramHost`、共享内核与
 Sim Exchange 实际接纳的准确输入生成。caller 或 R&D request 可以提出 requested meaning，但不能提供、
