@@ -339,6 +339,71 @@ impl UniverseSelectionReceiptV1 {
     }
 }
 
+/// One included member of a Universe Selection, as R&D reads it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UniverseSelectionMemberForRdV1 {
+    member_key: Box<[u8]>,
+    instrument: String,
+}
+
+impl UniverseSelectionMemberForRdV1 {
+    pub fn member_key(&self) -> &[u8] {
+        &self.member_key
+    }
+
+    /// The member's Instrument Master canonical identity, exactly as the record holds it.
+    pub fn instrument(&self) -> &str {
+        &self.instrument
+    }
+}
+
+/// The included members of one Universe Selection, in the record's membership order.
+///
+/// Built only from a readback that `verify_universe_selection_readback_v1` accepts, so a member here
+/// is one Market Data selected, not one a row claims.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UniverseSelectionMembersForRdV1 {
+    members: Vec<UniverseSelectionMemberForRdV1>,
+}
+
+impl UniverseSelectionMembersForRdV1 {
+    pub fn members(&self) -> &[UniverseSelectionMemberForRdV1] {
+        &self.members
+    }
+
+    /// The included members of a verified readback.
+    ///
+    /// An instrument identity that is not UTF-8 is refused rather than converted: it is the
+    /// Instrument Master's canonical identity, and a lossy reading would name another instrument.
+    ///
+    /// # Errors
+    ///
+    /// [`UniverseSelectionErrorV1::StoreUntrusted`] when the readback does not verify or a member's
+    /// instrument identity is not UTF-8.
+    pub(crate) fn from_readback(
+        readback: &UniverseSelectionReadbackV1,
+    ) -> Result<Self, UniverseSelectionErrorV1> {
+        if !verify_universe_selection_readback_v1(readback) {
+            return Err(UniverseSelectionErrorV1::StoreUntrusted);
+        }
+        let members = readback
+            .record()
+            .membership()
+            .iter()
+            .filter(|member| member.included())
+            .map(|member| {
+                Ok(UniverseSelectionMemberForRdV1 {
+                    member_key: member.member_key().into(),
+                    instrument: std::str::from_utf8(member.instrument())
+                        .map_err(|_| UniverseSelectionErrorV1::StoreUntrusted)?
+                        .to_owned(),
+                })
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(Self { members })
+    }
+}
+
 /// Move-only positive readback.
 #[derive(Debug, Eq, PartialEq)]
 pub struct UniverseSelectionReadbackV1 {

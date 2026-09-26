@@ -99,6 +99,10 @@ pub use postgres::research_pit_references_v1::{
     check_research_instrument_scope_v1, resolve_research_pit_references_v1,
 };
 
+/// The included members of the Universe Selection a Replay request binds, read in the caller's own
+/// R&D transaction without row locks.
+pub use postgres::universe_selection::read_universe_selection_members_for_rd_v1;
+
 /// Opens the sole configured Instrument Owner economic-terms authority.
 ///
 /// The deployment configuration root chooses the database through

@@ -2451,6 +2451,94 @@ async fn research_scope_reads_oracle_v1(
     );
 }
 
+/// R&D's read of a committed Universe Selection by record: the included member only, in a
+/// `SERIALIZABLE, READ ONLY` transaction - where a row lock is refused - and with no advisory lock
+/// either. A wrong digest and an unknown record are refused by name, and the function is `STABLE`,
+/// `SECURITY DEFINER`, pinned to `search_path=pg_catalog, pg_temp`, and executable by `rd_owner`
+/// alone beside its owner. That `rd_owner` can call it through the grant layer is
+/// `market_data_rd_api_admits_the_rd_owner_through_the_grant_layer_alone`, which enumerates every
+/// routine of the face from the catalog.
+async fn rd_universe_selection_read_oracle_v1(
+    owner: &MarketDataOwnerPostgres,
+    selected: &crate::owner::universe_selection::UniverseSelectionReadbackV1,
+) {
+    use crate::owner::read_universe_selection_members_for_rd_v1;
+
+    let mut transaction = owner.pool().begin().await.unwrap();
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE, READ ONLY")
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+    let identity = selected.record().identity();
+    let digest = selected.record().digest();
+    let members = read_universe_selection_members_for_rd_v1(&mut transaction, identity, digest)
+        .await
+        .expect("R&D reads a committed selection by record");
+    assert_eq!(
+        members
+            .members()
+            .iter()
+            .map(crate::owner::universe_selection::UniverseSelectionMemberForRdV1::instrument)
+            .collect::<Vec<_>>(),
+        ["AAPL"],
+        "only the included member is read"
+    );
+    let other = BindingDigest::from_untrusted_bytes([251; 32]);
+    assert_eq!(
+        read_universe_selection_members_for_rd_v1(&mut transaction, identity, other).await,
+        Err(UniverseSelectionErrorV1::DigestMismatch)
+    );
+    assert_eq!(
+        read_universe_selection_members_for_rd_v1(&mut transaction, other, digest).await,
+        Err(UniverseSelectionErrorV1::UnknownIdentity)
+    );
+    let advisory: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM pg_catalog.pg_locks WHERE pid=pg_catalog.pg_backend_pid() AND locktype='advisory'",
+    )
+    .fetch_one(&mut *transaction)
+    .await
+    .unwrap();
+    assert_eq!(advisory, 0, "the read takes no advisory lock");
+    transaction.rollback().await.unwrap();
+
+    // A record whose receipt and outbox event are missing is a store R&D cannot trust, not a
+    // selection that does not exist: the read joins them to the record from its left side. The
+    // partial record is written and read in one transaction that is rolled back, so the ordered
+    // chain's shared store never holds it.
+    let mut transaction = owner.pool().begin().await.unwrap();
+    let partial = BindingDigest::from_untrusted_bytes([252; 32]);
+    sqlx::query("INSERT INTO market_data_private.universe_selection_records_v1(selection_identity,request_identity,request_meaning_digest,record_bytes) VALUES($1,$2,$3,$4)")
+        .bind(partial.as_bytes().as_slice())
+        .bind([253_u8; 32].as_slice())
+        .bind([254_u8; 32].as_slice())
+        .bind(b"partial".as_slice())
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+    assert_eq!(
+        read_universe_selection_members_for_rd_v1(&mut transaction, partial, digest).await,
+        Err(UniverseSelectionErrorV1::StoreUntrusted),
+        "a record without its receipt and outbox event reads as untrusted"
+    );
+    transaction.rollback().await.unwrap();
+
+    let attributes: (String, bool, Vec<String>, Vec<String>) = sqlx::query_as(
+        "SELECT p.provolatile::text,p.prosecdef,COALESCE(p.proconfig,'{}'),COALESCE((SELECT pg_catalog.array_agg(r.rolname::text ORDER BY r.rolname) FROM pg_catalog.aclexplode(p.proacl) a JOIN pg_catalog.pg_roles r ON r.oid=a.grantee WHERE a.privilege_type='EXECUTE' AND a.grantee<>p.proowner),'{}') FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='market_data_rd_api' AND p.proname='read_universe_selection_for_rd_v1'",
+    )
+    .fetch_one(owner.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        attributes,
+        (
+            "s".to_owned(),
+            true,
+            vec!["search_path=pg_catalog, pg_temp".to_owned()],
+            vec!["rd_owner".to_owned()],
+        )
+    );
+}
+
 /// A Universe Selection request under the fixed-member rule selects exactly the instruments a
 /// Research request's scope names, from the frontier Market Data holds as current.
 ///
@@ -2532,6 +2620,7 @@ async fn fixed_member_selection_oracle_v1(
         "exactly the requested instrument is included"
     );
     assert_eq!(selections().await, before + 1);
+    Box::pin(rd_universe_selection_read_oracle_v1(owner, &selected)).await;
 
     admit_research_frontier_v1(owner, d(215), (99, 94), &[(b"MSFT", lineage, d(86))]).await;
 

@@ -47,7 +47,7 @@ pub(in crate::owner) mod strategy_input_event_binding_v1;
 #[cfg(not(feature = "isolated-event-replay-acceptance"))]
 mod strategy_input_event_binding_v1;
 mod time_zone;
-mod universe_selection;
+pub(in crate::owner) mod universe_selection;
 
 // The resolver is needed in every build: the arrangement that reads a frame's inputs is no longer
 // inside a `cfg(not(test))` arm, so that its order can be driven rather than only deployed.
@@ -972,6 +972,7 @@ impl MarketDataOwnerPostgres {
         for statement in rd_strategy_input_custody::SCHEMA_V1
             .iter()
             .chain(research_pit_references_v1::SCHEMA_V1)
+            .chain(universe_selection::RD_READ_SCHEMA_V1)
         {
             sqlx::query(*statement)
                 .execute(&mut *transaction)

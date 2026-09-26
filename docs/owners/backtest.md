@@ -298,17 +298,20 @@ history; it says nothing about whether the path has ever run in some other envir
     must be at least one, and every one must be a V3 plugin build carrying the freeze's
     `joint_freeze_digest`, which the report derives again from the freeze row. A V2 build carries no
     freeze and never anchors. An unanchored run is refused as `STRATEGY_NOT_ANCHORED_TO_RUN`, and
-    receipts that cannot be read as `ARTIFACT_BUILD_RECEIPTS_UNAVAILABLE`. No in-family run is stated
-    end to end today: a legacy request's artifact was not built by Composer, so it never anchors, and
-    a Composer V3 request is refused as `REPLAY_REQUEST_V3_NOT_YET_REPORTED` before the anchor,
-    because its request read locks rows. A lock-free read of that request is the follow-up that lets
-    an in-family run be stated. The channel is
+    receipts that cannot be read as `ARTIFACT_BUILD_RECEIPTS_UNAVAILABLE`. A legacy request's artifact was not built by Composer,
+    so it never anchors. A Composer V3 request is read through its self-verified claim, without a lock, in
+    builds with the Composer-backed Replay feature, and refused as `REPLAY_REQUEST_V3_NOT_YET_REPORTED` in
+    builds without it, the deployed image among them. No in-family run has yet been stated end to end:
+    no ordered-chain entry commits a Composer V3 run. The channel is
     stated as the run read it - role, instrument, fact, timeframe, unit and scale - and not in the form
     its request authored it, so an authoring form that names the instrument indirectly still yields
     those six fields, and a change to how a channel is authored does not change this handoff. The
-    universe-member form names its instrument only through the run's universe selection, which this
-    report does not read yet, so a run in that form is refused as `UNIVERSE_MEMBER_NOT_YET_REPORTED`
-    rather than stated without an instrument. The data window is the channel's instrument and timeframe, the request's
+    universe-member form names its instrument only through the run's universe selection. The report reads
+    that selection's included members in its own transaction through Market Data's lock-free R&D read,
+    `market_data_rd_api.read_universe_selection_for_rd_v1`, and states the channel on the frozen Design's
+    CLOSE role with the one included member's Instrument Master identity as its instrument. A selection
+    that does not include exactly one member is refused as `UNIVERSE_SELECTION_NOT_ONE_MEMBER`, and one
+    that cannot be read or does not verify as `UNIVERSE_SELECTION_UNAVAILABLE`. The data window is the channel's instrument and timeframe, the request's
     window with an exclusive end, the number of PIT snapshots the request binds, and that snapshot's
     identity as the cut.
 

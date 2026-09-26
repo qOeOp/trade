@@ -21,8 +21,9 @@ use crate::owner::{
     research_instrument_scope_v1::ResearchInstrumentScopeV1,
     source_binding::BindingDigest,
     universe_selection::{
-        HistoricalMembershipRecordV1, UniverseSelectionErrorV1, UniverseSelectionReadbackV1,
-        UntrustedUniverseSelectionLocatorV1, UntrustedUniverseSelectionRequestV1,
+        HistoricalMembershipRecordV1, UniverseSelectionErrorV1, UniverseSelectionMembersForRdV1,
+        UniverseSelectionReadbackV1, UntrustedUniverseSelectionLocatorV1,
+        UntrustedUniverseSelectionRequestV1,
         authority::{
             HistoricalMembershipFactProposalV1, UniverseSelectionRuleEvaluatorV1,
             decode_readback_v1, decode_source_fact_v1, fixed_member_scope_v1, issue_source_fact_v1,
@@ -413,10 +414,10 @@ async fn load_readback(
     lock: bool,
 ) -> Result<Option<UniverseSelectionReadbackV1>, UniverseSelectionErrorV1> {
     let row = if lock {
-        sqlx::query("SELECT r.request_meaning_digest,r.selection_identity,r.record_bytes,c.receipt_identity,c.receipt_bytes,o.outbox_identity,o.receipt_bytes AS outbox_receipt_bytes FROM market_data_private.universe_selection_records_v1 r JOIN market_data_private.universe_selection_receipts_v1 c ON c.request_identity=r.request_identity JOIN market_data_private.universe_selection_outbox_v1 o ON o.request_identity=r.request_identity WHERE r.request_identity=$1 FOR UPDATE OF r,c,o")
+        sqlx::query("SELECT r.request_identity,r.request_meaning_digest,r.selection_identity,r.record_bytes,c.receipt_identity,c.receipt_bytes,o.outbox_identity,o.receipt_bytes AS outbox_receipt_bytes FROM market_data_private.universe_selection_records_v1 r JOIN market_data_private.universe_selection_receipts_v1 c ON c.request_identity=r.request_identity JOIN market_data_private.universe_selection_outbox_v1 o ON o.request_identity=r.request_identity WHERE r.request_identity=$1 FOR UPDATE OF r,c,o")
             .bind(request_identity.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(|cause| store_error(&cause))?
     } else {
-        sqlx::query("SELECT r.request_meaning_digest,r.selection_identity,r.record_bytes,c.receipt_identity,c.receipt_bytes,o.outbox_identity,o.receipt_bytes AS outbox_receipt_bytes FROM market_data_private.universe_selection_records_v1 r JOIN market_data_private.universe_selection_receipts_v1 c ON c.request_identity=r.request_identity JOIN market_data_private.universe_selection_outbox_v1 o ON o.request_identity=r.request_identity WHERE r.request_identity=$1")
+        sqlx::query("SELECT r.request_identity,r.request_meaning_digest,r.selection_identity,r.record_bytes,c.receipt_identity,c.receipt_bytes,o.outbox_identity,o.receipt_bytes AS outbox_receipt_bytes FROM market_data_private.universe_selection_records_v1 r JOIN market_data_private.universe_selection_receipts_v1 c ON c.request_identity=r.request_identity JOIN market_data_private.universe_selection_outbox_v1 o ON o.request_identity=r.request_identity WHERE r.request_identity=$1")
             .bind(request_identity.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(|cause| store_error(&cause))?
     };
     let Some(row) = row else {
@@ -428,41 +429,121 @@ async fn load_readback(
             Ok(None)
         };
     };
-    let meaning = digest_from_row(
-        row.try_get("request_meaning_digest")
-            .map_err(|cause| store_error(&cause))?,
-    )?;
-    let selection = digest_from_row(
-        row.try_get("selection_identity")
-            .map_err(|cause| store_error(&cause))?,
-    )?;
-    let record_bytes: Vec<u8> = row
-        .try_get("record_bytes")
-        .map_err(|cause| store_error(&cause))?;
-    let receipt_identity = digest_from_row(
-        row.try_get("receipt_identity")
-            .map_err(|cause| store_error(&cause))?,
-    )?;
-    let receipt_bytes: Vec<u8> = row
-        .try_get("receipt_bytes")
-        .map_err(|cause| store_error(&cause))?;
-    let outbox_identity = digest_from_row(
-        row.try_get("outbox_identity")
-            .map_err(|cause| store_error(&cause))?,
-    )?;
-    let outbox_receipt: Vec<u8> = row
-        .try_get("outbox_receipt_bytes")
-        .map_err(|cause| store_error(&cause))?;
-    let readback = decode_readback_v1(&record_bytes, &receipt_bytes, outbox_identity)?;
-    if readback.record().request_identity() != request_identity
-        || readback.record().request_meaning_digest() != meaning
-        || readback.record().identity() != selection
-        || readback.receipt().identity() != receipt_identity
-        || outbox_receipt != receipt_bytes
-    {
+    let readback = stored_aggregate_from_row(&row)?.verified()?;
+    if readback.record().request_identity() != request_identity {
         return Err(UniverseSelectionErrorV1::StoreUntrusted);
     }
     Ok(Some(readback))
+}
+
+/// One stored Universe Selection aggregate - the record, its receipt and its outbox event - as a
+/// row carries it, before any of it is trusted.
+struct StoredAggregateV1 {
+    request_identity: BindingDigest,
+    meaning: BindingDigest,
+    selection: BindingDigest,
+    record_bytes: Vec<u8>,
+    receipt_identity: BindingDigest,
+    receipt_bytes: Vec<u8>,
+    outbox_identity: BindingDigest,
+    outbox_receipt: Vec<u8>,
+}
+
+impl StoredAggregateV1 {
+    /// Decodes the aggregate and checks that its record, receipt and outbox event name each other.
+    fn verified(self) -> Result<UniverseSelectionReadbackV1, UniverseSelectionErrorV1> {
+        let readback = decode_readback_v1(
+            &self.record_bytes,
+            &self.receipt_bytes,
+            self.outbox_identity,
+        )?;
+
+        if readback.record().request_identity() != self.request_identity
+            || readback.record().request_meaning_digest() != self.meaning
+            || readback.record().identity() != self.selection
+            || readback.receipt().identity() != self.receipt_identity
+            || self.outbox_receipt != self.receipt_bytes
+        {
+            return Err(UniverseSelectionErrorV1::StoreUntrusted);
+        }
+        Ok(readback)
+    }
+}
+
+/// Reads one aggregate row. A part the row does not carry - a record whose receipt or outbox event
+/// is missing - is a store that cannot be trusted, never an absent selection.
+fn stored_aggregate_from_row(
+    row: &sqlx::postgres::PgRow,
+) -> Result<StoredAggregateV1, UniverseSelectionErrorV1> {
+    let column = |name: &str| -> Result<Vec<u8>, UniverseSelectionErrorV1> {
+        row.try_get::<Option<Vec<u8>>, _>(name)
+            .map_err(|cause| store_error(&cause))?
+            .ok_or(UniverseSelectionErrorV1::StoreUntrusted)
+    };
+    Ok(StoredAggregateV1 {
+        request_identity: digest_from_row(column("request_identity")?)?,
+        meaning: digest_from_row(column("request_meaning_digest")?)?,
+        selection: digest_from_row(column("selection_identity")?)?,
+        record_bytes: column("record_bytes")?,
+        receipt_identity: digest_from_row(column("receipt_identity")?)?,
+        receipt_bytes: column("receipt_bytes")?,
+        outbox_identity: digest_from_row(column("outbox_identity")?)?,
+        outbox_receipt: column("outbox_receipt_bytes")?,
+    })
+}
+
+/// The R&D read of one Universe Selection by record, `STABLE` and without row locks.
+///
+/// It returns only stored bytes; [`read_universe_selection_members_for_rd_v1`] decides every answer
+/// with the Owner's own decoder. The record is the left side of the join, so a record whose receipt
+/// or outbox event is missing comes back with those columns `NULL` and is refused as untrusted,
+/// instead of reading as a selection that does not exist.
+pub(super) const RD_READ_SCHEMA_V1: &[&str] = &[
+    "CREATE OR REPLACE FUNCTION market_data_rd_api.read_universe_selection_for_rd_v1(p_selection_identity BYTEA) RETURNS TABLE(request_identity BYTEA,request_meaning_digest BYTEA,selection_identity BYTEA,record_bytes BYTEA,receipt_identity BYTEA,receipt_bytes BYTEA,outbox_identity BYTEA,outbox_receipt_bytes BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog, pg_temp AS $function$ SELECT r.request_identity,r.request_meaning_digest,r.selection_identity,r.record_bytes,c.receipt_identity,c.receipt_bytes,o.outbox_identity,o.receipt_bytes FROM market_data_private.universe_selection_records_v1 r LEFT JOIN market_data_private.universe_selection_receipts_v1 c ON c.request_identity=r.request_identity LEFT JOIN market_data_private.universe_selection_outbox_v1 o ON o.request_identity=r.request_identity WHERE r.selection_identity=p_selection_identity $function$",
+    "REVOKE ALL ON FUNCTION market_data_rd_api.read_universe_selection_for_rd_v1(BYTEA) FROM PUBLIC",
+    "DO $grant$ BEGIN IF pg_catalog.to_regrole('rd_owner') IS NOT NULL THEN GRANT EXECUTE ON FUNCTION market_data_rd_api.read_universe_selection_for_rd_v1(BYTEA) TO rd_owner; END IF; END $grant$",
+];
+
+/// The included members of the Universe Selection a Replay request binds, read in the caller's own
+/// R&D transaction.
+///
+/// Reads only and takes no row locks, so it runs in a `READ ONLY` transaction and never waits on a
+/// Market Data writer. The selection is found by record identity - the one key a Replay request
+/// carries - and must also carry `digest`. The whole aggregate is verified, receipt and outbox event
+/// included, before any member is returned.
+///
+/// # Errors
+///
+/// - [`UniverseSelectionErrorV1::UnknownIdentity`] when no selection has this record identity.
+/// - [`UniverseSelectionErrorV1::DigestMismatch`] when the selection's digest is not `digest`.
+/// - [`UniverseSelectionErrorV1::StoreUntrusted`] when the aggregate is partial or does not verify,
+///   or a member's instrument identity is not UTF-8.
+/// - [`UniverseSelectionErrorV1::StoreUnavailable`] when the store does not answer.
+pub async fn read_universe_selection_members_for_rd_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    identity: BindingDigest,
+    digest: BindingDigest,
+) -> Result<UniverseSelectionMembersForRdV1, UniverseSelectionErrorV1> {
+    let rows =
+        sqlx::query("SELECT * FROM market_data_rd_api.read_universe_selection_for_rd_v1($1)")
+            .bind(identity.as_bytes().as_slice())
+            .fetch_all(&mut **transaction)
+            .await
+            .map_err(|cause| store_error(&cause))?;
+    let row = match rows.as_slice() {
+        [] => return Err(UniverseSelectionErrorV1::UnknownIdentity),
+        [row] => row,
+        _ => return Err(UniverseSelectionErrorV1::StoreUntrusted),
+    };
+    let readback = stored_aggregate_from_row(row)?.verified()?;
+
+    // The digest is the deciding half. The identity half cannot fail today - the function selects by
+    // this identity and `verified` ties the record to that column - and stays as a check that does
+    // not depend on either of those staying true.
+    if readback.record().identity() != identity || readback.record().digest() != digest {
+        return Err(UniverseSelectionErrorV1::DigestMismatch);
+    }
+    UniverseSelectionMembersForRdV1::from_readback(&readback)
 }
 
 fn validate_aggregate_size(
