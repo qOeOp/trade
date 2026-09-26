@@ -36,6 +36,15 @@ only fail closed during startup. It does not claim that a governed Market Data
 repository has been composed. Do not enable `required` until those production
 adapters and their deployment authority are separately available.
 
+`required` would not take credentials out of `rd-owner-api`. The service also
+reads `MARKET_DATA_OWNER_DATABASE_URL` (`market_data_owner`, required by the
+compose file) and `MARKET_DATA_RD_ROLE_SET_DATABASE_URL` (`market_data_reader`),
+and six Market Data admissions - PIT intake, Source Binding, universe
+selection, strategy-input binding, Instrument Master and Market Semantics -
+connect with those raw DSNs directly, outside store admission. Store admission
+proves which store the service reached; it isolates no credential until those
+DSNs move behind the custodian.
+
 ## Start
 
 Create a private environment file outside the repository or copy `.env.example` and replace every
