@@ -414,26 +414,22 @@ async fn issues_its_initial_pit_request() {
         .unwrap()
         .as_nanos()
         .to_string();
-    let now: u64 = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis()
-        .try_into()
-        .unwrap();
     let product_edge = super::tests::bootstrap_api_test_product_edge_with(
         &test_database,
         &suffix,
         REQUEST_PROOF_DIGEST,
-        vec![AgentOperationManifestProposalV1 {
-            operation: RESEARCH_GOAL_OPERATION_V3.to_owned(),
-            operation_schema: RESEARCH_GOAL_SCHEMA_V3.to_owned(),
-            target_owner: RESEARCH_OWNER_V1.to_owned(),
-            allowed_effects: vec!["R_AND_D_RESEARCH_MUTATION_V1".to_owned()],
-            prohibited_effects: vec!["REAL_TRADING_V1".to_owned()],
-            capability_policy_digest: format!("sha256:{}", "e".repeat(64)),
-            effective_from_epoch_ms: now.saturating_sub(1_000),
-            valid_through_epoch_ms: now.saturating_add(3_600_000),
-        }],
+        |window| {
+            vec![AgentOperationManifestProposalV1 {
+                operation: RESEARCH_GOAL_OPERATION_V3.to_owned(),
+                operation_schema: RESEARCH_GOAL_SCHEMA_V3.to_owned(),
+                target_owner: RESEARCH_OWNER_V1.to_owned(),
+                allowed_effects: vec!["R_AND_D_RESEARCH_MUTATION_V1".to_owned()],
+                prohibited_effects: vec!["REAL_TRADING_V1".to_owned()],
+                capability_policy_digest: format!("sha256:{}", "e".repeat(64)),
+                effective_from_epoch_ms: window.effective_from_epoch_ms,
+                valid_through_epoch_ms: window.valid_through_epoch_ms,
+            }]
+        },
         Vec::new(),
     )
     .await;
