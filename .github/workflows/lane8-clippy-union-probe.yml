@@ -1,0 +1,103 @@
+# yamllint disable rule:line-length
+# LANE8 PROBE, NOT FOR MERGE: census of clippy findings under the Owner chain's feature union,
+# against the features the clippy gate uses today. Warnings are not denied, so one crate's
+# findings do not stop its dependents from being checked; every diagnostic is counted.
+name: lane8-clippy-union-probe
+
+on:
+  push:
+    branches:
+      - lane8-probe/clippy-union
+
+permissions:
+  contents: read
+
+jobs:
+  census:
+    name: clippy census, gate features against the chain union
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    env:
+      CARGO_CI_PROFILE: ci-pr
+      CARGO_TARGET_DIR: target/pre-commit
+      HIGH_PRECISION: "1"
+    steps:
+      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          # A push to this branch sees no allowed-endpoints variables (run 36260319312).
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Common setup
+        timeout-minutes: 42
+        uses: ./.github/actions/common-setup
+        with:
+          python-version: "3.13"
+          free-disk-space: "true"
+          rust-cache-enabled: "false"
+
+      - name: Clippy twice, every diagnostic kept
+        run: |
+          set -euo pipefail
+          mkdir -p lane8
+          gate="ffi,python,high-precision,defi"
+          union="$(make --no-print-directory EXTRA_FEATURES="capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres,vibe-strategy-factory/sealed-develop-composer-acceptance" --eval 'lane8pv: ; @echo $(RD_OWNER_POSTGRES_FEATURES)' lane8pv | tail -1)"
+          echo "LANE8-K gate features: $gate"
+          echo "LANE8-K union features: $union"
+          for label in gate union; do
+            features="${!label}"
+            t0=$(date +%s)
+            status=0
+            cargo clippy --workspace --lib --bins --tests --features "$features" --profile "$CARGO_CI_PROFILE" \
+              --message-format=json > "lane8/$label.jsonl" 2> "lane8/$label.stderr" || status=$?
+            echo "LANE8-K $label clippy exit $status in $(( $(date +%s) - t0 ))s"
+          done
+          python3 - << 'PY'
+          import json, collections
+          def load(label):
+              found = collections.Counter(); sites = {}
+              for line in open(f"lane8/{label}.jsonl"):
+                  try:
+                      m = json.loads(line)
+                  except ValueError:
+                      continue
+                  if m.get("reason") != "compiler-message":
+                      continue
+                  msg = m["message"]
+                  if msg.get("level") not in ("warning", "error") or not msg.get("code"):
+                      continue
+                  pkg = m["package_id"].split("#")[0].rsplit("/", 1)[-1].split("@")[0]
+                  span = next((s for s in msg["spans"] if s.get("is_primary")), msg["spans"][0] if msg["spans"] else {})
+                  site = (pkg, msg["code"]["code"], span.get("file_name", "?"), span.get("line_start", 0))
+                  sites[site] = msg["level"]
+              for (pkg, code, _, _) in sites:
+                  found[(pkg, code)] += 1
+              return found, sites
+          gate, gate_sites = load("gate")
+          union, union_sites = load("union")
+          new = {s: l for s, l in union_sites.items() if s not in gate_sites}
+          print(f"LANE8-K sites under gate features: {len(gate_sites)}; under the union: {len(union_sites)}; new under the union: {len(new)}")
+          per = collections.Counter((p, c) for (p, c, _, _) in new)
+          for (p, c), n in per.most_common(60):
+              print(f"LANE8-K new {n:4d}  {p}  {c}")
+          by_pkg = collections.Counter(p for (p, _, _, _) in new)
+          for p, n in by_pkg.most_common():
+              print(f"LANE8-K new-by-crate {n:4d}  {p}")
+          with open("lane8/new-sites.tsv", "w") as out:
+              for (p, c, f, l), lvl in sorted(new.items()):
+                  out.write(f"{p}\t{c}\t{f}:{l}\t{lvl}\n")
+          PY
+
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lane8-clippy-union
+          path: |
+            lane8/new-sites.tsv
+            lane8/*.stderr
+          retention-days: 3
