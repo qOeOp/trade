@@ -423,6 +423,15 @@ replay joins the original bytes; changed meaning and concurrent losing genesis a
 write. A successor is a separate administrative cutover: the exact predecessor's `SUPERSEDED` fence commits first,
 then and only then may a policy-equivalent successor become `ACTIVE` at generation plus one.
 
+### Store provisioning order
+
+A Product Edge store is provisioned in two ordered steps, and both run before any Owner connects:
+`10-migrate-authority-custody.sh` creates the Owner's schemas and core relations and their grants, then
+`product-edge-authority-bootstrap materialize-schema` creates the relations the Owner materializes itself (the
+expired-manifest recovery epochs and the operation routing history). `connect_existing` runs no DDL and refuses,
+with `TopologyNotAdmitted`, a store that lacks any of its fifteen relations. Both steps are idempotent, and the deployment package reruns both on every start, so an upgrade that adds a
+relation provisions it before any service connects.
+
 ### Operation routing
 
 Product Edge is the sole routing authority for the typed mutating operations a deployment admits. For each routing

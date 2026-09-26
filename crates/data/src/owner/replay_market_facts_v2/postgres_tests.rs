@@ -2093,7 +2093,7 @@ async fn replay_composition_after_base_fixture_step_v1(
                     role_identity: request.input_role_identity,
                     semantic_id: join_role.semantic_id.clone(),
                     fact_class: "MARKET_DATA".into(),
-                    instrument: "AAPL".into(),
+                    instrument: crate::owner::chain_fixture_v1::CHAIN_FIXTURE_INSTRUMENT_V1.into(),
                     scope: r#"{"kind":"EXACT_INSTRUMENT"}"#.into(),
                     field_semantic_id: field_semantic_id.into(),
                     channel: "MARKET".into(),

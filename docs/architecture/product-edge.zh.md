@@ -355,6 +355,10 @@ manifest receipt 与 outbox 原子提交。准确重放加入原字节；含义�
 没有部分写入。后继属于独立管理员 cutover：先提交准确前驱的 `SUPERSEDED` fence，随后且仅随后政策
 等价后继才能以 generation 加一成为 `ACTIVE`。
 
+### Store provisioning 顺序
+
+Product Edge store 按两个有序步骤 provision，且都在任何 Owner 连接之前运行：`10-migrate-authority-custody.sh` 创建 Owner 的 schema、核心 relation 及其授权，然后 `product-edge-authority-bootstrap materialize-schema` 创建 Owner 自行物化的 relation（到期 manifest 恢复 epoch 与操作路由历史）。`connect_existing` 不运行任何 DDL，并以 `TopologyNotAdmitted` 拒绝缺少其十五个 relation 中任何一个的 store。两个步骤都是幂等的，部署包在每次启动时重跑两者，因此新增 relation 的升级会在任何服务连接之前完成 provision。
+
 ### 操作路由
 
 Product Edge 是部署所准入的类型化变更操作的唯一路由权威。对每个路由 key（部署身份、类型化操作、其版本，以及其请求被封存于其下的准入网关 channel；今天每个准入都携带 `WINDMILL_PRODUCT_EDGE`），Product Edge 维护一段 operation routing binding 历史。binding 指名对该 key 而言哪个 dispatcher 是新鲜的业务 writer：`WINDMILL`（遗留 effect runner）或 `TRADE_DASHBOARD`（第一方 Dashboard effect worker）。部署 flag 与凭据从不选择 dispatcher，只有这段历史决定。key 的 version 就是操作名的 `.vN` 后缀（`research_goal.submit_or_resolve.v2` 的 version 为 2）；version 与该后缀不一致的 key 不指名任何操作，会被拒绝。

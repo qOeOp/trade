@@ -21,6 +21,7 @@ readonly market_data_owner_postgres_tests=(
   owner::postgres::tests::postgres_each_research_request_under_one_binding_gets_its_own_market_semantics
   owner::postgres::tests::postgres_concurrent_values_under_one_binding_leave_one_value
   owner::postgres::tests::postgres_market_semantics_heads_migrate_to_one_head_per_snapshot
+  owner::postgres::pit_initial_intake_correlation_tests::postgres_an_initial_intake_claims_its_correlation_once_and_reads_back_by_it
 )
 
 # The ordered chain refuses a guarded crate whose test SQL is destructive without dedicated-database

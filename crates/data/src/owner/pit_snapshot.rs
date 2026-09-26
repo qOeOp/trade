@@ -200,6 +200,103 @@ pub fn seal_request_claims_v1(request: &mut UntrustedPitSnapshotRequest) {
     authority::refresh_request_claims(request);
 }
 
+/// What a requester submits for one PIT Market Snapshot: the request without the fields only the
+/// Owner may state.
+///
+/// A request carries the Instrument Master digest Market Data resolves for it and the identity and
+/// digest Market Data seals over the content it commits. A requester can state none of the three:
+/// the digest is the Owner's own resolution at the decision cut, which the requester cannot read
+/// before the intake runs, and the identity and digest seal what the Owner will actually commit.
+/// So the submission has no field for them, and a body that names one is refused by name rather
+/// than overwritten. [`Self::into_request`] is the one mapping from a submission and the Owner's
+/// digest to the sealed request; the intake and a requester reproducing it both call it.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PitSnapshotSubmissionV1 {
+    /// Stable requester correlation identity.
+    pub correlation_identity: BindingDigest,
+    /// Exact requester-owned identity whose frozen request is being answered.
+    pub requester_identity: BindingDigest,
+    /// Requester-owned instrument or universe scope digest.
+    pub scope_digest: BindingDigest,
+    /// Exact Source Binding locator; it remains untrusted until native Owner readback.
+    pub source_binding: UntrustedSourceBindingLocator,
+    /// Exact Universe Selection Record digest.
+    pub universe_selection_digest: BindingDigest,
+    /// Exact Market Semantics Compatibility identity.
+    pub market_semantics_identity: BindingDigest,
+    /// Complete request time evidence.
+    pub time_evidence: UntrustedPitSnapshotTimeEvidence,
+}
+
+/// The request fields only the Owner states. A submission naming one is refused by name.
+pub const PIT_SUBMISSION_OWNER_FIELDS_V1: [&str; 3] = [
+    "instrument_master_digest",
+    "claimed_request_identity",
+    "claimed_request_digest",
+];
+
+/// Why a submission body is not a submission.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PitSnapshotSubmissionDecodeErrorV1 {
+    /// The body states a field only the Owner may state (see [`PIT_SUBMISSION_OWNER_FIELDS_V1`]).
+    StatesOwnerField,
+    /// The body is not a submission for any other reason.
+    Malformed,
+}
+
+impl PitSnapshotSubmissionV1 {
+    /// Decodes a submission, refusing by name a body that states an Owner field.
+    ///
+    /// The Owner-field check comes first, so a full request - including one whose Instrument
+    /// Master digest is all zero, the placeholder an earlier revision of the contract proposed -
+    /// is refused as stating an Owner field, not as merely malformed.
+    ///
+    /// # Errors
+    ///
+    /// [`PitSnapshotSubmissionDecodeErrorV1::StatesOwnerField`] when the body is an object naming
+    /// an Owner field, and [`PitSnapshotSubmissionDecodeErrorV1::Malformed`] otherwise.
+    pub fn from_json_value_v1(
+        value: serde_json::Value,
+    ) -> Result<Self, PitSnapshotSubmissionDecodeErrorV1> {
+        if value.as_object().is_some_and(|fields| {
+            PIT_SUBMISSION_OWNER_FIELDS_V1
+                .iter()
+                .any(|field| fields.contains_key(*field))
+        }) {
+            return Err(PitSnapshotSubmissionDecodeErrorV1::StatesOwnerField);
+        }
+        serde_json::from_value(value).map_err(|_| PitSnapshotSubmissionDecodeErrorV1::Malformed)
+    }
+
+    /// The sealed request this submission becomes once the Owner states its Instrument Master
+    /// digest.
+    ///
+    /// The identity and digest are sealed over exactly these fields by
+    /// [`seal_request_claims_v1`], so a requester holding its submission and the digest a terminal
+    /// reports recomputes the request identity the Owner committed.
+    #[must_use]
+    pub fn into_request(
+        self,
+        instrument_master_digest: BindingDigest,
+    ) -> UntrustedPitSnapshotRequest {
+        let mut request = UntrustedPitSnapshotRequest {
+            claimed_request_identity: BindingDigest::from_untrusted_bytes([0; 32]),
+            claimed_request_digest: BindingDigest::from_untrusted_bytes([0; 32]),
+            correlation_identity: self.correlation_identity,
+            requester_identity: self.requester_identity,
+            scope_digest: self.scope_digest,
+            source_binding: self.source_binding,
+            instrument_master_digest,
+            universe_selection_digest: self.universe_selection_digest,
+            market_semantics_identity: self.market_semantics_identity,
+            time_evidence: self.time_evidence,
+        };
+        seal_request_claims_v1(&mut request);
+        request
+    }
+}
+
 /// Complete untrusted PIT Snapshot proposal. It cannot mint a positive Owner fact directly.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct UntrustedPitSnapshotProposal {
@@ -815,6 +912,8 @@ pub enum PitSnapshotError {
     UniverseMemberCountUnadmitted,
     /// An included member's key is not the canonical instrument it names.
     UniverseMemberKeyIsNotInstrument,
+    /// An initial intake is already committed under this request's correlation.
+    CorrelationAlreadyCommitted,
 }
 
 impl Display for PitSnapshotError {
