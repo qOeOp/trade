@@ -8,8 +8,9 @@ use vibe_operator_authorization::{
 };
 use vibe_product_edge::{
     AgentOperationManifestProposalV1, AgentOperationManifestSetV1, ProductEdgeAuthorizationTrustV1,
-    ProductEdgeBootstrapProposalV1, ProductEdgePostgresOwnerV1, SOURCE_INTAKE_OPERATION_SCHEMA_V1,
-    SOURCE_INTAKE_OPERATION_V1, SOURCE_INTAKE_REQUIRED_EFFECTS_V1, SOURCE_INTAKE_TARGET_OWNER_V1,
+    ProductEdgeBootstrapProposalV1, ProductEdgeOperationRoutingProposalV1,
+    ProductEdgePostgresOwnerV1, SOURCE_INTAKE_OPERATION_SCHEMA_V1, SOURCE_INTAKE_OPERATION_V1,
+    SOURCE_INTAKE_REQUIRED_EFFECTS_V1, SOURCE_INTAKE_TARGET_OWNER_V1,
 };
 
 #[derive(Deserialize)]
@@ -31,9 +32,9 @@ struct BootstrapConfigV1 {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let first = env::args()
-        .nth(1)
-        .ok_or_else(|| anyhow::anyhow!("missing bootstrap config path"))?;
+    let first = env::args().nth(1).ok_or_else(|| {
+        anyhow::anyhow!("missing bootstrap config path, materialize-schema, or route")
+    })?;
 
     // Provisioning is a separate invocation from bootstrapping, and it is the
     // only one that writes DDL. Both Owners are materialized here because this
@@ -51,6 +52,34 @@ async fn main() -> anyhow::Result<()> {
             "{}",
             serde_json::json!({"materialized": ["operator_authorization", "product_edge"]})
         );
+        return Ok(());
+    }
+
+    // Committing a routing binding is its own explicit administrative request: one proposal file,
+    // one change to one routing key, never a side effect of provisioning or bootstrapping. In a
+    // deployed or shared environment a TRADE_DASHBOARD binding is the separate explicit effect
+    // the Dashboard contract names, so whoever runs this owns that authorization.
+    if first == "route" {
+        let proposal_path = env::args()
+            .nth(2)
+            .ok_or_else(|| anyhow::anyhow!("missing operation routing proposal path"))?;
+        let proposal: ProductEdgeOperationRoutingProposalV1 =
+            serde_json::from_slice(&fs::read(proposal_path)?)?;
+        let product_edge = ProductEdgePostgresOwnerV1::connect_existing(
+            &env::var("PRODUCT_EDGE_DATABASE_URL")?,
+            proposal.key().deployment_identity.clone(),
+            ProductEdgeAuthorizationTrustV1 {
+                issuer_identity: env::var("PRODUCT_EDGE_TRUSTED_ISSUER_IDENTITY")?,
+                issuer_key_version: env::var("PRODUCT_EDGE_TRUSTED_ISSUER_KEY_VERSION")?,
+                audience: env::var("PRODUCT_EDGE_TRUSTED_AUTHORIZATION_AUDIENCE")?,
+            },
+        )
+        .await?;
+        let observation = product_edge.commit_operation_routing(proposal).await?;
+        let body = observation
+            .response_body()
+            .ok_or_else(|| anyhow::anyhow!("operation routing commit returned no observation"))?;
+        println!("{}", serde_json::to_string(&body)?);
         return Ok(());
     }
 

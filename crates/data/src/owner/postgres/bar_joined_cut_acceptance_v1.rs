@@ -73,7 +73,8 @@ use crate::owner::{
     },
 };
 
-const INSTRUMENT: &str = "AAPL";
+// The chain fixtures' instrument, shared with every entry that writes the same custody.
+const INSTRUMENT: &str = crate::owner::chain_fixture_v1::CHAIN_FIXTURE_INSTRUMENT_V1;
 
 /// Caller-authored identities for the fixed six-role acceptance design.
 #[derive(Clone, Debug, Eq, PartialEq)]
