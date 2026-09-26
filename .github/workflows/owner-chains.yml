@@ -98,8 +98,8 @@ jobs:
           rust-cache-workspaces: . -> target/rust-tests-linux-x86
           rust-cache-on-failure: "false"
           rust-cache-workspace-crates: "false"
-          # A test-chain push restores main's entry and never writes one of its own.
-          rust-cache-save-if: "false"
+          # LANE8 PROBE, NOT FOR MERGE: this branch saves, to rehearse main-saves/PR-restores.
+          rust-cache-save-if: "true"
 
       - name: Build the R&D chain archive
         # Twice the slowest cold compile, 7m45s.
@@ -151,6 +151,8 @@ jobs:
         run: python3 scripts/ci/owner-chain-matrix.py scripts/ci/rd-owner-chain-shards.tsv >> "$GITHUB_OUTPUT"
 
   owner-chain:
+    # LANE8 PROBE, NOT FOR MERGE: only the archive job is measured.
+    if: false
     name: ${{ matrix.chain.name }}
     runs-on: ubuntu-22.04
     timeout-minutes: ${{ matrix.chain.job-timeout-minutes }}
