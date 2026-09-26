@@ -1097,7 +1097,7 @@ async fn resolve_complete_strategy_input_roles_with_mode_v1(
     Ok((bindings.into_boxed_slice(), frames.into_boxed_slice()))
 }
 
-async fn rederive_strategy_input_binding_declaration_read_only_v1(
+pub(super) async fn rederive_strategy_input_binding_declaration_read_only_v1(
     transaction: &mut Transaction<'_, Postgres>,
     pit_request_identity: BindingDigest,
     strategy_design_identity: BindingDigest,
@@ -1420,6 +1420,22 @@ pub(super) async fn load_owner_verified_pit_batch_v1(
         transaction,
         snapshot_identity,
         DependencyReadModeV1::LockRows,
+    )
+    .await
+}
+
+/// Re-reads and re-verifies one snapshot's complete observation batch without taking any lock.
+///
+/// For a Market Data writer R&D calls while holding its own locks on these rows, which a locking
+/// read here would wait on.
+pub(super) async fn read_owner_verified_pit_batch_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    snapshot_identity: BindingDigest,
+) -> Result<VerifiedPitObservationBatch, StrategyInputBindingRegistryErrorV1> {
+    load_verified_pit_batch(
+        transaction,
+        snapshot_identity,
+        DependencyReadModeV1::ReadOnly,
     )
     .await
 }

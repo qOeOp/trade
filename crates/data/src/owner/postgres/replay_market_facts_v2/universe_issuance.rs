@@ -254,7 +254,7 @@ async fn issue_universe_members_in_transaction_v1(
 }
 
 #[cfg(test)]
-mod postgres_tests {
+pub(in crate::owner) mod postgres_tests {
     use super::issue_universe_members_in_transaction_v1;
     use crate::owner::{
         correction_policy_projection::{CorrectionPolicyAuthenticatedInputsV1, project_first_v1},
@@ -322,6 +322,216 @@ mod postgres_tests {
         counts
     }
 
+    /// One universe-member composition issued over the replay composition base fixture.
+    ///
+    /// The issuance runs its Owner-transaction body over the base fixture and the fixture's
+    /// universe-member Design, under a role set R&D would have authenticated.
+    pub(crate) struct UniverseMemberIssuanceFixtureV1 {
+        pub(crate) market: MarketDataOwnerPostgres,
+        pub(crate) pool: sqlx::PgPool,
+        pub(crate) base: crate::owner::postgres::tests::ReplayCompositionMarketBaseFixtureV1,
+        pub(crate) requests:
+            Vec<crate::owner::strategy_input_binding::UntrustedStrategyInputBindingRequest>,
+        pub(crate) binding_locator: ReplayCompositionBindingLocatorV1,
+        locator: StrategyDesignRoleSetLocatorV1,
+        correction: crate::owner::correction_policy_projection::CorrectionPolicyProjectionV1,
+        universe_role_set: StrategyDesignRoleSetReceiptV1,
+        command: ReplayCompositionLocatorOnlyIssuanceRequestV1<
+            ReplayCompositionUniverseBindingIssuanceRequestV1,
+        >,
+        issued: ReplayCompositionDurableIssuanceResponseV1,
+        issuance_before: Vec<i64>,
+        issuance_after: Vec<i64>,
+    }
+
+    impl UniverseMemberIssuanceFixtureV1 {
+        pub(crate) async fn issue(owner_url: &str) -> Self {
+            let base = Box::pin(replay_composition_market_base_fixture_v1(owner_url)).await;
+            // The deployed store is materialized before custody cutover; this database is too, by
+            // the same production entry, so the issuance table exists as it does in production.
+            ReplayCompositionOwnerV1::materialize_schema(owner_url)
+                .await
+                .expect("the replay composition store materializes");
+            let market = MarketDataOwnerPostgres::connect(owner_url).await.unwrap();
+            let pool = market.pool().clone();
+            let requests = Box::pin(universe_member_declarations_oracle(
+                &market,
+                &base.binding_requests[0],
+                &base.batch,
+            ))
+            .await;
+            let locator = StrategyDesignRoleSetLocatorV1 {
+                schema_version: 2,
+                request_identity: "universe-member-replay-composition-v1".into(),
+                operation_receipt_identity: d(0x71),
+                artifact_locator: "artifact:universe-member-replay-composition-v1".into(),
+                artifact_identity: d(0x72),
+                canonical_plan_digest: d(0x73),
+                design_digest: d(0x74),
+            };
+            let correction = project_first_v1(CorrectionPolicyAuthenticatedInputsV1 {
+                source_binding: &base.source_readback,
+                coordinates: &base.coordinates,
+                r0_coordinate_identity: base.r0.record().identity(),
+                r0_coordinate_digest: base.r0.record().digest(),
+            })
+            .unwrap();
+            let universe_role_set = role_set(&locator, &requests);
+            let command = ReplayCompositionLocatorOnlyIssuanceRequestV1::new(
+                d(0x78),
+                composition(&locator, &base, &correction, 51),
+            )
+            .unwrap();
+            let issuance_before = issuance_state(&pool).await;
+            let issued = issue_under(&pool, &universe_role_set, &command)
+                .await
+                .expect("the universe-member composition issues");
+            let issuance_after = issuance_state(&pool).await;
+            let (binding_identity, binding_digest): (Vec<u8>, Vec<u8>) = sqlx::query_as(
+                "SELECT binding_identity,binding_digest FROM market_data_private.replay_composition_issuances_v1 WHERE request_identity=$1",
+            )
+            .bind(d(0x78).as_bytes().as_slice())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            Self {
+                market,
+                pool,
+                base,
+                requests,
+                binding_locator: ReplayCompositionBindingLocatorV1::from_untrusted(
+                    BindingDigest::from_untrusted_bytes(binding_identity.try_into().unwrap()),
+                    BindingDigest::from_untrusted_bytes(binding_digest.try_into().unwrap()),
+                ),
+                locator,
+                correction,
+                universe_role_set,
+                command,
+                issued,
+                issuance_before,
+                issuance_after,
+            }
+        }
+
+        fn composition(&self, end: i128) -> ReplayCompositionUniverseBindingIssuanceRequestV1 {
+            composition(&self.locator, &self.base, &self.correction, end)
+        }
+
+        async fn issue_under(
+            &self,
+            role_set: &StrategyDesignRoleSetReceiptV1,
+            command: &ReplayCompositionLocatorOnlyIssuanceRequestV1<
+                ReplayCompositionUniverseBindingIssuanceRequestV1,
+            >,
+        ) -> Result<ReplayCompositionDurableIssuanceResponseV1, ReplayCompositionBindingErrorV1>
+        {
+            issue_under(&self.pool, role_set, command).await
+        }
+    }
+
+    /// Runs the issuance's Owner-transaction body once, committing only what it issues.
+    async fn issue_under(
+        pool: &sqlx::PgPool,
+        role_set: &StrategyDesignRoleSetReceiptV1,
+        command: &ReplayCompositionLocatorOnlyIssuanceRequestV1<
+            ReplayCompositionUniverseBindingIssuanceRequestV1,
+        >,
+    ) -> Result<ReplayCompositionDurableIssuanceResponseV1, ReplayCompositionBindingErrorV1> {
+        let request_bytes = super::super::canonical_issuance_command_bytes_v1(command)?;
+        let mut transaction = pool
+            .begin_with("BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .await
+            .unwrap();
+        let issued = Box::pin(issue_universe_members_in_transaction_v1(
+            &mut transaction,
+            role_set,
+            command.composition(),
+            command.issuance_locator(),
+            &request_bytes,
+        ))
+        .await;
+
+        if issued.is_ok() {
+            transaction.commit().await.unwrap();
+        } else {
+            transaction.rollback().await.unwrap();
+        }
+        issued
+    }
+
+    fn role_set(
+        locator: &StrategyDesignRoleSetLocatorV1,
+        requests: &[crate::owner::strategy_input_binding::UntrustedStrategyInputBindingRequest],
+    ) -> StrategyDesignRoleSetReceiptV1 {
+        StrategyDesignRoleSetReceiptV1::from_rd_owner_projection(
+            locator.clone(),
+            requests[0].research_request_identity,
+            d(0x75),
+            requests[0].strategy_design_identity,
+            d(0x74),
+            d(0x76),
+            requests
+                .iter()
+                .map(|request| StrategyDesignRoleEntryV1 {
+                    role_identity: request.input_role_identity,
+                    semantic_id: format!("role-{}", request.timeframe),
+                    fact_class: "MARKET_DATA".into(),
+                    instrument: match &request.scope {
+                        UntrustedStrategyInputScope::ExactInstrument { instrument } => {
+                            instrument.clone()
+                        }
+                        _ => String::new(),
+                    },
+                    scope: match &request.scope {
+                        UntrustedStrategyInputScope::ExactInstrument { .. } => {
+                            EXACT_INSTRUMENT_ROLE_SCOPE_V1.into()
+                        }
+                        _ => UNIVERSE_MEMBERS_ROLE_SCOPE_V1.into(),
+                    },
+                    field_semantic_id: request.field_semantic.identity().into(),
+                    channel: request.channel.canonical().into(),
+                    timeframe: request.timeframe.clone(),
+                    unit: request.unit.canonical().into(),
+                    scale: request.scale,
+                    value_type: "I128".into(),
+                })
+                .collect(),
+            vec![],
+        )
+        .expect("a universe Design's role set carries no native join")
+    }
+
+    fn composition(
+        locator: &StrategyDesignRoleSetLocatorV1,
+        base: &crate::owner::postgres::tests::ReplayCompositionMarketBaseFixtureV1,
+        correction: &crate::owner::correction_policy_projection::CorrectionPolicyProjectionV1,
+        end: i128,
+    ) -> ReplayCompositionUniverseBindingIssuanceRequestV1 {
+        ReplayCompositionUniverseBindingIssuanceRequestV1::from_test_fixture(
+            locator.clone(),
+            base.pit.receipt().locator().clone(),
+            base.source.receipt().locator().clone(),
+            50,
+            end,
+            ReplayCompositionRequestLocatorV1::from_untrusted(
+                base.universe.receipt().request_identity(),
+                base.universe.receipt().request_meaning_digest(),
+            ),
+            ReplayCompositionRequestLocatorV1::from_untrusted(
+                base.r0.receipt().request_identity,
+                base.r0.receipt().request_meaning_digest,
+            ),
+            ReplayCompositionRequestLocatorV1::from_untrusted(
+                base.semantics.receipt().request_identity,
+                base.semantics.receipt().request_meaning_digest,
+            ),
+            ReplayCompositionContentLocatorV1::from_untrusted(
+                correction.identity(),
+                correction.identity(),
+            ),
+        )
+    }
+
     /// A universe-member composition issues one schema 2 binding and its Replay facts, and that
     /// binding keys a one-member Instrument Master V2 cut.
     ///
@@ -344,138 +554,21 @@ mod postgres_tests {
     #[allow(clippy::too_many_lines)]
     async fn postgres_universe_member_composition_issues_a_binding_that_keys_its_cut() {
         let owner_url = std::env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL").unwrap();
-        let base = Box::pin(replay_composition_market_base_fixture_v1(&owner_url)).await;
-        // The deployed store is materialized before custody cutover; this database is too, by the
-        // same production entry, so the issuance table exists as it does in production.
-        ReplayCompositionOwnerV1::materialize_schema(&owner_url)
-            .await
-            .expect("the replay composition store materializes");
-        let market = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
-        let pool = market.pool().clone();
-        let requests = Box::pin(universe_member_declarations_oracle(
-            &market,
-            &base.binding_requests[0],
-            &base.batch,
-        ))
-        .await;
-
-        let locator = StrategyDesignRoleSetLocatorV1 {
-            schema_version: 2,
-            request_identity: "universe-member-replay-composition-v1".into(),
-            operation_receipt_identity: d(0x71),
-            artifact_locator: "artifact:universe-member-replay-composition-v1".into(),
-            artifact_identity: d(0x72),
-            canonical_plan_digest: d(0x73),
-            design_digest: d(0x74),
-        };
-        let role_set = |requests: &[crate::owner::strategy_input_binding::UntrustedStrategyInputBindingRequest]| {
-            StrategyDesignRoleSetReceiptV1::from_rd_owner_projection(
-                locator.clone(),
-                requests[0].research_request_identity,
-                d(0x75),
-                requests[0].strategy_design_identity,
-                d(0x74),
-                d(0x76),
-                requests
-                    .iter()
-                    .map(|request| StrategyDesignRoleEntryV1 {
-                        role_identity: request.input_role_identity,
-                        semantic_id: format!("role-{}", request.timeframe),
-                        fact_class: "MARKET_DATA".into(),
-                        instrument: match &request.scope {
-                            UntrustedStrategyInputScope::ExactInstrument { instrument } => {
-                                instrument.clone()
-                            }
-                            _ => String::new(),
-                        },
-                        scope: match &request.scope {
-                            UntrustedStrategyInputScope::ExactInstrument { .. } => {
-                                EXACT_INSTRUMENT_ROLE_SCOPE_V1.into()
-                            }
-                            _ => UNIVERSE_MEMBERS_ROLE_SCOPE_V1.into(),
-                        },
-                        field_semantic_id: request.field_semantic.identity().into(),
-                        channel: request.channel.canonical().into(),
-                        timeframe: request.timeframe.clone(),
-                        unit: request.unit.canonical().into(),
-                        scale: request.scale,
-                        value_type: "I128".into(),
-                    })
-                    .collect(),
-                vec![],
-            )
-            .expect("a universe Design's role set carries no native join")
-        };
-        let universe_role_set = role_set(&requests);
-        let correction = project_first_v1(CorrectionPolicyAuthenticatedInputsV1 {
-            source_binding: &base.source_readback,
-            coordinates: &base.coordinates,
-            r0_coordinate_identity: base.r0.record().identity(),
-            r0_coordinate_digest: base.r0.record().digest(),
-        })
-        .unwrap();
-        let composition = |end: i128| {
-            ReplayCompositionUniverseBindingIssuanceRequestV1::from_test_fixture(
-                locator.clone(),
-                base.pit.receipt().locator().clone(),
-                base.source.receipt().locator().clone(),
-                50,
-                end,
-                ReplayCompositionRequestLocatorV1::from_untrusted(
-                    base.universe.receipt().request_identity(),
-                    base.universe.receipt().request_meaning_digest(),
-                ),
-                ReplayCompositionRequestLocatorV1::from_untrusted(
-                    base.r0.receipt().request_identity,
-                    base.r0.receipt().request_meaning_digest,
-                ),
-                ReplayCompositionRequestLocatorV1::from_untrusted(
-                    base.semantics.receipt().request_identity,
-                    base.semantics.receipt().request_meaning_digest,
-                ),
-                ReplayCompositionContentLocatorV1::from_untrusted(
-                    correction.identity(),
-                    correction.identity(),
-                ),
-            )
-        };
-        let issue = async |role_set: &StrategyDesignRoleSetReceiptV1,
-                           command: &ReplayCompositionLocatorOnlyIssuanceRequestV1<
-            ReplayCompositionUniverseBindingIssuanceRequestV1,
-        >|
-               -> Result<
-            ReplayCompositionDurableIssuanceResponseV1,
-            ReplayCompositionBindingErrorV1,
-        > {
-            let request_bytes = super::super::canonical_issuance_command_bytes_v1(command)?;
-            let mut transaction = pool
-                .begin_with("BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-                .await
-                .unwrap();
-            let issued = Box::pin(issue_universe_members_in_transaction_v1(
-                &mut transaction,
-                role_set,
-                command.composition(),
-                command.issuance_locator(),
-                &request_bytes,
-            ))
-            .await;
-
-            if issued.is_ok() {
-                transaction.commit().await.unwrap();
-            } else {
-                transaction.rollback().await.unwrap();
-            }
-            issued
-        };
-
-        let command =
-            ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(0x78), composition(51)).unwrap();
-        let before = issuance_state(&pool).await;
-        let issued = issue(&universe_role_set, &command)
-            .await
-            .expect("the universe-member composition issues");
-        let after = issuance_state(&pool).await;
+        let fixture = Box::pin(UniverseMemberIssuanceFixtureV1::issue(&owner_url)).await;
+        let UniverseMemberIssuanceFixtureV1 {
+            pool,
+            base,
+            requests,
+            binding_locator,
+            universe_role_set,
+            command,
+            issued,
+            issuance_before: before,
+            issuance_after: after,
+            ..
+        } = &fixture;
+        let (pool, base, requests, binding_locator) = (pool, base, requests, *binding_locator);
+        let (before, after) = (before.clone(), after.clone());
         assert_eq!(
             after
                 .iter()
@@ -485,18 +578,15 @@ mod postgres_tests {
             [1, 1, 1, 1, 1, 1, 1, 0],
             "one binding, one aggregate, one issuance, and no census"
         );
+        let issue = async |role_set: &StrategyDesignRoleSetReceiptV1,
+                           command: &ReplayCompositionLocatorOnlyIssuanceRequestV1<
+            ReplayCompositionUniverseBindingIssuanceRequestV1,
+        >| fixture.issue_under(role_set, command).await;
+        let composition = |end: i128| fixture.composition(end);
+        let role_set = |requests: &[crate::owner::strategy_input_binding::UntrustedStrategyInputBindingRequest]| {
+            role_set(&fixture.locator, requests)
+        };
 
-        let (binding_identity, binding_digest): (Vec<u8>, Vec<u8>) = sqlx::query_as(
-            "SELECT binding_identity,binding_digest FROM market_data_private.replay_composition_issuances_v1 WHERE request_identity=$1",
-        )
-        .bind(d(0x78).as_bytes().as_slice())
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        let binding_locator = ReplayCompositionBindingLocatorV1::from_untrusted(
-            BindingDigest::from_untrusted_bytes(binding_identity.try_into().unwrap()),
-            BindingDigest::from_untrusted_bytes(binding_digest.try_into().unwrap()),
-        );
         let mut transaction = pool.begin().await.unwrap();
         let binding =
             recover_replay_composition_binding_in_transaction_v1(&mut transaction, binding_locator)
@@ -563,7 +653,7 @@ mod postgres_tests {
         // A retry returns the stored bytes; another composition under the same identity and an
         // exact-instrument role set are refused by name; none of them writes.
         assert_eq!(
-            issue(&universe_role_set, &command)
+            issue(universe_role_set, command)
                 .await
                 .expect("the retry rejoins")
                 .canonical_bytes(),
@@ -571,7 +661,7 @@ mod postgres_tests {
         );
         assert_eq!(
             issue(
-                &universe_role_set,
+                universe_role_set,
                 &ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(0x78), composition(52))
                     .unwrap()
             )
@@ -589,13 +679,13 @@ mod postgres_tests {
             Err(ReplayCompositionBindingErrorV1::CompositionShapeMismatch),
             "an exact-instrument Design is refused by name, not composed into this shape"
         );
-        assert_eq!(issuance_state(&pool).await, after);
+        assert_eq!(issuance_state(pool).await, after);
 
         // The binding keys the request's Instrument Master V2 cut from the selection it bound.
         let instrument_master = InstrumentMasterV2PostgresOwner::install(pool.clone())
             .await
             .expect("the Instrument Master V2 store");
-        let settled = cut_state(&pool).await;
+        let settled = cut_state(pool).await;
         assert_eq!(
             instrument_master
                 .issue_cut_for_bound_replay_v1("universe-member-replay", binding_locator)
@@ -603,11 +693,7 @@ mod postgres_tests {
             Err(InstrumentMasterCustodyErrorV2::MissingFact),
             "a member with no Instrument Master V2 fact at the selection's observation"
         );
-        assert_eq!(
-            cut_state(&pool).await,
-            settled,
-            "the refusal writes nothing"
-        );
+        assert_eq!(cut_state(pool).await, settled, "the refusal writes nothing");
         instrument_master
             .append_fact(&fact_for_observed_at(
                 crate::owner::chain_fixture_v1::CHAIN_FIXTURE_INSTRUMENT_V1,

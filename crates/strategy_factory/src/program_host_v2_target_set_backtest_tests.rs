@@ -916,7 +916,9 @@ fn run_round_trip_corpus() -> anyhow::Result<RoundTripEvidence> {
         artifact,
         BoundedMembers::try_from(instrument_ids)?,
         BoundedMembers::try_from(bar_types)?,
-        [frame],
+        [crate::program_host_v2::OwnerUniverseFrameV1::uncoordinated(
+            frame,
+        )],
         None,
         false,
         Rc::new(Cell::new(false)),
@@ -1064,7 +1066,9 @@ fn run_corpus_with_fault(restore: bool, second_submit_fault: bool) -> anyhow::Re
         artifact,
         BoundedMembers::try_from(instrument_ids)?,
         BoundedMembers::try_from(bar_types)?,
-        [frame],
+        [crate::program_host_v2::OwnerUniverseFrameV1::uncoordinated(
+            frame,
+        )],
         None,
         restore,
         Rc::clone(&restored),
@@ -1197,7 +1201,9 @@ fn run_invalid_batch(case: InvalidBatchCase) -> anyhow::Result<TargetSetBacktest
         artifact,
         BoundedMembers::try_from(instrument_ids)?,
         BoundedMembers::try_from(bar_types)?,
-        [frame],
+        [crate::program_host_v2::OwnerUniverseFrameV1::uncoordinated(
+            frame,
+        )],
         None,
         false,
         Rc::new(Cell::new(false)),
@@ -1355,7 +1361,9 @@ fn run_multi_frame_equity_corpus() -> anyhow::Result<TargetSetBacktestTraceV2> {
         artifact,
         BoundedMembers::try_from(instrument_ids)?,
         BoundedMembers::try_from(bar_types)?,
-        [frame],
+        [crate::program_host_v2::OwnerUniverseFrameV1::uncoordinated(
+            frame,
+        )],
         None,
         false,
         Rc::new(Cell::new(false)),
