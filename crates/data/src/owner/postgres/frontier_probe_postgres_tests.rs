@@ -109,5 +109,35 @@ async fn frontier_probe_reports_current_members() {
             references.map(|resolved| hex(resolved.eligible_instrument_frontier().as_bytes()))
         );
     }
+    // The clock step of a production Source Binding admission, rolled back: does the Owner's own
+    // minted clock succeed the head the chain holds here?
+    let head = owner.current_clock_admission_v1().await;
+    let _ = writeln!(
+        report,
+        "head clock {:?}",
+        head.as_ref().map(|clock| (
+            clock.clock_identity.clone(),
+            clock.clock_epoch.clone(),
+            clock.monotonic_sequence,
+            clock.decision_cut
+        ))
+    );
+    let minted = owner.mint_clock_admission_v1().await;
+    let _ = writeln!(
+        report,
+        "minted clock {:?}",
+        minted.as_ref().map(|clock| (
+            clock.clock_identity.clone(),
+            clock.clock_epoch.clone(),
+            clock.monotonic_sequence
+        ))
+    );
+
+    if let Ok(minted) = minted {
+        let mut transaction = pool.begin().await.unwrap();
+        let admitted = super::admit_clock(&mut transaction, &minted).await;
+        transaction.rollback().await.unwrap();
+        let _ = writeln!(report, "admit minted clock (rolled back): {admitted:?}");
+    }
     panic!("{report}");
 }
