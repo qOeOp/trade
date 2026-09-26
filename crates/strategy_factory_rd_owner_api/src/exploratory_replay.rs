@@ -1368,6 +1368,11 @@ fn owner_error(error: &ExploratoryReplayOwnerError, request_identity: &str) -> R
             "OWNER_UNAVAILABLE",
             request_identity,
         ),
+        ExploratoryReplayOwnerError::ComposerReplayShapeRefused(_) => rejection(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "COMPOSER_REPLAY_SHAPE_REFUSED",
+            request_identity,
+        ),
     }
 }
 

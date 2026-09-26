@@ -1099,6 +1099,9 @@ pub async fn read_exploratory_replay(
         Err(ExploratoryReplayOwnerError::Unavailable(_)) => {
             StatusCode::SERVICE_UNAVAILABLE.into_response()
         }
+        Err(ExploratoryReplayOwnerError::ComposerReplayShapeRefused(_)) => {
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
     }
 }
 

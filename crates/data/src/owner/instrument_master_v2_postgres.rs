@@ -1059,14 +1059,42 @@ pub(crate) mod tests {
         seed: u8,
         selection: &UniverseSelectionReadbackV1,
     ) -> ReplayCompositionBindingLocatorV1 {
-        let binding = crate::owner::replay_market_facts_v2::tests::binding_over_universe_selection(
-            seed,
-            selection.record().identity(),
-            selection.record().digest(),
-        );
+        persist_binding_readback(
+            pool,
+            &crate::owner::replay_market_facts_v2::tests::binding_over_universe_selection(
+                seed,
+                selection.record().identity(),
+                selection.record().digest(),
+            ),
+        )
+        .await
+    }
+
+    /// Stores a universe-member (schema 2) binding over `selection`, which names no Instrument
+    /// Master, and returns its exact locator.
+    async fn persist_universe_member_binding(
+        pool: &PgPool,
+        seed: u8,
+        selection: &UniverseSelectionReadbackV1,
+    ) -> ReplayCompositionBindingLocatorV1 {
+        persist_binding_readback(
+            pool,
+            &crate::owner::replay_market_facts_v2::tests::universe_member_binding_over_universe_selection(
+                seed,
+                selection.record().identity(),
+                selection.record().digest(),
+            ),
+        )
+        .await
+    }
+
+    async fn persist_binding_readback(
+        pool: &PgPool,
+        binding: &crate::owner::replay_market_facts_v2::ReplayCompositionBindingReadbackV1,
+    ) -> ReplayCompositionBindingLocatorV1 {
         let mut tx = pool.begin().await.unwrap();
         crate::owner::replay_market_facts_v2::postgres::persist_replay_composition_binding_in_transaction_v1(
-            &mut tx, &binding,
+            &mut tx, binding,
         )
         .await
         .expect("the binding is stored");
@@ -1181,7 +1209,36 @@ pub(crate) mod tests {
             .await
             .expect("a one-member cut");
         assert_eq!(member_identities(&single), [BTC.1]);
+
+        // A universe-member binding names no Instrument Master: the cut it keys is issued over the
+        // selection it bound, from that selection's members alone.
+        let universe_one_binding = persist_universe_member_binding(&pool, 6, &one).await;
+        let universe_single = owner
+            .issue_cut_for_bound_replay_v1("rd-replay-universe-one", universe_one_binding)
+            .await
+            .expect("a one-member cut keyed by a universe-member binding");
+        assert_eq!(member_identities(&universe_single), [BTC.1]);
+        assert_eq!(
+            universe_single.cut().universe_selection_identity(),
+            one.record().identity()
+        );
+        assert_eq!(
+            universe_single.cut().decision_cut(),
+            one.record().decision_cut()
+        );
+
+        // A member with no Instrument Master fact is refused by name, with nothing written.
+        let unmastered = selection_with_request(14, &[("DOGEUSDT", "DOGEUSDT-PERP.BINANCE")]);
+        persist_selection(&pool, &unmastered, 4).await;
+        let unmastered_binding = persist_universe_member_binding(&pool, 7, &unmastered).await;
         let settled = custody_counts(&pool).await;
+        assert_eq!(
+            owner
+                .issue_cut_for_bound_replay_v1("rd-replay-unmastered", unmastered_binding)
+                .await,
+            Err(InstrumentMasterCustodyErrorV2::MissingFact)
+        );
+        assert_eq!(custody_counts(&pool).await, settled);
 
         let unstored =
             binding_over_universe_selection(5, two.record().identity(), two.record().digest())

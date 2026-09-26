@@ -1,5 +1,7 @@
 //! Sealed Product Edge deployment and request-admission facts.
 
+#[cfg(feature = "sealed-deployment-acceptance")]
+pub mod deployment_acceptance;
 mod invocation;
 mod postgres;
 

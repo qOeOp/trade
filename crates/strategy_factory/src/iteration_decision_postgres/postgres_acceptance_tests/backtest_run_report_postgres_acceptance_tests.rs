@@ -174,8 +174,9 @@ struct FrozenDesignV1 {
 /// read-only transaction.
 ///
 /// No run in this chain reaches the anchor through a report. A legacy request's artifact was not
-/// built by Composer, so it can never anchor, and a Composer V3 request is refused before the
-/// anchor because its request read locks rows. The anchor is therefore proven on its own, against
+/// built by Composer, so it can never anchor, and no Composer V3 request reaches a committed run:
+/// the runner that would commit one, `run_exploratory_replay_v2`, is driven by no chain entry. The
+/// anchor is therefore proven on its own, against
 /// real Composer custody: the Artifact the authored Design was composed to two entries back, and
 /// the fixture run's. Each artifact is found by the Design its plan was composed from, never by a
 /// receipt digest, so the selection cannot decide the answer. Each must anchor to its own Design's
