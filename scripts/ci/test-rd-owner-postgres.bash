@@ -1605,14 +1605,19 @@ run_authority_migration_for_database() {
     "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
 }
 
-check_postgres_containers_run_under_init
-check_static_isolation
-check_nextest_graph_contract
-check_backtest_result_function_source
-check_exploratory_replay_read_fence_source
-check_market_data_principal_bootstrap_order
-check_trial_family_candidate_experiment_cutover
-check_composer_acceptance_stays_in_the_chain
+# `--report-records` judges records and nothing else: it runs where the shard records are merged,
+# a job with the checkout but none of the tools these source checks need (ripgrep among them), and
+# its verdict must not depend on them. It keeps the self-tests of the two readings it uses.
+if [[ "${1:-}" != "--report-records" ]]; then
+  check_postgres_containers_run_under_init
+  check_static_isolation
+  check_nextest_graph_contract
+  check_backtest_result_function_source
+  check_exploratory_replay_read_fence_source
+  check_market_data_principal_bootstrap_order
+  check_trial_family_candidate_experiment_cutover
+  check_composer_acceptance_stays_in_the_chain
+fi
 check_collected_warning_report
 # A PostgreSQL crash-reinit leaves the postmaster running, so its start time does not move; what
 # records it is a LOG line, which the lock-and-error excerpt printed at cleanup filters out. Measured
@@ -2032,9 +2037,11 @@ check_chain_record_report() {
 }
 
 check_chain_record_report
-check_postgres_crash_reading
-check_chain_sleep_reading
-check_chain_shard_plan
+if [[ "${1:-}" != "--report-records" ]]; then
+  check_postgres_crash_reading
+  check_chain_sleep_reading
+  check_chain_shard_plan
+fi
 
 if [[ "${1:-}" == "--report-records" ]]; then
   if [[ "$#" -ne 2 ]]; then
