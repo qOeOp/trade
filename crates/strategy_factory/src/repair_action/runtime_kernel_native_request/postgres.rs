@@ -116,6 +116,9 @@ pub async fn migrate_runtime_kernel_native_repair_request_v1(
 }
 
 /// Re-resolves every supplied identity from Owner custody and atomically commits one request/outbox pair.
+///
+/// Runs at READ COMMITTED for the reasons `compose_market_data_repair_request_v1` states: the Replay
+/// cut refuses REPEATABLE READ, and the composition key is locked before any row is read.
 pub async fn compose_runtime_kernel_native_repair_request_v1<T>(
     pool: &PgPool,
     composition: RuntimeKernelNativeRepairCompositionRequestV1,
@@ -126,10 +129,6 @@ where
 {
     validate_locator(&composition)?;
     let mut transaction = pool.begin().await.map_err(unavailable)?;
-    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-        .execute(&mut *transaction)
-        .await
-        .map_err(unavailable)?;
     lock_composition_key(&mut transaction, &composition.action_request_identity).await?;
     let inputs = resolve_inputs(&mut transaction, &composition, shared_time_resolver).await?;
     let rows = load_rows(&mut transaction, &composition.action_request_identity).await?;
@@ -157,7 +156,8 @@ where
     Ok(readback)
 }
 
-/// Resolves one request only after rechecking its full current Owner cut.
+/// Resolves one request only after rechecking its full current Owner cut, at READ COMMITTED: the
+/// Replay cut refuses REPEATABLE READ.
 pub async fn resolve_runtime_kernel_native_repair_request_v1<T>(
     pool: &PgPool,
     composition: RuntimeKernelNativeRepairCompositionRequestV1,
@@ -171,10 +171,6 @@ where
 {
     validate_locator(&composition)?;
     let mut transaction = pool.begin().await.map_err(unavailable)?;
-    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-        .execute(&mut *transaction)
-        .await
-        .map_err(unavailable)?;
     let rows = load_rows(&mut transaction, &composition.action_request_identity).await?;
     if rows.is_empty() {
         transaction.commit().await.map_err(unavailable)?;
