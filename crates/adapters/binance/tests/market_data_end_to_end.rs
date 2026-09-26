@@ -422,9 +422,7 @@ async fn admit(product: &'static Product) -> Admitted {
     let instrument = instruments
         .admit_fact(instrument_submission(
             product,
-            semantics_identity,
-            proposal.source_frontier.digest,
-            proposal.correction_frontier.digest,
+            &binding_locator,
             effective_ns,
         ))
         .await
@@ -754,9 +752,7 @@ fn universe_locator(
 /// The member as Operations would describe it, under the binding's own semantics and frontiers.
 fn instrument_submission(
     product: &Product,
-    market_semantics_identity: BindingDigest,
-    source_frontier: BindingDigest,
-    correction_frontier: BindingDigest,
+    source_binding: &UntrustedSourceBindingLocator,
     effective_ns: u64,
 ) -> InstrumentMasterFactSubmissionV1 {
     let observed = i128::from(effective_ns) - 1;
@@ -786,9 +782,7 @@ fn instrument_submission(
         lifecycle_frontier: scoped(product, 0x31),
         corporate_action_frontier: scoped(product, 0x32),
         historical_membership_frontier: scoped(product, 0x11),
-        market_semantics_identity,
-        source_frontier,
-        correction_frontier,
+        source_binding: source_binding.clone(),
         effective_from: 1,
         effective_until: None,
         provider_available: observed,

@@ -5539,15 +5539,13 @@ async fn owner_r0_readback_v1(
 /// The Instrument Master fact Operations would admit for the oracle's one member.
 ///
 /// Its coordinates sit at or before the oracle's decision cut and its interval is open, so the
-/// production PIT intake can select it for the request's event instant and observation. It states
-/// the binding's own Market Semantics Compatibility identity and frontiers, which is what later
-/// lets a Market Semantics fact derive one registry key over the instrument, the snapshot and the
-/// binding together.
+/// production PIT intake can select it for the request's event instant and observation. It names
+/// the binding it is observed under, and the Owner takes the fact's Market Semantics Compatibility
+/// identity and frontiers from that binding, which is what later lets a Market Semantics fact
+/// derive one registry key over the instrument, the snapshot and the binding together.
 pub(super) fn oracle_instrument_submission_v1(
     identity: &str,
-    market_semantics_identity: BindingDigest,
-    source_frontier: BindingDigest,
-    correction_frontier: BindingDigest,
+    source_binding: &UntrustedSourceBindingLocator,
 ) -> crate::owner::instrument_master_admission_v1::InstrumentMasterFactSubmissionV1 {
     use crate::owner::instrument_master_admission_v1::{
         InstrumentDecimalSubmissionV1, InstrumentMasterFactSubmissionV1,
@@ -5585,9 +5583,7 @@ pub(super) fn oracle_instrument_submission_v1(
         lifecycle_frontier: d(81),
         corporate_action_frontier: d(82),
         historical_membership_frontier: d(83),
-        market_semantics_identity,
-        source_frontier,
-        correction_frontier,
+        source_binding: source_binding.clone(),
         effective_from: 1,
         effective_until: None,
         provider_available: 5,
@@ -5916,9 +5912,7 @@ async fn production_pit_mint_postgres_oracle_v1(
     let admitted_instrument = owner
         .admit_instrument_master_fact_v1(oracle_instrument_submission_v1(
             "AAPL",
-            owner_semantics_identity,
-            source.fact().source_frontier().digest,
-            correction_digest,
+            source.receipt().locator(),
         ))
         .await
         .expect("Operations admits the member's fact under the current head");
@@ -5926,9 +5920,7 @@ async fn production_pit_mint_postgres_oracle_v1(
         owner
             .admit_instrument_master_fact_v1(oracle_instrument_submission_v1(
                 "AAPL",
-                owner_semantics_identity,
-                source.fact().source_frontier().digest,
-                correction_digest,
+                source.receipt().locator(),
             ))
             .await
             .expect("a replayed submission rejoins"),
@@ -9679,9 +9671,7 @@ async fn postgres_each_research_request_under_one_binding_gets_its_own_market_se
         owner
             .admit_instrument_master_fact_v1(oracle_instrument_submission_v1(
                 instrument,
-                scope_of(source),
-                source.fact().source_frontier().digest,
-                source.receipt().locator().correction_frontier.digest,
+                source.receipt().locator(),
             ))
             .await
             .expect("the instrument's fact is admitted under its binding's scope");
@@ -9823,9 +9813,7 @@ async fn postgres_concurrent_values_under_one_binding_leave_one_value() {
     owner
         .admit_instrument_master_fact_v1(oracle_instrument_submission_v1(
             "AAPL",
-            scope,
-            binding.fact().source_frontier().digest,
-            binding.receipt().locator().correction_frontier.digest,
+            binding.receipt().locator(),
         ))
         .await
         .unwrap();
@@ -9940,9 +9928,7 @@ async fn postgres_market_semantics_heads_migrate_to_one_head_per_snapshot() {
     owner
         .admit_instrument_master_fact_v1(oracle_instrument_submission_v1(
             "AAPL",
-            scope,
-            binding.fact().source_frontier().digest,
-            binding.receipt().locator().correction_frontier.digest,
+            binding.receipt().locator(),
         ))
         .await
         .unwrap();

@@ -47,7 +47,7 @@ pub(super) fn d(byte: u8) -> BindingDigest {
     BindingDigest::from_untrusted_bytes([byte; 32])
 }
 
-fn clock() -> MarketDataClockAdmission {
+pub(super) fn clock() -> MarketDataClockAdmission {
     MarketDataClockAdmission::seal_for_test(
         CLOCK_IDENTITY,
         CLOCK_EPOCH,
@@ -61,7 +61,7 @@ fn clock() -> MarketDataClockAdmission {
     )
 }
 
-fn source_proposal() -> UntrustedSourceBindingProposal {
+pub(super) fn source_proposal() -> UntrustedSourceBindingProposal {
     let mut proposal = UntrustedSourceBindingProposal {
         claimed_binding_id: d(0),
         schema_version: 1,
@@ -175,7 +175,7 @@ fn pit_time() -> UntrustedPitSnapshotTimeEvidence {
 ///
 /// `lifecycle_frontier` is the one coordinate a case varies: two members whose facts disagree on
 /// it cannot share one Instrument Master request.
-fn instrument_submission(
+pub(super) fn instrument_submission(
     identity: &str,
     source: &SourceBindingCommit,
     lifecycle_frontier: BindingDigest,
@@ -211,11 +211,7 @@ fn instrument_submission(
         lifecycle_frontier,
         corporate_action_frontier: d(82),
         historical_membership_frontier: d(83),
-        market_semantics_identity: derive_market_semantics_compatibility_identity_v1(
-            &source.fact().proposal().semantics,
-        ),
-        source_frontier: source.fact().source_frontier().digest,
-        correction_frontier: source.receipt().locator().correction_frontier.digest,
+        source_binding: source.receipt().locator().clone(),
         effective_from: 1,
         effective_until: None,
         provider_available: 5,
@@ -441,13 +437,14 @@ impl Fixture {
         lifecycle_frontier: BindingDigest,
     ) -> InstrumentMasterFactV1 {
         let locator = self.owner().current_clock_head_locator_v1().await.unwrap();
+        let submission = instrument_submission(identity, &self.source, lifecycle_frontier);
+        let binding = self
+            .owner()
+            .instrument_master_binding_coordinates_v1(&submission.source_binding)
+            .await
+            .unwrap();
         self.owner()
-            .append_instrument_master_fact(
-                instrument_submission(identity, &self.source, lifecycle_frontier)
-                    .into_proposal()
-                    .unwrap(),
-                &locator,
-            )
+            .append_instrument_master_fact(submission.into_proposal(binding).unwrap(), &locator)
             .await
             .unwrap()
     }

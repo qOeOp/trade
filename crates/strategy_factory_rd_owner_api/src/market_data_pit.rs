@@ -641,6 +641,10 @@ fn instrument_master_error(error: InstrumentMasterAdmissionErrorV1) -> Response 
             StatusCode::BAD_REQUEST,
             "INVALID_INSTRUMENT_MASTER_SUBMISSION",
         ),
+        InstrumentMasterAdmissionErrorV1::SourceBindingUnavailable => (
+            StatusCode::CONFLICT,
+            "INSTRUMENT_MASTER_SOURCE_BINDING_UNAVAILABLE",
+        ),
         InstrumentMasterAdmissionErrorV1::PredecessorUnavailable => (
             StatusCode::CONFLICT,
             "INSTRUMENT_MASTER_PREDECESSOR_UNAVAILABLE",
@@ -820,6 +824,51 @@ mod tests {
         #[case] code: &str,
     ) {
         let response = market_semantics_error(error);
+
+        assert_eq!(response.status(), status);
+        assert_eq!(response.headers()["x-rd-rejection-code"], code);
+    }
+
+    /// Each Instrument Master refusal answers with its own code. A submission naming a binding the
+    /// Owner does not hold admitted is a conflict with the Owner's custody under a name of its own,
+    /// not a malformed body.
+    #[rstest]
+    #[case(
+        InstrumentMasterAdmissionErrorV1::InvalidSubmission,
+        StatusCode::BAD_REQUEST,
+        "INVALID_INSTRUMENT_MASTER_SUBMISSION"
+    )]
+    #[case(
+        InstrumentMasterAdmissionErrorV1::SourceBindingUnavailable,
+        StatusCode::CONFLICT,
+        "INSTRUMENT_MASTER_SOURCE_BINDING_UNAVAILABLE"
+    )]
+    #[case(
+        InstrumentMasterAdmissionErrorV1::PredecessorUnavailable,
+        StatusCode::CONFLICT,
+        "INSTRUMENT_MASTER_PREDECESSOR_UNAVAILABLE"
+    )]
+    #[case(
+        InstrumentMasterAdmissionErrorV1::AdmissionConflict,
+        StatusCode::CONFLICT,
+        "INSTRUMENT_MASTER_ADMISSION_CONFLICT"
+    )]
+    #[case(
+        InstrumentMasterAdmissionErrorV1::ClockUnavailable,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "MARKET_DATA_CLOCK_UNAVAILABLE"
+    )]
+    #[case(
+        InstrumentMasterAdmissionErrorV1::StoreUnavailable,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "MARKET_DATA_OWNER_UNAVAILABLE"
+    )]
+    fn each_instrument_master_refusal_answers_with_its_own_code(
+        #[case] error: InstrumentMasterAdmissionErrorV1,
+        #[case] status: StatusCode,
+        #[case] code: &str,
+    ) {
+        let response = instrument_master_error(error);
 
         assert_eq!(response.status(), status);
         assert_eq!(response.headers()["x-rd-rejection-code"], code);

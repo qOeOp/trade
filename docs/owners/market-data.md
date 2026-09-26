@@ -1098,19 +1098,22 @@ data gap where the truth is a closed door. Any proposal to admit a second consum
 contract change and must state which caller binding it rewrites.
 
 **CURRENT / PARTIAL, production Instrument Master V1 intake:** one Owner-sealed admission port and one route,
-`POST /v1/market-data/instrument-master-facts`, through which Operations submits `InstrumentMasterFactProposalV1`
-for the exact `BACKTEST_OWNER_V1` role; the Owner resolves and appends it through the unchanged write-once
-fact/cut/receipt/outbox path, and a replayed proposal rejoins. In the same slice the PIT intake stamps
-`instrument_master_digest` from the Owner's own durable readback for the request's instrument scope at its decision
-cut, so the request-supplied value becomes a claim the Owner overrides or refuses, never a fact it copies. The
-isolated PostgreSQL chain proves both halves: a replayed submission rejoins its fact, a member with no admitted
-fact mints no snapshot at all, and the persisted request carries the Owner's readback digest rather than the
-caller's. Nothing beyond this intake and that stamp is claimed. **NOT_ADMITTED:** this status does not claim provider ingestion or authenticity,
-deployment, Dashboard work, dynamic Backtest product acceptance, inverse or quanto target-consumption semantics, or
-trading. BAR custody itself is instrument-class neutral when its exact
-Instrument Master evidence supports the canonical fixed/session bar. A caller-carried digest, canonical-looking
-string, static fixture, transport success,
-Owner-only test, or documentation check cannot claim product closure.
+`POST /v1/market-data/instrument-master-facts`, through which Operations submits `InstrumentMasterFactProposalV1` for
+the exact `BACKTEST_OWNER_V1` role; the Owner resolves and appends it through the unchanged write-once
+fact/cut/receipt/outbox path, and a replayed proposal rejoins. The submission names the admitted Source Binding the
+fact is observed under, and states no Market Semantics Compatibility identity, source frontier or correction
+frontier: the Owner takes all three from that binding, deriving the scope as the Market Semantics admission derives
+it, so no submission can state a scope no binding claims. A binding the Owner does not hold admitted under exactly
+that locator is refused by name as `INSTRUMENT_MASTER_SOURCE_BINDING_UNAVAILABLE` (HTTP 409), and nothing is written.
+In the same slice the PIT intake stamps `instrument_master_digest` from the Owner's own durable readback for the
+request's instrument scope at its decision cut, so the request-supplied value becomes a claim the Owner overrides or
+refuses, never a fact it copies. The isolated PostgreSQL chain proves both halves: a replayed submission rejoins its
+fact, a member with no admitted fact mints no snapshot at all, and the persisted request carries the Owner's readback
+digest rather than the caller's. Nothing beyond this intake and that stamp is claimed. **NOT_ADMITTED:** this status
+does not claim provider ingestion or authenticity, deployment, Dashboard work, dynamic Backtest product acceptance,
+inverse or quanto target-consumption semantics, or trading. BAR custody itself is instrument-class neutral when its
+exact Instrument Master evidence supports the canonical fixed/session bar. A caller-carried digest, canonical-looking
+string, static fixture, transport success, Owner-only test, or documentation check cannot claim product closure.
 
 ### Native immutable records
 
