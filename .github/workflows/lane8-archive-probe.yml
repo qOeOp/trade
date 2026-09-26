@@ -1,0 +1,160 @@
+# yamllint disable rule:line-length
+# LANE8 PROBE, NOT FOR MERGE: what one-compile, N-shard rust tests would pay to move the build.
+# Job A builds as build.yml's rust tests does (same env, same cache entry, restored, never saved),
+# then archives and uploads. Job B does what one shard would: its setup, then download and unpack.
+name: lane8-archive-probe
+
+on:
+  push:
+    branches:
+      - lane8-probe/archive
+
+permissions:
+  contents: read
+
+env:
+  CARGO_CI_PROFILE: ci-pr
+  CARGO_TARGET_DIR: target/rust-tests-linux-x86
+  RUST_TEST_EXTRA_FEATURES: >-
+    capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres,vibe-strategy-factory/sealed-develop-composer-acceptance
+  RUST_BACKTRACE: 1
+
+jobs:
+  archive:
+    name: build and archive
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          # A push to this branch sees no allowed-endpoints variables (run 36260319312).
+          egress-policy: audit
+
+      - name: Runner hardware
+        run: |
+          echo "LANE8-A cpu: $(lscpu | sed -n 's/^Model name: *//p'), cores: $(nproc)"
+
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Common setup
+        timeout-minutes: 42
+        uses: ./.github/actions/common-setup
+        with:
+          python-version: "3.13"
+          build-type: "test"
+          free-disk-space: "true"
+          free-disk-space-max-build: "true"
+          minimum-free-space-gb: "70"
+          rust-cache-enabled: "true"
+          rust-cache-shared-key: rust-tests-linux-x86
+          rust-cache-workspaces: . -> target/rust-tests-linux-x86
+          rust-cache-on-failure: "false"
+          rust-cache-save-if: "false"
+          rust-cache-workspace-crates: "false"
+
+      - name: Compile the test graph
+        run: >-
+          make cargo-test NEXTEST_PROFILE=ci EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
+          FAIL_FAST_FLAG= NEXTEST_OUTPUT_ARGS="--no-run"
+
+      - name: Archive the test graph
+        # A make-evaluated target, so the Makefile's exports (CC/CXX) match the compile above and
+        # nothing recompiles; the step time is then packing alone.
+        run: |
+          set -euo pipefail
+          make --no-print-directory EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}" --eval '
+          lane8-archive:
+          	cargo nextest archive $(CARGO_TEST_SCOPE_FLAGS) --features "$(CARGO_FEATURES)" --cargo-profile $(CARGO_CI_PROFILE) --archive-file lane8-tests.tar.zst
+          ' lane8-archive
+          echo "LANE8-A archive bytes: $(stat -c %s lane8-tests.tar.zst)"
+          echo "LANE8-A archive entries: $(zstd -dc lane8-tests.tar.zst | tar -t | wc -l)"
+
+      - name: Upload the archive
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lane8-tests-archive
+          path: lane8-tests.tar.zst
+          compression-level: 0
+          retention-days: 1
+
+  shard:
+    name: one shard's setup, download and unpack
+    needs: archive
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    services:
+      redis:
+        image: mirror.gcr.io/library/redis:7.4.5-alpine3.21@sha256:bb186d083732f669da90be8b0f975a37812b15e913465bb14d845db72a4e3e08
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      postgres:
+        image: mirror.gcr.io/library/postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: pass
+          POSTGRES_DB: vibe
+        ports:
+          - 5432:5432
+        options: --health-cmd "pg_isready -U postgres -d vibe" --health-interval 10s --health-timeout 5s --health-retries
+          5
+    steps:
+      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Runner hardware
+        run: |
+          echo "LANE8-A cpu: $(lscpu | sed -n 's/^Model name: *//p'), cores: $(nproc)"
+
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Common setup
+        timeout-minutes: 20
+        uses: ./.github/actions/common-setup
+        with:
+          python-version: "3.13"
+          build-type: "test"
+          free-disk-space: "false"
+          rust-cache-enabled: "false"
+
+      - name: Install Vibe CLI
+        env:
+          VIBE_CLI_FORCE_SOURCE: "1"
+        run: bash scripts/ci/install-nautilus-cli.sh
+
+      - name: Init postgres schema
+        run: vibe database init --schema ${{ github.workspace }}/schema/sql
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USERNAME: postgres
+          POSTGRES_PASSWORD: pass
+          POSTGRES_DATABASE: vibe
+
+      - name: Cached test data
+        uses: ./.github/actions/common-test-data
+
+      - name: Download the archive
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: lane8-tests-archive
+
+      - name: Unpack the archive
+        run: |-
+          set -euo pipefail
+          mkdir -p /tmp/lane8-extract
+          t0=$(date +%s%N)
+          zstd -dc lane8-tests.tar.zst | tar -x -C /tmp/lane8-extract
+          t1=$(date +%s%N)
+          echo "LANE8-A unpack ms: $(( (t1 - t0) / 1000000 )), bytes on disk: $(du -sb /tmp/lane8-extract | cut -f1)"
