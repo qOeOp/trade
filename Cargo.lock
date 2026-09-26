@@ -11451,6 +11451,7 @@ dependencies = [
  "vibe-databento",
  "vibe-operator-authorization",
  "vibe-product-edge",
+ "vibe-product-edge-routing-api",
  "vibe-rd-artifact-invocation-custody",
  "vibe-strategy-factory",
  "vibe-testkit",

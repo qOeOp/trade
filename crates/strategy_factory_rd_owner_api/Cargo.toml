@@ -59,6 +59,7 @@ vibe-data = { workspace = true, features = [
   "sealed-strategy-input-acceptance",
 ] }
 vibe-operator-authorization = { workspace = true }
+vibe-product-edge-routing-api = { workspace = true }
 vibe-rd-artifact-invocation-custody = { workspace = true }
 vibe-testkit = { workspace = true, features = ["postgres"] }
 
