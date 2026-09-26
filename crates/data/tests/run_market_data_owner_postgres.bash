@@ -27,6 +27,14 @@ readonly market_data_owner_postgres_tests=(
   owner::postgres::pit_empty_observation_tests::postgres_a_partial_answer_is_insufficient_and_its_retry_rejoins
   owner::postgres::universe_sample_projection_v1_tests::postgres_a_universe_frame_issues_one_sample_projection_over_the_host_frame
   owner::postgres::universe_member_composition_basis_v1_tests::postgres_a_new_snapshot_reads_the_basis_its_universe_composition_issues_from
+  owner::store_admission::tests::a_production_build_refuses_evidence_that_names_no_admission
+)
+
+# Proofs of code that exists only in a build carrying `sealed-strategy-input-acceptance`. They run
+# with that feature, in a build of their own, because the list above must be the build without it:
+# that is where the production branch of what they relax is the branch compiled and proven.
+readonly market_data_owner_postgres_sealed_acceptance_tests=(
+  owner::store_admission::tests::the_sealed_acceptance_resolver_reads_under_exactly_its_grants
 )
 
 # The ordered chain refuses a guarded crate whose test SQL is destructive without dedicated-database
@@ -216,12 +224,23 @@ provision_database() {
 
 rm -rf -- "$proof_record_dir"
 mkdir -p -- "$proof_record_dir"
+# One ordinal across both lists: each proof still gets a database of its own, and the guard below
+# walks every database either list materialized.
+readonly all_market_data_proofs=(
+  "${market_data_owner_postgres_tests[@]}"
+  "${market_data_owner_postgres_sealed_acceptance_tests[@]}"
+)
+readonly plain_proof_count="${#market_data_owner_postgres_tests[@]}"
 ordinal=0
-for test_selection in "${market_data_owner_postgres_tests[@]}"; do
+for test_selection in "${all_market_data_proofs[@]}"; do
   ordinal=$((ordinal + 1))
+  feature_args=()
+  if [[ "$ordinal" -gt "$plain_proof_count" ]]; then
+    feature_args=(--features sealed-strategy-input-acceptance)
+  fi
   arm_chain_entry_watchdog "$proof_wall_clock_seconds" \
     "$(printf '%s/%03d.timeout' "$proof_record_dir" "$ordinal")" \
-    "market-data proof ${ordinal}/${#market_data_owner_postgres_tests[@]} (${test_selection})"
+    "market-data proof ${ordinal}/${#all_market_data_proofs[@]} (${test_selection})"
   provision_database "${database_prefix}_${ordinal}" "${marker_prefix}-${ordinal}"
 
   # Selection runs under nextest, not `cargo test --exact`, because the two differ on the case that
@@ -235,13 +254,14 @@ for test_selection in "${market_data_owner_postgres_tests[@]}"; do
     --lib \
     --cargo-profile "${CARGO_CI_PROFILE:-nextest}" \
     --run-ignored all \
+    ${feature_args[@]+"${feature_args[@]}"} \
     -E "test(=${test_selection})"
   test_status=$?
   set -e
   disarm_chain_entry_watchdog
 
   if [[ "$test_status" -ne 0 ]]; then
-    echo "market-data proof ${ordinal}/${#market_data_owner_postgres_tests[@]} failed: ${test_selection}" >&2
+    echo "market-data proof ${ordinal}/${#all_market_data_proofs[@]} failed: ${test_selection}" >&2
     echo "  a non-zero exit here is either a failing proof or a selection that matched nothing;" >&2
     echo "  nextest prints 'error: no tests to run' for the second, which means the name is stale" >&2
     exit "$test_status"
@@ -252,7 +272,7 @@ done
 # and name no schema another role can create in; scripts/ci/check-security-definer-search-path.sql
 # holds the rule, and no routine is exempt from it.
 guard_databases=(postgres)
-for ((guard_ordinal = 1; guard_ordinal <= ${#market_data_owner_postgres_tests[@]}; guard_ordinal++)); do
+for ((guard_ordinal = 1; guard_ordinal <= ${#all_market_data_proofs[@]}; guard_ordinal++)); do
   guard_databases+=("${database_prefix}_${guard_ordinal}")
 done
 bash "$repository_root/scripts/ci/run-security-definer-guard.bash" "$container" "${guard_databases[@]}"
