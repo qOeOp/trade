@@ -16,10 +16,12 @@ into the key.
 value `build` takes on the events that admit to `main` - a pull request, the merge queue, `main`
 and `test-ci` - and refuses if the condition stops naming those events.
 
-It also refuses a Rust cache restore in either archive job. The chain's 12-package graph unifies
-dependency features differently from the workspace build whose entry `main` saves, so a
-full-match restore still compiled all 792 units (owner-chains run 36063327107) and only added the
-restore's 225 s (run 36061606498). common-setup restores by default, so the job must say "false".
+It also pins each archive job's Rust cache inputs exactly. The archive jobs keep a dependency
+cache of the chain's own graph; restoring `rust tests`'s entry instead buys nothing, because the
+chain's 12-package graph unifies dependency features differently from the workspace build that
+saved it: a full-match restore still compiled all 792 units (owner-chains run 36063327107) and
+only added the restore's 225 s (run 36061606498). A test-chain push must not save: only `main`
+writes the entry.
 
 Stdlib only: the pre-commit job has no YAML library, and the two blocks read here are plain
 `KEY: value` lines, optionally folded with `>-`.
@@ -44,9 +46,27 @@ CONDITIONAL = re.compile(
 )
 CARGO_ENVIRONMENT = re.compile(r"^(CARGO_|RUST)")
 RUST_CACHE_INPUT = re.compile(r"^\s+(rust-cache-[a-z-]+):\s*(.*)$")
+CHAIN_CACHE = {
+    "rust-cache-shared-key": "rd-owner-chain-archive-linux-x86",
+    "rust-cache-workspaces": ". -> target/rust-tests-linux-x86",
+    "rust-cache-on-failure": '"false"',
+    "rust-cache-workspace-crates": '"false"',
+}
 ARCHIVE_JOBS = (
-    ("owner-chains.yml", "rd-owner-archive"),
-    ("build.yml", "postgres-owner-chain-archive-linux-x86"),
+    (
+        "owner-chains.yml",
+        "rd-owner-archive",
+        {**CHAIN_CACHE, "rust-cache-enabled": '"true"', "rust-cache-save-if": '"false"'},
+    ),
+    (
+        "build.yml",
+        "postgres-owner-chain-archive-linux-x86",
+        {
+            **CHAIN_CACHE,
+            "rust-cache-enabled": "${{ runner.environment == 'github-hosted' && 'true' || 'false' }}",
+            "rust-cache-save-if": "${{ env.SAVE_BUILD_CACHES }}",
+        },
+    ),
 )
 
 
@@ -102,17 +122,21 @@ def rust_cache_inputs(text: str, job: str) -> dict[str, str]:
 
 def archive_cache_failures(texts: dict[str, str]) -> list[str]:
     failures = []
-    for workflow, job in ARCHIVE_JOBS:
+    for workflow, job, expected in ARCHIVE_JOBS:
         inputs = rust_cache_inputs(texts[workflow], job)
-        if inputs != {"rust-cache-enabled": '"false"'}:
-            spelled = ", ".join(f"{name}: {value}" for name, value in inputs.items())
-            spelled = spelled or "rust-cache-enabled unset, which common-setup defaults to true"
+        if inputs.get("rust-cache-shared-key") == "rust-tests-linux-x86":
             failures.append(
-                f"{workflow} job `{job}` restores the Rust cache ({spelled}). "
-                'It must set exactly rust-cache-enabled: "false": '
-                "a full-match restore of `rust tests`'s entry still compiled 792 of 792 chain units "
-                "(run 36063327107) and cost 225 s (run 36061606498).",
+                f"{workflow} job `{job}` restores `rust tests`'s cache entry. A full-match restore of it "
+                "still compiled 792 of 792 chain units (run 36063327107) and cost 225 s (run 36061606498); "
+                "the archive job keeps the chain's own dependency cache instead.",
             )
+            continue
+        failures.extend(
+            f"{workflow} job `{job}` sets {name}={inputs.get(name, 'unset')!r}, "
+            f"expected {expected.get(name, 'unset')!r}."
+            for name in sorted(set(expected) | set(inputs))
+            if inputs.get(name) != expected.get(name)
+        )
     return failures
 
 
@@ -193,7 +217,7 @@ def main() -> int:
         return 1
     print(
         "owner-chains builds its chains with build's acceptance-time Cargo environment, "
-        "and neither archive job restores the Rust cache.",
+        "and both archive jobs keep the chain's own dependency cache.",
     )
     return 0
 

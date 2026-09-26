@@ -48,7 +48,12 @@ jobs:
       - uses: ./.github/actions/common-setup
         with:
           python-version: "3.13"
-          rust-cache-enabled: "false"
+          rust-cache-enabled: ${{ runner.environment == 'github-hosted' && 'true' || 'false' }}
+          rust-cache-shared-key: rd-owner-chain-archive-linux-x86
+          rust-cache-workspaces: . -> target/rust-tests-linux-x86
+          rust-cache-on-failure: "false"
+          rust-cache-workspace-crates: "false"
+          rust-cache-save-if: ${{ env.SAVE_BUILD_CACHES }}
       - run: make archive
   postgres-owner-chains-linux-x86:
     name: ${{ matrix.chain.name }}
@@ -88,7 +93,12 @@ jobs:
       - uses: ./.github/actions/common-setup
         with:
           python-version: "3.13"
-          rust-cache-enabled: "false"
+          rust-cache-enabled: "true"
+          rust-cache-shared-key: rd-owner-chain-archive-linux-x86
+          rust-cache-workspaces: . -> target/rust-tests-linux-x86
+          rust-cache-on-failure: "false"
+          rust-cache-workspace-crates: "false"
+          rust-cache-save-if: "false"
       - run: make archive
 
   owner-chain:
@@ -225,35 +235,45 @@ def main() -> int:
             CHAINS,
             "build.yml job `postgres-owner-chain-archive-linux-x86` sets CARGO_CI_PROFILE='nextest'",
         ),
-        "build's archive job restores the Rust cache again": (
+        "build's archive job restores rust tests's entry": (
             within(
                 BUILD,
                 "  postgres-owner-chain-archive-linux-x86:\n",
-                'rust-cache-enabled: "false"',
-                'rust-cache-enabled: "true"',
+                "rust-cache-shared-key: rd-owner-chain-archive-linux-x86",
+                "rust-cache-shared-key: rust-tests-linux-x86",
             ),
             CHAINS,
-            'job `postgres-owner-chain-archive-linux-x86` restores the Rust cache (rust-cache-enabled: "true")',
+            "job `postgres-owner-chain-archive-linux-x86` restores `rust tests`'s cache entry",
         ),
-        "owner-chains archive job names a cache entry to restore": (
+        "owner-chains archive job saves from a test-chain push": (
             BUILD,
             within(
                 CHAINS,
                 "  rd-owner-archive:\n",
-                '          rust-cache-enabled: "false"\n',
-                '          rust-cache-enabled: "false"\n          rust-cache-shared-key: rust-tests-linux-x86\n',
+                'rust-cache-save-if: "false"',
+                'rust-cache-save-if: "true"',
             ),
-            'job `rd-owner-archive` restores the Rust cache (rust-cache-enabled: "false", rust-cache-shared-key',
+            "job `rd-owner-archive` sets rust-cache-save-if='\"true\"', expected '\"false\"'",
         ),
-        "owner-chains archive job drops the input and takes the default": (
+        "owner-chains archive job caches workspace crates too": (
             BUILD,
             within(
                 CHAINS,
                 "  rd-owner-archive:\n",
-                '          rust-cache-enabled: "false"\n',
+                'rust-cache-workspace-crates: "false"',
+                'rust-cache-workspace-crates: "true"',
+            ),
+            "sets rust-cache-workspace-crates='\"true\"', expected '\"false\"'",
+        ),
+        "build's archive job drops the cache": (
+            within(
+                BUILD,
+                "  postgres-owner-chain-archive-linux-x86:\n",
+                "          rust-cache-enabled: ${{ runner.environment == 'github-hosted' && 'true' || 'false' }}\n",
                 "",
             ),
-            "rust-cache-enabled unset, which common-setup defaults to true",
+            CHAINS,
+            "sets rust-cache-enabled='unset'",
         ),
         "build's acceptance value changes and owner-chains does not follow": (
             within(

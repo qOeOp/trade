@@ -86,12 +86,20 @@ jobs:
           free-disk-space: "true"
           free-disk-space-max-build: "true"
           minimum-free-space-gb: "40"
-          # No Rust cache: `rust tests`'s entry buys this build nothing. Restored at full match
-          # (owner-chains run 36063327107), it still compiled all 792 units - the chain's 12-package
-          # graph unifies dependency features differently from the workspace build that saved it, so
-          # no fingerprint matches - and the restore alone took 225 s (run 36061606498): 9.9 minutes
-          # warm against 8.8 cold. check-chain-channel-environment.py refuses a restore added back.
-          rust-cache-enabled: "false"
+          # The chain's own dependency cache, not `rust tests`'s. That entry buys this build nothing:
+          # restored at full match (owner-chains run 36063327107) it still compiled all 792 units,
+          # because the chain's 12-package graph unifies dependency features differently from the
+          # workspace build that saved it, and the restore alone took 225 s (run 36061606498). This
+          # entry holds the external dependencies of the chain's own graph only - 431 MiB compressed
+          # (run 36069263558) - so the job compiles just the workspace crates on top of it. Only
+          # main saves it. check-chain-channel-environment.py pins these inputs exactly.
+          rust-cache-enabled: "true"
+          rust-cache-shared-key: rd-owner-chain-archive-linux-x86
+          rust-cache-workspaces: . -> target/rust-tests-linux-x86
+          rust-cache-on-failure: "false"
+          rust-cache-workspace-crates: "false"
+          # A test-chain push restores main's entry and never writes one of its own.
+          rust-cache-save-if: "false"
 
       - name: Build the R&D chain archive
         # Twice the slowest cold compile, 7m45s.
