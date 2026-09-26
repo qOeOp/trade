@@ -327,12 +327,46 @@ impl MarketSemanticsReadbackV1 {
     }
 }
 
+/// One condition a Market Semantics registry key requires of the Source Binding, PIT snapshot,
+/// Instrument Master cut and R0 record it is derived from. A refusal names the first that failed,
+/// because every one of them answers the requester the same way and only this says which it was.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum MarketSemanticsRegistryDependencyV1 {
+    SourceAdmitted,
+    InstrumentMasterVerified,
+    PitSnapshotIdentity,
+    PitFactDigest,
+    ObservationBatchDigest,
+    SourceBindingIdentity,
+    SourceBindingFactDigest,
+    SourceBindingLineageRoot,
+    SourceBindingLineageVersion,
+    PitSourceBindingIdentity,
+    PitSourceBindingLineageRoot,
+    PitSourceBindingLineageVersion,
+    PitInstrumentMasterDigest,
+    /// The snapshot's Market Semantics identity is the key's compatibility scope.
+    PitMarketSemantics,
+    /// The Instrument Master fact's Market Semantics identity is the key's compatibility scope.
+    InstrumentFactMarketSemantics,
+    InstrumentFactSourceFrontier,
+    InstrumentFactCorrectionFrontier,
+}
+
+impl Display for MarketSemanticsRegistryDependencyV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{self:?}")
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum MarketSemanticsErrorV1 {
     InvalidRequest,
     InvalidRegistryEntry,
     UnauthenticatedInput,
     DependencyMismatch,
+    /// A registry key's dependencies disagree, named by the first condition that failed.
+    RegistryKeyDependencyMismatch(MarketSemanticsRegistryDependencyV1),
     InvalidFact,
     InvalidCorrection,
     MissingPredecessor,

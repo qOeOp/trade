@@ -10764,83 +10764,15 @@ impl MarketDataOwnerPostgres {
             .begin()
             .await
             .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?;
-        let source = load_source_for_update(
-            &mut transaction,
-            submission.source_binding.binding_id,
-            false,
-        )
-        .await
-        .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?
-        .ok_or(MarketSemanticsAdmissionErrorV1::DependencyUnavailable)?;
-
-        if source.commit().receipt().locator() != &submission.source_binding {
-            return Err(MarketSemanticsAdmissionErrorV1::DependencyUnavailable);
-        }
-        let source_readback = SourceBindingOwnerReadback::from_verified(&source);
-
-        if !source_readback.is_admitted() {
-            return Err(MarketSemanticsAdmissionErrorV1::DependencyUnavailable);
-        }
-        let pit = load_pit_for_update(
-            &mut transaction,
-            submission.pit_snapshot.snapshot_identity,
-            false,
-        )
-        .await
-        .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?
-        .ok_or(MarketSemanticsAdmissionErrorV1::DependencyUnavailable)?;
-
-        if pit.receipt().locator() != &submission.pit_snapshot
-            || !super::pit_snapshot::PitSnapshotOwnerReadback::from_verified(&pit).is_available()
-        {
-            return Err(MarketSemanticsAdmissionErrorV1::DependencyUnavailable);
-        }
-        let stored_batch = load_pit_observation_batch_for_update(&mut transaction, &pit)
-            .await
-            .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?
-            .ok_or(MarketSemanticsAdmissionErrorV1::DependencyUnavailable)?;
-        let batch = verify_observation_batch(
-            &pit,
-            stored_batch.source_binding_identity,
-            stored_batch.source_binding_lineage_root,
-            stored_batch.source_binding_lineage_version,
-            stored_batch.digest,
-            &stored_batch.bytes,
-            &stored_batch.rows,
-        )
-        .map_err(|_| MarketSemanticsAdmissionErrorV1::DependencyUnavailable)?;
-
-        // The scope is the binding's own Market Semantics Compatibility identity, which is what
-        // the snapshot was minted against; a submitter naming a scope could state a fact about a
-        // compatibility this binding never claimed.
-        let scope = derive_market_semantics_compatibility_identity_v1(
-            &source.commit().fact().proposal().semantics,
-        );
-
-        if batch.market_semantics_identity() != scope {
-            return Err(MarketSemanticsAdmissionErrorV1::DependencyUnavailable);
-        }
-        let instrument_request_identity = instrument_master_request_identity_for_cut_v1(
-            &mut transaction,
-            batch.instrument_master_digest(),
-        )
-        .await?;
-        let instrument =
-            load_durable_instrument_readback(&mut transaction, instrument_request_identity, false)
-                .await
-                .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?
-                .ok_or(MarketSemanticsAdmissionErrorV1::DependencyUnavailable)?;
-        let r0_request_identity = reference_fact_coordinates::owner_r0_request_identity_v1(
-            pit.fact().snapshot_identity(),
-            pit.fact().digest(),
-        );
-        let r0 = reference_fact_coordinates::load_reference_fact_r0_readback_v1(
-            &mut transaction,
-            r0_request_identity,
-        )
-        .await
-        .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?
-        .ok_or(MarketSemanticsAdmissionErrorV1::DependencyUnavailable)?;
+        let MarketSemanticsAdmissionInputsV1 {
+            source,
+            source_readback,
+            pit,
+            batch,
+            scope,
+            instrument,
+            r0,
+        } = load_market_semantics_admission_inputs_v1(&mut transaction, &submission).await?;
 
         let key = super::market_semantics::authority::derive_registry_key_v1(
             scope,
@@ -10848,7 +10780,21 @@ impl MarketDataOwnerPostgres {
             &batch,
             &instrument,
             &r0,
-        )?;
+        )
+        .map_err(|e| {
+            // The requester is answered `DependencyUnavailable` whichever condition failed; the
+            // Owner's warning is the only place that says which one it was.
+            if let super::market_semantics::MarketSemanticsErrorV1::RegistryKeyDependencyMismatch(
+                dependency,
+            ) = e
+            {
+                super::storage_diagnostic::refused_by_store(
+                    "market_semantics.admission.registry_key_dependency",
+                    &dependency,
+                );
+            }
+            MarketSemanticsAdmissionErrorV1::from(e)
+        })?;
         let record = r0.record();
         let effective_instant = record.effective_from_ns;
         let entry = super::market_semantics::authority::seal_registry_entry_v1(
@@ -10917,6 +10863,116 @@ impl MarketDataOwnerPostgres {
             .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?;
         Ok(terminal)
     }
+}
+
+/// Everything a Market Semantics admission derives its registry key from, resolved from the
+/// Owner's own custody for one submission.
+pub(super) struct MarketSemanticsAdmissionInputsV1 {
+    pub(super) source: SourceBindingStoredAggregate,
+    pub(super) source_readback: SourceBindingOwnerReadback,
+    pub(super) pit: PitSnapshotCommitAggregate,
+    pub(super) batch: VerifiedPitObservationBatch,
+    pub(super) scope: BindingDigest,
+    pub(super) instrument: InstrumentMasterReadbackV1,
+    pub(super) r0: crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1,
+}
+
+/// Resolves a submission's dependencies inside `transaction`, as admission does: the admitted
+/// Source Binding it names, its AVAILABLE snapshot and verified batch, the scope the binding
+/// implies, the Instrument Master cut the snapshot binds, and the R0 record its commit appended.
+/// A caller that must know why a registry key is refused derives the key from these, with the same
+/// function admission uses.
+///
+/// # Errors
+///
+/// `StoreUnavailable` when the store cannot answer, `DependencyUnavailable` when a dependency is
+/// absent or does not match the submission.
+pub(super) async fn load_market_semantics_admission_inputs_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    submission: &MarketSemanticsFactSubmissionV1,
+) -> Result<MarketSemanticsAdmissionInputsV1, MarketSemanticsAdmissionErrorV1> {
+    let source = load_source_for_update(transaction, submission.source_binding.binding_id, false)
+        .await
+        .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?
+        .ok_or(MarketSemanticsAdmissionErrorV1::DependencyUnavailable)?;
+
+    if source.commit().receipt().locator() != &submission.source_binding {
+        return Err(MarketSemanticsAdmissionErrorV1::DependencyUnavailable);
+    }
+    let source_readback = SourceBindingOwnerReadback::from_verified(&source);
+
+    if !source_readback.is_admitted() {
+        return Err(MarketSemanticsAdmissionErrorV1::DependencyUnavailable);
+    }
+    let pit = load_pit_for_update(
+        transaction,
+        submission.pit_snapshot.snapshot_identity,
+        false,
+    )
+    .await
+    .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?
+    .ok_or(MarketSemanticsAdmissionErrorV1::DependencyUnavailable)?;
+
+    if pit.receipt().locator() != &submission.pit_snapshot
+        || !super::pit_snapshot::PitSnapshotOwnerReadback::from_verified(&pit).is_available()
+    {
+        return Err(MarketSemanticsAdmissionErrorV1::DependencyUnavailable);
+    }
+    let stored_batch = load_pit_observation_batch_for_update(transaction, &pit)
+        .await
+        .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?
+        .ok_or(MarketSemanticsAdmissionErrorV1::DependencyUnavailable)?;
+    let batch = verify_observation_batch(
+        &pit,
+        stored_batch.source_binding_identity,
+        stored_batch.source_binding_lineage_root,
+        stored_batch.source_binding_lineage_version,
+        stored_batch.digest,
+        &stored_batch.bytes,
+        &stored_batch.rows,
+    )
+    .map_err(|_| MarketSemanticsAdmissionErrorV1::DependencyUnavailable)?;
+
+    // The scope is the binding's own Market Semantics Compatibility identity, which is what
+    // the snapshot was minted against; a submitter naming a scope could state a fact about a
+    // compatibility this binding never claimed.
+    let scope = derive_market_semantics_compatibility_identity_v1(
+        &source.commit().fact().proposal().semantics,
+    );
+
+    if batch.market_semantics_identity() != scope {
+        return Err(MarketSemanticsAdmissionErrorV1::DependencyUnavailable);
+    }
+    let instrument_request_identity = instrument_master_request_identity_for_cut_v1(
+        transaction,
+        batch.instrument_master_digest(),
+    )
+    .await?;
+    let instrument =
+        load_durable_instrument_readback(transaction, instrument_request_identity, false)
+            .await
+            .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?
+            .ok_or(MarketSemanticsAdmissionErrorV1::DependencyUnavailable)?;
+    let r0_request_identity = reference_fact_coordinates::owner_r0_request_identity_v1(
+        pit.fact().snapshot_identity(),
+        pit.fact().digest(),
+    );
+    let r0 = reference_fact_coordinates::load_reference_fact_r0_readback_v1(
+        transaction,
+        r0_request_identity,
+    )
+    .await
+    .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?
+    .ok_or(MarketSemanticsAdmissionErrorV1::DependencyUnavailable)?;
+    Ok(MarketSemanticsAdmissionInputsV1 {
+        source,
+        source_readback,
+        pit,
+        batch,
+        scope,
+        instrument,
+        r0,
+    })
 }
 
 /// The request identity of the Owner's own Instrument Master resolution behind one cut digest.

@@ -200,6 +200,7 @@ impl From<MarketSemanticsErrorV1> for MarketSemanticsAdmissionErrorV1 {
         match error {
             MarketSemanticsErrorV1::UnauthenticatedInput
             | MarketSemanticsErrorV1::DependencyMismatch
+            | MarketSemanticsErrorV1::RegistryKeyDependencyMismatch(_)
             | MarketSemanticsErrorV1::UnknownIdentity => Self::DependencyUnavailable,
             MarketSemanticsErrorV1::RequestConflict
             | MarketSemanticsErrorV1::InvalidOverlap
