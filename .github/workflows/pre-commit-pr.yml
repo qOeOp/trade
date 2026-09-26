@@ -4,8 +4,8 @@ name: pre-commit-pr
 # included - and on every push to `main`. This is where a pull request's no-compile hooks run:
 # build.yml's pre-commit job, on the Ready run, runs only the compiled ones (cargo-clippy, its
 # non-Linux turmoil sibling, cargo-doc, cargo-machete, and check-links-offline, which needs a pinned
-# lychee install) and then requires this job's result for the same head, so both halves gate the
-# merge through `quality`. Both used to run every no-compile hook on each pull request - about 18
+# lychee install), and its `quality` requires this job's result for the same head, so both halves
+# gate the merge. Both used to run every no-compile hook on each pull request - about 18
 # runner-hours a day on 2026-09-24. scripts/ci/run-pre-commit.bash holds the hook lists.
 #
 # This lives outside `build.yml` on purpose: that file's contents are hashed into the Rust cache key,

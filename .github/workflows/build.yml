@@ -314,11 +314,11 @@ jobs:
         with:
           tool: cargo-machete@${{ env.CARGO_MACHETE_VERSION }}
 
-      # On a pull request, pre-commit-pr.yml has already run every hook that needs no compiled
-      # workspace, over all files, on this same head: this job runs the rest and then requires that
-      # result, so every hook still gates the merge through `quality`. On any other event it runs them
-      # all. scripts/ci/run-pre-commit.bash holds both hook lists, and scripts/ci/test-plan.sh checks
-      # that each route's pull request coverage is what it was when both jobs ran every hook.
+      # On a pull request, pre-commit-pr.yml runs every hook that needs no compiled workspace, over
+      # all files, on this same head: this job runs the rest, and `quality` requires that result, so
+      # every hook still gates the merge. On any other event this job runs them all.
+      # scripts/ci/run-pre-commit.bash holds both hook lists, and scripts/ci/test-plan.sh checks that
+      # each route's pull request coverage is what it was when both jobs ran every hook.
       - name: Run pre-commit
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -332,15 +332,6 @@ jobs:
           else
             bash scripts/ci/run-pre-commit.bash "$route"
           fi
-
-      - name: Require the no-compile hooks' result for this head
-        if: github.event_name == 'pull_request'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: >-
-          bash scripts/ci/require-workflow-job.bash pre-commit-pr.yml
-          "pre-commit (no-compile hooks)" "$HEAD_SHA" 1200
 
       - name: Lint the ordered chain's sealed feature union
         # The workspace clippy above never enables a sealed acceptance feature, so code the ordered
@@ -1015,6 +1006,27 @@ jobs:
       - postgres-owner-chains-linux-x86
     runs-on: ubuntu-22.04
     steps:
+      # A pull request's no-compile hooks run in pre-commit-pr.yml, not in this workflow's pre-commit
+      # job; this makes their result part of `quality`. Here, not in the pre-commit job: this job
+      # starts after the longest one, by when pre-commit-pr.yml has finished, so the requirement never
+      # holds a runner waiting (in the pre-commit job it waited 317 s on #1049's run 36214958737).
+      - name: Checkout the requirement script
+        if: github.event_name == 'pull_request'
+        # https://github.com/actions/checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+
+      - name: Require the no-compile hooks' result for this head
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: >-
+          bash scripts/ci/require-workflow-job.bash pre-commit-pr.yml
+          "pre-commit (no-compile hooks)" "$HEAD_SHA" 1200
+
       - name: Verify required build graph
         env:
           READY_GATE_RESULT: ${{ needs.ready-gate.result }}
