@@ -311,3 +311,5 @@ pub use software_control::verify_representative_software_control;
 pub use status::{
     ResearchEvidenceReference, ResearchPhase, ResearchStatusSnapshot, SelectedFormationCandidate,
 };
+
+// LANE8 PROBE, NOT FOR MERGE: a workspace edit, as a pull request would make.
