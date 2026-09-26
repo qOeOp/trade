@@ -2272,7 +2272,12 @@ check_sealed_browser_inputs() {
 }
 check_sealed_browser_inputs
 
-readonly postgres_image="public.ecr.aws/docker/library/postgres:16.4-alpine@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c"
+# One image, two sources: mirror.gcr.io first, public.ecr.aws if it does not serve. The digest names
+# the bytes, so either source gives this chain the same server (scripts/ci/pull-pinned-image.bash).
+readonly postgres_image_sources=(
+  "mirror.gcr.io/library/postgres:16.4-alpine@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c"
+  "public.ecr.aws/docker/library/postgres:16.4-alpine@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c"
+)
 suffix="$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')-$$"
 readonly suffix
 readonly container="vibe-rd-owner-test-${suffix}"
@@ -2582,9 +2587,8 @@ select_reachable_postgres_endpoint() {
   printf '%s %s\n' "$host" "$port"
 }
 
-if ! docker image inspect "$postgres_image" > /dev/null 2>&1; then
-  bash scripts/ci/docker-pull-retry.sh "$postgres_image" 3
-fi
+postgres_image="$(bash scripts/ci/pull-pinned-image.bash "${postgres_image_sources[@]}")"
+readonly postgres_image
 docker volume create "$volume" > /dev/null
 volume_created=true
 docker volume create "$impersonator_volume" > /dev/null
