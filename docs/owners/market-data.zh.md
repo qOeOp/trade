@@ -1009,7 +1009,10 @@ request 提供的 `instrument_master_digest` 并与 Owner-verified batch 比对�
 **CURRENT / PARTIAL，生产 Instrument Master V1 intake：** 一个 Owner-sealed admission port 与一条路由
 `POST /v1/market-data/instrument-master-facts`，Operations 经它为准确的 `BACKTEST_OWNER_V1` role 提交
 `InstrumentMasterFactProposalV1`；Owner 经不变的 write-once fact/cut/receipt/outbox 路径解析并 append，重放的
-proposal rejoin。同一切片内，PIT intake 以 Owner 自己在该请求 instrument scope 与 decision cut 上的 durable
+proposal rejoin。提交指名该 fact 所观测时依据的已准入 Source Binding，不再陈述 Market Semantics
+Compatibility identity、source frontier 与 correction frontier：Owner 从该 binding 取出这三者，scope 的推导与 Market Semantics
+admission 相同，因此任何提交都无法陈述一个没有 binding 声称的 scope。Owner 未以恰为该 locator 的已准入状态持有的 binding，
+按名以 `INSTRUMENT_MASTER_SOURCE_BINDING_UNAVAILABLE`（HTTP 409）拒绝，不写入任何东西。同一切片内，PIT intake 以 Owner 自己在该请求 instrument scope 与 decision cut 上的 durable
 readback 盖章 `instrument_master_digest`，于是 request 提供的值只是 Owner 覆盖或拒绝的 claim，绝不是它照抄的
 fact。一次性 PostgreSQL 链路把两半都证明了：重放的提交 rejoin 同一条 fact、没有已准入 fact 的成员一个快照也铸不
 出、持久化的请求带的是 Owner 的 readback digest 而不是调用方的。除这条 intake 与那次盖章外不声称任何事。**NOT_ADMITTED：** 本状态不声称 provider ingestion/authenticity、deployment、

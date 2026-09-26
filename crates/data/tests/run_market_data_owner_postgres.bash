@@ -26,6 +26,7 @@ readonly market_data_owner_postgres_tests=(
   owner::postgres::pit_empty_observation_tests::postgres_a_partial_answer_is_insufficient_and_its_retry_rejoins
   owner::postgres::universe_sample_projection_v1_tests::postgres_a_universe_frame_issues_one_sample_projection_over_the_host_frame
   owner::postgres::universe_member_composition_basis_v1_tests::postgres_a_new_snapshot_reads_the_basis_its_universe_composition_issues_from
+  owner::postgres::instrument_master_admission_v1_tests::postgres_an_instrument_fact_takes_its_scope_and_frontiers_from_the_named_binding
 )
 
 # The ordered chain refuses a guarded crate whose test SQL is destructive without dedicated-database

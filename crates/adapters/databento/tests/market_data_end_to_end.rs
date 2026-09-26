@@ -100,11 +100,7 @@ async fn market_data_answers_one_frozen_request_from_live_vendor_data() {
         .await
         .expect("the configured Market Data store opens");
     let instrument = instruments
-        .admit_fact(probe_instrument_submission(
-            semantics_identity,
-            proposal.source_frontier.digest,
-            proposal.correction_frontier.digest,
-        ))
+        .admit_fact(probe_instrument_submission(&binding_locator))
         .await
         .expect("the probe instrument is admitted");
     assert_eq!(instrument.canonical_identity(), PIT_PROBE_INSTRUMENT);
@@ -212,9 +208,7 @@ async fn market_data_answers_one_frozen_request_from_live_vendor_data() {
 /// It states the admitted binding's own Market Semantics Compatibility identity and frontiers,
 /// which is what lets one registry key later cover the instrument, the snapshot and the binding.
 fn probe_instrument_submission(
-    market_semantics_identity: BindingDigest,
-    source_frontier: BindingDigest,
-    correction_frontier: BindingDigest,
+    source_binding: &UntrustedSourceBindingLocator,
 ) -> InstrumentMasterFactSubmissionV1 {
     let observed = i128::from(EFFECTIVE_NS) - 1;
     InstrumentMasterFactSubmissionV1 {
@@ -248,9 +242,7 @@ fn probe_instrument_submission(
         lifecycle_frontier: digest(0x31),
         corporate_action_frontier: digest(0x32),
         historical_membership_frontier: digest(0x11),
-        market_semantics_identity,
-        source_frontier,
-        correction_frontier,
+        source_binding: source_binding.clone(),
         effective_from: 1,
         effective_until: None,
         provider_available: observed,

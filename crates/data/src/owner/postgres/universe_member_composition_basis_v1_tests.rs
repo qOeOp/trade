@@ -204,9 +204,7 @@ async fn postgres_a_new_snapshot_reads_the_basis_its_universe_composition_issues
     owner
         .admit_instrument_master_fact_v1(oracle_instrument_submission_v1(
             "AAPL",
-            scope,
-            source.fact().source_frontier().digest,
-            source.receipt().locator().correction_frontier.digest,
+            source.receipt().locator(),
         ))
         .await
         .expect("the instrument's fact is admitted under the binding's scope");

@@ -68,10 +68,6 @@ async fn a_live_channel_seals_venue_trades_and_advances_its_durable_head() {
         .await
         .expect("the configured Market Data store opens");
     let proposal = bybit_source_proposal(admitted_at);
-    let proposal_frontiers = (
-        proposal.source_frontier.digest,
-        proposal.correction_frontier.digest,
-    );
     let terminal = admission
         .admit(SourceBindingAdmissionRequestV1 {
             proposal,
@@ -93,12 +89,7 @@ async fn a_live_channel_seals_venue_trades_and_advances_its_durable_head() {
     instrument_master_admission_from_environment_v1()
         .await
         .expect("the configured Market Data store opens")
-        .admit_fact(instrument_submission(
-            semantics_identity,
-            proposal_frontiers.0,
-            proposal_frontiers.1,
-            admitted_at,
-        ))
+        .admit_fact(instrument_submission(&binding_locator, admitted_at))
         .await
         .expect("the member's instrument fact is admitted");
 
@@ -252,9 +243,7 @@ fn channel_request(source_binding: UntrustedSourceBindingLocator) -> LiveMarketC
 /// Every observation instant is before the channel opens, because a fact the Owner could not yet
 /// have observed is not one it may issue a subscription from.
 fn instrument_submission(
-    market_semantics_identity: BindingDigest,
-    source_frontier: BindingDigest,
-    correction_frontier: BindingDigest,
+    source_binding: &UntrustedSourceBindingLocator,
     admitted_at: u64,
 ) -> InstrumentMasterFactSubmissionV1 {
     let observed = i128::from(admitted_at) - 1;
@@ -289,9 +278,7 @@ fn instrument_submission(
         lifecycle_frontier: digest(0x31),
         corporate_action_frontier: digest(0x32),
         historical_membership_frontier: digest(0x11),
-        market_semantics_identity,
-        source_frontier,
-        correction_frontier,
+        source_binding: source_binding.clone(),
         effective_from: 1,
         effective_until: None,
         provider_available: observed,
