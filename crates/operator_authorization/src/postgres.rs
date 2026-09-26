@@ -1,7 +1,4 @@
-use std::{
-    fmt::Display,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgPoolOptions};
@@ -532,15 +529,14 @@ impl OperatorAuthorizationIssuerPostgresV1 {
                     &existing.proposal.authorization_identity,
                 ));
             }
+            let read_cut_epoch_ms = database_now(&mut transaction).await?;
             let result = load_verified(
                 &mut transaction,
                 &OperatorAuthorizationLocatorV1 {
                     authorization_identity: existing.proposal.authorization_identity.clone(),
                     issuance_receipt_identity: issuance_receipt(&existing).receipt_identity,
                 },
-                AuthorizationReadModeV1::Current {
-                    read_cut_epoch_ms: now_ms()?,
-                },
+                AuthorizationReadModeV1::Current { read_cut_epoch_ms },
                 false,
             )
             .await?;
@@ -555,7 +551,7 @@ impl OperatorAuthorizationIssuerPostgresV1 {
             return Err(OperatorAuthorizationError::ConflictingReplay);
         }
 
-        let committed_at = now_ms()?;
+        let committed_at = database_now(&mut transaction).await?;
         if committed_at < proposal.not_before_epoch_ms
             || committed_at >= proposal.valid_through_epoch_ms
         {
@@ -708,7 +704,7 @@ impl OperatorAuthorizationIssuerPostgresV1 {
         if current.frontier_identity != proposal.expected_frontier_identity {
             return Err(OperatorAuthorizationError::ConflictingReplay);
         }
-        let committed_at = now_ms()?;
+        let committed_at = database_now(&mut transaction).await?;
         let mut revocations = current.revocations.clone();
         revocations.push(StoredRevocationEntryV1 {
             authorization_identity: proposal.authorization.authorization_identity.clone(),
@@ -887,7 +883,7 @@ impl OperatorAuthorizationIssuerPostgresV1 {
             .await?
             .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Scope, &scope_digest))?;
         let current = history.current()?.clone();
-        let committed_at = now_ms()?;
+        let committed_at = database_now(&mut transaction).await?;
 
         if history.issuance_head()? != &predecessor
             || current.frontier_identity != proposal.expected_current_frontier_identity
@@ -1090,7 +1086,7 @@ impl OperatorAuthorizationIssuerPostgresV1 {
             .await?
             .ok_or_else(|| unavailable_for(Reason::Missing, Subject::Scope, &scope_digest))?;
         let current = history.current()?.clone();
-        let committed_at = now_ms()?;
+        let committed_at = database_now(&mut transaction).await?;
 
         if history.issuance_head()? != &predecessor
             || current.frontier_identity != proposal.expected_current_frontier_identity
@@ -2597,12 +2593,21 @@ async fn verify_outbox<T: Serialize>(
     Ok(())
 }
 
-fn now_ms() -> Result<u64, OperatorAuthorizationError> {
-    let duration = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|e| OperatorAuthorizationError::Storage(e.to_string()))?;
-    u64::try_from(duration.as_millis())
-        .map_err(|e| OperatorAuthorizationError::Storage(e.to_string()))
+/// The store clock, `pg_catalog.clock_timestamp()` in epoch milliseconds, read inside
+/// `transaction`. Every time Operator Authorization compares or stamps comes from it: an
+/// authorization's window is judged here at issuance and again by Product Edge at genesis and
+/// admission on the same store clock, so both judges read one clock. Schema-qualified, so no
+/// function reachable through `search_path` can stand in for it.
+async fn database_now(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<u64, OperatorAuthorizationError> {
+    let observed: i64 = sqlx::query_scalar(
+        "SELECT pg_catalog.floor(EXTRACT(epoch FROM pg_catalog.clock_timestamp()) * 1000)::bigint",
+    )
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    from_i64(observed)
 }
 
 fn json<T: Serialize>(value: &T) -> Result<serde_json::Value, OperatorAuthorizationError> {
@@ -2663,6 +2668,99 @@ mod tests {
     };
     use rstest::rstest;
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+    use vibe_testkit::source_guard::{crate_production_sources, process_clock_reads};
+
+    /// The store clock Operator Authorization compares with, read the way the Owner reads it. A
+    /// window or cut a fixture takes from this process's clock instead would put the two sides of
+    /// the Owner's comparison on different clocks.
+    async fn owner_now_ms(pool: &PgPool) -> u64 {
+        let mut transaction = pool.begin().await.unwrap();
+        let now = database_now(&mut transaction).await.unwrap();
+        transaction.rollback().await.unwrap();
+        now
+    }
+
+    /// This process's clock, for identity suffixes and diagnostics only; never a window or a cut.
+    fn process_clock_ms() -> u64 {
+        u64::try_from(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis(),
+        )
+        .unwrap()
+    }
+
+    /// The body of the item that starts at `signature`, up to the next item at the same depth.
+    fn item_body<'a>(source: &'a str, signature: &str) -> &'a str {
+        let start = source.find(signature).expect("item signature");
+        let rest = &source[start + signature.len()..];
+        let end = [
+            "\n    pub async fn ",
+            "\n    async fn ",
+            "\n    pub(crate) async fn ",
+            "\n}\n",
+        ]
+        .into_iter()
+        .filter_map(|next| rest.find(next))
+        .min()
+        .expect("item end");
+        &rest[..end]
+    }
+
+    /// Operator Authorization has one clock, the store's `clock_timestamp()`. An authorization's
+    /// window is judged at issuance here and judged again by Product Edge at genesis and at every
+    /// admission; a grant's window is judged here too. Issuance, revocation, succession and
+    /// recovery used to read this process's clock while grants and Product Edge read the store's,
+    /// so under clock skew one judge could hold a window current that the other did not.
+    #[rstest]
+    fn operator_authorization_reads_only_the_store_clock() {
+        let postgres = include_str!("postgres.rs");
+        let grant = include_str!("postgres/grant.rs");
+        let sources = crate_production_sources(env!("CARGO_MANIFEST_DIR"));
+        // The walk reached the files the functions below live in.
+        for file in ["src/postgres.rs", "src/postgres/grant.rs"] {
+            assert!(
+                sources.iter().any(|(path, _)| path.ends_with(file)),
+                "{file}"
+            );
+        }
+
+        for (path, production) in &sources {
+            assert_eq!(
+                process_clock_reads(production),
+                Vec::<&str>::new(),
+                "{}",
+                path.display()
+            );
+        }
+
+        for signature in [
+            "pub async fn issue_genesis(",
+            "pub async fn revoke(",
+            "pub async fn issue_successor(",
+            "pub async fn recover_expired_manifests(",
+        ] {
+            assert!(
+                item_body(postgres, signature).contains("database_now(&mut transaction).await?"),
+                "{signature}"
+            );
+        }
+
+        for signature in [
+            "async fn issue_grant_genesis<",
+            "async fn issue_grant_successor<",
+            "async fn revoke_grant<",
+        ] {
+            assert!(
+                item_body(grant, signature).contains("database_now(&mut transaction).await?"),
+                "{signature}"
+            );
+        }
+        assert!(
+            item_body(postgres, "async fn database_now(").contains("pg_catalog.clock_timestamp()")
+        );
+    }
 
     #[rstest]
     fn expired_manifest_recovery_schema_preparation_is_exactly_bounded() {
@@ -2775,7 +2873,7 @@ mod tests {
             .unwrap();
             Self {
                 owner_now: u64::try_from(owner_now).unwrap(),
-                process_now: now_ms().unwrap(),
+                process_now: process_clock_ms(),
                 read_at: std::time::Instant::now(),
             }
         }
@@ -2940,8 +3038,8 @@ mod tests {
         let consumer = mutation
             .pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner)
             .clone();
-        let suffix = format!("advisory-{}-{}", std::process::id(), now_ms().unwrap());
-        let now = now_ms().unwrap();
+        let suffix = format!("advisory-{}-{}", std::process::id(), process_clock_ms());
+        let now = owner_now_ms(&owner.pool).await;
         let proposal = portfolio_grant_proposal(&suffix, now, "serialization", 600_000);
         let resource_digest = proposal.content.resource.digest().unwrap();
         let rust_lock_identity = grant_advisory_lock_identity(&resource_digest);
@@ -3074,7 +3172,7 @@ mod tests {
         assert_ne!(oa_table_fingerprint(owner.pool()).await, before_schedule);
 
         let reverse_proposal =
-            portfolio_grant_proposal(&suffix, now_ms().unwrap(), "reverse", 600_000);
+            portfolio_grant_proposal(&suffix, owner_now_ms(&owner.pool).await, "reverse", 600_000);
         let reverse = owner
             .issue_portfolio_resource_grant_genesis(reverse_proposal.clone())
             .await
@@ -3160,8 +3258,8 @@ mod tests {
         let consumer = mutation
             .pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner)
             .clone();
-        let suffix = format!("{}-{}", std::process::id(), now_ms().unwrap());
-        let now = now_ms().unwrap();
+        let suffix = format!("{}-{}", std::process::id(), process_clock_ms());
+        let now = owner_now_ms(&owner.pool).await;
         let proposal = portfolio_grant_proposal(&suffix, now, "primary", 600_000);
         let issued = owner
             .issue_portfolio_resource_grant_genesis(proposal.clone())
@@ -3302,7 +3400,7 @@ mod tests {
                 .unwrap();
             let corrupted = oa_table_fingerprint(owner.pool()).await;
             assert_eq!(
-                resolve_current(&owner, &legacy, now_ms().unwrap())
+                resolve_current(&owner, &legacy, owner_now_ms(&owner.pool).await)
                     .await
                     .is_err(),
                 legacy_must_fail
@@ -3333,7 +3431,7 @@ mod tests {
                 .unwrap();
             let duplicated = oa_table_fingerprint(owner.pool()).await;
             assert_eq!(
-                resolve_current(&owner, &legacy, now_ms().unwrap())
+                resolve_current(&owner, &legacy, owner_now_ms(&owner.pool).await)
                     .await
                     .is_err(),
                 legacy_must_fail
@@ -3575,7 +3673,7 @@ mod tests {
             revoked_evidence.frontier_identity(),
             revoked.frontier_identity()
         );
-        assert!(!revoked_evidence.is_current_at(now_ms().unwrap()));
+        assert!(!revoked_evidence.is_current_at(owner_now_ms(restarted.pool()).await));
         assert_eq!(
             oa_table_fingerprint(restarted.pool()).await,
             before_revoked_replay
@@ -3722,7 +3820,7 @@ mod tests {
         let expired_evidence = parse_locked_grant_evidence(&consumer, &expiring.locator())
             .await
             .unwrap();
-        assert!(!expired_evidence.is_current_at(now_ms().unwrap()));
+        assert!(!expired_evidence.is_current_at(owner_now_ms(restarted.pool()).await));
         assert_eq!(
             oa_table_fingerprint(restarted.pool()).await,
             before_expired_read
@@ -3839,8 +3937,8 @@ mod tests {
         let consumer = mutation
             .pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner)
             .clone();
-        let suffix = format!("advisory-{}-{}", std::process::id(), now_ms().unwrap());
-        let now = now_ms().unwrap();
+        let suffix = format!("advisory-{}-{}", std::process::id(), process_clock_ms());
+        let now = owner_now_ms(&owner.pool).await;
         let proposal = autonomous_policy_proposal(&suffix, now, "serialization", 600_000);
         let resource_digest = proposal.content.resource().digest().unwrap();
         let rust_lock_identity = autonomous_policy_lock_identity(&resource_digest);
@@ -3977,8 +4075,12 @@ mod tests {
             .unwrap();
         assert_ne!(oa_table_fingerprint(owner.pool()).await, before_schedule);
 
-        let reverse_proposal =
-            autonomous_policy_proposal(&suffix, now_ms().unwrap(), "reverse", 600_000);
+        let reverse_proposal = autonomous_policy_proposal(
+            &suffix,
+            owner_now_ms(&owner.pool).await,
+            "reverse",
+            600_000,
+        );
         let reverse = owner
             .issue_autonomous_policy_authorization_genesis(reverse_proposal.clone())
             .await
@@ -4064,8 +4166,8 @@ mod tests {
         let consumer = mutation
             .pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner)
             .clone();
-        let suffix = format!("{}-{}", std::process::id(), now_ms().unwrap());
-        let now = now_ms().unwrap();
+        let suffix = format!("{}-{}", std::process::id(), process_clock_ms());
+        let now = owner_now_ms(&owner.pool).await;
         let proposal = autonomous_policy_proposal(&suffix, now, "primary", 600_000);
         let issued = owner
             .issue_autonomous_policy_authorization_genesis(proposal.clone())
@@ -4204,7 +4306,7 @@ mod tests {
                 .unwrap();
             let corrupted = oa_table_fingerprint(owner.pool()).await;
             assert_eq!(
-                resolve_current(&owner, &legacy, now_ms().unwrap())
+                resolve_current(&owner, &legacy, owner_now_ms(&owner.pool).await)
                     .await
                     .is_err(),
                 legacy_must_fail
@@ -4235,7 +4337,7 @@ mod tests {
                 .unwrap();
             let duplicated = oa_table_fingerprint(owner.pool()).await;
             assert_eq!(
-                resolve_current(&owner, &legacy, now_ms().unwrap())
+                resolve_current(&owner, &legacy, owner_now_ms(&owner.pool).await)
                     .await
                     .is_err(),
                 legacy_must_fail
@@ -4496,7 +4598,7 @@ mod tests {
             revoked_evidence.frontier_identity(),
             revoked.frontier_identity()
         );
-        assert!(!revoked_evidence.is_current_at(now_ms().unwrap()));
+        assert!(!revoked_evidence.is_current_at(owner_now_ms(restarted.pool()).await));
         assert_eq!(
             oa_table_fingerprint(restarted.pool()).await,
             before_revoked_replay
@@ -4675,7 +4777,7 @@ mod tests {
             parse_locked_autonomous_policy_evidence(&consumer, &expiring.locator())
                 .await
                 .unwrap();
-        assert!(!expired_evidence.is_current_at(now_ms().unwrap()));
+        assert!(!expired_evidence.is_current_at(owner_now_ms(restarted.pool()).await));
         assert_eq!(
             oa_table_fingerprint(restarted.pool()).await,
             before_expired_read
@@ -4691,8 +4793,8 @@ mod tests {
         )
         .await
         .unwrap();
-        let suffix = format!("{}-{}", std::process::id(), now_ms().unwrap());
-        let now = now_ms().unwrap();
+        let suffix = format!("{}-{}", std::process::id(), process_clock_ms());
+        let now = owner_now_ms(&owner.pool).await;
         let genesis_proposal = OperatorAuthorizationIssuanceProposalV1 {
             authorization_identity: format!("authorization-old-{suffix}"),
             issuer_identity: "operator-authorization-issuer-test-v1".into(),
@@ -4782,10 +4884,10 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         );
-        let now = now_ms().unwrap();
         let owner = OperatorAuthorizationIssuerPostgresV1::connect(database_url)
             .await
             .unwrap();
+        let now = owner_now_ms(&owner.pool).await;
         let proposal = OperatorAuthorizationIssuanceProposalV1 {
             authorization_identity: format!("operator-authorization-history-{suffix}"),
             issuer_identity: "operator-authorization-issuer-test-v1".to_string(),
@@ -4986,13 +5088,13 @@ mod tests {
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
         let database_url =
             test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter);
-        let suffix = format!("{}-{}", std::process::id(), now_ms().unwrap());
-        let now = now_ms().unwrap();
+        let suffix = format!("{}-{}", std::process::id(), process_clock_ms());
         let owner = Arc::new(
             OperatorAuthorizationIssuerPostgresV1::connect(database_url)
                 .await
                 .unwrap(),
         );
+        let now = owner_now_ms(&owner.pool).await;
         let admitted = owner
             .issue_genesis(OperatorAuthorizationIssuanceProposalV1 {
                 authorization_identity: format!("operator-authorization-lock-{suffix}"),
@@ -5069,13 +5171,13 @@ mod tests {
             test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter);
         let consumer_database_url =
             test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner);
-        let suffix = format!("{}-{}", std::process::id(), now_ms().unwrap());
-        let now = now_ms().unwrap();
+        let suffix = format!("{}-{}", std::process::id(), process_clock_ms());
         let owner = Arc::new(
             OperatorAuthorizationIssuerPostgresV1::connect(issuer_database_url)
                 .await
                 .unwrap(),
         );
+        let now = owner_now_ms(&owner.pool).await;
         let admitted = owner
             .issue_genesis(OperatorAuthorizationIssuanceProposalV1 {
                 authorization_identity: format!("operator-authorization-select-only-{suffix}"),

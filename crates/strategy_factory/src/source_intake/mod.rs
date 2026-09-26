@@ -1393,3 +1393,19 @@ mod hex {
         encoded
     }
 }
+
+#[cfg(test)]
+mod request_proof_tests {
+    use rstest::rstest;
+    use vibe_product_edge::deployment_acceptance::request_proof_digest;
+
+    use super::validate_digest;
+
+    /// The Product Edge deployment fixture hands its request proof to every research entry, which
+    /// presents it to Source Intake. Source Intake's own check has to accept it: a proof of another
+    /// shape passes Product Edge's admission and is refused here, before anything is admitted.
+    #[rstest]
+    fn the_deployment_fixture_request_proof_passes_source_intake_validation() {
+        validate_digest("request_proof_digest", &request_proof_digest()).unwrap();
+    }
+}
