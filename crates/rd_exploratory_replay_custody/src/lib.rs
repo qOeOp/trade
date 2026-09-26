@@ -45,6 +45,13 @@ pub enum ExploratoryReplayCustodyError {
     Unavailable,
     #[error("R&D exploratory Replay V2 custody storage unavailable: {0}")]
     Storage(String),
+    /// The Owner returned an envelope for a request composed from a source this decoder does not
+    /// verify. Only legacy-composed requests are verified here; a COMPOSER_V3 request carries a
+    /// different frozen record, which this crate has no way to re-prove. It is refused under its
+    /// source kind rather than read as absent, so the first caller that feeds one here fails by
+    /// name instead of reading a request that silently never arrives.
+    #[error("R&D exploratory Replay custody does not verify a {0} request")]
+    UnverifiedSourceKind(String),
 }
 
 /// Caller-safe recovery selector. It grants no Replay authority.
@@ -697,6 +704,15 @@ fn decode_owner_envelope(
     let Some(value) = value else {
         return Ok(unavailable(selector));
     };
+    // A legacy envelope carries no source kind, so any source kind is one this decoder cannot
+    // verify. Checked before the exact decode, which would refuse it only as unavailable.
+    if let Some(source_kind) = value.get("source_kind") {
+        return Err(ExploratoryReplayCustodyError::UnverifiedSourceKind(
+            source_kind
+                .as_str()
+                .map_or_else(|| source_kind.to_string(), str::to_owned),
+        ));
+    }
     let envelope: LockedEnvelopeV2 = exact(&value)?;
     if !matches!(envelope.schema_version, 2 | 3)
         || envelope.availability == ExploratoryReplayAvailabilityV2::Unavailable
@@ -1899,6 +1915,66 @@ mod tests {
             ExploratoryReplayAvailabilityV2::Unavailable
         );
         assert!(result.readback().is_none());
+    }
+
+    /// A COMPOSER_V3 envelope, in the shape the R&D Owner's COMPOSER_V3 verifier returns, is
+    /// refused under its source kind. Nothing calls that verifier from the Market Data lock today;
+    /// this pins what the first caller that does will see.
+    #[rstest]
+    fn a_composer_v3_envelope_is_refused_by_its_source_kind() {
+        let envelope = composer_v3_envelope();
+
+        assert!(matches!(
+            decode_owner_envelope(&selector(), Some(envelope.clone())),
+            Err(ExploratoryReplayCustodyError::UnverifiedSourceKind(kind)) if kind == "COMPOSER_V3"
+        ));
+        assert!(matches!(
+            decode_market_data_envelope(&composer_v3_locator(), Some(envelope)),
+            Err(ExploratoryReplayCustodyError::UnverifiedSourceKind(kind)) if kind == "COMPOSER_V3"
+        ));
+    }
+
+    /// The control: the same envelope without its source kind reaches the exact decode and is
+    /// refused there only as unavailable, which is the answer the named refusal replaces.
+    #[rstest]
+    fn the_same_envelope_without_a_source_kind_is_only_unavailable() {
+        let mut envelope = composer_v3_envelope();
+        envelope
+            .as_object_mut()
+            .expect("an envelope object")
+            .remove("source_kind");
+
+        assert!(matches!(
+            decode_owner_envelope(&selector(), Some(envelope)),
+            Err(ExploratoryReplayCustodyError::Unavailable)
+        ));
+    }
+
+    fn composer_v3_locator() -> SealedExploratoryReplayRequestLocatorV2 {
+        let selector = selector();
+        SealedExploratoryReplayRequestLocatorV2 {
+            request_identity: selector.request_identity,
+            meaning_digest: selector.meaning_digest,
+            receipt_identity: "rd-exploratory-replay-receipt-v2-composer".to_string(),
+            seal_digest: blake('c'),
+        }
+    }
+
+    fn composer_v3_envelope() -> serde_json::Value {
+        let locator = composer_v3_locator();
+        serde_json::json!({
+            "schema_version": 4,
+            "source_kind": "COMPOSER_V3",
+            "availability": "AVAILABLE",
+            "owner_cut_epoch_ms": 1,
+            "frozen": {},
+            "receipt": {},
+            "v2_canonical_request_base64": "",
+            "v2_meaning_digest": locator.meaning_digest,
+            "v2_seal_digest": locator.seal_digest,
+            "v2_receipt": {},
+            "v2_outbox": {},
+        })
     }
 
     #[rstest]
