@@ -4589,17 +4589,22 @@ BEGIN
       RAISE EXCEPTION '% crossed the R&D/Qualification custody boundary', role_name;
     END IF;
     forbidden_role_source := NULL;
-    SELECT table_name INTO forbidden_role_source
-    FROM information_schema.tables
-    WHERE table_schema = 'public'
-      AND table_name LIKE 'rd_%'
+    -- By oid, never by name: SQL does not order the conditions of a WHERE, and a name built as
+    -- 'public.' || relname for a same-named relation in another schema (composer_private holds
+    -- rd_develop_artifact_build_receipt_uses_v2) raises "does not exist" whenever the planner tests
+    -- privileges before the schema. Which order it chooses follows the catalog's statistics: the
+    -- serial chain has passed, and a run from a freshly cloned database failed here.
+    SELECT relation.relname INTO forbidden_role_source
+    FROM pg_catalog.pg_class relation
+    JOIN pg_catalog.pg_namespace namespace ON namespace.oid = relation.relnamespace
+    WHERE namespace.nspname = 'public'
+      AND relation.relkind IN ('r', 'p', 'v', 'f')
+      AND relation.relname LIKE 'rd_%'
       AND (
-        pg_catalog.has_table_privilege(
-          role_name, pg_catalog.format('public.%I', table_name), 'SELECT'
-        )
+        pg_catalog.has_table_privilege(role_name, relation.oid, 'SELECT')
         OR (SELECT pg_catalog.bool_or(pg_catalog.has_table_privilege(
           role_name,
-          pg_catalog.format('public.%I', table_name),
+          relation.oid,
           checked_privilege
         )) FROM pg_catalog.unnest(ARRAY['INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) checked_privilege)
       )
