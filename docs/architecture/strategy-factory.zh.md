@@ -289,7 +289,10 @@ two's-complement I256 expression，然后只做一次最终 division/rounding，
 超过 I128 但能装入 I256 且舍入后能装入 I128 时合法。I256 overflow、divide by zero、invalid scale、在未声明
 rounding mode 时丢弃非零 remainder，或最终 I128 overflow（包括 I128 `MIN / -1`）都返回命名终态
 `NUMERIC_FAILURE_NO_STATE_CHANGE`。有一类运算经用户授权豁免：TARGET 的自然对数与指数 catalog 行（V4b）没有精确的
-单次舍入形式，所以每一行改为钉住自己的算法与 golden 测试向量，豁免只覆盖这些新行。
+单次舍入形式，所以每一行改为钉住自己的算法与 golden 测试向量，豁免只覆盖这些新行。钉住的算法是该行身份的一部分，
+改算法就是新的一行；它用 catalog 自己的定点运算写成，绝不调用宿主数学库，所以 guest 与宿主一致；定义域失败 - 对零
+或负数取对数、指数上溢 - 仍然返回 `NUMERIC_FAILURE_NO_STATE_CHANGE`。豁免只覆盖「最后一次舍入」这一条，绝不覆盖失败
+语义。
 
 `NUMERIC_FAILURE_NO_STATE_CHANGE` 是 failure-atomic：input admission 可以被记录，但 primitive state、warm-up
 counter、已存 sample coordinate、plugin/BFP/kernel state、lifecycle output、target/protection、semantic trace 与
@@ -1223,8 +1226,9 @@ Feature Program 输入、Plan 绑定、Research scope 及其 PIT 请求。逐个
 ### 前置切片
 
 - **P0，形状元组只有一个来源：** Research 请求的 scope 带成员集、角色集与窗口；其余每个面都从这份托管推导，不再
-  各自声明。精确品种就是一成员 universe，所以精确与 universe 两条输入路径合成一条。改成员数或加一个角色只需改
-  一处声明时，P0 才算完成。它本身不改动任何已准入的界。
+  各自声明。精确品种就是一成员 universe，所以精确与 universe 两条输入路径合成一条。凡是随成员数不同的东西，例如
+  Market Data 的 PIT 请求 preimage 域，都由成员数推导，不在旁边另行声明。改成员数或加一个角色只需改一处声明时，
+  P0 才算完成。它本身不改动任何已准入的界。
 - **P1，角色集来自 Design：** 原生 Plan 契约不再固定为一天周期的 OPEN 与 CLOSE；Design 声明自己的角色、执行周期
   以及用哪个角色为订单定价。Host 绑不上的角色按名拒绝。
 - **P2，报告陈述每个成员：** 报告族陈述 universe 运行的每个成员，把 Backtest 已经做到的一成员陈述推广开。
@@ -1288,14 +1292,20 @@ Research scope 是成员集的唯一来源（P0）。一到两个成员的界变
   请求的 preimage 域，所以已存的一成员请求 identity 不会重新定键；成员域承载两个及以上。
 - **I1.5** 在定下上界之前，量出按成员展开后的边数与图上界的关系。
 - **I2** 给 Bounded Feature Program 加成员维：程序里按下标引用，编写语言里按成员广播，跨成员归约（rank、mean、
-  minimum、maximum、第 n 名）作为追加的 catalog primitive。这会改动受管面，四条更便宜的路都到不了：meaning 的输入
-  是每个角色一个端口、没有成员轴，决策表只有一个提议，也没有终端能产出目标集字节。改动是输入 meaning 上一个可选
-  的 `member_ordinal`（已有字节里不出现），以及一个把 N 个成员权重变成规范目标集的终端。
+  minimum、maximum、第 n 名）作为追加的 catalog primitive。rank 取平均秩，所以并列的成员共用一个秩，置换成员就
+  置换它们的秩；第 n 名返回第 n 个顺序统计量的值，任何置换都不改变它。这会改动受管面，四条更便宜的路各自走不通：
+  新字段语义值不行，因为成员轴不是数据含义；新 catalog primitive 不行，因为它作用于图里已有的值，造不出按成员的
+  端口；新动作 catalog 项不行，因为它仍需要一个产出目标集字节的终端；已有节点的组合不行，因为没有节点带目标集
+  类型。改动是输入 meaning 上一个可选的 `member_ordinal`，以及一个把 N 个成员权重变成规范目标集的终端。编码器
+  在 `member_ordinal` 缺省时省略它，所以每份已冻结的 meaning 重新编码后字节与摘要都相同，这就是 I2 的证伪条件。
+  meaning 的 schema 版本不变且保持封闭：I2 之前的解码器拒绝带 `member_ordinal` 的字节，这与「冻结的程序只对它
+  自己的成员数有效」一致。
 - **I3** 加总敞口与净敞口上限，作为 Design 合法性约束，而不是 Risk 决策；超限的提议以
   `TARGET_SET_EXPOSURE_CAP_EXCEEDED` 拒绝，今天没有任何东西能构造它，因为还没有成员维。
 
 证伪条件：N 次一成员运行与一次互不交叉的 N 成员运行，在每单位目标与成交上一致（不比权重，权重共享同一份权益）；
-置换成员后，每个归约不变，成员目标随之置换。
+置换成员后，每个归约不变，成员目标随之置换，
+有并列的输入也一样。
 
 ### 值、输入与动作
 
@@ -1310,7 +1320,7 @@ Research scope 是成员集的唯一来源（P0）。一到两个成员的界变
 - **动作：** 从代码读出，今天目标集 Host 忽略保护单成交，于是下一帧对账会失败并中止整次运行；只有第二帧才会走到
   这里，而且还没有测试驱动过它。它的修复
   （D1）给 `kernel.fill.reconcile.v1` 增加一种情形，并与 T1 一同落地。A1 把 `DecisionTime` 与 `AccountEquity`
-  （以及按成交计的入场价与持有 bar 数）作为程序可读的 `LifecycleContext` 值开放；按意图计的入场价与持有 bar 数
+  （以及按成交计的入场价与持有 bar 数）作为程序可读的 `LifecycleContext` 值开放，其中 `DecisionTime` 是该帧的 decision cut `d_k`；按意图计的入场价与持有 bar 数
   已经能在程序内表达。A2 把止盈下成 reduce-only 限价单。A3 先量「每根 bar 一张限价单」的阶梯，不够才增加内核
   阶梯。
 

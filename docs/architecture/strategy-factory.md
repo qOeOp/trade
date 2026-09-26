@@ -320,7 +320,10 @@ overflow, divide by zero, invalid scale, discarded nonzero remainder without a d
 I128 overflow - including I128 `MIN / -1` - returns the named `NUMERIC_FAILURE_NO_STATE_CHANGE` terminal.
 One class is exempt by user authorization: the TARGET natural logarithm and exponential catalog rows (V4b) have no
 exact single-rounding form, so each pins its algorithm and golden test vectors instead, and the exemption covers
-only those new rows.
+only those new rows. The pinned algorithm is part of the row's identity, so changing it is a new row; it is written
+in the catalog's own fixed-point arithmetic, never a host math library, so guest and host agree; and a domain
+failure - a logarithm of zero or less, an exponential that overflows - still returns
+`NUMERIC_FAILURE_NO_STATE_CHANGE`. The exemption covers only the single final rounding, never the failure meaning.
 
 `NUMERIC_FAILURE_NO_STATE_CHANGE` is failure-atomic: input admission may be recorded, but primitive state,
 warm-up counters, stored sample coordinates, plugin/BFP/kernel state, lifecycle output, target/protection, semantic
@@ -1361,8 +1364,9 @@ that pattern; the target below deletes the variants instead.
 
 - **P0, one source for the shape tuple:** the Research request's scope carries the member set, the role set, and the
   window; every other surface derives them from that custody and declares none of them again. An exact instrument is
-  a one-member universe, so the exact and universe input paths become one. P0 is complete when changing the member
-  count or adding a role changes exactly one declaration. It changes no admitted bound by itself.
+  a one-member universe, so the exact and universe input paths become one. Anything that differs by member count,
+  such as Market Data's PIT request preimage domain, is derived from the count rather than declared beside it. P0
+  is complete when changing the member count or adding a role changes exactly one declaration. It changes no admitted bound by itself.
 - **P1, the role set comes from the Design:** the native Plan contract stops fixing OPEN and CLOSE on one day; the
   Design declares its roles, its execution timeframe, and which role prices an order. A role the Host cannot bind is
   refused by name.
@@ -1441,15 +1445,22 @@ own member count; changing the member set is a new Research.
 - **I1.5** measures the edge count of per-member expansion against the graph bound before the upper bound is fixed.
 - **I2** gives the Bounded Feature Program a member dimension: index reference in the program, broadcast per member
   in the authoring language, and cross-member reductions (rank, mean, minimum, maximum, n-th) as appended catalog
-  primitives. This changes a governed surface, and none of the four cheaper routes reaches it: the meaning's inputs
-  are one port per role with no member axis, the decision table is one proposal, and no terminal emits target-set
-  bytes. The change is an optional `member_ordinal` on the input meaning, absent from existing bytes, and one
-  terminal that turns N member weights into a canonical target set.
+  primitives. Rank is the average rank, so tied members share one rank and a permutation of members permutes their
+  ranks; n-th returns the n-th order statistic's value, which no permutation changes. This changes a governed
+  surface, and each of the four cheaper routes fails: a new field semantic value cannot, because a member axis is
+  not a data meaning; a new catalog primitive cannot, because it acts on values already in the graph and creates no
+  per-member port; a new action catalog entry cannot, because it still needs a terminal that emits target-set bytes;
+  and a composition of existing nodes cannot, because no node has a target-set type. The change is an optional
+  `member_ordinal` on the input meaning and one terminal that turns N member weights into a canonical target set.
+  The encoder omits an absent `member_ordinal`, so every frozen meaning re-encodes to identical bytes and digest,
+  which is I2's falsifier. The meaning schema version is unchanged and stays closed: a decoder from before I2
+  refuses bytes carrying `member_ordinal`, as a frozen program is valid only for its own member count anyway.
 - **I3** adds gross and net exposure caps as a Design legality constraint, not a Risk decision; an over-cap proposal
   is refused as `TARGET_SET_EXPOSURE_CAP_EXCEEDED`, which nothing constructs today because no member dimension exists.
 
 The falsifiers: N one-member runs and one non-interacting N-member run agree on per-unit targets and fills (not
-weights, which share one equity); permuting members leaves every reduction unchanged and permutes member targets.
+weights, which share one equity); permuting members leaves every reduction unchanged and permutes member targets,
+including on inputs with ties.
 
 ### Values, inputs, and actions
 
@@ -1467,7 +1478,7 @@ weights, which share one equity); permuting members leaves every reduction uncha
 - **Actions:** read from the code, the target-set Host ignores a protective fill today, so the next frame's
   reconciliation would fail and abort the run; only a second frame reaches it, and no test drives it yet. Its repair (D1) adds a `kernel.fill.reconcile.v1` case and lands
   with T1. A1 exposes `DecisionTime` and `AccountEquity` (and fill-based entry price and bars held) as
-  `LifecycleContext` values the program may read; intended entry price and bars held are expressible inside the
+  `LifecycleContext` values the program may read, where `DecisionTime` is the frame's decision cut `d_k`; intended entry price and bars held are expressible inside the
   program already. A2 places take-profit as reduce-only limit orders. A3 first measures a one-limit-per-bar ladder
   and adds a kernel ladder only if that is not enough.
 
