@@ -1429,11 +1429,12 @@ and never chooses the instruments. This is how:
   `resolve_research_pit_terminal_by_correlation_v1` runs in R&D's own transaction, takes no row locks and writes
   nothing. It returns the committed snapshot's terminal as the intake answered it, with the requester its request
   carried, or nothing when Market Data has never committed an initial intake under that correlation. A read that cannot
-  run, and a stored claim that does not verify against the snapshot it names, are errors and never nothing. The terminal
-  carries the Instrument Master digest the intake stamped; sealing the stored submission over it reproduces the request
-  identity and digest the terminal reports, which proves which attempt the terminal answers. What crosses into
-  `market_data_rd_api` for this read is one more `STABLE` `SECURITY DEFINER` function that returns the claim and the
-  snapshot it names.
+  run, and a stored claim that does not verify against the snapshot it names, are errors and never nothing. A terminal
+  states the committed fact's disposition and its primary blocker, none for `AVAILABLE` and the deciding one for every
+  other disposition, so a reader never infers one from the other. The terminal carries the Instrument Master digest the
+  intake stamped; sealing the stored submission over it reproduces the request identity and digest the terminal reports,
+  which proves which attempt the terminal answers. What crosses into `market_data_rd_api` for this read is one more
+  `STABLE` `SECURITY DEFINER` function that returns the claim and the snapshot it names.
 - Requester identity. The initial PIT request's `requester_identity` is SHA-256 over
   `vibe.market-data.pit-requester.research-request.v1\0` followed by the 32-byte Research request identity the Design
   role intent carries, which is R&D's `rd.develop.request-identity.v2` digest of the request locator, never another

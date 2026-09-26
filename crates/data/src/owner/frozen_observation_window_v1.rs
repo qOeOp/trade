@@ -614,6 +614,7 @@ mod tests {
                         fact_digest: BindingDigest::from_untrusted_bytes([5; 32]),
                         disposition:
                             super::super::pit_market_snapshot_intake_v1::PitMarketSnapshotDispositionV1::Available,
+                        primary_blocker: None,
                         locator: None,
                         instrument_master_digest: BindingDigest::from_untrusted_bytes([6; 32]),
                     },

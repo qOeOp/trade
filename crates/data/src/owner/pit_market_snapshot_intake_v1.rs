@@ -52,6 +52,25 @@ pub enum PitMarketSnapshotDispositionV1 {
     Unavailable,
 }
 
+/// Why a terminal is not `AVAILABLE`: the fact's primary blocker, in the public vocabulary.
+///
+/// It mirrors the Owner's private blocker exactly, one to one, as the disposition does. A terminal
+/// carries it so a reader never infers it from the disposition.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PitMarketSnapshotBlockerV1 {
+    /// Rights were revoked or decisively denied.
+    RightsUnlicensed,
+    /// Identity, semantics or time evidence could not be reconciled.
+    IdentitySemanticsOrTimeAmbiguous,
+    /// The evidence is no longer valid at the cut.
+    EvidenceStale,
+    /// The retrieval did not cover the evaluated universe.
+    CoverageInsufficient,
+    /// The admitted source could not answer at the cut.
+    SourceUnavailable,
+}
+
 /// The move-only terminal Market Data seals for one request.
 ///
 /// It carries the Owner's own locator for the committed snapshot. Without it a submitter that has
@@ -66,6 +85,7 @@ pub struct PitMarketSnapshotTerminalV1 {
     snapshot_identity: BindingDigest,
     fact_digest: BindingDigest,
     disposition: PitMarketSnapshotDispositionV1,
+    primary_blocker: Option<PitMarketSnapshotBlockerV1>,
     locator: Option<UntrustedPitSnapshotLocator>,
     instrument_master_digest: BindingDigest,
 }
@@ -83,6 +103,7 @@ pub(crate) struct PitMarketSnapshotTerminalFieldsV1 {
     pub snapshot_identity: BindingDigest,
     pub fact_digest: BindingDigest,
     pub disposition: PitMarketSnapshotDispositionV1,
+    pub primary_blocker: Option<PitMarketSnapshotBlockerV1>,
     pub locator: Option<UntrustedPitSnapshotLocator>,
     pub instrument_master_digest: BindingDigest,
 }
@@ -96,6 +117,7 @@ impl PitMarketSnapshotTerminalV1 {
             snapshot_identity: fields.snapshot_identity,
             fact_digest: fields.fact_digest,
             disposition: fields.disposition,
+            primary_blocker: fields.primary_blocker,
             locator: fields.locator,
             instrument_master_digest: fields.instrument_master_digest,
         }
@@ -154,6 +176,13 @@ impl PitMarketSnapshotTerminalV1 {
     #[must_use]
     pub const fn disposition(&self) -> PitMarketSnapshotDispositionV1 {
         self.disposition
+    }
+
+    /// The committed fact's primary blocker: `None` for `AVAILABLE`, and the one blocker that
+    /// decided every other disposition.
+    #[must_use]
+    pub const fn primary_blocker(&self) -> Option<PitMarketSnapshotBlockerV1> {
+        self.primary_blocker
     }
 }
 

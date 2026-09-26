@@ -5808,6 +5808,29 @@ async fn production_pit_mint_postgres_oracle_v1(
         "an INSUFFICIENT snapshot carries no R0 record"
     );
 
+    // A terminal states the fact's own primary blocker, never one inferred from the disposition:
+    // none for AVAILABLE, and the deciding one otherwise.
+    for (aggregate, blocker) in [
+        (&admitted, None),
+        (
+            &ambiguous,
+            Some(PitMarketSnapshotBlockerV1::IdentitySemanticsOrTimeAmbiguous),
+        ),
+        (
+            &insufficient,
+            Some(PitMarketSnapshotBlockerV1::CoverageInsufficient),
+        ),
+    ] {
+        assert_eq!(
+            pit_market_snapshot_terminal_of_v1(aggregate).primary_blocker(),
+            blocker
+        );
+        assert_eq!(
+            pit_market_snapshot_terminal_of_v1(aggregate).primary_blocker(),
+            aggregate.fact().primary_blocker().map(public_blocker_v1)
+        );
+    }
+
     // A universe digest the Owner's record does not carry cannot buy coverage either.
     let (proposal, observation) = build(211, owner_semantics_identity, d(212), "AAPL");
     let mismatched = owner

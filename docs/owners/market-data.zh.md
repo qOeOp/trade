@@ -1311,7 +1311,8 @@ Data 不依赖 R&D，不拥有也不重新解释 Strategy Design role/join。
   `resolve_research_pit_terminal_by_correlation_v1` 在 R&D 自己的事务里运行，不加行锁，也不写入任何东西。它返回已提交
   snapshot 的 terminal（与 intake 当时的应答相同）以及其 request 携带的 requester；Market Data 从未在该 correlation 下提
   交过初始 intake 时，它什么也不返回。无法执行的读取，以及与其所指 snapshot 核对不上的已存储认领，都是错误，绝不是「什么
-  也不返回」。terminal 携带 intake 盖上的 Instrument Master digest；以它 seal 已存储的提交，会重现 terminal 报告的
+  也不返回」。terminal 陈述已提交 fact 的 disposition 及其 primary blocker：`AVAILABLE` 时没有，其余每种
+  disposition 时是决定它的那一个，因此读者从不由一者推断另一者。terminal 携带 intake 盖上的 Instrument Master digest；以它 seal 已存储的提交，会重现 terminal 报告的
   request identity 与 digest，从而证明该 terminal 应答的是哪一次尝试。为这一读取进入 `market_data_rd_api` 的，是另一个
   `STABLE` 的 `SECURITY DEFINER` 函数，它返回认领记录及其所指的 snapshot。
 - Requester identity。初始 PIT request 的 `requester_identity` 是对

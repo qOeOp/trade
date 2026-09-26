@@ -194,12 +194,13 @@ use super::{
         UntrustedStrategyInputJoinedCutLocatorV1,
     },
     pit_market_snapshot_intake_v1::{
-        MarketDataDecisionCutV1, PitMarketSnapshotDispositionV1, PitMarketSnapshotIntakeErrorV1,
-        PitMarketSnapshotIntakeV1, PitMarketSnapshotTerminalV1, sealed::Sealed as PitIntakeSealed,
+        MarketDataDecisionCutV1, PitMarketSnapshotBlockerV1, PitMarketSnapshotDispositionV1,
+        PitMarketSnapshotIntakeErrorV1, PitMarketSnapshotIntakeV1, PitMarketSnapshotTerminalV1,
+        sealed::Sealed as PitIntakeSealed,
     },
     pit_observation_source_v1::{PitObservationScopeV1, PitObservationSourceV1},
     pit_snapshot::{
-        PitSnapshotCommitAggregate, PitSnapshotDisposition, PitSnapshotError,
+        PitSnapshotBlocker, PitSnapshotCommitAggregate, PitSnapshotDisposition, PitSnapshotError,
         PitSnapshotSubmissionV1, UntrustedPitObservation, UntrustedPitObservationBatchProposal,
         UntrustedPitSnapshotLocator, UntrustedPitSnapshotProposal, UntrustedPitSnapshotRequest,
         UntrustedPitSnapshotTimeEvidence,
@@ -11281,6 +11282,7 @@ pub(super) fn pit_market_snapshot_terminal_of_v1(
             snapshot_identity: fact.snapshot_identity(),
             fact_digest: fact.digest(),
             disposition,
+            primary_blocker: fact.primary_blocker().map(public_blocker_v1),
             locator,
             instrument_master_digest: fact.request().instrument_master_digest,
         },
@@ -11288,6 +11290,20 @@ pub(super) fn pit_market_snapshot_terminal_of_v1(
 }
 
 /// Mirrors the Owner's private disposition onto the public terminal vocabulary.
+const fn public_blocker_v1(blocker: PitSnapshotBlocker) -> PitMarketSnapshotBlockerV1 {
+    match blocker {
+        PitSnapshotBlocker::RightsUnlicensed => PitMarketSnapshotBlockerV1::RightsUnlicensed,
+        PitSnapshotBlocker::IdentitySemanticsOrTimeAmbiguous => {
+            PitMarketSnapshotBlockerV1::IdentitySemanticsOrTimeAmbiguous
+        }
+        PitSnapshotBlocker::EvidenceStale => PitMarketSnapshotBlockerV1::EvidenceStale,
+        PitSnapshotBlocker::CoverageInsufficient => {
+            PitMarketSnapshotBlockerV1::CoverageInsufficient
+        }
+        PitSnapshotBlocker::SourceUnavailable => PitMarketSnapshotBlockerV1::SourceUnavailable,
+    }
+}
+
 const fn public_disposition_v1(
     disposition: PitSnapshotDisposition,
 ) -> PitMarketSnapshotDispositionV1 {
