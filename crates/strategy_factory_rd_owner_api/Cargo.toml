@@ -54,6 +54,10 @@ vibe-strategy-factory = { workspace = true }
 rstest = { workspace = true }
 tower = { workspace = true }
 vibe-backtest-result-custody = { workspace = true }
+# The chain fixture's instrument constant, shared with the Market Data fixtures it names.
+vibe-data = { workspace = true, features = [
+  "sealed-strategy-input-acceptance",
+] }
 vibe-operator-authorization = { workspace = true }
 vibe-product-edge-routing-api = { workspace = true }
 vibe-rd-artifact-invocation-custody = { workspace = true }

@@ -90,6 +90,8 @@ use crate::source_intake::{
     SourceIntakePolicyEvidenceQueryV1, SourceIntakePolicyEvidenceResultV1,
 };
 
+pub mod research_initial_pit;
+
 #[derive(Clone)]
 pub struct PostgresResearchGoalOwnerV1 {
     pool: PgPool,
@@ -1198,6 +1200,8 @@ impl PostgresResearchGoalOwnerV1 {
         .await
         .map_err(|e| storage(&e))?;
 
+        research_initial_pit::migrate(pool, admitted).await?;
+
         for statement in [
             "ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS artifact_evidence_digest TEXT",
             "ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS artifact_evidence_json JSONB",
@@ -1630,6 +1634,7 @@ impl PostgresResearchGoalOwnerV1 {
             crate::market_data_repair_request_postgres::TABLES,
             crate::market_data_repair_resolution_postgres::TABLES,
             crate::complex_strategy_develop_evaluation::TABLES,
+            research_initial_pit::TABLES,
         ] {
             if materialization {
                 crate::schema_materialization::verify_materialized_public_tables(pool, tables)
@@ -6796,18 +6801,99 @@ pub(crate) mod tests {
     /// the caller down.
     #[rstest]
     fn every_discarded_refusal_records_its_cause() {
-        let source = include_str!("product_edge_postgres.rs");
-        let discarding = ["Err(_) => {", "\n"].concat();
-        let answering = ["unresolved_result_v2", "("].concat();
-        let recording = ["storage_diagnostic::", "refused_by_store("].concat();
+        let mut recorded = discarded_refusals_record_their_cause(
+            include_str!("product_edge_postgres.rs"),
+            &[["Err(_) => {", "\n"].concat()],
+            &[["unresolved_result_v2", "("].concat()],
+        );
+        assert!(
+            recorded.iter().all(|coordinate| coordinate
+                .starts_with("research_goal_owner.submit_v2.")
+                || coordinate.starts_with("research_goal_owner.resolve_v2.")),
+            "{recorded:?}"
+        );
+        // Issuance answers `SUBMITTED_OR_UNKNOWN` through its own state, and binds the errors it
+        // collapses rather than discarding them, sometimes over several lines. So its error arms
+        // are found by their structure, not by one spelling, and counted: an arm this scan cannot
+        // see would change the count.
+        let issuance_source = include_str!("product_edge_postgres/research_initial_pit.rs");
+        let answering = [
+            ["ResearchInitialPitV1::", "SubmittedOrUnknown"].concat(),
+            ["InitialPitStageV1::", "Unknown"].concat(),
+        ];
+        let answering_arms = error_arms(issuance_source)
+            .into_iter()
+            .filter(|arm| answering.iter().any(|answer| arm.contains(answer.as_str())))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            answering_arms.len(),
+            3,
+            "the error arms that answer SubmittedOrUnknown are prepare.readback, \
+             settle.no_finding and settle.readback: {answering_arms:#?}"
+        );
 
-        for (at, needle) in source.match_indices(&discarding) {
-            // To the arm's own closing brace, not a fixed window: a window that runs out before
-            // the answer would skip the arm, and a criterion that skips what it cannot read
-            // fails toward passing.
-            let rest = &source[at + needle.len()..];
+        for arm in &answering_arms {
+            let answers = answering
+                .iter()
+                .filter_map(|answer| arm.find(answer.as_str()))
+                .min()
+                .expect("an answering arm answers");
+            assert!(
+                arm[..answers].contains(&["storage_diagnostic::", "refused_by_store("].concat()),
+                "an arm drops its error and answers SubmittedOrUnknown in silence:\n{arm}"
+            );
+        }
+        let issuance = discarded_refusals_record_their_cause(issuance_source, &[], &[]);
+        assert!(
+            !issuance.is_empty()
+                && issuance
+                    .iter()
+                    .all(|coordinate| coordinate.starts_with("research_goal_owner.initial_pit.")),
+            "{issuance:?}"
+        );
+        recorded.extend(issuance);
+
+        // A coordinate is only useful if it names one site, so no two may share one, and each
+        // must say which entry point it sits behind rather than only which Owner.
+        let mut distinct = recorded.clone();
+        distinct.sort_unstable();
+        distinct.dedup();
+        assert_eq!(distinct.len(), recorded.len(), "{recorded:?}");
+    }
+
+    /// Every match arm of `source` whose pattern is an `Err(..)`, however it binds the error and
+    /// over however many lines, as the text of its block body.
+    fn error_arms(source: &str) -> Vec<&str> {
+        let opening = ["Err", "("].concat();
+        let arrow = ["=> ", "{"].concat();
+        let mut arms = Vec::new();
+
+        for (at, _) in source.match_indices(&opening) {
+            // A pattern starts its line; an `Err(` anywhere else is an expression.
+            let line_start = source[..at].rfind('\n').map_or(0, |newline| newline + 1);
+
+            if !source[line_start..at].trim().is_empty() {
+                continue;
+            }
+            // The arm's own `=>` is the first after its pattern; an arm whose body is not a block
+            // (`Err(..) => false,`) is not one of these, and must not lend its pattern to the next.
+            let Some(to_arrow) = source[at..].find("=>") else {
+                continue;
+            };
+
+            if !source[at + to_arrow..].starts_with(&arrow) {
+                continue;
+            }
+            let pattern = &source[at..at + to_arrow];
+
+            // A pattern holds no statement and no block; past either, this `Err(` was not one.
+            if pattern.contains(';') || pattern.contains('{') {
+                continue;
+            }
+            let rest = &source[at + to_arrow + arrow.len()..];
             let mut depth = 1usize;
             let mut end = rest.len();
+
             for (offset, character) in rest.char_indices() {
                 match character {
                     '{' => depth += 1,
@@ -6821,19 +6907,60 @@ pub(crate) mod tests {
                     _ => {}
                 }
             }
-            assert!(depth == 0, "an `Err(_)` arm never closes");
-            let arm = &rest[..end];
-            let Some(answers) = arm.find(&answering) else {
-                continue;
-            };
-            assert!(
-                arm[..answers].contains(&recording),
-                "an arm discards its error and answers SubmittedOrUnknown in silence:\n{}",
-                &arm[..answers]
-            );
+            assert!(depth == 0, "an error arm never closes");
+            arms.push(&rest[..end]);
+        }
+        arms
+    }
+
+    /// Asserts that every arm of `source` that binds or discards an error and then answers with
+    /// one of `answering` records its cause first, and returns every coordinate `source` records.
+    fn discarded_refusals_record_their_cause<'a>(
+        source: &'a str,
+        discarding: &[String],
+        answering: &[String],
+    ) -> Vec<&'a str> {
+        let recording = ["storage_diagnostic::", "refused_by_store("].concat();
+
+        for needle in discarding {
+            for (at, _) in source.match_indices(needle.as_str()) {
+                // To the arm's own closing brace, not a fixed window: a window that runs out
+                // before the answer would skip the arm, and a criterion that skips what it cannot
+                // read fails toward passing.
+                let rest = &source[at + needle.len()..];
+                let mut depth = 1usize;
+                let mut end = rest.len();
+                for (offset, character) in rest.char_indices() {
+                    match character {
+                        '{' => depth += 1,
+                        '}' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                end = offset;
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                assert!(depth == 0, "an error arm never closes");
+                let arm = &rest[..end];
+                let Some(answers) = answering
+                    .iter()
+                    .filter_map(|answer| arm.find(answer.as_str()))
+                    .min()
+                else {
+                    continue;
+                };
+                assert!(
+                    arm[..answers].contains(&recording),
+                    "an arm drops its error and answers SubmittedOrUnknown in silence:\n{}",
+                    &arm[..answers]
+                );
+            }
         }
 
-        let recorded: Vec<&str> = source
+        source
             .match_indices(&recording)
             .map(|(at, needle)| {
                 let rest = &source[at + needle.len()..];
@@ -6843,20 +6970,7 @@ pub(crate) mod tests {
                     .expect("a closed coordinate literal");
                 &rest[open + 1..open + 1 + close]
             })
-            .collect();
-
-        // A coordinate is only useful if it names one site, so no two may share one, and each
-        // must say which entry point it sits behind rather than only which Owner.
-        let mut distinct = recorded.clone();
-        distinct.sort_unstable();
-        distinct.dedup();
-        assert_eq!(distinct.len(), recorded.len(), "{recorded:?}");
-        assert!(
-            recorded.iter().all(|coordinate| coordinate
-                .starts_with("research_goal_owner.submit_v2.")
-                || coordinate.starts_with("research_goal_owner.resolve_v2.")),
-            "{recorded:?}"
-        );
+            .collect()
     }
 
     fn scope_wire(

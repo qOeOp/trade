@@ -988,32 +988,52 @@ unavailable 或位于不同 cut 时，只撤回它自己的行与计数。两个
   source-bound 的拒绝与已接纳的请求一样记录其 Source Intake ancestry，并按它当时所依据的准入重新校验。
 - V2 请求仍原样接纳。它不陈述范围，因此不为它签发初始 PIT 请求，它能发布的 Design role intent 也不指名任何 PIT
   请求；Market Data 对来自这种 intent 的 universe-member 声明按名拒绝。
-- Intent 冻结之后、任何探索性消费之前，本 Owner 在自己的步骤中签发初始 PIT 请求，调用方只提供 Intent locator。它先向
-  Market Data 的 Universe Selection intake 陈述选择规则：固定成员规则，即 `[0,1,3]` 后接范围的规范字节，以范围身份作为
-  其规则身份，由 Market Data 在其已发布的 decision cut 上以其 eligible-instrument frontier 求值。R&D 不自选任何 frontier，
-  也不选用户所请求之外的任何成员：请求携带的是 Market Data 读取所返回的当前 eligible-instrument frontier。随后它冻结
-  PIT Market Snapshot Request：`requester_identity` 是 Market Data 的 requester 摘要，作用于本 Owner 的 Design role
-  intent 所携带的 32 字节 Research request 身份（对请求 locator 做 `rd.develop.request-identity.v2\0` 摘要所得），因此
-  Market Data 能从该 intent 重算出同一个值；它由本 Owner 写入，从不取自调用方；`scope_digest` 是范围身份；关联身份由 Intent 身份派生；Source Binding、
-  Instrument Master、Market Semantics 与 decision cut 的引用，是 Market Data 自有读取面为该范围解析出的那些，由
-  Market Data 契约陈述。冻结的请求在发送之前按 Intent 一次性写入，每次重试都发送这些已存储的字节，因此相同身份与摘要
-  加入同一次 Market Data 尝试：再次签发是幂等的。若拒绝重试，首次发送以 `SUBMITTED_OR_UNKNOWN` 结束的 Intent 就会
-  被困住，所以重试是加入而不是冲突。返回的 `ResearchPitTerminal` 记录在该 Intent 名下。Research 回读以 `initial_pit`
-  携带它：V2 请求为 `null`；本 Owner 冻结请求之前为 `NOT_ISSUED`；已发送、尚未记录终态时为 `SUBMITTED_OR_UNKNOWN`；
-  否则为所记录的处置（六态之一）及其 primary blocker 或 `null`；读取方从不由其中一种推断另一种。接纳时
-  通过检查、但在请求的 decision cut 上不可纳入的品种，仍会得到非 `AVAILABLE` 的终态：该 Intent 的任何下游都不得消费它，
-  补救办法是发一个后继请求。
+- Intent 冻结之后、任何探索性消费之前，本 Owner 在自己的步骤中签发初始 PIT 请求，即
+  `POST /v3/research-goals/{request_identity}/initial-pit`，调用方只提供请求身份；它为该请求唯一已接纳的 Intent 签发。
+  它先向 Market Data 的 Universe Selection intake 陈述选择规则：固定成员规则，即 `[0,1,3]` 后接范围的规范字节，以范围身份
+  作为其规则身份，由 Market Data 在其已发布的 decision cut 上以其 eligible-instrument frontier 求值。R&D 不自选任何
+  frontier，也不选用户所请求之外的任何成员：请求携带的是 Market Data 读取所返回的当前 eligible-instrument frontier，
+  其身份由关联身份、该 frontier 与 decision cut 派生，因此相同的引用总是指名同一个请求。随后它为 Market Data 记录的
+  selection 冻结 PIT 提交：`requester_identity` 是 Market Data 的 requester 摘要，作用于本 Owner 的 Design role intent
+  所携带的 32 字节 Research request 身份（对请求 locator 做 `rd.develop.request-identity.v2\0` 摘要所得），因此
+  Market Data 能从该 intent 重算出同一个值；它由本 Owner 写入，从不取自调用方；`scope_digest` 是范围身份；关联身份是对
+  `rd.research-initial-pit-correlation.v1\0` 与 Intent 身份的 32 字节做 SHA-256；Source Binding、Market Semantics 与
+  decision cut 的引用，是 Market Data 自有读取面为该范围解析出的那些，由 Market Data 契约陈述。提交不陈述 Instrument
+  Master 摘要，也不陈述声称的请求身份或摘要：intake 盖上它自己的 Instrument Master 读回，并自行封存请求。
+- 本 Owner 经 Market Data 的两个准入端口与之往来，即其 Universe Selection 与 PIT 路由背后的同一对端口，因此 Market Data
+  在自己的连接池、自己的事务里运行，本 Owner 只交给它不受信任的输入。它对范围与关联身份的读取在本 Owner 的事务里运行，
+  由 Market Data 的读取面提供。若 Market Data 将来拆成独立进程，替换点就是这两个端口的实现，改为 HTTP 客户端；签发本身
+  不变。
+- 每份冻结的提交是一次 attempt，按请求追加、从不改写，并在发送之前存储；与已冻结的某份完全相同的提交就是那次
+  attempt，不是第二次。每次 attempt 都携带该 Intent 唯一的关联身份，而 Market Data 对每个关联身份最多提交一次初始
+  intake，因此一个 Intent 最多有一个初始 PIT 请求。一次发送没有得到回答，或被 Market Data 以
+  `PIT_CORRELATION_ALREADY_COMMITTED` 或 `PIT_CLOCK_EVIDENCE_NOT_CURRENT` 拒绝，都按关联身份读回来解决，而不是再发一次：
+  Market Data 的 clock head 一旦前进，冻结的字节就不再能加入。读回的终态记在恰好一次 attempt 名下：该 attempt 的提交
+  盖上终态的 Instrument Master 摘要后，封存出的请求身份与摘要恰等于终态所回答的那一对。一次都没有，以
+  `INITIAL_PIT_TERMINAL_MATCHES_NO_ATTEMPT` 拒绝；多于一次，以 `INITIAL_PIT_TERMINAL_MATCHES_SEVERAL_ATTEMPTS` 拒绝；终态属于
+  另一个关联身份或另一个请求的 requester，以 `INITIAL_PIT_TERMINAL_NAMES_ANOTHER_REQUEST` 拒绝；只有带着 Market Data 据以
+  推出其处置的那个 primary blocker，终态才会被记录。什么也读不回时，重发最近一次 attempt；只有当 Market Data 随后拒绝其
+  时钟证据时，才在当前 cut 上冻结新的 attempt。所记录的终态只写一次。发生在 attempt 已发送之后的拒绝会留下那次
+  attempt，回读在终态记录之前保持 `SUBMITTED_OR_UNKNOWN`。
+- Research 回读以 `initial_pit` 携带该状态：除非请求是已接纳的 V3 请求，否则为 `null`；本 Owner 冻结 attempt 之前为
+  `NOT_ISSUED`；已冻结、尚未记录终态时为 `SUBMITTED_OR_UNKNOWN`；否则为所记录的处置（六态之一）及其 primary blocker 或
+  `null`；读取方从不由其中一种推断另一种。接纳时通过检查、但已不再解析为 Market Data 当前 frontier 中单一成员的身份，
+  会在任何 PIT 请求存在之前就被固定成员规则拒绝，因此签发回答 `INSTRUMENT_SCOPE_NOT_ELIGIBLE_AT_ISSUE`，什么也不冻结，
+  回读保持 `NOT_ISSUED`：该 Intent 的任何下游都无法消费它，补救办法是发一个后继请求。
 - Design role intent（schema 2）另外指名该初始 PIT 请求，取自本 Owner 的 custody，从不取自发布调用方，并且只在所记录
   的终态为 `AVAILABLE` 之后才发布。Market Data 针对恰为该请求注册 Design 的声明，而不去搜索一个，因此调用方以伪造的
   `requester_identity` 提交的请求永远不会被选中。同一 Intent 的后继 PIT 请求只由在它之后发布的 role intent 指名；
   已发布的 role intent 从不改变。
 
-目前已建成：scope 编解码与 schema 2 role intent 的编解码。`ResearchInstrumentScopeV1` 校验 scope，计算其 canonical
-bytes、identity 与 fixed-member 选择规则，并能从该规则解回 scope，本 Owner 与 Market Data 共用。`StrategyDesignRoleIntentV1` 只在 schema 2 下以
-`(pit_request_identity, pit_request_digest)` 指名初始 PIT 请求，每个 schema 在各自的 domain 下取摘要，schema 1 的
-字节与摘要不变。V3 请求经 `POST /v3/source-intake-research` 提交，按 Market Data 的提前读取检查，要么以绑定其范围的
-schema 3 Intent 接纳，要么连同绑定的检查记录被拒。目前还没有任何代码签发初始 PIT 请求或发布 schema 2 intent，读回
-也尚不带 `initial_pit`。
+目前已建成：scope 编解码、schema 2 role intent 编解码、V3 接纳与上述签发。`ResearchInstrumentScopeV1` 校验 scope，
+计算其 canonical bytes、identity 与 fixed-member 选择规则，并能从该规则解回 scope，本 Owner 与 Market Data 共用。
+`StrategyDesignRoleIntentV1` 只在 schema 2 下以 `(pit_request_identity, pit_request_digest)` 指名初始 PIT 请求，每个
+schema 在各自的 domain 下取摘要，schema 1 的字节与摘要不变。V3 请求经 `POST /v3/source-intake-research` 提交，按
+Market Data 的提前读取检查，要么以绑定其范围的 schema 3 Intent 接纳，要么连同绑定的检查记录被拒。
+`POST /v3/research-goals/{request_identity}/initial-pit` 在 `rd_research_initial_pit_attempts_v1` 中冻结 attempt，在
+`rd_research_initial_pit_terminals_v1` 中记录终态，Research 回读携带 `initial_pit`。V3 请求的 Design role intent 以
+schema 2 发布，指名所记录的 `AVAILABLE` 请求；在记录之前以 `INITIAL_PIT_REQUEST_NOT_AVAILABLE` 拒绝。签发路由目前还没有
+生产调用方：Dashboard 准入了显示 `initial_pit`，但没有准入签发它的动作。
 
 ## 拒绝和禁止事项
 

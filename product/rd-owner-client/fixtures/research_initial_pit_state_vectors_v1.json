@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "description": "Every initial_pit value a Research readback may state (accepted) and values it never states (refused). accepted is exactly the states the R&D Owner can serialize: its Rust test requires set equality, and the Dashboard consumer projection's test requires each accepted value to project and each refused value to fail closed. A terminal's primary blocker is the one Market Data derives its disposition from, so only the five paired blockers accompany the five non-AVAILABLE dispositions.",
+  "accepted": [
+    { "state": "NOT_ISSUED" },
+    { "state": "SUBMITTED_OR_UNKNOWN" },
+    { "state": "TERMINAL", "disposition": "AVAILABLE", "primary_blocker": null },
+    { "state": "TERMINAL", "disposition": "UNLICENSED", "primary_blocker": "RIGHTS_UNLICENSED" },
+    { "state": "TERMINAL", "disposition": "AMBIGUOUS", "primary_blocker": "IDENTITY_SEMANTICS_OR_TIME_AMBIGUOUS" },
+    { "state": "TERMINAL", "disposition": "STALE", "primary_blocker": "EVIDENCE_STALE" },
+    { "state": "TERMINAL", "disposition": "INSUFFICIENT", "primary_blocker": "COVERAGE_INSUFFICIENT" },
+    { "state": "TERMINAL", "disposition": "UNAVAILABLE", "primary_blocker": "SOURCE_UNAVAILABLE" }
+  ],
+  "refused": [
+    { "name": "AVAILABLE with a blocker", "value": { "state": "TERMINAL", "disposition": "AVAILABLE", "primary_blocker": "SOURCE_UNAVAILABLE" } },
+    { "name": "a non-AVAILABLE disposition without its blocker", "value": { "state": "TERMINAL", "disposition": "UNAVAILABLE", "primary_blocker": null } },
+    { "name": "a blocker paired with another disposition", "value": { "state": "TERMINAL", "disposition": "UNAVAILABLE", "primary_blocker": "COVERAGE_INSUFFICIENT" } },
+    { "name": "another unpaired blocker", "value": { "state": "TERMINAL", "disposition": "STALE", "primary_blocker": "RIGHTS_UNLICENSED" } },
+    { "name": "an unknown disposition", "value": { "state": "TERMINAL", "disposition": "PARTIAL", "primary_blocker": null } },
+    { "name": "an unknown blocker", "value": { "state": "TERMINAL", "disposition": "STALE", "primary_blocker": "EVIDENCE_OLD" } },
+    { "name": "a terminal missing its blocker", "value": { "state": "TERMINAL", "disposition": "AVAILABLE" } },
+    { "name": "a terminal missing its disposition", "value": { "state": "TERMINAL", "primary_blocker": null } },
+    { "name": "NOT_ISSUED with an extra key", "value": { "state": "NOT_ISSUED", "disposition": "AVAILABLE" } },
+    { "name": "SUBMITTED_OR_UNKNOWN with an extra key", "value": { "state": "SUBMITTED_OR_UNKNOWN", "primary_blocker": null } },
+    { "name": "a terminal with an extra key", "value": { "state": "TERMINAL", "disposition": "AVAILABLE", "primary_blocker": null, "pit_request_identity": "x" } },
+    { "name": "an unknown state", "value": { "state": "ISSUED" } },
+    { "name": "a lower-case state", "value": { "state": "not_issued" } },
+    { "name": "no state", "value": {} },
+    { "name": "a bare string", "value": "NOT_ISSUED" }
+  ]
+}

@@ -2010,6 +2010,9 @@ rights evidence，绝不能跨 Owner 复制该终态。
 - 每个普通 Research 响应都重复准确初始 PIT Market Snapshot Request 与 correlation binding；含义变化
   必须创建后继请求，静默不能创建 Market Data 或 Research transition。
 - 数据不足或过期会得到显式结果，而不是合成成功。
+- Data Client 一行都没有答时，属于覆盖不足，不是批次不规范。快照以 `INSUFFICIENT` 连同其覆盖 blocker 提交，不存
+  observation batch，因为一个 batch 至少有一行。它的 records digest 是零行规范编码的 digest，任何有行的 batch 都不会是
+  这个值。同一请求再次到来时，无论已提交快照的 disposition 是什么，都加入它，且不写入任何东西。
 - 对相同准入版本重复生成快照可得到相同规范输入。
 - 快照结果必须明确为 `AVAILABLE` `INSUFFICIENT` `STALE` `UNLICENSED` `AMBIGUOUS` 或
   `UNAVAILABLE`。每个修复响应还必须重复 repair request 身份 稳定 correlation 和原始请求证明摘要。
