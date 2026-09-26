@@ -8460,18 +8460,18 @@ impl super::native_replay_scheduling_v1::resolver_seal::Sealed for MarketDataRea
 /// as the principal its URL names, with no admission before a read and no revalidation after one.
 /// Everything it returns is verified and selected by the code the admitted resolver uses; only the
 /// admission segment, which is `B3`, is absent.
-#[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
 pub(crate) struct SealedAcceptanceNativeReplaySchedulingResolverV1 {
     pub(crate) port: super::store_admission::UnadmittedAcceptanceSnapshotPortV1,
 }
 
-#[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
 use super::native_replay_scheduling_v1::resolver_seal::Sealed as NativeReplaySchedulingResolverSealed;
 
-#[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
 impl NativeReplaySchedulingResolverSealed for SealedAcceptanceNativeReplaySchedulingResolverV1 {}
 
-#[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
 #[async_trait::async_trait]
 impl NativeReplaySchedulingResolverV1 for SealedAcceptanceNativeReplaySchedulingResolverV1 {
     async fn resolve_native_replay_initial_market_inputs_v1(
@@ -9523,7 +9523,7 @@ fn verify_admitted_source_rows(
 /// it is never a receipt identity, so it cannot pass for one, and no production build can produce
 /// or accept it.
 fn evidence_names_its_admission_v1(receipt_identity: &str) -> bool {
-    #[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
     if receipt_identity == super::store_admission::SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1 {
         return true;
     }
