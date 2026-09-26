@@ -3,7 +3,10 @@
 import { useEffect, useState, type ChangeEvent } from "react";
 
 import {
+  researchGoalInputIsV3,
+  validResearchInstrumentIdentityV1,
   validSourceResearchOperationRequestV1,
+  validSourceResearchSubmissionV1,
   type SourceResearchOperationRequestV1,
   type SourceResearchResolveRequestV1,
   type SourceResearchRunRequestV1,
@@ -29,6 +32,7 @@ type State = "IDLE" | "SUBMITTING" | "REVALIDATION_REQUIRED" | "SUBMITTED_OR_UNK
 type Draft = {
   sourceRequestIdentity: string;
   researchRequestIdentity: string;
+  instrument: string;
   normalizedDoi: string;
   boundedExplanation: string;
   plausibleAlternatives: string;
@@ -53,6 +57,8 @@ type Draft = {
 const initialDraft: Draft = {
   sourceRequestIdentity: "",
   researchRequestIdentity: "",
+  // Never defaulted: the operator states the instrument.
+  instrument: "",
   normalizedDoi: "",
   boundedExplanation: "",
   plausibleAlternatives: "",
@@ -121,6 +127,9 @@ function requestFor(draft: Draft): SourceResearchRunRequestV1 {
         capacity_model_identity: draft.capacityModelIdentity.trim(),
         independence_rationale: draft.independenceRationale.trim(),
       },
+      // Sent as entered: an identity with surrounding whitespace is refused, never trimmed into
+      // another identity.
+      instrument_scope: { schema_version: 1, identities: [draft.instrument] },
     },
   };
 }
@@ -146,7 +155,8 @@ function messageFor(state: State, result: SourceResearchActionEnvelopeV1 | null)
   if (state === "SUBMITTED_OR_UNKNOWN") return "Delivery uncertain · resolve these exact identities only";
   if (state === "REVALIDATION_REQUIRED") return result?.unavailable_reason ?? "Review the request and current admission";
   if (state === "TERMINAL") return result?.research?.resolution === "ACCEPTED"
-    ? "Research goal accepted" : "Request rejected without changes";
+    ? "Research goal accepted"
+    : `Request rejected without changes${result?.research?.rejection_code ? ` · ${result.research.rejection_code}` : ""}`;
   return "Complete the proposal, then submit once";
 }
 
@@ -166,7 +176,7 @@ export function SourceResearchControl() {
     setDraft((current) => current.sourceRequestIdentity ? current : {
       ...current,
       sourceRequestIdentity: id("dashboard-source-request-v1"),
-      researchRequestIdentity: id("dashboard-research-request-v2"),
+      researchRequestIdentity: id("dashboard-research-request-v3"),
     });
   }, []);
 
@@ -195,7 +205,11 @@ export function SourceResearchControl() {
 
   async function submit() {
     const request = requestFor(draft);
-    if (!validSourceResearchOperationRequestV1(request)) {
+    if (!validResearchInstrumentIdentityV1(draft.instrument)) {
+      setValidation("Enter one Instrument Master identity: not empty, no leading or trailing spaces, no control characters, at most 1024 bytes.");
+      return;
+    }
+    if (!validSourceResearchSubmissionV1(request)) {
       setValidation("Complete every field with a valid DOI, 1-64 trial budget, and one item per line where requested.");
       return;
     }
@@ -279,7 +293,7 @@ export function SourceResearchControl() {
         eyebrow="Sourced research"
         title="New sourced research"
         titleId="source-research-title"
-        description="Submit one source, then its bound Research Goal V2."
+        description="Submit one source, then its bound Research request for one instrument."
         actions={<FilterLink href="/rd" density="compact" variant="secondary">
           <InterfaceIcons.previous aria-hidden="true" size={13} /> Open readback
         </FilterLink>}
@@ -304,6 +318,10 @@ export function SourceResearchControl() {
             <DetailInspector as="section" className={styles.section}>
               <DetailInspectorHeader eyebrow="02" title="Falsifiable goal" />
               <DetailInspectorBody className={styles.sectionBody}>
+                {field("instrument", "Instrument", {
+                  wide: true,
+                  hint: "The canonical Instrument Master identity this research studies. R&D decides whether Market Data admits it.",
+                })}
                 {field("hypothesis", "Hypothesis", { area: true })}
                 {field("mechanism", "Mechanism", { area: true })}
                 {field("falsificationQuestion", "Falsification question", { area: true })}
@@ -372,7 +390,13 @@ export function SourceResearchControl() {
           </FactGroup>
           <FactGroup title="Research">
             <FactItem label="Request" mono>{result.research.request_identity}</FactItem>
+            {locked?.action === "RUN" && researchGoalInputIsV3(locked.research)
+              ? <FactItem label="Instrument" mono>{locked.research.instrument_scope.identities[0]}</FactItem>
+              : null}
             <FactItem label="Resolution"><StatusBadge tone={result.research.resolution === "ACCEPTED" ? "success" : "danger"}>{result.research.resolution.toLowerCase()}</StatusBadge></FactItem>
+            {result.research.rejection_code
+              ? <FactItem label="Rejection" mono>{result.research.rejection_code}</FactItem>
+              : null}
             <FactItem label="Next action">{result.research.next_legal_action.toLowerCase().replaceAll("_", " ")}</FactItem>
           </FactGroup>
           <FactGroup title="Run">

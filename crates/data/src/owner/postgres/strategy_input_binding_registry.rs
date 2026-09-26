@@ -910,6 +910,10 @@ async fn resolve_and_bind_with_mode(
     let [semantics_fact] = semantics.facts() else {
         return Err(StrategyInputBindingRegistryErrorV1::MarketSemanticsUnavailable);
     };
+    // The fact is compared with the batch before anything is read through it: the exact arm
+    // resolves its Instrument Master through the fact's digests, and a fact from another snapshot
+    // would otherwise surface as an Instrument Master mismatch rather than as the fact it is.
+    validate_native_market_semantics(request, &batch, semantics_fact)?;
 
     // Each arm binds through a synchronous helper, so this async function's frame, which a debug
     // build keeps whole across every await, holds none of the binders' temporaries.
@@ -921,7 +925,7 @@ async fn resolve_and_bind_with_mode(
             bind_exact_instrument_declaration_v1(request, &batch, semantics_fact, instrument)
         }
         UntrustedStrategyInputScope::UniverseSelection { .. } => {
-            bind_universe_members_declaration_v1(request, &batch, semantics_fact)
+            bind_universe_members_declaration_v1(request, &batch)
         }
         UntrustedStrategyInputScope::InstrumentSet { .. } => {
             Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterScopeUnavailable)
@@ -936,8 +940,6 @@ fn bind_exact_instrument_declaration_v1(
     semantics_fact: &crate::owner::market_semantics::MarketSemanticsFactV1,
     instrument: NativeInstrumentMasterCoordinateV1,
 ) -> Result<DeclaredStrategyInputBindingV1, StrategyInputBindingRegistryErrorV1> {
-    validate_native_market_semantics(request, batch, semantics_fact)?;
-
     if !market_semantics_instrument_coordinate_matches(
         instrument,
         request.instrument_master_digest,
@@ -956,7 +958,6 @@ fn bind_exact_instrument_declaration_v1(
 fn bind_universe_members_declaration_v1(
     request: &UntrustedStrategyInputBindingRequest,
     batch: &VerifiedPitObservationBatch,
-    semantics_fact: &crate::owner::market_semantics::MarketSemanticsFactV1,
 ) -> Result<DeclaredStrategyInputBindingV1, StrategyInputBindingRegistryErrorV1> {
     // A universe role binds no Instrument Master at composition time: its members' facts
     // are the request-keyed V2 cut Market Data issues over the selection's own membership
@@ -966,7 +967,6 @@ fn bind_universe_members_declaration_v1(
     if request.instrument_master_digest != batch.instrument_master_digest() {
         return Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterBatchDigestUnavailable);
     }
-    validate_native_market_semantics(request, batch, semantics_fact)?;
     bind_strategy_input_universe_frame(std::slice::from_ref(request), batch)
         .map(|frame| DeclaredStrategyInputBindingV1::UniverseMembers(Box::new(frame)))
         .map_err(StrategyInputBindingRegistryErrorV1::BindingUnavailable)
@@ -1345,6 +1345,7 @@ async fn resolve_native_market_semantics(
             super::market_semantics::resolve_market_semantics_scope_in_transaction_v1(
                 transaction,
                 request.market_semantics_identity,
+                batch.snapshot_identity(),
                 i128::from(batch.time_evidence().event_effective.value),
                 i128::from(batch.time_evidence().observed_at),
                 request.decision_cut,
@@ -1355,6 +1356,7 @@ async fn resolve_native_market_semantics(
             super::market_semantics::resolve_market_semantics_scope_read_only_in_transaction_v1(
                 transaction,
                 request.market_semantics_identity,
+                batch.snapshot_identity(),
                 i128::from(batch.time_evidence().event_effective.value),
                 i128::from(batch.time_evidence().observed_at),
                 request.decision_cut,
@@ -1365,6 +1367,7 @@ async fn resolve_native_market_semantics(
             super::market_semantics::resolve_market_semantics_scope_for_rd_strategy_input_v1(
                 transaction,
                 request.market_semantics_identity,
+                batch.snapshot_identity(),
                 i128::from(batch.time_evidence().event_effective.value),
                 i128::from(batch.time_evidence().observed_at),
                 request.decision_cut,

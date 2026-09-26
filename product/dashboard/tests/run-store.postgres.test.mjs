@@ -34,7 +34,7 @@ import {
   developComposerOperationV2,
 } from "../lib/develop-composer-operation.ts";
 import { runEffectWorkerTickV1 } from "../lib/effect-worker.ts";
-import { researchGoalOperationV2 } from "../lib/research-goal-operation.ts";
+import { researchGoalOperationV3 } from "../lib/research-goal-operation.ts";
 import { resolveRunOwnerOutcomeV1 } from "../lib/owner-outcome-resolution-gateway.ts";
 import { projectRunDetailEnvelopeV1 } from "../lib/run-detail-projection.ts";
 import {
@@ -103,7 +103,7 @@ const unknownArtifactOwnerResult = {
 };
 const dispatchCompatibility = compatibleEnvironmentV1();
 const sourceResearchCompatibility = compatibleEnvironmentV1({
-  extraManifests: [sourceIntakeOperationV1, researchGoalOperationV2],
+  extraManifests: [sourceIntakeOperationV1, researchGoalOperationV3],
 });
 
 const replayContent = (identity, character) => ({
@@ -275,6 +275,7 @@ const sourceResearchRunRequest = {
       capacity_model_identity: "capacity-model-v1",
       independence_rationale: "One bounded independence rationale.",
     },
+    instrument_scope: { schema_version: 1, identities: ["BTCUSDT-PERP.BINANCE"] },
   },
 };
 
@@ -670,11 +671,13 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
   assert.equal(cancellableDetail?.operational_cancellation.state, "pending");
   const actionEnvelope = cancellableDetail?.operational_cancellation.action_envelope;
   assert.ok(actionEnvelope);
-  const cancellationReceipt = await store.cancelQueuedDependency({
+  const { receipt: cancellationReceipt, observed_at: cancellationObservedAt } = await store.cancelQueuedDependency({
     runIdentity: cancellable.run_identity,
     actionEnvelope,
     authorizationDigest: cancellationAuthorizationDigest,
   });
+  // Both times are the database's, read in the cancellation's own transaction.
+  assert.ok(Date.parse(cancellationReceipt.cancelled_at) <= Date.parse(cancellationObservedAt));
   assert.equal(cancellationReceipt.prior_state, "queued");
   assert.equal(cancellationReceipt.transition_version, cancellable.transition_version + 1);
   await assert.rejects(() => store.cancelQueuedDependency({
@@ -1352,18 +1355,22 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
   assert.deepEqual(logs.rows.map(({ metadata }) => metadata), [{}, {}]);
   const authorizationDigest = `sha256:${"9".repeat(64)}`;
   assert.ok(recovered);
-  const deletion = await restarted.deleteOperationalCache({
+  const { receipt: deletion, observed_at: deletionObservedAt } = await restarted.deleteOperationalCache({
     runIdentity: research.run_identity,
     expectedTransitionVersion: recovered.transition_version,
     authorizationDigest,
   });
+  assert.ok(Date.parse(deletion.deleted_at) <= Date.parse(deletionObservedAt));
   assert.equal(deletion.run_identity, research.run_identity);
   assert.equal(deletion.prior_state, "succeeded");
-  assert.equal((await restarted.deleteOperationalCache({
+  const replayed = await restarted.deleteOperationalCache({
     runIdentity: research.run_identity,
     expectedTransitionVersion: recovered.transition_version,
     authorizationDigest,
-  })).receipt_identity, deletion.receipt_identity);
+  });
+  assert.equal(replayed.receipt.receipt_identity, deletion.receipt_identity);
+  // A replay returns the original receipt, observed again now.
+  assert.ok(Date.parse(replayed.observed_at) >= Date.parse(deletionObservedAt));
   const deletedDetail = await restarted.readRunDetail(research.run_identity);
   assert.equal(deletedDetail?.cache_deletion_receipt?.receipt_identity, deletion.receipt_identity);
   assert.deepEqual(deletedDetail?.logs, []);
@@ -1538,6 +1545,7 @@ test("PostgreSQL Source-to-Research custody resumes only the missing Research st
   };
   const activeAdmission = await admitSourceResearchExecutionV1({
     action: "RUN",
+    researchOperation: "research_goal.submit_or_resolve.v3",
     environment: sourceResearchCompatibility.environment,
     nowEpochMs: sourceResearchCompatibility.nowEpochMs,
     routingResolver: async () => activeRouting,
@@ -1573,6 +1581,7 @@ test("PostgreSQL Source-to-Research custody resumes only the missing Research st
   const recoverySnapshot = await store.readSourceResearchRecovery(recoveryIdentity);
   assert.equal(recoverySnapshot?.run.run_identity, started.run.run_identity);
   assert.equal(recoverySnapshot?.requested_action, "RUN");
+  assert.equal(recoverySnapshot?.research_operation, "research_goal.submit_or_resolve.v3");
   assert.equal(recoverySnapshot?.input_custody.availability, "available");
   assert.deepEqual(recoverySnapshot?.input_custody.request, sourceResearchRunRequest);
   assert.deepEqual(recoverySnapshot?.routing, {
@@ -1617,7 +1626,7 @@ test("PostgreSQL Source-to-Research custody resumes only the missing Research st
       if (path === "/v1/source-intakes/source-request-1/readback") {
         return Response.json(sourceTerminal);
       }
-      if (path === "/v2/research-goals/request-1/resolve") {
+      if (path === "/v3/research-goals/request-1/resolve") {
         researchResolveCount += 1;
         return researchResolveCount === 1
           ? new Response(null, { status: 404 })
@@ -1630,9 +1639,9 @@ test("PostgreSQL Source-to-Research custody resumes only the missing Research st
   assert.equal(recoveredResult.envelope.operational_run.run_identity, started.run.run_identity);
   assert.deepEqual(calls.map(({ url }) => new URL(url).pathname), [
     "/v1/source-intakes/source-request-1/readback",
-    "/v2/research-goals/request-1/resolve",
-    "/v2/source-intake-research",
-    "/v2/research-goals/request-1/resolve",
+    "/v3/research-goals/request-1/resolve",
+    "/v3/source-intake-research",
+    "/v3/research-goals/request-1/resolve",
   ]);
   assert.equal(calls[0].init.body, undefined);
   assert.equal(calls[1].init.body, undefined);
@@ -1657,6 +1666,19 @@ test("PostgreSQL Source-to-Research custody resumes only the missing Research st
     actionContext: actionContext("RUN"),
     runRequest: sourceResearchRunRequest,
   }), { message: "SOURCE_RESEARCH_IDENTITY_REUSED" });
+  // A request's version must be the one its admission names: a V3 admission cannot begin a V2 input.
+  const { instrument_scope: _scope, ...researchV2 } = sourceResearchRunRequest.research;
+  await assert.rejects(() => store.beginSourceResearch({
+    action: "RUN",
+    recoveryIdentity: { source_request_identity: "source-request-v2", research_request_identity: "request-v2" },
+    admission: activeAdmission,
+    actionContext: actionContext("RUN"),
+    runRequest: {
+      ...sourceResearchRunRequest,
+      source: { ...sourceResearchRunRequest.source, request_identity: "source-request-v2" },
+      research: { ...researchV2, request_identity: "request-v2" },
+    },
+  }), { message: "SOURCE_RESEARCH_SUBMISSION_INVALID" });
   const binding = await admin.query(
     `SELECT requested_action, source_registry_entry_digest,
             source_compatibility_envelope_digest, research_registry_entry_digest,
@@ -1775,6 +1797,7 @@ test("PostgreSQL effect dispatch preserves atomic custody and lease-safe recover
   assert.equal(artifactAdmission.availability, "available");
   const sourceAdmission = await admitSourceResearchExecutionV1({
     action: "RUN",
+    researchOperation: "research_goal.submit_or_resolve.v3",
     environment: sourceResearchCompatibility.environment,
     nowEpochMs: sourceResearchCompatibility.nowEpochMs,
     routingResolver: async () => activeRouting,

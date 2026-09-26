@@ -17,17 +17,22 @@ import {
 
 const now = "2026-09-11T04:00:00.000Z";
 
-// Runs `body` with the process clock an hour ahead of the database's statement time, which is what a
-// browser whose clock runs fast looks like to the server.
-function withClockAhead(databaseNow, body) {
+const HOUR_MS = 3_600_000;
+// How far behind the database a slow browser clock is set: several round trips, so a check that only
+// holds by the response's own latency fails here.
+const BEHIND_MS = 500;
+
+// Runs `body` with this process's clock `offsetMs` away from the database's statement time: ahead is
+// what a browser whose clock runs fast looks like, behind one whose clock runs slow.
+async function withClockOffset(databaseNow, offsetMs, body) {
   const RealDate = Date;
-  const ahead = RealDate.parse(databaseNow) + 3_600_000;
-  class AheadDate extends RealDate {
-    constructor(...args) { super(...(args.length === 0 ? [ahead] : args)); }
-    static now() { return ahead; }
+  const shifted = RealDate.parse(databaseNow) + offsetMs;
+  class ShiftedDate extends RealDate {
+    constructor(...args) { super(...(args.length === 0 ? [shifted] : args)); }
+    static now() { return shifted; }
   }
-  globalThis.Date = AheadDate;
-  try { return body(new RealDate(ahead).toISOString()); } finally { globalThis.Date = RealDate; }
+  globalThis.Date = ShiftedDate;
+  try { return await body(new RealDate(shifted).toISOString()); } finally { globalThis.Date = RealDate; }
 }
 
 const receipt = `dashboard-operational-cancellation-v1-${"a".repeat(64)}`;
@@ -73,9 +78,9 @@ test("Audit entries bind operation, receipt, target and correlation exactly", ()
   assert.equal(parseOperationAuditEntryV1({ ...entry, audit_identity: `dashboard-operation-audit-v1-${"c".repeat(64)}` }), null);
 });
 
-test("Audit list accepts only its exact filter cut, newest-first entries and source digest", async () => {
+async function availablePage(entries = [entry]) {
   const filterCut = canonicalizeOperationAuditFilterCutV1({ observedAt: now, pageSize: 20 }, now).filterCut;
-  const page = {
+  return {
     schema_version: 1,
     projection_version: 1,
     operation: "dashboard.operation_audit.read.v1",
@@ -84,23 +89,28 @@ test("Audit list accepts only its exact filter cut, newest-first entries and sou
     completeness: "complete",
     observed_at: now,
     retention_limit: 512,
-    source_cut: await operationAuditSourceCutV1([entry]),
+    source_cut: await operationAuditSourceCutV1(entries),
     filter_cut: filterCut,
     filter_cut_digest: await operationAuditFilterCutDigestV1(filterCut),
     summary: { execute: 0, create_update: 1, delete: 0, succeeded: 1, failed_denied: 0 },
     principals: ["local_operator"],
     operations: ["dashboard.dependency.cancel.queued.v1"],
-    entries: [entry],
+    entries,
     page_size: 20,
     next_cursor: null,
   };
-  assert.deepEqual(await parseOperationAuditPageV1(page, now), page);
-  assert.equal(await parseOperationAuditPageV1({ ...page, source_cut: `sha256:${"0".repeat(64)}` }, now), null);
-  assert.equal(await parseOperationAuditPageV1({ ...page, filter_cut: { ...filterCut, range: "24h" } }, now), null);
-  assert.equal(await parseOperationAuditPageV1({ ...page, principals: ["z", "a"] }, now), null);
+}
+
+test("Audit list accepts only its exact filter cut, newest-first entries and source digest", async () => {
+  const page = await availablePage();
+  const { filter_cut: filterCut } = page;
+  assert.deepEqual(await parseOperationAuditPageV1(page), page);
+  assert.equal(await parseOperationAuditPageV1({ ...page, source_cut: `sha256:${"0".repeat(64)}` }), null);
+  assert.equal(await parseOperationAuditPageV1({ ...page, filter_cut: { ...filterCut, range: "24h" } }), null);
+  assert.equal(await parseOperationAuditPageV1({ ...page, principals: ["z", "a"] }), null);
 });
 
-test("Audit detail requires one correlation and an ascending verified timeline", async () => {
+async function availableDetail() {
   const laterReceipt = `dashboard-operational-cache-deletion-v1-${"c".repeat(64)}`;
   const later = {
     ...entry,
@@ -111,7 +121,6 @@ test("Audit detail requires one correlation and an ascending verified timeline",
     receipt_identity: laterReceipt,
   };
   const timeline = [entry, later];
-  assert.ok(compareOperationAuditEntriesV1(entry, later) > 0);
   const detail = {
     schema_version: 1,
     projection_version: 1,
@@ -124,13 +133,19 @@ test("Audit detail requires one correlation and an ascending verified timeline",
     entry: later,
     timeline,
   };
-  assert.deepEqual(await parseOperationAuditDetailV1(detail, now), detail);
-  assert.equal(await parseOperationAuditDetailV1({ ...detail, timeline: [...timeline].reverse() }, now), null);
-  assert.equal(await parseOperationAuditDetailV1({ ...detail, timeline: [{ ...entry, correlation_identity: entry.target_identity.replace(/5$/, "6") }, later] }, now), null);
+  return { detail, later, timeline };
+}
+
+test("Audit detail requires one correlation and an ascending verified timeline", async () => {
+  const { detail, later, timeline } = await availableDetail();
+  assert.ok(compareOperationAuditEntriesV1(entry, later) > 0);
+  assert.deepEqual(await parseOperationAuditDetailV1(detail), detail);
+  assert.equal(await parseOperationAuditDetailV1({ ...detail, timeline: [...timeline].reverse() }), null);
+  assert.equal(await parseOperationAuditDetailV1({ ...detail, timeline: [{ ...entry, correlation_identity: entry.target_identity.replace(/5$/, "6") }, later] }), null);
 });
 
-test("the current view is cut at the database's time even when the browser clock runs ahead", () => {
-  withClockAhead(now, (browserNow) => {
+test("the current view is cut at the database's time even when the browser clock runs ahead", async () => {
+  await withClockOffset(now, HOUR_MS, (browserNow) => {
     const requested = currentOperationAuditFilterV1();
     const query = operationAuditQueryV1(requested, 20);
     // The browser sends no clock of its own, so the route passes no observedAt to the gateway.
@@ -144,6 +159,27 @@ test("the current view is cut at the database's time even when the browser clock
       /OPERATION_AUDIT_QUERY_INVALID/u,
     );
   });
+});
+
+// The cut is the database's statement time, so the browser checks it only against times from the
+// same answer. A browser clock behind the database used to refuse every current read.
+test("a browser clock behind the database's cut does not refuse the Audit list or detail", async () => {
+  const page = await availablePage();
+  const { detail } = await availableDetail();
+  await withClockOffset(now, -BEHIND_MS, async () => {
+    assert.deepEqual(await parseOperationAuditPageV1(page), page);
+    assert.deepEqual(await parseOperationAuditDetailV1(detail), detail);
+  });
+});
+
+test("an Audit entry after its own answer's cut is still refused", async () => {
+  // Its source digest is recomputed, so only the time contradicts the cut it was read under.
+  const late = { ...entry, observed_at: new Date(Date.parse(now) + 1).toISOString() };
+  assert.equal(await parseOperationAuditPageV1(await availablePage([late])), null);
+  // The same entry at the cut itself is accepted, so the refusal above is the time and nothing else.
+  const atCut = { ...entry, observed_at: now };
+  const accepted = await availablePage([atCut]);
+  assert.deepEqual(await parseOperationAuditPageV1(accepted), accepted);
 });
 
 test("a carried cut must come back unchanged, and only a current request accepts the server's instant", () => {

@@ -19,6 +19,13 @@ export const PRODUCT_EDGE_RESEARCH_GOAL_ROUTING_KEY_V2 = {
   channel: "WINDMILL_PRODUCT_EDGE",
 } as const satisfies ProductEdgeRoutingLookupKeyV1;
 
+// A key's version is its operation name's `.vN` suffix (Product Edge's routing contract).
+export const PRODUCT_EDGE_RESEARCH_GOAL_ROUTING_KEY_V3 = {
+  operation: "research_goal.submit_or_resolve.v3",
+  version: 3,
+  channel: "WINDMILL_PRODUCT_EDGE",
+} as const satisfies ProductEdgeRoutingLookupKeyV1;
+
 export const PRODUCT_EDGE_ARTIFACT_BUILD_ROUTING_KEY_V1 = {
   operation: "artifact_build.submit_or_resolve.v1",
   version: 1,

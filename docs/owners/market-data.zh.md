@@ -442,6 +442,15 @@ typed value；它不携带 coordinate，而一次提交据以解析的 compatibi
 本文档今天不要求这种拆分，而要求它会约束所有未来的源，所以这里把它记为一条已知限制，
 而不是由任何单个源的准入顺带决定。
 
+**在同一 scope 下，每个 PIT snapshot 有自己的一条 fact 链。** 一条 fact 由一个 PIT snapshot 的证据证明：
+它绑定该 snapshot 的 identity 与 fact digest，而 Strategy Input declaration 只接受绑定其自身 snapshot 的
+fact。因此 fact 链、回答读取的 head 以及重叠规则都按 compatibility scope 与 PIT snapshot 分别保存；同一
+binding 下的第二个 snapshot 以它自己的创世 fact 开始自己的链。「一个 binding 陈述一个 price adjustment」
+改由一条显式规则保证，而不再依赖 scope 只有一个 head：每次 Owner 提交之后，一个 scope 的所有 head 都携带
+相同的五个 typed value。一条 fact 的 value 若与其 scope 中除它所继承的那个 head 以外的任一 head 不同，就以
+`ScopeValueConflict` 按名拒绝，不写入任何东西。同一 scope 与 snapshot 的第二个创世 fact 仍是 branch，以
+`InvalidCorrection` 拒绝。
+
 **CURRENT：** Market Data 已有一个独立 `MarketSemanticsFactV1` 权威 foundation。其首个固定消费者是 Strategy Input
 Binding Registry；`ReplayMarketFactsV2` 随后把同一个 Owner readback 作为确定性 projection 消费。不受信
 proposal 只能携带 request identity/meaning、stable correlation、声称的 typed value、声称的 predecessor
@@ -468,7 +477,7 @@ lookup。Test-only seal 不是 production positive path。
 **CURRENT / PARTIAL，生产 Market Semantics intake：** 一个 Owner-sealed admission port 与一条路由
 `POST /v1/market-data/market-semantics`，Operations 经它在已准入的 Source Binding 旁提交上文的 untrusted
 proposal。只有 Owner 解析四个依赖 readback、派生封闭的 registry key、为该 key 用 proposal 的 typed value 注册一次
-registry entry（同一 key 的不同 value 是 conflict，绝不覆写），并在一个 transaction 内 append fact、完整 cut、
+registry entry（同一 key 的不同 value 以 `SnapshotValueConflict` 拒绝，绝不覆写），并在一个 transaction 内 append fact、完整 cut、
 receipt 与 outbox。提交只点名绑定、快照与类型化取值，别无其他：作用域是该绑定自己的兼容性身份，生效区间与关联
 标识是该快照自己的 R0 观测证据，两者都不是提交方能说的。一次性 PostgreSQL 链路证明了作用域、重放 rejoin 与冲突。
 除这条 intake 外不声称任何事。**NOT_ADMITTED：** 本契约不声称 provider ingestion/authenticity、Strategy Input Registry 或 Replay V2
@@ -498,11 +507,22 @@ Binding lineage、source/correction frontier 与 correction identity。所有重
 Effective containment 与 observation availability 是相互独立的 predicate。每个 availability coordinate
 都必须在同一 authenticated clock 与 decision cut 下可观察。
 
-Correction 是同一 compatibility scope 内的不可变 direct successor。它指向 current predecessor，推进经
-认证的 correction/observation evidence，并可保留被修正的 effective interval；绝不重写 predecessor，也
-不会让 predecessor 在更早 cut 上失效。不同 effective regime 不得重叠。Predecessor 缺失、branch、cycle、
-ambiguous overlap、coordinate/frontier 回退，或在更早 observation cut 选择更晚 correction，都不产生
-positive fact 或 cut。
+Correction 是同一 compatibility scope 与 PIT snapshot 内的不可变 direct successor。它指向该链的 current
+head，推进经认证的 correction/observation evidence，并可保留被修正的 effective interval；绝不重写
+predecessor，也不会让 predecessor 在更早 cut 上失效。同一条链内不同 effective regime 不得重叠。Predecessor
+缺失、branch、cycle、ambiguous overlap、coordinate/frontier 回退，或在更早 observation cut 选择更晚
+correction，都不产生 positive fact 或 cut。
+
+**NOT_CONSTRUCTIBLE：今天追加不了任何 correction。** 提案里的同一个字段同时充当 R0 record 的 predecessor 与
+Market Semantics 的 predecessor。`market_semantics/authority.rs` 里的 `validate_proposal` 要求它等于 R0 record 的
+predecessor，即一个 R0 identity；而 `validate_successor_v1` 要求它等于前一条 fact 的 identity；两者是不同
+domain 下的 BLAKE3 digest。Owner 为 snapshot 写的 R0 record 也总是创世（`append_owner_r0_for_available_pit_v1`）。
+所以今天每条 fact 都是创世。修好这条路径时必须保持上面的规则：不改 typed value 的 correction 可以只推进一个
+snapshot 的链；改 value 的 correction 必须在一个 Owner transaction 里为该 scope 的每个 head 各追加一个
+successor，因为只改一条链会让各 head 不一致，并以 `ScopeValueConflict` 被拒。这种整 scope 的 correction
+在此定义但不建，因为没有任何东西消费它。它不能靠今天逐条 append 的检查逐个追加 successor 来实现：第一个
+successor 进来时其他 head 仍是旧值，会被拒。这条规则成立于每次 Owner 提交之后，所以那个 transaction 要先写完
+全部 successor，再在结尾对整个 scope 检查一次。
 
 ### 规范 codec、完整 cut 与 custody
 
@@ -541,7 +561,11 @@ bytes 所得的 BLAKE3-256。
   cut identity、length 与 bytes，receipt identity、length 与 bytes，以及 outbox identity。Positive fact、
   cut、receipt 与 move-only readback 没有 public constructor 或 deserializer；resolver 由 crate sealed。
 
-一个 Owner transaction 原子 append 不可变 fact/head、完整 cut、receipt、outbox 与 store
+Head 按 compatibility scope 与 PIT snapshot 保存在 `market_semantics_heads_v2`。仍持有每个 scope 一个 head
+的 `market_semantics_heads_v1` 的 store 会迁移一次，每个 head 以其 fact 所绑定的 snapshot 为键；旧表若是任何
+其他形状，迁移停下而不猜测。随后旧表退役而不删除：它保留下来并挂一个拒绝一切写入的 trigger，因此更早的
+binary 会发现它已存在，并在第一次 append 时失败，而不是把它重新建成空表、接受任意创世。新 store 同样带着
+这张已退役的表。一个 Owner transaction 原子 append 不可变 fact/head、完整 cut、receipt、outbox 与 store
 generation/append state。准确 request identity 加准确 meaning 是 idempotent；meaning 变化产生 conflict；
 partial row、scalar/canonical drift、dependency splice 或 digest mismatch 使 custody 不可信。Response loss
 绝不授权再次 append：recovery 只接受准确 identity/meaning locator，重新验证完整 stored aggregate，并返回

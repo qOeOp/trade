@@ -8,14 +8,19 @@ import {
   type ControlPlaneAdmissionContextV1,
 } from "./control-plane-admission-contract.ts";
 import {
-  executeResearchGoalOperationV2,
-  resolveResearchGoalOperationV2,
+  RESEARCH_OWNER_OPERATION_V3,
+  type ResearchOwnerOperationV1,
+} from "../../rd-owner-client/consumer_projection_v1.ts";
+import {
+  executeResearchGoalOperation,
+  resolveResearchGoalOperation,
 } from "./research-goal-operation.ts";
 import {
   executeSourceIntakeOperationV1,
   resolveSourceIntakeOperationV1,
 } from "./source-intake-operation.ts";
 import {
+  researchGoalInputIsV3,
   validSourceResearchOperationRequestV1,
   type SourceResearchRunRequestV1,
   type SourceResearchOperationRequestV1,
@@ -59,6 +64,8 @@ export type SourceResearchOperationResponseV1 = {
     unavailable_reason: string | null;
     source: JsonRecord | null;
     research: JsonRecord | null;
+    // The Research operation `research` answered for; null whenever there is no answer.
+    research_operation: ResearchOwnerOperationV1 | null;
     operational_run: OperationalRunReferenceV1;
   };
 };
@@ -97,6 +104,7 @@ function unavailable(
       unavailable_reason: reason,
       source: null,
       research: null,
+      research_operation: null,
       operational_run: operationalRunUnavailableV1(
         run ? "RUN_RECOVERY_REQUIRED" : "RUN_NOT_STARTED",
         run,
@@ -128,6 +136,10 @@ export async function enqueueSourceResearchOperationV1({
 }): Promise<SourceResearchOperationResponseV1> {
   if (!validRequest(request) || request.action !== "RUN") {
     return unavailable("EXECUTION_REQUEST_INVALID", 400);
+  }
+  // The form submits only V3; a new run must state the instrument it studies.
+  if (!researchGoalInputIsV3(request.research)) {
+    return unavailable("RESEARCH_INSTRUMENT_SCOPE_REQUIRED", 400);
   }
   if (!validControlPlaneAdmissionContextV1(actionContext)
     || actionContext.requestedAction !== "RUN") {
@@ -170,6 +182,7 @@ export async function enqueueSourceResearchOperationV1({
             unavailable_reason: null,
             source: null,
             research: null,
+            research_operation: null,
             operational_run: operationalRunAvailableV1(recovery.run),
           },
         };
@@ -181,6 +194,7 @@ export async function enqueueSourceResearchOperationV1({
   }
   const admission = await admitSourceResearchExecutionV1({
     action: "RUN",
+    researchOperation: RESEARCH_OWNER_OPERATION_V3,
     environment,
     nowEpochMs,
     ...(routingResolver ? { routingResolver } : {}),
@@ -213,6 +227,7 @@ export async function enqueueSourceResearchOperationV1({
         unavailable_reason: null,
         source: null,
         research: null,
+        research_operation: null,
         operational_run: operationalRunAvailableV1(started.run),
       },
     };
@@ -309,12 +324,14 @@ export async function executeClaimedSourceResearchOperationV1({
     return "retry";
   }
 
+  // The run recorded which Research operation it was admitted under; every resolve uses it.
   let researchResult = observed.has("RESEARCH_OWNER_AVAILABLE") || claim.claim_attempt > 1
-    ? await resolveResearchGoalOperationV2({
+    ? await resolveResearchGoalOperation({
       requestIdentity: request.research.request_identity,
+      operation: recovery.research_operation,
       transport: ownerTransport,
     })
-    : await executeResearchGoalOperationV2({
+    : await executeResearchGoalOperation({
       input: request.research,
       ancestry: sourceResult.ancestry,
       transport: ownerTransport,
@@ -322,8 +339,9 @@ export async function executeClaimedSourceResearchOperationV1({
     });
   if (researchResult.availability !== "available" && claim.claim_attempt === 1
     && !observed.has("RESEARCH_OWNER_AVAILABLE")) {
-    researchResult = await resolveResearchGoalOperationV2({
+    researchResult = await resolveResearchGoalOperation({
       requestIdentity: request.research.request_identity,
+      operation: recovery.research_operation,
       transport: ownerTransport,
     });
   }
@@ -392,6 +410,12 @@ export async function executeSourceResearchOperationV1({
   if (!recovery && request.action === "RESOLVE") {
     return unavailable("EXECUTION_RECOVERY_NOT_FOUND", 404);
   }
+  // The form submits only V3: a new run must state its instrument. A V2 request can only name a run
+  // recorded before V3, and then it must equal that run's kept input (checked below).
+  if (!recovery && request.action === "RUN" && !researchGoalInputIsV3(request.research)) {
+    return unavailable("RESEARCH_INSTRUMENT_SCOPE_REQUIRED", 400);
+  }
+  const researchOperation = recovery ? recovery.research_operation : RESEARCH_OWNER_OPERATION_V3;
 
   if (recovery && request.action === "RUN") {
     const submittedCustody = sourceResearchRunInputCustodyV1(request);
@@ -414,12 +438,13 @@ export async function executeSourceResearchOperationV1({
       || !recovery.observed_phases.includes("RESEARCH_OWNER_AVAILABLE")) {
       return unavailable("EXECUTION_PRIOR_RUN_TERMINAL", 409, recovery.run);
     }
-    return resolveCompletedRun({ request, storeRun: recovery.run, ownerTransport });
+    return resolveCompletedRun({ request, storeRun: recovery.run, researchOperation, ownerTransport });
   }
 
   const effectiveAction = recovery ? "RESOLVE" : request.action;
   const admission = await admitSourceResearchExecutionV1({
     action: effectiveAction,
+    researchOperation,
     environment,
     nowEpochMs,
     ...(routingResolver ? { routingResolver } : {}),
@@ -536,16 +561,18 @@ export async function executeSourceResearchOperationV1({
   // Every resolve of the Research stage, the requested one or a recovery of an earlier run, reads
   // the Owner through the route the orchestration contract names; only a fresh run submits.
   let researchResult = request.action === "RESOLVE"
-    ? await resolveResearchGoalOperationV2({
+    ? await resolveResearchGoalOperation({
       requestIdentity: request.research_request_identity,
+      operation: researchOperation,
       transport: ownerTransport,
     })
     : started.execution_mode !== "FRESH_RUN" || effectiveAction === "RESOLVE"
-      ? await resolveResearchGoalOperationV2({
+      ? await resolveResearchGoalOperation({
         requestIdentity: (runInput?.research ?? request.research).request_identity,
+        operation: researchOperation,
         transport: ownerTransport,
       })
-      : await executeResearchGoalOperationV2({
+      : await executeResearchGoalOperation({
         input: runInput?.research ?? request.research,
         ancestry: sourceResult.ancestry,
         transport: ownerTransport,
@@ -557,15 +584,16 @@ export async function executeSourceResearchOperationV1({
       researchResult.unavailable_reason ?? "",
     )
     && canResumeMissingStage) {
-    researchResult = await executeResearchGoalOperationV2({
+    researchResult = await executeResearchGoalOperation({
       input: runInput.research,
       ancestry: sourceResult.ancestry,
       transport: ownerTransport,
       routing: retainedRouting.research,
     });
     if (researchResult.unavailable_reason === "RESEARCH_OWNER_UNKNOWN") {
-      researchResult = await resolveResearchGoalOperationV2({
+      researchResult = await resolveResearchGoalOperation({
         requestIdentity: runInput.research.request_identity,
+        operation: researchOperation,
         transport: ownerTransport,
       });
     }
@@ -599,16 +627,18 @@ export async function executeSourceResearchOperationV1({
   } catch {
     return unavailable("EXECUTION_RUN_STORE_TRANSITION_UNAVAILABLE", 503, currentRun);
   }
-  return available(sourceResult.owner_response, researchResult.owner_response, currentRun);
+  return available(sourceResult.owner_response, researchResult.owner_response, researchOperation, currentRun);
 }
 
 async function resolveCompletedRun({
   request,
   storeRun,
+  researchOperation,
   ownerTransport,
 }: {
   request: SourceResearchOperationRequestV1;
   storeRun: OperationRunV1;
+  researchOperation: ResearchOwnerOperationV1;
   ownerTransport: NonNullable<ReturnType<typeof configuredDisposableOwnerTransportV1>>;
 }): Promise<SourceResearchOperationResponseV1> {
   const sourceIdentity = request.action === "RUN"
@@ -627,8 +657,9 @@ async function resolveCompletedRun({
       storeRun,
     );
   }
-  const researchResult = await resolveResearchGoalOperationV2({
+  const researchResult = await resolveResearchGoalOperation({
     requestIdentity: researchIdentity,
+    operation: researchOperation,
     transport: ownerTransport,
   });
   if (researchResult.availability !== "available" || !researchResult.owner_response
@@ -639,12 +670,13 @@ async function resolveCompletedRun({
       storeRun,
     );
   }
-  return available(sourceResult.owner_response, researchResult.owner_response, storeRun);
+  return available(sourceResult.owner_response, researchResult.owner_response, researchOperation, storeRun);
 }
 
 function available(
   source: JsonRecord,
   research: JsonRecord,
+  researchOperation: ResearchOwnerOperationV1,
   run: OperationRunV1,
 ): SourceResearchOperationResponseV1 {
   return {
@@ -657,6 +689,7 @@ function available(
       unavailable_reason: null,
       source,
       research,
+      research_operation: researchOperation,
       operational_run: operationalRunAvailableV1(run),
     },
   };

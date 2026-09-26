@@ -17,8 +17,10 @@ readonly market_data_owner_postgres_tests=(
   owner::postgres::pit_intake_member_count_tests::pit_intake_admits_one_or_two_universe_members_and_refuses_the_rest_unwritten
   owner::replay_market_facts_v2::first_corpus_v1_readback_postgres_tests::first_corpus_reads_back_through_the_v1_lock_function_unchanged
   owner::replay_market_facts_v2::universe_member_shape_postgres_tests::replay_facts_table_migrates_and_keeps_each_row_to_its_shape
-  owner::postgres::tests::postgres_a_second_research_request_under_one_binding_gets_no_market_semantics
   owner::postgres::replay_market_facts_v2::universe_issuance::postgres_tests::postgres_universe_member_composition_issues_a_binding_that_keys_its_cut
+  owner::postgres::tests::postgres_each_research_request_under_one_binding_gets_its_own_market_semantics
+  owner::postgres::tests::postgres_concurrent_values_under_one_binding_leave_one_value
+  owner::postgres::tests::postgres_market_semantics_heads_migrate_to_one_head_per_snapshot
   owner::postgres::pit_initial_intake_correlation_tests::postgres_an_initial_intake_claims_its_correlation_once_and_reads_back_by_it
 )
 
@@ -141,8 +143,13 @@ trap 'exit 143' TERM
 # PostgreSQL as PID 1, any orphaned shell child of a `docker exec` is reaped by the postmaster, and
 # one killed by a signal restarts every server process. Nothing here drives psql from an in-container
 # heredoc today; this keeps that from mattering if something ever does.
+# The deployment's PostgreSQL (product/rd-workbench/docker-compose.yml), pinned by the same digest:
+# mirror.gcr.io first, public.ecr.aws if it does not serve (scripts/ci/pull-pinned-image.bash).
+postgres_image="$(bash "$repository_root/scripts/ci/pull-pinned-image.bash" \
+  "mirror.gcr.io/library/postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297" \
+  "public.ecr.aws/docker/library/postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297")"
 docker run --detach --init --name "$container" --publish 127.0.0.1::5432 \
-  --env POSTGRES_PASSWORD="$admin_password" postgres:16.10-alpine > /dev/null
+  --env POSTGRES_PASSWORD="$admin_password" "$postgres_image" > /dev/null
 
 # The postgres entrypoint runs initdb against a temporary server, stops it, then starts the real
 # one. A single `pg_isready` can answer for the temporary server and be followed immediately by the

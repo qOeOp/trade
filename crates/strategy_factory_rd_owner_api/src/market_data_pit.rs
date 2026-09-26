@@ -619,6 +619,14 @@ fn market_semantics_error(error: MarketSemanticsAdmissionErrorV1) -> Response {
         MarketSemanticsAdmissionErrorV1::AdmissionConflict => {
             (StatusCode::CONFLICT, "MARKET_SEMANTICS_ADMISSION_CONFLICT")
         }
+        MarketSemanticsAdmissionErrorV1::SnapshotValueConflict => (
+            StatusCode::CONFLICT,
+            "MARKET_SEMANTICS_SNAPSHOT_VALUE_CONFLICT",
+        ),
+        MarketSemanticsAdmissionErrorV1::ScopeValueConflict => (
+            StatusCode::CONFLICT,
+            "MARKET_SEMANTICS_SCOPE_VALUE_CONFLICT",
+        ),
         MarketSemanticsAdmissionErrorV1::StoreUnavailable => (
             StatusCode::SERVICE_UNAVAILABLE,
             "MARKET_DATA_OWNER_UNAVAILABLE",
@@ -770,5 +778,50 @@ mod tests {
             code(&intake_error(error)),
             (StatusCode::CONFLICT, Some(name))
         );
+    }
+
+    /// Each Market Semantics refusal answers with its own code, so a caller can tell which rule
+    /// refused: a snapshot restating its value and another snapshot stating a different one are
+    /// two answers, not one conflict.
+    #[rstest]
+    #[case(
+        MarketSemanticsAdmissionErrorV1::InvalidSubmission,
+        StatusCode::BAD_REQUEST,
+        "INVALID_MARKET_SEMANTICS_SUBMISSION"
+    )]
+    #[case(
+        MarketSemanticsAdmissionErrorV1::DependencyUnavailable,
+        StatusCode::CONFLICT,
+        "MARKET_SEMANTICS_DEPENDENCY_UNAVAILABLE"
+    )]
+    #[case(
+        MarketSemanticsAdmissionErrorV1::AdmissionConflict,
+        StatusCode::CONFLICT,
+        "MARKET_SEMANTICS_ADMISSION_CONFLICT"
+    )]
+    #[case(
+        MarketSemanticsAdmissionErrorV1::SnapshotValueConflict,
+        StatusCode::CONFLICT,
+        "MARKET_SEMANTICS_SNAPSHOT_VALUE_CONFLICT"
+    )]
+    #[case(
+        MarketSemanticsAdmissionErrorV1::ScopeValueConflict,
+        StatusCode::CONFLICT,
+        "MARKET_SEMANTICS_SCOPE_VALUE_CONFLICT"
+    )]
+    #[case(
+        MarketSemanticsAdmissionErrorV1::StoreUnavailable,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "MARKET_DATA_OWNER_UNAVAILABLE"
+    )]
+    fn each_market_semantics_refusal_answers_with_its_own_code(
+        #[case] error: MarketSemanticsAdmissionErrorV1,
+        #[case] status: StatusCode,
+        #[case] code: &str,
+    ) {
+        let response = market_semantics_error(error);
+
+        assert_eq!(response.status(), status);
+        assert_eq!(response.headers()["x-rd-rejection-code"], code);
     }
 }

@@ -406,9 +406,17 @@ for pr_case in 'ready_for_review:' 'opened:false' 'reopened:false'; do
     exit 1
   fi
 done
-codeql_triggers="$(sed -n '/^on:/,/^jobs:/p' "$repo_root/.github/workflows/codeql-analysis.yml")"
+# CodeQL runs once a day off-peak and on demand, never per push: each Rust scan holds a runner for
+# about 1.5 hours under the account's 20-job cap, and a push trigger ran 12 of them on 2026-09-24
+# while pull requests queued. Comments are stripped so this keys on the YAML.
+codeql_triggers="$(sed -n '/^on:/,/^jobs:/p' "$repo_root/.github/workflows/codeql-analysis.yml" |
+  grep -v '^ *#')"
 [[ "$codeql_triggers" == *'workflow_dispatch:'* ]]
-[[ "$codeql_triggers" == *'branches: [main]'* ]]
+[[ "$codeql_triggers" == *'schedule:'* ]]
+if [[ "$codeql_triggers" == *'push:'* ]]; then
+  echo "codeql-analysis.yml must not run on push; it is scheduled once a day, off-peak." >&2
+  exit 1
+fi
 # Match literal GitHub expressions and shell source.
 # shellcheck disable=SC2016
 grep -Fq 'AFTER_SHA: ${{ github.event.after }}' "$repo_root/.github/workflows/build.yml"
@@ -463,7 +471,9 @@ save_gate_shared="$(printf '%s\n' "$save_gates" | grep -cF 'save-if: ${{ env.SAV
 if [[ "$save_gate_total" != "$save_gate_shared" ]]; then
   echo "build.yml: $((save_gate_total - save_gate_shared)) cache-saving step(s) gate on their own condition" >&2
   echo "instead of env.SAVE_BUILD_CACHES:" >&2
-  printf '%s\n' "$save_gates" | grep -vF 'env.SAVE_BUILD_CACHES' >&2
+  # Match a literal workflow expression.
+  # shellcheck disable=SC2016
+  printf '%s\n' "$save_gates" | grep -vF 'save-if: ${{ env.SAVE_BUILD_CACHES }}' >&2
   exit 1
 fi
 if [[ "$save_gate_total" -ne 3 ]]; then
@@ -521,11 +531,13 @@ for py_version in 3.12 3.13 3.14; do
   fi
 done
 # `grep -v '^ *#'`: the comment above the matrix quotes this same condition to explain itself, so
-# counting raw occurrences would count the explanation as one of the things it explains.
+# counting raw occurrences would count the explanation as one of the things it explains. The three:
+# the wheel job's Rust cache (only the version pull requests build uses it), the generated stubs'
+# Rust cache and the drift check.
 drift_gates="$(grep -v '^ *#' "$build_workflow" |
   grep -c "matrix.python-version == '3.13'" || true)"
-if [[ "$drift_gates" -ne 2 ]]; then
-  echo "build.yml gates $drift_gates step(s) on Python 3.13; expected 2. If that set changes, the" >&2
+if [[ "$drift_gates" -ne 3 ]]; then
+  echo "build.yml gates $drift_gates step(s) on Python 3.13; expected 3. If that set changes, the" >&2
   echo "version a pull request keeps has to change with it, or those steps stop running there." >&2
   exit 1
 fi
@@ -900,5 +912,62 @@ assert_nextest_role "$repo_root/.github/workflows/nightly-tests.yml" cargo-publi
 [[ "$(workflow_job_block "$repo_root/.github/workflows/nightly-tests.yml" turmoil)" == *'cargo nextest run'* ]]
 [[ "$(workflow_job_block "$repo_root/.github/workflows/nightly-miri.yml" miri)" == *'make cargo-miri-'* ]]
 echo "ok: adaptive cleanup, Rust cache, doctest isolation, and nextest consumer invariants"
+
+# A pull request's pre-commit hooks run in two jobs: pre-commit-pr.yml runs the no-compile ones on
+# every push, build.yml's pre-commit job runs the compiled rest, and build.yml's `quality` requires
+# the other's result for the same head. Between them they must cover every hook a pull request ran before the split,
+# over the same files, on both routes; the coverage is computed from the arguments the jobs pass.
+python3 -B "$repo_root/scripts/ci/check-pr-hook-coverage.py" "$repo_root"
+python3 -B "$repo_root/scripts/ci/check-pr-hook-coverage_test.py"
+bash "$repo_root/scripts/ci/test-require-workflow-job.bash"
+pre_commit_pr="$repo_root/.github/workflows/pre-commit-pr.yml"
+pre_commit_job="$(workflow_job_block "$build_workflow" pre-commit)"
+# Match literal workflow expressions.
+# shellcheck disable=SC2016
+[[ "$pre_commit_job" == *'bash scripts/ci/run-pre-commit.bash "pull-request-${route}"'* ]]
+# shellcheck disable=SC2016
+[[ "$pre_commit_job" == *'bash scripts/ci/run-pre-commit.bash "$route"'* ]]
+grep -Fq 'run: bash scripts/ci/run-pre-commit.bash no-compile' "$pre_commit_pr"
+grep -Eq '^  pull_request:' "$pre_commit_pr"
+quality_job="$(workflow_job_block "$build_workflow" quality)"
+required_job="$(grep -oE '"pre-commit \(no-compile hooks\)"' <<< "$quality_job" || true)"
+if [[ -z "$required_job" ]] || [[ "$quality_job" != *'bash scripts/ci/require-workflow-job.bash pre-commit-pr.yml'* ]] ||
+  ! grep -Fq "name: ${required_job//\"/}" "$pre_commit_pr"; then
+  echo "build.yml's quality job must require pre-commit-pr.yml's no-compile job by its exact name." >&2
+  exit 1
+fi
+echo "ok: pull requests keep their pre-commit coverage across the two jobs"
+
+# Every PostgreSQL and Redis image CI runs is pinned by digest, in services and in scripts alike. The
+# digest is what lets scripts/ci/pull-pinned-image.bash take the image from mirror.gcr.io or from
+# public.ecr.aws and still run the same bytes; a tag-only reference could change under a job. The
+# pull script's own test deliberately passes one unpinned reference, and comments are prose.
+python3 - "$repo_root" << 'PINNED'
+import re
+import subprocess
+import sys
+
+root = sys.argv[1]
+files = subprocess.run(
+    ["git", "-C", root, "ls-files", ".github/workflows/*.yml", "scripts/ci/*.bash", "scripts/ci/*.sh",
+     "crates/data/tests/*.bash"],
+    capture_output=True, text=True, check=True,
+).stdout.split()
+reference = re.compile(r"(?:postgres|redis):[0-9][^\s\"'@]*(@sha256:[0-9a-f]{64})?")
+unpinned = []
+for path in files:
+    if path == "scripts/ci/test-pull-pinned-image.bash":
+        continue
+    for number, line in enumerate(open(f"{root}/{path}", encoding="utf-8"), start=1):
+        if line.lstrip().startswith("#"):
+            continue
+        unpinned += [f"{path}:{number}: {m.group(0)}" for m in reference.finditer(line) if not m.group(1)]
+if unpinned:
+    print("PostgreSQL/Redis images CI runs must be pinned by digest (image:tag@sha256:...):", file=sys.stderr)
+    print("\n".join(unpinned), file=sys.stderr)
+    sys.exit(1)
+PINNED
+bash "$repo_root/scripts/ci/test-pull-pinned-image.bash"
+echo "ok: every PostgreSQL/Redis image CI runs is pinned by digest"
 
 echo "All CI plan cases passed"
