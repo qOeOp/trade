@@ -320,14 +320,17 @@ control 通过 `sourced-research-goal-v3` operation 提交 `ResearchGoalExecutio
 UTF-8 字节的值；该值是否指向可纳入的品种由 R&D 对照 Market Data 回答，而不由表单回答，control 既不推荐也不默认任何
 品种。表单不再发出 V2。输错的品种以 `REJECTED_NO_WRITE` 和 `INSTRUMENT_SCOPE_NOT_RESOLVABLE` 结束并显示为该终态；对于
 接纳时通过检查的品种，Research 回读还按原样显示 Owner 的 `initial_pit` 值：`NOT_ISSUED`、`SUBMITTED_OR_UNKNOWN`，或
-`ResearchPitTerminal` 六态之一及其 primary blocker；早先的 V2 请求为 `null`，显示为没有初始 PIT 请求；从不由一种状态
-推断另一种。这次研究和它的回测都绑定该品种，更换品种意味着
+`ResearchPitTerminal` 六态之一及其 primary blocker；Owner 没有陈述初始 PIT 请求时为 `null`，显示为没有。Owner 只对被接纳的
+V3 请求陈述初始 PIT 请求，所以早先的 V2 请求和未被接纳的 V3 请求都读到 `null`：`null` 从不意味着某个请求版本，页面也从不由
+一种状态推断另一种。这次研究和它的回测都绑定该品种，更换品种意味着
 一个后继研究请求，从不修改已冻结的请求。用户的授权与范围契约陈述于 [R&D Owner 契约](../owners/rd)。目前已建成：
 该字段及其 validator，它与 R&D 自己的规则对照同一份向量文件测试
 （`product/rd-owner-client/fixtures/research_instrument_identity_vectors_v1.json`）；经
 `POST /v3/source-intake-research` 提交 V3，表单只发出 V3，而 V3 之前记录的运行仍经它当初被接纳时的 V2 路由
 resolve；以及按名显示的 `INSTRUMENT_SCOPE_NOT_RESOLVABLE` 终态，而让范围保持未解析的应答仍是
-`SUBMITTED_OR_UNKNOWN`。`initial_pit` 回读尚未建成，要等 Owner 结果携带该值。只有 Product Edge 的 operation routing
+`SUBMITTED_OR_UNKNOWN`；以及 Research 回读中的 `initial_pit`，按 Owner 的陈述显示，并对照 Owner 测试读取的同一份状态向量检查
+（`product/rd-owner-client/fixtures/research_initial_pit_state_vectors_v1.json`）。回读上的 V2/V3 标签尚未建成：Owner 的回读
+目前不陈述请求版本，而按哪些字段存在去推断版本会把未被接纳的 V3 请求读成 V2。只有 Product Edge 的 operation routing
 对运行依赖的两个键（Source Intake 与 Research V3）都应答 `ACTIVE / TRADE_DASHBOARD` 时运行才被接纳。
 `product-edge-routing-read-api` 应答这次查找并随部署发布，但还没有任何部署提交过这样的绑定。在已部署或共享环境中提交
 这样的绑定是一项单独把关的效果，需要用户明确授权；在提交之前，已部署的 Dashboard 无法启动这次运行。有序 Owner 链路经该读端口驱动这次运行，

@@ -21,6 +21,24 @@ function phaseLabel(value: NonNullable<ResearchReadbackProjectionV1["view"]>["ph
   return value === "artifact_available" ? "Artifact available" : "Intent frozen";
 }
 
+// The Owner's initial PIT state as it states it: never derived from another field, and `null` only
+// ever reads as "None", because the Owner states no initial PIT request for a V2 request and for a
+// V3 request it did not accept alike.
+function InitialPit({ value }: { value: NonNullable<ResearchReadbackProjectionV1["outcome"]>["initialPit"] }) {
+  if (value === null) return <>None</>;
+  if (value.state === "NOT_ISSUED") return <StatusBadge tone="neutral">Not issued</StatusBadge>;
+  if (value.state === "SUBMITTED_OR_UNKNOWN") {
+    return <StatusBadge tone="info">Submitted, outcome unknown</StatusBadge>;
+  }
+  if (value.disposition === "AVAILABLE") return <StatusBadge tone="success">Available</StatusBadge>;
+  return (
+    <span title={value.primary_blocker}>
+      <StatusBadge tone="warning">{humanizeReasonCode(value.disposition)}</StatusBadge>{" "}
+      {humanizeReasonCode(value.primary_blocker)}
+    </span>
+  );
+}
+
 function nextStepLabel(value: NonNullable<ResearchReadbackProjectionV1["view"]>["nextStep"]): string {
   if (value === "review_artifact") return "Artifact ready";
   if (value === "refresh_same_request") return "Refresh required";
@@ -85,6 +103,9 @@ function AvailableReadback({
           </FactItem>
           <FactItem label="Next step">
             {view ? nextStepLabel(view.nextStep) : quarantined ? "Refresh this request" : "Correct input"}
+          </FactItem>
+          <FactItem label="Initial PIT request">
+            <InitialPit value={outcome.initialPit} />
           </FactItem>
         </FactGroup>
         <FactGroup title="Timing">
