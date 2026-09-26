@@ -1658,20 +1658,6 @@ fn project_component(
     coordinate_from_native_receipt(role, binding_digest, receipt)
 }
 
-/// The 308-byte Owner sample coordinate of one universe member's role, and its digest.
-///
-/// The codec is the one every sample projection issues; `binding_digest` is the universe member
-/// binding digest, because a universe member has no static binding receipt.
-pub(crate) fn universe_member_sample_coordinate_v1(
-    role: Identity,
-    binding_digest: Identity,
-    receipt: &super::sample_fact::SampleReceiptV1,
-) -> Result<([u8; COORDINATE_LEN], Identity), StrategyInputSampleProjectionUnavailable> {
-    let coordinate = coordinate_from_native_receipt(role, binding_digest, receipt)?;
-    let digest = sha256(COORDINATE_DOMAIN, &coordinate);
-    Ok((coordinate, digest))
-}
-
 /// Verifies one stored universe member coordinate against the component that names it.
 pub(crate) fn verify_universe_member_sample_coordinate_v1(
     coordinate: &[u8],
@@ -1696,25 +1682,76 @@ fn coordinate_from_native_receipt(
     binding_digest: Identity,
     receipt: &super::sample_fact::SampleReceiptV1,
 ) -> Result<[u8; COORDINATE_LEN], StrategyInputSampleProjectionUnavailable> {
+    encode_sample_coordinate_v1(
+        role,
+        binding_digest,
+        &SampleCoordinateFieldsV1::of_receipt(receipt),
+    )
+}
+
+/// What a coordinate states about the sample it names, as its native receipt states it.
+pub(crate) struct SampleCoordinateFieldsV1 {
+    pub(crate) timeframe_identity: Identity,
+    pub(crate) owner_event_identity: [u8; 16],
+    pub(crate) sample_identity: Identity,
+    pub(crate) logical_time: u64,
+    pub(crate) event_effective: u64,
+    pub(crate) owner_sequence: u64,
+    pub(crate) canonical_row_digest: Identity,
+    pub(crate) source_binding_lineage_root: Identity,
+    pub(crate) source_binding_lineage_version: u64,
+    pub(crate) market_semantics_identity: Identity,
+    pub(crate) receipt_digest: Identity,
+}
+
+impl SampleCoordinateFieldsV1 {
+    pub(crate) fn of_receipt(receipt: &super::sample_fact::SampleReceiptV1) -> Self {
+        Self {
+            timeframe_identity: receipt.timeframe_identity(),
+            owner_event_identity: receipt.owner_event_identity(),
+            sample_identity: receipt.sample_identity(),
+            logical_time: receipt.logical_time(),
+            event_effective: receipt.event_effective(),
+            owner_sequence: receipt.owner_sequence(),
+            canonical_row_digest: receipt.canonical_row_digest(),
+            source_binding_lineage_root: receipt.source_binding_lineage_root(),
+            source_binding_lineage_version: receipt.source_binding_lineage_version(),
+            market_semantics_identity: receipt.market_semantics_identity(),
+            receipt_digest: receipt.digest(),
+        }
+    }
+}
+
+/// The one encoder of the 308-byte coordinate, over the sample fields it states.
+pub(crate) fn encode_sample_coordinate_v1(
+    role: Identity,
+    binding_digest: Identity,
+    fields: &SampleCoordinateFieldsV1,
+) -> Result<[u8; COORDINATE_LEN], StrategyInputSampleProjectionUnavailable> {
     let mut bytes = Vec::with_capacity(COORDINATE_LEN);
     put_u16(&mut bytes, 1);
     put_u16(&mut bytes, 0);
     bytes.extend_from_slice(&role);
-    bytes.extend_from_slice(&receipt.timeframe_identity());
-    bytes.extend_from_slice(&receipt.owner_event_identity());
-    bytes.extend_from_slice(&receipt.sample_identity());
-    put_u64(&mut bytes, receipt.logical_time());
-    put_u64(&mut bytes, receipt.event_effective());
-    put_u64(&mut bytes, receipt.owner_sequence());
+    bytes.extend_from_slice(&fields.timeframe_identity);
+    bytes.extend_from_slice(&fields.owner_event_identity);
+    bytes.extend_from_slice(&fields.sample_identity);
+    put_u64(&mut bytes, fields.logical_time);
+    put_u64(&mut bytes, fields.event_effective);
+    put_u64(&mut bytes, fields.owner_sequence);
     bytes.extend_from_slice(&binding_digest);
-    bytes.extend_from_slice(&receipt.canonical_row_digest());
-    bytes.extend_from_slice(&receipt.source_binding_lineage_root());
-    put_u64(&mut bytes, receipt.source_binding_lineage_version());
-    bytes.extend_from_slice(&receipt.market_semantics_identity());
-    bytes.extend_from_slice(&receipt.digest());
+    bytes.extend_from_slice(&fields.canonical_row_digest);
+    bytes.extend_from_slice(&fields.source_binding_lineage_root);
+    put_u64(&mut bytes, fields.source_binding_lineage_version);
+    bytes.extend_from_slice(&fields.market_semantics_identity);
+    bytes.extend_from_slice(&fields.receipt_digest);
     bytes
         .try_into()
         .map_err(|_| StrategyInputSampleProjectionUnavailable::InvalidLength)
+}
+
+/// The coordinate digest under the unchanged coordinate domain.
+pub(crate) fn sample_coordinate_digest_v1(coordinate: &[u8; COORDINATE_LEN]) -> Identity {
+    sha256(COORDINATE_DOMAIN, coordinate)
 }
 
 fn verify_coordinate(
