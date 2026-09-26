@@ -100,7 +100,7 @@ fn sample_projection_v2_migration_closes_kind_registry_to_frame_and_joined_cut()
     }));
 }
 
-fn d(byte: u8) -> BindingDigest {
+pub(super) fn d(byte: u8) -> BindingDigest {
     BindingDigest::from_untrusted_bytes([byte; 32])
 }
 
@@ -109,7 +109,7 @@ fn d(byte: u8) -> BindingDigest {
 const TEST_CLOCK_IDENTITY_V1: &str = "market-clock.identity.v1-0000001";
 const TEST_CLOCK_EPOCH_V1: &str = "market-clock.epoch.v1-0000000001";
 
-fn clock(cut: u64, sequence: u64) -> MarketDataClockAdmission {
+pub(super) fn clock(cut: u64, sequence: u64) -> MarketDataClockAdmission {
     shared_clock(
         TEST_CLOCK_IDENTITY_V1,
         TEST_CLOCK_EPOCH_V1,
@@ -275,7 +275,7 @@ fn shared_time_raw_history_rejects_tampered_historical_epoch_proof() {
     ));
 }
 
-fn source_proposal(sequence: u64, cut: u64) -> UntrustedSourceBindingProposal {
+pub(super) fn source_proposal(sequence: u64, cut: u64) -> UntrustedSourceBindingProposal {
     let successor = sequence > 10;
     let mut proposal = UntrustedSourceBindingProposal {
         claimed_binding_id: d(0),
@@ -5543,7 +5543,7 @@ async fn owner_r0_readback_v1(
 /// the binding's own Market Semantics Compatibility identity and frontiers, which is what later
 /// lets a Market Semantics fact derive one registry key over the instrument, the snapshot and the
 /// binding together.
-fn oracle_instrument_submission_v1(
+pub(super) fn oracle_instrument_submission_v1(
     identity: &str,
     market_semantics_identity: BindingDigest,
     source_frontier: BindingDigest,
@@ -9386,7 +9386,7 @@ async fn native_replay_frame_sequence_custody_oracle(owner: &MarketDataOwnerPost
 }
 
 /// A one-member universe for `instrument` under `source`: its frontier and the selection over it.
-async fn one_member_universe_v1(
+pub(super) async fn one_member_universe_v1(
     owner: &MarketDataOwnerPostgres,
     source: &SourceBindingCommit,
     instrument: &str,
@@ -9453,7 +9453,7 @@ async fn one_member_universe_v1(
 
 /// One Research request's AVAILABLE PIT snapshot for `instrument`, minted from a frozen request by
 /// the production path under `source`, over `universe`.
-async fn research_request_pit_v1(
+pub(super) async fn research_request_pit_v1(
     owner: &MarketDataOwnerPostgres,
     source: &SourceBindingCommit,
     instrument: &str,
@@ -9549,7 +9549,7 @@ async fn declare_close_role_v1(
 }
 
 /// The typed value a Market Semantics submission states, by price-adjustment tag.
-fn market_semantics_value_v1(
+pub(super) fn market_semantics_value_v1(
     price_adjustment: &str,
 ) -> crate::owner::market_semantics_admission_v1::MarketSemanticsValueSubmissionV1 {
     crate::owner::market_semantics_admission_v1::MarketSemanticsValueSubmissionV1 {
@@ -9562,7 +9562,7 @@ fn market_semantics_value_v1(
 }
 
 /// Admits a Market Semantics fact for `pit` under `source`, stating `price_adjustment`.
-async fn admit_market_semantics_v1(
+pub(super) async fn admit_market_semantics_v1(
     owner: &MarketDataOwnerPostgres,
     source: &SourceBindingCommit,
     pit: &crate::owner::pit_snapshot::PitSnapshotCommitAggregate,
