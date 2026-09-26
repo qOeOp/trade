@@ -1060,6 +1060,7 @@ mod tests {
         data::{DexPoolData, block::BlockPosition},
         pool_analysis::snapshot::{PoolAnalytics, PoolSnapshot, PoolState},
     };
+    use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls, with_tls};
 
     use super::*;
     use crate::{
@@ -2277,7 +2278,7 @@ mod tests {
     ) -> Option<PgPool> {
         match PgPoolOptions::new()
             .max_connections(1)
-            .connect_with(connect_options)
+            .connect_stated(with_tls(connect_options, PostgresTls::Disabled))
             .await
         {
             Ok(pool) => Some(pool),

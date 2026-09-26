@@ -24,6 +24,7 @@ sqlx = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 vibe-operator-authorization = { workspace = true }
+vibe-postgres-connect = { workspace = true }
 vibe-product-edge-claim-custody = { workspace = true }
 vibe-product-edge-contracts = { workspace = true }
 vibe-rd-artifact-invocation-custody = { workspace = true }

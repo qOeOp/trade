@@ -2012,6 +2012,7 @@ mod postgres_binding_tests {
         },
     };
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
     use vibe_testkit::postgres::{
         CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1,
         DedicatedPostgresTestDatabase, DedicatedPostgresTestMutation,
@@ -2026,7 +2027,7 @@ mod postgres_binding_tests {
         let mutation = test_database.mutation();
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(3)
-            .connect(test_database.database_url())
+            .connect_url(test_database.database_url(), PostgresTls::Disabled)
             .await
             .unwrap();
         migrate(
@@ -2316,7 +2317,10 @@ mod postgres_binding_tests {
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(2)
-            .connect(test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner))
+            .connect_url(
+                test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+                PostgresTls::Disabled,
+            )
             .await
             .unwrap();
         crate::schema_materialization::require_existing_public_tables(&pool, TABLES)
@@ -2395,7 +2399,10 @@ mod postgres_binding_tests {
 
         let restarted_pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
-            .connect(test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner))
+            .connect_url(
+                test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+                PostgresTls::Disabled,
+            )
             .await
             .unwrap();
         let mut transaction = restarted_pool.begin().await.unwrap();
@@ -2428,7 +2435,7 @@ mod postgres_binding_tests {
         let mutation = test_database.mutation();
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(3)
-            .connect(test_database.database_url())
+            .connect_url(test_database.database_url(), PostgresTls::Disabled)
             .await
             .unwrap();
         migrate(
@@ -2506,7 +2513,7 @@ mod postgres_binding_tests {
 
         let restarted_pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(2)
-            .connect(test_database.database_url())
+            .connect_url(test_database.database_url(), PostgresTls::Disabled)
             .await
             .unwrap();
         let mut transaction = restarted_pool.begin().await.unwrap();

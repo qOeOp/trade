@@ -79,6 +79,7 @@ use crate::owner::{
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, Row, postgres::PgPoolOptions};
 use std::sync::atomic::{AtomicU64, Ordering};
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
 pub(in crate::owner) mod universe_issuance;
 
@@ -873,7 +874,7 @@ impl ReplayCompositionOwnerV1 {
         }
         let rd_role_set_pool = PgPoolOptions::new()
             .max_connections(4)
-            .connect(rd_role_set_database_url)
+            .connect_url(rd_role_set_database_url, PostgresTls::Disabled)
             .await
             .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
         let rd_reader_role: String = sqlx::query_scalar("SELECT current_user::TEXT")

@@ -1,4 +1,5 @@
 use std::fmt::Display;
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
 pub(crate) mod composer_claim_reads_v3;
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
@@ -3260,7 +3261,7 @@ pub(crate) async fn bind_backtest_read(
 ) -> Result<BoundBacktestReadV1, ExploratoryReplayOwnerError> {
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(2)
-        .connect(database_url)
+        .connect_url(database_url, PostgresTls::Disabled)
         .await
         .map_err(storage)?;
     validate_backtest_binding(rd_pool, &pool).await?;

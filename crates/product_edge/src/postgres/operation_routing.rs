@@ -2,6 +2,7 @@
 //! routing read port answers from. `docs/architecture/product-edge.md`, "Operation routing".
 
 use sqlx::{PgPool, Postgres, Row, Transaction};
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
 use super::{
     ProductEdgePostgresOwnerV1, Reason, Subject, begin_read_committed, database_now, from_i64,
@@ -249,7 +250,10 @@ impl ProductEdgePostgresOperationRoutingReadPortV1 {
         {
             return Err(ProductEdgeError::InvalidProposal("deployment locator"));
         }
-        let pool = PgPool::connect(database_url).await.map_err(storage)?;
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(database_url, PostgresTls::Disabled)
+            .await
+            .map_err(storage)?;
         Ok(Self {
             pool,
             deployment_identity,

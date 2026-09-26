@@ -2,6 +2,7 @@
 
 #[cfg(not(test))]
 use std::sync::Arc;
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
 pub mod bar_schedule;
 pub mod calendar;
@@ -165,7 +166,8 @@ pub async fn instrument_economic_terms_postgres_owner_from_environment_v1()
     if url.is_empty() || url.trim() != url {
         return Err(InstrumentEconomicTermsPostgresErrorV1::ConfigurationUnavailable);
     }
-    let pool = sqlx::PgPool::connect(&url)
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_url(&url, PostgresTls::Disabled)
         .await
         .map_err(|_| InstrumentEconomicTermsPostgresErrorV1::StoreUnavailable)?;
     InstrumentEconomicTermsPostgresOwnerV1::install(pool).await
@@ -186,7 +188,8 @@ pub async fn instrument_master_v2_postgres_owner_from_environment()
     if url.is_empty() || url.trim() != url {
         return Err(InstrumentMasterCustodyErrorV2::StoreUnavailable);
     }
-    let pool = sqlx::PgPool::connect(&url)
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_url(&url, PostgresTls::Disabled)
         .await
         .map_err(|_| InstrumentMasterCustodyErrorV2::StoreUnavailable)?;
     InstrumentMasterV2PostgresOwner::install(pool).await
@@ -615,7 +618,8 @@ async fn apply_sealed_acceptance_grants_v1(
     principal: &str,
     statement_of: fn(store_admission::AcceptanceGrantV1, &str) -> String,
 ) -> Result<(), SealedAcceptanceGrantErrorV1> {
-    let owner = sqlx::PgPool::connect(owner_url)
+    let owner = sqlx::postgres::PgPoolOptions::new()
+        .connect_url(owner_url, PostgresTls::Disabled)
         .await
         .map_err(|_| SealedAcceptanceGrantErrorV1::OwnerUnavailable)?;
     let applied = store_admission::apply_native_replay_scheduling_acceptance_grants_v1(

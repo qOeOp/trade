@@ -2646,6 +2646,7 @@ mod postgres_tests {
     use vibe_backtest_owner_contracts::{
         CanonicalDigestV2, ContentIdentityV2, OpaqueIdentityV2, ReplayWindowV2, VersionedIdentityV2,
     };
+    use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
     const WRITE_COUNTS_SQL: &str = "SELECT
@@ -3721,7 +3722,7 @@ mod postgres_tests {
             .expect("explicit Catalog admin test database URL is required");
         let pool = PgPoolOptions::new()
             .max_connections(8)
-            .connect(&database_url)
+            .connect_url(&database_url, PostgresTls::Disabled)
             .await
             .unwrap();
         let expected_database = std::env::var("VIBE_POSTGRES_TEST_DATABASE_NAME").unwrap();

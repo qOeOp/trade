@@ -19,6 +19,7 @@ use vibe_data::owner::strategy_design_role_intent_v1::{
     InitialPitRequestLocatorV1, StrategyDesignRoleIntentV1,
 };
 use vibe_indicators_kernel::PrimitiveCatalogV1;
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
 use crate::{
     develop_composer_v2::CurrentResearchDevelopCustodyV2,
@@ -261,7 +262,11 @@ impl PostgresResearchBoundedFeatureProgramOwnerV1 {
     ///
     /// Returns the connection failure when the R&D Owner database is unreachable.
     pub async fn connect(database_url: &str) -> Result<Self, sqlx::Error> {
-        Ok(Self::new(PgPool::connect(database_url).await?))
+        Ok(Self::new(
+            sqlx::postgres::PgPoolOptions::new()
+                .connect_url(database_url, PostgresTls::Disabled)
+                .await?,
+        ))
     }
 
     /// Binds the Owner to one R&D pool; its cuts are read from the database clock inside each Owner

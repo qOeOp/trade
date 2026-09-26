@@ -3,6 +3,7 @@ use std::{
     io::{self, Write},
     path::Path,
 };
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 use vibe_strategy_factory_rd_owner_api::required_env;
 
 use anyhow::Context;
@@ -46,7 +47,7 @@ async fn main() -> anyhow::Result<()> {
 
     let pool = PgPoolOptions::new()
         .max_connections(1)
-        .connect_lazy(&database_url)
+        .connect_lazy_url(&database_url, PostgresTls::Disabled)
         .context("R&D Owner database URL is invalid")?;
     let binding = read_authenticated_replay_policy_catalog_v3(
         &pool,

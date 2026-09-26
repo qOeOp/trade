@@ -34,6 +34,7 @@ use rstest::rstest;
 use sha2::{Digest as _, Sha256};
 use sqlx::{PgPool, Postgres, Transaction};
 use tower::ServiceExt;
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 // The chain fixture's instrument, which entry 6 admits into the only frontier Market Data holds.
 // It is not a product choice: this entry proves how R&D issues an initial PIT request, which does
 // not depend on the kind of instrument a scope names.
@@ -441,13 +442,20 @@ async fn issues_its_initial_pit_request() {
         .await
         .unwrap(),
     );
-    let rd = PgPool::connect(test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner))
+    let rd = sqlx::postgres::PgPoolOptions::new()
+        .connect_url(
+            test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+            PostgresTls::Disabled,
+        )
         .await
         .unwrap();
-    let market_data =
-        PgPool::connect(test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner))
-            .await
-            .unwrap();
+    let market_data = sqlx::postgres::PgPoolOptions::new()
+        .connect_url(
+            test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner),
+            PostgresTls::Disabled,
+        )
+        .await
+        .unwrap();
     let universe = universe_selection_admission_from_environment_v1()
         .await
         .unwrap();

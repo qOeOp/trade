@@ -5,6 +5,7 @@ use std::{collections::BTreeMap, fmt::Display};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use vibe_backtest_owner_contracts::outcome_evidence::BacktestOutcomeEvidenceDtoV1;
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 use vibe_product_edge::{
     DownstreamAdmissionModeV1, ProductEdgeError, resolve_admission_for_downstream_in_transaction,
     resolve_historical_admission_snapshot_for_downstream_in_transaction,
@@ -464,7 +465,7 @@ struct LockedCurrentCensusMemberV1 {
 pub async fn materialize_schema(database_url: &str) -> Result<(), IterationAnalysisRequestErrorV1> {
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(1)
-        .connect(database_url)
+        .connect_url(database_url, PostgresTls::Disabled)
         .await
         .map_err(storage)?;
     crate::schema_materialization::materialize_public_table(

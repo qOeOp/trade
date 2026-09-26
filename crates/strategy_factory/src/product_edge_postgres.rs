@@ -12,6 +12,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 use vibe_product_edge::{
     DownstreamAdmissionModeV1, ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionReadbackV1,
     resolve_admission_for_downstream_in_transaction,
@@ -119,7 +120,7 @@ impl PostgresExploratoryReplayReadbackOwnerV2 {
     pub async fn connect(database_url: &str) -> Result<Self, ExploratoryReplayOwnerError> {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(4)
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(|e| ExploratoryReplayOwnerError::Unavailable(e.to_string()))?;
         require_rd_owner_api_schema(&pool)
@@ -180,7 +181,7 @@ impl PostgresResearchReadbackOwnerV1 {
     pub async fn connect(database_url: &str) -> Result<Self, ResearchGoalOwnerError> {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(4)
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(|e| storage(&e))?;
         require_rd_owner_api_schema(&pool)
@@ -1045,7 +1046,7 @@ impl PostgresResearchGoalOwnerV1 {
     pub async fn materialize_schema(database_url: &str) -> Result<(), ResearchGoalOwnerError> {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(|e| storage(&e))?;
         if let Some(admitted) =
@@ -1069,7 +1070,7 @@ impl PostgresResearchGoalOwnerV1 {
     ) -> Result<Self, ResearchGoalOwnerError> {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(8)
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(|e| storage(&e))?;
         Self::verify_public_relation_shapes(&pool, false).await?;
@@ -4429,6 +4430,7 @@ pub(crate) mod tests {
         OperationManifestBindingV1, OperatorAuthorizationIssuanceProposalV1,
         OperatorAuthorizationIssuerPostgresV1, OperatorAuthorizationScopeV1,
     };
+    use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
     use vibe_product_edge::{
         AgentOperationManifestProposalV1, ProductEdgeAdmissionRequestV1,
         ProductEdgeAuthorizationTrustV1, ProductEdgeBootstrapProposalV1,
@@ -6077,8 +6079,12 @@ pub(crate) mod tests {
         // and `qualification_protected_feedback_projections_v1` to Qualification, and no role can
         // read both: that isolation is a property under test here, so a join across it would be
         // asking the database to break the thing this entry exists to observe.
-        let rd_pool = sqlx::PgPool::connect(&rd_database_url).await.unwrap();
-        let qualification_pool = sqlx::PgPool::connect(&qualification_database_url)
+        let rd_pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(&rd_database_url, PostgresTls::Disabled)
+            .await
+            .unwrap();
+        let qualification_pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(&qualification_database_url, PostgresTls::Disabled)
             .await
             .unwrap();
 

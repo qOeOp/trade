@@ -2477,6 +2477,7 @@ fn storage(error: impl Display) -> IterationDecisionPostgresErrorV1 {
 #[cfg(all(test, feature = "sealed-develop-composer-acceptance"))]
 mod postgres_acceptance_tests {
     use vibe_data::owner::source_binding::BindingDigest;
+    use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
     use vibe_qualification::{
         ORDERED_CHAIN_READY_FIXTURE_KEY_V1, ReadyLineageV1, ready_lineage_acceptance_identity_v1,
     };
@@ -4757,7 +4758,8 @@ mod postgres_acceptance_tests {
         )
         .await
         .expect("the production Composer read port opens");
-        let rd_pool = sqlx::PgPool::connect(rd_database_url)
+        let rd_pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(rd_database_url, PostgresTls::Disabled)
             .await
             .expect("R&D Owner pool");
         let bindings_for_request = || async {
