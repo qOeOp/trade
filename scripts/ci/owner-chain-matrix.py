@@ -8,7 +8,9 @@ R&D leg becomes one entry per shard of scripts/ci/rd-owner-chain-shards.tsv
 (`shard <TAB> component <TAB> test name <TAB> needs browser 0|1`, one row per entry, in run order).
 The list is required: a missing list is refused by name rather than read as "run the whole chain
 as one job", which would make deleting the list a silent return to the serial chain. The chain
-script's --check requires the list to be the shard planner's exact output.
+script's --check requires the list to be the shard planner's exact output. The shards come out in
+name order, numbers compared as numbers, so the checks list reads shard-1, shard-2, ... whatever
+order the planner interleaves their entries in.
 
 Usage: owner-chain-matrix.py <shards.tsv>   ->   matrix={"chain": [...]}
 
@@ -17,6 +19,7 @@ Usage: owner-chain-matrix.py <shards.tsv>   ->   matrix={"chain": [...]}
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -60,7 +63,7 @@ def rd_shards(path: Path) -> list[dict]:
         shards[fields[0]] = max(shards.get(fields[0], 0), int(fields[3]))
     if not shards:
         raise SystemExit(
-            f"ERROR: {path} lists no entries; delete it to run the whole chain as one job.",
+            f"ERROR: {path} lists no entries; the R&D chain runs only as its shards.",
         )
     return [
         {
@@ -71,8 +74,12 @@ def rd_shards(path: Path) -> list[dict]:
             **RD_LIMITS,
             "make": RD_MAKE,
         }
-        for shard, browser in shards.items()
+        for shard, browser in sorted(shards.items(), key=lambda item: shard_order(item[0]))
     ]
+
+
+def shard_order(name: str) -> list[int | str]:
+    return [int(part) if part.isdigit() else part for part in re.split(r"(\d+)", name)]
 
 
 def main() -> int:

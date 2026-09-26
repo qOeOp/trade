@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 Exercise owner-chain-matrix.py: a missing shard list refused by name, one R&D entry per
-shard in first-seen order when one does, and a refusal by line for a malformed or empty
-list. Also require both workflows to take their chain matrix from it, so a hand- written
-matrix cannot creep back.
+shard in name order (numbers compared as numbers) when one exists, and a refusal by line
+for a malformed or empty list. Also require both workflows to take their chain matrix
+from it, so a hand-written matrix cannot creep back.
 
 Run: python3 -B scripts/ci/owner-chain-matrix_test.py
 
@@ -54,23 +54,25 @@ def check_missing_list_refused() -> list[str]:
 
 def check_shards() -> list[str]:
     failures = []
-    # Each shard's browser flag must come from any of its rows: alpha's browser entry is its last row,
-    # beta's its first, gamma has none.
+    # Each shard's browser flag must come from any of its rows: shard-10's browser entry is its last
+    # row, shard-2's its first, shard-1 has none. First seen is 10, 2, 1; name order is 1, 2, 10 - a
+    # plain string sort would put 10 before 2.
     sharded = matrix(
         run(
-            "# comment\nalpha\tc1\ttest_a\t0\nbeta\tc2\ttest_b\t1\nalpha\tc3\ttest_c\t1\n\nbeta\tc2\ttest_d\t0\ngamma\tc4\ttest_e\t0\n",
+            "# comment\nshard-10\tc1\ttest_a\t0\nshard-2\tc2\ttest_b\t1\nshard-10\tc3\ttest_c\t1\n\n"
+            "shard-2\tc2\ttest_d\t0\nshard-1\tc4\ttest_e\t0\n",
         ),
     )
     if [(e["key"], e["shard"], e["browser"]) for e in sharded] != [
-        ("rd-owner", "alpha", 1),
-        ("rd-owner", "beta", 1),
-        ("rd-owner", "gamma", 0),
+        ("rd-owner", "shard-1", 0),
+        ("rd-owner", "shard-2", 1),
+        ("rd-owner", "shard-10", 1),
         ("market-data", "", 0),
     ]:
         failures.append(
-            f"a three-shard list did not give one R&D entry per shard in first-seen order: {sharded}",
+            f"a three-shard list did not give one R&D entry per shard in name order: {sharded}",
         )
-    if sharded[0]["name"] != "rd owner postgres alpha (ubuntu-22.04)":
+    if sharded[0]["name"] != "rd owner postgres shard-1 (ubuntu-22.04)":
         failures.append(f"a shard's job is not named after it: {sharded[0]['name']}")
     if len({e["make"] for e in sharded if e["key"] == "rd-owner"}) != 1:
         failures.append("shards do not share the one R&D make line")
@@ -118,7 +120,7 @@ def main() -> int:
     if failures:
         return 1
     print(
-        "owner-chain-matrix: a missing shard list refused, one entry per shard with one, "
+        "owner-chain-matrix: a missing shard list refused, one entry per shard in name order, "
         "malformed and empty lists refused, both workflows use it",
     )
     return 0
