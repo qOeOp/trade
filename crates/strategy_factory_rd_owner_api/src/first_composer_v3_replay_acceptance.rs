@@ -31,7 +31,9 @@ use axum::{body::Body, extract::Request};
 use tower::ServiceExt;
 use vibe_data::owner::{
     chain_fixture_v1::CHAIN_FIXTURE_INSTRUMENT_V1,
-    market_semantics_admission_v1::MarketSemanticsValueSubmissionV1,
+    market_semantics_admission_v1::{
+        MarketSemanticsFactSubmissionV1, MarketSemanticsValueSubmissionV1,
+    },
     pit_market_snapshot_intake_v1::pit_market_snapshot_intake_from_environment_v1,
     pit_observation_source_v1::{
         PitObservationScopeV1, PitObservationSourceErrorV1, PitObservationSourceV1,
@@ -440,17 +442,20 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
     let (status, answer) = post(
         &routes,
         "/v1/market-data/market-semantics",
-        Some(serde_json::json!({
-            "source_binding": submission.source_binding,
-            "pit_snapshot": pit_snapshot,
-            "value": MarketSemanticsValueSubmissionV1 {
-                normalization_identity: first_composer_v3_digest("normalization"),
-                price_adjustment: "RAW".to_owned(),
-                timestamp_basis: "EVENT_EFFECTIVE".to_owned(),
-                price_unit_identity: first_composer_v3_digest("price-unit"),
-                size_unit_identity: first_composer_v3_digest("size-unit"),
-            },
-        })),
+        Some(
+            serde_json::to_value(MarketSemanticsFactSubmissionV1 {
+                source_binding: submission.source_binding.clone(),
+                pit_snapshot: pit_snapshot.clone(),
+                value: MarketSemanticsValueSubmissionV1 {
+                    normalization_identity: first_composer_v3_digest("normalization"),
+                    price_adjustment: "RAW".to_owned(),
+                    timestamp_basis: "EVENT_EFFECTIVE".to_owned(),
+                    price_unit_identity: first_composer_v3_digest("price-unit"),
+                    size_unit_identity: first_composer_v3_digest("size-unit"),
+                },
+            })
+            .expect("the Market Semantics submission serializes"),
+        ),
     )
     .await;
     assert_eq!(
