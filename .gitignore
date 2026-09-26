@@ -90,6 +90,7 @@ env/
 !.docker/entrypoint.sh
 !.pre-commit-hooks/*.sh
 !.github/scripts/validate-pr-title.sh
+!product/rd-workbench/postgres-init/*.sh
 !scripts/cargo-tool-version.sh
 !scripts/check-outdated.sh
 !scripts/fuzz-adapter.sh

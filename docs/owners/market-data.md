@@ -125,6 +125,12 @@ never runs in CI.
   measures inside the custodian with the leased credential. It also has the admission receipt cross-bind the trust
   bundle, while `SealedDeploymentStoreAdmissionReceipt` carries the witness identity but no signer key fingerprint
   or bundle identity.
+  Two production adapters now exist, and neither is composed: the pinned Ed25519 signature verifier
+  (`store_admission/signature.rs`) and the PostgreSQL custody store (`store_admission/custody_postgres.rs`, its schema
+  and its two principals in `product/rd-workbench/postgres-init/20-deployment-store-custody.sh`, which the compose file
+  does not run yet). `admit_rd_owner_market_data_postgres` still wires the `Unavailable*` ports, so `required` still
+  fails closed at startup. The admission reads time from the custody store's clock alone: every history read carries
+  the store's `clock_timestamp()` cut, and the commit judges the receipt's window on that clock.
 - **`B4` consumer not compiled into the deployed image.** `product/rd-workbench/Dockerfile.owner` builds
   `strategy-factory-rd-owner-api` with default features, which leaves `sealed-develop-composer-acceptance` off, and
   the dashboard read binary touches no Market Data surface. Cleared by moving the consumer out of an acceptance

@@ -12,6 +12,7 @@
     reason = "private store-admission foundations retain tested unavailable production adapters and S3 stops"
 )]
 
+mod custody_postgres;
 mod postgres;
 mod signature;
 pub(super) use postgres::RawSharedTimeEvidenceSnapshotV1;
@@ -24,7 +25,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
@@ -1324,28 +1325,32 @@ struct AdmissionScope {
     expected_head_identity: String,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CredentialHandleBinding {
     identity: String,
     audience: String,
     version: String,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RecoveryBinding {
     identity: String,
     restart_requires_reverification: bool,
     ambiguity_forbids_business_retry: bool,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RotationFence {
     identity: String,
     predecessor_manifest_identity: Option<String>,
     closed_at_epoch_ms: Option<u64>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct StoreManifest {
     manifest_identity: String,
     environment_identity: String,
@@ -1375,7 +1380,8 @@ struct SignedManifest {
     signature: Vec<u8>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct StoreHead {
     head_identity: String,
     environment_identity: String,
@@ -1439,10 +1445,22 @@ enum ReceiptCommitError {
     Expired,
 }
 
+/// Why a custody store could not answer with a history the custodian can verify.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ResolveHistoryError {
+    /// The store could not be read.
+    Unavailable,
+    /// The store answered with entries that are not a signed history's exact bytes.
+    InvalidHistory,
+}
+
 #[async_trait]
 trait CustodyStore: Send + Sync {
     /// Reads the signed history and current heads for `scope`, with the store clock's cut at the read.
-    async fn resolve_history(&self, scope: &AdmissionScope) -> Result<ResolvedHistory, ()>;
+    async fn resolve_history(
+        &self,
+        scope: &AdmissionScope,
+    ) -> Result<ResolvedHistory, ResolveHistoryError>;
 
     /// Atomically rechecks signed custody and the independent witness frontier, obtains the
     /// authority clock cut, and either joins or writes the immutable receipt.
@@ -1541,9 +1559,17 @@ impl Custodian {
         &self,
         scope: AdmissionScope,
     ) -> Result<AdmittedMarketDataPostgresCapability, DeploymentStoreAdmissionError> {
-        let resolved =
-            self.custody.resolve_history(&scope).await.map_err(|()| {
-                rejection(&scope, AdmissionFailureCode::ProductionResolverUnavailable)
+        let resolved = self
+            .custody
+            .resolve_history(&scope)
+            .await
+            .map_err(|e| match e {
+                ResolveHistoryError::Unavailable => {
+                    rejection(&scope, AdmissionFailureCode::ProductionResolverUnavailable)
+                }
+                ResolveHistoryError::InvalidHistory => {
+                    rejection(&scope, AdmissionFailureCode::InvalidAppendOnlyHistory)
+                }
             })?;
 
         if resolved.current_heads.len() != 1 {
@@ -1894,6 +1920,34 @@ fn digest_serializable(value: &impl Serialize) -> String {
     output
 }
 
+/// Stamps `receipt` with the store clock's admission and seals its content identities. A custody
+/// store calls this at commit, on the clock that judged the receipt's window.
+fn seal_receipt_at(
+    mut receipt: SealedDeploymentStoreAdmissionReceipt,
+    admitted_at_epoch_ms: u64,
+) -> SealedDeploymentStoreAdmissionReceipt {
+    receipt.receipt_identity.clear();
+    receipt.admitted_at_epoch_ms = admitted_at_epoch_ms;
+    receipt.replay_identity = receipt_replay_identity(&receipt);
+    receipt.receipt_identity = digest_serializable(&receipt);
+    receipt
+}
+
+/// The one receipt slot an exact commit cut of `scope` occupies: a replay of the same signed head,
+/// history and witness frontier lands in it again.
+fn receipt_slot(scope: &AdmissionScope, cut: &AdmissionCommitCut) -> String {
+    digest_serializable(&(
+        &scope.environment_identity,
+        &scope.deployment_identity,
+        &scope.consumer_owner,
+        &scope.consumer_identity,
+        &scope.backend,
+        &cut.signed_head_proof_identity,
+        &cut.signed_history_proof_identity,
+        &cut.witness_proof_identity,
+    ))
+}
+
 fn receipt_replay_identity(receipt: &SealedDeploymentStoreAdmissionReceipt) -> String {
     let mut meaning = receipt.clone();
     meaning.receipt_identity.clear();
@@ -1927,8 +1981,11 @@ struct UnavailableDirectMeasurer;
 
 #[async_trait]
 impl CustodyStore for UnavailableCustodyStore {
-    async fn resolve_history(&self, _scope: &AdmissionScope) -> Result<ResolvedHistory, ()> {
-        Err(())
+    async fn resolve_history(
+        &self,
+        _scope: &AdmissionScope,
+    ) -> Result<ResolvedHistory, ResolveHistoryError> {
+        Err(ResolveHistoryError::Unavailable)
     }
 
     async fn commit_receipt_if_current(
@@ -2030,21 +2087,24 @@ mod tests {
 
     #[async_trait]
     impl CustodyStore for FakeCustodyStore {
-        async fn resolve_history(&self, _scope: &AdmissionScope) -> Result<ResolvedHistory, ()> {
+        async fn resolve_history(
+            &self,
+            _scope: &AdmissionScope,
+        ) -> Result<ResolvedHistory, ResolveHistoryError> {
             self.state
                 .lock()
                 .map(|state| ResolvedHistory {
                     read_cut_epoch_ms: state.now_epoch_ms,
                     ..state.history.clone()
                 })
-                .map_err(|_| ())
+                .map_err(|_| ResolveHistoryError::Unavailable)
         }
 
         async fn commit_receipt_if_current(
             &self,
             scope: &AdmissionScope,
             expected_cut: &AdmissionCommitCut,
-            mut receipt: SealedDeploymentStoreAdmissionReceipt,
+            receipt: SealedDeploymentStoreAdmissionReceipt,
         ) -> Result<SealedDeploymentStoreAdmissionReceipt, ReceiptCommitError> {
             let mut state = self
                 .state
@@ -2068,19 +2128,8 @@ mod tests {
             {
                 return Err(ReceiptCommitError::Expired);
             }
-            receipt.admitted_at_epoch_ms = state.now_epoch_ms;
-            receipt.replay_identity = receipt_replay_identity(&receipt);
-            receipt.receipt_identity = digest_serializable(&receipt);
-            let slot = digest_serializable(&(
-                &scope.environment_identity,
-                &scope.deployment_identity,
-                &scope.consumer_owner,
-                &scope.consumer_identity,
-                &scope.backend,
-                &expected_cut.signed_head_proof_identity,
-                &expected_cut.signed_history_proof_identity,
-                &expected_cut.witness_proof_identity,
-            ));
+            let receipt = seal_receipt_at(receipt, state.now_epoch_ms);
+            let slot = receipt_slot(scope, expected_cut);
 
             if let Some(existing) = state.receipts.get(&slot) {
                 return if existing.replay_identity == receipt.replay_identity {
@@ -2144,7 +2193,9 @@ mod tests {
         }
     }
 
-    struct FakeCredentials;
+    struct FakeCredentials {
+        valid_through_epoch_ms: u64,
+    }
 
     #[async_trait]
     impl CredentialResolver for FakeCredentials {
@@ -2156,7 +2207,7 @@ mod tests {
                 &handle.identity,
                 &handle.audience,
                 &handle.version,
-                NOW + 5_000,
+                self.valid_through_epoch_ms,
                 "postgres://test:secret@127.0.0.1:5432/disposable".to_string(),
             )
             .map_err(|_| ())
@@ -2242,22 +2293,18 @@ mod tests {
     struct Fixture {
         request: RdOwnerMarketDataAdmissionRequest,
         history: ResolvedHistory,
+        /// The signed head of the genesis manifest alone, the first thing a store publishes.
+        genesis_head: SignedHead,
         witness: AntiRollbackObservation,
         measurement: PostgresMeasurement,
         signing_key: SigningKey,
+        /// When the witness observation and the credential lease lapse.
+        lapse_epoch_ms: u64,
     }
 
     impl Fixture {
         fn new() -> Self {
-            Self::with_spec(
-                &PostgresMeasurementSpec::new(
-                    "market_data_private",
-                    "market_data_private.schema_migrations_v1",
-                    vec!["market_data_api.resolve_snapshot_v1(text)".to_string()],
-                    vec!["market_data_private.snapshot_facts_v1".to_string()],
-                )
-                .unwrap(),
-            )
+            Self::with_spec(&synthetic_spec())
         }
 
         fn with_spec(spec: &PostgresMeasurementSpec) -> Self {
@@ -2273,8 +2320,20 @@ mod tests {
             spec: &PostgresMeasurementSpec,
             measurement: PostgresMeasurement,
         ) -> Self {
+            Self::at("test-environment", spec, measurement, NOW, 5_000)
+        }
+
+        /// A fixture whose windows are cut from `now`: the manifests hold for twice `horizon_ms`,
+        /// the witness observation and the credential lease for `horizon_ms`.
+        fn at(
+            environment_identity: &str,
+            spec: &PostgresMeasurementSpec,
+            measurement: PostgresMeasurement,
+            now: u64,
+            horizon_ms: u64,
+        ) -> Self {
             let request = RdOwnerMarketDataAdmissionRequest::new(
-                "test-environment".to_string(),
+                environment_identity.to_string(),
                 "rd-workbench-test".to_string(),
                 format!("sha256:{}", "0".repeat(64)),
             )
@@ -2288,6 +2347,7 @@ mod tests {
                 1,
                 None,
                 "rotation-fence-genesis",
+                TimeBase { now, horizon_ms },
             );
             let successor = manifest(
                 &scope,
@@ -2296,7 +2356,9 @@ mod tests {
                 2,
                 Some(genesis.manifest_identity.clone()),
                 "rotation-fence-2",
+                TimeBase { now, horizon_ms },
             );
+            let genesis_head = sign_head(head_over(&scope, &[&genesis]), &signing_key);
             let manifests = vec![
                 sign_manifest(genesis, &signing_key),
                 sign_manifest(successor.clone(), &signing_key),
@@ -2323,11 +2385,13 @@ mod tests {
             let signed_head = sign_head(head, &signing_key);
             Self {
                 request: RdOwnerMarketDataAdmissionRequest::new(
-                    "test-environment".to_string(),
+                    environment_identity.to_string(),
                     "rd-workbench-test".to_string(),
                     expected_head.clone(),
                 )
                 .unwrap(),
+                genesis_head,
+                lapse_epoch_ms: now + horizon_ms,
                 history: ResolvedHistory {
                     manifests,
                     current_heads: vec![signed_head],
@@ -2339,8 +2403,8 @@ mod tests {
                     head_identity: expected_head,
                     manifest_identity: successor.manifest_identity,
                     generation: 2,
-                    observed_at_epoch_ms: NOW,
-                    valid_through_epoch_ms: NOW + 5_000,
+                    observed_at_epoch_ms: now,
+                    valid_through_epoch_ms: now + horizon_ms,
                 },
                 measurement,
                 signing_key,
@@ -2389,7 +2453,9 @@ mod tests {
                 Arc::new(FakeWitness {
                     observation: self.witness.clone(),
                 }),
-                Arc::new(FakeCredentials),
+                Arc::new(FakeCredentials {
+                    valid_through_epoch_ms: self.lapse_epoch_ms,
+                }),
                 measurer,
             )
         }
@@ -2416,6 +2482,16 @@ mod tests {
         }
     }
 
+    fn synthetic_spec() -> PostgresMeasurementSpec {
+        PostgresMeasurementSpec::new(
+            "market_data_private",
+            "market_data_private.schema_migrations_v1",
+            vec!["market_data_api.resolve_snapshot_v1(text)".to_string()],
+            vec!["market_data_private.snapshot_facts_v1".to_string()],
+        )
+        .unwrap()
+    }
+
     fn measurement(role: &str) -> PostgresMeasurement {
         PostgresMeasurement {
             endpoint_identity: "postgresql://127.0.0.1:5432".to_string(),
@@ -2437,7 +2513,9 @@ mod tests {
         generation: u64,
         predecessor: Option<String>,
         fence: &str,
+        time: TimeBase,
     ) -> StoreManifest {
+        let TimeBase { now, horizon_ms } = time;
         let mut manifest = StoreManifest {
             manifest_identity: String::new(),
             environment_identity: scope.environment_identity.clone(),
@@ -2458,8 +2536,8 @@ mod tests {
             },
             predecessor_manifest_identity: predecessor.clone(),
             generation,
-            valid_from_epoch_ms: NOW - 1_000,
-            valid_through_epoch_ms: NOW + 10_000,
+            valid_from_epoch_ms: now - 1_000,
+            valid_through_epoch_ms: now + 2 * horizon_ms,
             recovery: RecoveryBinding {
                 identity: "restart-reverify-and-remeasure-v1".to_string(),
                 restart_requires_reverification: true,
@@ -2468,11 +2546,42 @@ mod tests {
             rotation_fence: RotationFence {
                 identity: fence.to_string(),
                 predecessor_manifest_identity: predecessor,
-                closed_at_epoch_ms: Some(NOW - 100),
+                closed_at_epoch_ms: Some(now - 100),
             },
         };
         manifest.manifest_identity = manifest_identity(&manifest);
         manifest
+    }
+
+    /// The time a fixture's windows are cut from: manifests hold for twice `horizon_ms` after `now`,
+    /// the witness observation and the credential lease for `horizon_ms`.
+    #[derive(Clone, Copy)]
+    struct TimeBase {
+        now: u64,
+        horizon_ms: u64,
+    }
+
+    /// The head naming the last of `manifests` over exactly that history.
+    fn head_over(scope: &AdmissionScope, manifests: &[&StoreManifest]) -> StoreHead {
+        let latest = manifests.last().unwrap();
+        let mut head = StoreHead {
+            head_identity: String::new(),
+            environment_identity: scope.environment_identity.clone(),
+            deployment_identity: scope.deployment_identity.clone(),
+            consumer_owner: scope.consumer_owner.clone(),
+            consumer_identity: scope.consumer_identity.clone(),
+            backend: scope.backend.clone(),
+            current_manifest_identity: latest.manifest_identity.clone(),
+            generation: latest.generation,
+            history_digest: digest_serializable(
+                &manifests
+                    .iter()
+                    .map(|manifest| &manifest.manifest_identity)
+                    .collect::<Vec<_>>(),
+            ),
+        };
+        head.head_identity = head_identity(&head);
+        head
     }
 
     fn sign_manifest(manifest: StoreManifest, key: &SigningKey) -> SignedManifest {
@@ -2551,7 +2660,9 @@ mod tests {
             Arc::new(FakeWitness {
                 observation: fixture.witness.clone(),
             }),
-            Arc::new(FakeCredentials),
+            Arc::new(FakeCredentials {
+                valid_through_epoch_ms: NOW + 5_000,
+            }),
             Arc::new(HeadSwitchingMeasurer {
                 value: fixture.measurement.clone(),
                 custody,
@@ -2738,7 +2849,9 @@ mod tests {
             Arc::new(FakeWitness {
                 observation: changed.witness.clone(),
             }),
-            Arc::new(FakeCredentials),
+            Arc::new(FakeCredentials {
+                valid_through_epoch_ms: NOW + 5_000,
+            }),
             Arc::new(FakeMeasurer {
                 value: measurement("changed-role"),
                 calls: Arc::new(AtomicUsize::new(0)),
@@ -4046,5 +4159,478 @@ mod tests {
              the revalidation did not run; three would mean the revalidation happens before the \
              evidence is checked"
         );
+    }
+
+    /// Publishes a signed history into `database_url`'s custody as the publisher principal.
+    async fn publish(
+        database_url: &str,
+        manifest: &SignedManifest,
+        head: &SignedHead,
+        expected_previous_head: Option<&str>,
+    ) -> custody_postgres::PublishOutcomeV1 {
+        custody_postgres::publish_signed_v1(database_url, manifest, head, expected_previous_head)
+            .await
+            .unwrap()
+    }
+
+    async fn store_clock(admin: &sqlx::PgPool) -> u64 {
+        let epoch_ms: i64 = sqlx::query_scalar(
+            "SELECT pg_catalog.floor(EXTRACT(epoch FROM pg_catalog.clock_timestamp()) * 1000)::bigint",
+        )
+        .fetch_one(admin)
+        .await
+        .unwrap();
+        u64::try_from(epoch_ms).unwrap()
+    }
+
+    async fn receipts_of(admin: &sqlx::PgPool, environment_identity: &str) -> i64 {
+        sqlx::query_scalar(
+            "SELECT pg_catalog.count(*) FROM deployment_store_custody_private.receipts_v1 WHERE environment_identity = $1",
+        )
+        .bind(environment_identity)
+        .fetch_one(admin)
+        .await
+        .unwrap()
+    }
+
+    fn sqlstate(result: Result<sqlx::postgres::PgQueryResult, sqlx::Error>) -> Option<String> {
+        result.err().and_then(|e| {
+            e.as_database_error()
+                .and_then(sqlx::error::DatabaseError::code)
+                .map(std::borrow::Cow::into_owned)
+        })
+    }
+
+    /// Publishes a third generation while the custodian measures: the head it read is no longer
+    /// current when it commits.
+    struct PublishingMeasurer {
+        value: PostgresMeasurement,
+        publisher_url: String,
+        manifest: SignedManifest,
+        head: SignedHead,
+        expected_previous_head: String,
+    }
+
+    #[async_trait]
+    impl DirectMeasurer for PublishingMeasurer {
+        async fn measure(
+            &self,
+            _lease: &PostgresCredentialLease,
+            _spec: &PostgresMeasurementSpec,
+        ) -> Result<PostgresMeasurement, ()> {
+            let outcome = publish(
+                &self.publisher_url,
+                &self.manifest,
+                &self.head,
+                Some(&self.expected_previous_head),
+            )
+            .await;
+            assert_eq!(outcome, custody_postgres::PublishOutcomeV1::Published);
+            Ok(self.value.clone())
+        }
+    }
+
+    /// Outlasts the witness observation and the credential lease while it measures.
+    struct SlowMeasurer {
+        value: PostgresMeasurement,
+        millis: u64,
+    }
+
+    #[async_trait]
+    impl DirectMeasurer for SlowMeasurer {
+        async fn measure(
+            &self,
+            _lease: &PostgresCredentialLease,
+            _spec: &PostgresMeasurementSpec,
+        ) -> Result<PostgresMeasurement, ()> {
+            tokio::time::sleep(std::time::Duration::from_millis(self.millis)).await;
+            Ok(self.value.clone())
+        }
+    }
+
+    async fn postgres_custodian(
+        fixture: &Fixture,
+        custodian_url: &str,
+        measurer: Arc<dyn DirectMeasurer>,
+    ) -> Custodian {
+        let witness: Arc<dyn AntiRollbackWitness> = Arc::new(FakeWitness {
+            observation: fixture.witness.clone(),
+        });
+        let store = custody_postgres::PostgresCustodyStore::connect(custodian_url, witness.clone())
+            .await
+            .unwrap();
+        Custodian::new(
+            Arc::new(store),
+            Arc::new(CountingVerifier::pinned(
+                SIGNER,
+                &fixture.signing_key.verifying_key(),
+                Arc::new(AtomicUsize::new(0)),
+            )),
+            witness,
+            Arc::new(FakeCredentials {
+                valid_through_epoch_ms: fixture.lapse_epoch_ms,
+            }),
+            measurer,
+        )
+    }
+
+    /// The custody store the deployment's own init script provisions, under the real custodian.
+    ///
+    /// Each part runs in its own scope of one disposable database. The rows it writes are
+    /// append-only by design and are left where they are; every count names its own scope.
+    #[rstest]
+    #[ignore = "requires the crates/data disposable PostgreSQL harness"]
+    fn the_postgres_custody_store_admits_on_its_own_clock_and_refuses_what_moved() {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(run_postgres_custody_store_scenario());
+    }
+
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one scenario, one database, five parts"
+    )]
+    async fn run_postgres_custody_store_scenario() {
+        use custody_postgres::PublishOutcomeV1::{Conflict, HeadMismatch, Published, Replayed};
+
+        let admin_url = std::env::var("MARKET_DATA_ADMIN_TEST_DATABASE_URL").unwrap();
+        let publisher_url = std::env::var("DEPLOYMENT_STORE_PUBLISHER_TEST_DATABASE_URL").unwrap();
+        let custodian_url = std::env::var("DEPLOYMENT_STORE_CUSTODIAN_TEST_DATABASE_URL").unwrap();
+        let admin = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&admin_url)
+            .await
+            .unwrap();
+        let publisher = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&publisher_url)
+            .await
+            .unwrap();
+        let custodian_pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&custodian_url)
+            .await
+            .unwrap();
+        let spec = synthetic_spec();
+
+        // 1. Each principal reaches its own functions and nothing else.
+        let publish_call = "SELECT deployment_store_custody_api.publish_v1('e','d','o','c','b',NULL,1,'m','\\x00'::bytea,'s','\\x00'::bytea,'h','\\x00'::bytea,'s','\\x00'::bytea)";
+        let resolve_call =
+            "SELECT * FROM deployment_store_custody_api.resolve_history_v1('e','d','o','c','b')";
+        let record_call = "SELECT * FROM deployment_store_custody_api.record_receipt_v1('slot','e','d','o','c','b','r','p',0,'\\x00'::bytea)";
+
+        for (pool, sql) in [
+            (&custodian_pool, publish_call),
+            (&publisher, resolve_call),
+            (&publisher, record_call),
+            (
+                &custodian_pool,
+                "SELECT pg_catalog.count(*) FROM deployment_store_custody_private.manifests_v1",
+            ),
+            (
+                &custodian_pool,
+                "INSERT INTO deployment_store_custody_private.receipts_v1 (slot) VALUES ('x')",
+            ),
+            (
+                &publisher,
+                "SELECT pg_catalog.count(*) FROM deployment_store_custody_private.heads_v1",
+            ),
+        ] {
+            assert_eq!(
+                sqlstate(sqlx::query(sql).execute(pool).await).as_deref(),
+                Some("42501"),
+                "{sql}"
+            );
+        }
+
+        // 2. Publication is append-only with a compare-and-set head, and the custodian admits on
+        //    the store's clock; a replay joins the receipt it sealed first.
+        let before = store_clock(&admin).await;
+        let admitted = Fixture::at(
+            "pg-custody-admitted",
+            &spec,
+            measurement("role-v1"),
+            before,
+            600_000,
+        );
+        let (genesis, successor) = (
+            &admitted.history.manifests[0],
+            &admitted.history.manifests[1],
+        );
+        let current = &admitted.history.current_heads[0];
+        let genesis_head = &admitted.genesis_head;
+        assert_eq!(
+            publish(&publisher_url, genesis, genesis_head, None).await,
+            Published
+        );
+        assert_eq!(
+            publish(&publisher_url, genesis, genesis_head, None).await,
+            Replayed
+        );
+        assert_eq!(
+            publish(&publisher_url, successor, current, None).await,
+            HeadMismatch
+        );
+        assert_eq!(
+            publish(
+                &publisher_url,
+                successor,
+                current,
+                Some(&genesis_head.head.head_identity)
+            )
+            .await,
+            Published
+        );
+        assert_eq!(
+            publish(
+                &publisher_url,
+                genesis,
+                genesis_head,
+                Some(&current.head.head_identity)
+            )
+            .await,
+            Conflict,
+            "a head never moves back to an earlier generation"
+        );
+        let store = custody_postgres::PostgresCustodyStore::connect(
+            &custodian_url,
+            Arc::new(FakeWitness {
+                observation: admitted.witness.clone(),
+            }),
+        )
+        .await
+        .unwrap();
+        let resolved = store
+            .resolve_history(&admitted.request.scope())
+            .await
+            .unwrap();
+        let after_read = store_clock(&admin).await;
+        assert_eq!(resolved.manifests, admitted.history.manifests);
+        assert_eq!(resolved.current_heads, admitted.history.current_heads);
+        assert!((before..=after_read).contains(&resolved.read_cut_epoch_ms));
+
+        let custodian = postgres_custodian(
+            &admitted,
+            &custodian_url,
+            Arc::new(FakeMeasurer {
+                value: admitted.measurement.clone(),
+                calls: Arc::new(AtomicUsize::new(0)),
+            }),
+        )
+        .await;
+        let first = custodian.admit(admitted.request.scope()).await.unwrap();
+        let replayed = custodian.admit(admitted.request.scope()).await.unwrap();
+        let after_admission = store_clock(&admin).await;
+        assert_eq!(first, replayed);
+        assert!((after_read..=after_admission).contains(&first.admitted_at_epoch_ms));
+        assert_eq!(receipts_of(&admin, "pg-custody-admitted").await, 1);
+
+        // 3. A head that moves between the custodian's read and its commit seals nothing.
+        let moved = Fixture::at(
+            "pg-custody-moved",
+            &spec,
+            measurement("role-v1"),
+            before,
+            600_000,
+        );
+        let scope = moved.request.scope();
+        assert_eq!(
+            publish(
+                &publisher_url,
+                &moved.history.manifests[0],
+                &moved.genesis_head,
+                None
+            )
+            .await,
+            Published
+        );
+        assert_eq!(
+            publish(
+                &publisher_url,
+                &moved.history.manifests[1],
+                &moved.history.current_heads[0],
+                Some(&moved.genesis_head.head.head_identity),
+            )
+            .await,
+            Published
+        );
+        let third = manifest(
+            &scope,
+            &moved.measurement,
+            &spec,
+            3,
+            Some(
+                moved.history.manifests[1]
+                    .manifest
+                    .manifest_identity
+                    .clone(),
+            ),
+            "rotation-fence-3",
+            TimeBase {
+                now: before,
+                horizon_ms: 600_000,
+            },
+        );
+        let third_head = head_over(
+            &scope,
+            &[
+                &moved.history.manifests[0].manifest,
+                &moved.history.manifests[1].manifest,
+                &third,
+            ],
+        );
+        let custodian = postgres_custodian(
+            &moved,
+            &custodian_url,
+            Arc::new(PublishingMeasurer {
+                value: moved.measurement.clone(),
+                publisher_url: publisher_url.clone(),
+                manifest: sign_manifest(third, &moved.signing_key),
+                head: sign_head(third_head, &moved.signing_key),
+                expected_previous_head: moved.history.current_heads[0].head.head_identity.clone(),
+            }),
+        )
+        .await;
+        assert_eq!(
+            custodian.admit(scope).await.unwrap_err().code(),
+            AdmissionFailureCode::ManifestNotCurrent
+        );
+        assert_eq!(receipts_of(&admin, "pg-custody-moved").await, 0);
+
+        // 4. Stored bytes that parse but are not the exact bytes the signer signed are not history.
+        let reformatted = Fixture::at(
+            "pg-custody-reformatted",
+            &spec,
+            measurement("role-v1"),
+            before,
+            600_000,
+        );
+        let signed = &reformatted.history.manifests[0];
+        let head = &reformatted.genesis_head;
+        let outcome: String = sqlx::query_scalar(
+            "SELECT deployment_store_custody_api.publish_v1($1,$2,$3,$4,$5,NULL,1,$6,$7,$8,$9,$10,$11,$12,$13)",
+        )
+        .bind(&signed.manifest.environment_identity)
+        .bind(&signed.manifest.deployment_identity)
+        .bind(&signed.manifest.consumer_owner)
+        .bind(&signed.manifest.consumer_identity)
+        .bind(&signed.manifest.backend)
+        .bind(&signed.manifest.manifest_identity)
+        .bind(serde_json::to_vec_pretty(&signed.manifest).unwrap())
+        .bind(&signed.signer_identity)
+        .bind(&signed.signature)
+        .bind(&head.head.head_identity)
+        .bind(serde_json::to_vec(&head.head).unwrap())
+        .bind(&head.signer_identity)
+        .bind(&head.signature)
+        .fetch_one(&publisher)
+        .await
+        .unwrap();
+        assert_eq!(outcome, "PUBLISHED");
+        let genesis_only = RdOwnerMarketDataAdmissionRequest::new(
+            "pg-custody-reformatted".to_string(),
+            "rd-workbench-test".to_string(),
+            head.head.head_identity.clone(),
+        )
+        .unwrap();
+        let custodian = postgres_custodian(
+            &reformatted,
+            &custodian_url,
+            Arc::new(FakeMeasurer {
+                value: reformatted.measurement.clone(),
+                calls: Arc::new(AtomicUsize::new(0)),
+            }),
+        )
+        .await;
+        assert_eq!(
+            custodian
+                .admit(genesis_only.scope())
+                .await
+                .unwrap_err()
+                .code(),
+            AdmissionFailureCode::InvalidAppendOnlyHistory
+        );
+
+        // 5a. Nothing rewrites custody, the database superuser included. A rewrite is refused by
+        //     the trigger function itself; the catalog shows the same function bound before every
+        //     update, delete and truncate of all three relations. No destructive statement is
+        //     issued, so no rule about destructive test SQL has to be waived for it.
+        for sql in [
+            "UPDATE deployment_store_custody_private.manifests_v1 SET signature = signature",
+            "UPDATE deployment_store_custody_private.heads_v1 SET head_bytes = head_bytes",
+            "UPDATE deployment_store_custody_private.receipts_v1 SET receipt_bytes = receipt_bytes",
+        ] {
+            assert_eq!(
+                sqlstate(sqlx::query(sql).execute(&admin).await).as_deref(),
+                Some("23000"),
+                "{sql}"
+            );
+        }
+        let bound: Vec<(String, i16, String)> = sqlx::query_as(
+            "SELECT c.relname::text, t.tgtype, t.tgenabled::text FROM pg_catalog.pg_trigger AS t JOIN pg_catalog.pg_class AS c ON c.oid = t.tgrelid JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace JOIN pg_catalog.pg_proc AS p ON p.oid = t.tgfoid WHERE n.nspname = 'deployment_store_custody_private' AND p.proname = 'refuse_rewrite_v1' AND NOT t.tgisinternal ORDER BY 1, 2",
+        )
+        .fetch_all(&admin)
+        .await
+        .unwrap();
+        // tgtype 27 = ROW | BEFORE | DELETE | UPDATE; 34 = BEFORE | TRUNCATE; 'O' = enabled.
+        let expected: Vec<(String, i16, String)> = ["heads_v1", "manifests_v1", "receipts_v1"]
+            .into_iter()
+            .flat_map(|relation| {
+                [27, 34].map(|tgtype| (relation.to_string(), tgtype, "O".to_string()))
+            })
+            .collect();
+        assert_eq!(bound, expected);
+        assert_eq!(receipts_of(&admin, "pg-custody-admitted").await, 1);
+
+        // 5b. The window is the store's to judge, on its own clock: a measurement that outlasts the
+        //     witness observation and the lease seals nothing.
+        let lapsing_from = store_clock(&admin).await;
+        let lapsing = Fixture::at(
+            "pg-custody-lapsing",
+            &spec,
+            measurement("role-v1"),
+            lapsing_from,
+            5_000,
+        );
+        assert_eq!(
+            publish(
+                &publisher_url,
+                &lapsing.history.manifests[0],
+                &lapsing.genesis_head,
+                None
+            )
+            .await,
+            Published
+        );
+        assert_eq!(
+            publish(
+                &publisher_url,
+                &lapsing.history.manifests[1],
+                &lapsing.history.current_heads[0],
+                Some(&lapsing.genesis_head.head.head_identity),
+            )
+            .await,
+            Published
+        );
+        let custodian = postgres_custodian(
+            &lapsing,
+            &custodian_url,
+            Arc::new(SlowMeasurer {
+                value: lapsing.measurement.clone(),
+                millis: 6_000,
+            }),
+        )
+        .await;
+        assert_eq!(
+            custodian
+                .admit(lapsing.request.scope())
+                .await
+                .unwrap_err()
+                .code(),
+            AdmissionFailureCode::AdmissionCutExpired
+        );
+        assert_eq!(receipts_of(&admin, "pg-custody-lapsing").await, 0);
     }
 }

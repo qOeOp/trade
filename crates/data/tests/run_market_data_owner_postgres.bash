@@ -11,6 +11,7 @@ readonly market_data_owner_postgres_tests=(
   owner::store_admission::tests::the_admitted_bar_schedule_order_verifies_before_it_revalidates
   owner::store_admission::tests::a_refused_pit_readback_never_reads_schedule_candidates
   owner::store_admission::tests::the_admitted_quote_cut_read_resolves_what_custody_resolves
+  owner::store_admission::tests::the_postgres_custody_store_admits_on_its_own_clock_and_refuses_what_moved
   owner::instrument_master_v2_postgres::tests::postgres_v2_cut_custody_holds_one_or_two_members_and_migrates_a_legacy_table
   owner::instrument_master_v2_postgres::tests::postgres_bound_replay_issuance_keys_each_request_to_one_binding
   owner::instrument_economic_terms_postgres_v1::tests::postgres_economic_terms_resolve_for_one_member_or_two
@@ -112,6 +113,8 @@ marker_prefix="md-d1-${PPID}-$$"
 admin_password="md_d1_admin_test_only"
 owner_password="md_d1_owner_test_only"
 reader_password="md_d1_reader_test_only"
+custody_publisher_password="md_d1_custody_publisher_test_only"
+custody_custodian_password="md_d1_custody_custodian_test_only"
 
 # shellcheck disable=SC2329 # invoked indirectly by the EXIT trap
 cleanup() {
@@ -207,7 +210,19 @@ provision_database() {
   docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d "$database" \
     -c "CREATE TABLE public.vibe_test_instance_marker(marker_identity TEXT PRIMARY KEY); INSERT INTO public.vibe_test_instance_marker VALUES ('$marker'); REVOKE ALL ON public.vibe_test_instance_marker FROM PUBLIC; GRANT SELECT ON public.vibe_test_instance_marker TO vibe_test_role_market_data_owner, vibe_test_role_market_data_reader"
 
+  # Deployment Store Admission custody, from the deployment's own init script rather than a copy of
+  # it: the same file provisions the custody schema, its two principals and their functions here.
+  docker exec -i \
+    --env POSTGRES_PASSWORD="$admin_password" \
+    --env POSTGRES_HOST=127.0.0.1 \
+    --env POSTGRES_DATABASE="$database" \
+    --env DEPLOYMENT_STORE_PUBLISHER_DB_PASSWORD="$custody_publisher_password" \
+    --env DEPLOYMENT_STORE_CUSTODIAN_DB_PASSWORD="$custody_custodian_password" \
+    "$container" sh -s < "$repository_root/product/rd-workbench/postgres-init/20-deployment-store-custody.sh" > /dev/null
+
   export MARKET_DATA_ADMIN_TEST_DATABASE_URL="postgres://postgres:$admin_password@127.0.0.1:$port/$database"
+  export DEPLOYMENT_STORE_PUBLISHER_TEST_DATABASE_URL="postgres://deployment_store_publisher:$custody_publisher_password@127.0.0.1:$port/$database"
+  export DEPLOYMENT_STORE_CUSTODIAN_TEST_DATABASE_URL="postgres://deployment_store_custodian:$custody_custodian_password@127.0.0.1:$port/$database"
   export MARKET_DATA_OWNER_TEST_DATABASE_URL="postgres://vibe_test_role_market_data_owner:$owner_password@127.0.0.1:$port/$database"
   export MARKET_DATA_READER_TEST_DATABASE_URL="postgres://vibe_test_role_market_data_reader:$reader_password@127.0.0.1:$port/$database"
   export VIBE_POSTGRES_TEST_DATABASE_NAME="$database"
