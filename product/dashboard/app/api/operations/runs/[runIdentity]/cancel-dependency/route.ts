@@ -62,7 +62,7 @@ export async function POST(
     const store = configuredRunStoreV1();
     if (!store) return unavailable(runIdentity, "RUN_STORE_CONFIGURATION_UNAVAILABLE", 503);
     await store.assertSchema();
-    const receipt = await store.cancelQueuedDependency({
+    const { receipt, observed_at: observedAt } = await store.cancelQueuedDependency({
       runIdentity,
       actionEnvelope,
       authorizationDigest,
@@ -73,7 +73,7 @@ export async function POST(
       operation: "dashboard.dependency.cancel.queued.v1",
       availability: "available",
       unavailable_reason: null,
-      observed_at: new Date().toISOString(),
+      observed_at: observedAt,
       run_identity: runIdentity,
       receipt,
     }, { status: 200, headers: { "cache-control": "no-store" } });

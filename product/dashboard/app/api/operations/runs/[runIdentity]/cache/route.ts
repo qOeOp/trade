@@ -61,7 +61,7 @@ export async function DELETE(
     const store = configuredRunStoreV1();
     if (!store) return unavailable(runIdentity, "RUN_STORE_CONFIGURATION_UNAVAILABLE", 503);
     await store.assertSchema();
-    const receipt = await store.deleteOperationalCache({
+    const { receipt, observed_at: observedAt } = await store.deleteOperationalCache({
       runIdentity,
       expectedTransitionVersion: Number(value.expected_transition_version),
       authorizationDigest,
@@ -71,7 +71,7 @@ export async function DELETE(
       operation: "dashboard.operational_cache.delete.v1",
       availability: "available",
       unavailable_reason: null,
-      observed_at: new Date().toISOString(),
+      observed_at: observedAt,
       run_identity: runIdentity,
       receipt,
     }, { status: 200, headers: { "cache-control": "no-store" } });
