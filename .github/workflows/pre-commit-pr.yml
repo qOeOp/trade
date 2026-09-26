@@ -1,7 +1,7 @@
 name: pre-commit-pr
 
 # The hooks that need no compiled workspace, over all files, on every pull request push - drafts
-# included - and on every push to `main`. This is where a pull request's no-compile hooks run:
+# included - and on `main` six times a day. This is where a pull request's no-compile hooks run:
 # build.yml's pre-commit job, on the Ready run, runs only the compiled ones (cargo-clippy, its
 # non-Linux turmoil sibling, cargo-doc, cargo-machete, and check-links-offline, which needs a pinned
 # lychee install), and its `quality` requires this job's result for the same head, so both halves
@@ -10,11 +10,16 @@ name: pre-commit-pr
 #
 # This lives outside `build.yml` on purpose: that file's contents are hashed into the Rust cache key,
 # so editing it would evict the whole workspace cache for every job.
+# `main` is checked on a schedule rather than on every push, like build.yml's verdict: a pull
+# request has already run these hooks on its own head, so a push run only adds a verdict on the
+# merged tree, and it spent 2.8 runner-hours a day doing that for every merge (2026-09-25..27).
+# Six slots, at :47 so they sit away from build.yml's :17 and the other schedules; a slot GitHub
+# drops is covered the way build.yml's is, by `workflow_dispatch`.
 on:
   pull_request:
     branches: [main]
-  push:
-    branches: [main]
+  schedule:
+    - cron: "47 1,5,9,13,17,21 * * *"
   workflow_dispatch:
 
 permissions:
