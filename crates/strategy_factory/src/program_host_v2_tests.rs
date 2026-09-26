@@ -1919,3 +1919,40 @@ fn a_projection_changed_in_one_field_does_not_pair_with_its_frame(#[case] tamper
         Some(ProgramHostV2Error::InputCoverage)
     );
 }
+
+/// A projection naming another member key, or another instrument, for one of the frame's values
+/// pairs with the frame no longer. Each is changed alone, so each of the two checks is exercised
+/// without the other.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn a_projection_naming_another_member_key_or_instrument_does_not_pair() {
+    use super::program_host_v2::{OwnerUniverseFrameV1, ProgramHostV2Error};
+    use vibe_data::owner::universe_sample_projection_v1::sealed_acceptance::reseal_sealed_acceptance_universe_sample_projection_v1;
+
+    let (_, _, frame) = universe_bfp_fixture();
+    let value = &frame.values()[0];
+    let key: &'static str = Box::leak(value.member_key().to_owned().into_boxed_str());
+    let instrument: &'static str = Box::leak(value.instrument().to_owned().into_boxed_str());
+
+    for tamper in [
+        Tamper::Member {
+            index: 0,
+            member_key: "OTHER",
+            instrument,
+        },
+        Tamper::Member {
+            index: 0,
+            member_key: key,
+            instrument: "OTHERUSDT-PERP.BINANCE",
+        },
+    ] {
+        let tampered = reseal_sealed_acceptance_universe_sample_projection_v1(
+            &market_data_projection(&frame),
+            tamper,
+        );
+        assert_eq!(
+            OwnerUniverseFrameV1::from_owner_projection_v1(frame.clone(), &tampered).err(),
+            Some(ProgramHostV2Error::InputCoverage)
+        );
+    }
+}
