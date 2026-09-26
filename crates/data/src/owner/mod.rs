@@ -70,6 +70,10 @@ pub(crate) mod reference_fact_coordinates;
 pub(crate) mod session;
 pub(crate) mod time_zone;
 
+// Test and sealed acceptance fixtures only; no production build reaches it.
+#[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
+pub mod chain_fixture_v1;
+
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 pub use pit_snapshot::sealed_acceptance;
 #[cfg(feature = "sealed-strategy-input-acceptance")]
