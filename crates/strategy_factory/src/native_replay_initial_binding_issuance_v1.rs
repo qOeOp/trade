@@ -146,7 +146,7 @@ where
         )
     })?;
     let terms = instrument_terms_owner
-        .resolve_unique_native_replay_pair(
+        .resolve_unique_native_replay_members(
             &instrument_master,
             &economic.input().venue_identity,
             &economic.input().common_quote_currency,

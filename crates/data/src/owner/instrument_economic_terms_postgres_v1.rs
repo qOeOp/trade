@@ -180,42 +180,12 @@ impl InstrumentEconomicTermsPostgresOwnerV1 {
         Ok(readback)
     }
 
-    /// Resolves the unique same-account economic pair for one verified Native Replay public cut.
+    /// Resolves one economic-terms readback for each member of one verified Native Replay public
+    /// cut, in the cut's member order.
     ///
     /// Instrument identities and public fact digests come only from the move-only Master V2
     /// readback. The consumer contributes the already-sealed Replay profile venue/common quote and
     /// request start time, but cannot choose an account scope or an economic-terms locator.
-    ///
-    /// # Errors
-    ///
-    /// Returns before readback when custody is corrupt, no complete pair is valid, or more than one
-    /// fact/pair could satisfy the same sealed execution context.
-    pub async fn resolve_unique_native_replay_pair(
-        &self,
-        instrument_master: &InstrumentMasterReadbackV2,
-        venue_identity: &str,
-        quote_currency: &str,
-        event_time_ns: i128,
-    ) -> Result<[InstrumentEconomicTermsReadbackV1; 2], InstrumentEconomicTermsPostgresErrorV1>
-    {
-        // A pair is asked of a two-member cut; a one-member cut is answered by the member form.
-        if instrument_master.cut().members().len() != 2 {
-            return Err(InstrumentEconomicTermsPostgresErrorV1::InvalidSelection);
-        }
-        let [first, second]: [InstrumentEconomicTermsReadbackV1; 2] = self
-            .resolve_unique_native_replay_members(
-                instrument_master,
-                venue_identity,
-                quote_currency,
-                event_time_ns,
-            )
-            .await?
-            .try_into()
-            .map_err(|_| InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)?;
-        Ok([first, second])
-    }
-
-    /// Resolves one economic-terms readback for each member of the cut, in the cut's member order.
     ///
     /// Every member must resolve under one shared account scope, exactly once; a member count of
     /// one is a single-instrument universe and resolves the same way.
@@ -635,10 +605,8 @@ mod tests {
         .expect("sealed economic terms")
     }
 
-    /// Economic terms resolve for each member of a cut, whether it holds one member or two.
-    ///
-    /// The pair form stays what it was for a two-member cut and refuses a one-member cut rather
-    /// than inventing a second member; the member form answers both, in the cut's member order.
+    /// Economic terms resolve for each member of a cut, whether it holds one member or two, in the
+    /// cut's member order.
     #[tokio::test]
     #[ignore = "requires a disposable Market Data PostgreSQL database"]
     async fn postgres_economic_terms_resolve_for_one_member_or_two() {
@@ -697,19 +665,6 @@ mod tests {
         assert_eq!(
             instruments(&both),
             ["BTCUSDT-PERP.BINANCE", "ETHUSDT-PERP.BINANCE"]
-        );
-        let pair = terms
-            .resolve_unique_native_replay_pair(&two, &venue, &quote, 500)
-            .await
-            .expect("the pair form answers a two-member cut");
-        assert_eq!(instruments(&pair), instruments(&both));
-        assert_eq!(
-            terms
-                .resolve_unique_native_replay_pair(&one, &venue, &quote, 500)
-                .await
-                .unwrap_err(),
-            InstrumentEconomicTermsPostgresErrorV1::InvalidSelection,
-            "a one-member cut is not a pair"
         );
         assert_eq!(
             terms

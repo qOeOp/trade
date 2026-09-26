@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 
 use super::{
-    OperatorAuthorizationIssuerPostgresV1, Reason, Subject, ensure_read_committed, from_i64,
-    from_json, json, storage, to_i64, unavailable, unavailable_for,
+    OperatorAuthorizationIssuerPostgresV1, Reason, Subject, database_now, ensure_read_committed,
+    from_i64, from_json, json, storage, to_i64, unavailable, unavailable_for,
 };
 use crate::{
     GrantContentV1, GrantIssuanceProposalV1, GrantIssuanceReceiptV1, GrantLocatorV1,
@@ -912,17 +912,6 @@ fn resolve_verified_grant_evidence<C: GrantContentV1>(
             observed_at_epoch_ms: observed_at,
         }),
     }
-}
-
-async fn database_now(
-    transaction: &mut Transaction<'_, Postgres>,
-) -> Result<u64, OperatorAuthorizationError> {
-    let observed: i64 =
-        sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint")
-            .fetch_one(&mut **transaction)
-            .await
-            .map_err(storage)?;
-    from_i64(observed)
 }
 
 async fn resolve_locked_grant_readback<C: GrantContentV1>(

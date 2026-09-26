@@ -2503,12 +2503,26 @@ pub(crate) mod tests {
         raw_symbol: &str,
         seed: u8,
     ) -> InstrumentMasterFactV2 {
+        fact_for_observed_at(canonical_identity, raw_symbol, seed, 101)
+    }
+
+    /// [`fact_for`] observed by the Owner at `owner_observation_time_ns`, retrieved one nanosecond
+    /// and effective two nanoseconds before it, for a selection observed before 101.
+    pub(crate) fn fact_for_observed_at(
+        canonical_identity: &str,
+        raw_symbol: &str,
+        seed: u8,
+        owner_observation_time_ns: i128,
+    ) -> InstrumentMasterFactV2 {
         let mut input = baseline(complete_terms());
         input.canonical_identity = canonical_identity.to_owned();
         input.raw_symbol = raw_symbol.to_owned();
         input.provenance.source_binding_identity = id(seed);
         input.provenance.source_binding_digest = id(seed + 1);
         input.provenance.raw_payload_digest = id(seed + 2);
+        input.provenance.effective_from_ns = owner_observation_time_ns - 2;
+        input.provenance.retrieval_time_ns = owner_observation_time_ns - 1;
+        input.provenance.owner_observation_time_ns = owner_observation_time_ns;
         InstrumentMasterFactV2::from_exchange_info_baseline(input).unwrap()
     }
 
