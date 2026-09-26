@@ -788,30 +788,14 @@ fn decode_owner_envelope(
                     catalog_v3.as_ref(),
                 ) =>
         {
-            let seal = canonical_digest(
-                "rd.exploratory-replay-request-seal.v3",
-                &(
-                    3_u16,
-                    request.request_identity().as_str(),
-                    meaning_digest.as_str(),
-                    BASE64.encode(&canonical_request_bytes),
-                    frozen.request_digest.as_str(),
-                    frozen_profile,
-                    frozen.committed_at_epoch_ms,
-                ),
-            )?;
-            let receipt = canonical_digest(
-                "rd.exploratory-replay-request-receipt.v3",
-                &(
-                    3_u16,
-                    request.request_identity().as_str(),
-                    meaning_digest.as_str(),
-                    seal.as_str(),
-                    frozen_profile,
-                    frozen.committed_at_epoch_ms,
-                ),
-            )?;
-            (seal, receipt)
+            seal_and_receipt_digests_v3(
+                request.request_identity().as_str(),
+                &meaning_digest,
+                &canonical_request_bytes,
+                &frozen.request_digest,
+                frozen_profile,
+                frozen.committed_at_epoch_ms,
+            )?
         }
         _ => return Ok(unavailable(selector)),
     };
@@ -870,6 +854,42 @@ fn decode_owner_envelope(
             owner_cut_epoch_ms,
         }),
     })
+}
+
+/// The schema-3 seal and receipt digests for one exact request, the pair every profile-bound
+/// Replay request carries whichever source it was composed from.
+fn seal_and_receipt_digests_v3(
+    request_identity: &str,
+    meaning_digest: &str,
+    canonical_request_bytes: &[u8],
+    request_digest: &str,
+    profile: &ReplayExecutionProfileRequestSealV1,
+    committed_at_epoch_ms: u64,
+) -> Result<(String, String), ExploratoryReplayCustodyError> {
+    let seal = canonical_digest(
+        "rd.exploratory-replay-request-seal.v3",
+        &(
+            3_u16,
+            request_identity,
+            meaning_digest,
+            BASE64.encode(canonical_request_bytes),
+            request_digest,
+            profile,
+            committed_at_epoch_ms,
+        ),
+    )?;
+    let receipt = canonical_digest(
+        "rd.exploratory-replay-request-receipt.v3",
+        &(
+            3_u16,
+            request_identity,
+            meaning_digest,
+            seal.as_str(),
+            profile,
+            committed_at_epoch_ms,
+        ),
+    )?;
+    Ok((seal, receipt))
 }
 
 struct ValidatedBaseEnvelopeV2 {
@@ -1141,33 +1161,15 @@ fn validate_execution_profile_seal(
     };
 
     let request = &seal.request;
-    let mut family_digest = Sha256::new();
-    family_digest.update(b"rd.replay-family-execution-profile-seal.v1\0");
-    family_digest.update(1_u16.to_le_bytes());
-    if update_length_prefixed(&mut family_digest, trial_family_identity.as_bytes()).is_none() {
+    let Some((expected_family_digest, expected_request_digest)) = profile_binding_digests(
+        seal,
+        request_identity,
+        request_meaning_digest,
+        trial_family_identity,
+        trial_family_digest,
+    ) else {
         return false;
-    }
-    family_digest.update(trial_family_digest);
-    family_digest.update(request.economic_configuration_digest);
-    family_digest.update(request.runner_operational_profile_digest);
-    family_digest.update(seal.catalog_v3_binding_digest);
-    let expected_family_digest: [u8; 32] = family_digest.finalize().into();
-
-    let mut request_digest = Sha256::new();
-    request_digest.update(b"rd.replay-request-execution-profile-seal.v1\0");
-    request_digest.update(1_u16.to_le_bytes());
-    if update_length_prefixed(&mut request_digest, request_identity.as_bytes()).is_none() {
-        return false;
-    }
-    request_digest.update(request_meaning_digest);
-    if update_length_prefixed(&mut request_digest, trial_family_identity.as_bytes()).is_none() {
-        return false;
-    }
-    request_digest.update(trial_family_digest);
-    request_digest.update(request.economic_configuration_digest);
-    request_digest.update(request.runner_operational_profile_digest);
-    request_digest.update(expected_family_digest);
-    let expected_request_digest: [u8; 32] = request_digest.finalize().into();
+    };
 
     seal.schema_version == 1
         && request.schema_version == 1
@@ -1183,6 +1185,38 @@ fn validate_execution_profile_seal(
         && seal.catalog_v3_binding_digest == catalog_v3.binding_digest()
         && seal.family_profile_binding_digest == expected_family_digest
         && seal.request_profile_binding_digest == expected_request_digest
+}
+
+/// The two binding digests an execution profile seal must carry for one request of one family.
+fn profile_binding_digests(
+    seal: &ReplayExecutionProfileRequestSealV1,
+    request_identity: &str,
+    request_meaning_digest: [u8; 32],
+    trial_family_identity: &str,
+    trial_family_digest: [u8; 32],
+) -> Option<([u8; 32], [u8; 32])> {
+    let request = &seal.request;
+    let mut family_digest = Sha256::new();
+    family_digest.update(b"rd.replay-family-execution-profile-seal.v1\0");
+    family_digest.update(1_u16.to_le_bytes());
+    update_length_prefixed(&mut family_digest, trial_family_identity.as_bytes())?;
+    family_digest.update(trial_family_digest);
+    family_digest.update(request.economic_configuration_digest);
+    family_digest.update(request.runner_operational_profile_digest);
+    family_digest.update(seal.catalog_v3_binding_digest);
+    let expected_family_digest: [u8; 32] = family_digest.finalize().into();
+
+    let mut request_digest = Sha256::new();
+    request_digest.update(b"rd.replay-request-execution-profile-seal.v1\0");
+    request_digest.update(1_u16.to_le_bytes());
+    update_length_prefixed(&mut request_digest, request_identity.as_bytes())?;
+    request_digest.update(request_meaning_digest);
+    update_length_prefixed(&mut request_digest, trial_family_identity.as_bytes())?;
+    request_digest.update(trial_family_digest);
+    request_digest.update(request.economic_configuration_digest);
+    request_digest.update(request.runner_operational_profile_digest);
+    request_digest.update(expected_family_digest);
+    Some((expected_family_digest, request_digest.finalize().into()))
 }
 
 fn update_length_prefixed(hasher: &mut Sha256, value: &[u8]) -> Option<()> {
