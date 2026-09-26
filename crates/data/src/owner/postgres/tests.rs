@@ -9741,8 +9741,14 @@ async fn postgres_each_research_request_under_one_binding_gets_its_own_market_se
 }
 
 /// Two snapshots under one binding stating different values, submitted at once, cannot both be
-/// admitted: the scope lock orders them, the second reads the first's head, and exactly one
-/// value is left in the scope.
+/// admitted: the appends are ordered, the second reads the first's head, and exactly one value is
+/// left in the scope.
+///
+/// The interleaving is made, not hoped for. The test holds the binding's Source Binding rows first,
+/// which every append locks `FOR UPDATE` before it reads anything of the scope, waits until both
+/// appends are queued, and only then releases them. Each append then reads the heads under its own
+/// statement snapshot; an append whose snapshot was fixed before it queued would not see the other's
+/// head, and both values would be admitted.
 #[tokio::test]
 #[ignore = "requires a disposable Market Data PostgreSQL database"]
 async fn postgres_concurrent_values_under_one_binding_leave_one_value() {
@@ -9775,9 +9781,43 @@ async fn postgres_concurrent_values_under_one_binding_leave_one_value() {
     let raw = research_request_pit_v1(&owner, &binding, "AAPL", &aapl, 20).await;
     let split = research_request_pit_v1(&owner, &binding, "AAPL", &aapl, 40).await;
 
-    let (raw_admission, split_admission) = tokio::join!(
+    let mut holder = owner.pool().begin().await.unwrap();
+    sqlx::query(
+        "SELECT 1 FROM market_data_private.source_binding_facts_v1 WHERE binding_id=$1 FOR UPDATE",
+    )
+    .bind(binding.receipt().locator().binding_id.as_bytes().as_slice())
+    .fetch_one(&mut *holder)
+    .await
+    .unwrap();
+    let release = async {
+        let queued = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+            loop {
+                let waiting: i64 = sqlx::query_scalar(
+                    "SELECT pg_catalog.count(*) FROM pg_catalog.pg_stat_activity WHERE datname=pg_catalog.current_database() AND wait_event_type='Lock'",
+                )
+                .fetch_one(owner.pool())
+                .await
+                .unwrap();
+
+                if waiting == 2 {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        holder.rollback().await.unwrap();
+        queued
+    };
+
+    let (raw_admission, split_admission, queued) = tokio::join!(
         admit_market_semantics_v1(&owner, &binding, &raw, "RAW"),
         admit_market_semantics_v1(&owner, &binding, &split, "SPLIT_ADJUSTED"),
+        release,
+    );
+    assert!(
+        queued.is_ok(),
+        "both appends queue behind the held Source Binding rows before either reads the scope's heads"
     );
     let outcomes = [raw_admission, split_admission];
     assert_eq!(
@@ -9920,6 +9960,27 @@ async fn postgres_market_semantics_heads_migrate_to_one_head_per_snapshot() {
         retired(&migrated).await,
         "the migrated store's old table is retired"
     );
+
+    for statement in [
+        "UPDATE market_data_private.market_semantics_heads_v1 SET fact_identity=fact_identity",
+        "DELETE FROM market_data_private.market_semantics_heads_v1",
+        "TRUNCATE TABLE market_data_private.market_semantics_heads_v1",
+    ] {
+        let refused = sqlx::query(statement)
+            .execute(migrated.pool())
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(
+            refused.contains("market_semantics_heads_v1 is retired"),
+            "{statement}: {refused}"
+        );
+    }
+    assert_eq!(
+        legacy_rows(&migrated).await,
+        legacy_before,
+        "the retired table keeps its rows through every refused write"
+    );
     assert_eq!(
         admit_market_semantics_v1(&migrated, &binding, &later, "RAW").await,
         Ok(()),
@@ -9940,6 +10001,9 @@ async fn postgres_market_semantics_heads_migrate_to_one_head_per_snapshot() {
     for statement in [
         "DROP TRIGGER market_semantics_heads_v1_retired ON market_data_private.market_semantics_heads_v1",
         "DROP TRIGGER market_semantics_heads_v1_retired_truncate ON market_data_private.market_semantics_heads_v1",
+        // Without the per-snapshot table the migration would otherwise succeed again, so only the
+        // old table's shape can stop it.
+        "DROP TABLE market_data_private.market_semantics_heads_v2",
         "ALTER TABLE market_data_private.market_semantics_heads_v1 ADD COLUMN unexpected BYTEA",
         "UPDATE market_data_private.owner_migrations_v1 SET migration_id=migration_id||'-reshaped' WHERE migration_id='market-data-owner-market-semantics-snapshot-heads-v1'",
     ] {

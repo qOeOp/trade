@@ -520,7 +520,9 @@ domain 下的 BLAKE3 digest。Owner 为 snapshot 写的 R0 record 也总是创�
 所以今天每条 fact 都是创世。修好这条路径时必须保持上面的规则：不改 typed value 的 correction 可以只推进一个
 snapshot 的链；改 value 的 correction 必须在一个 Owner transaction 里为该 scope 的每个 head 各追加一个
 successor，因为只改一条链会让各 head 不一致，并以 `ScopeValueConflict` 被拒。这种整 scope 的 correction
-在此定义但不建，因为没有任何东西消费它。
+在此定义但不建，因为没有任何东西消费它。它不能靠今天逐条 append 的检查逐个追加 successor 来实现：第一个
+successor 进来时其他 head 仍是旧值，会被拒。这条规则成立于每次 Owner 提交之后，所以那个 transaction 要先写完
+全部 successor，再在结尾对整个 scope 检查一次。
 
 ### 规范 codec、完整 cut 与 custody
 

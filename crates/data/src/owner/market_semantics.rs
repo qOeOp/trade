@@ -341,6 +341,8 @@ pub(crate) enum MarketSemanticsErrorV1 {
     /// The fact's typed value differs from a head of its compatibility scope that it does not
     /// succeed; one Source Binding states one price adjustment.
     ScopeValueConflict,
+    /// The registry key already holds a sound record stating a different value.
+    RegistryValueConflict,
     IncompleteCut,
     CodecMismatch,
     DigestMismatch,

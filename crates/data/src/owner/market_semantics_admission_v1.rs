@@ -207,6 +207,7 @@ impl From<MarketSemanticsErrorV1> for MarketSemanticsAdmissionErrorV1 {
             | MarketSemanticsErrorV1::PredecessorBranch
             | MarketSemanticsErrorV1::InvalidCorrection => Self::AdmissionConflict,
             MarketSemanticsErrorV1::ScopeValueConflict => Self::ScopeValueConflict,
+            MarketSemanticsErrorV1::RegistryValueConflict => Self::SnapshotValueConflict,
             MarketSemanticsErrorV1::StoreUnavailable
             | MarketSemanticsErrorV1::StoreUntrusted
             | MarketSemanticsErrorV1::IncompleteCut => Self::StoreUnavailable,

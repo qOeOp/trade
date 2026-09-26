@@ -565,7 +565,10 @@ always a genesis (`append_owner_r0_for_available_pit_v1`). Every fact today is t
 repaired it must keep the rule above: a correction that keeps the typed value may advance one snapshot's chain alone,
 and one that changes the value must append a successor to every head of the scope in one Owner transaction, because a
 single-chain change would leave the heads disagreeing and is refused as `ScopeValueConflict`. That scope-wide
-correction is defined here and not built, because nothing consumes it.
+correction is defined here and not built, because nothing consumes it. It cannot be built by appending each successor
+through today's per-append check, which refuses the first successor while the other heads still carry the old value:
+the rule holds after every Owner commit, so that transaction writes every successor first and checks the scope once,
+at its end.
 
 ### Canonical codec, complete cut and custody
 

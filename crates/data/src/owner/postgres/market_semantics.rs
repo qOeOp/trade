@@ -249,6 +249,14 @@ async fn append_market_semantics_in_transaction_v1(
         return Ok(readback);
     }
 
+    // Appends to one scope are ordered twice: the caller locked the scope's Source Binding rows
+    // `FOR UPDATE` when it resolved the inputs, and the scope lock above orders any append that did
+    // not. The named refusal also rests on READ COMMITTED: each statement takes its own snapshot,
+    // so the heads read here include any head a concurrent append committed while this one waited.
+    // Under REPEATABLE READ the snapshot is fixed by the transaction's first statement, before it
+    // waited, so the second append reads the scope without the first one's head and is not refused
+    // here. Measured on 2026-09-26, it then failed closed later as a store refusal rather than being
+    // admitted, but that rests on an unrelated write conflict and loses `ScopeValueConflict`.
     let scope_heads = load_scope_heads(transaction, proposal.compatibility_scope_identity).await?;
     let predecessor = scope_heads
         .iter()
@@ -666,14 +674,26 @@ pub(super) async fn register_market_semantics_registry_entry_v1(
         .fetch_one(&mut **transaction)
         .await
         .map_err(|cause| store_error(&cause))?;
-    let stored = decode_registry_entry(&row_bytes(&row, "record_bytes")?)?;
-    if row_bytes(&row, "registry_key_bytes")? != entry.key().canonical_bytes()
-        || row_bytes(&row, "record_identity")? != entry.identity().as_bytes()
-        || stored != *entry
-    {
+    if row_bytes(&row, "registry_key_bytes")? != entry.key().canonical_bytes() {
         return Err(MarketSemanticsErrorV1::StoreUntrusted);
     }
-    Ok(())
+    let stored = decode_registry_entry(&row_bytes(&row, "record_bytes")?)?;
+    let stored_identity_holds = row_bytes(&row, "record_identity")? == stored.identity().as_bytes();
+
+    if stored_identity_holds && stored == *entry {
+        return Ok(());
+    }
+
+    // A key is stated once. A sound stored record under the same key that states another value is
+    // the submitter's conflict; any other difference is the store's, and is not named as one.
+    if stored_identity_holds
+        && stored.key() == entry.key()
+        && stored.correction_identity() == entry.correction_identity()
+        && stored.value() != entry.value()
+    {
+        return Err(MarketSemanticsErrorV1::RegistryValueConflict);
+    }
+    Err(MarketSemanticsErrorV1::StoreUntrusted)
 }
 
 async fn load_registry_entry(
