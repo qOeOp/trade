@@ -2528,13 +2528,25 @@ async fn rd_universe_selection_read_oracle_v1(
     .fetch_one(owner.pool())
     .await
     .unwrap();
+    // The grant names `rd_owner` only where that role exists, as the research reads' grant does:
+    // this harness provisions Market Data alone, and the ordered Owner chain, which provisions R&D
+    // too, calls the function as `rd_owner` in the grant-layer proofs.
+    let rd_owner_exists: bool =
+        sqlx::query_scalar("SELECT pg_catalog.to_regrole('rd_owner') IS NOT NULL")
+            .fetch_one(owner.pool())
+            .await
+            .unwrap();
     assert_eq!(
         attributes,
         (
             "s".to_owned(),
             true,
             vec!["search_path=pg_catalog, pg_temp".to_owned()],
-            vec!["rd_owner".to_owned()],
+            if rd_owner_exists {
+                vec!["rd_owner".to_owned()]
+            } else {
+                Vec::new()
+            },
         )
     );
 }
