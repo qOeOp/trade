@@ -5,7 +5,12 @@ import {
   registryEntryDigestV1,
 } from "./compatibility-envelope.ts";
 import {
-  PRODUCT_EDGE_RESEARCH_GOAL_ROUTING_KEY_V2,
+  RESEARCH_OWNER_OPERATION_V2,
+  RESEARCH_OWNER_OPERATION_V3,
+  type ResearchOwnerOperationV1,
+} from "../../rd-owner-client/consumer_projection_v1.ts";
+import {
+  PRODUCT_EDGE_RESEARCH_GOAL_ROUTING_KEY_V3,
   PRODUCT_EDGE_SOURCE_INTAKE_ROUTING_KEY_V1,
   resolveProductEdgeRoutingV1,
   type ProductEdgeExecutionRoutingV1,
@@ -14,7 +19,9 @@ import {
 } from "./product-edge-routing-client.ts";
 import {
   RESEARCH_GOAL_EFFECT_SET_V2,
+  researchGoalOperationForV1,
   researchGoalOperationV2,
+  researchGoalOperationV3,
 } from "./research-goal-operation.ts";
 import {
   SOURCE_INTAKE_EFFECT_SET_V1,
@@ -27,8 +34,11 @@ export const SOURCE_RESEARCH_EXECUTE_OPERATION =
 export const sourceResearchRunOperationV1 = {
   schema_version: 1,
   operation_id: SOURCE_RESEARCH_EXECUTE_OPERATION,
+  // A new run submits Research V3. V2 stays listed because a run recorded before V3 is still
+  // resolved through it; no new run is admitted under V2.
   owner_operations: [
     sourceIntakeOperationV1.owner_operation,
+    researchGoalOperationV3.owner_operation,
     researchGoalOperationV2.owner_operation,
   ],
   capability: "rd.source_intake_research.execute",
@@ -40,7 +50,7 @@ export const sourceResearchRunOperationV1 = {
   ],
   routing_dependency_keys: [
     PRODUCT_EDGE_SOURCE_INTAKE_ROUTING_KEY_V1,
-    PRODUCT_EDGE_RESEARCH_GOAL_ROUTING_KEY_V2,
+    PRODUCT_EDGE_RESEARCH_GOAL_ROUTING_KEY_V3,
   ],
   orchestration_contract: {
     identity: "dashboard-source-research-orchestrator-v1",
@@ -142,13 +152,26 @@ export function validSourceResearchRoutingAdmissionV1(
     && entry.dispatcher === "NONE");
 }
 
+// The Research operation an admission's registry digest names, or null for any other digest.
+export function researchOperationOfAdmissionV1(
+  admission: SourceResearchExecutionAdmissionV1,
+): ResearchOwnerOperationV1 | null {
+  if (admission.research_registry_entry_digest === registryEntryDigestV1(researchGoalOperationV3)) {
+    return RESEARCH_OWNER_OPERATION_V3;
+  }
+  if (admission.research_registry_entry_digest === registryEntryDigestV1(researchGoalOperationV2)) {
+    return RESEARCH_OWNER_OPERATION_V2;
+  }
+  return null;
+}
+
 export function validSourceResearchExecutionAdmissionV1(
   action: "RUN" | "RESOLVE",
   admission: SourceResearchExecutionAdmissionV1,
 ): admission is Extract<SourceResearchExecutionAdmissionV1, { availability: "available" }> {
   if (admission.availability !== "available"
     || admission.source_registry_entry_digest !== registryEntryDigestV1(sourceIntakeOperationV1)
-    || admission.research_registry_entry_digest !== registryEntryDigestV1(researchGoalOperationV2)
+    || researchOperationOfAdmissionV1(admission) === null
     || !validSourceResearchRoutingAdmissionV1(action, admission.routing)) return false;
   return action === "RUN"
     ? DIGEST.test(admission.source_compatibility_envelope_digest ?? "")
@@ -157,13 +180,17 @@ export function validSourceResearchExecutionAdmissionV1(
       && admission.research_compatibility_envelope_digest === null;
 }
 
+// Admits a run of the Research operation named: a new run is admitted only as V3; a resolve
+// carries the operation the run it resolves recorded.
 export async function admitSourceResearchExecutionV1({
   action,
+  researchOperation,
   environment = process.env,
   nowEpochMs = Date.now(),
   routingResolver = (key) => resolveProductEdgeRoutingV1(key, { environment }),
 }: {
   action: "RUN" | "RESOLVE";
+  researchOperation: ResearchOwnerOperationV1;
   environment?: Record<string, string | undefined>;
   nowEpochMs?: number;
   routingResolver?: (
@@ -171,8 +198,20 @@ export async function admitSourceResearchExecutionV1({
   ) => Promise<ProductEdgeRoutingObservationV1>;
 }): Promise<SourceResearchExecutionAdmissionV1> {
   const unavailableRouting = unavailableSourceResearchRoutingAdmissionV1();
+  const researchDescriptor = researchGoalOperationForV1(researchOperation);
+  if (!researchDescriptor || (action === "RUN" && researchOperation !== RESEARCH_OWNER_OPERATION_V3)) {
+    return {
+      availability: "unavailable",
+      unavailable_reason: "COMPATIBILITY_UNAVAILABLE",
+      source_registry_entry_digest: null,
+      source_compatibility_envelope_digest: null,
+      research_registry_entry_digest: null,
+      research_compatibility_envelope_digest: null,
+      routing: unavailableRouting,
+    };
+  }
   const sourceRegistryDigest = registryEntryDigestV1(sourceIntakeOperationV1);
-  const researchRegistryDigest = registryEntryDigestV1(researchGoalOperationV2);
+  const researchRegistryDigest = registryEntryDigestV1(researchDescriptor);
   if (action === "RESOLVE") {
     return {
       availability: "available",
@@ -190,7 +229,7 @@ export async function admitSourceResearchExecutionV1({
     nowEpochMs,
   );
   const researchDeployment = operationDeploymentStateV1(
-    researchGoalOperationV2,
+    researchDescriptor,
     environment,
     nowEpochMs,
   );
@@ -210,7 +249,7 @@ export async function admitSourceResearchExecutionV1({
   try {
     const [source, research] = await Promise.all([
       routingResolver(PRODUCT_EDGE_SOURCE_INTAKE_ROUTING_KEY_V1),
-      routingResolver(PRODUCT_EDGE_RESEARCH_GOAL_ROUTING_KEY_V2),
+      routingResolver(PRODUCT_EDGE_RESEARCH_GOAL_ROUTING_KEY_V3),
     ]);
     routing = { source, research };
   } catch {

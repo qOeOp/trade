@@ -322,7 +322,14 @@ UTF-8 字节的值；该值是否指向可纳入的品种由 R&D 对照 Market D
 接纳时通过检查的品种，Research 回读还按原样显示 Owner 的 `initial_pit` 值：`NOT_ISSUED`、`SUBMITTED_OR_UNKNOWN`，或
 `ResearchPitTerminal` 六态之一及其 primary blocker；早先的 V2 请求为 `null`，显示为没有初始 PIT 请求；从不由一种状态
 推断另一种。这次研究和它的回测都绑定该品种，更换品种意味着
-一个后继研究请求，从不修改已冻结的请求。用户的授权与范围契约陈述于 [R&D Owner 契约](../owners/rd)。目前已建成：无。
+一个后继研究请求，从不修改已冻结的请求。用户的授权与范围契约陈述于 [R&D Owner 契约](../owners/rd)。目前已建成：
+该字段及其 validator，它与 R&D 自己的规则对照同一份向量文件测试
+（`product/rd-owner-client/fixtures/research_instrument_identity_vectors_v1.json`）；经
+`POST /v3/source-intake-research` 提交 V3，表单只发出 V3，而 V3 之前记录的运行仍经它当初被接纳时的 V2 路由
+resolve；以及按名显示的 `INSTRUMENT_SCOPE_NOT_RESOLVABLE` 终态，而让范围保持未解析的应答仍是
+`SUBMITTED_OR_UNKNOWN`。`initial_pit` 回读尚未建成，要等 Owner 结果携带该值。只有 Product Edge 的 operation routing
+应答 `ACTIVE / TRADE_DASHBOARD` 时运行才被接纳，而目前还没有已部署的服务应答这次查找，因此在有服务应答之前，已部署的
+Dashboard 无法启动这次运行。
 
 client 与 server 导入同一份 pure input validator。plausible alternatives 在校验前规范成唯一 UTF-8 byte order；
 required data 保留输入顺序。`RUN` 在 dispatch 开始时冻结完整 request 并清空 operator access。terminal bounded

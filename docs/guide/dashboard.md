@@ -410,7 +410,14 @@ request; it never derives one state from another. The research and its
 backtests are bound to that instrument, and changing it means a successor research request, never an edit of a
 frozen one.
 The user's authority and the scope contract are stated in the [R&D Owner contract](../owners/rd). Built so far:
-nothing.
+the field and its validator, which is tested against the same vector file as R&D's own rule
+(`product/rd-owner-client/fixtures/research_instrument_identity_vectors_v1.json`); V3 submission through
+`POST /v3/source-intake-research`, the form emitting only V3 while a run recorded before V3 still resolves through
+the V2 route it was admitted under; and the `INSTRUMENT_SCOPE_NOT_RESOLVABLE` terminal shown by that name, while an
+answer that leaves the scope unresolved stays `SUBMITTED_OR_UNKNOWN`. The `initial_pit` readback is not built yet;
+it waits for the Owner result to carry that value. A run is admitted only when Product Edge's operation routing
+answers `ACTIVE / TRADE_DASHBOARD`, and no deployed service answers that lookup yet, so a deployed Dashboard cannot
+start this run until one does.
 
 Client and server import the same pure input validator. Plausible alternatives are canonicalized into unique
 UTF-8 byte order before validation; required data preserves the entered order. `RUN` freezes the complete request
