@@ -39,44 +39,132 @@ env:
   AUDIT_PR: ${{ github.repository == 'qOeOp/trade' }}
 
 jobs:
+  # The R&D chain's nextest archive, built once. The chain job below only downloads it (383 MB).
+  # Both legs of the matrix wait for it - Market Data does not use it, and finishes well inside the
+  # R&D leg's time regardless.
+  rd-owner-archive:
+    name: rd owner archive (ubuntu-22.04)
+    runs-on: ubuntu-22.04
+    # Twice the slowest run without a cache restore (8.8 minutes, owner-chains run 36058051045),
+    # plus room for common-setup's disk cleanup, which runs only below 40G free and took 116-915 s.
+    timeout-minutes: 30
+    env:
+      # The chain builds exactly this; check-chain-channel-environment.py keeps the two equal.
+      CARGO_CI_PROFILE: ci-pr
+      CARGO_TARGET_DIR: target/rust-tests-linux-x86
+      # yamllint disable-line rule:line-length
+      RUST_TEST_EXTRA_FEATURES: capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres,vibe-strategy-factory/sealed-develop-composer-acceptance
+      RUST_BACKTRACE: 1
+      VIBE_TEST_DATA_BASE_URL: ${{ vars.VIBE_TEST_DATA_BASE_URL }}
+    steps:
+      # https://github.com/step-security/harden-runner
+      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: >-
+            ${{ env.AUDIT_PR == 'true' && 'audit'
+            || vars.STEP_SECURITY_EGRESS_POLICY
+            || 'block' }}
+          allowed-endpoints: >-
+            ${{ vars.COMMON_ALLOWED_ENDPOINTS }}
+            ${{ vars.CI_ALLOWED_ENDPOINTS }}
+
+      - name: Checkout repository
+        # https://github.com/actions/checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Verify immutable CI inputs (post-checkout)
+        run: bash scripts/ci/verify-ci-inputs.sh post-checkout
+
+      - name: Common setup
+        timeout-minutes: 30
+        uses: ./.github/actions/common-setup
+        with:
+          python-version: "3.13"
+          build-type: "test"
+          free-disk-space: "true"
+          free-disk-space-max-build: "true"
+          minimum-free-space-gb: "40"
+          # The chain's own dependency cache, not `rust tests`'s. That entry buys this build nothing:
+          # restored at full match (owner-chains run 36063327107) it still compiled all 792 units,
+          # because the chain's 12-package graph unifies dependency features differently from the
+          # workspace build that saved it, and the restore alone took 225 s (run 36061606498). This
+          # entry holds the external dependencies of the chain's own graph only - 431 MiB compressed
+          # (run 36069263558) - so the job compiles just the workspace crates on top of it. Only
+          # main saves it. check-chain-channel-environment.py pins these inputs exactly.
+          rust-cache-enabled: "true"
+          rust-cache-shared-key: rd-owner-chain-archive-linux-x86
+          rust-cache-workspaces: . -> target/rust-tests-linux-x86
+          rust-cache-on-failure: "false"
+          rust-cache-workspace-crates: "false"
+          # A test-chain push restores main's entry and never writes one of its own.
+          rust-cache-save-if: "false"
+
+      - name: Build the R&D chain archive
+        # Twice the slowest cold compile, 7m45s.
+        timeout-minutes: 16
+        run: >-
+          make cargo-archive-rd-owner-postgres NEXTEST_PROFILE=ci
+          EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
+          RD_OWNER_ARCHIVE_FILE="${RUNNER_TEMP}/rd-owner-archive/rd-owner-tests.tar.zst"
+
+      # Artifacts are Actions storage, not the 10 GB cache quota the Rust cache lives in. Kept one day:
+      # the chain job reads it minutes later, and nothing else does.
+      - name: Publish the R&D chain archive
+        # https://github.com/actions/upload-artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rd-owner-archive
+          path: ${{ runner.temp }}/rd-owner-archive/
+          if-no-files-found: error
+          retention-days: 1
+
+  # The chain matrix, read from the repository rather than spelled in this file: the legs and their
+  # limits, and one R&D entry per shard. It runs beside the archive job, off the critical path.
+  owner-chain-plan:
+    name: owner chain plan
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      # https://github.com/step-security/harden-runner
+      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: >-
+            ${{ env.AUDIT_PR == 'true' && 'audit'
+            || vars.STEP_SECURITY_EGRESS_POLICY
+            || 'block' }}
+          allowed-endpoints: >-
+            ${{ vars.COMMON_ALLOWED_ENDPOINTS }}
+            ${{ vars.CI_ALLOWED_ENDPOINTS }}
+
+      - name: Checkout repository
+        # https://github.com/actions/checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Read the chain matrix
+        id: matrix
+        run: python3 scripts/ci/owner-chain-matrix.py scripts/ci/rd-owner-chain-shards.tsv >> "$GITHUB_OUTPUT"
+
   owner-chain:
     name: ${{ matrix.chain.name }}
     runs-on: ubuntu-22.04
     timeout-minutes: ${{ matrix.chain.job-timeout-minutes }}
+    # Reads this run's artifacts to wait for the archive (scripts/ci/wait-for-run-artifact.bash).
+    permissions:
+      contents: read
+      actions: read
+    needs:
+      - owner-chain-plan
     strategy:
       fail-fast: false
-      matrix:
-        chain:
-          - key: rd-owner
-            name: rd owner postgres (ubuntu-22.04)
-            # Common setup: the slowest each part of it took across 45 rd/md chain jobs (2026-09-24) -
-            # freeing disk 915s, rust-cache 340s, everything else 59s - is 1314s together; 30 minutes
-            # leaves room above that. Freeing disk is bimodal: 42 jobs took 116-341s and 3 took
-            # 839-915s on slow runners, so a sample without one of those reads far too low (this was
-            # 18 and 28 minutes, and cut #979's setup at 18). Re-measure the parts, not the total,
-            # and raise it once any of them routinely nears half of it.
-            setup-timeout-minutes: 30
-            step-timeout-minutes: 70
-            # Above the step limits added together (30 + 70) and the short steps around them, so a
-            # step timeout, which keeps its log, fires before the job limit, which does not.
-            job-timeout-minutes: 105
-            make: >-
-              cargo-test-rd-owner-postgres-isolated NEXTEST_PROFILE=ci
-              EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
-          - key: market-data
-            name: market data owner postgres (ubuntu-22.04)
-            # Common setup: the slowest each part of it took across 45 rd/md chain jobs (2026-09-24) -
-            # freeing disk 915s, rust-cache 340s, everything else 59s - is 1314s together; 30 minutes
-            # leaves room above that. Freeing disk is bimodal: 42 jobs took 116-341s and 3 took
-            # 839-915s on slow runners, so a sample without one of those reads far too low (this was
-            # 18 and 28 minutes, and cut #979's setup at 18). Re-measure the parts, not the total,
-            # and raise it once any of them routinely nears half of it.
-            setup-timeout-minutes: 30
-            step-timeout-minutes: 15
-            # Above the step limits added together (30 + 15) and the short steps around them, so a
-            # step timeout, which keeps its log, fires before the job limit, which does not.
-            job-timeout-minutes: 50
-            make: cargo-test-market-data-owner-postgres-isolated
+      # One entry per leg, and per shard of the R&D leg: scripts/ci/owner-chain-matrix.py holds the
+      # legs, their limits and why, and reads the shards from scripts/ci/rd-owner-chain-shards.tsv.
+      matrix: ${{ fromJSON(needs.owner-chain-plan.outputs.matrix) }}
     env:
       # What `build`'s chain job resolves to on a pull request, `main` and `test-ci` - the builds that
       # admit to `main` - because this workflow's result is the same acceptance (AGENTS.md). It was
@@ -129,7 +217,9 @@ jobs:
           # `main`'s `rust tests` saves. Nothing is saved under it, so this workflow never spends the
           # 10 GB quota. It was `rust-cache-key`, which appends the job id: every run looked for an
           # `...-owner-chain-...` entry nobody saves and logged `No cache found.`.
-          rust-cache-enabled: "true"
+          # The R&D leg compiles nothing - it runs the archive rd-owner-archive built - so it skips
+          # the restore, which was most of its setup.
+          rust-cache-enabled: ${{ matrix.chain.key != 'rd-owner' && 'true' || 'false' }}
           rust-cache-shared-key: rust-tests-linux-x86
           rust-cache-workspaces: . -> target/rust-tests-linux-x86
           rust-cache-on-failure: "false"
@@ -143,10 +233,27 @@ jobs:
       # has been `rd-owner-postgres.yml`. This leg carries the same sealed inputs, byte for byte, so
       # a lane's push exercises the whole entry. The Market Data leg has no browser to drive.
       - name: Install the sealed Dashboard browser acceptance inputs
-        if: matrix.chain.key == 'rd-owner'
+        if: matrix.chain.browser == 1
         uses: ./.github/actions/dashboard-browser-acceptance
         with:
           acceptance-candidate: ${{ github.sha }}
+
+      # Not `needs:` on the archive job: this leg does its setup while the archive compiles and
+      # waits only for the artifact, failing at once if that job ends without it.
+      - name: Wait for the R&D chain archive
+        if: matrix.chain.key == 'rd-owner'
+        timeout-minutes: 50
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/wait-for-run-artifact.bash rd-owner-archive "rd owner archive (ubuntu-22.04)" 2700
+
+      - name: Download the R&D chain archive
+        if: matrix.chain.key == 'rd-owner'
+        # https://github.com/actions/download-artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: rd-owner-archive
+          path: ${{ runner.temp }}/rd-owner-archive
 
       - name: Report disk space before the chain
         run: bash scripts/ci/report-disk-space.bash "before ${{ matrix.chain.key }}"
@@ -163,6 +270,13 @@ jobs:
       # raise both ceilings to about twice the new figures.
       - name: Run the isolated PostgreSQL Owner chain
         timeout-minutes: ${{ matrix.chain.step-timeout-minutes }}
+        env:
+          # The chain refuses an archive whose identity is not this tree's; empty on the Market Data leg.
+          RD_OWNER_NEXTEST_ARCHIVE: >-
+            ${{ matrix.chain.key == 'rd-owner'
+            && format('{0}/rd-owner-archive/rd-owner-tests.tar.zst', runner.temp) || '' }}
+          # Empty for the whole chain and for Market Data; a shard name runs that shard's entries only.
+          RD_OWNER_CHAIN_SHARD: ${{ matrix.chain.shard }}
         run: make ${{ matrix.chain.make }}
 
       # `if: always()`: the run that ends at an entry is the one whose record answers the most.
@@ -172,13 +286,26 @@ jobs:
       # and the Market Data chain has its own script that does not. Without the leg condition this
       # step runs on both, finds nothing on the Market Data leg, and `if-no-files-found: error`
       # turns that into a failed job - which is exactly what it did on run 35688437514.
+      # Under the shard's own name, so the report job finds every shard's records in a directory
+      # named after it however many shards uploaded (download-artifact unpacks a single match flat).
+      - name: Name this shard's records
+        if: always() && matrix.chain.key == 'rd-owner'
+        env:
+          SHARD: ${{ matrix.chain.shard }}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/chain-record-upload/${SHARD}"
+          if [[ -d target/nextest/chain-records ]]; then
+            cp -R target/nextest/chain-records/. "${RUNNER_TEMP}/chain-record-upload/${SHARD}/"
+          fi
+
       - name: Publish which chain entries ran
         if: always() && matrix.chain.key == 'rd-owner'
         # https://github.com/actions/upload-artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: chain-record-${{ matrix.chain.key }}
-          path: target/nextest/chain-records/
+          name: >-
+            chain-record-${{ matrix.chain.key }}${{ matrix.chain.shard && format('-{0}', matrix.chain.shard) || '' }}
+          path: ${{ runner.temp }}/chain-record-upload/
           if-no-files-found: error
           retention-days: 7
 
@@ -189,7 +316,8 @@ jobs:
         # https://github.com/actions/upload-artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: chain-record-${{ matrix.chain.key }}
+          name: >-
+            chain-record-${{ matrix.chain.key }}${{ matrix.chain.shard && format('-{0}', matrix.chain.shard) || '' }}
           path: target/nextest/market-data-records/
           if-no-files-found: ignore
           retention-days: 7
@@ -286,3 +414,54 @@ jobs:
       - name: Report disk space after the proof
         if: always()
         run: bash scripts/ci/report-disk-space.bash "after market-data-e2e"
+
+  # The R&D chain's shards each record only their own entries, by global position. This puts the
+  # records back together - refusing an entry two shards both recorded, the one thing the report
+  # cannot see once they are merged - and reports the whole chain from them, which refuses by
+  # position and test name any entry that is missing, failed, or recorded where another belongs.
+  # It checks out the same tree as the shards: the report takes the chain's length and test names
+  # from that tree's chain array.
+  owner-chain-report:
+    if: always() && needs.owner-chain.result != 'skipped'
+    name: rd owner chain report
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    needs:
+      - owner-chain
+    steps:
+      # https://github.com/step-security/harden-runner
+      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: >-
+            ${{ env.AUDIT_PR == 'true' && 'audit'
+            || vars.STEP_SECURITY_EGRESS_POLICY
+            || 'block' }}
+          allowed-endpoints: >-
+            ${{ vars.COMMON_ALLOWED_ENDPOINTS }}
+            ${{ vars.CI_ALLOWED_ENDPOINTS }}
+
+      - name: Checkout repository
+        # https://github.com/actions/checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Download every shard's records
+        # https://github.com/actions/download-artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: chain-record-rd-owner-*
+          path: ${{ runner.temp }}/chain-records
+          # Each artifact holds <shard>/NNN.*, so merged they give one directory per shard.
+          merge-multiple: true
+
+      - name: Merge the shards' records
+        run: >-
+          bash scripts/ci/merge-chain-shard-records.bash
+          "${RUNNER_TEMP}/chain-records" "${RUNNER_TEMP}/chain-records-merged"
+          scripts/ci/rd-owner-chain-shards.tsv
+
+      - name: Report the whole chain
+        run: >-
+          bash scripts/ci/test-rd-owner-postgres.bash
+          --report-records "${RUNNER_TEMP}/chain-records-merged"
