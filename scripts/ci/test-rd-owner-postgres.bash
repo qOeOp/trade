@@ -368,7 +368,7 @@ MANIFEST
     "$repository_root/.github/workflows/build.yml")" -ne 3 ]] ||
     [[ "$(rg -c 'EXTRA_FEATURES="\$\{RUST_TEST_EXTRA_FEATURES\}"' \
       "$repository_root/scripts/ci/owner-chain-matrix.py")" -ne 1 ]]; then
-    echo "ERROR: the rust tests step, the chain archive job and the chain legs must all pass the shared feature graph." >&2
+    echo "ERROR: the rust tests step, the toolchain proofs in its build, the chain archive job and the chain legs must all pass the shared feature graph." >&2
     return 1
   fi
   if ! rg -Uq \
