@@ -160,9 +160,15 @@ pub enum MarketSemanticsAdmissionErrorV1 {
     /// The snapshot, Source Binding, Instrument Master cut or R0 record it depends on is not the
     /// Owner's, is not `AVAILABLE`, or does not agree with the others.
     DependencyUnavailable,
-    /// The registry key is already bound to a different value, the regime overlaps another
-    /// fact of the scope, or the same request identity carries different content.
+    /// The regime overlaps another fact of the snapshot's chain, the chain already has a head
+    /// this fact does not succeed, or the same request identity carries different content.
     AdmissionConflict,
+    /// This snapshot's registry key already states a different value; a statement is written
+    /// once per key and never overwritten.
+    SnapshotValueConflict,
+    /// Another snapshot under the same Source Binding states a different value; one binding
+    /// states one price adjustment.
+    ScopeValueConflict,
     /// The Owner store is unreachable or refused the commit.
     StoreUnavailable,
 }
@@ -175,7 +181,11 @@ impl Display for MarketSemanticsAdmissionErrorV1 {
                 "the snapshot, binding, instrument cut or R0 record the fact depends on is unavailable"
             }
             Self::AdmissionConflict => {
-                "the registry key, regime or request identity is bound to different content"
+                "the regime, chain head or request identity is bound to different content"
+            }
+            Self::SnapshotValueConflict => "this snapshot already states a different value",
+            Self::ScopeValueConflict => {
+                "another snapshot under the same Source Binding states a different value"
             }
             Self::StoreUnavailable => "the Market Data store is unavailable",
         };
@@ -196,6 +206,8 @@ impl From<MarketSemanticsErrorV1> for MarketSemanticsAdmissionErrorV1 {
             | MarketSemanticsErrorV1::MissingPredecessor
             | MarketSemanticsErrorV1::PredecessorBranch
             | MarketSemanticsErrorV1::InvalidCorrection => Self::AdmissionConflict,
+            MarketSemanticsErrorV1::ScopeValueConflict => Self::ScopeValueConflict,
+            MarketSemanticsErrorV1::RegistryValueConflict => Self::SnapshotValueConflict,
             MarketSemanticsErrorV1::StoreUnavailable
             | MarketSemanticsErrorV1::StoreUntrusted
             | MarketSemanticsErrorV1::IncompleteCut => Self::StoreUnavailable,

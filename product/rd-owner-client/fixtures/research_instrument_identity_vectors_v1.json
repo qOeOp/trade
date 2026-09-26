@@ -1,0 +1,730 @@
+{
+  "schema_version": 1,
+  "description": "One Research instrument identity each, with whether R&D admits it (ResearchInstrumentScopeV1::from_identities). The Rust test beside research_instrument_scope_v1.rs and the Dashboard validator's test both read this file, so a rule changed on one side turns the other red. An identity is the concatenation of its parts: a text, or one character repeated.",
+  "vectors": [
+    {
+      "name": "a canonical Instrument Master identity",
+      "parts": [
+        {
+          "text": "BTCUSDT-PERP.BINANCE"
+        }
+      ],
+      "admitted": true
+    },
+    {
+      "name": "empty",
+      "parts": [],
+      "admitted": false
+    },
+    {
+      "name": "leading U+0009 (White_Space)",
+      "parts": [
+        {
+          "text": "\tBTCUSDT-PERP.BINANCE"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "trailing U+0009 (White_Space)",
+      "parts": [
+        {
+          "text": "BTCUSDT-PERP.BINANCE\t"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "leading U+000A (White_Space)",
+      "parts": [
+        {
+          "text": "\nBTCUSDT-PERP.BINANCE"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "trailing U+000A (White_Space)",
+      "parts": [
+        {
+          "text": "BTCUSDT-PERP.BINANCE\n"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "leading U+000B (White_Space)",
+      "parts": [
+        {
+          "text": "\u000bBTCUSDT-PERP.BINANCE"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "trailing U+000B (White_Space)",
+      "parts": [
+        {
+          "text": "BTCUSDT-PERP.BINANCE\u000b"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "leading U+000C (White_Space)",
+      "parts": [
+        {
+          "text": "\fBTCUSDT-PERP.BINANCE"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "trailing U+000C (White_Space)",
+      "parts": [
+        {
+          "text": "BTCUSDT-PERP.BINANCE\f"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "leading U+000D (White_Space)",
+      "parts": [
+        {
+          "text": "\rBTCUSDT-PERP.BINANCE"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "trailing U+000D (White_Space)",
+      "parts": [
+        {
+          "text": "BTCUSDT-PERP.BINANCE\r"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "leading U+0020 (White_Space)",
+      "parts": [
+        {
+          "text": " BTCUSDT-PERP.BINANCE"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "trailing U+0020 (White_Space)",
+      "parts": [
+        {
+          "text": "BTCUSDT-PERP.BINANCE "
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "leading U+0085 (White_Space)",
+      "parts": [
+        {
+          "text": "\u0085BTCUSDT-PERP.BINANCE"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "trailing U+0085 (White_Space)",
+      "parts": [
+        {
+          "text": "BTCUSDT-PERP.BINANCE\u0085"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "leading U+00A0 (White_Space)",
+      "parts": [
+        {
+          "text": "\u00a0BTCUSDT-PERP.BINANCE"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "trailing U+00A0 (White_Space)",
+      "parts": [
+        {
+          "text": "BTCUSDT-PERP.BINANCE\u00a0"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "leading U+1680 (White_Space)",
+      "parts": [
+        {
+          "text": "\u1680BTCUSDT-PERP.BINANCE"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "trailing U+1680 (White_Space)",
+      "parts": [
+        {
+          "text": "BTCUSDT-PERP.BINANCE\u1680"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "leading U+2000 (White_Space)",
+      "parts": [
+        {
+          "text": "\u2000BTCUSDT-PERP.BINANCE"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "trailing U+2000 (White_Space)",
+      "parts": [
+        {
+          "text": "BTCUSDT-PERP.BINANCE\u2000"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "leading U+2001 (White_Space)",
+      "parts": [
+        {
+          "text": "\u2001BTCUSDT-PERP.BINANCE"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "trailing U+2001 (White_Space)",
+      "parts": [
+        {
+          "text": "BTCUSDT-PERP.BINANCE\u2001"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "leading U+2002 (White_Space)",
+      "parts": [
+        {
+          "text": "\u2002BTCUSDT-PERP.BINANCE"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "trailing U+2002 (White_Space)",
+      "parts": [
+        {
+          "text": "BTCUSDT-PERP.BINANCE\u2002"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "leading U+2003 (White_Space)",
+      "parts": [
+        {
+          "text": "\u2003BTCUSDT-PERP.BINANCE"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "trailing U+2003 (White_Space)",
+      "parts": [
+        {
+          "text": "BTCUSDT-PERP.BINANCE\u2003"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "leading U+2004 (White_Space)",
+      "parts": [
+        {
+          "text": "\u2004BTCUSDT-PERP.BINANCE"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "trailing U+2004 (White_Space)",
+      "parts": [
+        {
+          "text": "BTCUSDT-PERP.BINANCE\u2004"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "leading U+2005 (White_Space)",
+      "parts": [
+        {
+          "text": "\u2005BTCUSDT-PERP.BINANCE"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "trailing U+2005 (White_Space)",
+      "parts": [
+        {
+          "text": "BTCUSDT-PERP.BINANCE\u2005"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "leading U+2006 (White_Space)",
+      "parts": [
+        {
+          "text": "\u2006BTCUSDT-PERP.BINANCE"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "trailing U+2006 (White_Space)",
+      "parts": [
+        {
+          "text": "BTCUSDT-PERP.BINANCE\u2006"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "leading U+2007 (White_Space)",
+      "parts": [
+        {
+          "text": "\u2007BTCUSDT-PERP.BINANCE"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "trailing U+2007 (White_Space)",
+      "parts": [
+        {
+          "text": "BTCUSDT-PERP.BINANCE\u2007"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "leading U+2008 (White_Space)",
+      "parts": [
+        {
+          "text": "\u2008BTCUSDT-PERP.BINANCE"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "trailing U+2008 (White_Space)",
+      "parts": [
+        {
+          "text": "BTCUSDT-PERP.BINANCE\u2008"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "leading U+2009 (White_Space)",
+      "parts": [
+        {
+          "text": "\u2009BTCUSDT-PERP.BINANCE"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "trailing U+2009 (White_Space)",
+      "parts": [
+        {
+          "text": "BTCUSDT-PERP.BINANCE\u2009"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "leading U+200A (White_Space)",
+      "parts": [
+        {
+          "text": "\u200aBTCUSDT-PERP.BINANCE"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "trailing U+200A (White_Space)",
+      "parts": [
+        {
+          "text": "BTCUSDT-PERP.BINANCE\u200a"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "leading U+2028 (White_Space)",
+      "parts": [
+        {
+          "text": "\u2028BTCUSDT-PERP.BINANCE"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "trailing U+2028 (White_Space)",
+      "parts": [
+        {
+          "text": "BTCUSDT-PERP.BINANCE\u2028"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "leading U+2029 (White_Space)",
+      "parts": [
+        {
+          "text": "\u2029BTCUSDT-PERP.BINANCE"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "trailing U+2029 (White_Space)",
+      "parts": [
+        {
+          "text": "BTCUSDT-PERP.BINANCE\u2029"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "leading U+202F (White_Space)",
+      "parts": [
+        {
+          "text": "\u202fBTCUSDT-PERP.BINANCE"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "trailing U+202F (White_Space)",
+      "parts": [
+        {
+          "text": "BTCUSDT-PERP.BINANCE\u202f"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "leading U+205F (White_Space)",
+      "parts": [
+        {
+          "text": "\u205fBTCUSDT-PERP.BINANCE"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "trailing U+205F (White_Space)",
+      "parts": [
+        {
+          "text": "BTCUSDT-PERP.BINANCE\u205f"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "leading U+3000 (White_Space)",
+      "parts": [
+        {
+          "text": "\u3000BTCUSDT-PERP.BINANCE"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "trailing U+3000 (White_Space)",
+      "parts": [
+        {
+          "text": "BTCUSDT-PERP.BINANCE\u3000"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "leading U+FEFF (neither White_Space nor Cc)",
+      "parts": [
+        {
+          "text": "\ufeffBTCUSDT-PERP.BINANCE"
+        }
+      ],
+      "admitted": true
+    },
+    {
+      "name": "trailing U+FEFF (neither White_Space nor Cc)",
+      "parts": [
+        {
+          "text": "BTCUSDT-PERP.BINANCE\ufeff"
+        }
+      ],
+      "admitted": true
+    },
+    {
+      "name": "leading U+200B (neither White_Space nor Cc)",
+      "parts": [
+        {
+          "text": "\u200bBTCUSDT-PERP.BINANCE"
+        }
+      ],
+      "admitted": true
+    },
+    {
+      "name": "trailing U+200B (neither White_Space nor Cc)",
+      "parts": [
+        {
+          "text": "BTCUSDT-PERP.BINANCE\u200b"
+        }
+      ],
+      "admitted": true
+    },
+    {
+      "name": "leading U+180E (neither White_Space nor Cc)",
+      "parts": [
+        {
+          "text": "\u180eBTCUSDT-PERP.BINANCE"
+        }
+      ],
+      "admitted": true
+    },
+    {
+      "name": "trailing U+180E (neither White_Space nor Cc)",
+      "parts": [
+        {
+          "text": "BTCUSDT-PERP.BINANCE\u180e"
+        }
+      ],
+      "admitted": true
+    },
+    {
+      "name": "leading U+2060 (neither White_Space nor Cc)",
+      "parts": [
+        {
+          "text": "\u2060BTCUSDT-PERP.BINANCE"
+        }
+      ],
+      "admitted": true
+    },
+    {
+      "name": "trailing U+2060 (neither White_Space nor Cc)",
+      "parts": [
+        {
+          "text": "BTCUSDT-PERP.BINANCE\u2060"
+        }
+      ],
+      "admitted": true
+    },
+    {
+      "name": "an interior U+0020 (whitespace inside is not trimmed)",
+      "parts": [
+        {
+          "text": "BTC USDT"
+        }
+      ],
+      "admitted": true
+    },
+    {
+      "name": "an interior U+00A0",
+      "parts": [
+        {
+          "text": "BTC\u00a0USDT"
+        }
+      ],
+      "admitted": true
+    },
+    {
+      "name": "an interior U+0000 (Cc)",
+      "parts": [
+        {
+          "text": "BTC\u0000USDT"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "an interior U+0009 (Cc)",
+      "parts": [
+        {
+          "text": "BTC\tUSDT"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "an interior U+000A (Cc)",
+      "parts": [
+        {
+          "text": "BTC\nUSDT"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "an interior U+001F (Cc)",
+      "parts": [
+        {
+          "text": "BTC\u001fUSDT"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "an interior U+007F (Cc)",
+      "parts": [
+        {
+          "text": "BTC\u007fUSDT"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "an interior U+0080 (Cc)",
+      "parts": [
+        {
+          "text": "BTC\u0080USDT"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "an interior U+0085 (Cc)",
+      "parts": [
+        {
+          "text": "BTC\u0085USDT"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "an interior U+009F (Cc)",
+      "parts": [
+        {
+          "text": "BTC\u009fUSDT"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "1024 one-byte characters",
+      "parts": [
+        {
+          "repeat": "A",
+          "times": 1024
+        }
+      ],
+      "admitted": true
+    },
+    {
+      "name": "1025 one-byte characters",
+      "parts": [
+        {
+          "repeat": "A",
+          "times": 1025
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "1022 bytes then a two-byte character: 1024 bytes",
+      "parts": [
+        {
+          "repeat": "A",
+          "times": 1022
+        },
+        {
+          "text": "\u00e9"
+        }
+      ],
+      "admitted": true
+    },
+    {
+      "name": "1023 bytes then a two-byte character: 1025 bytes",
+      "parts": [
+        {
+          "repeat": "A",
+          "times": 1023
+        },
+        {
+          "text": "\u00e9"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "1021 bytes then a three-byte character: 1024 bytes",
+      "parts": [
+        {
+          "repeat": "A",
+          "times": 1021
+        },
+        {
+          "text": "\u20ac"
+        }
+      ],
+      "admitted": true
+    },
+    {
+      "name": "1022 bytes then a three-byte character: 1025 bytes",
+      "parts": [
+        {
+          "repeat": "A",
+          "times": 1022
+        },
+        {
+          "text": "\u20ac"
+        }
+      ],
+      "admitted": false
+    },
+    {
+      "name": "1020 bytes then a four-byte character: 1024 bytes",
+      "parts": [
+        {
+          "repeat": "A",
+          "times": 1020
+        },
+        {
+          "text": "\ud83d\ude00"
+        }
+      ],
+      "admitted": true
+    },
+    {
+      "name": "1021 bytes then a four-byte character: 1025 bytes",
+      "parts": [
+        {
+          "repeat": "A",
+          "times": 1021
+        },
+        {
+          "text": "\ud83d\ude00"
+        }
+      ],
+      "admitted": false
+    }
+  ]
+}

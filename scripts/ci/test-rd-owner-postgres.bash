@@ -1752,7 +1752,12 @@ check_sealed_browser_inputs() {
 }
 check_sealed_browser_inputs
 
-readonly postgres_image="public.ecr.aws/docker/library/postgres:16.4-alpine@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c"
+# One image, two sources: mirror.gcr.io first, public.ecr.aws if it does not serve. The digest names
+# the bytes, so either source gives this chain the same server (scripts/ci/pull-pinned-image.bash).
+readonly postgres_image_sources=(
+  "mirror.gcr.io/library/postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297"
+  "public.ecr.aws/docker/library/postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297"
+)
 suffix="$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')-$$"
 readonly suffix
 readonly container="vibe-rd-owner-test-${suffix}"
@@ -2040,9 +2045,8 @@ select_reachable_postgres_endpoint() {
   printf '%s %s\n' "$host" "$port"
 }
 
-if ! docker image inspect "$postgres_image" > /dev/null 2>&1; then
-  bash scripts/ci/docker-pull-retry.sh "$postgres_image" 3
-fi
+postgres_image="$(bash scripts/ci/pull-pinned-image.bash "${postgres_image_sources[@]}")"
+readonly postgres_image
 docker volume create "$volume" > /dev/null
 volume_created=true
 docker volume create "$impersonator_volume" > /dev/null
@@ -4589,17 +4593,22 @@ BEGIN
       RAISE EXCEPTION '% crossed the R&D/Qualification custody boundary', role_name;
     END IF;
     forbidden_role_source := NULL;
-    SELECT table_name INTO forbidden_role_source
-    FROM information_schema.tables
-    WHERE table_schema = 'public'
-      AND table_name LIKE 'rd_%'
+    -- By oid, never by name: SQL does not order the conditions of a WHERE, and a name built as
+    -- 'public.' || relname for a same-named relation in another schema (composer_private holds
+    -- rd_develop_artifact_build_receipt_uses_v2) raises "does not exist" whenever the planner tests
+    -- privileges before the schema. Which order it chooses follows the catalog's statistics: the
+    -- serial chain has passed, and a run from a freshly cloned database failed here.
+    SELECT relation.relname INTO forbidden_role_source
+    FROM pg_catalog.pg_class relation
+    JOIN pg_catalog.pg_namespace namespace ON namespace.oid = relation.relnamespace
+    WHERE namespace.nspname = 'public'
+      AND relation.relkind IN ('r', 'p', 'v', 'f')
+      AND relation.relname LIKE 'rd_%'
       AND (
-        pg_catalog.has_table_privilege(
-          role_name, pg_catalog.format('public.%I', table_name), 'SELECT'
-        )
+        pg_catalog.has_table_privilege(role_name, relation.oid, 'SELECT')
         OR (SELECT pg_catalog.bool_or(pg_catalog.has_table_privilege(
           role_name,
-          pg_catalog.format('public.%I', table_name),
+          relation.oid,
           checked_privilege
         )) FROM pg_catalog.unnest(ARRAY['INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) checked_privilege)
       )
