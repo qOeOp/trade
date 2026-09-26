@@ -31,7 +31,7 @@ use super::{
     instrument_master::{InstrumentMasterFactV1, InstrumentMasterReadbackV1},
     source_binding::BindingDigest,
     strategy_input_binding::{
-        STRATEGY_INPUT_FIXED_I128_LE_V1, StrategyInputBindingReceipt,
+        STRATEGY_INPUT_FIXED_I128_LE_V1, SampleSourceV1, StrategyInputBindingReceipt,
         StrategyInputBindingUnavailable, project_sample_fact_v1,
     },
 };
@@ -259,9 +259,9 @@ pub struct TimeframeProjectionReceiptV1 {
 }
 
 impl TimeframeProjectionReceiptV1 {
-    fn point_event(binding: &StrategyInputBindingReceipt) -> Self {
+    fn point_event(binding_digest: BindingDigest) -> Self {
         let spec = TimeframeSpecV1::point_event();
-        let binding_receipt_digest = *binding.digest().as_bytes();
+        let binding_receipt_digest = *binding_digest.as_bytes();
         let mut bytes = Vec::with_capacity(TIMEFRAME_PROJECTION_LEN);
         put_u16(&mut bytes, 1);
         put_u16(&mut bytes, 0);
@@ -279,8 +279,8 @@ impl TimeframeProjectionReceiptV1 {
         }
     }
 
-    fn from_spec(binding: &StrategyInputBindingReceipt, spec: TimeframeSpecV1) -> Self {
-        let binding_receipt_digest = *binding.digest().as_bytes();
+    fn from_spec(binding_digest: BindingDigest, spec: TimeframeSpecV1) -> Self {
+        let binding_receipt_digest = *binding_digest.as_bytes();
         let mut bytes = Vec::with_capacity(TIMEFRAME_PROJECTION_LEN);
         put_u16(&mut bytes, 1);
         put_u16(&mut bytes, 0);
@@ -692,7 +692,14 @@ impl PreparedSampleCommitV1 {
 pub(crate) fn prepare_point_event_timeframe_projection_v1(
     binding: &StrategyInputBindingReceipt,
 ) -> TimeframeProjectionReceiptV1 {
-    TimeframeProjectionReceiptV1::point_event(binding)
+    TimeframeProjectionReceiptV1::point_event(binding.digest())
+}
+
+/// The `POINT_EVENT` timeframe projection through which `binding_digest` reads its samples.
+pub(crate) fn prepare_point_event_timeframe_projection_for_binding_v1(
+    binding_digest: BindingDigest,
+) -> TimeframeProjectionReceiptV1 {
+    TimeframeProjectionReceiptV1::point_event(binding_digest)
 }
 
 /// Mints one BAR timeframe projection only from the exact selected row and native Instrument
@@ -702,8 +709,19 @@ pub(crate) fn prepare_bar_timeframe_projection_v1(
     batch: &VerifiedPitObservationBatch,
     schedule: &BarScheduleReadbackV1,
 ) -> Result<TimeframeProjectionReceiptV1, SampleFactUnavailable> {
-    let projection = project_sample_fact_v1(binding, batch)?;
-    let row = projection.row;
+    prepare_bar_timeframe_projection_from_source_v1(
+        &project_sample_fact_v1(binding, batch)?,
+        schedule,
+    )
+}
+
+/// Mints the BAR timeframe projection through which one source's binding reads its row's sample.
+pub(crate) fn prepare_bar_timeframe_projection_from_source_v1(
+    source: &SampleSourceV1<'_>,
+    schedule: &BarScheduleReadbackV1,
+) -> Result<TimeframeProjectionReceiptV1, SampleFactUnavailable> {
+    let batch = source.batch;
+    let row = source.row;
     if row.data_kind() != "BAR" {
         return Err(SampleFactUnavailable::UnsupportedDataKind);
     }
@@ -714,7 +732,7 @@ pub(crate) fn prepare_bar_timeframe_projection_v1(
     let fact = schedule.fact();
     let event = i128::from(row.event_effective());
     if fact.canonical_instrument() != row.instrument()
-        || binding.locator().instrument() != row.instrument()
+        || source.instrument != row.instrument()
         || fact.cut_effective_instant() != event
         || event < fact.effective_from()
         || fact.effective_until().is_some_and(|until| event >= until)
@@ -722,7 +740,7 @@ pub(crate) fn prepare_bar_timeframe_projection_v1(
         || fact.instrument_master_digest() != row.instrument_master_digest()
         || fact.market_semantics_identity() != batch.market_semantics_identity()
         || fact.market_semantics_identity() != row.market_semantics_identity()
-        || fact.market_semantics_identity() != binding.locator().market_semantics_identity()
+        || fact.market_semantics_identity() != source.market_semantics_identity
         || fact.schedule_source_frontier() != batch.source_frontier_digest()
         || fact.schedule_source_frontier() != row.source_frontier_digest()
         || fact.schedule_correction_frontier() != batch.correction_frontier_digest()
@@ -764,7 +782,10 @@ pub(crate) fn prepare_bar_timeframe_projection_v1(
         label,
         partial,
     )?;
-    Ok(TimeframeProjectionReceiptV1::from_spec(binding, spec))
+    Ok(TimeframeProjectionReceiptV1::from_spec(
+        source.binding_digest,
+        spec,
+    ))
 }
 
 pub(crate) fn verify_stored_timeframe_projection_v1(
@@ -780,11 +801,22 @@ pub(crate) fn prepare_sample_commit_v1(
     timeframe: &TimeframeProjectionReceiptV1,
     heads: SampleFactHeadsV1<'_>,
 ) -> Result<PreparedSampleCommitV1, SampleFactUnavailable> {
-    if timeframe.binding_receipt_digest != *binding.digest().as_bytes() {
+    prepare_sample_commit_from_source_v1(&project_sample_fact_v1(binding, batch)?, timeframe, heads)
+}
+
+/// Prepares the sample of one source's row, read through that source's binding's timeframe
+/// projection. Nothing about the binding enters the sample: the same row prepares the same fact
+/// under every binding that reads it.
+pub(crate) fn prepare_sample_commit_from_source_v1(
+    source: &SampleSourceV1<'_>,
+    timeframe: &TimeframeProjectionReceiptV1,
+    heads: SampleFactHeadsV1<'_>,
+) -> Result<PreparedSampleCommitV1, SampleFactUnavailable> {
+    if timeframe.binding_receipt_digest != *source.binding_digest.as_bytes() {
         return Err(SampleFactUnavailable::ReceiptMismatch);
     }
-    let projection = project_sample_fact_v1(binding, batch)?;
-    let row = projection.row;
+    let batch = source.batch;
+    let row = source.row;
     let data_kind = data_kind_tag(row.data_kind())?;
     let compatible = if timeframe.is_bar() {
         data_kind == 0x01
@@ -798,15 +830,14 @@ pub(crate) fn prepare_sample_commit_v1(
         return Err(SampleFactUnavailable::UnsupportedDataKind);
     }
     let channel = channel_tag(row.channel())?;
-    let locator = projection.binding.locator();
     let series_bytes = series_projection_bytes(
         row.instrument().as_bytes(),
         channel,
         data_kind,
-        locator.field_semantic_identity().as_bytes(),
+        source.field_semantic_identity.as_bytes(),
         timeframe.timeframe_identity,
         STRATEGY_INPUT_FIXED_I128_LE_V1.as_bytes(),
-        locator.unit().as_bytes(),
+        source.unit.as_bytes(),
         row.value_scale(),
         batch.source_binding_lineage_root(),
         row.correction_stream_identity().as_bytes(),
@@ -851,7 +882,7 @@ pub(crate) fn prepare_sample_commit_v1(
     let owner_event_identity = event_identity(
         batch,
         row,
-        projection.canonical_row_digest,
+        source.canonical_row_digest,
         logical_time,
         owner_sequence,
     )?;
@@ -869,7 +900,7 @@ pub(crate) fn prepare_sample_commit_v1(
     put_var(&mut bytes, row.instrument().as_bytes())?;
     bytes.push(channel);
     bytes.push(data_kind);
-    put_var(&mut bytes, locator.field_semantic_identity().as_bytes())?;
+    put_var(&mut bytes, source.field_semantic_identity.as_bytes())?;
     bytes.extend_from_slice(&timeframe.timeframe_identity);
     bytes.extend_from_slice(&owner_event_identity);
     put_u64(&mut bytes, logical_time);
@@ -881,7 +912,7 @@ pub(crate) fn prepare_sample_commit_v1(
     put_var(&mut bytes, STRATEGY_INPUT_FIXED_I128_LE_V1.as_bytes())?;
     put_var(&mut bytes, &row.value_mantissa().to_le_bytes())?;
     bytes.push(row.value_scale());
-    bytes.extend_from_slice(projection.canonical_row_digest.as_bytes());
+    bytes.extend_from_slice(source.canonical_row_digest.as_bytes());
     bytes.extend_from_slice(row.source_binding_identity().as_bytes());
     bytes.extend_from_slice(batch.source_binding_lineage_root().as_bytes());
     put_u64(&mut bytes, batch.source_binding_lineage_version());
@@ -914,7 +945,7 @@ pub(crate) fn prepare_sample_commit_v1(
         instrument_master_digest: *row.instrument_master_digest().as_bytes(),
         fact_digest,
         sample_identity,
-        canonical_row_digest: *projection.canonical_row_digest.as_bytes(),
+        canonical_row_digest: *source.canonical_row_digest.as_bytes(),
     };
     let receipt = receipt_from_fact(
         &fact,

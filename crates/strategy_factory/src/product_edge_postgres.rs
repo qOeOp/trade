@@ -79,6 +79,7 @@ use vibe_data::owner::pit_snapshot::PitSnapshotOwnerReadback;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 use vibe_data::owner::shared_time_evidence::SharedTimeEvidenceResolver;
 use vibe_data::owner::{
+    UniverseSampleProjectionOwnerV1,
     instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresOwnerV1,
     instrument_master_v2_postgres::InstrumentMasterV2PostgresOwner,
     native_replay_scheduling_v1::NativeReplaySchedulingResolverV1,
@@ -2183,6 +2184,7 @@ impl PostgresResearchGoalOwnerV1 {
         composer: &P,
         instrument_master_owner: &InstrumentMasterV2PostgresOwner,
         instrument_terms_owner: &InstrumentEconomicTermsPostgresOwnerV1,
+        sample_projection_owner: &UniverseSampleProjectionOwnerV1,
         market_data: &R,
     ) -> Result<
         crate::NativeReplayExecutionInputBindingReadbackV1,
@@ -2199,6 +2201,7 @@ impl PostgresResearchGoalOwnerV1 {
             composer,
             instrument_master_owner,
             instrument_terms_owner,
+            sample_projection_owner,
             market_data,
         )
         .await?;
@@ -2245,6 +2248,7 @@ impl PostgresResearchGoalOwnerV1 {
         instrument_master_owner: &InstrumentMasterV2PostgresOwner,
         instrument_terms_owner: &InstrumentEconomicTermsPostgresOwnerV1,
         market_data: &R,
+        sample_projections: &UniverseSampleProjectionOwnerV1,
         strategy_id: StrategyId,
         run_id: String,
     ) -> Result<
@@ -2267,6 +2271,7 @@ impl PostgresResearchGoalOwnerV1 {
             instrument_master_owner,
             instrument_terms_owner,
             market_data,
+            sample_projections,
             strategy_id,
             run_id,
         )

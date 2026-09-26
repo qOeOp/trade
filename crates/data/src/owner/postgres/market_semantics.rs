@@ -238,8 +238,13 @@ async fn append_market_semantics_in_transaction_v1(
     let (fact, cut) = issue_fact_and_cut_v1(proposal, inputs)?;
     advisory_lock(transaction, proposal.request_identity).await?;
     advisory_lock(transaction, proposal.compatibility_scope_identity).await?;
-    if let Some(readback) =
-        load_readback(transaction, proposal.request_identity, true, false).await?
+
+    if let Some(readback) = load_readback(
+        transaction,
+        proposal.request_identity,
+        ReadbackSourceV1::Private { lock: true },
+    )
+    .await?
     {
         if readback.receipt().request_meaning_digest != proposal.request_meaning_digest
             || readback.cut().identity() != cut.identity()
@@ -300,9 +305,13 @@ pub(super) async fn recover_market_semantics_in_transaction_v1(
     locator: UntrustedMarketSemanticsLocatorV1,
 ) -> Result<MarketSemanticsReadbackV1, MarketSemanticsErrorV1> {
     advisory_lock(transaction, locator.request_identity).await?;
-    let readback = load_readback(transaction, locator.request_identity, true, false)
-        .await?
-        .ok_or(MarketSemanticsErrorV1::UnknownIdentity)?;
+    let readback = load_readback(
+        transaction,
+        locator.request_identity,
+        ReadbackSourceV1::Private { lock: true },
+    )
+    .await?
+    .ok_or(MarketSemanticsErrorV1::UnknownIdentity)?;
     if readback.receipt().request_meaning_digest != locator.request_meaning_digest {
         return Err(MarketSemanticsErrorV1::RequestConflict);
     }
@@ -398,6 +407,11 @@ async fn resolve_market_semantics_scope_with_lock_v1(
         ScopeReadModeV1::ReadOnly => (false, false),
         ScopeReadModeV1::RdOwner => (true, true),
     };
+    let readback_source = if rd_owner {
+        ReadbackSourceV1::RdApi(LOCK_READBACK_FOR_STRATEGY_INPUT_V1)
+    } else {
+        ReadbackSourceV1::Private { lock }
+    };
     let query = if rd_owner {
         "SELECT * FROM market_data_rd_api.lock_market_semantics_scope_for_strategy_input_v1($1)"
     } else if lock {
@@ -447,7 +461,7 @@ async fn resolve_market_semantics_scope_with_lock_v1(
         selected = Some((fact, request_identity));
     }
     let (fact, request_identity) = selected.ok_or(MarketSemanticsErrorV1::UnknownIdentity)?;
-    let readback = load_readback(transaction, request_identity, lock, rd_owner)
+    let readback = load_readback(transaction, request_identity, readback_source)
         .await?
         .ok_or(MarketSemanticsErrorV1::StoreUntrusted)?;
     let [resolved] = readback.facts() else {
@@ -499,15 +513,56 @@ async fn persist_readback(
     Ok(())
 }
 
+/// Where one readback's rows are read from.
+#[derive(Clone, Copy)]
+enum ReadbackSourceV1 {
+    /// The Owner's own tables, locked for update or read plainly.
+    Private { lock: bool },
+    /// One `market_data_rd_api` function, which returns every row the check below needs,
+    /// including the stored fact and the store state the Owner reads separately.
+    RdApi(&'static str),
+}
+
+const LOCK_READBACK_FOR_STRATEGY_INPUT_V1: &str =
+    "SELECT * FROM market_data_rd_api.lock_market_semantics_readback_for_strategy_input_v1($1)";
+
+/// One Market Semantics readback by request identity, read through the `market_data_rd_api`
+/// function a universe-member composition basis uses: `STABLE`, with no row lock.
+///
+/// # Errors
+///
+/// `StoreUntrusted` when the request has no complete readback or its rows do not match it.
+pub(super) async fn read_market_semantics_readback_for_composition_basis_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    request: BindingDigest,
+) -> Result<MarketSemanticsReadbackV1, MarketSemanticsErrorV1> {
+    load_readback(
+        transaction,
+        request,
+        ReadbackSourceV1::RdApi(
+            "SELECT * FROM market_data_rd_api.read_market_semantics_readback_for_composition_basis_v1($1)",
+        ),
+    )
+    .await?
+    .ok_or(MarketSemanticsErrorV1::StoreUntrusted)
+}
+
 async fn load_readback(
     transaction: &mut Transaction<'_, Postgres>,
     request: BindingDigest,
-    lock: bool,
-    rd_owner: bool,
+    source: ReadbackSourceV1,
 ) -> Result<Option<MarketSemanticsReadbackV1>, MarketSemanticsErrorV1> {
-    let row = if rd_owner {
-        sqlx::query("SELECT * FROM market_data_rd_api.lock_market_semantics_readback_for_strategy_input_v1($1)")
-            .bind(request.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(|cause| store_error(&cause))?
+    let (lock, rd_api) = match source {
+        ReadbackSourceV1::Private { lock } => (lock, None),
+        ReadbackSourceV1::RdApi(query) => (false, Some(query)),
+    };
+    let rd_owner = rd_api.is_some();
+    let row = if let Some(query) = rd_api {
+        sqlx::query(query)
+            .bind(request.as_bytes().as_slice())
+            .fetch_optional(&mut **transaction)
+            .await
+            .map_err(|cause| store_error(&cause))?
     } else if lock {
         sqlx::query("SELECT c.request_meaning_digest,c.cut_identity,c.cut_bytes,r.receipt_identity,r.receipt_bytes,r.readback_identity,r.readback_bytes,r.append_sequence,o.outbox_identity,o.payload FROM market_data_private.market_semantics_cuts_v1 c JOIN market_data_private.market_semantics_receipts_v1 r ON r.request_identity=c.request_identity JOIN market_data_private.market_semantics_outbox_v1 o ON o.request_identity=c.request_identity WHERE c.request_identity=$1 FOR UPDATE OF c,r,o")
             .bind(request.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(|cause| store_error(&cause))?

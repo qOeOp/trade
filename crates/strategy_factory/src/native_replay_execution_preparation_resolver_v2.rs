@@ -8,6 +8,7 @@ use std::{future::Future, pin::Pin, sync::Arc};
 
 use vibe_backtest_owner_contracts::{ObservationComponentV2, OpaqueIdentityV2, ReplayRequestV2};
 use vibe_data::owner::{
+    UniverseSampleProjectionOwnerV1,
     instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresOwnerV1,
     instrument_master_v2_postgres::InstrumentMasterV2PostgresOwner,
     native_replay_scheduling_v1::NativeReplaySchedulingResolverV1,
@@ -41,6 +42,7 @@ pub struct PostgresNativeReplayExecutionPreparationResolverV2 {
     instrument_master_owner: Arc<InstrumentMasterV2PostgresOwner>,
     instrument_terms_owner: Arc<InstrumentEconomicTermsPostgresOwnerV1>,
     market_data: Arc<dyn NativeReplaySchedulingResolverV1>,
+    sample_projections: Arc<UniverseSampleProjectionOwnerV1>,
 }
 
 impl PostgresNativeReplayExecutionPreparationResolverV2 {
@@ -51,6 +53,7 @@ impl PostgresNativeReplayExecutionPreparationResolverV2 {
         instrument_master_owner: Arc<InstrumentMasterV2PostgresOwner>,
         instrument_terms_owner: Arc<InstrumentEconomicTermsPostgresOwnerV1>,
         market_data: Arc<dyn NativeReplaySchedulingResolverV1>,
+        sample_projections: Arc<UniverseSampleProjectionOwnerV1>,
     ) -> Self {
         Self {
             research_owner,
@@ -58,6 +61,7 @@ impl PostgresNativeReplayExecutionPreparationResolverV2 {
             instrument_master_owner,
             instrument_terms_owner,
             market_data,
+            sample_projections,
         }
     }
 }
@@ -104,6 +108,7 @@ impl PreparationResolverV2 for PostgresNativeReplayExecutionPreparationResolverV
                 self.instrument_master_owner.as_ref(),
                 self.instrument_terms_owner.as_ref(),
                 self.market_data.as_ref(),
+                self.sample_projections.as_ref(),
                 StrategyId::from(strategy_identity.as_str()),
                 run_identity,
             )

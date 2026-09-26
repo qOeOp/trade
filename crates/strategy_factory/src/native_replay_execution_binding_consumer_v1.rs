@@ -3,6 +3,7 @@
 use sqlx::{Postgres, Transaction};
 use thiserror::Error;
 use vibe_data::owner::{
+    UniverseSampleProjectionOwnerV1,
     instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresOwnerV1,
     instrument_master_v2::InstrumentMasterResolverV2,
     instrument_master_v2_postgres::InstrumentMasterV2PostgresOwner,
@@ -20,6 +21,7 @@ use crate::{
     },
     native_replay_initial_owner_inputs_v1::resolve_native_replay_initial_owner_inputs_v1,
     native_replay_preparation_inputs_v2::resolve_native_replay_preparation_inputs_v2_in_transaction,
+    program_host_v2::{OwnerUniverseFrameV1, plan_reads_universe_member_coordinates_v1},
     replay_execution_profile_binding_v1::issue_owner_replay_execution_profile_binding_from_readbacks_v1,
     replay_target_set_execution_bundle_v1::ReplayTargetSetExecutionBundleV1,
     strategy_plan_v2::StrategyPlanV2,
@@ -63,6 +65,7 @@ pub(crate) async fn resolve_native_replay_execution_bundle_v1_in_transaction<P, 
     instrument_master_owner: &InstrumentMasterV2PostgresOwner,
     instrument_terms_owner: &InstrumentEconomicTermsPostgresOwnerV1,
     market_data: &R,
+    sample_projections: &UniverseSampleProjectionOwnerV1,
     strategy_id: StrategyId,
     run_id: String,
 ) -> Result<ResolvedNativeReplayExecutionBundleV1, NativeReplayExecutionBindingConsumerErrorV1>
@@ -230,6 +233,31 @@ where
         );
         NativeReplayExecutionBindingConsumerErrorV1
     })?;
+    // A Plan that reads member coordinates takes them from Market Data's sample projection over this
+    // very frame, which R&D issued when it bound the request. A frame never issued one is refused
+    // here rather than admitted without the coordinates its Plan reads.
+    let projection = if plan_reads_universe_member_coordinates_v1(&plan) {
+        let projection = sample_projections
+            .resolve_by_subject_v1(market.universe_frame().digest())
+            .await
+            .map_err(|e| {
+                crate::storage_diagnostic::refused_by_store(
+                    "native_replay_execution_binding.sample_projection.resolve",
+                    &e,
+                );
+                NativeReplayExecutionBindingConsumerErrorV1
+            })?
+            .ok_or_else(|| {
+                crate::storage_diagnostic::refused_by_store(
+                    "native_replay_execution_binding.sample_projection.resolve",
+                    &"no sample projection was issued for the frame",
+                );
+                NativeReplayExecutionBindingConsumerErrorV1
+            })?;
+        Some(projection)
+    } else {
+        None
+    };
     let public_terms = instrument_master
         .cut()
         .members()
@@ -255,6 +283,20 @@ where
         );
         NativeReplayExecutionBindingConsumerErrorV1
     })?;
+    let owner_frame = match &projection {
+        Some(projection) => {
+            OwnerUniverseFrameV1::from_owner_projection_v1(universe_frame, projection).map_err(
+                |e| {
+                    crate::storage_diagnostic::refused_by_store(
+                        "native_replay_execution_binding.sample_projection.attach",
+                        &e,
+                    );
+                    NativeReplayExecutionBindingConsumerErrorV1
+                },
+            )?
+        }
+        None => OwnerUniverseFrameV1::uncoordinated(universe_frame),
+    };
     transaction.commit().await.map_err(|e| {
         crate::storage_diagnostic::refused_by_store(
             "native_replay_execution_binding.transaction.commit",
@@ -266,7 +308,7 @@ where
         profile,
         plan,
         artifact,
-        universe_frame,
+        owner_frame,
         strategy_id,
         run_id,
         public_terms,
