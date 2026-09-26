@@ -53,6 +53,7 @@ readonly owner_crates=(
   crates/strategy_factory_rd_owner_api
   crates/data
   crates/product_edge
+  crates/product_edge_routing_api
   crates/operator_authorization
   crates/backtest_owner
   crates/qualification
