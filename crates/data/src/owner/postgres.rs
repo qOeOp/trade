@@ -22,6 +22,8 @@ mod market_data_rd_api_authorization_postgres_tests;
 mod market_semantics;
 mod observation_census;
 #[cfg(test)]
+mod pit_empty_observation_tests;
+#[cfg(test)]
 mod pit_initial_intake_correlation_tests;
 #[cfg(test)]
 mod pit_intake_member_count_tests;
@@ -44,12 +46,19 @@ pub(super) use replay_market_facts_v2::{
 pub(super) use universe_selection::persist_issued_readback_for_test;
 mod sample_projection_v4;
 mod session;
+mod source_sample_custody_v1;
 pub(in crate::owner) mod strategy_input_binding_registry;
 #[cfg(feature = "isolated-event-replay-acceptance")]
 pub(in crate::owner) mod strategy_input_event_binding_v1;
 #[cfg(not(feature = "isolated-event-replay-acceptance"))]
 mod strategy_input_event_binding_v1;
 mod time_zone;
+pub(in crate::owner) mod universe_member_composition_basis_v1;
+#[cfg(test)]
+mod universe_member_composition_basis_v1_tests;
+pub(in crate::owner) mod universe_sample_projection_v1;
+#[cfg(test)]
+mod universe_sample_projection_v1_tests;
 pub(in crate::owner) mod universe_selection;
 
 // The resolver is needed in every build: the arrangement that reads a frame's inputs is no longer
@@ -207,8 +216,8 @@ use super::{
         authority::{
             CanonicalBasisResolverV1, ObservedPitObservationNativeRow, OwnerCanonicalBasisV1,
             OwnerSnapshotDeterminationV1, PreparedPitObservationBatch,
-            derive_observation_batch_digest, prepare_correction_aggregate,
-            prepare_initial_aggregate, prepare_observation_batch,
+            derive_observation_batch_digest, empty_observation_batch_digest_v1,
+            prepare_correction_aggregate, prepare_initial_aggregate, prepare_observation_batch,
             verify_aggregate as verify_pit_aggregate, verify_observation_batch,
         },
     },
@@ -982,6 +991,9 @@ impl MarketDataOwnerPostgres {
             .iter()
             .chain(research_pit_references_v1::SCHEMA_V1)
             .chain(research_pit_terminal_v1::SCHEMA_V1)
+            .chain(source_sample_custody_v1::SCHEMA_V1)
+            .chain(universe_sample_projection_v1::SCHEMA_V1)
+            .chain(universe_member_composition_basis_v1::SCHEMA_V1)
             .chain(universe_selection::RD_READ_SCHEMA_V1)
         {
             sqlx::query(*statement)
@@ -1515,10 +1527,18 @@ impl MarketDataOwnerPostgres {
             source_fact,
         ))
         .await?;
+        // An empty answer is insufficient coverage, not a malformed batch: the Data Client's
+        // contract says so, and a batch holds at least one row. Such a snapshot stores no batch,
+        // and its records digest is the canonical empty batch's, which no batch of rows has.
+        let records_digest = if batch.rows.is_empty() {
+            empty_observation_batch_digest_v1()
+        } else {
+            derive_observation_batch_digest(&batch)?
+        };
         let owner_basis = OwnerCanonicalBasisV1::resolve_from_owner_custody(
             &request,
             source_fact,
-            derive_observation_batch_digest(&batch)?,
+            records_digest,
             determination,
             clock,
         );
@@ -1526,9 +1546,18 @@ impl MarketDataOwnerPostgres {
             request,
             evidence: owner_basis.owner_evidence().clone(),
         };
-        let prepared = prepare_observation_batch(&proposal, &batch)?;
+        let prepared = if batch.rows.is_empty() {
+            None
+        } else {
+            Some(prepare_observation_batch(&proposal, &batch)?)
+        };
         let aggregate = prepare_initial_aggregate(proposal, &owner_basis, source_fact, clock)?;
+
         if aggregate.fact().disposition() == PitSnapshotDisposition::Available {
+            // Coverage is complete only over rows, so an `AVAILABLE` snapshot always has a batch.
+            let prepared = prepared
+                .as_ref()
+                .ok_or(PitSnapshotError::InvalidObservationBatch)?;
             verify_observation_batch(
                 &aggregate,
                 aggregate.fact().source_binding_identity(),
@@ -1542,7 +1571,7 @@ impl MarketDataOwnerPostgres {
         Box::pin(persist_pit(
             transaction,
             aggregate,
-            Some(prepared),
+            prepared,
             clock,
             PostgresCommitFault::None,
             PitPersistCompanionV1::OwnerR0RecordAndInitialCorrelation,
@@ -2965,14 +2994,6 @@ impl MarketDataOwnerPostgres {
         binding_receipt_digest: [u8; 32],
         receipt_bytes: &[u8],
     ) -> Result<(), SampleCustodyErrorV1> {
-        if zero_digest(receipt_digest)
-            || zero_digest(binding_receipt_digest)
-            || receipt_bytes.is_empty()
-        {
-            return Err(SampleCustodyErrorV1::InvalidInput);
-        }
-        let custody_digest =
-            projection_custody_digest(receipt_digest, binding_receipt_digest, receipt_bytes);
         let mut transaction = self
             .pool
             .begin()
@@ -2982,38 +3003,13 @@ impl MarketDataOwnerPostgres {
             .execute(&mut *transaction)
             .await
             .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
-        sqlx::query("SELECT pg_advisory_xact_lock($1)")
-            .bind(sample_advisory_key(binding_receipt_digest))
-            .execute(&mut *transaction)
-            .await
-            .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
-
-        if let Some(row) = sqlx::query("SELECT receipt_digest,receipt_bytes,custody_digest FROM market_data_private.timeframe_projection_receipts_v1 WHERE binding_receipt_digest=$1")
-            .bind(binding_receipt_digest.as_slice())
-            .fetch_optional(&mut *transaction)
-            .await
-            .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?
-        {
-            let stored_bytes: Vec<u8> = row.try_get("receipt_bytes").map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
-            let stored_custody = sample_digest_column(&row, "custody_digest")?;
-            let stored_digest = sample_digest_column(&row, "receipt_digest")?;
-            if stored_digest != receipt_digest
-                || stored_bytes != receipt_bytes
-                || stored_custody != custody_digest
-            {
-                return Err(SampleCustodyErrorV1::ProjectionConflict);
-            }
-            transaction.commit().await.map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
-            return Ok(());
-        }
-        sqlx::query("INSERT INTO market_data_private.timeframe_projection_receipts_v1(receipt_digest,binding_receipt_digest,receipt_bytes,custody_digest) VALUES ($1,$2,$3,$4)")
-            .bind(receipt_digest.as_slice())
-            .bind(binding_receipt_digest.as_slice())
-            .bind(receipt_bytes)
-            .bind(custody_digest.as_slice())
-            .execute(&mut *transaction)
-            .await
-            .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
+        store_timeframe_projection_receipt_in_transaction_v1(
+            &mut transaction,
+            receipt_digest,
+            binding_receipt_digest,
+            receipt_bytes,
+        )
+        .await?;
         transaction
             .commit()
             .await
@@ -3059,64 +3055,12 @@ impl MarketDataOwnerPostgres {
             .execute(&mut *transaction)
             .await
             .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
-        let mut locks = [
-            sample_advisory_key(prepared.series_identity),
-            sample_advisory_key(prepared.correction_slot_identity),
-        ];
-        locks.sort_unstable();
-        for lock in locks {
-            sqlx::query("SELECT pg_advisory_xact_lock($1)")
-                .bind(lock)
-                .execute(&mut *transaction)
-                .await
-                .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
-        }
-
-        validate_projection_in_transaction(&mut transaction, prepared).await?;
-        if let Some(stored) = load_sample_custody(&mut transaction, prepared.receipt_digest).await?
-        {
-            if stored.prepared == *prepared {
-                transaction
-                    .commit()
-                    .await
-                    .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
-                return Ok(SampleCustodyReadbackV1 {
-                    receipt_digest: prepared.receipt_digest,
-                    receipt_bytes: stored.prepared.receipt_bytes,
-                });
-            }
-            return Err(SampleCustodyErrorV1::IdentityConflict);
-        }
-        let identity_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM market_data_private.sample_facts_v1 WHERE sample_identity=$1 OR fact_digest=$2 UNION ALL SELECT 1 FROM market_data_private.sample_receipts_v1 WHERE receipt_digest=$3 UNION ALL SELECT 1 FROM market_data_private.sample_outbox_v1 WHERE outbox_identity=$4)")
-            .bind(prepared.sample_identity.as_slice()).bind(prepared.fact_digest.as_slice()).bind(prepared.receipt_digest.as_slice()).bind(prepared.outbox_identity.as_slice())
-            .fetch_one(&mut *transaction).await.map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
-        if identity_exists {
-            return Err(SampleCustodyErrorV1::IdentityConflict);
-        }
-        validate_series_predecessor(&mut transaction, prepared).await?;
-        validate_correction_predecessor(&mut transaction, prepared).await?;
-
-        let fact_custody = sample_fact_custody_digest(prepared);
-        sqlx::query("INSERT INTO market_data_private.sample_facts_v1(sample_identity,fact_digest,series_identity,series_predecessor_identity,series_sequence,correction_slot_identity,correction_predecessor_identity,correction_sequence,logical_time,lineage_version,projection_receipt_digest,fact_bytes,custody_digest) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)")
-            .bind(prepared.sample_identity.as_slice()).bind(prepared.fact_digest.as_slice()).bind(prepared.series_identity.as_slice()).bind(prepared.series_predecessor_identity.map(|v| v.to_vec())).bind(sample_i64(prepared.series_sequence)?).bind(prepared.correction_slot_identity.as_slice()).bind(prepared.correction_predecessor_identity.map(|v| v.to_vec())).bind(sample_i64(prepared.correction_sequence)?).bind(sample_i64(prepared.logical_time)?).bind(sample_i64(prepared.lineage_version)?).bind(prepared.projection_receipt_digest.as_slice()).bind(&prepared.fact_bytes).bind(fact_custody.as_slice())
-            .execute(&mut *transaction).await.map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
-        let receipt_custody = sample_receipt_custody_digest(
-            prepared.sample_identity,
-            prepared.receipt_digest,
-            &prepared.receipt_bytes,
-        );
-        sqlx::query("INSERT INTO market_data_private.sample_receipts_v1(sample_identity,receipt_digest,receipt_bytes,custody_digest) VALUES ($1,$2,$3,$4)")
-            .bind(prepared.sample_identity.as_slice()).bind(prepared.receipt_digest.as_slice()).bind(&prepared.receipt_bytes).bind(receipt_custody.as_slice())
-            .execute(&mut *transaction).await.map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
-        let outbox_custody = sample_outbox_custody_digest(prepared);
-        sqlx::query("INSERT INTO market_data_private.sample_outbox_v1(outbox_identity,sample_identity,payload_digest,payload_bytes,custody_digest) VALUES ($1,$2,$3,$4,$5)")
-            .bind(prepared.outbox_identity.as_slice()).bind(prepared.sample_identity.as_slice()).bind(prepared.outbox_payload_digest.as_slice()).bind(&prepared.outbox_payload_bytes).bind(outbox_custody.as_slice())
-            .execute(&mut *transaction).await.map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
-        if rollback_before_heads {
-            return Err(SampleCustodyErrorV1::CommitInterrupted);
-        }
-        cas_series_head(&mut transaction, prepared).await?;
-        cas_correction_head(&mut transaction, prepared).await?;
+        let readback = commit_sample_custody_in_transaction_v1(
+            &mut transaction,
+            prepared,
+            rollback_before_heads,
+        )
+        .await?;
         transaction
             .commit()
             .await
@@ -3124,10 +3068,7 @@ impl MarketDataOwnerPostgres {
         if response_loss {
             Err(SampleCustodyErrorV1::ResponseLost)
         } else {
-            Ok(SampleCustodyReadbackV1 {
-                receipt_digest: prepared.receipt_digest,
-                receipt_bytes: prepared.receipt_bytes.clone(),
-            })
+            Ok(readback)
         }
     }
 
@@ -4657,6 +4598,125 @@ fn map_sample_projection_insert_error_v2(error: &sqlx::Error) -> SampleProjectio
     }
 }
 
+/// Persists one sample inside the caller's Owner transaction and compare-and-swap advances both of
+/// its heads. The caller commits; an exact replay of stored custody returns it and writes nothing.
+async fn commit_sample_custody_in_transaction_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    prepared: &PreparedSampleCustodyV1,
+    rollback_before_heads: bool,
+) -> Result<SampleCustodyReadbackV1, SampleCustodyErrorV1> {
+    validate_prepared_sample(prepared)?;
+    let mut locks = [
+        sample_advisory_key(prepared.series_identity),
+        sample_advisory_key(prepared.correction_slot_identity),
+    ];
+    locks.sort_unstable();
+    for lock in locks {
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(lock)
+            .execute(&mut **transaction)
+            .await
+            .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
+    }
+
+    validate_projection_in_transaction(transaction, prepared).await?;
+    if let Some(stored) = load_sample_custody(transaction, prepared.receipt_digest).await? {
+        if stored.prepared == *prepared {
+            return Ok(SampleCustodyReadbackV1 {
+                receipt_digest: prepared.receipt_digest,
+                receipt_bytes: stored.prepared.receipt_bytes,
+            });
+        }
+        return Err(SampleCustodyErrorV1::IdentityConflict);
+    }
+    let identity_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM market_data_private.sample_facts_v1 WHERE sample_identity=$1 OR fact_digest=$2 UNION ALL SELECT 1 FROM market_data_private.sample_receipts_v1 WHERE receipt_digest=$3 UNION ALL SELECT 1 FROM market_data_private.sample_outbox_v1 WHERE outbox_identity=$4)")
+        .bind(prepared.sample_identity.as_slice()).bind(prepared.fact_digest.as_slice()).bind(prepared.receipt_digest.as_slice()).bind(prepared.outbox_identity.as_slice())
+        .fetch_one(&mut **transaction).await.map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
+    if identity_exists {
+        return Err(SampleCustodyErrorV1::IdentityConflict);
+    }
+    validate_series_predecessor(transaction, prepared).await?;
+    validate_correction_predecessor(transaction, prepared).await?;
+
+    let fact_custody = sample_fact_custody_digest(prepared);
+    sqlx::query("INSERT INTO market_data_private.sample_facts_v1(sample_identity,fact_digest,series_identity,series_predecessor_identity,series_sequence,correction_slot_identity,correction_predecessor_identity,correction_sequence,logical_time,lineage_version,projection_receipt_digest,fact_bytes,custody_digest) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)")
+        .bind(prepared.sample_identity.as_slice()).bind(prepared.fact_digest.as_slice()).bind(prepared.series_identity.as_slice()).bind(prepared.series_predecessor_identity.map(|v| v.to_vec())).bind(sample_i64(prepared.series_sequence)?).bind(prepared.correction_slot_identity.as_slice()).bind(prepared.correction_predecessor_identity.map(|v| v.to_vec())).bind(sample_i64(prepared.correction_sequence)?).bind(sample_i64(prepared.logical_time)?).bind(sample_i64(prepared.lineage_version)?).bind(prepared.projection_receipt_digest.as_slice()).bind(&prepared.fact_bytes).bind(fact_custody.as_slice())
+        .execute(&mut **transaction).await.map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
+    let receipt_custody = sample_receipt_custody_digest(
+        prepared.sample_identity,
+        prepared.receipt_digest,
+        &prepared.receipt_bytes,
+    );
+    sqlx::query("INSERT INTO market_data_private.sample_receipts_v1(sample_identity,receipt_digest,receipt_bytes,custody_digest) VALUES ($1,$2,$3,$4)")
+        .bind(prepared.sample_identity.as_slice()).bind(prepared.receipt_digest.as_slice()).bind(&prepared.receipt_bytes).bind(receipt_custody.as_slice())
+        .execute(&mut **transaction).await.map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
+    let outbox_custody = sample_outbox_custody_digest(prepared);
+    sqlx::query("INSERT INTO market_data_private.sample_outbox_v1(outbox_identity,sample_identity,payload_digest,payload_bytes,custody_digest) VALUES ($1,$2,$3,$4,$5)")
+        .bind(prepared.outbox_identity.as_slice()).bind(prepared.sample_identity.as_slice()).bind(prepared.outbox_payload_digest.as_slice()).bind(&prepared.outbox_payload_bytes).bind(outbox_custody.as_slice())
+        .execute(&mut **transaction).await.map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
+    if rollback_before_heads {
+        return Err(SampleCustodyErrorV1::CommitInterrupted);
+    }
+    cas_series_head(transaction, prepared).await?;
+    cas_correction_head(transaction, prepared).await?;
+    Ok(SampleCustodyReadbackV1 {
+        receipt_digest: prepared.receipt_digest,
+        receipt_bytes: prepared.receipt_bytes.clone(),
+    })
+}
+
+/// Stores one timeframe projection receipt inside the caller's Owner transaction.
+///
+/// One binding has at most one timeframe projection: the same receipt again writes nothing, and a
+/// different one for the same binding is a conflict.
+async fn store_timeframe_projection_receipt_in_transaction_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    receipt_digest: [u8; 32],
+    binding_receipt_digest: [u8; 32],
+    receipt_bytes: &[u8],
+) -> Result<(), SampleCustodyErrorV1> {
+    if zero_digest(receipt_digest)
+        || zero_digest(binding_receipt_digest)
+        || receipt_bytes.is_empty()
+    {
+        return Err(SampleCustodyErrorV1::InvalidInput);
+    }
+    let custody_digest =
+        projection_custody_digest(receipt_digest, binding_receipt_digest, receipt_bytes);
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(sample_advisory_key(binding_receipt_digest))
+        .execute(&mut **transaction)
+        .await
+        .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
+
+    if let Some(row) = sqlx::query("SELECT receipt_digest,receipt_bytes,custody_digest FROM market_data_private.timeframe_projection_receipts_v1 WHERE binding_receipt_digest=$1")
+        .bind(binding_receipt_digest.as_slice())
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?
+    {
+        let stored_bytes: Vec<u8> = row.try_get("receipt_bytes").map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
+        let stored_custody = sample_digest_column(&row, "custody_digest")?;
+        let stored_digest = sample_digest_column(&row, "receipt_digest")?;
+        if stored_digest != receipt_digest
+            || stored_bytes != receipt_bytes
+            || stored_custody != custody_digest
+        {
+            return Err(SampleCustodyErrorV1::ProjectionConflict);
+        }
+        return Ok(());
+    }
+    sqlx::query("INSERT INTO market_data_private.timeframe_projection_receipts_v1(receipt_digest,binding_receipt_digest,receipt_bytes,custody_digest) VALUES ($1,$2,$3,$4)")
+        .bind(receipt_digest.as_slice())
+        .bind(binding_receipt_digest.as_slice())
+        .bind(receipt_bytes)
+        .bind(custody_digest.as_slice())
+        .execute(&mut **transaction)
+        .await
+        .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
+    Ok(())
+}
+
 fn validate_prepared_sample(value: &PreparedSampleCustodyV1) -> Result<(), SampleCustodyErrorV1> {
     let identities = [
         value.sample_identity,
@@ -5993,15 +6053,21 @@ async fn persist_pit(
             {
                 return Err(PitSnapshotError::ReplayConflict);
             }
-            verify_observation_batch(
-                &stored,
-                observed.source_binding_identity,
-                observed.source_binding_lineage_root,
-                observed.source_binding_lineage_version,
-                observed.digest,
-                &observed.bytes,
-                &observed.rows,
-            )?;
+
+            // Only an `AVAILABLE` snapshot's batch is verified as its evidence; a negative one's
+            // batch is the answer it recorded, which the byte comparison above already matched.
+            // Verifying it here refused every retry of a committed negative.
+            if stored.fact().disposition() == PitSnapshotDisposition::Available {
+                verify_observation_batch(
+                    &stored,
+                    observed.source_binding_identity,
+                    observed.source_binding_lineage_root,
+                    observed.source_binding_lineage_version,
+                    observed.digest,
+                    &observed.bytes,
+                    &observed.rows,
+                )?;
+            }
         }
         return Ok(stored);
     }
@@ -8607,7 +8673,9 @@ async fn resolve_native_replay_initial_market_from_pool_v1(
 }
 
 /// Every schedule one instrument holds, in the order the candidate function returns them.
-#[cfg(test)]
+///
+/// The same set, in the same order, the admitted port's candidate function returns, read in the
+/// caller's transaction without locks.
 async fn load_bar_schedule_candidates(
     transaction: &mut Transaction<'_, Postgres>,
     canonical_instrument: &str,
@@ -10701,83 +10769,15 @@ impl MarketDataOwnerPostgres {
             .begin()
             .await
             .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?;
-        let source = load_source_for_update(
-            &mut transaction,
-            submission.source_binding.binding_id,
-            false,
-        )
-        .await
-        .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?
-        .ok_or(MarketSemanticsAdmissionErrorV1::DependencyUnavailable)?;
-
-        if source.commit().receipt().locator() != &submission.source_binding {
-            return Err(MarketSemanticsAdmissionErrorV1::DependencyUnavailable);
-        }
-        let source_readback = SourceBindingOwnerReadback::from_verified(&source);
-
-        if !source_readback.is_admitted() {
-            return Err(MarketSemanticsAdmissionErrorV1::DependencyUnavailable);
-        }
-        let pit = load_pit_for_update(
-            &mut transaction,
-            submission.pit_snapshot.snapshot_identity,
-            false,
-        )
-        .await
-        .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?
-        .ok_or(MarketSemanticsAdmissionErrorV1::DependencyUnavailable)?;
-
-        if pit.receipt().locator() != &submission.pit_snapshot
-            || !super::pit_snapshot::PitSnapshotOwnerReadback::from_verified(&pit).is_available()
-        {
-            return Err(MarketSemanticsAdmissionErrorV1::DependencyUnavailable);
-        }
-        let stored_batch = load_pit_observation_batch_for_update(&mut transaction, &pit)
-            .await
-            .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?
-            .ok_or(MarketSemanticsAdmissionErrorV1::DependencyUnavailable)?;
-        let batch = verify_observation_batch(
-            &pit,
-            stored_batch.source_binding_identity,
-            stored_batch.source_binding_lineage_root,
-            stored_batch.source_binding_lineage_version,
-            stored_batch.digest,
-            &stored_batch.bytes,
-            &stored_batch.rows,
-        )
-        .map_err(|_| MarketSemanticsAdmissionErrorV1::DependencyUnavailable)?;
-
-        // The scope is the binding's own Market Semantics Compatibility identity, which is what
-        // the snapshot was minted against; a submitter naming a scope could state a fact about a
-        // compatibility this binding never claimed.
-        let scope = derive_market_semantics_compatibility_identity_v1(
-            &source.commit().fact().proposal().semantics,
-        );
-
-        if batch.market_semantics_identity() != scope {
-            return Err(MarketSemanticsAdmissionErrorV1::DependencyUnavailable);
-        }
-        let instrument_request_identity = instrument_master_request_identity_for_cut_v1(
-            &mut transaction,
-            batch.instrument_master_digest(),
-        )
-        .await?;
-        let instrument =
-            load_durable_instrument_readback(&mut transaction, instrument_request_identity, false)
-                .await
-                .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?
-                .ok_or(MarketSemanticsAdmissionErrorV1::DependencyUnavailable)?;
-        let r0_request_identity = reference_fact_coordinates::owner_r0_request_identity_v1(
-            pit.fact().snapshot_identity(),
-            pit.fact().digest(),
-        );
-        let r0 = reference_fact_coordinates::load_reference_fact_r0_readback_v1(
-            &mut transaction,
-            r0_request_identity,
-        )
-        .await
-        .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?
-        .ok_or(MarketSemanticsAdmissionErrorV1::DependencyUnavailable)?;
+        let MarketSemanticsAdmissionInputsV1 {
+            source,
+            source_readback,
+            pit,
+            batch,
+            scope,
+            instrument,
+            r0,
+        } = load_market_semantics_admission_inputs_v1(&mut transaction, &submission).await?;
 
         let key = super::market_semantics::authority::derive_registry_key_v1(
             scope,
@@ -10785,7 +10785,21 @@ impl MarketDataOwnerPostgres {
             &batch,
             &instrument,
             &r0,
-        )?;
+        )
+        .map_err(|e| {
+            // The requester is answered `DependencyUnavailable` whichever condition failed; the
+            // Owner's warning is the only place that says which one it was.
+            if let super::market_semantics::MarketSemanticsErrorV1::RegistryKeyDependencyMismatch(
+                dependency,
+            ) = e
+            {
+                super::storage_diagnostic::refused_by_store(
+                    "market_semantics.admission.registry_key_dependency",
+                    &dependency,
+                );
+            }
+            MarketSemanticsAdmissionErrorV1::from(e)
+        })?;
         let record = r0.record();
         let effective_instant = record.effective_from_ns;
         let entry = super::market_semantics::authority::seal_registry_entry_v1(
@@ -10854,6 +10868,116 @@ impl MarketDataOwnerPostgres {
             .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?;
         Ok(terminal)
     }
+}
+
+/// Everything a Market Semantics admission derives its registry key from, resolved from the
+/// Owner's own custody for one submission.
+pub(super) struct MarketSemanticsAdmissionInputsV1 {
+    pub(super) source: SourceBindingStoredAggregate,
+    pub(super) source_readback: SourceBindingOwnerReadback,
+    pub(super) pit: PitSnapshotCommitAggregate,
+    pub(super) batch: VerifiedPitObservationBatch,
+    pub(super) scope: BindingDigest,
+    pub(super) instrument: InstrumentMasterReadbackV1,
+    pub(super) r0: crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1,
+}
+
+/// Resolves a submission's dependencies inside `transaction`, as admission does: the admitted
+/// Source Binding it names, its AVAILABLE snapshot and verified batch, the scope the binding
+/// implies, the Instrument Master cut the snapshot binds, and the R0 record its commit appended.
+/// A caller that must know why a registry key is refused derives the key from these, with the same
+/// function admission uses.
+///
+/// # Errors
+///
+/// `StoreUnavailable` when the store cannot answer, `DependencyUnavailable` when a dependency is
+/// absent or does not match the submission.
+pub(super) async fn load_market_semantics_admission_inputs_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    submission: &MarketSemanticsFactSubmissionV1,
+) -> Result<MarketSemanticsAdmissionInputsV1, MarketSemanticsAdmissionErrorV1> {
+    let source = load_source_for_update(transaction, submission.source_binding.binding_id, false)
+        .await
+        .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?
+        .ok_or(MarketSemanticsAdmissionErrorV1::DependencyUnavailable)?;
+
+    if source.commit().receipt().locator() != &submission.source_binding {
+        return Err(MarketSemanticsAdmissionErrorV1::DependencyUnavailable);
+    }
+    let source_readback = SourceBindingOwnerReadback::from_verified(&source);
+
+    if !source_readback.is_admitted() {
+        return Err(MarketSemanticsAdmissionErrorV1::DependencyUnavailable);
+    }
+    let pit = load_pit_for_update(
+        transaction,
+        submission.pit_snapshot.snapshot_identity,
+        false,
+    )
+    .await
+    .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?
+    .ok_or(MarketSemanticsAdmissionErrorV1::DependencyUnavailable)?;
+
+    if pit.receipt().locator() != &submission.pit_snapshot
+        || !super::pit_snapshot::PitSnapshotOwnerReadback::from_verified(&pit).is_available()
+    {
+        return Err(MarketSemanticsAdmissionErrorV1::DependencyUnavailable);
+    }
+    let stored_batch = load_pit_observation_batch_for_update(transaction, &pit)
+        .await
+        .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?
+        .ok_or(MarketSemanticsAdmissionErrorV1::DependencyUnavailable)?;
+    let batch = verify_observation_batch(
+        &pit,
+        stored_batch.source_binding_identity,
+        stored_batch.source_binding_lineage_root,
+        stored_batch.source_binding_lineage_version,
+        stored_batch.digest,
+        &stored_batch.bytes,
+        &stored_batch.rows,
+    )
+    .map_err(|_| MarketSemanticsAdmissionErrorV1::DependencyUnavailable)?;
+
+    // The scope is the binding's own Market Semantics Compatibility identity, which is what
+    // the snapshot was minted against; a submitter naming a scope could state a fact about a
+    // compatibility this binding never claimed.
+    let scope = derive_market_semantics_compatibility_identity_v1(
+        &source.commit().fact().proposal().semantics,
+    );
+
+    if batch.market_semantics_identity() != scope {
+        return Err(MarketSemanticsAdmissionErrorV1::DependencyUnavailable);
+    }
+    let instrument_request_identity = instrument_master_request_identity_for_cut_v1(
+        transaction,
+        batch.instrument_master_digest(),
+    )
+    .await?;
+    let instrument =
+        load_durable_instrument_readback(transaction, instrument_request_identity, false)
+            .await
+            .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?
+            .ok_or(MarketSemanticsAdmissionErrorV1::DependencyUnavailable)?;
+    let r0_request_identity = reference_fact_coordinates::owner_r0_request_identity_v1(
+        pit.fact().snapshot_identity(),
+        pit.fact().digest(),
+    );
+    let r0 = reference_fact_coordinates::load_reference_fact_r0_readback_v1(
+        transaction,
+        r0_request_identity,
+    )
+    .await
+    .map_err(|_| MarketSemanticsAdmissionErrorV1::StoreUnavailable)?
+    .ok_or(MarketSemanticsAdmissionErrorV1::DependencyUnavailable)?;
+    Ok(MarketSemanticsAdmissionInputsV1 {
+        source,
+        source_readback,
+        pit,
+        batch,
+        scope,
+        instrument,
+        r0,
+    })
 }
 
 /// The request identity of the Owner's own Instrument Master resolution behind one cut digest.

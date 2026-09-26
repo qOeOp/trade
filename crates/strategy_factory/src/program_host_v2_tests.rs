@@ -18,7 +18,7 @@ use vibe_data::owner::{
 
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 use super::program_host_v2::{
-    UniverseMemberSampleCoordinateV1, admit_market_data_universe_program_event_v2,
+    OwnerUniverseFrameV1, UniverseMemberSampleCoordinateV1, admit_owner_universe_program_event_v2,
 };
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 use super::strategy_plan_v2::{
@@ -295,7 +295,14 @@ fn two_member_frame_invokes_once_is_causal_canonical_and_restart_equal() {
     let mut host = ProgramHostV2::new(plan.clone(), artifact.clone()).unwrap();
     host.apply_event(&admitted(&plan, envelope(1, LifecycleKind::Start), None))
         .unwrap();
-    host.apply_market_data_universe_event(&frame).unwrap();
+    host.apply_event(
+        &admit_owner_universe_program_event_v2(
+            &plan,
+            &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+        )
+        .unwrap(),
+    )
+    .unwrap();
     assert_eq!(
         host.plugin_calls(),
         1,
@@ -321,14 +328,15 @@ fn two_member_frame_invokes_once_is_causal_canonical_and_restart_equal() {
     );
 
     let checkpoint = host.checkpoint().clone();
-    let replay = frame.clone();
+    let replay = frame;
+    let replay_event =
+        admit_owner_universe_program_event_v2(&plan, &OwnerUniverseFrameV1::uncoordinated(replay))
+            .unwrap();
     assert_eq!(
-        host.apply_market_data_universe_event(&replay)
-            .unwrap()
-            .encode(),
+        host.apply_event(&replay_event).unwrap().encode(),
         ProgramHostV2::restore(plan, artifact, &checkpoint)
             .unwrap()
-            .apply_market_data_universe_event(&replay)
+            .apply_event(&replay_event)
             .unwrap()
             .encode()
     );
@@ -340,7 +348,10 @@ fn two_member_frame_invokes_once_is_causal_canonical_and_restart_equal() {
 fn universe_frame_binding_digest_must_match_the_plan_projection() {
     let (mut plan, _artifact, frame) = universe_fixture(universe_design(), None);
     corrupt_universe_binding_digest_for_test(&mut plan);
-    assert!(admit_market_data_universe_program_event_v2(&plan, &frame).is_err());
+    assert!(
+        admit_owner_universe_program_event_v2(&plan, &OwnerUniverseFrameV1::uncoordinated(frame))
+            .is_err()
+    );
 }
 
 #[rstest]
@@ -369,7 +380,14 @@ fn partial_duplicate_and_unknown_member_sets_fail_atomically() {
         host.apply_event(&admitted(&plan, envelope(1, LifecycleKind::Start), None))
             .unwrap();
         let checkpoint = host.checkpoint().clone();
-        assert!(host.apply_market_data_universe_event(&frame).is_err());
+        assert!(
+            admit_owner_universe_program_event_v2(
+                &plan,
+                &OwnerUniverseFrameV1::uncoordinated(frame.clone())
+            )
+            .and_then(|event| host.apply_event(&event))
+            .is_err()
+        );
         assert_eq!(host.plugin_calls(), 0);
         assert_eq!(host.checkpoint(), &checkpoint);
         assert!(host.canonical_member_target_set().is_none());
@@ -1221,7 +1239,11 @@ fn two_member_canonical_bytes_are_unchanged_by_the_member_count_widening() {
     let mut host = ProgramHostV2::new(plan.clone(), artifact.clone()).unwrap();
     host.apply_event(&admitted(&plan, envelope(1, LifecycleKind::Start), None))
         .unwrap();
-    host.apply_market_data_universe_event(&frame).unwrap();
+    host.apply_event(
+        &admit_owner_universe_program_event_v2(&plan, &OwnerUniverseFrameV1::uncoordinated(frame))
+            .unwrap(),
+    )
+    .unwrap();
     let produced = host
         .canonical_member_target_set()
         .unwrap()
@@ -1455,7 +1477,14 @@ fn a_one_member_universe_frame_is_admitted_at_ordinal_zero() {
     host.apply_event(&admitted(&plan, envelope(1, LifecycleKind::Start), None))
         .unwrap();
 
-    host.apply_market_data_universe_event(&frame).unwrap();
+    host.apply_event(
+        &admit_owner_universe_program_event_v2(
+            &plan,
+            &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+        )
+        .unwrap(),
+    )
+    .unwrap();
 
     let target_set = host.canonical_member_target_set().unwrap();
     assert_eq!(target_set.member_count(), 1);
@@ -1477,7 +1506,9 @@ fn a_one_member_universe_refuses_an_input_at_ordinal_one() {
             .unwrap();
         host
     };
-    let admitted_event = admit_market_data_universe_program_event_v2(&plan, &frame).unwrap();
+    let admitted_event =
+        admit_owner_universe_program_event_v2(&plan, &OwnerUniverseFrameV1::uncoordinated(frame))
+            .unwrap();
 
     // The reseal itself is sound: the same helper keeping ordinal 0 yields an admitted event.
     let mut kept = admitted_event.clone();
@@ -1671,13 +1702,11 @@ fn a_universe_frame_without_its_member_coordinates_is_refused() {
         admit_market_data_coordinated_universe_program_event_v2(&plan, &frame, &[]),
         Err(ProgramHostV2Error::InputCoverage)
     );
-    assert_eq!(
-        admit_market_data_universe_program_event_v2(&plan, &frame),
-        Err(ProgramHostV2Error::InputCoverage)
-    );
     let mut host = started_universe_host(&plan, &artifact);
     assert_eq!(
-        host.apply_market_data_universe_event(&frame).err(),
+        admit_owner_universe_program_event_v2(&plan, &OwnerUniverseFrameV1::uncoordinated(frame))
+            .and_then(|event| host.apply_event(&event))
+            .err(),
         Some(ProgramHostV2Error::InputCoverage)
     );
     assert_eq!(host.plugin_calls(), 0);
@@ -1796,7 +1825,13 @@ fn a_plan_without_coordinate_rows_refuses_a_supplied_coordinate() {
     let (plan, _, frame) = one_member_universe_fixture();
     assert!(plan.bfp_role_bindings().is_empty());
     let role = super::strategy_plan_v2::strategy_input_role_identity_v2(&plan.input_roles()[0]);
-    assert!(admit_market_data_universe_program_event_v2(&plan, &frame).is_ok());
+    assert!(
+        admit_owner_universe_program_event_v2(
+            &plan,
+            &OwnerUniverseFrameV1::uncoordinated(frame.clone())
+        )
+        .is_ok()
+    );
     assert_eq!(
         admit_market_data_coordinated_universe_program_event_v2(
             &plan,
@@ -1807,4 +1842,152 @@ fn a_plan_without_coordinate_rows_refuses_a_supplied_coordinate() {
         ),
         Err(ProgramHostV2Error::InputCoverage)
     );
+}
+
+/// Market Data's sample projection over `frame`, sealed by the real codec, with a BAR schedule
+/// per (member, role) derived from the pair so every schedule is distinct and nonzero.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn market_data_projection(
+    frame: &StrategyInputUniverseFrameReceipt,
+) -> vibe_data::owner::universe_sample_projection_v1::StrategyInputUniverseSampleProjectionReadbackV1
+{
+    vibe_data::owner::universe_sample_projection_v1::sealed_acceptance::issue_sealed_acceptance_universe_sample_projection_v1(
+        frame,
+        |member_ordinal, role| {
+            let mut bytes = *role.as_bytes();
+            bytes[0] ^= member_ordinal.wrapping_add(1);
+            BindingDigest::from_untrusted_bytes(bytes)
+        },
+    )
+}
+
+/// The control on the production pairing: the frame paired with the projection Market Data issued
+/// for it is admitted through the host's pairing entry and runs the program.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn a_frame_paired_with_its_market_data_projection_runs_the_program() {
+    use super::program_host_v2::{OwnerUniverseFrameV1, admit_owner_universe_program_event_v2};
+
+    let (plan, artifact, frame) = universe_bfp_fixture();
+    let projection = market_data_projection(&frame);
+    let paired = OwnerUniverseFrameV1::from_owner_projection_v1(frame, &projection)
+        .expect("the projection Market Data issued for this frame pairs with it");
+
+    let event = admit_owner_universe_program_event_v2(&plan, &paired)
+        .expect("the paired frame is admitted");
+    let mut host = started_universe_host(&plan, &artifact);
+    host.apply_event(&event)
+        .expect("the program runs on the paired frame");
+    assert_eq!(host.plugin_calls(), 1);
+}
+
+/// The refusal on the same entry: a Plan that reads member coordinates admits no frame paired
+/// without them.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn a_coordinate_plan_refuses_its_frame_paired_without_coordinates() {
+    use super::program_host_v2::{
+        OwnerUniverseFrameV1, ProgramHostV2Error, admit_owner_universe_program_event_v2,
+    };
+
+    let (plan, _, frame) = universe_bfp_fixture();
+
+    assert_eq!(
+        admit_owner_universe_program_event_v2(&plan, &OwnerUniverseFrameV1::uncoordinated(frame)),
+        Err(ProgramHostV2Error::InputCoverage)
+    );
+}
+
+/// A projection Market Data issued for another frame pairs with no frame but its own.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn another_frames_projection_does_not_pair_with_this_frame() {
+    use super::program_host_v2::{OwnerUniverseFrameV1, ProgramHostV2Error};
+
+    let (_, _, frame) = universe_bfp_fixture();
+    let (_, _, other) = super::program_host_v2_target_set_backtest_tests::fixture()
+        .expect("the two-member target-set fixture");
+    assert_ne!(other.digest(), frame.digest());
+
+    assert_eq!(
+        OwnerUniverseFrameV1::from_owner_projection_v1(frame, &market_data_projection(&other))
+            .err(),
+        Some(ProgramHostV2Error::InputCoverage)
+    );
+}
+
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+use vibe_data::owner::universe_sample_projection_v1::sealed_acceptance::SealedUniverseSampleProjectionTamperV1 as Tamper;
+
+/// A projection changed in any one field it binds to the frame, and resealed by Market Data's real
+/// codec so that it still decodes, pairs with the frame no longer. Each case changes one field of
+/// the projection the control pairs.
+///
+/// Three changes cannot be built at all and are not listed: a BAR projection without a schedule
+/// set or with a zero one, and a duplicated component, each fail Market Data's decoder as
+/// non-canonical, so no consumer can be handed one. A BAR projection whose schedule set is another nonzero digest is not refused
+/// here: the host holds no schedule to compare it with, and the set enters the admitted event's
+/// identity instead.
+#[rstest]
+#[case::another_subject(Tamper::Subject(BindingDigest::from_untrusted_bytes([0x5A; 32])))]
+#[case::event_lifecycle(Tamper::Lifecycle {
+    schedule_set: BindingDigest::from_untrusted_bytes([0x5B; 32]),
+})]
+#[case::one_component_fewer(Tamper::DropLastComponent)]
+#[case::one_component_more(Tamper::ExtraComponent)]
+#[case::another_trigger(Tamper::Trigger(BindingDigest::from_untrusted_bytes([0x5C; 32])))]
+#[case::another_value_receipt(Tamper::ValueReceipt(0, BindingDigest::from_untrusted_bytes([0x5D; 32])))]
+#[case::another_member_binding(Tamper::MemberBinding(0, BindingDigest::from_untrusted_bytes([0x5E; 32])))]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn a_projection_changed_in_one_field_does_not_pair_with_its_frame(#[case] tamper: Tamper) {
+    use super::program_host_v2::{OwnerUniverseFrameV1, ProgramHostV2Error};
+    use vibe_data::owner::universe_sample_projection_v1::sealed_acceptance::reseal_sealed_acceptance_universe_sample_projection_v1;
+
+    let (_, _, frame) = universe_bfp_fixture();
+    let tampered = reseal_sealed_acceptance_universe_sample_projection_v1(
+        &market_data_projection(&frame),
+        tamper,
+    );
+
+    assert_eq!(
+        OwnerUniverseFrameV1::from_owner_projection_v1(frame, &tampered).err(),
+        Some(ProgramHostV2Error::InputCoverage)
+    );
+}
+
+/// A projection naming another member key, or another instrument, for one of the frame's values
+/// pairs with the frame no longer. Each is changed alone, so each of the two checks is exercised
+/// without the other.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn a_projection_naming_another_member_key_or_instrument_does_not_pair() {
+    use super::program_host_v2::{OwnerUniverseFrameV1, ProgramHostV2Error};
+    use vibe_data::owner::universe_sample_projection_v1::sealed_acceptance::reseal_sealed_acceptance_universe_sample_projection_v1;
+
+    let (_, _, frame) = universe_bfp_fixture();
+    let value = &frame.values()[0];
+    let key: &'static str = Box::leak(value.member_key().to_owned().into_boxed_str());
+    let instrument: &'static str = Box::leak(value.instrument().to_owned().into_boxed_str());
+
+    for tamper in [
+        Tamper::Member {
+            index: 0,
+            member_key: "OTHER",
+            instrument,
+        },
+        Tamper::Member {
+            index: 0,
+            member_key: key,
+            instrument: "OTHERUSDT-PERP.BINANCE",
+        },
+    ] {
+        let tampered = reseal_sealed_acceptance_universe_sample_projection_v1(
+            &market_data_projection(&frame),
+            tamper,
+        );
+        assert_eq!(
+            OwnerUniverseFrameV1::from_owner_projection_v1(frame.clone(), &tampered).err(),
+            Some(ProgramHostV2Error::InputCoverage)
+        );
+    }
 }

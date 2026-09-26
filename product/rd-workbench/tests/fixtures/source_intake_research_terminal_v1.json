@@ -8,5 +8,6 @@
   "protected_feedback": null,
   "trial_family_resolution": "UNAVAILABLE",
   "trial_family": null,
-  "next_legal_action": "RESOLVE_SAME_REQUEST_IDENTITY"
+  "next_legal_action": "RESOLVE_SAME_REQUEST_IDENTITY",
+  "initial_pit": null
 }

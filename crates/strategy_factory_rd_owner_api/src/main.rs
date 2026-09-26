@@ -68,13 +68,14 @@ use vibe_databento::{
 const MARKET_DATA_PROBE_CORRELATION_V1: [u8; 32] = *b"vibe.market-data.pit-probe.v1\0\0\0";
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 use vibe_data::owner::{
-    instrument_economic_terms_postgres_owner_from_environment_v1,
+    UniverseSampleProjectionOwnerV1, instrument_economic_terms_postgres_owner_from_environment_v1,
     instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresOwnerV1,
     instrument_master_v2_postgres::InstrumentMasterV2PostgresOwner,
     instrument_master_v2_postgres_owner_from_environment,
     native_replay_scheduling_resolver_v1_from_store_admission_environment,
     native_replay_scheduling_v1::NativeReplaySchedulingResolverV1,
     shared_time_evidence_resolver_from_store_admission_environment_v1,
+    universe_sample_projection_owner_from_environment_v1,
 };
 use vibe_data::owner::{
     research_pit_terminal::ResearchPitTerminalResolver,
@@ -106,6 +107,7 @@ use vibe_strategy_factory::{
         identity_conflict_result, identity_conflict_result_v2, rejected_result, unresolved_result,
         unresolved_result_v2,
     },
+    product_edge_postgres::research_initial_pit::MarketDataInitialPitPortsV1,
     product_edge_postgres::{PostgresResearchGoalOwnerV1, ResearchRequestIdentityPreflightV1},
     rd_bounded_feature_program_postgres_v1::PostgresResearchBoundedFeatureProgramOwnerV1,
     rd_historical_custody::{HistoricalCustodyErrorV1, HistoricalCustodyOwnerPortV1},
@@ -202,6 +204,8 @@ struct DevelopComposerA0ExecutionsV1 {
 use vibe_strategy_factory_rd_owner_api::required_env;
 
 mod bounded_feature_program;
+#[cfg(all(test, feature = "sealed-source-intake-acceptance"))]
+mod dashboard_run_routing_acceptance;
 mod exploratory_replay;
 mod iteration_analysis;
 mod iteration_decision;
@@ -211,6 +215,9 @@ mod log_capture;
 mod market_data_pit;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 mod market_data_repair;
+mod research_initial_pit;
+#[cfg(test)]
+mod research_initial_pit_postgres_tests;
 mod source_intake;
 mod source_intake_research;
 
@@ -234,6 +241,8 @@ struct ApiState {
     instrument_master_v2: Option<Arc<InstrumentMasterV2PostgresOwner>>,
     #[cfg(feature = "sealed-develop-composer-acceptance")]
     instrument_economic_terms: Option<Arc<InstrumentEconomicTermsPostgresOwnerV1>>,
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    universe_sample_projection: Option<Arc<UniverseSampleProjectionOwnerV1>>,
     #[cfg(feature = "sealed-develop-composer-acceptance")]
     develop_composer_read: Option<Arc<dyn DevelopComposerSealedReadPortV2>>,
     #[cfg(all(
@@ -386,6 +395,9 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(feature = "sealed-develop-composer-acceptance")]
     let instrument_economic_terms =
         Arc::new(instrument_economic_terms_postgres_owner_from_environment_v1().await?);
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    let universe_sample_projection =
+        Arc::new(universe_sample_projection_owner_from_environment_v1().await?);
     let database_url = required_env("RD_OWNER_DATABASE_URL")?;
     let composer_writer_database_url = required_env("RD_FACT_WRITER_DATABASE_URL")?;
     let qualification_database_url = required_env("QUALIFICATION_OWNER_DATABASE_URL")?;
@@ -492,6 +504,7 @@ async fn main() -> anyhow::Result<()> {
                     instrument_master_v2.clone(),
                     instrument_economic_terms.clone(),
                     market_data,
+                    universe_sample_projection.clone(),
                 )
                 .await?,
             ))
@@ -527,6 +540,8 @@ async fn main() -> anyhow::Result<()> {
         instrument_master_v2: Some(instrument_master_v2),
         #[cfg(feature = "sealed-develop-composer-acceptance")]
         instrument_economic_terms: Some(instrument_economic_terms),
+        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        universe_sample_projection: Some(universe_sample_projection),
         #[cfg(feature = "sealed-develop-composer-acceptance")]
         develop_composer_read: Some(develop_composer_read),
         #[cfg(feature = "sealed-develop-composer-acceptance")]
@@ -701,6 +716,15 @@ async fn main() -> anyhow::Result<()> {
             owner.clone(),
             token_digest,
             request_proof_digest.clone(),
+        ))
+        // The issuance holds the same two Market Data ports its routes serve, not a second pair.
+        .merge(research_initial_pit::router(
+            owner.clone(),
+            market_data_universe_selection
+                .clone()
+                .zip(market_data_pit_intake.clone())
+                .map(|(universe, intake)| MarketDataInitialPitPortsV1::new(universe, intake)),
+            token_digest,
         ))
         .merge(source_intake_research::router(
             product_edge,
@@ -3284,27 +3308,48 @@ mod tests {
             test_database,
             suffix,
             request_proof_digest,
-            Vec::new(),
+            |_| Vec::new(),
             Vec::new(),
         )
         .await
     }
 
+    /// The one window every manifest, the authorization and the binding of an API test's Product
+    /// Edge are cut from.
+    ///
+    /// A manifest has to cover the binding that names it. Cutting the two from separate readings
+    /// of any clock leaves the binding ending one millisecond past the manifest whenever the
+    /// readings straddle a millisecond, so an extra manifest takes this window from the bootstrap
+    /// rather than reading a clock of its own.
+    #[derive(Clone, Copy, Debug)]
+    pub(super) struct ApiTestProductEdgeWindowV1 {
+        pub(super) effective_from_epoch_ms: u64,
+        pub(super) valid_through_epoch_ms: u64,
+    }
+
     /// Bootstraps the Research and Artifact manifests plus any extra operation manifests and
     /// Operator Authorization permissions one acceptance needs beyond that pair.
-    async fn bootstrap_api_test_product_edge_with(
+    ///
+    /// Every window is cut from one reading of the Product Edge Owner's clock, the clock that
+    /// checks it: Product Edge, Operator Authorization and R&D all read their cuts from
+    /// `pg_catalog.clock_timestamp()`.
+    pub(super) async fn bootstrap_api_test_product_edge_with(
         test_database: &CanonicalOwnerPostgresTestDatabaseV1,
         suffix: &str,
         request_proof_digest: &str,
-        extra_manifests: Vec<AgentOperationManifestProposalV1>,
+        extra_manifests: impl FnOnce(
+            ApiTestProductEdgeWindowV1,
+        ) -> Vec<AgentOperationManifestProposalV1>,
         extra_permissions: Vec<String>,
     ) -> ProductEdgePostgresOwnerV1 {
-        let now: u64 = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis()
-            .try_into()
-            .unwrap();
+        let product_edge_url =
+            test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner);
+        let anchor = OwnerClockAnchorV1::read(product_edge_url).await;
+        let now = anchor.owner_epoch_ms;
+        let window = ApiTestProductEdgeWindowV1 {
+            effective_from_epoch_ms: now.saturating_sub(1_000),
+            valid_through_epoch_ms: now.saturating_add(3_600_000),
+        };
         let principal = format!("rd-api-retry-principal-{suffix}");
         let mut manifests = vec![
             AgentOperationManifestProposalV1 {
@@ -3314,8 +3359,8 @@ mod tests {
                 allowed_effects: vec!["R_AND_D_RESEARCH_MUTATION_V1".to_string()],
                 prohibited_effects: vec!["REAL_TRADING_V1".to_string()],
                 capability_policy_digest: format!("sha256:{}", "c".repeat(64)),
-                effective_from_epoch_ms: now.saturating_sub(1_000),
-                valid_through_epoch_ms: now.saturating_add(3_600_000),
+                effective_from_epoch_ms: window.effective_from_epoch_ms,
+                valid_through_epoch_ms: window.valid_through_epoch_ms,
             },
             AgentOperationManifestProposalV1 {
                 operation: ARTIFACT_BUILD_OPERATION_V1.to_string(),
@@ -3327,11 +3372,11 @@ mod tests {
                 ],
                 prohibited_effects: vec!["REAL_TRADING_V1".to_string()],
                 capability_policy_digest: format!("sha256:{}", "d".repeat(64)),
-                effective_from_epoch_ms: now.saturating_sub(1_000),
-                valid_through_epoch_ms: now.saturating_add(3_600_000),
+                effective_from_epoch_ms: window.effective_from_epoch_ms,
+                valid_through_epoch_ms: window.valid_through_epoch_ms,
             },
         ];
-        manifests.extend(extra_manifests);
+        manifests.extend(extra_manifests(window));
         manifests.sort_by_key(|manifest| manifest.manifest_identity().unwrap());
         let operation_manifests = manifests
             .iter()
@@ -3367,15 +3412,15 @@ mod tests {
                 },
                 request_proof_digest: request_proof_digest.to_string(),
                 operation_manifests,
-                not_before_epoch_ms: now.saturating_sub(1_000),
-                valid_through_epoch_ms: now.saturating_add(3_600_000),
+                not_before_epoch_ms: window.effective_from_epoch_ms,
+                valid_through_epoch_ms: window.valid_through_epoch_ms,
                 expected_revocation_head: "EMPTY".to_string(),
             })
             .await
             .unwrap();
         let deployment_identity = format!("rd-api-retry-deployment-{suffix}");
         let product_edge = ProductEdgePostgresOwnerV1::connect(
-            test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+            product_edge_url,
             &deployment_identity,
             ProductEdgeAuthorizationTrustV1 {
                 issuer_identity: "operator-authorization-issuer-test-v1".to_string(),
@@ -3385,7 +3430,7 @@ mod tests {
         )
         .await
         .unwrap();
-        product_edge
+        let genesis = product_edge
             .bootstrap_genesis(ProductEdgeBootstrapProposalV1 {
                 deployment_identity,
                 binding_identity: format!("rd-api-retry-binding-{suffix}"),
@@ -3395,14 +3440,82 @@ mod tests {
                 scope_policy_version: "research-scope-v1".to_string(),
                 capability_policy_version: "capability-v1".to_string(),
                 audit_policy_version: "audit-v1".to_string(),
-                valid_from_epoch_ms: now.saturating_sub(1_000),
-                valid_through_epoch_ms: now.saturating_add(3_600_000),
+                valid_from_epoch_ms: window.effective_from_epoch_ms,
+                valid_through_epoch_ms: window.valid_through_epoch_ms,
                 authorization: authorization.locator(),
                 manifests: vibe_product_edge::AgentOperationManifestSetV1::new(manifests).unwrap(),
             })
-            .await
-            .unwrap();
+            .await;
+
+        if let Err(refusal) = genesis {
+            panic!(
+                "Product Edge genesis refused: {refusal}; window {window:?}; {}",
+                anchor.describe_after_refusal().await,
+            );
+        }
         product_edge
+    }
+
+    /// The Owner-clock reading an API test's Product Edge windows are cut from, and what it needs
+    /// to explain a refusal of one of them.
+    ///
+    /// A window refused as not current after it was cut from the clock that checks it leaves two
+    /// explanations: a stall between the reading and the check, or a step in the Owner's clock.
+    /// The description tells them apart: a stall shows as wall time of the window's margin or more,
+    /// and a clock step as little wall time with at least that much advance on the Owner's clock.
+    struct OwnerClockAnchorV1 {
+        owner_epoch_ms: u64,
+        process_epoch_ms: u64,
+        taken_at: std::time::Instant,
+        owner_url: String,
+    }
+
+    impl OwnerClockAnchorV1 {
+        async fn read(owner_url: &str) -> Self {
+            let process_epoch_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis()
+                .try_into()
+                .unwrap();
+            let taken_at = std::time::Instant::now();
+            let owner_epoch_ms = owner_clock_epoch_ms(owner_url)
+                .await
+                .expect("the Owner clock reads");
+            Self {
+                owner_epoch_ms,
+                process_epoch_ms,
+                taken_at,
+                owner_url: owner_url.to_owned(),
+            }
+        }
+
+        async fn describe_after_refusal(&self) -> String {
+            let wall_ms = self.taken_at.elapsed().as_millis();
+            let owner_after = owner_clock_epoch_ms(&self.owner_url).await.map_or_else(
+                |e| format!("unreadable ({e})"),
+                |epoch_ms| epoch_ms.to_string(),
+            );
+            format!(
+                "cut from Owner clock {}; process clock at that reading {}; Owner clock after the \
+                 refusal {owner_after}; wall time from the reading to the refusal {wall_ms} ms",
+                self.owner_epoch_ms, self.process_epoch_ms,
+            )
+        }
+    }
+
+    async fn owner_clock_epoch_ms(owner_url: &str) -> Result<u64, sqlx::Error> {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(owner_url)
+            .await?;
+        let epoch_ms: i64 = sqlx::query_scalar(
+            "SELECT pg_catalog.floor(EXTRACT(epoch FROM pg_catalog.clock_timestamp()) * 1000)::bigint",
+        )
+        .fetch_one(&pool)
+        .await?;
+        pool.close().await;
+        Ok(u64::try_from(epoch_ms).expect("the Owner clock is after the epoch"))
     }
 
     /// Every R&D and Product Edge relation the Dashboard browser acceptance may touch. The
@@ -3507,36 +3620,26 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let manifest_now: u64 = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis()
-            .try_into()
-            .unwrap();
         let product_edge = Arc::new(
             bootstrap_api_test_product_edge_with(
                 &test_database,
                 &format!("strategy-source-{suffix}"),
                 &request_proof_digest,
-                vec![AgentOperationManifestProposalV1 {
-                    operation: SOURCE_INTAKE_OPERATION_V1.to_string(),
-                    operation_schema: SOURCE_INTAKE_OPERATION_SCHEMA_V1.to_string(),
-                    target_owner: SOURCE_INTAKE_TARGET_OWNER_V1.to_string(),
-                    allowed_effects: SOURCE_INTAKE_REQUIRED_EFFECTS_V1
-                        .into_iter()
-                        .map(ToString::to_string)
-                        .collect(),
-                    prohibited_effects: vec!["REAL_TRADING_V1".to_string()],
-                    capability_policy_digest: format!("sha256:{}", "e".repeat(64)),
-                    // A manifest has to cover the binding that names it, and the binding's window
-                    // is cut from a clock this function reads later. Deriving both from a reading
-                    // taken here would leave the binding ending one millisecond past the manifest
-                    // whenever anything at all happened in between, which is a coin flip on how
-                    // fast the machine is rather than a property of the Owner. This window
-                    // brackets the bootstrap's own.
-                    effective_from_epoch_ms: manifest_now.saturating_sub(60_000),
-                    valid_through_epoch_ms: manifest_now.saturating_add(7_200_000),
-                }],
+                |window| {
+                    vec![AgentOperationManifestProposalV1 {
+                        operation: SOURCE_INTAKE_OPERATION_V1.to_string(),
+                        operation_schema: SOURCE_INTAKE_OPERATION_SCHEMA_V1.to_string(),
+                        target_owner: SOURCE_INTAKE_TARGET_OWNER_V1.to_string(),
+                        allowed_effects: SOURCE_INTAKE_REQUIRED_EFFECTS_V1
+                            .into_iter()
+                            .map(ToString::to_string)
+                            .collect(),
+                        prohibited_effects: vec!["REAL_TRADING_V1".to_string()],
+                        capability_policy_digest: format!("sha256:{}", "e".repeat(64)),
+                        effective_from_epoch_ms: window.effective_from_epoch_ms,
+                        valid_through_epoch_ms: window.valid_through_epoch_ms,
+                    }]
+                },
                 vec!["research:source-intake".to_string()],
             )
             .await,
@@ -3585,6 +3688,8 @@ mod tests {
             instrument_master_v2: None,
             #[cfg(feature = "sealed-develop-composer-acceptance")]
             instrument_economic_terms: None,
+            #[cfg(feature = "sealed-develop-composer-acceptance")]
+            universe_sample_projection: None,
             #[cfg(feature = "sealed-develop-composer-acceptance")]
             develop_composer_read: None,
             #[cfg(all(
@@ -4048,6 +4153,8 @@ mod tests {
             instrument_master_v2: None,
             #[cfg(feature = "sealed-develop-composer-acceptance")]
             instrument_economic_terms: None,
+            #[cfg(feature = "sealed-develop-composer-acceptance")]
+            universe_sample_projection: None,
             #[cfg(feature = "sealed-develop-composer-acceptance")]
             develop_composer_read: None,
             #[cfg(all(
@@ -5009,6 +5116,223 @@ mod tests {
         );
     }
 
+    /// This entry's own source-bound Research, and the Research fixture's two promises checked on the
+    /// way: a deployment without the Research Goal operation is refused by name, and the same
+    /// Research identity answers the same custody twice.
+    ///
+    /// The setup runs on its own thread with a 4 MiB stack. The Research Owner's submission is a
+    /// deep call chain in a debug build: in the full ordered chain, under the `ci-pr` profile, it
+    /// overflowed a 2 MiB stack inside `submit_source_intake_research_v2`, first from this entry's
+    /// test body and then from a spawned task on a runtime worker, so the depth is the submission's
+    /// own and not this entry's. Measured by `RUST_MIN_STACK` bisection, it needs more than
+    /// 2,097,152 and at most 2,490,368 bytes. It overflows only on the database state the full chain
+    /// leaves behind; the same code passes a filtered run on a fresh database. Production runs a
+    /// release build, where these frames are a fraction of the size.
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    mod authored_design_research {
+        use std::{future::Future, pin::Pin};
+
+        use vibe_product_edge::{
+            SOURCE_INTAKE_OPERATION_SCHEMA_V1, SOURCE_INTAKE_OPERATION_V1,
+            SOURCE_INTAKE_REQUIRED_EFFECTS_V1, SOURCE_INTAKE_TARGET_OWNER_V1,
+            deployment_acceptance::{
+                DeploymentAcceptanceOperationV1, DeploymentAcceptanceProposalV1,
+                ProductEdgeDeploymentAcceptanceFixtureV1,
+                ensure_product_edge_deployment_acceptance_fixture_v1,
+            },
+        };
+        use vibe_strategy_factory::{
+            product_edge::{RESEARCH_GOAL_OPERATION_V2, RESEARCH_GOAL_SCHEMA_V2},
+            rd_bounded_feature_program_postgres_v1::{
+                PostgresResearchBoundedFeatureProgramOwnerV1, ResearchAuthoringFactsV1,
+                ResearchBoundedFeatureProgramOwnerErrorV1,
+            },
+            source_bound_research_acceptance_fixture_v1::{
+                CurrentSourceBoundResearchAcceptanceErrorV1, CurrentSourceBoundResearchV1,
+                ensure_current_source_bound_research_acceptance_fixture_v1,
+            },
+        };
+        use vibe_testkit::postgres::{
+            CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1,
+        };
+
+        type Boxed<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+        /// The role URLs the setup connects with, owned so the setup task can outlive the borrow.
+        struct OwnerUrlsV1 {
+            operator_authorization: String,
+            product_edge: String,
+            rd_owner: String,
+            qualification_writer: String,
+            catalog_admin: String,
+        }
+
+        /// The entry's Research locator and its authoring facts, read again at a fresh cut.
+        pub(super) fn research<'a>(
+            test_database: &'a CanonicalOwnerPostgresTestDatabaseV1,
+            owner: &'a PostgresResearchBoundedFeatureProgramOwnerV1,
+        ) -> Boxed<'a, (String, ResearchAuthoringFactsV1)> {
+            let urls = OwnerUrlsV1 {
+                operator_authorization: test_database
+                    .database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter)
+                    .to_owned(),
+                product_edge: test_database
+                    .database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner)
+                    .to_owned(),
+                rd_owner: test_database
+                    .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+                    .to_owned(),
+                qualification_writer: test_database
+                    .database_url(CanonicalOwnerTestRoleV1::QualificationWriter)
+                    .to_owned(),
+                catalog_admin: test_database
+                    .database_url(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter)
+                    .to_owned(),
+            };
+            Box::pin(async move {
+                let (locator, current) = tokio::task::spawn_blocking(move || {
+                    std::thread::Builder::new()
+                        .name("rd-api-authored-design-research".into())
+                        .stack_size(4 * 1024 * 1024)
+                        .spawn(move || {
+                            tokio::runtime::Builder::new_current_thread()
+                                .enable_all()
+                                .build()
+                                .expect("the setup thread's runtime starts")
+                                .block_on(own_research(urls))
+                        })
+                        .expect("the setup thread starts")
+                        .join()
+                })
+                .await
+                .expect("the setup thread is joined")
+                .unwrap_or_else(|failure| std::panic::resume_unwind(failure));
+                assert_eq!(
+                    authoring_facts(owner, &locator)
+                        .await
+                        .expect("the committed Research is current at a fresh cut"),
+                    current.authoring
+                );
+                (locator, current.authoring)
+            })
+        }
+
+        async fn own_research(urls: OwnerUrlsV1) -> (String, CurrentSourceBoundResearchV1) {
+            let suffix = format!(
+                "{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            );
+            let source_intake_operation = DeploymentAcceptanceOperationV1 {
+                operation: SOURCE_INTAKE_OPERATION_V1.into(),
+                operation_schema: SOURCE_INTAKE_OPERATION_SCHEMA_V1.into(),
+                allowed_effects: SOURCE_INTAKE_REQUIRED_EFFECTS_V1.map(Into::into).to_vec(),
+            };
+            let research_operation = DeploymentAcceptanceOperationV1 {
+                operation: RESEARCH_GOAL_OPERATION_V2.into(),
+                operation_schema: RESEARCH_GOAL_SCHEMA_V2.into(),
+                allowed_effects: vec!["R_AND_D_RESEARCH_MUTATION_V1".into()],
+            };
+
+            let without_research = deployment(
+                &urls,
+                "rd-api-authored-design-source-intake-only",
+                vec![source_intake_operation.clone()],
+            )
+            .await;
+            let refused_identity = format!("rd-api-authored-design-refused-{suffix}");
+            let refused = source_bound_research(&urls, &without_research, &refused_identity).await;
+            assert!(
+                matches!(
+                    refused,
+                    Err(
+                        CurrentSourceBoundResearchAcceptanceErrorV1::OperationNotDeployed {
+                            operation: RESEARCH_GOAL_OPERATION_V2
+                        }
+                    )
+                ),
+                "{refused:?}"
+            );
+
+            let with_research = deployment(
+                &urls,
+                "rd-api-authored-design",
+                vec![source_intake_operation, research_operation],
+            )
+            .await;
+            let locator = format!("rd-api-authored-design-{suffix}");
+            let current = source_bound_research(&urls, &with_research, &locator)
+                .await
+                .expect("this entry's source-bound Research is committed and current");
+            // Idempotent through the Owners' own replays: the same identity answers the same
+            // custody.
+            assert_eq!(
+                source_bound_research(&urls, &with_research, &locator)
+                    .await
+                    .expect("the same Research identity resolves again"),
+                current
+            );
+            (locator, current)
+        }
+
+        /// This entry's Product Edge deployment under `fixture_key`, bound to exactly `operations`.
+        fn deployment<'a>(
+            urls: &'a OwnerUrlsV1,
+            fixture_key: &'a str,
+            operations: Vec<DeploymentAcceptanceOperationV1>,
+        ) -> Boxed<'a, ProductEdgeDeploymentAcceptanceFixtureV1> {
+            Box::pin(async move {
+                ensure_product_edge_deployment_acceptance_fixture_v1(
+                    &urls.operator_authorization,
+                    &urls.product_edge,
+                    &DeploymentAcceptanceProposalV1 {
+                        fixture_key: fixture_key.to_owned(),
+                        audience: SOURCE_INTAKE_TARGET_OWNER_V1.into(),
+                        permissions: vec![
+                            "research:source-intake".into(),
+                            "research:submit".into(),
+                            "research:view".into(),
+                        ],
+                        operations,
+                    },
+                )
+                .await
+                .unwrap_or_else(|e| panic!("the deployment {fixture_key} is ensured: {e}"))
+            })
+        }
+
+        /// The source-bound Research fixture for `identity`, admitted through `deployment`.
+        fn source_bound_research<'a>(
+            urls: &'a OwnerUrlsV1,
+            deployment: &'a ProductEdgeDeploymentAcceptanceFixtureV1,
+            identity: &'a str,
+        ) -> Boxed<
+            'a,
+            Result<CurrentSourceBoundResearchV1, CurrentSourceBoundResearchAcceptanceErrorV1>,
+        > {
+            Box::pin(ensure_current_source_bound_research_acceptance_fixture_v1(
+                &urls.rd_owner,
+                &urls.qualification_writer,
+                &urls.catalog_admin,
+                &urls.product_edge,
+                deployment,
+                identity,
+            ))
+        }
+
+        /// The R&D Owner's authoring facts for `locator` at a fresh cut.
+        fn authoring_facts<'a>(
+            owner: &'a PostgresResearchBoundedFeatureProgramOwnerV1,
+            locator: &'a str,
+        ) -> Boxed<'a, Result<ResearchAuthoringFactsV1, ResearchBoundedFeatureProgramOwnerErrorV1>>
+        {
+            Box::pin(owner.read_research_authoring_facts_v1(locator))
+        }
+    }
+
     /// Carries a Design this repository authored, not one an acceptance fixture committed, through
     /// the three routes that publish it, bind it and freeze it.
     ///
@@ -5040,20 +5364,19 @@ mod tests {
     /// that was already frozen rejoins its freeze and also answers 200, so the count is what
     /// separates a first declaration from a replay, and the stored bytes are compared against what
     /// was authored because some other Design's freeze would satisfy the count too.
-    // It authors on the chain fixtures' instrument, which only the sealed acceptance build (the one
-    // the ordered chain runs) exposes; outside that build the test is `ignore`d anyway.
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    // It authors on the chain fixtures' instrument and commits its own source-bound Research, both
+    // of which only the sealed acceptance build the ordered chain runs exposes; outside that build
+    // the test is `ignore`d anyway.
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    #[ignore = "requires the ordered chain's PostgreSQL and a Research request an earlier entry commits"]
+    #[ignore = "requires the ordered chain's PostgreSQL and the Market Data basis an earlier entry commits"]
     async fn an_authored_design_is_published_bound_and_frozen_over_http() {
         use axum::body::Body;
         use axum::extract::Request;
         use tower::ServiceExt;
         use vibe_strategy_factory::{
             bounded_feature_program_v1::BoundedFeaturePredicateV1,
-            rd_bounded_feature_program_postgres_v1::{
-                PostgresResearchBoundedFeatureProgramOwnerV1, ResearchAuthoringFactsV1,
-            },
+            rd_bounded_feature_program_postgres_v1::PostgresResearchBoundedFeatureProgramOwnerV1,
             single_threshold_authoring_v1::{
                 SingleThresholdAuthoringRequestV1, SingleThresholdChannelV1,
                 SingleThresholdOutcomeV1, author_single_threshold_program_v1,
@@ -5079,50 +5402,10 @@ mod tests {
         );
 
         // A Research identity accepts exactly one freeze, and answers every later, different
-        // Design with JOINT_FREEZE_CHANGED_MEANING. This entry freezes, so it needs an accepted
-        // custody that has not frozen yet - reading the identities off an already frozen Design,
-        // as this entry first did, can only ever reach that conflict.
-        //
-        // Acceptance is necessary and not sufficient: the authoring facts also require the Intent
-        // to be frozen and the custody to be current at the read cut. Those conditions are not
-        // restated here, because `read_research_authoring_facts_v1` already enforces them on the
-        // freeze path's own parser, and a copy of them in this query would be a second statement
-        // of the same rule that drifts. Candidates are taken in bulk and the accessor decides.
-        let candidates: Vec<String> = sqlx::query_scalar(
-            "SELECT r.request_identity
-               FROM public.rd_research_request_receipts_v1 r
-              WHERE r.receipt_json->>'disposition'='ACCEPTED'
-                AND NOT EXISTS (
-                      SELECT 1
-                        FROM public.rd_bounded_feature_program_freezes_v1 f
-                       WHERE f.request_identity = r.request_identity)
-              ORDER BY r.committed_at_epoch_ms DESC
-              LIMIT 32",
-        )
-        .fetch_all(&rd_pool)
-        .await
-        .unwrap();
-        // Zero rows is a statement about the entries before this one, not about these routes.
-        assert!(
-            !candidates.is_empty(),
-            "no accepted Research custody is without a freeze, so this entry has nothing it is \
-             allowed to freeze: that is about the entries before this one, not about these routes",
-        );
-        let mut chosen: Option<(String, ResearchAuthoringFactsV1)> = None;
-
-        for candidate in &candidates {
-            if let Ok(facts) = owner.read_research_authoring_facts_v1(candidate).await {
-                chosen = Some((candidate.clone(), facts));
-                break;
-            }
-        }
-        let (locator, facts) = chosen.unwrap_or_else(|| {
-            panic!(
-                "none of the {} accepted, unfrozen Research identities carries current authoring \
-                 facts: acceptance alone does not make custody current",
-                candidates.len(),
-            )
-        });
+        // Design with JOINT_FREEZE_CHANGED_MEANING, so this entry freezes a Research of its own,
+        // committed for this run through the production Owners, rather than one an earlier entry
+        // left behind.
+        let (locator, facts) = authored_design_research::research(&test_database, &owner).await;
 
         let (authored, meaning) =
             author_single_threshold_program_v1(&SingleThresholdAuthoringRequestV1 {
@@ -5602,7 +5885,7 @@ mod tests {
         );
     }
 
-    fn bearer_headers(token: &str) -> HeaderMap {
+    pub(super) fn bearer_headers(token: &str) -> HeaderMap {
         let mut headers = HeaderMap::new();
         headers.insert(
             axum::http::header::AUTHORIZATION,
@@ -5611,7 +5894,7 @@ mod tests {
         headers
     }
 
-    async fn response_json(response: Response) -> serde_json::Value {
+    pub(super) async fn response_json(response: Response) -> serde_json::Value {
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();

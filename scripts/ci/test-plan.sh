@@ -476,8 +476,8 @@ if [[ "$save_gate_total" != "$save_gate_shared" ]]; then
   printf '%s\n' "$save_gates" | grep -vF 'save-if: ${{ env.SAVE_BUILD_CACHES }}' >&2
   exit 1
 fi
-if [[ "$save_gate_total" -ne 3 ]]; then
-  echo "build.yml has $save_gate_total cache-saving steps, expected 3." >&2
+if [[ "$save_gate_total" -ne 4 ]]; then
+  echo "build.yml has $save_gate_total cache-saving steps, expected 4." >&2
   echo "A removed entry stops saving a cache; a new one must use env.SAVE_BUILD_CACHES." >&2
   exit 1
 fi
@@ -938,6 +938,11 @@ if [[ -z "$required_job" ]] || [[ "$quality_job" != *'bash scripts/ci/require-wo
 fi
 echo "ok: pull requests keep their pre-commit coverage across the two jobs"
 
+# The merge of the R&D chain shards' records before the whole-chain report. (The shards' wait for
+# the archive has its own pre-commit hook, test-wait-for-run-artifact.)
+bash "$repo_root/scripts/ci/test-merge-chain-shard-records.bash"
+echo "ok: the chain shards' record merge"
+
 # Every PostgreSQL and Redis image CI runs is pinned by digest, in services and in scripts alike. The
 # digest is what lets scripts/ci/pull-pinned-image.bash take the image from mirror.gcr.io or from
 # public.ecr.aws and still run the same bytes; a tag-only reference could change under a job. Every
@@ -986,5 +991,22 @@ if unpinned:
 PINNED
 bash "$repo_root/scripts/ci/test-pull-pinned-image.bash"
 echo "ok: every PostgreSQL/Redis image CI runs is pinned by digest, PostgreSQL to the deployment's"
+
+# Cache quota: `rust tests` caches dependencies only (its workspace artifacts are rebuilt on every
+# run, because checkout renews every mtime), and a pull request or merge-queue run saves no
+# test-data or prek entry, which no other ref could read. Both kept main's py-stubs entry from
+# being evicted on 2026-09-26.
+[[ "$(sed -n '/^  rust-tests-linux-x86:/,/^  quality:/p' "$build_workflow")" == *'rust-cache-workspace-crates: "false"'* ]]
+for composite in common-test-data common-setup; do
+  file="$repo_root/.github/actions/${composite}/action.yml"
+  saves="$(grep -c 'uses: actions/cache@' "$file" || true)"
+  guarded="$(grep -c "github.event_name != 'pull_request' && github.event_name != 'merge_group'" "$file" || true)"
+  if [[ "$saves" -ne 1 ]] || [[ "$guarded" -ne 1 ]]; then
+    echo "${composite}: its saving actions/cache step must skip pull_request and merge_group" \
+      "(saving steps ${saves}, guards ${guarded}); those runs restore with actions/cache/restore." >&2
+    exit 1
+  fi
+done
+echo "ok: rust tests caches dependencies only; pull requests save no ref-scoped test-data or prek entry"
 
 echo "All CI plan cases passed"

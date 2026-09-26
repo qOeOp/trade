@@ -83,6 +83,7 @@ const unknownResearchOwnerResult = {
   trial_family_resolution: "UNAVAILABLE",
   trial_family: null,
   next_legal_action: "RESOLVE_SAME_REQUEST_IDENTITY",
+  initial_pit: null,
 };
 const dispatchBuildRequestIdentity = "artifact-build-request-v1-dispatch-e2e-1";
 const dispatchAttemptIdentity = "artifact-build-attempt-v1-dispatch-e2e-1";

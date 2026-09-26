@@ -534,6 +534,14 @@ impl FrozenResearchInstrumentScopeV1 {
             canonical_bytes: lower_hex(scope.canonical_bytes()),
         }
     }
+
+    /// The scope these bytes state; `None` unless they decode to a canonical scope whose own
+    /// encoding is exactly this one.
+    pub(crate) fn scope(&self) -> Option<ResearchInstrumentScopeV1> {
+        let bytes = decode_lower_hex(&self.canonical_bytes)?;
+        let scope = ResearchInstrumentScopeV1::from_canonical_bytes(&bytes).ok()?;
+        (Self::from_scope(&scope) == *self).then_some(scope)
+    }
 }
 
 /// Intent schema of a V2 request.
@@ -560,6 +568,16 @@ pub(crate) fn expected_intent_scope(
                 ))
             }),
     }
+}
+
+fn decode_lower_hex(text: &str) -> Option<Vec<u8>> {
+    if !text.len().is_multiple_of(2) {
+        return None;
+    }
+    (0..text.len())
+        .step_by(2)
+        .map(|at| u8::from_str_radix(text.get(at..at + 2)?, 16).ok())
+        .collect()
 }
 
 fn lower_hex(bytes: &[u8]) -> String {
@@ -1223,6 +1241,9 @@ pub struct ResearchGoalOwnerResultV2 {
     pub(crate) trial_family_resolution: TrialFamilyResolutionV1,
     pub(crate) trial_family: Option<TrialFamilyReadbackV1>,
     pub(crate) next_legal_action: ResearchNextLegalAction,
+    /// The Intent's initial PIT request: `null` unless this is an accepted V3 request, whose Intent
+    /// binds an instrument scope.
+    pub(crate) initial_pit: Option<crate::research_initial_pit_v1::ResearchInitialPitV1>,
 }
 
 impl ResearchGoalOwnerResultV2 {
@@ -1260,6 +1281,10 @@ impl ResearchGoalOwnerResultV2 {
 
     pub fn next_legal_action(&self) -> ResearchNextLegalAction {
         self.next_legal_action
+    }
+
+    pub fn initial_pit(&self) -> Option<crate::research_initial_pit_v1::ResearchInitialPitV1> {
+        self.initial_pit
     }
 }
 
@@ -1849,6 +1874,7 @@ pub fn unresolved_result_v2(request_identity: &str) -> ResearchGoalOwnerResultV2
         trial_family_resolution: TrialFamilyResolutionV1::unavailable(),
         trial_family: None,
         next_legal_action: ResearchNextLegalAction::ResolveSameRequestIdentity,
+        initial_pit: None,
     }
 }
 
@@ -1864,6 +1890,7 @@ pub fn identity_conflict_result_v2(request_identity: &str) -> ResearchGoalOwnerR
         trial_family_resolution: TrialFamilyResolutionV1::unavailable(),
         trial_family: None,
         next_legal_action: ResearchNextLegalAction::ResolveSameRequestIdentity,
+        initial_pit: None,
     }
 }
 

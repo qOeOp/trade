@@ -6,7 +6,14 @@ Use the repository's current Makefile, pre-commit configuration, and CI workflow
 do not reconstruct a missing historical entrypoint. An Owner implementation is accepted when its
 entries in the ordered Owner PostgreSQL chains pass on Linux CI - the `owner-chains` workflow on a
 `test-chain/<lane>` push, or the chain jobs of `build` on `test-ci` or `main` - and a local pass is a
-working state, not acceptance.
+working state, not acceptance. The R&D chain's pass is its shard jobs together with the
+`rd owner chain report` job, which fails unless every chain position was recorded exactly once: each
+shard runs its entries in chain order on a cluster of its own, and an entry is ordered after exactly
+the entries `scripts/ci/rd-owner-chain-needs.tsv` declares for it, a declaration that is measured,
+never estimated. The daily 20:17 UTC `build` on `main` runs the chain serially instead, every entry
+after every earlier one, as the standing check on those declarations; GitHub drops scheduled slots
+without notice, so when no serial run has reached a verdict on `main` in 48 hours, dispatch one:
+`gh workflow run build.yml --ref main -f rd-chain=serial`.
 
 ## Architecture authority
 

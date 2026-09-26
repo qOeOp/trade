@@ -1,9 +1,9 @@
 use super::{
     AuthenticatedMarketSemanticsInputsV1, MarketSemanticsConsumerV1, MarketSemanticsCutEntryV1,
     MarketSemanticsCutV1, MarketSemanticsErrorV1, MarketSemanticsFactV1, MarketSemanticsIdentity,
-    MarketSemanticsReadbackV1, MarketSemanticsReceiptV1, MarketSemanticsRegistryEntryV1,
-    MarketSemanticsRegistryKeyV1, MarketSemanticsValueV1, UntrustedMarketSemanticsProposalV1,
-    codec,
+    MarketSemanticsReadbackV1, MarketSemanticsReceiptV1, MarketSemanticsRegistryDependencyV1,
+    MarketSemanticsRegistryEntryV1, MarketSemanticsRegistryKeyV1, MarketSemanticsValueV1,
+    UntrustedMarketSemanticsProposalV1, codec,
 };
 use crate::owner::{
     instrument_master::{InstrumentMasterReadbackV1, authority::verify_instrument_master_readback},
@@ -28,25 +28,83 @@ pub(crate) fn derive_registry_key_v1(
     };
     let evidence = &r0.record().evidence;
 
-    if !source.is_admitted()
-        || !verify_instrument_master_readback(instrument)
-        || pit.snapshot_identity() != evidence.pit_snapshot_identity
-        || pit.fact_digest() != evidence.pit_fact_digest
-        || pit.digest() != evidence.observation_batch_digest
-        || source.binding_id() != evidence.source_binding_identity
-        || source.fact_digest() != evidence.source_binding_fact_digest
-        || source.lineage_root() != evidence.source_binding_lineage_root
-        || source.lineage_version() != evidence.source_binding_lineage_version
-        || pit.source_binding_identity() != source.binding_id()
-        || pit.source_binding_lineage_root() != source.lineage_root()
-        || pit.source_binding_lineage_version() != source.lineage_version()
-        || pit.instrument_master_digest() != instrument.digest()
-        || pit.market_semantics_identity() != compatibility_scope_identity
-        || instrument_fact.market_semantics_identity() != compatibility_scope_identity
-        || instrument_fact.source_frontier() != evidence.source_frontier_digest
-        || instrument_fact.correction_frontier() != evidence.correction_frontier_digest
-    {
-        return Err(MarketSemanticsErrorV1::DependencyMismatch);
+    // Each condition is named, so a refusal says which one failed; they are checked in this order
+    // and the first that fails is the one reported.
+    let conditions = [
+        (
+            MarketSemanticsRegistryDependencyV1::SourceAdmitted,
+            source.is_admitted(),
+        ),
+        (
+            MarketSemanticsRegistryDependencyV1::InstrumentMasterVerified,
+            verify_instrument_master_readback(instrument),
+        ),
+        (
+            MarketSemanticsRegistryDependencyV1::R0PitSnapshotIdentity,
+            pit.snapshot_identity() == evidence.pit_snapshot_identity,
+        ),
+        (
+            MarketSemanticsRegistryDependencyV1::R0PitFactDigest,
+            pit.fact_digest() == evidence.pit_fact_digest,
+        ),
+        (
+            MarketSemanticsRegistryDependencyV1::R0ObservationBatchDigest,
+            pit.digest() == evidence.observation_batch_digest,
+        ),
+        (
+            MarketSemanticsRegistryDependencyV1::R0SourceBindingIdentity,
+            source.binding_id() == evidence.source_binding_identity,
+        ),
+        (
+            MarketSemanticsRegistryDependencyV1::R0SourceBindingFactDigest,
+            source.fact_digest() == evidence.source_binding_fact_digest,
+        ),
+        (
+            MarketSemanticsRegistryDependencyV1::R0SourceBindingLineageRoot,
+            source.lineage_root() == evidence.source_binding_lineage_root,
+        ),
+        (
+            MarketSemanticsRegistryDependencyV1::R0SourceBindingLineageVersion,
+            source.lineage_version() == evidence.source_binding_lineage_version,
+        ),
+        (
+            MarketSemanticsRegistryDependencyV1::PitSourceBindingIdentity,
+            pit.source_binding_identity() == source.binding_id(),
+        ),
+        (
+            MarketSemanticsRegistryDependencyV1::PitSourceBindingLineageRoot,
+            pit.source_binding_lineage_root() == source.lineage_root(),
+        ),
+        (
+            MarketSemanticsRegistryDependencyV1::PitSourceBindingLineageVersion,
+            pit.source_binding_lineage_version() == source.lineage_version(),
+        ),
+        (
+            MarketSemanticsRegistryDependencyV1::PitInstrumentMasterDigest,
+            pit.instrument_master_digest() == instrument.digest(),
+        ),
+        (
+            MarketSemanticsRegistryDependencyV1::PitMarketSemantics,
+            pit.market_semantics_identity() == compatibility_scope_identity,
+        ),
+        (
+            MarketSemanticsRegistryDependencyV1::InstrumentFactMarketSemantics,
+            instrument_fact.market_semantics_identity() == compatibility_scope_identity,
+        ),
+        (
+            MarketSemanticsRegistryDependencyV1::R0InstrumentFactSourceFrontier,
+            instrument_fact.source_frontier() == evidence.source_frontier_digest,
+        ),
+        (
+            MarketSemanticsRegistryDependencyV1::R0InstrumentFactCorrectionFrontier,
+            instrument_fact.correction_frontier() == evidence.correction_frontier_digest,
+        ),
+    ];
+
+    if let Some((dependency, _)) = conditions.into_iter().find(|(_, holds)| !holds) {
+        return Err(MarketSemanticsErrorV1::RegistryKeyDependencyMismatch(
+            dependency,
+        ));
     }
     let mut key = MarketSemanticsRegistryKeyV1 {
         compatibility_scope_identity,

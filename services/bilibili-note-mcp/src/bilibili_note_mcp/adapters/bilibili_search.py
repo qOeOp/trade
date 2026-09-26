@@ -6,7 +6,10 @@ import unicodedata
 from typing import Any, cast
 from urllib.parse import urlencode
 
-from bilibili_note_mcp.adapters.bilibili_http import bilibili_browser_headers
+from bilibili_note_mcp.adapters.bilibili_http import (
+    bilibili_browser_headers,
+    raise_named_envelope_refusal,
+)
 from bilibili_note_mcp.adapters.egress import SafeHttpClient
 from bilibili_note_mcp.application.errors import BilibiliNoteFailure
 from bilibili_note_mcp.domain.models import SearchCandidateV1
@@ -179,9 +182,17 @@ class BilibiliSearch:
         if not isinstance(code, int) or isinstance(code, bool):
             raise BilibiliNoteFailure("SOURCE_UNAVAILABLE", "search_payload_invalid")
         if code != 0:
+            raise_named_envelope_refusal(code)
             raise BilibiliNoteFailure("SOURCE_UNAVAILABLE", "search_request_rejected")
         data = _mapping(envelope.get("data"), "search_payload_invalid")
-        rows = _sequence(data.get("result"), "search_results_invalid")
+        result = data.get("result")
+        # No results at all: Bilibili omits `result` (or sends null) and counts zero. Only that
+        # explicit zero is empty; a missing list with no count, or with results claimed, is
+        # malformed.
+        count = data.get("numResults")
+        if result is None and type(count) is int and count == 0:
+            raise BilibiliNoteFailure("SEARCH_EMPTY", "search_no_results")
+        rows = _sequence(result, "search_results_invalid")
         usable_rows: list[tuple[int, dict[str, Any], str, str]] = []
         for upstream_index, value in enumerate(rows):
             if not isinstance(value, dict) or value.get("type") != "video":

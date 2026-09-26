@@ -526,13 +526,14 @@ impl UntrustedReplayMarketFactsCompositionRequestV1 {
     }
 }
 
+/// One role a binding recorded when its issuance authenticated the composer's role set.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct ReplayCompositionRoleV1 {
-    role_identity: BindingDigest,
-    declaration_identity: BindingDigest,
-    declaration_digest: BindingDigest,
-    binding_identity: BindingDigest,
-    binding_digest: BindingDigest,
+pub(crate) struct ReplayCompositionRoleV1 {
+    pub(crate) role_identity: BindingDigest,
+    pub(crate) declaration_identity: BindingDigest,
+    pub(crate) declaration_digest: BindingDigest,
+    pub(crate) binding_identity: BindingDigest,
+    pub(crate) binding_digest: BindingDigest,
 }
 
 /// Immutable Market Data composition record. It has no public constructor or deserializer.
@@ -629,6 +630,19 @@ impl ReplayCompositionBindingV1 {
 
     pub(crate) const fn replay_request_identity(&self) -> BindingDigest {
         self.replay_request_identity
+    }
+
+    /// The PIT snapshot the binding composes, the Replay request's initial frame.
+    pub(crate) const fn pit_snapshot_identity(&self) -> BindingDigest {
+        self.pit_snapshot_identity
+    }
+
+    /// The roles the binding recorded when its issuance authenticated the composer's role set.
+    ///
+    /// A reader takes its role set from here, never from R&D: the binding already holds the
+    /// authenticated set, and reading it again would make Market Data call R&D.
+    pub(crate) fn authenticated_roles(&self) -> &[ReplayCompositionRoleV1] {
+        &self.roles
     }
 
     pub(crate) const fn replay_request_digest(&self) -> BindingDigest {

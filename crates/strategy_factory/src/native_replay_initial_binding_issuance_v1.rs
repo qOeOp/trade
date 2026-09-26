@@ -4,6 +4,8 @@ use std::fmt::Display;
 
 use sqlx::{Postgres, Transaction};
 use vibe_data::owner::{
+    UniverseSampleProjectionIssuanceErrorV1, UniverseSampleProjectionOwnerV1,
+    UniverseSampleProjectionScopeV1,
     instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresOwnerV1,
     instrument_master_v2::{
         InstrumentMasterCustodyErrorV2, InstrumentMasterResolverV2,
@@ -51,6 +53,7 @@ pub(crate) async fn issue_native_replay_initial_binding_v1_in_transaction<P, R>(
     composer: &P,
     instrument_master_owner: &InstrumentMasterV2PostgresOwner,
     instrument_terms_owner: &InstrumentEconomicTermsPostgresOwnerV1,
+    sample_projection_owner: &UniverseSampleProjectionOwnerV1,
     market_data: &R,
 ) -> Result<NativeReplayExecutionInputBindingReadbackV1, NativeReplayExecutionInputBindingErrorV1>
 where
@@ -108,6 +111,36 @@ where
                 | InstrumentMasterCustodyErrorV2::AclUnavailable
                 | InstrumentMasterCustodyErrorV2::BoundReplayBindingUnavailable
                 | InstrumentMasterCustodyErrorV2::MemberClassCarriesCorporateActions => {
+                    unavailable(coordinate, &e)
+                }
+            }
+        })?;
+    // Market Data issues the initial frame's universe sample projection the same way, in its own
+    // transaction, before this one resolves the frame: it never calls R&D and takes no lock this
+    // transaction can hold. A later failure here leaves the projection, and the retry reuses it.
+    let sample_projections = sample_projection_owner
+        .issue_v1(
+            request.request_identity.as_str(),
+            composition_binding,
+            UniverseSampleProjectionScopeV1::InitialFrame,
+        )
+        .await
+        .map_err(|e| {
+            let coordinate = "native_replay_initial_binding.sample_projection.issue";
+
+            match e {
+                UniverseSampleProjectionIssuanceErrorV1::BindingConflict
+                | UniverseSampleProjectionIssuanceErrorV1::SubjectConflict
+                | UniverseSampleProjectionIssuanceErrorV1::SampleConflict => {
+                    crate::storage_diagnostic::refused_by_store(coordinate, &e);
+                    NativeReplayExecutionInputBindingErrorV1::Conflict
+                }
+                UniverseSampleProjectionIssuanceErrorV1::InvalidRequestIdentity
+                | UniverseSampleProjectionIssuanceErrorV1::BindingUnavailable
+                | UniverseSampleProjectionIssuanceErrorV1::CompositionShapeMismatch
+                | UniverseSampleProjectionIssuanceErrorV1::FrameMismatch
+                | UniverseSampleProjectionIssuanceErrorV1::ScheduleUnavailable
+                | UniverseSampleProjectionIssuanceErrorV1::StoreUnavailable => {
                     unavailable(coordinate, &e)
                 }
             }
@@ -170,6 +203,17 @@ where
     .await
     .map_err(|e| unavailable("native_replay_initial_binding.market_inputs.resolve", &e))?;
     let (universe_frame, schedules) = market.into_binding_parts();
+
+    // An early refusal only: the host attaches a projection only when it names the frame it
+    // admits, and that check is the guarantee. Refusing here keeps a binding from being issued
+    // over a frame no projection names.
+    if !matches!(&sample_projections[..], [projection] if projection.subject() == universe_frame.digest())
+    {
+        return Err(unavailable(
+            "native_replay_initial_binding.sample_projection.subject",
+            &"the initial frame's sample projection names another universe frame",
+        ));
+    }
     let plan = StrategyPlanV2::parse_and_revalidate_durable_with_owner_universe(
         preparation.composer().plan_bytes(),
         &universe_frame,

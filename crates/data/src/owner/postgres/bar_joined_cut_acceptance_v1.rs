@@ -468,14 +468,14 @@ pub async fn register_bar_joined_cut_declarations_for_published_design_v1(
     // corpus, and is refused rather than read by picking one.
     let snapshot = super::market_semantics::resolve_sole_market_semantics_head_snapshot_v1(
         &mut transaction,
-        digest(84),
+        acceptance_market_semantics_identity(),
     )
     .await
     .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::RegistrySemantics)?;
     // The same scope, instants and cut the basis seals its own fact under.
     let readback = super::market_semantics::resolve_market_semantics_scope_in_transaction_v1(
         &mut transaction,
-        digest(84),
+        acceptance_market_semantics_identity(),
         snapshot,
         50,
         100,
@@ -956,6 +956,16 @@ fn acceptance_clock() -> MarketDataClockAdmission {
     )
 }
 
+/// The corpus's Market Semantics compatibility scope, derived from its Source Binding's semantics
+/// by the function production admits under. A written value would describe a scope no fact admitted
+/// through production for this binding ever carries, and such a fact would then fail against this
+/// corpus's Instrument Master fact.
+fn acceptance_market_semantics_identity() -> BindingDigest {
+    crate::owner::source_binding::authority::derive_market_semantics_compatibility_identity_v1(
+        &acceptance_source_proposal().semantics,
+    )
+}
+
 fn acceptance_source_proposal() -> UntrustedSourceBindingProposal {
     let mut proposal = UntrustedSourceBindingProposal {
         claimed_binding_id: digest(0),
@@ -1066,7 +1076,7 @@ fn acceptance_instrument_fact() -> InstrumentMasterFactProposalV1 {
         lifecycle_frontier: digest(81),
         corporate_action_frontier: digest(82),
         historical_membership_frontier: digest(83),
-        market_semantics_identity: digest(84),
+        market_semantics_identity: acceptance_market_semantics_identity(),
         source_frontier: digest(85),
         correction_frontier: digest(86),
         effective_from: 10,
@@ -1093,7 +1103,7 @@ fn acceptance_instrument_request(
         lifecycle_frontier: digest(81),
         corporate_action_frontier: digest(82),
         historical_membership_frontier: digest(83),
-        market_semantics_identity: digest(84),
+        market_semantics_identity: acceptance_market_semantics_identity(),
         source_frontier: digest(85),
         correction_frontier: digest(86),
         stable_correlation: digest(112),
@@ -1113,6 +1123,10 @@ async fn persist_pit_and_reread(
     ),
     BarJoinedCutAcceptanceUnavailableV1,
 > {
+    let scope =
+        crate::owner::source_binding::authority::derive_market_semantics_compatibility_identity_v1(
+            &source.fact().proposal().semantics,
+        );
     let time_evidence = UntrustedPitSnapshotTimeEvidence {
         event_effective: UntrustedEventEffectiveTime::from_untrusted(
             50,
@@ -1156,7 +1170,7 @@ async fn persist_pit_and_reread(
             source_binding: source.receipt().locator().clone(),
             instrument_master_digest: instrument.digest(),
             universe_selection_digest: universe_identity,
-            market_semantics_identity: digest(84),
+            market_semantics_identity: scope,
             time_evidence,
         },
         evidence: UntrustedPitSnapshotEvidence {
@@ -1197,7 +1211,7 @@ async fn persist_pit_and_reread(
                 source_frontier_digest: digest(85),
                 instrument_master_digest: instrument.digest(),
                 universe_selection_digest: universe_identity,
-                market_semantics_identity: digest(84),
+                market_semantics_identity: scope,
                 correction_stream_identity: source
                     .receipt()
                     .locator()
@@ -1346,6 +1360,10 @@ async fn persist_market_semantics(
         MarketSemanticsTimestampBasisV1, MarketSemanticsValueV1,
         UntrustedMarketSemanticsProposalV1, authority,
     };
+    let scope =
+        crate::owner::source_binding::authority::derive_market_semantics_compatibility_identity_v1(
+            &source.fact().proposal().semantics,
+        );
     let mut transaction = owner
         .pool
         .begin()
@@ -1369,7 +1387,7 @@ async fn persist_market_semantics(
         size_unit_identity: digest(182),
     };
     let registry_key =
-        authority::derive_registry_key_v1(digest(84), &source_readback, batch, instrument, r0)
+        authority::derive_registry_key_v1(scope, &source_readback, batch, instrument, r0)
             .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
     let registry = authority::seal_registry_entry_v1(registry_key, value, acceptance_identity(187))
         .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
@@ -1398,7 +1416,7 @@ async fn persist_market_semantics(
         request_identity: acceptance_identity(188),
         request_meaning_digest: digest(0),
         consumer: MarketSemanticsConsumerV1::StrategyInputBindingRegistry,
-        compatibility_scope_identity: digest(84),
+        compatibility_scope_identity: scope,
         predecessor_identity: None,
         value,
         effective_from_ns: 50,
@@ -1425,7 +1443,7 @@ async fn persist_market_semantics(
         .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
     let readback = match super::market_semantics::resolve_market_semantics_scope_in_transaction_v1(
         &mut transaction,
-        digest(84),
+        scope,
         batch.snapshot_identity(),
         50,
         100,
@@ -1448,7 +1466,7 @@ async fn persist_market_semantics(
         return Err(BarJoinedCutAcceptanceUnavailableV1);
     };
 
-    if fact.compatibility_scope_identity() != digest(84) || fact.value() != value {
+    if fact.compatibility_scope_identity() != scope || fact.value() != value {
         return Err(BarJoinedCutAcceptanceUnavailableV1);
     }
     transaction

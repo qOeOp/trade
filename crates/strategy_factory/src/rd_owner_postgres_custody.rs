@@ -499,6 +499,7 @@ async fn native_research_custody_from_boundary(
         effective_principal: replay_admission.effective_principal().to_string(),
         authorized_scope: replay_admission.authorized_scope().to_vec(),
         request_schema_version: 2,
+        initial_pit: None,
         terminal_attempt_admission: None,
     })
 }
@@ -650,6 +651,8 @@ pub(crate) struct VerifiedResearchCustodyV1 {
     effective_principal: String,
     authorized_scope: Vec<String>,
     request_schema_version: u32,
+    /// The initial PIT request state of an accepted V3 request, read in the same transaction.
+    initial_pit: Option<crate::research_initial_pit_v1::ResearchInitialPitV1>,
     terminal_attempt_admission: Option<Box<ProductEdgeAdmissionReadbackV1>>,
 }
 
@@ -1974,6 +1977,7 @@ impl VerifiedResearchCustodyV1 {
             trial_family_resolution: TrialFamilyResolutionV1::unavailable(),
             trial_family: None,
             next_legal_action: ResearchNextLegalAction::ResolveSameRequestIdentity,
+            initial_pit: None,
         })
     }
 
@@ -1994,6 +1998,7 @@ impl VerifiedResearchCustodyV1 {
                 independence_basis: self.independence_basis,
                 protected_feedback: self.protected_feedback,
                 next_legal_action: ResearchNextLegalAction::CorrectInputAndCreateSuccessorRequest,
+                initial_pit: None,
             }),
             ResearchRequestDisposition::Accepted => {
                 let Some(FrozenResearchGoalIntent::V2(_)) = self.intent else {
@@ -2027,6 +2032,7 @@ impl VerifiedResearchCustodyV1 {
                     independence_basis: self.independence_basis,
                     protected_feedback: self.protected_feedback,
                     next_legal_action,
+                    initial_pit: self.initial_pit,
                 })
             }
         }
@@ -2362,6 +2368,7 @@ async fn admit_preloaded_research_row_in_transaction(
             effective_principal: commit.effective_principal,
             authorized_scope: commit.authorized_scope,
             request_schema_version,
+            initial_pit: None,
             terminal_attempt_admission: None,
         });
     }
@@ -2445,6 +2452,7 @@ async fn admit_preloaded_research_row_in_transaction(
             effective_principal: commit.effective_principal,
             authorized_scope: commit.authorized_scope,
             request_schema_version: 2,
+            initial_pit: None,
             terminal_attempt_admission: None,
         });
     }
@@ -2699,6 +2707,7 @@ async fn admit_preloaded_research_row_in_transaction(
                 effective_principal,
                 authorized_scope,
                 request_schema_version,
+                initial_pit: None,
                 terminal_attempt_admission: match preadmitted_authority {
                     PreadmittedResearchAuthorityV1::Current {
                         terminal_attempt, ..
@@ -2748,6 +2757,7 @@ async fn admit_preloaded_research_row_in_transaction(
                 effective_principal,
                 authorized_scope,
                 request_schema_version,
+                initial_pit: None,
                 terminal_attempt_admission: match preadmitted_authority {
                     PreadmittedResearchAuthorityV1::Current {
                         terminal_attempt, ..
@@ -3028,7 +3038,27 @@ fn supported_research_representation_count(
     .count()
 }
 
+/// Completes one custody's lineage and reads its initial PIT request state in the same transaction,
+/// so every result built from custody states it, never inferring it.
 async fn complete_research_custody_in_transaction(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    custody: VerifiedResearchCustodyV1,
+) -> Result<VerifiedResearchCustodyV1, ResearchGoalOwnerError> {
+    let mut custody = Box::pin(complete_research_custody_lineage_in_transaction(
+        transaction,
+        custody,
+    ))
+    .await?;
+    custody.initial_pit =
+        crate::product_edge_postgres::research_initial_pit::initial_pit_for_custody_in_transaction(
+            transaction,
+            &custody,
+        )
+        .await?;
+    Ok(custody)
+}
+
+async fn complete_research_custody_lineage_in_transaction(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     mut custody: VerifiedResearchCustodyV1,
 ) -> Result<VerifiedResearchCustodyV1, ResearchGoalOwnerError> {
@@ -3519,6 +3549,7 @@ mod tests {
             effective_principal: "legacy-principal".into(),
             authorized_scope: vec!["research".into()],
             request_schema_version: 2,
+            initial_pit: None,
             terminal_attempt_admission: None,
         };
 
@@ -3563,6 +3594,7 @@ mod tests {
             effective_principal: String::new(),
             authorized_scope: Vec::new(),
             request_schema_version: 2,
+            initial_pit: None,
             terminal_attempt_admission: None,
         };
 

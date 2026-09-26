@@ -412,14 +412,66 @@ async def test_search_rejects_malformed_envelope() -> None:
     assert caught.value.reason == "search_results_invalid"
 
 
-async def test_search_rejects_upstream_nonzero_code() -> None:
-    http = FakeHttp({"code": -403, "message": "denied"})
+@pytest.mark.parametrize(
+    ("envelope_code", "code", "reason"),
+    (
+        (-412, "RATE_LIMITED", "source_risk_control_blocked"),
+        (-403, "ACCESS_DENIED", "source_access_forbidden"),
+        (-400, "SOURCE_UNAVAILABLE", "search_request_rejected"),
+    ),
+)
+async def test_search_upstream_nonzero_code_names_its_cause(
+    envelope_code: int, code: str, reason: str
+) -> None:
+    http = FakeHttp({"code": envelope_code, "message": "refused"})
 
     with pytest.raises(BilibiliNoteFailure) as caught:
         await BilibiliSearch(cast(SafeHttpClient, http)).search("趋势交易", 2)
 
-    assert caught.value.code == "SOURCE_UNAVAILABLE"
-    assert caught.value.reason == "search_request_rejected"
+    assert (caught.value.code, caught.value.reason) == (code, reason)
+
+
+# A search Bilibili answers with no results at all is SEARCH_EMPTY, not a broken source: it omits
+# `result` (or sends null) and says `numResults: 0`. It used to fail as
+# SOURCE_UNAVAILABLE/search_results_invalid.
+@pytest.mark.parametrize(
+    "data",
+    (
+        {"numResults": 0, "page": 1},
+        {"numResults": 0, "page": 1, "result": None},
+    ),
+)
+async def test_search_with_no_upstream_results_is_named_empty(data: dict[str, Any]) -> None:
+    http = FakeHttp({"code": 0, "data": data})
+
+    with pytest.raises(BilibiliNoteFailure) as caught:
+        await BilibiliSearch(cast(SafeHttpClient, http)).search("罗尼交易指南", 2)
+
+    assert (caught.value.code, caught.value.reason) == ("SEARCH_EMPTY", "search_no_results")
+
+
+# Only an explicit zero count means empty: a missing list with results claimed, or with no count,
+# is still a malformed response.
+@pytest.mark.parametrize(
+    "data",
+    (
+        {"numResults": 3, "page": 1},
+        {"page": 1},
+        {"numResults": False, "page": 1},
+    ),
+)
+async def test_search_missing_results_without_a_zero_count_stays_invalid(
+    data: dict[str, Any],
+) -> None:
+    http = FakeHttp({"code": 0, "data": data})
+
+    with pytest.raises(BilibiliNoteFailure) as caught:
+        await BilibiliSearch(cast(SafeHttpClient, http)).search("趋势交易", 2)
+
+    assert (caught.value.code, caught.value.reason) == (
+        "SOURCE_UNAVAILABLE",
+        "search_results_invalid",
+    )
 
 
 async def test_search_rejects_boolean_success_code() -> None:

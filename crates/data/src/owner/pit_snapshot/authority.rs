@@ -1326,6 +1326,12 @@ pub(crate) fn prepare_observation_batch(
     Ok(prepared)
 }
 
+/// The records digest of a snapshot whose Data Client answered no rows: the digest of the canonical
+/// batch encoding of zero rows. No batch with rows has it, and no such snapshot stores a batch.
+pub(crate) fn empty_observation_batch_digest_v1() -> BindingDigest {
+    digest(&canonical_batch_bytes(&[]))
+}
+
 pub(crate) fn derive_observation_batch_digest(
     proposal: &UntrustedPitObservationBatchProposal,
 ) -> Result<BindingDigest, PitSnapshotError> {

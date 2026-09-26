@@ -204,9 +204,17 @@ class SafeHttpClient:
 
     @staticmethod
     def _check_status(status: int) -> None:
+        # Each refusal names its cause: waiting helps a 412 (Bilibili's risk-control block) or a
+        # 429, signing in may help a 401, and nothing this service may do helps a 403 or a 451.
         if status == 429:
             raise BilibiliNoteFailure("RATE_LIMITED", "source_rate_limited")
-        if status in {401, 403, 412, 451}:
-            raise BilibiliNoteFailure("ACCESS_DENIED", "source_access_denied")
+        if status == 412:
+            raise BilibiliNoteFailure("RATE_LIMITED", "source_risk_control_blocked")
+        if status == 401:
+            raise BilibiliNoteFailure("ACCESS_DENIED", "source_login_required")
+        if status == 403:
+            raise BilibiliNoteFailure("ACCESS_DENIED", "source_access_forbidden")
+        if status == 451:
+            raise BilibiliNoteFailure("ACCESS_DENIED", "source_region_restricted")
         if status < 200 or status >= 300:
             raise BilibiliNoteFailure("SOURCE_UNAVAILABLE", "source_http_failed")

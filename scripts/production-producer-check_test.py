@@ -109,7 +109,7 @@ def main():
         REV,
         "commit_source_intake_success_terminal_in_transaction",
     )
-    loud, _ = ppc.classify_callers(REV, "admit_market_data_universe_program_event_v2")
+    loud, _ = ppc.classify_callers(REV, "admit_owner_universe_program_event_v2")
     check(
         len(silent_other) > 0,
         "commit_source_intake_success_terminal_in_transaction: no callers found at all",
@@ -120,7 +120,7 @@ def main():
     )
     check(
         len(loud) > 0,
-        "admit_market_data_universe_program_event_v2: 0 production callers, so that branch never fired",
+        "admit_owner_universe_program_event_v2: 0 production callers, so that branch never fired",
     )
 
     # A value produced by decoding into an annotated binding, against one that has no such
@@ -149,7 +149,7 @@ def main():
         return out
 
     dead_cluster = host_counts("prepare_binding_from_verified_owner_v2")
-    live_path = host_counts("admit_market_data_universe_program_event_v2")
+    live_path = host_counts("admit_owner_universe_program_event_v2")
     check(
         len(dead_cluster) > 0,
         "prepare_binding_from_verified_owner_v2: no production caller to inspect",
@@ -195,7 +195,7 @@ def main():
     lonely_declarations, lonely_mentions = ppc.occurrences(REV, lonely)
     busy_declarations, busy_mentions = ppc.occurrences(
         REV,
-        "admit_market_data_universe_program_event_v2",
+        "admit_owner_universe_program_event_v2",
     )
     check(lonely_declarations > 0, f"{lonely}: not declared anywhere, so the case below is vacuous")
     check(
@@ -204,11 +204,11 @@ def main():
     )
     check(
         busy_mentions > 0,
-        "admit_market_data_universe_program_event_v2: 0 mentions, so that branch never fired",
+        "admit_owner_universe_program_event_v2: 0 mentions, so that branch never fired",
     )
     check(
         busy_declarations > 0,
-        "admit_market_data_universe_program_event_v2: not declared anywhere",
+        "admit_owner_universe_program_event_v2: not declared anywhere",
     )
     check(
         not any(g for g in definition_gates(lonely)),

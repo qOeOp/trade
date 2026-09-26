@@ -139,5 +139,6 @@
       "frontier_digest": "sha256:73ec89ca5d972ffc1e5eee2612365254950ca4d7677ee2f0b7a776d420498dbd"
     }
   },
-  "next_legal_action": "WAIT_FOR_R_AND_D_EXECUTION"
+  "next_legal_action": "WAIT_FOR_R_AND_D_EXECUTION",
+  "initial_pit": null
 }

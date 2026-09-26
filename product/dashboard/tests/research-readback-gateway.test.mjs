@@ -75,6 +75,7 @@ test("verified unknown stays available without inventing an outcome", async () =
     trial_family_resolution: "UNAVAILABLE",
     trial_family: null,
     next_legal_action: "RESOLVE_SAME_REQUEST_IDENTITY",
+    initial_pit: null,
   };
   const result = await readResearchReadbackGatewayV1({
     requestIdentity: unknown.request_identity,
@@ -98,6 +99,7 @@ test("verified legacy terminal custody stays visible without becoming current Re
     trial_family_resolution: "UNAVAILABLE",
     trial_family: null,
     next_legal_action: "RESOLVE_SAME_REQUEST_IDENTITY",
+    initial_pit: null,
   };
   const result = await readResearchReadbackGatewayV1({
     requestIdentity: quarantined.request_identity,

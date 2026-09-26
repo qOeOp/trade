@@ -348,7 +348,8 @@ pub enum StrategyInputBindingUnavailable {
     UnsupportedLifecycleKind,
     /// The canonical row lacks a non-zero Owner ordering coordinate.
     MissingLifecycleCoordinate,
-    /// The verified batch does not contain exactly two canonical universe members.
+    /// The verified batch does not contain an admitted count of canonical universe members: one
+    /// or two.
     InvalidUniverseCardinality,
     /// Member keys and canonical instruments do not form a one-to-one mapping.
     InconsistentUniverseMember,
@@ -657,7 +658,7 @@ impl StrategyInputUniverseMember {
     }
 }
 
-/// Owner-sealed exactly-two-member universe selection for one verified PIT batch.
+/// Owner-sealed one- or two-member universe selection for one verified PIT batch.
 ///
 /// The selection identity is derived from Owner facts, not accepted from the caller. The receipt
 /// has no public constructor and deliberately does not implement `Deserialize`.
@@ -765,7 +766,8 @@ impl StrategyInputUniverseValueReceipt {
     }
 }
 
-/// One atomic Owner-sealed two-member selection and canonically ordered member/role frame.
+/// One atomic Owner-sealed selection of one or two members and its canonically ordered
+/// member/role frame.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StrategyInputUniverseFrameReceipt {
     selection: StrategyInputUniverseSelectionReceipt,
@@ -1508,7 +1510,7 @@ fn static_binding_matches_row(
         && row.market_semantics_identity() == locator.market_semantics_identity
 }
 
-/// Derives and seals one exactly-two-member universe plus every requested role for every member.
+/// Derives and seals one universe of one or two members plus every requested role for every member.
 ///
 /// Membership comes only from the complete verified batch. `UniverseSelection.selection_identity`
 /// is an untrusted expected identity and must equal the Owner-derived identity. Exact-instrument and
@@ -1516,12 +1518,31 @@ fn static_binding_matches_row(
 ///
 /// # Errors
 ///
-/// Returns a structured unavailable state for an incomplete or inconsistent two-member universe,
+/// Returns a structured unavailable state for an incomplete or inconsistent universe,
 /// stale authority, unsupported caller scope, or missing, ambiguous, or incompatible member-role row.
 pub fn bind_strategy_input_universe_frame(
     requests: &[UntrustedStrategyInputBindingRequest],
     batch: &VerifiedPitObservationBatch,
 ) -> Result<StrategyInputUniverseFrameReceipt, StrategyInputBindingUnavailable> {
+    bind_strategy_input_universe_frame_with_sources_v1(requests, batch).map(|(frame, _)| frame)
+}
+
+/// Binds one universe frame and, in the same pass, the row each of its values reads.
+///
+/// The sources are in the frame's value order, and each carries the member binding digest and
+/// canonical row digest its value was issued with. A sample written from them is a sample of
+/// exactly the rows the frame a host admits was built from, because this is the only code that
+/// resolves a universe member's row.
+pub(crate) fn bind_strategy_input_universe_frame_with_sources_v1<'a>(
+    requests: &'a [UntrustedStrategyInputBindingRequest],
+    batch: &'a VerifiedPitObservationBatch,
+) -> Result<
+    (
+        StrategyInputUniverseFrameReceipt,
+        Vec<UniverseMemberSampleSourceV1<'a>>,
+    ),
+    StrategyInputBindingUnavailable,
+> {
     if requests.is_empty() {
         return Err(StrategyInputBindingUnavailable::MissingField(
             "universe_frame",
@@ -1559,30 +1580,53 @@ pub fn bind_strategy_input_universe_frame(
     }
 
     let mut resolved = Vec::with_capacity(requests.len() * selection.members().len());
-    for member in selection.members() {
+    for (ordinal, member) in selection.members().iter().enumerate() {
+        let ordinal = u8::try_from(ordinal)
+            .map_err(|_| StrategyInputBindingUnavailable::MissingField("member_ordinal"))?;
+
         for request in requests {
             let row = resolve_universe_member_role(request, member, batch)?;
             let binding_digest = universe_member_binding_digest(request, &selection, member, row);
-            resolved.push((member, request, row, binding_digest));
+            resolved.push((ordinal, member, request, row, binding_digest));
         }
     }
     resolved.sort_by(|left, right| {
         (
-            left.0.member_key(),
-            left.0.instrument(),
-            left.1.input_role_identity,
+            left.1.member_key(),
+            left.1.instrument(),
+            left.2.input_role_identity,
         )
             .cmp(&(
-                right.0.member_key(),
-                right.0.instrument(),
-                right.1.input_role_identity,
+                right.1.member_key(),
+                right.1.instrument(),
+                right.2.input_role_identity,
             ))
     });
-    let trigger = issue_universe_trigger_receipt(batch, &selection, &resolved)?;
+    let trigger_inputs = resolved
+        .iter()
+        .map(|(_, member, request, row, binding_digest)| (*member, *request, *row, *binding_digest))
+        .collect::<Vec<_>>();
+    let trigger = issue_universe_trigger_receipt(batch, &selection, &trigger_inputs)?;
+    let mut sources = Vec::with_capacity(resolved.len());
     let values = resolved
         .into_iter()
-        .map(|(member, request, row, binding_digest)| {
-            issue_universe_value_receipt(&trigger, member, request, row, batch, binding_digest)
+        .map(|(member_ordinal, member, request, row, binding_digest)| {
+            let value =
+                issue_universe_value_receipt(&trigger, member, request, row, batch, binding_digest);
+            sources.push(UniverseMemberSampleSourceV1 {
+                member_ordinal,
+                source: SampleSourceV1 {
+                    binding_digest,
+                    instrument: row.instrument(),
+                    field_semantic_identity: request.field_semantic.identity(),
+                    unit: request.unit.canonical(),
+                    market_semantics_identity: selection.market_semantics_identity(),
+                    batch,
+                    row,
+                    canonical_row_digest: value.canonical_row_digest(),
+                },
+            });
+            value
         })
         .collect::<Vec<_>>()
         .into_boxed_slice();
@@ -1594,12 +1638,15 @@ pub fn bind_strategy_input_universe_frame(
         canonical.digest(value.digest());
     }
     let digest = digest(&canonical.finish());
-    Ok(StrategyInputUniverseFrameReceipt {
-        selection,
-        trigger,
-        values,
-        digest,
-    })
+    Ok((
+        StrategyInputUniverseFrameReceipt {
+            selection,
+            trigger,
+            values,
+            digest,
+        },
+        sources,
+    ))
 }
 
 pub(crate) fn derive_universe_selection(
@@ -1700,7 +1747,8 @@ pub(crate) fn derive_universe_selection(
     })
 }
 
-/// Returns the canonical Owner-derived identity for the complete verified two-member universe.
+/// Returns the canonical Owner-derived identity for the complete verified universe of one or two
+/// members.
 ///
 /// This crate-Owner-only helper keeps acceptance composition on the same codec and validation path
 /// used by [`bind_strategy_input_universe_frame`]. It exposes no selection receipt or mint to
@@ -2246,32 +2294,42 @@ fn canonical_row_binding_bytes(row: &VerifiedPitObservation) -> Vec<u8> {
     encoder.finish()
 }
 
-/// Exact unchanged V1 evidence projected for the additive sample-fact owner.
+/// The one row a binding reads, with what that binding states about it, for the sample owner.
 ///
-/// This is deliberately visible only to sibling Market Data owner modules. It reuses the V1 row
-/// resolver and row codec instead of teaching the additive owner to reinterpret a binding or row.
-#[allow(
-    dead_code,
-    reason = "consumed by the additive sample-fact module after PostgreSQL owner fan-in"
-)]
-pub(super) struct SampleFactV1Projection<'a> {
-    pub(super) binding: &'a StrategyInputBindingReceipt,
-    pub(super) batch: &'a VerifiedPitObservationBatch,
-    pub(super) row: &'a VerifiedPitObservation,
-    pub(super) canonical_row_digest: BindingDigest,
+/// A sample is keyed by this row and never by the binding: `binding_digest` enters only the
+/// timeframe-projection receipt through which this binding reads the sample. It is the static
+/// binding receipt digest for an exact-instrument binding and the universe member binding digest
+/// for a universe member, which has no static receipt.
+pub(crate) struct SampleSourceV1<'a> {
+    pub(crate) binding_digest: BindingDigest,
+    pub(crate) instrument: &'a str,
+    pub(crate) field_semantic_identity: &'static str,
+    pub(crate) unit: &'static str,
+    pub(crate) market_semantics_identity: BindingDigest,
+    pub(crate) batch: &'a VerifiedPitObservationBatch,
+    pub(crate) row: &'a VerifiedPitObservation,
+    pub(crate) canonical_row_digest: BindingDigest,
 }
 
-#[allow(
-    dead_code,
-    reason = "consumed by the additive sample-fact module after PostgreSQL owner fan-in"
-)]
+/// One universe frame value's sample source, with the member ordinal the frame orders it by.
+pub(crate) struct UniverseMemberSampleSourceV1<'a> {
+    pub(crate) member_ordinal: u8,
+    pub(crate) source: SampleSourceV1<'a>,
+}
+
+/// The row one exact-instrument binding reads, resolved by the unchanged V1 row resolver.
 pub(super) fn project_sample_fact_v1<'a>(
     binding: &'a StrategyInputBindingReceipt,
     batch: &'a VerifiedPitObservationBatch,
-) -> Result<SampleFactV1Projection<'a>, StrategyInputBindingUnavailable> {
+) -> Result<SampleSourceV1<'a>, StrategyInputBindingUnavailable> {
     let row = resolve_static_binding_row(binding, batch)?;
-    Ok(SampleFactV1Projection {
-        binding,
+    let locator = binding.locator();
+    Ok(SampleSourceV1 {
+        binding_digest: binding.digest(),
+        instrument: locator.instrument(),
+        field_semantic_identity: locator.field_semantic_identity(),
+        unit: locator.unit(),
+        market_semantics_identity: locator.market_semantics_identity(),
         batch,
         row,
         canonical_row_digest: digest(&canonical_row_binding_bytes(row)),

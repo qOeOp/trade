@@ -29,8 +29,7 @@ use vibe_backtest_owner_contracts::native_replay_trace::{
 };
 use vibe_common::actor::DataActor;
 use vibe_data::owner::{
-    source_binding::BindingDigest,
-    strategy_input_binding::{StrategyInputEventKind, StrategyInputUniverseFrameReceipt},
+    source_binding::BindingDigest, strategy_input_binding::StrategyInputEventKind,
 };
 use vibe_model::{
     accounts::Account,
@@ -50,8 +49,8 @@ use vibe_trading::{
 use crate::{
     artifact_v2::StrategyArtifactV2,
     program_host_v2::{
-        AdmittedProgramEventV2, PreparedBacktestTargetSetV2, ProgramHostV2, ProgramHostV2Error,
-        admit_market_data_universe_program_event_v2,
+        AdmittedProgramEventV2, OwnerUniverseFrameV1, PreparedBacktestTargetSetV2, ProgramHostV2,
+        ProgramHostV2Error, admit_owner_universe_program_event_v2,
     },
     strategy_plan_v2::StrategyPlanV2,
     target_set_members::{BoundedMembers, update_member_count_domain},
@@ -198,7 +197,7 @@ impl BacktestReconciliationCapabilityV2 {
 }
 
 enum BacktestUniverseFrameV2 {
-    Owner(StrategyInputUniverseFrameReceipt),
+    Owner(OwnerUniverseFrameV1),
     #[cfg(test)]
     Admitted(AdmittedProgramEventV2),
 }
@@ -244,7 +243,7 @@ impl BacktestTargetSetProgramHostStrategyV2 {
         artifact: StrategyArtifactV2,
         instrument_ids: BoundedMembers<InstrumentId>,
         bar_types: BoundedMembers<BarType>,
-        universe_frames: impl IntoIterator<Item = StrategyInputUniverseFrameReceipt>,
+        universe_frames: impl IntoIterator<Item = OwnerUniverseFrameV1>,
         expected_account_id: Option<AccountId>,
         restore_after_first_terminal_fill: bool,
         restore_performed: Rc<Cell<bool>>,
@@ -263,7 +262,7 @@ impl BacktestTargetSetProgramHostStrategyV2 {
         let mut frames = BTreeMap::new();
 
         for frame in universe_frames {
-            let lifecycle = frame.trigger().lifecycle();
+            let lifecycle = frame.frame().trigger().lifecycle();
             anyhow::ensure!(
                 matches!(lifecycle.kind(), StrategyInputEventKind::Bar)
                     && frames
@@ -435,7 +434,7 @@ impl BacktestTargetSetProgramHostStrategyV2 {
     ) -> anyhow::Result<()> {
         let admitted = match frame {
             BacktestUniverseFrameV2::Owner(frame) => {
-                admit_market_data_universe_program_event_v2(&self.plan, frame)?
+                admit_owner_universe_program_event_v2(&self.plan, frame)?
             }
             #[cfg(test)]
             BacktestUniverseFrameV2::Admitted(event) => event.clone(),

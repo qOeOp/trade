@@ -9,7 +9,7 @@
 //! ordered `Data` of its window, and the members' public terms materialize the `InstrumentAny`.
 
 use thiserror::Error;
-use vibe_data::owner::strategy_input_binding::StrategyInputUniverseFrameReceipt;
+
 use vibe_data::owner::{
     instrument_economic_terms_v1::InstrumentEconomicTermsReadbackV1,
     instrument_master::{InstrumentMasterReadbackV1, verify_instrument_master_readback},
@@ -28,6 +28,7 @@ use vibe_model::identifiers::StrategyId;
 use crate::{
     artifact_v2::StrategyArtifactV2,
     native_replay_preparation_inputs_v2::NativeReplayPreparationInputsV2,
+    program_host_v2::OwnerUniverseFrameV1,
     replay_execution_profile_binding_v1::{
         OwnerIssuedReplayExecutionProfileBindingV1,
         issue_owner_replay_execution_profile_binding_from_readbacks_v1,
@@ -110,7 +111,7 @@ pub enum NativeReplayExecutionPrerequisitesErrorV2 {
 pub async fn compose_native_replay_execution_bundle_v2(
     prerequisites: NativeReplayExecutionPrerequisitesV2,
     scheduling_request: &UntrustedNativeReplaySchedulingRequestV1,
-    universe_frames: Vec<StrategyInputUniverseFrameReceipt>,
+    universe_frames: Vec<OwnerUniverseFrameV1>,
     sequence: NativeReplayFrameSequenceReadbackV2,
     plan: StrategyPlanV2,
     artifact: StrategyArtifactV2,

@@ -28,6 +28,33 @@ TOOL = Path(
 BUILD = """\
 name: build
 jobs:
+  postgres-owner-chain-archive-linux-x86:
+    name: rd owner archive
+    env:
+      CARGO_CI_PROFILE: >-
+        ${{ (github.event_name == 'pull_request'
+        || github.event_name == 'merge_group'
+        || github.ref_name == 'main' || github.ref_name == 'test-ci')
+        && 'ci-pr' || 'nextest' }}
+      CARGO_TARGET_DIR: >-
+        ${{ (github.event_name == 'pull_request'
+        || github.event_name == 'merge_group'
+        || github.ref_name == 'main' || github.ref_name == 'test-ci')
+        && 'target/rust-tests-linux-x86'
+        || '/home/runner/.cache/cargo-target/rust-tests-linux-x86' }}
+      RUST_TEST_EXTRA_FEATURES: capnp,hypersync
+      RUST_BACKTRACE: 1
+    steps:
+      - uses: ./.github/actions/common-setup
+        with:
+          python-version: "3.13"
+          rust-cache-enabled: ${{ runner.environment == 'github-hosted' && 'true' || 'false' }}
+          rust-cache-shared-key: rd-owner-chain-archive-linux-x86
+          rust-cache-workspaces: . -> target/rust-tests-linux-x86
+          rust-cache-on-failure: "false"
+          rust-cache-workspace-crates: "false"
+          rust-cache-save-if: ${{ env.SAVE_BUILD_CACHES }}
+      - run: make archive
   postgres-owner-chains-linux-x86:
     name: ${{ matrix.chain.name }}
     env:
@@ -56,6 +83,24 @@ jobs:
 CHAINS = """\
 name: owner-chains
 jobs:
+  rd-owner-archive:
+    env:
+      CARGO_CI_PROFILE: ci-pr
+      CARGO_TARGET_DIR: target/rust-tests-linux-x86
+      RUST_TEST_EXTRA_FEATURES: capnp,hypersync
+      RUST_BACKTRACE: 1
+    steps:
+      - uses: ./.github/actions/common-setup
+        with:
+          python-version: "3.13"
+          rust-cache-enabled: "true"
+          rust-cache-shared-key: rd-owner-chain-archive-linux-x86
+          rust-cache-workspaces: . -> target/rust-tests-linux-x86
+          rust-cache-on-failure: "false"
+          rust-cache-workspace-crates: "false"
+          rust-cache-save-if: "false"
+      - run: make archive
+
   owner-chain:
     name: ${{ matrix.chain.name }}
     env:
@@ -99,6 +144,19 @@ def mutate(text: str, old: str, new: str) -> str:
     return text.replace(old, new)
 
 
+def within(text: str, job_header: str, old: str, new: str) -> str:
+    """
+    Apply `mutate` inside one job's block only, so the same line in another job stays.
+    """
+    start = text.index(job_header)
+    following = [text.find("\n  ", start + len(job_header))]
+    end = following[0] if following[0] != -1 else len(text)
+    while end != len(text) and text[end + 3] == " ":
+        nxt = text.find("\n  ", end + 1)
+        end = nxt if nxt != -1 else len(text)
+    return text[:start] + mutate(text[start:end], old, new) + text[end:]
+
+
 def main() -> int:
     failures = []
 
@@ -109,35 +167,49 @@ def main() -> int:
     refused = {
         "owner-chain profile back to nextest": (
             BUILD,
-            mutate(
+            within(
                 CHAINS,
-                "      CARGO_CI_PROFILE: ci-pr\n      CARGO_TARGET_DIR: target/rust-tests-linux-x86\n      RUST_TEST",
-                "      CARGO_CI_PROFILE: nextest\n      CARGO_TARGET_DIR: target/rust-tests-linux-x86\n      RUST_TEST",
+                "  owner-chain:\n",
+                "      CARGO_CI_PROFILE: ci-pr\n",
+                "      CARGO_CI_PROFILE: nextest\n",
             ),
             "job `owner-chain` sets CARGO_CI_PROFILE='nextest'",
         ),
+        "owner-chains archive job builds with nextest": (
+            BUILD,
+            within(
+                CHAINS,
+                "  rd-owner-archive:\n",
+                "      CARGO_CI_PROFILE: ci-pr\n",
+                "      CARGO_CI_PROFILE: nextest\n",
+            ),
+            "job `rd-owner-archive` sets CARGO_CI_PROFILE='nextest'",
+        ),
         "venue leg profile back to nextest": (
             BUILD,
-            mutate(
+            within(
                 CHAINS,
-                "    env:\n      CARGO_CI_PROFILE: ci-pr\n      CARGO_TARGET_DIR: target/rust-tests-linux-x86\n      RUST_BACKTRACE",
-                "    env:\n      CARGO_CI_PROFILE: nextest\n      CARGO_TARGET_DIR: target/rust-tests-linux-x86\n      RUST_BACKTRACE",
+                "  venue-end-to-end:\n",
+                "      CARGO_CI_PROFILE: ci-pr\n",
+                "      CARGO_CI_PROFILE: nextest\n",
             ),
             "job `venue-end-to-end` sets CARGO_CI_PROFILE='nextest'",
         ),
         "owner-chain target directory moved off the cached one": (
             BUILD,
-            mutate(
+            within(
                 CHAINS,
-                "ci-pr\n      CARGO_TARGET_DIR: target/rust-tests-linux-x86\n      RUST_TEST",
-                "ci-pr\n      CARGO_TARGET_DIR: /tmp/elsewhere\n      RUST_TEST",
+                "  owner-chain:\n",
+                "      CARGO_TARGET_DIR: target/rust-tests-linux-x86\n",
+                "      CARGO_TARGET_DIR: /tmp/elsewhere\n",
             ),
             "sets CARGO_TARGET_DIR='/tmp/elsewhere'",
         ),
         "owner-chain features differ": (
             BUILD,
-            mutate(
+            within(
                 CHAINS,
+                "  owner-chain:\n",
                 "RUST_TEST_EXTRA_FEATURES: capnp,hypersync",
                 "RUST_TEST_EXTRA_FEATURES: capnp",
             ),
@@ -145,21 +217,78 @@ def main() -> int:
         ),
         "owner-chain adds a Cargo variable build lacks": (
             BUILD,
-            mutate(
+            within(
                 CHAINS,
-                "      RUST_BACKTRACE: 1\n      VIBE",
-                "      RUST_BACKTRACE: 1\n      CARGO_INCREMENTAL: 1\n      VIBE",
+                "  owner-chain:\n",
+                "      RUST_BACKTRACE: 1\n",
+                "      RUST_BACKTRACE: 1\n      CARGO_INCREMENTAL: 1\n",
             ),
             "sets CARGO_INCREMENTAL, which build.yml's chain job does not",
         ),
+        "build's archive job builds with another profile": (
+            within(
+                BUILD,
+                "  postgres-owner-chain-archive-linux-x86:\n",
+                "&& 'ci-pr' || 'nextest' }}",
+                "&& 'nextest' || 'nextest' }}",
+            ),
+            CHAINS,
+            "build.yml job `postgres-owner-chain-archive-linux-x86` sets CARGO_CI_PROFILE='nextest'",
+        ),
+        "build's archive job restores rust tests's entry": (
+            within(
+                BUILD,
+                "  postgres-owner-chain-archive-linux-x86:\n",
+                "rust-cache-shared-key: rd-owner-chain-archive-linux-x86",
+                "rust-cache-shared-key: rust-tests-linux-x86",
+            ),
+            CHAINS,
+            "job `postgres-owner-chain-archive-linux-x86` restores `rust tests`'s cache entry",
+        ),
+        "owner-chains archive job saves from a test-chain push": (
+            BUILD,
+            within(
+                CHAINS,
+                "  rd-owner-archive:\n",
+                'rust-cache-save-if: "false"',
+                'rust-cache-save-if: "true"',
+            ),
+            "job `rd-owner-archive` sets rust-cache-save-if='\"true\"', expected '\"false\"'",
+        ),
+        "owner-chains archive job caches workspace crates too": (
+            BUILD,
+            within(
+                CHAINS,
+                "  rd-owner-archive:\n",
+                'rust-cache-workspace-crates: "false"',
+                'rust-cache-workspace-crates: "true"',
+            ),
+            "sets rust-cache-workspace-crates='\"true\"', expected '\"false\"'",
+        ),
+        "build's archive job drops the cache": (
+            within(
+                BUILD,
+                "  postgres-owner-chain-archive-linux-x86:\n",
+                "          rust-cache-enabled: ${{ runner.environment == 'github-hosted' && 'true' || 'false' }}\n",
+                "",
+            ),
+            CHAINS,
+            "sets rust-cache-enabled='unset'",
+        ),
         "build's acceptance value changes and owner-chains does not follow": (
-            mutate(BUILD, "&& 'ci-pr' || 'nextest' }}", "&& 'nextest' || 'nextest' }}"),
+            within(
+                BUILD,
+                "  postgres-owner-chains-linux-x86:\n",
+                "&& 'ci-pr' || 'nextest' }}",
+                "&& 'nextest' || 'nextest' }}",
+            ),
             CHAINS,
             "builds with 'nextest' on a pull request",
         ),
         "build's condition stops naming test-ci": (
-            mutate(
+            within(
                 BUILD,
+                "  postgres-owner-chains-linux-x86:\n",
                 "|| github.ref_name == 'main' || github.ref_name == 'test-ci')\n        && 'ci-pr'",
                 "|| github.ref_name == 'main')\n        && 'ci-pr'",
             ),
@@ -167,8 +296,9 @@ def main() -> int:
             "no longer takes its CARGO_CI_PROFILE branch on github.ref_name == 'test-ci'",
         ),
         "build's expression takes an unreadable form": (
-            mutate(
+            within(
                 BUILD,
+                "  postgres-owner-chains-linux-x86:\n",
                 "&& 'ci-pr' || 'nextest' }}",
                 "&& format('{0}', 'ci-pr') || 'nextest' }}",
             ),

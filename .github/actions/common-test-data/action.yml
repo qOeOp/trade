@@ -4,15 +4,33 @@ description: Common test data caching
 runs:
   using: "composite"
   steps:
+    # A pull request or merge-queue run restores only. An entry saved there is scoped to that one
+    # ref, so no other run can read it, while it still counts against the shared 10 GB quota: on
+    # 2026-09-26 three pull requests held one 0.21 GB copy each, and the quota evicted main's
+    # py-stubs entry. Every other event restores and, on a miss, saves.
     - name: Cache test data
       # Skip on macOS: hashFiles() broken in composite actions after Nov 20 runner update
       # See: https://github.com/actions/runner/issues/3765
-      if: runner.os != 'macOS'
+      if: >-
+        runner.os != 'macOS'
+        && github.event_name != 'pull_request' && github.event_name != 'merge_group'
       # The post step saves files downloaded by the Rust tests on a cache miss.
       # https://github.com/actions/cache
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         # Keep the tracked checksum manifest from the checked-out commit.
+        path: test_data/large/*.parquet
+        key: large-files-${{ hashFiles('test_data/large/checksums.json') }}
+        restore-keys: large-files-
+        enableCrossOsArchive: true
+
+    - name: Restore test data
+      if: >-
+        runner.os != 'macOS'
+        && (github.event_name == 'pull_request' || github.event_name == 'merge_group')
+      # https://github.com/actions/cache/tree/main/restore
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
         path: test_data/large/*.parquet
         key: large-files-${{ hashFiles('test_data/large/checksums.json') }}
         restore-keys: large-files-

@@ -108,7 +108,7 @@ TEST_ATTR_RE = re.compile(r"#\[(?:tokio::)?(?:rstest::)?(?:test|rstest)")
 
 DEFAULT_CONTROLS = {
     "type": "StrategyPlanV2",
-    "function": "admit_market_data_universe_program_event_v2",
+    "function": "admit_owner_universe_program_event_v2",
 }
 
 

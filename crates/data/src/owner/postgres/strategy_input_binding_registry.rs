@@ -1097,7 +1097,7 @@ async fn resolve_complete_strategy_input_roles_with_mode_v1(
     Ok((bindings.into_boxed_slice(), frames.into_boxed_slice()))
 }
 
-async fn rederive_strategy_input_binding_declaration_read_only_v1(
+pub(super) async fn rederive_strategy_input_binding_declaration_read_only_v1(
     transaction: &mut Transaction<'_, Postgres>,
     pit_request_identity: BindingDigest,
     strategy_design_identity: BindingDigest,
@@ -1424,6 +1424,22 @@ pub(super) async fn load_owner_verified_pit_batch_v1(
     .await
 }
 
+/// Re-reads and re-verifies one snapshot's complete observation batch without taking any lock.
+///
+/// For a Market Data writer R&D calls while holding its own locks on these rows, which a locking
+/// read here would wait on.
+pub(super) async fn read_owner_verified_pit_batch_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    snapshot_identity: BindingDigest,
+) -> Result<VerifiedPitObservationBatch, StrategyInputBindingRegistryErrorV1> {
+    load_verified_pit_batch(
+        transaction,
+        snapshot_identity,
+        DependencyReadModeV1::ReadOnly,
+    )
+    .await
+}
+
 async fn load_verified_pit_batch(
     transaction: &mut Transaction<'_, Postgres>,
     snapshot_identity: BindingDigest,
@@ -1489,14 +1505,23 @@ async fn resolve_native_universe(
         .await
         .map_err(|_| StrategyInputBindingRegistryErrorV1::StoreUnavailable)?
         .ok_or(StrategyInputBindingRegistryErrorV1::UniverseUnavailable)?;
-    let request_identity = row_digest(&row, "request_identity")?;
-    let meaning = row_digest(&row, "request_meaning_digest")?;
-    let native_selection = row_digest(&row, "selection_identity")?;
-    let receipt_identity = row_digest(&row, "receipt_identity")?;
-    let outbox_identity = row_digest(&row, "outbox_identity")?;
-    let record_bytes = row_bytes(&row, "record_bytes")?;
-    let receipt_bytes = row_bytes(&row, "receipt_bytes")?;
-    let outbox_receipt_bytes = row_bytes(&row, "outbox_receipt_bytes")?;
+    decode_universe_selection_row_v1(&row, selection_identity)
+}
+
+/// Decodes one Universe Selection readback row, as the Owner's tables and the `market_data_rd_api`
+/// functions return it, and refuses any column that does not match the record it carries.
+pub(super) fn decode_universe_selection_row_v1(
+    row: &sqlx::postgres::PgRow,
+    selection_identity: BindingDigest,
+) -> Result<UniverseSelectionReadbackV1, StrategyInputBindingRegistryErrorV1> {
+    let request_identity = row_digest(row, "request_identity")?;
+    let meaning = row_digest(row, "request_meaning_digest")?;
+    let native_selection = row_digest(row, "selection_identity")?;
+    let receipt_identity = row_digest(row, "receipt_identity")?;
+    let outbox_identity = row_digest(row, "outbox_identity")?;
+    let record_bytes = row_bytes(row, "record_bytes")?;
+    let receipt_bytes = row_bytes(row, "receipt_bytes")?;
+    let outbox_receipt_bytes = row_bytes(row, "outbox_receipt_bytes")?;
     let readback = decode_readback_v1(record_bytes, receipt_bytes, outbox_identity)
         .map_err(|_| StrategyInputBindingRegistryErrorV1::StoreUntrusted)?;
 

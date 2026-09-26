@@ -10,7 +10,7 @@
 //! what keeps this a statement of Design meaning rather than a claim about market facts.
 
 use vibe_data::owner::strategy_design_role_intent_v1::{
-    StrategyDesignRoleIntentErrorV1, StrategyDesignRoleIntentV1,
+    InitialPitRequestLocatorV1, StrategyDesignRoleIntentErrorV1, StrategyDesignRoleIntentV1,
 };
 
 use crate::{
@@ -41,6 +41,10 @@ pub enum DesignRoleIntentErrorV1 {
 /// A Design that names a different Research request or Intent is refused rather than rewritten,
 /// because rewriting it here would publish a statement no Research custody backs.
 ///
+/// `initial_pit_request` is the `AVAILABLE` initial PIT request this Owner recorded for a V3
+/// Intent, read from its own custody by the caller, and `None` for a V2 one. With it the intent is
+/// schema 2 and names that request; without it, schema 1, which names none.
+///
 /// # Errors
 ///
 /// Returns [`DesignRoleIntentErrorV1::Design`] when the Design does not prepare,
@@ -50,6 +54,7 @@ pub enum DesignRoleIntentErrorV1 {
 pub(crate) fn derive_design_role_intent_v1(
     custody: &CurrentResearchDevelopCustodyV2,
     design: &StrategyDesignV2,
+    initial_pit_request: Option<InitialPitRequestLocatorV1>,
 ) -> Result<StrategyDesignRoleIntentV1, DesignRoleIntentErrorV1> {
     if design.research_request_identity != custody.research_request_identity()
         || design.intent_identity != custody.intent_identity()
@@ -66,14 +71,28 @@ pub(crate) fn derive_design_role_intent_v1(
         return Err(DesignRoleIntentErrorV1::Design);
     };
 
-    Ok(StrategyDesignRoleIntentV1::from_rd_owner_projection(
-        custody.research_request_identity(),
-        custody.intent_identity(),
-        custody.custody_digest(),
-        design_identity,
-        design_digest,
-        project_design_role_entries_v1(&design.inputs),
-    )?)
+    let roles = project_design_role_entries_v1(&design.inputs);
+    Ok(match initial_pit_request {
+        None => StrategyDesignRoleIntentV1::from_rd_owner_projection(
+            custody.research_request_identity(),
+            custody.intent_identity(),
+            custody.custody_digest(),
+            design_identity,
+            design_digest,
+            roles,
+        )?,
+        Some(initial_pit_request) => {
+            StrategyDesignRoleIntentV1::from_rd_owner_projection_with_initial_pit(
+                custody.research_request_identity(),
+                custody.intent_identity(),
+                custody.custody_digest(),
+                design_identity,
+                design_digest,
+                roles,
+                initial_pit_request,
+            )?
+        }
+    })
 }
 
 #[cfg(test)]
@@ -93,7 +112,7 @@ mod tests {
         let (design, _) = candidate();
         let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);
 
-        let intent = derive_design_role_intent_v1(&custody, &design).unwrap();
+        let intent = derive_design_role_intent_v1(&custody, &design, None).unwrap();
 
         assert_eq!(
             intent.research_request_identity(),
@@ -119,8 +138,8 @@ mod tests {
             "the fixture must carry more than one reaction for this to permute anything"
         );
 
-        let intent = derive_design_role_intent_v1(&custody, &design).unwrap();
-        let reordered_intent = derive_design_role_intent_v1(&custody, &reordered).unwrap();
+        let intent = derive_design_role_intent_v1(&custody, &design, None).unwrap();
+        let reordered_intent = derive_design_role_intent_v1(&custody, &reordered, None).unwrap();
 
         assert_eq!(intent.design_identity(), reordered_intent.design_identity());
         assert_eq!(intent.intent_digest(), reordered_intent.intent_digest());
@@ -135,7 +154,7 @@ mod tests {
         spliced.intent_digest = BindingDigest::from_untrusted_bytes([99; 32]);
 
         assert_eq!(
-            derive_design_role_intent_v1(&custody, &spliced),
+            derive_design_role_intent_v1(&custody, &spliced, None),
             Err(DesignRoleIntentErrorV1::Custody)
         );
     }
@@ -148,7 +167,7 @@ mod tests {
         unprepared.falsifier = String::new();
 
         assert_eq!(
-            derive_design_role_intent_v1(&custody, &unprepared),
+            derive_design_role_intent_v1(&custody, &unprepared, None),
             Err(DesignRoleIntentErrorV1::Design)
         );
     }
