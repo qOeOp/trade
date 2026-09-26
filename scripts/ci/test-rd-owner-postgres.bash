@@ -1880,7 +1880,7 @@ check_chain_shard_plan() {
 # of what it changed would leave the rest to every entry after it, and nothing else reads it. So the
 # chain reads this state once before its first entry and again after its last, and they must match.
 chain_cluster_state() {
-  docker exec "$container" psql --quiet --no-align --tuples-only --set ON_ERROR_STOP=1 \
+  docker exec --interactive "$container" psql --quiet --no-align --tuples-only --set ON_ERROR_STOP=1 \
     --username postgres --dbname postgres --field-separator=$'\t' << 'SQL'
 SELECT 'role', rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin,
        rolreplication, rolbypassrls, rolconnlimit, COALESCE(rolvaliduntil::text, '')
@@ -4298,6 +4298,14 @@ impersonator_stats_reset_before="$(postgres_stats_reset "$impersonator_container
 readonly chain_stats_reset_before impersonator_stats_reset_before
 chain_cluster_state_before="$(chain_cluster_state)"
 readonly chain_cluster_state_before
+# An empty reading would compare equal to another empty reading and prove nothing: the first
+# version of this comparison piped its query without --interactive, read nothing on both sides, and
+# passed a run that had changed a role attribute. A reading must name the roles it read.
+if [[ "$(printf '%s\n' "$chain_cluster_state_before" | grep -c '^role'$'\t' || true)" -lt 10 ]]; then
+  echo "ERROR: the cluster-global state reading names fewer than ten roles; it is not reading the cluster:" >&2
+  printf '%s\n' "$chain_cluster_state_before" | head -5 >&2
+  exit 1
+fi
 
 if [[ -n "$chain_shard" ]]; then
   snapshot_chain_databases
