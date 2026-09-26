@@ -451,16 +451,18 @@ are `ACTIVE` and `SUPERSEDED`, and `SUPERSEDED` is monotonic. Withdrawing the he
 the key then has a zero-`ACTIVE` head, which the next successor names as its predecessor. A binding is stale once the
 deployment binding it names is no longer that deployment's `ACTIVE` head; routing under a new deployment binding
 needs a routing successor committed under it. Only the explicit administrative writer
-`product-edge-authority-bootstrap` commits routing bindings; no service start or product request path does.
+`product-edge-authority-bootstrap route` commits routing bindings, one proposal per invocation; no service start or
+product request path does.
 Committing a `TRADE_DASHBOARD` binding in a deployed or shared environment is the separate explicit effect the
 Dashboard contract names, and this contract does not authorize it.
 
-The read port is `GET /v1/operation-routing?operation=...&version=...&channel=...` with a bearer token, answering for
-the deployment the service is configured for. It reads in a read-only transaction and takes no row lock. It answers
+The read port is `GET /v1/operation-routing?operation=...&version=...&channel=...` with a bearer token, served by
+`product-edge-routing-read-api` and answering for the deployment the service is configured for. It reads in a read-only transaction and takes no row lock. It answers
 `ACTIVE` with the head binding and `observed_at_epoch_ms` from the store clock when the head is `ACTIVE` and current,
 and `ZERO_ACTIVE` with the key, generation, and head identity when the head was withdrawn. Every other case is a named
 refusal: `OPERATION_ROUTING_ABSENT` (404) for a key with no history, `OPERATION_ROUTING_STALE` (409) for a stale head,
-`OPERATION_ROUTING_QUERY_INVALID` (400), a missing or wrong token (401), and an unavailable store (503). The Dashboard
+`OPERATION_ROUTING_QUERY_INVALID` (400), `OPERATION_ROUTING_UNAUTHORIZED` (401) for a missing or wrong token, and
+`OPERATION_ROUTING_UNAVAILABLE` (503) for a store that cannot answer. The Dashboard
 admits a fresh `RUN` only on `ACTIVE` with dispatcher `TRADE_DASHBOARD`; every other answer fails closed there.
 
 ### Expired manifest recovery epoch

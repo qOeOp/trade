@@ -244,7 +244,7 @@ function exactRoutingKey(
     && raw.channel === expectedKey.channel;
 }
 
-function canonicalDigestV1(domain: string, value: unknown): string {
+export function canonicalDigestV1(domain: string, value: unknown): string {
   const bytes = Buffer.from(JSON.stringify(value));
   return `sha256:${createHash("sha256")
     .update(u64(domain.length))
@@ -254,7 +254,7 @@ function canonicalDigestV1(domain: string, value: unknown): string {
     .digest("hex")}`;
 }
 
-function identityV1(domain: string, parts: readonly string[]): string {
+export function identityV1(domain: string, parts: readonly string[]): string {
   const hash = createHash("sha256").update(u64(domain.length)).update(domain);
   for (const part of parts) hash.update(u64(Buffer.byteLength(part))).update(part);
   return `${domain.replaceAll(".", "-")}-${hash.digest("hex")}`;
