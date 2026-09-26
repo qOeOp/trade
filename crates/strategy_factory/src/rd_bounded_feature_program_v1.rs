@@ -751,8 +751,8 @@ pub(crate) fn frozen_program_matches_current_static_bindings_v1(
         return false;
     };
     program.program().inputs.iter().all(|input| {
-        bindings.receipt_digest_for_role(input.input_role_identity)
-            == Some(input.static_binding_receipt_digest)
+        bindings.bfp_static_binding_for_role(input.input_role_identity)
+            == Ok(input.static_binding_receipt_digest)
     })
 }
 

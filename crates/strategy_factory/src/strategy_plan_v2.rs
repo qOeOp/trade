@@ -570,6 +570,53 @@ impl VerifiedStrategyInputBindingsV2 {
         let receipt_digest = matches.next()?.receipt_digest();
         matches.next().is_none().then_some(receipt_digest)
     }
+
+    /// The static binding a bounded feature program folds in for one input role.
+    ///
+    /// For exact-instrument authority it is the Owner's receipt for the role. For universe
+    /// authority it is the Owner's binding of the role at the universe's one member, by the rule
+    /// the Plan compiler checks the frozen program against (`universe_bfp_static_binding`): a
+    /// program reads a universe only at member ordinal 0, and only a one-member universe. Reading
+    /// universe authority through `receipt_digest_for_role` instead answers nothing for every
+    /// role, since universe authority carries no exact projection, and derivation then refuses
+    /// the Design as if a binding were missing.
+    ///
+    /// # Errors
+    ///
+    /// [`BfpStaticBindingAbsenceV1::Unbound`] when the authority binds the role not at all or more
+    /// than once, and [`BfpStaticBindingAbsenceV1::UniverseNotOneMember`] when it binds the role
+    /// over a universe of any other size than one.
+    pub(crate) fn bfp_static_binding_for_role(
+        &self,
+        input_role_identity: BindingDigest,
+    ) -> Result<BindingDigest, BfpStaticBindingAbsenceV1> {
+        match self.universe_selection {
+            None => self
+                .receipt_digest_for_role(input_role_identity)
+                .ok_or(BfpStaticBindingAbsenceV1::Unbound),
+            Some(_) => universe_bfp_member_binding(&self.universe_bindings, input_role_identity, 0)
+                .map_err(|absence| match absence {
+                    UniverseBfpBindingAbsenceV1::NotOneMember => {
+                        BfpStaticBindingAbsenceV1::UniverseNotOneMember
+                    }
+                    // Ordinal 0 is the member a one-member universe has, so only an unbound role
+                    // is left.
+                    UniverseBfpBindingAbsenceV1::RoleUnbound
+                    | UniverseBfpBindingAbsenceV1::NotMemberZero => {
+                        BfpStaticBindingAbsenceV1::Unbound
+                    }
+                }),
+        }
+    }
+}
+
+/// Why the Owner's authority gives a bounded feature program no static binding for a role.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum BfpStaticBindingAbsenceV1 {
+    /// The authority binds the role not at all, or more than once.
+    Unbound,
+    /// The authority binds the role over a universe that does not have exactly one member.
+    UniverseNotOneMember,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -2869,26 +2916,47 @@ fn universe_bfp_static_binding(
     input_role_identity: BindingDigest,
     member_ordinal: u8,
 ) -> Result<BindingDigest, StrategyCompilationV2> {
+    universe_bfp_member_binding(universe_bindings, input_role_identity, member_ordinal).map_err(
+        |absence| match absence {
+            UniverseBfpBindingAbsenceV1::RoleUnbound => unsupported(
+                "universe_bindings",
+                "BFP universe-member role lacks its Owner universe binding",
+            ),
+            UniverseBfpBindingAbsenceV1::NotMemberZero => unsupported(
+                "reactions.nodes.input",
+                "a BFP universe-member role is read only at member ordinal 0",
+            ),
+            UniverseBfpBindingAbsenceV1::NotOneMember => unsupported(
+                "universe_bindings.members",
+                "a bounded feature program reads a universe only when it has exactly one member",
+            ),
+        },
+    )
+}
+
+/// Why universe authority gives a BFP role no static binding.
+enum UniverseBfpBindingAbsenceV1 {
+    RoleUnbound,
+    NotMemberZero,
+    NotOneMember,
+}
+
+/// The one-member rule of [`universe_bfp_static_binding`], stated once for the Plan compiler and
+/// for [`VerifiedStrategyInputBindingsV2::bfp_static_binding_for_role`].
+fn universe_bfp_member_binding(
+    universe_bindings: &[UniverseRoleBindingProjectionV2],
+    input_role_identity: BindingDigest,
+    member_ordinal: u8,
+) -> Result<BindingDigest, UniverseBfpBindingAbsenceV1> {
     let role = universe_bindings
         .iter()
         .find(|binding| binding.input_role_identity == input_role_identity)
-        .ok_or_else(|| {
-            unsupported(
-                "universe_bindings",
-                "BFP universe-member role lacks its Owner universe binding",
-            )
-        })?;
+        .ok_or(UniverseBfpBindingAbsenceV1::RoleUnbound)?;
 
     match role.members.as_slice() {
         [member] if member_ordinal == 0 => Ok(member.binding_digest),
-        [_] => Err(unsupported(
-            "reactions.nodes.input",
-            "a BFP universe-member role is read only at member ordinal 0",
-        )),
-        _ => Err(unsupported(
-            "universe_bindings.members",
-            "a bounded feature program reads a universe only when it has exactly one member",
-        )),
+        [_] => Err(UniverseBfpBindingAbsenceV1::NotMemberZero),
+        _ => Err(UniverseBfpBindingAbsenceV1::NotOneMember),
     }
 }
 
