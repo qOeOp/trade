@@ -5013,11 +5013,14 @@ mod tests {
     /// way: a deployment without the Research Goal operation is refused by name, and the same
     /// Research identity answers the same custody twice.
     ///
-    /// The setup runs as its own task. The Research Owner's submission is a deep call chain in a
-    /// debug build, and awaited from this entry's test body - whose own frame is live for the whole
-    /// test - it overflowed the 2 MiB test stack in the full ordered chain, inside
-    /// `submit_source_intake_research_v2`. Spawned, it runs on a worker thread's own stack, as
-    /// deep as the entry that submits the same Research directly.
+    /// The setup runs on its own thread with a 4 MiB stack. The Research Owner's submission is a
+    /// deep call chain in a debug build: in the full ordered chain, under the `ci-pr` profile, it
+    /// overflowed a 2 MiB stack inside `submit_source_intake_research_v2`, first from this entry's
+    /// test body and then from a spawned task on a runtime worker, so the depth is the submission's
+    /// own and not this entry's. Measured by `RUST_MIN_STACK` bisection, it needs more than
+    /// 2,097,152 and at most 2,490,368 bytes. It overflows only on the database state the full chain
+    /// leaves behind; the same code passes a filtered run on a fresh database. Production runs a
+    /// release build, where these frames are a fraction of the size.
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     mod authored_design_research {
         use std::{future::Future, pin::Pin};
@@ -5080,9 +5083,23 @@ mod tests {
                     .to_owned(),
             };
             Box::pin(async move {
-                let (locator, current) = tokio::spawn(own_research(urls))
-                    .await
-                    .unwrap_or_else(|failure| std::panic::resume_unwind(failure.into_panic()));
+                let (locator, current) = tokio::task::spawn_blocking(move || {
+                    std::thread::Builder::new()
+                        .name("rd-api-authored-design-research".into())
+                        .stack_size(4 * 1024 * 1024)
+                        .spawn(move || {
+                            tokio::runtime::Builder::new_current_thread()
+                                .enable_all()
+                                .build()
+                                .expect("the setup thread's runtime starts")
+                                .block_on(own_research(urls))
+                        })
+                        .expect("the setup thread starts")
+                        .join()
+                })
+                .await
+                .expect("the setup thread is joined")
+                .unwrap_or_else(|failure| std::panic::resume_unwind(failure));
                 assert_eq!(
                     authoring_facts(owner, &locator)
                         .await
