@@ -464,10 +464,19 @@ pub async fn register_bar_joined_cut_declarations_for_published_design_v1(
         .begin()
         .await
         .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryStore)?;
+    // The corpus is the scope's only chain: a scope holding a chain per snapshot names no single
+    // corpus, and is refused rather than read by picking one.
+    let snapshot = super::market_semantics::resolve_sole_market_semantics_head_snapshot_v1(
+        &mut transaction,
+        digest(84),
+    )
+    .await
+    .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::RegistrySemantics)?;
     // The same scope, instants and cut the basis seals its own fact under.
     let readback = super::market_semantics::resolve_market_semantics_scope_in_transaction_v1(
         &mut transaction,
         digest(84),
+        snapshot,
         50,
         100,
         100,
@@ -1417,6 +1426,7 @@ async fn persist_market_semantics(
     let readback = match super::market_semantics::resolve_market_semantics_scope_in_transaction_v1(
         &mut transaction,
         digest(84),
+        batch.snapshot_identity(),
         50,
         100,
         100,

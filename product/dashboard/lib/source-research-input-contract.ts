@@ -37,10 +37,25 @@ export type ResearchGoalExecutionInputV2 = {
   trial_family_proposal: DashboardTrialFamilyProposalV1;
 };
 
+// The instrument scope a V3 Research request studies, in R&D's wire form
+// (`ResearchInstrumentScopeWireV1`): the form states exactly one Instrument Master identity.
+export type ResearchInstrumentScopeInputV1 = {
+  schema_version: 1;
+  identities: [string];
+};
+
+// A V3 request is a V2 request plus the instrument scope it studies, as R&D stores it: one request
+// shape in which `instrument_scope` is present exactly for V3.
+export type ResearchGoalExecutionInputV3 = ResearchGoalExecutionInputV2 & {
+  instrument_scope: ResearchInstrumentScopeInputV1;
+};
+
 export type SourceResearchRunRequestV1 = {
   action: "RUN";
   source: SourceIntakeExecutionInputV1;
-  research: ResearchGoalExecutionInputV2;
+  // New runs carry V3. A V2 input is only ever read back from a run recorded before the form moved
+  // to V3, so that run can still be resolved.
+  research: ResearchGoalExecutionInputV2 | ResearchGoalExecutionInputV3;
 };
 
 export type SourceResearchResolveRequestV1 = {
@@ -71,6 +86,24 @@ function validText(value: unknown): value is string {
     && new TextEncoder().encode(value).byteLength <= 8_192 && !/\p{Cc}/u.test(value);
 }
 
+// The instrument identity rule R&D applies (`ResearchInstrumentScopeV1::from_identities` in
+// crates/data/src/owner/research_instrument_scope_v1.rs): not empty, at most 1024 UTF-8 bytes, no
+// Unicode control character (Cc), and no leading or trailing Unicode White_Space. That is Rust's
+// `trim`, not JavaScript's, which also strips U+FEFF. Both sides are tested against one vector file,
+// product/rd-owner-client/fixtures/research_instrument_identity_vectors_v1.json, so neither can
+// change alone. Whether the identity names an eligible instrument is R&D's answer, not this one's.
+export const RESEARCH_INSTRUMENT_IDENTITY_MAX_BYTES_V1 = 1_024;
+const EDGE_WHITE_SPACE =
+  /^[\u0009-\u000d\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]|[\u0009-\u000d\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]$/u;
+
+export function validResearchInstrumentIdentityV1(value: unknown): value is string {
+  // A lone surrogate is not UTF-8, so R&D could not even receive it. With the `u` flag only an
+  // unpaired surrogate reads as Cs; a valid pair reads as one supplementary code point.
+  return typeof value === "string" && value.length > 0 && !/\p{Cs}/u.test(value)
+    && new TextEncoder().encode(value).byteLength <= RESEARCH_INSTRUMENT_IDENTITY_MAX_BYTES_V1
+    && !/\p{Cc}/u.test(value) && !EDGE_WHITE_SPACE.test(value);
+}
+
 function compareUtf8(left: string, right: string): number {
   const leftBytes = new TextEncoder().encode(left);
   const rightBytes = new TextEncoder().encode(right);
@@ -98,7 +131,7 @@ export function validSourceIntakeExecutionInputV1(value: SourceIntakeExecutionIn
       compareUtf8(interpretation.plausible_alternatives[index], item) < 0);
 }
 
-export function validResearchGoalExecutionInputV2(value: ResearchGoalExecutionInputV2): boolean {
+function validResearchGoalFieldsV2(value: ResearchGoalExecutionInputV2): boolean {
   if (!object(value) || typeof value.request_identity !== "string"
     || !IDENTITY.test(value.request_identity) || !object(value.goal)
     || !exactKeys(value.goal, [
@@ -131,6 +164,31 @@ export function validResearchGoalExecutionInputV2(value: ResearchGoalExecutionIn
     ].every(validText);
 }
 
+const RESEARCH_V2_KEYS = ["request_identity", "goal", "trial_family_proposal"] as const;
+
+export function validResearchGoalExecutionInputV2(value: ResearchGoalExecutionInputV2): boolean {
+  return object(value) && exactKeys(value, RESEARCH_V2_KEYS) && validResearchGoalFieldsV2(value);
+}
+
+export function validResearchInstrumentScopeInputV1(value: unknown): value is ResearchInstrumentScopeInputV1 {
+  return object(value) && exactKeys(value, ["schema_version", "identities"])
+    && value.schema_version === 1 && Array.isArray(value.identities)
+    && value.identities.length === 1 && validResearchInstrumentIdentityV1(value.identities[0]);
+}
+
+export function validResearchGoalExecutionInputV3(value: ResearchGoalExecutionInputV3): boolean {
+  return object(value) && exactKeys(value, [...RESEARCH_V2_KEYS, "instrument_scope"])
+    && validResearchGoalFieldsV2(value) && validResearchInstrumentScopeInputV1(value.instrument_scope);
+}
+
+// Which Research request an input is: V3 exactly when it states an instrument scope.
+export function researchGoalInputIsV3(
+  value: ResearchGoalExecutionInputV2 | ResearchGoalExecutionInputV3,
+): value is ResearchGoalExecutionInputV3 {
+  return object(value) && "instrument_scope" in value;
+}
+
+// A request as custody holds it: a recorded run may carry either Research input.
 export function validSourceResearchOperationRequestV1(
   value: SourceResearchOperationRequestV1,
 ): boolean {
@@ -146,5 +204,14 @@ export function validSourceResearchOperationRequestV1(
   return value.action === "RUN"
     && exactKeys(value, ["action", "source", "research"])
     && validSourceIntakeExecutionInputV1(value.source)
-    && validResearchGoalExecutionInputV2(value.research);
+    && (researchGoalInputIsV3(value.research)
+      ? validResearchGoalExecutionInputV3(value.research)
+      : validResearchGoalExecutionInputV2(value.research));
+}
+
+// A request as it arrives to be dispatched: the form submits only V3, so a new run must state its
+// instrument. A resolve names identities only.
+export function validSourceResearchSubmissionV1(value: SourceResearchOperationRequestV1): boolean {
+  return validSourceResearchOperationRequestV1(value)
+    && (value.action === "RESOLVE" || researchGoalInputIsV3(value.research));
 }
