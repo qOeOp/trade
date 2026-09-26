@@ -74,6 +74,8 @@ use crate::owner::{
 };
 
 // The chain fixtures' instrument, shared with every entry that writes the same custody.
+use super::chain_market_base_v1::ChainMarketBaseSnapshotV1;
+
 const INSTRUMENT: &str = crate::owner::chain_fixture_v1::CHAIN_FIXTURE_INSTRUMENT_V1;
 
 /// Caller-authored identities for the fixed six-role acceptance design.
@@ -439,11 +441,12 @@ pub async fn prepare_owner_bar_joined_cut_acceptance_basis_v1(
 /// bound to the first. That is correct Owner behaviour and not something to defeat, so a later Design
 /// binds to the corpus that is already complete rather than raising another.
 ///
-/// Which corpus that is has one answer, and the Market Semantics fact gives it: a registration
-/// re-derives each binding and refuses unless the scope's fact names the very snapshot the batch came
-/// from. So the fact is what selects the corpus here, and the selection is right by construction
-/// rather than by picking among snapshots that happen to exist. Nothing resolves a coordinate, so a
-/// store holding several lineages is never asked to choose between them.
+/// Which corpus that is, `market_base` names: the market base's snapshot, found by its correlation.
+/// A scope carries one Market Semantics chain per snapshot, so the scope alone would answer only
+/// while nothing else had been admitted under it. Under that snapshot the Market Semantics fact
+/// gives the batch, and a registration re-derives each binding and refuses unless the fact names the
+/// very snapshot the batch came from. Nothing resolves a coordinate, so a store holding several
+/// lineages is never asked to choose between them.
 ///
 /// # Errors
 ///
@@ -452,6 +455,7 @@ pub async fn prepare_owner_bar_joined_cut_acceptance_basis_v1(
 /// re-read fails.
 pub async fn register_bar_joined_cut_declarations_for_published_design_v1(
     owner_url: &str,
+    market_base: ChainMarketBaseSnapshotV1,
     claims: &UntrustedBarJoinedCutAcceptanceDesignClaimsV1,
     intent: &StrategyDesignRoleIntentV1,
 ) -> Result<(), BarJoinedCutAcceptanceCompletionUnavailableV1> {
@@ -464,31 +468,19 @@ pub async fn register_bar_joined_cut_declarations_for_published_design_v1(
         .begin()
         .await
         .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryStore)?;
-    // The corpus is the scope's only chain: a scope holding a chain per snapshot names no single
-    // corpus, and is refused rather than read by picking one.
-    let snapshot = super::market_semantics::resolve_sole_market_semantics_head_snapshot_v1(
+    // A scope carries one chain per PIT snapshot, and a production admission under the same scope
+    // adds another, so the scope alone names no single corpus. The caller names the market base's
+    // snapshot, which must carry the one fact the base sealed.
+    super::chain_market_base_v1::require_chain_market_base_fact_v1(
         &mut transaction,
         acceptance_market_semantics_identity(),
+        market_base,
     )
     .await
     .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::RegistrySemantics)?;
-    // The same scope, instants and cut the basis seals its own fact under.
-    let readback = super::market_semantics::resolve_market_semantics_scope_in_transaction_v1(
-        &mut transaction,
-        acceptance_market_semantics_identity(),
-        snapshot,
-        50,
-        100,
-        100,
-    )
-    .await
-    .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::RegistrySemantics)?;
-    let [fact] = readback.facts() else {
-        return Err(BarJoinedCutAcceptanceCompletionUnavailableV1::RegistrySemantics);
-    };
     let batch = super::strategy_input_binding_registry::load_owner_verified_pit_batch_v1(
         &mut transaction,
-        fact.pit_snapshot_identity,
+        market_base.snapshot_identity(),
     )
     .await
     .map_err(|e| map_registry_completion_error(&e))?;

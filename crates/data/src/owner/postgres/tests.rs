@@ -2722,12 +2722,16 @@ async fn strategy_input_binding_registry_postgres_oracle(
         request: UntrustedPitSnapshotRequest {
             claimed_request_identity: d(0),
             claimed_request_digest: d(0),
-            correlation_identity: d(174),
+            correlation_identity: BindingDigest::from_untrusted_bytes(
+                crate::owner::chain_fixture_v1::CHAIN_MARKET_BASE_PIT_CORRELATION_V1,
+            ),
             // The requester R&D writes for the fixture's Research request, so a Design of that
             // request can name this PIT request as its initial one.
-            requester_identity: crate::owner::pit_snapshot::research_pit_requester_identity_v1(d(
-                190,
-            )),
+            requester_identity: crate::owner::pit_snapshot::research_pit_requester_identity_v1(
+                BindingDigest::from_untrusted_bytes(
+                    crate::owner::chain_fixture_v1::CHAIN_MARKET_BASE_RESEARCH_REQUEST_V1,
+                ),
+            ),
             scope_digest: d(176),
             source_binding: source.receipt().locator().clone(),
             instrument_master_digest: instrument.digest(),
@@ -9834,6 +9838,125 @@ async fn postgres_production_admits_market_semantics_for_the_chain_fixture_instr
             .await
             .map(|terminal| terminal.compatibility_scope_identity()),
         Err(MarketSemanticsAdmissionErrorV1::DependencyUnavailable)
+    );
+}
+
+/// The market base's corpus is named by the base's own snapshot, found by its correlation, and not by
+/// being the only Market Semantics chain of its scope.
+///
+/// A production admission under the base's scope adds a second chain, which is exactly what the
+/// first `COMPOSER_V3` Replay does in the shared chain database. Reading the scope's sole head, as the
+/// registration used to, is refused in that state; the base's snapshot still names one fact and one
+/// batch.
+#[tokio::test]
+#[ignore = "requires a disposable Market Data PostgreSQL database"]
+async fn the_market_base_corpus_is_named_by_its_snapshot_after_a_production_admission() {
+    use crate::owner::market_semantics_admission_v1::MarketSemanticsFactSubmissionV1;
+    use crate::owner::postgres::chain_market_base_v1::{
+        chain_market_base_snapshot_in_transaction_v1, require_chain_market_base_fact_v1,
+    };
+
+    let owner_url = env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL").unwrap();
+    let base = Box::pin(replay_composition_market_base_fixture_v1(&owner_url)).await;
+    let owner = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
+    let scope =
+        derive_market_semantics_compatibility_identity_v1(&base.source.fact().proposal().semantics);
+    let heads = async || -> i64 {
+        sqlx::query_scalar(
+            "SELECT count(*) FROM market_data_private.market_semantics_heads_v2 \
+             WHERE compatibility_scope_identity=$1",
+        )
+        .bind(scope.as_bytes().as_slice())
+        .fetch_one(owner.pool())
+        .await
+        .unwrap()
+    };
+
+    // Read on this proof's own pool: the public lookup connects through the Owner's admission,
+    // which admits the chain's canonical `market_data_owner` and not this runner's test role.
+    let market_base_now = async || {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        let market_base = chain_market_base_snapshot_in_transaction_v1(&mut transaction).await;
+        transaction.rollback().await.unwrap();
+        market_base
+    };
+    let market_base = market_base_now()
+        .await
+        .expect("the base's snapshot is held under the correlation it submits under");
+    assert_eq!(
+        market_base.snapshot_identity(),
+        base.pit.fact().snapshot_identity(),
+        "the correlation names the snapshot the base committed"
+    );
+    assert_eq!(
+        heads().await,
+        1,
+        "before the admission the base's chain is the scope's only one"
+    );
+
+    // A production admission under the same scope, for a snapshot of its own.
+    let universe = (
+        UntrustedUniverseSelectionLocatorV1::from_untrusted(
+            base.universe.receipt().request_identity(),
+            base.universe.receipt().request_meaning_digest(),
+        ),
+        base.universe.record().identity(),
+    );
+    let pit = research_request_pit_on_v1(
+        &owner,
+        &base.source,
+        CHAIN_FIXTURE_INSTRUMENT_V1,
+        &universe,
+        120,
+        market_base_pit_time_v1(&base.clock),
+        &base.clock,
+    )
+    .await;
+    assert_ne!(
+        pit.fact().snapshot_identity(),
+        market_base.snapshot_identity()
+    );
+    assert_eq!(
+        owner
+            .admit_market_semantics_fact_v1(MarketSemanticsFactSubmissionV1 {
+                source_binding: base.source.receipt().locator().clone(),
+                pit_snapshot: pit.receipt().locator().clone(),
+                value: market_semantics_value_v1("RAW"),
+            })
+            .await
+            .map(|terminal| terminal.compatibility_scope_identity()),
+        Ok(scope),
+        "production admits a second chain under the base's scope"
+    );
+
+    // The state the sole-head read refused: the scope no longer names one chain.
+    assert_eq!(heads().await, 2);
+    // The base's snapshot still names its corpus exactly.
+    let mut transaction = owner.pool().begin().await.unwrap();
+    assert_eq!(
+        require_chain_market_base_fact_v1(&mut transaction, scope, market_base).await,
+        Ok(()),
+        "the base's snapshot carries the one fact the base sealed"
+    );
+    let batch = super::strategy_input_binding_registry::load_owner_verified_pit_batch_v1(
+        &mut transaction,
+        market_base.snapshot_identity(),
+    )
+    .await
+    .expect("the base's corpus batch reads back under its own snapshot");
+    assert_eq!(batch, base.batch);
+    assert_eq!(
+        batch.correlation_identity(),
+        BindingDigest::from_untrusted_bytes(
+            crate::owner::chain_fixture_v1::CHAIN_MARKET_BASE_PIT_CORRELATION_V1
+        ),
+        "the base submits under the correlation this constant names"
+    );
+    transaction.rollback().await.unwrap();
+    assert_eq!(
+        market_base_now().await,
+        Ok(market_base),
+        "the second chain changes nothing the correlation names"
     );
 }
 
