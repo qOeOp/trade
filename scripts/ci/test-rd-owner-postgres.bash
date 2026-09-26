@@ -2042,11 +2042,25 @@ check_chain_record_report() {
   rm -rf -- "$fixtures"
 }
 
+# `register_bar_joined_cut_declarations_for_published_design_v1` finds its corpus as the only Market
+# Semantics chain of its scope, which in the shared database is the market base's only until an entry
+# admits a production Market Semantics fact under that scope. A component runs in array order, so an
+# admitting entry placed before a registering one breaks the registration with a refusal that names
+# the scope, not the order. The reader names the pair instead. It goes when the registration takes
+# its corpus snapshot from its caller.
+check_market_semantics_sole_head_order() {
+  local reader
+  reader="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-market-semantics-sole-head-order.py"
+  python3 "$reader" --self-test > /dev/null
+  python3 "$reader" "${BASH_SOURCE[0]}"
+}
+
 check_chain_record_report
 if [[ "${1:-}" != "--report-records" ]]; then
   check_postgres_crash_reading
   check_chain_sleep_reading
   check_chain_shard_plan
+  check_market_semantics_sole_head_order
 fi
 
 if [[ "${1:-}" == "--report-records" ]]; then
