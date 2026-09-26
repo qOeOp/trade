@@ -5,16 +5,17 @@
 # them into one directory per shard. Records are named by the entry's global position (NNN.xml,
 # NNN.log, NNN.timeout), so shards never name the same file unless they ran the same entry. This
 # refuses that by name - two shards that both ran an entry is a broken shard list, not a record to
-# pick from - and, given the chain's entry count, refuses a position no shard recorded.
+# pick from. It is the one check the report cannot make: `test-rd-owner-postgres.bash
+# --report-records` reads the merged directory, where the second copy has already replaced the
+# first. Completeness is the report's: it requires every position of the chain, run as recorded.
 #
-# Usage: merge-chain-shard-records.bash <shard records root> <merged dir> [expected entry count]
+# Usage: merge-chain-shard-records.bash <shard records root> <merged dir>
 #   <shard records root>/<shard name>/NNN.* for every shard that ran.
 set -Eeuo pipefail
 trap 'echo "merge-chain-shard-records.bash:${LINENO}: this failed: ${BASH_COMMAND}" >&2' ERR
 
 root="${1:?shard records root}"
 merged="${2:?merged directory}"
-expected="${3:-}"
 
 shopt -s nullglob
 shards=("$root"/*/)
@@ -48,18 +49,3 @@ done
 
 xml=("$merged"/*.xml)
 echo "merged ${#shards[@]} shard(s): ${#xml[@]} entry record(s) in ${merged}"
-if [[ -n "$expected" ]]; then
-  missing=()
-  for ((position = 1; position <= expected; position++)); do
-    [[ -e "$(printf '%s/%03d.xml' "$merged" "$position")" ]] || missing+=("$position")
-  done
-  if [[ ${#missing[@]} -gt 0 ]]; then
-    echo "ERROR: no shard recorded entr$([[ ${#missing[@]} -eq 1 ]] && echo y || echo ies)" \
-      "${missing[*]} of ${expected}." >&2
-    exit 1
-  fi
-  if [[ ${#xml[@]} -ne "$expected" ]]; then
-    echo "ERROR: ${#xml[@]} entry records for a chain of ${expected}." >&2
-    exit 1
-  fi
-fi

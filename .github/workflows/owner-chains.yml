@@ -402,3 +402,51 @@ jobs:
       - name: Report disk space after the proof
         if: always()
         run: bash scripts/ci/report-disk-space.bash "after market-data-e2e"
+
+  # The R&D chain's shards each record only their own entries, by global position. This puts the
+  # records back together - refusing an entry two shards both recorded, the one thing the report
+  # cannot see once they are merged - and reports the whole chain from them, which refuses by
+  # position and test name any entry that is missing, failed, or recorded where another belongs.
+  # It checks out the same tree as the shards: the report takes the chain's length and test names
+  # from that tree's chain array.
+  owner-chain-report:
+    if: always() && needs.owner-chain.result != 'skipped'
+    name: rd owner chain report
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    needs:
+      - owner-chain
+    steps:
+      # https://github.com/step-security/harden-runner
+      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: >-
+            ${{ env.AUDIT_PR == 'true' && 'audit'
+            || vars.STEP_SECURITY_EGRESS_POLICY
+            || 'block' }}
+          allowed-endpoints: >-
+            ${{ vars.COMMON_ALLOWED_ENDPOINTS }}
+            ${{ vars.CI_ALLOWED_ENDPOINTS }}
+
+      - name: Checkout repository
+        # https://github.com/actions/checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Download every shard's records
+        # https://github.com/actions/download-artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: chain-record-rd-owner-*
+          path: ${{ runner.temp }}/chain-records
+
+      - name: Merge the shards' records
+        run: >-
+          bash scripts/ci/merge-chain-shard-records.bash
+          "${RUNNER_TEMP}/chain-records" "${RUNNER_TEMP}/chain-records-merged"
+
+      - name: Report the whole chain
+        run: >-
+          bash scripts/ci/test-rd-owner-postgres.bash
+          --report-records "${RUNNER_TEMP}/chain-records-merged"
