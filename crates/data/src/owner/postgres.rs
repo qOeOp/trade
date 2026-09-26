@@ -53,6 +53,9 @@ pub(in crate::owner) mod strategy_input_event_binding_v1;
 #[cfg(not(feature = "isolated-event-replay-acceptance"))]
 mod strategy_input_event_binding_v1;
 mod time_zone;
+pub(in crate::owner) mod universe_member_composition_basis_v1;
+#[cfg(test)]
+mod universe_member_composition_basis_v1_tests;
 pub(in crate::owner) mod universe_sample_projection_v1;
 #[cfg(test)]
 mod universe_sample_projection_v1_tests;
@@ -990,6 +993,7 @@ impl MarketDataOwnerPostgres {
             .chain(research_pit_terminal_v1::SCHEMA_V1)
             .chain(source_sample_custody_v1::SCHEMA_V1)
             .chain(universe_sample_projection_v1::SCHEMA_V1)
+            .chain(universe_member_composition_basis_v1::SCHEMA_V1)
         {
             sqlx::query(*statement)
                 .execute(&mut *transaction)

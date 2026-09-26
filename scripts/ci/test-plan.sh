@@ -992,4 +992,21 @@ PINNED
 bash "$repo_root/scripts/ci/test-pull-pinned-image.bash"
 echo "ok: every PostgreSQL/Redis image CI runs is pinned by digest, PostgreSQL to the deployment's"
 
+# Cache quota: `rust tests` caches dependencies only (its workspace artifacts are rebuilt on every
+# run, because checkout renews every mtime), and a pull request or merge-queue run saves no
+# test-data or prek entry, which no other ref could read. Both kept main's py-stubs entry from
+# being evicted on 2026-09-26.
+[[ "$(sed -n '/^  rust-tests-linux-x86:/,/^  quality:/p' "$build_workflow")" == *'rust-cache-workspace-crates: "false"'* ]]
+for composite in common-test-data common-setup; do
+  file="$repo_root/.github/actions/${composite}/action.yml"
+  saves="$(grep -c 'uses: actions/cache@' "$file" || true)"
+  guarded="$(grep -c "github.event_name != 'pull_request' && github.event_name != 'merge_group'" "$file" || true)"
+  if [[ "$saves" -ne 1 ]] || [[ "$guarded" -ne 1 ]]; then
+    echo "${composite}: its saving actions/cache step must skip pull_request and merge_group" \
+      "(saving steps ${saves}, guards ${guarded}); those runs restore with actions/cache/restore." >&2
+    exit 1
+  fi
+done
+echo "ok: rust tests caches dependencies only; pull requests save no ref-scoped test-data or prek entry"
+
 echo "All CI plan cases passed"
