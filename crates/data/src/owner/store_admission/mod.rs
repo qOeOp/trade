@@ -12,6 +12,7 @@
     reason = "private store-admission foundations retain tested unavailable production adapters and S3 stops"
 )]
 
+mod custody_postgres;
 mod postgres;
 mod signature;
 pub(super) use postgres::RawSharedTimeEvidenceSnapshotV1;
@@ -24,7 +25,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
@@ -408,6 +409,18 @@ pub(super) struct MarketDataPitEvaluationStorageEvidence {
     batch_rows: Vec<MarketDataPitObservationNativeRow>,
 }
 
+impl MarketDataPitEvaluationStorageEvidence {
+    /// The same evidence under another receipt identity, for proving what the verifier refuses.
+    #[cfg(test)]
+    pub(super) fn with_admission_receipt_identity_for_test(
+        mut self,
+        admission_receipt_identity: &str,
+    ) -> Self {
+        admission_receipt_identity.clone_into(&mut self.admission_receipt_identity);
+        self
+    }
+}
+
 /// Exact raw PIT, Source Binding, and clock custody observed for one terminal read.
 ///
 /// Unlike evaluation evidence, this DTO deliberately has no normalized-observation batch. DSA
@@ -728,13 +741,7 @@ impl AdmittedMarketDataSnapshotPort {
             &after.receipt,
             &after.measurement_spec,
         )?;
-        Ok(raw
-            .into_iter()
-            .map(|raw| BarScheduleStorageEvidenceV1 {
-                readback_row: raw.readback_row,
-                history_rows: raw.history_rows,
-            })
-            .collect())
+        Ok(bar_schedule_candidate_evidence_v1(raw))
     }
 
     /// Reads one frame's quote cut census after admission before and after.
@@ -1042,18 +1049,10 @@ impl AdmittedMarketDataSnapshotPort {
                 AdmissionFailureCode::AdmissionCutExpired,
             ));
         }
-        Ok(MarketDataPitEvaluationStorageEvidence {
-            admission_receipt_identity: self.receipt.receipt_identity.clone(),
-            pit_lineage_rows: raw.pit_lineage_rows,
-            source_lineage_rows: raw.source_lineage_rows,
-            clock_rows: raw.clock_rows,
-            batch_source_binding_identity: raw.batch_source_binding_identity,
-            batch_source_binding_lineage_root: raw.batch_source_binding_lineage_root,
-            batch_source_binding_lineage_version: raw.batch_source_binding_lineage_version,
-            batch_digest: raw.batch_digest,
-            batch_bytes: raw.batch_bytes,
-            batch_rows: raw.batch_rows,
-        })
+        Ok(pit_evaluation_evidence_v1(
+            self.receipt.receipt_identity.clone(),
+            raw,
+        ))
     }
 
     /// Reads one fixed PIT-terminal snapshot after admission both before checkout and return.
@@ -1296,9 +1295,319 @@ pub(super) async fn admit_rd_owner_market_data_postgres(
         Arc::new(UnavailableAntiRollbackWitness),
         Arc::new(UnavailableCredentialResolver),
         Arc::new(UnavailableDirectMeasurer),
-        Arc::new(SystemClock),
     );
     custodian.admit_capability(request.scope()).await
+}
+
+/// The evidence one PIT evaluation read returns, under the receipt the read was made against.
+fn pit_evaluation_evidence_v1(
+    admission_receipt_identity: String,
+    raw: postgres::RawPitEvaluationSnapshot,
+) -> MarketDataPitEvaluationStorageEvidence {
+    MarketDataPitEvaluationStorageEvidence {
+        admission_receipt_identity,
+        pit_lineage_rows: raw.pit_lineage_rows,
+        source_lineage_rows: raw.source_lineage_rows,
+        clock_rows: raw.clock_rows,
+        batch_source_binding_identity: raw.batch_source_binding_identity,
+        batch_source_binding_lineage_root: raw.batch_source_binding_lineage_root,
+        batch_source_binding_lineage_version: raw.batch_source_binding_lineage_version,
+        batch_digest: raw.batch_digest,
+        batch_bytes: raw.batch_bytes,
+        batch_rows: raw.batch_rows,
+    }
+}
+
+/// The evidence one BAR schedule candidate read returns.
+fn bar_schedule_candidate_evidence_v1(
+    raw: Vec<postgres::RawBarScheduleSnapshotV1>,
+) -> Vec<BarScheduleStorageEvidenceV1> {
+    raw.into_iter()
+        .map(|raw| BarScheduleStorageEvidenceV1 {
+            readback_row: raw.readback_row,
+            history_rows: raw.history_rows,
+        })
+        .collect()
+}
+
+/// The three reads a native Replay initial market resolution makes, whichever port makes them.
+///
+/// The admitted port wraps each read in admission before and after it. The sealed acceptance port
+/// makes the same raw read with no admission at all. What `vibe-data` does with the evidence -
+/// verification, selection, the quote cut rules - exists once, over whichever port implements this.
+#[async_trait]
+pub(super) trait NativeReplaySchedulingReadPortV1: Send + Sync {
+    /// The complete PIT evaluation evidence of one snapshot.
+    async fn resolve_pit_evaluation(
+        &self,
+        snapshot_identity: [u8; 32],
+    ) -> Result<MarketDataPitEvaluationStorageEvidence, DeploymentStoreAdmissionError>;
+
+    /// Every BAR schedule candidate of one canonical instrument, with its history.
+    async fn resolve_bar_schedule_candidates_v1(
+        &self,
+        canonical_instrument: &str,
+    ) -> Result<Vec<BarScheduleStorageEvidenceV1>, DeploymentStoreAdmissionError>;
+
+    /// One frame's quote cut census and the bound its next frame sets.
+    async fn resolve_native_replay_quote_cut_census_v2(
+        &self,
+        scope_digest: [u8; 32],
+        frame_time_ns: u64,
+        decision_cut_ns: u64,
+        window_end_ns_exclusive: u64,
+    ) -> Result<postgres::RawNativeReplayQuoteCutCensusV2, DeploymentStoreAdmissionError>;
+}
+
+#[async_trait]
+impl NativeReplaySchedulingReadPortV1 for AdmittedMarketDataSnapshotPort {
+    async fn resolve_pit_evaluation(
+        &self,
+        snapshot_identity: [u8; 32],
+    ) -> Result<MarketDataPitEvaluationStorageEvidence, DeploymentStoreAdmissionError> {
+        Self::resolve_pit_evaluation(self, snapshot_identity).await
+    }
+
+    async fn resolve_bar_schedule_candidates_v1(
+        &self,
+        canonical_instrument: &str,
+    ) -> Result<Vec<BarScheduleStorageEvidenceV1>, DeploymentStoreAdmissionError> {
+        Self::resolve_bar_schedule_candidates_v1(self, canonical_instrument).await
+    }
+
+    async fn resolve_native_replay_quote_cut_census_v2(
+        &self,
+        scope_digest: [u8; 32],
+        frame_time_ns: u64,
+        decision_cut_ns: u64,
+        window_end_ns_exclusive: u64,
+    ) -> Result<postgres::RawNativeReplayQuoteCutCensusV2, DeploymentStoreAdmissionError> {
+        Self::resolve_native_replay_quote_cut_census_v2(
+            self,
+            scope_digest,
+            frame_time_ns,
+            decision_cut_ns,
+            window_end_ns_exclusive,
+        )
+        .await
+    }
+}
+
+/// The receipt identity every evidence from the sealed acceptance port carries: it names the
+/// absence of a Store Admission, so no reader can take such evidence for admitted evidence.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub(super) const SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1: &str =
+    "SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1";
+
+/// The native Replay scheduling reads over a directly connected principal, for sealed acceptance
+/// only.
+///
+/// It makes exactly the raw reads the admitted port makes, through the same measured-read
+/// functions, which accept only a disposable loopback `vibe_test_` database. What it does not do
+/// is the admission itself: no custody history, signer, anti-rollback witness, credential lease or
+/// direct measurement before a read, and no revalidation after one. That segment is `B3` and stays
+/// unproven here. The principal is whatever the URL names; acceptance connects as a least-privilege
+/// test principal granted exactly `NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1`, so a read that
+/// strays outside that set is refused rather than silently answered.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub(super) struct UnadmittedAcceptanceSnapshotPortV1 {
+    lease: postgres::PostgresCredentialLease,
+    scope: AdmissionScope,
+}
+
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+impl Debug for UnadmittedAcceptanceSnapshotPortV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct(stringify!(UnadmittedAcceptanceSnapshotPortV1))
+            .finish_non_exhaustive()
+    }
+}
+
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+impl UnadmittedAcceptanceSnapshotPortV1 {
+    /// A port reading as the principal `database_url` names.
+    ///
+    /// # Errors
+    ///
+    /// `CredentialLeaseRejected` when the URL is empty.
+    pub(super) fn from_database_url(
+        database_url: &str,
+    ) -> Result<Self, DeploymentStoreAdmissionError> {
+        let scope = AdmissionScope {
+            environment_identity: SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1.to_owned(),
+            deployment_identity: SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1.to_owned(),
+            consumer_owner: MARKET_DATA_OWNER.to_owned(),
+            consumer_identity: RD_OWNER_API_CONSUMER.to_owned(),
+            backend: POSTGRES_BACKEND.to_owned(),
+            expected_head_identity: SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1.to_owned(),
+        };
+        let lease = postgres::PostgresCredentialLease::from_resolved_secret(
+            "sealed-acceptance",
+            "market-data-native-replay-scheduling",
+            "v1",
+            u64::MAX,
+            database_url.to_owned(),
+        )
+        .map_err(|_| rejection(&scope, AdmissionFailureCode::CredentialLeaseRejected))?;
+        Ok(Self { lease, scope })
+    }
+
+    fn unavailable(&self) -> DeploymentStoreAdmissionError {
+        rejection(
+            &self.scope,
+            AdmissionFailureCode::DirectMeasurementUnavailable,
+        )
+    }
+}
+
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+#[async_trait]
+impl NativeReplaySchedulingReadPortV1 for UnadmittedAcceptanceSnapshotPortV1 {
+    async fn resolve_pit_evaluation(
+        &self,
+        snapshot_identity: [u8; 32],
+    ) -> Result<MarketDataPitEvaluationStorageEvidence, DeploymentStoreAdmissionError> {
+        let raw =
+            postgres::read_market_data_pit_evaluation_snapshot(&self.lease, &snapshot_identity)
+                .await
+                .map_err(|_| self.unavailable())?;
+        Ok(pit_evaluation_evidence_v1(
+            SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1.to_owned(),
+            raw,
+        ))
+    }
+
+    async fn resolve_bar_schedule_candidates_v1(
+        &self,
+        canonical_instrument: &str,
+    ) -> Result<Vec<BarScheduleStorageEvidenceV1>, DeploymentStoreAdmissionError> {
+        let raw =
+            postgres::read_bar_schedule_candidate_snapshots_v1(&self.lease, canonical_instrument)
+                .await
+                .map_err(|_| self.unavailable())?;
+        Ok(bar_schedule_candidate_evidence_v1(raw))
+    }
+
+    async fn resolve_native_replay_quote_cut_census_v2(
+        &self,
+        scope_digest: [u8; 32],
+        frame_time_ns: u64,
+        decision_cut_ns: u64,
+        window_end_ns_exclusive: u64,
+    ) -> Result<postgres::RawNativeReplayQuoteCutCensusV2, DeploymentStoreAdmissionError> {
+        postgres::read_native_replay_quote_cut_census_snapshot_v2(
+            &self.lease,
+            &scope_digest,
+            frame_time_ns,
+            decision_cut_ns,
+            window_end_ns_exclusive,
+        )
+        .await
+        .map_err(|_| self.unavailable())
+    }
+}
+
+/// One privilege the sealed acceptance principal is granted.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum AcceptanceGrantV1 {
+    /// `USAGE` on a schema.
+    SchemaUsage(&'static str),
+    /// `SELECT` on a relation the raw reads name directly.
+    TableSelect(&'static str),
+    /// `EXECUTE` on a function the raw reads call, by its exact signature.
+    FunctionExecute(&'static str),
+}
+
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+impl AcceptanceGrantV1 {
+    fn object(self) -> String {
+        match self {
+            Self::SchemaUsage(schema) => format!("USAGE ON SCHEMA {schema}"),
+            Self::TableSelect(table) => format!("SELECT ON TABLE {table}"),
+            Self::FunctionExecute(function) => format!("EXECUTE ON FUNCTION {function}"),
+        }
+    }
+
+    /// `GRANT` of this privilege to an already quoted role.
+    pub(super) fn grant_to(self, quoted_role: &str) -> String {
+        format!("GRANT {} TO {quoted_role}", self.object())
+    }
+
+    /// `REVOKE` of this privilege from an already quoted role.
+    pub(super) fn revoke_from(self, quoted_role: &str) -> String {
+        format!("REVOKE {} FROM {quoted_role}", self.object())
+    }
+}
+
+/// Exactly what the three native Replay scheduling raw reads need of the principal they connect
+/// as, and nothing more.
+///
+/// It is also a draft of the gate `B3` must grant the principal a Store Admission leases, measured
+/// by removal: the sealed acceptance proof revokes each entry alone and requires the read that
+/// needs it to be refused. Two entries fall outside every floor a scheduling admission measures
+/// today: the PIT evaluation read names `pit_snapshot_facts_v1` and `clock_handoffs_v1` directly,
+/// and no floor covers the PIT evaluation functions at all.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub(super) const NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1: &[AcceptanceGrantV1] = &[
+    AcceptanceGrantV1::SchemaUsage("market_data_private"),
+    AcceptanceGrantV1::TableSelect("market_data_private.pit_snapshot_facts_v1"),
+    AcceptanceGrantV1::TableSelect("market_data_private.clock_handoffs_v1"),
+    AcceptanceGrantV1::FunctionExecute("market_data_private.resolve_pit_snapshot_v1(bytea)"),
+    AcceptanceGrantV1::FunctionExecute(
+        "market_data_private.resolve_pit_observation_batch_v1(bytea)",
+    ),
+    AcceptanceGrantV1::FunctionExecute(
+        "market_data_private.resolve_pit_observation_rows_v1(bytea)",
+    ),
+    AcceptanceGrantV1::FunctionExecute("market_data_private.resolve_pit_lineage_custody_v1(bytea)"),
+    AcceptanceGrantV1::FunctionExecute("market_data_private.resolve_pit_lineage_members_v1(bytea)"),
+    AcceptanceGrantV1::FunctionExecute("market_data_private.resolve_source_binding_v1(bytea)"),
+    AcceptanceGrantV1::FunctionExecute(
+        "market_data_private.resolve_source_lineage_custody_v1(bytea)",
+    ),
+    AcceptanceGrantV1::FunctionExecute(
+        "market_data_private.resolve_source_lineage_members_v1(bytea)",
+    ),
+    AcceptanceGrantV1::FunctionExecute("market_data_private.resolve_clock_custody_state_v1()"),
+    AcceptanceGrantV1::FunctionExecute(
+        "market_data_private.resolve_owner_history_census_custody_v1()",
+    ),
+    AcceptanceGrantV1::FunctionExecute(
+        "market_data_private.resolve_bar_schedule_candidates_v1(text)",
+    ),
+    AcceptanceGrantV1::FunctionExecute("market_data_private.resolve_bar_schedule_history_v1(text)"),
+    AcceptanceGrantV1::FunctionExecute(
+        "market_data_private.resolve_native_replay_quote_cut_census_v2(bytea,bigint,bigint)",
+    ),
+    AcceptanceGrantV1::FunctionExecute(
+        "market_data_private.resolve_native_replay_next_frame_v2(bytea,bigint,bigint)",
+    ),
+];
+
+/// Applies `statement_of` for every sealed acceptance grant to `role`, as the Market Data owner.
+///
+/// # Errors
+///
+/// The store's error when a statement is refused; statements already applied stay applied.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub(super) async fn apply_native_replay_scheduling_acceptance_grants_v1(
+    owner: &sqlx::PgPool,
+    role: &str,
+    statement_of: fn(AcceptanceGrantV1, &str) -> String,
+) -> Result<(), sqlx::Error> {
+    let quoted: String = sqlx::query_scalar("SELECT pg_catalog.quote_ident($1)")
+        .bind(role)
+        .fetch_one(owner)
+        .await?;
+
+    for grant in NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1 {
+        sqlx::query(sqlx::AssertSqlSafe(statement_of(*grant, &quoted)))
+            .execute(owner)
+            .await?;
+    }
+    Ok(())
 }
 
 /// Makes the intentionally unavailable S3 boundary explicit without adding an adapter.
@@ -1325,28 +1634,32 @@ struct AdmissionScope {
     expected_head_identity: String,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CredentialHandleBinding {
     identity: String,
     audience: String,
     version: String,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RecoveryBinding {
     identity: String,
     restart_requires_reverification: bool,
     ambiguity_forbids_business_retry: bool,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RotationFence {
     identity: String,
     predecessor_manifest_identity: Option<String>,
     closed_at_epoch_ms: Option<u64>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct StoreManifest {
     manifest_identity: String,
     environment_identity: String,
@@ -1376,7 +1689,8 @@ struct SignedManifest {
     signature: Vec<u8>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct StoreHead {
     head_identity: String,
     environment_identity: String,
@@ -1400,6 +1714,10 @@ struct SignedHead {
 struct ResolvedHistory {
     manifests: Vec<SignedManifest>,
     current_heads: Vec<SignedHead>,
+    /// The custody store's own clock when it read this history. It is the admission's only
+    /// reading of time: the store judges the receipt's window on the same clock at commit, so no
+    /// other clock may cut a bound it will be compared with.
+    read_cut_epoch_ms: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -1436,9 +1754,22 @@ enum ReceiptCommitError {
     Expired,
 }
 
+/// Why a custody store could not answer with a history the custodian can verify.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ResolveHistoryError {
+    /// The store could not be read.
+    Unavailable,
+    /// The store answered with entries that are not a signed history's exact bytes.
+    InvalidHistory,
+}
+
 #[async_trait]
 trait CustodyStore: Send + Sync {
-    async fn resolve_history(&self, scope: &AdmissionScope) -> Result<ResolvedHistory, ()>;
+    /// Reads the signed history and current heads for `scope`, with the store clock's cut at the read.
+    async fn resolve_history(
+        &self,
+        scope: &AdmissionScope,
+    ) -> Result<ResolvedHistory, ResolveHistoryError>;
 
     /// Atomically rechecks signed custody and the independent witness frontier, obtains the
     /// authority clock cut, and either joins or writes the immutable receipt.
@@ -1486,17 +1817,12 @@ trait DirectMeasurer: Send + Sync {
     ) -> Result<PostgresMeasurement, ()>;
 }
 
-trait Clock: Send + Sync {
-    fn now_epoch_ms(&self) -> u64;
-}
-
 struct Custodian {
     custody: Arc<dyn CustodyStore>,
     signatures: Arc<dyn SignatureVerifier>,
     witness: Arc<dyn AntiRollbackWitness>,
     credentials: Arc<dyn CredentialResolver>,
     measurer: Arc<dyn DirectMeasurer>,
-    clock: Arc<dyn Clock>,
 }
 
 impl Custodian {
@@ -1507,7 +1833,6 @@ impl Custodian {
             Arc::clone(&self.witness),
             Arc::clone(&self.credentials),
             Arc::clone(&self.measurer),
-            Arc::clone(&self.clock),
         ))
     }
 }
@@ -1519,7 +1844,6 @@ impl Custodian {
         witness: Arc<dyn AntiRollbackWitness>,
         credentials: Arc<dyn CredentialResolver>,
         measurer: Arc<dyn DirectMeasurer>,
-        clock: Arc<dyn Clock>,
     ) -> Self {
         Self {
             custody,
@@ -1527,7 +1851,6 @@ impl Custodian {
             witness,
             credentials,
             measurer,
-            clock,
         }
     }
 
@@ -1545,9 +1868,17 @@ impl Custodian {
         &self,
         scope: AdmissionScope,
     ) -> Result<AdmittedMarketDataPostgresCapability, DeploymentStoreAdmissionError> {
-        let resolved =
-            self.custody.resolve_history(&scope).await.map_err(|()| {
-                rejection(&scope, AdmissionFailureCode::ProductionResolverUnavailable)
+        let resolved = self
+            .custody
+            .resolve_history(&scope)
+            .await
+            .map_err(|e| match e {
+                ResolveHistoryError::Unavailable => {
+                    rejection(&scope, AdmissionFailureCode::ProductionResolverUnavailable)
+                }
+                ResolveHistoryError::InvalidHistory => {
+                    rejection(&scope, AdmissionFailureCode::InvalidAppendOnlyHistory)
+                }
             })?;
 
         if resolved.current_heads.len() != 1 {
@@ -1589,7 +1920,7 @@ impl Custodian {
             )
             .await?;
         }
-        let now = self.clock.now_epoch_ms();
+        let now = resolved.read_cut_epoch_ms;
         validate_manifest_chain(&scope, &manifests, now)?;
         let history_digest = digest_serializable(
             &manifests
@@ -1678,7 +2009,6 @@ impl Custodian {
             ));
         }
 
-        let commit_now = self.clock.now_epoch_ms();
         let valid_through_epoch_ms = latest
             .valid_through_epoch_ms
             .min(observation.valid_through_epoch_ms)
@@ -1688,7 +2018,9 @@ impl Custodian {
             .max(latest.rotation_fence.closed_at_epoch_ms.unwrap_or(u64::MAX))
             .max(observation.observed_at_epoch_ms);
 
-        if commit_now < not_before_epoch_ms || commit_now >= valid_through_epoch_ms {
+        // Whether the commit falls inside this window is the custody store's to judge, on the
+        // clock that cut `now`; an empty window needs no clock to refuse.
+        if not_before_epoch_ms >= valid_through_epoch_ms {
             return Err(rejection(&scope, AdmissionFailureCode::AdmissionCutExpired));
         }
         let witness_proof_identity = digest_serializable(&observation);
@@ -1897,6 +2229,34 @@ fn digest_serializable(value: &impl Serialize) -> String {
     output
 }
 
+/// Stamps `receipt` with the store clock's admission and seals its content identities. A custody
+/// store calls this at commit, on the clock that judged the receipt's window.
+fn seal_receipt_at(
+    mut receipt: SealedDeploymentStoreAdmissionReceipt,
+    admitted_at_epoch_ms: u64,
+) -> SealedDeploymentStoreAdmissionReceipt {
+    receipt.receipt_identity.clear();
+    receipt.admitted_at_epoch_ms = admitted_at_epoch_ms;
+    receipt.replay_identity = receipt_replay_identity(&receipt);
+    receipt.receipt_identity = digest_serializable(&receipt);
+    receipt
+}
+
+/// The one receipt slot an exact commit cut of `scope` occupies: a replay of the same signed head,
+/// history and witness frontier lands in it again.
+fn receipt_slot(scope: &AdmissionScope, cut: &AdmissionCommitCut) -> String {
+    digest_serializable(&(
+        &scope.environment_identity,
+        &scope.deployment_identity,
+        &scope.consumer_owner,
+        &scope.consumer_identity,
+        &scope.backend,
+        &cut.signed_head_proof_identity,
+        &cut.signed_history_proof_identity,
+        &cut.witness_proof_identity,
+    ))
+}
+
 fn receipt_replay_identity(receipt: &SealedDeploymentStoreAdmissionReceipt) -> String {
     let mut meaning = receipt.clone();
     meaning.receipt_identity.clear();
@@ -1927,12 +2287,14 @@ struct UnavailableSignatureVerifier;
 struct UnavailableAntiRollbackWitness;
 struct UnavailableCredentialResolver;
 struct UnavailableDirectMeasurer;
-struct SystemClock;
 
 #[async_trait]
 impl CustodyStore for UnavailableCustodyStore {
-    async fn resolve_history(&self, _scope: &AdmissionScope) -> Result<ResolvedHistory, ()> {
-        Err(())
+    async fn resolve_history(
+        &self,
+        _scope: &AdmissionScope,
+    ) -> Result<ResolvedHistory, ResolveHistoryError> {
+        Err(ResolveHistoryError::Unavailable)
     }
 
     async fn commit_receipt_if_current(
@@ -2000,23 +2362,13 @@ impl DirectMeasurer for PostgresDirectMeasurer {
     }
 }
 
-impl Clock for SystemClock {
-    fn now_epoch_ms(&self) -> u64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |duration| {
-                u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
-            })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::{
         collections::HashMap,
         sync::{
             Mutex,
-            atomic::{AtomicU64, AtomicUsize, Ordering},
+            atomic::{AtomicUsize, Ordering},
         },
     };
 
@@ -2026,49 +2378,9 @@ mod tests {
     use super::*;
 
     const NOW: u64 = 1_000_000;
+    /// The fake custody store's clock, the admission's only reading of time.
+    const STORE_NOW: u64 = NOW + 10;
     const SIGNER: &str = "deployment-store-test-signer-v1";
-
-    struct FixedClock;
-
-    impl Clock for FixedClock {
-        fn now_epoch_ms(&self) -> u64 {
-            NOW
-        }
-    }
-
-    struct AdvancingClock {
-        next: AtomicU64,
-    }
-
-    impl Clock for AdvancingClock {
-        fn now_epoch_ms(&self) -> u64 {
-            self.next.fetch_add(1, Ordering::SeqCst)
-        }
-    }
-
-    struct MutableClock {
-        now: Arc<AtomicU64>,
-    }
-
-    struct RegressingClock {
-        calls: AtomicUsize,
-    }
-
-    impl Clock for RegressingClock {
-        fn now_epoch_ms(&self) -> u64 {
-            if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
-                NOW
-            } else {
-                NOW - 2_000
-            }
-        }
-    }
-
-    impl Clock for MutableClock {
-        fn now_epoch_ms(&self) -> u64 {
-            self.now.load(Ordering::SeqCst)
-        }
-    }
 
     struct FakeCustodyState {
         history: ResolvedHistory,
@@ -2084,18 +2396,24 @@ mod tests {
 
     #[async_trait]
     impl CustodyStore for FakeCustodyStore {
-        async fn resolve_history(&self, _scope: &AdmissionScope) -> Result<ResolvedHistory, ()> {
+        async fn resolve_history(
+            &self,
+            _scope: &AdmissionScope,
+        ) -> Result<ResolvedHistory, ResolveHistoryError> {
             self.state
                 .lock()
-                .map(|state| state.history.clone())
-                .map_err(|_| ())
+                .map(|state| ResolvedHistory {
+                    read_cut_epoch_ms: state.now_epoch_ms,
+                    ..state.history.clone()
+                })
+                .map_err(|_| ResolveHistoryError::Unavailable)
         }
 
         async fn commit_receipt_if_current(
             &self,
             scope: &AdmissionScope,
             expected_cut: &AdmissionCommitCut,
-            mut receipt: SealedDeploymentStoreAdmissionReceipt,
+            receipt: SealedDeploymentStoreAdmissionReceipt,
         ) -> Result<SealedDeploymentStoreAdmissionReceipt, ReceiptCommitError> {
             let mut state = self
                 .state
@@ -2119,19 +2437,8 @@ mod tests {
             {
                 return Err(ReceiptCommitError::Expired);
             }
-            receipt.admitted_at_epoch_ms = state.now_epoch_ms;
-            receipt.replay_identity = receipt_replay_identity(&receipt);
-            receipt.receipt_identity = digest_serializable(&receipt);
-            let slot = digest_serializable(&(
-                &scope.environment_identity,
-                &scope.deployment_identity,
-                &scope.consumer_owner,
-                &scope.consumer_identity,
-                &scope.backend,
-                &expected_cut.signed_head_proof_identity,
-                &expected_cut.signed_history_proof_identity,
-                &expected_cut.witness_proof_identity,
-            ));
+            let receipt = seal_receipt_at(receipt, state.now_epoch_ms);
+            let slot = receipt_slot(scope, expected_cut);
 
             if let Some(existing) = state.receipts.get(&slot) {
                 return if existing.replay_identity == receipt.replay_identity {
@@ -2195,7 +2502,9 @@ mod tests {
         }
     }
 
-    struct FakeCredentials;
+    struct FakeCredentials {
+        valid_through_epoch_ms: u64,
+    }
 
     #[async_trait]
     impl CredentialResolver for FakeCredentials {
@@ -2207,7 +2516,7 @@ mod tests {
                 &handle.identity,
                 &handle.audience,
                 &handle.version,
-                NOW + 5_000,
+                self.valid_through_epoch_ms,
                 "postgres://test:secret@127.0.0.1:5432/disposable".to_string(),
             )
             .map_err(|_| ())
@@ -2224,9 +2533,12 @@ mod tests {
         custody: FakeCustodyStore,
     }
 
-    struct ExpiringMeasurer {
+    /// Moves the custody store's clock to `to` while it measures, as a slow or stepped store clock
+    /// would between the history read and the commit.
+    struct ClockMovingMeasurer {
         value: PostgresMeasurement,
-        now: Arc<AtomicU64>,
+        custody: FakeCustodyStore,
+        to: u64,
     }
 
     struct WitnessSwitchingMeasurer {
@@ -2251,13 +2563,13 @@ mod tests {
     }
 
     #[async_trait]
-    impl DirectMeasurer for ExpiringMeasurer {
+    impl DirectMeasurer for ClockMovingMeasurer {
         async fn measure(
             &self,
             _lease: &PostgresCredentialLease,
             _spec: &PostgresMeasurementSpec,
         ) -> Result<PostgresMeasurement, ()> {
-            self.now.store(NOW + 5_000, Ordering::SeqCst);
+            self.custody.state.lock().map_err(|_| ())?.now_epoch_ms = self.to;
             Ok(self.value.clone())
         }
     }
@@ -2290,22 +2602,18 @@ mod tests {
     struct Fixture {
         request: RdOwnerMarketDataAdmissionRequest,
         history: ResolvedHistory,
+        /// The signed head of the genesis manifest alone, the first thing a store publishes.
+        genesis_head: SignedHead,
         witness: AntiRollbackObservation,
         measurement: PostgresMeasurement,
         signing_key: SigningKey,
+        /// When the witness observation and the credential lease lapse.
+        lapse_epoch_ms: u64,
     }
 
     impl Fixture {
         fn new() -> Self {
-            Self::with_spec(
-                &PostgresMeasurementSpec::new(
-                    "market_data_private",
-                    "market_data_private.schema_migrations_v1",
-                    vec!["market_data_api.resolve_snapshot_v1(text)".to_string()],
-                    vec!["market_data_private.snapshot_facts_v1".to_string()],
-                )
-                .unwrap(),
-            )
+            Self::with_spec(&synthetic_spec())
         }
 
         fn with_spec(spec: &PostgresMeasurementSpec) -> Self {
@@ -2321,8 +2629,20 @@ mod tests {
             spec: &PostgresMeasurementSpec,
             measurement: PostgresMeasurement,
         ) -> Self {
+            Self::at("test-environment", spec, measurement, NOW, 5_000)
+        }
+
+        /// A fixture whose windows are cut from `now`: the manifests hold for twice `horizon_ms`,
+        /// the witness observation and the credential lease for `horizon_ms`.
+        fn at(
+            environment_identity: &str,
+            spec: &PostgresMeasurementSpec,
+            measurement: PostgresMeasurement,
+            now: u64,
+            horizon_ms: u64,
+        ) -> Self {
             let request = RdOwnerMarketDataAdmissionRequest::new(
-                "test-environment".to_string(),
+                environment_identity.to_string(),
                 "rd-workbench-test".to_string(),
                 format!("sha256:{}", "0".repeat(64)),
             )
@@ -2336,6 +2656,7 @@ mod tests {
                 1,
                 None,
                 "rotation-fence-genesis",
+                TimeBase { now, horizon_ms },
             );
             let successor = manifest(
                 &scope,
@@ -2344,7 +2665,9 @@ mod tests {
                 2,
                 Some(genesis.manifest_identity.clone()),
                 "rotation-fence-2",
+                TimeBase { now, horizon_ms },
             );
+            let genesis_head = sign_head(head_over(&scope, &[&genesis]), &signing_key);
             let manifests = vec![
                 sign_manifest(genesis, &signing_key),
                 sign_manifest(successor.clone(), &signing_key),
@@ -2371,22 +2694,26 @@ mod tests {
             let signed_head = sign_head(head, &signing_key);
             Self {
                 request: RdOwnerMarketDataAdmissionRequest::new(
-                    "test-environment".to_string(),
+                    environment_identity.to_string(),
                     "rd-workbench-test".to_string(),
                     expected_head.clone(),
                 )
                 .unwrap(),
+                genesis_head,
+                lapse_epoch_ms: now + horizon_ms,
                 history: ResolvedHistory {
                     manifests,
                     current_heads: vec![signed_head],
+                    // The fake store reports its own clock at every read.
+                    read_cut_epoch_ms: 0,
                 },
                 witness: AntiRollbackObservation {
                     witness_identity: "anti-rollback-witness-observation-v1".to_string(),
                     head_identity: expected_head,
                     manifest_identity: successor.manifest_identity,
                     generation: 2,
-                    observed_at_epoch_ms: NOW,
-                    valid_through_epoch_ms: NOW + 5_000,
+                    observed_at_epoch_ms: now,
+                    valid_through_epoch_ms: now + horizon_ms,
                 },
                 measurement,
                 signing_key,
@@ -2397,26 +2724,6 @@ mod tests {
             &self,
             signature_calls: Arc<AtomicUsize>,
             measurement_calls: Arc<AtomicUsize>,
-        ) -> Custodian {
-            self.custodian_with_clock(signature_calls, measurement_calls, Arc::new(FixedClock))
-        }
-
-        fn custody(&self) -> FakeCustodyStore {
-            FakeCustodyStore {
-                state: Arc::new(Mutex::new(FakeCustodyState {
-                    history: self.history.clone(),
-                    current_witness_proof_identity: digest_serializable(&self.witness),
-                    receipts: HashMap::new(),
-                    now_epoch_ms: NOW + 10,
-                })),
-            }
-        }
-
-        fn custodian_with_clock(
-            &self,
-            signature_calls: Arc<AtomicUsize>,
-            measurement_calls: Arc<AtomicUsize>,
-            clock: Arc<dyn Clock>,
         ) -> Custodian {
             self.custodian_with_ports(
                 self.custody(),
@@ -2429,8 +2736,18 @@ mod tests {
                     value: self.measurement.clone(),
                     calls: measurement_calls,
                 }),
-                clock,
             )
+        }
+
+        fn custody(&self) -> FakeCustodyStore {
+            FakeCustodyStore {
+                state: Arc::new(Mutex::new(FakeCustodyState {
+                    history: self.history.clone(),
+                    current_witness_proof_identity: digest_serializable(&self.witness),
+                    receipts: HashMap::new(),
+                    now_epoch_ms: STORE_NOW,
+                })),
+            }
         }
 
         fn custodian_with_ports(
@@ -2438,7 +2755,6 @@ mod tests {
             custody: FakeCustodyStore,
             signatures: Arc<dyn SignatureVerifier>,
             measurer: Arc<dyn DirectMeasurer>,
-            clock: Arc<dyn Clock>,
         ) -> Custodian {
             Custodian::new(
                 Arc::new(custody),
@@ -2446,9 +2762,10 @@ mod tests {
                 Arc::new(FakeWitness {
                     observation: self.witness.clone(),
                 }),
-                Arc::new(FakeCredentials),
+                Arc::new(FakeCredentials {
+                    valid_through_epoch_ms: self.lapse_epoch_ms,
+                }),
                 measurer,
-                clock,
             )
         }
 
@@ -2474,6 +2791,16 @@ mod tests {
         }
     }
 
+    fn synthetic_spec() -> PostgresMeasurementSpec {
+        PostgresMeasurementSpec::new(
+            "market_data_private",
+            "market_data_private.schema_migrations_v1",
+            vec!["market_data_api.resolve_snapshot_v1(text)".to_string()],
+            vec!["market_data_private.snapshot_facts_v1".to_string()],
+        )
+        .unwrap()
+    }
+
     fn measurement(role: &str) -> PostgresMeasurement {
         PostgresMeasurement {
             endpoint_identity: "postgresql://127.0.0.1:5432".to_string(),
@@ -2495,7 +2822,9 @@ mod tests {
         generation: u64,
         predecessor: Option<String>,
         fence: &str,
+        time: TimeBase,
     ) -> StoreManifest {
+        let TimeBase { now, horizon_ms } = time;
         let mut manifest = StoreManifest {
             manifest_identity: String::new(),
             environment_identity: scope.environment_identity.clone(),
@@ -2516,8 +2845,8 @@ mod tests {
             },
             predecessor_manifest_identity: predecessor.clone(),
             generation,
-            valid_from_epoch_ms: NOW - 1_000,
-            valid_through_epoch_ms: NOW + 10_000,
+            valid_from_epoch_ms: now - 1_000,
+            valid_through_epoch_ms: now + 2 * horizon_ms,
             recovery: RecoveryBinding {
                 identity: "restart-reverify-and-remeasure-v1".to_string(),
                 restart_requires_reverification: true,
@@ -2526,11 +2855,42 @@ mod tests {
             rotation_fence: RotationFence {
                 identity: fence.to_string(),
                 predecessor_manifest_identity: predecessor,
-                closed_at_epoch_ms: Some(NOW - 100),
+                closed_at_epoch_ms: Some(now - 100),
             },
         };
         manifest.manifest_identity = manifest_identity(&manifest);
         manifest
+    }
+
+    /// The time a fixture's windows are cut from: manifests hold for twice `horizon_ms` after `now`,
+    /// the witness observation and the credential lease for `horizon_ms`.
+    #[derive(Clone, Copy)]
+    struct TimeBase {
+        now: u64,
+        horizon_ms: u64,
+    }
+
+    /// The head naming the last of `manifests` over exactly that history.
+    fn head_over(scope: &AdmissionScope, manifests: &[&StoreManifest]) -> StoreHead {
+        let latest = manifests.last().unwrap();
+        let mut head = StoreHead {
+            head_identity: String::new(),
+            environment_identity: scope.environment_identity.clone(),
+            deployment_identity: scope.deployment_identity.clone(),
+            consumer_owner: scope.consumer_owner.clone(),
+            consumer_identity: scope.consumer_identity.clone(),
+            backend: scope.backend.clone(),
+            current_manifest_identity: latest.manifest_identity.clone(),
+            generation: latest.generation,
+            history_digest: digest_serializable(
+                &manifests
+                    .iter()
+                    .map(|manifest| &manifest.manifest_identity)
+                    .collect::<Vec<_>>(),
+            ),
+        };
+        head.head_identity = head_identity(&head);
+        head
     }
 
     fn sign_manifest(manifest: StoreManifest, key: &SigningKey) -> SignedManifest {
@@ -2556,15 +2916,23 @@ mod tests {
         let fixture = Fixture::new();
         let signature_calls = Arc::new(AtomicUsize::new(0));
         let measurement_calls = Arc::new(AtomicUsize::new(0));
-        let custodian = fixture.custodian_with_clock(
-            signature_calls.clone(),
-            measurement_calls.clone(),
-            Arc::new(AdvancingClock {
-                next: AtomicU64::new(NOW),
+        let custody = fixture.custody();
+        let custodian = fixture.custodian_with_ports(
+            custody.clone(),
+            Arc::new(CountingVerifier::pinned(
+                SIGNER,
+                &fixture.signing_key.verifying_key(),
+                signature_calls.clone(),
+            )),
+            Arc::new(FakeMeasurer {
+                value: fixture.measurement.clone(),
+                calls: measurement_calls.clone(),
             }),
         );
 
         let first = custodian.admit(fixture.request.scope()).await.unwrap();
+        // The restart reads a later store clock and still joins the receipt it sealed first.
+        custody.state.lock().unwrap().now_epoch_ms = STORE_NOW + 10;
         let after_cache_loss = custodian.admit(fixture.request.scope()).await.unwrap();
 
         assert_eq!(first, after_cache_loss);
@@ -2601,12 +2969,13 @@ mod tests {
             Arc::new(FakeWitness {
                 observation: fixture.witness.clone(),
             }),
-            Arc::new(FakeCredentials),
+            Arc::new(FakeCredentials {
+                valid_through_epoch_ms: NOW + 5_000,
+            }),
             Arc::new(HeadSwitchingMeasurer {
                 value: fixture.measurement.clone(),
                 custody,
             }),
-            Arc::new(FixedClock),
         );
 
         let error = custodian.admit(fixture.request.scope()).await.unwrap_err();
@@ -2635,7 +3004,6 @@ mod tests {
                     value: first.measurement.clone(),
                     calls: Arc::new(AtomicUsize::new(0)),
                 }),
-                Arc::new(FixedClock),
             )
             .admit(first.request.scope())
             .await
@@ -2652,7 +3020,6 @@ mod tests {
                     value: second.measurement.clone(),
                     calls: Arc::new(AtomicUsize::new(0)),
                 }),
-                Arc::new(FixedClock),
             )
             .admit(second.request.scope())
             .await
@@ -2664,19 +3031,20 @@ mod tests {
     #[tokio::test]
     async fn expiry_during_direct_measurement_yields_no_receipt() {
         let fixture = Fixture::new();
-        let now = Arc::new(AtomicU64::new(NOW));
+        let custody = fixture.custody();
+        // The witness and the lease both lapse at NOW + 5_000.
         let custodian = fixture.custodian_with_ports(
-            fixture.custody(),
+            custody.clone(),
             Arc::new(CountingVerifier::pinned(
                 SIGNER,
                 &fixture.signing_key.verifying_key(),
                 Arc::new(AtomicUsize::new(0)),
             )),
-            Arc::new(ExpiringMeasurer {
+            Arc::new(ClockMovingMeasurer {
                 value: fixture.measurement.clone(),
-                now: now.clone(),
+                custody,
+                to: NOW + 5_000,
             }),
-            Arc::new(MutableClock { now }),
         );
 
         let error = custodian.admit(fixture.request.scope()).await.unwrap_err();
@@ -2698,7 +3066,6 @@ mod tests {
                 value: fixture.measurement.clone(),
                 custody,
             }),
-            Arc::new(FixedClock),
         );
 
         let error = custodian.admit(fixture.request.scope()).await.unwrap_err();
@@ -2708,11 +3075,19 @@ mod tests {
     #[tokio::test]
     async fn clock_regression_before_commit_yields_no_receipt() {
         let fixture = Fixture::new();
-        let custodian = fixture.custodian_with_clock(
-            Arc::new(AtomicUsize::new(0)),
-            Arc::new(AtomicUsize::new(0)),
-            Arc::new(RegressingClock {
-                calls: AtomicUsize::new(0),
+        let custody = fixture.custody();
+        // The history was read at STORE_NOW, so the receipt cannot start earlier.
+        let custodian = fixture.custodian_with_ports(
+            custody.clone(),
+            Arc::new(CountingVerifier::pinned(
+                SIGNER,
+                &fixture.signing_key.verifying_key(),
+                Arc::new(AtomicUsize::new(0)),
+            )),
+            Arc::new(ClockMovingMeasurer {
+                value: fixture.measurement.clone(),
+                custody,
+                to: NOW - 2_000,
             }),
         );
 
@@ -2772,7 +3147,7 @@ mod tests {
                     history: changed.history.clone(),
                     current_witness_proof_identity: digest_serializable(&changed.witness),
                     receipts: HashMap::new(),
-                    now_epoch_ms: NOW + 10,
+                    now_epoch_ms: STORE_NOW,
                 })),
             }),
             Arc::new(CountingVerifier::pinned(
@@ -2783,12 +3158,13 @@ mod tests {
             Arc::new(FakeWitness {
                 observation: changed.witness.clone(),
             }),
-            Arc::new(FakeCredentials),
+            Arc::new(FakeCredentials {
+                valid_through_epoch_ms: NOW + 5_000,
+            }),
             Arc::new(FakeMeasurer {
                 value: measurement("changed-role"),
                 calls: Arc::new(AtomicUsize::new(0)),
             }),
-            Arc::new(FixedClock),
         );
         let error = custodian.admit(changed.request.scope()).await.unwrap_err();
         assert_eq!(
@@ -2812,7 +3188,7 @@ mod tests {
 
         let mut future = Fixture::new();
         let mut latest = future.history.manifests[1].manifest.clone();
-        latest.rotation_fence.closed_at_epoch_ms = Some(NOW + 1);
+        latest.rotation_fence.closed_at_epoch_ms = Some(STORE_NOW + 1);
         future.replace_latest(latest);
         let error = future
             .custodian(Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)))
@@ -3512,7 +3888,7 @@ mod tests {
     ///
     /// A refused PIT readback does not go on to read schedule candidates.
     ///
-    /// `resolve_native_replay_initial_market_through_admitted_port_v1` reads the snapshot's
+    /// `resolve_native_replay_initial_market_through_port_v1` reads the snapshot's
     /// evidence, verifies it, and only then asks the port for each member's schedule candidates.
     /// Nothing in the types enforces that order; swapping the two would still compile, still
     /// refuse, and still return the same error to the caller. What would change is that a store
@@ -3603,7 +3979,6 @@ mod tests {
             Arc::new(CountingPostgresMeasurer {
                 calls: Arc::new(AtomicUsize::new(0)),
             }),
-            Arc::new(FixedClock),
         )
         .admit_capability(fixture.request.scope())
         .await
@@ -3681,12 +4056,11 @@ mod tests {
         .expect("the frame verifies");
         let window_end = snapshot.frame_time_ns + 1_000;
 
-        let through_port =
-            crate::owner::postgres::resolve_native_replay_quote_cut_through_admitted_port_v2(
-                &port, &frame, window_end,
-            )
-            .await
-            .expect("the port resolves the frame's quote cut");
+        let through_port = crate::owner::postgres::resolve_native_replay_quote_cut_through_port_v2(
+            &port, &frame, window_end,
+        )
+        .await
+        .expect("the port resolves the frame's quote cut");
         assert_eq!(
             through_port.snapshot_identity(),
             snapshot.quote_cut_snapshot_identity
@@ -3711,7 +4085,7 @@ mod tests {
 
         // A window that ends on the quote cut's instant leaves the frame without one, both ways.
         assert_eq!(
-            crate::owner::postgres::resolve_native_replay_quote_cut_through_admitted_port_v2(
+            crate::owner::postgres::resolve_native_replay_quote_cut_through_port_v2(
                 &port,
                 &frame,
                 snapshot.quote_cut_instant_ns,
@@ -3726,6 +4100,299 @@ mod tests {
                 .await
                 .map(|batch| batch.snapshot_identity()),
             Err(NativeReplayQuoteCutRefusalV2::QuoteCutMissing)
+        );
+    }
+
+    /// Which of the three scheduling reads a grant serves.
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+    enum SchedulingReadV1 {
+        PitEvaluation,
+        BarScheduleCandidates,
+        QuoteCutCensus,
+    }
+
+    /// The reads a grant exists for, stated before any run so the proof can disagree with it.
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    fn reads_needing(grant: AcceptanceGrantV1) -> std::collections::BTreeSet<SchedulingReadV1> {
+        use SchedulingReadV1::{BarScheduleCandidates, PitEvaluation, QuoteCutCensus};
+
+        match grant {
+            AcceptanceGrantV1::SchemaUsage(_) => {
+                [PitEvaluation, BarScheduleCandidates, QuoteCutCensus].into()
+            }
+            AcceptanceGrantV1::TableSelect(_) => [PitEvaluation].into(),
+            AcceptanceGrantV1::FunctionExecute(function) if function.contains("bar_schedule") => {
+                [BarScheduleCandidates].into()
+            }
+            AcceptanceGrantV1::FunctionExecute(function) if function.contains("native_replay") => {
+                [QuoteCutCensus].into()
+            }
+            AcceptanceGrantV1::FunctionExecute(_) => [PitEvaluation].into(),
+        }
+    }
+
+    /// Runs each scheduling read once through `port` and names the ones that were refused.
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    async fn refused_reads(
+        port: &UnadmittedAcceptanceSnapshotPortV1,
+        snapshot: &crate::owner::postgres::tests::NativeReplayTwoMemberSnapshotFixtureV1,
+    ) -> std::collections::BTreeSet<SchedulingReadV1> {
+        let mut refused = std::collections::BTreeSet::new();
+
+        if port
+            .resolve_pit_evaluation(*snapshot.snapshot_identity.as_bytes())
+            .await
+            .is_err()
+        {
+            refused.insert(SchedulingReadV1::PitEvaluation);
+        }
+
+        if port
+            .resolve_bar_schedule_candidates_v1("AAPL.XNAS")
+            .await
+            .is_err()
+        {
+            refused.insert(SchedulingReadV1::BarScheduleCandidates);
+        }
+
+        if port
+            .resolve_native_replay_quote_cut_census_v2(
+                *snapshot.snapshot_identity.as_bytes(),
+                snapshot.frame_time_ns,
+                snapshot.frame_time_ns + 1_000,
+                snapshot.frame_time_ns + 1_000,
+            )
+            .await
+            .is_err()
+        {
+            refused.insert(SchedulingReadV1::QuoteCutCensus);
+        }
+        refused
+    }
+
+    /// The sealed acceptance resolver reads under exactly the grants it declares, as a
+    /// least-privilege principal, through the read path the admitted resolver uses.
+    ///
+    /// It connects as the disposable harness's reader role, which starts with no `USAGE` on
+    /// `market_data_private`. With nothing granted, every read is refused. With exactly
+    /// `NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1`, every read is answered: the snapshot's
+    /// evidence verifies, a member's schedule candidates are read, and the quote cut read through
+    /// the port is the one custody resolves. Each grant revoked alone refuses exactly the reads
+    /// stated for it in `reads_needing`, and nothing else, so the list is neither short nor padded.
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    #[rstest]
+    #[ignore = "requires the crates/data disposable PostgreSQL harness"]
+    fn the_sealed_acceptance_resolver_reads_under_exactly_its_grants() {
+        std::thread::Builder::new()
+            .name("market-data-sealed-acceptance-grants".into())
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(run_sealed_acceptance_grants_scenario());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    async fn run_sealed_acceptance_grants_scenario() {
+        use crate::owner::native_replay_scheduling_v1::{
+            NativeReplaySchedulingErrorV1, NativeReplaySchedulingResolverV1,
+        };
+
+        const READER: &str = "vibe_test_role_market_data_reader";
+        let owner_url = std::env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL")
+            .expect("explicit disposable Owner URL");
+        let reader_url = std::env::var("MARKET_DATA_READER_TEST_DATABASE_URL")
+            .expect("explicit disposable reader URL");
+        let database =
+            std::env::var("VIBE_POSTGRES_TEST_DATABASE_NAME").expect("disposable database name");
+        assert!(
+            database.starts_with("vibe_test_"),
+            "this proof grants and revokes; it runs only against a disposable database"
+        );
+        assert!(
+            reader_url.contains(READER),
+            "the proof's principal is the harness reader"
+        );
+        let owner = crate::owner::postgres::MarketDataOwnerPostgres::connect(&owner_url)
+            .await
+            .expect("Owner connects and migrates");
+        let snapshot =
+            crate::owner::postgres::tests::native_replay_two_member_snapshot_fixture_v1(&owner)
+                .await;
+        let request = native_replay_request_for(&snapshot);
+        let resolver = crate::owner::postgres::SealedAcceptanceNativeReplaySchedulingResolverV1 {
+            port: UnadmittedAcceptanceSnapshotPortV1::from_database_url(&reader_url)
+                .expect("a reader URL makes a port"),
+        };
+
+        // Nothing granted: the least-privilege principal reads nothing at all.
+        assert_eq!(
+            refused_reads(&resolver.port, &snapshot).await.len(),
+            3,
+            "an ungranted principal is refused every read"
+        );
+
+        apply_native_replay_scheduling_acceptance_grants_v1(owner.pool(), READER, |grant, role| {
+            grant.grant_to(role)
+        })
+        .await
+        .expect("the owner grants the acceptance reads");
+
+        // Exactly the grants: every read is answered.
+        assert!(refused_reads(&resolver.port, &snapshot).await.is_empty());
+
+        // The resolver composes the same read path. It cannot tell this proof which case it is in:
+        // the fixture seeds no schedule, and selection names a member with no candidate exactly as
+        // it names a refused read. The discriminating measurements are the reads above and below;
+        // the path with schedules is the ordered chain's, where the Replay fixtures seed them.
+        assert_eq!(
+            resolver
+                .resolve_native_replay_initial_market_inputs_v1(&request)
+                .await
+                .map(|_| ()),
+            Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)
+        );
+
+        let evidence = resolver
+            .port
+            .resolve_pit_evaluation(*snapshot.snapshot_identity.as_bytes())
+            .await
+            .expect("the frame's evidence");
+        let frame = crate::owner::postgres::verify_admitted_pit_evidence_by_identity_v1(
+            snapshot.snapshot_identity,
+            snapshot.snapshot_fact_digest,
+            &evidence,
+        )
+        .expect("the frame verifies");
+        let window_end = snapshot.frame_time_ns + 1_000;
+        let through_port = crate::owner::postgres::resolve_native_replay_quote_cut_through_port_v2(
+            &resolver.port,
+            &frame,
+            window_end,
+        )
+        .await
+        .expect("the acceptance port resolves the frame's quote cut");
+        assert_eq!(
+            through_port.snapshot_identity(),
+            snapshot.quote_cut_snapshot_identity
+        );
+        assert_eq!(
+            owner
+                .resolve_native_replay_quote_cut_v2(&frame, window_end)
+                .await
+                .expect("custody resolves the frame's quote cut")
+                .snapshot_identity(),
+            through_port.snapshot_identity(),
+            "the acceptance port and custody resolve the same quote cut"
+        );
+
+        // Every grant is needed, and for exactly the reads stated for it.
+        let quoted: String = sqlx::query_scalar("SELECT pg_catalog.quote_ident($1)")
+            .bind(READER)
+            .fetch_one(owner.pool())
+            .await
+            .unwrap();
+
+        for grant in NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1 {
+            sqlx::query(sqlx::AssertSqlSafe(grant.revoke_from(&quoted)))
+                .execute(owner.pool())
+                .await
+                .unwrap();
+            assert_eq!(
+                refused_reads(&resolver.port, &snapshot).await,
+                reads_needing(*grant),
+                "{grant:?} revoked alone"
+            );
+            sqlx::query(sqlx::AssertSqlSafe(grant.grant_to(&quoted)))
+                .execute(owner.pool())
+                .await
+                .unwrap();
+        }
+        assert!(
+            refused_reads(&resolver.port, &snapshot).await.is_empty(),
+            "every grant restored"
+        );
+    }
+
+    /// A build without the sealed acceptance port refuses evidence that names no Store Admission.
+    ///
+    /// The marker the acceptance port stamps is accepted only where that port exists; this build
+    /// does not carry it, so what runs here is the production branch of the verifier, not a test
+    /// double of it. Real evidence read through an admitted port verifies; the same evidence
+    /// carrying the acceptance marker in place of its receipt is refused by name.
+    #[cfg(not(feature = "sealed-strategy-input-acceptance"))]
+    #[rstest]
+    #[ignore = "requires the crates/data disposable PostgreSQL harness"]
+    fn a_production_build_refuses_evidence_that_names_no_admission() {
+        std::thread::Builder::new()
+            .name("market-data-production-refuses-acceptance-marker".into())
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(run_production_refuses_acceptance_marker_scenario());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[cfg(not(feature = "sealed-strategy-input-acceptance"))]
+    async fn run_production_refuses_acceptance_marker_scenario() {
+        // Written out rather than named: the constant exists only in a build that carries the
+        // acceptance port, which this one must not.
+        const ACCEPTANCE_MARKER: &str = "SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1";
+
+        let owner_url = std::env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL")
+            .expect("explicit disposable Owner URL");
+        let database =
+            std::env::var("VIBE_POSTGRES_TEST_DATABASE_NAME").expect("disposable database name");
+        assert!(
+            database.starts_with("vibe_test_"),
+            "this proof writes; it runs only against a disposable database"
+        );
+        let owner = crate::owner::postgres::MarketDataOwnerPostgres::connect(&owner_url)
+            .await
+            .expect("Owner connects and migrates");
+        let snapshot =
+            crate::owner::postgres::tests::native_replay_two_member_snapshot_fixture_v1(&owner)
+                .await;
+        let port =
+            admitted_capability_for(&owner_url, &native_replay_scheduling_measurement_spec())
+                .await
+                .into_native_replay_scheduling_snapshot_port_v2()
+                .expect("the measurement carries both floors");
+        let evidence = port
+            .resolve_pit_evaluation(*snapshot.snapshot_identity.as_bytes())
+            .await
+            .expect("the frame's evidence");
+
+        assert!(
+            crate::owner::postgres::verify_admitted_pit_evidence_by_identity_v1(
+                snapshot.snapshot_identity,
+                snapshot.snapshot_fact_digest,
+                &evidence,
+            )
+            .is_ok(),
+            "admitted evidence verifies, so the refusal below is the marker's"
+        );
+        assert_eq!(
+            crate::owner::postgres::verify_admitted_pit_evidence_by_identity_v1(
+                snapshot.snapshot_identity,
+                snapshot.snapshot_fact_digest,
+                &evidence.with_admission_receipt_identity_for_test(ACCEPTANCE_MARKER),
+            )
+            .map(|batch| batch.snapshot_identity()),
+            Err(crate::owner::pit_snapshot::PitSnapshotError::PersistenceUnavailable)
         );
     }
 
@@ -3834,7 +4501,6 @@ mod tests {
             Arc::new(CountingPostgresMeasurer {
                 calls: Arc::clone(&calls),
             }),
-            Arc::new(FixedClock),
         );
         let port = custodian
             .admit_capability(fixture.request.scope())
@@ -3873,12 +4539,11 @@ mod tests {
         // to ask about schedules. No schedule is seeded for either instrument, so it still refuses -
         // after the reads, which is what makes this the control rather than the result.
         let before = calls.load(Ordering::SeqCst);
-        let refused =
-            crate::owner::postgres::resolve_native_replay_initial_market_through_admitted_port_v1(
-                &port, &request,
-            )
-            .await
-            .expect_err("no schedule is seeded for either member");
+        let refused = crate::owner::postgres::resolve_native_replay_initial_market_through_port_v1(
+            &port, &request,
+        )
+        .await
+        .expect_err("no schedule is seeded for either member");
         let intact_reads = calls.load(Ordering::SeqCst) - before;
         // One schedule read rather than two, measured: the loop refuses at the first instrument
         // whose candidates cannot be selected, so the second is never asked. The arithmetic first
@@ -3903,7 +4568,7 @@ mod tests {
 
         let before = calls.load(Ordering::SeqCst);
         let rejected =
-            crate::owner::postgres::resolve_native_replay_initial_market_through_admitted_port_v1(
+            crate::owner::postgres::resolve_native_replay_initial_market_through_port_v1(
                 &port, &request,
             )
             .await
@@ -4040,7 +4705,6 @@ mod tests {
             Arc::new(CountingPostgresMeasurer {
                 calls: Arc::clone(&calls),
             }),
-            Arc::new(FixedClock),
         );
         let port = custodian
             .admit_capability(fixture.request.scope())
@@ -4095,5 +4759,478 @@ mod tests {
              the revalidation did not run; three would mean the revalidation happens before the \
              evidence is checked"
         );
+    }
+
+    /// Publishes a signed history into `database_url`'s custody as the publisher principal.
+    async fn publish(
+        database_url: &str,
+        manifest: &SignedManifest,
+        head: &SignedHead,
+        expected_previous_head: Option<&str>,
+    ) -> custody_postgres::PublishOutcomeV1 {
+        custody_postgres::publish_signed_v1(database_url, manifest, head, expected_previous_head)
+            .await
+            .unwrap()
+    }
+
+    async fn store_clock(admin: &sqlx::PgPool) -> u64 {
+        let epoch_ms: i64 = sqlx::query_scalar(
+            "SELECT pg_catalog.floor(EXTRACT(epoch FROM pg_catalog.clock_timestamp()) * 1000)::bigint",
+        )
+        .fetch_one(admin)
+        .await
+        .unwrap();
+        u64::try_from(epoch_ms).unwrap()
+    }
+
+    async fn receipts_of(admin: &sqlx::PgPool, environment_identity: &str) -> i64 {
+        sqlx::query_scalar(
+            "SELECT pg_catalog.count(*) FROM deployment_store_custody_private.receipts_v1 WHERE environment_identity = $1",
+        )
+        .bind(environment_identity)
+        .fetch_one(admin)
+        .await
+        .unwrap()
+    }
+
+    fn sqlstate(result: Result<sqlx::postgres::PgQueryResult, sqlx::Error>) -> Option<String> {
+        result.err().and_then(|e| {
+            e.as_database_error()
+                .and_then(sqlx::error::DatabaseError::code)
+                .map(std::borrow::Cow::into_owned)
+        })
+    }
+
+    /// Publishes a third generation while the custodian measures: the head it read is no longer
+    /// current when it commits.
+    struct PublishingMeasurer {
+        value: PostgresMeasurement,
+        publisher_url: String,
+        manifest: SignedManifest,
+        head: SignedHead,
+        expected_previous_head: String,
+    }
+
+    #[async_trait]
+    impl DirectMeasurer for PublishingMeasurer {
+        async fn measure(
+            &self,
+            _lease: &PostgresCredentialLease,
+            _spec: &PostgresMeasurementSpec,
+        ) -> Result<PostgresMeasurement, ()> {
+            let outcome = publish(
+                &self.publisher_url,
+                &self.manifest,
+                &self.head,
+                Some(&self.expected_previous_head),
+            )
+            .await;
+            assert_eq!(outcome, custody_postgres::PublishOutcomeV1::Published);
+            Ok(self.value.clone())
+        }
+    }
+
+    /// Outlasts the witness observation and the credential lease while it measures.
+    struct SlowMeasurer {
+        value: PostgresMeasurement,
+        millis: u64,
+    }
+
+    #[async_trait]
+    impl DirectMeasurer for SlowMeasurer {
+        async fn measure(
+            &self,
+            _lease: &PostgresCredentialLease,
+            _spec: &PostgresMeasurementSpec,
+        ) -> Result<PostgresMeasurement, ()> {
+            tokio::time::sleep(std::time::Duration::from_millis(self.millis)).await;
+            Ok(self.value.clone())
+        }
+    }
+
+    async fn postgres_custodian(
+        fixture: &Fixture,
+        custodian_url: &str,
+        measurer: Arc<dyn DirectMeasurer>,
+    ) -> Custodian {
+        let witness: Arc<dyn AntiRollbackWitness> = Arc::new(FakeWitness {
+            observation: fixture.witness.clone(),
+        });
+        let store = custody_postgres::PostgresCustodyStore::connect(custodian_url, witness.clone())
+            .await
+            .unwrap();
+        Custodian::new(
+            Arc::new(store),
+            Arc::new(CountingVerifier::pinned(
+                SIGNER,
+                &fixture.signing_key.verifying_key(),
+                Arc::new(AtomicUsize::new(0)),
+            )),
+            witness,
+            Arc::new(FakeCredentials {
+                valid_through_epoch_ms: fixture.lapse_epoch_ms,
+            }),
+            measurer,
+        )
+    }
+
+    /// The custody store the deployment's own init script provisions, under the real custodian.
+    ///
+    /// Each part runs in its own scope of one disposable database. The rows it writes are
+    /// append-only by design and are left where they are; every count names its own scope.
+    #[rstest]
+    #[ignore = "requires the crates/data disposable PostgreSQL harness"]
+    fn the_postgres_custody_store_admits_on_its_own_clock_and_refuses_what_moved() {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(run_postgres_custody_store_scenario());
+    }
+
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one scenario, one database, five parts"
+    )]
+    async fn run_postgres_custody_store_scenario() {
+        use custody_postgres::PublishOutcomeV1::{Conflict, HeadMismatch, Published, Replayed};
+
+        let admin_url = std::env::var("MARKET_DATA_ADMIN_TEST_DATABASE_URL").unwrap();
+        let publisher_url = std::env::var("DEPLOYMENT_STORE_PUBLISHER_TEST_DATABASE_URL").unwrap();
+        let custodian_url = std::env::var("DEPLOYMENT_STORE_CUSTODIAN_TEST_DATABASE_URL").unwrap();
+        let admin = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&admin_url)
+            .await
+            .unwrap();
+        let publisher = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&publisher_url)
+            .await
+            .unwrap();
+        let custodian_pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&custodian_url)
+            .await
+            .unwrap();
+        let spec = synthetic_spec();
+
+        // 1. Each principal reaches its own functions and nothing else.
+        let publish_call = "SELECT deployment_store_custody_api.publish_v1('e','d','o','c','b',NULL,1,'m','\\x00'::bytea,'s','\\x00'::bytea,'h','\\x00'::bytea,'s','\\x00'::bytea)";
+        let resolve_call =
+            "SELECT * FROM deployment_store_custody_api.resolve_history_v1('e','d','o','c','b')";
+        let record_call = "SELECT * FROM deployment_store_custody_api.record_receipt_v1('slot','e','d','o','c','b','r','p',0,'\\x00'::bytea)";
+
+        for (pool, sql) in [
+            (&custodian_pool, publish_call),
+            (&publisher, resolve_call),
+            (&publisher, record_call),
+            (
+                &custodian_pool,
+                "SELECT pg_catalog.count(*) FROM deployment_store_custody_private.manifests_v1",
+            ),
+            (
+                &custodian_pool,
+                "INSERT INTO deployment_store_custody_private.receipts_v1 (slot) VALUES ('x')",
+            ),
+            (
+                &publisher,
+                "SELECT pg_catalog.count(*) FROM deployment_store_custody_private.heads_v1",
+            ),
+        ] {
+            assert_eq!(
+                sqlstate(sqlx::query(sql).execute(pool).await).as_deref(),
+                Some("42501"),
+                "{sql}"
+            );
+        }
+
+        // 2. Publication is append-only with a compare-and-set head, and the custodian admits on
+        //    the store's clock; a replay joins the receipt it sealed first.
+        let before = store_clock(&admin).await;
+        let admitted = Fixture::at(
+            "pg-custody-admitted",
+            &spec,
+            measurement("role-v1"),
+            before,
+            600_000,
+        );
+        let (genesis, successor) = (
+            &admitted.history.manifests[0],
+            &admitted.history.manifests[1],
+        );
+        let current = &admitted.history.current_heads[0];
+        let genesis_head = &admitted.genesis_head;
+        assert_eq!(
+            publish(&publisher_url, genesis, genesis_head, None).await,
+            Published
+        );
+        assert_eq!(
+            publish(&publisher_url, genesis, genesis_head, None).await,
+            Replayed
+        );
+        assert_eq!(
+            publish(&publisher_url, successor, current, None).await,
+            HeadMismatch
+        );
+        assert_eq!(
+            publish(
+                &publisher_url,
+                successor,
+                current,
+                Some(&genesis_head.head.head_identity)
+            )
+            .await,
+            Published
+        );
+        assert_eq!(
+            publish(
+                &publisher_url,
+                genesis,
+                genesis_head,
+                Some(&current.head.head_identity)
+            )
+            .await,
+            Conflict,
+            "a head never moves back to an earlier generation"
+        );
+        let store = custody_postgres::PostgresCustodyStore::connect(
+            &custodian_url,
+            Arc::new(FakeWitness {
+                observation: admitted.witness.clone(),
+            }),
+        )
+        .await
+        .unwrap();
+        let resolved = store
+            .resolve_history(&admitted.request.scope())
+            .await
+            .unwrap();
+        let after_read = store_clock(&admin).await;
+        assert_eq!(resolved.manifests, admitted.history.manifests);
+        assert_eq!(resolved.current_heads, admitted.history.current_heads);
+        assert!((before..=after_read).contains(&resolved.read_cut_epoch_ms));
+
+        let custodian = postgres_custodian(
+            &admitted,
+            &custodian_url,
+            Arc::new(FakeMeasurer {
+                value: admitted.measurement.clone(),
+                calls: Arc::new(AtomicUsize::new(0)),
+            }),
+        )
+        .await;
+        let first = custodian.admit(admitted.request.scope()).await.unwrap();
+        let replayed = custodian.admit(admitted.request.scope()).await.unwrap();
+        let after_admission = store_clock(&admin).await;
+        assert_eq!(first, replayed);
+        assert!((after_read..=after_admission).contains(&first.admitted_at_epoch_ms));
+        assert_eq!(receipts_of(&admin, "pg-custody-admitted").await, 1);
+
+        // 3. A head that moves between the custodian's read and its commit seals nothing.
+        let moved = Fixture::at(
+            "pg-custody-moved",
+            &spec,
+            measurement("role-v1"),
+            before,
+            600_000,
+        );
+        let scope = moved.request.scope();
+        assert_eq!(
+            publish(
+                &publisher_url,
+                &moved.history.manifests[0],
+                &moved.genesis_head,
+                None
+            )
+            .await,
+            Published
+        );
+        assert_eq!(
+            publish(
+                &publisher_url,
+                &moved.history.manifests[1],
+                &moved.history.current_heads[0],
+                Some(&moved.genesis_head.head.head_identity),
+            )
+            .await,
+            Published
+        );
+        let third = manifest(
+            &scope,
+            &moved.measurement,
+            &spec,
+            3,
+            Some(
+                moved.history.manifests[1]
+                    .manifest
+                    .manifest_identity
+                    .clone(),
+            ),
+            "rotation-fence-3",
+            TimeBase {
+                now: before,
+                horizon_ms: 600_000,
+            },
+        );
+        let third_head = head_over(
+            &scope,
+            &[
+                &moved.history.manifests[0].manifest,
+                &moved.history.manifests[1].manifest,
+                &third,
+            ],
+        );
+        let custodian = postgres_custodian(
+            &moved,
+            &custodian_url,
+            Arc::new(PublishingMeasurer {
+                value: moved.measurement.clone(),
+                publisher_url: publisher_url.clone(),
+                manifest: sign_manifest(third, &moved.signing_key),
+                head: sign_head(third_head, &moved.signing_key),
+                expected_previous_head: moved.history.current_heads[0].head.head_identity.clone(),
+            }),
+        )
+        .await;
+        assert_eq!(
+            custodian.admit(scope).await.unwrap_err().code(),
+            AdmissionFailureCode::ManifestNotCurrent
+        );
+        assert_eq!(receipts_of(&admin, "pg-custody-moved").await, 0);
+
+        // 4. Stored bytes that parse but are not the exact bytes the signer signed are not history.
+        let reformatted = Fixture::at(
+            "pg-custody-reformatted",
+            &spec,
+            measurement("role-v1"),
+            before,
+            600_000,
+        );
+        let signed = &reformatted.history.manifests[0];
+        let head = &reformatted.genesis_head;
+        let outcome: String = sqlx::query_scalar(
+            "SELECT deployment_store_custody_api.publish_v1($1,$2,$3,$4,$5,NULL,1,$6,$7,$8,$9,$10,$11,$12,$13)",
+        )
+        .bind(&signed.manifest.environment_identity)
+        .bind(&signed.manifest.deployment_identity)
+        .bind(&signed.manifest.consumer_owner)
+        .bind(&signed.manifest.consumer_identity)
+        .bind(&signed.manifest.backend)
+        .bind(&signed.manifest.manifest_identity)
+        .bind(serde_json::to_vec_pretty(&signed.manifest).unwrap())
+        .bind(&signed.signer_identity)
+        .bind(&signed.signature)
+        .bind(&head.head.head_identity)
+        .bind(serde_json::to_vec(&head.head).unwrap())
+        .bind(&head.signer_identity)
+        .bind(&head.signature)
+        .fetch_one(&publisher)
+        .await
+        .unwrap();
+        assert_eq!(outcome, "PUBLISHED");
+        let genesis_only = RdOwnerMarketDataAdmissionRequest::new(
+            "pg-custody-reformatted".to_string(),
+            "rd-workbench-test".to_string(),
+            head.head.head_identity.clone(),
+        )
+        .unwrap();
+        let custodian = postgres_custodian(
+            &reformatted,
+            &custodian_url,
+            Arc::new(FakeMeasurer {
+                value: reformatted.measurement.clone(),
+                calls: Arc::new(AtomicUsize::new(0)),
+            }),
+        )
+        .await;
+        assert_eq!(
+            custodian
+                .admit(genesis_only.scope())
+                .await
+                .unwrap_err()
+                .code(),
+            AdmissionFailureCode::InvalidAppendOnlyHistory
+        );
+
+        // 5a. Nothing rewrites custody, the database superuser included. A rewrite is refused by
+        //     the trigger function itself; the catalog shows the same function bound before every
+        //     update, delete and truncate of all three relations. No destructive statement is
+        //     issued, so no rule about destructive test SQL has to be waived for it.
+        for sql in [
+            "UPDATE deployment_store_custody_private.manifests_v1 SET signature = signature",
+            "UPDATE deployment_store_custody_private.heads_v1 SET head_bytes = head_bytes",
+            "UPDATE deployment_store_custody_private.receipts_v1 SET receipt_bytes = receipt_bytes",
+        ] {
+            assert_eq!(
+                sqlstate(sqlx::query(sql).execute(&admin).await).as_deref(),
+                Some("23000"),
+                "{sql}"
+            );
+        }
+        let bound: Vec<(String, i16, String)> = sqlx::query_as(
+            "SELECT c.relname::text, t.tgtype, t.tgenabled::text FROM pg_catalog.pg_trigger AS t JOIN pg_catalog.pg_class AS c ON c.oid = t.tgrelid JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace JOIN pg_catalog.pg_proc AS p ON p.oid = t.tgfoid WHERE n.nspname = 'deployment_store_custody_private' AND p.proname = 'refuse_rewrite_v1' AND NOT t.tgisinternal ORDER BY 1, 2",
+        )
+        .fetch_all(&admin)
+        .await
+        .unwrap();
+        // tgtype 27 = ROW | BEFORE | DELETE | UPDATE; 34 = BEFORE | TRUNCATE; 'O' = enabled.
+        let expected: Vec<(String, i16, String)> = ["heads_v1", "manifests_v1", "receipts_v1"]
+            .into_iter()
+            .flat_map(|relation| {
+                [27, 34].map(|tgtype| (relation.to_string(), tgtype, "O".to_string()))
+            })
+            .collect();
+        assert_eq!(bound, expected);
+        assert_eq!(receipts_of(&admin, "pg-custody-admitted").await, 1);
+
+        // 5b. The window is the store's to judge, on its own clock: a measurement that outlasts the
+        //     witness observation and the lease seals nothing.
+        let lapsing_from = store_clock(&admin).await;
+        let lapsing = Fixture::at(
+            "pg-custody-lapsing",
+            &spec,
+            measurement("role-v1"),
+            lapsing_from,
+            5_000,
+        );
+        assert_eq!(
+            publish(
+                &publisher_url,
+                &lapsing.history.manifests[0],
+                &lapsing.genesis_head,
+                None
+            )
+            .await,
+            Published
+        );
+        assert_eq!(
+            publish(
+                &publisher_url,
+                &lapsing.history.manifests[1],
+                &lapsing.history.current_heads[0],
+                Some(&lapsing.genesis_head.head.head_identity),
+            )
+            .await,
+            Published
+        );
+        let custodian = postgres_custodian(
+            &lapsing,
+            &custodian_url,
+            Arc::new(SlowMeasurer {
+                value: lapsing.measurement.clone(),
+                millis: 6_000,
+            }),
+        )
+        .await;
+        assert_eq!(
+            custodian
+                .admit(lapsing.request.scope())
+                .await
+                .unwrap_err()
+                .code(),
+            AdmissionFailureCode::AdmissionCutExpired
+        );
+        assert_eq!(receipts_of(&admin, "pg-custody-lapsing").await, 0);
     }
 }

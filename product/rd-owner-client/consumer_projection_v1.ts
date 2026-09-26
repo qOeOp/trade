@@ -466,11 +466,23 @@ const initialPitBlockerOf: Record<string, string> = {
   UNAVAILABLE: "SOURCE_UNAVAILABLE",
 }
 
+export type ResearchInitialPitDispositionV1 =
+  | "AVAILABLE" | "UNLICENSED" | "AMBIGUOUS" | "STALE" | "INSUFFICIENT" | "UNAVAILABLE"
+
+// An Intent's initial PIT request as the Owner states it.
+export type ResearchInitialPitV1 =
+  | { state: "NOT_ISSUED" }
+  | { state: "SUBMITTED_OR_UNKNOWN" }
+  | { state: "TERMINAL", disposition: "AVAILABLE", primary_blocker: null }
+  | { state: "TERMINAL", disposition: Exclude<ResearchInitialPitDispositionV1, "AVAILABLE">, primary_blocker: string }
+
 // The Owner reads each initial PIT state from its custody and states it; this side accepts exactly
-// the stated shapes and never derives one state from another. `null` is a request whose Intent binds
-// no instrument scope. product/rd-owner-client/fixtures/research_initial_pit_state_vectors_v1.json
-// lists every accepted and a set of refused values, read by the Owner's test too.
-function validInitialPit(value: unknown): boolean {
+// the stated shapes and never derives one state from another. `null` means no initial PIT request:
+// the Owner states one only for an accepted V3 request, so a V2 request and a V3 request that was
+// not accepted both read `null`, and `null` says nothing about which of them it was.
+// product/rd-owner-client/fixtures/research_initial_pit_state_vectors_v1.json lists every accepted
+// and a set of refused values, read by the Owner's test too.
+export function validResearchInitialPitV1(value: unknown): value is ResearchInitialPitV1 | null {
   if (value === null) return true
   if (!object(value)) return false
   if (value.state === "NOT_ISSUED" || value.state === "SUBMITTED_OR_UNKNOWN") return exactKeys(value, ["state"])
@@ -595,7 +607,7 @@ export async function deriveResearchConsumerProjectionV1(
     || !sourceCutValid || !viewWindowValid || !nextLegalActionValid
     || raw.research_view.trusted_principal !== raw.independence_basis?.principal
     || JSON.stringify(raw.research_view.authorized_scope) !== JSON.stringify(raw.independence_basis?.request_scope)
-    || !basisValid || !feedbackValid || !validInitialPit(raw.initial_pit)
+    || !basisValid || !feedbackValid || !validResearchInitialPitV1(raw.initial_pit)
     || raw.trial_family_resolution !== "AVAILABLE"
     || !validTrialFamily(raw.trial_family, intent, raw.owner_receipt.semantic_digest,
       raw.independence_basis, raw.protected_feedback)) return unknown

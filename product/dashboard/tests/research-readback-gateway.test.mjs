@@ -47,6 +47,65 @@ test("exact Research Owner readback becomes a bounded browser projection", async
   assert.deepEqual(calls[0].init.headers, { authorization: "Bearer secret" });
 });
 
+const initialPitVectors = JSON.parse(await readFile(
+  new URL("../../rd-owner-client/fixtures/research_initial_pit_state_vectors_v1.json", import.meta.url),
+  "utf8",
+));
+
+async function readbackOf(ownerResult) {
+  return readResearchReadbackGatewayV1({
+    requestIdentity: ownerResult.request_identity,
+    environment: {
+      RD_DASHBOARD_OWNER_READ_API_URL: "http://dashboard-read:8082/",
+      RD_DASHBOARD_OWNER_READ_API_TOKEN: "secret",
+    },
+    fetcher: async () => new Response(JSON.stringify(ownerResult), { status: 200 }),
+  });
+}
+
+test("an accepted Research readback carries the Owner's initial PIT state exactly as stated", async () => {
+  // The vectors are the Owner's own: its test serializes every state it can state and checks it is
+  // exactly this accepted list, so a state the Owner adds reaches this test through that file.
+  assert.ok(initialPitVectors.accepted.length >= 8);
+  for (const initialPit of [...initialPitVectors.accepted, null]) {
+    const result = await readbackOf({ ...accepted, initial_pit: structuredClone(initialPit) });
+    assert.equal(result.status, 200, JSON.stringify(initialPit));
+    assert.deepEqual(result.projection.outcome?.initialPit, initialPit);
+    assert.deepEqual(parseResearchReadbackBrowserProjectionV1(result.projection), result.projection);
+  }
+});
+
+test("a readback whose initial PIT state the Owner could not have stated is unavailable, not shown", async () => {
+  for (const refused of initialPitVectors.refused) {
+    const result = await readbackOf({ ...accepted, initial_pit: structuredClone(refused.value ?? refused) });
+    assert.equal(result.projection.availability, "unavailable", JSON.stringify(refused));
+    assert.equal(result.projection.outcome, null);
+  }
+});
+
+test("the browser parser keeps initialPit to what the Owner states for each outcome", async () => {
+  const result = await readbackOf({ ...accepted, initial_pit: { state: "NOT_ISSUED" } });
+  const projection = result.projection;
+  assert.equal(parseResearchReadbackBrowserProjectionV1({
+    ...projection,
+    outcome: { ...projection.outcome, initialPit: { state: "TERMINAL", disposition: "STALE", primary_blocker: "COVERAGE_INSUFFICIENT" } },
+  }), null, "an unpaired terminal is refused");
+  const { initialPit: _dropped, ...withoutInitialPit } = projection.outcome;
+  assert.equal(parseResearchReadbackBrowserProjectionV1({ ...projection, outcome: withoutInitialPit }), null);
+  assert.equal(parseResearchReadbackBrowserProjectionV1({
+    ...projection,
+    outcome: {
+      ...projection.outcome,
+      resolution: "rejected",
+      intentIdentity: null,
+      rejectionCode: "INSTRUMENT_SCOPE_NOT_RESOLVABLE",
+      initialPit: { state: "NOT_ISSUED" },
+    },
+    view: null,
+    technical: { ...projection.technical, projectionIdentity: null, sourceCut: null, trialFamilyIdentity: null },
+  }), null, "a rejected record never carries an initial PIT state");
+});
+
 test("partial consolidated Dashboard target fails closed without borrowing write credentials", async () => {
   let calls = 0;
   const result = await readResearchReadbackGatewayV1({

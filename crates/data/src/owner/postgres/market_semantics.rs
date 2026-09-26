@@ -636,20 +636,6 @@ async fn load_readback(
     Ok(Some(readback))
 }
 
-/// The PIT snapshot of a compatibility scope's only head, for a caller that holds no snapshot and
-/// relies on the scope answering with exactly one chain. A scope with no head or with several has
-/// no such answer, and is refused rather than read by picking one.
-pub(super) async fn resolve_sole_market_semantics_head_snapshot_v1(
-    transaction: &mut Transaction<'_, Postgres>,
-    compatibility_scope_identity: MarketSemanticsIdentity,
-) -> Result<MarketSemanticsIdentity, MarketSemanticsErrorV1> {
-    let heads = load_scope_heads(transaction, compatibility_scope_identity).await?;
-    let [head] = heads.as_slice() else {
-        return Err(MarketSemanticsErrorV1::UnknownIdentity);
-    };
-    Ok(head.pit_snapshot_identity)
-}
-
 /// Every current head of one compatibility scope, one per PIT snapshot, locked for the append.
 async fn load_scope_heads(
     transaction: &mut Transaction<'_, Postgres>,

@@ -773,6 +773,22 @@ pub(crate) mod tests {
         request_byte: u8,
         members: &[(&str, &str)],
     ) -> UniverseSelectionReadbackV1 {
+        selection_with_instrument_bytes(
+            request_byte,
+            &members
+                .iter()
+                .map(|(key, instrument)| (*key, instrument.as_bytes()))
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    /// [`selection_with_request`] with each member's instrument identity given as raw bytes, so a
+    /// reader's handling of bytes that are not an identity can be driven through the Owner's own
+    /// selection and issuance.
+    pub(crate) fn selection_with_instrument_bytes(
+        request_byte: u8,
+        members: &[(&str, &[u8])],
+    ) -> UniverseSelectionReadbackV1 {
         use crate::owner::universe_selection::{
             UntrustedUniverseSelectionRequestV1,
             authority::{
@@ -801,7 +817,7 @@ pub(crate) mod tests {
             .map(|(key, instrument)| {
                 issue_source_fact_v1(HistoricalMembershipFactProposalV1 {
                     member_key: key.as_bytes().to_vec(),
-                    instrument: instrument.as_bytes().to_vec(),
+                    instrument: instrument.to_vec(),
                     predecessor_identity: None,
                     effective_from_ns: 1,
                     effective_until_ns: None,

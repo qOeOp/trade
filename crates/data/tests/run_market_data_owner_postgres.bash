@@ -11,6 +11,7 @@ readonly market_data_owner_postgres_tests=(
   owner::store_admission::tests::the_admitted_bar_schedule_order_verifies_before_it_revalidates
   owner::store_admission::tests::a_refused_pit_readback_never_reads_schedule_candidates
   owner::store_admission::tests::the_admitted_quote_cut_read_resolves_what_custody_resolves
+  owner::store_admission::tests::the_postgres_custody_store_admits_on_its_own_clock_and_refuses_what_moved
   owner::instrument_master_v2_postgres::tests::postgres_v2_cut_custody_holds_one_or_two_members_and_migrates_a_legacy_table
   owner::instrument_master_v2_postgres::tests::postgres_bound_replay_issuance_keys_each_request_to_one_binding
   owner::instrument_economic_terms_postgres_v1::tests::postgres_economic_terms_resolve_for_one_member_or_two
@@ -20,6 +21,7 @@ readonly market_data_owner_postgres_tests=(
   owner::postgres::replay_market_facts_v2::universe_issuance::postgres_tests::postgres_universe_member_composition_issues_a_binding_that_keys_its_cut
   owner::postgres::tests::postgres_each_research_request_under_one_binding_gets_its_own_market_semantics
   owner::postgres::tests::postgres_production_admits_market_semantics_for_the_chain_fixture_instrument
+  owner::postgres::tests::the_market_base_corpus_is_named_by_its_snapshot_after_a_production_admission
   owner::postgres::tests::postgres_concurrent_values_under_one_binding_leave_one_value
   owner::postgres::tests::postgres_market_semantics_heads_migrate_to_one_head_per_snapshot
   owner::postgres::pit_initial_intake_correlation_tests::postgres_an_initial_intake_claims_its_correlation_once_and_reads_back_by_it
@@ -27,6 +29,14 @@ readonly market_data_owner_postgres_tests=(
   owner::postgres::pit_empty_observation_tests::postgres_a_partial_answer_is_insufficient_and_its_retry_rejoins
   owner::postgres::universe_sample_projection_v1_tests::postgres_a_universe_frame_issues_one_sample_projection_over_the_host_frame
   owner::postgres::universe_member_composition_basis_v1_tests::postgres_a_new_snapshot_reads_the_basis_its_universe_composition_issues_from
+  owner::store_admission::tests::a_production_build_refuses_evidence_that_names_no_admission
+)
+
+# Proofs of code that exists only in a build carrying `sealed-strategy-input-acceptance`. They run
+# with that feature, in a build of their own, because the list above must be the build without it:
+# that is where the production branch of what they relax is the branch compiled and proven.
+readonly market_data_owner_postgres_sealed_acceptance_tests=(
+  owner::store_admission::tests::the_sealed_acceptance_resolver_reads_under_exactly_its_grants
 )
 
 # The ordered chain refuses a guarded crate whose test SQL is destructive without dedicated-database
@@ -112,6 +122,8 @@ marker_prefix="md-d1-${PPID}-$$"
 admin_password="md_d1_admin_test_only"
 owner_password="md_d1_owner_test_only"
 reader_password="md_d1_reader_test_only"
+custody_publisher_password="md_d1_custody_publisher_test_only"
+custody_custodian_password="md_d1_custody_custodian_test_only"
 
 # shellcheck disable=SC2329 # invoked indirectly by the EXIT trap
 cleanup() {
@@ -207,7 +219,19 @@ provision_database() {
   docker exec "$container" psql -v ON_ERROR_STOP=1 -U postgres -d "$database" \
     -c "CREATE TABLE public.vibe_test_instance_marker(marker_identity TEXT PRIMARY KEY); INSERT INTO public.vibe_test_instance_marker VALUES ('$marker'); REVOKE ALL ON public.vibe_test_instance_marker FROM PUBLIC; GRANT SELECT ON public.vibe_test_instance_marker TO vibe_test_role_market_data_owner, vibe_test_role_market_data_reader"
 
+  # Deployment Store Admission custody, from the deployment's own init script rather than a copy of
+  # it: the same file provisions the custody schema, its two principals and their functions here.
+  docker exec -i \
+    --env POSTGRES_PASSWORD="$admin_password" \
+    --env POSTGRES_HOST=127.0.0.1 \
+    --env POSTGRES_DATABASE="$database" \
+    --env DEPLOYMENT_STORE_PUBLISHER_DB_PASSWORD="$custody_publisher_password" \
+    --env DEPLOYMENT_STORE_CUSTODIAN_DB_PASSWORD="$custody_custodian_password" \
+    "$container" sh -s < "$repository_root/product/rd-workbench/postgres-init/20-deployment-store-custody.sh" > /dev/null
+
   export MARKET_DATA_ADMIN_TEST_DATABASE_URL="postgres://postgres:$admin_password@127.0.0.1:$port/$database"
+  export DEPLOYMENT_STORE_PUBLISHER_TEST_DATABASE_URL="postgres://deployment_store_publisher:$custody_publisher_password@127.0.0.1:$port/$database"
+  export DEPLOYMENT_STORE_CUSTODIAN_TEST_DATABASE_URL="postgres://deployment_store_custodian:$custody_custodian_password@127.0.0.1:$port/$database"
   export MARKET_DATA_OWNER_TEST_DATABASE_URL="postgres://vibe_test_role_market_data_owner:$owner_password@127.0.0.1:$port/$database"
   export MARKET_DATA_READER_TEST_DATABASE_URL="postgres://vibe_test_role_market_data_reader:$reader_password@127.0.0.1:$port/$database"
   export VIBE_POSTGRES_TEST_DATABASE_NAME="$database"
@@ -216,12 +240,23 @@ provision_database() {
 
 rm -rf -- "$proof_record_dir"
 mkdir -p -- "$proof_record_dir"
+# One ordinal across both lists: each proof still gets a database of its own, and the guard below
+# walks every database either list materialized.
+readonly all_market_data_proofs=(
+  "${market_data_owner_postgres_tests[@]}"
+  "${market_data_owner_postgres_sealed_acceptance_tests[@]}"
+)
+readonly plain_proof_count="${#market_data_owner_postgres_tests[@]}"
 ordinal=0
-for test_selection in "${market_data_owner_postgres_tests[@]}"; do
+for test_selection in "${all_market_data_proofs[@]}"; do
   ordinal=$((ordinal + 1))
+  feature_args=()
+  if [[ "$ordinal" -gt "$plain_proof_count" ]]; then
+    feature_args=(--features sealed-strategy-input-acceptance)
+  fi
   arm_chain_entry_watchdog "$proof_wall_clock_seconds" \
     "$(printf '%s/%03d.timeout' "$proof_record_dir" "$ordinal")" \
-    "market-data proof ${ordinal}/${#market_data_owner_postgres_tests[@]} (${test_selection})"
+    "market-data proof ${ordinal}/${#all_market_data_proofs[@]} (${test_selection})"
   provision_database "${database_prefix}_${ordinal}" "${marker_prefix}-${ordinal}"
 
   # Selection runs under nextest, not `cargo test --exact`, because the two differ on the case that
@@ -235,13 +270,14 @@ for test_selection in "${market_data_owner_postgres_tests[@]}"; do
     --lib \
     --cargo-profile "${CARGO_CI_PROFILE:-nextest}" \
     --run-ignored all \
+    ${feature_args[@]+"${feature_args[@]}"} \
     -E "test(=${test_selection})"
   test_status=$?
   set -e
   disarm_chain_entry_watchdog
 
   if [[ "$test_status" -ne 0 ]]; then
-    echo "market-data proof ${ordinal}/${#market_data_owner_postgres_tests[@]} failed: ${test_selection}" >&2
+    echo "market-data proof ${ordinal}/${#all_market_data_proofs[@]} failed: ${test_selection}" >&2
     echo "  a non-zero exit here is either a failing proof or a selection that matched nothing;" >&2
     echo "  nextest prints 'error: no tests to run' for the second, which means the name is stale" >&2
     exit "$test_status"
@@ -252,7 +288,7 @@ done
 # and name no schema another role can create in; scripts/ci/check-security-definer-search-path.sql
 # holds the rule, and no routine is exempt from it.
 guard_databases=(postgres)
-for ((guard_ordinal = 1; guard_ordinal <= ${#market_data_owner_postgres_tests[@]}; guard_ordinal++)); do
+for ((guard_ordinal = 1; guard_ordinal <= ${#all_market_data_proofs[@]}; guard_ordinal++)); do
   guard_databases+=("${database_prefix}_${guard_ordinal}")
 done
 bash "$repository_root/scripts/ci/run-security-definer-guard.bash" "$container" "${guard_databases[@]}"

@@ -405,8 +405,10 @@ by R&D against Market Data, not by the form, and the control neither suggests no
 longer emits V2. A mistyped instrument closes as `REJECTED_NO_WRITE` with `INSTRUMENT_SCOPE_NOT_RESOLVABLE` and is
 shown as that terminal; the Research readback also shows the Owner's `initial_pit` value as it is stated -
 `NOT_ISSUED`, `SUBMITTED_OR_UNKNOWN`, or one of the six `ResearchPitTerminal` dispositions with its primary blocker -
-for an instrument that passed at acceptance, and `null` for an earlier V2 request, shown as having no initial PIT
-request; it never derives one state from another. The research and its
+for an instrument that passed at acceptance, and `null` whenever the Owner states no initial PIT request, shown as
+having none. The Owner states one only for an accepted V3 request, so an earlier V2 request and a V3 request it did
+not accept both read `null`: `null` never implies a request version, and the page never derives one state from
+another. The research and its
 backtests are bound to that instrument, and changing it means a successor research request, never an edit of a
 frozen one.
 The user's authority and the scope contract are stated in the [R&D Owner contract](../owners/rd). Built so far:
@@ -414,10 +416,18 @@ the field and its validator, which is tested against the same vector file as R&D
 (`product/rd-owner-client/fixtures/research_instrument_identity_vectors_v1.json`); V3 submission through
 `POST /v3/source-intake-research`, the form emitting only V3 while a run recorded before V3 still resolves through
 the V2 route it was admitted under; and the `INSTRUMENT_SCOPE_NOT_RESOLVABLE` terminal shown by that name, while an
-answer that leaves the scope unresolved stays `SUBMITTED_OR_UNKNOWN`. The `initial_pit` readback is not built yet;
-it waits for the Owner result to carry that value. A run is admitted only when Product Edge's operation routing
-answers `ACTIVE / TRADE_DASHBOARD`, and no deployed service answers that lookup yet, so a deployed Dashboard cannot
-start this run until one does.
+answer that leaves the scope unresolved stays `SUBMITTED_OR_UNKNOWN`; and the Research readback's `initial_pit`, shown
+as the Owner states it and checked against the same state vectors the Owner's test reads
+(`product/rd-owner-client/fixtures/research_initial_pit_state_vectors_v1.json`). A V2/V3 label on the readback is not
+built: the Owner's readback states no request version yet, and inferring one from which fields are present would read
+a V3 request that was not accepted as V2. A run is admitted only when Product Edge's operation routing
+answers `ACTIVE / TRADE_DASHBOARD` for both keys the run depends on, Source Intake and Research V3.
+`product-edge-routing-read-api` answers that lookup and ships in the deployment, but no deployment has committed
+such a binding. Committing one in a deployed or shared environment is a separately gated effect that needs the
+user's explicit authorization; until one is committed, a deployed Dashboard cannot start this run. The ordered Owner chain drives the run through that read port
+with bindings committed by `product-edge-authority-bootstrap route`: an absent, `WINDMILL`, zero-active or stale
+Research V3 answer each refuses the run before any Owner call, and `ACTIVE / TRADE_DASHBOARD` admits it, records the
+exact bindings, and reaches Source Intake.
 
 Client and server import the same pure input validator. Plausible alternatives are canonicalized into unique
 UTF-8 byte order before validation; required data preserves the entered order. `RUN` freezes the complete request

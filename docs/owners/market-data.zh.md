@@ -76,6 +76,13 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   都解析为 `None`，而 `crates/strategy_factory_rd_owner_api/src/main.rs` 把 resolver 留在从不读取的字段
   `_market_data_research_pit` 里。解除条件：`docs/guide/architecture-rules.md` 点名的生产 resolver、signer、
   anti-rollback witness、credential resolver 与直接测量适配器，外加一个真正读取该读口的消费者。
+  验收链路覆盖 Store Admission 之后的那一段，不覆盖 Admission 本身。在启用 `sealed-strategy-input-acceptance` 的构建中（没有任何
+  部署的二进制启用它），`native_replay_scheduling_resolver_for_sealed_acceptance_v1` 以已准入 resolver 的原始读取、校验与选择
+  走原生 Replay 调度读路径，但读取之前不做准入，读取之后不做重新校验。它以一个测试用的最小权限主体连接，一次性数据库只授予
+  它 `NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1`；它的 evidence 在已准入读取携带 receipt 的位置携带标记
+  `SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1`，只有携带该读口的构建才接受这个标记。Admission 本身，包括它租用的主体与那道门上的
+  授权，仍然是 `B3`。今天没有任何生产角色持有那道门：部署时的 ACL 切换把 `market_data_private` 的 `USAGE` 从 owner 以外的
+  所有角色收回，而 Store Admission 所测量的调度下限也不覆盖该路径所做的 PIT evaluation 读取。
   读取一份 BAR schedule 有**两套托管策略**，每种构建一套，而本文档此前一套都没描述过。测试构建自行开启
   `REPEATABLE READ READ ONLY` 事务并自验该 schedule 的历史；生产构建的快照由已准入读口的 evidence 承担，并在返回前
   重新校验。两者跑的是同一个 `verify_bar_schedule_storage_evidence`。差别是一致性保证从哪里来，不是强弱：测试那条
@@ -102,6 +109,11 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   下文 `ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1` 有两处表述与代码尚不一致；都不挡生产路线。该档要求由单独执行的主体测量
   目标，而 `DirectMeasurer` 是在 custodian 内用租到的凭据测量。该档还要求准入回执交叉绑定 trust bundle，而
   `SealedDeploymentStoreAdmissionReceipt` 带 witness identity，却没有 signer key fingerprint 或 bundle identity。
+  已有两个生产适配器，但都还没有接入组合根：pin 住一把公钥的 Ed25519 签名验证器（`store_admission/signature.rs`），以及
+  PostgreSQL custody store（`store_admission/custody_postgres.rs`；其 schema 与两个主体在
+  `product/rd-workbench/postgres-init/20-deployment-store-custody.sh`，compose 文件还没有运行它）。
+  `admit_rd_owner_market_data_postgres` 仍接 `Unavailable*` 端口，所以 `required` 在启动时仍然失败关闭。准入只从 custody
+  store 的时钟读时间：每次读历史都带回该库的 `clock_timestamp()` cut，commit 也在同一个时钟上判定回执的窗口。
 - **`B4` 消费者未编入已部署镜像。** `product/rd-workbench/Dockerfile.owner` 以默认 feature 构建
   `strategy-factory-rd-owner-api`，使 `sealed-develop-composer-acceptance` 处于关闭，而 dashboard 读取二进制不触及任何
   Market Data 表面。解除条件：把该消费者移出 acceptance feature。

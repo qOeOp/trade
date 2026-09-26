@@ -6194,9 +6194,12 @@ pub(crate) mod tests {
 
     #[cfg(feature = "sealed-strategy-input-acceptance")]
     async fn run_declared_bounded_feature_program_assembly(coverage: ComposerRunCoverageV1) {
-        use vibe_data::owner::bar_joined_cut_acceptance_v1::{
-            UntrustedBarJoinedCutAcceptanceDesignClaimsV1,
-            register_bar_joined_cut_declarations_for_published_design_v1,
+        use vibe_data::owner::{
+            bar_joined_cut_acceptance_v1::{
+                UntrustedBarJoinedCutAcceptanceDesignClaimsV1,
+                register_bar_joined_cut_declarations_for_published_design_v1,
+            },
+            chain_market_base_v1::chain_market_base_snapshot_v1,
         };
 
         use crate::{
@@ -6332,9 +6335,13 @@ pub(crate) mod tests {
             .await
             .expect("R&D publishes what it knows about the Design it admitted");
         assert_eq!(published.design_identity(), design_identity);
+        let market_base = chain_market_base_snapshot_v1(&market_data_database_url)
+            .await
+            .expect("the market base's PIT snapshot is found by the correlation it submits under");
         Box::pin(
             register_bar_joined_cut_declarations_for_published_design_v1(
                 &market_data_database_url,
+                market_base,
                 &claims,
                 &published,
             ),
