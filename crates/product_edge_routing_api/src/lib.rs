@@ -132,13 +132,25 @@ impl RoutingApiStateV1 {
 ///
 /// Returns an error when the store cannot be connected or the address cannot be bound.
 pub async fn serve(config: RoutingReadApiConfigV1) -> anyhow::Result<()> {
+    let listener = TcpListener::bind(&config.bind).await?;
+    serve_on(listener, config).await
+}
+
+/// Serves the read port on `listener`, which the caller has already bound, until the process
+/// stops. `config.bind` is not read: the listener is the address. The ordered chain binds an
+/// ephemeral port itself and serves the production composition here, so no port is chosen and
+/// then raced for.
+///
+/// # Errors
+///
+/// Returns an error when the store cannot be connected or the listener fails.
+pub async fn serve_on(listener: TcpListener, config: RoutingReadApiConfigV1) -> anyhow::Result<()> {
     let port = ProductEdgePostgresOperationRoutingReadPortV1::connect(
         &config.database_url,
         config.deployment_identity.clone(),
     )
     .await?;
-    let listener = TcpListener::bind(&config.bind).await?;
-    tracing::info!(address = %config.bind, "Product Edge operation routing read API ready");
+    tracing::info!(address = %listener.local_addr()?, "Product Edge operation routing read API ready");
     axum::serve(
         listener,
         router(RoutingApiStateV1::new(Arc::new(port), &config.token)),

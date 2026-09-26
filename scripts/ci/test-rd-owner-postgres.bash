@@ -137,6 +137,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-product-edge|vibe_product_edge|deployment_acceptance::tests::deployment_fixture_is_admitted_idempotent_and_refuses_other_content_by_name'
   'vibe-strategy-factory|vibe_strategy_factory|iteration_decision_postgres::postgres_acceptance_tests::legacy_replay_request_passes_the_source_boundary_under_issuance_isolation'
   'vibe-product-edge-routing-api|vibe_product_edge_routing_api|postgres_tests::the_operation_routing_read_port_answers_every_routing_state_over_http'
+  'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|dashboard_run_routing_acceptance::a_dashboard_run_starts_only_on_the_routing_the_writer_committed_and_reaches_the_owner'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
@@ -199,8 +200,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 108 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all 108 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 109 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all 109 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -320,7 +321,8 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[104]}" != *'|deployment_acceptance::tests::deployment_fixture_is_admitted_idempotent_and_refuses_other_content_by_name' ]] ||
     [[ "${rd_owner_postgres_tests[105]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::legacy_replay_request_passes_the_source_boundary_under_issuance_isolation' ]] ||
     [[ "${rd_owner_postgres_tests[106]}" != *'|postgres_tests::the_operation_routing_read_port_answers_every_routing_state_over_http' ]] ||
-    [[ "${rd_owner_postgres_tests[107]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[107]}" != *'|dashboard_run_routing_acceptance::a_dashboard_run_starts_only_on_the_routing_the_writer_committed_and_reaches_the_owner' ]] ||
+    [[ "${rd_owner_postgres_tests[108]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
@@ -453,7 +455,7 @@ for line in array_body.splitlines():
     entries.append(tuple(fields))
 # The count lives in one place. Writing it into the message as well lets the two drift, and the
 # drifted form reads as nonsense the moment it fires: "must contain 92 entries, found 92".
-expected_entries = 108
+expected_entries = 109
 if len(entries) != expected_entries:
     raise SystemExit(
         f"ERROR: ordered PostgreSQL test literal must contain {expected_entries} entries, found {len(entries)}."
@@ -1772,6 +1774,7 @@ readonly origin_current_database="vibe_test_origin_current_${suffix//-/_}"
 readonly legacy_replay_database="vibe_test_legacy_replay_${suffix//-/_}"
 readonly program_host_acceptance_database="vibe_test_program_host_acceptance_${suffix//-/_}"
 readonly composer_sealed_read_database="vibe_test_composer_sealed_read_${suffix//-/_}"
+readonly dashboard_run_store_database="vibe_test_dashboard_run_store_${suffix//-/_}"
 readonly impersonator_container="vibe-rd-owner-impersonator-${suffix}"
 readonly impersonator_volume="vibe-rd-owner-impersonator-${suffix}"
 readonly impersonator_database="vibe_impersonator_${suffix//-/_}"
@@ -3440,9 +3443,23 @@ SELECT 'owner_acl_md5=' || pg_catalog.md5(
 SQL
 }
 
+# The Dashboard is not an Owner: it keeps its RunStore in a database of its own, as a deployment
+# does (DASHBOARD_DATABASE_URL), and its own migrations create the tables. So it gets an empty
+# database owned by a login role that holds nothing else in this cluster. The entry that drives a
+# Dashboard RUN through the routing read port migrates and uses it; no Owner reaches it.
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname postgres \
+  --set=test_password="$test_password" \
+  --set=dashboard_run_store_database="$dashboard_run_store_database" << 'SQL'
+CREATE ROLE dashboard_run_store LOGIN PASSWORD :'test_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE DATABASE :"dashboard_run_store_database" OWNER dashboard_run_store;
+REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"dashboard_run_store_database" FROM PUBLIC;
+SQL
+
 legacy_replay_fingerprint_before="$(legacy_replay_fingerprint)"
 readonly legacy_replay_fingerprint_before
 
+export DASHBOARD_RUN_STORE_TEST_DATABASE_URL="postgresql://dashboard_run_store:${test_password}@${postgres_host}:${postgres_port}/${dashboard_run_store_database}"
 export RD_OWNER_FRESH_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export QUALIFICATION_WRITER_FRESH_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export OPERATOR_AUTHORIZATION_TEST_DATABASE_URL="postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
@@ -3796,6 +3813,9 @@ fi
 OPERATOR_AUTHORIZATION_DATABASE_URL="postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}" \
   PRODUCT_EDGE_DATABASE_URL="postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}" \
   "$chain_provisioning" materialize-schema
+# The routing writer is this same binary; the entry that commits routing through it reads the path.
+PRODUCT_EDGE_AUTHORITY_BOOTSTRAP_BINARY="$(cd "$(dirname "$chain_provisioning")" && pwd)/${chain_provisioning_binary}"
+export PRODUCT_EDGE_AUTHORITY_BOOTSTRAP_BINARY
 
 # The Catalog administrator, two replay migration filters, and Program Host acceptance use separate
 # fresh databases. In the shared database, run the complete Instrument Owner storage/ACL oracle only
@@ -4018,7 +4038,8 @@ fi
 # holds the rule, and no routine is exempt from it.
 bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/run-security-definer-guard.bash" "$container" \
   postgres "$test_database" "$catalog_admin_database" "$origin_current_database" \
-  "$legacy_replay_database" "$program_host_acceptance_database" "$composer_sealed_read_database"
+  "$legacy_replay_database" "$program_host_acceptance_database" "$composer_sealed_read_database" \
+  "$dashboard_run_store_database"
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$test_database" << 'SQL'

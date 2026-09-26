@@ -328,8 +328,11 @@ UTF-8 字节的值；该值是否指向可纳入的品种由 R&D 对照 Market D
 `POST /v3/source-intake-research` 提交 V3，表单只发出 V3，而 V3 之前记录的运行仍经它当初被接纳时的 V2 路由
 resolve；以及按名显示的 `INSTRUMENT_SCOPE_NOT_RESOLVABLE` 终态，而让范围保持未解析的应答仍是
 `SUBMITTED_OR_UNKNOWN`。`initial_pit` 回读尚未建成，要等 Owner 结果携带该值。只有 Product Edge 的 operation routing
-应答 `ACTIVE / TRADE_DASHBOARD` 时运行才被接纳，而目前还没有已部署的服务应答这次查找，因此在有服务应答之前，已部署的
-Dashboard 无法启动这次运行。
+对运行依赖的两个键（Source Intake 与 Research V3）都应答 `ACTIVE / TRADE_DASHBOARD` 时运行才被接纳。
+`product-edge-routing-read-api` 应答这次查找并随部署发布，但还没有任何部署提交过这样的绑定。在已部署或共享环境中提交
+这样的绑定是一项单独把关的效果，需要用户明确授权；在提交之前，已部署的 Dashboard 无法启动这次运行。有序 Owner 链路经该读端口驱动这次运行，
+绑定由 `product-edge-authority-bootstrap route` 提交：Research V3 的应答为不存在、`WINDMILL`、zero-active 或 stale 时，
+各自在任何 Owner 调用之前拒绝运行；`ACTIVE / TRADE_DASHBOARD` 则接纳它、记录确切的绑定并到达 Source Intake。
 
 client 与 server 导入同一份 pure input validator。plausible alternatives 在校验前规范成唯一 UTF-8 byte order；
 required data 保留输入顺序。`RUN` 在 dispatch 开始时冻结完整 request 并清空 operator access。terminal bounded

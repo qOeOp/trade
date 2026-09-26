@@ -55,6 +55,7 @@ rstest = { workspace = true }
 tower = { workspace = true }
 vibe-backtest-result-custody = { workspace = true }
 vibe-operator-authorization = { workspace = true }
+vibe-product-edge-routing-api = { workspace = true }
 vibe-rd-artifact-invocation-custody = { workspace = true }
 vibe-testkit = { workspace = true, features = ["postgres"] }
 
