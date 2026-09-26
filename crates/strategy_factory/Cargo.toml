@@ -83,6 +83,10 @@ rstest = { workspace = true }
 tracing-subscriber = { workspace = true }
 vibe-operator-authorization = { workspace = true }
 vibe-portfolio = { workspace = true }
+# The deployment fixture, so a test can put its request proof through Source Intake's own check.
+vibe-product-edge = { workspace = true, features = [
+  "sealed-deployment-acceptance",
+] }
 vibe-qualification = { workspace = true, features = [
   "ready-lineage-acceptance",
 ] }
