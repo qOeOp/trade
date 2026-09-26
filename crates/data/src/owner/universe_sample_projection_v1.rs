@@ -432,10 +432,15 @@ pub mod sealed_acceptance {
 
     use super::{
         ComponentEvidenceV1, StrategyInputUniverseSampleProjectionReadbackV1,
-        UniverseSampleProjectionLifecycleV1, assemble_universe_sample_projection_v1,
+        UniverseSampleProjectionComponentV1, UniverseSampleProjectionLifecycleV1,
+        assemble_universe_sample_projection_v1, canonical_bytes, receipt_identity,
     };
     use crate::owner::{
-        sample_projection::SampleCoordinateFieldsV1, source_binding::BindingDigest,
+        sample_projection::{
+            SampleCoordinateFieldsV1, decode_sample_coordinate_fields_v1,
+            encode_sample_coordinate_v1, sample_coordinate_digest_v1,
+        },
+        source_binding::BindingDigest,
         strategy_input_binding::StrategyInputUniverseFrameReceipt,
     };
 
@@ -503,6 +508,116 @@ pub mod sealed_acceptance {
             .collect();
         assemble_universe_sample_projection_v1(frame, evidence)
             .expect("a frame's own values seal into its projection")
+    }
+
+    /// One change to an issued projection, which [`reseal_sealed_acceptance_universe_sample_projection_v1`]
+    /// seals again so that the result still decodes and verifies.
+    #[derive(Clone, Copy, Debug)]
+    pub enum SealedUniverseSampleProjectionTamperV1 {
+        /// Names another frame.
+        Subject(BindingDigest),
+        /// Flips BAR to EVENT, dropping the schedule set, or EVENT to BAR, adding `schedule_set`.
+        Lifecycle {
+            /// The schedule set an EVENT projection turned BAR states.
+            schedule_set: BindingDigest,
+        },
+        /// Replaces a BAR projection's schedule set.
+        ScheduleSet(BindingDigest),
+        /// Drops the last component.
+        DropLastComponent,
+        /// Appends one more component for its last member, under a role above every other.
+        ExtraComponent,
+        /// Replaces every component's trigger digest.
+        Trigger(BindingDigest),
+        /// Replaces one component's value receipt digest.
+        ValueReceipt(usize, BindingDigest),
+        /// Replaces one component's member binding digest, and its coordinate with it.
+        MemberBinding(usize, BindingDigest),
+    }
+
+    /// Applies `tamper` to `projection` and seals the result with the real codec.
+    ///
+    /// Two changes cannot be sealed at all, because decoding refuses them before any consumer
+    /// sees them: a BAR projection without a schedule set (the lifecycle byte decides whether the
+    /// schedule set is present), and a duplicated component (components are strictly ordered by
+    /// member ordinal and role).
+    ///
+    /// # Panics
+    ///
+    /// Panics when the change leaves no component, or names a component the projection lacks.
+    #[must_use]
+    pub fn reseal_sealed_acceptance_universe_sample_projection_v1(
+        projection: &StrategyInputUniverseSampleProjectionReadbackV1,
+        tamper: SealedUniverseSampleProjectionTamperV1,
+    ) -> StrategyInputUniverseSampleProjectionReadbackV1 {
+        use SealedUniverseSampleProjectionTamperV1 as T;
+
+        let mut subject = projection.subject;
+        let mut lifecycle = projection.lifecycle;
+        let mut schedule_set = projection.schedule_dependency_set_digest;
+        let mut components = projection.components.to_vec();
+        let recode = |component: &mut UniverseSampleProjectionComponentV1| {
+            let fields = decode_sample_coordinate_fields_v1(&component.coordinate)
+                .expect("an issued coordinate decodes");
+            component.coordinate = encode_sample_coordinate_v1(
+                *component.input_role_identity.as_bytes(),
+                *component.member_binding_digest.as_bytes(),
+                &fields,
+            )
+            .expect("the same fields encode again");
+            component.coordinate_digest = BindingDigest::from_untrusted_bytes(
+                sample_coordinate_digest_v1(&component.coordinate),
+            );
+        };
+
+        match tamper {
+            T::Subject(other) => subject = other,
+            T::Lifecycle {
+                schedule_set: other,
+            } => {
+                (lifecycle, schedule_set) = match lifecycle {
+                    UniverseSampleProjectionLifecycleV1::Bar => {
+                        (UniverseSampleProjectionLifecycleV1::Event, None)
+                    }
+                    UniverseSampleProjectionLifecycleV1::Event => {
+                        (UniverseSampleProjectionLifecycleV1::Bar, Some(other))
+                    }
+                };
+            }
+            T::ScheduleSet(other) => {
+                assert!(
+                    schedule_set.is_some(),
+                    "only a BAR projection states a schedule set"
+                );
+                schedule_set = Some(other);
+            }
+            T::DropLastComponent => {
+                components.pop();
+            }
+            T::ExtraComponent => {
+                let mut extra = components
+                    .last()
+                    .expect("a projection has a component")
+                    .clone();
+                extra.input_role_identity = BindingDigest::from_untrusted_bytes([0xFF; 32]);
+                recode(&mut extra);
+                components.push(extra);
+            }
+            T::Trigger(other) => {
+                for component in &mut components {
+                    component.trigger_digest = other;
+                }
+            }
+            T::ValueReceipt(index, other) => components[index].value_receipt_digest = other,
+            T::MemberBinding(index, other) => {
+                components[index].member_binding_digest = other;
+                recode(&mut components[index]);
+            }
+        }
+        let bytes = canonical_bytes(subject, lifecycle, schedule_set, &components)
+            .expect("a tampered projection still encodes");
+        StrategyInputUniverseSampleProjectionReadbackV1::decode(receipt_identity(&bytes), &bytes)
+            .expect("a resealed projection decodes and verifies")
     }
 }
 

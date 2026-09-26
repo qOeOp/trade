@@ -1749,6 +1749,42 @@ pub(crate) fn encode_sample_coordinate_v1(
         .map_err(|_| StrategyInputSampleProjectionUnavailable::InvalidLength)
 }
 
+/// The sample fields one coordinate states, read back from its exact bytes.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub(crate) fn decode_sample_coordinate_fields_v1(
+    bytes: &[u8],
+) -> Result<SampleCoordinateFieldsV1, StrategyInputSampleProjectionUnavailable> {
+    let mut decoder = Decoder::new(bytes);
+    decoder.schema(1)?;
+    let _role = decoder.identity_nonzero()?;
+    let timeframe_identity = decoder.identity_nonzero()?;
+    let owner_event_identity = decoder.identity16_nonzero()?;
+    let sample_identity = decoder.identity_nonzero()?;
+    let logical_time = decoder.u64()?;
+    let event_effective = decoder.u64()?;
+    let owner_sequence = decoder.u64()?;
+    let _binding = decoder.identity_nonzero()?;
+    let canonical_row_digest = decoder.identity_nonzero()?;
+    let source_binding_lineage_root = decoder.identity_nonzero()?;
+    let source_binding_lineage_version = decoder.u64()?;
+    let market_semantics_identity = decoder.identity_nonzero()?;
+    let receipt_digest = decoder.identity_nonzero()?;
+    decoder.end()?;
+    Ok(SampleCoordinateFieldsV1 {
+        timeframe_identity,
+        owner_event_identity,
+        sample_identity,
+        logical_time,
+        event_effective,
+        owner_sequence,
+        canonical_row_digest,
+        source_binding_lineage_root,
+        source_binding_lineage_version,
+        market_semantics_identity,
+        receipt_digest,
+    })
+}
+
 /// The coordinate digest under the unchanged coordinate domain.
 pub(crate) fn sample_coordinate_digest_v1(coordinate: &[u8; COORDINATE_LEN]) -> Identity {
     sha256(COORDINATE_DOMAIN, coordinate)
