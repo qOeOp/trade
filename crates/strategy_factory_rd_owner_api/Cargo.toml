@@ -24,6 +24,7 @@ sealed-source-intake-composer-acceptance = [
   "sealed-source-intake-acceptance",
   "sealed-develop-composer-acceptance",
   "vibe-strategy-factory/sealed-source-intake-composer-acceptance",
+  "vibe-product-edge/sealed-deployment-acceptance",
 ]
 sealed-develop-composer-acceptance = [
   "vibe-strategy-factory/sealed-develop-composer-acceptance",

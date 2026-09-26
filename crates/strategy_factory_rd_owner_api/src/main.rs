@@ -204,6 +204,8 @@ use vibe_strategy_factory_rd_owner_api::required_env;
 
 mod bounded_feature_program;
 mod exploratory_replay;
+#[cfg(all(test, feature = "sealed-source-intake-composer-acceptance"))]
+mod first_composer_v3_replay_acceptance;
 mod iteration_analysis;
 mod iteration_decision;
 mod iteration_result_admission;
@@ -556,6 +558,84 @@ async fn main() -> anyhow::Result<()> {
         request_proof_digest.clone(),
     )
     .await?;
+    let app = owner_state_routes();
+    let app = app
+        .with_state(state)
+        .merge(source_intake)
+        .merge(exploratory_replay::result_router(
+            owner.clone(),
+            token_digest,
+        ))
+        .merge(iteration_analysis::router(
+            product_edge.clone(),
+            owner.clone(),
+            token_digest,
+            request_proof_digest.clone(),
+        ))
+        .merge(iteration_decision::router(
+            product_edge.clone(),
+            owner.clone(),
+            token_digest,
+            request_proof_digest.clone(),
+        ))
+        .merge(bounded_feature_program::router(
+            bounded_feature_program_owner,
+            token_digest,
+        ))
+        .merge(iteration_result_admission::router(
+            product_edge.clone(),
+            owner.clone(),
+            token_digest,
+            request_proof_digest.clone(),
+        ))
+        // The issuance holds the same two Market Data ports its routes serve, not a second pair.
+        .merge(research_initial_pit::router(
+            owner.clone(),
+            market_data_universe_selection
+                .clone()
+                .zip(market_data_pit_intake.clone())
+                .map(|(universe, intake)| MarketDataInitialPitPortsV1::new(universe, intake)),
+            token_digest,
+        ))
+        .merge(source_intake_research::router(
+            product_edge,
+            owner,
+            token_digest,
+            request_proof_digest,
+            allow_acceptance_faults,
+        ))
+        // Market Data answers for itself on the default feature set: these routes ship in the
+        // deployed binary rather than behind an acceptance feature.
+        .merge(market_data_pit::router(
+            market_data_pit_intake,
+            market_data_source_binding_admission,
+            market_data_universe_selection,
+            market_data_strategy_input_bindings,
+            market_data_instrument_master_admission,
+            market_data_market_semantics_admission,
+            token_digest,
+        ));
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    let app = app.merge(exploratory_replay::execution_router(
+        native_replay_execution,
+        token_digest,
+    ));
+    // The Market Data repair loop is a separate surface with its own admission; keeping its merge
+    // in its own statement is what lets the Native Replay route lose its gate on its own.
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    let app = app.merge(market_data_repair);
+    let address = env_or("RD_OWNER_LISTEN", "0.0.0.0:8080");
+    let listener = TcpListener::bind(&address).await?;
+    tracing::info!(listen = %address, "R&D Owner API ready");
+    axum::serve(listener, app).await?;
+    Ok(())
+}
+
+/// The routes served from the Owner API's shared state, exactly as `main` mounts them.
+///
+/// The ordered chain mounts this same table over the state it composes, so an entry that drives
+/// one of these routes reaches the production path, handler and extractors rather than a copy of them.
+fn owner_state_routes() -> Router<ApiState> {
     let app = Router::new()
         .route("/health", get(health))
         .route("/v1/research-goals/directory", get(read_research_directory))
@@ -677,76 +757,7 @@ async fn main() -> anyhow::Result<()> {
             "/_sealed-acceptance/v1/develop-composer/runs/{request_identity}/resolve",
             post(resolve_develop_composer_with_acceptance_tamper),
         );
-    let app = app
-        .with_state(state)
-        .merge(source_intake)
-        .merge(exploratory_replay::result_router(
-            owner.clone(),
-            token_digest,
-        ))
-        .merge(iteration_analysis::router(
-            product_edge.clone(),
-            owner.clone(),
-            token_digest,
-            request_proof_digest.clone(),
-        ))
-        .merge(iteration_decision::router(
-            product_edge.clone(),
-            owner.clone(),
-            token_digest,
-            request_proof_digest.clone(),
-        ))
-        .merge(bounded_feature_program::router(
-            bounded_feature_program_owner,
-            token_digest,
-        ))
-        .merge(iteration_result_admission::router(
-            product_edge.clone(),
-            owner.clone(),
-            token_digest,
-            request_proof_digest.clone(),
-        ))
-        // The issuance holds the same two Market Data ports its routes serve, not a second pair.
-        .merge(research_initial_pit::router(
-            owner.clone(),
-            market_data_universe_selection
-                .clone()
-                .zip(market_data_pit_intake.clone())
-                .map(|(universe, intake)| MarketDataInitialPitPortsV1::new(universe, intake)),
-            token_digest,
-        ))
-        .merge(source_intake_research::router(
-            product_edge,
-            owner,
-            token_digest,
-            request_proof_digest,
-            allow_acceptance_faults,
-        ))
-        // Market Data answers for itself on the default feature set: these routes ship in the
-        // deployed binary rather than behind an acceptance feature.
-        .merge(market_data_pit::router(
-            market_data_pit_intake,
-            market_data_source_binding_admission,
-            market_data_universe_selection,
-            market_data_strategy_input_bindings,
-            market_data_instrument_master_admission,
-            market_data_market_semantics_admission,
-            token_digest,
-        ));
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
-    let app = app.merge(exploratory_replay::execution_router(
-        native_replay_execution,
-        token_digest,
-    ));
-    // The Market Data repair loop is a separate surface with its own admission; keeping its merge
-    // in its own statement is what lets the Native Replay route lose its gate on its own.
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
-    let app = app.merge(market_data_repair);
-    let address = env_or("RD_OWNER_LISTEN", "0.0.0.0:8080");
-    let listener = TcpListener::bind(&address).await?;
-    tracing::info!(listen = %address, "R&D Owner API ready");
-    axum::serve(listener, app).await?;
-    Ok(())
+    app
 }
 
 fn schema_materialization_requested(arguments: &[String]) -> anyhow::Result<bool> {
@@ -5387,7 +5398,7 @@ mod tests {
     /// checks sixteen ACL flags exactly, including that it reaches a published intent only through
     /// a function and holds no direct table privilege. A wrong role fails the way a missing URL
     /// does.
-    async fn composed_market_data_binding_admission(
+    pub(super) async fn composed_market_data_binding_admission(
         test_database: &CanonicalOwnerPostgresTestDatabaseV1,
     ) -> Option<Arc<dyn StrategyInputBindingAdmissionV1>> {
         unsafe {
@@ -5613,6 +5624,49 @@ mod tests {
             replay, response,
             "replaying one frozen meaning must resolve the committed operation, not compose again",
         );
+    }
+
+    /// The F prefix: the first COMPOSER_V3 Replay, committed through the production routes from a
+    /// V3 Research request to an execution input binding that reads back.
+    ///
+    /// The steps, and the two places it departs from a route, are in
+    /// `first_composer_v3_replay_acceptance`. This entry asserts only that it was the one that
+    /// created the Replay: the F body calls the same fixture with the same key and must join it.
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[rstest]
+    #[ignore = "requires the ordered chain's PostgreSQL, entry 6's Market Data fixture and the pinned local wasm compiler"]
+    fn the_first_composer_v3_replay_is_submitted_over_http_and_its_execution_input_binding_reads_back()
+     {
+        // Accepting a request, issuing its PIT request and composing run the Owners' deepest
+        // custody paths; together they overflow the default test stack, as the other V3 entries do.
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                tokio::runtime::Builder::new_multi_thread()
+                    .worker_threads(2)
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(Box::pin(async {
+                        let test_database =
+                            CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+                        let replay = Box::pin(
+                            crate::first_composer_v3_replay_acceptance::ensure_first_composer_v3_replay_acceptance_v1(
+                                &test_database,
+                                crate::first_composer_v3_replay_acceptance::FIRST_COMPOSER_V3_REPLAY_FIXTURE_KEY_V1,
+                            ),
+                        )
+                        .await;
+                        assert!(
+                            replay.created,
+                            "the prefix runs on a fresh chain database, so it must be the call that \
+                             created the first COMPOSER_V3 Replay rather than one that joined it",
+                        );
+                    }));
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 
     pub(super) fn bearer_headers(token: &str) -> HeaderMap {
