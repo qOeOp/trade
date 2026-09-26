@@ -5,17 +5,20 @@ permissions: # Principle of least privilege
   actions: read
   security-events: write # Required for impacted-language CodeQL uploads
 
+# Once a day, off-peak, plus on demand - not on every push to `main`. The Rust analysis holds one
+# runner for about 1.5 hours, and the account runs at most 20 jobs at once: on 2026-09-24 it ran 12
+# full scans (4.9% of all runner time) while pull requests queued behind that cap for 11.1 of the
+# 24 hours, p90 28 minutes. 10:37 UTC falls in the window where that day's queue was near zero,
+# away from the top of the hour and from the other schedules. An alert now surfaces at most a day
+# after the commit that introduced it; nothing requires a scan to merge (the ruleset requires
+# `quality` only).
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
+  schedule:
+    - cron: "37 10 * * *"
 
-# A CodeQL analysis of this repository runs for over two hours, and `main` is squash-merged in
-# sequence, so a merge that lands while one is still scanning has already superseded it. Without
-# a group every push started an analysis of its own: the nine merges of 2026-09-17 09:34-09:38
-# each queued a full scan, and the runner budget they held is what the next pull request's gate
-# waits for. Keep the newest tip's analysis and let it replace the ones it supersedes; the tip is
-# the commit whose alerts anyone reads.
+# A scheduled scan and a dispatched one share `main`'s group: the newer replaces the older, since
+# the tip is the commit whose alerts anyone reads.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref_name }}
   cancel-in-progress: true

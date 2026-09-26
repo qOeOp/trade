@@ -45,8 +45,8 @@ CI/CD, testing, publishing, and automation within the NautilusTrader repository.
   from the Actions artifact. If the 30-day artifact expires, recovery requires a separately authorized
   manual dispatch of the same exact source commit, not an automatic retry or a substitute artifact.
 
-- **codeql-analysis.yml**: CodeQL scans the tracked Go, Python, and Rust sources on pull requests and
-  pushes to `main`, and on manual dispatch.
+- **codeql-analysis.yml**: CodeQL scans the tracked Go, Python, and Rust sources on `main` once a day
+  (10:37 UTC, off-peak) and on manual dispatch.
 - **pr-title.yml**: validates the current pull request title with the exact base revision's canonical
   validator and publishes the distinct `pr-title` status to the API-read current head. It never
   checks out or executes pull request head content. This workflow establishes the status producer;
@@ -75,8 +75,8 @@ CI/CD, testing, publishing, and automation within the NautilusTrader repository.
 
 - **CODEOWNERS**: Ownership entries route review requests to repository-recognized owners. Whether
   their approval is required is controlled by the live branch ruleset, not this file.
-- **Branch and tag rulesets**: `main` requires a pull request, resolved review threads, strict named
-  CI checks, and CodeQL scanning. It has no bypass actor. Other branch and tag policies remain
+- **Branch and tag rulesets**: `main` requires a pull request, resolved review threads, and the
+  `quality` check (not strict: the branch need not be up to date). It has no bypass actor. Other branch and tag policies remain
   repository settings rather than workflow-owned authority.
 - **Least-privilege tokens**: Workflows default `GITHUB_TOKEN` to `contents: read, actions: read`
   and selectively elevate scopes only for jobs that need them.
@@ -97,8 +97,8 @@ CI/CD, testing, publishing, and automation within the NautilusTrader repository.
 
 - **cargo-deny**: Rust dependency auditing for security advisories (RUSTSEC/GHSA), license
   compliance, banned crates, and supply chain integrity. Configuration in `deny.toml`.
-- **Code scanning**: CodeQL analyzes tracked Go, Python, and Rust code on pull
-  requests and pushes to `main`, and on manual dispatch. Zizmor runs in `security-audit.yml` and
+- **Code scanning**: CodeQL analyzes tracked Go, Python, and Rust code on `main`
+  once a day and on manual dispatch. Zizmor runs in `security-audit.yml` and
   uploads SARIF when token permissions allow it.
 
 ### Build and publish controls

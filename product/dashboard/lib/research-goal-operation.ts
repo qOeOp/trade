@@ -1,5 +1,6 @@
 import {
   projectResearchOwnerResultWithEvidenceV1,
+  RESEARCH_OWNER_OPERATION_V2,
 } from "../../rd-owner-client/consumer_projection_v1.ts";
 import {
   PRODUCT_EDGE_RESEARCH_GOAL_ROUTING_KEY_V2,
@@ -35,7 +36,7 @@ export type SourceIntakeAncestryV1 = {
 export const researchGoalOperationV2 = {
   schema_version: 1,
   operation_id: RESEARCH_GOAL_EXECUTE_OPERATION,
-  owner_operation: "research_goal.submit_or_resolve.v2",
+  owner_operation: RESEARCH_OWNER_OPERATION_V2,
   owner_schema: "sourced-research-goal-v2",
   capability: "rd.research_goal.execute",
   effect_set: RESEARCH_GOAL_EFFECT_SET_V2,
@@ -91,6 +92,7 @@ async function availableTerminalResearch(
   const projected = await projectResearchOwnerResultWithEvidenceV1(
     ownerResponse,
     requestIdentity,
+    researchGoalOperationV2.owner_operation,
   );
   const projection = projected.projection as Record<string, unknown>;
   if (projected.verified && projection.resolution === "SUBMITTED_OR_UNKNOWN") {

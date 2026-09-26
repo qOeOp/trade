@@ -406,9 +406,17 @@ for pr_case in 'ready_for_review:' 'opened:false' 'reopened:false'; do
     exit 1
   fi
 done
-codeql_triggers="$(sed -n '/^on:/,/^jobs:/p' "$repo_root/.github/workflows/codeql-analysis.yml")"
+# CodeQL runs once a day off-peak and on demand, never per push: each Rust scan holds a runner for
+# about 1.5 hours under the account's 20-job cap, and a push trigger ran 12 of them on 2026-09-24
+# while pull requests queued. Comments are stripped so this keys on the YAML.
+codeql_triggers="$(sed -n '/^on:/,/^jobs:/p' "$repo_root/.github/workflows/codeql-analysis.yml" |
+  grep -v '^ *#')"
 [[ "$codeql_triggers" == *'workflow_dispatch:'* ]]
-[[ "$codeql_triggers" == *'branches: [main]'* ]]
+[[ "$codeql_triggers" == *'schedule:'* ]]
+if [[ "$codeql_triggers" == *'push:'* ]]; then
+  echo "codeql-analysis.yml must not run on push; it is scheduled once a day, off-peak." >&2
+  exit 1
+fi
 # Match literal GitHub expressions and shell source.
 # shellcheck disable=SC2016
 grep -Fq 'AFTER_SHA: ${{ github.event.after }}' "$repo_root/.github/workflows/build.yml"

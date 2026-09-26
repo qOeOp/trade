@@ -2,7 +2,12 @@ import assert from "node:assert/strict"
 import { readFile } from "node:fs/promises"
 import test from "node:test"
 
-const { projectResearchOwnerResultWithEvidenceV1 } = await import("./consumer_projection_v1.ts")
+const {
+  projectResearchOwnerResultWithEvidenceV1,
+  RESEARCH_OWNER_OPERATION_V2,
+  RESEARCH_OWNER_OPERATION_V3,
+  unknownResearchProjectionV1,
+} = await import("./consumer_projection_v1.ts")
 
 // Exact bytes the first-party Dashboard read API answered for one Research request the R&D Owner
 // committed with the Catalog V3 seal and the Decision policy binding (2026-09-18). Every seal the
@@ -11,9 +16,54 @@ const accepted = JSON.parse(await readFile(new URL("./fixtures/research_accepted
 // The pre-seal shape the Dashboard suites were written against; it must keep projecting.
 const legacy = JSON.parse(await readFile(new URL("../dashboard/tests/fixtures/research_accepted_v2.json", import.meta.url), "utf8"))
 
-async function projected(value) {
-  return projectResearchOwnerResultWithEvidenceV1(structuredClone(value), value.request_identity)
+async function projected(value, operation = RESEARCH_OWNER_OPERATION_V2) {
+  return projectResearchOwnerResultWithEvidenceV1(structuredClone(value), value.request_identity, operation)
 }
+
+// V2 and V3 answer in one shape, so the stamp says which operation the caller invoked, and a stamped
+// projection verifies only as that operation.
+test("a Research result is stamped with the operation the caller invoked, and verifies only as it", async () => {
+  for (const [operation, schema] of [
+    [RESEARCH_OWNER_OPERATION_V2, "sourced-research-goal-v2"],
+    [RESEARCH_OWNER_OPERATION_V3, "sourced-research-goal-v3"],
+  ]) {
+    const result = await projected(accepted, operation)
+    assert.equal(result.verified, true)
+    assert.equal(result.projection.resolution, "ACCEPTED")
+    assert.deepEqual(result.projection.consumer_projection, {
+      schema_version: 1,
+      operation: "research_goal.consumer_projection.v1",
+      owner_operation: operation,
+      owner_schema: schema,
+    })
+    // The same stamped projection presented as the other operation is not that operation's answer.
+    const other = operation === RESEARCH_OWNER_OPERATION_V2 ? RESEARCH_OWNER_OPERATION_V3 : RESEARCH_OWNER_OPERATION_V2
+    const crossed = await projectResearchOwnerResultWithEvidenceV1(
+      structuredClone(result.projection), accepted.request_identity, other,
+    )
+    assert.equal(crossed.projection.resolution, "SUBMITTED_OR_UNKNOWN")
+    assert.equal(crossed.verified, false)
+    assert.equal(crossed.projection.consumer_projection.owner_operation, other)
+  }
+})
+
+test("a stamp that pairs one operation with the other operation's schema verifies as neither", async () => {
+  const stamped = (await projected(accepted, RESEARCH_OWNER_OPERATION_V3)).projection
+  const mixed = {
+    ...stamped,
+    consumer_projection: { ...stamped.consumer_projection, owner_schema: "sourced-research-goal-v2" },
+  }
+  for (const operation of [RESEARCH_OWNER_OPERATION_V2, RESEARCH_OWNER_OPERATION_V3]) {
+    const result = await projectResearchOwnerResultWithEvidenceV1(structuredClone(mixed), accepted.request_identity, operation)
+    assert.equal(result.projection.resolution, "SUBMITTED_OR_UNKNOWN")
+    assert.equal(result.verified, false)
+  }
+  // The unknown projection names the operation it stands in for.
+  assert.equal(
+    unknownResearchProjectionV1(accepted.request_identity, RESEARCH_OWNER_OPERATION_V3).consumer_projection.owner_schema,
+    "sourced-research-goal-v3",
+  )
+})
 
 test("a Research custody sealed with Catalog V3 and the Decision policy projects as ACCEPTED", async () => {
   const result = await projected(accepted)
