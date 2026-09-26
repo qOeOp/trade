@@ -524,10 +524,11 @@ debug = false
 strip = "symbols"
 lto = false
 incremental = false
-codegen-units = 1
+codegen-units = 16 # LANE8 PROBE, not for merge: workspace crates only
 
 [profile.ci-pr.package."*"]
 opt-level = 0
+codegen-units = 1 # LANE8 PROBE: dependencies keep one codegen unit
 
 [profile.ci-pr-wheel]
 inherits = "dev"
