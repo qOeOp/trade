@@ -11,6 +11,7 @@ grep -Fq 'read_only: true' "$compose_file"
 grep -Fq 'profiles: ["authority-admin"]' "$compose_file"
 test "$(grep -c 'profiles: \["authority-admin"\]' "$compose_file")" -eq 3
 grep -Fq 'product-edge-authority-bootstrap' "$package_dir/Dockerfile.owner"
+grep -Fq 'product-edge-routing-read-api' "$package_dir/Dockerfile.owner"
 
 # The owner image runs the Develop Composer, which builds wasm in its own process rather than in
 # the build sandbox. Losing this line does not break the build; it breaks every Composer run in
