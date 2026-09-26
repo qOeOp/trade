@@ -355,6 +355,16 @@ manifest receipt 与 outbox 原子提交。准确重放加入原字节；含义�
 没有部分写入。后继属于独立管理员 cutover：先提交准确前驱的 `SUPERSEDED` fence，随后且仅随后政策
 等价后继才能以 generation 加一成为 `ACTIVE`。
 
+### 操作路由
+
+Product Edge 是部署所准入的类型化变更操作的唯一路由权威。对每个路由 key（部署身份、类型化操作、其版本，以及其请求被封存于其下的准入网关 channel；今天每个准入都携带 `WINDMILL_PRODUCT_EDGE`），Product Edge 维护一段 operation routing binding 历史。binding 指名对该 key 而言哪个 dispatcher 是新鲜的业务 writer：`WINDMILL`（遗留 effect runner）或 `TRADE_DASHBOARD`（第一方 Dashboard effect worker）。部署 flag 与凭据从不选择 dispatcher，只有这段历史决定。key 的 version 就是操作名的 `.vN` 后缀（`research_goal.submit_or_resolve.v2` 的 version 为 2）；version 与该后缀不一致的 key 不指名任何操作，会被拒绝。
+
+binding 记录其 key、generation、前驱 binding（恰在 generation 一时没有）、它提交时所依据的 `ACTIVE` 部署绑定（identity 与 digest）、它路由的 operation manifest（identity 与 digest；该部署绑定必须为此操作与版本准入该 manifest）、其 dispatcher，以及以 store 时钟记录的提交时间。其 digest 是 `canonical_digest("product-edge.operation-routing-binding.v1", content)`，按此顺序恰好覆盖这些字段：`schema_version`（1）、`key`（`deployment_identity`、`operation`、`version`、`channel`）、`generation`、`predecessor_binding_identity`、`deployment_binding_identity`、`deployment_binding_digest`、`manifest_identity`、`manifest_digest`、`dispatcher`、`committed_at_epoch_ms`。其 identity 是 `identity("product-edge-operation-routing-binding-v1", [digest])`。Dashboard 从收到的每个 observation 重算这两者，因此一份共享向量文件为两边实现钉住编码。
+
+路由 key 的历史遵循部署绑定的规则。genesis 只对没有历史的 key 有效，generation 为一且没有前驱。每个 successor 都对确切的当前 head 串行化，将其指名为前驱，generation 加一，并引入该 key 从未使用过的 binding identity。状态只有 `ACTIVE` 与 `SUPERSEDED`，且 `SUPERSEDED` 单调。撤回 head 会使其 superseded 而没有 successor；此时该 key 有一个零 `ACTIVE` 的 head，下一个 successor 将其指名为前驱。一旦 binding 所指名的部署绑定不再是该部署的 `ACTIVE` head，该 binding 即为过期；在新部署绑定下的路由需要在其下提交一个路由 successor。只有显式管理员 writer `product-edge-authority-bootstrap` 提交路由 binding；任何服务启动或产品请求路径都不提交。在已部署或共享环境中提交 `TRADE_DASHBOARD` binding，是 Dashboard 合同所指名的单独显式效果，本合同不授权它。
+
+读端口是 `GET /v1/operation-routing?operation=...&version=...&channel=...`，带 bearer token，针对服务所配置的部署作答。它在只读事务中读取，不取行锁。当 head 为 `ACTIVE` 且当前时，它以 head binding 与来自 store 时钟的 `observed_at_epoch_ms` 答 `ACTIVE`；当 head 已被撤回时，以 key、generation 与 head identity 答 `ZERO_ACTIVE`。其余每种情形都是具名拒绝：没有历史的 key 为 `OPERATION_ROUTING_ABSENT`（404），过期 head 为 `OPERATION_ROUTING_STALE`（409），`OPERATION_ROUTING_QUERY_INVALID`（400），缺失或错误的 token（401），以及 store 不可用（503）。Dashboard 只在 dispatcher 为 `TRADE_DASHBOARD` 的 `ACTIVE` 上准入新鲜 `RUN`；其余每个回答在那里都 fail closed。
+
 ### 到期 manifest 恢复 epoch
 
 普通 authorization 或 deployment 后继只有在提交截面的准确前驱仍 current 时才可准入。manifest 区间

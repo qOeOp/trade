@@ -423,6 +423,46 @@ replay joins the original bytes; changed meaning and concurrent losing genesis a
 write. A successor is a separate administrative cutover: the exact predecessor's `SUPERSEDED` fence commits first,
 then and only then may a policy-equivalent successor become `ACTIVE` at generation plus one.
 
+### Operation routing
+
+Product Edge is the sole routing authority for the typed mutating operations a deployment admits. For each routing
+key - the deployment identity, the typed operation, its version, and the admission gateway channel its requests are
+sealed under (every admission today carries `WINDMILL_PRODUCT_EDGE`) - Product Edge keeps one history of operation
+routing bindings. A binding names the dispatcher that is the fresh business writer for that key: `WINDMILL`, the
+legacy effect runner, or `TRADE_DASHBOARD`, the first-party Dashboard effect worker. Deployment flags and credentials
+never choose a dispatcher; only this history does. A key's version is the operation name's `.vN` suffix
+(`research_goal.submit_or_resolve.v2` has version 2); a key whose version differs from that suffix names no operation
+and is refused.
+
+A binding records its key, its generation, its predecessor binding (none exactly at generation one), the `ACTIVE`
+deployment binding it was committed under (identity and digest), the operation manifest it routes (identity and
+digest; that deployment binding must admit the manifest for this operation and version), its dispatcher, and its
+commit time on the store clock. Its digest is `canonical_digest("product-edge.operation-routing-binding.v1", content)`
+over exactly these fields in this order: `schema_version` (1), `key` (`deployment_identity`, `operation`, `version`,
+`channel`), `generation`, `predecessor_binding_identity`, `deployment_binding_identity`, `deployment_binding_digest`,
+`manifest_identity`, `manifest_digest`, `dispatcher`, `committed_at_epoch_ms`. Its identity is
+`identity("product-edge-operation-routing-binding-v1", [digest])`. The Dashboard recomputes both from every
+observation it receives, so one shared vector file pins the encoding for both implementations.
+
+A routing key's history follows the deployment binding rules. Genesis is valid only for a key with no history, at
+generation one with no predecessor. Every successor serializes against the exact current head, names it as
+predecessor, increments the generation by one, and introduces a binding identity never used for that key. The states
+are `ACTIVE` and `SUPERSEDED`, and `SUPERSEDED` is monotonic. Withdrawing the head supersedes it without a successor;
+the key then has a zero-`ACTIVE` head, which the next successor names as its predecessor. A binding is stale once the
+deployment binding it names is no longer that deployment's `ACTIVE` head; routing under a new deployment binding
+needs a routing successor committed under it. Only the explicit administrative writer
+`product-edge-authority-bootstrap` commits routing bindings; no service start or product request path does.
+Committing a `TRADE_DASHBOARD` binding in a deployed or shared environment is the separate explicit effect the
+Dashboard contract names, and this contract does not authorize it.
+
+The read port is `GET /v1/operation-routing?operation=...&version=...&channel=...` with a bearer token, answering for
+the deployment the service is configured for. It reads in a read-only transaction and takes no row lock. It answers
+`ACTIVE` with the head binding and `observed_at_epoch_ms` from the store clock when the head is `ACTIVE` and current,
+and `ZERO_ACTIVE` with the key, generation, and head identity when the head was withdrawn. Every other case is a named
+refusal: `OPERATION_ROUTING_ABSENT` (404) for a key with no history, `OPERATION_ROUTING_STALE` (409) for a stale head,
+`OPERATION_ROUTING_QUERY_INVALID` (400), a missing or wrong token (401), and an unavailable store (503). The Dashboard
+admits a fresh `RUN` only on `ACTIVE` with dispatcher `TRADE_DASHBOARD`; every other answer fails closed there.
+
 ### Expired manifest recovery epoch
 
 An ordinary authorization or deployment successor is admissible only while its exact predecessor remains current at
