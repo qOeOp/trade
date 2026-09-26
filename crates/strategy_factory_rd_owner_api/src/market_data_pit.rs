@@ -589,6 +589,14 @@ fn market_semantics_error(error: MarketSemanticsAdmissionErrorV1) -> Response {
         MarketSemanticsAdmissionErrorV1::AdmissionConflict => {
             (StatusCode::CONFLICT, "MARKET_SEMANTICS_ADMISSION_CONFLICT")
         }
+        MarketSemanticsAdmissionErrorV1::SnapshotValueConflict => (
+            StatusCode::CONFLICT,
+            "MARKET_SEMANTICS_SNAPSHOT_VALUE_CONFLICT",
+        ),
+        MarketSemanticsAdmissionErrorV1::ScopeValueConflict => (
+            StatusCode::CONFLICT,
+            "MARKET_SEMANTICS_SCOPE_VALUE_CONFLICT",
+        ),
         MarketSemanticsAdmissionErrorV1::StoreUnavailable => (
             StatusCode::SERVICE_UNAVAILABLE,
             "MARKET_DATA_OWNER_UNAVAILABLE",

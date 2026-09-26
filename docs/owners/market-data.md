@@ -483,6 +483,16 @@ value to the binding.** Nothing in this document requires the split today, and r
 every future source, so it is recorded here as a known limit rather than decided by the admission of any one
 source.
 
+**Each PIT snapshot has its own chain of facts under the scope.** A fact is proven by one PIT snapshot's
+evidence: it binds that snapshot's identity and fact digest, and a Strategy Input declaration accepts only a fact
+that binds its own snapshot. The chain of facts, the head that answers a read and the overlap rule are therefore kept
+per compatibility scope and PIT snapshot, and a second snapshot under the same binding starts its own chain with its
+own genesis fact. That one binding states one price adjustment is kept by an explicit rule rather than by the scope
+having a single head: after every Owner commit, every head of a scope carries the same five typed values. A fact whose
+value differs from any head of its scope other than the one it succeeds is refused by name as `ScopeValueConflict`,
+with no write. A second genesis for the same scope and snapshot is still a branch and is refused as
+`InvalidCorrection`.
+
 **CURRENT:** Market Data has one standalone `MarketSemanticsFactV1` authority foundation. Its first fixed consumer is the
 Strategy Input Binding Registry; `ReplayMarketFactsV2` later consumes the same Owner readback as a deterministic
 projection. An untrusted proposal may carry only its request identity and meaning, stable correlation, claimed
@@ -509,7 +519,7 @@ name, value, scope, latest or history lookup is admitted. A test-only seal is no
 `POST /v1/market-data/market-semantics`, through which Operations submits the untrusted proposal above beside an
 already admitted Source Binding. The Owner alone resolves the four dependency readbacks, derives the closed registry
 key, registers the registry entry for that key with the proposed typed value once (a later proposal with a different
-value for the same key is a conflict, never an overwrite), and appends the fact, complete cut, receipt and outbox in
+value for the same key is refused as `SnapshotValueConflict`, never an overwrite), and appends the fact, complete cut, receipt and outbox in
 one transaction. The submission names the binding, the snapshot and the typed value and nothing else: the scope is
 the binding's own compatibility identity, and the effective regime and correlation are the snapshot's own R0
 observation evidence, so neither is the submitter's to state. The isolated PostgreSQL chain proves the scope, the
@@ -541,11 +551,21 @@ coordinate scalars must byte-match the resolved `ReferenceFactR0ReadbackV1`; the
 second clock or coordinate authority. Effective containment and observation availability are independent
 predicates. Every availability coordinate must be observable under the same authenticated clock and decision cut.
 
-A correction is an immutable direct successor in the same compatibility scope. It names the current predecessor,
-advances authenticated correction/observation evidence and may retain the corrected effective interval; it never
-rewrites or makes its predecessor unavailable at an earlier cut. Different effective regimes cannot overlap.
-Missing predecessors, branches, cycles, ambiguous overlap, regressed coordinates/frontiers or a later correction
-selected at an earlier observation cut produce no positive fact or cut.
+A correction is an immutable direct successor in the same compatibility scope and PIT snapshot. It names that
+chain's current head, advances authenticated correction/observation evidence and may retain the corrected effective
+interval; it never rewrites or makes its predecessor unavailable at an earlier cut. Within one chain different
+effective regimes cannot overlap. Missing predecessors, branches, cycles, ambiguous overlap, regressed
+coordinates/frontiers or a later correction selected at an earlier observation cut produce no positive fact or cut.
+
+**NOT_CONSTRUCTIBLE today: no correction can be appended.** One proposal field serves as both the R0 record's
+predecessor and the Market Semantics predecessor. `validate_proposal` in `market_semantics/authority.rs` requires it
+to equal the R0 record's predecessor, an R0 identity, while `validate_successor_v1` requires it to equal the prior
+fact's identity; the two are BLAKE3 digests under different domains. The Owner's R0 record for a snapshot is also
+always a genesis (`append_owner_r0_for_available_pit_v1`). Every fact today is therefore a genesis. When this path is
+repaired it must keep the rule above: a correction that keeps the typed value may advance one snapshot's chain alone,
+and one that changes the value must append a successor to every head of the scope in one Owner transaction, because a
+single-chain change would leave the heads disagreeing and is refused as `ScopeValueConflict`. That scope-wide
+correction is defined here and not built, because nothing consumes it.
 
 ### Canonical codec, complete cut and custody
 
@@ -582,7 +602,12 @@ the exact canonical bytes.
   length and bytes, receipt identity, length and bytes, and outbox identity. Positive fact, cut, receipt and
   move-only readback have no public constructor or deserializer; the resolver is crate-sealed.
 
-One Owner transaction appends immutable facts/heads, the complete cut, receipt, outbox and store
+Heads are kept per compatibility scope and PIT snapshot in `market_semantics_heads_v2`. A store that still holds
+the one-head-per-scope `market_semantics_heads_v1` is migrated once, each head keyed by the snapshot its fact binds,
+and the migration stops rather than guesses at an old table of any other shape. The old table is then retired, not
+dropped: it is kept with a trigger that refuses every write, so an earlier binary finds it present and fails on its
+first append instead of recreating it empty and admitting any genesis. A fresh store carries it retired too. One
+Owner transaction appends immutable facts/heads, the complete cut, receipt, outbox and store
 generation/append state. Exact request identity plus exact meaning is idempotent. Changed meaning conflicts;
 partial rows, scalar/canonical drift, a dependency splice or digest mismatch make custody untrusted. Response loss
 never authorizes another append: recovery accepts only the exact identity/meaning locator, re-verifies the complete

@@ -10727,7 +10727,7 @@ impl MarketDataOwnerPostgres {
                 // submission offered means the key already carries different content. That is the
                 // submitter's conflict, not a store fault.
                 super::market_semantics::MarketSemanticsErrorV1::StoreUntrusted => {
-                    MarketSemanticsAdmissionErrorV1::AdmissionConflict
+                    MarketSemanticsAdmissionErrorV1::SnapshotValueConflict
                 }
                 other => MarketSemanticsAdmissionErrorV1::from(other),
             })?;

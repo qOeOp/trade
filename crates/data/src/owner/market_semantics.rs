@@ -338,6 +338,9 @@ pub(crate) enum MarketSemanticsErrorV1 {
     MissingPredecessor,
     PredecessorBranch,
     InvalidOverlap,
+    /// The fact's typed value differs from a head of its compatibility scope that it does not
+    /// succeed; one Source Binding states one price adjustment.
+    ScopeValueConflict,
     IncompleteCut,
     CodecMismatch,
     DigestMismatch,
