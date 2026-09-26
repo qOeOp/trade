@@ -1,15 +1,11 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Everything here works on repositories of its own (fixtures, a temporary bare repository), and an
-# inherited GIT_DIR or GIT_INDEX_FILE - a git hook, `git rebase --exec` - would point those git calls at
-# the repository that called this instead: `git init` re-initialises it, `read-tree` empties its
-# index. So no GIT_* variable is inherited. (A hook's entry must not do this: .pre-commit-config.yaml.)
-while IFS='=' read -r name _; do
-  case "$name" in
-    GIT_*) unset "$name" ;;
-  esac
-done < <(env)
+# Everything here works on repositories of its own (fixtures, a temporary bare repository), so no
+# GIT_* variable is inherited: scripts/lib/git-isolation.bash says why. (A hook's entry must not do
+# this: .pre-commit-config.yaml.)
+# shellcheck source=scripts/lib/git-isolation.bash
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/git-isolation.bash"
 
 repo_root="$(git rev-parse --show-toplevel)"
 fixture_root="$(mktemp -d "${TMPDIR:-/tmp}/trade-ci-plan-tests.XXXXXX")"
@@ -23,7 +19,7 @@ trap 'rm -rf "$fixture_root"' EXIT
 # reports nothing, because the ERR trap follows the same suppression `set -e` does in a condition.
 trap 'echo "test-plan.sh:${LINENO}: this check failed: ${BASH_COMMAND}" >&2' ERR
 
-git init -q --initial-branch=main "$source_repo"
+init_fixture_repository "$source_repo"
 git -C "$source_repo" config user.email ci-plan@example.invalid
 git -C "$source_repo" config user.name ci-plan-test
 mkdir -p \
