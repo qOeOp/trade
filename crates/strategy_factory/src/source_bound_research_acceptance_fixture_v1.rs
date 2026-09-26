@@ -28,50 +28,80 @@
 //! as its audience and the `research:submit` and `research:view` permissions. This module only
 //! checks the operations, and refuses by name when one is missing; it never extends a deployment.
 //!
+//! One refusal is named but never driven: [`CurrentSourceBoundResearchAcceptanceErrorV1::Expired`].
+//! The Research View is valid for a bounded time after the Research is committed, so calling this
+//! again with the same Research identity on the same database after that time has passed is
+//! refused as `Expired` by design. The ordered chain runs on a fresh database each time and never
+//! waits that long; a local chain that reuses one database will meet it. What decides it - the
+//! validity bound against the R&D Owner clock, and nothing else - is unit-tested below.
+//!
+//! Only the function that reaches the Owners is sealed behind
+//! `sealed-source-intake-composer-acceptance`; the proposal it submits, the identities it derives
+//! and the judgements it makes compile in every build, so their tests run in the default one.
+//!
 //! Named gaps, all inherited from the sealed Source Intake rather than introduced here:
 //! the terminal is the fixed-corpus OpenAlex response for `10.5555/sealed-success`, not a recorded
 //! provider response; its policy evidence and retrieval time are sealed fixture values; and its
 //! binding, reservation and terminal commit times are fixed constants, not Owner clock readings.
 
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use std::sync::Arc;
 
 use thiserror::Error;
+use vibe_product_edge::ProductEdgeError;
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use vibe_product_edge::{
-    ProductEdgeAdmissionRequestV1, ProductEdgeError, SOURCE_INTAKE_OPERATION_V1,
+    ProductEdgeAdmissionRequestV1, SOURCE_INTAKE_OPERATION_V1,
     deployment_acceptance::ProductEdgeDeploymentAcceptanceFixtureV1,
 };
 
 use crate::{
     ReplayPolicyCatalogErrorV2,
     product_edge::{
-        ProductEdgeChannel, ProductEdgeResolution, RESEARCH_GOAL_OPERATION_V2,
-        RESEARCH_GOAL_SCHEMA_V2, RESEARCH_OWNER_V1, ResearchGoalOwnerError,
-        ResearchGoalOwnerResultV2, ResearchReadbackOwnerPortV1, TrialFamilyProposalV1,
-        UnsourcedResearchGoalV1, UnsourcedResearchProposalV1,
+        ProductEdgeChannel, ProductEdgeResolution, ResearchGoalOwnerError,
+        ResearchGoalOwnerResultV2, TrialFamilyProposalV1, UnsourcedResearchGoalV1,
+    },
+    rd_bounded_feature_program_postgres_v1::{
+        ResearchAuthoringFactsV1, ResearchBoundedFeatureProgramOwnerErrorV1,
+    },
+    source_intake::{AcquisitionTerminalV1, SourceIntakeOwnerErrorV1, SourceInterpretationV1},
+};
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use crate::{
+    product_edge::{
+        RESEARCH_GOAL_OPERATION_V2, RESEARCH_GOAL_SCHEMA_V2, RESEARCH_OWNER_V1,
+        ResearchReadbackOwnerPortV1, UnsourcedResearchProposalV1,
     },
     product_edge_postgres::PostgresResearchGoalOwnerV1,
-    rd_bounded_feature_program_postgres_v1::{
-        PostgresResearchBoundedFeatureProgramOwnerV1, ResearchAuthoringFactsV1,
-        ResearchBoundedFeatureProgramOwnerErrorV1,
-    },
+    rd_bounded_feature_program_postgres_v1::PostgresResearchBoundedFeatureProgramOwnerV1,
     replay_policy_catalog_sealed_acceptance_v2::ensure_replay_policy_catalog_fixture_v3,
     source_intake::{
-        AcquisitionTerminalV1, ProductEdgeGatewayV1, SealedSourceIntakeEnvironmentV1,
-        SourceIntakeOperationRequestV1, SourceIntakeOwnerErrorV1, SourceIntakeOwnerV1,
-        SourceIntakeResearchAncestryProposalV1, SourceInterpretationV1,
+        ProductEdgeGatewayV1, SealedSourceIntakeEnvironmentV1, SourceIntakeOperationRequestV1,
+        SourceIntakeOwnerV1, SourceIntakeResearchAncestryProposalV1,
     },
 };
 
 /// The operations a source-bound Research admits, which the caller's deployment must bind.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 const REQUIRED_OPERATIONS: [&str; 2] = [SOURCE_INTAKE_OPERATION_V1, RESEARCH_GOAL_OPERATION_V2];
 /// The only DOI the sealed Source Intake provider answers `RETRIEVED` for.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 const SEALED_SOURCE_DOI: &str = "10.5555/sealed-success";
 /// The effect a Research Goal V2 admission requests.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 const RESEARCH_MUTATION_EFFECT: &str = "R_AND_D_RESEARCH_MUTATION_V1";
 /// The falsification question every Research this module creates freezes.
+#[cfg_attr(
+    all(not(feature = "sealed-source-intake-composer-acceptance"), not(test)),
+    expect(dead_code, reason = "only the sealed fixture below composes it")
+)]
 const FALSIFICATION_QUESTION: &str = "Does the fixed control erase the effect?";
 /// The cost, slippage and capacity model identities the sealed Catalog V3 head names. The Owner
 /// forms a TrialFamily only against a head whose models equal the proposal's.
+#[cfg_attr(
+    all(not(feature = "sealed-source-intake-composer-acceptance"), not(test)),
+    expect(dead_code, reason = "only the sealed fixture below composes it")
+)]
 const CATALOG_MODELS: (&str, &str, &str) =
     ("cost-model-v1", "slippage-model-v1", "capacity-model-v1");
 
@@ -179,6 +209,7 @@ type Error = CurrentSourceBoundResearchAcceptanceErrorV1;
 ///
 /// Every refusal is named by the step that refused; see
 /// [`CurrentSourceBoundResearchAcceptanceErrorV1`].
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 pub async fn ensure_current_source_bound_research_acceptance_fixture_v1(
     rd_owner_url: &str,
     qualification_writer_url: &str,
@@ -343,6 +374,10 @@ pub async fn ensure_current_source_bound_research_acceptance_fixture_v1(
 }
 
 /// The parts of an accepted Research Owner answer this module returns.
+#[cfg_attr(
+    not(feature = "sealed-source-intake-composer-acceptance"),
+    expect(dead_code, reason = "only the sealed fixture below composes it")
+)]
 #[derive(Debug, Eq, PartialEq)]
 struct AcceptedResearchV1 {
     intent_identity: String,
@@ -353,6 +388,10 @@ struct AcceptedResearchV1 {
 }
 
 impl AcceptedResearchV1 {
+    #[cfg_attr(
+        not(feature = "sealed-source-intake-composer-acceptance"),
+        expect(dead_code, reason = "only the sealed fixture below composes it")
+    )]
     fn from_owner_answer(
         answer: &ResearchGoalOwnerResultV2,
         research_identity: &str,
@@ -400,6 +439,10 @@ impl AcceptedResearchV1 {
     }
 }
 
+#[cfg_attr(
+    all(not(feature = "sealed-source-intake-composer-acceptance"), not(test)),
+    expect(dead_code, reason = "only the sealed fixture below composes it")
+)]
 fn source_intake_request_identity(research_identity: &str) -> Result<String, Error> {
     if research_identity.is_empty()
         || research_identity.len() > 128
@@ -412,6 +455,10 @@ fn source_intake_request_identity(research_identity: &str) -> Result<String, Err
     Ok(format!("{research_identity}-source"))
 }
 
+#[cfg_attr(
+    all(not(feature = "sealed-source-intake-composer-acceptance"), not(test)),
+    expect(dead_code, reason = "only the sealed fixture below composes it")
+)]
 fn refuse_expired(valid_through_epoch_ms: u64, owner_clock_epoch_ms: u64) -> Result<(), Error> {
     if owner_clock_epoch_ms >= valid_through_epoch_ms {
         return Err(Error::Expired {
@@ -422,6 +469,7 @@ fn refuse_expired(valid_through_epoch_ms: u64, owner_clock_epoch_ms: u64) -> Res
     Ok(())
 }
 
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 async fn connect(owner: &'static str, url: &str) -> Result<sqlx::PgPool, Error> {
     sqlx::postgres::PgPoolOptions::new()
         .max_connections(2)
@@ -430,6 +478,7 @@ async fn connect(owner: &'static str, url: &str) -> Result<sqlx::PgPool, Error> 
         .map_err(|source| Error::Connect { owner, source })
 }
 
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 async fn owner_clock_epoch_ms(rd_pool: &sqlx::PgPool) -> Result<u64, Error> {
     let mut transaction = rd_pool.begin().await.map_err(Error::OwnerClock)?;
     let reading = crate::rd_owner_clock::owner_clock_epoch_ms_in_transaction(&mut transaction)
@@ -439,6 +488,10 @@ async fn owner_clock_epoch_ms(rd_pool: &sqlx::PgPool) -> Result<u64, Error> {
     Ok(reading)
 }
 
+#[cfg_attr(
+    not(feature = "sealed-source-intake-composer-acceptance"),
+    expect(dead_code, reason = "only the sealed fixture below composes it")
+)]
 fn source_interpretation() -> SourceInterpretationV1 {
     SourceInterpretationV1 {
         bounded_explanation: "The paper may describe a testable mechanism.".into(),
@@ -448,6 +501,10 @@ fn source_interpretation() -> SourceInterpretationV1 {
     }
 }
 
+#[cfg_attr(
+    all(not(feature = "sealed-source-intake-composer-acceptance"), not(test)),
+    expect(dead_code, reason = "only the sealed fixture below composes it")
+)]
 fn research_proposal() -> (UnsourcedResearchGoalV1, TrialFamilyProposalV1) {
     (
         UnsourcedResearchGoalV1 {
@@ -473,6 +530,10 @@ fn research_proposal() -> (UnsourcedResearchGoalV1, TrialFamilyProposalV1) {
 
 /// The Research Goal V2 payload Product Edge seals and the Research Owner re-verifies against the
 /// submitted proposal.
+#[cfg_attr(
+    all(not(feature = "sealed-source-intake-composer-acceptance"), not(test)),
+    expect(dead_code, reason = "only the sealed fixture below composes it")
+)]
 fn research_admission_payload(
     research_identity: &str,
     goal: &UnsourcedResearchGoalV1,
@@ -544,6 +605,9 @@ mod tests {
         assert_eq!(payload.as_object().unwrap().len(), 4);
     }
 
+    // The sealed Catalog policy compiles only with the Composer acceptance graph; the fixture checks
+    // the same fact against the live head on every call, as `CatalogModels`.
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
     #[rstest]
     fn the_proposal_names_the_models_the_sealed_catalog_head_names() {
         let policy = crate::replay_policy_catalog_postgres_v2::sealed_acceptance_policy().unwrap();
