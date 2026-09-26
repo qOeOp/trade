@@ -524,6 +524,105 @@ pub async fn native_replay_scheduling_resolver_v1_from_store_admission_environme
     consume_native_replay_scheduling_store_admission_bootstrap_v1(bootstrap).await
 }
 
+/// Opens the native Replay scheduling resolver sealed acceptance composes in place of the one a
+/// Store Admission would open.
+///
+/// It reads as the principal `reader_url` names, through the same raw reads, verification and
+/// selection the admitted resolver uses, with no Store Admission before or after a read. The
+/// principal must hold exactly what [`grant_native_replay_scheduling_acceptance_reads_v1`] grants.
+/// It exists only in a build that enables `sealed-strategy-input-acceptance`, which no deployed
+/// binary does, and it proves the segment after Store Admission; the admission itself is `B3`.
+///
+/// # Errors
+///
+/// `InvalidIdentity` when `reader_url` is empty. A URL that is not a disposable loopback
+/// `vibe_test_` database is refused at the first read, as every direct read refuses it.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub fn native_replay_scheduling_resolver_for_sealed_acceptance_v1(
+    reader_url: &str,
+) -> Result<
+    std::sync::Arc<dyn native_replay_scheduling_v1::NativeReplaySchedulingResolverV1>,
+    NativeReplaySchedulingBootstrapErrorV1,
+> {
+    let port = store_admission::UnadmittedAcceptanceSnapshotPortV1::from_database_url(reader_url)
+        .map_err(|_| NativeReplaySchedulingBootstrapErrorV1 {
+        failure: ResearchPitTerminalBootstrapFailure::InvalidIdentity,
+    })?;
+    Ok(std::sync::Arc::new(
+        postgres::SealedAcceptanceNativeReplaySchedulingResolverV1 { port },
+    ))
+}
+
+/// Why the sealed acceptance principal could not be granted or revoked its reads.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum SealedAcceptanceGrantErrorV1 {
+    /// The owner connection could not be opened.
+    #[error("the Market Data owner connection is unavailable")]
+    OwnerUnavailable,
+    /// A `GRANT` or `REVOKE` was refused.
+    #[error("the Market Data store refused a grant statement")]
+    StatementRefused,
+}
+
+/// Grants `principal` exactly the privileges the sealed acceptance resolver's reads need, as the
+/// Market Data owner at `owner_url`, in a disposable database only.
+///
+/// # Errors
+///
+/// A bounded category when a grant was not made; grants already made stay made.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub async fn grant_native_replay_scheduling_acceptance_reads_v1(
+    owner_url: &str,
+    principal: &str,
+) -> Result<(), SealedAcceptanceGrantErrorV1> {
+    apply_sealed_acceptance_grants_v1(
+        owner_url,
+        principal,
+        store_admission::AcceptanceGrantV1::grant_to,
+    )
+    .await
+}
+
+/// Revokes what [`grant_native_replay_scheduling_acceptance_reads_v1`] granted, so a chain entry
+/// leaves the database as it found it.
+///
+/// # Errors
+///
+/// A bounded category when a revocation was not made.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub async fn revoke_native_replay_scheduling_acceptance_reads_v1(
+    owner_url: &str,
+    principal: &str,
+) -> Result<(), SealedAcceptanceGrantErrorV1> {
+    apply_sealed_acceptance_grants_v1(
+        owner_url,
+        principal,
+        store_admission::AcceptanceGrantV1::revoke_from,
+    )
+    .await
+}
+
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+async fn apply_sealed_acceptance_grants_v1(
+    owner_url: &str,
+    principal: &str,
+    statement_of: fn(store_admission::AcceptanceGrantV1, &str) -> String,
+) -> Result<(), SealedAcceptanceGrantErrorV1> {
+    let owner = sqlx::PgPool::connect(owner_url)
+        .await
+        .map_err(|_| SealedAcceptanceGrantErrorV1::OwnerUnavailable)?;
+    let applied = store_admission::apply_native_replay_scheduling_acceptance_grants_v1(
+        &owner,
+        principal,
+        statement_of,
+    )
+    .await
+    .map_err(|_| SealedAcceptanceGrantErrorV1::StatementRefused);
+    owner.close().await;
+    applied
+}
+
 /// Lookup-injected form of the sealed native Replay scheduling startup bridge.
 ///
 /// # Errors
