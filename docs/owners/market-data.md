@@ -1626,8 +1626,9 @@ those remain unavailable pending real Time/Scheduler and Execution Owner contrac
 ### CURRENT/PARTIAL EVENT and BAR Owner custody; TARGET BAR product authority
 
 Market Data implements the versioned `TimeframeSpecV1`, `TimeframeProjectionReceiptV1`, `SampleFactV1`, and
-`SampleReceiptV1`, their native exact-receipt resolvers, and durable PostgreSQL custody for `POINT_EVENT`. The code
-also implements durable PostgreSQL custody for BAR schedule fact/cut/receipt/outbox/head state, admitted exact
+`SampleReceiptV1`, their native exact-receipt resolvers, and durable PostgreSQL custody for `POINT_EVENT` samples and
+for the BAR samples the universe sample projection commits for a Replay request's initial frame. The code also
+implements durable PostgreSQL custody for BAR schedule fact/cut/receipt/outbox/head state, admitted exact
 schedule readback, and V3 BAR FRAME projection receipts. These paths are `CURRENT / PARTIAL` Owner authority after
 their isolated dynamic PostgreSQL acceptance. The sealed exact-digest V3 resolver core is likewise
 `CURRENT / PARTIAL`, but the fixed `STRATEGY_FACTORY_RD_OWNER_API_V1` production startup still fails closed because
@@ -2071,8 +2072,9 @@ replays, or retroactively advances predecessor state. An ordinary equal-valued n
 and advances exactly once. For a future admitted BAR path, reusing one 1-hour or exchange-session `1d` sample under
 later 1-minute triggers must return the same receipt and coordinate bytes and cause no second sample-clock advance.
 
-The current POINT_EVENT PostgreSQL path has Owner-owned timeframe-projection-receipt, sample-fact, series-head,
-per-slot correction-head, sample-receipt, and outbox tables plus exact native resolvers. One Market Data transaction
+The current PostgreSQL sample path, for POINT_EVENT samples and for the BAR samples the universe sample projection
+commits, has Owner-owned timeframe-projection-receipt, sample-fact, series-head, per-slot correction-head,
+sample-receipt, and outbox tables plus exact native resolvers. One Market Data transaction
 inserts the fact, receipt, and outbox row
 and compare-and-swap advances both the series and correction heads from the predecessors bound by the fact; an
 ordinary new slot advances its correction head from canonical absence to that first fact. A

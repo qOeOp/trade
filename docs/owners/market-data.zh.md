@@ -1485,7 +1485,8 @@ trigger；在真实 Time/Scheduler 与 Execution Owner contract 分别存在前�
 ### CURRENT/PARTIAL EVENT 与 BAR Owner custody；TARGET BAR 产品权威
 
 Market Data 已实现版本化 `TimeframeSpecV1`、`TimeframeProjectionReceiptV1`、`SampleFactV1`、
-`SampleReceiptV1`、其原生 exact-receipt resolver，以及 `POINT_EVENT` 的 durable PostgreSQL custody。代码还
+`SampleReceiptV1`、其原生 exact-receipt resolver，以及 `POINT_EVENT` sample 与 universe sample projection 为 Replay
+请求的首帧提交的 BAR sample 的 durable PostgreSQL custody。代码
 还实现了 BAR schedule fact/cut/receipt/outbox/head state、已准入准确 schedule readback 与 V3 BAR FRAME
 projection receipt 的 durable PostgreSQL custody。这些路径在 isolated dynamic PostgreSQL acceptance 通过后
 属于 `CURRENT / PARTIAL` Owner 权威。sealed exact-digest V3 resolver core 同样属于 `CURRENT / PARTIAL`，
@@ -1880,9 +1881,9 @@ state。普通的等值新 slot 同样是新 sample，并准确推进一次。�
 exchange-session `1d` sample 被后续 1-minute trigger 携带时，必须返回相同 receipt/coordinate bytes，且不得
 第二次推进 sample clock。
 
-当前 POINT_EVENT PostgreSQL 路径包含 Owner-owned timeframe-projection-receipt、sample-fact、series-head、
-per-slot correction-head、sample-receipt、outbox table 与 exact native resolver。一个 Market Data transaction
-插入 fact、receipt、outbox row，并从 fact
+当前的 PostgreSQL sample 路径（POINT_EVENT sample，以及 universe sample projection 提交的 BAR sample）包含
+Owner-owned timeframe-projection-receipt、sample-fact、series-head、per-slot correction-head、sample-receipt、
+outbox table 与 exact native resolver。一个 Market Data transaction 插入 fact、receipt、outbox row，并从 fact
 绑定的 predecessor 对 series/correction head 执行 compare-and-swap 前进；普通新 slot 从规范 absence 把其
 correction head 推进到首个 fact。逐字节相同的 replay 执行零次
 write，并返回准确历史 receipt bytes。identity/content mismatch、time/version regression、predecessor 或
