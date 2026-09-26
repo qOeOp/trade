@@ -13,17 +13,22 @@ import {
 
 const observedAt = "2026-09-08T04:00:00.000Z";
 
-// Runs `body` with the process clock an hour ahead of the database's statement time, which is what a
-// browser whose clock runs fast looks like to the server.
-function withClockAhead(databaseNow, body) {
+const HOUR_MS = 3_600_000;
+// How far behind the database a slow browser clock is set: several round trips, so a check that only
+// holds by the response's own latency fails here.
+const BEHIND_MS = 500;
+
+// Runs `body` with this process's clock `offsetMs` away from the database's statement time: ahead is
+// what a browser whose clock runs fast looks like, behind one whose clock runs slow.
+async function withClockOffset(databaseNow, offsetMs, body) {
   const RealDate = Date;
-  const ahead = RealDate.parse(databaseNow) + 3_600_000;
-  class AheadDate extends RealDate {
-    constructor(...args) { super(...(args.length === 0 ? [ahead] : args)); }
-    static now() { return ahead; }
+  const shifted = RealDate.parse(databaseNow) + offsetMs;
+  class ShiftedDate extends RealDate {
+    constructor(...args) { super(...(args.length === 0 ? [shifted] : args)); }
+    static now() { return shifted; }
   }
-  globalThis.Date = AheadDate;
-  try { return body(new RealDate(ahead).toISOString()); } finally { globalThis.Date = RealDate; }
+  globalThis.Date = ShiftedDate;
+  try { return await body(new RealDate(shifted).toISOString()); } finally { globalThis.Date = RealDate; }
 }
 
 
@@ -164,8 +169,8 @@ test("unavailable projection exposes no stale positive state", async () => {
   assert.equal(await parseServiceLogBrowserEnvelopeV1({ ...unavailable, summary: { error: 0, warning: 0, info: 0, worker: 0, server: 0 } }), null);
 });
 
-test("the current log view is cut at the database's time even when the browser clock runs ahead", () => {
-  withClockAhead(observedAt, (browserNow) => {
+test("the current log view is cut at the database's time even when the browser clock runs ahead", async () => {
+  await withClockOffset(observedAt, HOUR_MS, (browserNow) => {
     const requested = currentServiceLogFilterV1();
     const query = serviceLogQueryV1(requested, 50);
     assert.equal(query.has("observedAt"), false);
@@ -177,6 +182,47 @@ test("the current log view is cut at the database's time even when the browser c
       { message: "SERVICE_LOG_QUERY_INVALID" },
     );
   });
+});
+
+// The cut is the database's statement time, so the browser checks it only against times from the
+// same answer. A browser clock behind the database used to refuse every current read.
+test("a browser clock behind the database's cut does not refuse the current read", async () => {
+  const envelope = await availableEnvelope();
+  await withClockOffset(envelope.observed_at, -BEHIND_MS, async () => {
+    assert.deepEqual(await parseServiceLogBrowserEnvelopeV1(envelope), envelope);
+  });
+  // An unavailable answer is stamped by the server, whose clock the browser does not judge either.
+  const unavailable = {
+    ...envelope, availability: "unavailable", unavailable_reason: "RUN_STORE_UNAVAILABLE",
+    completeness: "partial_unavailable", filter_cut: null, filter_cut_digest: null, summary: null,
+    instances: [], selected_instance_identity: null, entries: [],
+  };
+  await withClockOffset(unavailable.observed_at, -BEHIND_MS, async () => {
+    assert.deepEqual(await parseServiceLogBrowserEnvelopeV1(unavailable), unavailable);
+  });
+});
+
+test("times from one answer that contradict its own cut are still refused", async () => {
+  const envelope = await availableEnvelope();
+  const afterCut = new Date(Date.parse(envelope.observed_at) + 1).toISOString();
+  // An entry stamped after the cut it was read under.
+  assert.equal(await parseServiceLogBrowserEnvelopeV1({
+    ...envelope, entries: [{ ...envelope.entries[0], observed_at: afterCut }],
+  }), null);
+  // An instance last seen after the cut; its source digest is recomputed so only the time is wrong.
+  const { source_cut: _sourceCut, ...instanceFields } = envelope.instances[0];
+  const lateInstance = { ...instanceFields, last_observed_at: afterCut };
+  assert.equal(await parseServiceLogBrowserEnvelopeV1({
+    ...envelope,
+    instances: [{ ...lateInstance, source_cut: await serviceLogInstanceSourceCutDigestV1(lateInstance) }],
+  }), null);
+  // The same instance seen at the cut itself is accepted, so the refusal above is the time alone.
+  const atCut = { ...instanceFields, last_observed_at: envelope.observed_at };
+  const accepted = {
+    ...envelope,
+    instances: [{ ...atCut, source_cut: await serviceLogInstanceSourceCutDigestV1(atCut) }],
+  };
+  assert.deepEqual(await parseServiceLogBrowserEnvelopeV1(accepted), accepted);
 });
 
 test("a carried log cut must come back unchanged, and only a current request accepts the server's instant", () => {

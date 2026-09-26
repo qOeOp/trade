@@ -443,6 +443,20 @@ function projectCancellationReceiptV1(row: CancellationRow): OperationalCancella
   return parsed;
 }
 
+/**
+ * An operational receipt and the moment the database observed it, read in the receipt's own
+ * transaction. The page checks the receipt's time against `observed_at`, so both must come from the
+ * database clock the receipt was stamped with; a server stamp here would let a server clock running
+ * behind the database refuse an effect that has already happened.
+ */
+export type OperationalReceiptAnswerV1<Receipt> = Readonly<{ receipt: Receipt; observed_at: string }>;
+
+async function databaseObservedAtV1(client: PoolClient): Promise<string> {
+  return (await client.query<{ observed_at: Date }>(
+    "SELECT clock_timestamp() AS observed_at",
+  )).rows[0].observed_at.toISOString();
+}
+
 function actionIdentityPayloadV1(value: Omit<OperationalActionEnvelopeV1, "action_identity">): string {
   return JSON.stringify([
     value.schema_version, value.operation, value.capability, value.run_identity,
@@ -4258,7 +4272,7 @@ export class PostgresRunStoreV1 {
     expectedTransitionVersion: number;
     authorizationDigest: string;
     principalRef?: string;
-  }): Promise<OperationalCacheDeletionReceiptV1> {
+  }): Promise<OperationalReceiptAnswerV1<OperationalCacheDeletionReceiptV1>> {
     if (!isRunIdentityV1(runIdentity) || !Number.isSafeInteger(expectedTransitionVersion)
       || expectedTransitionVersion < 1 || !DIGEST.test(authorizationDigest)
       || !/^[A-Za-z0-9._:/-]{1,96}$/.test(principalRef)) {
@@ -4291,8 +4305,9 @@ export class PostgresRunStoreV1 {
           receiptIdentity: receipt.receipt_identity,
           authorizationDigest: receipt.authorization_digest,
         });
+        const observedAt = await databaseObservedAtV1(client);
         await client.query("COMMIT");
-        return receipt;
+        return { receipt, observed_at: observedAt };
       }
       const run = record(row);
       if (!["succeeded", "failed", "cancelled", "unknown"].includes(run.state)) {
@@ -4335,8 +4350,9 @@ export class PostgresRunStoreV1 {
         receiptIdentity,
         authorizationDigest,
       });
+      const observedAt = await databaseObservedAtV1(client);
       await client.query("COMMIT");
-      return receipt;
+      return { receipt, observed_at: observedAt };
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
@@ -4355,7 +4371,7 @@ export class PostgresRunStoreV1 {
     actionEnvelope: OperationalActionEnvelopeV1;
     authorizationDigest: string;
     principalRef?: string;
-  }): Promise<OperationalCancellationReceiptV1> {
+  }): Promise<OperationalReceiptAnswerV1<OperationalCancellationReceiptV1>> {
     const action = parseOperationalActionEnvelopeV1(actionEnvelope);
     if (!isRunIdentityV1(runIdentity) || !action || action.run_identity !== runIdentity
       || !DIGEST.test(authorizationDigest) || action.authorization_digest !== authorizationDigest
@@ -4453,8 +4469,9 @@ export class PostgresRunStoreV1 {
         receiptIdentity,
         authorizationDigest,
       });
+      const observedAt = await databaseObservedAtV1(client);
       await client.query("COMMIT");
-      return receipt;
+      return { receipt, observed_at: observedAt };
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;

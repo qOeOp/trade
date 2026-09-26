@@ -670,11 +670,13 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
   assert.equal(cancellableDetail?.operational_cancellation.state, "pending");
   const actionEnvelope = cancellableDetail?.operational_cancellation.action_envelope;
   assert.ok(actionEnvelope);
-  const cancellationReceipt = await store.cancelQueuedDependency({
+  const { receipt: cancellationReceipt, observed_at: cancellationObservedAt } = await store.cancelQueuedDependency({
     runIdentity: cancellable.run_identity,
     actionEnvelope,
     authorizationDigest: cancellationAuthorizationDigest,
   });
+  // Both times are the database's, read in the cancellation's own transaction.
+  assert.ok(Date.parse(cancellationReceipt.cancelled_at) <= Date.parse(cancellationObservedAt));
   assert.equal(cancellationReceipt.prior_state, "queued");
   assert.equal(cancellationReceipt.transition_version, cancellable.transition_version + 1);
   await assert.rejects(() => store.cancelQueuedDependency({
@@ -1352,18 +1354,22 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
   assert.deepEqual(logs.rows.map(({ metadata }) => metadata), [{}, {}]);
   const authorizationDigest = `sha256:${"9".repeat(64)}`;
   assert.ok(recovered);
-  const deletion = await restarted.deleteOperationalCache({
+  const { receipt: deletion, observed_at: deletionObservedAt } = await restarted.deleteOperationalCache({
     runIdentity: research.run_identity,
     expectedTransitionVersion: recovered.transition_version,
     authorizationDigest,
   });
+  assert.ok(Date.parse(deletion.deleted_at) <= Date.parse(deletionObservedAt));
   assert.equal(deletion.run_identity, research.run_identity);
   assert.equal(deletion.prior_state, "succeeded");
-  assert.equal((await restarted.deleteOperationalCache({
+  const replayed = await restarted.deleteOperationalCache({
     runIdentity: research.run_identity,
     expectedTransitionVersion: recovered.transition_version,
     authorizationDigest,
-  })).receipt_identity, deletion.receipt_identity);
+  });
+  assert.equal(replayed.receipt.receipt_identity, deletion.receipt_identity);
+  // A replay returns the original receipt, observed again now.
+  assert.ok(Date.parse(replayed.observed_at) >= Date.parse(deletionObservedAt));
   const deletedDetail = await restarted.readRunDetail(research.run_identity);
   assert.equal(deletedDetail?.cache_deletion_receipt?.receipt_identity, deletion.receipt_identity);
   assert.deepEqual(deletedDetail?.logs, []);
