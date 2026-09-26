@@ -24,6 +24,7 @@ use vibe_binance::{
 };
 use vibe_core::time::get_atomic_clock_realtime;
 use vibe_data::owner::{
+    frozen_observation_window_v1::frozen_window_coordinate_correlation_v1,
     instrument_master_admission_v1::{
         InstrumentDecimalSubmissionV1, InstrumentMasterFactSubmissionV1,
         InstrumentVenueSourceMappingSubmissionV1, instrument_master_admission_from_environment_v1,
@@ -38,10 +39,9 @@ use vibe_data::owner::{
     },
     pit_observation_source_v1::{PitObservationScopeV1, PitObservationSourceV1},
     pit_snapshot::{
-        UntrustedCorrectionPublicationTime, UntrustedEventEffectiveTime,
-        UntrustedPitSnapshotRequest, UntrustedPitSnapshotTimeEvidence,
-        UntrustedProviderAvailableTime, UntrustedRetrievalTime, UntrustedSnapshotDecisionCut,
-        seal_request_claims_v1,
+        PitSnapshotSubmissionV1, UntrustedCorrectionPublicationTime, UntrustedEventEffectiveTime,
+        UntrustedPitSnapshotTimeEvidence, UntrustedProviderAvailableTime, UntrustedRetrievalTime,
+        UntrustedSnapshotDecisionCut,
     },
     source_binding::{
         BindingDigest, UntrustedAdapterBinding, UntrustedCompleteFrontier,
@@ -387,7 +387,6 @@ struct Admitted {
     semantics_identity: BindingDigest,
     selection: UniverseSelectionTerminalV1,
     effective_ns: u64,
-    instrument_fact_digest: BindingDigest,
 }
 
 async fn admit(product: &'static Product) -> Admitted {
@@ -544,7 +543,6 @@ async fn admit(product: &'static Product) -> Admitted {
         semantics_identity,
         selection,
         effective_ns,
-        instrument_fact_digest: instrument.fact_digest(),
     }
 }
 
@@ -556,21 +554,19 @@ async fn admit_and_answer(product: &'static Product) {
         semantics_identity,
         selection,
         effective_ns,
-        instrument_fact_digest,
     } = admit(product).await;
-    let mut request = frozen_request(
+    let submission = frozen_submission(
         product,
         &cut,
         &binding_locator,
         semantics_identity,
         selection.selection_identity(),
         effective_ns,
+        scoped(product, 0x21),
     );
-    seal_request_claims_v1(&mut request);
-    let claimed_instrument_master_digest = request.instrument_master_digest;
 
     let snapshot = intake
-        .submit(request, universe_locator(&selection))
+        .submit(submission.clone(), universe_locator(&selection))
         .await
         .expect("the Owner reaches a finding");
     assert_eq!(
@@ -583,9 +579,14 @@ async fn admit_and_answer(product: &'static Product) {
         digest(0),
         "a committed snapshot carries a real identity"
     );
-    assert_ne!(
-        claimed_instrument_master_digest, instrument_fact_digest,
-        "the caller's placeholder is not the Owner's resolution, so the stamp is observable"
+    let resealed = submission.into_request(snapshot.instrument_master_digest());
+    assert_eq!(
+        (
+            resealed.claimed_request_identity,
+            resealed.claimed_request_digest
+        ),
+        (snapshot.request_identity(), snapshot.request_digest()),
+        "the stored submission sealed over the stamped digest is the request the Owner committed"
     );
 
     // 7. Operations states what the binding's observations mean. This is the last fact a Strategy
@@ -649,7 +650,6 @@ async fn admit_and_sweep(product: &'static Product, coordinates: usize) {
         semantics_identity,
         selection,
         effective_ns,
-        ..
     } = admit(product).await;
 
     // A second client, used only to witness which bar each coordinate resolved to. The intake asks
@@ -682,17 +682,18 @@ async fn admit_and_sweep(product: &'static Product, coordinates: usize) {
                 .event_effective,
         );
 
-        let mut request = frozen_request(
+        // Each coordinate is its own intake, so it claims a correlation of its own.
+        let submission = frozen_submission(
             product,
             &cut,
             &binding_locator,
             semantics_identity,
             selection.selection_identity(),
             at,
+            frozen_window_coordinate_correlation_v1(scoped(product, 0x25), at),
         );
-        seal_request_claims_v1(&mut request);
         let snapshot = intake
-            .submit(request, universe_locator(&selection))
+            .submit(submission, universe_locator(&selection))
             .await
             .expect("the Owner reaches a finding at every coordinate");
         assert_eq!(
@@ -797,24 +798,24 @@ fn instrument_submission(
     }
 }
 
-fn frozen_request(
+/// The request R&D freezes and stores: it states no Owner field, so the Owner stamps its own
+/// Instrument Master digest and seals the request over it.
+fn frozen_submission(
     product: &Product,
     cut: &MarketDataDecisionCutV1,
     binding_locator: &UntrustedSourceBindingLocator,
     market_semantics_identity: BindingDigest,
     universe_selection_digest: BindingDigest,
     effective_ns: u64,
-) -> UntrustedPitSnapshotRequest {
+    correlation_identity: BindingDigest,
+) -> PitSnapshotSubmissionV1 {
     let id = cut.clock_identity.clone();
     let epoch = cut.clock_epoch.clone();
-    UntrustedPitSnapshotRequest {
-        claimed_request_identity: digest(0),
-        claimed_request_digest: digest(0),
-        correlation_identity: scoped(product, 0x21),
+    PitSnapshotSubmissionV1 {
+        correlation_identity,
         requester_identity: scoped(product, 0x22),
         scope_digest: scoped(product, 0x23),
         source_binding: binding_locator.clone(),
-        instrument_master_digest: scoped(product, 0x24),
         universe_selection_digest,
         market_semantics_identity,
         time_evidence: UntrustedPitSnapshotTimeEvidence {

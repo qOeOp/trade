@@ -25,6 +25,7 @@ pub mod replay_market_facts_v2;
 pub mod research_instrument_scope_v1;
 pub mod research_pit_references_v1;
 pub mod research_pit_terminal;
+pub mod research_pit_terminal_v1;
 pub mod sample_fact;
 pub mod sample_projection;
 pub mod sample_projection_v4;
@@ -98,6 +99,10 @@ pub use postgres::strategy_input_binding_registry::{
 pub use postgres::research_pit_references_v1::{
     check_research_instrument_scope_v1, resolve_research_pit_references_v1,
 };
+
+/// The terminal of a Research request's initial PIT intake, read back by its correlation in the
+/// caller's own R&D transaction.
+pub use postgres::research_pit_terminal_v1::resolve_research_pit_terminal_by_correlation_v1;
 
 /// Opens the sole configured Instrument Owner economic-terms authority.
 ///
