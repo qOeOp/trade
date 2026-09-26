@@ -294,6 +294,38 @@ pub(crate) fn admit_stored_composer_artifact_family_binding_v3(
     Ok(expected)
 }
 
+/// Opens one transaction of a Composer-backed Replay request: the Artifact-family binding and both
+/// transactions of its commit.
+///
+/// It is READ COMMITTED because the first Owner read each of them makes, the Product Edge
+/// admission lock (`product_edge_api.lock_downstream_admission_v1`), answers under no other level:
+/// under SERIALIZABLE it refuses by name, `ISOLATION_NOT_READ_COMMITTED`, so no Composer-backed
+/// Replay could be committed at all. The request-identity advisory lock is taken before any read,
+/// and under READ COMMITTED every later statement takes a fresh snapshot, so each read after it
+/// sees what the lock admitted. (Under SERIALIZABLE the snapshot is frozen by the lock statement
+/// itself, before any wait for the lock.) What SERIALIZABLE would have protected is held here by
+/// the lock and by the tables: two commits of one request serialize on the lock and the second
+/// finds the first's row; different requests meet on the unique keys of the binding, request,
+/// transition and outbox rows; the Research View moves only by compare-and-swap under its row
+/// lock; and the TrialFamily head is read `FOR SHARE`, so it cannot advance under the commit once
+/// read. The census loader reads that head last, so an append committed while it reads can tear
+/// its members from its head; the loader's cross-checks refuse that read rather than return it.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+pub(crate) async fn begin_composer_replay_request_transaction_v3(
+    pool: &PgPool,
+    request_identity: &str,
+) -> Result<Transaction<'static, Postgres>, sqlx::Error> {
+    let mut transaction = pool.begin().await?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
+        .execute(&mut *transaction)
+        .await?;
+    sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended($1,0))")
+        .bind(request_identity)
+        .execute(&mut *transaction)
+        .await?;
+    Ok(transaction)
+}
+
 /// Issues the Composer Artifact-family fact in its own authorized R&D transaction.
 /// The Replay transaction must subsequently reread it before its first INSERT.
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
@@ -305,16 +337,10 @@ pub(crate) async fn ensure_composer_artifact_family_binding_for_replay_v3<B>(
 where
     B: SourceResearchComposerBindingOwnerV2,
 {
-    let mut transaction = pool.begin().await.map_err(unavailable)?;
-    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-        .execute(&mut *transaction)
-        .await
-        .map_err(unavailable)?;
-    sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended($1,0))")
-        .bind(&proposal.request_identity)
-        .execute(&mut *transaction)
-        .await
-        .map_err(unavailable)?;
+    let mut transaction =
+        begin_composer_replay_request_transaction_v3(pool, &proposal.request_identity)
+            .await
+            .map_err(unavailable)?;
     let initial_cut = database_now_epoch_ms(&mut transaction).await?;
     let admission = resolve_admission_for_downstream_in_transaction(
         &mut transaction,
