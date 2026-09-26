@@ -247,13 +247,16 @@ production write、provider effect、Paper、Live 或交易权威。
     Composer 构建回执，在报告的事务内经 Composer Owner 不上锁的回执读取读出：至少要有一条，而且每一条都必须是
     带有该冻结 `joint_freeze_digest` 的 V3 插件构建，这个值由报告从冻结行重新推导。V2 构建不带冻结，
     永远锚不上。未锚定的运行以 `STRATEGY_NOT_ANCHORED_TO_RUN` 拒绝，读不出回执则以
-    `ARTIFACT_BUILD_RECEIPTS_UNAVAILABLE` 拒绝。今天没有任何族内运行能端到端被陈述：legacy 请求的 artifact
-    不是 Composer 构建的，所以永远锚不上；Composer V3 请求在锚点之前就以 `REPLAY_REQUEST_V3_NOT_YET_REPORTED`
-    拒绝，因为它的请求读取要上行锁。不上锁地读取这种请求，是让族内运行得以陈述的后续事项。
+    `ARTIFACT_BUILD_RECEIPTS_UNAVAILABLE` 拒绝。legacy 请求的 artifact 不是 Composer 构建的，所以永远锚不上。
+    Composer V3 请求在带 Composer 回放特性的构建里经其自校验的声明不加锁读取，在不带该特性的构建里（部署镜像即是）
+    以 `REPLAY_REQUEST_V3_NOT_YET_REPORTED` 拒绝。至今没有任何族内运行被端到端陈述过：没有哪条有序链路条目提交
+    Composer V3 运行。
     通道按运行实际读取的样子陈述（角色、品种、事实、时间粒度、单位与精度），而不是按请求
     编写它的形式；因此间接指定品种的编写形式同样给出这六个字段，编写通道的方式变了，这份交接也不变。
-    universe 成员形态只通过运行的 universe 选择给出品种，而本报告目前还不读取那份选择，所以该形态的运行
-    以 `UNIVERSE_MEMBER_NOT_YET_REPORTED` 拒绝，而不是在缺少品种的情况下陈述。
+    universe 成员形态只通过运行的 universe 选择给出品种。报告在自己的事务内，经 Market Data 不加锁的 R&D 读取
+    `market_data_rd_api.read_universe_selection_for_rd_v1` 读出该选择中被纳入的成员，并在冻结 Design 的 CLOSE 角色上
+    陈述通道，以唯一被纳入成员的 Instrument Master 身份作为品种。纳入成员不恰好为一个的选择以
+    `UNIVERSE_SELECTION_NOT_ONE_MEMBER` 拒绝，读不出或校验不过的选择以 `UNIVERSE_SELECTION_UNAVAILABLE` 拒绝。
     数据窗口是通道的品种与时间粒度、请求的时间
     窗口（结束端不含）、请求绑定的 PIT 快照个数，以及以该快照身份作为的切面。
 
