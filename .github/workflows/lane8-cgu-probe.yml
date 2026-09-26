@@ -1,0 +1,141 @@
+# yamllint disable rule:line-length
+# LANE8 PROBE, NOT FOR MERGE: codegen-units 1 (today's ci-pr) against 16 for workspace crates, on one
+# runner: full compile with timings, the whole test run, sizes. Dependencies keep codegen-units 1
+# ([profile.ci-pr.package."*"]), so the restored entry still serves them.
+name: lane8-cgu-probe
+
+on:
+  push:
+    branches:
+      - lane8-probe/cgu
+
+permissions:
+  contents: read
+
+jobs:
+  cgu:
+    name: codegen-units 1 against 16
+    runs-on: ubuntu-22.04
+    timeout-minutes: 150
+    env:
+      CARGO_CI_PROFILE: ci-pr
+      CARGO_TARGET_DIR: target/rust-tests-linux-x86
+      RUST_TEST_EXTRA_FEATURES: >-
+        capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres,vibe-strategy-factory/sealed-develop-composer-acceptance
+      RUST_BACKTRACE: 1
+      VIBE_TEST_DATA_BASE_URL: ${{ vars.VIBE_TEST_DATA_BASE_URL }}
+    services:
+      redis:
+        image: mirror.gcr.io/library/redis:7.4.5-alpine3.21@sha256:bb186d083732f669da90be8b0f975a37812b15e913465bb14d845db72a4e3e08
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      postgres:
+        image: mirror.gcr.io/library/postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: pass
+          POSTGRES_DB: vibe
+        ports:
+          - 5432:5432
+        options: --health-cmd "pg_isready -U postgres -d vibe" --health-interval 10s --health-timeout 5s --health-retries
+          5
+    steps:
+      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          # A push to this branch sees no allowed-endpoints variables (run 36260319312).
+          egress-policy: audit
+
+      - name: Runner hardware
+        run: |
+          echo "LANE8-C cpu: $(lscpu | sed -n 's/^Model name: *//p'), cores: $(nproc)"
+
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Common setup
+        timeout-minutes: 42
+        uses: ./.github/actions/common-setup
+        with:
+          python-version: "3.13"
+          build-type: "test"
+          free-disk-space: "true"
+          free-disk-space-max-build: "true"
+          minimum-free-space-gb: "70"
+          rust-cache-enabled: "true"
+          rust-cache-shared-key: rust-tests-linux-x86
+          rust-cache-workspaces: . -> target/rust-tests-linux-x86
+          rust-cache-on-failure: "false"
+          rust-cache-save-if: "false"
+          rust-cache-workspace-crates: "false"
+
+      - name: Use the whole runner
+        run: echo "NEXTEST_TEST_THREADS=4" >> "$GITHUB_ENV"
+
+      - name: Install Vibe CLI
+        env:
+          VIBE_CLI_FORCE_SOURCE: "1"
+        run: bash scripts/ci/install-nautilus-cli.sh
+
+      - name: Init postgres schema
+        run: vibe database init --schema ${{ github.workspace }}/schema/sql
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USERNAME: postgres
+          POSTGRES_PASSWORD: pass
+          POSTGRES_DATABASE: vibe
+
+      - name: Cached test data
+        uses: ./.github/actions/common-test-data
+
+      - name: Compile and run, codegen-units 1 then 16
+        run: |
+          set -euo pipefail
+          mkdir -p lane8/timings lane8/junit
+          measure() {
+            local label=$1 t0 t1 t2 status
+            t0=$(date +%s)
+            CARGO_TERM_COLOR=never make cargo-test NEXTEST_PROFILE=ci EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}" \
+              FAIL_FAST_FLAG= NEXTEST_OUTPUT_ARGS="--no-run --timings" > "lane8/$label-build.log" 2>&1
+            t1=$(date +%s)
+            cp "$(ls -t "$CARGO_TARGET_DIR"/cargo-timings/cargo-timing-*.html | head -1)" "lane8/timings/$label.html"
+            status=0
+            CARGO_TERM_COLOR=never make cargo-test NEXTEST_PROFILE=ci EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}" \
+              > "lane8/$label-run.log" 2>&1 || status=$?
+            t2=$(date +%s)
+            cp target/nextest/ci/junit.xml "lane8/junit/$label.xml" || true
+            echo "LANE8-C $label compile $((t1 - t0))s compiling $(grep -c ' Compiling ' "lane8/$label-build.log" || true)"
+            echo "LANE8-C $label run $((t2 - t1))s exit $status: $(grep -E 'Summary \[' "lane8/$label-run.log" | tail -1)"
+            echo "LANE8-C $label test binaries bytes: $(find "$CARGO_TARGET_DIR/ci-pr/deps" -maxdepth 1 -type f -perm -u+x -size +1M -print0 | du -cb --files0-from=- | tail -1 | cut -f1)"
+            echo "LANE8-C $label target bytes: $(du -sb "$CARGO_TARGET_DIR" | cut -f1)"
+          }
+          measure cgu1
+          python3 - << 'PY'
+          from pathlib import Path
+          p = Path("Cargo.toml"); s = p.read_text()
+          head = "[profile.ci-pr]\n"
+          assert s.count(head) == 1 and "codegen-units = 1\n" in s[s.index(head):]
+          i = s.index(head); j = s.index("codegen-units = 1\n", i)
+          s = s[:j] + "codegen-units = 16\n" + s[j + len("codegen-units = 1\n"):]
+          s += '\n[profile.ci-pr.package."*"]\ncodegen-units = 1\n'
+          p.write_text(s)
+          PY
+          git diff --stat -- Cargo.toml
+          measure cgu16
+
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lane8-cgu
+          path: |
+            lane8/timings/
+            lane8/junit/
+          retention-days: 3
