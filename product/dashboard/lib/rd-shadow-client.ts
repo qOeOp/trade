@@ -2,6 +2,7 @@ import {
   deriveVerifiedS1ConsumerContextV1,
   projectArtifactOwnerResultWithEvidenceV1,
   projectResearchOwnerResultWithEvidenceV1,
+  RESEARCH_OWNER_OPERATION_V2,
   unknownArtifactProjectionV1,
   unknownResearchProjectionV1,
 } from "../../rd-owner-client/consumer_projection_v1.ts";
@@ -117,7 +118,7 @@ function unavailable(
       transport_observed_at: new Date().toISOString(),
       availability: "unavailable",
       unavailable_reason: reason,
-      projection: unknownResearchProjectionV1(requestIdentity),
+      projection: unknownResearchProjectionV1(requestIdentity, RESEARCH_OWNER_OPERATION_V2),
     },
   };
 }
@@ -150,6 +151,7 @@ function artifactUnavailable(
   status: number,
   researchProjection: ResearchShadowEnvelope["projection"] = unknownResearchProjectionV1(
     researchRequestIdentity,
+    RESEARCH_OWNER_OPERATION_V2,
   ),
 ): ArtifactShadowResponse {
   return {
@@ -266,7 +268,10 @@ export async function resolveResearchShadowV1({
     } catch {
       return unavailable(requestIdentity, "OWNER_RESPONSE_UNAVAILABLE", 502);
     }
-    const projected = await projectResearchOwnerResultWithEvidenceV1(raw, requestIdentity);
+    // The research readback route is V2's: `GET /v2/research-goals/{request_identity}/readback`.
+    const projected = await projectResearchOwnerResultWithEvidenceV1(
+      raw, requestIdentity, RESEARCH_OWNER_OPERATION_V2,
+    );
     if (!projected.verified) {
       return unavailable(requestIdentity, "OWNER_RESPONSE_UNAVAILABLE", 502);
     }
@@ -467,6 +472,7 @@ export async function resolveArtifactShadowV1({
 
   let verifiedResearchProjection: ResearchShadowEnvelope["projection"] = unknownResearchProjectionV1(
     researchRequestIdentity,
+    RESEARCH_OWNER_OPERATION_V2,
   );
   try {
     const researchRaw = await boundedOwnerJson(await fetcher(
@@ -479,6 +485,7 @@ export async function resolveArtifactShadowV1({
     const research = await projectResearchOwnerResultWithEvidenceV1(
       researchRaw,
       researchRequestIdentity,
+      RESEARCH_OWNER_OPERATION_V2,
     );
     if (!research.verified) {
       return artifactUnavailable(
@@ -489,6 +496,7 @@ export async function resolveArtifactShadowV1({
     const context = await deriveVerifiedS1ConsumerContextV1(
       research.projection,
       researchRequestIdentity,
+      RESEARCH_OWNER_OPERATION_V2,
     );
     if (!context) {
       return artifactUnavailable(
