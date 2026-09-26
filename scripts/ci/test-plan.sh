@@ -901,4 +901,9 @@ assert_nextest_role "$repo_root/.github/workflows/nightly-tests.yml" cargo-publi
 [[ "$(workflow_job_block "$repo_root/.github/workflows/nightly-miri.yml" miri)" == *'make cargo-miri-'* ]]
 echo "ok: adaptive cleanup, Rust cache, doctest isolation, and nextest consumer invariants"
 
+# The merge of the R&D chain shards' records before the whole-chain report. (The shards' wait for
+# the archive has its own pre-commit hook, test-wait-for-run-artifact.)
+bash "$repo_root/scripts/ci/test-merge-chain-shard-records.bash"
+echo "ok: the chain shards' record merge"
+
 echo "All CI plan cases passed"
