@@ -48,13 +48,20 @@ jobs:
           union="$(make --no-print-directory EXTRA_FEATURES="capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres,vibe-strategy-factory/sealed-develop-composer-acceptance" --eval 'lane8pv: ; @echo $(RD_OWNER_POSTGRES_FEATURES)' lane8pv | tail -1)"
           echo "LANE8-K gate features: $gate"
           echo "LANE8-K union features: $union"
-          for label in gate union; do
+          uniondev="$union"
+          for label in gate union uniondev; do
             features="${!label}"
+            if [[ "$label" == uniondev ]]; then
+              # #1101's own command: the dev profile and every target. Its 19 large_futures sites are
+              # this census's positive control; a parser that cannot see them reads zero anywhere.
+              args=(--workspace --all-targets --features "$features")
+            else
+              args=(--workspace --lib --bins --tests --features "$features" --profile "$CARGO_CI_PROFILE")
+            fi
             t0=$(date +%s)
             status=0
-            cargo clippy --workspace --lib --bins --tests --features "$features" --profile "$CARGO_CI_PROFILE" \
-              --message-format=json > "lane8/$label.jsonl" 2> "lane8/$label.stderr" || status=$?
-            echo "LANE8-K $label clippy exit $status in $(( $(date +%s) - t0 ))s"
+            cargo clippy "${args[@]}" --message-format=json > "lane8/$label.jsonl" 2> "lane8/$label.stderr" || status=$?
+            echo "LANE8-K $label clippy exit $status in $(( $(date +%s) - t0 ))s, compiler messages: $(grep -c '"reason":"compiler-message"' "lane8/$label.jsonl" || true)"
           done
           python3 - << 'PY'
           import json, collections
@@ -79,6 +86,9 @@ jobs:
               return found, sites
           gate, gate_sites = load("gate")
           union, union_sites = load("union")
+          _, dev_sites = load("uniondev")
+          dev_codes = collections.Counter(c for (_, c, _, _) in dev_sites)
+          print(f"LANE8-K positive control, union on the dev profile with every target: {len(dev_sites)} sites; {dict(dev_codes.most_common(8))}")
           new = {s: l for s, l in union_sites.items() if s not in gate_sites}
           print(f"LANE8-K sites under gate features: {len(gate_sites)}; under the union: {len(union_sites)}; new under the union: {len(new)}")
           per = collections.Counter((p, c) for (p, c, _, _) in new)
