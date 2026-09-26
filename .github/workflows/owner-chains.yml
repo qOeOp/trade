@@ -43,6 +43,8 @@ jobs:
   # Both legs of the matrix wait for it - Market Data does not use it, and finishes well inside the
   # R&D leg's time regardless.
   rd-owner-archive:
+    # LANE8 PROBE, NOT FOR MERGE: only the Market Data leg's restored cache is read.
+    if: false
     name: rd owner archive (ubuntu-22.04)
     runs-on: ubuntu-22.04
     # Twice the slowest run without a cache restore (8.8 minutes, owner-chains run 36058051045),
@@ -225,6 +227,27 @@ jobs:
           rust-cache-on-failure: "false"
           rust-cache-save-if: "false"
           rust-cache-workspace-crates: "true"
+
+      - name: LANE8 PROBE, NOT FOR MERGE - what main's rust-tests entry holds under tests/trybuild
+        if: matrix.chain.key == 'market-data'
+        run: |
+          t="${CARGO_TARGET_DIR:-target}"
+          echo "LANE8-TB target dir: $t"
+          du -sh "$t" 2>/dev/null || true
+          du -sh "$t"/* 2>/dev/null || true
+          if [ -d "$t/tests/trybuild" ]; then
+            echo "LANE8-TB trybuild present"
+            du -sh "$t"/tests/trybuild/* "$t"/tests/trybuild/*/* 2>/dev/null
+            for d in "$t"/tests/trybuild/*/debug "$t"/tests/trybuild/debug; do
+              [ -d "$d" ] || continue
+              echo "LANE8-TB $d: deps $(ls "$d/deps" | wc -l)"
+              echo "LANE8-TB $d: fingerprints $(ls "$d/.fingerprint" | wc -l)"
+            done
+            ls "$t"/tests/trybuild
+          else
+            echo "LANE8-TB trybuild ABSENT from the restored entry"
+            ls "$t/tests" 2>/dev/null || echo "LANE8-TB no tests/ dir at all"
+          fi
 
       # The R&D chain's entry 28, `strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody`,
       # drives the Dashboard strategy viewer in a real browser only when these three inputs are
