@@ -63,6 +63,7 @@ use vibe_operator_authorization::{
 use crate::{
     AgentOperationManifestProposalV1, AgentOperationManifestSetV1, ProductEdgeAuthorizationTrustV1,
     ProductEdgeBootstrapProposalV1, ProductEdgeError, ProductEdgePostgresOwnerV1,
+    ProductEdgeSuccessorProposalV1,
 };
 
 /// 2026-01-01T00:00:00Z. Fixed, so a second ensure proposes exactly what the first committed.
@@ -72,6 +73,9 @@ const VALID_FROM_EPOCH_MS: u64 = 1_767_225_600_000;
 const VALID_THROUGH_EPOCH_MS: u64 = 2_082_758_400_000;
 const ISSUER_IDENTITY: &str = "operator-authorization-issuer-acceptance-v1";
 const ISSUER_KEY_VERSION: &str = "acceptance-key-v1";
+const SCOPE_POLICY_VERSION: &str = "acceptance-scope-v1";
+const CAPABILITY_POLICY_VERSION: &str = "acceptance-capability-v1";
+const AUDIT_POLICY_VERSION: &str = "acceptance-audit-v1";
 
 /// The request proof the authorization is issued with and every admission into these deployments
 /// presents. It is a canonical digest, `sha256:` and 64 lowercase hex digits, because consumers
@@ -147,6 +151,84 @@ impl ProductEdgeDeploymentAcceptanceFixtureV1 {
             .iter()
             .find(|bound| bound.operation.operation == operation)
     }
+
+    /// Cuts the deployment over to a policy-equivalent successor binding at the next generation,
+    /// through [`ProductEdgePostgresOwnerV1::activate_successor`], and returns the deployment as it
+    /// now stands. The successor carries the same authorization, policies and manifests, so
+    /// everything bound to the predecessor binding by identity is no longer bound to the current
+    /// one. Its window opens at the store clock: Product Edge admits a successor only when its
+    /// window opens after its predecessor's and no later than the cut it is checked at.
+    pub async fn activate_successor(
+        &self,
+        product_edge_database_url: &str,
+    ) -> Result<Self, DeploymentAcceptanceFixtureErrorV1> {
+        let edge = self
+            .connect_owner(product_edge_database_url)
+            .await
+            .map_err(product_edge("ProductEdgePostgresOwnerV1::connect_existing"))?;
+        let valid_from_epoch_ms = edge
+            .store_clock_ms()
+            .await
+            .map_err(product_edge("ProductEdgePostgresOwnerV1::store_clock_ms"))?;
+        let generation = self.binding_generation + 1;
+        let binding_identity = format!("{}-generation-{generation}", self.binding_identity);
+        let operations = self
+            .operations
+            .iter()
+            .map(|bound| bound.operation.clone())
+            .collect::<Vec<_>>();
+        let readback = edge
+            .activate_successor(ProductEdgeSuccessorProposalV1 {
+                deployment_identity: self.deployment_identity.clone(),
+                binding_identity: binding_identity.clone(),
+                predecessor_binding_identity: self.binding_identity.clone(),
+                expected_history_head: self.binding_identity.clone(),
+                generation,
+                effective_principal: self.principal.clone(),
+                scope_policy_version: SCOPE_POLICY_VERSION.to_string(),
+                capability_policy_version: CAPABILITY_POLICY_VERSION.to_string(),
+                audit_policy_version: AUDIT_POLICY_VERSION.to_string(),
+                valid_from_epoch_ms,
+                valid_through_epoch_ms: self.valid_through_epoch_ms,
+                authorization: self.authorization.clone(),
+                manifests: AgentOperationManifestSetV1::new(manifest_proposals(
+                    &self.audience,
+                    &operations,
+                ))
+                .map_err(product_edge("AgentOperationManifestSetV1::new"))?,
+            })
+            .await
+            .map_err(product_edge(
+                "ProductEdgePostgresOwnerV1::activate_successor",
+            ))?;
+        Ok(Self {
+            binding_identity,
+            binding_generation: readback.generation(),
+            valid_from_epoch_ms,
+            ..self.clone()
+        })
+    }
+}
+
+/// The manifests a deployment binds for `operations`, all targeting `audience`. Genesis and every
+/// successor build them here, so a successor binds exactly what genesis bound.
+fn manifest_proposals(
+    audience: &str,
+    operations: &[DeploymentAcceptanceOperationV1],
+) -> Vec<AgentOperationManifestProposalV1> {
+    operations
+        .iter()
+        .map(|operation| AgentOperationManifestProposalV1 {
+            operation: operation.operation.clone(),
+            operation_schema: operation.operation_schema.clone(),
+            target_owner: audience.to_string(),
+            allowed_effects: operation.allowed_effects.clone(),
+            prohibited_effects: vec!["REAL_TRADING_V1".to_string()],
+            capability_policy_digest: format!("sha256:{}", "c".repeat(64)),
+            effective_from_epoch_ms: VALID_FROM_EPOCH_MS,
+            valid_through_epoch_ms: VALID_THROUGH_EPOCH_MS,
+        })
+        .collect()
 }
 
 #[derive(Debug, Error)]
@@ -209,20 +291,7 @@ pub async fn ensure_product_edge_deployment_acceptance_fixture_v1(
     let principal = format!("acceptance-principal-{key}");
     let deployment_identity = format!("acceptance-deployment-{key}");
     let binding_identity = format!("acceptance-binding-{key}");
-    let manifests = proposal
-        .operations
-        .iter()
-        .map(|operation| AgentOperationManifestProposalV1 {
-            operation: operation.operation.clone(),
-            operation_schema: operation.operation_schema.clone(),
-            target_owner: proposal.audience.clone(),
-            allowed_effects: operation.allowed_effects.clone(),
-            prohibited_effects: vec!["REAL_TRADING_V1".to_string()],
-            capability_policy_digest: format!("sha256:{}", "c".repeat(64)),
-            effective_from_epoch_ms: VALID_FROM_EPOCH_MS,
-            valid_through_epoch_ms: VALID_THROUGH_EPOCH_MS,
-        })
-        .collect::<Vec<_>>();
+    let manifests = manifest_proposals(&proposal.audience, &proposal.operations);
     let mut operations = Vec::with_capacity(manifests.len());
     for (operation, manifest) in proposal.operations.iter().zip(&manifests) {
         operations.push(DeploymentAcceptanceBoundOperationV1 {
@@ -311,9 +380,9 @@ pub async fn ensure_product_edge_deployment_acceptance_fixture_v1(
             expected_history_head: "EMPTY".to_string(),
             generation: 1,
             effective_principal: principal.clone(),
-            scope_policy_version: "acceptance-scope-v1".to_string(),
-            capability_policy_version: "acceptance-capability-v1".to_string(),
-            audit_policy_version: "acceptance-audit-v1".to_string(),
+            scope_policy_version: SCOPE_POLICY_VERSION.to_string(),
+            capability_policy_version: CAPABILITY_POLICY_VERSION.to_string(),
+            audit_policy_version: AUDIT_POLICY_VERSION.to_string(),
             valid_from_epoch_ms: VALID_FROM_EPOCH_MS,
             valid_through_epoch_ms: VALID_THROUGH_EPOCH_MS,
             authorization: authorization.clone(),

@@ -65,6 +65,16 @@ requires them:
 - `FIRECRAWL_API_KEY`
 - `SILICONFLOW_API_KEY`
 - `DATABENTO_API_KEY`
+- `OPENAI_API_KEY`
+- `OPENALEX_API_KEY`
+- `SEMANTIC_SCHOLAR_API_KEY`
+- `CORE_API_KEY`
+- `FRED_API_KEY`
+- `STACKEXCHANGE_KEY`
+- `KAGGLE_API_TOKEN`
+
+Exchange trading credentials such as `BINANCE_API_KEY` and `BINANCE_API_SECRET` are not on this list: an agent
+never uses them, whatever the task.
 
 Treat their values as local secrets: never commit, print, log, or copy them into repository artifacts.
 Availability authorizes credential use only within the admitted task's scope; it does not authorize

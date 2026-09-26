@@ -1,0 +1,150 @@
+{
+  "deployment_identity": "acceptance-deployment-operation-routing-vectors",
+  "digest_domain": "product-edge.operation-routing-binding.v1",
+  "entries": [
+    {
+      "canonical_bytes": "{\"schema_version\":1,\"key\":{\"deployment_identity\":\"acceptance-deployment-operation-routing-vectors\",\"operation\":\"research_goal.submit_or_resolve.v2\",\"version\":2,\"channel\":\"WINDMILL_PRODUCT_EDGE\"},\"generation\":1,\"predecessor_binding_identity\":null,\"deployment_binding_identity\":\"acceptance-binding-operation-routing-vectors\",\"deployment_binding_digest\":\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"manifest_identity\":\"product-edge-operation-manifest-research-goal-v2\",\"manifest_digest\":\"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"dispatcher\":\"TRADE_DASHBOARD\",\"committed_at_epoch_ms\":1800000000001}",
+      "expected": {
+        "binding_digest": "sha256:2ef5354c7164fceaeb2d89e492879292fef4e73b314ae61efccdc7b15ce44ed0",
+        "binding_identity": "product-edge-operation-routing-binding-v1-dfaf056b2165c4fa18e2f0061ed8fe4f31331e340ec48eb16677228f626a9670",
+        "dispatcher": "TRADE_DASHBOARD",
+        "generation": 1,
+        "history_head_identity": "product-edge-operation-routing-binding-v1-dfaf056b2165c4fa18e2f0061ed8fe4f31331e340ec48eb16677228f626a9670",
+        "state": "ACTIVE"
+      },
+      "name": "genesis_routes_to_the_dashboard",
+      "response": {
+        "binding": {
+          "binding_digest": "sha256:2ef5354c7164fceaeb2d89e492879292fef4e73b314ae61efccdc7b15ce44ed0",
+          "binding_identity": "product-edge-operation-routing-binding-v1-dfaf056b2165c4fa18e2f0061ed8fe4f31331e340ec48eb16677228f626a9670",
+          "committed_at_epoch_ms": 1800000000001,
+          "deployment_binding_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "deployment_binding_identity": "acceptance-binding-operation-routing-vectors",
+          "dispatcher": "TRADE_DASHBOARD",
+          "generation": 1,
+          "key": {
+            "channel": "WINDMILL_PRODUCT_EDGE",
+            "deployment_identity": "acceptance-deployment-operation-routing-vectors",
+            "operation": "research_goal.submit_or_resolve.v2",
+            "version": 2
+          },
+          "manifest_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "manifest_identity": "product-edge-operation-manifest-research-goal-v2",
+          "predecessor_binding_identity": null,
+          "schema_version": 1
+        },
+        "history_head_identity": "product-edge-operation-routing-binding-v1-dfaf056b2165c4fa18e2f0061ed8fe4f31331e340ec48eb16677228f626a9670",
+        "observed_at_epoch_ms": 1800000000006,
+        "state": "ACTIVE"
+      }
+    },
+    {
+      "canonical_bytes": "{\"schema_version\":1,\"key\":{\"deployment_identity\":\"acceptance-deployment-operation-routing-vectors\",\"operation\":\"research_goal.submit_or_resolve.v2\",\"version\":2,\"channel\":\"WINDMILL_PRODUCT_EDGE\"},\"generation\":2,\"predecessor_binding_identity\":\"product-edge-operation-routing-binding-v1-dfaf056b2165c4fa18e2f0061ed8fe4f31331e340ec48eb16677228f626a9670\",\"deployment_binding_identity\":\"acceptance-binding-operation-routing-vectors\",\"deployment_binding_digest\":\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"manifest_identity\":\"product-edge-operation-manifest-research-goal-v2\",\"manifest_digest\":\"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"dispatcher\":\"WINDMILL\",\"committed_at_epoch_ms\":1800000000002}",
+      "expected": {
+        "binding_digest": "sha256:4b3e669cade29f037fe73b8f784c624b5f9af24756365fdec0b438c9995b7533",
+        "binding_identity": "product-edge-operation-routing-binding-v1-e7da3f6a5523e16e1ee1a74c97a77dbe4e476b207660435a4f6813b34e12bc2e",
+        "dispatcher": "WINDMILL",
+        "generation": 2,
+        "history_head_identity": "product-edge-operation-routing-binding-v1-e7da3f6a5523e16e1ee1a74c97a77dbe4e476b207660435a4f6813b34e12bc2e",
+        "state": "ACTIVE"
+      },
+      "name": "successor_routes_to_windmill",
+      "response": {
+        "binding": {
+          "binding_digest": "sha256:4b3e669cade29f037fe73b8f784c624b5f9af24756365fdec0b438c9995b7533",
+          "binding_identity": "product-edge-operation-routing-binding-v1-e7da3f6a5523e16e1ee1a74c97a77dbe4e476b207660435a4f6813b34e12bc2e",
+          "committed_at_epoch_ms": 1800000000002,
+          "deployment_binding_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "deployment_binding_identity": "acceptance-binding-operation-routing-vectors",
+          "dispatcher": "WINDMILL",
+          "generation": 2,
+          "key": {
+            "channel": "WINDMILL_PRODUCT_EDGE",
+            "deployment_identity": "acceptance-deployment-operation-routing-vectors",
+            "operation": "research_goal.submit_or_resolve.v2",
+            "version": 2
+          },
+          "manifest_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "manifest_identity": "product-edge-operation-manifest-research-goal-v2",
+          "predecessor_binding_identity": "product-edge-operation-routing-binding-v1-dfaf056b2165c4fa18e2f0061ed8fe4f31331e340ec48eb16677228f626a9670",
+          "schema_version": 1
+        },
+        "history_head_identity": "product-edge-operation-routing-binding-v1-e7da3f6a5523e16e1ee1a74c97a77dbe4e476b207660435a4f6813b34e12bc2e",
+        "observed_at_epoch_ms": 1800000000007,
+        "state": "ACTIVE"
+      }
+    },
+    {
+      "expected": {
+        "binding_digest": null,
+        "binding_identity": null,
+        "dispatcher": "NONE",
+        "generation": 2,
+        "history_head_identity": "product-edge-operation-routing-binding-v1-e7da3f6a5523e16e1ee1a74c97a77dbe4e476b207660435a4f6813b34e12bc2e",
+        "state": "ZERO_ACTIVE"
+      },
+      "name": "withdrawn_head_is_zero_active",
+      "response": {
+        "generation": 2,
+        "history_head_identity": "product-edge-operation-routing-binding-v1-e7da3f6a5523e16e1ee1a74c97a77dbe4e476b207660435a4f6813b34e12bc2e",
+        "key": {
+          "channel": "WINDMILL_PRODUCT_EDGE",
+          "deployment_identity": "acceptance-deployment-operation-routing-vectors",
+          "operation": "research_goal.submit_or_resolve.v2",
+          "version": 2
+        },
+        "observed_at_epoch_ms": 1800000000012,
+        "state": "ZERO_ACTIVE"
+      }
+    },
+    {
+      "canonical_bytes": "{\"schema_version\":1,\"key\":{\"deployment_identity\":\"acceptance-deployment-operation-routing-vectors\",\"operation\":\"research_goal.submit_or_resolve.v2\",\"version\":2,\"channel\":\"WINDMILL_PRODUCT_EDGE\"},\"generation\":1,\"predecessor_binding_identity\":null,\"deployment_binding_identity\":\"acceptance-binding-operation-routing-vectors\",\"deployment_binding_digest\":\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"manifest_identity\":\"product-edge-operation-manifest-research-goal-v2\",\"manifest_digest\":\"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"dispatcher\":\"TRADE_DASHBOARD\",\"committed_at_epoch_ms\":1800000000001}",
+      "expected": {
+        "binding_digest": null,
+        "binding_identity": null,
+        "dispatcher": "NONE",
+        "generation": null,
+        "history_head_identity": null,
+        "state": "UNAVAILABLE"
+      },
+      "name": "tampered_dispatcher_is_refused",
+      "response": {
+        "binding": {
+          "binding_digest": "sha256:2ef5354c7164fceaeb2d89e492879292fef4e73b314ae61efccdc7b15ce44ed0",
+          "binding_identity": "product-edge-operation-routing-binding-v1-dfaf056b2165c4fa18e2f0061ed8fe4f31331e340ec48eb16677228f626a9670",
+          "committed_at_epoch_ms": 1800000000001,
+          "deployment_binding_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "deployment_binding_identity": "acceptance-binding-operation-routing-vectors",
+          "dispatcher": "WINDMILL",
+          "generation": 1,
+          "key": {
+            "channel": "WINDMILL_PRODUCT_EDGE",
+            "deployment_identity": "acceptance-deployment-operation-routing-vectors",
+            "operation": "research_goal.submit_or_resolve.v2",
+            "version": 2
+          },
+          "manifest_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "manifest_identity": "product-edge-operation-manifest-research-goal-v2",
+          "predecessor_binding_identity": null,
+          "schema_version": 1
+        },
+        "history_head_identity": "product-edge-operation-routing-binding-v1-dfaf056b2165c4fa18e2f0061ed8fe4f31331e340ec48eb16677228f626a9670",
+        "observed_at_epoch_ms": 1800000000006,
+        "state": "ACTIVE"
+      }
+    }
+  ],
+  "identity_domain": "product-edge-operation-routing-binding-v1",
+  "lookup": {
+    "channel": "WINDMILL_PRODUCT_EDGE",
+    "operation": "research_goal.submit_or_resolve.v2",
+    "version": 2
+  },
+  "order_sensitivity": {
+    "binding_digest": "sha256:764bfedc6f52373e5e4ad87b3316b056438a7a2a302e65af75b381ec173aa7ae",
+    "canonical_bytes": "{\"schema_version\":1,\"key\":{\"deployment_identity\":\"acceptance-deployment-operation-routing-vectors\",\"operation\":\"research_goal.submit_or_resolve.v2\",\"version\":2,\"channel\":\"WINDMILL_PRODUCT_EDGE\"},\"predecessor_binding_identity\":null,\"generation\":1,\"deployment_binding_identity\":\"acceptance-binding-operation-routing-vectors\",\"deployment_binding_digest\":\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"manifest_identity\":\"product-edge-operation-manifest-research-goal-v2\",\"manifest_digest\":\"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"dispatcher\":\"TRADE_DASHBOARD\",\"committed_at_epoch_ms\":1800000000001}"
+  },
+  "producer": "crates/product_edge/src/operation_routing.rs operation_routing_vectors(); regenerate with OPERATION_ROUTING_VECTORS_WRITE=1",
+  "purpose": "Pins the operation routing binding encoding that Product Edge seals and the Dashboard recomputes, so a change on either side fails where it is made instead of turning every routing answer UNAVAILABLE.",
+  "schema_version": 1
+}

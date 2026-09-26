@@ -16,6 +16,7 @@ trap 'echo "test-rd-owner-postgres.bash:${LINENO}: this failed: ${BASH_COMMAND}"
 readonly guarded_roots=(
   crates/operator_authorization
   crates/product_edge
+  crates/product_edge_routing_api
   crates/rd_source_intake_invocation_custody
   crates/qualification
   crates/backtest_owner
@@ -135,6 +136,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::postgres_v3_request_market_data_cannot_place_is_rejected_by_its_own_answer'
   'vibe-product-edge|vibe_product_edge|deployment_acceptance::tests::deployment_fixture_is_admitted_idempotent_and_refuses_other_content_by_name'
   'vibe-strategy-factory|vibe_strategy_factory|iteration_decision_postgres::postgres_acceptance_tests::legacy_replay_request_passes_the_source_boundary_under_issuance_isolation'
+  'vibe-product-edge-routing-api|vibe_product_edge_routing_api|postgres_tests::the_operation_routing_read_port_answers_every_routing_state_over_http'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
@@ -151,6 +153,7 @@ readonly nextest_graph_args=(
   --package vibe-strategy-governance
   --package vibe-scanner-custody
   --package vibe-risk-owner
+  --package vibe-product-edge-routing-api
   --lib
   --tests
 )
@@ -196,8 +199,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 107 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all 107 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 108 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all 108 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -316,11 +319,12 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[103]}" != *'|product_edge_postgres::tests::postgres_v3_request_market_data_cannot_place_is_rejected_by_its_own_answer' ]] ||
     [[ "${rd_owner_postgres_tests[104]}" != *'|deployment_acceptance::tests::deployment_fixture_is_admitted_idempotent_and_refuses_other_content_by_name' ]] ||
     [[ "${rd_owner_postgres_tests[105]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::legacy_replay_request_passes_the_source_boundary_under_issuance_isolation' ]] ||
-    [[ "${rd_owner_postgres_tests[106]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[106]}" != *'|postgres_tests::the_operation_routing_read_port_answers_every_routing_state_over_http' ]] ||
+    [[ "${rd_owner_postgres_tests[107]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
-  if [[ "${nextest_graph_args[*]}" != '--locked --package vibe-strategy-factory --package vibe-strategy-factory-rd-owner-api --package vibe-product-edge --package vibe-operator-authorization --package vibe-backtest-owner --package vibe-data --package vibe-qualification --package vibe-execution-owner --package vibe-portfolio-owner --package vibe-strategy-governance --package vibe-scanner-custody --package vibe-risk-owner --lib --tests' ]] ||
+  if [[ "${nextest_graph_args[*]}" != '--locked --package vibe-strategy-factory --package vibe-strategy-factory-rd-owner-api --package vibe-product-edge --package vibe-operator-authorization --package vibe-backtest-owner --package vibe-data --package vibe-qualification --package vibe-execution-owner --package vibe-portfolio-owner --package vibe-strategy-governance --package vibe-scanner-custody --package vibe-risk-owner --package vibe-product-edge-routing-api --lib --tests' ]] ||
     [[ "$nextest_archive_features" != 'vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-composer-acceptance,vibe-product-edge/sealed-deployment-acceptance' ]] ||
     [[ "${nextest_execution_args[*]}" != '--fail-fast --run-ignored ignored-only --success-output final --no-tests=fail' ]]; then
     echo "ERROR: shared nextest graph, schema feature union, or sequential ignored-only execution changed." >&2
@@ -454,7 +458,7 @@ for line in array_body.splitlines():
     entries.append(tuple(fields))
 # The count lives in one place. Writing it into the message as well lets the two drift, and the
 # drifted form reads as nonsense the moment it fires: "must contain 92 entries, found 92".
-expected_entries = 107
+expected_entries = 108
 if len(entries) != expected_entries:
     raise SystemExit(
         f"ERROR: ordered PostgreSQL test literal must contain {expected_entries} entries, found {len(entries)}."
@@ -2275,8 +2279,8 @@ check_sealed_browser_inputs
 # One image, two sources: mirror.gcr.io first, public.ecr.aws if it does not serve. The digest names
 # the bytes, so either source gives this chain the same server (scripts/ci/pull-pinned-image.bash).
 readonly postgres_image_sources=(
-  "mirror.gcr.io/library/postgres:16.4-alpine@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c"
-  "public.ecr.aws/docker/library/postgres:16.4-alpine@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c"
+  "mirror.gcr.io/library/postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297"
+  "public.ecr.aws/docker/library/postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297"
 )
 suffix="$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')-$$"
 readonly suffix
