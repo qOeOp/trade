@@ -1755,8 +1755,8 @@ check_sealed_browser_inputs
 # One image, two sources: mirror.gcr.io first, public.ecr.aws if it does not serve. The digest names
 # the bytes, so either source gives this chain the same server (scripts/ci/pull-pinned-image.bash).
 readonly postgres_image_sources=(
-  "mirror.gcr.io/library/postgres:16.4-alpine@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c"
-  "public.ecr.aws/docker/library/postgres:16.4-alpine@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c"
+  "mirror.gcr.io/library/postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297"
+  "public.ecr.aws/docker/library/postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297"
 )
 suffix="$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')-$$"
 readonly suffix
