@@ -22,10 +22,9 @@ use vibe_data::owner::{
     },
     pit_observation_source_v1::PitObservationSourceV1,
     pit_snapshot::{
-        UntrustedCorrectionPublicationTime, UntrustedEventEffectiveTime,
-        UntrustedPitSnapshotRequest, UntrustedPitSnapshotTimeEvidence,
-        UntrustedProviderAvailableTime, UntrustedRetrievalTime, UntrustedSnapshotDecisionCut,
-        seal_request_claims_v1,
+        PitSnapshotSubmissionV1, UntrustedCorrectionPublicationTime, UntrustedEventEffectiveTime,
+        UntrustedPitSnapshotTimeEvidence, UntrustedProviderAvailableTime, UntrustedRetrievalTime,
+        UntrustedSnapshotDecisionCut,
     },
     source_binding::{
         BindingDigest, UntrustedAdapterBinding, UntrustedCompleteFrontier,
@@ -178,16 +177,15 @@ async fn market_data_answers_one_frozen_request_from_live_vendor_data() {
         .current_decision_cut()
         .await
         .expect("admitting the binding established the canonical clock head");
-    let mut request = frozen_request(
+    let submission = frozen_submission(
         &cut,
         &binding_locator,
         semantics_identity,
         selection.selection_identity(),
     );
-    seal_request_claims_v1(&mut request);
 
     let terminal = intake
-        .submit(request, universe_locator(&selection))
+        .submit(submission, universe_locator(&selection))
         .await
         .expect("the Owner reaches a finding");
 
@@ -271,22 +269,21 @@ fn universe_locator(
     )
 }
 
-fn frozen_request(
+/// The request R&D freezes and stores: it states no Owner field, so the Owner stamps its own
+/// Instrument Master digest and seals the request over it.
+fn frozen_submission(
     cut: &MarketDataDecisionCutV1,
     binding_locator: &UntrustedSourceBindingLocator,
     market_semantics_identity: BindingDigest,
     universe_selection_digest: BindingDigest,
-) -> UntrustedPitSnapshotRequest {
+) -> PitSnapshotSubmissionV1 {
     let id = cut.clock_identity.clone();
     let epoch = cut.clock_epoch.clone();
-    UntrustedPitSnapshotRequest {
-        claimed_request_identity: digest(0),
-        claimed_request_digest: digest(0),
+    PitSnapshotSubmissionV1 {
         correlation_identity: digest(0x21),
         requester_identity: digest(0x22),
         scope_digest: digest(0x23),
         source_binding: binding_locator.clone(),
-        instrument_master_digest: digest(0x24),
         universe_selection_digest,
         market_semantics_identity,
         time_evidence: UntrustedPitSnapshotTimeEvidence {

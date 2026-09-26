@@ -296,8 +296,11 @@ fn valid_source_interpretation(value: &SourceInterpretationPayloadV1) -> bool {
 
 mod custody;
 mod custody_types;
+mod operation_routing;
 use custody::*;
 use custody_types::*;
+use operation_routing::OPERATION_ROUTING_SCHEMA_STATEMENTS;
+pub use operation_routing::ProductEdgePostgresOperationRoutingReadPortV1;
 
 #[derive(Debug)]
 struct VerifiedDeploymentHistoryV1 {
@@ -1785,7 +1788,7 @@ impl ProductEdgePostgresOwnerV1 {
                          AND namespace.nspowner = role.oid
                     )
                     AND (
-                      SELECT pg_catalog.count(*) = 13
+                      SELECT pg_catalog.count(*) = 15
                         FROM pg_catalog.pg_class relation
                         JOIN pg_catalog.pg_namespace namespace
                           ON namespace.oid = relation.relnamespace
@@ -1803,7 +1806,9 @@ impl ProductEdgePostgresOwnerV1 {
                            'product_edge_owner_outbox_v1',
                            'product_edge_admission_event_stream_v1',
                            'product_edge_admission_events_v1',
-                           'product_edge_expired_manifest_recoveries_v1'
+                           'product_edge_expired_manifest_recoveries_v1',
+                           'product_edge_operation_routing_bindings_v1',
+                           'product_edge_operation_routing_heads_v1'
                          ]::pg_catalog.text[])
                          AND relation.relkind = 'r'
                          AND relation.relowner = role.oid
@@ -1921,6 +1926,14 @@ impl ProductEdgePostgresOwnerV1 {
         prepare_expired_manifest_recovery_schema_in_transaction(&mut transaction).await?;
 
         for statement in EXPIRED_MANIFEST_RECOVERY_SCHEMA_STATEMENTS {
+            observe(statement).await;
+        }
+
+        for statement in OPERATION_ROUTING_SCHEMA_STATEMENTS {
+            sqlx::query(statement)
+                .execute(&mut *transaction)
+                .await
+                .map_err(storage)?;
             observe(statement).await;
         }
         transaction.commit().await.map_err(storage)?;

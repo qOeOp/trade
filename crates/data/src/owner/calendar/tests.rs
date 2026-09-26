@@ -100,7 +100,7 @@ fn coordinates(predecessor: Option<BindingDigest>) -> VerifiedReferenceFactCoord
     .unwrap()
 }
 
-fn instrument_readback(
+pub(crate) fn instrument_readback(
     calendar: &str,
 ) -> crate::owner::instrument_master::InstrumentMasterReadbackV1 {
     let admission = MarketDataClockAdmission {

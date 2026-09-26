@@ -2983,6 +2983,20 @@
         "noAuthorityBasis": "The composition owns no fact and cannot transfer authorization Product Edge R&D provider effect or trading authority to Strategy Factory API transport credentials or configuration"
       },
       {
+        "inventoryId": "product-edge-operation-routing-read-api",
+        "memberPaths": [
+          "crates/product_edge_routing_api"
+        ],
+        "disposition": "NON_AUTHORITATIVE_INFRASTRUCTURE",
+        "destinationIds": [
+          "product-edge"
+        ],
+        "capabilityPortIds": [],
+        "providerMemberPortEvidence": [],
+        "adoptionRule": "Serve the Product Edge operation routing read port for one configured deployment behind a bearer token in a read-only transaction and never commit or change a routing binding",
+        "noAuthorityBasis": "The service answers only what the Product Edge Owner already committed; routing bindings are committed only by the explicit administrative writer, so its credentials and configuration choose no dispatcher and carry no admission or effect authority"
+      },
+      {
         "inventoryId": "product-edge-provider-invocation-custody",
         "memberPaths": [
           "crates/product_edge_claim_custody"
