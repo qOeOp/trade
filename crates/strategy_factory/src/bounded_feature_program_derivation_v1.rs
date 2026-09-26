@@ -54,8 +54,8 @@ use crate::{
     },
     strategy_design_v2::StrategyDesignV2,
     strategy_plan_v2::{
-        StrategyDesignPreparationV2, VerifiedStrategyInputBindingsV2, plugin_manifest_digest,
-        prepare_strategy_design_v2, strategy_input_role_identity_v2,
+        BfpStaticBindingAbsenceV1, StrategyDesignPreparationV2, VerifiedStrategyInputBindingsV2,
+        plugin_manifest_digest, prepare_strategy_design_v2, strategy_input_role_identity_v2,
     },
 };
 
@@ -162,6 +162,9 @@ pub enum BoundedFeatureProgramDerivationErrorV1 {
     /// A declared input role has no static binding receipt.
     #[error("no static binding receipt is bound to input role {0}")]
     MissingBindingReceipt(String),
+    /// A bounded feature program reads a universe-member role only from a one-member universe.
+    #[error("input role {0} is bound over a universe that does not have exactly one member")]
+    UniverseNotOneMember(String),
 }
 
 /// Assembles one canonical proposal from a Design, the pinned catalog and declared meaning.
@@ -197,7 +200,7 @@ pub(crate) fn derive_bounded_feature_program_proposal_v1(
             first_party_sdk_source_digest: first_party_bfp_sdk_source_digest_v1(),
         },
         meaning,
-        |role_identity| bindings.receipt_digest_for_role(role_identity),
+        |role_identity| bindings.bfp_static_binding_for_role(role_identity),
     )
 }
 
@@ -233,6 +236,7 @@ pub(crate) fn redeclare_frozen_bounded_feature_program_v1(
                 .iter()
                 .find(|input| input.input_role_identity == role_identity)
                 .map(|input| input.static_binding_receipt_digest)
+                .ok_or(BfpStaticBindingAbsenceV1::Unbound)
         },
     )
 }
@@ -249,7 +253,7 @@ fn assemble_proposal(
     design: &StrategyDesignV2,
     provenance: DerivedProvenanceV1,
     meaning: &BoundedFeatureProgramMeaningV1,
-    receipt_for_role: impl Fn(BindingDigest) -> Option<BindingDigest>,
+    receipt_for_role: impl Fn(BindingDigest) -> Result<BindingDigest, BfpStaticBindingAbsenceV1>,
 ) -> Result<BoundedFeatureProgramProposalV1, BoundedFeatureProgramDerivationErrorV1> {
     let (design_identity, design_digest) = match prepare_strategy_design_v2(design) {
         StrategyDesignPreparationV2::Prepared {
@@ -284,10 +288,17 @@ fn assemble_proposal(
             })?;
         let input_role_identity = strategy_input_role_identity_v2(role);
         let static_binding_receipt_digest =
-            receipt_for_role(input_role_identity).ok_or_else(|| {
-                BoundedFeatureProgramDerivationErrorV1::MissingBindingReceipt(
-                    input.role_semantic_id.clone(),
-                )
+            receipt_for_role(input_role_identity).map_err(|absence| {
+                let role = input.role_semantic_id.clone();
+
+                match absence {
+                    BfpStaticBindingAbsenceV1::Unbound => {
+                        BoundedFeatureProgramDerivationErrorV1::MissingBindingReceipt(role)
+                    }
+                    BfpStaticBindingAbsenceV1::UniverseNotOneMember => {
+                        BoundedFeatureProgramDerivationErrorV1::UniverseNotOneMember(role)
+                    }
+                }
             })?;
 
         inputs.push(BoundedFeatureInputV1 {
