@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Plans the R&D Owner chain's shards from its declared needs and measured durations.
+"""
+Plans the R&D Owner chain's shards from its declared needs and measured durations.
 
 The shard list is this script's output and nothing else: `--check` in the chain script reruns it
 and requires the committed list to be byte-identical, so a hand edit to the list cannot drift away
@@ -7,20 +8,25 @@ from the declarations it is derived from.
 
 Inputs:
   - the chain array, read from scripts/ci/test-rd-owner-postgres.bash (chain order);
-  - rd-owner-chain-needs.tsv: per entry, the entries it needs (hard, proved by VERIFY) and the
-    entries it must run after to keep an assertion meaningful;
+  - rd-owner-chain-needs.tsv: per entry, the entries it needs (hard, proved by VERIFY), the
+    entries it must run after to keep an assertion meaningful, and the entries it replays: run
+    again at the start of its component because the state it needs is produced by an entry whose
+    own component runs elsewhere. A replay is a copy, not an edge, and it carries the reason and
+    what will replace it, which every run of this script prints;
   - rd-owner-chain-durations.tsv: per entry, seconds measured on Linux CI.
 
 A component is a connected set under needs and after edges. Its entries share one database and run
 in chain order; different components start from the pre-entry-1 state. Components are packed into
 shards longest first; an entry without a measured duration counts as the slowest measured one, so
 a missing measurement makes the plan more conservative rather than less.
+
 """
 
 from __future__ import annotations
 
 import sys
 from pathlib import Path
+
 
 ROOT = Path(__file__).resolve().parent
 CHAIN = ROOT / "test-rd-owner-postgres.bash"
@@ -62,37 +68,88 @@ def read_tsv(path: Path, columns: int) -> list[list[str]]:
     return rows
 
 
-def plan(shard_count: int) -> str:
-    entries = chain_entries()
-    position = {name: index for index, name in enumerate(entries)}
-    if len(position) != len(entries):
-        fail("the chain array names one test twice")
+def check_replays(
+    name: str,
+    copies: list[str],
+    replay_reason: str,
+    edges: list[str],
+    position: dict[str, int],
+) -> None:
+    """
+    Refuse a replay that is also an edge, comes after its entry, or gives no reason.
+    """
+    if copies and replay_reason in ("", "-"):
+        fail(
+            f"{name} replays {','.join(copies)} without saying why and what replaces the replay",
+        )
+    if not copies and replay_reason not in ("", "-"):
+        fail(f"{name} gives a replay reason but replays nothing")
+    for copy in copies:
+        if copy in edges:
+            fail(f"{name} both needs and replays {copy}; a replay is not an edge")
+        if copy not in position or position[copy] >= position[name]:
+            fail(f"{name} replays {copy}, which is not a chain entry before it")
+    if copies:
+        sys.stderr.write(
+            f"REPLAY: {name} replays {', '.join(copies)}: {replay_reason}\n",
+        )
 
-    declared: dict[str, tuple[list[str], list[str], str]] = {}
-    for name, needs, after, evidence in read_tsv(NEEDS, 4):
-        if name in declared:
+
+def entry_declaration(
+    name: str,
+    fields: tuple[str, str, str, str, str],
+    position: dict[str, int],
+) -> tuple[list[str], list[str], list[str]]:
+    """
+    Check one entry's declaration and return its needs, afters and replays.
+    """
+    needs, after, replays, replay_reason, evidence = fields
+    if not evidence.strip():
+        fail(f"{NEEDS.name} gives no evidence for {name}")
+    hard = [] if needs == "NONE" else needs.split(",")
+    soft = [] if after == "-" else after.split(",")
+    copies = [] if replays == "-" else replays.split(",")
+    for earlier in hard + soft:
+        if earlier == "?":
+            fail(f"{name} has an unresolved need; resolve it before planning")
+        if earlier not in position or position[earlier] >= position[name]:
+            fail(f"{name} needs {earlier}, which is not a chain entry before it")
+    check_replays(name, copies, replay_reason, hard + soft, position)
+    return hard, soft, copies
+
+
+def read_declarations(
+    entries: list[str],
+    position: dict[str, int],
+) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    """
+    Return each entry's edges (needs and afters) and its replays, for every chain entry.
+    """
+    edges: dict[str, list[str]] = {}
+    replays_of: dict[str, list[str]] = {}
+    for name, *fields in read_tsv(NEEDS, 6):
+        if name in edges:
             fail(f"{NEEDS.name} declares {name} twice")
         if name not in position:
             fail(f"{NEEDS.name} declares {name}, which is not a chain entry")
-        if not evidence.strip():
-            fail(f"{NEEDS.name} gives no evidence for {name}")
-        hard = [] if needs == "NONE" else needs.split(",")
-        soft = [] if after == "-" else after.split(",")
-        for earlier in hard + soft:
-            if earlier == "?":
-                fail(f"{name} has an unresolved need; resolve it before planning")
-            if earlier not in position:
-                fail(f"{name} needs {earlier}, which is not a chain entry")
-            if position[earlier] >= position[name]:
-                fail(f"{name} needs {earlier}, which does not run before it")
-        declared[name] = (hard, soft, evidence)
-    missing = [name for name in entries if name not in declared]
+        hard, soft, copies = entry_declaration(name, tuple(fields), position)
+        edges[name] = hard + soft
+        if copies:
+            replays_of[name] = copies
+    missing = [name for name in entries if name not in edges]
     if missing:
         fail(f"{NEEDS.name} declares nothing for: {', '.join(missing)}")
+    return edges, replays_of
 
-    seconds = {name: float(value) for name, value in read_tsv(DURATIONS, 2)}
-    slowest = max(seconds.values()) if seconds else 60.0
 
+def components_of(
+    entries: list[str],
+    edges: dict[str, list[str]],
+) -> dict[str, list[str]]:
+    """
+    Group entries into connected components, each named by its first entry in chain
+    order.
+    """
     parent = {name: name for name in entries}
 
     def root(name: str) -> str:
@@ -101,32 +158,41 @@ def plan(shard_count: int) -> str:
             name = parent[name]
         return name
 
-    for name, (hard, soft, _) in declared.items():
-        for earlier in hard + soft:
+    for name, earlier_entries in edges.items():
+        for earlier in earlier_entries:
             parent[root(name)] = root(earlier)
-
-    components: dict[str, list[str]] = {}
+    grouped: dict[str, list[str]] = {}
     for name in entries:
-        components.setdefault(root(name), []).append(name)
-    # A component is named by its first entry in chain order, so the name moves only when that entry
-    # does.
-    named = {members[0]: members for members in components.values()}
+        grouped.setdefault(root(name), []).append(name)
+    return {members[0]: members for members in grouped.values()}
+
+
+def plan(shard_count: int) -> str:
+    entries = chain_entries()
+    position = {name: index for index, name in enumerate(entries)}
+    if len(position) != len(entries):
+        fail("the chain array names one test twice")
+    edges, replays_of = read_declarations(entries, position)
+    named = components_of(entries, edges)
+    seconds = {name: float(value) for name, value in read_tsv(DURATIONS, 2)}
+    slowest = max(seconds.values()) if seconds else 60.0
 
     def cost(members: list[str]) -> float:
-        return sum(seconds.get(name, slowest) for name in members)
+        # A replayed entry runs in this component too, so its time is this component's time.
+        replayed = {copy for name in members for copy in replays_of.get(name, [])}
+        return sum(seconds.get(name, slowest) for name in [*members, *sorted(replayed)])
 
     loads = [0.0] * shard_count
-    assignment: dict[str, int] = {}
-    for first in sorted(named, key=lambda first: (-cost(named[first]), position[first])):
+    shard_of: dict[str, int] = {}
+    component_of: dict[str, str] = {}
+    for first in sorted(
+        named,
+        key=lambda first: (-cost(named[first]), position[first]),
+    ):
         shard = min(range(shard_count), key=lambda index: (loads[index], index))
         loads[shard] += cost(named[first])
-        assignment[first] = shard
-
-    shard_of = {}
-    component_of = {}
-    for first, members in named.items():
-        for name in members:
-            shard_of[name] = assignment[first]
+        for name in named[first]:
+            shard_of[name] = shard
             component_of[name] = first
 
     lines = [
@@ -135,11 +201,11 @@ def plan(shard_count: int) -> str:
         + ", ".join(f"{load:.0f}" for load in loads)
         + "\n",
     ]
-    for name in entries:
-        lines.append(
-            f"shard-{shard_of[name] + 1}\t{component_of[name]}\t{name}\t"
-            f"{1 if name in BROWSER_ENTRIES else 0}\n"
-        )
+    lines.extend(
+        f"shard-{shard_of[name] + 1}\t{component_of[name]}\t{name}\t"
+        f"{1 if name in BROWSER_ENTRIES else 0}\n"
+        for name in entries
+    )
     return "".join(lines)
 
 
