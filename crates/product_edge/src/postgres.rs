@@ -4757,24 +4757,58 @@ fn supersession_digest(fence: &StoredSupersessionV1) -> Result<String, ProductEd
     )
 }
 
+/// Refuses a manifest that does not hold at `read_cut` or does not cover its binding's window, and
+/// says which part.
+///
+/// Four conditions answer to one reason, `WINDOW_NOT_CURRENT`: the cut is before the manifest takes
+/// effect or at or after it lapses, or the binding starts before it or ends after it. `read_cut` is
+/// this Owner's `pg_catalog.clock_timestamp()`; the two window pairs are whatever the proposal
+/// carries, so the refusal names every condition that held and every value compared. The reason,
+/// the subject and the outward disposition are unchanged.
 fn require_manifest_covers_binding(
     manifest: &AgentOperationManifestProposalV1,
     binding_valid_from: u64,
     binding_valid_through: u64,
     read_cut: u64,
 ) -> Result<(), ProductEdgeError> {
-    if read_cut < manifest.effective_from_epoch_ms
-        || read_cut >= manifest.valid_through_epoch_ms
-        || binding_valid_from < manifest.effective_from_epoch_ms
-        || binding_valid_through > manifest.valid_through_epoch_ms
-    {
-        return Err(unavailable_for(
+    let held: Vec<&str> = [
+        (
+            read_cut < manifest.effective_from_epoch_ms,
+            "cut_before_manifest_effective",
+        ),
+        (
+            read_cut >= manifest.valid_through_epoch_ms,
+            "cut_at_or_after_manifest_lapse",
+        ),
+        (
+            binding_valid_from < manifest.effective_from_epoch_ms,
+            "binding_starts_before_manifest",
+        ),
+        (
+            binding_valid_through > manifest.valid_through_epoch_ms,
+            "binding_ends_after_manifest",
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(holds, name)| holds.then_some(name))
+    .collect();
+
+    if held.is_empty() {
+        return Ok(());
+    }
+    Err(ProductEdgeError::Unavailable(
+        crate::ProductEdgeUnavailableV1::about(
             Reason::WindowNotCurrent,
             Subject::Operation,
             &manifest.operation,
-        ));
-    }
-    Ok(())
+        )
+        .with_cause(format!(
+            "{} at Owner clock cut {read_cut}: manifest [{}, {}), binding [{binding_valid_from}, {binding_valid_through})",
+            held.join(","),
+            manifest.effective_from_epoch_ms,
+            manifest.valid_through_epoch_ms,
+        )),
+    ))
 }
 
 /// Map a named refusal from `product_edge_api` onto this crate's closed vocabulary.
@@ -7474,23 +7508,51 @@ mod tests {
             effective_from_epoch_ms: 100,
             valid_through_epoch_ms: 200,
         };
-        assert!(matches!(
-            require_manifest_covers_binding(&manifest, 100, 200, 99),
-            Err(ProductEdgeError::Unavailable(_))
-        ));
+        let cause = |binding_from, binding_through, cut| {
+            let refused =
+                require_manifest_covers_binding(&manifest, binding_from, binding_through, cut);
+
+            match refused {
+                Err(ProductEdgeError::Unavailable(refusal)) => {
+                    assert_eq!(refusal.reason(), &Reason::WindowNotCurrent);
+                    refusal.cause().map(ToOwned::to_owned)
+                }
+                other => panic!("expected a WINDOW_NOT_CURRENT refusal, found {other:?}"),
+            }
+        };
         assert!(require_manifest_covers_binding(&manifest, 100, 200, 100).is_ok());
-        assert!(matches!(
-            require_manifest_covers_binding(&manifest, 100, 200, 200),
-            Err(ProductEdgeError::Unavailable(_))
-        ));
-        assert!(matches!(
-            require_manifest_covers_binding(&manifest, 99, 200, 100),
-            Err(ProductEdgeError::Unavailable(_))
-        ));
-        assert!(matches!(
-            require_manifest_covers_binding(&manifest, 100, 201, 100),
-            Err(ProductEdgeError::Unavailable(_))
-        ));
+        assert_eq!(
+            cause(100, 200, 99).as_deref(),
+            Some(
+                "cut_before_manifest_effective at Owner clock cut 99: manifest [100, 200), binding [100, 200)"
+            )
+        );
+        assert_eq!(
+            cause(100, 200, 200).as_deref(),
+            Some(
+                "cut_at_or_after_manifest_lapse at Owner clock cut 200: manifest [100, 200), binding [100, 200)"
+            )
+        );
+        assert_eq!(
+            cause(99, 200, 100).as_deref(),
+            Some(
+                "binding_starts_before_manifest at Owner clock cut 100: manifest [100, 200), binding [99, 200)"
+            )
+        );
+        // The shape the rd-owner-api harness produced when two readings of its own clock straddled a
+        // millisecond: the binding ends one millisecond after the manifest it names.
+        assert_eq!(
+            cause(100, 201, 100).as_deref(),
+            Some(
+                "binding_ends_after_manifest at Owner clock cut 100: manifest [100, 200), binding [100, 201)"
+            )
+        );
+        assert_eq!(
+            cause(99, 201, 99).as_deref(),
+            Some(
+                "cut_before_manifest_effective,binding_starts_before_manifest,binding_ends_after_manifest at Owner clock cut 99: manifest [100, 200), binding [99, 201)"
+            )
+        );
     }
 
     #[rstest]

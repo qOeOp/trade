@@ -3306,27 +3306,48 @@ mod tests {
             test_database,
             suffix,
             request_proof_digest,
-            Vec::new(),
+            |_| Vec::new(),
             Vec::new(),
         )
         .await
     }
 
+    /// The one window every manifest, the authorization and the binding of an API test's Product
+    /// Edge are cut from.
+    ///
+    /// A manifest has to cover the binding that names it. Cutting the two from separate readings
+    /// of any clock leaves the binding ending one millisecond past the manifest whenever the
+    /// readings straddle a millisecond, so an extra manifest takes this window from the bootstrap
+    /// rather than reading a clock of its own.
+    #[derive(Clone, Copy, Debug)]
+    pub(super) struct ApiTestProductEdgeWindowV1 {
+        pub(super) effective_from_epoch_ms: u64,
+        pub(super) valid_through_epoch_ms: u64,
+    }
+
     /// Bootstraps the Research and Artifact manifests plus any extra operation manifests and
     /// Operator Authorization permissions one acceptance needs beyond that pair.
+    ///
+    /// Every window is cut from one reading of the Product Edge Owner's clock, the clock that
+    /// checks it: Product Edge, Operator Authorization and R&D all read their cuts from
+    /// `pg_catalog.clock_timestamp()`.
     pub(super) async fn bootstrap_api_test_product_edge_with(
         test_database: &CanonicalOwnerPostgresTestDatabaseV1,
         suffix: &str,
         request_proof_digest: &str,
-        extra_manifests: Vec<AgentOperationManifestProposalV1>,
+        extra_manifests: impl FnOnce(
+            ApiTestProductEdgeWindowV1,
+        ) -> Vec<AgentOperationManifestProposalV1>,
         extra_permissions: Vec<String>,
     ) -> ProductEdgePostgresOwnerV1 {
-        let now: u64 = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis()
-            .try_into()
-            .unwrap();
+        let product_edge_url =
+            test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner);
+        let anchor = OwnerClockAnchorV1::read(product_edge_url).await;
+        let now = anchor.owner_epoch_ms;
+        let window = ApiTestProductEdgeWindowV1 {
+            effective_from_epoch_ms: now.saturating_sub(1_000),
+            valid_through_epoch_ms: now.saturating_add(3_600_000),
+        };
         let principal = format!("rd-api-retry-principal-{suffix}");
         let mut manifests = vec![
             AgentOperationManifestProposalV1 {
@@ -3336,8 +3357,8 @@ mod tests {
                 allowed_effects: vec!["R_AND_D_RESEARCH_MUTATION_V1".to_string()],
                 prohibited_effects: vec!["REAL_TRADING_V1".to_string()],
                 capability_policy_digest: format!("sha256:{}", "c".repeat(64)),
-                effective_from_epoch_ms: now.saturating_sub(1_000),
-                valid_through_epoch_ms: now.saturating_add(3_600_000),
+                effective_from_epoch_ms: window.effective_from_epoch_ms,
+                valid_through_epoch_ms: window.valid_through_epoch_ms,
             },
             AgentOperationManifestProposalV1 {
                 operation: ARTIFACT_BUILD_OPERATION_V1.to_string(),
@@ -3349,11 +3370,11 @@ mod tests {
                 ],
                 prohibited_effects: vec!["REAL_TRADING_V1".to_string()],
                 capability_policy_digest: format!("sha256:{}", "d".repeat(64)),
-                effective_from_epoch_ms: now.saturating_sub(1_000),
-                valid_through_epoch_ms: now.saturating_add(3_600_000),
+                effective_from_epoch_ms: window.effective_from_epoch_ms,
+                valid_through_epoch_ms: window.valid_through_epoch_ms,
             },
         ];
-        manifests.extend(extra_manifests);
+        manifests.extend(extra_manifests(window));
         manifests.sort_by_key(|manifest| manifest.manifest_identity().unwrap());
         let operation_manifests = manifests
             .iter()
@@ -3389,15 +3410,15 @@ mod tests {
                 },
                 request_proof_digest: request_proof_digest.to_string(),
                 operation_manifests,
-                not_before_epoch_ms: now.saturating_sub(1_000),
-                valid_through_epoch_ms: now.saturating_add(3_600_000),
+                not_before_epoch_ms: window.effective_from_epoch_ms,
+                valid_through_epoch_ms: window.valid_through_epoch_ms,
                 expected_revocation_head: "EMPTY".to_string(),
             })
             .await
             .unwrap();
         let deployment_identity = format!("rd-api-retry-deployment-{suffix}");
         let product_edge = ProductEdgePostgresOwnerV1::connect(
-            test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+            product_edge_url,
             &deployment_identity,
             ProductEdgeAuthorizationTrustV1 {
                 issuer_identity: "operator-authorization-issuer-test-v1".to_string(),
@@ -3407,7 +3428,7 @@ mod tests {
         )
         .await
         .unwrap();
-        product_edge
+        let genesis = product_edge
             .bootstrap_genesis(ProductEdgeBootstrapProposalV1 {
                 deployment_identity,
                 binding_identity: format!("rd-api-retry-binding-{suffix}"),
@@ -3417,14 +3438,82 @@ mod tests {
                 scope_policy_version: "research-scope-v1".to_string(),
                 capability_policy_version: "capability-v1".to_string(),
                 audit_policy_version: "audit-v1".to_string(),
-                valid_from_epoch_ms: now.saturating_sub(1_000),
-                valid_through_epoch_ms: now.saturating_add(3_600_000),
+                valid_from_epoch_ms: window.effective_from_epoch_ms,
+                valid_through_epoch_ms: window.valid_through_epoch_ms,
                 authorization: authorization.locator(),
                 manifests: vibe_product_edge::AgentOperationManifestSetV1::new(manifests).unwrap(),
             })
-            .await
-            .unwrap();
+            .await;
+
+        if let Err(refusal) = genesis {
+            panic!(
+                "Product Edge genesis refused: {refusal}; window {window:?}; {}",
+                anchor.describe_after_refusal().await,
+            );
+        }
         product_edge
+    }
+
+    /// The Owner-clock reading an API test's Product Edge windows are cut from, and what it needs
+    /// to explain a refusal of one of them.
+    ///
+    /// A window refused as not current after it was cut from the clock that checks it leaves two
+    /// explanations: a stall between the reading and the check, or a step in the Owner's clock.
+    /// The description tells them apart: a stall shows as wall time of the window's margin or more,
+    /// and a clock step as little wall time with at least that much advance on the Owner's clock.
+    struct OwnerClockAnchorV1 {
+        owner_epoch_ms: u64,
+        process_epoch_ms: u64,
+        taken_at: std::time::Instant,
+        owner_url: String,
+    }
+
+    impl OwnerClockAnchorV1 {
+        async fn read(owner_url: &str) -> Self {
+            let process_epoch_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis()
+                .try_into()
+                .unwrap();
+            let taken_at = std::time::Instant::now();
+            let owner_epoch_ms = owner_clock_epoch_ms(owner_url)
+                .await
+                .expect("the Owner clock reads");
+            Self {
+                owner_epoch_ms,
+                process_epoch_ms,
+                taken_at,
+                owner_url: owner_url.to_owned(),
+            }
+        }
+
+        async fn describe_after_refusal(&self) -> String {
+            let wall_ms = self.taken_at.elapsed().as_millis();
+            let owner_after = owner_clock_epoch_ms(&self.owner_url).await.map_or_else(
+                |e| format!("unreadable ({e})"),
+                |epoch_ms| epoch_ms.to_string(),
+            );
+            format!(
+                "cut from Owner clock {}; process clock at that reading {}; Owner clock after the \
+                 refusal {owner_after}; wall time from the reading to the refusal {wall_ms} ms",
+                self.owner_epoch_ms, self.process_epoch_ms,
+            )
+        }
+    }
+
+    async fn owner_clock_epoch_ms(owner_url: &str) -> Result<u64, sqlx::Error> {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(owner_url)
+            .await?;
+        let epoch_ms: i64 = sqlx::query_scalar(
+            "SELECT pg_catalog.floor(EXTRACT(epoch FROM pg_catalog.clock_timestamp()) * 1000)::bigint",
+        )
+        .fetch_one(&pool)
+        .await?;
+        pool.close().await;
+        Ok(u64::try_from(epoch_ms).expect("the Owner clock is after the epoch"))
     }
 
     /// Every R&D and Product Edge relation the Dashboard browser acceptance may touch. The
@@ -3529,36 +3618,26 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let manifest_now: u64 = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis()
-            .try_into()
-            .unwrap();
         let product_edge = Arc::new(
             bootstrap_api_test_product_edge_with(
                 &test_database,
                 &format!("strategy-source-{suffix}"),
                 &request_proof_digest,
-                vec![AgentOperationManifestProposalV1 {
-                    operation: SOURCE_INTAKE_OPERATION_V1.to_string(),
-                    operation_schema: SOURCE_INTAKE_OPERATION_SCHEMA_V1.to_string(),
-                    target_owner: SOURCE_INTAKE_TARGET_OWNER_V1.to_string(),
-                    allowed_effects: SOURCE_INTAKE_REQUIRED_EFFECTS_V1
-                        .into_iter()
-                        .map(ToString::to_string)
-                        .collect(),
-                    prohibited_effects: vec!["REAL_TRADING_V1".to_string()],
-                    capability_policy_digest: format!("sha256:{}", "e".repeat(64)),
-                    // A manifest has to cover the binding that names it, and the binding's window
-                    // is cut from a clock this function reads later. Deriving both from a reading
-                    // taken here would leave the binding ending one millisecond past the manifest
-                    // whenever anything at all happened in between, which is a coin flip on how
-                    // fast the machine is rather than a property of the Owner. This window
-                    // brackets the bootstrap's own.
-                    effective_from_epoch_ms: manifest_now.saturating_sub(60_000),
-                    valid_through_epoch_ms: manifest_now.saturating_add(7_200_000),
-                }],
+                |window| {
+                    vec![AgentOperationManifestProposalV1 {
+                        operation: SOURCE_INTAKE_OPERATION_V1.to_string(),
+                        operation_schema: SOURCE_INTAKE_OPERATION_SCHEMA_V1.to_string(),
+                        target_owner: SOURCE_INTAKE_TARGET_OWNER_V1.to_string(),
+                        allowed_effects: SOURCE_INTAKE_REQUIRED_EFFECTS_V1
+                            .into_iter()
+                            .map(ToString::to_string)
+                            .collect(),
+                        prohibited_effects: vec!["REAL_TRADING_V1".to_string()],
+                        capability_policy_digest: format!("sha256:{}", "e".repeat(64)),
+                        effective_from_epoch_ms: window.effective_from_epoch_ms,
+                        valid_through_epoch_ms: window.valid_through_epoch_ms,
+                    }]
+                },
                 vec!["research:source-intake".to_string()],
             )
             .await,

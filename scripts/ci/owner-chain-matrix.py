@@ -5,7 +5,10 @@ GITHUB_OUTPUT line.
 
 Both workflows used to spell the same two legs out by hand. The legs now live here once, and the
 R&D leg becomes one entry per shard of scripts/ci/rd-owner-chain-shards.tsv
-(`shard <TAB> component <TAB> test name <TAB> needs browser 0|1`, one row per entry, in run order).
+(`shard <TAB> component <TAB> test name <TAB> capability`, one row per entry, in run order). The
+capability is what the entry needs installed - `browser` (Chrome and the Dashboard's node_modules),
+`node` (the node_modules alone) or `-` - and each shard gets two flags from its rows: `browser`, and
+`node` for either.
 The list is required: a missing list is refused by name rather than read as "run the whole chain
 as one job", which would make deleting the list a silent return to the serial chain. The chain
 script's --check requires the list to be the shard planner's exact output. The shards come out in
@@ -46,6 +49,7 @@ MARKET_DATA = {
     "key": "market-data",
     "shard": "",
     "name": "market data owner postgres (ubuntu-22.04)",
+    "node": 0,
     "browser": 0,
     "setup-timeout-minutes": 30,
     "step-timeout-minutes": 15,
@@ -59,16 +63,17 @@ def rd_shards(path: Path) -> list[dict]:
         raise SystemExit(
             f"ERROR: there is no shard list at {path}; the R&D chain runs only as its shards.",
         )
+    rank = {"-": 0, "node": 1, "browser": 2}
     shards: dict[str, int] = {}
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         if not line.strip() or line.startswith("#"):
             continue
         fields = line.split("\t")
-        if len(fields) != 4 or fields[3] not in ("0", "1") or not all(fields[:3]):
+        if len(fields) != 4 or fields[3] not in rank or not all(fields[:3]):
             raise SystemExit(
-                f"ERROR: {path}:{number}: expected shard, component, test name, browser 0|1: {line!r}",
+                f"ERROR: {path}:{number}: expected shard, component, test name, capability -|node|browser: {line!r}",
             )
-        shards[fields[0]] = max(shards.get(fields[0], 0), int(fields[3]))
+        shards[fields[0]] = max(shards.get(fields[0], 0), rank[fields[3]])
     if not shards:
         raise SystemExit(
             f"ERROR: {path} lists no entries; the R&D chain runs only as its shards.",
@@ -78,11 +83,12 @@ def rd_shards(path: Path) -> list[dict]:
             "key": "rd-owner",
             "shard": shard,
             "name": f"rd owner postgres {shard} (ubuntu-22.04)",
-            "browser": browser,
+            "node": int(capability >= 1),
+            "browser": int(capability == 2),
             **RD_LIMITS,
             "make": RD_MAKE,
         }
-        for shard, browser in sorted(shards.items(), key=lambda item: shard_order(item[0]))
+        for shard, capability in sorted(shards.items(), key=lambda item: shard_order(item[0]))
     ]
 
 
@@ -91,6 +97,7 @@ def rd_serial() -> dict:
         "key": "rd-owner",
         "shard": "",
         "name": "rd owner postgres serial (ubuntu-22.04)",
+        "node": 1,
         "browser": 1,
         **RD_LIMITS,
         "make": RD_MAKE,
