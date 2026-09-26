@@ -637,7 +637,7 @@ Market Data V1 native scheduling seal 封存每一帧，该 seal 现在从帧自
 production invocation、Paper/Live execution 或 trading。
 
 **SUPERSEDED TARGET，Owner 封存的 Native Replay 帧序列 V2：** 策略形状包络以 PIT 窗口托管取代这个 profile；
-该 profile 没有调用方，切片 T1 删除它。下面几段保留下来，作为取代方案的搬迁表所继承的那些不变式的陈述。现有
+该 profile 没有调用方，切片 T1 里各 Owner 删除各自那一部分，表经迁移删除。下面几段保留下来，作为取代方案的搬迁表所继承的那些不变式的陈述。现有
 `NativeReplayExecutionInputBindingV1`、单帧、28 项观测证据、执行 bundle、请求和 Result 的字节与身份
 均保持不变。新增独立的 `NativeReplayExecutionInputBindingV2`，针对请求窗口内整条相邻、完整且
 分别由 Market Data Owner 签发的 frame 序列。第一帧必须等于重新解析得到的 V1 初始帧；其后每一帧
@@ -1249,7 +1249,7 @@ PIT 快照仍然是一个时刻，Market Data 的快照路径、它的封印以�
 - 多周期角色（切片 T2）在帧 `k` 解析为它自己周期的 Owner schedule 在 `d_k` 之前最后一次收盘的那根 bar，而且
   必须恰好是那一根；中间有缺口就拒绝该帧。binder 只对托管视图按来源放宽它的单一 trigger 检查：trigger 是执行
   角色那一行，其余每个角色各带自己的生命周期坐标，并满足 available ≤ `d_k`。
-- 成员集整次运行固定。某成员的 Instrument Master 有效期在窗口内结束，就以
+- 成员集整次运行固定。某成员的 Instrument Master 有效期或 Universe 成员资格在窗口内开始或结束，就以
   `WINDOW_MEMBER_NOT_VALID_THROUGHOUT` 按名拒绝整次运行；今天没有任何东西能构造出这个拒绝，因为托管还不存在。
 - 某帧没有完整截面，就以 `PIT_WINDOW_FRAME_NOT_COVERED` 拒绝整次运行，并写出 `e_k` 与阻断原因；今天同样
   无法构造，理由相同。

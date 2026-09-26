@@ -698,7 +698,8 @@ trace; an unacknowledged submission remains unavailable. This admission grants n
 deployed or running service, production invocation, Paper/Live execution, or trading.
 
 **SUPERSEDED TARGET, Owner-sealed Native Replay frame sequence V2:** the Strategy shape envelope replaces this
-profile with PIT window custody; the profile has no caller, and slice T1 deletes it. The paragraphs below remain as
+profile with PIT window custody; the profile has no caller, and in slice T1 each Owner deletes its part, tables
+through a migration. The paragraphs below remain as
 the statement of the invariants the replacement's relocation table carries forward. The existing
 `NativeReplayExecutionInputBindingV1`, its single universe frame, native scheduling receipt,
 28-component observation package, execution bundle, request and Result identities remain
@@ -1393,8 +1394,8 @@ commits, one year of one-minute bars about 520,000, and every frame must share o
   before `d_k`, and exactly that bar; a gap refuses the frame. The binder relaxes its single-trigger check by source
   for custody views only: the trigger is the execution role's row, and every other role carries its own lifecycle
   coordinate with available ≤ `d_k`.
-- The member set is fixed for the whole run. A member whose Instrument Master validity ends inside the window refuses
-  the run by name as `WINDOW_MEMBER_NOT_VALID_THROUGHOUT`; nothing constructs that refusal today, because no custody
+- The member set is fixed for the whole run. A member whose Instrument Master validity or Universe membership begins or
+  ends inside the window refuses the run by name as `WINDOW_MEMBER_NOT_VALID_THROUGHOUT`; nothing constructs that refusal today, because no custody
   exists.
 - A frame with no complete cross-section refuses the run as `PIT_WINDOW_FRAME_NOT_COVERED`, naming `e_k` and the
   blocker; nothing constructs it today, for the same reason.
