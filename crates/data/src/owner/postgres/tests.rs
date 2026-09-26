@@ -2559,6 +2559,33 @@ async fn fixed_member_selection_oracle_v1(
     );
 }
 
+/// The one exact instrument a registry oracle binds: the canonical identity of the single fact its
+/// Instrument Master readback holds, and none when it holds any other number.
+fn exact_instrument_identity_v1(
+    readback: &crate::owner::instrument_master::InstrumentMasterReadbackV1,
+) -> Option<&str> {
+    match readback.facts() {
+        [fact] => Some(fact.canonical_identity()),
+        _ => None,
+    }
+}
+
+#[rstest]
+fn a_registry_oracle_binds_exactly_one_instrument() {
+    let readback = || crate::owner::calendar::tests::instrument_readback("XNYS-CALENDAR-V1");
+    let one = readback();
+    assert_eq!(
+        exact_instrument_identity_v1(&one),
+        Some(one.facts()[0].canonical_identity())
+    );
+    let mut none = readback();
+    none.facts.clear();
+    assert_eq!(exact_instrument_identity_v1(&none), None);
+    let mut two = readback();
+    two.facts.push(one.facts()[0].clone());
+    assert_eq!(exact_instrument_identity_v1(&two), None);
+}
+
 async fn strategy_input_binding_registry_postgres_oracle(
     owner: &MarketDataOwnerPostgres,
     source: &SourceBindingCommit,
@@ -2568,6 +2595,12 @@ async fn strategy_input_binding_registry_postgres_oracle(
         crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1,
     >,
 ) -> StrategyInputBindingRegistryFixtureV1 {
+    // The instrument is the one the caller's Instrument Master cut holds, so this oracle serves the
+    // chain's base fixture (the chain fixtures' instrument) and the Market Data oracle ("AAPL")
+    // without naming either.
+    let instrument_identity = exact_instrument_identity_v1(instrument)
+        .expect("the registry oracle binds one exact instrument")
+        .to_owned();
     let source_readback = {
         let mut transaction = owner.pool().begin().await.unwrap();
         let aggregate = load_source_for_update(&mut transaction, source.fact().binding_id(), false)
@@ -2599,8 +2632,8 @@ async fn strategy_input_binding_registry_postgres_oracle(
             &mut transaction,
             membership_frontier,
             vec![HistoricalMembershipFactProposalV1 {
-                member_key: CHAIN_FIXTURE_INSTRUMENT_V1.as_bytes().to_vec(),
-                instrument: CHAIN_FIXTURE_INSTRUMENT_V1.as_bytes().to_vec(),
+                member_key: instrument_identity.as_bytes().to_vec(),
+                instrument: instrument_identity.as_bytes().to_vec(),
                 predecessor_identity: None,
                 effective_from_ns: 1,
                 effective_until_ns: None,
@@ -2698,8 +2731,8 @@ async fn strategy_input_binding_registry_postgres_oracle(
         .map(
             |(symbolic_key, field, timeframe, value_mantissa)| UntrustedPitObservation {
                 symbolic_key: symbolic_key.into(),
-                member_key: CHAIN_FIXTURE_INSTRUMENT_V1.into(),
-                instrument: CHAIN_FIXTURE_INSTRUMENT_V1.into(),
+                member_key: instrument_identity.clone(),
+                instrument: instrument_identity.clone(),
                 channel: "MARKET".into(),
                 data_kind: "BAR".into(),
                 timeframe: timeframe.into(),
@@ -3002,7 +3035,7 @@ async fn strategy_input_binding_registry_postgres_oracle(
         strategy_design_identity: d(191),
         input_role_identity: d(192),
         scope: UntrustedStrategyInputScope::ExactInstrument {
-            instrument: CHAIN_FIXTURE_INSTRUMENT_V1.into(),
+            instrument: instrument_identity.clone(),
         },
         field_semantic: MarketDataFieldSemantic::BarClosePrice,
         channel: StrategyInputChannel::Market,
