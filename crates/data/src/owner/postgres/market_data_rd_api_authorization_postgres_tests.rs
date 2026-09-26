@@ -116,6 +116,12 @@ async fn market_data_rd_api_admits_the_rd_owner_through_the_grant_layer_alone() 
     let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
         .await
         .expect("canonical disposable topology");
+    crate::owner::chain_market_base_v1::ensure_market_data_acceptance_basis_v1(
+        database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner),
+        crate::owner::chain_market_base_v1::CHAIN_MARKET_DATA_ACCEPTANCE_BASIS_V1,
+    )
+    .await
+    .expect("PROBE: ensure the MD basis");
     let mutation = database.mutation();
     let pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
 

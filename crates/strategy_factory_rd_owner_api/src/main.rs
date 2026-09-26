@@ -4963,6 +4963,12 @@ mod tests {
         };
 
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        vibe_data::owner::chain_market_base_v1::ensure_market_data_acceptance_basis_v1(
+            test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner),
+            vibe_data::owner::chain_market_base_v1::CHAIN_MARKET_DATA_ACCEPTANCE_BASIS_V1,
+        )
+        .await
+        .expect("PROBE: ensure the MD basis");
 
         let bindings = composed_market_data_binding_admission(&test_database).await;
 
@@ -5384,6 +5390,12 @@ mod tests {
         };
 
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        vibe_data::owner::chain_market_base_v1::ensure_market_data_acceptance_basis_v1(
+            test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner),
+            vibe_data::owner::chain_market_base_v1::CHAIN_MARKET_DATA_ACCEPTANCE_BASIS_V1,
+        )
+        .await
+        .expect("PROBE: ensure the MD basis");
 
         let rd_pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(2)

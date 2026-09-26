@@ -402,6 +402,12 @@ fn a_v3_research_request_issues_its_initial_pit_request_over_http() {
 )]
 async fn issues_its_initial_pit_request() {
     let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+    vibe_data::owner::chain_market_base_v1::ensure_market_data_acceptance_basis_v1(
+        test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner),
+        vibe_data::owner::chain_market_base_v1::CHAIN_MARKET_DATA_ACCEPTANCE_BASIS_V1,
+    )
+    .await
+    .expect("PROBE: ensure the MD basis");
     // The production Market Data ports open from the deployment environment.
     unsafe {
         env::set_var(

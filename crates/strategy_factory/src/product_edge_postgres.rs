@@ -6248,6 +6248,12 @@ pub(crate) mod tests {
         let market_data_database_url = test_database
             .database_url(CanonicalOwnerTestRoleV1::MarketDataOwner)
             .to_string();
+        vibe_data::owner::chain_market_base_v1::ensure_market_data_acceptance_basis_v1(
+            &market_data_database_url,
+            vibe_data::owner::chain_market_base_v1::CHAIN_MARKET_DATA_ACCEPTANCE_BASIS_V1,
+        )
+        .await
+        .expect("PROBE: ensure the MD basis");
         let suffix = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -7326,6 +7332,12 @@ pub(crate) mod tests {
         use vibe_data::owner::research_instrument_scope_v1::ResearchInstrumentScopeV1;
 
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        vibe_data::owner::chain_market_base_v1::ensure_market_data_acceptance_basis_v1(
+            test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner),
+            vibe_data::owner::chain_market_base_v1::CHAIN_MARKET_DATA_ACCEPTANCE_BASIS_V1,
+        )
+        .await
+        .expect("PROBE: ensure the MD basis");
         let suffix = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
