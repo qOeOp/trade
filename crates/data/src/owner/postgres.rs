@@ -137,7 +137,7 @@ use super::store_admission::RawSharedTimeHistoryRowV1;
 // driven rather than only deployed. The rest stay gated with their production-only readers.
 use super::store_admission::{
     AdmittedMarketDataSnapshotPort, BarScheduleStorageEvidenceV1,
-    MarketDataPitEvaluationStorageEvidence,
+    MarketDataPitEvaluationStorageEvidence, NativeReplaySchedulingReadPortV1,
 };
 #[cfg(not(test))]
 use super::store_admission::{
@@ -8453,18 +8453,52 @@ impl super::sealed_replay_input::sealed::Sealed for MarketDataReadPostgres {}
 impl super::bar_schedule::resolver_seal::Sealed for MarketDataReadPostgres {}
 impl super::native_replay_scheduling_v1::resolver_seal::Sealed for MarketDataReadPostgres {}
 
-/// Reads one frame's initial Market Data inputs through an admitted port, in the required order.
+/// The native Replay scheduling resolver sealed acceptance composes where no Store Admission can
+/// open the admitted one.
+///
+/// It runs the same read path as the admitted resolver, over a port that makes the same raw reads
+/// as the principal its URL names, with no admission before a read and no revalidation after one.
+/// Everything it returns is verified and selected by the code the admitted resolver uses; only the
+/// admission segment, which is `B3`, is absent.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub(crate) struct SealedAcceptanceNativeReplaySchedulingResolverV1 {
+    pub(crate) port: super::store_admission::UnadmittedAcceptanceSnapshotPortV1,
+}
+
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+use super::native_replay_scheduling_v1::resolver_seal::Sealed as NativeReplaySchedulingResolverSealed;
+
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+impl NativeReplaySchedulingResolverSealed for SealedAcceptanceNativeReplaySchedulingResolverV1 {}
+
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+#[async_trait::async_trait]
+impl NativeReplaySchedulingResolverV1 for SealedAcceptanceNativeReplaySchedulingResolverV1 {
+    async fn resolve_native_replay_initial_market_inputs_v1(
+        &self,
+        request: &NativeReplayInitialMarketRequestV1,
+    ) -> Result<NativeReplayInitialMarketReadbackV1, NativeReplaySchedulingErrorV1> {
+        resolve_native_replay_initial_market_through_port_v1(&self.port, request).await
+    }
+}
+
+/// Reads one frame's initial Market Data inputs through a scheduling read port, in the required
+/// order.
 ///
 /// **Deliberately not `cfg`-gated, although its only production caller is.** While this lived
 /// inside the `cfg(not(test))` arm of the resolver, the arrangement did not exist in a test build
 /// at all - not untested but absent - so no proof could reach it and the first execution of this
-/// order would have happened in a deployment. The port revalidates its own admission before and
-/// after each read, so what this adds is the order: the cut, the schedules that cut admits, then
-/// the quote cut the frame's census and decision cut choose.
-pub(super) async fn resolve_native_replay_initial_market_through_admitted_port_v1(
-    port: &AdmittedMarketDataSnapshotPort,
+/// order would have happened in a deployment. The admitted port revalidates its own admission
+/// before and after each read, and the sealed acceptance port makes the same reads with no
+/// admission; what this adds is the order: the cut, the schedules that cut admits, then the quote
+/// cut the frame's census and decision cut choose.
+pub(super) async fn resolve_native_replay_initial_market_through_port_v1<P>(
+    port: &P,
     request: &NativeReplayInitialMarketRequestV1,
-) -> Result<NativeReplayInitialMarketReadbackV1, NativeReplaySchedulingErrorV1> {
+) -> Result<NativeReplayInitialMarketReadbackV1, NativeReplaySchedulingErrorV1>
+where
+    P: NativeReplaySchedulingReadPortV1 + ?Sized,
+{
     let evidence = port
         .resolve_pit_evaluation(*request.snapshot_identity().as_bytes())
         .await
@@ -8498,7 +8532,7 @@ pub(super) async fn resolve_native_replay_initial_market_through_admitted_port_v
             request.frame_time_ns(),
         )?);
     }
-    let quote_cut = resolve_native_replay_quote_cut_through_admitted_port_v2(
+    let quote_cut = resolve_native_replay_quote_cut_through_port_v2(
         port,
         &batch,
         request.window_end_ns_exclusive(),
@@ -8513,11 +8547,14 @@ pub(super) async fn resolve_native_replay_initial_market_through_admitted_port_v
 /// The port returns the frame census's bound and the quote cut census rows from one snapshot;
 /// the chosen quote cut is then read back through the port's PIT evaluation and verified like
 /// any other cut before it is compared with the frame.
-pub(super) async fn resolve_native_replay_quote_cut_through_admitted_port_v2(
-    port: &AdmittedMarketDataSnapshotPort,
+pub(super) async fn resolve_native_replay_quote_cut_through_port_v2<P>(
+    port: &P,
     frame: &VerifiedPitObservationBatch,
     window_end_ns_exclusive: u64,
-) -> Result<VerifiedPitObservationBatch, NativeReplayQuoteCutRefusalV2> {
+) -> Result<VerifiedPitObservationBatch, NativeReplayQuoteCutRefusalV2>
+where
+    P: NativeReplaySchedulingReadPortV1 + ?Sized,
+{
     let frame_coordinates = NativeReplayCutCoordinatesV2::of(frame);
     let decision_cut_ns = frame.time_evidence().decision_cut.value;
     let census = port
@@ -8716,11 +8753,7 @@ impl NativeReplaySchedulingResolverV1 for MarketDataReadPostgres {
         }
         #[cfg(not(test))]
         {
-            resolve_native_replay_initial_market_through_admitted_port_v1(
-                &self.admitted_port,
-                request,
-            )
-            .await
+            resolve_native_replay_initial_market_through_port_v1(&self.admitted_port, request).await
         }
     }
 }
@@ -9483,11 +9516,25 @@ fn verify_admitted_source_rows(
     Ok(SourceBindingOwnerReadback::from_verified(&aggregate))
 }
 
+/// Whether PIT evaluation evidence names the admission it was read under.
+///
+/// In a production build only an admitted receipt does. A build that carries the sealed acceptance
+/// port also accepts that port's explicit marker, which names the absence of any Store Admission;
+/// it is never a receipt identity, so it cannot pass for one, and no production build can produce
+/// or accept it.
+fn evidence_names_its_admission_v1(receipt_identity: &str) -> bool {
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    if receipt_identity == super::store_admission::SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1 {
+        return true;
+    }
+    receipt_identity.starts_with("sha256:")
+}
+
 fn verify_admitted_pit_evidence(
     locator: &UntrustedPitSnapshotLocator,
     evidence: &MarketDataPitEvaluationStorageEvidence,
 ) -> Result<VerifiedPitObservationBatch, PitSnapshotError> {
-    if !evidence.admission_receipt_identity().starts_with("sha256:") {
+    if !evidence_names_its_admission_v1(evidence.admission_receipt_identity()) {
         return Err(PitSnapshotError::PersistenceUnavailable);
     }
     let mut prior = None;

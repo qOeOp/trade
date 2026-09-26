@@ -404,6 +404,18 @@ pub(super) struct MarketDataPitEvaluationStorageEvidence {
     batch_rows: Vec<MarketDataPitObservationNativeRow>,
 }
 
+impl MarketDataPitEvaluationStorageEvidence {
+    /// The same evidence under another receipt identity, for proving what the verifier refuses.
+    #[cfg(test)]
+    pub(super) fn with_admission_receipt_identity_for_test(
+        mut self,
+        admission_receipt_identity: &str,
+    ) -> Self {
+        admission_receipt_identity.clone_into(&mut self.admission_receipt_identity);
+        self
+    }
+}
+
 /// Exact raw PIT, Source Binding, and clock custody observed for one terminal read.
 ///
 /// Unlike evaluation evidence, this DTO deliberately has no normalized-observation batch. DSA
@@ -724,13 +736,7 @@ impl AdmittedMarketDataSnapshotPort {
             &after.receipt,
             &after.measurement_spec,
         )?;
-        Ok(raw
-            .into_iter()
-            .map(|raw| BarScheduleStorageEvidenceV1 {
-                readback_row: raw.readback_row,
-                history_rows: raw.history_rows,
-            })
-            .collect())
+        Ok(bar_schedule_candidate_evidence_v1(raw))
     }
 
     /// Reads one frame's quote cut census after admission before and after.
@@ -1038,18 +1044,10 @@ impl AdmittedMarketDataSnapshotPort {
                 AdmissionFailureCode::AdmissionCutExpired,
             ));
         }
-        Ok(MarketDataPitEvaluationStorageEvidence {
-            admission_receipt_identity: self.receipt.receipt_identity.clone(),
-            pit_lineage_rows: raw.pit_lineage_rows,
-            source_lineage_rows: raw.source_lineage_rows,
-            clock_rows: raw.clock_rows,
-            batch_source_binding_identity: raw.batch_source_binding_identity,
-            batch_source_binding_lineage_root: raw.batch_source_binding_lineage_root,
-            batch_source_binding_lineage_version: raw.batch_source_binding_lineage_version,
-            batch_digest: raw.batch_digest,
-            batch_bytes: raw.batch_bytes,
-            batch_rows: raw.batch_rows,
-        })
+        Ok(pit_evaluation_evidence_v1(
+            self.receipt.receipt_identity.clone(),
+            raw,
+        ))
     }
 
     /// Reads one fixed PIT-terminal snapshot after admission both before checkout and return.
@@ -1295,6 +1293,317 @@ pub(super) async fn admit_rd_owner_market_data_postgres(
         Arc::new(SystemClock),
     );
     custodian.admit_capability(request.scope()).await
+}
+
+/// The evidence one PIT evaluation read returns, under the receipt the read was made against.
+fn pit_evaluation_evidence_v1(
+    admission_receipt_identity: String,
+    raw: postgres::RawPitEvaluationSnapshot,
+) -> MarketDataPitEvaluationStorageEvidence {
+    MarketDataPitEvaluationStorageEvidence {
+        admission_receipt_identity,
+        pit_lineage_rows: raw.pit_lineage_rows,
+        source_lineage_rows: raw.source_lineage_rows,
+        clock_rows: raw.clock_rows,
+        batch_source_binding_identity: raw.batch_source_binding_identity,
+        batch_source_binding_lineage_root: raw.batch_source_binding_lineage_root,
+        batch_source_binding_lineage_version: raw.batch_source_binding_lineage_version,
+        batch_digest: raw.batch_digest,
+        batch_bytes: raw.batch_bytes,
+        batch_rows: raw.batch_rows,
+    }
+}
+
+/// The evidence one BAR schedule candidate read returns.
+fn bar_schedule_candidate_evidence_v1(
+    raw: Vec<postgres::RawBarScheduleSnapshotV1>,
+) -> Vec<BarScheduleStorageEvidenceV1> {
+    raw.into_iter()
+        .map(|raw| BarScheduleStorageEvidenceV1 {
+            readback_row: raw.readback_row,
+            history_rows: raw.history_rows,
+        })
+        .collect()
+}
+
+/// The three reads a native Replay initial market resolution makes, whichever port makes them.
+///
+/// The admitted port wraps each read in admission before and after it. The sealed acceptance port
+/// makes the same raw read with no admission at all. What `vibe-data` does with the evidence -
+/// verification, selection, the quote cut rules - exists once, over whichever port implements this.
+#[async_trait]
+pub(super) trait NativeReplaySchedulingReadPortV1: Send + Sync {
+    /// The complete PIT evaluation evidence of one snapshot.
+    async fn resolve_pit_evaluation(
+        &self,
+        snapshot_identity: [u8; 32],
+    ) -> Result<MarketDataPitEvaluationStorageEvidence, DeploymentStoreAdmissionError>;
+
+    /// Every BAR schedule candidate of one canonical instrument, with its history.
+    async fn resolve_bar_schedule_candidates_v1(
+        &self,
+        canonical_instrument: &str,
+    ) -> Result<Vec<BarScheduleStorageEvidenceV1>, DeploymentStoreAdmissionError>;
+
+    /// One frame's quote cut census and the bound its next frame sets.
+    async fn resolve_native_replay_quote_cut_census_v2(
+        &self,
+        scope_digest: [u8; 32],
+        frame_time_ns: u64,
+        decision_cut_ns: u64,
+        window_end_ns_exclusive: u64,
+    ) -> Result<postgres::RawNativeReplayQuoteCutCensusV2, DeploymentStoreAdmissionError>;
+}
+
+#[async_trait]
+impl NativeReplaySchedulingReadPortV1 for AdmittedMarketDataSnapshotPort {
+    async fn resolve_pit_evaluation(
+        &self,
+        snapshot_identity: [u8; 32],
+    ) -> Result<MarketDataPitEvaluationStorageEvidence, DeploymentStoreAdmissionError> {
+        Self::resolve_pit_evaluation(self, snapshot_identity).await
+    }
+
+    async fn resolve_bar_schedule_candidates_v1(
+        &self,
+        canonical_instrument: &str,
+    ) -> Result<Vec<BarScheduleStorageEvidenceV1>, DeploymentStoreAdmissionError> {
+        Self::resolve_bar_schedule_candidates_v1(self, canonical_instrument).await
+    }
+
+    async fn resolve_native_replay_quote_cut_census_v2(
+        &self,
+        scope_digest: [u8; 32],
+        frame_time_ns: u64,
+        decision_cut_ns: u64,
+        window_end_ns_exclusive: u64,
+    ) -> Result<postgres::RawNativeReplayQuoteCutCensusV2, DeploymentStoreAdmissionError> {
+        Self::resolve_native_replay_quote_cut_census_v2(
+            self,
+            scope_digest,
+            frame_time_ns,
+            decision_cut_ns,
+            window_end_ns_exclusive,
+        )
+        .await
+    }
+}
+
+/// The receipt identity every evidence from the sealed acceptance port carries: it names the
+/// absence of a Store Admission, so no reader can take such evidence for admitted evidence.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub(super) const SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1: &str =
+    "SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1";
+
+/// The native Replay scheduling reads over a directly connected principal, for sealed acceptance
+/// only.
+///
+/// It makes exactly the raw reads the admitted port makes, through the same measured-read
+/// functions, which accept only a disposable loopback `vibe_test_` database. What it does not do
+/// is the admission itself: no custody history, signer, anti-rollback witness, credential lease or
+/// direct measurement before a read, and no revalidation after one. That segment is `B3` and stays
+/// unproven here. The principal is whatever the URL names; acceptance connects as a least-privilege
+/// test principal granted exactly `NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1`, so a read that
+/// strays outside that set is refused rather than silently answered.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub(super) struct UnadmittedAcceptanceSnapshotPortV1 {
+    lease: postgres::PostgresCredentialLease,
+    scope: AdmissionScope,
+}
+
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+impl Debug for UnadmittedAcceptanceSnapshotPortV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct(stringify!(UnadmittedAcceptanceSnapshotPortV1))
+            .finish_non_exhaustive()
+    }
+}
+
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+impl UnadmittedAcceptanceSnapshotPortV1 {
+    /// A port reading as the principal `database_url` names.
+    ///
+    /// # Errors
+    ///
+    /// `CredentialLeaseRejected` when the URL is empty.
+    pub(super) fn from_database_url(
+        database_url: &str,
+    ) -> Result<Self, DeploymentStoreAdmissionError> {
+        let scope = AdmissionScope {
+            environment_identity: SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1.to_owned(),
+            deployment_identity: SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1.to_owned(),
+            consumer_owner: MARKET_DATA_OWNER.to_owned(),
+            consumer_identity: RD_OWNER_API_CONSUMER.to_owned(),
+            backend: POSTGRES_BACKEND.to_owned(),
+            expected_head_identity: SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1.to_owned(),
+        };
+        let lease = postgres::PostgresCredentialLease::from_resolved_secret(
+            "sealed-acceptance",
+            "market-data-native-replay-scheduling",
+            "v1",
+            u64::MAX,
+            database_url.to_owned(),
+        )
+        .map_err(|_| rejection(&scope, AdmissionFailureCode::CredentialLeaseRejected))?;
+        Ok(Self { lease, scope })
+    }
+
+    fn unavailable(&self) -> DeploymentStoreAdmissionError {
+        rejection(
+            &self.scope,
+            AdmissionFailureCode::DirectMeasurementUnavailable,
+        )
+    }
+}
+
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+#[async_trait]
+impl NativeReplaySchedulingReadPortV1 for UnadmittedAcceptanceSnapshotPortV1 {
+    async fn resolve_pit_evaluation(
+        &self,
+        snapshot_identity: [u8; 32],
+    ) -> Result<MarketDataPitEvaluationStorageEvidence, DeploymentStoreAdmissionError> {
+        let raw =
+            postgres::read_market_data_pit_evaluation_snapshot(&self.lease, &snapshot_identity)
+                .await
+                .map_err(|_| self.unavailable())?;
+        Ok(pit_evaluation_evidence_v1(
+            SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1.to_owned(),
+            raw,
+        ))
+    }
+
+    async fn resolve_bar_schedule_candidates_v1(
+        &self,
+        canonical_instrument: &str,
+    ) -> Result<Vec<BarScheduleStorageEvidenceV1>, DeploymentStoreAdmissionError> {
+        let raw =
+            postgres::read_bar_schedule_candidate_snapshots_v1(&self.lease, canonical_instrument)
+                .await
+                .map_err(|_| self.unavailable())?;
+        Ok(bar_schedule_candidate_evidence_v1(raw))
+    }
+
+    async fn resolve_native_replay_quote_cut_census_v2(
+        &self,
+        scope_digest: [u8; 32],
+        frame_time_ns: u64,
+        decision_cut_ns: u64,
+        window_end_ns_exclusive: u64,
+    ) -> Result<postgres::RawNativeReplayQuoteCutCensusV2, DeploymentStoreAdmissionError> {
+        postgres::read_native_replay_quote_cut_census_snapshot_v2(
+            &self.lease,
+            &scope_digest,
+            frame_time_ns,
+            decision_cut_ns,
+            window_end_ns_exclusive,
+        )
+        .await
+        .map_err(|_| self.unavailable())
+    }
+}
+
+/// One privilege the sealed acceptance principal is granted.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum AcceptanceGrantV1 {
+    /// `USAGE` on a schema.
+    SchemaUsage(&'static str),
+    /// `SELECT` on a relation the raw reads name directly.
+    TableSelect(&'static str),
+    /// `EXECUTE` on a function the raw reads call, by its exact signature.
+    FunctionExecute(&'static str),
+}
+
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+impl AcceptanceGrantV1 {
+    fn object(self) -> String {
+        match self {
+            Self::SchemaUsage(schema) => format!("USAGE ON SCHEMA {schema}"),
+            Self::TableSelect(table) => format!("SELECT ON TABLE {table}"),
+            Self::FunctionExecute(function) => format!("EXECUTE ON FUNCTION {function}"),
+        }
+    }
+
+    /// `GRANT` of this privilege to an already quoted role.
+    pub(super) fn grant_to(self, quoted_role: &str) -> String {
+        format!("GRANT {} TO {quoted_role}", self.object())
+    }
+
+    /// `REVOKE` of this privilege from an already quoted role.
+    pub(super) fn revoke_from(self, quoted_role: &str) -> String {
+        format!("REVOKE {} FROM {quoted_role}", self.object())
+    }
+}
+
+/// Exactly what the three native Replay scheduling raw reads need of the principal they connect
+/// as, and nothing more.
+///
+/// It is also a draft of the gate `B3` must grant the principal a Store Admission leases, measured
+/// by removal: the sealed acceptance proof revokes each entry alone and requires the read that
+/// needs it to be refused. Two entries fall outside every floor a scheduling admission measures
+/// today: the PIT evaluation read names `pit_snapshot_facts_v1` and `clock_handoffs_v1` directly,
+/// and no floor covers the PIT evaluation functions at all.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub(super) const NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1: &[AcceptanceGrantV1] = &[
+    AcceptanceGrantV1::SchemaUsage("market_data_private"),
+    AcceptanceGrantV1::TableSelect("market_data_private.pit_snapshot_facts_v1"),
+    AcceptanceGrantV1::TableSelect("market_data_private.clock_handoffs_v1"),
+    AcceptanceGrantV1::FunctionExecute("market_data_private.resolve_pit_snapshot_v1(bytea)"),
+    AcceptanceGrantV1::FunctionExecute(
+        "market_data_private.resolve_pit_observation_batch_v1(bytea)",
+    ),
+    AcceptanceGrantV1::FunctionExecute(
+        "market_data_private.resolve_pit_observation_rows_v1(bytea)",
+    ),
+    AcceptanceGrantV1::FunctionExecute("market_data_private.resolve_pit_lineage_custody_v1(bytea)"),
+    AcceptanceGrantV1::FunctionExecute("market_data_private.resolve_pit_lineage_members_v1(bytea)"),
+    AcceptanceGrantV1::FunctionExecute("market_data_private.resolve_source_binding_v1(bytea)"),
+    AcceptanceGrantV1::FunctionExecute(
+        "market_data_private.resolve_source_lineage_custody_v1(bytea)",
+    ),
+    AcceptanceGrantV1::FunctionExecute(
+        "market_data_private.resolve_source_lineage_members_v1(bytea)",
+    ),
+    AcceptanceGrantV1::FunctionExecute("market_data_private.resolve_clock_custody_state_v1()"),
+    AcceptanceGrantV1::FunctionExecute(
+        "market_data_private.resolve_owner_history_census_custody_v1()",
+    ),
+    AcceptanceGrantV1::FunctionExecute(
+        "market_data_private.resolve_bar_schedule_candidates_v1(text)",
+    ),
+    AcceptanceGrantV1::FunctionExecute("market_data_private.resolve_bar_schedule_history_v1(text)"),
+    AcceptanceGrantV1::FunctionExecute(
+        "market_data_private.resolve_native_replay_quote_cut_census_v2(bytea,bigint,bigint)",
+    ),
+    AcceptanceGrantV1::FunctionExecute(
+        "market_data_private.resolve_native_replay_next_frame_v2(bytea,bigint,bigint)",
+    ),
+];
+
+/// Applies `statement_of` for every sealed acceptance grant to `role`, as the Market Data owner.
+///
+/// # Errors
+///
+/// The store's error when a statement is refused; statements already applied stay applied.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub(super) async fn apply_native_replay_scheduling_acceptance_grants_v1(
+    owner: &sqlx::PgPool,
+    role: &str,
+    statement_of: fn(AcceptanceGrantV1, &str) -> String,
+) -> Result<(), sqlx::Error> {
+    let quoted: String = sqlx::query_scalar("SELECT pg_catalog.quote_ident($1)")
+        .bind(role)
+        .fetch_one(owner)
+        .await?;
+
+    for grant in NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1 {
+        sqlx::query(sqlx::AssertSqlSafe(statement_of(*grant, &quoted)))
+            .execute(owner)
+            .await?;
+    }
+    Ok(())
 }
 
 /// Makes the intentionally unavailable S3 boundary explicit without adding an adapter.
@@ -3505,7 +3814,7 @@ mod tests {
     ///
     /// A refused PIT readback does not go on to read schedule candidates.
     ///
-    /// `resolve_native_replay_initial_market_through_admitted_port_v1` reads the snapshot's
+    /// `resolve_native_replay_initial_market_through_port_v1` reads the snapshot's
     /// evidence, verifies it, and only then asks the port for each member's schedule candidates.
     /// Nothing in the types enforces that order; swapping the two would still compile, still
     /// refuse, and still return the same error to the caller. What would change is that a store
@@ -3673,12 +3982,11 @@ mod tests {
         .expect("the frame verifies");
         let window_end = snapshot.frame_time_ns + 1_000;
 
-        let through_port =
-            crate::owner::postgres::resolve_native_replay_quote_cut_through_admitted_port_v2(
-                &port, &frame, window_end,
-            )
-            .await
-            .expect("the port resolves the frame's quote cut");
+        let through_port = crate::owner::postgres::resolve_native_replay_quote_cut_through_port_v2(
+            &port, &frame, window_end,
+        )
+        .await
+        .expect("the port resolves the frame's quote cut");
         assert_eq!(
             through_port.snapshot_identity(),
             snapshot.quote_cut_snapshot_identity
@@ -3703,7 +4011,7 @@ mod tests {
 
         // A window that ends on the quote cut's instant leaves the frame without one, both ways.
         assert_eq!(
-            crate::owner::postgres::resolve_native_replay_quote_cut_through_admitted_port_v2(
+            crate::owner::postgres::resolve_native_replay_quote_cut_through_port_v2(
                 &port,
                 &frame,
                 snapshot.quote_cut_instant_ns,
@@ -3718,6 +4026,299 @@ mod tests {
                 .await
                 .map(|batch| batch.snapshot_identity()),
             Err(NativeReplayQuoteCutRefusalV2::QuoteCutMissing)
+        );
+    }
+
+    /// Which of the three scheduling reads a grant serves.
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+    enum SchedulingReadV1 {
+        PitEvaluation,
+        BarScheduleCandidates,
+        QuoteCutCensus,
+    }
+
+    /// The reads a grant exists for, stated before any run so the proof can disagree with it.
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    fn reads_needing(grant: AcceptanceGrantV1) -> std::collections::BTreeSet<SchedulingReadV1> {
+        use SchedulingReadV1::{BarScheduleCandidates, PitEvaluation, QuoteCutCensus};
+
+        match grant {
+            AcceptanceGrantV1::SchemaUsage(_) => {
+                [PitEvaluation, BarScheduleCandidates, QuoteCutCensus].into()
+            }
+            AcceptanceGrantV1::TableSelect(_) => [PitEvaluation].into(),
+            AcceptanceGrantV1::FunctionExecute(function) if function.contains("bar_schedule") => {
+                [BarScheduleCandidates].into()
+            }
+            AcceptanceGrantV1::FunctionExecute(function) if function.contains("native_replay") => {
+                [QuoteCutCensus].into()
+            }
+            AcceptanceGrantV1::FunctionExecute(_) => [PitEvaluation].into(),
+        }
+    }
+
+    /// Runs each scheduling read once through `port` and names the ones that were refused.
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    async fn refused_reads(
+        port: &UnadmittedAcceptanceSnapshotPortV1,
+        snapshot: &crate::owner::postgres::tests::NativeReplayTwoMemberSnapshotFixtureV1,
+    ) -> std::collections::BTreeSet<SchedulingReadV1> {
+        let mut refused = std::collections::BTreeSet::new();
+
+        if port
+            .resolve_pit_evaluation(*snapshot.snapshot_identity.as_bytes())
+            .await
+            .is_err()
+        {
+            refused.insert(SchedulingReadV1::PitEvaluation);
+        }
+
+        if port
+            .resolve_bar_schedule_candidates_v1("AAPL.XNAS")
+            .await
+            .is_err()
+        {
+            refused.insert(SchedulingReadV1::BarScheduleCandidates);
+        }
+
+        if port
+            .resolve_native_replay_quote_cut_census_v2(
+                *snapshot.snapshot_identity.as_bytes(),
+                snapshot.frame_time_ns,
+                snapshot.frame_time_ns + 1_000,
+                snapshot.frame_time_ns + 1_000,
+            )
+            .await
+            .is_err()
+        {
+            refused.insert(SchedulingReadV1::QuoteCutCensus);
+        }
+        refused
+    }
+
+    /// The sealed acceptance resolver reads under exactly the grants it declares, as a
+    /// least-privilege principal, through the read path the admitted resolver uses.
+    ///
+    /// It connects as the disposable harness's reader role, which starts with no `USAGE` on
+    /// `market_data_private`. With nothing granted, every read is refused. With exactly
+    /// `NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1`, every read is answered: the snapshot's
+    /// evidence verifies, a member's schedule candidates are read, and the quote cut read through
+    /// the port is the one custody resolves. Each grant revoked alone refuses exactly the reads
+    /// stated for it in `reads_needing`, and nothing else, so the list is neither short nor padded.
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    #[rstest]
+    #[ignore = "requires the crates/data disposable PostgreSQL harness"]
+    fn the_sealed_acceptance_resolver_reads_under_exactly_its_grants() {
+        std::thread::Builder::new()
+            .name("market-data-sealed-acceptance-grants".into())
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(run_sealed_acceptance_grants_scenario());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    async fn run_sealed_acceptance_grants_scenario() {
+        use crate::owner::native_replay_scheduling_v1::{
+            NativeReplaySchedulingErrorV1, NativeReplaySchedulingResolverV1,
+        };
+
+        const READER: &str = "vibe_test_role_market_data_reader";
+        let owner_url = std::env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL")
+            .expect("explicit disposable Owner URL");
+        let reader_url = std::env::var("MARKET_DATA_READER_TEST_DATABASE_URL")
+            .expect("explicit disposable reader URL");
+        let database =
+            std::env::var("VIBE_POSTGRES_TEST_DATABASE_NAME").expect("disposable database name");
+        assert!(
+            database.starts_with("vibe_test_"),
+            "this proof grants and revokes; it runs only against a disposable database"
+        );
+        assert!(
+            reader_url.contains(READER),
+            "the proof's principal is the harness reader"
+        );
+        let owner = crate::owner::postgres::MarketDataOwnerPostgres::connect(&owner_url)
+            .await
+            .expect("Owner connects and migrates");
+        let snapshot =
+            crate::owner::postgres::tests::native_replay_two_member_snapshot_fixture_v1(&owner)
+                .await;
+        let request = native_replay_request_for(&snapshot);
+        let resolver = crate::owner::postgres::SealedAcceptanceNativeReplaySchedulingResolverV1 {
+            port: UnadmittedAcceptanceSnapshotPortV1::from_database_url(&reader_url)
+                .expect("a reader URL makes a port"),
+        };
+
+        // Nothing granted: the least-privilege principal reads nothing at all.
+        assert_eq!(
+            refused_reads(&resolver.port, &snapshot).await.len(),
+            3,
+            "an ungranted principal is refused every read"
+        );
+
+        apply_native_replay_scheduling_acceptance_grants_v1(owner.pool(), READER, |grant, role| {
+            grant.grant_to(role)
+        })
+        .await
+        .expect("the owner grants the acceptance reads");
+
+        // Exactly the grants: every read is answered.
+        assert!(refused_reads(&resolver.port, &snapshot).await.is_empty());
+
+        // The resolver composes the same read path. It cannot tell this proof which case it is in:
+        // the fixture seeds no schedule, and selection names a member with no candidate exactly as
+        // it names a refused read. The discriminating measurements are the reads above and below;
+        // the path with schedules is the ordered chain's, where the Replay fixtures seed them.
+        assert_eq!(
+            resolver
+                .resolve_native_replay_initial_market_inputs_v1(&request)
+                .await
+                .map(|_| ()),
+            Err(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)
+        );
+
+        let evidence = resolver
+            .port
+            .resolve_pit_evaluation(*snapshot.snapshot_identity.as_bytes())
+            .await
+            .expect("the frame's evidence");
+        let frame = crate::owner::postgres::verify_admitted_pit_evidence_by_identity_v1(
+            snapshot.snapshot_identity,
+            snapshot.snapshot_fact_digest,
+            &evidence,
+        )
+        .expect("the frame verifies");
+        let window_end = snapshot.frame_time_ns + 1_000;
+        let through_port = crate::owner::postgres::resolve_native_replay_quote_cut_through_port_v2(
+            &resolver.port,
+            &frame,
+            window_end,
+        )
+        .await
+        .expect("the acceptance port resolves the frame's quote cut");
+        assert_eq!(
+            through_port.snapshot_identity(),
+            snapshot.quote_cut_snapshot_identity
+        );
+        assert_eq!(
+            owner
+                .resolve_native_replay_quote_cut_v2(&frame, window_end)
+                .await
+                .expect("custody resolves the frame's quote cut")
+                .snapshot_identity(),
+            through_port.snapshot_identity(),
+            "the acceptance port and custody resolve the same quote cut"
+        );
+
+        // Every grant is needed, and for exactly the reads stated for it.
+        let quoted: String = sqlx::query_scalar("SELECT pg_catalog.quote_ident($1)")
+            .bind(READER)
+            .fetch_one(owner.pool())
+            .await
+            .unwrap();
+
+        for grant in NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1 {
+            sqlx::query(sqlx::AssertSqlSafe(grant.revoke_from(&quoted)))
+                .execute(owner.pool())
+                .await
+                .unwrap();
+            assert_eq!(
+                refused_reads(&resolver.port, &snapshot).await,
+                reads_needing(*grant),
+                "{grant:?} revoked alone"
+            );
+            sqlx::query(sqlx::AssertSqlSafe(grant.grant_to(&quoted)))
+                .execute(owner.pool())
+                .await
+                .unwrap();
+        }
+        assert!(
+            refused_reads(&resolver.port, &snapshot).await.is_empty(),
+            "every grant restored"
+        );
+    }
+
+    /// A build without the sealed acceptance port refuses evidence that names no Store Admission.
+    ///
+    /// The marker the acceptance port stamps is accepted only where that port exists; this build
+    /// does not carry it, so what runs here is the production branch of the verifier, not a test
+    /// double of it. Real evidence read through an admitted port verifies; the same evidence
+    /// carrying the acceptance marker in place of its receipt is refused by name.
+    #[cfg(not(feature = "sealed-strategy-input-acceptance"))]
+    #[rstest]
+    #[ignore = "requires the crates/data disposable PostgreSQL harness"]
+    fn a_production_build_refuses_evidence_that_names_no_admission() {
+        std::thread::Builder::new()
+            .name("market-data-production-refuses-acceptance-marker".into())
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(run_production_refuses_acceptance_marker_scenario());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[cfg(not(feature = "sealed-strategy-input-acceptance"))]
+    async fn run_production_refuses_acceptance_marker_scenario() {
+        // Written out rather than named: the constant exists only in a build that carries the
+        // acceptance port, which this one must not.
+        const ACCEPTANCE_MARKER: &str = "SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1";
+
+        let owner_url = std::env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL")
+            .expect("explicit disposable Owner URL");
+        let database =
+            std::env::var("VIBE_POSTGRES_TEST_DATABASE_NAME").expect("disposable database name");
+        assert!(
+            database.starts_with("vibe_test_"),
+            "this proof writes; it runs only against a disposable database"
+        );
+        let owner = crate::owner::postgres::MarketDataOwnerPostgres::connect(&owner_url)
+            .await
+            .expect("Owner connects and migrates");
+        let snapshot =
+            crate::owner::postgres::tests::native_replay_two_member_snapshot_fixture_v1(&owner)
+                .await;
+        let port =
+            admitted_capability_for(&owner_url, &native_replay_scheduling_measurement_spec())
+                .await
+                .into_native_replay_scheduling_snapshot_port_v2()
+                .expect("the measurement carries both floors");
+        let evidence = port
+            .resolve_pit_evaluation(*snapshot.snapshot_identity.as_bytes())
+            .await
+            .expect("the frame's evidence");
+
+        assert!(
+            crate::owner::postgres::verify_admitted_pit_evidence_by_identity_v1(
+                snapshot.snapshot_identity,
+                snapshot.snapshot_fact_digest,
+                &evidence,
+            )
+            .is_ok(),
+            "admitted evidence verifies, so the refusal below is the marker's"
+        );
+        assert_eq!(
+            crate::owner::postgres::verify_admitted_pit_evidence_by_identity_v1(
+                snapshot.snapshot_identity,
+                snapshot.snapshot_fact_digest,
+                &evidence.with_admission_receipt_identity_for_test(ACCEPTANCE_MARKER),
+            )
+            .map(|batch| batch.snapshot_identity()),
+            Err(crate::owner::pit_snapshot::PitSnapshotError::PersistenceUnavailable)
         );
     }
 
@@ -3864,12 +4465,11 @@ mod tests {
         // to ask about schedules. No schedule is seeded for either instrument, so it still refuses -
         // after the reads, which is what makes this the control rather than the result.
         let before = calls.load(Ordering::SeqCst);
-        let refused =
-            crate::owner::postgres::resolve_native_replay_initial_market_through_admitted_port_v1(
-                &port, &request,
-            )
-            .await
-            .expect_err("no schedule is seeded for either member");
+        let refused = crate::owner::postgres::resolve_native_replay_initial_market_through_port_v1(
+            &port, &request,
+        )
+        .await
+        .expect_err("no schedule is seeded for either member");
         let intact_reads = calls.load(Ordering::SeqCst) - before;
         // One schedule read rather than two, measured: the loop refuses at the first instrument
         // whose candidates cannot be selected, so the second is never asked. The arithmetic first
@@ -3894,7 +4494,7 @@ mod tests {
 
         let before = calls.load(Ordering::SeqCst);
         let rejected =
-            crate::owner::postgres::resolve_native_replay_initial_market_through_admitted_port_v1(
+            crate::owner::postgres::resolve_native_replay_initial_market_through_port_v1(
                 &port, &request,
             )
             .await

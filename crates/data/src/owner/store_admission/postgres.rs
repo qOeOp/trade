@@ -872,7 +872,7 @@ fn raw_bytea_digest(
 ///
 /// This private DTO is deliberately opaque to callers. The Market Data Owner alone validates its
 /// canonical bytes and complete append-only history.
-pub(super) struct RawBarScheduleSnapshotV1 {
+pub(crate) struct RawBarScheduleSnapshotV1 {
     pub(super) readback_row: Vec<u8>,
     pub(super) history_rows: Vec<Vec<u8>>,
 }
