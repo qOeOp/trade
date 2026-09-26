@@ -52,7 +52,7 @@ jobs:
     services:
       postgres:
         # yamllint disable-line rule:line-length
-        image: public.ecr.aws/docker/library/postgres:16.4-alpine@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c
+        image: mirror.gcr.io/library/postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297
         env:
           POSTGRES_PASSWORD: dashboard
         ports:

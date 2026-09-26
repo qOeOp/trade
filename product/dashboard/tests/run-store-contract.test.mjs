@@ -51,8 +51,10 @@ test("Source-to-Research recovery binds the exact ordered identity pair and oper
   assert.deepEqual(canonicalSourceResearchRecoveryIdentityV1(first), second);
   assert.equal(sourceResearchRecoveryIdentityDigestV1(first), sourceResearchRecoveryIdentityDigestV1(second));
   assert.match(sourceResearchOperationManifestDigestV1(), /^sha256:[0-9a-f]{64}$/);
+  // A new run submits Research V3; V2 stays listed only to resolve runs recorded before V3.
   assert.deepEqual(sourceResearchRunOperationV1.owner_operations, [
     sourceIntakeOperationV1.owner_operation,
+    "research_goal.submit_or_resolve.v3",
     researchGoalOperationV2.owner_operation,
   ]);
   assert.equal(

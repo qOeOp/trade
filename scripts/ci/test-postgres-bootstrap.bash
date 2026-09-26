@@ -12,8 +12,6 @@ if ! command -v docker > /dev/null 2>&1; then
   exit 1
 fi
 
-postgres_image="public.ecr.aws/docker/library/postgres:16.4-alpine@sha256:"
-postgres_image+="5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c"
 container="nautilus-postgres-preflight-$$"
 
 cleanup() {
@@ -21,9 +19,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if ! docker image inspect "$postgres_image" > /dev/null 2>&1; then
-  bash scripts/ci/docker-pull-retry.sh "$postgres_image" 3
-fi
+postgres_image="$(bash scripts/ci/pull-pinned-image.bash \
+  "mirror.gcr.io/library/postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297" \
+  "public.ecr.aws/docker/library/postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297")"
 
 docker run \
   --detach \

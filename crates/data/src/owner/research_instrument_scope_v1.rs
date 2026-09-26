@@ -442,4 +442,54 @@ mod tests {
             );
         }
     }
+
+    /// Every identity in the vector file the Dashboard's validator is tested against too, so a
+    /// rule changed here without the page (or there without here) turns one side red.
+    #[rstest]
+    fn identity_rules_match_the_shared_vectors() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "../../product/rd-owner-client/fixtures/research_instrument_identity_vectors_v1.json",
+        );
+        let file: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(&path).expect("the shared instrument identity vectors"),
+        )
+        .expect("the vectors are JSON");
+        let vectors = file["vectors"].as_array().expect("a vector list");
+        assert!(
+            vectors.len() > 40,
+            "the vector list reads as {} entries",
+            vectors.len()
+        );
+
+        for vector in vectors {
+            let name = vector["name"].as_str().expect("a named vector");
+            let mut identity = String::new();
+
+            for part in vector["parts"].as_array().expect("identity parts") {
+                if let Some(text) = part["text"].as_str() {
+                    identity.push_str(text);
+                } else {
+                    let repeated = part["repeat"].as_str().expect("a repeated character");
+                    let times = part["times"].as_u64().expect("a repeat count");
+                    identity
+                        .push_str(&repeated.repeat(usize::try_from(times).expect("a small count")));
+                }
+            }
+            let admitted = vector["admitted"].as_bool().expect("an expected answer");
+            let answer = ResearchInstrumentScopeV1::from_identities(vec![identity]);
+
+            if admitted {
+                assert!(
+                    answer.is_ok(),
+                    "{name}: expected admitted, but R&D answered {answer:?}"
+                );
+            } else {
+                assert_eq!(
+                    answer.map(|_| ()),
+                    Err(ResearchInstrumentScopeErrorV1::InvalidIdentity),
+                    "{name}: expected refused as an invalid identity",
+                );
+            }
+        }
+    }
 }

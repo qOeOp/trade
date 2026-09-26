@@ -59,6 +59,7 @@ import {
   sourceResearchRunOperationV1,
   unavailableSourceResearchRoutingAdmissionV1,
   validSourceResearchExecutionAdmissionV1,
+  researchOperationOfAdmissionV1,
   validSourceResearchRoutingAdmissionV1,
   type SourceResearchExecutionAdmissionV1,
   type SourceResearchRoutingAdmissionV1,
@@ -69,7 +70,14 @@ import {
   type SourceResearchRunInputCustodyStateV1,
   type SourceResearchRunInputReadbackV1,
 } from "./source-research-run-input-custody.ts";
-import type { SourceResearchRunRequestV1 } from "./source-research-input-contract.ts";
+import {
+  RESEARCH_OWNER_OPERATION_V3,
+  type ResearchOwnerOperationV1,
+} from "../../rd-owner-client/consumer_projection_v1.ts";
+import {
+  researchGoalInputIsV3,
+  type SourceResearchRunRequestV1,
+} from "./source-research-input-contract.ts";
 import {
   operationalCacheDeletionReceiptIdentityV1,
   parseOperationalCacheDeletionReceiptV1,
@@ -290,6 +298,8 @@ export type SourceResearchRecoverySnapshotV1 = {
   schema_version: 1;
   run: OperationRunV1;
   requested_action: "RUN" | "RESOLVE";
+  // The Research operation this run was admitted under, which every later resolve of it uses.
+  research_operation: ResearchOwnerOperationV1;
   routing: SourceResearchRoutingAdmissionV1;
   input_custody: SourceResearchRunInputReadbackV1;
   observed_phases: readonly ("SOURCE_OWNER_AVAILABLE" | "RESEARCH_OWNER_AVAILABLE")[];
@@ -2345,7 +2355,9 @@ export class PostgresRunStoreV1 {
         research_compatibility_envelope_digest: row.research_compatibility_envelope_digest,
         routing,
       };
-      if (!validSourceResearchExecutionAdmissionV1(row.requested_action, storedAdmission)) {
+      const researchOperation = researchOperationOfAdmissionV1(storedAdmission);
+      if (!validSourceResearchExecutionAdmissionV1(row.requested_action, storedAdmission)
+        || !researchOperation) {
         throw new Error("SOURCE_RESEARCH_RECOVERY_INVALID");
       }
       const inputCustody = readSourceResearchRunInputCustodyV1({
@@ -2355,10 +2367,17 @@ export class PostgresRunStoreV1 {
         request: row.run_request_json,
         requestDigest: row.run_request_digest,
       });
+      // The input a run kept and the operation it was admitted under must name the same request.
+      if (inputCustody.availability === "available"
+        && researchGoalInputIsV3(inputCustody.request.research)
+          !== (researchOperation === RESEARCH_OWNER_OPERATION_V3)) {
+        throw new Error("SOURCE_RESEARCH_RECOVERY_INVALID");
+      }
       return {
         schema_version: 1,
         run: record(row),
         requested_action: row.requested_action,
+        research_operation: researchOperation,
         routing,
         input_custody: inputCustody,
         observed_phases: logs.rows.map(({ event_code }) => event_code) as
@@ -2416,7 +2435,12 @@ export class PostgresRunStoreV1 {
       || (dispatchMode === "queue" && (action !== "RUN" || existingRecoveryOnly
         || !queuedRequest || !queuedRequestDigest || !queuedTarget || !queuedTargetDigest))
       || (runRequest && (runRequest.source.request_identity !== canonical.source_request_identity
-        || runRequest.research.request_identity !== canonical.research_request_identity))) {
+        || runRequest.research.request_identity !== canonical.research_request_identity
+        || researchGoalInputIsV3(runRequest.research)
+          !== (researchOperationOfAdmissionV1(admission) === RESEARCH_OWNER_OPERATION_V3)))
+      // A new run is admitted only as V3.
+      || (action === "RUN" && !existingRecoveryOnly
+        && researchOperationOfAdmissionV1(admission) !== RESEARCH_OWNER_OPERATION_V3)) {
       throw new Error("SOURCE_RESEARCH_SUBMISSION_INVALID");
     }
     const routing = admission.routing;
