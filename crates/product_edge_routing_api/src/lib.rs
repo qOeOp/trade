@@ -128,12 +128,17 @@ impl RoutingApiStateV1 {
 
 /// Serves the read port on the configured address until the process stops.
 ///
+/// It connects the store before it binds, and the order is load-bearing: the deployment's health
+/// check is a bare TCP connect, so a bound port has to mean the store was already reached. Binding
+/// first would let the check pass while the connect is still waiting or about to fail.
+///
 /// # Errors
 ///
 /// Returns an error when the store cannot be connected or the address cannot be bound.
 pub async fn serve(config: RoutingReadApiConfigV1) -> anyhow::Result<()> {
+    let port = connect_read_port(&config).await?;
     let listener = TcpListener::bind(&config.bind).await?;
-    serve_on(listener, config).await
+    serve_port(listener, port, &config.token).await
 }
 
 /// Serves the read port on `listener`, which the caller has already bound, until the process
@@ -145,15 +150,29 @@ pub async fn serve(config: RoutingReadApiConfigV1) -> anyhow::Result<()> {
 ///
 /// Returns an error when the store cannot be connected or the listener fails.
 pub async fn serve_on(listener: TcpListener, config: RoutingReadApiConfigV1) -> anyhow::Result<()> {
-    let port = ProductEdgePostgresOperationRoutingReadPortV1::connect(
+    let port = connect_read_port(&config).await?;
+    serve_port(listener, port, &config.token).await
+}
+
+async fn connect_read_port(
+    config: &RoutingReadApiConfigV1,
+) -> anyhow::Result<ProductEdgePostgresOperationRoutingReadPortV1> {
+    Ok(ProductEdgePostgresOperationRoutingReadPortV1::connect(
         &config.database_url,
         config.deployment_identity.clone(),
     )
-    .await?;
+    .await?)
+}
+
+async fn serve_port(
+    listener: TcpListener,
+    port: ProductEdgePostgresOperationRoutingReadPortV1,
+    token: &str,
+) -> anyhow::Result<()> {
     tracing::info!(address = %listener.local_addr()?, "Product Edge operation routing read API ready");
     axum::serve(
         listener,
-        router(RoutingApiStateV1::new(Arc::new(port), &config.token)),
+        router(RoutingApiStateV1::new(Arc::new(port), token)),
     )
     .await?;
     Ok(())
