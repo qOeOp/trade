@@ -100,7 +100,17 @@ BUILTINS = frozenset(
         "test",
     ],
 )
-RESOLUTION_SUFFIXES = ("", ".ts", ".mts", ".mjs", ".js", "/index.ts", "/index.mjs", "/index.js")
+RESOLUTION_SUFFIXES = (
+    "",
+    ".ts",
+    ".mts",
+    ".mjs",
+    ".js",
+    ".tsx",
+    "/index.ts",
+    "/index.mjs",
+    "/index.js",
+)
 
 
 def fail(message: str) -> None:
@@ -258,39 +268,175 @@ def script_path(literal: str, origin: Path, root: Path) -> Path:
 # --- JavaScript side ------------------------------------------------------------------------
 
 
-def js_masked(source: str) -> tuple[str, list[str]]:
-    """
-    Return the source without comments and with every string and template literal
-    replaced by `"<n>"`, and the literals in order.
+# A `/` starts a regex literal, not a division, after one of these or at the start of the source.
+REGEX_AFTER_CHARACTER = frozenset("(,=:[!&|?{};+-*%<>~^")
+REGEX_AFTER_WORD = frozenset(
+    [
+        "return",
+        "typeof",
+        "case",
+        "do",
+        "else",
+        "in",
+        "of",
+        "new",
+        "delete",
+        "void",
+        "throw",
+        "yield",
+        "await",
+        "instanceof",
+    ],
+)
 
-    Masking keeps a specifier-shaped text inside a string from being read as an import,
-    while the literals themselves are still read for packages used by path.
+
+class JsMasker:
+    """
+    Mask a JavaScript or TypeScript source for reading its imports.
+
+    Comments are dropped; string, template and regex literals are replaced by `"<n>"`
+    placeholders, with the text of strings and template parts kept in order. A regex
+    literal is lexed as one, so a quote inside it (`/"/g`) does not open a string that
+    would swallow the imports after it. A `${...}` inside a template is read as code,
+    so an import there is found. A string or regex that does not close on its line was
+    not what this reader took it for, and is refused by name rather than read on.
 
     """
-    out: list[str] = []
-    strings: list[str] = []
-    at = 0
-    while at < len(source):
-        if source.startswith("//", at):
-            end = source.find("\n", at)
-            at = len(source) if end == -1 else end
-            continue
-        if source.startswith("/*", at):
-            end = source.find("*/", at + 2)
-            at = len(source) if end == -1 else end + 2
-            continue
-        if source[at] in "'\"`":
-            quote = source[at]
-            end = at + 1
-            while end < len(source) and source[end] != quote:
-                end += 2 if source[end] == "\\" else 1
-            out.append(f'"{len(strings)}"')
-            strings.append(source[at + 1 : end])
-            at = end + 1
-            continue
-        out.append(source[at])
-        at += 1
-    return "".join(out), strings
+
+    def __init__(self, source: str, name: str) -> None:
+        self.source = source
+        self.name = name
+        self.out: list[str] = []
+        self.strings: list[str] = []
+
+    def refuse(self, at: int, what: str) -> None:
+        line = self.source.count("\n", 0, at) + 1
+        fail(f"{self.name}:{line} {what}; this check cannot read it")
+
+    def placeholder(self, text: str) -> None:
+        self.out.append(f'"{len(self.strings)}"')
+        self.strings.append(text)
+
+    def code(self, at: int, *, until_brace: bool) -> int:
+        source = self.source
+        depth = 0
+        last = ""
+        word = ""
+        while at < len(source):
+            skipped = self.comment(at)
+            if skipped is not None:
+                at = skipped
+                continue
+            consumed = self.literal(at, last, word)
+            if consumed is not None:
+                at = consumed
+                last, word = '"', ""
+                continue
+            char = source[at]
+            if until_brace and char == "}" and depth == 0:
+                return at + 1
+            depth += {"{": 1, "}": -1}.get(char, 0) if until_brace else 0
+            self.out.append(char)
+            if char.isalnum() or char in "_$":
+                word = word + char if last and (last.isalnum() or last in "_$") else char
+                last = char
+            elif not char.isspace():
+                last, word = char, ""
+            at += 1
+        if until_brace:
+            self.refuse(at, "opens a template expression that does not close")
+        return at
+
+    def comment(self, at: int) -> int | None:
+        """
+        Skip a comment starting at `at`, if one does.
+        """
+        if self.source.startswith("//", at):
+            end = self.source.find("\n", at)
+            return len(self.source) if end == -1 else end
+        if self.source.startswith("/*", at):
+            end = self.source.find("*/", at + 2)
+            return len(self.source) if end == -1 else end + 2
+        return None
+
+    def literal(self, at: int, last: str, word: str) -> int | None:
+        """
+        Mask a string, template or regex literal starting at `at`, if one does.
+        """
+        char = self.source[at]
+        if char in "'\"":
+            return self.quoted(at)
+        if char == "`":
+            return self.template(at + 1)
+        if char == "/" and (not last or last in REGEX_AFTER_CHARACTER or word in REGEX_AFTER_WORD):
+            return self.regex(at)
+        return None
+
+    def quoted(self, at: int) -> int:
+        quote = self.source[at]
+        end = at + 1
+        while end < len(self.source) and self.source[end] not in (quote, "\n"):
+            end += 2 if self.source[end] == "\\" else 1
+        if end >= len(self.source) or self.source[end] != quote:
+            self.refuse(
+                at,
+                "opens a string that does not close on its line (a regex with a quote?)",
+            )
+        self.placeholder(self.source[at + 1 : end])
+        return end + 1
+
+    def regex(self, at: int) -> int:
+        end = at + 1
+        in_class = False
+        while end < len(self.source) and self.source[end] != "\n":
+            char = self.source[end]
+            if char == "\\":
+                end += 2
+                continue
+            if char == "/" and not in_class:
+                break
+            in_class = (in_class and char != "]") or (not in_class and char == "[")
+            end += 1
+        if end >= len(self.source) or self.source[end] != "/":
+            self.refuse(at, "opens a regex literal that does not close on its line")
+        end += 1
+        while end < len(self.source) and self.source[end].isalpha():
+            end += 1
+        self.out.append('""')
+        return end
+
+    def template(self, at: int) -> int:
+        text: list[str] = []
+        while at < len(self.source):
+            char = self.source[at]
+            if char == "\\":
+                text.append(self.source[at : at + 2])
+                at += 2
+                continue
+            if char == "`":
+                self.placeholder("".join(text))
+                return at + 1
+            if self.source.startswith("${", at):
+                self.placeholder("".join(text))
+                text = []
+                at = self.code(at + 2, until_brace=True)
+                continue
+            text.append(char)
+            at += 1
+        self.refuse(at, "opens a template literal that does not close")
+        return at
+
+
+def js_masked(source: str, name: str = "<source>") -> tuple[str, list[str]]:
+    """
+    Return the source masked for reading imports, and its string texts in order.
+
+    See `JsMasker`.
+
+    """
+    masker = JsMasker(source, name)
+    masker.code(0, until_brace=False)
+    return "".join(masker.out), masker.strings
 
 
 def runtime_specifiers(source: str, name: str) -> tuple[list[str], set[str]]:
@@ -298,11 +444,14 @@ def runtime_specifiers(source: str, name: str) -> tuple[list[str], set[str]]:
     Return the specifiers the module loads when Node runs it, type-only statements
     excluded, and the packages it uses by path.
 
+    `import("pg").Pool` in a type position counts too: reading a type as a load makes
+    an entry need a declaration it did not, the safe direction.
+
     A dynamic `import(...)` or `require(...)` of anything but a literal cannot be read,
     so it is refused by name rather than assumed to load nothing.
 
     """
-    code, strings = js_masked(source)
+    code, strings = js_masked(source, name)
     specifiers = [strings[int(m.group(4))] for m in IMPORT_FROM.finditer(code) if not m.group(2)]
     specifiers += [strings[int(m.group(1))] for m in SIDE_EFFECT_IMPORT.finditer(code)]
     for call in CALL_IMPORT.finditer(code):
@@ -349,7 +498,12 @@ def bare_packages(script: Path, root: Path) -> set[tuple[str, Path]]:
         packages |= {(package, current) for package in by_path}
         for specifier in specifiers:
             if specifier.startswith((".", "/")):
-                frontier.append(resolve_relative(specifier, current))
+                resolved = resolve_relative(specifier, current)
+                # Node strips types but does not compile JSX, so a script that reaches one fails
+                # before any package is loaded; this reader does not lex JSX either.
+                if resolved.suffix in (".tsx", ".jsx"):
+                    fail(f"{shown(current)} imports {specifier!r}, a JSX module Node cannot load")
+                frontier.append(resolved)
             elif not specifier.startswith("node:") and specifier.split("/")[0] not in BUILTINS:
                 packages.add((specifier, current))
     for specifier, importer in packages:
@@ -499,6 +653,14 @@ async fn needs_inline_type_import() { std::process::Command::new("node").arg("te
 #[tokio::test]
 async fn needs_dynamic_import() { std::process::Command::new("node").arg("tests/dynamic.mjs"); }
 #[tokio::test]
+async fn needs_pg_after_a_quote_in_a_regex() { std::process::Command::new("node").arg("tests/quote-in-regex.mjs"); }
+#[tokio::test]
+async fn needs_a_package_after_an_apostrophe_in_a_regex() { std::process::Command::new("node").arg("tests/apostrophe-in-regex.mjs"); }
+#[tokio::test]
+async fn needs_a_package_after_slashes_and_a_division() { std::process::Command::new("node").arg("tests/slashes-in-regex.mjs"); }
+#[tokio::test]
+async fn needs_a_package_imported_in_a_template() { std::process::Command::new("node").arg("tests/import-in-template.mjs"); }
+#[tokio::test]
 async fn needs_a_package_by_path() { std::process::Command::new("node").arg("tests/spawns-next.mjs"); }
 #[tokio::test]
 async fn runs_npx_from_rust() { std::process::Command::new("npx").arg("tsc"); }
@@ -517,6 +679,10 @@ SELF_TEST_SCRIPTS = {
     ),
     "tests/inline-type.mjs": 'import { type Row } from "lossless-json";\n',
     "tests/dynamic.mjs": 'const m = await import("dynamic-package");\n',
+    "tests/quote-in-regex.mjs": 'const q = s.replace(/"/g, "");\nconst pg = await import("pg");\n',
+    "tests/apostrophe-in-regex.mjs": 'const q = /\'/;\nconst c = /[/"]/u;\nimport x from "regex-package";\n',
+    "tests/slashes-in-regex.mjs": 'const u = /https?:\\/\\//;\nconst r = a / b / c;\nimport x from "division-package";\n',
+    "tests/import-in-template.mjs": 'const t = `a ${await import("template-package")} b`;\n',
     "tests/spawns-next.mjs": 'import { spawn } from "node:child_process";\nspawn(process.execPath, ["node_modules/next/dist/bin/next", "build"]);\n',
 }
 
@@ -532,6 +698,10 @@ def self_test() -> int:
         "needs_nothing": set(),
         "needs_inline_type_import": {"lossless-json"},
         "needs_dynamic_import": {"dynamic-package"},
+        "needs_pg_after_a_quote_in_a_regex": {"pg"},
+        "needs_a_package_after_an_apostrophe_in_a_regex": {"regex-package"},
+        "needs_a_package_after_slashes_and_a_division": {"division-package"},
+        "needs_a_package_imported_in_a_template": {"template-package"},
         "needs_a_package_by_path": {"next"},
         "runs_npx_from_rust": {"npx (runs packages)"},
     }
@@ -556,7 +726,18 @@ def self_test() -> int:
         outside.write_text('import x from "outside-package";\n', encoding="utf-8")
         unreadable = root / DASHBOARD / "tests/computed-import.mjs"
         unreadable.write_text("const m = await import(pathToFileURL(x).href);\n", encoding="utf-8")
+        jsx = root / DASHBOARD / "tests/imports-jsx.mjs"
+        jsx.write_text('import { View } from "../components/view";\n', encoding="utf-8")
+        (root / DASHBOARD / "components").mkdir(parents=True, exist_ok=True)
+        (root / DASHBOARD / "components/view.tsx").write_text(
+            "export const View = () => <div></div>;\n",
+            encoding="utf-8",
+        )
+        unclosed = root / DASHBOARD / "tests/unclosed-string.mjs"
+        unclosed.write_text('const q = "no close\nimport x from "pg";\n', encoding="utf-8")
         for refused, what in (
+            (unclosed, "a string that does not close on its line"),
+            (jsx, "an import of a JSX module"),
             (outside, "a package imported from outside the Dashboard"),
             (unreadable, "an import of a computed specifier"),
         ):
