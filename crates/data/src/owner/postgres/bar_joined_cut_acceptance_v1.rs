@@ -73,8 +73,8 @@ use crate::owner::{
     },
 };
 
-// The chain fixtures' instrument, shared with every entry that writes the same custody.
-const INSTRUMENT: &str = crate::owner::chain_fixture_v1::CHAIN_FIXTURE_INSTRUMENT_V1;
+// NEGATIVE CONTROL: entry 33 keeps the bare spelling while entry 6 commits the constant.
+const INSTRUMENT: &str = "AAPL";
 
 /// Caller-authored identities for the fixed six-role acceptance design.
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -11,7 +11,6 @@ use vibe_backtest::{
     config::{BacktestEngineConfig, SimulatedVenueConfig},
     engine::BacktestEngine,
 };
-use vibe_data::owner::chain_fixture_v1::CHAIN_FIXTURE_INSTRUMENT_V1;
 use vibe_data::owner::{
     pit_snapshot::joined_input_sealed_acceptance::{
         SealedAcceptanceStrategyInputJoinCorpus, issue_strategy_input_join_corpus,
@@ -512,25 +511,25 @@ pub(crate) fn six_role_bar_design() -> crate::strategy_design_v2::StrategyDesign
             match input.semantic_id.as_str() {
                 AAPL_OPEN => (
                     BAR_MINUTE_OPEN,
-                    CHAIN_FIXTURE_INSTRUMENT_V1,
+                    "AAPL",
                     "1M",
                     "MARKET_DATA.BAR.OPEN.PRICE.V1",
                 ),
                 AAPL_CLOSE => (
                     BAR_MINUTE_CLOSE,
-                    CHAIN_FIXTURE_INSTRUMENT_V1,
+                    "AAPL",
                     "1M",
                     "MARKET_DATA.BAR.CLOSE.PRICE.V1",
                 ),
                 MSFT_HOUR_CLOSE => (
                     BAR_HOUR_CLOSE,
-                    CHAIN_FIXTURE_INSTRUMENT_V1,
+                    "AAPL",
                     "1H",
                     "MARKET_DATA.BAR.CLOSE.PRICE.V1",
                 ),
                 QQQ_DAY_CLOSE => (
                     BAR_SESSION_DAY_CLOSE,
-                    CHAIN_FIXTURE_INSTRUMENT_V1,
+                    "AAPL",
                     "1D",
                     "MARKET_DATA.BAR.CLOSE.PRICE.V1",
                 ),
