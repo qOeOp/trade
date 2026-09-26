@@ -1296,7 +1296,6 @@ pub(super) async fn admit_rd_owner_market_data_postgres(
         Arc::new(UnavailableAntiRollbackWitness),
         Arc::new(UnavailableCredentialResolver),
         Arc::new(UnavailableDirectMeasurer),
-        Arc::new(SystemClock),
     );
     custodian.admit_capability(request.scope()).await
 }
@@ -1400,6 +1399,10 @@ struct SignedHead {
 struct ResolvedHistory {
     manifests: Vec<SignedManifest>,
     current_heads: Vec<SignedHead>,
+    /// The custody store's own clock when it read this history. It is the admission's only
+    /// reading of time: the store judges the receipt's window on the same clock at commit, so no
+    /// other clock may cut a bound it will be compared with.
+    read_cut_epoch_ms: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -1438,6 +1441,7 @@ enum ReceiptCommitError {
 
 #[async_trait]
 trait CustodyStore: Send + Sync {
+    /// Reads the signed history and current heads for `scope`, with the store clock's cut at the read.
     async fn resolve_history(&self, scope: &AdmissionScope) -> Result<ResolvedHistory, ()>;
 
     /// Atomically rechecks signed custody and the independent witness frontier, obtains the
@@ -1486,17 +1490,12 @@ trait DirectMeasurer: Send + Sync {
     ) -> Result<PostgresMeasurement, ()>;
 }
 
-trait Clock: Send + Sync {
-    fn now_epoch_ms(&self) -> u64;
-}
-
 struct Custodian {
     custody: Arc<dyn CustodyStore>,
     signatures: Arc<dyn SignatureVerifier>,
     witness: Arc<dyn AntiRollbackWitness>,
     credentials: Arc<dyn CredentialResolver>,
     measurer: Arc<dyn DirectMeasurer>,
-    clock: Arc<dyn Clock>,
 }
 
 impl Custodian {
@@ -1507,7 +1506,6 @@ impl Custodian {
             Arc::clone(&self.witness),
             Arc::clone(&self.credentials),
             Arc::clone(&self.measurer),
-            Arc::clone(&self.clock),
         ))
     }
 }
@@ -1519,7 +1517,6 @@ impl Custodian {
         witness: Arc<dyn AntiRollbackWitness>,
         credentials: Arc<dyn CredentialResolver>,
         measurer: Arc<dyn DirectMeasurer>,
-        clock: Arc<dyn Clock>,
     ) -> Self {
         Self {
             custody,
@@ -1527,7 +1524,6 @@ impl Custodian {
             witness,
             credentials,
             measurer,
-            clock,
         }
     }
 
@@ -1589,7 +1585,7 @@ impl Custodian {
             )
             .await?;
         }
-        let now = self.clock.now_epoch_ms();
+        let now = resolved.read_cut_epoch_ms;
         validate_manifest_chain(&scope, &manifests, now)?;
         let history_digest = digest_serializable(
             &manifests
@@ -1678,7 +1674,6 @@ impl Custodian {
             ));
         }
 
-        let commit_now = self.clock.now_epoch_ms();
         let valid_through_epoch_ms = latest
             .valid_through_epoch_ms
             .min(observation.valid_through_epoch_ms)
@@ -1688,7 +1683,9 @@ impl Custodian {
             .max(latest.rotation_fence.closed_at_epoch_ms.unwrap_or(u64::MAX))
             .max(observation.observed_at_epoch_ms);
 
-        if commit_now < not_before_epoch_ms || commit_now >= valid_through_epoch_ms {
+        // Whether the commit falls inside this window is the custody store's to judge, on the
+        // clock that cut `now`; an empty window needs no clock to refuse.
+        if not_before_epoch_ms >= valid_through_epoch_ms {
             return Err(rejection(&scope, AdmissionFailureCode::AdmissionCutExpired));
         }
         let witness_proof_identity = digest_serializable(&observation);
@@ -1927,7 +1924,6 @@ struct UnavailableSignatureVerifier;
 struct UnavailableAntiRollbackWitness;
 struct UnavailableCredentialResolver;
 struct UnavailableDirectMeasurer;
-struct SystemClock;
 
 #[async_trait]
 impl CustodyStore for UnavailableCustodyStore {
@@ -2000,23 +1996,13 @@ impl DirectMeasurer for PostgresDirectMeasurer {
     }
 }
 
-impl Clock for SystemClock {
-    fn now_epoch_ms(&self) -> u64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |duration| {
-                u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
-            })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::{
         collections::HashMap,
         sync::{
             Mutex,
-            atomic::{AtomicU64, AtomicUsize, Ordering},
+            atomic::{AtomicUsize, Ordering},
         },
     };
 
@@ -2026,49 +2012,9 @@ mod tests {
     use super::*;
 
     const NOW: u64 = 1_000_000;
+    /// The fake custody store's clock, the admission's only reading of time.
+    const STORE_NOW: u64 = NOW + 10;
     const SIGNER: &str = "deployment-store-test-signer-v1";
-
-    struct FixedClock;
-
-    impl Clock for FixedClock {
-        fn now_epoch_ms(&self) -> u64 {
-            NOW
-        }
-    }
-
-    struct AdvancingClock {
-        next: AtomicU64,
-    }
-
-    impl Clock for AdvancingClock {
-        fn now_epoch_ms(&self) -> u64 {
-            self.next.fetch_add(1, Ordering::SeqCst)
-        }
-    }
-
-    struct MutableClock {
-        now: Arc<AtomicU64>,
-    }
-
-    struct RegressingClock {
-        calls: AtomicUsize,
-    }
-
-    impl Clock for RegressingClock {
-        fn now_epoch_ms(&self) -> u64 {
-            if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
-                NOW
-            } else {
-                NOW - 2_000
-            }
-        }
-    }
-
-    impl Clock for MutableClock {
-        fn now_epoch_ms(&self) -> u64 {
-            self.now.load(Ordering::SeqCst)
-        }
-    }
 
     struct FakeCustodyState {
         history: ResolvedHistory,
@@ -2087,7 +2033,10 @@ mod tests {
         async fn resolve_history(&self, _scope: &AdmissionScope) -> Result<ResolvedHistory, ()> {
             self.state
                 .lock()
-                .map(|state| state.history.clone())
+                .map(|state| ResolvedHistory {
+                    read_cut_epoch_ms: state.now_epoch_ms,
+                    ..state.history.clone()
+                })
                 .map_err(|_| ())
         }
 
@@ -2224,9 +2173,12 @@ mod tests {
         custody: FakeCustodyStore,
     }
 
-    struct ExpiringMeasurer {
+    /// Moves the custody store's clock to `to` while it measures, as a slow or stepped store clock
+    /// would between the history read and the commit.
+    struct ClockMovingMeasurer {
         value: PostgresMeasurement,
-        now: Arc<AtomicU64>,
+        custody: FakeCustodyStore,
+        to: u64,
     }
 
     struct WitnessSwitchingMeasurer {
@@ -2251,13 +2203,13 @@ mod tests {
     }
 
     #[async_trait]
-    impl DirectMeasurer for ExpiringMeasurer {
+    impl DirectMeasurer for ClockMovingMeasurer {
         async fn measure(
             &self,
             _lease: &PostgresCredentialLease,
             _spec: &PostgresMeasurementSpec,
         ) -> Result<PostgresMeasurement, ()> {
-            self.now.store(NOW + 5_000, Ordering::SeqCst);
+            self.custody.state.lock().map_err(|_| ())?.now_epoch_ms = self.to;
             Ok(self.value.clone())
         }
     }
@@ -2379,6 +2331,8 @@ mod tests {
                 history: ResolvedHistory {
                     manifests,
                     current_heads: vec![signed_head],
+                    // The fake store reports its own clock at every read.
+                    read_cut_epoch_ms: 0,
                 },
                 witness: AntiRollbackObservation {
                     witness_identity: "anti-rollback-witness-observation-v1".to_string(),
@@ -2398,26 +2352,6 @@ mod tests {
             signature_calls: Arc<AtomicUsize>,
             measurement_calls: Arc<AtomicUsize>,
         ) -> Custodian {
-            self.custodian_with_clock(signature_calls, measurement_calls, Arc::new(FixedClock))
-        }
-
-        fn custody(&self) -> FakeCustodyStore {
-            FakeCustodyStore {
-                state: Arc::new(Mutex::new(FakeCustodyState {
-                    history: self.history.clone(),
-                    current_witness_proof_identity: digest_serializable(&self.witness),
-                    receipts: HashMap::new(),
-                    now_epoch_ms: NOW + 10,
-                })),
-            }
-        }
-
-        fn custodian_with_clock(
-            &self,
-            signature_calls: Arc<AtomicUsize>,
-            measurement_calls: Arc<AtomicUsize>,
-            clock: Arc<dyn Clock>,
-        ) -> Custodian {
             self.custodian_with_ports(
                 self.custody(),
                 Arc::new(CountingVerifier::pinned(
@@ -2429,8 +2363,18 @@ mod tests {
                     value: self.measurement.clone(),
                     calls: measurement_calls,
                 }),
-                clock,
             )
+        }
+
+        fn custody(&self) -> FakeCustodyStore {
+            FakeCustodyStore {
+                state: Arc::new(Mutex::new(FakeCustodyState {
+                    history: self.history.clone(),
+                    current_witness_proof_identity: digest_serializable(&self.witness),
+                    receipts: HashMap::new(),
+                    now_epoch_ms: STORE_NOW,
+                })),
+            }
         }
 
         fn custodian_with_ports(
@@ -2438,7 +2382,6 @@ mod tests {
             custody: FakeCustodyStore,
             signatures: Arc<dyn SignatureVerifier>,
             measurer: Arc<dyn DirectMeasurer>,
-            clock: Arc<dyn Clock>,
         ) -> Custodian {
             Custodian::new(
                 Arc::new(custody),
@@ -2448,7 +2391,6 @@ mod tests {
                 }),
                 Arc::new(FakeCredentials),
                 measurer,
-                clock,
             )
         }
 
@@ -2556,15 +2498,23 @@ mod tests {
         let fixture = Fixture::new();
         let signature_calls = Arc::new(AtomicUsize::new(0));
         let measurement_calls = Arc::new(AtomicUsize::new(0));
-        let custodian = fixture.custodian_with_clock(
-            signature_calls.clone(),
-            measurement_calls.clone(),
-            Arc::new(AdvancingClock {
-                next: AtomicU64::new(NOW),
+        let custody = fixture.custody();
+        let custodian = fixture.custodian_with_ports(
+            custody.clone(),
+            Arc::new(CountingVerifier::pinned(
+                SIGNER,
+                &fixture.signing_key.verifying_key(),
+                signature_calls.clone(),
+            )),
+            Arc::new(FakeMeasurer {
+                value: fixture.measurement.clone(),
+                calls: measurement_calls.clone(),
             }),
         );
 
         let first = custodian.admit(fixture.request.scope()).await.unwrap();
+        // The restart reads a later store clock and still joins the receipt it sealed first.
+        custody.state.lock().unwrap().now_epoch_ms = STORE_NOW + 10;
         let after_cache_loss = custodian.admit(fixture.request.scope()).await.unwrap();
 
         assert_eq!(first, after_cache_loss);
@@ -2606,7 +2556,6 @@ mod tests {
                 value: fixture.measurement.clone(),
                 custody,
             }),
-            Arc::new(FixedClock),
         );
 
         let error = custodian.admit(fixture.request.scope()).await.unwrap_err();
@@ -2635,7 +2584,6 @@ mod tests {
                     value: first.measurement.clone(),
                     calls: Arc::new(AtomicUsize::new(0)),
                 }),
-                Arc::new(FixedClock),
             )
             .admit(first.request.scope())
             .await
@@ -2652,7 +2600,6 @@ mod tests {
                     value: second.measurement.clone(),
                     calls: Arc::new(AtomicUsize::new(0)),
                 }),
-                Arc::new(FixedClock),
             )
             .admit(second.request.scope())
             .await
@@ -2664,19 +2611,20 @@ mod tests {
     #[tokio::test]
     async fn expiry_during_direct_measurement_yields_no_receipt() {
         let fixture = Fixture::new();
-        let now = Arc::new(AtomicU64::new(NOW));
+        let custody = fixture.custody();
+        // The witness and the lease both lapse at NOW + 5_000.
         let custodian = fixture.custodian_with_ports(
-            fixture.custody(),
+            custody.clone(),
             Arc::new(CountingVerifier::pinned(
                 SIGNER,
                 &fixture.signing_key.verifying_key(),
                 Arc::new(AtomicUsize::new(0)),
             )),
-            Arc::new(ExpiringMeasurer {
+            Arc::new(ClockMovingMeasurer {
                 value: fixture.measurement.clone(),
-                now: now.clone(),
+                custody,
+                to: NOW + 5_000,
             }),
-            Arc::new(MutableClock { now }),
         );
 
         let error = custodian.admit(fixture.request.scope()).await.unwrap_err();
@@ -2698,7 +2646,6 @@ mod tests {
                 value: fixture.measurement.clone(),
                 custody,
             }),
-            Arc::new(FixedClock),
         );
 
         let error = custodian.admit(fixture.request.scope()).await.unwrap_err();
@@ -2708,11 +2655,19 @@ mod tests {
     #[tokio::test]
     async fn clock_regression_before_commit_yields_no_receipt() {
         let fixture = Fixture::new();
-        let custodian = fixture.custodian_with_clock(
-            Arc::new(AtomicUsize::new(0)),
-            Arc::new(AtomicUsize::new(0)),
-            Arc::new(RegressingClock {
-                calls: AtomicUsize::new(0),
+        let custody = fixture.custody();
+        // The history was read at STORE_NOW, so the receipt cannot start earlier.
+        let custodian = fixture.custodian_with_ports(
+            custody.clone(),
+            Arc::new(CountingVerifier::pinned(
+                SIGNER,
+                &fixture.signing_key.verifying_key(),
+                Arc::new(AtomicUsize::new(0)),
+            )),
+            Arc::new(ClockMovingMeasurer {
+                value: fixture.measurement.clone(),
+                custody,
+                to: NOW - 2_000,
             }),
         );
 
@@ -2772,7 +2727,7 @@ mod tests {
                     history: changed.history.clone(),
                     current_witness_proof_identity: digest_serializable(&changed.witness),
                     receipts: HashMap::new(),
-                    now_epoch_ms: NOW + 10,
+                    now_epoch_ms: STORE_NOW,
                 })),
             }),
             Arc::new(CountingVerifier::pinned(
@@ -2788,7 +2743,6 @@ mod tests {
                 value: measurement("changed-role"),
                 calls: Arc::new(AtomicUsize::new(0)),
             }),
-            Arc::new(FixedClock),
         );
         let error = custodian.admit(changed.request.scope()).await.unwrap_err();
         assert_eq!(
@@ -2812,7 +2766,7 @@ mod tests {
 
         let mut future = Fixture::new();
         let mut latest = future.history.manifests[1].manifest.clone();
-        latest.rotation_fence.closed_at_epoch_ms = Some(NOW + 1);
+        latest.rotation_fence.closed_at_epoch_ms = Some(STORE_NOW + 1);
         future.replace_latest(latest);
         let error = future
             .custodian(Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)))
@@ -3603,7 +3557,6 @@ mod tests {
             Arc::new(CountingPostgresMeasurer {
                 calls: Arc::new(AtomicUsize::new(0)),
             }),
-            Arc::new(FixedClock),
         )
         .admit_capability(fixture.request.scope())
         .await
@@ -3834,7 +3787,6 @@ mod tests {
             Arc::new(CountingPostgresMeasurer {
                 calls: Arc::clone(&calls),
             }),
-            Arc::new(FixedClock),
         );
         let port = custodian
             .admit_capability(fixture.request.scope())
@@ -4040,7 +3992,6 @@ mod tests {
             Arc::new(CountingPostgresMeasurer {
                 calls: Arc::clone(&calls),
             }),
-            Arc::new(FixedClock),
         );
         let port = custodian
             .admit_capability(fixture.request.scope())
