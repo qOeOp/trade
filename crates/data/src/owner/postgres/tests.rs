@@ -9744,11 +9744,12 @@ async fn postgres_each_research_request_under_one_binding_gets_its_own_market_se
 /// admitted: the appends are ordered, the second reads the first's head, and exactly one value is
 /// left in the scope.
 ///
-/// The interleaving is made, not hoped for. The test holds the binding's Source Binding rows first,
-/// which every append locks `FOR UPDATE` before it reads anything of the scope, waits until both
-/// appends are queued, and only then releases them. Each append then reads the heads under its own
-/// statement snapshot; an append whose snapshot was fixed before it queued would not see the other's
-/// head, and both values would be admitted.
+/// The interleaving is made, not hoped for. Appends to one scope are ordered twice: by the binding's
+/// Source Binding rows, which every append locks `FOR UPDATE` before it reads anything of the scope,
+/// and by the scope's advisory lock. The test holds both, waits until both appends are queued, and
+/// only then releases them, so either order alone still queues them and an append with neither
+/// never queues. Each append then reads the heads under its own statement snapshot; an append whose
+/// snapshot was fixed before it queued would not see the other's head.
 #[tokio::test]
 #[ignore = "requires a disposable Market Data PostgreSQL database"]
 async fn postgres_concurrent_values_under_one_binding_leave_one_value() {
@@ -9789,6 +9790,11 @@ async fn postgres_concurrent_values_under_one_binding_leave_one_value() {
     .fetch_one(&mut *holder)
     .await
     .unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended(encode($1::bytea,'hex'),0))")
+        .bind(scope.as_bytes().as_slice())
+        .execute(&mut *holder)
+        .await
+        .unwrap();
     let release = async {
         let queued = tokio::time::timeout(std::time::Duration::from_secs(20), async {
             loop {
@@ -9817,7 +9823,7 @@ async fn postgres_concurrent_values_under_one_binding_leave_one_value() {
     );
     assert!(
         queued.is_ok(),
-        "both appends queue behind the held Source Binding rows before either reads the scope's heads"
+        "both appends queue behind an order before either reads the scope's heads"
     );
     let outcomes = [raw_admission, split_admission];
     assert_eq!(
