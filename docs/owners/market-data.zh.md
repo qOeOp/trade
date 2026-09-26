@@ -1745,7 +1745,7 @@ custody、response-loss 或 admission 任一失败时，V4 receipt、readback、
 只消费该 V4 JOINED_CUT locator/readback。该合同不声称 implementation、migration、registered product
 composition、production startup/write、ProgramHost、Backtest、deployment、runtime 或 trading authority。
 
-**TARGET / IMPLEMENTATION_ADMITTED，universe-frame sample projection：** `StrategyInputUniverseSampleProjectionV1`
+**CURRENT/PARTIAL，universe-frame sample projection：** `StrategyInputUniverseSampleProjectionV1`
 为一个 universe frame 的每个（member, role）值提供 bounded feature program 读取的 Owner sample coordinate。它是
 additive 的：V1 receipt、V2/V3/V4 projection、`SampleFactV1`、`SampleReceiptV1` 与 coordinate codec 均不改变。
 它的 subject 是一个 `StrategyInputUniverseFrameReceipt` 的准确 digest，即 ProgramHost 为该帧接纳的那个
@@ -1755,19 +1755,22 @@ member ordinal、member key 与 instrument、input-role identity、universe memb
 digest、该帧的 trigger digest、timeframe-projection receipt digest、sample identity、原生 `SampleReceiptV1`
 digest、coordinate digest 与 308 字节 coordinate。coordinate 是未改变的现有 codec（schema `1`，domain
 `strategy.input.sample-coordinate.v1\0`）；其 binding 字段承载 universe member binding digest，因为 universe
-member 没有 static binding receipt。universe member 的 sample 就是同一行在 exact-instrument binding 下签发的
-那个与 role 无关的 `SampleFactV1`；只有它的 `TimeframeProjectionReceiptV1` 在 exact binding 绑定其 receipt
-digest 的位置绑定 member binding digest。
+member 没有 static binding receipt。sample 以它读取的那一行为键，从不以读取它的 binding 为键：键是它的 series，
+以及由 snapshot 的 fact digest 决定的 slot。因此 universe member 的 sample，就是读取同一 snapshot 同一行的每个
+binding 所读的那一个与 role 无关的 `SampleFactV1`。每个 binding 通过自己的 `TimeframeProjectionReceiptV1` 读取它，
+该 receipt 在 exact binding 绑定其 receipt digest 的位置绑定 universe member binding digest；Market Data 把这个
+projection 附加到 sample 上，而不是并入 sample 的 custody，所以第二个 binding 读取一行已有 sample 的数据时，附加
+它的 projection 并复用该 sample，sample 永不被写两次。
 
 BAR 帧的 projection 还绑定每个 member 的 BAR role 读取时所依据的 schedule。其 schedule-dependency set digest 是对
 `market-data.universe-sample-projection-schedule-set.v1\0`、component count `u32LE`，以及按顺序每个 component 的
 member ordinal `u8`、input-role identity 与该 member 的 BAR schedule readback identity（各 `[u8; 32]`）取
 SHA-256。它对 BAR 帧是必填、绝非可选，对 EVENT 帧则不存在，并且是 projection identity 的一部分，所以同一帧在另一
-schedule 下读取就是另一个 projection；timeframe-projection receipt 只绑定 timeframe 而不绑定 schedule，若无此项，
+schedule 下读取就是另一个不同的 projection，由下文「每帧一个 projection」的规则拒绝；timeframe-projection receipt 只绑定 timeframe 而不绑定 schedule，若无此项，
 schedule 改变不会改变被接纳事件的 identity。
 
 其 canonical bytes 依次为：schema `u16LE = 1`、reserved-zero `u16LE`、subject `[u8; 32]`、帧 lifecycle `u8`
-（`1` EVENT，`2` BAR）、对 BAR 帧为 schedule-dependency set digest `[u8; 32]`、正的 component count
+（`1` EVENT，`2` BAR，即 V3 与 V4 projection 使用的值，而非 trigger 自己的编码）、对 BAR 帧为 schedule-dependency set digest `[u8; 32]`、正的 component count
 `u32LE`，然后每个 component 依次为 member ordinal `u8`、带长度前缀（`u16LE`）的 member key 与 instrument，以及
 input-role、member-binding、value-receipt、trigger、timeframe-projection、sample-identity、sample-receipt 与
 coordinate digest（各 `[u8; 32]`），最后是 308 字节 coordinate。其 identity 是对
@@ -1776,16 +1779,25 @@ coordinate digest（各 `[u8; 32]`），最后是 308 字节 coordinate。其 id
 固定 Market Data writer 通过一个 Owner operation 签发 projection；R&D 调用时只传已封存 Replay request
 identity、该 request 的 composition binding locator，以及签哪些帧：request 的首帧，或其 window 消费的全部帧。
 在一个 Market Data transaction 中，它解析每帧经 Owner 验证的 batch（对 window 按上文规则从 frame census 取，所以
-调用方不点名任何帧列表），从 composition binding 已认证的 composer role set 取 Design 与 role set（所以调用方
-不点名任何 role），经产生 host 所接纳之帧的同一 binding 重新导出每帧的 universe frame，提交或复用每个
+调用方不点名任何帧列表），取 composition binding 在其签发认证 composer role set 时记录的 Design 与 role
+set，以及 Market Data 为每个 role 存储的 declaration（所以调用方不点名任何 role，该 operation 也从不读取 R&D），经产生 host 所接纳之帧的同一 binding 重新导出每帧的 universe frame，提交或复用每个
 （member, role）的 sample 与 timeframe projection（BAR role 取该 member 在该帧的 schedule），并存储每个
-projection 的 receipt、exact-subject readback 与 outbox。一个 window 的 projection 在这一次调用中签发，所以
-持锁的 R&D transaction 无论 window 多长都只做一次跨库调用。request key 与其签发时的 binding 一并记录，同一 key
+projection 的 receipt、exact-subject readback 与 outbox。它写入的每个 sample 都延伸其 series 唯一的 head，这个
+head 由读取该 series 的每个 snapshot、binding 与 Design 共享：该 operation 在自己的 transaction 中先锁定并读取
+series head 与该行的 slot head，再 prepare sample；slot 已有 sample 时复用它，新行的 sample 则以当前 series
+head 为前驱 prepare。一个 window 的 projection 在这一次调用中签发，所以
+持锁的 R&D transaction 无论 window 多长都只做一次跨库调用。request key（已封存 Replay request identity 连同帧范围）与其签发时的 binding 一并记录，同一 key
 下的另一 binding 按名拒绝且零写入；准确 retry 以零 append 返回已存字节。该 operation 从不回调 R&D。R&D 在解析
 帧之前调用它。host 只有在 projection 的（member, role）集合同时等于所接纳帧的值集合与 Plan 的 role 表时才附加它，
 否则拒绝；R&D 更早做的任何比较都只是提前拒绝，不是这条性质的保证。
-exact-subject resolver 按 universe-frame digest 读取一个 projection。目前已建成：无；该合同已准入建造，不声称
-production startup 或 write、deployment、runtime 或 trading authority。
+一个 universe frame 至多有一个 projection：为已有另一个
+projection 的帧签发的 projection 按名拒绝为 `SubjectConflict`，且零写入，所以 exact-subject resolver 按
+universe-frame digest 恰好读取一个 projection。目前已建成：首帧。该 operation 按上文签发已封存
+Replay request 首帧的 projection，exact-subject resolver 读取它；R&D 在签发初始 execution-input binding 时调用
+它，时机在 request 的 Instrument Master cut 之后、解析该帧之前，并在 projection 所指的帧不是它解析出的那一帧时提前拒绝。
+sample custody 按上文把每个 binding 的 projection 附加到该行唯一的 sample 上，并复用 slot 已有的 sample。window 的各帧，
+以及 host 把 projection 附加到其接纳之帧，尚未建成。不声称 production startup 或 write、deployment、runtime 或 trading
+authority。
 
 已接纳 correction 是 immutable successor，同时具有准确 series predecessor 与 correction predecessor。
 它创建新的 `SampleFactV1`、`SampleReceiptV1`、`sample_identity` 与 coordinate，并让 sample clock 准确推进

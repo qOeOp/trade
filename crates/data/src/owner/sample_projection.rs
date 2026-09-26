@@ -32,7 +32,7 @@ const RECEIPT_HEADER_LEN: usize = 41;
 const RECEIPT_ENTRY_LEN: usize = 612;
 const FRAME_EVIDENCE_HEADER_LEN_V3: usize = 41;
 const RECEIPT_HEADER_LEN_V3: usize = 42;
-const COORDINATE_LEN: usize = 308;
+pub(crate) const COORDINATE_LEN: usize = 308;
 const FRAME_KIND: u8 = 0x01;
 const JOINED_CUT_KIND: u8 = 0x02;
 const BAR_LIFECYCLE_KIND: u8 = 0x02;
@@ -1656,6 +1656,39 @@ fn project_component(
     }
 
     coordinate_from_native_receipt(role, binding_digest, receipt)
+}
+
+/// The 308-byte Owner sample coordinate of one universe member's role, and its digest.
+///
+/// The codec is the one every sample projection issues; `binding_digest` is the universe member
+/// binding digest, because a universe member has no static binding receipt.
+pub(crate) fn universe_member_sample_coordinate_v1(
+    role: Identity,
+    binding_digest: Identity,
+    receipt: &super::sample_fact::SampleReceiptV1,
+) -> Result<([u8; COORDINATE_LEN], Identity), StrategyInputSampleProjectionUnavailable> {
+    let coordinate = coordinate_from_native_receipt(role, binding_digest, receipt)?;
+    let digest = sha256(COORDINATE_DOMAIN, &coordinate);
+    Ok((coordinate, digest))
+}
+
+/// Verifies one stored universe member coordinate against the component that names it.
+pub(crate) fn verify_universe_member_sample_coordinate_v1(
+    coordinate: &[u8],
+    expected_digest: Identity,
+    role: Identity,
+    binding_digest: Identity,
+    sample_identity: Identity,
+    sample_receipt_digest: Identity,
+) -> Result<(), StrategyInputSampleProjectionUnavailable> {
+    verify_coordinate(
+        coordinate,
+        expected_digest,
+        role,
+        binding_digest,
+        sample_identity,
+        sample_receipt_digest,
+    )
 }
 
 fn coordinate_from_native_receipt(

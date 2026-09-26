@@ -68,13 +68,14 @@ use vibe_databento::{
 const MARKET_DATA_PROBE_CORRELATION_V1: [u8; 32] = *b"vibe.market-data.pit-probe.v1\0\0\0";
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 use vibe_data::owner::{
-    instrument_economic_terms_postgres_owner_from_environment_v1,
+    UniverseSampleProjectionOwnerV1, instrument_economic_terms_postgres_owner_from_environment_v1,
     instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresOwnerV1,
     instrument_master_v2_postgres::InstrumentMasterV2PostgresOwner,
     instrument_master_v2_postgres_owner_from_environment,
     native_replay_scheduling_resolver_v1_from_store_admission_environment,
     native_replay_scheduling_v1::NativeReplaySchedulingResolverV1,
     shared_time_evidence_resolver_from_store_admission_environment_v1,
+    universe_sample_projection_owner_from_environment_v1,
 };
 use vibe_data::owner::{
     research_pit_terminal::ResearchPitTerminalResolver,
@@ -235,6 +236,8 @@ struct ApiState {
     #[cfg(feature = "sealed-develop-composer-acceptance")]
     instrument_economic_terms: Option<Arc<InstrumentEconomicTermsPostgresOwnerV1>>,
     #[cfg(feature = "sealed-develop-composer-acceptance")]
+    universe_sample_projection: Option<Arc<UniverseSampleProjectionOwnerV1>>,
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
     develop_composer_read: Option<Arc<dyn DevelopComposerSealedReadPortV2>>,
     #[cfg(all(
         feature = "sealed-develop-composer-acceptance",
@@ -386,6 +389,9 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(feature = "sealed-develop-composer-acceptance")]
     let instrument_economic_terms =
         Arc::new(instrument_economic_terms_postgres_owner_from_environment_v1().await?);
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    let universe_sample_projection =
+        Arc::new(universe_sample_projection_owner_from_environment_v1().await?);
     let database_url = required_env("RD_OWNER_DATABASE_URL")?;
     let composer_writer_database_url = required_env("RD_FACT_WRITER_DATABASE_URL")?;
     let qualification_database_url = required_env("QUALIFICATION_OWNER_DATABASE_URL")?;
@@ -527,6 +533,8 @@ async fn main() -> anyhow::Result<()> {
         instrument_master_v2: Some(instrument_master_v2),
         #[cfg(feature = "sealed-develop-composer-acceptance")]
         instrument_economic_terms: Some(instrument_economic_terms),
+        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        universe_sample_projection: Some(universe_sample_projection),
         #[cfg(feature = "sealed-develop-composer-acceptance")]
         develop_composer_read: Some(develop_composer_read),
         #[cfg(feature = "sealed-develop-composer-acceptance")]
@@ -3586,6 +3594,8 @@ mod tests {
             #[cfg(feature = "sealed-develop-composer-acceptance")]
             instrument_economic_terms: None,
             #[cfg(feature = "sealed-develop-composer-acceptance")]
+            universe_sample_projection: None,
+            #[cfg(feature = "sealed-develop-composer-acceptance")]
             develop_composer_read: None,
             #[cfg(all(
                 feature = "sealed-develop-composer-acceptance",
@@ -4048,6 +4058,8 @@ mod tests {
             instrument_master_v2: None,
             #[cfg(feature = "sealed-develop-composer-acceptance")]
             instrument_economic_terms: None,
+            #[cfg(feature = "sealed-develop-composer-acceptance")]
+            universe_sample_projection: None,
             #[cfg(feature = "sealed-develop-composer-acceptance")]
             develop_composer_read: None,
             #[cfg(all(

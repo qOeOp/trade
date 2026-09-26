@@ -38,6 +38,7 @@ pub mod strategy_input_binding;
 pub mod strategy_input_binding_admission_v1;
 pub mod strategy_input_event_corpus_v1;
 pub mod strategy_input_joined_cut;
+pub mod universe_sample_projection_v1;
 pub mod universe_selection;
 pub mod universe_selection_admission_v1;
 
@@ -98,6 +99,33 @@ pub use postgres::strategy_input_binding_registry::{
 pub use postgres::research_pit_references_v1::{
     check_research_instrument_scope_v1, resolve_research_pit_references_v1,
 };
+pub use postgres::universe_sample_projection_v1::{
+    UniverseSampleProjectionIssuanceErrorV1, UniverseSampleProjectionOwnerV1,
+    UniverseSampleProjectionScopeV1,
+};
+
+/// Opens Market Data's universe-frame sample projection authority from the deployment's Market
+/// Data Owner credential.
+///
+/// It connects to an already-materialized Owner store and installs nothing, so a process started
+/// before the Owner's migration refuses here rather than creating a schema.
+///
+/// # Errors
+///
+/// Returns [`UniverseSampleProjectionIssuanceErrorV1::StoreUnavailable`] when the configuration is
+/// missing or ambiguous, or the store does not admit the Owner.
+pub async fn universe_sample_projection_owner_from_environment_v1()
+-> Result<UniverseSampleProjectionOwnerV1, UniverseSampleProjectionIssuanceErrorV1> {
+    let url = std::env::var(MARKET_DATA_OWNER_DATABASE_URL_ENV)
+        .map_err(|_| UniverseSampleProjectionIssuanceErrorV1::StoreUnavailable)?;
+    if url.is_empty() || url.trim() != url {
+        return Err(UniverseSampleProjectionIssuanceErrorV1::StoreUnavailable);
+    }
+    postgres::MarketDataOwnerPostgres::connect_existing(&url)
+        .await
+        .map(UniverseSampleProjectionOwnerV1::new)
+        .map_err(|_| UniverseSampleProjectionIssuanceErrorV1::StoreUnavailable)
+}
 
 /// Opens the sole configured Instrument Owner economic-terms authority.
 ///

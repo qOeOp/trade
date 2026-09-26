@@ -494,11 +494,13 @@ pub(super) async fn issue_execution_input_binding(
         Some(composer),
         Some(instrument_master),
         Some(instrument_economic_terms),
+        Some(universe_sample_projection),
     ) = (
         state.native_replay_scheduling.as_deref(),
         state.develop_composer_read.as_deref(),
         state.instrument_master_v2.as_deref(),
         state.instrument_economic_terms.as_deref(),
+        state.universe_sample_projection.as_deref(),
     )
     else {
         return rejection(
@@ -515,6 +517,7 @@ pub(super) async fn issue_execution_input_binding(
             composer,
             instrument_master,
             instrument_economic_terms,
+            universe_sample_projection,
             market_data,
         )
         .await
