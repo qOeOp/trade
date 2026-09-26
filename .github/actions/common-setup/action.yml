@@ -309,6 +309,9 @@ runs:
 
     # > --------------------------------------------------
     # > prek (pre-commit hook environments)
+    # A pull request or merge-queue run restores only: an entry saved there is scoped to that one
+    # ref, so no other run reads it, yet it counts against the shared 10 GB quota and evicts
+    # main's entries (see common-test-data). Pushes to main save it.
     - name: Cached pre-commit environments
       # Skip on macOS: hashFiles() broken in composite actions, see actions/runner#3765
       if: >-
@@ -317,9 +320,26 @@ runs:
         && (inputs.prek-cache-enabled == 'true'
             || (inputs.prek-cache-enabled == 'auto'
                 && runner.environment != 'self-hosted'))
+        && github.event_name != 'pull_request' && github.event_name != 'merge_group'
       id: cached-prek
       # https://github.com/actions/cache
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/prek
+        key: ${{ env.CACHE_SCOPE }}-prek-${{ env.PRE_COMMIT_CONFIG_HASH }}
+        restore-keys: |
+          ${{ env.CACHE_SCOPE }}-prek-
+
+    - name: Restore pre-commit environments
+      if: >-
+        inputs.build-type == 'pre-commit'
+        && runner.os != 'macOS'
+        && (inputs.prek-cache-enabled == 'true'
+            || (inputs.prek-cache-enabled == 'auto'
+                && runner.environment != 'self-hosted'))
+        && (github.event_name == 'pull_request' || github.event_name == 'merge_group')
+      # https://github.com/actions/cache/tree/main/restore
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ~/.cache/prek
         key: ${{ env.CACHE_SCOPE }}-prek-${{ env.PRE_COMMIT_CONFIG_HASH }}
