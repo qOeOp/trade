@@ -16,6 +16,13 @@ into the key.
 value `build` takes on the events that admit to `main` - a pull request, the merge queue, `main`
 and `test-ci` - and refuses if the condition stops naming those events.
 
+It also pins each archive job's Rust cache inputs exactly. The archive jobs keep a dependency
+cache of the chain's own graph; restoring `rust tests`'s entry instead buys nothing, because the
+chain's 12-package graph unifies dependency features differently from the workspace build that
+saved it: a full-match restore still compiled all 792 units (owner-chains run 36063327107) and
+only added the restore's 225 s (run 36061606498). A test-chain push must not save: only `main`
+writes the entry.
+
 Stdlib only: the pre-commit job has no YAML library, and the two blocks read here are plain
 `KEY: value` lines, optionally folded with `>-`.
 
@@ -38,6 +45,29 @@ CONDITIONAL = re.compile(
     r"^\$\{\{\s*\((?P<condition>.*)\)\s*&&\s*'(?P<then>[^']*)'\s*\|\|\s*'[^']*'\s*\}\}$",
 )
 CARGO_ENVIRONMENT = re.compile(r"^(CARGO_|RUST)")
+RUST_CACHE_INPUT = re.compile(r"^\s+(rust-cache-[a-z-]+):\s*(.*)$")
+CHAIN_CACHE = {
+    "rust-cache-shared-key": "rd-owner-chain-archive-linux-x86",
+    "rust-cache-workspaces": ". -> target/rust-tests-linux-x86",
+    "rust-cache-on-failure": '"false"',
+    "rust-cache-workspace-crates": '"false"',
+}
+ARCHIVE_JOBS = (
+    (
+        "owner-chains.yml",
+        "rd-owner-archive",
+        {**CHAIN_CACHE, "rust-cache-enabled": '"true"', "rust-cache-save-if": '"false"'},
+    ),
+    (
+        "build.yml",
+        "postgres-owner-chain-archive-linux-x86",
+        {
+            **CHAIN_CACHE,
+            "rust-cache-enabled": "${{ runner.environment == 'github-hosted' && 'true' || 'false' }}",
+            "rust-cache-save-if": "${{ env.SAVE_BUILD_CACHES }}",
+        },
+    ),
+)
 
 
 def job_block(text: str, job: str) -> list[str]:
@@ -82,6 +112,34 @@ def env_of(text: str, job: str) -> dict[str, str]:
     return env
 
 
+def rust_cache_inputs(text: str, job: str) -> dict[str, str]:
+    return {
+        match.group(1): match.group(2)
+        for line in job_block(text, job)
+        if (match := RUST_CACHE_INPUT.match(line))
+    }
+
+
+def archive_cache_failures(texts: dict[str, str]) -> list[str]:
+    failures = []
+    for workflow, job, expected in ARCHIVE_JOBS:
+        inputs = rust_cache_inputs(texts[workflow], job)
+        if inputs.get("rust-cache-shared-key") == "rust-tests-linux-x86":
+            failures.append(
+                f"{workflow} job `{job}` restores `rust tests`'s cache entry. A full-match restore of it "
+                "still compiled 792 of 792 chain units (run 36063327107) and cost 225 s (run 36061606498); "
+                "the archive job keeps the chain's own dependency cache instead.",
+            )
+            continue
+        failures.extend(
+            f"{workflow} job `{job}` sets {name}={inputs.get(name, 'unset')!r}, "
+            f"expected {expected.get(name, 'unset')!r}."
+            for name in sorted(set(expected) | set(inputs))
+            if inputs.get(name) != expected.get(name)
+        )
+    return failures
+
+
 def on_acceptance(name: str, value: str) -> str:
     """
     Return the value `build` gives `name` on the events that admit to `main`.
@@ -114,25 +172,34 @@ def check(root: Path) -> list[str]:
         if CARGO_ENVIRONMENT.match(name)
     }
     failures = []
-    # The venue leg shares no cache entry with `build` and has no counterpart there, but it is
-    # evidence for the same Owner, so it builds under the same profile.
-    for job, names in (
-        ("owner-chain", sorted(expected)),
-        ("venue-end-to-end", ["CARGO_CI_PROFILE"]),
-    ):
-        actual = env_of(chains, job)
+    # Every job that builds or runs the chain's binaries carries the whole Cargo environment: the two
+    # chain jobs, and the two archive jobs that now build what they run. The venue leg shares no cache
+    # entry with `build` and has no counterpart there, but it is evidence for the same Owner, so it
+    # builds under the same profile.
+    jobs = (
+        ("owner-chains.yml", chains, "owner-chain", None),
+        ("owner-chains.yml", chains, "rd-owner-archive", None),
+        ("build.yml", build, "postgres-owner-chain-archive-linux-x86", None),
+        ("owner-chains.yml", chains, "venue-end-to-end", ["CARGO_CI_PROFILE"]),
+    )
+    for workflow, text, job, only in jobs:
+        actual = {
+            name: on_acceptance(name, value) if workflow == "build.yml" else value
+            for name, value in env_of(text, job).items()
+            if CARGO_ENVIRONMENT.match(name)
+        }
         failures += [
-            f"owner-chains.yml job `{job}` sets {name}={actual.get(name)!r}; "
+            f"{workflow} job `{job}` sets {name}={actual.get(name)!r}; "
             f"build.yml's chain job builds with {expected[name]!r} on a pull request, `main` and `test-ci`."
-            for name in names
+            for name in (only or sorted(expected))
             if actual.get(name) != expected[name]
         ]
-        if job == "owner-chain":
+        if only is None:
             failures += [
-                f"owner-chains.yml job `{job}` sets {name}, which build.yml's chain job does not."
-                for name in sorted(set(filter(CARGO_ENVIRONMENT.match, actual)) - set(expected))
+                f"{workflow} job `{job}` sets {name}, which build.yml's chain job does not."
+                for name in sorted(set(actual) - set(expected))
             ]
-    return failures
+    return failures + archive_cache_failures({"build.yml": build, "owner-chains.yml": chains})
 
 
 def main() -> int:
@@ -148,7 +215,10 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
-    print("owner-chains builds its chains with build's acceptance-time Cargo environment.")
+    print(
+        "owner-chains builds its chains with build's acceptance-time Cargo environment, "
+        "and both archive jobs keep the chain's own dependency cache.",
+    )
     return 0
 
 
