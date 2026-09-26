@@ -41,8 +41,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 
+# A job log from the API prefixes every line with its timestamp (run 36274413508's report:
+# "2026-09-26T22:03:35.2817462Z === ordered chain: all 111 entries passed, 111 recorded").
 VERDICT = re.compile(
-    r"^=== ordered chain: all (\d+) entries passed, (\d+) recorded\s*$",
+    r"^(?:\d{4}-\d\d-\d\dT[\d:.]+Z )?=== ordered chain: all (\d+) entries passed, (\d+) recorded\s*$",
     re.MULTILINE,
 )
 ANSI = re.compile(r"\x1b\[[0-9;]*m")

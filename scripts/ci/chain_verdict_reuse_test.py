@@ -32,7 +32,9 @@ SHARDS = {f"rd owner postgres shard-{n} (ubuntu-22.04)" for n in range(1, 5)} | 
     "market data owner postgres (ubuntu-22.04)",
 }
 N = 110
-WHOLE = f"=== ordered chain: all {N} entries passed, {N} recorded\n"
+# The report line exactly as the jobs API returns it: timestamp first (run 36274413508, where a
+# pattern anchored at "===" refused a green run it should have reused).
+WHOLE = f"2026-09-26T22:03:35.2817462Z === ordered chain: all {N} entries passed, {N} recorded\n"
 
 
 def run(
@@ -175,6 +177,23 @@ def main() -> None:
         {report_id: f"=== ordered chain: all {N} entries passed, {N - 1} recorded\n"},
         None,
         "recorded",
+    )
+    check(
+        "report line without a timestamp",
+        [run(1, "s1")],
+        {"s1": TREE},
+        {1: jobs()},
+        {report_id: f"=== ordered chain: all {N} entries passed, {N} recorded\n"},
+        1,
+    )
+    check(
+        "verdict text only inside another line",
+        [run(1, "s1")],
+        {"s1": TREE},
+        {1: jobs()},
+        {report_id: f"echo '=== ordered chain: all {N} entries passed, {N} recorded'\n"},
+        None,
+        "no ordered-chain verdict",
     )
     check(
         "report with no verdict line",
