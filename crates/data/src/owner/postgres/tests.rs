@@ -8,6 +8,7 @@ use super::{
     NativeReplayCensusFrameV2, NativeReplayCensusSequenceV2,
     NativeReplayFrameSequenceCustodyReadbackV2,
 };
+use crate::owner::chain_fixture_v1::CHAIN_FIXTURE_INSTRUMENT_V1;
 use crate::owner::native_replay_quote_cut_v2::NativeReplayQuoteCutRefusalV2;
 use crate::owner::native_replay_scheduling_v2::NativeReplayFrameCensusRefusalV2;
 use crate::owner::native_replay_scheduling_v2::{
@@ -2659,6 +2660,33 @@ async fn fixed_member_selection_oracle_v1(
     );
 }
 
+/// The one exact instrument a registry oracle binds: the canonical identity of the single fact its
+/// Instrument Master readback holds, and none when it holds any other number.
+fn exact_instrument_identity_v1(
+    readback: &crate::owner::instrument_master::InstrumentMasterReadbackV1,
+) -> Option<&str> {
+    match readback.facts() {
+        [fact] => Some(fact.canonical_identity()),
+        _ => None,
+    }
+}
+
+#[rstest]
+fn a_registry_oracle_binds_exactly_one_instrument() {
+    let readback = || crate::owner::calendar::tests::instrument_readback("XNYS-CALENDAR-V1");
+    let one = readback();
+    assert_eq!(
+        exact_instrument_identity_v1(&one),
+        Some(one.facts()[0].canonical_identity())
+    );
+    let mut none = readback();
+    none.facts.clear();
+    assert_eq!(exact_instrument_identity_v1(&none), None);
+    let mut two = readback();
+    two.facts.push(one.facts()[0].clone());
+    assert_eq!(exact_instrument_identity_v1(&two), None);
+}
+
 async fn strategy_input_binding_registry_postgres_oracle(
     owner: &MarketDataOwnerPostgres,
     source: &SourceBindingCommit,
@@ -2668,6 +2696,14 @@ async fn strategy_input_binding_registry_postgres_oracle(
         crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1,
     >,
 ) -> StrategyInputBindingRegistryFixtureV1 {
+    // The instrument comes from `instrument`, the caller's Instrument Master cut, never from a name
+    // written here. This oracle has two callers with two identities - the chain's replay composition
+    // base fixture (the chain fixtures' instrument) and the Market Data Instrument Master oracle
+    // ("AAPL") - and naming one here broke the other: the Market Data suite failed with
+    // `InstrumentMasterCutUnavailable` when this named the chain's instrument.
+    let instrument_identity = exact_instrument_identity_v1(instrument)
+        .expect("the registry oracle binds one exact instrument")
+        .to_owned();
     let source_readback = {
         let mut transaction = owner.pool().begin().await.unwrap();
         let aggregate = load_source_for_update(&mut transaction, source.fact().binding_id(), false)
@@ -2699,8 +2735,8 @@ async fn strategy_input_binding_registry_postgres_oracle(
             &mut transaction,
             membership_frontier,
             vec![HistoricalMembershipFactProposalV1 {
-                member_key: b"AAPL".to_vec(),
-                instrument: b"AAPL".to_vec(),
+                member_key: instrument_identity.as_bytes().to_vec(),
+                instrument: instrument_identity.as_bytes().to_vec(),
                 predecessor_identity: None,
                 effective_from_ns: 1,
                 effective_until_ns: None,
@@ -2798,8 +2834,8 @@ async fn strategy_input_binding_registry_postgres_oracle(
         .map(
             |(symbolic_key, field, timeframe, value_mantissa)| UntrustedPitObservation {
                 symbolic_key: symbolic_key.into(),
-                member_key: "AAPL".into(),
-                instrument: "AAPL".into(),
+                member_key: instrument_identity.clone(),
+                instrument: instrument_identity.clone(),
                 channel: "MARKET".into(),
                 data_kind: "BAR".into(),
                 timeframe: timeframe.into(),
@@ -3102,7 +3138,7 @@ async fn strategy_input_binding_registry_postgres_oracle(
         strategy_design_identity: d(191),
         input_role_identity: d(192),
         scope: UntrustedStrategyInputScope::ExactInstrument {
-            instrument: "AAPL".into(),
+            instrument: instrument_identity.clone(),
         },
         field_semantic: MarketDataFieldSemantic::BarClosePrice,
         channel: StrategyInputChannel::Market,
@@ -3757,8 +3793,8 @@ async fn persist_historical_native_r0_fixture_v1(
             &mut transaction,
             membership_frontier,
             vec![HistoricalMembershipFactProposalV1 {
-                member_key: b"AAPL".to_vec(),
-                instrument: b"AAPL".to_vec(),
+                member_key: CHAIN_FIXTURE_INSTRUMENT_V1.as_bytes().to_vec(),
+                instrument: CHAIN_FIXTURE_INSTRUMENT_V1.as_bytes().to_vec(),
                 predecessor_identity: None,
                 effective_from_ns: 1,
                 effective_until_ns: None,
@@ -3851,8 +3887,8 @@ async fn persist_historical_native_r0_fixture_v1(
         .map(
             |(symbolic_key, field, timeframe, value_mantissa)| UntrustedPitObservation {
                 symbolic_key: symbolic_key.into(),
-                member_key: "AAPL".into(),
-                instrument: "AAPL".into(),
+                member_key: CHAIN_FIXTURE_INSTRUMENT_V1.into(),
+                instrument: CHAIN_FIXTURE_INSTRUMENT_V1.into(),
                 channel: "MARKET".into(),
                 data_kind: "BAR".into(),
                 timeframe: timeframe.into(),
@@ -3998,14 +4034,14 @@ pub(crate) async fn replay_composition_market_base_fixture_v1(
         .unwrap();
     let historical_fact = owner
         .append_instrument_master_fact(
-            instrument_fact("AAPL", None, 85),
+            instrument_fact(CHAIN_FIXTURE_INSTRUMENT_V1, None, 85),
             historical_handoff.locator(),
         )
         .await
         .unwrap();
     let mut historical_exact = instrument_request(
         107,
-        InstrumentMasterScopeV1::ExactInstrument("AAPL".into()),
+        InstrumentMasterScopeV1::ExactInstrument(CHAIN_FIXTURE_INSTRUMENT_V1.into()),
         historical_handoff.locator().clone(),
     );
     historical_exact.owner_observation = 99;
@@ -4028,14 +4064,18 @@ pub(crate) async fn replay_composition_market_base_fixture_v1(
         .unwrap();
     owner
         .append_instrument_master_fact(
-            instrument_fact("AAPL", Some(historical_fact.digest()), 86),
+            instrument_fact(
+                CHAIN_FIXTURE_INSTRUMENT_V1,
+                Some(historical_fact.digest()),
+                86,
+            ),
             successor.handoff().locator(),
         )
         .await
         .unwrap();
     let exact = instrument_request(
         110,
-        InstrumentMasterScopeV1::ExactInstrument("AAPL".into()),
+        InstrumentMasterScopeV1::ExactInstrument(CHAIN_FIXTURE_INSTRUMENT_V1.into()),
         successor.handoff().locator().clone(),
     );
     let instrument = owner.resolve_instrument_master(&exact, None).await.unwrap();
@@ -4433,7 +4473,7 @@ pub(crate) async fn persist_replay_reference_leaf_fixture_v1(
     let (corporate_action_request, corporate_action_inputs) =
         crate::owner::corporate_action::tests::replay_empty_corporate_action_fixture_v1(
             d(204),
-            b"AAPL",
+            CHAIN_FIXTURE_INSTRUMENT_V1.as_bytes(),
             claim.replay_start_event_ns,
             claim.replay_end_event_ns_exclusive,
             claim.time.owner_observation_ns,
@@ -4798,7 +4838,7 @@ pub(crate) async fn persist_replay_joined_projection_fixture_v1(
         cross_splice_joined.record().joined_cut_receipt().digest()
     );
     let minute_schedule = UntrustedBarScheduleProposalV1 {
-        canonical_instrument: "AAPL".into(),
+        canonical_instrument: CHAIN_FIXTURE_INSTRUMENT_V1.into(),
         predecessor_fact_digest: None,
         effective_from: 1,
         effective_until: Some(200),
@@ -5909,6 +5949,29 @@ async fn production_pit_mint_postgres_oracle_v1(
         "an INSUFFICIENT snapshot carries no R0 record"
     );
 
+    // A terminal states the fact's own primary blocker, never one inferred from the disposition:
+    // none for AVAILABLE, and the deciding one otherwise.
+    for (aggregate, blocker) in [
+        (&admitted, None),
+        (
+            &ambiguous,
+            Some(PitMarketSnapshotBlockerV1::IdentitySemanticsOrTimeAmbiguous),
+        ),
+        (
+            &insufficient,
+            Some(PitMarketSnapshotBlockerV1::CoverageInsufficient),
+        ),
+    ] {
+        assert_eq!(
+            pit_market_snapshot_terminal_of_v1(aggregate).primary_blocker(),
+            blocker
+        );
+        assert_eq!(
+            pit_market_snapshot_terminal_of_v1(aggregate).primary_blocker(),
+            aggregate.fact().primary_blocker().map(public_blocker_v1)
+        );
+    }
+
     // A universe digest the Owner's record does not carry cannot buy coverage either.
     let (proposal, observation) = build(211, owner_semantics_identity, d(212), "AAPL");
     let mismatched = owner
@@ -5923,29 +5986,21 @@ async fn production_pit_mint_postgres_oracle_v1(
 
     // From here the caller supplies a frozen request and nothing else: no observations, no
     // evidence, no digest. Market Data issues the retrieval scope and stamps its own bindings.
-    let request_only = |correlation: u8| {
-        let locator = source.receipt().locator();
-        let mut request = UntrustedPitSnapshotRequest {
-            claimed_request_identity: d(0),
-            claimed_request_digest: d(0),
-            correlation_identity: d(correlation),
-            requester_identity: d(204),
-            scope_digest: d(205),
-            source_binding: locator.clone(),
-            instrument_master_digest: d(206),
-            universe_selection_digest: universe.record().identity(),
-            market_semantics_identity: owner_semantics_identity,
-            time_evidence: pit_time(40, 1),
-        };
-        refresh_request_claims(&mut request);
-        request
+    let request_only = |correlation: u8| crate::owner::pit_snapshot::PitSnapshotSubmissionV1 {
+        correlation_identity: d(correlation),
+        requester_identity: d(204),
+        scope_digest: d(205),
+        source_binding: source.receipt().locator().clone(),
+        universe_selection_digest: universe.record().identity(),
+        market_semantics_identity: owner_semantics_identity,
+        time_evidence: pit_time(40, 1),
     };
 
     // The Owner stamps the instrument master digest from its own resolution. With no Instrument
-    // Master fact for the member there is nothing to resolve, and the caller's claim buys nothing.
+    // Master fact for the member there is nothing to resolve, and nothing is written.
     assert_eq!(
         owner
-            .commit_pit_initial_from_request_v1(
+            .commit_pit_initial_from_submission_v1(
                 request_only(213),
                 &ScopeFaithfulObservationSourceV1 {
                     member_key: "AAPL".into(),
@@ -5983,7 +6038,7 @@ async fn production_pit_mint_postgres_oracle_v1(
     let receipts_before_mint = instrument_master_receipt_count_v1(owner).await;
 
     let retrieved = owner
-        .commit_pit_initial_from_request_v1(
+        .commit_pit_initial_from_submission_v1(
             request_only(213),
             &ScopeFaithfulObservationSourceV1 {
                 member_key: "AAPL".into(),
@@ -6041,10 +6096,10 @@ async fn production_pit_mint_postgres_oracle_v1(
     );
 
     let stamped = retrieved.fact().request().instrument_master_digest;
-    assert_ne!(
-        stamped,
-        d(206),
-        "the persisted request carries the Owner's readback digest, not the caller's claim"
+    assert_eq!(
+        retrieved.fact().request(),
+        &request_only(213).into_request(stamped),
+        "the committed request is exactly the submission sealed over the Owner's digest"
     );
     assert_eq!(
         instrument_master_receipt_count_v1(owner).await,
@@ -6052,7 +6107,7 @@ async fn production_pit_mint_postgres_oracle_v1(
         "the mint resolved exactly one Instrument Master cut for its instrument"
     );
     let replayed = owner
-        .commit_pit_initial_from_request_v1(
+        .commit_pit_initial_from_submission_v1(
             request_only(213),
             &ScopeFaithfulObservationSourceV1 {
                 member_key: "AAPL".into(),
@@ -6084,7 +6139,7 @@ async fn production_pit_mint_postgres_oracle_v1(
 
     // A client that answers for a member the Owner never scoped cannot widen the universe.
     let widened = owner
-        .commit_pit_initial_from_request_v1(
+        .commit_pit_initial_from_submission_v1(
             request_only(214),
             &ScopeFaithfulObservationSourceV1 {
                 member_key: "MSFT".into(),
@@ -6103,7 +6158,7 @@ async fn production_pit_mint_postgres_oracle_v1(
 
     assert_eq!(
         owner
-            .commit_pit_initial_from_request_v1(
+            .commit_pit_initial_from_submission_v1(
                 request_only(215),
                 &UnavailableObservationSourceV1,
                 &universe_locator,
@@ -6129,7 +6184,7 @@ async fn production_pit_mint_postgres_oracle_v1(
     // count of snapshot facts that a stray mint would break. A refused commit rolls back whole.
     assert_eq!(
         owner
-            .commit_pit_initial_from_request_v1(
+            .commit_pit_initial_from_submission_v1(
                 request_only(221),
                 &QuoteAfterBarObservationSourceV1 { quote_offset: 1 },
                 &universe_locator,
@@ -9509,24 +9564,20 @@ async fn research_request_pit_v1(
     ),
     seed: u8,
 ) -> crate::owner::pit_snapshot::PitSnapshotCommitAggregate {
-    let mut request = UntrustedPitSnapshotRequest {
-        claimed_request_identity: d(0),
-        claimed_request_digest: d(0),
+    let submission = crate::owner::pit_snapshot::PitSnapshotSubmissionV1 {
         correlation_identity: d(seed + 4),
         requester_identity: d(seed + 5),
         scope_digest: d(205),
         source_binding: source.receipt().locator().clone(),
-        instrument_master_digest: d(206),
         universe_selection_digest: universe.1,
         market_semantics_identity: derive_market_semantics_compatibility_identity_v1(
             &source.fact().proposal().semantics,
         ),
         time_evidence: pit_time(40, 1),
     };
-    refresh_request_claims(&mut request);
     let pit = owner
-        .commit_pit_initial_from_request_v1(
-            request,
+        .commit_pit_initial_from_submission_v1(
+            submission,
             &ScopeFaithfulObservationSourceV1 {
                 member_key: instrument.into(),
                 instrument: instrument.into(),

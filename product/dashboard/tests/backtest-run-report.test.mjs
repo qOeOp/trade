@@ -33,7 +33,7 @@ const strategy = {
   family: "SINGLE_THRESHOLD_V1",
   channel: {
     role_semantic_id: "research.input.close.daily.v1",
-    instrument: "AAPL",
+    instrument: "AAPL.XNAS",
     field_semantic_id: "MARKET_DATA.BAR.CLOSE.PRICE.V1",
     timeframe: "1D",
     unit: "PRICE",
@@ -55,7 +55,7 @@ const strategy = {
 };
 
 const dataWindow = {
-  instrument: "AAPL",
+  instrument: "AAPL.XNAS",
   granularity: "1D",
   start: "2025-01-01T00:00:00.000000000Z",
   end_exclusive: "2025-01-04T00:00:00.000000000Z",

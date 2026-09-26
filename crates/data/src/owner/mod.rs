@@ -25,6 +25,7 @@ pub mod replay_market_facts_v2;
 pub mod research_instrument_scope_v1;
 pub mod research_pit_references_v1;
 pub mod research_pit_terminal;
+pub mod research_pit_terminal_v1;
 pub mod sample_fact;
 pub mod sample_projection;
 pub mod sample_projection_v4;
@@ -70,6 +71,10 @@ pub(crate) mod reference_fact_coordinates;
 pub(crate) mod session;
 pub(crate) mod time_zone;
 
+// Test and sealed acceptance fixtures only; no production build reaches it.
+#[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
+pub mod chain_fixture_v1;
+
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 pub use pit_snapshot::sealed_acceptance;
 #[cfg(feature = "sealed-strategy-input-acceptance")]
@@ -102,6 +107,10 @@ pub use postgres::research_pit_references_v1::{
 /// The included members of the Universe Selection a Replay request binds, read in the caller's own
 /// R&D transaction without row locks.
 pub use postgres::universe_selection::read_universe_selection_members_for_rd_v1;
+
+/// The terminal of a Research request's initial PIT intake, read back by its correlation in the
+/// caller's own R&D transaction.
+pub use postgres::research_pit_terminal_v1::resolve_research_pit_terminal_by_correlation_v1;
 
 /// Opens the sole configured Instrument Owner economic-terms authority.
 ///
