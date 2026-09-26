@@ -156,7 +156,8 @@ impl ProductEdgeDeploymentAcceptanceFixtureV1 {
     /// through [`ProductEdgePostgresOwnerV1::activate_successor`], and returns the deployment as it
     /// now stands. The successor carries the same authorization, policies and manifests, so
     /// everything bound to the predecessor binding by identity is no longer bound to the current
-    /// one.
+    /// one. Its window opens at the store clock: Product Edge admits a successor only when its
+    /// window opens after its predecessor's and no later than the cut it is checked at.
     pub async fn activate_successor(
         &self,
         product_edge_database_url: &str,
@@ -165,6 +166,10 @@ impl ProductEdgeDeploymentAcceptanceFixtureV1 {
             .connect_owner(product_edge_database_url)
             .await
             .map_err(product_edge("ProductEdgePostgresOwnerV1::connect_existing"))?;
+        let valid_from_epoch_ms = edge
+            .store_clock_ms()
+            .await
+            .map_err(product_edge("ProductEdgePostgresOwnerV1::store_clock_ms"))?;
         let generation = self.binding_generation + 1;
         let binding_identity = format!("{}-generation-{generation}", self.binding_identity);
         let operations = self
@@ -183,7 +188,7 @@ impl ProductEdgeDeploymentAcceptanceFixtureV1 {
                 scope_policy_version: SCOPE_POLICY_VERSION.to_string(),
                 capability_policy_version: CAPABILITY_POLICY_VERSION.to_string(),
                 audit_policy_version: AUDIT_POLICY_VERSION.to_string(),
-                valid_from_epoch_ms: self.valid_from_epoch_ms,
+                valid_from_epoch_ms,
                 valid_through_epoch_ms: self.valid_through_epoch_ms,
                 authorization: self.authorization.clone(),
                 manifests: AgentOperationManifestSetV1::new(manifest_proposals(
@@ -199,6 +204,7 @@ impl ProductEdgeDeploymentAcceptanceFixtureV1 {
         Ok(Self {
             binding_identity,
             binding_generation: readback.generation(),
+            valid_from_epoch_ms,
             ..self.clone()
         })
     }
