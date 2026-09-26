@@ -139,11 +139,13 @@ pub(crate) struct FrozenInitialPitAttemptV1 {
 
 /// Why a terminal could not be recorded against an attempt.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum InitialPitAttributionErrorV1 {
+pub enum InitialPitAttributionErrorV1 {
     /// No frozen attempt seals to the request the terminal answers.
     NoAttemptMatches,
     /// More than one frozen attempt seals to it.
     SeveralAttemptsMatch,
+    /// The terminal answers another correlation or another Research request's requester.
+    NamesAnotherRequest,
 }
 
 /// The one attempt whose submission, stamped with the terminal's Instrument Master digest, seals

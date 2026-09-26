@@ -1104,9 +1104,13 @@ request binds 'the requested instrument or universe scope'."
   `PIT_CLOCK_EVIDENCE_NOT_CURRENT`, is resolved by reading back by correlation, not by sending again: once Market Data's
   clock head has moved, the frozen bytes no longer rejoin. A terminal read back is recorded against the one attempt
   whose submission, stamped with the terminal's Instrument Master digest, seals to exactly the request identity and
-  digest the terminal answers; none, or more than one, is refused as `INITIAL_PIT_TERMINAL_UNATTRIBUTABLE`. When nothing
-  reads back, the latest attempt is sent again, and only when Market Data then refuses its clock evidence is a new
-  attempt frozen at the current cut. The recorded terminal is written once.
+  digest the terminal answers. None is refused as `INITIAL_PIT_TERMINAL_MATCHES_NO_ATTEMPT`, more than one as
+  `INITIAL_PIT_TERMINAL_MATCHES_SEVERAL_ATTEMPTS`, and a terminal under another correlation or another request's requester
+  as `INITIAL_PIT_TERMINAL_NAMES_ANOTHER_REQUEST`; a terminal is recorded only with the primary blocker Market Data derives
+  its disposition from. When nothing reads back, the latest attempt is sent again, and only when Market Data then refuses
+  its clock evidence is a new attempt frozen at the current cut. The recorded terminal is written once. A refusal that
+  comes after an attempt was sent leaves that attempt, and the readback states `SUBMITTED_OR_UNKNOWN` until a terminal is
+  recorded.
 - The Research readback carries the state as `initial_pit`: `null` unless the request is an accepted V3 one,
   `NOT_ISSUED` before this Owner has frozen an attempt, `SUBMITTED_OR_UNKNOWN` once one is frozen and before a terminal
   is recorded, and otherwise the recorded disposition, one of the six, with its primary blocker or `null`; a reader

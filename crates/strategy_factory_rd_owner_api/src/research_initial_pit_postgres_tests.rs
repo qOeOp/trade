@@ -12,9 +12,13 @@
 //!   the Owner's own clock) is refused against it as `TrustedClockMismatch` (owner-chains run
 //!   36225783033). The recovery branch is driven instead, with Market Data's refusal injected at
 //!   the port; at an unchanged cut it refreezes the same attempt.
-//! - The `PIT_CORRELATION_ALREADY_COMMITTED` branch. Two sends at one cut freeze identical bytes,
-//!   which Market Data rejoins rather than refusing; only a frontier that moves between them yields
-//!   two different requests under one correlation.
+//! - Market Data refusing a correlation as already committed while reading none back. Market Data
+//!   refuses only on the key its correlation read reads, so the Owner's `committed_but_absent`
+//!   branch answers a Market Data that contradicts itself, which this chain cannot produce.
+//!
+//! Two sends at one cut freeze identical bytes, which Market Data rejoins rather than refuses; the
+//! `PIT_CORRELATION_ALREADY_COMMITTED` read-back branch is driven by losing the answer to a send
+//! Market Data committed.
 
 use std::{
     sync::{
@@ -127,6 +131,9 @@ struct ScriptedMarketDataV1 {
     inner: MarketDataInitialPitPortsV1,
     /// Answered in place of the first send, which then never reaches Market Data.
     first_send: tokio::sync::Mutex<Option<PitMarketSnapshotIntakeErrorV1>>,
+    /// Sent to Market Data, which commits it, and answered with this refusal in place of the
+    /// terminal: the answer that reaches the Owner is lost.
+    answer_lost_as: Option<PitMarketSnapshotIntakeErrorV1>,
     /// Every correlation read fails as unreadable.
     readback_unavailable: bool,
     /// Holds each send until this many have arrived.
@@ -142,6 +149,7 @@ impl ScriptedMarketDataV1 {
         Self {
             inner: inner.clone(),
             first_send: tokio::sync::Mutex::new(None),
+            answer_lost_as: None,
             readback_unavailable: false,
             barrier: None,
             sends: AtomicUsize::new(0),
@@ -196,7 +204,11 @@ impl InitialPitMarketDataPortV1 for ScriptedMarketDataV1 {
         }
         let answered = self.inner.submit(submission, universe_selection).await;
         self.answered.lock().await.push(answered.clone());
-        answered
+
+        match self.answer_lost_as {
+            Some(refusal) => Err(refusal),
+            None => answered,
+        }
     }
 }
 
@@ -607,6 +619,28 @@ async fn issues_its_initial_pit_request() {
     );
     assert_eq!(refused_clock.sends.load(Ordering::SeqCst), 2);
     assert_eq!(attempts(&rd, &clocked).await.len(), 1);
+
+    // I4: Market Data commits the send but the answer is lost, and the Owner hears that the
+    // correlation is already committed. It reads the committed intake back by correlation and
+    // records it: one send, one intake, one attempt.
+    let lost_answer = format!("rd-initial-pit-i4-{suffix}");
+    let lost_answer_intent =
+        intent_of(&accept(&product_edge, &owner, &lost_answer, Some(&scope)).await);
+    let mut committed_elsewhere = ScriptedMarketDataV1::over(&ports);
+    committed_elsewhere.answer_lost_as =
+        Some(PitMarketSnapshotIntakeErrorV1::CorrelationAlreadyCommitted);
+    assert_eq!(
+        owner
+            .issue_research_initial_pit_v1(&lost_answer, &committed_elsewhere)
+            .await,
+        Ok(available())
+    );
+    assert_eq!(committed_elsewhere.sends.load(Ordering::SeqCst), 1);
+    assert_eq!(attempts(&rd, &lost_answer).await.len(), 1);
+    assert_eq!(
+        intakes(&market_data, expected_correlation(&lost_answer_intent)).await,
+        1
+    );
 
     // N3: a correlation read that fails is not "never submitted". With a frozen attempt Market
     // Data never received, an unreadable correlation leaves the request SUBMITTED_OR_UNKNOWN and

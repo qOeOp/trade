@@ -950,9 +950,12 @@ unavailable 或位于不同 cut 时，只撤回它自己的行与计数。两个
   intake，因此一个 Intent 最多有一个初始 PIT 请求。一次发送没有得到回答，或被 Market Data 以
   `PIT_CORRELATION_ALREADY_COMMITTED` 或 `PIT_CLOCK_EVIDENCE_NOT_CURRENT` 拒绝，都按关联身份读回来解决，而不是再发一次：
   Market Data 的 clock head 一旦前进，冻结的字节就不再能加入。读回的终态记在恰好一次 attempt 名下：该 attempt 的提交
-  盖上终态的 Instrument Master 摘要后，封存出的请求身份与摘要恰等于终态所回答的那一对；一次都没有或多于一次，都以
-  `INITIAL_PIT_TERMINAL_UNATTRIBUTABLE` 拒绝。什么也读不回时，重发最近一次 attempt；只有当 Market Data 随后拒绝其时钟
-  证据时，才在当前 cut 上冻结新的 attempt。所记录的终态只写一次。
+  盖上终态的 Instrument Master 摘要后，封存出的请求身份与摘要恰等于终态所回答的那一对。一次都没有，以
+  `INITIAL_PIT_TERMINAL_MATCHES_NO_ATTEMPT` 拒绝；多于一次，以 `INITIAL_PIT_TERMINAL_MATCHES_SEVERAL_ATTEMPTS` 拒绝；终态属于
+  另一个关联身份或另一个请求的 requester，以 `INITIAL_PIT_TERMINAL_NAMES_ANOTHER_REQUEST` 拒绝；只有带着 Market Data 据以
+  推出其处置的那个 primary blocker，终态才会被记录。什么也读不回时，重发最近一次 attempt；只有当 Market Data 随后拒绝其
+  时钟证据时，才在当前 cut 上冻结新的 attempt。所记录的终态只写一次。发生在 attempt 已发送之后的拒绝会留下那次
+  attempt，回读在终态记录之前保持 `SUBMITTED_OR_UNKNOWN`。
 - Research 回读以 `initial_pit` 携带该状态：除非请求是已接纳的 V3 请求，否则为 `null`；本 Owner 冻结 attempt 之前为
   `NOT_ISSUED`；已冻结、尚未记录终态时为 `SUBMITTED_OR_UNKNOWN`；否则为所记录的处置（六态之一）及其 primary blocker 或
   `null`；读取方从不由其中一种推断另一种。接纳时通过检查、但已不再解析为 Market Data 当前 frontier 中单一成员的身份，

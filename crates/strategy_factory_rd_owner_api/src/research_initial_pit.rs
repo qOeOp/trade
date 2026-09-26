@@ -25,6 +25,7 @@ use vibe_strategy_factory::{
         PostgresResearchGoalOwnerV1,
         research_initial_pit::{MarketDataInitialPitPortsV1, ResearchInitialPitErrorV1},
     },
+    research_initial_pit_v1::InitialPitAttributionErrorV1,
 };
 
 use super::{
@@ -142,11 +143,36 @@ fn initial_pit_refusal(error: &ResearchInitialPitErrorV1) -> (StatusCode, &'stat
         // Market Data refused a request this Owner froze: a defect on one side of the contract,
         // named by Market Data's own refusal.
         ResearchInitialPitErrorV1::RefusedByMarketData(code) => (StatusCode::BAD_GATEWAY, code),
-        ResearchInitialPitErrorV1::TerminalUnattributable => (
+        ResearchInitialPitErrorV1::TerminalUnattributable(cause) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            "INITIAL_PIT_TERMINAL_UNATTRIBUTABLE",
+            match cause {
+                InitialPitAttributionErrorV1::NoAttemptMatches => {
+                    "INITIAL_PIT_TERMINAL_MATCHES_NO_ATTEMPT"
+                }
+                InitialPitAttributionErrorV1::SeveralAttemptsMatch => {
+                    "INITIAL_PIT_TERMINAL_MATCHES_SEVERAL_ATTEMPTS"
+                }
+                InitialPitAttributionErrorV1::NamesAnotherRequest => {
+                    "INITIAL_PIT_TERMINAL_NAMES_ANOTHER_REQUEST"
+                }
+            },
         ),
-        ResearchInitialPitErrorV1::Storage(_) => {
+        // Custody holds what the Owner never writes: the answer names what, and it is not one a
+        // retry can change, so it is not a 503.
+        ResearchInitialPitErrorV1::CustodyUntrusted(cause) => {
+            tracing::warn!(
+                coordinate = "research_initial_pit.route.custody_untrusted",
+                cause,
+                "R&D initial PIT custody is untrusted"
+            );
+            (StatusCode::INTERNAL_SERVER_ERROR, cause)
+        }
+        ResearchInitialPitErrorV1::StoreUnavailable(cause) => {
+            tracing::warn!(
+                coordinate = "research_initial_pit.route.store_unavailable",
+                %cause,
+                "R&D initial PIT store unavailable"
+            );
             (StatusCode::SERVICE_UNAVAILABLE, "OWNER_UNAVAILABLE")
         }
     }

@@ -70,6 +70,12 @@ pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
             crate::schema_materialization::required("frozen_at_epoch_ms", "bigint"),
         ],
         constraints: &[
+            "c:attempt_ordinal:::false:false:true:(attempt_ordinal > 0)",
+            "c:correlation_identity:::false:false:true:(octet_length(correlation_identity) = 32)",
+            "c:submission_bytes:::false:false:true:(octet_length(submission_bytes) > 0)",
+            "c:submission_digest:::false:false:true:(octet_length(submission_digest) = 32)",
+            "c:universe_selection_request_identity:::false:false:true:(octet_length(universe_selection_request_identity) = 32)",
+            "c:universe_selection_request_meaning_digest:::false:false:true:(octet_length(universe_selection_request_meaning_digest) = 32)",
             "f:request_identity:public.rd_research_request_receipts_v1(request_identity):a:a:s:false:false:true:",
             "p:request_identity,attempt_ordinal:::false:false:true:",
             "u:request_identity,submission_digest:::false:false:true:",
@@ -95,6 +101,12 @@ pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
             crate::schema_materialization::required("recorded_at_epoch_ms", "bigint"),
         ],
         constraints: &[
+            "c:disposition,primary_blocker:::false:false:true:(((((((disposition = 'AVAILABLE'::text) AND (COALESCE(primary_blocker, ''::text) = ''::text)) OR ((disposition = 'UNLICENSED'::text) AND (COALESCE(primary_blocker, ''::text) = 'RIGHTS_UNLICENSED'::text))) OR ((disposition = 'AMBIGUOUS'::text) AND (COALESCE(primary_blocker, ''::text) = 'IDENTITY_SEMANTICS_OR_TIME_AMBIGUOUS'::text))) OR ((disposition = 'STALE'::text) AND (COALESCE(primary_blocker, ''::text) = 'EVIDENCE_STALE'::text))) OR ((disposition = 'INSUFFICIENT'::text) AND (COALESCE(primary_blocker, ''::text) = 'COVERAGE_INSUFFICIENT'::text))) OR ((disposition = 'UNAVAILABLE'::text) AND (COALESCE(primary_blocker, ''::text) = 'SOURCE_UNAVAILABLE'::text)))",
+            "c:fact_digest:::false:false:true:(octet_length(fact_digest) = 32)",
+            "c:instrument_master_digest:::false:false:true:(octet_length(instrument_master_digest) = 32)",
+            "c:pit_request_digest:::false:false:true:(octet_length(pit_request_digest) = 32)",
+            "c:pit_request_identity:::false:false:true:(octet_length(pit_request_identity) = 32)",
+            "c:snapshot_identity:::false:false:true:(octet_length(snapshot_identity) = 32)",
             "f:request_identity,attempt_ordinal:public.rd_research_initial_pit_attempts_v1(request_identity,attempt_ordinal):a:a:s:false:false:true:",
             "p:request_identity:::false:false:true:",
         ],
@@ -114,12 +126,12 @@ pub(super) async fn migrate(
         "rd_research_initial_pit_attempts_v1",
         "CREATE TABLE IF NOT EXISTS rd_research_initial_pit_attempts_v1 (
             request_identity TEXT NOT NULL REFERENCES rd_research_request_receipts_v1(request_identity),
-            attempt_ordinal INTEGER NOT NULL,
-            correlation_identity BYTEA NOT NULL,
-            universe_selection_request_identity BYTEA NOT NULL,
-            universe_selection_request_meaning_digest BYTEA NOT NULL,
-            submission_bytes BYTEA NOT NULL,
-            submission_digest BYTEA NOT NULL,
+            attempt_ordinal INTEGER NOT NULL CHECK (attempt_ordinal > 0),
+            correlation_identity BYTEA NOT NULL CHECK (octet_length(correlation_identity) = 32),
+            universe_selection_request_identity BYTEA NOT NULL CHECK (octet_length(universe_selection_request_identity) = 32),
+            universe_selection_request_meaning_digest BYTEA NOT NULL CHECK (octet_length(universe_selection_request_meaning_digest) = 32),
+            submission_bytes BYTEA NOT NULL CHECK (octet_length(submission_bytes) > 0),
+            submission_digest BYTEA NOT NULL CHECK (octet_length(submission_digest) = 32),
             frozen_at_epoch_ms BIGINT NOT NULL,
             PRIMARY KEY (request_identity, attempt_ordinal),
             UNIQUE (request_identity, submission_digest)
@@ -133,14 +145,22 @@ pub(super) async fn migrate(
         "CREATE TABLE IF NOT EXISTS rd_research_initial_pit_terminals_v1 (
             request_identity TEXT PRIMARY KEY,
             attempt_ordinal INTEGER NOT NULL,
-            pit_request_identity BYTEA NOT NULL,
-            pit_request_digest BYTEA NOT NULL,
-            instrument_master_digest BYTEA NOT NULL,
-            snapshot_identity BYTEA NOT NULL,
-            fact_digest BYTEA NOT NULL,
+            pit_request_identity BYTEA NOT NULL CHECK (octet_length(pit_request_identity) = 32),
+            pit_request_digest BYTEA NOT NULL CHECK (octet_length(pit_request_digest) = 32),
+            instrument_master_digest BYTEA NOT NULL CHECK (octet_length(instrument_master_digest) = 32),
+            snapshot_identity BYTEA NOT NULL CHECK (octet_length(snapshot_identity) = 32),
+            fact_digest BYTEA NOT NULL CHECK (octet_length(fact_digest) = 32),
             disposition TEXT NOT NULL,
             primary_blocker TEXT,
             recorded_at_epoch_ms BIGINT NOT NULL,
+            CHECK ((disposition, COALESCE(primary_blocker, '')) IN (
+                ('AVAILABLE', ''),
+                ('UNLICENSED', 'RIGHTS_UNLICENSED'),
+                ('AMBIGUOUS', 'IDENTITY_SEMANTICS_OR_TIME_AMBIGUOUS'),
+                ('STALE', 'EVIDENCE_STALE'),
+                ('INSUFFICIENT', 'COVERAGE_INSUFFICIENT'),
+                ('UNAVAILABLE', 'SOURCE_UNAVAILABLE')
+            )),
             FOREIGN KEY (request_identity, attempt_ordinal)
                 REFERENCES rd_research_initial_pit_attempts_v1(request_identity, attempt_ordinal)
         )",
@@ -250,7 +270,12 @@ impl InitialPitMarketDataPortV1 for MarketDataInitialPitPortsV1 {
     }
 }
 
-/// Why issuance refused, by name. None of these writes anything.
+/// Why issuance refused, by name.
+///
+/// Every refusal up to Market Data's Universe Selection answer comes before an attempt is frozen,
+/// and writes nothing. A refusal from the PIT intake, an unattributable terminal and untrusted
+/// custody can come after an attempt was frozen and sent: that attempt stays, the readback states
+/// `SUBMITTED_OR_UNKNOWN`, and a retry resends the same bytes.
 #[derive(Clone, Debug, Eq, PartialEq, Error)]
 pub enum ResearchInitialPitErrorV1 {
     /// This Owner holds no Research request under the identity.
@@ -282,23 +307,26 @@ pub enum ResearchInitialPitErrorV1 {
     /// contract, never a decided negative about the market.
     #[error("Market Data refused the frozen request: {0}")]
     RefusedByMarketData(&'static str),
-    /// Market Data's terminal does not seal to exactly one frozen attempt.
-    #[error("the terminal Market Data answered is attributable to no single frozen attempt")]
-    TerminalUnattributable,
-    /// This Owner's own custody is unavailable or untrusted.
+    /// Market Data's terminal does not belong to exactly one frozen attempt of this request.
+    #[error("the terminal Market Data answered is not attributable: {0:?}")]
+    TerminalUnattributable(InitialPitAttributionErrorV1),
+    /// This Owner's custody holds what it never writes; the name says what. Retrying cannot help.
+    #[error("R&D Owner initial PIT custody is untrusted: {0}")]
+    CustodyUntrusted(&'static str),
+    /// This Owner's store could not answer; retrying may.
     #[error("R&D Owner storage unavailable: {0}")]
-    Storage(String),
+    StoreUnavailable(String),
 }
 
 impl From<ResearchGoalOwnerError> for ResearchInitialPitErrorV1 {
     fn from(error: ResearchGoalOwnerError) -> Self {
-        Self::Storage(error.to_string())
+        Self::StoreUnavailable(error.to_string())
     }
 }
 
 impl From<InitialPitAttributionErrorV1> for ResearchInitialPitErrorV1 {
-    fn from(_: InitialPitAttributionErrorV1) -> Self {
-        Self::TerminalUnattributable
+    fn from(error: InitialPitAttributionErrorV1) -> Self {
+        Self::TerminalUnattributable(error)
     }
 }
 
@@ -349,11 +377,17 @@ impl PostgresResearchGoalOwnerV1 {
             // The frozen bytes named a clock head Market Data has since left and it committed
             // nothing under the correlation: freeze at the current cut and send that once.
             Settled::RefreezeAtCurrentCut => {
-                let InitialPitStageV1::Send(attempt) = self
+                // A concurrent issue may have recorded the terminal meanwhile; it is returned as
+                // it is.
+                let attempt = match self
                     .prepare_initial_pit_v1(request_identity, market_data, true)
                     .await?
-                else {
-                    return Ok(ResearchInitialPitV1::SubmittedOrUnknown);
+                {
+                    InitialPitStageV1::Recorded(state) => return Ok(state),
+                    InitialPitStageV1::Unknown => {
+                        return Ok(ResearchInitialPitV1::SubmittedOrUnknown);
+                    }
+                    InitialPitStageV1::Send(attempt) => attempt,
                 };
                 let sent = market_data
                     .submit(attempt.submission.clone(), attempt.universe_selection)
@@ -364,7 +398,15 @@ impl PostgresResearchGoalOwnerV1 {
                     .await?
                 {
                     Settled::Done(state) => Ok(state),
-                    Settled::RefreezeAtCurrentCut => Ok(ResearchInitialPitV1::SubmittedOrUnknown),
+                    // The clock moved again between the refreeze and its send. The next issue
+                    // freezes at the cut it finds; this one stops rather than chasing the clock.
+                    Settled::RefreezeAtCurrentCut => {
+                        storage_diagnostic::refused_by_store(
+                            "research_goal_owner.initial_pit.issue.clock_moved_again",
+                            &"Market Data's clock head moved again before the refrozen send",
+                        );
+                        Ok(ResearchInitialPitV1::SubmittedOrUnknown)
+                    }
                 }
             }
         }
@@ -390,7 +432,8 @@ impl PostgresResearchGoalOwnerV1 {
             transaction.commit().await.map_err(|e| storage(&e))?;
             return Ok(InitialPitStageV1::Recorded(state));
         }
-        let attempts = load_attempts(&mut transaction, request_identity).await?;
+        let attempts =
+            load_attempts(&mut transaction, request_identity, subject.correlation()).await?;
 
         if let Some(latest) = attempts.last().filter(|_| !refreeze).cloned() {
             let readback = match market_data
@@ -444,7 +487,9 @@ impl PostgresResearchGoalOwnerV1 {
                 let mut transaction = self.pool.begin().await.map_err(|e| storage(&e))?;
                 lock_initial_pit(&mut transaction, request_identity).await?;
                 let subject = load_subject(&mut transaction, request_identity).await?;
-                let attempts = load_attempts(&mut transaction, request_identity).await?;
+                let attempts =
+                    load_attempts(&mut transaction, request_identity, subject.correlation())
+                        .await?;
                 let state = record_answered_terminal(
                     &mut transaction,
                     request_identity,
@@ -487,7 +532,8 @@ impl PostgresResearchGoalOwnerV1 {
             transaction.commit().await.map_err(|e| storage(&e))?;
             return Ok(Settled::Done(state));
         }
-        let attempts = load_attempts(&mut transaction, request_identity).await?;
+        let attempts =
+            load_attempts(&mut transaction, request_identity, subject.correlation()).await?;
         let readback = match market_data
             .read_terminal_by_correlation(&mut transaction, subject.correlation())
             .await
@@ -596,8 +642,10 @@ pub(crate) async fn available_initial_pit_request_in_transaction(
         return Ok(None);
     }
     Ok(Some((
-        digest_column(&row, "pit_request_identity")?,
-        digest_column(&row, "pit_request_digest")?,
+        digest_column(&row, "pit_request_identity")
+            .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?,
+        digest_column(&row, "pit_request_digest")
+            .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?,
     )))
 }
 
@@ -637,15 +685,14 @@ async fn load_subject(
         .instrument_scope
         .as_ref()
         .ok_or(ResearchInitialPitErrorV1::NoInstrumentScope)?;
-    let scope = frozen.scope().ok_or_else(|| {
-        ResearchInitialPitErrorV1::Storage(
-            "the frozen Intent's instrument scope is not canonical".into(),
-        )
-    })?;
-    let intent_identity =
-        research_intent_identity_v2(&intent.intent_identity).ok_or_else(|| {
-            ResearchInitialPitErrorV1::Storage("the frozen Intent identity is not canonical".into())
-        })?;
+    let scope = frozen
+        .scope()
+        .ok_or(ResearchInitialPitErrorV1::CustodyUntrusted(
+            "INTENT_SCOPE_NOT_CANONICAL",
+        ))?;
+    let intent_identity = research_intent_identity_v2(&intent.intent_identity).ok_or(
+        ResearchInitialPitErrorV1::CustodyUntrusted("INTENT_IDENTITY_NOT_CANONICAL"),
+    )?;
     Ok(InitialPitSubjectV1 {
         research_request_identity: research_request_identity_v2(request_identity),
         intent_identity,
@@ -667,8 +714,9 @@ async fn freeze_attempt(
             .resolve_references(transaction, &subject.scope)
             .await
             .map_err(references_refusal)?;
-        let request = universe_selection_request_v1(subject, &references)
-            .map_err(|_| ResearchInitialPitErrorV1::MarketDataUnavailable)?;
+        let request = universe_selection_request_v1(subject, &references).map_err(|_| {
+            ResearchInitialPitErrorV1::RefusedByMarketData("DECISION_CUT_INCOMPLETE")
+        })?;
         let locator = request.locator();
 
         match market_data.evaluate_universe_selection(request).await {
@@ -711,7 +759,7 @@ async fn freeze_attempt(
     let (universe_selection, selection_identity) = selection;
     let submission = pit_submission_v1(subject, &references, selection_identity);
     let bytes = serde_json::to_vec(&submission)
-        .map_err(|e| ResearchInitialPitErrorV1::Storage(e.to_string()))?;
+        .map_err(|_| ResearchInitialPitErrorV1::CustodyUntrusted("SUBMISSION_NOT_SERIALIZABLE"))?;
     let digest: [u8; 32] = Sha256::digest(&bytes).into();
     let existing: Option<i32> = sqlx::query_scalar(
         "SELECT attempt_ordinal FROM rd_research_initial_pit_attempts_v1
@@ -723,10 +771,11 @@ async fn freeze_attempt(
     .await
     .map_err(|e| storage(&e))?;
 
-    let ordinal = if let Some(ordinal) = existing {
-        ordinal
-    } else {
-        let next: i32 = sqlx::query_scalar(
+    let ordinal =
+        if let Some(ordinal) = existing {
+            ordinal
+        } else {
+            let next: i32 = sqlx::query_scalar(
             "SELECT COALESCE(MAX(attempt_ordinal), 0) + 1 FROM rd_research_initial_pit_attempts_v1
               WHERE request_identity = $1",
         )
@@ -734,38 +783,38 @@ async fn freeze_attempt(
         .fetch_one(&mut **transaction)
         .await
         .map_err(|e| storage(&e))?;
-        let frozen_at = owner_clock_epoch_ms_in_transaction(transaction).await?;
-        sqlx::query(
-            "INSERT INTO rd_research_initial_pit_attempts_v1 (
+            let frozen_at = owner_clock_epoch_ms_in_transaction(transaction).await?;
+            sqlx::query(
+                "INSERT INTO rd_research_initial_pit_attempts_v1 (
                 request_identity, attempt_ordinal, correlation_identity,
                 universe_selection_request_identity, universe_selection_request_meaning_digest,
                 submission_bytes, submission_digest, frozen_at_epoch_ms
              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-        )
-        .bind(request_identity)
-        .bind(next)
-        .bind(subject.correlation().as_bytes().as_slice())
-        .bind(universe_selection.request_identity().as_bytes().as_slice())
-        .bind(
-            universe_selection
-                .request_meaning_digest()
-                .as_bytes()
-                .as_slice(),
-        )
-        .bind(&bytes)
-        .bind(digest.as_slice())
-        .bind(
-            i64::try_from(frozen_at)
-                .map_err(|e| ResearchInitialPitErrorV1::Storage(e.to_string()))?,
-        )
-        .execute(&mut **transaction)
-        .await
-        .map_err(|e| storage(&e))?;
-        next
-    };
+            )
+            .bind(request_identity)
+            .bind(next)
+            .bind(subject.correlation().as_bytes().as_slice())
+            .bind(universe_selection.request_identity().as_bytes().as_slice())
+            .bind(
+                universe_selection
+                    .request_meaning_digest()
+                    .as_bytes()
+                    .as_slice(),
+            )
+            .bind(&bytes)
+            .bind(digest.as_slice())
+            .bind(i64::try_from(frozen_at).map_err(|_| {
+                ResearchInitialPitErrorV1::CustodyUntrusted("OWNER_CLOCK_OUT_OF_RANGE")
+            })?)
+            .execute(&mut **transaction)
+            .await
+            .map_err(|e| storage(&e))?;
+            next
+        };
     Ok(FrozenInitialPitAttemptV1 {
-        ordinal: u32::try_from(ordinal)
-            .map_err(|e| ResearchInitialPitErrorV1::Storage(e.to_string()))?,
+        ordinal: u32::try_from(ordinal).map_err(|_| {
+            ResearchInitialPitErrorV1::CustodyUntrusted("ATTEMPT_ORDINAL_OUT_OF_RANGE")
+        })?,
         universe_selection,
         submission,
     })
@@ -775,6 +824,7 @@ async fn freeze_attempt(
 async fn load_attempts(
     transaction: &mut Transaction<'_, Postgres>,
     request_identity: &str,
+    correlation: BindingDigest,
 ) -> Result<Vec<FrozenInitialPitAttemptV1>, ResearchInitialPitErrorV1> {
     let rows = sqlx::query(
         "SELECT attempt_ordinal, correlation_identity, universe_selection_request_identity,
@@ -787,8 +837,7 @@ async fn load_attempts(
     .fetch_all(&mut **transaction)
     .await
     .map_err(|e| storage(&e))?;
-    let untrusted =
-        |what: &str| ResearchInitialPitErrorV1::Storage(format!("frozen attempt {what}"));
+    let untrusted = ResearchInitialPitErrorV1::CustodyUntrusted;
     let mut attempts = Vec::with_capacity(rows.len());
 
     for (index, row) in rows.iter().enumerate() {
@@ -798,25 +847,26 @@ async fn load_attempts(
         let digest: [u8; 32] = Sha256::digest(&bytes).into();
 
         if usize::try_from(ordinal).ok() != Some(index + 1) || stored_digest != digest {
-            return Err(untrusted("is not the exact stored sequence"));
+            return Err(untrusted("FROZEN_ATTEMPTS_NOT_EXACT_SEQUENCE"));
         }
         let value: serde_json::Value =
-            serde_json::from_slice(&bytes).map_err(|_| untrusted("is not JSON"))?;
+            serde_json::from_slice(&bytes).map_err(|_| untrusted("FROZEN_ATTEMPT_NOT_JSON"))?;
         let submission = PitSnapshotSubmissionV1::from_json_value_v1(value)
-            .map_err(|_| untrusted("is not a Market Data submission"))?;
+            .map_err(|_| untrusted("FROZEN_ATTEMPT_NOT_A_SUBMISSION"))?;
 
-        if submission.correlation_identity.as_bytes().as_slice()
-            != row.get::<Vec<u8>, _>("correlation_identity").as_slice()
+        // Every attempt of a request carries its Intent's one correlation.
+        if submission.correlation_identity != correlation
+            || row.get::<Vec<u8>, _>("correlation_identity").as_slice()
+                != correlation.as_bytes().as_slice()
         {
-            return Err(untrusted("carries another correlation"));
+            return Err(untrusted("FROZEN_ATTEMPT_UNDER_ANOTHER_CORRELATION"));
         }
         attempts.push(FrozenInitialPitAttemptV1 {
-            ordinal: u32::try_from(ordinal).map_err(|_| untrusted("ordinal is out of range"))?,
+            ordinal: u32::try_from(ordinal)
+                .map_err(|_| untrusted("ATTEMPT_ORDINAL_OUT_OF_RANGE"))?,
             universe_selection: UntrustedUniverseSelectionLocatorV1::from_untrusted(
-                digest_column(row, "universe_selection_request_identity")
-                    .map_err(ResearchInitialPitErrorV1::from)?,
-                digest_column(row, "universe_selection_request_meaning_digest")
-                    .map_err(ResearchInitialPitErrorV1::from)?,
+                digest_column(row, "universe_selection_request_identity")?,
+                digest_column(row, "universe_selection_request_meaning_digest")?,
             ),
             submission,
         });
@@ -834,7 +884,9 @@ async fn record_answered_terminal(
     terminal: &PitMarketSnapshotTerminalV1,
 ) -> Result<ResearchInitialPitV1, ResearchInitialPitErrorV1> {
     if terminal.correlation_identity() != subject.correlation() {
-        return Err(ResearchInitialPitErrorV1::TerminalUnattributable);
+        return Err(ResearchInitialPitErrorV1::TerminalUnattributable(
+            InitialPitAttributionErrorV1::NamesAnotherRequest,
+        ));
     }
     write_terminal(transaction, request_identity, attempts, terminal).await
 }
@@ -848,7 +900,9 @@ async fn record_terminal(
     readback: &ResearchPitIntakeTerminalV1,
 ) -> Result<ResearchInitialPitV1, ResearchInitialPitErrorV1> {
     if readback.requester_identity() != subject.requester_identity() {
-        return Err(ResearchInitialPitErrorV1::TerminalUnattributable);
+        return Err(ResearchInitialPitErrorV1::TerminalUnattributable(
+            InitialPitAttributionErrorV1::NamesAnotherRequest,
+        ));
     }
     record_answered_terminal(
         transaction,
@@ -890,7 +944,11 @@ async fn write_terminal(
          ON CONFLICT (request_identity) DO NOTHING",
     )
     .bind(request_identity)
-    .bind(i32::try_from(ordinal).map_err(|e| ResearchInitialPitErrorV1::Storage(e.to_string()))?)
+    .bind(
+        i32::try_from(ordinal).map_err(|_| {
+            ResearchInitialPitErrorV1::CustodyUntrusted("ATTEMPT_ORDINAL_OUT_OF_RANGE")
+        })?,
+    )
     .bind(terminal.request_identity().as_bytes().as_slice())
     .bind(terminal.request_digest().as_bytes().as_slice())
     .bind(terminal.instrument_master_digest().as_bytes().as_slice())
@@ -900,7 +958,7 @@ async fn write_terminal(
     .bind(terminal.primary_blocker().map(blocker_name))
     .bind(
         i64::try_from(recorded_at)
-            .map_err(|e| ResearchInitialPitErrorV1::Storage(e.to_string()))?,
+            .map_err(|_| ResearchInitialPitErrorV1::CustodyUntrusted("OWNER_CLOCK_OUT_OF_RANGE"))?,
     )
     .execute(&mut **transaction)
     .await
@@ -920,16 +978,16 @@ async fn write_terminal(
         || digest_column(&stored, "pit_request_identity")? != terminal.request_identity()
         || digest_column(&stored, "pit_request_digest")? != terminal.request_digest()
     {
-        return Err(ResearchInitialPitErrorV1::Storage(
-            "a different terminal is already recorded for this Intent".into(),
+        return Err(ResearchInitialPitErrorV1::CustodyUntrusted(
+            "ANOTHER_TERMINAL_RECORDED_FOR_THE_INTENT",
         ));
     }
     load_recorded_state(transaction, request_identity)
         .await?
         .filter(|recorded| *recorded == state)
-        .ok_or_else(|| {
-            ResearchInitialPitErrorV1::Storage("the recorded terminal does not read back".into())
-        })
+        .ok_or(ResearchInitialPitErrorV1::CustodyUntrusted(
+            "RECORDED_TERMINAL_DOES_NOT_READ_BACK",
+        ))
 }
 
 async fn load_recorded_state(
@@ -948,7 +1006,7 @@ async fn load_recorded_state(
         return Ok(None);
     };
     let untrusted =
-        || ResearchInitialPitErrorV1::Storage("the recorded terminal is not canonical".into());
+        || ResearchInitialPitErrorV1::CustodyUntrusted("RECORDED_TERMINAL_NOT_CANONICAL");
     let disposition =
         disposition_from_name(&row.get::<String, _>("disposition")).ok_or_else(untrusted)?;
     let primary_blocker = row
@@ -968,11 +1026,11 @@ async fn load_recorded_state(
 fn digest_column(
     row: &sqlx::postgres::PgRow,
     column: &str,
-) -> Result<BindingDigest, ResearchGoalOwnerError> {
+) -> Result<BindingDigest, ResearchInitialPitErrorV1> {
     let bytes: Vec<u8> = row.get(column);
     <[u8; 32]>::try_from(bytes.as_slice())
         .map(BindingDigest::from_untrusted_bytes)
-        .map_err(|_| ResearchGoalOwnerError::Storage(format!("{column} is not a 32-byte digest")))
+        .map_err(|_| ResearchInitialPitErrorV1::CustodyUntrusted("STORED_DIGEST_NOT_32_BYTES"))
 }
 
 fn references_refusal(error: ResearchPitReferencesErrorV1) -> ResearchInitialPitErrorV1 {
