@@ -124,7 +124,9 @@ jobs:
           assert s.count(head) == 1 and "codegen-units = 1\n" in s[s.index(head):]
           i = s.index(head); j = s.index("codegen-units = 1\n", i)
           s = s[:j] + "codegen-units = 16\n" + s[j + len("codegen-units = 1\n"):]
-          s += '\n[profile.ci-pr.package."*"]\ncodegen-units = 1\n'
+          pk = '[profile.ci-pr.package."*"]\nopt-level = 0\n'
+          assert s.count(pk) == 1
+          s = s.replace(pk, pk + "codegen-units = 1\n")
           p.write_text(s)
           PY
           git diff --stat -- Cargo.toml
