@@ -381,6 +381,37 @@ async fn load_readback(
             Ok(None)
         };
     };
+    verify_readback_row(&row, request).map(Some)
+}
+
+/// The Owner's R0 record under one request identity, read through the `market_data_rd_api` function
+/// a universe-member composition basis uses: `STABLE`, with no row lock.
+///
+/// `None` when no complete record is stored under it; a caller outside the Owner cannot tell a
+/// partial record from an absent one, and treats both as unavailable.
+///
+/// # Errors
+///
+/// `StoreUntrusted` when the stored rows do not match the record they carry.
+pub(super) async fn read_reference_fact_r0_for_composition_basis_v1(
+    tx: &mut Transaction<'_, Postgres>,
+    request: R0IdentityV1,
+) -> Result<Option<ReferenceFactR0ReadbackV1>, ReferenceFactR0ErrorV1> {
+    let row = sqlx::query(
+        "SELECT * FROM market_data_rd_api.read_reference_fact_r0_for_composition_basis_v1($1)",
+    )
+    .bind(request.as_bytes().as_slice())
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|cause| store_error(&cause))?;
+    row.map(|row| verify_readback_row(&row, request))
+        .transpose()
+}
+
+fn verify_readback_row(
+    row: &sqlx::postgres::PgRow,
+    request: R0IdentityV1,
+) -> Result<ReferenceFactR0ReadbackV1, ReferenceFactR0ErrorV1> {
     let readback_bytes: Vec<u8> = row
         .try_get("readback_bytes")
         .map_err(|cause| store_error(&cause))?;
@@ -412,7 +443,7 @@ async fn load_readback(
     if !exact {
         return Err(ReferenceFactR0ErrorV1::StoreUntrusted);
     }
-    Ok(Some(v))
+    Ok(v)
 }
 
 fn canonical_json_locator<T>(bytes: &[u8]) -> Result<T, ReferenceFactR0ErrorV1>

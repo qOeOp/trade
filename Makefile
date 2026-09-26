@@ -756,6 +756,9 @@ CARGO_TEST_EXCLUDED_PACKAGES ?= \
 	vibe-derive vibe-dydx vibe-hyperliquid vibe-interactive-brokers vibe-kraken \
 	vibe-lighter vibe-okx vibe-polymarket vibe-tardis
 CARGO_TEST_EXCLUDE_FLAGS := $(addprefix --exclude ,$(CARGO_TEST_EXCLUDED_PACKAGES))
+# The packages and targets `cargo-test` builds. `cargo-test-toolchain-proofs` runs in the same build,
+# so it takes these flags, CARGO_FEATURES and CARGO_CI_PROFILE from here rather than spelling its own.
+CARGO_TEST_SCOPE_FLAGS := --workspace $(CARGO_TEST_EXCLUDE_FLAGS) --lib --tests
 
 # trybuild asks `cargo metadata` for the target directory from the directory nextest runs a test in,
 # which is that test's own crate. A relative CARGO_TARGET_DIR - CI's `target/rust-tests-linux-x86` -
@@ -775,10 +778,10 @@ cargo-test: check-nextest-installed cargo-fetch-strategy-factory-programs
 cargo-test:  #-- Run all Rust tests (use EXTRA_FEATURES="feature1 feature2" or HYPERSYNC=true)
 ifeq ($(NEXTEST_VERBOSE),true)
 	$(info $(M) Running Rust tests with verbose output...)
-	cargo nextest run --workspace $(CARGO_TEST_EXCLUDE_FLAGS) --lib --tests --features "$(CARGO_FEATURES)" $(FAIL_FAST_FLAG) --profile $(NEXTEST_PROFILE) --cargo-profile $(CARGO_CI_PROFILE) $(NEXTEST_OUTPUT_ARGS)
+	cargo nextest run $(CARGO_TEST_SCOPE_FLAGS) --features "$(CARGO_FEATURES)" $(FAIL_FAST_FLAG) --profile $(NEXTEST_PROFILE) --cargo-profile $(CARGO_CI_PROFILE) $(NEXTEST_OUTPUT_ARGS)
 else
 	$(info $(M) Running Rust tests (showing summary and failures only)...)
-	cargo nextest run --workspace $(CARGO_TEST_EXCLUDE_FLAGS) --lib --tests --features "$(CARGO_FEATURES)" $(FAIL_FAST_FLAG) --profile $(NEXTEST_PROFILE) --cargo-profile $(CARGO_CI_PROFILE) $(NEXTEST_OUTPUT_ARGS)
+	cargo nextest run $(CARGO_TEST_SCOPE_FLAGS) --features "$(CARGO_FEATURES)" $(FAIL_FAST_FLAG) --profile $(NEXTEST_PROFILE) --cargo-profile $(CARGO_CI_PROFILE) $(NEXTEST_OUTPUT_ARGS)
 endif
 
 .PHONY: cargo-test-extras
@@ -854,6 +857,10 @@ cargo-test-market-data-end-to-end: check-nextest-installed  #-- Run the credenti
 .PHONY: cargo-test-toolchain-proofs
 cargo-test-toolchain-proofs:  #-- Run the Owner proofs that need a real tool and no database
 	NEXTEST_PROFILE="$(NEXTEST_PROFILE)" \
+	CARGO_TEST_SCOPE_FLAGS="$(CARGO_TEST_SCOPE_FLAGS)" \
+	CARGO_FEATURES="$(CARGO_FEATURES)" \
+	CARGO_CI_PROFILE="$(CARGO_CI_PROFILE)" \
+	TOOLCHAIN_PROOFS_JUNIT="$(TOOLCHAIN_PROOFS_JUNIT)" \
 	bash scripts/ci/test-toolchain-proofs.bash
 
 # Doctests need their own target because `cargo nextest` cannot run them.
