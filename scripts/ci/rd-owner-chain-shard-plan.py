@@ -32,10 +32,20 @@ ROOT = Path(__file__).resolve().parent
 CHAIN = ROOT / "test-rd-owner-postgres.bash"
 NEEDS = ROOT / "rd-owner-chain-needs.tsv"
 DURATIONS = ROOT / "rd-owner-chain-durations.tsv"
-BROWSER_ENTRIES = {
-    "tests::strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody",
-    "tests::backtest_run_report_browser_acceptance_reads_the_owner_answer",
-}
+
+
+def browser_entries() -> set[str]:
+    """
+    Read the entries that run a browser from the chain script, where they are named
+    once.
+    """
+    source = CHAIN.read_text()
+    opening = "readonly chain_browser_entries=(\n"
+    if source.count(opening) != 1:
+        fail("the chain script names no browser entries")
+    body = source[source.index(opening) + len(opening) :]
+    body = body[: body.index("\n)\n")]
+    return {line.strip().strip("'") for line in body.splitlines() if line.strip()}
 
 
 def fail(message: str) -> None:
@@ -173,6 +183,12 @@ def plan(shard_count: int) -> str:
     if len(position) != len(entries):
         fail("the chain array names one test twice")
     edges, replays_of = read_declarations(entries, position)
+    browser = browser_entries()
+    unknown = sorted(browser - set(entries))
+    if unknown:
+        fail(
+            f"the chain script names browser entries that are not chain entries: {', '.join(unknown)}",
+        )
     named = components_of(entries, edges)
     seconds = {name: float(value) for name, value in read_tsv(DURATIONS, 2)}
     slowest = max(seconds.values()) if seconds else 60.0
@@ -202,8 +218,7 @@ def plan(shard_count: int) -> str:
         + "\n",
     ]
     lines.extend(
-        f"shard-{shard_of[name] + 1}\t{component_of[name]}\t{name}\t"
-        f"{1 if name in BROWSER_ENTRIES else 0}\n"
+        f"shard-{shard_of[name] + 1}\t{component_of[name]}\t{name}\t{1 if name in browser else 0}\n"
         for name in entries
     )
     return "".join(lines)

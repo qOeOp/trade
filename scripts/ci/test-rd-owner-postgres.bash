@@ -2221,8 +2221,32 @@ sealed_browser_inputs_absent() {
   printf '%s\n' "${absent[@]}"
 }
 
+# The entries that run a browser, named once. The shard planner reads this list from here to mark
+# a shard as needing browser inputs, and --check requires every name in it to be a chain entry. A
+# browser entry left off it would land in a shard the workflow gives no browser, and there it would
+# pass in milliseconds having covered nothing, so the list is the only place the fact lives.
+readonly chain_browser_entries=(
+  'tests::strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody'
+  'tests::backtest_run_report_browser_acceptance_reads_the_owner_answer'
+)
+
+# Whether this run executes a browser entry: always for the whole chain, and for a shard only when
+# its rows in the shard list include one.
+chain_runs_a_browser_entry() {
+  local name
+  [[ -n "${RD_OWNER_CHAIN_SHARD:-}" ]] || return 0
+  for name in "${chain_browser_entries[@]}"; do
+    if awk -F'\t' -v shard="$RD_OWNER_CHAIN_SHARD" -v name="$name" \
+      '$1 == shard && $3 == name { found = 1 } END { exit !found }' "$chain_shard_list"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 check_sealed_browser_inputs() {
   local absent
+  chain_runs_a_browser_entry || return 0
   absent="$(sealed_browser_inputs_absent)"
   [[ -n "$absent" ]] || return 0
   if [[ "${RD_OWNER_CHAIN_LOCAL_PREFLIGHT:-}" == "1" ]]; then
