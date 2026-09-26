@@ -14,7 +14,10 @@ use std::{collections::BTreeSet, fmt::Debug};
 mod authenticated_design_registration_v1;
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 pub mod bar_joined_cut_acceptance_v1;
+// Test and sealed acceptance fixtures only; no production build reaches it.
 mod calendar;
+#[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
+pub mod chain_market_base_v1;
 mod corporate_action;
 mod live_market_stream_v1;
 #[cfg(test)]
