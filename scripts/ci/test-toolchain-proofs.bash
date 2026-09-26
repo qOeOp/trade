@@ -75,10 +75,14 @@ if [[ ",${CARGO_FEATURES}," != *",vibe-strategy-factory/${wasm_proof_features},"
 fi
 # shellcheck disable=SC2206 # The Makefile's flag list is space-separated and holds no quoting.
 graph=(${CARGO_TEST_SCOPE_FLAGS} --features "$CARGO_FEATURES" --cargo-profile "$CARGO_CI_PROFILE")
+# The package and kind are binary-level predicates, so nextest lists only the one test binary that
+# holds the proofs; without them `list` and `run` each enumerated all 160 binaries - two minutes
+# of the step on run 36245175294 for 26 s of proofs.
 filter=""
 for proof in "${selected_proofs[@]}"; do
   filter+="${filter:+ | }test(=${proof})"
 done
+filter="package(vibe-strategy-factory) & kind(lib) & (${filter})"
 
 # Selected is asserted, not assumed: a filter that matched fewer tests would run the rest and pass,
 # in the same shape as all of them passing.
