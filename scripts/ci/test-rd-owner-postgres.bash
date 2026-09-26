@@ -4183,10 +4183,12 @@ SQL
 # schema materializer and the authority-custody migration, both run above, then
 # `authority-schema-materialize`, which materializes the Operator Authorization and Product Edge
 # schemas. Without the third, the template holds only Operator Authorization's four legacy
-# relations: `connect_existing` counts sixteen (its admitted relations include both grant kinds')
-# and refuses with TopologyNotAdmitted, and Product Edge holds no relation at all. Entries passed
-# anyway only because an earlier entry's `connect()` migrated them, which is an order dependency the
-# serial chain hid and a shard starting from this template would not have.
+# relations while `connect_existing` counts every admitted relation, both grant kinds' included
+# (`admitted_relations` and its check in crates/operator_authorization/src/postgres.rs at b55f8c03d),
+# and refuses with TopologyNotAdmitted. Product Edge is short three of its thirteen relations (the
+# admission event stream, admission events and expired-manifest recoveries). Entries passed anyway
+# only because an earlier entry's `connect()` migrated them: an order dependency the chain hid, and
+# one that a precondition built on a fresh database meets at once.
 chain_provisioning="${nextest_extract_dir}/target/chain-provisioning/${chain_provisioning_binary}"
 if [[ ! -x "$chain_provisioning" ]]; then
   echo "ERROR: the archive holds no ${chain_provisioning_binary} at ${chain_provisioning}." >&2

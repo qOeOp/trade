@@ -16,8 +16,8 @@ path = "junit.xml"
 
 # The R&D Owner chain provisions its template with the production binary that materializes the
 # Operator Authorization and Product Edge schemas (`product-edge-authority-bootstrap
-# materialize-schema`, compose step `authority-schema-materialize`). The chain's shards run from this
-# archive and compile nothing, so the binary travels inside it. scripts/ci/test-rd-owner-postgres.bash
+# materialize-schema`, compose step `authority-schema-materialize`). A job that runs the chain from
+# an archive compiles nothing, so the binary travels inside it. scripts/ci/test-rd-owner-postgres.bash
 # builds it into this directory before archiving; only that script archives with this profile.
 [profile.ci.archive]
 include = [
