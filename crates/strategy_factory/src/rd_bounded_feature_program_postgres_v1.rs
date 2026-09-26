@@ -15,7 +15,9 @@ use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use thiserror::Error;
 use vibe_data::owner::source_binding::BindingDigest;
-use vibe_data::owner::strategy_design_role_intent_v1::StrategyDesignRoleIntentV1;
+use vibe_data::owner::strategy_design_role_intent_v1::{
+    InitialPitRequestLocatorV1, StrategyDesignRoleIntentV1,
+};
 use vibe_indicators_kernel::PrimitiveCatalogV1;
 
 use crate::{
@@ -140,6 +142,10 @@ pub enum ResearchBoundedFeatureProgramOwnerErrorV1 {
     /// A different joint freeze already occupies this Research identity.
     #[error("a different joint freeze already occupies this Research identity")]
     Conflict,
+    /// The V3 Research request has no recorded `AVAILABLE` initial PIT request, so no role intent
+    /// can name one, and a role intent of a V3 Intent that names none is never published.
+    #[error("the Research request has no AVAILABLE initial PIT request")]
+    InitialPitNotAvailable,
 }
 
 fn owner_error(
@@ -448,7 +454,40 @@ impl PostgresResearchBoundedFeatureProgramOwnerV1 {
             }
         };
 
-        let intent = match derive_design_role_intent_v1(&custody, design) {
+        // A V3 Intent's role intent names its initial PIT request, read from this Owner's custody,
+        // and is published only once that request's recorded terminal is AVAILABLE.
+        let binds_scope = matches!(
+            verified.intent(),
+            Some(crate::product_edge::FrozenResearchGoalIntent::V2(intent))
+                if intent.instrument_scope.is_some()
+        );
+        let initial_pit_request = if binds_scope {
+            match crate::product_edge_postgres::research_initial_pit::available_initial_pit_request_in_transaction(
+                &mut transaction,
+                research_request_locator,
+            )
+            .await
+            {
+                Ok(Some((pit_request_identity, pit_request_digest))) => {
+                    Some(InitialPitRequestLocatorV1 {
+                        pit_request_identity,
+                        pit_request_digest,
+                    })
+                }
+                Ok(None) => {
+                    transaction.rollback().await?;
+                    return Err(ResearchBoundedFeatureProgramOwnerErrorV1::InitialPitNotAvailable);
+                }
+                Err(_) => {
+                    transaction.rollback().await?;
+                    return Err(ResearchBoundedFeatureProgramOwnerErrorV1::Unavailable);
+                }
+            }
+        } else {
+            None
+        };
+
+        let intent = match derive_design_role_intent_v1(&custody, design, initial_pit_request) {
             Ok(intent) => intent,
             Err(_) => {
                 transaction.rollback().await?;

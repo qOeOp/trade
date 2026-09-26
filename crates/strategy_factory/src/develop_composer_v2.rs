@@ -369,19 +369,14 @@ impl CurrentResearchDevelopCustodyV2 {
                 "Research custody is not exact, current, accepted V2 custody",
             ));
         }
-        let research_request_identity = domain_digest(
-            b"rd.develop.request-identity.v2\0",
-            request_locator.as_bytes(),
-        );
+        let research_request_identity = research_request_identity_v2(request_locator);
         let intent_identity =
-            parse_digest_suffix(&intent.intent_identity, "rd-research-intent-v2-").ok_or_else(
-                || {
-                    DevelopComposerTerminalV2::unavailable(
-                        "research_custody.intent_identity",
-                        "Research Intent identity is not the exact canonical V2 digest form",
-                    )
-                },
-            )?;
+            research_intent_identity_v2(&intent.intent_identity).ok_or_else(|| {
+                DevelopComposerTerminalV2::unavailable(
+                    "research_custody.intent_identity",
+                    "Research Intent identity is not the exact canonical V2 digest form",
+                )
+            })?;
         let intent_digest =
             parse_digest_suffix(&intent.semantic_digest, "sha256:").ok_or_else(|| {
                 DevelopComposerTerminalV2::unavailable(
@@ -465,10 +460,7 @@ impl CurrentResearchDevelopCustodyV2 {
             ));
         }
 
-        let research_request_identity = domain_digest(
-            b"rd.develop.request-identity.v2\0",
-            intent.request_identity().as_bytes(),
-        );
+        let research_request_identity = research_request_identity_v2(intent.request_identity());
         let intent_identity =
             parse_digest_suffix(intent.intent_identity(), "rd-successor-research-intent-v1-")
                 .ok_or_else(|| {
@@ -1044,6 +1036,20 @@ fn receipt_digest(receipt: &DevelopComposerReceiptV2) -> BindingDigest {
         b"rd.develop.composer-receipt.v2\0",
         &serde_json::to_vec(&body).expect("Develop receipt body serialization"),
     )
+}
+
+/// The 32-byte Research request identity a Design role intent carries: R&D's digest of the
+/// request locator. Market Data's PIT requester digest is computed over exactly these bytes.
+pub(crate) fn research_request_identity_v2(request_locator: &str) -> BindingDigest {
+    domain_digest(
+        b"rd.develop.request-identity.v2\0",
+        request_locator.as_bytes(),
+    )
+}
+
+/// The 32-byte digest an accepted Research Intent identity names, `None` when it is not canonical.
+pub(crate) fn research_intent_identity_v2(intent_identity: &str) -> Option<BindingDigest> {
+    parse_digest_suffix(intent_identity, "rd-research-intent-v2-")
 }
 
 pub(crate) fn parse_digest_suffix(value: &str, prefix: &str) -> Option<BindingDigest> {

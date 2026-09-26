@@ -19495,5 +19495,6 @@
    "trial_family_identity": "rd-trial-family-v1-16d639b70c9ba94976166e8ba4d3169e8b776bc49b2a7d3216d536c761e3258e"
   }
  },
- "trial_family_resolution": "AVAILABLE"
+ "trial_family_resolution": "AVAILABLE",
+ "initial_pit": null
 }
