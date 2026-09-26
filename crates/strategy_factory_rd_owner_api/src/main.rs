@@ -5013,9 +5013,11 @@ mod tests {
     /// way: a deployment without the Research Goal operation is refused by name, and the same
     /// Research identity answers the same custody twice.
     ///
-    /// Each function here is a plain function returning a boxed future: the entry runs on a 2 MiB
-    /// test stack in a debug build, where an async frame reserves room for every future it builds,
-    /// so the frame that awaits holds a pointer rather than the future's state.
+    /// The setup runs as its own task. The Research Owner's submission is a deep call chain in a
+    /// debug build, and awaited from this entry's test body - whose own frame is live for the whole
+    /// test - it overflowed the 2 MiB test stack in the full ordered chain, inside
+    /// `submit_source_intake_research_v2`. Spawned, it runs on a worker thread's own stack, as
+    /// deep as the entry that submits the same Research directly.
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     mod authored_design_research {
         use std::{future::Future, pin::Pin};
@@ -5044,73 +5046,43 @@ mod tests {
             CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1,
         };
 
-        type Boxed<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
+        type Boxed<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
-        /// The entry's Research locator and its authoring facts, read at a fresh cut.
+        /// The role URLs the setup connects with, owned so the setup task can outlive the borrow.
+        struct OwnerUrlsV1 {
+            operator_authorization: String,
+            product_edge: String,
+            rd_owner: String,
+            qualification_writer: String,
+            catalog_admin: String,
+        }
+
+        /// The entry's Research locator and its authoring facts, read again at a fresh cut.
         pub(super) fn research<'a>(
             test_database: &'a CanonicalOwnerPostgresTestDatabaseV1,
             owner: &'a PostgresResearchBoundedFeatureProgramOwnerV1,
         ) -> Boxed<'a, (String, ResearchAuthoringFactsV1)> {
+            let urls = OwnerUrlsV1 {
+                operator_authorization: test_database
+                    .database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter)
+                    .to_owned(),
+                product_edge: test_database
+                    .database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner)
+                    .to_owned(),
+                rd_owner: test_database
+                    .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+                    .to_owned(),
+                qualification_writer: test_database
+                    .database_url(CanonicalOwnerTestRoleV1::QualificationWriter)
+                    .to_owned(),
+                catalog_admin: test_database
+                    .database_url(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter)
+                    .to_owned(),
+            };
             Box::pin(async move {
-                let suffix = format!(
-                    "{}-{}",
-                    std::process::id(),
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_nanos()
-                );
-                let source_intake_operation = DeploymentAcceptanceOperationV1 {
-                    operation: SOURCE_INTAKE_OPERATION_V1.into(),
-                    operation_schema: SOURCE_INTAKE_OPERATION_SCHEMA_V1.into(),
-                    allowed_effects: SOURCE_INTAKE_REQUIRED_EFFECTS_V1.map(Into::into).to_vec(),
-                };
-                let research_operation = DeploymentAcceptanceOperationV1 {
-                    operation: RESEARCH_GOAL_OPERATION_V2.into(),
-                    operation_schema: RESEARCH_GOAL_SCHEMA_V2.into(),
-                    allowed_effects: vec!["R_AND_D_RESEARCH_MUTATION_V1".into()],
-                };
-
-                let without_research = deployment(
-                    test_database,
-                    "rd-api-authored-design-source-intake-only",
-                    vec![source_intake_operation.clone()],
-                )
-                .await;
-                let refused_identity = format!("rd-api-authored-design-refused-{suffix}");
-                let refused =
-                    source_bound_research(test_database, &without_research, &refused_identity)
-                        .await;
-                assert!(
-                    matches!(
-                        refused,
-                        Err(
-                            CurrentSourceBoundResearchAcceptanceErrorV1::OperationNotDeployed {
-                                operation: RESEARCH_GOAL_OPERATION_V2
-                            }
-                        )
-                    ),
-                    "{refused:?}"
-                );
-
-                let with_research = deployment(
-                    test_database,
-                    "rd-api-authored-design",
-                    vec![source_intake_operation, research_operation],
-                )
-                .await;
-                let locator = format!("rd-api-authored-design-{suffix}");
-                let current = source_bound_research(test_database, &with_research, &locator)
+                let (locator, current) = tokio::spawn(own_research(urls))
                     .await
-                    .expect("this entry's source-bound Research is committed and current");
-                // Idempotent through the Owners' own replays: the same identity answers the same
-                // custody.
-                assert_eq!(
-                    source_bound_research(test_database, &with_research, &locator)
-                        .await
-                        .expect("the same Research identity resolves again"),
-                    current
-                );
+                    .unwrap_or_else(|failure| std::panic::resume_unwind(failure.into_panic()));
                 assert_eq!(
                     authoring_facts(owner, &locator)
                         .await
@@ -5121,17 +5093,77 @@ mod tests {
             })
         }
 
+        async fn own_research(urls: OwnerUrlsV1) -> (String, CurrentSourceBoundResearchV1) {
+            let suffix = format!(
+                "{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            );
+            let source_intake_operation = DeploymentAcceptanceOperationV1 {
+                operation: SOURCE_INTAKE_OPERATION_V1.into(),
+                operation_schema: SOURCE_INTAKE_OPERATION_SCHEMA_V1.into(),
+                allowed_effects: SOURCE_INTAKE_REQUIRED_EFFECTS_V1.map(Into::into).to_vec(),
+            };
+            let research_operation = DeploymentAcceptanceOperationV1 {
+                operation: RESEARCH_GOAL_OPERATION_V2.into(),
+                operation_schema: RESEARCH_GOAL_SCHEMA_V2.into(),
+                allowed_effects: vec!["R_AND_D_RESEARCH_MUTATION_V1".into()],
+            };
+
+            let without_research = deployment(
+                &urls,
+                "rd-api-authored-design-source-intake-only",
+                vec![source_intake_operation.clone()],
+            )
+            .await;
+            let refused_identity = format!("rd-api-authored-design-refused-{suffix}");
+            let refused = source_bound_research(&urls, &without_research, &refused_identity).await;
+            assert!(
+                matches!(
+                    refused,
+                    Err(
+                        CurrentSourceBoundResearchAcceptanceErrorV1::OperationNotDeployed {
+                            operation: RESEARCH_GOAL_OPERATION_V2
+                        }
+                    )
+                ),
+                "{refused:?}"
+            );
+
+            let with_research = deployment(
+                &urls,
+                "rd-api-authored-design",
+                vec![source_intake_operation, research_operation],
+            )
+            .await;
+            let locator = format!("rd-api-authored-design-{suffix}");
+            let current = source_bound_research(&urls, &with_research, &locator)
+                .await
+                .expect("this entry's source-bound Research is committed and current");
+            // Idempotent through the Owners' own replays: the same identity answers the same
+            // custody.
+            assert_eq!(
+                source_bound_research(&urls, &with_research, &locator)
+                    .await
+                    .expect("the same Research identity resolves again"),
+                current
+            );
+            (locator, current)
+        }
+
         /// This entry's Product Edge deployment under `fixture_key`, bound to exactly `operations`.
         fn deployment<'a>(
-            test_database: &'a CanonicalOwnerPostgresTestDatabaseV1,
+            urls: &'a OwnerUrlsV1,
             fixture_key: &'a str,
             operations: Vec<DeploymentAcceptanceOperationV1>,
         ) -> Boxed<'a, ProductEdgeDeploymentAcceptanceFixtureV1> {
             Box::pin(async move {
                 ensure_product_edge_deployment_acceptance_fixture_v1(
-                    test_database
-                        .database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
-                    test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+                    &urls.operator_authorization,
+                    &urls.product_edge,
                     &DeploymentAcceptanceProposalV1 {
                         fixture_key: fixture_key.to_owned(),
                         audience: SOURCE_INTAKE_TARGET_OWNER_V1.into(),
@@ -5150,7 +5182,7 @@ mod tests {
 
         /// The source-bound Research fixture for `identity`, admitted through `deployment`.
         fn source_bound_research<'a>(
-            test_database: &'a CanonicalOwnerPostgresTestDatabaseV1,
+            urls: &'a OwnerUrlsV1,
             deployment: &'a ProductEdgeDeploymentAcceptanceFixtureV1,
             identity: &'a str,
         ) -> Boxed<
@@ -5158,11 +5190,10 @@ mod tests {
             Result<CurrentSourceBoundResearchV1, CurrentSourceBoundResearchAcceptanceErrorV1>,
         > {
             Box::pin(ensure_current_source_bound_research_acceptance_fixture_v1(
-                test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
-                test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
-                test_database
-                    .database_url(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter),
-                test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+                &urls.rd_owner,
+                &urls.qualification_writer,
+                &urls.catalog_admin,
+                &urls.product_edge,
                 deployment,
                 identity,
             ))
