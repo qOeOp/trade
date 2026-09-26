@@ -432,7 +432,12 @@ jobs:
             ${{ hashFiles('python/pyproject.toml') }}
           rust-cache-workspaces: . -> target/py${{ matrix.python-version }}
           rust-cache-on-failure: "false"
-          rust-cache-save-if: ${{ env.SAVE_BUILD_CACHES }}
+          # Only 3.13 saves: it is the one pull requests build and restore. 3.12 and 3.14 build on
+          # main's scheduled and dispatched runs alone, where their 1.2 GB entries each were evicted
+          # before the next run restored them - 10 of 13 such jobs on 2026-09-24 logged `No cache
+          # found.` - so the pair held 2.4 GB of the 10 GB quota to save about 3.5 minutes on three
+          # non-gating jobs a day.
+          rust-cache-save-if: ${{ env.SAVE_BUILD_CACHES == 'true' && matrix.python-version == '3.13' }}
           rust-cache-workspace-crates: "true"
 
       - name: Update version in pyproject.toml
@@ -483,6 +488,13 @@ jobs:
           # `python/pyproject.toml` and does restore.
           key: py-stubs
           save-if: ${{ env.SAVE_BUILD_CACHES }}
+          # This is the job's second rust-cache, and post steps run in reverse, so its cleanup runs
+          # before the wheel cache's save. With `cache-bin` on, that cleanup deletes every file in
+          # ~/.cargo/bin the job did not `cargo install` - the rustup `cargo` proxy included - and
+          # the wheel cache's save, which runs `cargo metadata` next, then stored 2097 bytes
+          # (run 36071476302): every pull request's 3.13 wheel built cold, 576 s median against
+          # about 305 s warm. The wheel cache's own cleanup, which runs last, still cleans the bins.
+          cache-bin: "false"
 
       - name: Check generated file drift
         # Keep this 3.13 condition in sync with the matrix so drift is checked once per run.
