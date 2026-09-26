@@ -458,6 +458,12 @@ binding 下的第二个 snapshot 以它自己的创世 fact 开始自己的链�
 `ScopeValueConflict` 按名拒绝，不写入任何东西。同一 scope 与 snapshot 的第二个创世 fact 仍是 branch，以
 `InvalidCorrection` 拒绝。
 
+提交者读取一个 scope 所陈述的 value，而不是凭记忆重述。`resolve_market_semantics_scope_value_v1` 接受一个 Source
+Binding locator，返回 Owner 从该 binding 的 semantics 推出的 compatibility scope，以及该 scope 每个 head 都携带的
+value，用 submission 陈述它的那些词表达；scope 尚无 head 时不返回 value，此时任何 value 都可以是第一个。它在调用方的
+transaction 中运行，只读，不加行锁。同一 scope 的 head 陈述不同 value 是存储的问题，因此该读取以 `StoreUnavailable`
+拒绝，而不是挑一个；Market Data 不持有的 binding 为 `SourceBindingUnavailable`。
+
 **CURRENT：** Market Data 已有一个独立 `MarketSemanticsFactV1` 权威 foundation。其首个固定消费者是 Strategy Input
 Binding Registry；`ReplayMarketFactsV2` 随后把同一个 Owner readback 作为确定性 projection 消费。不受信
 proposal 只能携带 request identity/meaning、stable correlation、声称的 typed value、声称的 predecessor
@@ -809,6 +815,18 @@ Replay facts 只存在于恰为其 request、其 native authority 与其 frame �
 resolved composition cut 不带 Instrument Master，每个需要它的 Strategy Factory 读者按名以
 `InstrumentMasterAbsentForUniverseShape` 拒绝（HTTP 422 `INSTRUMENT_MASTER_ABSENT_FOR_UNIVERSE_SHAPE`）。schema 2
 binding 为该 request 的 Instrument Master V2 cut 定键，与第一语料 binding 完全相同。
+
+该 command 在 PIT request 与其 Source Binding 之外所命名的四个 locator 都由 snapshot 固定，因此调用方读取它们，而不是
+重建它们。`resolve_universe_member_composition_basis_v1` 接受 snapshot locator 与 Source Binding locator，返回该
+snapshot 被铸造时所基于的 Universe Selection、snapshot 自己的提交所追加的 R0 record、该 snapshot 在 binding 的
+compatibility scope 中 Market Semantics 链的 head，以及由 binding 与该 R0 record 投影出的 correction policy。它像签发
+那样核验每一条 record，在调用方的 transaction 中运行，只读，不加行锁。它按名拒绝：Market Data 未以 `AVAILABLE` 持有的
+snapshot（`PitUnavailable`）、在另一个 binding 下铸造的 snapshot（`SourceBindingMismatch`）、它未以已准入状态持有的
+binding（`SourceBindingUnavailable`），以及尚无已准入 Market Semantics fact 的 snapshot
+（`MarketSemanticsNotAdmitted`）；签发仍会重新推导并核验它得到的一切。这一读取与 scope value 读取都是 Market Data 的代码，
+建立在 `market_data_rd_api` 的六个授予 `rd_owner` 的 `STABLE` `SECURITY DEFINER` 函数之上，这些函数只返回已存储的
+行：一个 snapshot、一个 Source Binding、一个 Universe Selection、一条 R0 record、一个 Market Semantics readback，
+以及一个 scope 的各个 head。
 
 **TARGET，持久 R&D attestation seam：** positive R&D Develop Composer transaction 将一份不可变、完整的
 `StrategyDesignRoleSetReceiptV1` attestation 与 Composer aggregate、receipt 及 outbox 一起规范持久化。它绑定

@@ -39,6 +39,7 @@ pub mod strategy_input_binding;
 pub mod strategy_input_binding_admission_v1;
 pub mod strategy_input_event_corpus_v1;
 pub mod strategy_input_joined_cut;
+pub mod universe_member_composition_basis_v1;
 pub mod universe_sample_projection_v1;
 pub mod universe_selection;
 pub mod universe_selection_admission_v1;
@@ -103,6 +104,11 @@ pub use postgres::strategy_input_binding_registry::{
 /// request.
 pub use postgres::research_pit_references_v1::{
     check_research_instrument_scope_v1, resolve_research_pit_references_v1,
+};
+/// What a universe-member Replay composition over one snapshot is composed from, and the value a
+/// Source Binding's Market Semantics scope states, read in the caller's own transaction.
+pub use postgres::universe_member_composition_basis_v1::{
+    resolve_market_semantics_scope_value_v1, resolve_universe_member_composition_basis_v1,
 };
 pub use postgres::universe_sample_projection_v1::{
     UniverseSampleProjectionIssuanceErrorV1, UniverseSampleProjectionOwnerV1,

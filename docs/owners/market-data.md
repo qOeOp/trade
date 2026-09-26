@@ -504,6 +504,13 @@ value differs from any head of its scope other than the one it succeeds is refus
 with no write. A second genesis for the same scope and snapshot is still a branch and is refused as
 `InvalidCorrection`.
 
+A submitter reads the value a scope states rather than restating it. `resolve_market_semantics_scope_value_v1` takes
+a Source Binding locator and returns the compatibility scope the Owner derives from that binding's semantics,
+together with the value every head of the scope carries, in the words a submission states it; it returns no value
+while the scope has no head, when any value may be the first. It runs in the caller's transaction, reads only and
+takes no row locks. Heads of one scope that state different values are the store's fault, so the read refuses them as
+`StoreUnavailable` rather than picking one, and a binding Market Data does not hold is `SourceBindingUnavailable`.
+
 **CURRENT:** Market Data has one standalone `MarketSemanticsFactV1` authority foundation. Its first fixed consumer is the
 Strategy Input Binding Registry; `ReplayMarketFactsV2` later consumes the same Owner readback as a deterministic
 projection. An untrusted proposal may carry only its request identity and meaning, stable correlation, claimed
@@ -876,6 +883,19 @@ request, their native authorities and their frame. The resolved composition cut 
 Master, and each Strategy Factory reader that needs one refuses it by name as `InstrumentMasterAbsentForUniverseShape`
 (HTTP 422 `INSTRUMENT_MASTER_ABSENT_FOR_UNIVERSE_SHAPE`). A schema 2 binding keys the request's Instrument Master V2
 cut exactly as a first-corpus binding does.
+
+Each of the four locators the command names besides the PIT request and its Source Binding is fixed by the snapshot,
+so a caller reads them rather than rebuilds them. `resolve_universe_member_composition_basis_v1` takes the snapshot
+locator and the Source Binding locator and returns the Universe Selection the snapshot was minted over, the R0 record
+the snapshot's own commit appended, the head of the snapshot's Market Semantics chain in the binding's compatibility
+scope, and the correction policy projected from the binding and that R0 record. It checks each record as the issuance
+does, runs in the caller's transaction, reads only and takes no row locks. It refuses by name a snapshot Market Data
+does not hold as `AVAILABLE` (`PitUnavailable`), a snapshot minted under another binding (`SourceBindingMismatch`), a
+binding it does not hold admitted (`SourceBindingUnavailable`), and a snapshot for which no Market Semantics fact has
+been admitted yet (`MarketSemanticsNotAdmitted`); the issuance still re-derives and checks everything it is given.
+Both this read and the scope-value read are Market Data code over six `STABLE` `SECURITY DEFINER` functions of
+`market_data_rd_api`, granted to `rd_owner`, that only return stored rows: one snapshot, one Source Binding, one
+Universe Selection, one R0 record, one Market Semantics readback, and a scope's heads.
 
 **TARGET, durable R&D attestation seam:** the positive R&D Develop Composer transaction canonically persists one
 immutable complete `StrategyDesignRoleSetReceiptV1` attestation together with the Composer aggregate, receipt and
