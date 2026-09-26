@@ -286,6 +286,18 @@ jobs:
       # and the Market Data chain has its own script that does not. Without the leg condition this
       # step runs on both, finds nothing on the Market Data leg, and `if-no-files-found: error`
       # turns that into a failed job - which is exactly what it did on run 35688437514.
+      # Under the shard's own name, so the report job finds every shard's records in a directory
+      # named after it however many shards uploaded (download-artifact unpacks a single match flat).
+      - name: Name this shard's records
+        if: always() && matrix.chain.key == 'rd-owner'
+        env:
+          SHARD: ${{ matrix.chain.shard }}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/chain-record-upload/${SHARD}"
+          if [[ -d target/nextest/chain-records ]]; then
+            cp -R target/nextest/chain-records/. "${RUNNER_TEMP}/chain-record-upload/${SHARD}/"
+          fi
+
       - name: Publish which chain entries ran
         if: always() && matrix.chain.key == 'rd-owner'
         # https://github.com/actions/upload-artifact
@@ -293,7 +305,7 @@ jobs:
         with:
           name: >-
             chain-record-${{ matrix.chain.key }}${{ matrix.chain.shard && format('-{0}', matrix.chain.shard) || '' }}
-          path: target/nextest/chain-records/
+          path: ${{ runner.temp }}/chain-record-upload/
           if-no-files-found: error
           retention-days: 7
 
@@ -440,11 +452,14 @@ jobs:
         with:
           pattern: chain-record-rd-owner-*
           path: ${{ runner.temp }}/chain-records
+          # Each artifact holds <shard>/NNN.*, so merged they give one directory per shard.
+          merge-multiple: true
 
       - name: Merge the shards' records
         run: >-
           bash scripts/ci/merge-chain-shard-records.bash
           "${RUNNER_TEMP}/chain-records" "${RUNNER_TEMP}/chain-records-merged"
+          scripts/ci/rd-owner-chain-shards.tsv
 
       - name: Report the whole chain
         run: >-
