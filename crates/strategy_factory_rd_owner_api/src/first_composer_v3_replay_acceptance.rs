@@ -437,8 +437,28 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
         .clone();
 
     // H2b: the Market Semantics fact for this snapshot, which the universe declaration below
-    // requires and nothing in this flow creates. Operations states it through the production route;
-    // the value is Operations' own statement about the feed.
+    // requires and nothing in this flow creates. Operations states it through the production route.
+    // A scope that already has heads admits only the value they carry, so Operations restates the
+    // value Market Data reads back for the binding's scope; only a scope with no head yet takes
+    // Operations' own statement about the feed.
+    let mut read = rd.begin().await.expect("a read transaction opens");
+    let scope_value = vibe_data::owner::resolve_market_semantics_scope_value_v1(
+        &mut read,
+        &submission.source_binding,
+    )
+    .await
+    .unwrap_or_else(|e| panic!("H2b: Market Data states the binding's scope value: {e:?}"));
+    read.rollback().await.expect("the read transaction closes");
+    let value = scope_value
+        .value()
+        .cloned()
+        .unwrap_or_else(|| MarketSemanticsValueSubmissionV1 {
+            normalization_identity: first_composer_v3_digest("normalization"),
+            price_adjustment: "RAW".to_owned(),
+            timestamp_basis: "EVENT_EFFECTIVE".to_owned(),
+            price_unit_identity: first_composer_v3_digest("price-unit"),
+            size_unit_identity: first_composer_v3_digest("size-unit"),
+        });
     let (status, answer) = post(
         &routes,
         "/v1/market-data/market-semantics",
@@ -446,13 +466,7 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
             serde_json::to_value(MarketSemanticsFactSubmissionV1 {
                 source_binding: submission.source_binding.clone(),
                 pit_snapshot: pit_snapshot.clone(),
-                value: MarketSemanticsValueSubmissionV1 {
-                    normalization_identity: first_composer_v3_digest("normalization"),
-                    price_adjustment: "RAW".to_owned(),
-                    timestamp_basis: "EVENT_EFFECTIVE".to_owned(),
-                    price_unit_identity: first_composer_v3_digest("price-unit"),
-                    size_unit_identity: first_composer_v3_digest("size-unit"),
-                },
+                value,
             })
             .expect("the Market Semantics submission serializes"),
         ),
@@ -547,8 +561,175 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
         composed.coordinate,
     );
 
-    todo!(
-        "H6 onward: the universe-member composition binding, the COMPOSER_V3 commit and the \
-         execution input binding, over {composed:?}"
+    // The R&D Owner API's own state, as `main` composes it, for the two routes below that read it:
+    // the universe-member composition issuance and the COMPOSER_V3 commit.
+    let app = owner_state_routes().with_state(
+        Box::pin(owner_api_state(
+            test_database,
+            &deployment,
+            owner.clone(),
+            token_digest,
+        ))
+        .await,
+    );
+
+    // H6: the universe-member composition binding, over the production route. The Design's role
+    // set is the Composer operation's own positive answer; the four authority locators are Market
+    // Data's answer for this snapshot and binding, not restated here. The window is the one
+    // instant the snapshot's reference facts cover: Market Data derives its R0 record, and the
+    // Market Semantics fact over it, for [event effective, event effective + 1).
+    let composer_locator = DevelopComposerSealedReadLocatorV2::from_accepted_response(&composed)
+        .expect("H6: a successful Composer operation locates its artifact");
+    let mut read = rd.begin().await.expect("a read transaction opens");
+    let basis = vibe_data::owner::resolve_universe_member_composition_basis_v1(
+        &mut read,
+        &pit_snapshot,
+        &submission.source_binding,
     )
+    .await
+    .unwrap_or_else(|e| panic!("H6: Market Data states the snapshot's composition basis: {e:?}"));
+    read.rollback().await.expect("the read transaction closes");
+    let event_effective = i128::from(submission.time_evidence.event_effective.value);
+    let composition: ReplayCompositionUniverseBindingIssuanceRequestV1 =
+        serde_json::from_value(serde_json::json!({
+            "composer_locator": composer_locator,
+            "pit_locator": pit_snapshot,
+            "source_binding_locator": submission.source_binding,
+            "replay_start_event_ns": event_effective,
+            "replay_end_event_ns_exclusive": event_effective + 1,
+            "universe_selection_locator": basis.universe_selection_locator(),
+            "reference_fact_r0_locator": basis.reference_fact_r0_locator(),
+            "market_semantics_locator": basis.market_semantics_locator(),
+            "correction_policy_locator": basis.correction_policy_locator(),
+        }))
+        .expect("the issuance command states exactly the universe-member composition's fields");
+    let issuance = ReplayCompositionLocatorOnlyIssuanceRequestV1::new(
+        first_composer_v3_digest(&format!("{fixture_key}:composition")),
+        composition,
+    )
+    .expect("the issuance command encodes canonically");
+    let (status, answer) = post(
+        &app,
+        "/v1/replay-compositions/universe-member-issuances",
+        Some(serde_json::to_value(&issuance).expect("the issuance command serializes")),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "H6: the composition binding: {answer}"
+    );
+    let composition_binding: ReplayCompositionBindingLocatorV1 =
+        serde_json::from_value(json_of(&answer)["binding"]["locator"].clone())
+            .expect("H6: the issuance answers its binding's locator");
+
+    // H7: the COMPOSER_V3 Replay, committed over the production route. Its TrialFamily is the one
+    // H1's Research request formed, and its window is that family's sealed Replay policy window,
+    // which R&D requires the Market Data facts to span exactly.
+    let family = accepted
+        .trial_family()
+        .expect("H1: an accepted Research request forms its TrialFamily");
+    let policy_window = family
+        .root()
+        .policy()
+        .replay_policy_catalog_v3()
+        .expect("H1: the TrialFamily seals a Replay policy catalog")
+        .replay_policy_v2()
+        .verify()
+        .expect("H1: the sealed Replay policy verifies")
+        .window;
+    let replay_request_identity = format!("{fixture_key}-replay");
+    let (status, answer) = post(
+        &app,
+        "/v3/exploratory-replay-requests/composer-backed",
+        Some(serde_json::json!({
+            "request_identity": replay_request_identity,
+            "trial_family_identity": family.root().trial_family_identity(),
+            "artifact_identity": composer_locator.artifact_locator,
+            "composer_locator": composer_locator,
+            "market_data_locator": composition_binding,
+            "market_data_scope_digest": submission.scope_digest,
+        })),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "H7: the COMPOSER_V3 Replay (TrialFamily window {}..{}, Market Data window \
+         {event_effective}..{}): {answer}",
+        policy_window.start_event_ns,
+        policy_window.end_event_ns_exclusive,
+        event_effective + 1,
+    );
+    let replay_request: ExploratoryReplayRequestLocatorV2 =
+        serde_json::from_value(json_of(&answer)["locator"].clone())
+            .expect("H7: the commit answers its Replay's locator");
+
+    todo!(
+        "H8: the execution input binding, once a scheduling resolver exists for it, over \
+         {replay_request:?}"
+    )
+}
+
+/// The R&D Owner API's state for the routes this fixture drives, composed from the deployment the
+/// fixture admitted.
+async fn owner_api_state(
+    test_database: &CanonicalOwnerPostgresTestDatabaseV1,
+    deployment: &ProductEdgeDeploymentAcceptanceFixtureV1,
+    owner: Arc<PostgresResearchGoalOwnerV1>,
+    token_digest: [u8; 32],
+) -> ApiState {
+    let rd_url = test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner);
+    // No route this fixture drives builds an Artifact, so the sandbox socket is never dialled.
+    let artifact_owner = Arc::new(
+        PostgresArtifactBuildOwnerV1::connect(rd_url, SANDBOX_SOCKET_DEFAULT, 600_000)
+            .await
+            .expect("the Artifact Owner opens"),
+    );
+    ApiState {
+        product_edge: Arc::new(
+            deployment
+                .connect_owner(
+                    test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+                )
+                .await
+                .expect("the deployment's Product Edge Owner opens"),
+        ),
+        owner: owner.clone(),
+        artifact_owner: artifact_owner.clone(),
+        artifact_source_owner: artifact_owner.clone(),
+        artifact_directory_owner: artifact_owner,
+        research_directory_owner: owner.clone(),
+        research_readback_owner: owner,
+        historical_custody_owner: Arc::new(
+            PostgresHistoricalCustodyOwnerV1::connect_read_only(rd_url)
+                .await
+                .expect("the historical custody Owner opens"),
+        ),
+        token_digest,
+        request_proof_digest: deployment.request_proof_digest.clone(),
+        allow_acceptance_faults: false,
+        _market_data_research_pit: None,
+        native_replay_scheduling: None,
+        instrument_master_v2: None,
+        instrument_economic_terms: None,
+        universe_sample_projection: None,
+        develop_composer_read: None,
+        develop_composer: Arc::new(
+            SealedPostgresSourceResearchComposerV2::connect(
+                rd_url,
+                test_database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+            )
+            .await
+            .expect("the Composer opens"),
+        ),
+        replay_composition: Some(Arc::new(
+            ReplayCompositionOwnerV1::connect(
+                test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner),
+                test_database.database_url(CanonicalOwnerTestRoleV1::MarketDataReader),
+            )
+            .await
+            .expect("Market Data's replay composition Owner opens"),
+        )),
+    }
 }
