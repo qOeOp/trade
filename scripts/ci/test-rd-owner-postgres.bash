@@ -383,17 +383,20 @@ MANIFEST
   # so the two channels AGENTS.md calls interchangeable disagreed, and the check stayed green
   # throughout because the file it watched was still correct.
   local browser_action="$repository_root/.github/actions/dashboard-browser-acceptance/action.yml"
-  if [[ ! -f "$browser_action" ]]; then
-    echo "ERROR: the sealed Dashboard browser acceptance action is missing." >&2
+  local node_action="$repository_root/.github/actions/dashboard-node-dependencies/action.yml"
+  if [[ ! -f "$browser_action" || ! -f "$node_action" ]]; then
+    echo "ERROR: the Dashboard browser acceptance or node dependencies action is missing." >&2
     return 1
   fi
   if ! rg -Fq 'DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE=1' "$browser_action" ||
     ! rg -Fq 'DASHBOARD_STRATEGY_VIEWER_ACCEPTANCE_CANDIDATE=' "$browser_action" ||
     ! rg -Fq '${{ runner.temp }}/dashboard-strategy-viewer-chrome/chrome-linux64/chrome' \
       "$browser_action" ||
-    ! rg -Fq 'npm ci --prefix product/dashboard' "$browser_action" ||
+    ! rg -Fq 'uses: ./.github/actions/dashboard-node-dependencies' "$browser_action" ||
+    ! rg -Fq 'npm ci --prefix product/dashboard' "$node_action" ||
     ! rg -Fq 'ecae8b71d4890cf5f32577ab5ea1b3840c2b5e05f51490b1666674cf1f5b0c37' "$browser_action"; then
-    echo "ERROR: the sealed Dashboard browser acceptance action must install immutable runtime inputs." >&2
+    echo "ERROR: the sealed Dashboard browser acceptance action must install immutable runtime inputs," >&2
+    echo "       the Dashboard's node_modules through the node dependencies action among them." >&2
     return 1
   fi
   # Every channel AGENTS.md accepts as chain evidence has to call it. A channel that does not still
@@ -406,6 +409,15 @@ MANIFEST
     if ! rg -Fq './.github/actions/dashboard-browser-acceptance' \
       "$repository_root/.github/workflows/${acceptance_channel}.yml"; then
       echo "ERROR: ${acceptance_channel}.yml claims to carry the Owner chain but never installs the sealed Dashboard browser acceptance inputs." >&2
+      return 1
+    fi
+    # A shard with a node entry and no browser entry installs the node_modules alone; a channel
+    # without this step would run it where they are absent.
+    if ! rg -Fq 'matrix.chain.node == 1 && matrix.chain.browser != 1' \
+      "$repository_root/.github/workflows/${acceptance_channel}.yml" ||
+      ! rg -Fq './.github/actions/dashboard-node-dependencies' \
+        "$repository_root/.github/workflows/${acceptance_channel}.yml"; then
+      echo "ERROR: ${acceptance_channel}.yml never installs the Dashboard's node_modules for a shard with a node entry and no browser." >&2
       return 1
     fi
   done
@@ -1037,6 +1049,15 @@ check_market_data_principal_bootstrap_order() {
 # over default feature sets that are empty, and migrates its database with the acceptance switch
 # unset. Those are what keep a wider chain union from reaching a deployed image, so they are pinned
 # here, next to the union they are the other side of.
+# The walker proves itself on fixtures in both directions before it reads the real tree: an entry
+# whose script reaches a package through a relative import, a dynamic import, an inline type
+# import or a node_modules path must be found; one that reaches only builtins, or only type-only
+# imports, must not. A reader that found nothing would otherwise pass every tree.
+check_chain_node_declarations() {
+  python3 "$(dirname "${BASH_SOURCE[0]}")/chain-node-entries.py" --self-test
+  python3 "$(dirname "${BASH_SOURCE[0]}")/chain-node-entries.py" --check "${BASH_SOURCE[0]}"
+}
+
 check_composer_acceptance_stays_in_the_chain() {
   local repository_root
   repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -1623,6 +1644,7 @@ if [[ "${1:-}" != "--report-records" ]]; then
   check_market_data_principal_bootstrap_order
   check_trial_family_candidate_experiment_cutover
   check_composer_acceptance_stays_in_the_chain
+  check_chain_node_declarations
 fi
 check_collected_warning_report
 # A PostgreSQL crash-reinit leaves the postmaster running, so its start time does not move; what
@@ -1727,8 +1749,8 @@ check_chain_sleep_reading() {
   fi
 }
 
-# The shard list: one row per chain entry, `shard<TAB>component<TAB>test name<TAB>browser`, rows
-# in chain order. A component is a set of entries that must share one database in chain order;
+# The shard list: one row per chain entry, `shard<TAB>component<TAB>test name<TAB>capability`, rows
+# in chain order. The capability is what the entry needs installed: `browser`, `node` or `-`. A component is a set of entries that must share one database in chain order;
 # different components never read each other's rows, so each starts from the state before the
 # first entry. Components run one after another, never interleaved: interleaving would rebuild the
 # databases in the middle of a component and drop what its earlier entries wrote.
@@ -2243,16 +2265,39 @@ readonly chain_browser_entries=(
   'tests::backtest_run_report_browser_acceptance_reads_the_owner_answer'
 )
 
-# Whether this run executes a browser entry: always for the whole chain, and for a shard only when
-# its rows in the shard list include one.
+# The entries that load a package from the Dashboard's node_modules and run no browser, named once
+# as the browser entries are (a browser entry implies them, so it is not listed again). A shard
+# installs those dependencies only when it runs one of these or a browser entry, so an entry that
+# needs them and is missing here runs where they are absent - on CI; every developer's checkout has
+# them, which is why this cannot be left to a local run to find. --check reads each chain entry's
+# scripts and refuses an undeclared one by name (scripts/ci/chain-node-entries.py).
+readonly chain_dashboard_node_entries=(
+)
+
+# What this run installs for its entries: `browser` (Chrome and the Dashboard's node_modules),
+# `node` (the node_modules alone) or `-`. The whole chain runs every entry, so it is `browser`; a
+# shard is the most any of its rows in the shard list names.
+chain_run_capability() {
+  [[ -n "${RD_OWNER_CHAIN_SHARD:-}" ]] || {
+    echo browser
+    return 0
+  }
+  awk -F'\t' -v shard="$RD_OWNER_CHAIN_SHARD" '
+    $1 == shard && $4 == "browser" { browser = 1 }
+    $1 == shard && $4 == "node" { node = 1 }
+    END { print browser ? "browser" : node ? "node" : "-" }
+  ' "$chain_shard_list"
+}
+
 chain_runs_a_browser_entry() {
+  [[ "$(chain_run_capability)" == browser ]]
+}
+
+# Whether one entry is declared to load the Dashboard's node_modules, itself or through a browser.
+chain_entry_declares_node() {
   local name
-  [[ -n "${RD_OWNER_CHAIN_SHARD:-}" ]] || return 0
-  for name in "${chain_browser_entries[@]}"; do
-    if awk -F'\t' -v shard="$RD_OWNER_CHAIN_SHARD" -v name="$name" \
-      '$1 == shard && $3 == name { found = 1 } END { exit !found }' "$chain_shard_list"; then
-      return 0
-    fi
+  for name in "${chain_browser_entries[@]}" "${chain_dashboard_node_entries[@]}"; do
+    [[ "$name" != "$1" ]] || return 0
   done
   return 1
 }
@@ -2277,6 +2322,37 @@ check_sealed_browser_inputs() {
   return 1
 }
 check_sealed_browser_inputs
+
+# A run with an entry that loads the Dashboard's packages checks they are installed before its first
+# entry, and names the missing ones. The packages are the ones those entries' scripts reach, read the
+# same way --check reads them, so the check asks for exactly what this run will load.
+check_dashboard_node_dependencies() {
+  local capability entry packages package
+  local -a missing=() package_list=()
+  capability="$(chain_run_capability)"
+  [[ "$capability" != "-" ]] || return 0
+  while IFS=$'\t' read -r entry packages; do
+    if [[ -n "${RD_OWNER_CHAIN_SHARD:-}" ]] &&
+      ! awk -F'\t' -v shard="$RD_OWNER_CHAIN_SHARD" -v name="$entry" \
+        '$1 == shard && $3 == name { found = 1 } END { exit !found }' "$chain_shard_list"; then
+      continue
+    fi
+    IFS=',' read -r -a package_list <<< "$packages"
+    for package in "${package_list[@]}"; do
+      case "$package" in
+        *' (runs packages)') command -v "${package%% *}" > /dev/null || missing+=("$entry: ${package%% *}") ;;
+        *) [[ -f "product/dashboard/node_modules/${package}/package.json" ]] || missing+=("$entry: $package") ;;
+      esac
+    done
+  done < <(python3 "$(dirname "${BASH_SOURCE[0]}")/chain-node-entries.py" --list "${BASH_SOURCE[0]}")
+  [[ "${#missing[@]}" -gt 0 ]] || return 0
+  echo "ERROR: this run's entries load packages the Dashboard's node_modules does not hold:" >&2
+  printf '       %s\n' "${missing[@]}" >&2
+  echo "       .github/actions/dashboard-node-dependencies installs them for a shard that declares" >&2
+  echo "       a node or browser entry; locally, run npm ci --prefix product/dashboard." >&2
+  return 1
+}
+check_dashboard_node_dependencies
 
 # One image, two sources: mirror.gcr.io first, public.ecr.aws if it does not serve. The digest names
 # the bytes, so either source gives this chain the same server (scripts/ci/pull-pinned-image.bash).
@@ -2358,6 +2434,21 @@ remove_docker_object_for_cleanup() {
   return 1
 }
 
+# An entry that loads a Dashboard package without declaring it fails, in a shard that did not install
+# them, with Node's own ERR_MODULE_NOT_FOUND, which names the package and not the declaration. When
+# --check's reading of the scripts missed it - a helper in another Rust file, a path built at run
+# time - this names the entry and the list it belongs in.
+report_undeclared_node_entry() {
+  local record test_name
+  record="$(printf '%s/%03d.xml' "$chain_record_dir" "$chain_position")"
+  test_name="${chain_entry_label##* }"
+  [[ -f "$record" ]] || return 0
+  chain_entry_declares_node "$test_name" && return 0
+  rg -q 'ERR_MODULE_NOT_FOUND|Cannot find (package|module)' "$record" || return 0
+  echo "entry ${chain_position} (${test_name}) loaded a package from node_modules that this shard did not install:" >&2
+  echo "add it to chain_dashboard_node_entries in scripts/ci/test-rd-owner-postgres.bash and regenerate the shard list." >&2
+}
+
 cleanup() {
   local primary_status="$?"
   local cleanup_failed=false
@@ -2397,6 +2488,7 @@ cleanup() {
   # sentence that says where the run stopped.
   if [[ "$primary_status" -ne 0 && "$chain_position" -gt 0 && "$chain_completed" != true ]]; then
     echo "ordered chain stopped at entry ${chain_position}/${chain_entry_count} (${chain_entry_label}); $((chain_position - 1)) passed before it." >&2
+    report_undeclared_node_entry
   fi
 
   if [[ -n "$nextest_extract_dir" ]] &&
