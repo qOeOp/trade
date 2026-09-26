@@ -20,6 +20,7 @@ readonly market_data_owner_postgres_tests=(
   owner::postgres::replay_market_facts_v2::universe_issuance::postgres_tests::postgres_universe_member_composition_issues_a_binding_that_keys_its_cut
   owner::postgres::tests::postgres_each_research_request_under_one_binding_gets_its_own_market_semantics
   owner::postgres::tests::postgres_production_admits_market_semantics_for_the_chain_fixture_instrument
+  owner::postgres::tests::the_market_base_corpus_is_named_by_its_snapshot_after_a_production_admission
   owner::postgres::tests::postgres_concurrent_values_under_one_binding_leave_one_value
   owner::postgres::tests::postgres_market_semantics_heads_migrate_to_one_head_per_snapshot
   owner::postgres::pit_initial_intake_correlation_tests::postgres_an_initial_intake_claims_its_correlation_once_and_reads_back_by_it
