@@ -1505,14 +1505,23 @@ async fn resolve_native_universe(
         .await
         .map_err(|_| StrategyInputBindingRegistryErrorV1::StoreUnavailable)?
         .ok_or(StrategyInputBindingRegistryErrorV1::UniverseUnavailable)?;
-    let request_identity = row_digest(&row, "request_identity")?;
-    let meaning = row_digest(&row, "request_meaning_digest")?;
-    let native_selection = row_digest(&row, "selection_identity")?;
-    let receipt_identity = row_digest(&row, "receipt_identity")?;
-    let outbox_identity = row_digest(&row, "outbox_identity")?;
-    let record_bytes = row_bytes(&row, "record_bytes")?;
-    let receipt_bytes = row_bytes(&row, "receipt_bytes")?;
-    let outbox_receipt_bytes = row_bytes(&row, "outbox_receipt_bytes")?;
+    decode_universe_selection_row_v1(&row, selection_identity)
+}
+
+/// Decodes one Universe Selection readback row, as the Owner's tables and the `market_data_rd_api`
+/// functions return it, and refuses any column that does not match the record it carries.
+pub(super) fn decode_universe_selection_row_v1(
+    row: &sqlx::postgres::PgRow,
+    selection_identity: BindingDigest,
+) -> Result<UniverseSelectionReadbackV1, StrategyInputBindingRegistryErrorV1> {
+    let request_identity = row_digest(row, "request_identity")?;
+    let meaning = row_digest(row, "request_meaning_digest")?;
+    let native_selection = row_digest(row, "selection_identity")?;
+    let receipt_identity = row_digest(row, "receipt_identity")?;
+    let outbox_identity = row_digest(row, "outbox_identity")?;
+    let record_bytes = row_bytes(row, "record_bytes")?;
+    let receipt_bytes = row_bytes(row, "receipt_bytes")?;
+    let outbox_receipt_bytes = row_bytes(row, "outbox_receipt_bytes")?;
     let readback = decode_readback_v1(record_bytes, receipt_bytes, outbox_identity)
         .map_err(|_| StrategyInputBindingRegistryErrorV1::StoreUntrusted)?;
 

@@ -430,7 +430,7 @@ pub(in crate::owner) mod postgres_tests {
     }
 
     /// Runs the issuance's Owner-transaction body once, committing only what it issues.
-    async fn issue_under(
+    pub(in crate::owner) async fn issue_under(
         pool: &sqlx::PgPool,
         role_set: &StrategyDesignRoleSetReceiptV1,
         command: &ReplayCompositionLocatorOnlyIssuanceRequestV1<
@@ -459,7 +459,7 @@ pub(in crate::owner) mod postgres_tests {
         issued
     }
 
-    fn role_set(
+    pub(in crate::owner) fn role_set(
         locator: &StrategyDesignRoleSetLocatorV1,
         requests: &[crate::owner::strategy_input_binding::UntrustedStrategyInputBindingRequest],
     ) -> StrategyDesignRoleSetReceiptV1 {
@@ -468,7 +468,7 @@ pub(in crate::owner) mod postgres_tests {
             requests[0].research_request_identity,
             d(0x75),
             requests[0].strategy_design_identity,
-            d(0x74),
+            locator.design_digest,
             d(0x76),
             requests
                 .iter()
