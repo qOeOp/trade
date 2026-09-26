@@ -1527,18 +1527,6 @@ fn attach_owner_sample_coordinates_v4(
     Ok(event)
 }
 
-/// Admits one complete Owner-sealed universe frame that carries no member coordinates.
-///
-/// This is the universe admission for a Plan with no coordinate rows. A Plan that has them, a BFP
-/// universe Plan, admits no frame through here, because the frame would carry fewer coordinates
-/// than the Plan binds.
-pub(crate) fn admit_market_data_universe_program_event_v2(
-    plan: &StrategyPlanV2,
-    frame: &StrategyInputUniverseFrameReceipt,
-) -> Result<AdmittedProgramEventV2, ProgramHostV2Error> {
-    admit_market_data_coordinated_universe_program_event_v2(plan, frame, &[])
-}
-
 /// Admits one complete Owner-sealed universe frame together with its members' Owner sample
 /// coordinates.
 ///
@@ -1799,7 +1787,10 @@ pub(crate) fn issue_backtest_universe_successor_for_test(
     logical_time_ns: u64,
     member_open_close: &[[i128; 2]],
 ) -> Result<AdmittedProgramEventV2, ProgramHostV2Error> {
-    let mut event = admit_market_data_universe_program_event_v2(plan, frame)?;
+    let mut event = admit_owner_universe_program_event_v2(
+        plan,
+        &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+    )?;
     let prior = event.envelope.order_key;
     let identity_digest = domain_digest(
         b"strategy.backtest.test-successor-event.v2\0",
@@ -2039,22 +2030,16 @@ impl ProgramHostV2 {
         self.apply_event(&event)
     }
 
-    /// Admits and applies one complete Owner-sealed universe frame.
-    pub fn apply_market_data_universe_event(
-        &mut self,
-        frame: &StrategyInputUniverseFrameReceipt,
-    ) -> Result<SemanticTraceV1, ProgramHostV2Error> {
-        let event = admit_market_data_universe_program_event_v2(&self.plan, frame)?;
-        self.apply_event(&event)
-    }
-
     /// Evaluates one complete universe frame on a scratch clone without advancing this host.
     #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
     pub(crate) fn prepare_backtest_universe_event(
         &self,
         frame: &StrategyInputUniverseFrameReceipt,
     ) -> Result<PreparedBacktestTargetSetV2, ProgramHostV2Error> {
-        let event = admit_market_data_universe_program_event_v2(&self.plan, frame)?;
+        let event = admit_owner_universe_program_event_v2(
+            &self.plan,
+            &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+        )?;
         self.prepare_backtest_admitted_universe_event(&event)
     }
 

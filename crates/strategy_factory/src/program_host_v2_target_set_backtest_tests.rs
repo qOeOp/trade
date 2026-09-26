@@ -43,7 +43,7 @@ use super::{
         seal_reconciliation_capability_for_test,
     },
     program_host_v2::{
-        ProgramHostV2, admit_market_data_universe_program_event_v2,
+        OwnerUniverseFrameV1, ProgramHostV2, admit_owner_universe_program_event_v2,
         issue_backtest_universe_successor_for_test,
     },
     program_host_v2_tests::universe_design,
@@ -76,7 +76,11 @@ fn owner_bound_profile_drives_bar_signal_then_real_event_fills() {
         instrument.margin_maint = rust_decimal::Decimal::new(5, 2);
     }
     let (plan, artifact, frame) = fixture().unwrap();
-    let admitted = admit_market_data_universe_program_event_v2(&plan, &frame).unwrap();
+    let admitted = admit_owner_universe_program_event_v2(
+        &plan,
+        &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+    )
+    .unwrap();
     let time = admitted.envelope().order_key.logical_time_ns;
     let authority = owner_replay_execution_profile_binding_fixture_v1(
         &plan,
@@ -220,11 +224,14 @@ fn owner_bound_profile_drives_bar_signal_then_real_event_fills() {
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 fn self_consistent_plan_artifact_splice_fails_before_execution() {
     let (request_plan, request_artifact, request_frame) = fixture().unwrap();
-    let request_time = admit_market_data_universe_program_event_v2(&request_plan, &request_frame)
-        .unwrap()
-        .envelope()
-        .order_key
-        .logical_time_ns;
+    let request_time = admit_owner_universe_program_event_v2(
+        &request_plan,
+        &OwnerUniverseFrameV1::uncoordinated(request_frame.clone()),
+    )
+    .unwrap()
+    .envelope()
+    .order_key
+    .logical_time_ns;
     let authority = owner_replay_execution_profile_binding_fixture_v1(
         &request_plan,
         &request_artifact,
@@ -236,11 +243,14 @@ fn self_consistent_plan_artifact_splice_fails_before_execution() {
     );
     let (foreign_plan, foreign_artifact, foreign_frame) =
         fixture_with_target_sets(target_set(), Some(second_target_set())).unwrap();
-    let foreign_time = admit_market_data_universe_program_event_v2(&foreign_plan, &foreign_frame)
-        .unwrap()
-        .envelope()
-        .order_key
-        .logical_time_ns;
+    let foreign_time = admit_owner_universe_program_event_v2(
+        &foreign_plan,
+        &OwnerUniverseFrameV1::uncoordinated(foreign_frame.clone()),
+    )
+    .unwrap()
+    .envelope()
+    .order_key
+    .logical_time_ns;
     let instruments = instruments();
     let (bar_types, data) = request_execution_schedule(&instruments, foreign_time);
 
@@ -788,7 +798,10 @@ fn run_round_trip_corpus() -> anyhow::Result<RoundTripEvidence> {
         )
     });
     let (plan, artifact, frame) = fixture_with_target_sets(target_set(), Some(exit_target_set()))?;
-    let admitted = admit_market_data_universe_program_event_v2(&plan, &frame)?;
+    let admitted = admit_owner_universe_program_event_v2(
+        &plan,
+        &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+    )?;
     let entry_time = admitted.envelope().order_key.logical_time_ns;
     let exit_time = entry_time + 100;
     let successor = issue_backtest_universe_successor_for_test(
@@ -988,7 +1001,10 @@ fn run_corpus_with_fault(restore: bool, second_submit_fault: bool) -> anyhow::Re
         )
     });
     let (plan, artifact, frame) = fixture()?;
-    let admitted = admit_market_data_universe_program_event_v2(&plan, &frame)?;
+    let admitted = admit_owner_universe_program_event_v2(
+        &plan,
+        &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+    )?;
     let time = admitted.envelope().order_key.logical_time_ns;
     let bars = [
         Bar::new(
@@ -1170,7 +1186,10 @@ fn run_invalid_batch(case: InvalidBatchCase) -> anyhow::Result<TargetSetBacktest
         )
     });
     let (plan, artifact, frame) = fixture()?;
-    let admitted = admit_market_data_universe_program_event_v2(&plan, &frame)?;
+    let admitted = admit_owner_universe_program_event_v2(
+        &plan,
+        &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+    )?;
     let time = admitted.envelope().order_key.logical_time_ns;
     let data = vec![
         Data::Bar(Bar::new(
@@ -1258,7 +1277,10 @@ fn run_multi_frame_equity_corpus() -> anyhow::Result<TargetSetBacktestTraceV2> {
     });
     let (plan, artifact, frame) =
         fixture_with_target_sets(target_set(), Some(second_target_set()))?;
-    let admitted = admit_market_data_universe_program_event_v2(&plan, &frame)?;
+    let admitted = admit_owner_universe_program_event_v2(
+        &plan,
+        &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+    )?;
     let first_time = admitted.envelope().order_key.logical_time_ns;
     let second_time = first_time + 100;
     // THIS SECOND FRAME IS CONSTRUCTED BY THIS TEST, NOT ISSUED BY THE OWNER. It is the first
@@ -1985,7 +2007,11 @@ fn two_member_execution_bundle_digests_are_unchanged_by_the_member_count_widenin
         instrument.margin_maint = rust_decimal::Decimal::new(5, 2);
     }
     let (plan, artifact, frame) = fixture().unwrap();
-    let admitted = admit_market_data_universe_program_event_v2(&plan, &frame).unwrap();
+    let admitted = admit_owner_universe_program_event_v2(
+        &plan,
+        &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+    )
+    .unwrap();
     let time = admitted.envelope().order_key.logical_time_ns;
     let authority = owner_replay_execution_profile_binding_fixture_v1(
         &plan,

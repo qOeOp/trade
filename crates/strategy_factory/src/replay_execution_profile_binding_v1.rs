@@ -1413,12 +1413,14 @@ mod tests {
     fn owner_fixture_uses_complete_request_locator_and_exact_profile_bytes() {
         let (plan, artifact, frame) =
             crate::program_host_v2_target_set_backtest_tests::fixture().unwrap();
-        let frame_time =
-            crate::program_host_v2::admit_market_data_universe_program_event_v2(&plan, &frame)
-                .unwrap()
-                .envelope()
-                .order_key
-                .logical_time_ns;
+        let frame_time = crate::program_host_v2::admit_owner_universe_program_event_v2(
+            &plan,
+            &crate::program_host_v2::OwnerUniverseFrameV1::uncoordinated(frame.clone()),
+        )
+        .unwrap()
+        .envelope()
+        .order_key
+        .logical_time_ns;
         let binding = owner_replay_execution_profile_binding_fixture_v1(
             &plan,
             &artifact,
