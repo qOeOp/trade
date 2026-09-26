@@ -1,0 +1,99 @@
+# LANE8 PROBE, NOT FOR MERGE: where the rust tests compile spends its time.
+# Same env, cache entry (restored, never saved) and make target as build.yml's rust tests job.
+name: lane8-timings-probe
+
+on:
+  push:
+    branches:
+      - lane8-probe/timings
+
+permissions:
+  contents: read
+
+jobs:
+  timings:
+    name: rust tests compile timings
+    runs-on: ubuntu-22.04
+    timeout-minutes: 100
+    env:
+      CARGO_CI_PROFILE: ci-pr
+      CARGO_TARGET_DIR: target/rust-tests-linux-x86
+      RUST_TEST_EXTRA_FEATURES: >-
+        capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres,vibe-strategy-factory/sealed-develop-composer-acceptance
+      RUST_BACKTRACE: 1
+    steps:
+      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          # A push to this branch sees no allowed-endpoints variables, so block refused checkout
+          # (run 36260319312). Audit, as build.yml runs under AUDIT_PR.
+          egress-policy: audit
+
+      - name: Runner hardware
+        run: |
+          echo "LANE8-T cpu: $(lscpu | sed -n 's/^Model name: *//p')"
+          echo "LANE8-T cores: $(nproc)"
+          echo "LANE8-T memory: $(free -g | awk '/^Mem:/ {print $2}') GiB"
+
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Common setup
+        timeout-minutes: 42
+        uses: ./.github/actions/common-setup
+        with:
+          python-version: "3.13"
+          build-type: "test"
+          free-disk-space: "true"
+          free-disk-space-max-build: "true"
+          minimum-free-space-gb: "70"
+          rust-cache-enabled: "true"
+          rust-cache-shared-key: rust-tests-linux-x86
+          rust-cache-workspaces: . -> target/rust-tests-linux-x86
+          rust-cache-on-failure: "false"
+          rust-cache-save-if: "false"
+          rust-cache-workspace-crates: "false"
+
+      - name: Compile five ways
+        run: |
+          set -euo pipefail
+          mkdir -p lane8/logs lane8/timings
+          build() {
+            local label=$1 t0 t1 n
+            t0=$(date +%s)
+            make cargo-test NEXTEST_PROFILE=ci EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}" \
+              FAIL_FAST_FLAG= NEXTEST_OUTPUT_ARGS="--no-run --timings" > "lane8/logs/$label.log" 2>&1
+            t1=$(date +%s)
+            n=$(grep -c ' Compiling ' "lane8/logs/$label.log" || true)
+            echo "LANE8-T $label wall $((t1 - t0))s compiling $n"
+            grep ' Compiling ' "lane8/logs/$label.log" | awk '{print $2}' | sort | tr '\n' ' ' \
+              | sed "s/^/LANE8-T $label crates: /"
+            echo
+            cp "$CARGO_TARGET_DIR/cargo-timings/cargo-timing.html" "lane8/timings/$label.html"
+          }
+          require() {
+            grep -q " Compiling $2 " "lane8/logs/$1.log" \
+              || { echo "LANE8-T POSITIVE CONTROL FAILED: $1 did not compile $2"; exit 1; }
+          }
+          build 1-full
+          build 2-noop
+          [ "$(grep -c ' Compiling ' lane8/logs/2-noop.log || true)" -eq 0 ] \
+            || { echo "LANE8-T NEGATIVE CONTROL FAILED: an unchanged tree recompiled"; exit 1; }
+          touch crates/product_edge_admin/src/lib.rs
+          build 3-leaf-product-edge-admin
+          require 3-leaf-product-edge-admin vibe-product-edge-admin
+          touch crates/model/src/lib.rs
+          build 4-model
+          require 4-model vibe-model
+          touch crates/core/src/lib.rs
+          build 5-core
+          require 5-core vibe-core
+
+      - name: Upload timings
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lane8-timings
+          path: lane8/
+          retention-days: 3
