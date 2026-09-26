@@ -175,6 +175,31 @@ pub(crate) fn attribute_initial_pit_terminal_v1(
     }
 }
 
+/// The primary blocker Market Data derives a disposition from: `None` exactly for `AVAILABLE`.
+///
+/// Market Data maps each primary blocker to one disposition, so a recorded terminal whose
+/// blocker is not this one is not a terminal Market Data can state.
+pub(crate) const fn initial_pit_blocker_of_v1(
+    disposition: PitMarketSnapshotDispositionV1,
+) -> Option<PitMarketSnapshotBlockerV1> {
+    match disposition {
+        PitMarketSnapshotDispositionV1::Available => None,
+        PitMarketSnapshotDispositionV1::Unlicensed => {
+            Some(PitMarketSnapshotBlockerV1::RightsUnlicensed)
+        }
+        PitMarketSnapshotDispositionV1::Ambiguous => {
+            Some(PitMarketSnapshotBlockerV1::IdentitySemanticsOrTimeAmbiguous)
+        }
+        PitMarketSnapshotDispositionV1::Stale => Some(PitMarketSnapshotBlockerV1::EvidenceStale),
+        PitMarketSnapshotDispositionV1::Insufficient => {
+            Some(PitMarketSnapshotBlockerV1::CoverageInsufficient)
+        }
+        PitMarketSnapshotDispositionV1::Unavailable => {
+            Some(PitMarketSnapshotBlockerV1::SourceUnavailable)
+        }
+    }
+}
+
 /// How an Intent's initial PIT request stands, as the Research readback states it.
 ///
 /// Each state is read from custody, never inferred from another: a request with no frozen attempt
@@ -393,6 +418,60 @@ mod tests {
             attribute_initial_pit_terminal_v1(&attempts, &terminal_for(&attempts[0], digest(30))),
             Err(InitialPitAttributionErrorV1::SeveralAttemptsMatch)
         );
+    }
+
+    /// Every state the Owner can serialize, and nothing else, is in the vector file the
+    /// Dashboard's consumer projection is tested against too.
+    #[rstest]
+    fn the_readback_states_exactly_the_shared_vectors() {
+        use vibe_data::owner::pit_market_snapshot_intake_v1::PitMarketSnapshotDispositionV1;
+
+        use super::initial_pit_blocker_of_v1;
+
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "../../product/rd-owner-client/fixtures/research_initial_pit_state_vectors_v1.json",
+        );
+        let file: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(&path).expect("the shared initial PIT state vectors"),
+        )
+        .expect("the vectors are JSON");
+        let stated = [
+            ResearchInitialPitV1::NotIssued,
+            ResearchInitialPitV1::SubmittedOrUnknown,
+        ]
+        .into_iter()
+        .chain(
+            [
+                PitMarketSnapshotDispositionV1::Available,
+                PitMarketSnapshotDispositionV1::Unlicensed,
+                PitMarketSnapshotDispositionV1::Ambiguous,
+                PitMarketSnapshotDispositionV1::Stale,
+                PitMarketSnapshotDispositionV1::Insufficient,
+                PitMarketSnapshotDispositionV1::Unavailable,
+            ]
+            .into_iter()
+            .map(|disposition| ResearchInitialPitV1::Terminal {
+                disposition,
+                primary_blocker: initial_pit_blocker_of_v1(disposition),
+            }),
+        )
+        .map(|state| serde_json::to_value(state).unwrap())
+        .collect::<Vec<_>>();
+        let accepted = file["accepted"].as_array().expect("an accepted list");
+
+        assert_eq!(stated.len(), accepted.len());
+        assert!(
+            stated.iter().all(|state| accepted.contains(state)),
+            "{stated:?}"
+        );
+
+        for refused in file["refused"].as_array().expect("a refused list") {
+            assert!(
+                !stated.contains(&refused["value"]),
+                "the Owner states a refused value: {}",
+                refused["name"]
+            );
+        }
     }
 
     #[rstest]

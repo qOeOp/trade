@@ -96,3 +96,25 @@ test("a seal that drifts between the family root, its receipt and its census fai
     assert.equal(result.verified, false)
   }
 })
+
+// The same vectors the R&D Owner's test reads: it states exactly the accepted values, and this
+// projection must carry each of them and fail closed on every refused one.
+const initialPitVectors = JSON.parse(await readFile(
+  new URL("./fixtures/research_initial_pit_state_vectors_v1.json", import.meta.url), "utf8",
+))
+
+test("an accepted Research result carries exactly the initial PIT states the Owner can state", async () => {
+  assert.equal(initialPitVectors.accepted.length, 8)
+  for (const initialPit of initialPitVectors.accepted) {
+    const result = await projected({ ...accepted, initial_pit: initialPit })
+    assert.equal(result.verified, true, JSON.stringify(initialPit))
+    assert.equal(result.projection.resolution, "ACCEPTED", JSON.stringify(initialPit))
+    assert.deepEqual(result.projection.initial_pit, initialPit)
+  }
+  assert.ok(initialPitVectors.refused.length >= 15)
+  for (const { name, value } of initialPitVectors.refused) {
+    const result = await projected({ ...accepted, initial_pit: value })
+    assert.equal(result.projection.resolution, "SUBMITTED_OR_UNKNOWN", name)
+    assert.equal(result.projection.initial_pit, null, name)
+  }
+})

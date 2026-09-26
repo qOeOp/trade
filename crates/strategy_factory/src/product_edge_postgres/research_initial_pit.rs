@@ -46,8 +46,8 @@ use crate::{
     },
     research_initial_pit_v1::{
         FrozenInitialPitAttemptV1, InitialPitAttributionErrorV1, InitialPitSubjectV1,
-        ResearchInitialPitV1, attribute_initial_pit_terminal_v1, pit_submission_v1,
-        universe_selection_request_v1,
+        ResearchInitialPitV1, attribute_initial_pit_terminal_v1, initial_pit_blocker_of_v1,
+        pit_submission_v1, universe_selection_request_v1,
     },
     storage_diagnostic,
 };
@@ -868,6 +868,14 @@ async fn write_terminal(
     terminal: &PitMarketSnapshotTerminalV1,
 ) -> Result<ResearchInitialPitV1, ResearchInitialPitErrorV1> {
     let ordinal = attribute_initial_pit_terminal_v1(attempts, terminal)?;
+
+    // Market Data derives the disposition from the primary blocker; a terminal stating another
+    // pair is not one it can state, and is not recorded.
+    if terminal.primary_blocker() != initial_pit_blocker_of_v1(terminal.disposition()) {
+        return Err(ResearchInitialPitErrorV1::RefusedByMarketData(
+            "PIT_TERMINAL_BLOCKER_NOT_PAIRED",
+        ));
+    }
     let recorded_at = owner_clock_epoch_ms_in_transaction(transaction).await?;
     let state = ResearchInitialPitV1::Terminal {
         disposition: terminal.disposition(),
@@ -948,7 +956,7 @@ async fn load_recorded_state(
         .map(|name| blocker_from_name(&name).ok_or_else(untrusted))
         .transpose()?;
 
-    if (disposition == PitMarketSnapshotDispositionV1::Available) != primary_blocker.is_none() {
+    if primary_blocker != initial_pit_blocker_of_v1(disposition) {
         return Err(untrusted());
     }
     Ok(Some(ResearchInitialPitV1::Terminal {

@@ -456,24 +456,28 @@ const researchOwnerKeys = [
   "initial_pit",
 ]
 
-const initialPitDispositions = ["AVAILABLE", "UNLICENSED", "AMBIGUOUS", "STALE", "INSUFFICIENT", "UNAVAILABLE"]
-const initialPitBlockers = [
-  "RIGHTS_UNLICENSED", "IDENTITY_SEMANTICS_OR_TIME_AMBIGUOUS", "EVIDENCE_STALE", "COVERAGE_INSUFFICIENT",
-  "SOURCE_UNAVAILABLE",
-]
+// Market Data derives a terminal's disposition from its primary blocker, one to one, so a stated
+// pair outside this table is not one the Owner can state. `AVAILABLE` alone has no blocker.
+const initialPitBlockerOf: Record<string, string> = {
+  UNLICENSED: "RIGHTS_UNLICENSED",
+  AMBIGUOUS: "IDENTITY_SEMANTICS_OR_TIME_AMBIGUOUS",
+  STALE: "EVIDENCE_STALE",
+  INSUFFICIENT: "COVERAGE_INSUFFICIENT",
+  UNAVAILABLE: "SOURCE_UNAVAILABLE",
+}
 
 // The Owner reads each initial PIT state from its custody and states it; this side accepts exactly
 // the stated shapes and never derives one state from another. `null` is a request whose Intent binds
-// no instrument scope.
+// no instrument scope. product/rd-owner-client/fixtures/research_initial_pit_state_vectors_v1.json
+// lists every accepted and a set of refused values, read by the Owner's test too.
 function validInitialPit(value: unknown): boolean {
   if (value === null) return true
   if (!object(value)) return false
   if (value.state === "NOT_ISSUED" || value.state === "SUBMITTED_OR_UNKNOWN") return exactKeys(value, ["state"])
-  return value.state === "TERMINAL" && exactKeys(value, ["state", "disposition", "primary_blocker"])
-    && initialPitDispositions.includes(String(value.disposition))
-    && (value.disposition === "AVAILABLE"
-      ? value.primary_blocker === null
-      : initialPitBlockers.includes(String(value.primary_blocker)))
+  if (value.state !== "TERMINAL" || !exactKeys(value, ["state", "disposition", "primary_blocker"])) return false
+  if (value.disposition === "AVAILABLE") return value.primary_blocker === null
+  return typeof value.disposition === "string" && Object.hasOwn(initialPitBlockerOf, value.disposition)
+    && value.primary_blocker === initialPitBlockerOf[value.disposition]
 }
 
 function rawEnvelope(value: unknown, keys: string[], expectedStamp: ReturnType<typeof stamp>): Json | null {
