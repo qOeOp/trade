@@ -13,8 +13,9 @@ constraint is positional: every entry that registers that way must come before e
 admits production Market Semantics. This names the pair that breaks it.
 
 A function admits when it calls `admit_market_semantics_fact_v1`, sends a request naming the Owner
-route `/v1/market-data/market-semantics` (the route's own `.route(...)` definition does not), or builds
-a `MarketSemanticsFactSubmissionV1`, which every admission, through any trait or route, needs. It
+route `/v1/market-data/market-semantics` (the route's own `.route(...)` definition does not) directly
+or through a constant or static holding it, or builds a `MarketSemanticsFactSubmissionV1`, which every
+typed admission, through any trait or route, needs. It
 registers when it calls the registration. Either holds for every function that calls one that does,
 across every file of the crates the chain's packages depend on, so a helper in another module or
 crate counts.
@@ -98,7 +99,15 @@ class Function:
     requests_route: bool
 
 
-def functions_of(path: Path) -> list[Function]:
+ITEM_HEAD = re.compile(r"\b(?:const|static)\s+([A-Za-z_]\w*)\s*:")
+
+
+def functions_of(path: Path) -> tuple[list[Function], set[str]]:
+    """
+    Return the file's functions, and the names of its `const` and `static` items whose value names
+    the Owner route: a function naming one of those sends the request as surely as one holding
+    the literal itself.
+    """
     code, literals = masked(path.read_text(encoding="utf-8"))
     closing: dict[int, int] = {}
     stack: list[int] = []
@@ -123,7 +132,15 @@ def functions_of(path: Path) -> list[Function]:
             for offset, text in literals
         )
         found.append(Function(head.group(1), path, calls, names, requests))
-    return found
+    route_items = set()
+    for offset, text in literals:
+        if ADMITS_ROUTE not in text:
+            continue
+        statement = code[max(code.rfind(";", 0, offset), code.rfind("}", 0, offset)) + 1 : offset]
+        item = ITEM_HEAD.search(statement)
+        if item:
+            route_items.add(item.group(1))
+    return found, route_items
 
 
 def tainted(functions: list[Function], seed: callable) -> set[Function]:
@@ -152,7 +169,11 @@ def tainted(functions: list[Function], seed: callable) -> set[Function]:
     return marked
 
 
-def violations(entries: list[tuple[str, Function]], functions: list[Function]) -> list[str]:
+def violations(
+    entries: list[tuple[str, Function]],
+    functions: list[Function],
+    route_items: set[str] = frozenset(),
+) -> list[str]:
     """
     Name every registering entry that an admitting entry precedes, by chain position.
     """
@@ -162,6 +183,7 @@ def violations(entries: list[tuple[str, Function]], functions: list[Function]) -
             ADMITS_CALL in function.calls
             or function.requests_route
             or ADMITS_TYPE in function.names
+            or bool(function.names & route_items)
         ),
     )
     registering = tainted(functions, lambda function: REGISTERS in function.calls)
@@ -229,12 +251,13 @@ def check(chain: Path, root: Path = ROOT) -> None:
     missing = sorted({package for package, _ in rows} - crates.keys())
     if missing:
         fail(f"the chain names packages with no crate: {', '.join(missing)}")
-    functions = [
-        function
-        for directory in closure(crates, {package for package, _ in rows})
-        for path in sorted(directory.rglob("*.rs"))
-        for function in functions_of(path)
-    ]
+    functions: list[Function] = []
+    route_items: set[str] = set()
+    for directory in closure(crates, {package for package, _ in rows}):
+        for path in sorted(directory.rglob("*.rs")):
+            found, items = functions_of(path)
+            functions += found
+            route_items |= items
     entries = []
     for package, test in rows:
         name = test.rsplit("::", 1)[-1]
@@ -243,7 +266,7 @@ def check(chain: Path, root: Path = ROOT) -> None:
         if len(matches) != 1:
             fail(f"test {test} is defined exactly once in {directory}, found {len(matches)}")
         entries.append((test, matches[0]))
-    found = violations(entries, functions)
+    found = violations(entries, functions, route_items)
     for message in found:
         print(f"ERROR: {message}", file=sys.stderr)
     if found:
@@ -273,6 +296,10 @@ fn admit_fact() { owner.admit_market_semantics_fact_v1(x); }
 fn admit_fact() {}
 fn uses_the_other_admit_fact() { admit_fact(); }
 """,
+        "route_constant.rs": """
+const SEMANTICS_ROUTE: &str = "/v1/market-data/market-semantics";
+fn ensure_through_a_route_constant() { client.post(SEMANTICS_ROUTE).json(&json!({})); }
+""",
         "other_fixture.rs": """
 fn run() { ensure_admitted(); }
 fn helper_twice() { ensure_admitted(); }
@@ -292,6 +319,7 @@ fn composes_only() { let app = router(); }
 fn admits_through_a_trait_in_another_file() { ensure_through_a_trait(); }
 fn admits_through_a_name_defined_twice() { helper_twice(); }
 fn calls_a_dispatch_name() { run(); }
+fn admits_through_a_route_constant() { ensure_through_a_route_constant(); }
 fn calls_another_traits_method() { uses_the_other_admit_fact(); }
 fn names_it_in_a_comment() { // ensure_admitted()
 }
@@ -300,14 +328,17 @@ fn names_it_in_a_string() { let s = "ensure_admitted()"; }
     }
     with tempfile.TemporaryDirectory() as directory:
         functions = []
+        route_items: set[str] = set()
         for name, text in sources.items():
             path = Path(directory) / name
             path.write_text(text, encoding="utf-8")
-            functions += functions_of(path)
+            found, items = functions_of(path)
+            functions += found
+            route_items |= items
         by_name = {function.name: function for function in functions}
 
         def order(*tests: str) -> list[str]:
-            return violations([(test, by_name[test]) for test in tests], functions)
+            return violations([(test, by_name[test]) for test in tests], functions, route_items)
 
         assert order("registers", "admits_through_another_file") == [], "admitting after is fine"
         assert order("admits_through_another_file") == [
@@ -325,6 +356,9 @@ fn names_it_in_a_string() { let s = "ensure_admitted()"; }
         )
         assert len(order("admits_through_a_name_defined_twice", "registers")) == 1, (
             "a name defined in a few places carries: every caller counts"
+        )
+        assert len(order("admits_through_a_route_constant", "registers")) == 1, (
+            "a request naming the route through a constant, with an untyped body, is refused"
         )
         assert order("calls_another_traits_method", "registers") == [], (
             "a seed's name shared with another trait's method carries nothing"
