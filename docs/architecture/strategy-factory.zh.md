@@ -1122,9 +1122,14 @@ select、override、synthesize、backfill 或 infer 任何 field。
 
 - runtime-kernel、simulator、cost、slippage 与 capacity profile 的身份和版本；
 - runner operational profile、diagnostic policy 与 deterministic seed；
-- 半开 replay window，以及 calendar、session 与 time-zone 的身份和版本；以及
+- 可准入的半开 replay 范围，以及 calendar、session 与 time-zone 的身份和版本；以及
 - correction-rule 与 market-semantics 的身份和版本、corporate-action cut、historical-membership cut，及请求中
   其他应由 family policy 而非 input Owner 选择的内容。
+
+请求的 replay window 是它所组合的 Market Data facts 的窗口，落在 policy 可准入的范围之内；今天是一帧
+`[C, C+1)`，`C` 是 Market Data 切出该家族快照的时刻。policy 限定窗口，调用方两者都不能提供；policy 不能直接
+固定窗口本身，因为家族的 policy 在家族成形时封存，那时它的任何快照都还不存在。组合出的窗口落在范围之外时按名
+被拒，`FactsWindowOutsidePolicyRange`。legacy exploratory 请求仍然直接携带 policy 窗口。
 
 ### TARGET / NOT_ADMITTED - Replay execution profile V1
 

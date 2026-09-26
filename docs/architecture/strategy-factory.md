@@ -1243,9 +1243,16 @@ The nested policy owns every execution choice needed to compose the complete `Re
 
 - the runtime-kernel, simulator, cost, slippage, and capacity profile identities and versions;
 - the runner operational profile, diagnostic policy, and deterministic seed;
-- the half-open replay window, calendar, session, and time-zone identities and versions; and
+- the admissible half-open replay range, and the calendar, session, and time-zone identities and versions; and
 - the correction-rule and market-semantics identities and versions, corporate-action cut, historical-membership
   cut, and any other selection in the request that family policy, rather than an input Owner, owns.
+
+A request's replay window is the window of the Market Data facts it is composed from, within the policy's
+admissible range; today one frame, `[C, C+1)`, where `C` is the instant Market Data cut the family's snapshot. The
+policy bounds the window and no caller supplies either; it cannot fix the window itself, because the family's
+policy is sealed when the family forms, before any snapshot of it exists. A composed window outside the range is
+refused by name, `FactsWindowOutsidePolicyRange`. A legacy exploratory request still carries the policy window
+itself.
 
 ### TARGET / NOT_ADMITTED - Replay execution profile V1
 

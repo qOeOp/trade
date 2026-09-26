@@ -153,7 +153,10 @@
   时被准入；successor 绑定家族的 V2 census。一个 attempt 是在 Result 之后记录的一次 Replay，所以家族的第一次
   Replay 永远不可能对着 V2 census 组合。只有下文的 Decision composition 会追加 attempt，在它被准入之前，
   successor 按名被拒，`SUCCESSOR_CENSUS_AWAITS_DECISION_COMPOSITION`。commit 与历史 readback 用同一条规则做这个
-  选择；第一代 Replay 的 readback 从家族的 root 重新读出成形 frontier，所以之后追加的 attempt 不会改变它。
+  选择；第一代 Replay 的 readback 从家族的 root 重新读出成形 frontier，所以之后追加的 attempt 不会改变它。它的 replay window 是它所组合的 facts 的窗口，由家族的 policy
+  窗口限定（`docs/architecture/strategy-factory.md`，TrialFamily-owned Replay execution policy V2）；前驱是
+  composer-backed Replay 的 Market Data 修复 re-entry 按名被拒，`MARKET_DATA_REPAIR_OF_COMPOSER_V3_REPLAY_AWAITS_DESIGN`，
+  因为 re-entry 按 policy 窗口组成它的后继。
 - **CURRENT - 有一条只读操作只能经由写 API 触达：** Dashboard 的操作登记表声明了十一条 Owner 路由，
   其中十条是 `GET`。第十一条 `research_goal.legacy_quarantine_read.v1` 声明 `effect_set: []`，
   解析到 `POST /v1/research-goals/{request_identity}/resolve`，它注册在

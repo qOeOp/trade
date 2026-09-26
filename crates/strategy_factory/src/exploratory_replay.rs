@@ -729,6 +729,9 @@ pub enum ComposerReplayShapeRefusalV1 {
     UniverseSourceCarriesInstrumentMaster,
     /// A stored source whose schema is not the one its composition binding's shape records.
     SourceSchemaDiffersFromBindingShape,
+    /// The Market Data facts' replay window does not lie within the TrialFamily's sealed Replay
+    /// policy window, which bounds every Replay of the family.
+    FactsWindowOutsidePolicyRange,
 }
 
 #[cfg(test)]
