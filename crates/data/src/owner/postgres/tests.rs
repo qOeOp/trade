@@ -5822,29 +5822,21 @@ async fn production_pit_mint_postgres_oracle_v1(
 
     // From here the caller supplies a frozen request and nothing else: no observations, no
     // evidence, no digest. Market Data issues the retrieval scope and stamps its own bindings.
-    let request_only = |correlation: u8| {
-        let locator = source.receipt().locator();
-        let mut request = UntrustedPitSnapshotRequest {
-            claimed_request_identity: d(0),
-            claimed_request_digest: d(0),
-            correlation_identity: d(correlation),
-            requester_identity: d(204),
-            scope_digest: d(205),
-            source_binding: locator.clone(),
-            instrument_master_digest: d(206),
-            universe_selection_digest: universe.record().identity(),
-            market_semantics_identity: owner_semantics_identity,
-            time_evidence: pit_time(40, 1),
-        };
-        refresh_request_claims(&mut request);
-        request
+    let request_only = |correlation: u8| crate::owner::pit_snapshot::PitSnapshotSubmissionV1 {
+        correlation_identity: d(correlation),
+        requester_identity: d(204),
+        scope_digest: d(205),
+        source_binding: source.receipt().locator().clone(),
+        universe_selection_digest: universe.record().identity(),
+        market_semantics_identity: owner_semantics_identity,
+        time_evidence: pit_time(40, 1),
     };
 
     // The Owner stamps the instrument master digest from its own resolution. With no Instrument
-    // Master fact for the member there is nothing to resolve, and the caller's claim buys nothing.
+    // Master fact for the member there is nothing to resolve, and nothing is written.
     assert_eq!(
         owner
-            .commit_pit_initial_from_request_v1(
+            .commit_pit_initial_from_submission_v1(
                 request_only(213),
                 &ScopeFaithfulObservationSourceV1 {
                     member_key: "AAPL".into(),
@@ -5882,7 +5874,7 @@ async fn production_pit_mint_postgres_oracle_v1(
     let receipts_before_mint = instrument_master_receipt_count_v1(owner).await;
 
     let retrieved = owner
-        .commit_pit_initial_from_request_v1(
+        .commit_pit_initial_from_submission_v1(
             request_only(213),
             &ScopeFaithfulObservationSourceV1 {
                 member_key: "AAPL".into(),
@@ -5940,10 +5932,10 @@ async fn production_pit_mint_postgres_oracle_v1(
     );
 
     let stamped = retrieved.fact().request().instrument_master_digest;
-    assert_ne!(
-        stamped,
-        d(206),
-        "the persisted request carries the Owner's readback digest, not the caller's claim"
+    assert_eq!(
+        retrieved.fact().request(),
+        &request_only(213).into_request(stamped),
+        "the committed request is exactly the submission sealed over the Owner's digest"
     );
     assert_eq!(
         instrument_master_receipt_count_v1(owner).await,
@@ -5951,7 +5943,7 @@ async fn production_pit_mint_postgres_oracle_v1(
         "the mint resolved exactly one Instrument Master cut for its instrument"
     );
     let replayed = owner
-        .commit_pit_initial_from_request_v1(
+        .commit_pit_initial_from_submission_v1(
             request_only(213),
             &ScopeFaithfulObservationSourceV1 {
                 member_key: "AAPL".into(),
@@ -5983,7 +5975,7 @@ async fn production_pit_mint_postgres_oracle_v1(
 
     // A client that answers for a member the Owner never scoped cannot widen the universe.
     let widened = owner
-        .commit_pit_initial_from_request_v1(
+        .commit_pit_initial_from_submission_v1(
             request_only(214),
             &ScopeFaithfulObservationSourceV1 {
                 member_key: "MSFT".into(),
@@ -6002,7 +5994,7 @@ async fn production_pit_mint_postgres_oracle_v1(
 
     assert_eq!(
         owner
-            .commit_pit_initial_from_request_v1(
+            .commit_pit_initial_from_submission_v1(
                 request_only(215),
                 &UnavailableObservationSourceV1,
                 &universe_locator,
@@ -6028,7 +6020,7 @@ async fn production_pit_mint_postgres_oracle_v1(
     // count of snapshot facts that a stray mint would break. A refused commit rolls back whole.
     assert_eq!(
         owner
-            .commit_pit_initial_from_request_v1(
+            .commit_pit_initial_from_submission_v1(
                 request_only(221),
                 &QuoteAfterBarObservationSourceV1 { quote_offset: 1 },
                 &universe_locator,
@@ -9408,24 +9400,20 @@ async fn research_request_pit_v1(
     ),
     seed: u8,
 ) -> crate::owner::pit_snapshot::PitSnapshotCommitAggregate {
-    let mut request = UntrustedPitSnapshotRequest {
-        claimed_request_identity: d(0),
-        claimed_request_digest: d(0),
+    let submission = crate::owner::pit_snapshot::PitSnapshotSubmissionV1 {
         correlation_identity: d(seed + 4),
         requester_identity: d(seed + 5),
         scope_digest: d(205),
         source_binding: source.receipt().locator().clone(),
-        instrument_master_digest: d(206),
         universe_selection_digest: universe.1,
         market_semantics_identity: derive_market_semantics_compatibility_identity_v1(
             &source.fact().proposal().semantics,
         ),
         time_evidence: pit_time(40, 1),
     };
-    refresh_request_claims(&mut request);
     let pit = owner
-        .commit_pit_initial_from_request_v1(
-            request,
+        .commit_pit_initial_from_submission_v1(
+            submission,
             &ScopeFaithfulObservationSourceV1 {
                 member_key: instrument.into(),
                 instrument: instrument.into(),

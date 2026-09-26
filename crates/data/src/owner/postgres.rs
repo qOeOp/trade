@@ -22,6 +22,8 @@ mod market_data_rd_api_authorization_postgres_tests;
 mod market_semantics;
 mod observation_census;
 #[cfg(test)]
+mod pit_initial_intake_correlation_tests;
+#[cfg(test)]
 mod pit_intake_member_count_tests;
 mod pit_role_resolution_v1;
 mod rd_strategy_input_custody;
@@ -29,6 +31,7 @@ mod reference_fact_catalog;
 mod reference_fact_coordinates;
 mod replay_market_facts_v2;
 pub(in crate::owner) mod research_pit_references_v1;
+pub(in crate::owner) mod research_pit_terminal_v1;
 pub(super) use replay_market_facts_v2::resolve_bound_replay_cut_for_rd_in_transaction_v1;
 pub(super) use replay_market_facts_v2::{
     BoundUniverseSelectionErrorV1, recover_bound_universe_selection_in_transaction_v1,
@@ -197,8 +200,9 @@ use super::{
     pit_observation_source_v1::{PitObservationScopeV1, PitObservationSourceV1},
     pit_snapshot::{
         PitSnapshotCommitAggregate, PitSnapshotDisposition, PitSnapshotError,
-        UntrustedPitObservation, UntrustedPitObservationBatchProposal, UntrustedPitSnapshotLocator,
-        UntrustedPitSnapshotProposal, UntrustedPitSnapshotRequest,
+        PitSnapshotSubmissionV1, UntrustedPitObservation, UntrustedPitObservationBatchProposal,
+        UntrustedPitSnapshotLocator, UntrustedPitSnapshotProposal, UntrustedPitSnapshotRequest,
+        UntrustedPitSnapshotTimeEvidence,
         authority::{
             CanonicalBasisResolverV1, ObservedPitObservationNativeRow, OwnerCanonicalBasisV1,
             OwnerSnapshotDeterminationV1, PreparedPitObservationBatch,
@@ -206,7 +210,6 @@ use super::{
             prepare_initial_aggregate, prepare_observation_batch,
             verify_aggregate as verify_pit_aggregate, verify_observation_batch,
         },
-        seal_request_claims_v1,
     },
     replay_market_facts_v2::{
         ReplayCompositionBindingErrorV1, ReplayMarketFactsErrorV2, ReplayMarketFactsReadbackV2,
@@ -333,6 +336,11 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS market_data_private.pit_observation_rows_v1 (snapshot_identity BYTEA NOT NULL REFERENCES market_data_private.pit_observation_batches_v1(snapshot_identity), ordinal BIGINT NOT NULL CHECK (ordinal > 0), symbolic_key TEXT NOT NULL CHECK (symbolic_key <> ''), member_key TEXT NOT NULL CHECK (member_key <> ''), row_bytes BYTEA NOT NULL CHECK (octet_length(row_bytes) > 0), PRIMARY KEY(snapshot_identity,ordinal), UNIQUE(snapshot_identity,symbolic_key,member_key))",
     "CREATE TABLE IF NOT EXISTS market_data_private.source_binding_lineage_census_v1 (lineage_root BYTEA PRIMARY KEY CHECK (octet_length(lineage_root) = 32))",
     "CREATE TABLE IF NOT EXISTS market_data_private.pit_snapshot_lineage_census_v1 (lineage_root BYTEA PRIMARY KEY CHECK (octet_length(lineage_root) = 32))",
+    // One row per initial intake, keyed by the requester's correlation. The intake commits at
+    // most one initial snapshot per correlation; a second, different request under the same
+    // correlation fails on the primary key, and only that constraint's violation means "already
+    // committed". A correction successor advances its own lineage and never writes here.
+    "CREATE TABLE IF NOT EXISTS market_data_private.pit_initial_intake_correlations_v1 (correlation_identity BYTEA NOT NULL CHECK (octet_length(correlation_identity) = 32), lineage_root BYTEA NOT NULL CHECK (octet_length(lineage_root) = 32), snapshot_identity BYTEA NOT NULL REFERENCES market_data_private.pit_snapshot_facts_v1(snapshot_identity), CONSTRAINT pit_initial_intake_correlations_v1_pkey PRIMARY KEY (correlation_identity), CONSTRAINT pit_initial_intake_correlations_v1_lineage_root_key UNIQUE (lineage_root))",
     // One row per committed observation coordinate, so that a Design's authenticated input
     // role can be resolved to the Owner's own snapshot without scanning or decoding rows. The
     // coordinates are exactly what `request_matches_authenticated_role_v1` authenticates, and
@@ -972,6 +980,7 @@ impl MarketDataOwnerPostgres {
         for statement in rd_strategy_input_custody::SCHEMA_V1
             .iter()
             .chain(research_pit_references_v1::SCHEMA_V1)
+            .chain(research_pit_terminal_v1::SCHEMA_V1)
         {
             sqlx::query(*statement)
                 .execute(&mut *transaction)
@@ -1365,23 +1374,27 @@ impl MarketDataOwnerPostgres {
         Ok(clock)
     }
 
-    /// Answers one frozen PIT Market Snapshot Request end to end.
+    /// Answers one PIT Market Snapshot submission end to end.
     ///
-    /// The requester supplies the request and nothing else: no observations, no evidence, no
-    /// digest, no disposition. Market Data resolves the admitted Source Binding and the evaluated
-    /// Universe Selection Record, issues the retrieval scope itself, stamps its own bindings onto
-    /// the vendor rows, and derives the terminal disposition. A Data Client can therefore state
-    /// what it measured and when, and nothing about what that measurement is bound to.
+    /// The requester supplies the submission and nothing else: no observations, no evidence, no
+    /// digest, no disposition, and no Instrument Master digest or request identity, which are the
+    /// Owner's to state. Market Data resolves the admitted Source Binding and the evaluated Universe
+    /// Selection Record, resolves its own Instrument Master digest and seals the request over it
+    /// with [`PitSnapshotSubmissionV1::into_request`], issues the retrieval scope itself, stamps its
+    /// own bindings onto the vendor rows, and derives the terminal disposition. The committed
+    /// snapshot claims the submission's correlation in the same transaction.
     ///
     /// # Errors
     ///
-    /// Returns [`PitSnapshotError::SourceBindingUnavailable`] when the request names a binding the
-    /// Owner does not hold, [`PitSnapshotError::ObservationBatchUnavailable`] when the retrieval
-    /// fails or exceeds the admitted batch, and the usual persistence failures otherwise. An empty
-    /// or partial retrieval is not an error: it becomes insufficient coverage.
-    pub(crate) async fn commit_pit_initial_from_request_v1(
+    /// Returns [`PitSnapshotError::SourceBindingUnavailable`] when the submission names a binding
+    /// the Owner does not hold, [`PitSnapshotError::ObservationBatchUnavailable`] when the
+    /// retrieval fails or exceeds the admitted batch,
+    /// [`PitSnapshotError::CorrelationAlreadyCommitted`] when another initial intake holds the
+    /// correlation, and the usual persistence failures otherwise. An empty or partial retrieval is
+    /// not an error: it becomes insufficient coverage.
+    pub(crate) async fn commit_pit_initial_from_submission_v1(
         &self,
-        request: UntrustedPitSnapshotRequest,
+        submission: PitSnapshotSubmissionV1,
         observations: &dyn PitObservationSourceV1,
         universe_locator: &UntrustedUniverseSelectionLocatorV1,
         clock: &MarketDataClockAdmission,
@@ -1391,12 +1404,15 @@ impl MarketDataOwnerPostgres {
             .begin()
             .await
             .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
-        let source =
-            load_source_for_update(&mut transaction, request.source_binding.binding_id, false)
-                .await
-                .map_err(|_| PitSnapshotError::SourceBindingUnavailable)?
-                .ok_or(PitSnapshotError::SourceBindingUnavailable)?;
-        if source.commit().receipt().locator() != &request.source_binding {
+        let source = load_source_for_update(
+            &mut transaction,
+            submission.source_binding.binding_id,
+            false,
+        )
+        .await
+        .map_err(|_| PitSnapshotError::SourceBindingUnavailable)?
+        .ok_or(PitSnapshotError::SourceBindingUnavailable)?;
+        if source.commit().receipt().locator() != &submission.source_binding {
             return Err(PitSnapshotError::SourceBindingUnavailable);
         }
         let source_fact = source.commit().fact();
@@ -1411,22 +1427,21 @@ impl MarketDataOwnerPostgres {
                 universe_locator,
             )
             .await,
-            request.universe_selection_digest,
+            submission.universe_selection_digest,
         )?;
 
-        // The request-supplied instrument master digest is a claim. The Owner replaces it with
-        // the digest of its own resolution cut for the scoped instruments at this decision cut,
-        // then re-seals the request identity over what it will actually commit.
-        let mut request = request;
-        request.instrument_master_digest =
+        // The Instrument Master digest is the Owner's own resolution for the scoped instruments at
+        // this decision cut, and the request identity is sealed over it: the submission carries
+        // neither, so nothing the requester states is overwritten.
+        let instrument_master_digest =
             Box::pin(self.resolve_instrument_master_digest_for_pit_request_v1(
-                &request,
+                &submission,
                 &members,
                 universe.as_deref(),
                 clock,
             ))
             .await?;
-        seal_request_claims_v1(&mut request);
+        let request = submission.into_request(instrument_master_digest);
 
         let time = &request.time_evidence;
         let correction_publication = time
@@ -1522,7 +1537,7 @@ impl MarketDataOwnerPostgres {
             Some(prepared),
             clock,
             PostgresCommitFault::None,
-            PitPersistCompanionV1::OwnerR0Record,
+            PitPersistCompanionV1::OwnerR0RecordAndInitialCorrelation,
         ))
         .await
     }
@@ -2105,7 +2120,15 @@ enum PostgresCommitFault {
 enum PitPersistCompanionV1 {
     None,
     OwnerR0Record,
+    /// The intake's R0 record, and the claim of the request's correlation for this initial
+    /// snapshot.
+    OwnerR0RecordAndInitialCorrelation,
 }
+
+/// The constraint whose violation, and only whose violation, means another initial intake already
+/// holds a correlation.
+pub(crate) const PIT_INITIAL_INTAKE_CORRELATION_CONSTRAINT_V1: &str =
+    "pit_initial_intake_correlations_v1_pkey";
 
 /// Owner-internal, contract-neutral input to the durable sample custody adapter.
 ///
@@ -5881,6 +5904,41 @@ async fn resolve_owner_snapshot_determination_v1(
     ))
 }
 
+/// Claims the request's correlation for this initial snapshot, in the snapshot's own transaction.
+///
+/// Only the correlation constraint's unique violation is reported as already committed. Any other
+/// failure, including a violation of the lineage constraint, which no initial snapshot can reach
+/// because its lineage is its own, is a store failure.
+async fn claim_initial_intake_correlation_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    aggregate: &PitSnapshotCommitAggregate,
+) -> Result<(), PitSnapshotError> {
+    let fact = aggregate.fact();
+    sqlx::query("INSERT INTO market_data_private.pit_initial_intake_correlations_v1(correlation_identity,lineage_root,snapshot_identity) VALUES ($1,$2,$3)")
+        .bind(fact.request().correlation_identity.as_bytes().as_slice())
+        .bind(fact.lineage_root().as_bytes().as_slice())
+        .bind(fact.snapshot_identity().as_bytes().as_slice())
+        .execute(&mut **transaction)
+        .await
+        .map_err(|e| initial_intake_correlation_error_v1(&e))?;
+    Ok(())
+}
+
+fn initial_intake_correlation_error_v1(error: &sqlx::Error) -> PitSnapshotError {
+    match error {
+        sqlx::Error::Database(database)
+            if database.code().as_deref() == Some("23505")
+                && database.constraint() == Some(PIT_INITIAL_INTAKE_CORRELATION_CONSTRAINT_V1) =>
+        {
+            PitSnapshotError::CorrelationAlreadyCommitted
+        }
+        _ => {
+            super::storage_diagnostic::refused_by_store("pit.intake.correlation.claim", error);
+            PitSnapshotError::PersistenceUnavailable
+        }
+    }
+}
+
 async fn persist_pit(
     mut transaction: Transaction<'_, Postgres>,
     aggregate: PitSnapshotCommitAggregate,
@@ -5970,6 +6028,10 @@ async fn persist_pit(
         insert_pit_observation_batch(&mut transaction, &aggregate, batch, fault).await?;
     }
 
+    if companion == PitPersistCompanionV1::OwnerR0RecordAndInitialCorrelation {
+        claim_initial_intake_correlation_v1(&mut transaction, &aggregate).await?;
+    }
+
     // Which Native Replay census a snapshot joins is decided by the rows this transaction just
     // verified and wrote - never by the requester's scope claim, which names a scope but cannot
     // say whether a snapshot is a frame or the quotes that follow one. Only an available snapshot
@@ -5992,8 +6054,11 @@ async fn persist_pit(
     // The R0 record is derived from rows this transaction just wrote and resolves them back
     // through the same locked reads a later caller would use, so a snapshot that cannot carry its
     // own observation evidence never commits at all.
-    if companion == PitPersistCompanionV1::OwnerR0Record
-        && batch.is_some()
+    if matches!(
+        companion,
+        PitPersistCompanionV1::OwnerR0Record
+            | PitPersistCompanionV1::OwnerR0RecordAndInitialCorrelation
+    ) && batch.is_some()
         && aggregate.fact().disposition() == PitSnapshotDisposition::Available
     {
         Box::pin(
@@ -10405,7 +10470,8 @@ fn pit_instrument_master_members_v1<'a>(
 /// the first fact's frontiers; the resolution refuses a second fact that disagrees with them. It is
 /// boxed because the async caller holds it across the resolution, in a debug build's poll frame.
 fn pit_instrument_master_request_v1(
-    request: &UntrustedPitSnapshotRequest,
+    correlation_identity: BindingDigest,
+    time: &UntrustedPitSnapshotTimeEvidence,
     selection: UniverseSelectionIdentity,
     members: &[String],
     selected: &[InstrumentMasterFactV1],
@@ -10415,7 +10481,6 @@ fn pit_instrument_master_request_v1(
     let ([first, ..], true) = (selected, selected.len() == members.len()) else {
         return Err(PitSnapshotError::InstrumentMasterUnavailable);
     };
-    let time = &request.time_evidence;
     let effective = i128::from(time.event_effective.value);
     let (domain, scope) = match members {
         [member] => (
@@ -10429,7 +10494,7 @@ fn pit_instrument_master_request_v1(
     };
     let request_identity = BindingDigest::from_untrusted_bytes(
         Sha256::digest(pit_instrument_master_identity_preimage_v1(
-            request.correlation_identity,
+            correlation_identity,
             selection,
             members,
             effective,
@@ -10458,7 +10523,7 @@ fn pit_instrument_master_request_v1(
         market_semantics_identity: first.proposal.market_semantics_identity,
         source_frontier: first.proposal.source_frontier,
         correction_frontier: first.proposal.correction_frontier,
-        stable_correlation: request.correlation_identity,
+        stable_correlation: correlation_identity,
     }))
 }
 
@@ -10518,13 +10583,13 @@ impl MarketDataOwnerPostgres {
     /// with no member has no instrument to bind and is refused rather than approximated.
     async fn resolve_instrument_master_digest_for_pit_request_v1(
         &self,
-        request: &UntrustedPitSnapshotRequest,
+        submission: &PitSnapshotSubmissionV1,
         members: &[String],
         universe: Option<&UniverseSelectionReadbackV1>,
         clock: &MarketDataClockAdmission,
     ) -> Result<BindingDigest, PitSnapshotError> {
         let (universe, members) = pit_instrument_master_members_v1(universe, members)?;
-        let time = &request.time_evidence;
+        let time = &submission.time_evidence;
         let effective = i128::from(time.event_effective.value);
         let observation = i128::from(time.observed_at);
 
@@ -10566,7 +10631,8 @@ impl MarketDataOwnerPostgres {
             .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
 
         let resolution = pit_instrument_master_request_v1(
-            request,
+            submission.correlation_identity,
+            time,
             universe.record().identity(),
             &members,
             &selected,
@@ -11169,42 +11235,50 @@ impl PitMarketSnapshotIntakeV1 for MarketDataPitIntakePostgresV1 {
 
     async fn submit(
         &self,
-        request: UntrustedPitSnapshotRequest,
+        submission: PitSnapshotSubmissionV1,
         universe_selection: UntrustedUniverseSelectionLocatorV1,
     ) -> Result<PitMarketSnapshotTerminalV1, PitMarketSnapshotIntakeErrorV1> {
-        // The request identity is Market Data-derived by definition: the Owner seals it over the
-        // content it commits, after it has stamped its own instrument master digest, so the
-        // terminal reports the identity of the request as persisted rather than as submitted.
-        let correlation_identity = request.correlation_identity;
         // The decision cut is the Owner's, never the caller's: it comes from the one canonical
         // clock head Market Data persists with its own facts.
         let clock = self.owner.current_clock_admission_v1().await?;
         let aggregate = self
             .owner
-            .commit_pit_initial_from_request_v1(
-                request,
+            .commit_pit_initial_from_submission_v1(
+                submission,
                 self.observations.as_ref(),
                 &universe_selection,
                 &clock,
             )
             .await?;
-        let fact = aggregate.fact();
-        let disposition = public_disposition_v1(fact.disposition());
-        let locator = (disposition == PitMarketSnapshotDispositionV1::Available)
-            .then(|| aggregate.receipt().locator().clone());
-        Ok(PitMarketSnapshotTerminalV1::seal(
-            super::pit_market_snapshot_intake_v1::PitMarketSnapshotTerminalFieldsV1 {
-                request_identity: fact.request_identity(),
-                request_digest: fact.request_digest(),
-                correlation_identity,
-                snapshot_identity: fact.snapshot_identity(),
-                fact_digest: fact.digest(),
-                disposition,
-                locator,
-                instrument_master_digest: fact.request().instrument_master_digest,
-            },
-        ))
+        Ok(pit_market_snapshot_terminal_of_v1(&aggregate))
     }
+}
+
+/// The terminal of one committed snapshot, as the intake answered it and as it is read back.
+///
+/// The request identity is Market Data-derived by definition: the Owner seals it over the content
+/// it commits, after it has stamped its own Instrument Master digest, so the terminal reports the
+/// request as persisted. The intake and the read by correlation both build it here, so a requester
+/// that lost the intake's response reads back exactly the terminal it would have received.
+pub(super) fn pit_market_snapshot_terminal_of_v1(
+    aggregate: &PitSnapshotCommitAggregate,
+) -> PitMarketSnapshotTerminalV1 {
+    let fact = aggregate.fact();
+    let disposition = public_disposition_v1(fact.disposition());
+    let locator = (disposition == PitMarketSnapshotDispositionV1::Available)
+        .then(|| aggregate.receipt().locator().clone());
+    PitMarketSnapshotTerminalV1::seal(
+        super::pit_market_snapshot_intake_v1::PitMarketSnapshotTerminalFieldsV1 {
+            request_identity: fact.request_identity(),
+            request_digest: fact.request_digest(),
+            correlation_identity: fact.request().correlation_identity,
+            snapshot_identity: fact.snapshot_identity(),
+            fact_digest: fact.digest(),
+            disposition,
+            locator,
+            instrument_master_digest: fact.request().instrument_master_digest,
+        },
+    )
 }
 
 /// Mirrors the Owner's private disposition onto the public terminal vocabulary.

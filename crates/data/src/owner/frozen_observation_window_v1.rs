@@ -30,10 +30,9 @@ use super::{
         PitMarketSnapshotTerminalV1,
     },
     pit_snapshot::{
-        UntrustedCorrectionPublicationTime, UntrustedEventEffectiveTime,
-        UntrustedPitSnapshotRequest, UntrustedPitSnapshotTimeEvidence,
-        UntrustedProviderAvailableTime, UntrustedRetrievalTime, UntrustedSnapshotDecisionCut,
-        seal_request_claims_v1,
+        PitSnapshotSubmissionV1, UntrustedCorrectionPublicationTime, UntrustedEventEffectiveTime,
+        UntrustedPitSnapshotTimeEvidence, UntrustedProviderAvailableTime, UntrustedRetrievalTime,
+        UntrustedSnapshotDecisionCut,
     },
     source_binding::{BindingDigest, UntrustedSourceBindingLocator},
     universe_selection::UntrustedUniverseSelectionLocatorV1,
@@ -64,7 +63,12 @@ pub struct UntrustedFrozenObservationWindowV1 {
     pub source_binding: UntrustedSourceBindingLocator,
     /// The evaluated Universe Selection whose members every request covers.
     pub universe_selection: UntrustedUniverseSelectionLocatorV1,
-    /// The requester's stable correlation identity, carried onto every request.
+    /// The requester's stable correlation identity for the whole window.
+    ///
+    /// Each coordinate's request carries the correlation
+    /// [`frozen_window_coordinate_correlation_v1`] derives from it and that coordinate's instant:
+    /// Market Data commits at most one initial snapshot per correlation, and every coordinate is an
+    /// initial snapshot of its own.
     pub correlation_identity: BindingDigest,
     /// The requester's identity, carried onto every request.
     pub requester_identity: BindingDigest,
@@ -78,12 +82,30 @@ pub struct UntrustedFrozenObservationWindowV1 {
     pub universe_selection_digest: BindingDigest,
     /// The Market Semantics compatibility identity every request states.
     pub market_semantics_identity: BindingDigest,
-    /// The caller's Instrument Master claim, which this Owner resolves rather than trusts.
-    ///
-    /// It is carried rather than invented: a driver that minted this would be asserting an
-    /// Instrument Master resolution on the caller's behalf, and the single-coordinate path already
-    /// takes it from the caller for the same reason.
-    pub instrument_master_digest: BindingDigest,
+}
+
+const FROZEN_WINDOW_COORDINATE_CORRELATION_DOMAIN_V1: &[u8] =
+    b"vibe.market-data.frozen-window-coordinate-correlation.v1\0";
+
+/// The correlation one coordinate of a frozen window submits under.
+///
+/// SHA-256 over `vibe.market-data.frozen-window-coordinate-correlation.v1\0`, the window's
+/// 32-byte correlation and the coordinate's event instant as `u64BE`. Each coordinate is its own
+/// initial intake, and Market Data commits at most one initial snapshot per correlation, so a
+/// window's coordinates cannot share one; a requester holding the window recomputes each
+/// coordinate's correlation from the instant its answer reports.
+#[must_use]
+pub fn frozen_window_coordinate_correlation_v1(
+    window_correlation: BindingDigest,
+    event_effective_ns: u64,
+) -> BindingDigest {
+    use sha2::{Digest as _, Sha256};
+
+    let mut hash = Sha256::new();
+    hash.update(FROZEN_WINDOW_COORDINATE_CORRELATION_DOMAIN_V1);
+    hash.update(window_correlation.as_bytes());
+    hash.update(event_effective_ns.to_be_bytes());
+    BindingDigest::from_untrusted_bytes(hash.finalize().into())
 }
 
 /// Why a window could not be expanded at all.
@@ -271,28 +293,26 @@ const fn step_ns_of(
 }
 
 /// Freezes one request at one coordinate, against the cut the whole sweep shares.
-fn frozen_request_at(
+fn frozen_submission_at(
     window: &UntrustedFrozenObservationWindowV1,
     cut: &MarketDataDecisionCutV1,
     event_effective_ns: u64,
-) -> UntrustedPitSnapshotRequest {
+) -> PitSnapshotSubmissionV1 {
     let id = cut.clock_identity.clone();
     let epoch = cut.clock_epoch.clone();
     // All four coordinates are the frozen instant, which is what the single-coordinate path
     // already states. A sweep is N of that request, not a second kind of request, and changing
     // what the four coordinates mean is a question about one snapshot rather than about a series.
-    let mut request = UntrustedPitSnapshotRequest {
-        // Both claims are zero here and neither stays zero: `seal_request_claims_v1` at the end of
-        // this function derives them from the content this request commits. A reader who stops at
-        // these two lines sees a caller asserting an empty identity, which is the opposite of what
-        // happens - the identity is not the caller's to assert, so it is written last, by the seal.
-        claimed_request_identity: BindingDigest::from_untrusted_bytes([0; 32]),
-        claimed_request_digest: BindingDigest::from_untrusted_bytes([0; 32]),
-        correlation_identity: window.correlation_identity,
+    // The submission states no Instrument Master digest and no request identity: those are the
+    // Owner's, sealed by the intake over what it commits.
+    PitSnapshotSubmissionV1 {
+        correlation_identity: frozen_window_coordinate_correlation_v1(
+            window.correlation_identity,
+            event_effective_ns,
+        ),
         requester_identity: window.requester_identity,
         scope_digest: window.scope_digest,
         source_binding: window.source_binding.clone(),
-        instrument_master_digest: window.instrument_master_digest,
         universe_selection_digest: window.universe_selection_digest,
         market_semantics_identity: window.market_semantics_identity,
         time_evidence: UntrustedPitSnapshotTimeEvidence {
@@ -324,9 +344,7 @@ fn frozen_request_at(
             observed_at: cut.decision_cut,
             valid_through: cut.valid_through,
         },
-    };
-    seal_request_claims_v1(&mut request);
-    request
+    }
 }
 
 /// Answers a frozen window by driving the single-coordinate intake once per coordinate.
@@ -421,9 +439,9 @@ async fn sweep<I: PitMarketSnapshotIntakeV1>(
             break;
         }
 
-        let request = frozen_request_at(window, cut, event_effective_ns);
+        let submission = frozen_submission_at(window, cut, event_effective_ns);
 
-        match intake.submit(request, window.universe_selection).await {
+        match intake.submit(submission, window.universe_selection).await {
             Ok(terminal) => answered.push(AnsweredCoordinateV1 {
                 event_effective_ns,
                 terminal,
@@ -579,7 +597,7 @@ mod tests {
 
         async fn submit(
             &self,
-            _request: UntrustedPitSnapshotRequest,
+            _submission: PitSnapshotSubmissionV1,
             _universe_selection: UntrustedUniverseSelectionLocatorV1,
         ) -> Result<PitMarketSnapshotTerminalV1, PitMarketSnapshotIntakeErrorV1> {
             let index = self
@@ -676,8 +694,40 @@ mod tests {
             scope_digest: BindingDigest::from_untrusted_bytes([14; 32]),
             universe_selection_digest: BindingDigest::from_untrusted_bytes([15; 32]),
             market_semantics_identity: BindingDigest::from_untrusted_bytes([16; 32]),
-            instrument_master_digest: BindingDigest::from_untrusted_bytes([17; 32]),
         }
+    }
+
+    /// Each coordinate submits under its own correlation, derived from the window's and its own
+    /// instant, so no two coordinates of one window claim the same initial intake.
+    #[rstest]
+    fn each_coordinate_submits_under_its_own_correlation() {
+        let window = window(0, 10);
+        let cut = MarketDataDecisionCutV1 {
+            clock_identity: "TEST-CLOCK".into(),
+            clock_epoch: "TEST-EPOCH".into(),
+            decision_cut: 100,
+            monotonic_sequence: 7,
+            restart_continuity_digest: BindingDigest::from_untrusted_bytes([9; 32]),
+            valid_through: 200,
+            uncertainty_bound: 1,
+            skew_bound: 1,
+        };
+        let first = frozen_submission_at(&window, &cut, 3);
+        let second = frozen_submission_at(&window, &cut, 4);
+        assert_ne!(first.correlation_identity, second.correlation_identity);
+        assert_ne!(first.correlation_identity, window.correlation_identity);
+        assert_eq!(
+            first.correlation_identity,
+            frozen_window_coordinate_correlation_v1(window.correlation_identity, 3)
+        );
+        assert_ne!(
+            frozen_window_coordinate_correlation_v1(window.correlation_identity, 3),
+            frozen_window_coordinate_correlation_v1(
+                BindingDigest::from_untrusted_bytes([99; 32]),
+                3
+            ),
+            "the window's correlation is part of every coordinate's"
+        );
     }
 
     #[rstest]

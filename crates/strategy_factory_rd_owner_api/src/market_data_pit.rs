@@ -33,7 +33,7 @@ use vibe_data::owner::{
         MarketSemanticsFactSubmissionV1,
     },
     pit_market_snapshot_intake_v1::{PitMarketSnapshotIntakeErrorV1, PitMarketSnapshotIntakeV1},
-    pit_snapshot::UntrustedPitSnapshotRequest,
+    pit_snapshot::{PitSnapshotSubmissionDecodeErrorV1, PitSnapshotSubmissionV1},
     source_binding::BindingDigest,
     source_binding_admission_v1::{
         SourceBindingAdmissionErrorV1, SourceBindingAdmissionRequestV1, SourceBindingAdmissionV1,
@@ -53,11 +53,14 @@ use vibe_data::owner::{
 
 use super::{authorized, insert_rejection_code};
 
-/// One frozen request and the evaluated Universe Selection Record it is bound to.
+/// One submission and the evaluated Universe Selection Record it is bound to.
+///
+/// The submission stays raw JSON here so the Owner's decoder sees it before any strict decoding: a
+/// body naming a field only the Owner states is refused by that name, not as malformed.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct PitMarketSnapshotSubmissionV1 {
-    request: UntrustedPitSnapshotRequest,
+struct PitMarketSnapshotSubmissionBodyV1 {
+    submission: serde_json::Value,
     universe_selection: UntrustedUniverseSelectionLocatorV1,
 }
 
@@ -348,19 +351,40 @@ async fn submit_pit_market_snapshot_request(
             "MARKET_DATA_INTAKE_UNAVAILABLE",
         );
     };
-    let submission: PitMarketSnapshotSubmissionV1 = match serde_json::from_slice(&body) {
-        Ok(submission) => submission,
-        Err(_) => return rejection(StatusCode::BAD_REQUEST, "MALFORMED_TYPED_REQUEST"),
+    let (submission, universe_selection) = match decode_submission_body(&body) {
+        Ok(decoded) => decoded,
+        Err(refusal) => return *refusal,
     };
 
-    match intake
-        .submit(submission.request, submission.universe_selection)
-        .await
-    {
+    match intake.submit(submission, universe_selection).await {
         // Every terminal is a 200, including `UNLICENSED` and `INSUFFICIENT`: Market Data decided.
         Ok(terminal) => (StatusCode::OK, Json(terminal)).into_response(),
         Err(e) => intake_error(e),
     }
+}
+
+/// Decodes one submission body, refusing by name a submission that states an Owner field.
+fn decode_submission_body(
+    body: &[u8],
+) -> Result<(PitSnapshotSubmissionV1, UntrustedUniverseSelectionLocatorV1), Box<Response>> {
+    let body: PitMarketSnapshotSubmissionBodyV1 = serde_json::from_slice(body).map_err(|_| {
+        Box::new(rejection(
+            StatusCode::BAD_REQUEST,
+            "MALFORMED_TYPED_REQUEST",
+        ))
+    })?;
+    let submission = PitSnapshotSubmissionV1::from_json_value_v1(body.submission).map_err(|e| {
+        Box::new(match e {
+            PitSnapshotSubmissionDecodeErrorV1::StatesOwnerField => rejection(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "PIT_SUBMISSION_STATES_OWNER_FIELD",
+            ),
+            PitSnapshotSubmissionDecodeErrorV1::Malformed => {
+                rejection(StatusCode::BAD_REQUEST, "MALFORMED_TYPED_REQUEST")
+            }
+        })
+    })?;
+    Ok((submission, body.universe_selection))
 }
 
 async fn resolve_decision_cut(
@@ -412,6 +436,9 @@ fn intake_error(error: PitMarketSnapshotIntakeErrorV1) -> Response {
             StatusCode::UNPROCESSABLE_ENTITY,
             "PIT_UNIVERSE_MEMBER_KEY_IS_NOT_INSTRUMENT",
         ),
+        PitMarketSnapshotIntakeErrorV1::CorrelationAlreadyCommitted => {
+            (StatusCode::CONFLICT, "PIT_CORRELATION_ALREADY_COMMITTED")
+        }
         PitMarketSnapshotIntakeErrorV1::ClockUnavailable => (
             StatusCode::SERVICE_UNAVAILABLE,
             "MARKET_DATA_CLOCK_UNAVAILABLE",
@@ -646,4 +673,92 @@ fn rejection(status: StatusCode, code: &str) -> Response {
     let mut response = (status, Json(json!({ "error": code }))).into_response();
     insert_rejection_code(&mut response, code);
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use serde_json::json;
+    use vibe_data::owner::pit_snapshot::PIT_SUBMISSION_OWNER_FIELDS_V1;
+
+    use super::*;
+
+    fn digest(byte: u8) -> serde_json::Value {
+        json!(vec![byte; 32])
+    }
+
+    fn submission() -> serde_json::Value {
+        json!({
+            "correlation_identity": digest(1),
+            "requester_identity": digest(2),
+            "scope_digest": digest(3),
+            "source_binding": serde_json::Value::Null,
+            "universe_selection_digest": digest(4),
+            "market_semantics_identity": digest(5),
+            "time_evidence": serde_json::Value::Null,
+        })
+    }
+
+    fn code(response: &Response) -> (StatusCode, Option<&str>) {
+        (
+            response.status(),
+            response
+                .headers()
+                .get("x-rd-rejection-code")
+                .and_then(|value| value.to_str().ok()),
+        )
+    }
+
+    fn body(submission: &serde_json::Value) -> Vec<u8> {
+        serde_json::to_vec(&json!({
+            "submission": submission,
+            "universe_selection": {
+                "request_identity": digest(6),
+                "request_meaning_digest": digest(7),
+            },
+        }))
+        .unwrap()
+    }
+
+    /// A body naming an Owner field is refused by that name, as a 422 the caller can act on,
+    /// before strict decoding could call it malformed.
+    #[rstest]
+    fn a_submission_stating_an_owner_field_is_a_422_by_name() {
+        for field in PIT_SUBMISSION_OWNER_FIELDS_V1 {
+            let mut stating = submission();
+            stating
+                .as_object_mut()
+                .unwrap()
+                .insert(field.to_owned(), digest(0));
+            let refused = decode_submission_body(&body(&stating)).unwrap_err();
+            assert_eq!(
+                code(&refused),
+                (
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    Some("PIT_SUBMISSION_STATES_OWNER_FIELD")
+                ),
+                "{field}"
+            );
+        }
+        let malformed = decode_submission_body(&body(&submission())).unwrap_err();
+        assert_eq!(
+            code(&malformed),
+            (StatusCode::BAD_REQUEST, Some("MALFORMED_TYPED_REQUEST"))
+        );
+    }
+
+    /// The correlation constraint's refusal is the one 409 a requester recovers from by reading
+    /// its correlation back.
+    #[rstest]
+    fn a_committed_correlation_is_a_409_by_name() {
+        assert_eq!(
+            code(&intake_error(
+                PitMarketSnapshotIntakeErrorV1::CorrelationAlreadyCommitted
+            )),
+            (
+                StatusCode::CONFLICT,
+                Some("PIT_CORRELATION_ALREADY_COMMITTED")
+            )
+        );
+    }
 }

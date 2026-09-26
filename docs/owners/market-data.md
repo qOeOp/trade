@@ -1410,12 +1410,26 @@ and never chooses the instruments. This is how:
   write, keyed on the request's correlation and event instant, which no read of the scope can reproduce. R&D therefore
   submits the request without an Instrument Master field and without a claimed identity or digest; the intake stamps its
   own readback digest, seals the request's identity and digest over what it will commit, and refuses by name a
-  submission that states an Instrument Master digest, so no stand-in value, all-zero or otherwise, is ever read as one.
+  submission that states any of those three fields, so no stand-in value, all-zero or otherwise, is ever read as one.
   The request identity and digest a terminal reports are Market Data's. The read refuses by name when an identity is not
   admissible; when the identities' facts name more than one Source Binding lineage or correction frontier, because one
   PIT request binds one Source Binding; when that lineage has no admitted head; and when Market Data holds no clock
   head. The intake still re-verifies the Universe Selection R&D then states and the PIT request it freezes, and it
   admits a scope of one or two members.
+- One initial intake per correlation. The intake commits at most one initial PIT snapshot per correlation. It claims
+  the correlation in the transaction that commits the snapshot, and refuses by name as `CorrelationAlreadyCommitted`,
+  with nothing written, a submission that seals to a different request under a correlation already claimed. Re-sending
+  the stored submission joins the committed terminal only while Market Data's clock head is still the one the
+  submission was cut at: the intake compares the submission's clock evidence with the current head, so after the head
+  moves the re-send is refused and cannot recover the attempt. R&D therefore recovers a send that ended without a
+  response by reading its correlation back, never by re-sending. `resolve_research_pit_terminal_by_correlation_v1` runs
+  in R&D's own transaction, takes no row locks and writes nothing. It returns the committed snapshot's terminal as the
+  intake answered it, with the requester its request carried, or nothing when Market Data has never committed an
+  initial intake under that correlation. A read that cannot run, and a stored claim that does not verify against the
+  snapshot it names, are errors and never nothing. The terminal carries the Instrument Master digest the intake stamped;
+  sealing the stored submission over it reproduces the request identity and digest the terminal reports, which proves
+  which attempt the terminal answers. What crosses into `market_data_rd_api` for this read is one more `STABLE`
+  `SECURITY DEFINER` function that returns the claim and the snapshot it names.
 - Requester identity. The initial PIT request's `requester_identity` is SHA-256 over
   `vibe.market-data.pit-requester.research-request.v1\0` followed by the 32-byte Research request identity the Design
   role intent carries, which is R&D's `rd.develop.request-identity.v2` digest of the request locator, never another
@@ -1443,10 +1457,9 @@ and never chooses the instruments. This is how:
   head, the current frontier's membership facts for the requested instruments, their Instrument Master facts, and one
   lineage's Source Binding head. The Owner's own decoders and selection rules decide every answer.
 
-Built so far: the PIT intake admits a Universe Selection Record of one or two included members, each keyed by its
-Built so far: Market Data's half of this section, except the submission without an Instrument Master field: the intake
-still takes a request that carries one and overwrites it before validating, and nothing refuses a stated digest yet. The
-PIT intake admits a Universe Selection Record of one or two included members, each keyed by its canonical instrument,
+Built so far: Market Data's half of this section. The intake takes a submission without Owner fields, refuses one that
+states any of them by name, stamps its own Instrument Master digest and seals the request over it; it claims each
+correlation once, and the read by correlation answers as stated. The PIT intake admits a Universe Selection Record of one or two included members, each keyed by its canonical instrument,
 and refuses any other count or key by name before it writes anything. Registration by reference registers a Design
 against exactly the initial PIT request its role intent names, with the refusals stated above. Each newly admitted
 frontier takes the next admission number and the latest numbered one is current; a frontier admitted before numbering is
