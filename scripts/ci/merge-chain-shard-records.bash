@@ -9,29 +9,32 @@
 # --report-records` reads the merged directory, where the second copy has already replaced the
 # first. Completeness is the report's: it requires every position of the chain, run as recorded.
 #
-# Usage: merge-chain-shard-records.bash <shard records root> <merged dir>
-#   <shard records root>/<shard name>/NNN.* for every shard that ran.
+# Every shard the list names must have uploaded records, and nothing else may have: a shard that died
+# before its first entry uploads nothing, and is named here rather than folded into a count.
+#
+# Usage: merge-chain-shard-records.bash <shard records root> <merged dir> <shard list tsv>
+#   <shard records root>/<shard name>/NNN.* per shard; the list is scripts/ci/rd-owner-chain-shards.tsv.
 set -Eeuo pipefail
 trap 'echo "merge-chain-shard-records.bash:${LINENO}: this failed: ${BASH_COMMAND}" >&2' ERR
 
 root="${1:?shard records root}"
 merged="${2:?merged directory}"
+list="${3:?shard list}"
 
 shopt -s nullglob
-shards=("$root"/*/)
-if [[ ${#shards[@]} -eq 0 ]]; then
-  echo "ERROR: no shard records under ${root}." >&2
+mapfile -t expected < <(grep -v '^#' "$list" | cut -f1 | sed '/^$/d' | sort -u)
+if [[ ${#expected[@]} -eq 0 ]]; then
+  echo "ERROR: ${list} names no shards." >&2
   exit 1
 fi
 mkdir -p -- "$merged"
 declare -A owner=()
 conflicts=0
-for shard_dir in "${shards[@]}"; do
-  shard="$(basename -- "$shard_dir")"
-  files=("$shard_dir"*)
+missing=()
+for shard in "${expected[@]}"; do
+  files=("${root}/${shard}"/*)
   if [[ ${#files[@]} -eq 0 ]]; then
-    echo "ERROR: shard ${shard} uploaded no records." >&2
-    conflicts=1
+    missing+=("$shard")
     continue
   fi
   for file in "${files[@]}"; do
@@ -45,7 +48,19 @@ for shard_dir in "${shards[@]}"; do
     cp -- "$file" "${merged}/${name}"
   done
 done
+if [[ ${#missing[@]} -gt 0 ]]; then
+  echo "ERROR: no records from ${missing[*]} (of ${#expected[@]} shards): each died before its first" \
+    "entry, or never ran. Their own job logs say why." >&2
+  conflicts=1
+fi
+for dir in "$root"/*/; do
+  shard="$(basename -- "$dir")"
+  if [[ " ${expected[*]} " != *" ${shard} "* ]]; then
+    echo "ERROR: records from ${shard}, which ${list} does not name." >&2
+    conflicts=1
+  fi
+done
 [[ "$conflicts" -eq 0 ]] || exit 1
 
 xml=("$merged"/*.xml)
-echo "merged ${#shards[@]} shard(s): ${#xml[@]} entry record(s) in ${merged}"
+echo "merged ${#expected[@]} shard(s): ${#xml[@]} entry record(s) in ${merged}"
