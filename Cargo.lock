@@ -11090,6 +11090,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "vibe-product-edge-routing-api"
+version = "0.62.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "rstest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "tokio",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+ "vibe-product-edge",
+ "vibe-testkit",
+]
+
+[[package]]
 name = "vibe-pyo3"
 version = "0.62.0"
 dependencies = [

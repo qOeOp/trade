@@ -1320,11 +1320,25 @@ Data 不依赖 R&D，不拥有也不重新解释 Strategy Design role/join。
   request 也不陈述它。PIT request 所绑定的 Instrument Master readback 由 intake 自己的一次写入铸出，以 request 的
   correlation 与 event instant 为键，任何对 scope 的读取都无法复现它。因此 R&D 提交的 request 不带 Instrument Master 字
   段，也不带 claimed identity 或 digest；intake 盖上它自己的 readback digest，按它将要提交的内容 seal request 的
-  identity 与 digest，并按名拒绝陈述了 Instrument Master digest 的提交，因此任何替代值（全零或其他）都不会被当作 digest
-  读取。terminal 报告的 request identity 与 digest 是 Market Data 的。以下情况按名拒绝：某个 identity 不可准入；这些
+  identity 与 digest，并按名拒绝陈述了这三个字段中任何一个的提交，因此任何替代值（全零或其他）都不会被当作
+  digest 读取。terminal 报告的 request identity 与 digest 是 Market Data 的。以下情况按名拒绝：某个 identity 不可准入；这些
   identity 的 fact 指名了不止一条 Source Binding lineage 或 correction frontier，因为一个 PIT request 只绑定一个 Source
   Binding；该 lineage 没有已准入的 head；Market Data 没有 clock head。intake 仍会重新校验 R&D 随后陈述的 Universe
   Selection 与其冻结的 PIT request，并准入一到两个成员的 scope。
+- 每个 correlation 一次初始 intake。intake 对每个 correlation 至多提交一个初始 PIT snapshot。它在提交该 snapshot 的
+  事务里认领该 correlation；在已被认领的 correlation 下，seal 出不同 request 的提交按名拒绝为
+  `CorrelationAlreadyCommitted`，且不写入任何东西。重发已存储的提交，只有在 Market Data 的 clock head 仍是该提交切出时
+  的那一个时，才会加入已提交的 terminal：intake 在查看 correlation 之前，先把提交的 clock 证据与当前 head 逐字比对，因此
+  head 移动之后，任何在旧 head 上切出的提交都在写入任何东西之前按名拒绝为 `ClockEvidenceNotCurrent`，无论其
+  correlation 是否已提交。intake 运行期间 head 移动的，在提交时以同一个名字拒绝。所以一次发送没有收到响应，或者被以上两种之一拒绝时，R&D 读回它的 correlation 来恢复，从不重发；只有读回
+  什么也不返回时，才在当前 cut 冻结一个新的提交。
+  `resolve_research_pit_terminal_by_correlation_v1` 在 R&D 自己的事务里运行，不加行锁，也不写入任何东西。它返回已提交
+  snapshot 的 terminal（与 intake 当时的应答相同）以及其 request 携带的 requester；Market Data 从未在该 correlation 下提
+  交过初始 intake 时，它什么也不返回。无法执行的读取，以及与其所指 snapshot 核对不上的已存储认领，都是错误，绝不是「什么
+  也不返回」。terminal 陈述已提交 fact 的 disposition 及其 primary blocker：`AVAILABLE` 时没有，其余每种
+  disposition 时是决定它的那一个，因此读者从不由一者推断另一者。terminal 携带 intake 盖上的 Instrument Master digest；以它 seal 已存储的提交，会重现 terminal 报告的
+  request identity 与 digest，从而证明该 terminal 应答的是哪一次尝试。为这一读取进入 `market_data_rd_api` 的，是另一个
+  `STABLE` 的 `SECURITY DEFINER` 函数，它返回认领记录及其所指的 snapshot。
 - Requester identity。初始 PIT request 的 `requester_identity` 是对
   `vibe.market-data.pit-requester.research-request.v1\0` 后接 Design role intent 所携带的 32 字节 Research request
   identity 所做的 SHA-256；该 identity 即 R&D 对 request locator 所做的 `rd.develop.request-identity.v2` digest，
@@ -1349,9 +1363,9 @@ Data 不依赖 R&D，不拥有也不重新解释 Strategy Design role/join。
   fact、这些 instrument 的 Instrument Master fact，以及一条 lineage 的 Source Binding head。每个答案都由 Owner 自己的
   decoder 与选择规则决定。
 
-目前已建成：PIT intake 准入含一个或两个 included 成员的 Universe Selection Record，每个成员的 key 即其 canonical
-目前已建成：本节中 Market Data 的一半，不带 Instrument Master 字段的提交除外：intake 仍接收带该字段的 request，并在校验
-之前覆盖它，尚无任何代码拒绝陈述了 digest 的提交。PIT intake 准入含一个或两个 included 成员的 Universe Selection Record，
+目前已建成：本节中 Market Data 的一半。intake 接收不带 Owner 字段的提交，按名拒绝陈述了其中任何一个字段的提交，盖上它
+自己的 Instrument Master digest 并以之 seal request；每个 correlation 只认领一次，按 correlation 的读取按上文作答。
+PIT intake 准入含一个或两个 included 成员的 Universe Selection Record，
 每个成员的 key 即其 canonical instrument；其他成员数或 key 在写入任何东西之前按名拒绝。按引用注册让 Design 恰好针对其
 role intent 指名的初始 PIT request 注册，拒绝如上文所述。每个新准入的 frontier 取下一个准入序号，序号最大的即为当前
 frontier；在编号之前准入的 frontier 永远不是当前的。固定成员 rule 及其三种拒绝、检查与引用读取均按上文作答。
