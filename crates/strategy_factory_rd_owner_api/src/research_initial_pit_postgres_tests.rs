@@ -844,6 +844,14 @@ async fn issues_its_initial_pit_request() {
             .await,
         Ok(insufficient)
     );
+    assert_eq!(
+        owner
+            .read_research_v2(&uncovered)
+            .await
+            .unwrap()
+            .initial_pit(),
+        Some(insufficient)
+    );
 }
 
 /// The Universe Selection locator the request's first attempt names.
