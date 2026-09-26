@@ -1588,9 +1588,10 @@ fn attach_universe_member_sample_coordinates_v1(
         return Ok(event);
     }
 
-    // The member schedule a coordinate depends on is a BAR schedule. No Owner projection defines a
-    // universe coordinate for an EVENT yet, so a coordinated EVENT frame is refused, not admitted
-    // with a coordinate that names no schedule.
+    // Market Data's sample projection defines EVENT coordinates too, with no schedule set, but no
+    // production path produces a coordinated universe EVENT frame: the one that issues projections
+    // resolves BAR frames. So a coordinated EVENT frame is still refused rather than admitted by a
+    // rule no consumer exercises; admitting it means requiring an absent schedule set here.
     if event.envelope.order_key.kind != lifecycle_v1::LifecycleKind::Bar {
         return Err(ProgramHostV2Error::InputCoverage);
     }
