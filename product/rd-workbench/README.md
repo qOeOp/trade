@@ -209,6 +209,13 @@ the standalone `trade-dashboard` image built by `product/dashboard/Dockerfile`:
   plus its health check. Its state keeps separate typed domain ports and owns no sandbox,
   fact-writer pool, or mutation port. Configure `RD_DASHBOARD_OWNER_READ_API_TOKEN`; the Dashboard
   consumes the matching internal URL/token pair and fails closed when either half is missing.
+- `product-edge-routing-read-api` answers `GET /v1/operation-routing` for
+  `PRODUCT_EDGE_DEPLOYMENT_IDENTITY` behind `PRODUCT_EDGE_ROUTING_READ_API_TOKEN`, reading Product
+  Edge's routing history in a read-only transaction. It commits nothing, and it refuses to start
+  without a token, which keeps `dashboard-web` from starting too. Until an administrator
+  commits a binding with `product-edge-authority-bootstrap route <proposal>`, every key answers
+  `OPERATION_ROUTING_ABSENT` and the Dashboard admits no fresh `RUN`. Committing a
+  `TRADE_DASHBOARD` binding in a deployed or shared environment is a separate explicit effect.
 - `dashboard-run-store-migrate` materializes the Trade-owned operational RunStore, then exits.
 - `dashboard-web` serves the browser shell and `/api/mcp` on `127.0.0.1:${DASHBOARD_PORT:-3100}`,
   the sole host-published port in this package. Browser access requires

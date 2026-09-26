@@ -162,10 +162,16 @@ async fn postgres_a_universe_frame_issues_one_sample_projection_over_the_host_fr
         "the refusal writes nothing"
     );
 
-    // The member's minute schedule, and the row's sample under the exact 1M close binding.
+    // The member's minute schedule, and the row's sample under the exact 1M close binding. The
+    // member is the one instrument of the fixture's Instrument Master cut, read from it rather than
+    // named again here.
+    let [member_fact] = base.instrument.facts() else {
+        panic!("the fixture's Instrument Master cut holds one instrument");
+    };
+    let member = member_fact.canonical_identity().to_owned();
     let exact_close = &base.bindings[3];
     let minute = UntrustedBarScheduleProposalV1 {
-        canonical_instrument: "AAPL".into(),
+        canonical_instrument: member.clone(),
         predecessor_fact_digest: None,
         effective_from: 1,
         effective_until: Some(200),
@@ -269,7 +275,7 @@ async fn postgres_a_universe_frame_issues_one_sample_projection_over_the_host_fr
 
     for (component, value) in projection.components().iter().zip(host_frame.values()) {
         assert_eq!(component.member_ordinal(), 0);
-        assert_eq!(component.instrument(), "AAPL");
+        assert_eq!(component.instrument(), member);
         assert_eq!(component.input_role_identity(), value.input_role_identity());
         assert_eq!(component.member_binding_digest(), value.binding_digest());
         assert_eq!(component.value_receipt_digest(), value.digest());

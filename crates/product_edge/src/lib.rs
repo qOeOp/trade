@@ -3,6 +3,7 @@
 #[cfg(feature = "sealed-deployment-acceptance")]
 pub mod deployment_acceptance;
 mod invocation;
+mod operation_routing;
 mod postgres;
 
 use std::fmt::Display;
@@ -24,9 +25,16 @@ pub use invocation::{
     ProductEdgeInvocationNextLegalActionV1, ProductEdgeInvocationStartDispositionV1,
     ProductEdgeInvocationStartReadbackV1, ProductEdgeInvocationStateV1,
 };
+pub use operation_routing::{
+    OPERATION_ROUTING_BINDING_DIGEST_DOMAIN_V1, OPERATION_ROUTING_BINDING_IDENTITY_DOMAIN_V1,
+    ProductEdgeOperationDispatcherV1, ProductEdgeOperationRoutingBindingContentV1,
+    ProductEdgeOperationRoutingBindingV1, ProductEdgeOperationRoutingKeyV1,
+    ProductEdgeOperationRoutingObservationV1, ProductEdgeOperationRoutingProposalV1,
+};
 pub use postgres::{
     ProductEdgePostgresAdmissionPointReadPortV1, ProductEdgePostgresAdmissionReadPortV1,
-    ProductEdgePostgresOwnerV1, resolve_admission_for_downstream_in_transaction,
+    ProductEdgePostgresOperationRoutingReadPortV1, ProductEdgePostgresOwnerV1,
+    resolve_admission_for_downstream_in_transaction,
     resolve_historical_admission_snapshot_for_downstream_in_transaction,
     resolve_portfolio_read_policy_in_transaction,
     resolve_source_invocation_claim_for_downstream_in_transaction,

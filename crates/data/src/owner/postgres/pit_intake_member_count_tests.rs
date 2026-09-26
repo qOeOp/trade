@@ -16,10 +16,9 @@ use crate::owner::{
         VendorObservationV1,
     },
     pit_snapshot::{
-        UntrustedCorrectionPublicationTime, UntrustedEventEffectiveTime,
-        UntrustedPitSnapshotRequest, UntrustedPitSnapshotTimeEvidence,
-        UntrustedProviderAvailableTime, UntrustedRetrievalTime, UntrustedSnapshotDecisionCut,
-        authority::refresh_request_claims,
+        PitSnapshotSubmissionV1, UntrustedCorrectionPublicationTime, UntrustedEventEffectiveTime,
+        UntrustedPitSnapshotTimeEvidence, UntrustedProviderAvailableTime, UntrustedRetrievalTime,
+        UntrustedSnapshotDecisionCut,
     },
     source_binding::{
         UntrustedAdapterBinding, UntrustedCompleteFrontier, UntrustedCredentialAudienceClaim,
@@ -44,7 +43,7 @@ const CLOCK_IDENTITY: &str = "market-clock.identity.v1-0000001";
 const CLOCK_EPOCH: &str = "market-clock.epoch.v1-0000000001";
 const DECISION_CUT: u64 = 40;
 
-fn d(byte: u8) -> BindingDigest {
+pub(super) fn d(byte: u8) -> BindingDigest {
     BindingDigest::from_untrusted_bytes([byte; 32])
 }
 
@@ -258,13 +257,13 @@ impl PitObservationSourceV1 for EveryMemberObservationSourceV1 {
 }
 
 /// The fixture every case shares: one admitted Source Binding under the Owner's clock head.
-struct Fixture {
-    intake: MarketDataPitIntakePostgresV1,
-    source: SourceBindingCommit,
+pub(super) struct Fixture {
+    pub(super) intake: MarketDataPitIntakePostgresV1,
+    pub(super) source: SourceBindingCommit,
 }
 
 impl Fixture {
-    async fn install() -> Self {
+    pub(super) async fn install() -> Self {
         let owner_url = std::env::var("MARKET_DATA_OWNER_TEST_DATABASE_URL")
             .expect("explicit disposable Owner URL");
         let database =
@@ -295,11 +294,30 @@ impl Fixture {
         }
     }
 
-    fn owner(&self) -> &MarketDataOwnerPostgres {
+    pub(super) fn owner(&self) -> &MarketDataOwnerPostgres {
         &self.intake.owner
     }
 
-    async fn admit_instrument(&self, identity: &str, lifecycle_frontier: BindingDigest) {
+    /// Moves Market Data's clock head one same-epoch step past the one every request here is cut
+    /// at, through the Owner's own clock admission.
+    pub(super) async fn advance_clock(&self) {
+        let successor = MarketDataClockAdmission::seal_for_test(
+            CLOCK_IDENTITY,
+            CLOCK_EPOCH,
+            2,
+            DECISION_CUT + 5,
+            DECISION_CUT + 5,
+            DECISION_CUT + 65,
+            d(7),
+            1,
+            2,
+        );
+        let mut transaction = self.owner().pool().begin().await.unwrap();
+        admit_clock(&mut transaction, &successor).await.unwrap();
+        transaction.commit().await.unwrap();
+    }
+
+    pub(super) async fn admit_instrument(&self, identity: &str, lifecycle_frontier: BindingDigest) {
         self.owner()
             .admit_instrument_master_fact_v1(instrument_submission(
                 identity,
@@ -317,7 +335,7 @@ impl Fixture {
     /// two frontiers needs two facts: `frontier` also sets when each member's membership began,
     /// always before the request's event instant. `rule` is the canonical evaluator's rule:
     /// `[0, 1, 1]` includes everyone.
-    async fn universe(
+    pub(super) async fn universe(
         &self,
         frontier: u8,
         rule: &[u8],
@@ -383,27 +401,22 @@ impl Fixture {
     }
 
     /// A frozen request that names `universe` and nothing else the Owner would have to trust.
-    fn request(
+    pub(super) fn request(
         &self,
         correlation: u8,
         universe: &UniverseSelectionReadbackV1,
-    ) -> UntrustedPitSnapshotRequest {
-        let mut request = UntrustedPitSnapshotRequest {
-            claimed_request_identity: d(0),
-            claimed_request_digest: d(0),
+    ) -> PitSnapshotSubmissionV1 {
+        PitSnapshotSubmissionV1 {
             correlation_identity: d(correlation),
             requester_identity: d(204),
             scope_digest: d(205),
             source_binding: self.source.receipt().locator().clone(),
-            instrument_master_digest: d(206),
             universe_selection_digest: universe.record().identity(),
             market_semantics_identity: derive_market_semantics_compatibility_identity_v1(
                 &self.source.fact().proposal().semantics,
             ),
             time_evidence: pit_time(),
-        };
-        refresh_request_claims(&mut request);
-        request
+        }
     }
 
     /// The Instrument Master request identity and meaning of the most recent resolution.
@@ -443,7 +456,7 @@ impl Fixture {
     ///
     /// A refusal must leave this unchanged. The digest covers content, not only the count, so an
     /// update in place - the Instrument Master append sequence, say - would show here too.
-    async fn store(&self) -> Vec<(String, i64, String)> {
+    pub(super) async fn store(&self) -> Vec<(String, i64, String)> {
         let tables: Vec<String> = sqlx::query_scalar(
             "SELECT tablename::text FROM pg_catalog.pg_tables WHERE schemaname='market_data_private' ORDER BY 1",
         )
@@ -704,8 +717,10 @@ async fn scenario() {
         fixture.instrument_fact("TSLA", d(91)).await,
     ];
     let before = fixture.store().await;
+    let pair_submission = fixture.request(218, &pair);
     let resolution = pit_instrument_master_request_v1(
-        &fixture.request(218, &pair),
+        pair_submission.correlation_identity,
+        &pair_submission.time_evidence,
         pair.record().identity(),
         &["AAPL".to_owned(), "TSLA".to_owned()],
         &facts,

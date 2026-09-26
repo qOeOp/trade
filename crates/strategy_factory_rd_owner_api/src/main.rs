@@ -5040,10 +5040,11 @@ mod tests {
     /// field freely is enough to pass the first route and fail the second. What is new here is the
     /// Design, not the Research.
     ///
-    /// The authored channel is the daily close of `AAPL` because the binding admission resolves
+    /// The authored channel is the daily close of the chain fixtures' instrument
+    /// (`CHAIN_FIXTURE_INSTRUMENT_V1`) because the binding admission resolves
     /// every role against this Owner's own PIT custody at the decision cut, and the only coordinates
     /// the ordered chain supplies are the six that
-    /// `prepare_owner_bar_joined_cut_acceptance_basis_v1` commits at entry 32 - `MARKET`, `BAR`,
+    /// `prepare_owner_bar_joined_cut_acceptance_basis_v1` commits at entry 33 - `MARKET`, `BAR`,
     /// scale 2, on that instrument. A freely chosen coordinate is refused with
     /// `STRATEGY_INPUT_SNAPSHOT_UNAVAILABLE`, which would be a true statement about what the chain
     /// stocks and no statement at all about the route under test.
@@ -5052,6 +5053,9 @@ mod tests {
     /// that was already frozen rejoins its freeze and also answers 200, so the count is what
     /// separates a first declaration from a replay, and the stored bytes are compared against what
     /// was authored because some other Design's freeze would satisfy the count too.
+    // It authors on the chain fixtures' instrument, which only the sealed acceptance build (the one
+    // the ordered chain runs) exposes; outside that build the test is `ignore`d anyway.
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[ignore = "requires the ordered chain's PostgreSQL and a Research request an earlier entry commits"]
     async fn an_authored_design_is_published_bound_and_frozen_over_http() {
@@ -5140,7 +5144,8 @@ mod tests {
                 intent_digest: facts.intent_digest,
                 channel: SingleThresholdChannelV1::ExactInstrument {
                     role_semantic_id: "research.input.close.daily.v1".to_owned(),
-                    instrument: "AAPL".to_owned(),
+                    instrument: vibe_data::owner::chain_fixture_v1::CHAIN_FIXTURE_INSTRUMENT_V1
+                        .to_owned(),
                     field_semantic_id: "MARKET_DATA.BAR.CLOSE.PRICE.V1".to_owned(),
                     timeframe: "1D".to_owned(),
                     unit: "PRICE".to_owned(),
@@ -5418,9 +5423,10 @@ mod tests {
     ///
     /// The freeze is found by the Design's own shape rather than by ordering. Ordering would pick
     /// whatever froze last, and entries after the authoring one commit freezes of their own; the
-    /// authored program declares exactly one input role, the daily close of `AAPL`, while every
-    /// other frozen Design in this database carries the fixture's six. Exactly one match is
-    /// asserted, so a second authored Design later would fail here rather than silently pick one.
+    /// authored program declares exactly one input role, the daily close of the chain fixtures'
+    /// instrument, while every other frozen Design in this database carries the fixture's six.
+    /// Exactly one match is asserted, so a second authored Design later would fail here rather
+    /// than silently pick one.
     ///
     /// `Success` is asserted rather than `Ok`. A Research request with no verifiable joint freeze
     /// returns a terminal disposition and writes nothing, so the call returns `Ok` for five of the
@@ -5433,6 +5439,9 @@ mod tests {
     /// It costs two real compiler invocations, so it sits immediately before the destructive
     /// drain, for the same reason the fixture run does: the most expensive entry with the least
     /// history behind it.
+    // It authors on the chain fixtures' instrument, which only the sealed acceptance build (the one
+    // the ordered chain runs) exposes; outside that build the test is `ignore`d anyway.
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[ignore = "requires the ordered chain's PostgreSQL, the freeze an earlier entry commits, and the pinned local wasm compiler"]
     async fn the_authored_frozen_program_runs_the_production_composer() {
@@ -5458,7 +5467,8 @@ mod tests {
                 let design: StrategyDesignV2 = serde_json::from_slice(&design_bytes).ok()?;
                 let single_authored_role = design.inputs.len() == 1
                     && design.inputs[0].semantic_id == "research.input.close.daily.v1"
-                    && design.inputs[0].instrument == "AAPL";
+                    && design.inputs[0].instrument
+                        == vibe_data::owner::chain_fixture_v1::CHAIN_FIXTURE_INSTRUMENT_V1;
                 single_authored_role.then_some((locator, design_digest))
             })
             .collect();

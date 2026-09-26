@@ -696,8 +696,8 @@ pub(in crate::owner) mod postgres_tests {
         assert_eq!(cut_state(pool).await, settled, "the refusal writes nothing");
         instrument_master
             .append_fact(&fact_for_observed_at(
-                "AAPL",
-                "AAPL",
+                crate::owner::chain_fixture_v1::CHAIN_FIXTURE_INSTRUMENT_V1,
+                crate::owner::chain_fixture_v1::CHAIN_FIXTURE_INSTRUMENT_V1,
                 40,
                 base.universe.record().owner_observation_ns(),
             ))
@@ -714,7 +714,7 @@ pub(in crate::owner) mod postgres_tests {
                 .iter()
                 .map(|member| member.fact().canonical_identity())
                 .collect::<Vec<_>>(),
-            ["AAPL"]
+            [crate::owner::chain_fixture_v1::CHAIN_FIXTURE_INSTRUMENT_V1]
         );
         assert_eq!(
             member_cut.cut().universe_selection_identity(),
