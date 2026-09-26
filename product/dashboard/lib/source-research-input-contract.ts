@@ -71,6 +71,23 @@ function validText(value: unknown): value is string {
     && new TextEncoder().encode(value).byteLength <= 8_192 && !/\p{Cc}/u.test(value);
 }
 
+// The instrument identity rule R&D applies (`ResearchInstrumentScopeV1::from_identities` in
+// crates/data/src/owner/research_instrument_scope_v1.rs): not empty, at most 1024 UTF-8 bytes, no
+// Unicode control character (Cc), and no leading or trailing Unicode White_Space. That is Rust's
+// `trim`, not JavaScript's, which also strips U+FEFF. Both sides are tested against one vector file,
+// product/rd-owner-client/fixtures/research_instrument_identity_vectors_v1.json, so neither can
+// change alone. Whether the identity names an eligible instrument is R&D's answer, not this one's.
+export const RESEARCH_INSTRUMENT_IDENTITY_MAX_BYTES_V1 = 1_024;
+const EDGE_WHITE_SPACE =
+  /^[\u0009-\u000d\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]|[\u0009-\u000d\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]$/u;
+
+export function validResearchInstrumentIdentityV1(value: unknown): value is string {
+  // A lone surrogate is not UTF-8, so R&D could not even receive it.
+  return typeof value === "string" && value.length > 0 && value.isWellFormed()
+    && new TextEncoder().encode(value).byteLength <= RESEARCH_INSTRUMENT_IDENTITY_MAX_BYTES_V1
+    && !/\p{Cc}/u.test(value) && !EDGE_WHITE_SPACE.test(value);
+}
+
 function compareUtf8(left: string, right: string): number {
   const leftBytes = new TextEncoder().encode(left);
   const rightBytes = new TextEncoder().encode(right);
