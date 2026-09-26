@@ -57,6 +57,8 @@ const rejectedResearch = {
   trial_family: null,
   next_legal_action: "CORRECT_INPUT_AND_CREATE_SUCCESSOR_REQUEST",
   initial_pit: null,
+  request_schema_version: 3,
+  instrument_scope: { schema_version: 1, identities: ["BTCUSDT-PERP.BINANCE"] },
 };
 const unknownSource = {
   resolution: "SUBMITTED_OR_UNKNOWN",
@@ -75,6 +77,8 @@ const unknownResearch = {
   trial_family: null,
   next_legal_action: "RESOLVE_SAME_REQUEST_IDENTITY",
   initial_pit: null,
+  request_schema_version: null,
+  instrument_scope: null,
 };
 
 const request = {

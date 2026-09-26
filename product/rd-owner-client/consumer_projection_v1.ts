@@ -66,6 +66,7 @@ export function unknownResearchProjectionV1(requestIdentity: string, operation: 
     request_identity: requestIdentity, owner_receipt: null, research_view: null,
     independence_basis: null, protected_feedback: null, trial_family_resolution: "UNAVAILABLE",
     trial_family: null, next_legal_action: "RESOLVE_SAME_REQUEST_IDENTITY", initial_pit: null,
+    request_schema_version: null, instrument_scope: null,
   }
 }
 
@@ -453,7 +454,7 @@ function validTrialFamily(
 const researchOwnerKeys = [
   "schema_version", "resolution", "request_identity", "owner_receipt", "research_view",
   "independence_basis", "protected_feedback", "trial_family_resolution", "trial_family", "next_legal_action",
-  "initial_pit",
+  "initial_pit", "request_schema_version", "instrument_scope",
 ]
 
 // Market Data derives a terminal's disposition from its primary blocker, one to one, so a stated
@@ -492,6 +493,22 @@ export function validResearchInitialPitV1(value: unknown): value is ResearchInit
     && value.primary_blocker === initialPitBlockerOf[value.disposition]
 }
 
+// A V3 request's instrument scope, exactly as it was admitted. A rejected request may state one
+// that is not canonical, which is why it was rejected, so this checks the shape only.
+export type ResearchInstrumentScopeWireV1 = { schema_version: number, identities: string[] }
+
+// The request version is the one the Product Edge admission names, and the scope is the one the
+// request states; the Owner refuses a result where they disagree, so this side accepts exactly a
+// V2 request with no scope and a V3 request with one. A result that states no admitted request
+// (unresolved, legacy) states `null` for both, and `null` implies no version.
+export function validResearchRequestVersionV1(version: unknown, scope: unknown): boolean {
+  if (version === 2) return scope === null
+  return version === 3 && object(scope) && exactKeys(scope, ["schema_version", "identities"])
+    && Number.isSafeInteger(scope.schema_version) && Number(scope.schema_version) >= 0
+    && Number(scope.schema_version) <= 65_535
+    && Array.isArray(scope.identities) && scope.identities.every((identity) => typeof identity === "string")
+}
+
 function rawEnvelope(value: unknown, keys: string[], expectedStamp: ReturnType<typeof stamp>): Json | null {
   if (!object(value)) return null
   if (!("consumer_projection" in value)) return exactKeys(value, keys) ? value : null
@@ -517,6 +534,7 @@ export async function deriveResearchConsumerProjectionV1(
       || raw.research_view !== null || raw.independence_basis !== null
       || raw.protected_feedback !== null || raw.trial_family_resolution !== "UNAVAILABLE"
       || raw.trial_family !== null || raw.initial_pit !== null
+      || raw.request_schema_version !== null || raw.instrument_scope !== null
       || raw.next_legal_action !== "RESOLVE_SAME_REQUEST_IDENTITY") return unknown
     return {
       ...unknown,
@@ -529,9 +547,11 @@ export async function deriveResearchConsumerProjectionV1(
       || raw.research_view !== null || raw.independence_basis !== null || raw.protected_feedback !== null
       || raw.trial_family_resolution !== "UNAVAILABLE" || raw.trial_family !== null
       || raw.initial_pit !== null
+      || !validResearchRequestVersionV1(raw.request_schema_version, raw.instrument_scope)
       || raw.next_legal_action !== "CORRECT_INPUT_AND_CREATE_SUCCESSOR_REQUEST") return unknown
     return { ...unknown, resolution: raw.resolution, owner_receipt: raw.owner_receipt,
-      next_legal_action: raw.next_legal_action }
+      next_legal_action: raw.next_legal_action, request_schema_version: raw.request_schema_version,
+      instrument_scope: raw.instrument_scope }
   }
   if (raw.resolution !== "ACCEPTED"
     || !await validResearchReceipt(raw.owner_receipt, requestIdentity, raw.resolution)) return unknown
@@ -608,6 +628,10 @@ export async function deriveResearchConsumerProjectionV1(
     || raw.research_view.trusted_principal !== raw.independence_basis?.principal
     || JSON.stringify(raw.research_view.authorized_scope) !== JSON.stringify(raw.independence_basis?.request_scope)
     || !basisValid || !feedbackValid || !validResearchInitialPitV1(raw.initial_pit)
+    || !validResearchRequestVersionV1(raw.request_schema_version, raw.instrument_scope)
+    // The Owner states an initial PIT request only for an Intent that binds a scope, which only a V3
+    // request has; the converse is not checked, since `null` implies no version.
+    || (raw.initial_pit !== null && raw.request_schema_version !== 3)
     || raw.trial_family_resolution !== "AVAILABLE"
     || !validTrialFamily(raw.trial_family, intent, raw.owner_receipt.semantic_digest,
       raw.independence_basis, raw.protected_feedback)) return unknown
@@ -629,6 +653,7 @@ export async function deriveResearchConsumerProjectionV1(
     independence_basis: raw.independence_basis, protected_feedback: raw.protected_feedback,
     trial_family_resolution: "AVAILABLE", trial_family: raw.trial_family,
     next_legal_action: raw.next_legal_action, initial_pit: raw.initial_pit,
+    request_schema_version: raw.request_schema_version, instrument_scope: raw.instrument_scope,
   }
 }
 
@@ -654,7 +679,7 @@ function validUnknownResearchOwnerResultV1(
     && raw.research_view === null && raw.independence_basis === null
     && raw.protected_feedback === null && raw.trial_family_resolution === "UNAVAILABLE"
     && raw.trial_family === null && raw.next_legal_action === "RESOLVE_SAME_REQUEST_IDENTITY"
-    && raw.initial_pit === null
+    && raw.initial_pit === null && raw.request_schema_version === null && raw.instrument_scope === null
 }
 
 export async function projectResearchOwnerResultWithEvidenceV1(

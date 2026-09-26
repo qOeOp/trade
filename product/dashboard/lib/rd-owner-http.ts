@@ -24,13 +24,15 @@ function ownerOutcomeUnknownV1(value: unknown): boolean {
     && keys[2] === "resolution"
     && record.resolution === "SUBMITTED_OR_UNKNOWN"
     && record.next_legal_action === "RESOLVE_SAME_REQUEST";
-  const researchUnknown = keys.length === 11
+  const researchUnknown = keys.length === 13
     && keys.join(",") === [
-      "independence_basis", "initial_pit", "next_legal_action", "owner_receipt", "protected_feedback",
-      "request_identity", "research_view", "resolution", "schema_version", "trial_family",
-      "trial_family_resolution",
+      "independence_basis", "initial_pit", "instrument_scope", "next_legal_action", "owner_receipt",
+      "protected_feedback", "request_identity", "request_schema_version", "research_view", "resolution",
+      "schema_version", "trial_family", "trial_family_resolution",
     ].join(",")
     && record.initial_pit === null
+    && record.request_schema_version === null
+    && record.instrument_scope === null
     && record.schema_version === 2
     && record.resolution === "SUBMITTED_OR_UNKNOWN"
     && record.next_legal_action === "RESOLVE_SAME_REQUEST_IDENTITY"

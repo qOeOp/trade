@@ -140,5 +140,7 @@
     }
   },
   "next_legal_action": "WAIT_FOR_R_AND_D_EXECUTION",
-  "initial_pit": null
+  "initial_pit": null,
+  "request_schema_version": 2,
+  "instrument_scope": null
 }

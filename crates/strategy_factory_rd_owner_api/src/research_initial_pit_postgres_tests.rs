@@ -361,6 +361,16 @@ async fn intakes(market_data: &PgPool, correlation: [u8; 32]) -> i64 {
     .unwrap()
 }
 
+/// The body the Research readback route answers for one request, through the Owner's own port.
+async fn readback(
+    owner: &PostgresResearchGoalOwnerV1,
+    request_identity: &str,
+) -> serde_json::Value {
+    let response = super::read_research_v2_through(owner, request_identity).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    super::tests::response_json(response).await
+}
+
 fn intent_of(result: &ResearchGoalOwnerResultV2) -> String {
     result
         .owner_receipt()
@@ -473,6 +483,20 @@ async fn issues_its_initial_pit_request() {
     assert_eq!(
         accepted.initial_pit(),
         Some(ResearchInitialPitV1::NotIssued)
+    );
+    // The readback states V3 and the admitted scope while the initial PIT request has not
+    // terminated, so the version is read from the admission, not from `initial_pit`.
+    let body = readback(&owner, &request).await;
+    assert_eq!(
+        body["initial_pit"],
+        serde_json::json!({"state": "NOT_ISSUED"}),
+        "{body}"
+    );
+    assert_eq!(body["request_schema_version"], 3, "{body}");
+    assert_eq!(
+        body["instrument_scope"],
+        serde_json::json!({"schema_version": 1, "identities": [CHAIN_FIXTURE_INSTRUMENT]}),
+        "{body}"
     );
     let intent = intent_of(&accepted);
     let correlation = expected_correlation(&intent);
@@ -686,6 +710,48 @@ async fn issues_its_initial_pit_request() {
         serde_json::Value::Null
     );
     assert!(attempts(&rd, &unscoped).await.is_empty());
+    let body = readback(&owner, &unscoped).await;
+    assert_eq!(body["request_schema_version"], 2, "{body}");
+    assert_eq!(body["instrument_scope"], serde_json::Value::Null, "{body}");
+
+    // N1, rejected: a V3 request the Owner rejects is still V3, and its readback states the scope
+    // exactly as it was admitted. One is rejected by Market Data's real check, which does not find
+    // the instrument in its frontier; the other by the Owner, before any check, for a padded
+    // identity. Neither has an initial PIT request.
+    for (suffix_of, identity, rejection_code) in [
+        (
+            "unresolvable",
+            "UNLISTED-PERP.BINANCE",
+            "INSTRUMENT_SCOPE_NOT_RESOLVABLE",
+        ),
+        (
+            "invalid",
+            " UNLISTED-PERP.BINANCE",
+            "INSTRUMENT_SCOPE_INVALID",
+        ),
+    ] {
+        let rejected_request = format!("rd-initial-pit-n1-{suffix_of}-{suffix}");
+        let rejected = accept(&product_edge, &owner, &rejected_request, Some(&[identity])).await;
+        assert_eq!(
+            rejected.resolution(),
+            ProductEdgeResolution::RejectedNoWrite,
+            "{rejected:?}"
+        );
+        assert_eq!(
+            rejected
+                .owner_receipt()
+                .and_then(|receipt| receipt.rejection_code.as_deref()),
+            Some(rejection_code)
+        );
+        let body = readback(&owner, &rejected_request).await;
+        assert_eq!(body["request_schema_version"], 3, "{body}");
+        assert_eq!(
+            body["instrument_scope"],
+            serde_json::json!({"schema_version": 1, "identities": [identity]}),
+            "{body}"
+        );
+        assert_eq!(body["initial_pit"], serde_json::Value::Null, "{body}");
+    }
 
     // N2: a submission that states the Instrument Master digest is refused by name, by Market
     // Data's decoder and at its route, and writes nothing.
