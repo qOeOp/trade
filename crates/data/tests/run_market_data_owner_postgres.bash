@@ -139,8 +139,13 @@ trap 'exit 143' TERM
 # PostgreSQL as PID 1, any orphaned shell child of a `docker exec` is reaped by the postmaster, and
 # one killed by a signal restarts every server process. Nothing here drives psql from an in-container
 # heredoc today; this keeps that from mattering if something ever does.
+# The deployment's PostgreSQL (product/rd-workbench/docker-compose.yml), pinned by the same digest:
+# mirror.gcr.io first, public.ecr.aws if it does not serve (scripts/ci/pull-pinned-image.bash).
+postgres_image="$(bash "$repository_root/scripts/ci/pull-pinned-image.bash" \
+  "mirror.gcr.io/library/postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297" \
+  "public.ecr.aws/docker/library/postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297")"
 docker run --detach --init --name "$container" --publish 127.0.0.1::5432 \
-  --env POSTGRES_PASSWORD="$admin_password" postgres:16.10-alpine > /dev/null
+  --env POSTGRES_PASSWORD="$admin_password" "$postgres_image" > /dev/null
 
 # The postgres entrypoint runs initdb against a temporary server, stops it, then starts the real
 # one. A single `pg_isready` can answer for the temporary server and be followed immediately by the
