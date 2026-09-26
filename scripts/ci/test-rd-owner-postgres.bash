@@ -1916,7 +1916,7 @@ require_unchanged_cluster_state() {
   after="$(chain_cluster_state)"
   if [[ "$after" != "$chain_cluster_state_before" ]]; then
     echo "ERROR: cluster-global state changed between the first entry and the last; no database clone isolates it:" >&2
-    diff <(printf '%s\n' "$chain_cluster_state_before") <(printf '%s\n' "$after") >&2
+    diff <(printf '%s\n' "$chain_cluster_state_before") <(printf '%s\n' "$after") >&2 || true
     return 1
   fi
 }
@@ -1928,7 +1928,7 @@ report_changed_cluster_state() {
   after="$(chain_cluster_state 2> /dev/null)" || return 0
   if [[ "$after" != "$chain_cluster_state_before" ]]; then
     echo "=== cluster-global state this run left changed (before < > after) ===" >&2
-    diff <(printf '%s\n' "$chain_cluster_state_before") <(printf '%s\n' "$after") >&2
+    diff <(printf '%s\n' "$chain_cluster_state_before") <(printf '%s\n' "$after") >&2 || true
   fi
 }
 
