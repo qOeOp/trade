@@ -828,19 +828,19 @@ async fn issues_its_initial_pit_request() {
     // selection. The observed members differ from the selection's, so Market Data derives the same
     // terminal.
     let uncovered = format!("rd-initial-pit-n4b-{suffix}");
-    accept(&product_edge, &owner, &uncovered, Some(&scope)).await;
+    let uncovered_intent =
+        intent_of(&accept(&product_edge, &owner, &uncovered, Some(&scope)).await);
+    let uncovered_correlation = expected_correlation(&uncovered_intent);
     let uncovering_intake =
         pit_market_snapshot_intake_from_environment_v1(Arc::new(ChainFixtureObservationsV1 {
             answers_for: ChainFixtureMembersV1::Only("MSFT.XNAS"),
         }))
         .await
         .unwrap();
+    let uncovering_ports = MarketDataInitialPitPortsV1::new(universe.clone(), uncovering_intake);
     assert_eq!(
         owner
-            .issue_research_initial_pit_v1(
-                &uncovered,
-                &MarketDataInitialPitPortsV1::new(universe.clone(), uncovering_intake),
-            )
+            .issue_research_initial_pit_v1(&uncovered, &uncovering_ports)
             .await,
         Ok(insufficient)
     );
@@ -851,6 +851,50 @@ async fn issues_its_initial_pit_request() {
             .unwrap()
             .initial_pit(),
         Some(insufficient)
+    );
+    // I5, with a batch: this negative snapshot recorded the rows its Data Client answered, so its
+    // retry reaches the replay that compares a stored batch. It rejoins as well: the same request,
+    // no second intake, and the one batch it recorded, unchanged.
+    let mut read = rd.begin().await.unwrap();
+    let uncovered_terminal = vibe_data::owner::resolve_research_pit_terminal_by_correlation_v1(
+        &mut read,
+        BindingDigest::from_untrusted_bytes(uncovered_correlation),
+    )
+    .await
+    .unwrap()
+    .expect("Market Data holds the committed INSUFFICIENT intake")
+    .terminal()
+    .clone();
+    read.rollback().await.unwrap();
+    assert_eq!(
+        batches(&market_data, uncovered_terminal.snapshot_identity()).await,
+        1
+    );
+    let (_, stored) = attempts(&rd, &uncovered).await.remove(0);
+    let rejoined = uncovering_ports
+        .submit(
+            PitSnapshotSubmissionV1::from_json_value_v1(serde_json::from_slice(&stored).unwrap())
+                .unwrap(),
+            universe_selection_locator(&rd, &uncovered).await,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        rejoined.request_identity(),
+        uncovered_terminal.request_identity()
+    );
+    assert_eq!(
+        rejoined.request_digest(),
+        uncovered_terminal.request_digest()
+    );
+    assert_eq!(
+        rejoined.primary_blocker(),
+        Some(PitMarketSnapshotBlockerV1::CoverageInsufficient)
+    );
+    assert_eq!(intakes(&market_data, uncovered_correlation).await, 1);
+    assert_eq!(
+        batches(&market_data, uncovered_terminal.snapshot_identity()).await,
+        1
     );
 }
 
