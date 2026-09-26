@@ -939,6 +939,27 @@ for helper in helper_signatures:
     )
     if migration_source is None or migration_source.group(1) != source:
         raise SystemExit(f"ERROR: {helper} authority migration source is stale")
+# The COMPOSER_V3 verifier holds the same request fence and the same read-only rule. Its digest is not
+# pinned in the custody crate: only the R&D and Backtest reads reach it, never the Market Data lock.
+composer_source = re.search(
+    r'const INTERNAL_VERIFY_SOURCE_COMPOSER_V3: &str = r#"(.*?)"#;',
+    postgres,
+    re.DOTALL,
+)
+if composer_source is None:
+    raise SystemExit("ERROR: the COMPOSER_V3 internal verifier source is unavailable")
+composer_source = composer_source.group(1)
+if composer_source.count(shared_lock) != 1 or composer_source.index(shared_lock) > composer_source.index("FROM public."):
+    raise SystemExit("ERROR: the COMPOSER_V3 internal verifier request fence is absent, duplicated, or ordered after its first read")
+if "FOR SHARE" in composer_source:
+    raise SystemExit("ERROR: the COMPOSER_V3 internal verifier requires forbidden table write privilege")
+composer_migration_source = re.search(
+    r'-- BEGIN INTERNAL_VERIFY_SOURCE_COMPOSER_V3.*?AS \$function\$(.*?)\$function\$;',
+    migration,
+    re.DOTALL,
+)
+if composer_migration_source is None or composer_migration_source.group(1) != composer_source:
+    raise SystemExit("ERROR: the COMPOSER_V3 internal verifier authority migration source is stale")
 exclusive_lock = (
     'sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock('
     'pg_catalog.hashtextextended($1,0))")\n'

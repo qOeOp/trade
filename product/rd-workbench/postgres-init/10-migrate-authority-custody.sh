@@ -870,6 +870,111 @@ AS $function$
         END
 $function$;
 -- END INTERNAL_VERIFY_SOURCE_V3
+-- BEGIN INTERNAL_VERIFY_SOURCE_COMPOSER_V3
+CREATE OR REPLACE FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_composer_v3(
+  requested_request_identity text,
+  requested_meaning_digest text,
+  requested_receipt_identity text,
+  requested_seal_digest text
+)
+RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY INVOKER
+SET search_path = pg_catalog
+AS $function$
+        DECLARE sealed record;
+        DECLARE locked_v2_outbox record;
+        DECLARE result_availability text := 'AVAILABLE';
+        BEGIN
+          IF pg_catalog.current_setting('transaction_isolation') NOT IN ('read committed','serializable') THEN RETURN NULL; END IF;
+          PERFORM pg_catalog.pg_advisory_xact_lock_shared(
+            pg_catalog.hashtextextended(requested_request_identity,0)
+          );
+          SELECT * INTO STRICT sealed
+            FROM public.rd_sealed_exploratory_replay_requests_v1
+           WHERE request_identity=requested_request_identity
+             AND source_kind='COMPOSER_V3'
+             AND request_schema_version=2
+             AND v2_meaning_digest=requested_meaning_digest
+             AND v2_seal_digest=requested_seal_digest
+             AND v2_receipt_json->>'receipt_identity'=requested_receipt_identity;
+
+          IF sealed.lifecycle_state = 'REVOKED' THEN
+            result_availability := 'STALE';
+          END IF;
+          IF sealed.lifecycle_state NOT IN ('FROZEN','REVOKED')
+             OR sealed.composer_source_json IS NULL
+             OR sealed.build_request_identity IS NOT NULL
+             OR sealed.attempt_identity IS NOT NULL
+             OR sealed.build_receipt_identity IS NOT NULL
+             OR sealed.frozen_json->>'schema_version' <> '3'
+             OR sealed.frozen_json->'source' <> sealed.composer_source_json
+             OR sealed.frozen_json->>'request_digest' <> sealed.request_digest
+             OR sealed.frozen_json->>'committed_at_epoch_ms' <> sealed.committed_at_epoch_ms::text
+             OR sealed.composer_source_json->'proposal'->>'request_identity' <> sealed.request_identity
+             OR sealed.composer_source_json->'proposal'->>'trial_family_identity' <> sealed.trial_family_identity
+             OR sealed.composer_source_json->'proposal'->>'artifact_identity' <> sealed.artifact_identity
+             OR sealed.composer_source_json->>'intent_identity' <> sealed.intent_identity
+             OR sealed.composer_source_json->>'artifact_family_binding_identity' <> sealed.artifact_family_binding_identity
+             OR sealed.composer_source_json->>'census_frontier_identity' <> sealed.census_frontier_identity
+             OR sealed.receipt_json->>'schema_version' <> '3'
+             OR sealed.receipt_json->>'request_identity' <> sealed.request_identity
+             OR sealed.receipt_json->>'request_digest' <> sealed.request_digest
+             OR sealed.receipt_json->>'committed_at_epoch_ms' <> sealed.committed_at_epoch_ms::text
+             OR sealed.v2_canonical_request_bytes IS NULL
+             OR sealed.v2_receipt_json->>'request_identity' <> sealed.request_identity
+             OR sealed.v2_receipt_json->>'meaning_digest' <> sealed.v2_meaning_digest
+             OR sealed.v2_receipt_json->>'seal_digest' <> sealed.v2_seal_digest
+             OR sealed.v2_receipt_json->>'committed_at_epoch_ms' <> sealed.committed_at_epoch_ms::text
+             OR NOT sealed.v2_receipt_json ? 'execution_profile_seal'
+          THEN RETURN NULL; END IF;
+
+          SELECT event_identity,aggregate_identity,event_kind,payload_digest,payload_json,
+                 committed_at_epoch_ms
+            INTO STRICT locked_v2_outbox
+           FROM public.rd_owner_outbox_v1
+           WHERE aggregate_identity=sealed.request_identity
+             AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V2';
+
+          IF locked_v2_outbox.payload_json <> pg_catalog.jsonb_build_object(
+               'schema_version',(sealed.v2_receipt_json->>'schema_version')::integer,
+               'request_identity',sealed.request_identity,
+               'meaning_digest',sealed.v2_meaning_digest,
+               'seal_digest',sealed.v2_seal_digest,
+               'receipt_identity',sealed.v2_receipt_json->>'receipt_identity',
+               'lineage_request_digest',sealed.request_digest,
+               'execution_profile_seal',sealed.v2_receipt_json->'execution_profile_seal',
+               'committed_at_epoch_ms',sealed.committed_at_epoch_ms
+             )
+             OR locked_v2_outbox.committed_at_epoch_ms <> sealed.committed_at_epoch_ms
+          THEN RETURN NULL; END IF;
+
+          RETURN pg_catalog.jsonb_build_object(
+            'schema_version',4,
+            'source_kind','COMPOSER_V3',
+            'availability',result_availability,
+            'owner_cut_epoch_ms',pg_catalog.floor(extract(epoch FROM pg_catalog.clock_timestamp()) * 1000)::bigint,
+            'frozen',sealed.frozen_json,
+            'receipt',sealed.receipt_json,
+            'v2_canonical_request_base64',pg_catalog.replace(
+              pg_catalog.encode(sealed.v2_canonical_request_bytes,'base64'),
+              pg_catalog.chr(10),
+              ''
+            ),
+            'v2_meaning_digest',sealed.v2_meaning_digest,
+            'v2_seal_digest',sealed.v2_seal_digest,
+            'v2_receipt',sealed.v2_receipt_json,
+            'v2_outbox',pg_catalog.jsonb_build_object(
+              'event_identity',locked_v2_outbox.event_identity,
+              'aggregate_identity',locked_v2_outbox.aggregate_identity,
+              'event_kind',locked_v2_outbox.event_kind,
+              'payload_digest',locked_v2_outbox.payload_digest,
+              'payload_json',locked_v2_outbox.payload_json,
+              'committed_at_epoch_ms',locked_v2_outbox.committed_at_epoch_ms
+            )
+          );
+        EXCEPTION WHEN no_data_found OR too_many_rows THEN RETURN NULL;
+        END
+$function$;
+-- END INTERNAL_VERIFY_SOURCE_COMPOSER_V3
 -- BEGIN NATIVE_SOURCE_STORAGE_SOURCE_V2
 CREATE OR REPLACE FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(
   requested_request_identity text,
@@ -899,6 +1004,12 @@ AS $function$
           );
           IF base IS NULL THEN
             base := rd_owner_api.verify_exploratory_replay_request_internal_v2(
+              requested_request_identity,requested_meaning_digest,
+              requested_receipt_identity,requested_seal_digest
+            );
+          END IF;
+          IF base IS NULL THEN
+            base := rd_owner_api.verify_exploratory_replay_request_internal_composer_v3(
               requested_request_identity,requested_meaning_digest,
               requested_receipt_identity,requested_seal_digest
             );
@@ -1129,6 +1240,7 @@ AS $function$DECLARE result jsonb; BEGIN IF session_user <> 'market_data_owner' 
 ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text) OWNER TO rd_exploratory_replay_api_owner;
 ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner;
 ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner;
+ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_composer_v3(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner;
 ALTER FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner;
 ALTER FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) OWNER TO rd_owner;
 ALTER FUNCTION rd_owner_api.read_exploratory_replay_request_v2(text,text) OWNER TO rd_owner;
@@ -1136,7 +1248,9 @@ ALTER FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(t
 REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text) FROM PUBLIC, rd_fact_writer, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner;
 REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) FROM PUBLIC, rd_fact_writer, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner;
 REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) FROM PUBLIC, rd_fact_writer, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner;
+REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_composer_v3(text,text,text,text) FROM PUBLIC, rd_fact_writer, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner;
 GRANT EXECUTE ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text), rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text), rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) TO rd_owner;
+GRANT EXECUTE ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_composer_v3(text,text,text,text) TO rd_owner;
 REVOKE ALL ON FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(text,text,text,text) FROM PUBLIC, rd_fact_writer, market_data_owner, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner;
 GRANT EXECUTE ON FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(text,text,text,text) TO rd_owner, backtest_owner;
 DO $replay_internal_verifier_acl$
@@ -1145,7 +1259,8 @@ BEGIN
   FOREACH verifier IN ARRAY ARRAY[
     'rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text)'::regprocedure,
     'rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text)'::regprocedure,
-    'rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text)'::regprocedure
+    'rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text)'::regprocedure,
+    'rd_owner_api.verify_exploratory_replay_request_internal_composer_v3(text,text,text,text)'::regprocedure
   ] LOOP
     IF NOT COALESCE((
       SELECT pg_catalog.pg_get_userbyid(procedure.proowner)='rd_exploratory_replay_api_owner'

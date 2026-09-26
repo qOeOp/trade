@@ -583,27 +583,8 @@ async fn verify_outbox(
         return Err(corrupt("COMPOSER_V3 Replay outbox cardinality mismatch"));
     }
     let row = &rows[0];
-    let expected_payload = StoredOutboxV2 {
-        schema_version: receipt.schema_version,
-        request_identity: receipt.request_identity.clone(),
-        meaning_digest: receipt.meaning_digest.clone(),
-        seal_digest: receipt.seal_digest.clone(),
-        receipt_identity: receipt.receipt_identity.clone(),
-        lineage_request_digest: frozen.request_digest.clone(),
-        execution_profile_seal: receipt.execution_profile_seal.clone(),
-        committed_at_epoch_ms: frozen.committed_at_epoch_ms,
-    };
-    let payload_bytes = serde_json::to_vec(&expected_payload).map_err(unavailable)?;
-    let payload_json = serde_json::to_value(&expected_payload).map_err(unavailable)?;
-    let payload_digest = canonical_digest("rd.owner-outbox.payload.v1", &expected_payload)?;
-    let expected_envelope = LockedOutboxRowV1 {
-        event_identity: identity("rd-owner-event-v1", &payload_digest),
-        aggregate_identity: receipt.request_identity.clone(),
-        event_kind: EXPLORATORY_REPLAY_REQUEST_FROZEN_EVENT_V2.into(),
-        payload_digest,
-        payload_json: payload_json.clone(),
-        committed_at_epoch_ms: frozen.committed_at_epoch_ms,
-    };
+    let (expected_envelope, payload_bytes) = expected_composer_v3_outbox(frozen, receipt)?;
+    let payload_json = expected_envelope.payload_json.clone();
     let envelope_bytes = serde_json::to_vec(&expected_envelope).map_err(unavailable)?;
 
     if row
@@ -646,6 +627,172 @@ async fn verify_outbox(
     Ok((
         envelope_bytes.clone(),
         owner_storage_digest(REPLAY_OUTBOX_ENVELOPE_STORAGE_DOMAIN_V1, &envelope_bytes),
+    ))
+}
+
+/// What `rd_owner_api.verify_exploratory_replay_request_internal_composer_v3` returns: the sealed
+/// row's own claim, which that function checked only for self-consistency in SQL.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LockedComposerEnvelopeV3 {
+    schema_version: u16,
+    source_kind: String,
+    availability: crate::exploratory_replay::ExploratoryReplayAvailabilityV1,
+    owner_cut_epoch_ms: u64,
+    frozen: Value,
+    receipt: Value,
+    v2_canonical_request_base64: String,
+    v2_meaning_digest: String,
+    v2_seal_digest: String,
+    v2_receipt: Value,
+    v2_outbox: LockedOutboxRowV1,
+}
+
+/// Decodes a COMPOSER_V3 envelope the Owner API returned into a positive readback, recomputing
+/// everything SQL cannot: the frozen source's digests against its Composer receipt, the V2 seal over
+/// the canonical request bytes, and the outbox event the receipt determines.
+///
+/// It proves the claim, not that it would still resolve today: the Product Edge admission and the
+/// Research custody are re-proved by the caller, as for a legacy envelope. Anything that does not
+/// verify is unavailable, never an error that names what differed.
+pub(in crate::exploratory_replay) fn decode_composer_v3_read_result(
+    expected_request_identity: &str,
+    expected_meaning_digest: &str,
+    exact_locator: Option<&ExploratoryReplayRequestLocatorV2>,
+    value: &Value,
+) -> crate::exploratory_replay::ExploratoryReplayReadResultV2 {
+    use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+
+    use crate::exploratory_replay::ExploratoryReplayAvailabilityV1;
+
+    let unavailable_result = || super::unavailable_result_v2(expected_request_identity);
+    let Ok(envelope) = serde_json::from_value::<LockedComposerEnvelopeV3>(value.clone()) else {
+        return unavailable_result();
+    };
+
+    if envelope.schema_version != 4
+        || envelope.source_kind != "COMPOSER_V3"
+        || envelope.availability == ExploratoryReplayAvailabilityV1::Unavailable
+    {
+        return unavailable_result();
+    }
+    let (Ok(frozen), Ok(composer_receipt), Ok(receipt), Ok(canonical_request_bytes)) = (
+        decode_exact::<StoredComposerReplayFrozenV3>(&envelope.frozen),
+        decode_exact::<StoredComposerReplayReceiptV3>(&envelope.receipt),
+        decode_exact::<StoredReceiptV2>(&envelope.v2_receipt),
+        BASE64.decode(&envelope.v2_canonical_request_base64),
+    ) else {
+        return unavailable_result();
+    };
+    let Ok(request) = serde_json::from_slice::<ReplayRequestDtoV2>(&canonical_request_bytes)
+        .map_err(|_| ())
+        .and_then(|dto| ReplayRequestV2::try_from(dto).map_err(|_| ()))
+    else {
+        return unavailable_result();
+    };
+    let request_identity = frozen.source.proposal.request_identity.clone();
+    let prepared = PreparedSealV2 {
+        canonical_request_bytes: canonical_request_bytes.clone(),
+        meaning_digest: envelope.v2_meaning_digest.clone(),
+        execution_profile_seal: receipt.execution_profile_seal.clone(),
+    };
+    let expected_outbox = expected_composer_v3_outbox(&frozen, &receipt);
+    if verify_composer_replay_frozen_v3(&frozen, &composer_receipt).is_err()
+        || receipt.request_identity != request_identity
+        || expected_request_identity != request_identity
+        || expected_meaning_digest != envelope.v2_meaning_digest
+        || receipt.meaning_digest != envelope.v2_meaning_digest
+        || receipt.seal_digest != envelope.v2_seal_digest
+        || receipt.execution_profile_seal.is_none()
+        || exact_locator.is_some_and(|locator| {
+            locator.request_identity != request_identity
+                || locator.meaning_digest != envelope.v2_meaning_digest
+                || locator.receipt_identity != receipt.receipt_identity
+                || locator.seal_digest != envelope.v2_seal_digest
+        })
+        || verify_v2_seal(
+            &prepared,
+            &receipt,
+            ReplaySealBindingV2 {
+                request_identity: &request_identity,
+                request_digest: &frozen.request_digest,
+                execution_profile_seal: receipt.execution_profile_seal.as_ref(),
+                committed_at_epoch_ms: frozen.committed_at_epoch_ms,
+            },
+        )
+        .is_err()
+        || !expected_outbox
+            .as_ref()
+            .is_ok_and(|(outbox, _)| *outbox == envelope.v2_outbox)
+    {
+        return unavailable_result();
+    }
+
+    if envelope.availability == ExploratoryReplayAvailabilityV1::Stale {
+        return crate::exploratory_replay::ExploratoryReplayReadResultV2 {
+            projection: super::projection_v2(&request_identity, envelope.availability),
+            readback: None,
+        };
+    }
+    let (Ok(canonical_receipt_bytes), Ok(canonical_outbox_bytes)) = (
+        serde_json::to_vec(&receipt),
+        serde_json::to_vec(&envelope.v2_outbox),
+    ) else {
+        return unavailable_result();
+    };
+    crate::exploratory_replay::ExploratoryReplayReadResultV2 {
+        projection: super::projection_v2(
+            &request_identity,
+            ExploratoryReplayAvailabilityV1::Available,
+        ),
+        readback: Some(SealedExploratoryReplayReadbackV2 {
+            request,
+            canonical_request_bytes,
+            canonical_request_storage_digest: String::new(),
+            product_edge_admission: frozen.source.proposal.admission.clone(),
+            meaning_digest: envelope.v2_meaning_digest,
+            execution_profile_seal: receipt.execution_profile_seal.clone(),
+            receipt: super::into_receipt_v2(receipt),
+            canonical_receipt_bytes,
+            canonical_receipt_storage_digest: String::new(),
+            canonical_outbox_bytes,
+            canonical_outbox_storage_digest: String::new(),
+            owner_cut_epoch_ms: envelope.owner_cut_epoch_ms,
+        }),
+    }
+}
+
+/// The one outbox event a COMPOSER_V3 claim's receipt determines, with its canonical payload bytes.
+///
+/// Both readers derive it here: the locking readback compares it against the stored row, and the
+/// SQL-envelope decoder compares it against the row the Owner API returned.
+pub(super) fn expected_composer_v3_outbox(
+    frozen: &StoredComposerReplayFrozenV3,
+    receipt: &StoredReceiptV2,
+) -> Result<(LockedOutboxRowV1, Vec<u8>), ExploratoryReplayOwnerError> {
+    let expected_payload = StoredOutboxV2 {
+        schema_version: receipt.schema_version,
+        request_identity: receipt.request_identity.clone(),
+        meaning_digest: receipt.meaning_digest.clone(),
+        seal_digest: receipt.seal_digest.clone(),
+        receipt_identity: receipt.receipt_identity.clone(),
+        lineage_request_digest: frozen.request_digest.clone(),
+        execution_profile_seal: receipt.execution_profile_seal.clone(),
+        committed_at_epoch_ms: frozen.committed_at_epoch_ms,
+    };
+    let payload_bytes = serde_json::to_vec(&expected_payload).map_err(unavailable)?;
+    let payload_json = serde_json::to_value(&expected_payload).map_err(unavailable)?;
+    let payload_digest = canonical_digest("rd.owner-outbox.payload.v1", &expected_payload)?;
+    Ok((
+        LockedOutboxRowV1 {
+            event_identity: identity("rd-owner-event-v1", &payload_digest),
+            aggregate_identity: receipt.request_identity.clone(),
+            event_kind: EXPLORATORY_REPLAY_REQUEST_FROZEN_EVENT_V2.into(),
+            payload_digest,
+            payload_json,
+            committed_at_epoch_ms: frozen.committed_at_epoch_ms,
+        },
+        payload_bytes,
     ))
 }
 

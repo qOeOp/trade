@@ -70,7 +70,10 @@ where
     P: DevelopComposerSealedReadPortV2 + ?Sized,
     R: NativeReplaySchedulingResolverV1 + ?Sized,
 {
-    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+    // READ COMMITTED, as issuance: the native source boundary answers nothing under REPEATABLE
+    // READ, and the Product Edge historical admission read refuses any other level by name
+    // (`ProductEdgePostgresOwnerV1::begin_native_replay_issuance_transaction_v1`).
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
         .execute(&mut *transaction)
         .await
         .map_err(|e| {

@@ -200,11 +200,13 @@ grep -Fq "ALTER ROLE rd_exploratory_replay_api_owner NOLOGIN NOINHERIT NOSUPERUS
 grep -Fq 'ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text) OWNER TO rd_exploratory_replay_api_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
-for verifier_version in 1 2 3; do
-  test "$(grep -Fc -- "-- BEGIN INTERNAL_VERIFY_SOURCE_V$verifier_version" "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 1
-  test "$(grep -Fc -- "-- END INTERNAL_VERIFY_SOURCE_V$verifier_version" "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 1
+grep -Fq 'ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_composer_v3(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+for verifier_version in V1 V2 V3 COMPOSER_V3; do
+  test "$(grep -Fc -- "-- BEGIN INTERNAL_VERIFY_SOURCE_$verifier_version" "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 1
+  test "$(grep -Fc -- "-- END INTERNAL_VERIFY_SOURCE_$verifier_version" "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 1
 done
 grep -Fq 'GRANT EXECUTE ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text), rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text), rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) TO rd_owner;' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'GRANT EXECUTE ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_composer_v3(text,text,text,text) TO rd_owner;' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 # The dollar-quoted SQL delimiter is intentional literal input.
 # shellcheck disable=SC2016
 grep -Fq 'DO $replay_internal_verifier_acl$' "$package_dir/postgres-init/10-migrate-authority-custody.sh"

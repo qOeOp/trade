@@ -2161,15 +2161,9 @@ impl PostgresResearchGoalOwnerV1 {
         Option<crate::NativeReplayExecutionInputBindingReadbackV1>,
         crate::NativeReplayExecutionInputBindingErrorV1,
     > {
-        let mut transaction = self
-            .pool
-            .begin()
-            .await
-            .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-            .execute(&mut *transaction)
-            .await
-            .map_err(crate::NativeReplayExecutionInputBindingErrorV1::Storage)?;
+        // The same level issuance runs at, for the same reason: the native source boundary answers
+        // nothing under REPEATABLE READ, so a binding resolved there could never be read back.
+        let mut transaction = self.begin_native_replay_issuance_transaction_v1().await?;
         let result = crate::native_replay_execution_input_binding_v1::resolve_native_replay_execution_input_binding_for_request_v1_in_transaction(
             &mut transaction,
             locator,
@@ -2215,7 +2209,7 @@ impl PostgresResearchGoalOwnerV1 {
         Ok(readback)
     }
 
-    /// Opens the transaction one execution-input binding is issued in.
+    /// Opens the transaction one execution-input binding is issued or resolved in.
     ///
     /// It is READ COMMITTED because that is the one level every Owner read on the way answers
     /// under. The R&D storage functions behind the native source boundary answer only under READ
