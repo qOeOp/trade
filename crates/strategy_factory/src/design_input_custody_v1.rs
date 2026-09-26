@@ -19,8 +19,11 @@ use sqlx::{Postgres, Transaction};
 use vibe_data::owner::{
     StrategyInputDeclaredScopeV1, reread_persisted_strategy_input_custody_for_update_v1,
     reread_persisted_strategy_input_universe_custody_for_update_v1,
-    resolve_pit_request_for_strategy_design_v1, source_binding::BindingDigest,
-    strategy_input_binding::UntrustedStrategyInputCustodyClaimV1,
+    resolve_pit_request_for_strategy_design_v1,
+    source_binding::BindingDigest,
+    strategy_input_binding::{
+        StrategyInputUniverseCustodyReadbackV1, UntrustedStrategyInputCustodyClaimV1,
+    },
 };
 
 use crate::{
@@ -154,6 +157,59 @@ fn admit_claimed_roles_v1(
     Ok(declared.roles)
 }
 
+/// The custody claim for one Design, and the scope its Owner declarations were registered under.
+struct DesignCustodyClaimV1 {
+    scope: StrategyInputDeclaredScopeV1,
+    claim: UntrustedStrategyInputCustodyClaimV1,
+}
+
+/// Resolves the PIT request the Owner's declarations agree on and admits the claimed roles.
+async fn design_custody_claim_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    caller: &'static str,
+    research_request_identity: BindingDigest,
+    design_identity: BindingDigest,
+    declared: Option<DeclaredDesignInputsV1>,
+) -> Result<DesignCustodyClaimV1, DesignInputCustodyRefusedV1> {
+    let coordinate = resolve_pit_request_for_strategy_design_v1(transaction, design_identity)
+        .await
+        .map_err(|cause| refused(caller, "design_input_custody.resolve_pit_request", &cause))?;
+    let input_role_identities = admit_claimed_roles_v1(
+        caller,
+        coordinate.declared_scope,
+        &coordinate.input_role_identities,
+        declared,
+    )?;
+    Ok(DesignCustodyClaimV1 {
+        scope: coordinate.declared_scope,
+        claim: UntrustedStrategyInputCustodyClaimV1 {
+            research_request_identity,
+            strategy_design_identity: design_identity,
+            pit_request_identity: coordinate.pit_request_identity,
+            input_role_identities,
+            decision_cut: coordinate.decision_cut,
+        },
+    })
+}
+
+/// Refuses a re-read custody that names another Research request or Design than the claim.
+fn require_names_design_v1(
+    caller: &'static str,
+    claim: &UntrustedStrategyInputCustodyClaimV1,
+    research: BindingDigest,
+    design: BindingDigest,
+) -> Result<(), DesignInputCustodyRefusedV1> {
+    if research == claim.research_request_identity && design == claim.strategy_design_identity {
+        Ok(())
+    } else {
+        Err(refused(
+            caller,
+            "design_input_custody.custody_identity",
+            &"the re-read custody names another Research request or Design",
+        ))
+    }
+}
+
 /// Re-reads the Market Data custody that serves a Design's inputs, under the caller's R&D
 /// transaction, and returns the bindings a Plan compiles against.
 ///
@@ -166,36 +222,16 @@ pub(crate) async fn reread_design_input_custody_v1(
     design_identity: BindingDigest,
     declared: Option<DeclaredDesignInputsV1>,
 ) -> Result<VerifiedStrategyInputBindingsV2, DesignInputCustodyRefusedV1> {
-    let coordinate = resolve_pit_request_for_strategy_design_v1(transaction, design_identity)
-        .await
-        .map_err(|cause| refused(caller, "design_input_custody.resolve_pit_request", &cause))?;
-    let input_role_identities = admit_claimed_roles_v1(
+    let DesignCustodyClaimV1 { scope, claim } = design_custody_claim_v1(
+        transaction,
         caller,
-        coordinate.declared_scope,
-        &coordinate.input_role_identities,
-        declared,
-    )?;
-
-    let claim = UntrustedStrategyInputCustodyClaimV1 {
         research_request_identity,
-        strategy_design_identity: design_identity,
-        pit_request_identity: coordinate.pit_request_identity,
-        input_role_identities,
-        decision_cut: coordinate.decision_cut,
-    };
-    let names_this_design = |research: BindingDigest, design: BindingDigest| {
-        if research == research_request_identity && design == design_identity {
-            Ok(())
-        } else {
-            Err(refused(
-                caller,
-                "design_input_custody.custody_identity",
-                &"the re-read custody names another Research request or Design",
-            ))
-        }
-    };
+        design_identity,
+        declared,
+    )
+    .await?;
 
-    match coordinate.declared_scope {
+    match scope {
         StrategyInputDeclaredScopeV1::ExactInstrument => {
             let readback =
                 reread_persisted_strategy_input_custody_for_update_v1(transaction, &claim)
@@ -203,7 +239,9 @@ pub(crate) async fn reread_design_input_custody_v1(
                     .map_err(|cause| {
                         refused(caller, "design_input_custody.reread_exact_custody", &cause)
                     })?;
-            names_this_design(
+            require_names_design_v1(
+                caller,
+                &claim,
                 readback.research_request_identity(),
                 readback.strategy_design_identity(),
             )?;
@@ -212,20 +250,7 @@ pub(crate) async fn reread_design_input_custody_v1(
             ))
         }
         StrategyInputDeclaredScopeV1::UniverseMembers => {
-            let readback =
-                reread_persisted_strategy_input_universe_custody_for_update_v1(transaction, &claim)
-                    .await
-                    .map_err(|cause| {
-                        refused(
-                            caller,
-                            "design_input_custody.reread_universe_custody",
-                            &cause,
-                        )
-                    })?;
-            names_this_design(
-                readback.research_request_identity(),
-                readback.strategy_design_identity(),
-            )?;
+            let readback = reread_universe_custody_v1(transaction, caller, &claim).await?;
             Ok(VerifiedStrategyInputBindingsV2::from_owner_universe(
                 readback.frame(),
                 research_request_identity,
@@ -233,6 +258,66 @@ pub(crate) async fn reread_design_input_custody_v1(
             ))
         }
     }
+}
+
+/// Re-derives, under the caller's R&D transaction, the universe frame a Design's persisted input
+/// custody binds, and returns its digest.
+///
+/// The Owner's stored roles are the claim, as on the recovery path. A Design whose declarations
+/// were registered as exact-instrument has no universe frame and is refused by name.
+pub(crate) async fn reread_design_universe_frame_digest_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    caller: &'static str,
+    research_request_identity: BindingDigest,
+    design_identity: BindingDigest,
+) -> Result<BindingDigest, DesignInputCustodyRefusedV1> {
+    let DesignCustodyClaimV1 { scope, claim } = design_custody_claim_v1(
+        transaction,
+        caller,
+        research_request_identity,
+        design_identity,
+        None,
+    )
+    .await?;
+
+    if scope != StrategyInputDeclaredScopeV1::UniverseMembers {
+        return Err(refused(
+            caller,
+            "design_input_custody.universe_frame_scope",
+            &format_args!(
+                "the Owner declares {}, which binds no universe frame",
+                declared_scope_name(scope)
+            ),
+        ));
+    }
+    Ok(reread_universe_custody_v1(transaction, caller, &claim)
+        .await?
+        .frame()
+        .digest())
+}
+
+async fn reread_universe_custody_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    caller: &'static str,
+    claim: &UntrustedStrategyInputCustodyClaimV1,
+) -> Result<StrategyInputUniverseCustodyReadbackV1, DesignInputCustodyRefusedV1> {
+    let readback =
+        reread_persisted_strategy_input_universe_custody_for_update_v1(transaction, claim)
+            .await
+            .map_err(|cause| {
+                refused(
+                    caller,
+                    "design_input_custody.reread_universe_custody",
+                    &cause,
+                )
+            })?;
+    require_names_design_v1(
+        caller,
+        claim,
+        readback.research_request_identity(),
+        readback.strategy_design_identity(),
+    )?;
+    Ok(readback)
 }
 
 #[cfg(test)]
