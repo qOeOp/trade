@@ -5,7 +5,10 @@ from pathlib import Path
 from typing import Any, cast
 from urllib.parse import urlencode
 
-from bilibili_note_mcp.adapters.bilibili_http import bilibili_browser_headers
+from bilibili_note_mcp.adapters.bilibili_http import (
+    bilibili_browser_headers,
+    raise_named_envelope_refusal,
+)
 from bilibili_note_mcp.adapters.egress import SafeHttpClient
 from bilibili_note_mcp.application.errors import BilibiliNoteFailure
 from bilibili_note_mcp.application.ports import AcquiredSource, SourceMediaPort, TranscriptPort
@@ -85,6 +88,7 @@ class BilibiliSource:
         if not isinstance(code, int) or isinstance(code, bool):
             raise BilibiliNoteFailure("SOURCE_UNAVAILABLE", "source_metadata_invalid")
         if code != 0:
+            raise_named_envelope_refusal(code)
             raise BilibiliNoteFailure("SOURCE_UNAVAILABLE", "source_metadata_rejected")
         data = _mapping(envelope.get("data"), "source_metadata_invalid")
         video_id = _text(data.get("bvid"), "source_metadata_invalid")

@@ -94,11 +94,12 @@ This ledger records only what the repository has reached at this cut. It uses th
 permission by itself. Widening the admitted set requires changing this document first. Every row names the symbol
 or path that would falsify it.
 
-Two slices of this document are `IMPLEMENTATION_ADMITTED`, and this ledger names them because it previously
+Three slices of this document are `IMPLEMENTATION_ADMITTED`, and this ledger names them because it previously
 claimed none were. The claim was already false when it was written, and a reader who trusted it would have read
 an admission as invalid:
 
 - the authoring output that stops at `design` and `meaning`, under **Strategy authoring surface**;
+- the authoring language V1 in the same section, which nothing implements at this cut;
 - the bounded Replay Policy V2 composition, whose admission is stated in the body of a section headed
   **TARGET / NOT_ADMITTED**. The heading governs the wider target; the admitted composition is the narrower one
   the body fixes. Reading the heading alone gets the opposite answer, in both directions.
@@ -418,7 +419,10 @@ The reaction graph is the part that stays a judgement, and it stays with the pro
 bounded family is admitted for it and nothing wider: **a single declared channel compared against a
 single threshold**, with the decision clock taken from `data.decision_clock_channel`. Every graph
 outside that family - two signals, a conjunction, a state-dependent threshold, a threshold this
-Owner would have to choose - remains a proposer declaration this Owner admits rather than derives.
+Owner would have to choose - remains a proposer declaration this Owner admits rather than derives. A proposer
+may declare such a graph as `meaning` directly or as a document in the authoring language under **Strategy
+authoring surface**; the language compiles one into the other and decides nothing, so neither route makes this
+Owner derive a graph.
 The family exists so the first production path can close without the Owner inventing a mechanism; it
 is not a claim that one threshold is a good strategy, and widening it requires changing this
 document first.
@@ -624,9 +628,84 @@ product is the `design` and `meaning` pair and nothing further. An earlier revis
 opposite slice - computing state bytes, the `bounds` integers, and unit and scale - on the reasoning
 that those are the layer's first job. They are not its job at all: they are the Owner's, and a
 generator that produced them was measured to be reproducing work that already existed. The code this
-slice adds is therefore less than the code it removes. It introduces no authoring syntax, no new
-primitive and no execution path, and what it emits is checked by the same contract that checks a
-hand-written declaration.
+slice adds is therefore less than the code it removes. It introduces no new primitive and no execution
+path, and what it emits is checked by the same contract that checks a hand-written declaration. The
+single-threshold author is its first product and stays byte-for-byte what it is; the authoring language
+below is admitted on the same terms and makes that family one of its special cases.
+
+**IMPLEMENTATION_ADMITTED - authoring language V1:** a document a proposer writes, compiled by a pure
+function into the `design` and `meaning` pair and nothing further. Nothing implements it at this cut, and
+its implementation follows the first COMPOSER_V3 Replay through the ordered chain. The proposer is a
+language model or the Composer; the user does not write documents, so there is no text syntax to parse,
+and a rendering of a document exists for reading only.
+
+- *Form.* One JSON document, `research.strategy-authoring.v1`, closed at every level with
+  `deny_unknown_fields` and tagged enums, the same promise this Owner makes a proposer for `meaning`. It has
+  `inputs`, a flat list of named `definitions`, named `states`, an ordered list of `rules` and an `otherwise`
+  action. A definition references others by name only, so the list is the DAG and a name is the node id.
+  The universe form and its member count are not written in the document: they come from the Research
+  Intent's instrument scope as compile context, and a document whose `scope.form` disagrees is refused.
+- *Constructs.* Each construct maps to a catalog operation or expands into catalog operations, and none
+  adds one: arithmetic, `ratio`, `scale_by`, `weighted` (fused rational with a declared unit), `sqrt`;
+  `mean`, `sum`, `min`, `max`, `ema`, `wilder`, `rsi`; the bar family `true_range`, `atr`, `body`, `range`,
+  `upper_wick`, `lower_wick`, `gap`; `ago`, `swing_high`, `swing_low`; the expansions `variance`, `stddev`,
+  `zscore`, `crosses_above`, `crosses_below`; `compare`, `all_of`, `any_of`, `not`, `if` and `banded`;
+  and the states `latch`, `count_while` and `capture`. `if` is not lazy: both branches are evaluated, as
+  every node is.
+- *States and rules.* A state's name read in an expression is its value at the previous tick, so feedback
+  runs only through state and a cycle between definitions is refused. While the program is warming, every
+  state keeps its prior value, because the host holds only the warming frame neutral and a state that moved
+  would record an entry that was never proposed. A rule's name is the boolean "this rule was selected this
+  tick": its condition, its `require` and the negation of every higher-priority rule's condition. A latch
+  over those names is the position the program intended, which diverges from the account's position
+  wherever execution refuses or does not fill, because no account input is admitted.
+- *Actions.* A rule's action names a position change, a target and a protection, and every port it leaves
+  out is neutral. `ENTER` and `ADD` carry a required `side`, `LONG` or `SHORT`: the lifecycle kernel accepts
+  target weights in `[-1_000_000, 1_000_000]`, so a short position is a negative weight, and a magnitude such
+  as `banded` stays positive. Nothing on the Bounded Feature Program path proposes a negative weight at this
+  cut: all ten weight constants in the hand-written corpus are positive, and the only negative weight literal
+  under `crates/` is a codec round trip in `crates/strategy_factory/programs/sdk/src/lib.rs`.
+- *Compilation.* The compiler decides encoding only. It calls the Owner's own functions for units and
+  scales, state bytes and role and coordinate-port identity rather than holding a second copy, which first
+  requires making `expected_state_bytes` visible to it, removing the lowerer's private copy of
+  `coordinate_port_id`, and extracting the shape measurement `prepare_bounded_feature_program_v1` performs
+  into one function both call. `graph_bounds` are measured from the emitted graph; the source and Wasm byte
+  bounds are ceilings fixed by the language version. A declared input the program never reads is compiled
+  into `carried_input_role_ids`. The compiler then derives and prepares its own output against the newest
+  published catalog and emits nothing `prepare` refuses. Its own refusals are named at a document path:
+  unknown name, definition cycle, unused definition, unit mismatch, literal not representable at its scale,
+  fraction out of range, bands not ascending, a literal zero denominator, a weight out of range, a lowest-priority
+  rule whose action equals `otherwise`, duplicate rules, a rule shadowed by an earlier literal-true rule, and
+  a scope that disagrees with the Intent.
+- *Catalog.* `meaning` names primitives by full semantic id and carries no catalog version; `declare` binds
+  the newest one and a redeclaration keeps the frozen one. A compiled document therefore does not change when
+  a catalog version is published, which holds only while every published version contains every earlier
+  row unchanged. That is an invariant of the catalog, checked for each version against its predecessor by
+  semantic digest.
+- *Acceptance.* The ten hand-written programs in
+  `crates/strategy_factory/test_data/bounded_feature_program_meaning_v1/` are rewritten as documents and
+  each compiles to a program whose canonical form equals the hand-written one's. The canonical form replaces
+  every node, constant and state identity with a structural digest over inputs in port order, keeps decision
+  priorities only by relative order, and drops the bounds; every compiled bound is at most the hand-written
+  one. Both sides of that projection are proven by running the Wasm of both programs over one sequence long
+  enough to leave warmup and to produce a non-neutral entry and exit: changing a window, a constant, a
+  priority order or the order of `sub`'s operands must change behaviour and canonical form, and renaming
+  identities, scaling priorities or enlarging bounds must change neither. A short program is added to the
+  corpus and run through to a report. Every single-threshold request compiles, through a total translation
+  into a document, to exactly the bytes `author_single_threshold_program_v1` produces, in the exact and the
+  universe-member forms.
+
+**TARGET / NOT_ADMITTED - authored source custody and report statement:** a document is stored with the
+freeze it compiled to, in the same transaction, keyed by the joint freeze digest, and `declare` accepts it
+beside the `meaning` it compiled to. This Owner recompiles it and refuses a document whose design or
+`meaning` differs from the declared pair. A report then states a run from its document only after both
+anchors hold: the document recompiled under its recorded language version reproduces the frozen design and
+program bytes, and `anchor_frozen_program_to_run` ties the program to the run exactly as it does today. A
+document that no longer reproduces its freeze is an integrity failure and never falls back to another
+statement. The report reads the document in the freeze's snapshot, without a lock, and compiles after the
+transaction ends. The table is read by the report, so its materialization carries the same pre-cutover
+proof as the others. It stays `TARGET` because the report's data window is a single instrument at a single
+granularity, which a program with several inputs cannot state, and no contract yet defines that window.
 
 ## Lineage and protected-feedback admission
 
