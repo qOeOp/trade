@@ -5009,6 +5009,223 @@ mod tests {
         );
     }
 
+    /// This entry's own source-bound Research, and the Research fixture's two promises checked on the
+    /// way: a deployment without the Research Goal operation is refused by name, and the same
+    /// Research identity answers the same custody twice.
+    ///
+    /// The setup runs on its own thread with a 4 MiB stack. The Research Owner's submission is a
+    /// deep call chain in a debug build: in the full ordered chain, under the `ci-pr` profile, it
+    /// overflowed a 2 MiB stack inside `submit_source_intake_research_v2`, first from this entry's
+    /// test body and then from a spawned task on a runtime worker, so the depth is the submission's
+    /// own and not this entry's. Measured by `RUST_MIN_STACK` bisection, it needs more than
+    /// 2,097,152 and at most 2,490,368 bytes. It overflows only on the database state the full chain
+    /// leaves behind; the same code passes a filtered run on a fresh database. Production runs a
+    /// release build, where these frames are a fraction of the size.
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    mod authored_design_research {
+        use std::{future::Future, pin::Pin};
+
+        use vibe_product_edge::{
+            SOURCE_INTAKE_OPERATION_SCHEMA_V1, SOURCE_INTAKE_OPERATION_V1,
+            SOURCE_INTAKE_REQUIRED_EFFECTS_V1, SOURCE_INTAKE_TARGET_OWNER_V1,
+            deployment_acceptance::{
+                DeploymentAcceptanceOperationV1, DeploymentAcceptanceProposalV1,
+                ProductEdgeDeploymentAcceptanceFixtureV1,
+                ensure_product_edge_deployment_acceptance_fixture_v1,
+            },
+        };
+        use vibe_strategy_factory::{
+            product_edge::{RESEARCH_GOAL_OPERATION_V2, RESEARCH_GOAL_SCHEMA_V2},
+            rd_bounded_feature_program_postgres_v1::{
+                PostgresResearchBoundedFeatureProgramOwnerV1, ResearchAuthoringFactsV1,
+                ResearchBoundedFeatureProgramOwnerErrorV1,
+            },
+            source_bound_research_acceptance_fixture_v1::{
+                CurrentSourceBoundResearchAcceptanceErrorV1, CurrentSourceBoundResearchV1,
+                ensure_current_source_bound_research_acceptance_fixture_v1,
+            },
+        };
+        use vibe_testkit::postgres::{
+            CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1,
+        };
+
+        type Boxed<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+        /// The role URLs the setup connects with, owned so the setup task can outlive the borrow.
+        struct OwnerUrlsV1 {
+            operator_authorization: String,
+            product_edge: String,
+            rd_owner: String,
+            qualification_writer: String,
+            catalog_admin: String,
+        }
+
+        /// The entry's Research locator and its authoring facts, read again at a fresh cut.
+        pub(super) fn research<'a>(
+            test_database: &'a CanonicalOwnerPostgresTestDatabaseV1,
+            owner: &'a PostgresResearchBoundedFeatureProgramOwnerV1,
+        ) -> Boxed<'a, (String, ResearchAuthoringFactsV1)> {
+            let urls = OwnerUrlsV1 {
+                operator_authorization: test_database
+                    .database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter)
+                    .to_owned(),
+                product_edge: test_database
+                    .database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner)
+                    .to_owned(),
+                rd_owner: test_database
+                    .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+                    .to_owned(),
+                qualification_writer: test_database
+                    .database_url(CanonicalOwnerTestRoleV1::QualificationWriter)
+                    .to_owned(),
+                catalog_admin: test_database
+                    .database_url(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter)
+                    .to_owned(),
+            };
+            Box::pin(async move {
+                let (locator, current) = tokio::task::spawn_blocking(move || {
+                    std::thread::Builder::new()
+                        .name("rd-api-authored-design-research".into())
+                        .stack_size(4 * 1024 * 1024)
+                        .spawn(move || {
+                            tokio::runtime::Builder::new_current_thread()
+                                .enable_all()
+                                .build()
+                                .expect("the setup thread's runtime starts")
+                                .block_on(own_research(urls))
+                        })
+                        .expect("the setup thread starts")
+                        .join()
+                })
+                .await
+                .expect("the setup thread is joined")
+                .unwrap_or_else(|failure| std::panic::resume_unwind(failure));
+                assert_eq!(
+                    authoring_facts(owner, &locator)
+                        .await
+                        .expect("the committed Research is current at a fresh cut"),
+                    current.authoring
+                );
+                (locator, current.authoring)
+            })
+        }
+
+        async fn own_research(urls: OwnerUrlsV1) -> (String, CurrentSourceBoundResearchV1) {
+            let suffix = format!(
+                "{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            );
+            let source_intake_operation = DeploymentAcceptanceOperationV1 {
+                operation: SOURCE_INTAKE_OPERATION_V1.into(),
+                operation_schema: SOURCE_INTAKE_OPERATION_SCHEMA_V1.into(),
+                allowed_effects: SOURCE_INTAKE_REQUIRED_EFFECTS_V1.map(Into::into).to_vec(),
+            };
+            let research_operation = DeploymentAcceptanceOperationV1 {
+                operation: RESEARCH_GOAL_OPERATION_V2.into(),
+                operation_schema: RESEARCH_GOAL_SCHEMA_V2.into(),
+                allowed_effects: vec!["R_AND_D_RESEARCH_MUTATION_V1".into()],
+            };
+
+            let without_research = deployment(
+                &urls,
+                "rd-api-authored-design-source-intake-only",
+                vec![source_intake_operation.clone()],
+            )
+            .await;
+            let refused_identity = format!("rd-api-authored-design-refused-{suffix}");
+            let refused = source_bound_research(&urls, &without_research, &refused_identity).await;
+            assert!(
+                matches!(
+                    refused,
+                    Err(
+                        CurrentSourceBoundResearchAcceptanceErrorV1::OperationNotDeployed {
+                            operation: RESEARCH_GOAL_OPERATION_V2
+                        }
+                    )
+                ),
+                "{refused:?}"
+            );
+
+            let with_research = deployment(
+                &urls,
+                "rd-api-authored-design",
+                vec![source_intake_operation, research_operation],
+            )
+            .await;
+            let locator = format!("rd-api-authored-design-{suffix}");
+            let current = source_bound_research(&urls, &with_research, &locator)
+                .await
+                .expect("this entry's source-bound Research is committed and current");
+            // Idempotent through the Owners' own replays: the same identity answers the same
+            // custody.
+            assert_eq!(
+                source_bound_research(&urls, &with_research, &locator)
+                    .await
+                    .expect("the same Research identity resolves again"),
+                current
+            );
+            (locator, current)
+        }
+
+        /// This entry's Product Edge deployment under `fixture_key`, bound to exactly `operations`.
+        fn deployment<'a>(
+            urls: &'a OwnerUrlsV1,
+            fixture_key: &'a str,
+            operations: Vec<DeploymentAcceptanceOperationV1>,
+        ) -> Boxed<'a, ProductEdgeDeploymentAcceptanceFixtureV1> {
+            Box::pin(async move {
+                ensure_product_edge_deployment_acceptance_fixture_v1(
+                    &urls.operator_authorization,
+                    &urls.product_edge,
+                    &DeploymentAcceptanceProposalV1 {
+                        fixture_key: fixture_key.to_owned(),
+                        audience: SOURCE_INTAKE_TARGET_OWNER_V1.into(),
+                        permissions: vec![
+                            "research:source-intake".into(),
+                            "research:submit".into(),
+                            "research:view".into(),
+                        ],
+                        operations,
+                    },
+                )
+                .await
+                .unwrap_or_else(|e| panic!("the deployment {fixture_key} is ensured: {e}"))
+            })
+        }
+
+        /// The source-bound Research fixture for `identity`, admitted through `deployment`.
+        fn source_bound_research<'a>(
+            urls: &'a OwnerUrlsV1,
+            deployment: &'a ProductEdgeDeploymentAcceptanceFixtureV1,
+            identity: &'a str,
+        ) -> Boxed<
+            'a,
+            Result<CurrentSourceBoundResearchV1, CurrentSourceBoundResearchAcceptanceErrorV1>,
+        > {
+            Box::pin(ensure_current_source_bound_research_acceptance_fixture_v1(
+                &urls.rd_owner,
+                &urls.qualification_writer,
+                &urls.catalog_admin,
+                &urls.product_edge,
+                deployment,
+                identity,
+            ))
+        }
+
+        /// The R&D Owner's authoring facts for `locator` at a fresh cut.
+        fn authoring_facts<'a>(
+            owner: &'a PostgresResearchBoundedFeatureProgramOwnerV1,
+            locator: &'a str,
+        ) -> Boxed<'a, Result<ResearchAuthoringFactsV1, ResearchBoundedFeatureProgramOwnerErrorV1>>
+        {
+            Box::pin(owner.read_research_authoring_facts_v1(locator))
+        }
+    }
+
     /// Carries a Design this repository authored, not one an acceptance fixture committed, through
     /// the three routes that publish it, bind it and freeze it.
     ///
@@ -5040,20 +5257,19 @@ mod tests {
     /// that was already frozen rejoins its freeze and also answers 200, so the count is what
     /// separates a first declaration from a replay, and the stored bytes are compared against what
     /// was authored because some other Design's freeze would satisfy the count too.
-    // It authors on the chain fixtures' instrument, which only the sealed acceptance build (the one
-    // the ordered chain runs) exposes; outside that build the test is `ignore`d anyway.
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    // It authors on the chain fixtures' instrument and commits its own source-bound Research, both
+    // of which only the sealed acceptance build the ordered chain runs exposes; outside that build
+    // the test is `ignore`d anyway.
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    #[ignore = "requires the ordered chain's PostgreSQL and a Research request an earlier entry commits"]
+    #[ignore = "requires the ordered chain's PostgreSQL and the Market Data basis an earlier entry commits"]
     async fn an_authored_design_is_published_bound_and_frozen_over_http() {
         use axum::body::Body;
         use axum::extract::Request;
         use tower::ServiceExt;
         use vibe_strategy_factory::{
             bounded_feature_program_v1::BoundedFeaturePredicateV1,
-            rd_bounded_feature_program_postgres_v1::{
-                PostgresResearchBoundedFeatureProgramOwnerV1, ResearchAuthoringFactsV1,
-            },
+            rd_bounded_feature_program_postgres_v1::PostgresResearchBoundedFeatureProgramOwnerV1,
             single_threshold_authoring_v1::{
                 SingleThresholdAuthoringRequestV1, SingleThresholdChannelV1,
                 SingleThresholdOutcomeV1, author_single_threshold_program_v1,
@@ -5079,50 +5295,10 @@ mod tests {
         );
 
         // A Research identity accepts exactly one freeze, and answers every later, different
-        // Design with JOINT_FREEZE_CHANGED_MEANING. This entry freezes, so it needs an accepted
-        // custody that has not frozen yet - reading the identities off an already frozen Design,
-        // as this entry first did, can only ever reach that conflict.
-        //
-        // Acceptance is necessary and not sufficient: the authoring facts also require the Intent
-        // to be frozen and the custody to be current at the read cut. Those conditions are not
-        // restated here, because `read_research_authoring_facts_v1` already enforces them on the
-        // freeze path's own parser, and a copy of them in this query would be a second statement
-        // of the same rule that drifts. Candidates are taken in bulk and the accessor decides.
-        let candidates: Vec<String> = sqlx::query_scalar(
-            "SELECT r.request_identity
-               FROM public.rd_research_request_receipts_v1 r
-              WHERE r.receipt_json->>'disposition'='ACCEPTED'
-                AND NOT EXISTS (
-                      SELECT 1
-                        FROM public.rd_bounded_feature_program_freezes_v1 f
-                       WHERE f.request_identity = r.request_identity)
-              ORDER BY r.committed_at_epoch_ms DESC
-              LIMIT 32",
-        )
-        .fetch_all(&rd_pool)
-        .await
-        .unwrap();
-        // Zero rows is a statement about the entries before this one, not about these routes.
-        assert!(
-            !candidates.is_empty(),
-            "no accepted Research custody is without a freeze, so this entry has nothing it is \
-             allowed to freeze: that is about the entries before this one, not about these routes",
-        );
-        let mut chosen: Option<(String, ResearchAuthoringFactsV1)> = None;
-
-        for candidate in &candidates {
-            if let Ok(facts) = owner.read_research_authoring_facts_v1(candidate).await {
-                chosen = Some((candidate.clone(), facts));
-                break;
-            }
-        }
-        let (locator, facts) = chosen.unwrap_or_else(|| {
-            panic!(
-                "none of the {} accepted, unfrozen Research identities carries current authoring \
-                 facts: acceptance alone does not make custody current",
-                candidates.len(),
-            )
-        });
+        // Design with JOINT_FREEZE_CHANGED_MEANING, so this entry freezes a Research of its own,
+        // committed for this run through the production Owners, rather than one an earlier entry
+        // left behind.
+        let (locator, facts) = authored_design_research::research(&test_database, &owner).await;
 
         let (authored, meaning) =
             author_single_threshold_program_v1(&SingleThresholdAuthoringRequestV1 {
