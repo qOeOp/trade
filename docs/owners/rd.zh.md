@@ -130,6 +130,23 @@
   `artifact.identity` 也得同时等于 commit 所要求的 Artifact Build `blake3:` 身份，以及准备阶段所要求的
   Composer `rd-strategy-artifact-v2-` 定位符。没有任何 v2 请求能走到签发。按同一条已部署服务的条目，
   在有序链路的验收构建里开启这个 feature，不会在生产中准入任何东西。
+- **CURRENT - composer-backed Replay 按组合形状存什么：** 存下的 Composer source（`composer_source_json`，
+  以及 `frozen_json` 里的同一个值）用它的 `schema_version` 记录它由哪种形状的 Replay composition cut 组合而来。
+  Schema 3 是第一语料，带着它的 cut 所绑定的三个 Instrument Master 字段。Schema 4 是 universe-member 形状，
+  一个都不带：这个形状在组合时不绑定 Instrument Master，要到 native initial binding 才由按请求定键的
+  Instrument Master V2 cut 验证，所以两者之间任何地方都不能把它记成已验证。缺席的字段不被序列化，所以
+  schema 3 的 source 保持 schema 4 出现之前的字节；`exploratory_replay/composition_v3.rs` 里的单元 golden
+  钉住了它们。Replay 请求的 `resolved_owner_inputs` 对第一语料是 observation census，对 universe-member
+  形状是 universe frame，其 identity 就是它的 BLAKE3 摘要。universe-member 的 frame 在这里重新导出，而不是由
+  Market Data 导出：commit 和 readback 在组合之前，都要在 R&D 事务上重读 Design 的持久化 universe 输入托管，
+  它的 frame 必须就是 facts 与 binding 记录的那个 frame。Market Data 的 resolver 手里只有 binding，没有这次重读
+  需要的 Research request 和 decision cut，所以这项核对放在本消费端，与第一语料重读 census 的位置相同。每一种
+  不一致都以 `ComposerReplayShapeRefusalV1` 按名拒绝：未知的 source schema、缺 Instrument Master 字段的
+  schema 3 source、带着这类字段的 schema 4 source、与 binding 形状所记录的不一致的 source schema、形状不同的
+  binding 与 facts、不是同一个 frame 的几个 frame，以及托管已不再能重新导出的 frame。Schema 4 只用于新写入：
+  在它之前签不出 universe-member composition binding，所以没有存量行是这种形状，也不回填。commit 与历史
+  readback 都通过生产 binding Owner 绑定 Composer 的输入，它重读 Market Data 托管，而不是验收语料的固定帧。
+  没有 SQL 函数读这两列里的 source 子对象；将来要读的函数必须先按 source schema 分支。
 - **CURRENT - 有一条只读操作只能经由写 API 触达：** Dashboard 的操作登记表声明了十一条 Owner 路由，
   其中十条是 `GET`。第十一条 `research_goal.legacy_quarantine_read.v1` 声明 `effect_set: []`，
   解析到 `POST /v1/research-goals/{request_identity}/resolve`，它注册在

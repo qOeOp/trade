@@ -698,12 +698,37 @@ pub enum ExploratoryReplayOwnerError {
     InvalidProposal(&'static str),
     #[error("R&D exploratory replay custody unavailable: {0}")]
     Unavailable(String),
-    /// The Replay composition cut has no Instrument Master, because its binding is of the
-    /// universe-member shape; this reader handles only the exact-instrument first corpus.
-    #[error(
-        "the Replay composition cut is of the universe-member shape and has no Instrument Master"
-    )]
-    InstrumentMasterAbsentForUniverseShape,
+    /// A Composer-backed Replay whose Market Data shape does not hold together.
+    #[error("Composer Replay Market Data shape refused: {0:?}")]
+    ComposerReplayShapeRefused(ComposerReplayShapeRefusalV1),
+}
+
+/// Why a Composer-backed Replay's Market Data shape was refused.
+///
+/// A Replay composition cut is of the first corpus or of the universe-member shape, and a Composer
+/// source records which: schema 3 carries the Instrument Master the first corpus binds, schema 4
+/// carries none, because the universe-member shape binds none at composition.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ComposerReplayShapeRefusalV1 {
+    /// The composition binding and the Replay facts it resolves state different shapes.
+    BindingAndFactsShapeDiffer,
+    /// The cut's Instrument Master is present for the universe-member shape, or absent for the
+    /// first corpus.
+    InstrumentMasterDiffersFromShape,
+    /// The facts' universe frame dependency, the frame the facts record and the frame the binding
+    /// records are not one frame; or a first-corpus cut names a universe frame.
+    UniverseFrameDependencyDiffers,
+    /// The Design's persisted input custody, re-read now, does not re-derive the frame the facts
+    /// record.
+    UniverseFrameNotRederived,
+    /// A stored Composer source of a schema this build does not know.
+    UnknownSourceSchema,
+    /// A schema 3 source without all three Instrument Master fields.
+    FirstCorpusSourceLacksInstrumentMaster,
+    /// A schema 4 source with an Instrument Master field.
+    UniverseSourceCarriesInstrumentMaster,
+    /// A stored source whose schema is not the one its composition binding's shape records.
+    SourceSchemaDiffersFromBindingShape,
 }
 
 #[cfg(test)]

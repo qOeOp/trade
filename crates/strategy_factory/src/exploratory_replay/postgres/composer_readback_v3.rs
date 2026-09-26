@@ -32,9 +32,9 @@ use crate::{
         ExploratoryReplayRequestLocatorV2, SealedExploratoryReplayReadbackV2,
         composition_v3::{
             StoredComposerReplayFrozenV3, StoredComposerReplayReceiptV3,
-            StoredComposerReplaySourceV3, prepare_composer_backed_replay_v3,
-            prepare_composer_replay_seal_v3, project_composer_replay_view_v3,
-            verify_composer_replay_frozen_v3,
+            StoredComposerReplaySourceV3, admit_composer_replay_market_in_transaction_v3,
+            prepare_composer_backed_replay_v3, prepare_composer_replay_seal_v3,
+            project_composer_replay_view_v3, verify_composer_replay_frozen_v3,
         },
         exploratory_replay_admission_payload_v3,
     },
@@ -264,12 +264,10 @@ pub(super) async fn resolve_existing_composer_v3_in_transaction(
     .map_err(unavailable)?;
     let binding = market.binding();
     let market_facts = market.market_facts();
-    // A universe-member cut binds no Instrument Master; until this reader handles that shape it
-    // refuses it by this name, so the refusal is findable and says why.
-    let instrument_master = market
-        .instrument_master()
-        .ok_or(ExploratoryReplayOwnerError::InstrumentMasterAbsentForUniverseShape)?;
+    let instrument_master = market.instrument_master();
     let source = &claim.frozen.source;
+
+    source.require_binding_shape(binding.record().shape())?;
     let admission = resolve_admission_for_downstream_in_transaction(
         transaction,
         &proposal.admission,
@@ -330,9 +328,11 @@ pub(super) async fn resolve_existing_composer_v3_in_transaction(
         || source.market_binding_outbox_identity != binding.outbox().identity()
         || source.market_facts_identity != market_facts.facts().identity()
         || source.market_facts_receipt_identity != market_facts.receipt().identity()
-        || source.instrument_master_identity != instrument_master.identity()
-        || source.instrument_master_receipt_identity != instrument_master.receipt_identity()
-        || source.instrument_master_outbox_identity != instrument_master.outbox_identity()
+        || source.instrument_master_identity != instrument_master.map(|master| master.identity())
+        || source.instrument_master_receipt_identity
+            != instrument_master.map(|master| master.receipt_identity())
+        || source.instrument_master_outbox_identity
+            != instrument_master.map(|master| master.outbox_identity())
     {
         return Err(corrupt("COMPOSER_V3 Market Data Owner readback mismatch"));
     }
@@ -368,6 +368,8 @@ pub(super) async fn resolve_existing_composer_v3_in_transaction(
     .await
     .map_err(unavailable)?
     .ok_or_else(|| corrupt("COMPOSER_V3 historical Artifact-family binding is missing"))?;
+    let admitted =
+        admit_composer_replay_market_in_transaction_v3(transaction, &composer, &market).await?;
     let composed = prepare_composer_backed_replay_v3(
         proposal,
         &census,
@@ -375,6 +377,7 @@ pub(super) async fn resolve_existing_composer_v3_in_transaction(
         &composer,
         &artifact_family,
         &market,
+        &admitted,
     )?;
 
     if composed.source != *source {
