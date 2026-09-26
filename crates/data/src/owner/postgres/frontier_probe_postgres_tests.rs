@@ -17,6 +17,7 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 #[tokio::test]
+#[ignore = "requires the ordered Owner PostgreSQL chain"]
 async fn frontier_probe_reports_current_members() {
     let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
         .await
