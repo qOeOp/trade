@@ -9677,10 +9677,10 @@ async fn market_semantics_fact_snapshot_v1(
 /// names nothing. The key's conditions are therefore checked here directly, on exactly the inputs
 /// admission resolves and with the function it uses, so a failure names the condition that failed.
 ///
-/// The control restores that state for a second instrument, through production Instrument Master
-/// admission, which stores the scope it is handed: its snapshot is refused on
-/// `InstrumentFactMarketSemantics` and on nothing earlier, so the pass above is the fix and not a
-/// check that cannot fail.
+/// The control restores that state for a second instrument, through the Owner's append path, since
+/// production Instrument Master admission now derives the scope and cannot state a written one: its
+/// snapshot is refused on `InstrumentFactMarketSemantics` and on nothing earlier, so the pass above is
+/// the fix and not a check that cannot fail.
 #[tokio::test]
 #[ignore = "requires a disposable Market Data PostgreSQL database"]
 async fn postgres_production_admits_market_semantics_for_the_chain_fixture_instrument() {
@@ -9767,22 +9767,30 @@ async fn postgres_production_admits_market_semantics_for_the_chain_fixture_instr
     );
 
     // The control: an Instrument Master fact naming a written scope, the state the fixture used to
-    // leave. Production Instrument Master admission stores the scope it is handed, so the fact goes
-    // in; the key then refuses it on exactly the condition that names it, and admission answers
-    // only `DependencyUnavailable`.
-    //
-    // When Instrument Master admission derives the scope from a named binding (#1075), this path is
-    // refused at that admission instead: change this control to assert that refusal then.
+    // leave. Production Instrument Master admission can no longer store one: since #1075 its
+    // submission names the binding and carries no scope, and the Owner stores the derived one
+    // (`postgres_an_instrument_fact_takes_its_scope_and_frontiers_from_the_named_binding`). The fact
+    // is therefore appended through the Owner's own append path, as the chain fixtures append
+    // theirs, so that the key's condition still has a case it must refuse: it refuses it on exactly
+    // the condition that names it, and admission answers only `DependencyUnavailable`.
     let written_scope = d(84);
-    owner
-        .admit_instrument_master_fact_v1(oracle_instrument_submission_v1(
-            "MSFT.XNAS",
-            written_scope,
-            base.source.fact().source_frontier().digest,
-            base.source.receipt().locator().correction_frontier.digest,
-        ))
+    let written = oracle_instrument_submission_v1("MSFT.XNAS", base.source.receipt().locator())
+        .into_proposal(
+            crate::owner::instrument_master_admission_v1::InstrumentMasterBindingCoordinatesV1 {
+                market_semantics_identity: written_scope,
+                source_frontier: base.source.fact().source_frontier().digest,
+                correction_frontier: base.source.fact().correction_frontier().digest,
+            },
+        )
+        .expect("the written-scope proposal converts");
+    let head = owner
+        .current_clock_head_locator_v1()
         .await
-        .expect("Instrument Master admission stores the scope it is handed");
+        .expect("the Owner holds a clock head");
+    owner
+        .append_instrument_master_fact(written, &head)
+        .await
+        .expect("the Owner's append path stores the written scope it is handed");
     let other_universe = one_member_universe_v1(&owner, &base.source, "MSFT.XNAS", 140).await;
     let other = research_request_pit_on_v1(
         &owner,
