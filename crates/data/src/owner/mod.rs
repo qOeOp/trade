@@ -104,6 +104,10 @@ pub use postgres::research_pit_references_v1::{
     check_research_instrument_scope_v1, resolve_research_pit_references_v1,
 };
 
+/// The included members of the Universe Selection a Replay request binds, read in the caller's own
+/// R&D transaction without row locks.
+pub use postgres::universe_selection::read_universe_selection_members_for_rd_v1;
+
 /// The terminal of a Research request's initial PIT intake, read back by its correlation in the
 /// caller's own R&D transaction.
 pub use postgres::research_pit_terminal_v1::resolve_research_pit_terminal_by_correlation_v1;

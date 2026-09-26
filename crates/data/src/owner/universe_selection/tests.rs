@@ -281,3 +281,43 @@ fn a_fixed_member_rule_that_does_not_state_its_scope_is_refused(
         UniverseSelectionErrorV1::InvalidRequest
     );
 }
+
+/// R&D is given the included members in the record's membership order, as the Instrument Master
+/// canonical identities the record holds.
+///
+/// The fixture includes every member it is given, so an excluded member being dropped is proven
+/// against a real selection instead: `rd_universe_selection_read_oracle_v1` reads one whose second
+/// member is excluded.
+#[rstest]
+fn rd_reads_the_included_members_in_record_order() {
+    let readback = crate::owner::instrument_master_v2_postgres::tests::selection_of(&[
+        ("member-a", "AAPL.XNAS"),
+        ("member-b", "MSFT.XNAS"),
+    ]);
+    let members = UniverseSelectionMembersForRdV1::from_readback(&readback).unwrap();
+    assert_eq!(
+        members
+            .members()
+            .iter()
+            .map(|member| (member.member_key().to_vec(), member.instrument()))
+            .collect::<Vec<_>>(),
+        [
+            (b"member-a".to_vec(), "AAPL.XNAS"),
+            (b"member-b".to_vec(), "MSFT.XNAS"),
+        ]
+    );
+}
+
+/// An instrument identity that is not UTF-8 is refused, not read lossily as another instrument.
+#[rstest]
+fn rd_refuses_a_member_whose_instrument_identity_is_not_utf8() {
+    let readback =
+        crate::owner::instrument_master_v2_postgres::tests::selection_with_instrument_bytes(
+            1,
+            &[("member-a", &[0xff, 0xfe, 0x41])],
+        );
+    assert_eq!(
+        UniverseSelectionMembersForRdV1::from_readback(&readback),
+        Err(UniverseSelectionErrorV1::StoreUntrusted)
+    );
+}
