@@ -1,14 +1,12 @@
 name: pre-commit-pr
 
-# `build.yml` owns the pre-commit job, but that workflow only triggers on pushes to its own branch
-# list, so no pull request has ever run a single hook. Six hooks had gone red on `main` that way:
-# cargo fmt (32 sites), Unicode typography (22 lines), error conventions (20 closures), testing
-# conventions (15 attributes), vibe conventions (15 qualified paths), and the Rust formatting check.
-# None of them needs a compiled workspace, so all of them can gate a pull request.
-#
-# The four hooks that do compile the workspace - cargo-clippy, its non-Linux turmoil sibling,
-# cargo-doc and cargo-machete - stay in `build.yml`, where the Rust cache lives. check-links-offline
-# stays there too because it needs a pinned lychee install.
+# The hooks that need no compiled workspace, over all files, on every pull request push - drafts
+# included - and on every push to `main`. This is where a pull request's no-compile hooks run:
+# build.yml's pre-commit job, on the Ready run, runs only the compiled ones (cargo-clippy, its
+# non-Linux turmoil sibling, cargo-doc, cargo-machete, and check-links-offline, which needs a pinned
+# lychee install) and then requires this job's result for the same head, so both halves gate the
+# merge through `quality`. Both used to run every no-compile hook on each pull request - about 18
+# runner-hours a day on 2026-09-24. scripts/ci/run-pre-commit.bash holds the hook lists.
 #
 # This lives outside `build.yml` on purpose: that file's contents are hashed into the Rust cache key,
 # so editing it would evict the whole workspace cache for every job.
@@ -76,10 +74,4 @@ jobs:
       # --all-files rather than a diff range: these hooks read the whole repository anyway, and the
       # full pass takes about the same time as resolving a merge base would save.
       - name: Run the hooks that need no compiled workspace
-        run: |-
-          prek run --all-files \
-            --skip cargo-clippy \
-            --skip cargo-clippy-network-turmoil-non-linux \
-            --skip cargo-doc \
-            --skip cargo-machete \
-            --skip check-links-offline
+        run: bash scripts/ci/run-pre-commit.bash no-compile
