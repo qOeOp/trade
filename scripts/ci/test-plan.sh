@@ -913,4 +913,29 @@ assert_nextest_role "$repo_root/.github/workflows/nightly-tests.yml" cargo-publi
 [[ "$(workflow_job_block "$repo_root/.github/workflows/nightly-miri.yml" miri)" == *'make cargo-miri-'* ]]
 echo "ok: adaptive cleanup, Rust cache, doctest isolation, and nextest consumer invariants"
 
+# A pull request's pre-commit hooks run in two jobs: pre-commit-pr.yml runs the no-compile ones on
+# every push, build.yml's pre-commit job runs the compiled rest, and build.yml's `quality` requires
+# the other's result for the same head. Between them they must cover every hook a pull request ran before the split,
+# over the same files, on both routes; the coverage is computed from the arguments the jobs pass.
+python3 -B "$repo_root/scripts/ci/check-pr-hook-coverage.py" "$repo_root"
+python3 -B "$repo_root/scripts/ci/check-pr-hook-coverage_test.py"
+bash "$repo_root/scripts/ci/test-require-workflow-job.bash"
+pre_commit_pr="$repo_root/.github/workflows/pre-commit-pr.yml"
+pre_commit_job="$(workflow_job_block "$build_workflow" pre-commit)"
+# Match literal workflow expressions.
+# shellcheck disable=SC2016
+[[ "$pre_commit_job" == *'bash scripts/ci/run-pre-commit.bash "pull-request-${route}"'* ]]
+# shellcheck disable=SC2016
+[[ "$pre_commit_job" == *'bash scripts/ci/run-pre-commit.bash "$route"'* ]]
+grep -Fq 'run: bash scripts/ci/run-pre-commit.bash no-compile' "$pre_commit_pr"
+grep -Eq '^  pull_request:' "$pre_commit_pr"
+quality_job="$(workflow_job_block "$build_workflow" quality)"
+required_job="$(grep -oE '"pre-commit \(no-compile hooks\)"' <<< "$quality_job" || true)"
+if [[ -z "$required_job" ]] || [[ "$quality_job" != *'bash scripts/ci/require-workflow-job.bash pre-commit-pr.yml'* ]] ||
+  ! grep -Fq "name: ${required_job//\"/}" "$pre_commit_pr"; then
+  echo "build.yml's quality job must require pre-commit-pr.yml's no-compile job by its exact name." >&2
+  exit 1
+fi
+echo "ok: pull requests keep their pre-commit coverage across the two jobs"
+
 echo "All CI plan cases passed"
