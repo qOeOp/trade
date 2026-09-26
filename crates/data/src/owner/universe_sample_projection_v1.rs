@@ -533,14 +533,25 @@ pub mod sealed_acceptance {
         ValueReceipt(usize, BindingDigest),
         /// Replaces one component's member binding digest, and its coordinate with it.
         MemberBinding(usize, BindingDigest),
+        /// Replaces one component's member key and instrument, which its coordinate does not
+        /// state.
+        Member {
+            /// The component to change.
+            index: usize,
+            /// Its new member key.
+            member_key: &'static str,
+            /// Its new instrument.
+            instrument: &'static str,
+        },
     }
 
     /// Applies `tamper` to `projection` and seals the result with the real codec.
     ///
-    /// Two changes cannot be sealed at all, because decoding refuses them before any consumer
-    /// sees them: a BAR projection without a schedule set (the lifecycle byte decides whether the
-    /// schedule set is present), and a duplicated component (components are strictly ordered by
-    /// member ordinal and role).
+    /// Three changes cannot be sealed at all, because decoding refuses them as `NonCanonical`
+    /// before any consumer sees them: a BAR projection without a schedule set (the lifecycle byte
+    /// decides whether the schedule set is present), an all-zero schedule set or any other all-zero
+    /// digest (decoding refuses a zero digest), and a duplicated component (components are strictly
+    /// ordered by member ordinal and role).
     ///
     /// # Panics
     ///
@@ -612,6 +623,14 @@ pub mod sealed_acceptance {
             T::MemberBinding(index, other) => {
                 components[index].member_binding_digest = other;
                 recode(&mut components[index]);
+            }
+            T::Member {
+                index,
+                member_key,
+                instrument,
+            } => {
+                member_key.clone_into(&mut components[index].member_key);
+                instrument.clone_into(&mut components[index].instrument);
             }
         }
         let bytes = canonical_bytes(subject, lifecycle, schedule_set, &components)
