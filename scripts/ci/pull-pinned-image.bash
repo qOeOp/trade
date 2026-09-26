@@ -40,6 +40,12 @@ for source in "$@"; do
     exit 0
   fi
 done
+# Without `timeout` every pull would fail as "command not found" and read as every source refusing.
+# Linux has it; macOS needs Homebrew's coreutils.
+command -v timeout > /dev/null || {
+  echo "ERROR: pull-pinned-image.bash needs \`timeout\` (on macOS: brew install coreutils)." >&2
+  exit 1
+}
 for source in "$@"; do
   if timeout "$seconds" bash "${script_dir}/docker-pull-retry.sh" "$source" "$attempts" >&2; then
     if [[ "$source" != "$1" ]]; then
