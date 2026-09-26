@@ -18,6 +18,9 @@ readonly market_data_owner_postgres_tests=(
   owner::replay_market_facts_v2::first_corpus_v1_readback_postgres_tests::first_corpus_reads_back_through_the_v1_lock_function_unchanged
   owner::replay_market_facts_v2::universe_member_shape_postgres_tests::replay_facts_table_migrates_and_keeps_each_row_to_its_shape
   owner::postgres::replay_market_facts_v2::universe_issuance::postgres_tests::postgres_universe_member_composition_issues_a_binding_that_keys_its_cut
+  owner::postgres::tests::postgres_each_research_request_under_one_binding_gets_its_own_market_semantics
+  owner::postgres::tests::postgres_concurrent_values_under_one_binding_leave_one_value
+  owner::postgres::tests::postgres_market_semantics_heads_migrate_to_one_head_per_snapshot
 )
 
 # The ordered chain refuses a guarded crate whose test SQL is destructive without dedicated-database

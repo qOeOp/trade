@@ -5181,9 +5181,9 @@ BEGIN
     forbidden_role_source := NULL;
     -- By oid, never by name: SQL does not order the conditions of a WHERE, and a name built as
     -- 'public.' || relname for a same-named relation in another schema (composer_private holds
-    -- rd_develop_artifact_build_receipt_uses_v2) raised "does not exist" whenever the planner
-    -- tested privileges before the schema. Which order it chose followed the catalog's statistics:
-    -- a serial chain passed, and every shard, starting from a fresh clone, failed here.
+    -- rd_develop_artifact_build_receipt_uses_v2) raises "does not exist" whenever the planner tests
+    -- privileges before the schema. Which order it chooses follows the catalog's statistics: the
+    -- serial chain has passed, and a run from a freshly cloned database failed here.
     SELECT relation.relname INTO forbidden_role_source
     FROM pg_catalog.pg_class relation
     JOIN pg_catalog.pg_namespace namespace ON namespace.oid = relation.relnamespace
