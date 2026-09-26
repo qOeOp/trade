@@ -15,8 +15,8 @@ use sha2::{Digest as _, Sha256};
 use super::{
     sample_fact::StoredSampleReadbackV1,
     sample_projection::{
-        COORDINATE_LEN, universe_member_sample_coordinate_v1,
-        verify_universe_member_sample_coordinate_v1,
+        COORDINATE_LEN, SampleCoordinateFieldsV1, encode_sample_coordinate_v1,
+        sample_coordinate_digest_v1, verify_universe_member_sample_coordinate_v1,
     },
     source_binding::BindingDigest,
     strategy_input_binding::{StrategyInputEventKind, StrategyInputUniverseFrameReceipt},
@@ -312,9 +312,36 @@ pub(crate) fn prepare_universe_sample_projection_v1(
     frame: &StrategyInputUniverseFrameReceipt,
     samples: &[UniverseMemberSampleV1<'_>],
 ) -> Result<StrategyInputUniverseSampleProjectionReadbackV1, UniverseSampleProjectionErrorV1> {
+    assemble_universe_sample_projection_v1(
+        frame,
+        samples
+            .iter()
+            .map(|sample| ComponentEvidenceV1 {
+                member_ordinal: sample.member_ordinal,
+                timeframe_projection_digest: sample.timeframe_projection_digest,
+                schedule_readback_identity: sample.schedule_readback_identity,
+                fields: SampleCoordinateFieldsV1::of_receipt(sample.sample.receipt()),
+            })
+            .collect(),
+    )
+}
+
+/// What one component states about the sample its value reads.
+struct ComponentEvidenceV1 {
+    member_ordinal: u8,
+    timeframe_projection_digest: BindingDigest,
+    schedule_readback_identity: Option<BindingDigest>,
+    fields: SampleCoordinateFieldsV1,
+}
+
+/// Seals the projection of `frame` from one component's evidence per value, in the frame's order.
+fn assemble_universe_sample_projection_v1(
+    frame: &StrategyInputUniverseFrameReceipt,
+    evidence: Vec<ComponentEvidenceV1>,
+) -> Result<StrategyInputUniverseSampleProjectionReadbackV1, UniverseSampleProjectionErrorV1> {
     let values = frame.values();
 
-    if values.is_empty() || samples.len() != values.len() {
+    if values.is_empty() || evidence.len() != values.len() {
         return Err(UniverseSampleProjectionErrorV1::FrameMismatch);
     }
     let lifecycle = UniverseSampleProjectionLifecycleV1::of(frame);
@@ -322,16 +349,15 @@ pub(crate) fn prepare_universe_sample_projection_v1(
     let mut components = Vec::with_capacity(values.len());
     let mut schedules = Vec::with_capacity(values.len());
 
-    for (value, sample) in values.iter().zip(samples) {
+    for (value, sample) in values.iter().zip(evidence) {
         let member = members
             .get(usize::from(sample.member_ordinal))
             .ok_or(UniverseSampleProjectionErrorV1::FrameMismatch)?;
-        let receipt = sample.sample.receipt();
 
         if member.member_key() != value.member_key()
             || member.instrument() != value.instrument()
             || value.trigger_digest() != frame.trigger().digest()
-            || receipt.canonical_row_digest() != *value.canonical_row_digest().as_bytes()
+            || sample.fields.canonical_row_digest != *value.canonical_row_digest().as_bytes()
         {
             return Err(UniverseSampleProjectionErrorV1::FrameMismatch);
         }
@@ -343,10 +369,10 @@ pub(crate) fn prepare_universe_sample_projection_v1(
             (UniverseSampleProjectionLifecycleV1::Event, None) => {}
             _ => return Err(UniverseSampleProjectionErrorV1::FrameMismatch),
         }
-        let (coordinate, coordinate_digest) = universe_member_sample_coordinate_v1(
+        let coordinate = encode_sample_coordinate_v1(
             *value.input_role_identity().as_bytes(),
             *value.binding_digest().as_bytes(),
-            receipt,
+            &sample.fields,
         )
         .map_err(|_| UniverseSampleProjectionErrorV1::FrameMismatch)?;
         components.push(UniverseSampleProjectionComponentV1 {
@@ -358,11 +384,13 @@ pub(crate) fn prepare_universe_sample_projection_v1(
             value_receipt_digest: value.digest(),
             trigger_digest: value.trigger_digest(),
             timeframe_projection_digest: sample.timeframe_projection_digest,
-            sample_identity: BindingDigest::from_untrusted_bytes(
-                sample.sample.fact().sample_identity(),
+            sample_identity: BindingDigest::from_untrusted_bytes(sample.fields.sample_identity),
+            sample_receipt_digest: BindingDigest::from_untrusted_bytes(
+                sample.fields.receipt_digest,
             ),
-            sample_receipt_digest: BindingDigest::from_untrusted_bytes(receipt.digest()),
-            coordinate_digest: BindingDigest::from_untrusted_bytes(coordinate_digest),
+            coordinate_digest: BindingDigest::from_untrusted_bytes(sample_coordinate_digest_v1(
+                &coordinate,
+            )),
             coordinate,
         });
     }
@@ -390,6 +418,92 @@ pub(crate) fn prepare_universe_sample_projection_v1(
         components: components.into_boxed_slice(),
         canonical_bytes: bytes.into_boxed_slice(),
     })
+}
+
+/// A projection for an acceptance fixture's frame, sealed by the real codec over synthetic samples.
+///
+/// It exists only with `sealed-strategy-input-acceptance`, so no production build can issue a
+/// projection without writing its samples. Every byte is produced by the codec a real issuance uses,
+/// and every component names its frame value exactly: only the sample each coordinate states is
+/// synthetic, derived from that value's own digest, so two frames never share one.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub mod sealed_acceptance {
+    use sha2::{Digest as _, Sha256};
+
+    use super::{
+        ComponentEvidenceV1, StrategyInputUniverseSampleProjectionReadbackV1,
+        UniverseSampleProjectionLifecycleV1, assemble_universe_sample_projection_v1,
+    };
+    use crate::owner::{
+        sample_projection::SampleCoordinateFieldsV1, source_binding::BindingDigest,
+        strategy_input_binding::StrategyInputUniverseFrameReceipt,
+    };
+
+    /// Issues the projection of `frame`, with `schedule` naming each BAR member role's schedule
+    /// readback by member ordinal and input role; an EVENT frame never asks it.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `frame` holds no value, or a member ordinal does not fit its selection, which
+    /// no frame the Owner binds does.
+    #[must_use]
+    pub fn issue_sealed_acceptance_universe_sample_projection_v1(
+        frame: &StrategyInputUniverseFrameReceipt,
+        schedule: impl Fn(u8, BindingDigest) -> BindingDigest,
+    ) -> StrategyInputUniverseSampleProjectionReadbackV1 {
+        let bar = UniverseSampleProjectionLifecycleV1::of(frame)
+            == UniverseSampleProjectionLifecycleV1::Bar;
+        let members = frame.selection().members();
+        let evidence = frame
+            .values()
+            .iter()
+            .map(|value| {
+                let member_ordinal = members
+                    .iter()
+                    .position(|member| {
+                        member.member_key() == value.member_key()
+                            && member.instrument() == value.instrument()
+                    })
+                    .and_then(|ordinal| u8::try_from(ordinal).ok())
+                    .expect("every value is of a member of its frame's selection");
+                let synthetic = |tag: &[u8]| -> [u8; 32] {
+                    let mut hasher = Sha256::new();
+                    hasher.update(b"market-data.sealed-acceptance.universe-sample.v1\0");
+                    hasher.update(tag);
+                    hasher.update(value.digest().as_bytes());
+                    hasher.finalize().into()
+                };
+                let mut owner_event = [0_u8; 16];
+                owner_event.copy_from_slice(&synthetic(b"owner-event")[..16]);
+                ComponentEvidenceV1 {
+                    member_ordinal,
+                    timeframe_projection_digest: BindingDigest::from_untrusted_bytes(synthetic(
+                        b"timeframe-projection",
+                    )),
+                    schedule_readback_identity: bar
+                        .then(|| schedule(member_ordinal, value.input_role_identity())),
+                    fields: SampleCoordinateFieldsV1 {
+                        timeframe_identity: synthetic(b"timeframe"),
+                        owner_event_identity: owner_event,
+                        sample_identity: synthetic(b"sample"),
+                        logical_time: 1,
+                        event_effective: 1,
+                        owner_sequence: 1,
+                        canonical_row_digest: *value.canonical_row_digest().as_bytes(),
+                        source_binding_lineage_root: *frame
+                            .selection()
+                            .source_binding_lineage_root()
+                            .as_bytes(),
+                        source_binding_lineage_version: 1,
+                        market_semantics_identity: *value.market_semantics_identity().as_bytes(),
+                        receipt_digest: synthetic(b"sample-receipt"),
+                    },
+                }
+            })
+            .collect();
+        assemble_universe_sample_projection_v1(frame, evidence)
+            .expect("a frame's own values seal into its projection")
+    }
 }
 
 /// Why a projection could not be issued or read.
@@ -581,12 +695,13 @@ mod tests {
             .into_iter()
             .map(|role| {
                 let binding = d(0x30);
-                let (coordinate, coordinate_digest) = universe_member_sample_coordinate_v1(
+                let coordinate = encode_sample_coordinate_v1(
                     *role.as_bytes(),
                     *binding.as_bytes(),
-                    receipt,
+                    &SampleCoordinateFieldsV1::of_receipt(receipt),
                 )
                 .unwrap();
+                let coordinate_digest = sample_coordinate_digest_v1(&coordinate);
                 UniverseSampleProjectionComponentV1 {
                     member_ordinal: 0,
                     member_key: "AAPL".into(),
