@@ -807,6 +807,7 @@ fn source_proposal() -> UntrustedSourceBindingProposal {
 fn source_proposal_for(corpus: UniverseCorpus) -> UntrustedSourceBindingProposal {
     let mut proposal = UntrustedSourceBindingProposal {
         availability_rule: None,
+        bar_timeframes: Vec::new(),
         claimed_binding_id: digest_byte(0),
         schema_version: 1,
         adapter: UntrustedAdapterBinding {

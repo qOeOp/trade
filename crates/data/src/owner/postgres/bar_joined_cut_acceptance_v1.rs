@@ -13,8 +13,8 @@ use super::{
 };
 use crate::owner::{
     bar_schedule::{
-        BarScheduleCompletionV1, BarScheduleKindV1, BarScheduleLabelV1, BarScheduleUnitV1,
-        UntrustedBarScheduleProposalV1, prepare_bar_schedule_commit_v1,
+        BarScheduleClockV1, BarScheduleCompletionV1, BarScheduleKindV1, BarScheduleLabelV1,
+        BarScheduleUnitV1, UntrustedBarScheduleProposalV1, prepare_bar_schedule_commit_v1,
     },
     instrument_master::InstrumentMasterReadbackV1,
     observation_census::UntrustedObservationCensusRequestV1,
@@ -875,6 +875,7 @@ async fn persist_schedules_and_v3_frames(
         step: 1,
         unit: BarScheduleUnitV1::Minute,
         anchor_identity: acceptance_identity(206),
+        clock: BarScheduleClockV1::ScheduleBounded,
         label: BarScheduleLabelV1::IntervalClose,
         completion: BarScheduleCompletionV1::CompleteOnly,
     };

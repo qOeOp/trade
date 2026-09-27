@@ -1701,10 +1701,10 @@ pub(crate) mod tests {
     use crate::owner::pit_snapshot::UnverifiedBatchFieldsForTest;
     use crate::owner::{
         bar_schedule::{
-            BarScheduleCompletionV1, BarScheduleError, BarScheduleKindV1, BarScheduleLabelV1,
-            BarScheduleReadbackV1, BarScheduleUnitV1, PreparedBarScheduleCommitV1,
-            UntrustedBarScheduleProposalV1, authority as bar_schedule_authority,
-            prepare_bar_schedule_commit_v1,
+            BarScheduleClockV1, BarScheduleCompletionV1, BarScheduleError, BarScheduleKindV1,
+            BarScheduleLabelV1, BarScheduleReadbackV1, BarScheduleUnitV1,
+            PreparedBarScheduleCommitV1, UntrustedBarScheduleProposalV1,
+            authority as bar_schedule_authority, prepare_bar_schedule_commit_v1,
         },
         instrument_master::{
             BACKTEST_OWNER_V1, ClockProjection, InstrumentClass, InstrumentDecimal,
@@ -2026,6 +2026,7 @@ pub(crate) mod tests {
                 step,
                 unit,
                 anchor_identity: d(70),
+                clock: BarScheduleClockV1::ScheduleBounded,
                 label: match label {
                     BarLabelRuleV1::IntervalOpen => BarScheduleLabelV1::IntervalOpen,
                     BarLabelRuleV1::IntervalClose => BarScheduleLabelV1::IntervalClose,
@@ -2157,6 +2158,7 @@ pub(crate) mod tests {
             step: 5,
             unit: BarScheduleUnitV1::Minute,
             anchor_identity: d(70),
+            clock: BarScheduleClockV1::ScheduleBounded,
             label: BarScheduleLabelV1::IntervalClose,
             completion: BarScheduleCompletionV1::CompleteOnly,
         }
@@ -2267,6 +2269,7 @@ pub(crate) mod tests {
                 step: 5,
                 unit: BarScheduleUnitV1::Minute,
                 anchor_identity: d(70),
+                clock: BarScheduleClockV1::ScheduleBounded,
                 label: BarScheduleLabelV1::IntervalClose,
                 completion: BarScheduleCompletionV1::CompleteOnly,
             },
@@ -2801,6 +2804,7 @@ pub(crate) mod tests {
             step: 5,
             unit: BarScheduleUnitV1::Minute,
             anchor_identity: d(70),
+            clock: BarScheduleClockV1::ScheduleBounded,
             label: BarScheduleLabelV1::IntervalClose,
             completion: BarScheduleCompletionV1::CompleteOnly,
         };
@@ -2919,6 +2923,7 @@ pub(crate) mod tests {
             step: 5,
             unit: BarScheduleUnitV1::Minute,
             anchor_identity: d(70),
+            clock: BarScheduleClockV1::ScheduleBounded,
             label: BarScheduleLabelV1::IntervalClose,
             completion: BarScheduleCompletionV1::CompleteOnly,
         };
@@ -3006,6 +3011,7 @@ pub(crate) mod tests {
             step: 5,
             unit: BarScheduleUnitV1::Minute,
             anchor_identity: d(70),
+            clock: BarScheduleClockV1::ScheduleBounded,
             label: BarScheduleLabelV1::IntervalClose,
             completion: BarScheduleCompletionV1::CompleteOnly,
         };
@@ -3089,6 +3095,7 @@ pub(crate) mod tests {
             step: 5,
             unit: BarScheduleUnitV1::Minute,
             anchor_identity: d(70),
+            clock: BarScheduleClockV1::ScheduleBounded,
             label: BarScheduleLabelV1::IntervalClose,
             completion: BarScheduleCompletionV1::CompleteOnly,
         };

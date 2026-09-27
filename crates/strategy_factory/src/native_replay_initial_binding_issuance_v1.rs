@@ -140,6 +140,8 @@ where
                 | UniverseSampleProjectionIssuanceErrorV1::CompositionShapeMismatch
                 | UniverseSampleProjectionIssuanceErrorV1::FrameMismatch
                 | UniverseSampleProjectionIssuanceErrorV1::ScheduleUnavailable
+                | UniverseSampleProjectionIssuanceErrorV1::SourceBindingDeclaresNoBarTimeframe
+                | UniverseSampleProjectionIssuanceErrorV1::DeclaredBarTimeframeMismatch
                 | UniverseSampleProjectionIssuanceErrorV1::StoreUnavailable => {
                     unavailable(coordinate, &e)
                 }
