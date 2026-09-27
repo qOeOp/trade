@@ -65,4 +65,34 @@ if ! take_lock 2> "${test_root}/after"; then
   exit 1
 fi
 
-echo "owner-chain-lock: a second taker is refused and told the holder's pid; a dead holder releases it"
+# A run that dies while a process it started lives on leaves that process holding the lock, and the
+# record still names the run. The refusal must say the recorded run has exited and name the process
+# that holds the lock, or whoever reads it waits for a pid that is already gone.
+bash -c 'source "$1" && acquire_owner_chain_lock && { sleep 300 & echo $! > "$2"; }' \
+  _ "$LOCK_SCRIPT" "${test_root}/child"
+child_pid="$(cat "${test_root}/child")"
+holder_pid="$child_pid"
+
+if take_lock 2> "${test_root}/orphaned"; then
+  echo "FAIL: a second taker got the lock while an inherited descriptor still held it" >&2
+  exit 1
+fi
+if ! grep -q "recorded in the lock has exited" "${test_root}/orphaned" ||
+  ! grep -q "pid ${child_pid} (sleep), descriptor 9" "${test_root}/orphaned"; then
+  echo "FAIL: the refusal did not say its recorded run exited and name pid ${child_pid}:" >&2
+  cat "${test_root}/orphaned" >&2
+  exit 1
+fi
+
+kill -9 "$child_pid"
+wait "$child_pid" 2> /dev/null || true
+holder_pid=""
+
+if ! take_lock 2> "${test_root}/after-child"; then
+  echo "FAIL: the lock was not released when the inheriting process died:" >&2
+  cat "${test_root}/after-child" >&2
+  exit 1
+fi
+
+echo "owner-chain-lock: a second taker is refused and told the holder's pid; a dead holder releases it;"
+echo "                  a holder that outlived its run is named as such, and releases it when it dies"
