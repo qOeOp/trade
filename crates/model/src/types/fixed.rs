@@ -855,44 +855,147 @@ pub fn f64_to_fixed_u128(value: f64, precision: u8) -> u128 {
         .unwrap_or_else(|| panic!("Overflow when scaling f64 to fixed-point u128"))
 }
 
-/// Converts a raw fixed-point `i64` value back to an `f64` value.
-#[must_use]
+/// Every integer up to this magnitude has an exact `f64`.
+const F64_EXACT_INTEGER_MAX: u128 = 1 << f64::MANTISSA_DIGITS;
+
+/// The powers of ten an `f64` holds exactly, `10^0` through `10^FIXED_PRECISION`.
+const POW10_F64: [f64; FIXED_PRECISION as usize + 1] = {
+    let mut powers = [1.0; FIXED_PRECISION as usize + 1];
+    let mut i = 1;
+    while i < powers.len() {
+        powers[i] = powers[i - 1] * 10.0;
+        i += 1;
+    }
+    powers
+};
+
+/// Returns the `f64` nearest to `magnitude / 10^FIXED_PRECISION`, ties to even.
+///
+/// `(raw as f64) / FIXED_SCALAR` rounds twice once `raw` exceeds 2^53: once converting the integer
+/// and again dividing. Under `high-precision` that is almost every value (82848.76 comes back as
+/// 82848.76000000001), and under standard precision every value above about 9 million. Each
+/// rounding is exact IEEE arithmetic, so the result was deterministic, but it depended on the
+/// precision the build was compiled with, and so did every result computed from it.
+///
+/// Dividing an integer by a power of ten, both exactly representable, rounds once, and IEEE
+/// division rounds correctly. So this divides out the trailing decimal zeros the raw value carries
+/// for its own precision first; what remains is exact in an `f64` for any value with up to 15
+/// significant digits. A longer one is parsed from its exact decimal text, which Rust also rounds
+/// correctly.
 #[expect(
     clippy::cast_precision_loss,
-    reason = "i64 to f64 is inherently lossy above 2^53; accepted for float interop"
+    reason = "exact: both operands are at most 2^53 or exact powers of ten"
 )]
+fn fixed_magnitude_to_f64(magnitude: u128) -> f64 {
+    if magnitude <= F64_EXACT_INTEGER_MAX {
+        return magnitude as f64 / FIXED_SCALAR;
+    }
+    let mut coefficient = magnitude;
+    let mut scale = FIXED_PRECISION as usize;
+
+    for step in [8, 4, 2, 1] {
+        let divisor = 10_u128.pow(step as u32);
+        while scale >= step && coefficient.is_multiple_of(divisor) {
+            coefficient /= divisor;
+            scale -= step;
+        }
+    }
+
+    if coefficient <= F64_EXACT_INTEGER_MAX {
+        return coefficient as f64 / POW10_F64[scale];
+    }
+    format!("{coefficient}e-{scale}")
+        .parse()
+        .expect("a decimal integer with an exponent parses as f64")
+}
+
+/// [`fixed_magnitude_to_f64`] for a raw value that carries `precision` decimals, as a typed value
+/// does: one exact division by `10^(FIXED_PRECISION - precision)` instead of looking for its
+/// trailing zeros. A raw value that is not such a multiple takes the general path.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "exact: both operands are at most 2^53 or exact powers of ten"
+)]
+fn fixed_magnitude_at_precision_to_f64(magnitude: u128, precision: u8) -> f64 {
+    if magnitude <= F64_EXACT_INTEGER_MAX || precision > FIXED_PRECISION {
+        return fixed_magnitude_to_f64(magnitude);
+    }
+    let divisor = 10_u64.pow(u32::from(FIXED_PRECISION - precision));
+    // A magnitude that fits 64 bits divides in hardware; a wider one needs 128-bit division.
+    let coefficient = match u64::try_from(magnitude) {
+        Ok(narrow) if narrow.is_multiple_of(divisor) => u128::from(narrow / divisor),
+        Ok(_) => return fixed_magnitude_to_f64(magnitude),
+        Err(_) => {
+            let coefficient = magnitude / u128::from(divisor);
+            if coefficient * u128::from(divisor) != magnitude {
+                return fixed_magnitude_to_f64(magnitude);
+            }
+            coefficient
+        }
+    };
+
+    if coefficient <= F64_EXACT_INTEGER_MAX {
+        return coefficient as f64 / POW10_F64[usize::from(precision)];
+    }
+    fixed_magnitude_to_f64(magnitude)
+}
+
+/// Converts a raw fixed-point `i64` value that carries `precision` decimals to the nearest `f64`.
+#[must_use]
+pub fn fixed_i64_at_precision_to_f64(value: i64, precision: u8) -> f64 {
+    let magnitude =
+        fixed_magnitude_at_precision_to_f64(u128::from(value.unsigned_abs()), precision);
+    if value < 0 { -magnitude } else { magnitude }
+}
+
+/// Converts a raw fixed-point `i128` value that carries `precision` decimals to the nearest `f64`.
+#[must_use]
+pub fn fixed_i128_at_precision_to_f64(value: i128, precision: u8) -> f64 {
+    let magnitude = fixed_magnitude_at_precision_to_f64(value.unsigned_abs(), precision);
+    if value < 0 { -magnitude } else { magnitude }
+}
+
+/// Converts a raw fixed-point `u64` value that carries `precision` decimals to the nearest `f64`.
+#[must_use]
+pub fn fixed_u64_at_precision_to_f64(value: u64, precision: u8) -> f64 {
+    fixed_magnitude_at_precision_to_f64(u128::from(value), precision)
+}
+
+/// Converts a raw fixed-point `u128` value that carries `precision` decimals to the nearest `f64`.
+#[must_use]
+pub fn fixed_u128_at_precision_to_f64(value: u128, precision: u8) -> f64 {
+    fixed_magnitude_at_precision_to_f64(value, precision)
+}
+
+/// Returns the `f64` nearest to a signed raw fixed-point value. Rounding to nearest is symmetric,
+/// so the magnitude rounds and the sign follows.
+fn fixed_signed_to_f64(negative: bool, magnitude: u128) -> f64 {
+    let value = fixed_magnitude_to_f64(magnitude);
+    if negative { -value } else { value }
+}
+
+/// Converts a raw fixed-point `i64` value back to the nearest `f64`.
+#[must_use]
 pub fn fixed_i64_to_f64(value: i64) -> f64 {
-    (value as f64) / FIXED_SCALAR
+    fixed_signed_to_f64(value < 0, u128::from(value.unsigned_abs()))
 }
 
-/// Converts a raw fixed-point `i128` value back to an `f64` value.
+/// Converts a raw fixed-point `i128` value back to the nearest `f64`.
 #[must_use]
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "i128 to f64 is inherently lossy above 2^53; accepted for float interop"
-)]
 pub fn fixed_i128_to_f64(value: i128) -> f64 {
-    (value as f64) / FIXED_SCALAR
+    fixed_signed_to_f64(value < 0, value.unsigned_abs())
 }
 
-/// Converts a raw fixed-point `u64` value back to an `f64` value.
+/// Converts a raw fixed-point `u64` value back to the nearest `f64`.
 #[must_use]
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "u64 to f64 is inherently lossy above 2^53; accepted for float interop"
-)]
 pub fn fixed_u64_to_f64(value: u64) -> f64 {
-    (value as f64) / FIXED_SCALAR
+    fixed_magnitude_to_f64(u128::from(value))
 }
 
-/// Converts a raw fixed-point `u128` value back to an `f64` value.
+/// Converts a raw fixed-point `u128` value back to the nearest `f64`.
 #[must_use]
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "u128 to f64 is inherently lossy above 2^53; accepted for float interop"
-)]
 pub fn fixed_u128_to_f64(value: u128) -> f64 {
-    (value as f64) / FIXED_SCALAR
+    fixed_magnitude_to_f64(value)
 }
 
 #[cfg(feature = "high-precision")]
@@ -2119,5 +2222,116 @@ mod checked_mul_div_tests {
         (min..=QuantityRaw::MAX / 2).prop_filter("rhs remainder is nonzero", |rhs| {
             rhs % FIXED_SCALAR_RAW != 0
         })
+    }
+}
+
+/// The raw-to-`f64` conversions round once, to the nearest `f64`, at either precision.
+#[cfg(test)]
+mod correctly_rounded_conversion_tests {
+    use proptest::prelude::*;
+    use rstest::rstest;
+
+    use super::{
+        FIXED_PRECISION, fixed_i64_at_precision_to_f64, fixed_i64_to_f64,
+        fixed_i128_at_precision_to_f64, fixed_i128_to_f64, fixed_u64_at_precision_to_f64,
+        fixed_u64_to_f64, fixed_u128_at_precision_to_f64, fixed_u128_to_f64,
+    };
+    use crate::types::{Money, Price, Quantity};
+
+    /// The reference: the exact decimal `raw / 10^FIXED_PRECISION`, parsed. Rust parses decimal
+    /// text to the nearest `f64`, so this is the correctly rounded value by construction.
+    fn nearest(raw: i128) -> f64 {
+        format!("{raw}e-{FIXED_PRECISION}").parse().unwrap()
+    }
+
+    /// A raw value the way a typed value carries one: `coefficient * 10^(FIXED_PRECISION - p)`.
+    fn raw_at(coefficient: i64, precision: u8) -> i128 {
+        i128::from(coefficient) * 10_i128.pow(u32::from(FIXED_PRECISION - precision))
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(200_000))]
+
+        /// Every value a typed quantity can carry converts to exactly the nearest `f64`, bit for
+        /// bit, whatever its own precision and magnitude.
+        #[rstest]
+        fn a_typed_raw_value_converts_to_the_nearest_f64(
+            coefficient in -9_000_000_000_i64..9_000_000_000_i64,
+            precision in 0..=FIXED_PRECISION.min(9),
+        ) {
+            let raw = raw_at(coefficient, precision);
+            let expected = nearest(raw).to_bits();
+            prop_assert_eq!(fixed_i128_to_f64(raw).to_bits(), expected);
+            prop_assert_eq!(fixed_i128_at_precision_to_f64(raw, precision).to_bits(), expected);
+            if let Ok(narrow) = i64::try_from(raw) {
+                prop_assert_eq!(fixed_i64_to_f64(narrow).to_bits(), expected);
+                prop_assert_eq!(fixed_i64_at_precision_to_f64(narrow, precision).to_bits(), expected);
+            }
+
+            if let Ok(unsigned) = u128::try_from(raw) {
+                prop_assert_eq!(fixed_u128_to_f64(unsigned).to_bits(), expected);
+                prop_assert_eq!(fixed_u128_at_precision_to_f64(unsigned, precision).to_bits(), expected);
+            }
+
+            if let Ok(unsigned) = u64::try_from(raw) {
+                prop_assert_eq!(fixed_u64_to_f64(unsigned).to_bits(), expected);
+                prop_assert_eq!(fixed_u64_at_precision_to_f64(unsigned, precision).to_bits(), expected);
+            }
+        }
+
+        /// Any raw integer at all, including one with more significant digits than an `f64` holds
+        /// and one that is no multiple of its precision's scale, still converts to the nearest.
+        #[rstest]
+        fn any_raw_integer_converts_to_the_nearest_f64(
+            raw in any::<i64>(),
+            precision in 0..=FIXED_PRECISION,
+        ) {
+            let expected = nearest(i128::from(raw)).to_bits();
+            prop_assert_eq!(fixed_i64_to_f64(raw).to_bits(), expected);
+            prop_assert_eq!(fixed_i128_to_f64(i128::from(raw)).to_bits(), expected);
+            // A precision the raw value is no multiple of takes the general path, and still rounds
+            // to the nearest.
+            prop_assert_eq!(fixed_i64_at_precision_to_f64(raw, precision).to_bits(), expected);
+            prop_assert_eq!(
+                fixed_i128_at_precision_to_f64(i128::from(raw), precision).to_bits(),
+                expected
+            );
+        }
+    }
+
+    /// The same bits under standard precision and under `high-precision`: each value is pinned to
+    /// the nearest `f64` of its decimal, which is what both builds must produce. The first five are
+    /// the daily equities of the multi-day backtest report run (#1165); under `high-precision` the
+    /// first and last used to come back one unit in the last place high, and so did 82848.76.
+    #[rstest]
+    #[case("1000010.48", 0x412e_8494_f5c2_8f5c)]
+    #[case("1000000.00", 0x412e_8480_0000_0000)]
+    #[case("1000016.98", 0x412e_84a1_f5c2_8f5c)]
+    #[case("1000022.46", 0x412e_84ac_eb85_1eb8)]
+    #[case("1000033.96", 0x412e_84c3_eb85_1eb8)]
+    #[case("82848.76", 0x40f4_3a0c_28f5_c28f)]
+    fn a_decimal_converts_to_the_same_bits_at_either_precision(
+        #[case] decimal: &str,
+        #[case] bits: u64,
+    ) {
+        assert_eq!(
+            decimal.parse::<f64>().unwrap().to_bits(),
+            bits,
+            "the pin is the nearest f64"
+        );
+        assert_eq!(
+            Money::from(format!("{decimal} USD").as_str())
+                .as_f64()
+                .to_bits(),
+            bits
+        );
+        assert_eq!(Price::from(decimal).as_f64().to_bits(), bits);
+        assert_eq!(Quantity::from(decimal).as_f64().to_bits(), bits);
+        assert_eq!(
+            Money::from(format!("-{decimal} USD").as_str())
+                .as_f64()
+                .to_bits(),
+            bits | (1 << 63)
+        );
     }
 }
