@@ -476,6 +476,9 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
     // The production Market Data ports open from the deployment environment, under the roles the
     // deployment gives them.
     super::tests::composed_market_data_binding_admission(test_database).await;
+    // The sealed Catalog V3 head the Research request forms its TrialFamily against, ensured here
+    // rather than inherited from an earlier entry of another shard.
+    super::tests::ensure_sealed_catalog_v3(test_database).await;
     let token_digest: [u8; 32] = Sha256::digest(TOKEN.as_bytes()).into();
 
     // The deployment admits the two operations this Replay is made of: the V3 Research request and
