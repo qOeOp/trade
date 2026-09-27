@@ -83,7 +83,7 @@ pub(crate) fn economic_fixture() -> ReplayEconomicConfigurationInputV1 {
 /// The acceptance economic configuration under schema 2 at `venue_identity`: the same
 /// cross-instrument choices as [`economic_fixture`], with no instrument pinned, so each Replay's
 /// instrument terms are the ones the Instrument Owner resolves for it.
-#[cfg(test)]
+#[cfg(any(test, feature = "sealed-develop-composer-acceptance"))]
 pub(crate) fn economic_fixture_v2(venue_identity: &str) -> ReplayEconomicConfigurationInputV1 {
     ReplayEconomicConfigurationInputV1 {
         schema_version: REPLAY_ECONOMIC_CONFIGURATION_SCHEMA_VERSION_V2,

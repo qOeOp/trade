@@ -593,8 +593,24 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
     // deployment gives them.
     super::tests::composed_market_data_binding_admission(test_database).await;
     // The sealed Catalog V3 head the Research request forms its TrialFamily against, ensured here
-    // rather than inherited from an earlier entry of another shard.
+    // rather than inherited from an earlier entry of another shard, then advanced to a schema 2
+    // economic configuration at BINANCE. The base head is schema 1 at SIM and pins ETHUSDT-PERP's
+    // terms; schema 2 pins no instrument, so the Replay's terms are the perpetual's own, as the
+    // Instrument Owner resolves them for its window. Nothing after F in the chain forms a family.
     super::tests::ensure_sealed_catalog_v3(test_database).await;
+    let catalog_admin = sqlx::postgres::PgPoolOptions::new()
+        .connect_url(
+            test_database.database_url(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter),
+            vibe_postgres_connect::PostgresTls::Disabled,
+        )
+        .await
+        .expect("the Catalog administrator connects");
+    vibe_strategy_factory::replay_policy_catalog_sealed_acceptance_v2::ensure_replay_policy_catalog_schema_2_fixture_v3(
+        &catalog_admin,
+        "BINANCE",
+    )
+    .await
+    .expect("the schema 2 Catalog head at BINANCE is created or resolved exactly");
     let token_digest: [u8; 32] = Sha256::digest(TOKEN.as_bytes()).into();
 
     // The deployment admits the two operations this Replay is made of: the V3 Research request and
