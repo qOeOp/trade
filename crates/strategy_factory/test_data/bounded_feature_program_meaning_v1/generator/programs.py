@@ -1156,6 +1156,213 @@ def w2():
     return _rank_program("w2", nodes, "weak", [_rank_constant("rank-ceiling", 20)], ["rank"])
 
 
+# ---- a bearish momentum divergence over fixed-point strategy state ----
+PIVOT_ORDER = 2
+DIVERGENCE_RSI_PERIOD = 3
+
+
+def d1():
+    """
+    Build a bearish momentum divergence on the daily close: a newly confirmed order-2 pivot high
+    above the previous one, while RSI at the new pivot is below its value at the previous one.
+
+    A pivot at bar t - k is confirmed at bar t when the close k bars back equals the highest of
+    the last 2k + 1, so the signal comes k bars after the pivot and never earlier. The previous
+    pivot's close and RSI are two fixed-point strategy state cells, each rewritten only on a
+    confirmed pivot; their zero seeds make the first pivot a reference and never a signal.
+
+    The default frame holds a long and the divergence branch exits it, so the two frames differ
+    in what they emit and a run shows exactly which bars the branch took.
+    """
+    k = PIVOT_ORDER
+    role = ("research.input.close.daily.v1", "1D", "MARKET_DATA.BAR.CLOSE.PRICE.V1", "PRICE", "c")
+    d, p, hexes = bfp.base([role])
+    rsi_state = 384 + 20 + 324 * (DIVERGENCE_RSI_PERIOD + 1)
+    lag_state = 20 + 324 * (k + 1)
+    max_state = 20 + 324 * (2 * k + 1)
+
+    def fixed(constant_id, unit):
+        return {
+            "constant_id": constant_id,
+            "value": {"kind": "FIXED_I128", "coefficient": "0", "unit": unit, "scale": 2},
+        }
+
+    def signal(node, condition, when_true):
+        return op(
+            node,
+            SEL,
+            [bd("condition", condition), bd("when_true", when_true), bd("when_false", co("zero"))],
+            fx("SIGNAL", 0),
+            NONE,
+        )
+
+    nodes = [
+        op(
+            "rsi",
+            RSI,
+            [bd("value", iv(D))],
+            fx("dimensionless", 2, "WARMING_READY"),
+            POS(DIVERGENCE_RSI_PERIOD, 2),
+            "st_rsi",
+            D,
+        ),
+        op(
+            "lag_close",
+            LAG,
+            [bd("value", iv(D))],
+            [*fx("PRICE", 2, "WARMING_READY"), coord_port(hexes[D])],
+            LG(k, k),
+            "st_lag_close",
+            D,
+        ),
+        op(
+            "max_close",
+            MAX,
+            [bd("value", iv(D))],
+            fx("PRICE", 2, "WARMING_READY"),
+            WD(2 * k + 1),
+            "st_max_close",
+            D,
+        ),
+        op(
+            "lag_rsi",
+            LAG,
+            [bd("value", no("rsi"), True)],
+            [*fx("dimensionless", 2, "WARMING_READY"), coord_port(hexes[D])],
+            LG(k, k),
+            "st_lag_rsi",
+            D,
+        ),
+        op(
+            "pivot",
+            CMP,
+            [bd("a", no("lag_close"), True), bd("b", no("max_close"), True)],
+            bl(),
+            CP("EQUAL"),
+        ),
+        op(
+            "higher_close",
+            CMP,
+            [bd("a", no("lag_close"), True), bd("b", ps("prev_close"))],
+            bl(),
+            CP("GREATER"),
+        ),
+        op(
+            "lower_rsi",
+            CMP,
+            [bd("a", no("lag_rsi"), True), bd("b", ps("prev_rsi"))],
+            bl(),
+            CP("LESS"),
+        ),
+        signal("s_higher", no("higher_close"), co("one")),
+        signal("s_lower", no("lower_rsi"), no("s_higher")),
+        signal("s_pivot", no("pivot"), no("s_lower")),
+        op("divergence", CMP, [bd("a", no("s_pivot")), bd("b", co("zero"))], bl(), CP("GREATER")),
+        op(
+            "next_close",
+            SEL,
+            [
+                bd("condition", no("pivot")),
+                bd("when_true", no("lag_close"), True),
+                bd("when_false", ps("prev_close")),
+            ],
+            fx("PRICE", 2),
+            NONE,
+        ),
+        op(
+            "next_rsi",
+            SEL,
+            [
+                bd("condition", no("pivot")),
+                bd("when_true", no("lag_rsi"), True),
+                bd("when_false", ps("prev_rsi")),
+            ],
+            fx("dimensionless", 2),
+            NONE,
+        ),
+    ]
+    consts = [
+        {
+            "constant_id": "one",
+            "value": {"kind": "FIXED_I128", "coefficient": "1", "unit": "SIGNAL", "scale": 0},
+        },
+        {
+            "constant_id": "zero",
+            "value": {"kind": "FIXED_I128", "coefficient": "0", "unit": "SIGNAL", "scale": 0},
+        },
+        fixed("close-seed", "PRICE"),
+        fixed("rsi-seed", "dimensionless"),
+        {
+            "constant_id": "position-exit",
+            "value": {"kind": "POSITION_INTENT_V1", "semantic_id": "kernel.position.exit.v1"},
+        },
+    ]
+
+    def primitive(node, max_bytes):
+        return {
+            "state_id": f"st_{node}",
+            "writer_node_id": node,
+            "state_kind": {"kind": "PRIMITIVE"},
+            "initial": "CANONICAL_EMPTY",
+            "max_bytes": max_bytes,
+        }
+
+    def carried(state_id, writer, unit, seed):
+        return {
+            "state_id": state_id,
+            "writer_node_id": writer,
+            "state_kind": {
+                "kind": "STRATEGY",
+                "value_type": {"kind": "FIXED_I128", "unit": unit, "scale": 2},
+                "source_port_id": "value",
+            },
+            "initial": {"CONSTANT": {"constant_id": seed}},
+            "max_bytes": 16,
+        }
+
+    cells = [
+        primitive("rsi", rsi_state),
+        primitive("lag_close", lag_state),
+        primitive("max_close", max_state),
+        primitive("lag_rsi", lag_state),
+        carried("prev_close", "next_close", "PRICE", "close-seed"),
+        carried("prev_rsi", "next_rsi", "dimensionless", "rsi-seed"),
+    ]
+    state_total = rsi_state + 2 * lag_state + max_state + 32
+    return bfp.emit(
+        d,
+        p,
+        f"{OUT}/d1",
+        nodes=nodes,
+        drop_constants={"initial-condition", "threshold"},
+        add_constants=consts,
+        state_cells=cells,
+        state_total=state_total,
+        branches=[
+            {
+                "priority": 10,
+                "predicate": no("divergence"),
+                "overrides": {
+                    "proposal.position-intent.v1": {
+                        "lifecycle_semantic_id": "kernel.position.exit.v1",
+                        "source": co("position-exit"),
+                    },
+                },
+            },
+        ],
+        bounds={
+            "max_nodes": 16,
+            "max_edges": 96,
+            "max_depth": 8,
+            "max_ports": 48,
+            "max_state_cells": 8,
+            "max_fan_out": 8,
+            "max_constants": 16,
+            "max_state_bytes": state_total,
+        },
+    )
+
+
 if __name__ == "__main__":
     build_bases()
     build_all()
@@ -1164,5 +1371,6 @@ if __name__ == "__main__":
     s1()
     w1()
     w2()
+    d1()
     written = len({f.name.rsplit("-", 1)[0] for f in pathlib.Path(OUT).glob("*-meaning.json")})
     print(f"{written} programs from one generator")

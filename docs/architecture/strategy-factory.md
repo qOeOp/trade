@@ -1583,9 +1583,10 @@ slice beyond P1 and T1:
 - **Divergence:** bearish when a newly confirmed pivot high is strictly above the previous one while the indicator
   at the new pivot, `Lag(indicator, k)`, is strictly below its value at the previous pivot; bullish is the mirror
   over lows. The signal is emitted at the confirmation bar. The previous pivot's price and indicator are two
-  fixed-point strategy state cells, which the validator admits and no authored program has used yet, so the first
-  divergence program must write and read them through Wasm, and holding them at their initial value must turn its
-  signal red.
+  fixed-point strategy state cells. `d1`, a bearish divergence on the daily close with RSI(3), is the first authored
+  program to declare them: `a_divergence_program_carries_its_previous_pivot_through_fixed_point_state` builds it as
+  Wasm and it exits only two bars after its second pivot, and putting the two cells back to their zero seeds before
+  every bar removes that exit while the pivots are still found.
 - **Wedge:** lines through the two latest confirmed pivot highs and the two latest pivot lows. It is rising when both
   slopes are positive and the lower line is steeper, falling in the mirror case, and it declares a convergence ratio
   and a breakout tolerance in ATR. A line's value at the current bar is `p2 + (p2 - p1) * a / b`, where `a` is the
