@@ -78,6 +78,8 @@ pub(crate) mod time_zone;
 #[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
 pub mod chain_fixture_v1;
 #[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
+pub use postgres::bar_schedule_acceptance_v1;
+#[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
 pub use postgres::chain_market_base_v1;
 
 #[cfg(feature = "sealed-strategy-input-acceptance")]
@@ -87,6 +89,11 @@ pub use postgres::bar_joined_cut_acceptance_v1;
 
 mod postgres;
 mod store_admission;
+pub use store_admission::{
+    DeploymentStorePublicationError, DeploymentStorePublicationSummaryV1,
+    DeploymentStorePublishOutcomeV1, publish_sealed_deployment_store_publication_v1,
+    seal_deployment_store_publication_v1,
+};
 
 /// Transaction-scoped re-read of the persisted Market Data strategy input binding custody.
 ///

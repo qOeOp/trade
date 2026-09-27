@@ -353,6 +353,12 @@ fn owner_error(
         ResearchBoundedFeatureProgramOwnerErrorV1::InitialPitNotAvailable => {
             (StatusCode::CONFLICT, "INITIAL_PIT_REQUEST_NOT_AVAILABLE")
         }
+        // The Research request already names the instruments; a Design that names one as well
+        // would choose it beside the scope. It is the Design's own fault, so it is a 422.
+        ResearchBoundedFeatureProgramOwnerErrorV1::InstrumentNamedUnderResearchScope => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "DESIGN_ROLE_NAMES_INSTRUMENT_UNDER_RESEARCH_SCOPE",
+        ),
         // The two assembly variants tell a proposer to do opposite things - change the meaning, or
         // wait for an Owner gap it cannot affect - so they cannot share one code. Collapsing them
         // left a proposer holding a 422 with no way to know which of the two it was.
@@ -469,6 +475,7 @@ mod assembly_rejection_tests {
             ResearchBoundedFeatureProgramOwnerErrorV1::Conflict,
             ResearchBoundedFeatureProgramOwnerErrorV1::CatalogUnavailable,
             ResearchBoundedFeatureProgramOwnerErrorV1::InitialPitNotAvailable,
+            ResearchBoundedFeatureProgramOwnerErrorV1::InstrumentNamedUnderResearchScope,
         ] {
             let header = code_of(&error);
             let body = body_of(&error).await;
