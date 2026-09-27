@@ -835,7 +835,8 @@ async fn resolve_candidate_feedback_frontier_preserving_sqlstate_v1(
         frontier.projection_identity == source_frontier_identity
             && frontier.projection_digest == source_frontier_digest
             && verify_projection_freshness(frontier, owner_cut_epoch_ms).is_ok()
-            && verify_projection_generation(frontier, history.generation).is_ok()
+            // MUTATION: the generation is not compared.
+            && (std::hint::black_box(true) || verify_projection_generation(frontier, history.generation).is_ok())
     });
     Ok(CandidateFeedbackFrontierV1 {
         digest: source_frontier_digest,
