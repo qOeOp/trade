@@ -1053,6 +1053,11 @@ unavailable 或位于不同 cut 时，只撤回它自己的行与计数。两个
   的终态为 `AVAILABLE` 之后才发布。Market Data 针对恰为该请求注册 Design 的声明，而不去搜索一个，因此调用方以伪造的
   `requester_identity` 提交的请求永远不会被选中。同一 Intent 的后继 PIT 请求只由在它之后发布的 role intent 指名；
   已发布的 role intent 从不改变。
+- V3 请求的 scope 是它的品种唯一的声明处，所以在它之下发布、冻结或声明的 Design 自己不得再指名品种：带 exact 品种
+  scope 或 `instrument` 非空的角色，在写入任何行之前以 `DESIGN_ROLE_NAMES_INSTRUMENT_UNDER_RESEARCH_SCOPE` 拒绝，
+  每个角色都读 scope 指名的成员，一个或多个。这就是策略形状包络的 P0 在创建新托管的路径上的落地：只拒绝第一次写入，
+  所以已在该请求下发布或冻结的 Design 照它提交时的样子读回。有序链路的 V3 scope 条目驱动它：在一个已接纳的 V3 请求下
+  发布并冻结 exact 品种的候选 Design，两种行都找不到。V2 请求不陈述 scope，所以它的 Design 仍然指名自己的品种。
 
 目前已建成：scope 编解码、schema 2 role intent 编解码、V3 接纳与上述签发。`ResearchInstrumentScopeV1` 校验 scope，
 计算其 canonical bytes、identity 与 fixed-member 选择规则，并能从该规则解回 scope，本 Owner 与 Market Data 共用。

@@ -143,6 +143,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|vibe_strategy_factory|trial_family_postgres::postgres_binding_tests::a_census_read_that_meets_an_uncommitted_append_waits_and_reads_one_cut'
   'vibe-strategy-factory|vibe_strategy_factory|trial_family_postgres::postgres_binding_tests::concurrent_appends_and_admission_census_reads_neither_deadlock_nor_tear'
   'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::a_native_composer_research_view_is_admitted_by_every_custody_scan'
+  'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|native_replay_scheduling_acceptance::tests::the_composed_scheduling_resolver_holds_its_reads_only_while_composed'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
@@ -214,8 +215,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 114 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all 114 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 115 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all 115 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -341,7 +342,8 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[110]}" != *'|trial_family_postgres::postgres_binding_tests::a_census_read_that_meets_an_uncommitted_append_waits_and_reads_one_cut' ]] ||
     [[ "${rd_owner_postgres_tests[111]}" != *'|trial_family_postgres::postgres_binding_tests::concurrent_appends_and_admission_census_reads_neither_deadlock_nor_tear' ]] ||
     [[ "${rd_owner_postgres_tests[112]}" != *'|product_edge_postgres::tests::a_native_composer_research_view_is_admitted_by_every_custody_scan' ]] ||
-    [[ "${rd_owner_postgres_tests[113]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[113]}" != *'|native_replay_scheduling_acceptance::tests::the_composed_scheduling_resolver_holds_its_reads_only_while_composed' ]] ||
+    [[ "${rd_owner_postgres_tests[114]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
@@ -491,7 +493,7 @@ for line in array_body.splitlines():
     entries.append(tuple(fields))
 # The count lives in one place. Writing it into the message as well lets the two drift, and the
 # drifted form reads as nonsense the moment it fires: "must contain 92 entries, found 92".
-expected_entries = 114
+expected_entries = 115
 if len(entries) != expected_entries:
     raise SystemExit(
         f"ERROR: ordered PostgreSQL test literal must contain {expected_entries} entries, found {len(entries)}."
@@ -3219,12 +3221,13 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
 CREATE ROLE vibe_test_owner_topology_admin LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'test_password';
 CREATE ROLE instrument_economic_intruder LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE ROLE instrument_economic_noinherit_intruder LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE ROLE vibe_test_role_market_data_reader LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'test_password';
 ALTER ROLE market_data_reader PASSWORD :'test_password';
 GRANT replay_policy_catalog_owner, composer_owner TO vibe_test_owner_topology_admin;
 DO $database_access$
 BEGIN
   EXECUTE pg_catalog.format(
-    'GRANT CONNECT ON DATABASE %I TO rd_fact_writer, replay_policy_catalog_admin_writer, vibe_test_owner_topology_admin, instrument_owner',
+    'GRANT CONNECT ON DATABASE %I TO rd_fact_writer, replay_policy_catalog_admin_writer, vibe_test_owner_topology_admin, instrument_owner, vibe_test_role_market_data_reader',
     pg_catalog.current_database()
   );
 END
@@ -4234,6 +4237,10 @@ export RD_FACT_WRITER_TEST_DATABASE_URL="postgresql://rd_fact_writer:${test_pass
 export MARKET_DATA_OWNER_TEST_DATABASE_URL="postgresql://market_data_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export REPLAY_POLICY_CATALOG_ADMIN_TEST_DATABASE_URL="postgresql://replay_policy_catalog_admin_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export MARKET_DATA_RD_ROLE_SET_TEST_DATABASE_URL="postgresql://market_data_reader:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
+# The test-only principal the sealed acceptance Native Replay scheduling resolver reads as. It
+# starts with no Market Data privilege; an entry grants it exactly the scheduling reads and revokes
+# them after, so a read outside that list is refused rather than answered by an owner connection.
+export MARKET_DATA_READER_TEST_DATABASE_URL="postgresql://vibe_test_role_market_data_reader:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export VIBE_TEST_OWNER_TOPOLOGY_ADMIN_DATABASE_URL="postgresql://vibe_test_owner_topology_admin:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export RD_OWNER_DRAIN_ALIAS_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_alias_host}:${postgres_alias_port}/${test_database}"
 export QUALIFICATION_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"

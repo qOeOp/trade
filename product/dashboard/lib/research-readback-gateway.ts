@@ -15,6 +15,9 @@ import {
 
 const IDENTITY = /^[A-Za-z0-9._:/-]{1,192}$/u;
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
+// A Replay request V2 meaning digest, which the request contract computes with BLAKE3; the Research
+// View states it in that form, and the Owner's validator refuses any other.
+const REPLAY_MEANING_DIGEST = /^blake3:[0-9a-f]{64}$/u;
 const REASON = new Set<ResearchShadowUnavailableReason>([
   "INVALID_REQUEST_IDENTITY",
   "OWNER_CONFIGURATION_UNAVAILABLE",
@@ -124,7 +127,7 @@ function validExploration(value: unknown): value is ResearchReadbackExplorationV
   return object(value) && exactKeys(value, ["composerRequestIdentity", "replayRequestIdentity", "replayMeaningDigest"])
     && identity(value.composerRequestIdentity)
     && validExploratoryReplayOpaqueIdentityV2(value.replayRequestIdentity)
-    && typeof value.replayMeaningDigest === "string" && DIGEST.test(value.replayMeaningDigest);
+    && typeof value.replayMeaningDigest === "string" && REPLAY_MEANING_DIGEST.test(value.replayMeaningDigest);
 }
 
 function unavailable(

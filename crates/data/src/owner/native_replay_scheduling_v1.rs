@@ -963,7 +963,7 @@ fn validated_bar_type(
 ///
 /// This is the whole of the rule. The host's frame names its members as native instruments, and
 /// Market Data's own reads name them by canonical instrument; both ask it here.
-fn schedule_bar_specification_at_frame_v1(
+pub(crate) fn schedule_bar_specification_at_frame_v1(
     schedule: &BarScheduleReadbackV1,
     batch: &VerifiedPitObservationBatch,
     canonical_instrument: &str,
@@ -1001,13 +1001,53 @@ fn schedule_bar_specification_at_frame_v1(
 }
 
 fn schedule_timeframe(fact: &super::bar_schedule::BarScheduleFactV1) -> String {
-    let suffix = match fact.unit() {
+    schedule_timeframe_label_v1(fact.unit(), fact.step())
+}
+
+const fn schedule_unit_suffix_v1(unit: BarScheduleUnitV1) -> &'static str {
+    match unit {
         BarScheduleUnitV1::Second => "S",
         BarScheduleUnitV1::Minute => "M",
         BarScheduleUnitV1::Hour => "H",
         BarScheduleUnitV1::ExchangeSessionDay => "D",
-    };
-    format!("{}{suffix}", fact.step())
+    }
+}
+
+/// The timeframe label a schedule of `unit` and `step` answers to, as the scheduling read compares
+/// it with a request's.
+fn schedule_timeframe_label_v1(unit: BarScheduleUnitV1, step: u32) -> String {
+    format!("{step}{}", schedule_unit_suffix_v1(unit))
+}
+
+/// The one schedule shape whose label is `label`, the inverse of [`schedule_timeframe`].
+///
+/// A candidate is accepted only when rendering it gives `label` back, so a label no schedule
+/// renders - `01D`, `1d`, `0H`, or a fixed-interval day, which no schedule unit can state - answers
+/// nothing.
+#[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
+pub(crate) fn schedule_shape_for_timeframe_v1(
+    label: &str,
+) -> Option<(BarScheduleKindV1, BarScheduleUnitV1, u32)> {
+    [
+        (BarScheduleKindV1::FixedInterval, BarScheduleUnitV1::Second),
+        (BarScheduleKindV1::FixedInterval, BarScheduleUnitV1::Minute),
+        (BarScheduleKindV1::FixedInterval, BarScheduleUnitV1::Hour),
+        (
+            BarScheduleKindV1::ExchangeSession,
+            BarScheduleUnitV1::ExchangeSessionDay,
+        ),
+    ]
+    .into_iter()
+    .find_map(|(kind, unit)| {
+        let step: u32 = label
+            .strip_suffix(schedule_unit_suffix_v1(unit))?
+            .parse()
+            .ok()?;
+        (step > 0
+            && (kind == BarScheduleKindV1::FixedInterval || step == 1)
+            && schedule_timeframe_label_v1(unit, step) == label)
+            .then_some((kind, unit, step))
+    })
 }
 
 fn project_bar(
