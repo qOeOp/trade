@@ -48,8 +48,8 @@ use crate::{
         BoundedFeatureProposalFrameV1, BoundedFeatureTerminalConversionV1,
         BoundedFeatureTerminalOutputV1, BoundedFeatureValueRefV1, BoundedFeatureValueTypeV1,
         BoundedFeatureWarmupContractV1, BoundedFeatureWarmupPostStateV1,
-        CanonicalBoundedFeatureProgramV1, OWNER_SAMPLE_COORDINATE_SOURCE_V1, coordinate_port_id,
-        manifest_width, prepare_bounded_feature_program_v1,
+        CanonicalBoundedFeatureProgramV1, OWNER_SAMPLE_COORDINATE_SOURCE_V1, manifest_width,
+        prepare_bounded_feature_program_v1,
     },
     strategy_design_v2::{
         CapabilityDeclarationV2, ComputeNodeV2, InputFactClassV2, InputRoleV2, InputScopeV2,
@@ -59,7 +59,7 @@ use crate::{
     },
     strategy_plan_v2::{
         UNIVERSE_CLOSE_FIELD_SEMANTIC_ID_V2, UNIVERSE_OPEN_FIELD_SEMANTIC_ID_V2,
-        strategy_input_role_identity_v2, universe_member_role_v2,
+        coordinate_port_id, strategy_input_role_identity_v2, universe_member_role_v2,
     },
 };
 

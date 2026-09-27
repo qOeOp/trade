@@ -647,9 +647,14 @@ position target 与它的 reconciliation target 相等，而两侧曾共用的�
   没有任何东西提议负权重：手写语料里十个权重常量全是正的，`crates/` 下唯一的负权重字面量是
   `crates/strategy_factory/programs/sdk/src/lib.rs` 里的一个编解码往返。
 - *编译。* 编译器只决定编码。单位与标度、状态字节、角色与坐标端口身份，它都调用 Owner 自己的函数，
-  而不持有第二份；为此先要让 `expected_state_bytes` 对它可见、删掉降级器私有的那份
-  `coordinate_port_id`、并把 `prepare_bounded_feature_program_v1` 所做的形状测量抽成两者共用的一个函数。
-  `graph_bounds` 从产出的图上测量；源码与 Wasm 字节上限是语言版本固定的上界。程序从不读的已声明输入
+  而不持有第二份。其中三个已经存在：`expected_state_bytes`；`coordinate_port_id`，在 `strategy_plan_v2.rs`
+  里，是坐标端口 id 的唯一写法，校验器与 Plan 编译器都调用它。降级器保留自己的一份，因为它的源码是冻结的：
+  V3 构建胶囊绑定它的摘要，删掉这一份会让每次构建换身份，所以由一条测试把那一份钉在这一份上；以及
+  `measure_bounded_feature_program_shape_v1`，它像 `prepare_bounded_feature_program_v1` 那样校验程序，只是
+  放开图上限，并返回这些上限据以核对的形状。单位与标度的推导仍是校验器私有的，随调用它的编译器一起公开。
+  `graph_bounds` 就是测得的形状，为 0 的 lag 或 window 声明为 1，而且恰好是程序被拒的地方：任何一项低一，
+  `prepare` 就拒绝。Design 的状态大小属于它的插件清单而不是图上限，程序的状态格不得超过它；源码与 Wasm
+  字节上限是语言版本固定的上界。程序从不读的已声明输入
   被编译进 `carried_input_role_ids`。编译器随后用最新发布的目录推导并 prepare 自己的产物，`prepare`
   拒绝的一律不产出。它自己的拒绝按文档路径点名：未知名字、定义环、未被使用的定义、单位不一致、
   字面量在其标度上不可表示、分数越界、分档不递增、字面量零分母、权重越界、动作等于 `otherwise` 的
