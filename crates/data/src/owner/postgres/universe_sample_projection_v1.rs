@@ -10,16 +10,14 @@
 //! calls it while holding its own: every dependency is read at the transaction's snapshot, and
 //! the only locks taken are on this operation's own table and on sample keys R&D never locks.
 
-use std::{
-    collections::BTreeSet,
-    fmt::{Debug, Display},
-};
+use std::fmt::{Debug, Display};
 
 use sha2::{Digest as _, Sha256};
 use sqlx::{Postgres, Row, Transaction};
 
 use super::{
-    MarketDataOwnerPostgres, SampleCustodyErrorV1, load_bar_schedule_candidates,
+    MarketDataOwnerPostgres, SampleCustodyErrorV1, declared_bar_timeframe_of_batch_v1,
+    load_bar_schedule_candidates,
     source_sample_custody_v1::commit_or_reuse_source_sample_in_transaction_v1,
     strategy_input_binding_registry::{
         read_owner_verified_pit_batch_v1, rederive_strategy_input_binding_declaration_read_only_v1,
@@ -28,7 +26,9 @@ use super::{
 use crate::owner::{
     bar_schedule::BarScheduleReadbackV1,
     instrument_master_v2::native_replay_request_identity_v2,
-    native_replay_scheduling_v1::select_native_replay_schedule_for_member_v1,
+    native_replay_scheduling_v1::{
+        NativeReplaySchedulingErrorV1, select_native_replay_schedule_for_member_v1,
+    },
     replay_market_facts_v2::{
         ReplayCompositionBindingLocatorV1, ReplayMarketFactsShapeV2,
         postgres::{
@@ -95,6 +95,11 @@ pub enum UniverseSampleProjectionIssuanceErrorV1 {
     FrameMismatch,
     /// A BAR member's schedule for the frame is missing, or two would answer it.
     ScheduleUnavailable,
+    /// The frame's Source Binding declares no bar timeframe, so no schedule can be chosen for it.
+    SourceBindingDeclaresNoBarTimeframe,
+    /// A role's timeframe label, or every schedule of a member at the frame, is not the bar the
+    /// frame's Source Binding declares.
+    DeclaredBarTimeframeMismatch,
     /// A sample the frame reads conflicts with stored sample custody.
     SampleConflict,
     /// The frame already has a different projection.
@@ -112,6 +117,12 @@ impl Display for UniverseSampleProjectionIssuanceErrorV1 {
             Self::BindingConflict => "the request was issued under another binding",
             Self::FrameMismatch => "the binding's roles do not re-derive its universe frame",
             Self::ScheduleUnavailable => "a member's BAR schedule for the frame is unavailable",
+            Self::SourceBindingDeclaresNoBarTimeframe => {
+                "the frame's Source Binding declares no bar timeframe"
+            }
+            Self::DeclaredBarTimeframeMismatch => {
+                "a role or schedule is not the bar the frame's Source Binding declares"
+            }
             Self::SampleConflict => "a sample conflicts with stored sample custody",
             Self::SubjectConflict => "the frame already has a different projection",
             Self::StoreUnavailable => "the Market Data store is unavailable",
@@ -448,13 +459,27 @@ async fn member_schedules(
 ) -> Result<Vec<BarScheduleReadbackV1>, UniverseSampleProjectionIssuanceErrorV1> {
     use UniverseSampleProjectionIssuanceErrorV1 as E;
 
-    let timeframes = requests
+    // One frame schedules one bar per member, so every role reads rows of one label.
+    let [timeframe] = requests
         .iter()
         .map(|request| request.timeframe.as_str())
-        .collect::<BTreeSet<_>>();
-    let [timeframe] = timeframes.into_iter().collect::<Vec<_>>()[..] else {
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>()[..]
+    else {
         return Err(E::ScheduleUnavailable);
     };
+    let declared = declared_bar_timeframe_of_batch_v1(transaction, batch, timeframe)
+        .await
+        .map_err(|e| match e {
+            NativeReplaySchedulingErrorV1::SourceBindingDeclaresNoBarTimeframe => {
+                E::SourceBindingDeclaresNoBarTimeframe
+            }
+            NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch => {
+                E::DeclaredBarTimeframeMismatch
+            }
+            _ => E::StoreUnavailable,
+        })?;
     let mut schedules = Vec::with_capacity(frame.selection().members().len());
 
     for member in frame.selection().members() {
@@ -466,10 +491,15 @@ async fn member_schedules(
                 candidates,
                 batch,
                 member.instrument(),
-                timeframe,
+                &declared,
                 frame_time_ns,
             )
-            .map_err(|_| E::ScheduleUnavailable)?,
+            .map_err(|e| match e {
+                NativeReplaySchedulingErrorV1::DeclaredBarTimeframeMismatch => {
+                    E::DeclaredBarTimeframeMismatch
+                }
+                _ => E::ScheduleUnavailable,
+            })?,
         );
     }
     Ok(schedules)

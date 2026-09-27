@@ -73,6 +73,18 @@ pub enum BarScheduleCompletionV1 {
     CompleteOnly = 0x01,
 }
 
+/// The clock a schedule's bars run on.
+///
+/// Not a separate codec field: a continuous schedule is the one whose calendar and session
+/// identities are both zero, as the timeframe codec states it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BarScheduleClockV1 {
+    /// Bars follow each other without a trading calendar or session.
+    Continuous,
+    /// Bars exist only within the instrument's calendar and session.
+    ScheduleBounded,
+}
+
 /// Owner-local untrusted proposal. No proposal field is accepted by the sample projection path.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct UntrustedBarScheduleProposalV1 {
@@ -84,6 +96,7 @@ pub(crate) struct UntrustedBarScheduleProposalV1 {
     pub(crate) step: u32,
     pub(crate) unit: BarScheduleUnitV1,
     pub(crate) anchor_identity: BarScheduleIdentity,
+    pub(crate) clock: BarScheduleClockV1,
     pub(crate) label: BarScheduleLabelV1,
     pub(crate) completion: BarScheduleCompletionV1,
 }
@@ -145,6 +158,15 @@ impl BarScheduleFactV1 {
     }
     pub const fn session_identity(&self) -> BarScheduleIdentity {
         self.session_identity
+    }
+    /// The clock the schedule's bars run on: continuous exactly when it binds no calendar and no
+    /// session.
+    pub fn clock(&self) -> BarScheduleClockV1 {
+        if self.calendar_identity == zero() && self.session_identity == zero() {
+            BarScheduleClockV1::Continuous
+        } else {
+            BarScheduleClockV1::ScheduleBounded
+        }
     }
     pub const fn time_zone_identity(&self) -> BarScheduleIdentity {
         self.time_zone_identity
@@ -473,18 +495,25 @@ pub(super) mod authority {
         }
         validate_spec(&proposal)?;
         let class = master_fact.instrument_class() as u16;
-        let calendar_identity = field_identity(
-            CALENDAR_DOMAIN,
-            class,
-            master_fact.digest(),
-            master_fact.calendar_identity(),
-        )?;
-        let session_identity = field_identity(
-            SESSION_DOMAIN,
-            class,
-            master_fact.digest(),
-            master_fact.session_identity(),
-        )?;
+        // A continuous clock binds no calendar and no session, whatever the Instrument Master
+        // names: its bars follow each other without one. Only the time zone locates them.
+        let (calendar_identity, session_identity) = match proposal.clock {
+            BarScheduleClockV1::Continuous => (zero(), zero()),
+            BarScheduleClockV1::ScheduleBounded => (
+                field_identity(
+                    CALENDAR_DOMAIN,
+                    class,
+                    master_fact.digest(),
+                    master_fact.calendar_identity(),
+                )?,
+                field_identity(
+                    SESSION_DOMAIN,
+                    class,
+                    master_fact.digest(),
+                    master_fact.session_identity(),
+                )?,
+            ),
+        };
         let time_zone_identity = field_identity(
             TIME_ZONE_DOMAIN,
             class,
@@ -796,15 +825,17 @@ pub(super) mod authority {
             step: f.step,
             unit: f.unit,
             anchor_identity: f.anchor_identity,
+            clock: f.clock(),
             label: f.label,
             completion: f.completion,
         };
         validate_spec(&p)?;
 
-        if !contains(f.effective_from, f.effective_until, f.cut_effective_instant)
+        // Calendar and session are both zero on a continuous clock or both bound on a schedule;
+        // one without the other names no clock.
+        if (f.calendar_identity == zero()) != (f.session_identity == zero())
+            || !contains(f.effective_from, f.effective_until, f.cut_effective_instant)
             || [
-                f.calendar_identity,
-                f.session_identity,
                 f.time_zone_identity,
                 f.instrument_master_digest,
                 f.instrument_master_fact_digest,
@@ -934,13 +965,19 @@ fn validate_spec(p: &UntrustedBarScheduleProposalV1) -> Result<(), BarScheduleEr
         return Err(BarScheduleError::UnsupportedSchedule);
     }
 
-    match (p.kind, p.unit, p.step) {
+    match (p.kind, p.unit, p.step, p.clock) {
         (
             BarScheduleKindV1::FixedInterval,
             BarScheduleUnitV1::Second | BarScheduleUnitV1::Minute | BarScheduleUnitV1::Hour,
             _,
+            _,
+        )
+        | (
+            BarScheduleKindV1::ExchangeSession,
+            BarScheduleUnitV1::ExchangeSessionDay,
+            1,
+            BarScheduleClockV1::ScheduleBounded,
         ) => Ok(()),
-        (BarScheduleKindV1::ExchangeSession, BarScheduleUnitV1::ExchangeSessionDay, 1) => Ok(()),
         _ => Err(BarScheduleError::UnsupportedSchedule),
     }
 }

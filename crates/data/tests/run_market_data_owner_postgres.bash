@@ -41,6 +41,8 @@ readonly market_data_owner_postgres_tests=(
   owner::postgres::source_availability_rule_v1_tests::postgres_a_schema_two_binding_stores_its_availability_rule
   owner::postgres::bar_schedule_acceptance_v1_tests::postgres_a_declared_bar_role_gets_the_schedule_its_frame_reads_once
   owner::postgres::bar_schedule_acceptance_v1_tests::postgres_the_schedule_refuses_each_input_it_cannot_derive_from
+  owner::postgres::bar_schedule_acceptance_v1_tests::postgres_a_continuous_declaration_mints_a_schedule_without_calendar_or_session
+  owner::postgres::bar_schedule_acceptance_v1_tests::postgres_no_schedule_is_proposed_for_rows_their_binding_does_not_declare
   owner::store_admission::tests::a_production_build_refuses_evidence_that_names_no_admission
 )
 

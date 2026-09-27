@@ -16,7 +16,9 @@ use super::{
     SourceBindingBlocker, SourceBindingError, UntrustedCompleteFrontier,
     UntrustedCredentialAudienceClaim, UntrustedCredentialCapabilityClaim,
     UntrustedCredentialMaterialClaim, UntrustedMarketDataAsOf, UntrustedMarketSemantics,
-    UntrustedOpaqueCredentialHandle, UntrustedSourceAvailabilityRuleV1,
+    UntrustedOpaqueCredentialHandle, UntrustedSourceAvailabilityRuleV1, UntrustedSourceBarAnchorV1,
+    UntrustedSourceBarCadenceV1, UntrustedSourceBarClockV1, UntrustedSourceBarCompletionV1,
+    UntrustedSourceBarLabelV1, UntrustedSourceBarTimeframeV1, UntrustedSourceBarUnitV1,
     UntrustedSourceBindingLocator, UntrustedSourceBindingLocatorFields,
     UntrustedSourceBindingProposal, UntrustedSourceVisibilityV1,
 };
@@ -159,6 +161,11 @@ impl SourceBindingFact {
     /// The availability rule a schema-2 binding declares; a schema-1 binding declares none.
     pub(crate) const fn availability_rule(&self) -> Option<&UntrustedSourceAvailabilityRuleV1> {
         self.proposal.availability_rule.as_ref()
+    }
+
+    /// The bar timeframes a schema-2 binding of BAR rows declares; any other binding declares none.
+    pub(crate) fn bar_timeframes(&self) -> &[UntrustedSourceBarTimeframeV1] {
+        &self.proposal.bar_timeframes
     }
 }
 
@@ -685,12 +692,26 @@ pub(crate) fn validate_proposal(
     // schema 1, or its absence under schema 2, would leave the identity stating what the proposal
     // does not.
     match (proposal.schema_version, &proposal.availability_rule) {
-        (1, None) | (2, Some(_)) => {}
+        (1, None) if proposal.bar_timeframes.is_empty() => {}
+        (2, Some(_)) => {}
         _ => {
             return Err(SourceBindingError::InvalidVersionOrSequence(
                 "schema_version",
             ));
         }
+    }
+
+    for timeframe in &proposal.bar_timeframes {
+        validate_bar_timeframe(timeframe)?;
+    }
+
+    // One declaration per label, in one order, so one set of declarations has one encoding.
+    if proposal
+        .bar_timeframes
+        .windows(2)
+        .any(|pair| pair[0].row_timeframe >= pair[1].row_timeframe)
+    {
+        return Err(SourceBindingError::UnsupportedBarTimeframe);
     }
     validate_credential_handle(&proposal.credential_handle)?;
 
@@ -1014,6 +1035,7 @@ fn canonical_semantic_bytes(proposal: &UntrustedSourceBindingProposal) -> Vec<u8
     encoder.u16(proposal.schema_version);
     encode_semantic_tuple(&mut encoder, proposal);
     encode_availability_rule(&mut encoder, proposal);
+    encode_bar_timeframes(&mut encoder, proposal);
     encoder.finish()
 }
 
@@ -1032,6 +1054,7 @@ fn canonical_fact_bytes(
     encoder.u16(proposal.schema_version);
     encode_semantic_tuple(&mut encoder, proposal);
     encode_availability_rule(&mut encoder, proposal);
+    encode_bar_timeframes(&mut encoder, proposal);
     encoder.u64(decision.blockers.len() as u64);
 
     for blocker in &decision.blockers {
@@ -1092,6 +1115,97 @@ fn encode_rule_body(encoder: &mut Encoder, rule: &UntrustedSourceAvailabilityRul
         UntrustedSourceVisibilityV1::AtRetrieval => encoder.u8(2),
     }
     encoder.u8(u8::from(rule.publishes_corrections));
+}
+
+/// Refuses a declared bar timeframe no bar can have.
+///
+/// The admitted combinations are exactly the ones a schedule can state: a fixed interval on a
+/// continuous clock from the Unix epoch, a fixed interval within a trading schedule from its
+/// session open, and one exchange session day from its session open. The row label must be one a
+/// PIT batch can carry, since it is compared with the rows' labels by identity.
+fn validate_bar_timeframe(
+    timeframe: &UntrustedSourceBarTimeframeV1,
+) -> Result<(), SourceBindingError> {
+    let combination = match timeframe.cadence {
+        UntrustedSourceBarCadenceV1::FixedInterval { step, .. } => {
+            step > 0
+                && matches!(
+                    (timeframe.anchor, timeframe.clock),
+                    (
+                        UntrustedSourceBarAnchorV1::UnixEpoch,
+                        UntrustedSourceBarClockV1::Continuous
+                    ) | (
+                        UntrustedSourceBarAnchorV1::SessionOpen,
+                        UntrustedSourceBarClockV1::ScheduleBounded
+                    )
+                )
+        }
+        UntrustedSourceBarCadenceV1::ExchangeSessionDay => {
+            timeframe.anchor == UntrustedSourceBarAnchorV1::SessionOpen
+                && timeframe.clock == UntrustedSourceBarClockV1::ScheduleBounded
+        }
+    };
+
+    if !combination || !is_bar_row_timeframe(&timeframe.row_timeframe) {
+        return Err(SourceBindingError::UnsupportedBarTimeframe);
+    }
+    Ok(())
+}
+
+/// Whether `label` is a timeframe a PIT batch's BAR row can carry: the grammar the batch decoder
+/// admits, less `TICK`, which is no bar.
+fn is_bar_row_timeframe(label: &str) -> bool {
+    let digits = label.bytes().take_while(u8::is_ascii_digit).count();
+    let (count, unit) = label.split_at(digits);
+    !count.is_empty()
+        && !count.starts_with('0')
+        && count.parse::<u64>().is_ok_and(|count| count > 0)
+        && matches!(unit, "NS" | "US" | "MS" | "S" | "M" | "H" | "D")
+}
+
+/// Appends a schema-2 proposal's bar timeframe declarations, count first. A schema-1 proposal
+/// appends nothing, so every binding identity minted before declarations existed is unchanged.
+fn encode_bar_timeframes(encoder: &mut Encoder, proposal: &UntrustedSourceBindingProposal) {
+    if proposal.schema_version != 2 {
+        return;
+    }
+    encoder.u64(proposal.bar_timeframes.len() as u64);
+
+    for timeframe in &proposal.bar_timeframes {
+        encode_bar_timeframe(encoder, timeframe);
+    }
+}
+
+fn encode_bar_timeframe(encoder: &mut Encoder, timeframe: &UntrustedSourceBarTimeframeV1) {
+    encoder.string(&timeframe.row_timeframe);
+
+    match timeframe.cadence {
+        UntrustedSourceBarCadenceV1::FixedInterval { step, unit } => {
+            encoder.u8(1);
+            encoder.u64(u64::from(step));
+            encoder.u8(match unit {
+                UntrustedSourceBarUnitV1::Second => 1,
+                UntrustedSourceBarUnitV1::Minute => 2,
+                UntrustedSourceBarUnitV1::Hour => 3,
+            });
+        }
+        UntrustedSourceBarCadenceV1::ExchangeSessionDay => encoder.u8(2),
+    }
+    encoder.u8(match timeframe.anchor {
+        UntrustedSourceBarAnchorV1::UnixEpoch => 1,
+        UntrustedSourceBarAnchorV1::SessionOpen => 2,
+    });
+    encoder.u8(match timeframe.clock {
+        UntrustedSourceBarClockV1::Continuous => 1,
+        UntrustedSourceBarClockV1::ScheduleBounded => 2,
+    });
+    encoder.u8(match timeframe.label {
+        UntrustedSourceBarLabelV1::IntervalOpen => 1,
+        UntrustedSourceBarLabelV1::IntervalClose => 2,
+    });
+    encoder.u8(match timeframe.completion {
+        UntrustedSourceBarCompletionV1::CompleteOnly => 1,
+    });
 }
 
 /// The digest of an availability rule alone.

@@ -4,8 +4,8 @@ use rstest::rstest;
 use sqlx::{PgPool, Row, postgres::PgPoolOptions};
 
 use super::acceptance_fixture_v1::{
-    TEST_CLOCK_EPOCH_V1, TEST_CLOCK_IDENTITY_V1, instrument_fact, instrument_request,
-    market_base_pit_time_v1, shared_clock,
+    TEST_CLOCK_EPOCH_V1, TEST_CLOCK_IDENTITY_V1, declaring_bars_v1, instrument_fact,
+    instrument_request, market_base_pit_time_v1, session_bar_v1, shared_clock,
 };
 pub(super) use super::acceptance_fixture_v1::{d, source_proposal};
 use super::chain_market_base_v1::exact_instrument_identity_v1;
@@ -23,6 +23,10 @@ use crate::owner::native_replay_scheduling_v2::{
 };
 use crate::owner::pit_observation_source_v1::{
     PitObservationScopeV1, PitObservationSourceErrorV1, PitObservationSourceV1, VendorObservationV1,
+};
+use crate::owner::{
+    bar_schedule::BarScheduleClockV1,
+    source_binding::{UntrustedSourceBarCadenceV1, UntrustedSourceBarUnitV1},
 };
 use crate::owner::{
     bar_schedule::{
@@ -4126,6 +4130,7 @@ pub(crate) async fn persist_replay_joined_projection_fixture_v1(
         step: 1,
         unit: BarScheduleUnitV1::Minute,
         anchor_identity: d(206),
+        clock: BarScheduleClockV1::ScheduleBounded,
         label: BarScheduleLabelV1::IntervalClose,
         completion: BarScheduleCompletionV1::CompleteOnly,
     };
@@ -8331,9 +8336,20 @@ pub(crate) struct NativeReplayTwoMemberSnapshotFixtureV1 {
 pub(crate) async fn native_replay_two_member_snapshot_fixture_v1(
     owner: &MarketDataOwnerPostgres,
 ) -> NativeReplayTwoMemberSnapshotFixtureV1 {
+    // The snapshot's rows are one-minute bars, and its binding says what they are, so a scheduling
+    // read over it reaches its schedules.
     let source = owner
         .commit_source_initial(
-            source_proposal(10, 40),
+            declaring_bars_v1(
+                source_proposal(10, 40),
+                vec![session_bar_v1(
+                    "1M",
+                    UntrustedSourceBarCadenceV1::FixedInterval {
+                        step: 1,
+                        unit: UntrustedSourceBarUnitV1::Minute,
+                    },
+                )],
+            ),
             OwnerSourceBindingDecision {
                 blockers: BTreeSet::new(),
             },
