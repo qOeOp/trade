@@ -371,7 +371,8 @@ impl TryFrom<PostgresMeasurementSpecFields> for PostgresMeasurementSpec {
 impl PostgresMeasurementSpec {
     /// Creates a bounded direct-measurement specification.
     ///
-    /// Names are resolved by PostgreSQL catalog functions and are never interpolated into SQL.
+    /// Names are matched against the catalog as bound values, never interpolated into SQL, and never
+    /// resolved through a lookup that needs `USAGE` on their schema.
     ///
     /// # Errors
     ///
@@ -2107,10 +2108,16 @@ impl PostgresDirectMeasurer {
         }
         let schema_identity = rows_digest(&schema_rows, &["oid", "name", "owner", "acl"])?;
 
+        // Every Owner object is found by joining the catalog on its schema and stored name, never
+        // through `to_regclass` or `to_regprocedure`: those check `USAGE` on a qualified name's
+        // schema and raise rather than miss, and the admitted reader holds nothing on
+        // `market_data_private`.
+        let (migration_schema, migration_name) = catalog_relation_key(&spec.migration_relation)?;
         let migration_rows = sqlx::query(
-            "SELECT class.oid::bigint AS relation_oid, namespace.nspname::text AS schema_name, class.relname::text AS relation_name, class.relkind::text AS relation_kind, pg_catalog.pg_get_userbyid(class.relowner)::text AS owner, attribute.attnum::bigint AS ordinal, attribute.attname::text AS column_name, pg_catalog.format_type(attribute.atttypid, attribute.atttypmod)::text AS column_type, attribute.attnotnull, COALESCE(pg_catalog.pg_get_expr(default_value.adbin, default_value.adrelid), '')::text AS default_expression FROM pg_catalog.pg_class AS class JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = class.relnamespace JOIN pg_catalog.pg_attribute AS attribute ON attribute.attrelid = class.oid AND attribute.attnum > 0 AND NOT attribute.attisdropped LEFT JOIN pg_catalog.pg_attrdef AS default_value ON default_value.adrelid = class.oid AND default_value.adnum = attribute.attnum WHERE class.oid = pg_catalog.to_regclass($1) ORDER BY attribute.attnum",
+            "SELECT class.oid::bigint AS relation_oid, namespace.nspname::text AS schema_name, class.relname::text AS relation_name, class.relkind::text AS relation_kind, pg_catalog.pg_get_userbyid(class.relowner)::text AS owner, attribute.attnum::bigint AS ordinal, attribute.attname::text AS column_name, pg_catalog.format_type(attribute.atttypid, attribute.atttypmod)::text AS column_type, attribute.attnotnull, COALESCE(pg_catalog.pg_get_expr(default_value.adbin, default_value.adrelid), '')::text AS default_expression FROM pg_catalog.pg_class AS class JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = class.relnamespace JOIN pg_catalog.pg_attribute AS attribute ON attribute.attrelid = class.oid AND attribute.attnum > 0 AND NOT attribute.attisdropped LEFT JOIN pg_catalog.pg_attrdef AS default_value ON default_value.adrelid = class.oid AND default_value.adnum = attribute.attnum WHERE namespace.nspname = $1 AND class.relname = $2 ORDER BY attribute.attnum",
         )
-        .bind(&spec.migration_relation)
+        .bind(migration_schema)
+        .bind(migration_name)
         .fetch_all(&mut *transaction)
         .await
         .map_err(|_| PostgresMeasurementError::MigrationIdentityUnavailable)?;
@@ -2165,10 +2172,13 @@ impl PostgresDirectMeasurer {
 
         let mut function_records = Vec::with_capacity(spec.function_signatures.len());
         for signature in &spec.function_signatures {
+            let (schema, name, arguments) = catalog_function_key(signature)?;
             let row = sqlx::query(
-                "SELECT procedure.oid::bigint AS oid, pg_catalog.pg_get_function_identity_arguments(procedure.oid)::text AS arguments, pg_catalog.pg_get_userbyid(procedure.proowner)::text AS owner, procedure.prosecdef, procedure.provolatile::text AS volatility, COALESCE(procedure.proacl::text, 'DEFAULT') AS acl, pg_catalog.pg_get_functiondef(procedure.oid)::text AS definition FROM pg_catalog.pg_proc AS procedure WHERE procedure.oid = pg_catalog.to_regprocedure($1)",
+                "SELECT procedure.oid::bigint AS oid, pg_catalog.pg_get_function_identity_arguments(procedure.oid)::text AS arguments, pg_catalog.pg_get_userbyid(procedure.proowner)::text AS owner, procedure.prosecdef, procedure.provolatile::text AS volatility, COALESCE(procedure.proacl::text, 'DEFAULT') AS acl, pg_catalog.pg_get_functiondef(procedure.oid)::text AS definition FROM pg_catalog.pg_proc AS procedure JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = procedure.pronamespace WHERE namespace.nspname = $1 AND procedure.proname = $2 AND pg_catalog.oidvectortypes(procedure.proargtypes) = $3",
             )
-            .bind(signature)
+            .bind(schema)
+            .bind(name)
+            .bind(arguments)
             .fetch_all(&mut *transaction)
             .await
             .map_err(|_| PostgresMeasurementError::FunctionIdentityUnavailable)?;
@@ -2194,10 +2204,12 @@ impl PostgresDirectMeasurer {
         acl_records.push(schema_identity.clone());
 
         for relation in &spec.acl_relations {
+            let (schema, name) = catalog_relation_key(relation)?;
             let rows = sqlx::query(
-                "SELECT class.oid::bigint AS oid, namespace.nspname::text AS schema_name, class.relname::text AS relation_name, pg_catalog.pg_get_userbyid(class.relowner)::text AS owner, COALESCE(class.relacl::text, 'DEFAULT') AS acl, class.relrowsecurity, class.relforcerowsecurity FROM pg_catalog.pg_class AS class JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = class.relnamespace WHERE class.oid = pg_catalog.to_regclass($1)",
+                "SELECT class.oid::bigint AS oid, namespace.nspname::text AS schema_name, class.relname::text AS relation_name, pg_catalog.pg_get_userbyid(class.relowner)::text AS owner, COALESCE(class.relacl::text, 'DEFAULT') AS acl, class.relrowsecurity, class.relforcerowsecurity FROM pg_catalog.pg_class AS class JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = class.relnamespace WHERE namespace.nspname = $1 AND class.relname = $2",
             )
-            .bind(relation)
+            .bind(schema)
+            .bind(name)
             .fetch_all(&mut *transaction)
             .await
             .map_err(|_| PostgresMeasurementError::AclIdentityUnavailable)?;
@@ -2217,9 +2229,10 @@ impl PostgresDirectMeasurer {
                 ],
             )?);
             let column_rows = sqlx::query(
-                "SELECT attribute.attnum::bigint AS ordinal, attribute.attname::text AS column_name, COALESCE(attribute.attacl::text, 'DEFAULT') AS acl FROM pg_catalog.pg_attribute AS attribute WHERE attribute.attrelid = pg_catalog.to_regclass($1) AND attribute.attnum > 0 AND NOT attribute.attisdropped ORDER BY attribute.attnum",
+                "SELECT attribute.attnum::bigint AS ordinal, attribute.attname::text AS column_name, COALESCE(attribute.attacl::text, 'DEFAULT') AS acl FROM pg_catalog.pg_attribute AS attribute WHERE attribute.attrelid = (SELECT class.oid FROM pg_catalog.pg_class AS class JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = class.relnamespace WHERE namespace.nspname = $1 AND class.relname = $2) AND attribute.attnum > 0 AND NOT attribute.attisdropped ORDER BY attribute.attnum",
             )
-            .bind(relation)
+            .bind(schema)
+            .bind(name)
             .fetch_all(&mut *transaction)
             .await
             .map_err(|_| PostgresMeasurementError::AclIdentityUnavailable)?;
@@ -2228,9 +2241,10 @@ impl PostgresDirectMeasurer {
                 &["ordinal", "column_name", "acl"],
             )?);
             let policy_rows = sqlx::query(
-                "SELECT policy.polname::text AS policy_name, policy.polpermissive, policy.polcmd::text AS command, policy.polroles::text AS roles, LEFT(COALESCE(pg_catalog.pg_get_expr(policy.polqual, policy.polrelid), '')::text, 65537) AS using_expression, LEFT(COALESCE(pg_catalog.pg_get_expr(policy.polwithcheck, policy.polrelid), '')::text, 65537) AS check_expression FROM pg_catalog.pg_policy AS policy WHERE policy.polrelid = pg_catalog.to_regclass($1) ORDER BY policy.polname LIMIT 257",
+                "SELECT policy.polname::text AS policy_name, policy.polpermissive, policy.polcmd::text AS command, policy.polroles::text AS roles, LEFT(COALESCE(pg_catalog.pg_get_expr(policy.polqual, policy.polrelid), '')::text, 65537) AS using_expression, LEFT(COALESCE(pg_catalog.pg_get_expr(policy.polwithcheck, policy.polrelid), '')::text, 65537) AS check_expression FROM pg_catalog.pg_policy AS policy WHERE policy.polrelid = (SELECT class.oid FROM pg_catalog.pg_class AS class JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = class.relnamespace WHERE namespace.nspname = $1 AND class.relname = $2) ORDER BY policy.polname LIMIT 257",
             )
-            .bind(relation)
+            .bind(schema)
+            .bind(name)
             .fetch_all(&mut *transaction)
             .await
             .map_err(|_| PostgresMeasurementError::AclIdentityUnavailable)?;
@@ -2416,6 +2430,50 @@ fn canonical_function_signature(value: &str) -> bool {
             byte.is_ascii_alphanumeric()
                 || matches!(byte, b'_' | b'$' | b'.' | b',' | b' ' | b'[' | b']')
         })
+}
+
+/// The longest identifier PostgreSQL stores. SQL may spell a longer one, and `to_regclass` and
+/// `to_regprocedure` truncate it to this before they look it up.
+const STORED_IDENTIFIER_BYTES: usize = 63;
+
+/// `identifier` as the catalog stores it. A specification admits only ASCII identifiers, so a
+/// byte is a character.
+fn stored_identifier(identifier: &str) -> &str {
+    &identifier[..identifier.len().min(STORED_IDENTIFIER_BYTES)]
+}
+
+/// The schema and stored name of a relation a specification names, as the catalog holds them.
+fn catalog_relation_key(qualified: &str) -> Result<(&str, &str), PostgresMeasurementError> {
+    let (schema, relation) = qualified
+        .split_once('.')
+        .ok_or(PostgresMeasurementError::InvalidSpecification)?;
+    Ok((stored_identifier(schema), stored_identifier(relation)))
+}
+
+/// The schema, stored name and argument types of a function a specification names, the types
+/// spelled as `oidvectortypes` spells them. A type spelled by an alias, such as `int8` for
+/// `bigint`, matches no function and is refused as a mismatched target.
+fn catalog_function_key(signature: &str) -> Result<(&str, &str, String), PostgresMeasurementError> {
+    let (qualified, arguments) = signature
+        .split_once('(')
+        .ok_or(PostgresMeasurementError::InvalidSpecification)?;
+    let arguments = arguments
+        .strip_suffix(')')
+        .ok_or(PostgresMeasurementError::InvalidSpecification)?;
+    let (schema, function) = qualified
+        .split_once('.')
+        .ok_or(PostgresMeasurementError::InvalidSpecification)?;
+    let arguments = arguments
+        .split(',')
+        .map(str::trim)
+        .filter(|argument| !argument.is_empty())
+        .collect::<Vec<_>>()
+        .join(", ");
+    Ok((
+        stored_identifier(schema),
+        stored_identifier(function),
+        arguments,
+    ))
 }
 
 fn quoted_qualified_name(value: &str) -> Option<String> {

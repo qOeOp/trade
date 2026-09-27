@@ -51,6 +51,8 @@ mod reference_fact_coordinates;
 mod replay_market_facts_v2;
 pub(in crate::owner) mod research_pit_references_v1;
 pub(in crate::owner) mod research_pit_terminal_v1;
+#[cfg(test)]
+pub(in crate::owner) use admitted_read_api_v1::declared_admitted_read_wrapper_names_v1;
 pub(super) use replay_market_facts_v2::resolve_bound_replay_cut_for_rd_in_transaction_v1;
 pub(super) use replay_market_facts_v2::{
     BoundUniverseSelectionErrorV1, recover_bound_universe_selection_in_transaction_v1,

@@ -96,15 +96,27 @@ never runs in CI.
   after one. It connects as a least-privilege test principal that the disposable database grants exactly
   `NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1`, and its evidence carries the marker
   `SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1` where an admitted read carries a receipt; only a build that carries that
-  port accepts the marker. Admission itself, including the principal it leases and the grants on that gate, is still
-  `B3`. No production role holds that gate today: the deployed ACL cutover revokes every privilege on
-  `market_data_private` and `market_data_admitted_read` from every role but the owner, and no role is yet granted what
-  the admitted ports' measurement floors list. Every admitted read, and the measurement's read of the Owner's migration
-  ledger, reaches the Owner only through `market_data_admitted_read`. Each function there is a `SECURITY DEFINER`
-  pass-through of the private function of its name, with the same parameters and result, or one of four fixed reads of
-  Owner rows; each is `STABLE`, pins `search_path`, and is granted to no one by the migration. The principal a Store
-  Admission leases therefore needs `USAGE` on that schema and `EXECUTE` on the wrappers its reads call, and nothing on
-  `market_data_private`, whose time-zone custody check requires that it have no grantee but its owner. Each port opens
+  port accepts the marker. Admission itself is still `B3`: nothing leases its principal yet. That principal is
+  `market_data_admitted_reader`. `product/rd-workbench/postgres-init/25-market-data-admitted-reader.sh` provisions it as
+  a login role that inherits nothing, has no role membership in either direction, and holds `CONNECT` on the database;
+  the compose file does not run that script yet. The deployed ACL cutover revokes every privilege on
+  `market_data_private` and `market_data_admitted_read` from every role it names, and the admitted reader is not among
+  them. The cutover runs after the Owner has materialized, so the Owner migration's grant to the reader survives it only
+  because the reader is absent from those lists; `product/rd-workbench/scripts/check/authority.bash` refuses a cutover
+  that names it. Every admitted read, and the
+  measurement's read of the Owner's migration ledger, reaches the Owner only through `market_data_admitted_read`. Each
+  function there is a `SECURITY DEFINER` pass-through of the private function of its name, with the same parameters and
+  result, or one of four fixed reads of Owner rows; each is `STABLE` and pins `search_path`. The Owner migration grants
+  them to one role only: when `market_data_admitted_reader` exists, it gains `USAGE` on the schema and `EXECUTE` on
+  every function in it, and nothing on `market_data_private`, whose time-zone custody check requires that it have no
+  grantee but its owner. The measurement still names private functions and relations, and finds each by its schema and
+  stored name in the catalog rows every role can read, never through `to_regclass` or `to_regprocedure`, which refuse a
+  qualified name in a schema the role cannot use. A reader provisioned after the migration last ran gains that grant the
+  next time the Owner migrates. Every wrapper is on the floor of an admitted read, except the ledger read the measurement itself makes, so
+  the grant is exactly what the admitted reads and the measurement call. A unit test holds the wrapper list to the
+  floors and the measurement's one other call, and a Market Data PostgreSQL proof holds the provisioned reader's
+  privilege census to that grant: it measures and admits every floor as that reader, calls every wrapper, and is
+  refused `market_data_private`. Each port opens
   only on a measurement that covers the floors of the reads it serves, the native Replay scheduling port's PIT
   evaluation reads included, and each read checks its own floor again on every admission it reads under.
   Reading a BAR schedule has **two custody strategies**, one per build, and this document has until now described
