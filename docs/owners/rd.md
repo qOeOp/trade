@@ -438,13 +438,21 @@ force, not revoked, and under a current policy binding and manifest window. Othe
 - a quarantined legacy custody carries no current admission and answers at
   `research_custody.continuation.no_admission`.
 
+Each also continues only while no protected evaluation has become observable to the Intent since it
+was frozen. Every public Qualification phase fact of the principal/scope history advances that
+history's protected-feedback generation (see Qualification's protected-feedback generation), so the
+continuation reads the history's current source cut for the projection the Intent froze and
+compares it with the one it froze. It holds the history's head `FOR SHARE` until the continuation
+commits, so no phase fact can land in between. A later cut answers at
+`research_custody.continuation.protected_feedback_advanced`: iterating on the Intent then goes
+through a successor Intent, which freezes the history's new generation (Lineage and
+protected-feedback admission). An Intent whose frozen projection or history cannot be read answers
+at `research_custody.continuation.protected_feedback_unavailable`. A candidate's own phase fact
+counts as well, so once the Intent's candidate enters Qualification its continuation stops.
+
 The frozen View still identifies the Intent: a cut before its projection is refused, and the Intent
-must still be `INTENT_FROZEN`. Protected feedback is checked when the Intent is admitted and not
-again. Today the protected-feedback frontier carries no generation, and a protected evaluation does
-not advance it, so a continuation cannot observe a protected evaluation made after the freeze. The
-slice that gives the frontier a generation, and makes every continuation compare it with the one
-the Intent was frozen under, removes this property. Until their own slices land, two kinds of check
-still read the View's window:
+must still be `INTENT_FROZEN`. Until their own slices land, two kinds of check still read the View's
+window:
 
 - the steps after a Replay commit: the Backtest run, the execution-input binding and Market Data
   repair;

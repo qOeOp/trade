@@ -147,6 +147,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|native_replay_scheduling_acceptance::tests::the_composed_scheduling_resolver_holds_its_reads_only_while_composed'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_directory_lists_one_requests_results_without_a_row_lock'
   'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::a_frozen_research_intent_continues_under_its_admission_past_its_views_window'
+  'vibe-strategy-factory|vibe_strategy_factory|iteration_decision_postgres::postgres_acceptance_tests::a_phase_fact_stops_a_frozen_intent_and_its_successor_continues_at_the_new_generation'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
 )
 readonly nextest_graph_args=(
@@ -218,8 +219,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 118 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all 118 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 119 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all 119 ordered tests, found ${#rd_owner_postgres_tests[@]}." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -349,7 +350,8 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[114]}" != *'|native_replay_scheduling_acceptance::tests::the_composed_scheduling_resolver_holds_its_reads_only_while_composed' ]] ||
     [[ "${rd_owner_postgres_tests[115]}" != *'|tests::postgres_result_directory_lists_one_requests_results_without_a_row_lock' ]] ||
     [[ "${rd_owner_postgres_tests[116]}" != *'|product_edge_postgres::tests::a_frozen_research_intent_continues_under_its_admission_past_its_views_window' ]] ||
-    [[ "${rd_owner_postgres_tests[117]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
+    [[ "${rd_owner_postgres_tests[117]}" != *'|iteration_decision_postgres::postgres_acceptance_tests::a_phase_fact_stops_a_frozen_intent_and_its_successor_continues_at_the_new_generation' ]] ||
+    [[ "${rd_owner_postgres_tests[118]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and destructive-drain-last." >&2
     return 1
   fi
@@ -499,7 +501,7 @@ for line in array_body.splitlines():
     entries.append(tuple(fields))
 # The count lives in one place. Writing it into the message as well lets the two drift, and the
 # drifted form reads as nonsense the moment it fires: "must contain 92 entries, found 92".
-expected_entries = 118
+expected_entries = 119
 if len(entries) != expected_entries:
     raise SystemExit(
         f"ERROR: ordered PostgreSQL test literal must contain {expected_entries} entries, found {len(entries)}."
