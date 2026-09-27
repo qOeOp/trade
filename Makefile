@@ -157,14 +157,18 @@ CORE_SELECTED_FEATURE_LIST := $(filter-out hypersync,$(subst $(comma),$(space),$
 CORE_SELECTED_FEATURES := $(subst $(space),$(comma),$(strip $(CORE_SELECTED_FEATURE_LIST))),vibe-serialization/sbe,vibe-infrastructure/postgres
 
 # Standard-precision (64-bit) selection, shared by the test and clippy targets.
-# Two independent routes re-enable high precision, and both must be closed or the build
+# Three independent routes re-enable high precision, and each must be closed or the build
 # silently runs high precision under a standard-precision name:
 #   --no-default-features       most adapters declare default = [..., "high-precision"]
 #   --exclude vibe-blockchain   it depends on vibe-model/defi, which implies high-precision
-# `cargo tree` does not reflect either route reliably here. Verify a change by deleting an
-# `#[allow(clippy::useless_conversion)]` in crates/model/src/types/quantity.rs and confirming
-# clippy reports it under this selection.
-STANDARD_PRECISION_ARGS := --workspace --exclude vibe-blockchain --no-default-features --lib --tests --features "ffi,python"
+#   --exclude the product crates  vibe-strategy-factory declares high-precision as the product's
+#                                 precision; it and every crate depending on it run at 16 only
+# So this selection covers the inherited, non-product crates. The product crates are deliberately
+# no longer checked at standard precision: the product runs at 16 alone.
+# scripts/ci/check-production-features.py --standard-precision resolves this selection and fails
+# if vibe-model comes out with high-precision.
+STANDARD_PRECISION_EXCLUDES := --exclude vibe-blockchain --exclude vibe-strategy-factory --exclude vibe-backtest-owner --exclude vibe-strategy-factory-rd-owner-api
+STANDARD_PRECISION_ARGS := --workspace $(STANDARD_PRECISION_EXCLUDES) --no-default-features --lib --tests --features "ffi,python"
 
 CARGO_BUILD_JOB_TARGETS := install install-debug build build-debug build-wheel py-stubs check-code \
 	check-code-standard-precision \

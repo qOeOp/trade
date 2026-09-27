@@ -60,6 +60,9 @@ cargo test -p vibe-model
 
 不要在同一进程或持久化数据集中混用不同精度模式构建的制品。
 
+本产品为自己的 crate 定下了这个选择：`vibe-strategy-factory` 声明了 `high-precision`，因此 R&D 服务以及
+依赖它们的一切，在每一次构建中（无论本地还是部署）都以 16 位精度构建。
+
 ## 扩展依赖
 
 Python 依赖组和可选可视化依赖声明在 `python/pyproject.toml` 中，并由 `python/uv.lock` 锁定。
