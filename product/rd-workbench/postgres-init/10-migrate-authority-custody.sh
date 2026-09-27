@@ -2704,11 +2704,6 @@ BEGIN
   )
   ORDER BY outbox.event_identity
   FOR SHARE;
-  PERFORM step.generation
-  FROM public.qualification_protected_feedback_generations_v1 step
-  WHERE step.principal_scope_key = requested_principal_scope_key
-  ORDER BY step.generation
-  FOR SHARE;
   owner_cut_epoch_ms := pg_catalog.floor(extract(epoch FROM pg_catalog.clock_timestamp()) * 1000)::bigint;
 
   RETURN pg_catalog.jsonb_build_object(

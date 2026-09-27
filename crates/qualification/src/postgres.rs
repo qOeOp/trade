@@ -5368,10 +5368,14 @@ fn verify_generation_steps(
     u64::try_from(steps.len()).map_err(json_storage)
 }
 
-/// Every logged step of one history, with the phase fact each names, locked `FOR SHARE`.
-/// It states each step in the shape `lock_projection_for_basis_v1` states it, so both admission
-/// paths decode one row type.
-const GENERATION_STEPS_SQL: &str = "SELECT jsonb_build_object('principal_scope_key', step.principal_scope_key, 'generation', step.generation, 'status_fact_identity', step.status_fact_identity, 'status_fact_digest', step.status_fact_digest, 'committed_at_epoch_ms', step.committed_at_epoch_ms, 'fact_digest', fact.fact_digest, 'fact_source_frontier_identity', fact.source_frontier_identity) FROM qualification_protected_feedback_generations_v1 step LEFT JOIN qualification_public_status_facts_v1 fact ON fact.fact_identity = step.status_fact_identity WHERE step.principal_scope_key = $1 ORDER BY step.generation FOR SHARE OF step";
+/// Every logged step of one history, with the phase fact each names. It states each step in the
+/// shape `lock_projection_for_basis_v1` states it, so both admission paths decode one row type.
+///
+/// It takes no row lock, and `qualification_writer` could not take one: a row lock needs `UPDATE`,
+/// and the writer holds `SELECT, INSERT` on this append-only table. None is needed. No role can
+/// change a logged step, and a new one is written only under the principal/scope advisory lock
+/// every Owner path that runs this read already holds.
+const GENERATION_STEPS_SQL: &str = "SELECT jsonb_build_object('principal_scope_key', step.principal_scope_key, 'generation', step.generation, 'status_fact_identity', step.status_fact_identity, 'status_fact_digest', step.status_fact_digest, 'committed_at_epoch_ms', step.committed_at_epoch_ms, 'fact_digest', fact.fact_digest, 'fact_source_frontier_identity', fact.source_frontier_identity) FROM qualification_protected_feedback_generations_v1 step LEFT JOIN qualification_public_status_facts_v1 fact ON fact.fact_identity = step.status_fact_identity WHERE step.principal_scope_key = $1 ORDER BY step.generation";
 
 fn verify_projection_chain(
     projections: &[ProtectedFeedbackFrontierReadbackV1],
