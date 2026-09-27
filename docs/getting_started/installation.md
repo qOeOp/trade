@@ -64,6 +64,10 @@ all crates that exchange fixed-point model values.
 
 Do not mix artifacts built with different precision modes in one process or persisted dataset.
 
+This product settles the choice for its own crates: `vibe-strategy-factory` declares `high-precision`, so
+the R&D services and everything that depends on them build at 16 digits in every build, local and
+deployed alike.
+
 ## Extras
 
 The Python dependency groups and optional visualization dependencies are declared in

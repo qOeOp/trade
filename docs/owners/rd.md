@@ -109,9 +109,9 @@ an admission as invalid:
   the body fixes. Reading the heading alone gets the opposite answer, in both directions.
 
 - **CURRENT - deployed service and the boundary of what it exposes:** `product/rd-workbench/Dockerfile.owner`
-  builds `--bin strategy-factory-rd-owner-api` with no `--features` at all; the file's only `--features` is on the
-  dashboard binary. So the deployed image is the ungated router in
-  `crates/strategy_factory_rd_owner_api/src/main.rs`, and the six routes registered after it are absent from it:
+  builds every binary, `--bin strategy-factory-rd-owner-api` included, with no `--features` at all. So the deployed
+  image is the ungated router in `crates/strategy_factory_rd_owner_api/src/main.rs`, and the six routes registered
+  after it are absent from it:
   `/v2/exploratory-replay/execution-input-bindings` under `#[cfg(feature = "composer-replay-issuance")]`,
   `/v3/exploratory-replay-requests/composer-backed` under `#[cfg(feature = "composer-v3-replay")]`, and the four
   `/_sealed-acceptance/v1/develop-composer/*` routes under
@@ -120,6 +120,9 @@ an admission as invalid:
   the default build the Composer's own `/v2/develop-composer/runs/{request_identity}/resolve` and `/readback` answer
   `503` because `composer-replay-issuance` is off. An acceptance route is never evidence of a production
   capability, and the sealed features exist to keep that distinction mechanical rather than remembered.
+  The image runs at the product's fixed-point precision, `FIXED_PRECISION` 16, without a build flag:
+  `vibe-strategy-factory` declares `high-precision` on its `vibe-model` dependency, and
+  `scripts/ci/check-production-features.py` fails a production package that links `vibe-model` without it.
 - **CURRENT - the deployed Source Intake pipeline stops after admission:** `SourceIntakeEnvironmentPort` has two
   implementations. `SealedSourceIntakeEnvironmentV1` sits behind `sealed-source-intake-acceptance`, which the image
   above does not build, so the one that ships is `ProductionEnvironmentV1` in

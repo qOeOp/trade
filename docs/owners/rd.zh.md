@@ -91,8 +91,8 @@
   只读标题会得到相反的答案，而且两个方向都会错。
 
 - **CURRENT - 已部署的服务，以及它暴露面的边界：** `product/rd-workbench/Dockerfile.owner` 构建
-  `--bin strategy-factory-rd-owner-api` 时完全不带 `--features`，该文件唯一的 `--features` 属于 dashboard
-  那个二进制。所以部署镜像就是 `crates/strategy_factory_rd_owner_api/src/main.rs` 里未加门的那个 router，
+  每一个二进制（包括 `--bin strategy-factory-rd-owner-api`）时都完全不带 `--features`。所以部署镜像就是
+  `crates/strategy_factory_rd_owner_api/src/main.rs` 里未加门的那个 router，
   而其后注册的六条路由不在其中：`/v2/exploratory-replay/execution-input-bindings` 在
   `#[cfg(feature = "composer-replay-issuance")]` 之下，`/v3/exploratory-replay-requests/composer-backed` 在
   `#[cfg(feature = "composer-v3-replay")]` 之下，四条 `/_sealed-acceptance/v1/develop-composer/*` 在
@@ -101,6 +101,9 @@
   `/v2/develop-composer/runs/{request_identity}/resolve` 与 `/readback` 返回 `503`，因为
   `composer-replay-issuance` 是关闭的。一条验收路由绝不是生产能力的证据，
   而密封 feature 的存在就是为了让这个区别是机械的而不是靠记住的。
+  镜像运行在产品的定点精度 `FIXED_PRECISION` 16 上，不靠构建参数：`vibe-strategy-factory` 在自己的
+  `vibe-model` 依赖上声明 `high-precision`，`scripts/ci/check-production-features.py` 会拒绝链接
+  `vibe-model` 却不带它的生产包。
 - **CURRENT - 已部署的 Source Intake 流水线在受理之后就停住：** `SourceIntakeEnvironmentPort` 有两个实现。
   `SealedSourceIntakeEnvironmentV1` 在 `sealed-source-intake-acceptance` 之后，而上面那个镜像不构建它，
   所以随镜像发布的是 `crates/strategy_factory/src/source_intake/owner.rs` 里的 `ProductionEnvironmentV1`。

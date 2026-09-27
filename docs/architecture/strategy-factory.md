@@ -952,6 +952,12 @@ build receipt, Plan/Artifact identities, ordered semantic trace, checkpoint, fil
 canonical Backtest result. Restoring a checkpoint at every declared state frontier must reproduce a byte-identical
 suffix.
 
+Byte identity holds within one fixed-point precision mode. The product runs at `FIXED_PRECISION` 16:
+`vibe-strategy-factory` declares `high-precision` on its `vibe-model` dependency, so local, CI, Owner-chain and
+production builds share it, and `scripts/ci/check-production-features.py` fails any production package that links
+`vibe-model` without it. A fixed-point value converts to `f64` by one correct rounding in either mode, so the
+canonical result does not depend on the mode; the representable range and what admission accepts do.
+
 The corpus has negative oracles for unknown opcode/field/semantic ID; scale or unit mismatch; every checked
 overflow and rounding boundary; missing, stale or cross-lineage binding/coordinate; same-sample duplicate; an
 equal-valued new sample; duplicate/conflicting state advance; DAG/window/state/fuel/memory/source/Wasm exhaustion;
@@ -1182,7 +1188,7 @@ code, a toy renderer, or a partial executable.
 ComplexStrategy V1 canonicalization, bounds, frozen-Intent checks and exact Owner binding are migration inputs,
 not a second permanent language. They must be absorbed into the V2 compiler and lowered through the sole
 `StrategyArtifactV2`/`ProgramHostV2` path. After the frozen equivalence corpora prove byte-identical semantic traces
-and canonical Backtest results, the duplicate V1 interpreter and toy renderer must be deleted. A third runtime,
+and canonical Backtest results in the product's precision mode, the duplicate V1 interpreter and toy renderer must be deleted. A third runtime,
 sidecar interpreter, generated unrestricted strategy code path, or feature-specific core opcode is prohibited.
 
 Acceptance uses three versioned, immutable corpora, each with positive, unsupported, malformed-binding,
@@ -1195,7 +1201,8 @@ resource-exhaustion and checkpoint/restart cases:
 1. **Multi-leg, multi-timeframe regime:** exact leg and timeframe roles, joined event ordering, regime state,
    atomic target intent and fail-closed missing/stale leg input.
 
-For every admitted corpus, repeated Backtest runs must produce byte-identical Design/Plan/Artifact identities,
+For every admitted corpus, repeated Backtest runs in the product's precision mode must produce byte-identical
+Design/Plan/Artifact identities,
 ordered semantic traces, checkpoints, fills, positions, costs and canonical results. The same normalized event
 prefix must produce the same semantic trace in a later admitted Paper or Live Runtime up to the Risk/Execution
 adapter boundary. Any divergence, heuristic binding, unsupported feature promoted to an opcode, plugin raw-order

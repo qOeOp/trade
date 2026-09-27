@@ -842,6 +842,11 @@ trailing adjustment 与 Replace，且不引入第二套 protection 解释。
 trace、checkpoint、fill、position、protection、cost 与规范 Backtest result。在每个声明 state frontier 恢复
 checkpoint 都必须复现字节一致 suffix。
 
+字节一致只在同一种定点精度模式内成立。产品运行在 `FIXED_PRECISION` 16：`vibe-strategy-factory` 在自己的
+`vibe-model` 依赖上声明 `high-precision`，因此本地、CI、Owner 链路与生产构建共用它，
+`scripts/ci/check-production-features.py` 会拒绝任何链接 `vibe-model` 却不带它的生产包。定点值换算成 `f64`
+在两种模式下都只做一次正确舍入，所以规范 result 不依赖模式；依赖模式的是可表示范围和准入接受什么。
+
 corpus 必须为以下情况提供负向 oracle：unknown opcode/field/semantic ID；scale/unit mismatch；每个 checked
 overflow 与 rounding boundary；missing/stale/cross-lineage binding/coordinate；same-sample duplicate；
 equal-valued new sample；duplicate/conflicting state advance；DAG/window/state/fuel/memory/source/Wasm
@@ -1056,7 +1061,7 @@ role、timeframe、state transition、target、protection rule 或 falsifier，�
 ComplexStrategy V1 的 canonicalization、bounds、frozen-Intent 校验和准确 Owner binding 是迁移输入，不是
 第二门永久语言。它们必须被吸收到 V2 compiler，并通过唯一 `StrategyArtifactV2`/`ProgramHostV2` 路径
 lowering。
-冻结等价 corpus 证明 byte-identical semantic trace 与规范 Backtest result 后，必须删除重复 V1
+冻结等价 corpus 在产品精度模式下证明 byte-identical semantic trace 与规范 Backtest result 后，必须删除重复 V1
 interpreter 与 toy renderer。禁止第三个 runtime、sidecar interpreter、生成的无限制策略代码路径或
 feature-specific core opcode。
 
@@ -1070,7 +1075,7 @@ checkpoint/restart 案例：
 1. **Multi-leg、multi-timeframe regime：** 准确 leg 与 timeframe role、joined event ordering、regime state、
    atomic target intent，以及 leg input 缺失或过期时 fail closed。
 
-每组已接纳 corpus 的重复 Backtest 必须产生 byte-identical Design/Plan/Artifact 身份、ordered semantic
+每组已接纳 corpus 在产品精度模式下的重复 Backtest 必须产生 byte-identical Design/Plan/Artifact 身份、ordered semantic
 trace、checkpoint、fill、position、cost 和规范 result。未来获准的 Paper 或 Live Runtime 对同一
 normalized event prefix 必须在 Risk/Execution adapter boundary 之前产生相同 semantic trace。任何 divergence、
 heuristic binding、把 unsupported feature 提升为 opcode、plugin raw-order attempt 或保留重复 interpreter

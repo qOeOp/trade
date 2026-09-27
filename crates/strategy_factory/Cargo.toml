@@ -69,11 +69,17 @@ vibe-execution = { workspace = true }
 vibe-fred = { workspace = true }
 vibe-indicators-kernel = { workspace = true }
 vibe-market-data-repair-custody = { workspace = true }
+# `high-precision` is the product's precision (FIXED_PRECISION 16), a property of the product crate
+# rather than of a build flag: every build of this crate and its dependents - local `cargo test -p`,
+# CI, the Owner chain and the production images - converts and stores fixed-point values the same
+# way. scripts/ci/check-production-features.py requires it of every production package that links
+# vibe-model.
+#
 # `stubs` in a normal dependency is the one exception production builds carry: the legacy formation
 # path builds its instrument from `vibe_model::instruments::stubs::currency_pair_btcusdt`
 # (`src/application.rs`). R&D has ruled that path retired; this goes with it.
 # scripts/ci/check-production-features.py allows this edge and no other.
-vibe-model = { workspace = true, features = ["stubs"] }
+vibe-model = { workspace = true, features = ["high-precision", "stubs"] }
 vibe-persistence = { workspace = true }
 vibe-portfolio = { workspace = true }
 vibe-postgres-connect = { workspace = true }
