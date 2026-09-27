@@ -43,6 +43,10 @@ use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 use vibe_data::owner::chain_fixture_v1::CHAIN_FIXTURE_INSTRUMENT_V1 as CHAIN_FIXTURE_INSTRUMENT;
 use vibe_data::owner::chain_market_base_v1::MarketDataAcceptanceBasisPointerV1;
 use vibe_data::owner::{
+    instrument_master_admission_v1::{
+        InstrumentDecimalSubmissionV1, InstrumentMasterFactSubmissionV1,
+        InstrumentVenueSourceMappingSubmissionV1, instrument_master_admission_from_environment_v1,
+    },
     pit_market_snapshot_intake_v1::{
         MarketDataDecisionCutV1, PitMarketSnapshotBlockerV1, PitMarketSnapshotDispositionV1,
         PitMarketSnapshotIntakeErrorV1, PitMarketSnapshotIntakeV1, PitMarketSnapshotTerminalV1,
@@ -75,6 +79,7 @@ use vibe_data::owner::{
         UntrustedUniverseSelectionLocatorV1, UntrustedUniverseSelectionRequestV1,
     },
     universe_selection_admission_v1::{
+        HistoricalMembershipAdmissionRequestV1, HistoricalMembershipSubmissionV1,
         UniverseSelectionAdmissionErrorV1, UniverseSelectionAdmissionV1,
         UniverseSelectionTerminalV1, universe_selection_admission_from_environment_v1,
     },
@@ -1100,7 +1105,7 @@ impl InitialPitMarketDataPortV1 for ClockMovedBeforeFirstSendV1 {
                 .await
                 .expect("the configured Market Data store opens")
                 .admit(SourceBindingAdmissionRequestV1 {
-                    proposal: clock_move_source_proposal(),
+                    proposal: wall_clock_source_proposal(0xC0, "rd-initial-pit-clock-move/none"),
                     rights: ProviderRightsEvidenceV1::Granted,
                     reachability: ProviderReachabilityEvidenceV1::Reachable,
                 })
@@ -1124,11 +1129,14 @@ impl InitialPitMarketDataPortV1 for ClockMovedBeforeFirstSendV1 {
     }
 }
 
-/// A Source Binding on a lineage of its own, so admitting it moves the clock head and nothing the
-/// Research request reads. Every clock field is the Owner's to stamp; the four coordinates are a
-/// minute before the wall.
-fn clock_move_source_proposal() -> UntrustedSourceBindingProposal {
-    let digest = |byte: u8| BindingDigest::from_untrusted_bytes([byte; 32]);
+/// A Source Binding over `dataset_mapping` on a lineage of its own, told apart by `tag`. Every clock
+/// field is the Owner's to stamp; the four coordinates are a minute before the wall.
+fn wall_clock_source_proposal(tag: u8, dataset_mapping: &str) -> UntrustedSourceBindingProposal {
+    let digest = |byte: u8| {
+        let mut bytes = [byte; 32];
+        bytes[0] = tag;
+        BindingDigest::from_untrusted_bytes(bytes)
+    };
     let now_ns = u64::try_from(
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -1138,21 +1146,21 @@ fn clock_move_source_proposal() -> UntrustedSourceBindingProposal {
     .unwrap();
     let effective_ns = now_ns - 60_000_000_000;
     let frontier = |byte: u8| UntrustedCompleteFrontier {
-        stream_identity: "rd-initial-pit-clock-move/stream".to_owned(),
-        cut_identity: "rd-initial-pit-clock-move/stream/cut-1".to_owned(),
+        stream_identity: format!("rd-initial-pit-clock-move/{dataset_mapping}"),
+        cut_identity: format!("rd-initial-pit-clock-move/{dataset_mapping}/cut-1"),
         sequence: 1,
         digest: digest(byte),
     };
     let mut proposal = UntrustedSourceBindingProposal {
         availability_rule: None,
         bar_timeframes: Vec::new(),
-        claimed_binding_id: digest(0),
+        claimed_binding_id: BindingDigest::from_untrusted_bytes([0; 32]),
         schema_version: 1,
         adapter: UntrustedAdapterBinding {
             implementation_digest: digest(0xC1),
             configuration_digest: digest(0xC2),
             authenticated_endpoint_identity: "https://clock-move.invalid".to_owned(),
-            dataset_mapping: "rd-initial-pit-clock-move/none".to_owned(),
+            dataset_mapping: dataset_mapping.to_owned(),
             account_mapping: "rd-initial-pit-clock-move/public".to_owned(),
         },
         credential_handle: UntrustedOpaqueCredentialHandle::from_untrusted_identity(
@@ -1165,7 +1173,7 @@ fn clock_move_source_proposal() -> UntrustedSourceBindingProposal {
             version: 1,
         },
         semantics: UntrustedMarketSemantics {
-            normalization: "rd-initial-pit-clock-move".to_owned(),
+            normalization: format!("rd-initial-pit-clock-move/{dataset_mapping}"),
             adjustment: "raw".to_owned(),
             price_meaning: "last".to_owned(),
             calendar_rules: "crypto/continuous".to_owned(),
@@ -1186,11 +1194,11 @@ fn clock_move_source_proposal() -> UntrustedSourceBindingProposal {
         source_frontier: frontier(0xC4),
         correction_frontier: frontier(0xC5),
         time_evidence: UntrustedMarketDataAsOf {
-            claimed_evidence_identity: digest(0),
+            claimed_evidence_identity: BindingDigest::from_untrusted_bytes([0; 32]),
             clock_identity: String::new(),
             clock_epoch: String::new(),
             monotonic_sequence: 0,
-            restart_continuity_digest: digest(0),
+            restart_continuity_digest: BindingDigest::from_untrusted_bytes([0; 32]),
             skew_bound: 0,
             uncertainty_bound: 0,
             event_effective: effective_ns,
@@ -1204,6 +1212,106 @@ fn clock_move_source_proposal() -> UntrustedSourceBindingProposal {
     };
     seal_binding_claim_v1(&mut proposal);
     proposal
+}
+
+/// The member the clock-move entry scopes, admitted through the production intakes on the Owner's
+/// clock: its Source Binding, which mints the clock head from the wall, its Instrument Master fact
+/// and its membership in a new eligible frontier, each in force from the first nanosecond with no
+/// end. The chain fixture's instrument cannot serve here: its fact is in force only over the base's
+/// fixture instants, `[10, 200)`, so at a head minted from the wall it resolves to nothing.
+const WALL_CLOCK_MEMBER: &str = "BTCUSDT-PERP.BINANCE";
+
+async fn admit_wall_clock_member(
+    universe: &Arc<dyn UniverseSelectionAdmissionV1>,
+    intake: &Arc<dyn PitMarketSnapshotIntakeV1>,
+) {
+    let proposal = wall_clock_source_proposal(0xB0, "usdm/klines/4h");
+    let binding = source_binding_admission_from_environment_v1()
+        .await
+        .expect("the configured Market Data store opens")
+        .admit(SourceBindingAdmissionRequestV1 {
+            proposal: proposal.clone(),
+            rights: ProviderRightsEvidenceV1::Granted,
+            reachability: ProviderReachabilityEvidenceV1::Reachable,
+        })
+        .await
+        .expect("the member's binding is admitted");
+    assert_eq!(
+        binding.disposition(),
+        SourceBindingAdmissionDispositionV1::Admitted
+    );
+    let head = intake.current_decision_cut().await.unwrap();
+    let cut = head.decision_cut.as_epoch_nanos();
+    let observed = i128::from(cut) - 1;
+    let tagged = |byte: u8| {
+        let mut bytes = [byte; 32];
+        bytes[0] = 0xB0;
+        BindingDigest::from_untrusted_bytes(bytes)
+    };
+    let frontier = tagged(0x11);
+    instrument_master_admission_from_environment_v1()
+        .await
+        .expect("the configured Market Data store opens")
+        .admit_fact(InstrumentMasterFactSubmissionV1 {
+            canonical_identity: WALL_CLOCK_MEMBER.to_owned(),
+            predecessor_fact_digest: None,
+            mappings: vec![InstrumentVenueSourceMappingSubmissionV1 {
+                venue_identity: "BINANCE".into(),
+                source_identity: "BINANCE_USDM".into(),
+                source_instrument: b"BTCUSDT".to_vec(),
+            }],
+            instrument_class: "CRYPTO_PERPETUAL".into(),
+            base_currency: Some("BTC".into()),
+            quote_currency: Some("USDT".into()),
+            settlement_currency: Some("USDT".into()),
+            margin_currency: Some("USDT".into()),
+            price_increment: InstrumentDecimalSubmissionV1 {
+                mantissa: 1,
+                scale: 1,
+            },
+            quantity_increment: InstrumentDecimalSubmissionV1 {
+                mantissa: 1,
+                scale: 3,
+            },
+            contract_multiplier: InstrumentDecimalSubmissionV1 {
+                mantissa: 1,
+                scale: 0,
+            },
+            calendar_identity: "CRYPTO-CONTINUOUS-V1".into(),
+            session_identity: "CRYPTO-CONTINUOUS-V1".into(),
+            time_zone_identity: "Etc/UTC".into(),
+            lifecycle_frontier: tagged(0x31),
+            corporate_action_frontier: tagged(0x32),
+            historical_membership_frontier: frontier,
+            source_binding: binding.locator().clone(),
+            effective_from: 1,
+            effective_until: None,
+            provider_available: observed,
+            retrieval: observed,
+            correction_publication: observed,
+            owner_observation: observed,
+        })
+        .await
+        .expect("the member's Instrument Master fact is admitted");
+    universe
+        .admit_membership(HistoricalMembershipAdmissionRequestV1 {
+            eligible_instrument_frontier: frontier,
+            members: vec![HistoricalMembershipSubmissionV1 {
+                member_key: WALL_CLOCK_MEMBER.to_owned(),
+                instrument: WALL_CLOCK_MEMBER.to_owned(),
+                effective_from_ns: 1,
+                effective_until_ns: None,
+                provider_available_ns: observed,
+                retrieval_ns: observed,
+                correction_publication_ns: observed,
+                owner_observation_ns: observed,
+                decision_cut: cut,
+                source_binding_lineage_root: binding.lineage_root(),
+                correction_frontier_digest: proposal.correction_frontier.digest,
+            }],
+        })
+        .await
+        .expect("the member's frontier is admitted whole");
 }
 
 /// Market Data's clock head moves between the Owner freezing its first attempt and that attempt's
@@ -1245,11 +1353,13 @@ async fn refreezes_when_the_clock_head_moves() {
         rd,
         market_data,
         intake,
+        universe,
         ports,
         app,
         ..
     } = initial_pit_fixture().await;
-    let scope = [CHAIN_FIXTURE_INSTRUMENT];
+    admit_wall_clock_member(&universe, &intake).await;
+    let scope = [WALL_CLOCK_MEMBER];
     let request = format!("rd-initial-pit-clock-move-{suffix}");
     let accepted = accept(&product_edge, &owner, &request, Some(&scope)).await;
     assert_eq!(
