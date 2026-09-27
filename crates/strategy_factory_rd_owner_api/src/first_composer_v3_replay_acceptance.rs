@@ -156,6 +156,54 @@ impl PitObservationSourceV1 for UniverseMemberDailyBarsV1 {
     }
 }
 
+/// Holds the composed acceptance scheduling resolver and revokes its grants however H8 ends.
+///
+/// While the grants stand, Market Data refuses its own time-zone custody, and the chain store is
+/// shared by every later entry: a panic that skipped the revocation would refuse every replay
+/// composition after it. So a drop that finds the grants still held revokes them on a thread of its
+/// own, since a drop cannot await.
+struct SchedulingGrantsGuardV1(
+    Option<crate::native_replay_scheduling_acceptance::AcceptanceSchedulingResolverV1>,
+);
+
+impl SchedulingGrantsGuardV1 {
+    fn resolver(&self) -> Arc<dyn NativeReplaySchedulingResolverV1> {
+        self.0
+            .as_ref()
+            .expect("the grants are held until revoked")
+            .resolver()
+    }
+
+    async fn revoke(mut self) {
+        if let Some(scheduling) = self.0.take() {
+            scheduling.revoke().await;
+        }
+    }
+}
+
+impl Drop for SchedulingGrantsGuardV1 {
+    fn drop(&mut self) {
+        let Some(scheduling) = self.0.take() else {
+            return;
+        };
+
+        let revoked = std::thread::spawn(move || {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("a runtime for the revocation builds")
+                .block_on(scheduling.revoke());
+        })
+        .join();
+
+        // A second panic while one unwinds aborts the process, so only a clean exit reports it.
+        assert!(
+            revoked.is_ok() || std::thread::panicking(),
+            "the scheduling acceptance grants were not revoked"
+        );
+    }
+}
+
 /// A registry meaning named for this fixture, so no value is borrowed from another entry's.
 fn first_composer_v3_digest(meaning: &str) -> BindingDigest {
     BindingDigest::from_untrusted_bytes(
@@ -563,27 +611,14 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
 
     // The R&D Owner API's own state, as `main` composes it, for the two routes below that read it:
     // the universe-member composition issuance and the COMPOSER_V3 commit.
-    let scheduling =
-        crate::native_replay_scheduling_acceptance::composed_native_replay_scheduling_resolver(
-            test_database,
-        )
-        .await;
-    let instrument_master = Arc::new(
-        instrument_master_v2_postgres_owner_from_environment()
-            .await
-            .expect("Market Data's Instrument Master Owner opens"),
-    );
-    let app = owner_state_routes().with_state(
-        Box::pin(owner_api_state(
-            test_database,
-            &deployment,
-            owner.clone(),
-            token_digest,
-            scheduling.resolver(),
-            instrument_master.clone(),
-        ))
-        .await,
-    );
+    let state = Box::pin(owner_api_state(
+        test_database,
+        &deployment,
+        owner.clone(),
+        token_digest,
+    ))
+    .await;
+    let app = owner_state_routes().with_state(state.clone());
 
     // H6: the universe-member composition binding, over the production route. The Design's role
     // set is the Composer operation's own positive answer; the four authority locators are Market
@@ -688,9 +723,41 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
     // H8: the execution input binding, issued over the production route and read back through the
     // result route. Market Data issues the request's Instrument Master cut and initial-frame sample
     // projection under the Replay's composition binding, and answers the scheduling reads through
-    // the composed resolver.
+    // the resolver the ordered chain composes in place of the Store Admission one. Its ports open
+    // from the deployment environment, as `main` opens them, into a copy of the API state.
+    //
+    // The resolver is composed for H8 only. Its grants give the test principal usage of
+    // `market_data_private`, and while they stand Market Data refuses its own time-zone custody,
+    // which the replay composition Owner verifies on connect and on every issuance. So the copy
+    // carries no replay composition Owner, and the grants are revoked once H8 has read back.
+    let instrument_master = Arc::new(
+        instrument_master_v2_postgres_owner_from_environment()
+            .await
+            .expect("Market Data's Instrument Master Owner opens"),
+    );
+    let mut execution_state = state;
+    execution_state.instrument_master_v2 = Some(instrument_master.clone());
+    execution_state.instrument_economic_terms = Some(Arc::new(
+        instrument_economic_terms_postgres_owner_from_environment_v1()
+            .await
+            .expect("Market Data's instrument economic terms Owner opens"),
+    ));
+    execution_state.universe_sample_projection = Some(Arc::new(
+        universe_sample_projection_owner_from_environment_v1()
+            .await
+            .expect("Market Data's universe sample projection Owner opens"),
+    ));
+    execution_state.replay_composition = None;
+    let scheduling = SchedulingGrantsGuardV1(Some(
+        crate::native_replay_scheduling_acceptance::composed_native_replay_scheduling_resolver(
+            test_database,
+        )
+        .await,
+    ));
+    execution_state.native_replay_scheduling = Some(scheduling.resolver());
+    let execution_app = owner_state_routes().with_state(execution_state);
     let (status, answer) = post(
-        &app,
+        &execution_app,
         "/v2/exploratory-replay/execution-input-bindings",
         Some(serde_json::to_value(&replay_request).expect("the Replay locator serializes")),
     )
@@ -751,16 +818,12 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
 }
 
 /// The R&D Owner API's state for the routes this fixture drives, composed from the deployment the
-/// fixture admitted. Market Data's execution-input ports open from the deployment environment, as
-/// `main` opens them; the scheduling resolver is the one the ordered chain composes in place of the
-/// Store Admission one (`native_replay_scheduling_acceptance`).
+/// fixture admitted. H8 adds the execution-input ports to a copy of it.
 async fn owner_api_state(
     test_database: &CanonicalOwnerPostgresTestDatabaseV1,
     deployment: &ProductEdgeDeploymentAcceptanceFixtureV1,
     owner: Arc<PostgresResearchGoalOwnerV1>,
     token_digest: [u8; 32],
-    native_replay_scheduling: Arc<dyn NativeReplaySchedulingResolverV1>,
-    instrument_master: Arc<InstrumentMasterV2PostgresOwner>,
 ) -> ApiState {
     let rd_url = test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner);
     let develop_composer = Arc::new(
@@ -801,18 +864,10 @@ async fn owner_api_state(
         request_proof_digest: deployment.request_proof_digest.clone(),
         allow_acceptance_faults: false,
         _market_data_research_pit: None,
-        native_replay_scheduling: Some(native_replay_scheduling),
-        instrument_master_v2: Some(instrument_master),
-        instrument_economic_terms: Some(Arc::new(
-            instrument_economic_terms_postgres_owner_from_environment_v1()
-                .await
-                .expect("Market Data's instrument economic terms Owner opens"),
-        )),
-        universe_sample_projection: Some(Arc::new(
-            universe_sample_projection_owner_from_environment_v1()
-                .await
-                .expect("Market Data's universe sample projection Owner opens"),
-        )),
+        native_replay_scheduling: None,
+        instrument_master_v2: None,
+        instrument_economic_terms: None,
+        universe_sample_projection: None,
         develop_composer_read: Some(develop_composer.clone()),
         develop_composer,
         replay_composition: Some(Arc::new(
