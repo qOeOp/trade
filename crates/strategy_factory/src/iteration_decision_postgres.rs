@@ -3823,6 +3823,74 @@ mod postgres_acceptance_tests {
         assert_eq!(counts_after, (1, 1));
     }
 
+    /// The successor froze the projection current for its family's basis, and a projection another
+    /// family's basis admitted is refused where the successor's Artifact build binds it.
+    async fn assert_successor_freezes_its_family_protected_feedback(
+        database: &CanonicalOwnerPostgresTestDatabaseV1,
+        harness: &PersistedReplayPredecessorV1,
+        foreign: &PersistedReplayPredecessorV1,
+        successor: &crate::successor_intent::SuccessorResearchIntentReadbackV1,
+    ) {
+        let qualification = PostgresQualificationOwnerV1::connect(
+            database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+        )
+        .await
+        .expect("Qualification Owner projection custody");
+        let current = qualification
+            .resolve_or_create_for_basis(&harness.independence_basis_locator)
+            .await
+            .expect("current projection for the family's basis");
+        let foreign_projection = qualification
+            .resolve_or_create_for_basis(&foreign.independence_basis_locator)
+            .await
+            .expect("current projection for the foreign family's basis");
+        let intent = successor.intent();
+        assert_eq!(
+            (
+                intent.protected_feedback_projection_identity(),
+                intent.protected_feedback_projection_digest(),
+            ),
+            (current.projection_identity(), current.projection_digest())
+        );
+        assert_ne!(
+            foreign_projection.projection_identity(),
+            current.projection_identity()
+        );
+
+        let mutation = database.mutation();
+        let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+        let mut own = rd_pool.begin().await.expect("own-basis transaction");
+        crate::successor_intent_postgres::verify_successor_protected_feedback_basis_in_transaction(
+            &mut own,
+            intent.independence_basis_identity(),
+            intent.independence_basis_digest(),
+            intent.protected_feedback_projection_identity(),
+            intent.protected_feedback_projection_digest(),
+        )
+        .await
+        .expect("the successor's own projection is its family basis's");
+        own.rollback().await.expect("own-basis rollback");
+
+        let mut crossed = rd_pool.begin().await.expect("foreign-basis transaction");
+        let refused =
+            crate::successor_intent_postgres::verify_successor_protected_feedback_basis_in_transaction(
+                &mut crossed,
+                intent.independence_basis_identity(),
+                intent.independence_basis_digest(),
+                foreign_projection.projection_identity(),
+                foreign_projection.projection_digest(),
+            )
+            .await
+            .expect_err("another family's projection must not bind this successor");
+        assert!(
+            refused.to_string().contains(
+                crate::successor_intent_postgres::SUCCESSOR_PROTECTED_FEEDBACK_FOREIGN_BASIS_COORDINATE_V1
+            ),
+            "{refused}"
+        );
+        crossed.rollback().await.expect("foreign-basis rollback");
+    }
+
     #[tokio::test]
     #[ignore = "requires the canonical disposable R&D and Backtest Owner PostgreSQL topology"]
     async fn successor_artifact_enters_exploratory_replay_with_exact_owner_custody() {
@@ -3965,16 +4033,60 @@ mod postgres_acceptance_tests {
             .expect("successor Product Edge admission")
             .locator()
             .clone();
-        let rejected = crate::successor_intent_postgres::compose_successor_research_intent_v1(
-            rd_pool,
-            successor_operation
-                .clone()
-                .with_admission(placeholder_product_edge_admission(
-                    &successor_operation.request_identity,
-                )),
-        )
-        .await;
+        let rejected = harness
+            .owner
+            .compose_successor_research_intent_v1(successor_operation.clone().with_admission(
+                placeholder_product_edge_admission(&successor_operation.request_identity),
+            ))
+            .await;
         assert!(rejected.is_err());
+        // Another operator's family, whose principal and scope are not this family's: its Product
+        // Edge admits a successor request for this Decision, and the successor must not freeze this
+        // family's protected feedback for it.
+        let foreign = Box::pin(persist_repair_replay_predecessor(
+            &database,
+            &market_data_evidence,
+            &format!("{suffix}-foreign"),
+        ))
+        .await;
+        let foreign_operation = SuccessorResearchIntentOperationRequestV1 {
+            request_identity: format!("successor-intent-request-{suffix}-foreign-principal"),
+            ..successor_operation.clone()
+        };
+        let foreign_admission = foreign
+            .edge
+            .admit_request(ProductEdgeAdmissionRequestV1 {
+                request_identity: foreign_operation.request_identity.clone(),
+                typed_payload: serde_json::to_value(&foreign_operation)
+                    .expect("foreign successor typed payload"),
+                operation: SUCCESSOR_RESEARCH_INTENT_OPERATION_V1.to_string(),
+                operation_schema: SUCCESSOR_RESEARCH_INTENT_SCHEMA_V1.to_string(),
+                target_owner: RESEARCH_OWNER_V1.to_string(),
+                requested_effects: vec![SUCCESSOR_RESEARCH_INTENT_MUTATION_EFFECT_V1.to_string()],
+                request_proof_digest: foreign.request_proof_digest.clone(),
+                audit_correlation: format!("test:{}", foreign_operation.request_identity),
+            })
+            .await
+            .expect("foreign successor Product Edge admission")
+            .locator()
+            .clone();
+        let foreign_principal = harness
+            .owner
+            .compose_successor_research_intent_v1(
+                foreign_operation.with_admission(foreign_admission),
+            )
+            .await
+            .expect_err("another principal's successor must not freeze this family's feedback");
+        assert!(
+            matches!(
+                foreign_principal,
+                crate::SuccessorResearchIntentPostgresErrorV1::Intent(
+                    crate::successor_intent::SuccessorResearchIntentErrorV1::Invalid(reason)
+                ) if reason
+                    == crate::successor_intent_postgres::SUCCESSOR_PROTECTED_FEEDBACK_PRINCIPAL_SCOPE_REFUSAL_V1
+            ),
+            "{foreign_principal}"
+        );
         let counts_after_rejection: (i64, i64) = sqlx::query_as(
             "SELECT (SELECT COUNT(*) FROM rd_successor_research_intents_v1), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind='SUCCESSOR_RESEARCH_INTENT_COMMITTED_V1')",
         )
@@ -3982,21 +4094,27 @@ mod postgres_acceptance_tests {
         .await
         .expect("successor rejection counts");
         assert_eq!(counts_after_rejection, (0, 0));
-        let successor = crate::successor_intent_postgres::compose_successor_research_intent_v1(
-            rd_pool,
-            successor_operation
-                .clone()
-                .with_admission(successor_admission.clone()),
-        )
-        .await
-        .expect("successor Intent custody");
-        let retry = crate::successor_intent_postgres::compose_successor_research_intent_v1(
-            rd_pool,
-            successor_operation.with_admission(successor_admission),
-        )
-        .await
-        .expect("exact successor retry");
+        let successor = harness
+            .owner
+            .compose_successor_research_intent_v1(
+                successor_operation
+                    .clone()
+                    .with_admission(successor_admission.clone()),
+            )
+            .await
+            .expect("successor Intent custody");
+        let retry = harness
+            .owner
+            .compose_successor_research_intent_v1(
+                successor_operation.with_admission(successor_admission),
+            )
+            .await
+            .expect("exact successor retry");
         assert_eq!(retry, successor);
+        assert_successor_freezes_its_family_protected_feedback(
+            &database, &harness, &foreign, &successor,
+        )
+        .await;
         let counts_after_retry: (i64, i64) = sqlx::query_as(
             "SELECT (SELECT COUNT(*) FROM rd_successor_research_intents_v1), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind='SUCCESSOR_RESEARCH_INTENT_COMMITTED_V1')",
         )

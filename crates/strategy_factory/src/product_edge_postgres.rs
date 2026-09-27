@@ -1990,8 +1990,12 @@ impl PostgresResearchGoalOwnerV1 {
         crate::successor_intent::SuccessorResearchIntentReadbackV1,
         crate::SuccessorResearchIntentPostgresErrorV1,
     > {
-        crate::successor_intent_postgres::compose_successor_research_intent_v1(&self.pool, request)
-            .await
+        crate::successor_intent_postgres::compose_successor_research_intent_v1(
+            &self.pool,
+            &self.qualification,
+            request,
+        )
+        .await
     }
 
     /// Resolves exact successor Intent custody without creating first custody.
