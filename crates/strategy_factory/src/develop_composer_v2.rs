@@ -269,6 +269,30 @@ pub(crate) struct ResearchRunViewV1 {
     pub(crate) read_cut_epoch_ms: u64,
 }
 
+impl ResearchRunViewV1 {
+    /// The canonical bytes the Composer store keeps for the View: the View's own serialization,
+    /// which the store holds as opaque bytes and never interprets.
+    pub(crate) fn view_bytes(&self) -> Vec<u8> {
+        serde_json::to_vec(&self.view).expect("Research View serialization")
+    }
+
+    /// Reads a recorded run View back. The bytes must decode as exactly one View and be that
+    /// View's canonical encoding, so a record can only name a View this code would have written.
+    pub(crate) fn from_recorded(view_bytes: &[u8], read_cut_epoch_ms: u64) -> Result<Self, String> {
+        let view: ResearchViewV1 = serde_json::from_slice(view_bytes)
+            .map_err(|e| format!("Composer run view is malformed: {e}"))?;
+        let run_view = Self {
+            view,
+            read_cut_epoch_ms,
+        };
+
+        if run_view.view_bytes() != view_bytes {
+            return Err("Composer run view is not the canonical View encoding".to_owned());
+        }
+        Ok(run_view)
+    }
+}
+
 impl CurrentResearchDevelopCustodyV2 {
     pub(crate) fn request_locator(&self) -> &str {
         &self.request_locator
@@ -1356,5 +1380,21 @@ mod successor_custody_tests {
             later.run_view().map(|run_view| run_view.read_cut_epoch_ms),
             Some(719)
         );
+
+        // What the store keeps reads back as the same run View, and only its canonical encoding
+        // does: the same View re-serialized with other whitespace is refused.
+        let recorded = admitted
+            .run_view()
+            .expect("a verified custody carries its run View");
+        assert_eq!(
+            ResearchRunViewV1::from_recorded(&recorded.view_bytes(), 121).as_ref(),
+            Ok(recorded)
+        );
+        let pretty = serde_json::to_vec_pretty(&recorded.view).unwrap();
+        assert_eq!(
+            ResearchRunViewV1::from_recorded(&pretty, 121),
+            Err("Composer run view is not the canonical View encoding".to_owned())
+        );
+        assert!(ResearchRunViewV1::from_recorded(b"{}", 121).is_err());
     }
 }

@@ -117,22 +117,22 @@ const COMPOSER_OWNER_API_FUNCTION_COUNT_V2: i64 = 13;
 const COMPOSER_OWNER_API_FUNCTION_COUNT_V2: i64 = 11;
 const COMMIT_CUT_FUNCTION_V2: &str = "composer_owner_api.lock_develop_composer_commit_cut_v2(text)";
 const RUN_VIEW_RECORD_FUNCTION_V1: &str =
-    "composer_owner_api.record_develop_composer_run_view_v1(text,jsonb,bigint)";
+    "composer_owner_api.record_develop_composer_run_view_v1(text,bytea,bigint)";
 const RUN_VIEW_RECORD_QUERY_V1: &str =
     "SELECT composer_owner_api.record_develop_composer_run_view_v1($1,$2,$3)";
 const RUN_VIEW_RECORD_FUNCTION_SOURCE_V1: &str = "BEGIN
   IF SESSION_USER NOT IN ('rd_fact_writer','rd_owner') THEN RAISE EXCEPTION 'R&D Composer writer required' USING ERRCODE='42501'; END IF;
-  IF pg_catalog.jsonb_typeof(p_research_view)<>'object' OR p_read_cut_epoch_ms<0 THEN RAISE EXCEPTION 'Composer run view is malformed' USING ERRCODE='22023'; END IF;
+  IF octet_length(p_research_view)=0 OR p_read_cut_epoch_ms<0 THEN RAISE EXCEPTION 'Composer run view is malformed' USING ERRCODE='22023'; END IF;
   UPDATE composer_private.rd_develop_operations_v2 operation
-     SET run_research_view_json=p_research_view, run_read_cut_epoch_ms=p_read_cut_epoch_ms
+     SET run_research_view_bytes=p_research_view, run_read_cut_epoch_ms=p_read_cut_epoch_ms
    WHERE operation.request_identity=p_request_identity
-     AND operation.run_research_view_json IS NULL
+     AND operation.run_research_view_bytes IS NULL
      AND operation.run_read_cut_epoch_ms IS NULL;
   IF FOUND THEN RETURN; END IF;
   PERFORM operation.request_identity
     FROM composer_private.rd_develop_operations_v2 operation
    WHERE operation.request_identity=p_request_identity
-     AND operation.run_research_view_json IS NOT NULL
+     AND operation.run_research_view_bytes IS NOT NULL
      AND operation.run_read_cut_epoch_ms IS NOT NULL;
   IF NOT FOUND THEN RAISE EXCEPTION 'Composer operation is absent or half recorded' USING ERRCODE='P0002'; END IF;
 END";
@@ -142,7 +142,7 @@ const RUN_VIEW_READ_QUERY_V1: &str = "SELECT research_view,read_cut_epoch_ms FRO
 const RUN_VIEW_READ_FUNCTION_SOURCE_V1: &str = "BEGIN
   IF SESSION_USER<>'rd_owner' OR CURRENT_USER<>'composer_owner' THEN RAISE EXCEPTION 'R&D Owner required' USING ERRCODE='42501'; END IF;
   RETURN QUERY
-  SELECT operation.run_research_view_json,operation.run_read_cut_epoch_ms
+  SELECT operation.run_research_view_bytes,operation.run_read_cut_epoch_ms
     FROM composer_private.rd_develop_operations_v2 operation
    WHERE operation.request_identity=p_request_identity;
 END";
@@ -2168,7 +2168,7 @@ async fn verify_composer_read_authority_in_transaction(
         "rd_develop_operations_v2:5:artifact_identity:bytea:true:",
         "rd_develop_operations_v2:6:canonical_receipt_bytes:bytea:true:",
         "rd_develop_operations_v2:7:response_bytes:bytea:true:",
-        "rd_develop_operations_v2:8:run_research_view_json:jsonb:false:",
+        "rd_develop_operations_v2:8:run_research_view_bytes:bytea:false:",
         "rd_develop_operations_v2:9:run_read_cut_epoch_ms:bigint:false:",
         "rd_develop_outbox_v2:1:request_identity:text:true:",
         "rd_develop_outbox_v2:2:canonical_bytes:bytea:true:",
@@ -4349,10 +4349,7 @@ async fn record_run_view(
         .map_err(|_| sqlx::Error::Protocol("Composer run read cut overflows".to_owned()))?;
     sqlx::query(RUN_VIEW_RECORD_QUERY_V1)
         .bind(request_identity)
-        .bind(
-            serde_json::to_value(&run_view.view)
-                .map_err(|e| sqlx::Error::Protocol(e.to_string()))?,
-        )
+        .bind(run_view.view_bytes())
         .bind(read_cut)
         .execute(&mut **transaction)
         .await?;
@@ -4384,30 +4381,17 @@ pub(crate) async fn load_run_view_in_transaction(
             "Composer run view does not name exactly one operation".to_owned(),
         ));
     };
-    let view: Option<serde_json::Value> = row.try_get("research_view")?;
+    let view: Option<Vec<u8>> = row.try_get("research_view")?;
     let read_cut: Option<i64> = row.try_get("read_cut_epoch_ms")?;
     match (view, read_cut) {
         (None, None) => Ok(DevelopComposerRunViewRecordV1::Unrecorded),
         (Some(view), Some(read_cut)) => {
-            let decoded: crate::product_edge::ResearchViewV1 = serde_json::from_value(view.clone())
-                .map_err(|e| {
-                    sqlx::Error::Protocol(format!("Composer run view is malformed: {e}"))
-                })?;
-
-            if serde_json::to_value(&decoded).ok().as_ref() != Some(&view) {
-                return Err(sqlx::Error::Protocol(
-                    "Composer run view is not the canonical View encoding".to_owned(),
-                ));
-            }
             let read_cut_epoch_ms = u64::try_from(read_cut).map_err(|_| {
                 sqlx::Error::Protocol("Composer run read cut is negative".to_owned())
             })?;
-            Ok(DevelopComposerRunViewRecordV1::Recorded(Box::new(
-                crate::develop_composer_v2::ResearchRunViewV1 {
-                    view: decoded,
-                    read_cut_epoch_ms,
-                },
-            )))
+            crate::develop_composer_v2::ResearchRunViewV1::from_recorded(&view, read_cut_epoch_ms)
+                .map(|run_view| DevelopComposerRunViewRecordV1::Recorded(Box::new(run_view)))
+                .map_err(sqlx::Error::Protocol)
         }
         _ => Err(sqlx::Error::Protocol(
             "Composer run view is half recorded".to_owned(),

@@ -4595,9 +4595,9 @@ BEGIN
      AND attribute.attnum>0 AND NOT attribute.attisdropped;
   IF columns=ARRAY['request_identity:text:true','request_digest:bytea:true','research_request_identity:bytea:true','intent_identity:bytea:true','artifact_identity:bytea:true','canonical_receipt_bytes:bytea:true','response_bytes:bytea:true']::text[] THEN
     ALTER TABLE composer_private.rd_develop_operations_v2
-      ADD COLUMN run_research_view_json JSONB,
+      ADD COLUMN run_research_view_bytes BYTEA,
       ADD COLUMN run_read_cut_epoch_ms BIGINT;
-  ELSIF columns<>ARRAY['request_identity:text:true','request_digest:bytea:true','research_request_identity:bytea:true','intent_identity:bytea:true','artifact_identity:bytea:true','canonical_receipt_bytes:bytea:true','response_bytes:bytea:true','run_research_view_json:jsonb:false','run_read_cut_epoch_ms:bigint:false']::text[] THEN
+  ELSIF columns<>ARRAY['request_identity:text:true','request_digest:bytea:true','research_request_identity:bytea:true','intent_identity:bytea:true','artifact_identity:bytea:true','canonical_receipt_bytes:bytea:true','response_bytes:bytea:true','run_research_view_bytes:bytea:false','run_read_cut_epoch_ms:bigint:false']::text[] THEN
     RAISE EXCEPTION 'unsupported rd_develop_operations_v2 shape';
   END IF;
 END
@@ -5453,35 +5453,35 @@ GRANT EXECUTE ON FUNCTION composer_owner_api.lock_develop_composer_commit_cut_v2
 -- A committed Composer run records the Research View it ran under and the read cut it ran at, so
 -- its readback can re-derive it after that View expires or moves on. Nothing but the recorder
 -- writes them, and it writes them once: a later commit of the same operation keeps the first.
-CREATE OR REPLACE FUNCTION composer_owner_api.record_develop_composer_run_view_v1(p_request_identity text, p_research_view jsonb, p_read_cut_epoch_ms bigint)
+CREATE OR REPLACE FUNCTION composer_owner_api.record_develop_composer_run_view_v1(p_request_identity text, p_research_view bytea, p_read_cut_epoch_ms bigint)
 RETURNS void
 LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp AS $composer_run_view_record$BEGIN
   IF SESSION_USER NOT IN ('rd_fact_writer','rd_owner') THEN RAISE EXCEPTION 'R&D Composer writer required' USING ERRCODE='42501'; END IF;
-  IF pg_catalog.jsonb_typeof(p_research_view)<>'object' OR p_read_cut_epoch_ms<0 THEN RAISE EXCEPTION 'Composer run view is malformed' USING ERRCODE='22023'; END IF;
+  IF octet_length(p_research_view)=0 OR p_read_cut_epoch_ms<0 THEN RAISE EXCEPTION 'Composer run view is malformed' USING ERRCODE='22023'; END IF;
   UPDATE composer_private.rd_develop_operations_v2 operation
-     SET run_research_view_json=p_research_view, run_read_cut_epoch_ms=p_read_cut_epoch_ms
+     SET run_research_view_bytes=p_research_view, run_read_cut_epoch_ms=p_read_cut_epoch_ms
    WHERE operation.request_identity=p_request_identity
-     AND operation.run_research_view_json IS NULL
+     AND operation.run_research_view_bytes IS NULL
      AND operation.run_read_cut_epoch_ms IS NULL;
   IF FOUND THEN RETURN; END IF;
   PERFORM operation.request_identity
     FROM composer_private.rd_develop_operations_v2 operation
    WHERE operation.request_identity=p_request_identity
-     AND operation.run_research_view_json IS NOT NULL
+     AND operation.run_research_view_bytes IS NOT NULL
      AND operation.run_read_cut_epoch_ms IS NOT NULL;
   IF NOT FOUND THEN RAISE EXCEPTION 'Composer operation is absent or half recorded' USING ERRCODE='P0002'; END IF;
 END$composer_run_view_record$;
-ALTER FUNCTION composer_owner_api.record_develop_composer_run_view_v1(text,jsonb,bigint) OWNER TO composer_owner;
-REVOKE ALL ON FUNCTION composer_owner_api.record_develop_composer_run_view_v1(text,jsonb,bigint) FROM PUBLIC, rd_owner, rd_fact_writer, market_data_owner, market_data_reader;
-GRANT EXECUTE ON FUNCTION composer_owner_api.record_develop_composer_run_view_v1(text,jsonb,bigint) TO rd_owner, rd_fact_writer;
+ALTER FUNCTION composer_owner_api.record_develop_composer_run_view_v1(text,bytea,bigint) OWNER TO composer_owner;
+REVOKE ALL ON FUNCTION composer_owner_api.record_develop_composer_run_view_v1(text,bytea,bigint) FROM PUBLIC, rd_owner, rd_fact_writer, market_data_owner, market_data_reader;
+GRANT EXECUTE ON FUNCTION composer_owner_api.record_develop_composer_run_view_v1(text,bytea,bigint) TO rd_owner, rd_fact_writer;
 CREATE OR REPLACE FUNCTION composer_owner_api.read_develop_composer_run_view_v1(p_request_identity text)
-RETURNS TABLE (research_view jsonb, read_cut_epoch_ms bigint)
+RETURNS TABLE (research_view bytea, read_cut_epoch_ms bigint)
 LANGUAGE plpgsql STRICT STABLE PARALLEL UNSAFE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp AS $composer_run_view_read$BEGIN
   IF SESSION_USER<>'rd_owner' OR CURRENT_USER<>'composer_owner' THEN RAISE EXCEPTION 'R&D Owner required' USING ERRCODE='42501'; END IF;
   RETURN QUERY
-  SELECT operation.run_research_view_json,operation.run_read_cut_epoch_ms
+  SELECT operation.run_research_view_bytes,operation.run_read_cut_epoch_ms
     FROM composer_private.rd_develop_operations_v2 operation
    WHERE operation.request_identity=p_request_identity;
 END$composer_run_view_read$;
@@ -5554,7 +5554,7 @@ GRANT EXECUTE ON FUNCTION composer_owner_api.commit_develop_composer_acceptance_
 GRANT EXECUTE ON FUNCTION composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea), composer_owner_api.resolve_strategy_design_native_join_v1(text,integer,bytea,text,bytea,bytea,bytea) TO market_data_reader;
 GRANT EXECUTE ON FUNCTION composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea) TO rd_owner;
 GRANT EXECUTE ON FUNCTION composer_owner_api.lock_replay_composition_cut_v1(text) TO market_data_reader, market_data_owner;
-GRANT EXECUTE ON FUNCTION composer_owner_api.record_develop_composer_run_view_v1(text,jsonb,bigint) TO rd_owner, rd_fact_writer;
+GRANT EXECUTE ON FUNCTION composer_owner_api.record_develop_composer_run_view_v1(text,bytea,bigint) TO rd_owner, rd_fact_writer;
 GRANT EXECUTE ON FUNCTION composer_owner_api.read_develop_composer_run_view_v1(text) TO rd_owner;
 \if :composer_acceptance
 SELECT pg_catalog.set_config('vibe.migration.install_composer_acceptance','true',true);
@@ -5642,7 +5642,7 @@ $catalog_audit_read$
       pg_catalog.to_regprocedure('composer_owner_api.resolve_develop_composer_locator_for_replay_v2(text,bytea,bytea,bytea)'),
       pg_catalog.to_regprocedure('composer_owner_api.resolve_artifact_build_receipts_v1(bytea)'),
       pg_catalog.to_regprocedure('composer_owner_api.lock_develop_composer_commit_cut_v2(text)'),
-      pg_catalog.to_regprocedure('composer_owner_api.record_develop_composer_run_view_v1(text,jsonb,bigint)'),
+      pg_catalog.to_regprocedure('composer_owner_api.record_develop_composer_run_view_v1(text,bytea,bigint)'),
       pg_catalog.to_regprocedure('composer_owner_api.read_develop_composer_run_view_v1(text)'),
       pg_catalog.to_regprocedure('composer_owner_api.lock_replay_composition_cut_v1(text)'),
       pg_catalog.to_regprocedure('composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea)'),
@@ -5657,9 +5657,9 @@ $catalog_audit_read$
     AND pg_catalog.has_function_privilege('rd_owner','composer_owner_api.commit_develop_composer_v3(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,integer[])','EXECUTE')
     AND pg_catalog.has_function_privilege('rd_owner','composer_owner_api.lock_develop_composer_commit_cut_v2(text)','EXECUTE')
     AND NOT pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.lock_develop_composer_commit_cut_v2(text)','EXECUTE')
-    AND pg_catalog.has_function_privilege('rd_owner','composer_owner_api.record_develop_composer_run_view_v1(text,jsonb,bigint)','EXECUTE')
-    AND pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.record_develop_composer_run_view_v1(text,jsonb,bigint)','EXECUTE')
-    AND NOT pg_catalog.has_function_privilege('market_data_reader','composer_owner_api.record_develop_composer_run_view_v1(text,jsonb,bigint)','EXECUTE')
+    AND pg_catalog.has_function_privilege('rd_owner','composer_owner_api.record_develop_composer_run_view_v1(text,bytea,bigint)','EXECUTE')
+    AND pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.record_develop_composer_run_view_v1(text,bytea,bigint)','EXECUTE')
+    AND NOT pg_catalog.has_function_privilege('market_data_reader','composer_owner_api.record_develop_composer_run_view_v1(text,bytea,bigint)','EXECUTE')
     AND pg_catalog.has_function_privilege('rd_owner','composer_owner_api.read_develop_composer_run_view_v1(text)','EXECUTE')
     AND NOT pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.read_develop_composer_run_view_v1(text)','EXECUTE')
     AND NOT pg_catalog.has_function_privilege('market_data_reader','composer_owner_api.read_develop_composer_run_view_v1(text)','EXECUTE')
