@@ -51,6 +51,13 @@ BEFORE_BUILD_NARROW_SKIP = (
     "cargo-doc",
     "cargo-machete",
 )
+# Compiled hooks added since, which the old pre-commit-pr command would have skipped as it skipped
+# the five above: that job's skip list was the list of hooks that compile the workspace, and it has
+# no Rust cache, so a compiled hook there costs a cold build on every pull request. Each one is run
+# by build.yml's job on both routes; on the narrow route over the diff, which loses nothing only
+# because every file that triggers it routes a pull request to the full route (test-plan.sh cases
+# disallowed_lint_config and connect_guard_script). A hook is named here only with that routing case.
+COMPILED_SINCE = ("test-disallowed-connect-guard",)
 ALL_FILES, DIFF = "all files", "the diff"
 RANK = {None: 0, DIFF: 1, ALL_FILES: 2}
 
@@ -121,7 +128,15 @@ def scope_args(runner: Path, scope: str) -> list[str]:
 
 def check(root: Path, runner: Path) -> list[str]:
     ids = hook_ids(root / ".pre-commit-config.yaml")
-    no_skip = [arg for hook in BEFORE_PRE_COMMIT_PR_SKIP for arg in ("--skip", hook)]
+    compiled_since = [hook for hook in COMPILED_SINCE if hook in ids]
+    if compiled_since != list(COMPILED_SINCE):
+        raise SystemExit(
+            f"ERROR: COMPILED_SINCE names hooks .pre-commit-config.yaml does not have: "
+            f"{sorted(set(COMPILED_SINCE) - set(ids))}",
+        )
+    no_skip = [
+        arg for hook in (*BEFORE_PRE_COMMIT_PR_SKIP, *COMPILED_SINCE) for arg in ("--skip", hook)
+    ]
     narrow_skip = [arg for hook in BEFORE_BUILD_NARROW_SKIP for arg in ("--skip", hook)]
     before_pre_commit_pr = coverage_of(["--all-files", *no_skip], ids, "BEFORE")
     before = {
@@ -129,14 +144,22 @@ def check(root: Path, runner: Path) -> list[str]:
         "narrow": union(coverage_of(narrow_skip, ids, "BEFORE"), before_pre_commit_pr),
     }
     now_pre_commit_pr = coverage_of(scope_args(runner, "no-compile"), ids, "no-compile")
-    now = {
-        route: union(
-            now_pre_commit_pr,
-            coverage_of(scope_args(runner, f"pull-request-{route}"), ids, f"pull-request-{route}"),
+    now_build = {
+        route: coverage_of(
+            scope_args(runner, f"pull-request-{route}"),
+            ids,
+            f"pull-request-{route}",
         )
         for route in before
     }
-    failures = []
+    now = {route: union(now_pre_commit_pr, now_build[route]) for route in before}
+    failures = [
+        f"`{hook}` is in COMPILED_SINCE, so it must run in build.yml's pre-commit job and not in "
+        f"pre-commit-pr.yml, and on the {route} route it does not."
+        for hook in COMPILED_SINCE
+        for route in before
+        if now_build[route].get(hook) is None or hook in now_pre_commit_pr
+    ]
     for route, expected in before.items():
         for hook in ids:
             was, is_now = expected.get(hook), now[route].get(hook)

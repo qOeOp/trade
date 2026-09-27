@@ -304,6 +304,37 @@ repos:
             \.github/workflows/(docs-pages|product-packages|bilibili-note-mcp)\.yml
           )$
         pass_filenames: false
+      - id: check-connect-guard-plant
+        name: refuse a left-behind connection-guard plant
+        description: A killed self-test of the connection guard cannot remove what it planted
+        # scripts/ci/check-disallowed-connect-outside-union.bash's `plant_marker`, which only its
+        # plants contain; change both together (test-connect-guard-plant checks they agree).
+        entry: planted_direct_connect_for_check_disallowed_connect_outside_union
+        language: pygrep
+        files: \.rs$
+      - id: test-connect-guard-plant
+        name: test the connection-guard plant refusal
+        description: The refusal matches both plants the guard's self-tests write, and nothing else
+        entry: python3 -B scripts/ci/connect_guard_plant_test.py
+        language: system
+        files: >-
+          (?x)^(
+            \.pre-commit-config\.yaml|
+            scripts/ci/check-disallowed-connect-outside-union\.bash|
+            scripts/ci/connect_guard_plant_test\.py
+          )$
+        pass_filenames: false
+      - id: test-connect-guard-reading
+        name: test how the connection guard reads cargo
+        description: A refused plant passes the self-test; a real connection fails by count, not as a failed build
+        entry: bash scripts/ci/test-check-disallowed-connect-outside-union.bash
+        language: system
+        files: >-
+          (?x)^(
+            scripts/ci/(check-disallowed-connect-outside-union|test-check-disallowed-connect-outside-union|sealed-feature-union)\.bash|
+            scripts/lib/git-isolation\.bash
+          )$
+        pass_filenames: false
       - id: test-chain-verdict-reuse
         name: test chain verdict reuse
         description: Only the same tree's green whole-chain verdict for its entry count is reused
@@ -540,6 +571,22 @@ repos:
         files: "\\.(rs|toml)$"
         exclude: ^services/bilibili-note-mcp/
         types: [file]
+        pass_filenames: false
+      - id: test-disallowed-connect-guard
+        name: self-test the connection guard outside the sealed union
+        description: A direct connection planted under owner-recovery must be refused by name
+        # Compiles the workspace under every out-of-union acceptance and recovery feature (about 34 s
+        # warm), so it is a COMPILED hook (scripts/ci/run-pre-commit.bash). `--self-test-bisect`
+        # takes about 9 minutes and stays a manual run. GIT_* is inherited on purpose: the plant is
+        # restored from the index this commit uses.
+        entry: bash scripts/ci/check-disallowed-connect-outside-union.bash --self-test
+        language: system
+        files: >-
+          (?x)^(
+            clippy\.toml|
+            scripts/ci/check-disallowed-connect-outside-union\.bash|
+            scripts/ci/sealed-feature-union\.bash
+          )$
         pass_filenames: false
       - id: cargo-machete
         name: cargo machete

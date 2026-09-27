@@ -160,18 +160,25 @@ impl SharedTimeEvidenceBindingV1 {
             clock_identity: handoff.clock_identity().to_string(),
             clock_epoch: handoff.clock_epoch().to_string(),
             monotonic_sequence: handoff.monotonic_sequence(),
-            wall_observed_epoch_ms: handoff.wall_observed(),
-            decision_cut_epoch_ms: handoff.decision_cut(),
-            valid_through_epoch_ms: handoff.valid_through(),
+            // This projection is in epoch milliseconds, and it is compared with rights and
+            // retention windows whose bounds are whole milliseconds. Each Market Data instant is
+            // stored as the millisecond it falls in: against a whole-millisecond bound that is
+            // exact in both directions (`t >= B·10⁶` holds exactly when `⌊t / 10⁶⌋ >= B`). The
+            // bounds on how far the clock may be off are rounded up, so a conversion only ever
+            // widens them.
+            wall_observed_epoch_ms: handoff.wall_observed().to_epoch_millis_floor(),
+            decision_cut_epoch_ms: handoff.decision_cut().to_epoch_millis_floor(),
+            valid_through_epoch_ms: handoff.valid_through().to_epoch_millis_floor(),
             restart_continuity_digest: digest(handoff.restart_continuity_digest().as_bytes()),
-            uncertainty_bound_ms: handoff.uncertainty_bound(),
-            skew_bound_ms: handoff.skew_bound(),
+            uncertainty_bound_ms: handoff.uncertainty_bound().to_millis_ceil(),
+            skew_bound_ms: handoff.skew_bound().to_millis_ceil(),
             comparison_rule: "EXCLUSIVE_VALID_THROUGH".into(),
             predecessor_head_digest: proof
                 .map(|value| digest(value.predecessor_head_digest().as_bytes())),
             epoch_successor_proof_identity: proof
                 .map(|value| digest(value.proof_identity().as_bytes())),
-            successor_proof_commit_cut_epoch_ms: proof.map(|value| value.commit_cut()),
+            successor_proof_commit_cut_epoch_ms: proof
+                .map(|value| value.commit_cut().to_epoch_millis_floor()),
         })
     }
 }

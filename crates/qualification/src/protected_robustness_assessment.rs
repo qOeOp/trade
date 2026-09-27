@@ -3,7 +3,8 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 use vibe_backtest_owner_contracts::{
-    DiagnosticCategoryV2, ProtectedCellApplicabilityObservationV3, ProtectedEconomicAggregationV1,
+    DiagnosticCategoryV2, MarketDataEpochNanosV1, MarketDataNanosV1,
+    ProtectedCellApplicabilityObservationV3, ProtectedEconomicAggregationV1,
     ProtectedEconomicComparisonV1, ProtectedEconomicMeasurementV1, ProtectedEconomicPolicyBundleV1,
     ProtectedEvaluationComparisonRuleV1, ProtectedEvaluationEpochSuccessorProofV1,
     ProtectedEvaluationStageV1, ProtectedEvaluationTimeEvidenceV1,
@@ -661,7 +662,7 @@ fn form_assessment_v1(
         .validate_assessment_successor_of(result_time)
         .map_err(contract)?;
 
-    if committed_at_epoch_ms >= assessment_time_evidence.valid_through {
+    if assessment_time_evidence.is_expired_at_epoch_ms(committed_at_epoch_ms) {
         return Err(unavailable(
             "protected assessment time evidence expired before commit",
         ));
@@ -968,6 +969,14 @@ fn form_invalid_disposition(
     })
 }
 
+/// The closing edge of an Eligibility Fact's window: the assessment head's exclusive validity
+/// bound, which is Market Data epoch nanoseconds, floored to the epoch millisecond it falls in, so
+/// the window ends no later than the head it rests on. Rounding up would let the Fact outlive its
+/// head by up to a millisecond.
+fn eligibility_valid_through_epoch_ms(assessment_time: &ProtectedEvaluationTimeEvidenceV1) -> u64 {
+    assessment_time.valid_through.to_epoch_millis_floor()
+}
+
 fn form_ineligible_fact(
     assessment: ProtectedRobustnessAssessmentV1,
     request_set: &ProtectedReplayRequestSetSealDtoV1,
@@ -1030,7 +1039,9 @@ fn form_ineligible_fact(
         holdout_treatment_policy_digest: treatment.digest().to_string(),
         predecessor_eligibility_identity: None,
         effective_from_epoch_ms: committed_at_epoch_ms,
-        valid_through_epoch_ms: assessment.assessment_time_evidence.valid_through,
+        valid_through_epoch_ms: eligibility_valid_through_epoch_ms(
+            &assessment.assessment_time_evidence,
+        ),
         committed_at_epoch_ms,
     };
     eligibility.eligibility_digest = canonical_digest(
@@ -1176,7 +1187,9 @@ fn form_qualified_fact(
         holdout_treatment_policy_digest: treatment.digest().to_string(),
         predecessor_eligibility_identity: None,
         effective_from_epoch_ms: committed_at_epoch_ms,
-        valid_through_epoch_ms: assessment.assessment_time_evidence.valid_through,
+        valid_through_epoch_ms: eligibility_valid_through_epoch_ms(
+            &assessment.assessment_time_evidence,
+        ),
         committed_at_epoch_ms,
     };
     eligibility.eligibility_digest = canonical_digest(
@@ -1273,12 +1286,18 @@ fn assessment_time_evidence(
         clock_identity: handoff.clock_identity().to_string(),
         clock_epoch: handoff.clock_epoch().to_string(),
         monotonic_sequence: handoff.monotonic_sequence(),
-        wall_observed: handoff.wall_observed(),
-        decision_cut: handoff.decision_cut(),
-        valid_through: handoff.valid_through(),
+        wall_observed: MarketDataEpochNanosV1::from_epoch_nanos(
+            handoff.wall_observed().as_epoch_nanos(),
+        ),
+        decision_cut: MarketDataEpochNanosV1::from_epoch_nanos(
+            handoff.decision_cut().as_epoch_nanos(),
+        ),
+        valid_through: MarketDataEpochNanosV1::from_epoch_nanos(
+            handoff.valid_through().as_epoch_nanos(),
+        ),
         restart_continuity_digest: *handoff.restart_continuity_digest().as_bytes(),
-        uncertainty_bound: handoff.uncertainty_bound(),
-        skew_bound: handoff.skew_bound(),
+        uncertainty_bound: MarketDataNanosV1::from_nanos(handoff.uncertainty_bound().as_nanos()),
+        skew_bound: MarketDataNanosV1::from_nanos(handoff.skew_bound().as_nanos()),
         comparison_rule: match handoff.comparison_rule() {
             ClockHeadComparisonRule::ExclusiveValidThrough => {
                 ProtectedEvaluationComparisonRuleV1::ExclusiveValidThrough
@@ -1296,7 +1315,9 @@ fn assessment_time_evidence(
                 successor_clock_identity: proof.successor_clock_identity().to_string(),
                 successor_clock_epoch: proof.successor_clock_epoch().to_string(),
                 successor_continuity_digest: *proof.successor_continuity_digest().as_bytes(),
-                commit_cut: proof.commit_cut(),
+                commit_cut: MarketDataEpochNanosV1::from_epoch_nanos(
+                    proof.commit_cut().as_epoch_nanos(),
+                ),
                 comparison_rule: ProtectedEvaluationComparisonRuleV1::ExclusiveValidThrough,
             }
         }),
@@ -1310,7 +1331,7 @@ fn latest_fresh_comparable_result_time<'a>(
     let mut by_sequence = BTreeMap::new();
 
     for result_time in result_times {
-        if committed_at_epoch_ms >= result_time.valid_through {
+        if result_time.is_expired_at_epoch_ms(committed_at_epoch_ms) {
             return Err(unavailable(
                 "protected result time evidence expired before assessment commit",
             ));
@@ -1521,12 +1542,37 @@ mod tests {
         ProtectedEconomicPolicyReferenceV1,
     };
 
+    /// The epoch millisecond, in 2026, that the tests' millisecond offsets count from.
+    const BASE_EPOCH_MS: u64 = 1_790_000_000_000;
+    /// Half a millisecond, which puts a validity bound inside a millisecond rather than on one.
+    const HALF_MILLI_NANOS: u64 = 500_000;
+
+    /// The Market Data instant `offset_ms` milliseconds past the base, in epoch nanoseconds, as a
+    /// real head carries it, plus `extra_nanos` within that millisecond.
+    fn nanos(offset_ms: u64, extra_nanos: u64) -> MarketDataEpochNanosV1 {
+        MarketDataEpochNanosV1::from_epoch_nanos(
+            (BASE_EPOCH_MS + offset_ms) * 1_000_000 + extra_nanos,
+        )
+    }
+
+    /// A result head observed at `observed_ms` and valid through `valid_through_ms`, both
+    /// millisecond offsets past the base.
     fn result_time(
         sequence: u64,
-        observed: u64,
-        valid_through: u64,
+        observed_ms: u64,
+        valid_through_ms: u64,
         head: u8,
     ) -> ProtectedEvaluationTimeEvidenceV1 {
+        result_time_valid_through(sequence, observed_ms, nanos(valid_through_ms, 0), head)
+    }
+
+    fn result_time_valid_through(
+        sequence: u64,
+        observed_ms: u64,
+        valid_through: MarketDataEpochNanosV1,
+        head: u8,
+    ) -> ProtectedEvaluationTimeEvidenceV1 {
+        let observed = nanos(observed_ms, 0);
         ProtectedEvaluationTimeEvidenceV1 {
             cut_kind: "PROTECTED_EVALUATION".into(),
             stage: ProtectedEvaluationStageV1::Result,
@@ -1539,8 +1585,8 @@ mod tests {
             decision_cut: observed,
             valid_through,
             restart_continuity_digest: [3; 32],
-            uncertainty_bound: 1,
-            skew_bound: 2,
+            uncertainty_bound: MarketDataNanosV1::from_nanos(1),
+            skew_bound: MarketDataNanosV1::from_nanos(2),
             comparison_rule: ProtectedEvaluationComparisonRuleV1::ExclusiveValidThrough,
             direct_predecessor_head_identity: Some([head.saturating_sub(2); 32]),
             direct_predecessor_head_digest: Some([head.saturating_sub(1); 32]),
@@ -1552,20 +1598,51 @@ mod tests {
     fn complete_result_time_census_rejects_expiry_and_hidden_sequence_conflict() {
         let first = result_time(2, 1_010, 1_110, 2);
         let latest = result_time(4, 1_100, 1_200, 6);
-        assert!(latest_fresh_comparable_result_time(&[&first, &latest], 1_120).is_err());
+        assert!(
+            latest_fresh_comparable_result_time(&[&first, &latest], BASE_EPOCH_MS + 1_120).is_err()
+        );
 
         let conflicting = result_time(2, 1_020, 1_130, 4);
         assert!(
-            latest_fresh_comparable_result_time(&[&first, &latest, &conflicting], 1_105).is_err()
+            latest_fresh_comparable_result_time(
+                &[&first, &latest, &conflicting],
+                BASE_EPOCH_MS + 1_105
+            )
+            .is_err()
         );
 
         let middle = result_time(3, 1_050, 1_150, 4);
         assert_eq!(
-            latest_fresh_comparable_result_time(&[&latest, &first, &middle], 1_105)
+            latest_fresh_comparable_result_time(&[&latest, &first, &middle], BASE_EPOCH_MS + 1_105)
                 .unwrap()
                 .head_identity,
             latest.head_identity
         );
+    }
+
+    /// An Eligibility Fact's window closes on the millisecond its assessment head's bound falls
+    /// in, never the next one: a bound half a millisecond into `k` closes the window at `k`.
+    #[rstest::rstest]
+    fn an_eligibility_window_closes_on_the_millisecond_its_head_bound_falls_in() {
+        let head = result_time_valid_through(2, 1_010, nanos(1_110, HALF_MILLI_NANOS), 2);
+        assert_eq!(
+            eligibility_valid_through_epoch_ms(&head),
+            BASE_EPOCH_MS + 1_110
+        );
+    }
+
+    /// A result head's validity bound is a Market Data nanosecond instant and the assessment's
+    /// commit clock is in milliseconds. With the bound half a millisecond into millisecond `k`, a
+    /// commit stamped `k` may have happened after it and is refused; `k - 1` is wholly before it and
+    /// is admitted. Either reading alone is also satisfied by rounding the other way.
+    #[rstest::rstest]
+    fn a_result_head_expires_for_a_commit_in_the_millisecond_it_ends() {
+        let result = result_time_valid_through(2, 1_010, nanos(1_110, HALF_MILLI_NANOS), 2);
+        let expiry_ms = BASE_EPOCH_MS + 1_110;
+        assert_eq!(result.valid_through.to_epoch_millis_floor(), expiry_ms);
+
+        assert!(latest_fresh_comparable_result_time(&[&result], expiry_ms - 1).is_ok());
+        assert!(latest_fresh_comparable_result_time(&[&result], expiry_ms).is_err());
     }
 
     fn economic_policy() -> ProtectedEconomicPolicyBundleV1 {

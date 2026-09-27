@@ -25,6 +25,7 @@ COMPILED=(
   cargo-clippy
   cargo-clippy-network-turmoil-non-linux
   cargo-doc
+  test-disallowed-connect-guard
   cargo-machete
   check-links-offline
 )

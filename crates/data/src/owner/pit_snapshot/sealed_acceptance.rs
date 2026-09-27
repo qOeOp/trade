@@ -68,12 +68,19 @@ const CLOCK_IDENTITY: &str = "SEALED_ACCEPTANCE.MARKET_DATA.CLOCK";
 const CLOCK_EPOCH: &str = "SEALED_ACCEPTANCE.EPOCH.1";
 const DECISION_CUT: u64 = 40;
 const PROTECTED_EVALUATION_CLOCK_EPOCH: &str = "SEALED_ACCEPTANCE.PROTECTED_EVALUATION.EPOCH.1";
-/// 2100-01-01T00:00:00Z in epoch milliseconds. It puts every head's validity beyond any cut
-/// PostgreSQL will sample during an acceptance run, which takes validity out of the chain's reach
-/// rather than exercising it.
-const PROTECTED_EVALUATION_BASE_MS: u64 = 4_102_444_800_000;
-const PROTECTED_EVALUATION_STEP_MS: u64 = 1_000;
-const PROTECTED_EVALUATION_VALIDITY_MS: u64 = 86_400_000;
+/// 2100-01-01T00:00:00Z in epoch nanoseconds, the Owner clock's unit. It puts every head's validity
+/// beyond any cut PostgreSQL will sample during an acceptance run, which takes validity out of the
+/// chain's reach rather than exercising it.
+///
+/// It was once this instant in milliseconds. The protected-evaluation consumers read Market Data
+/// heads as milliseconds, so a millisecond fixture agreed with them and every test passed while a
+/// real nanosecond head would have expired nothing: the fixture spoke the consumers' unit, not the
+/// Owner's.
+const PROTECTED_EVALUATION_BASE_NS: u64 = 4_102_444_800_000_000_000;
+/// One second between heads.
+const PROTECTED_EVALUATION_STEP_NS: u64 = 1_000_000_000;
+/// One day of validity per head.
+const PROTECTED_EVALUATION_VALIDITY_NS: u64 = 86_400_000_000_000;
 const TIMEFRAME: &str = "1D";
 const SCALE: u8 = 2;
 const RESEARCH_REQUEST_IDENTITY: [u8; 32] = [1; 32];
@@ -749,14 +756,14 @@ pub fn issue_market_data_repair_evidence_v1()
 pub fn issue_protected_evaluation_shared_time_v1()
 -> Result<SealedAcceptanceProtectedEvaluationSharedTimeV1, SealedAcceptanceError> {
     let head = |sequence: u64| {
-        let cut = PROTECTED_EVALUATION_BASE_MS + sequence * PROTECTED_EVALUATION_STEP_MS;
+        let cut = PROTECTED_EVALUATION_BASE_NS + sequence * PROTECTED_EVALUATION_STEP_NS;
         MarketDataClockAdmission::seal_for_test(
             CLOCK_IDENTITY,
             PROTECTED_EVALUATION_CLOCK_EPOCH,
             sequence,
             cut,
             cut,
-            PROTECTED_EVALUATION_BASE_MS + (sequence + 1) * PROTECTED_EVALUATION_VALIDITY_MS,
+            PROTECTED_EVALUATION_BASE_NS + (sequence + 1) * PROTECTED_EVALUATION_VALIDITY_NS,
             digest_byte(7),
             1,
             2,
@@ -800,6 +807,7 @@ fn source_proposal() -> UntrustedSourceBindingProposal {
 fn source_proposal_for(corpus: UniverseCorpus) -> UntrustedSourceBindingProposal {
     let mut proposal = UntrustedSourceBindingProposal {
         availability_rule: None,
+        bar_timeframes: Vec::new(),
         claimed_binding_id: digest_byte(0),
         schema_version: 1,
         adapter: UntrustedAdapterBinding {

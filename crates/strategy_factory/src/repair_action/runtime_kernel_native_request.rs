@@ -11,7 +11,10 @@ use vibe_backtest_owner_contracts::{
     DiagnosticCategoryV2, DiagnosticEvidenceDtoV2, ObservationComponentV2, ReconciliationAtomDtoV2,
     ReconciliationStatusV2, ReplayRequestV2, ReplayResultDtoV2, ReplayTerminalV2,
 };
-use vibe_data::owner::{shared_time_evidence::ClockHeadHandoff, source_binding::BindingDigest};
+use vibe_data::owner::{
+    shared_time_evidence::{ClockHeadHandoff, EpochNanosV1},
+    source_binding::BindingDigest,
+};
 
 use crate::iteration_decision::{
     IterationDecisionOutcomeV1, IterationRepairCategoryV1, IterationRepairTargetV1,
@@ -42,9 +45,9 @@ pub struct RuntimeKernelRepairTimeEvidenceV1 {
     clock_identity: String,
     clock_epoch: String,
     monotonic_sequence: u64,
-    wall_observed_epoch_ms: u64,
-    decision_cut_epoch_ms: u64,
-    valid_through_epoch_ms: u64,
+    wall_observed: EpochNanosV1,
+    decision_cut: EpochNanosV1,
+    valid_through: EpochNanosV1,
     restart_continuity_digest: BindingDigest,
 }
 
@@ -459,9 +462,9 @@ impl RuntimeKernelRepairTimeEvidenceV1 {
             clock_identity: handoff.clock_identity().to_owned(),
             clock_epoch: handoff.clock_epoch().to_owned(),
             monotonic_sequence: handoff.monotonic_sequence(),
-            wall_observed_epoch_ms: handoff.wall_observed(),
-            decision_cut_epoch_ms: handoff.decision_cut(),
-            valid_through_epoch_ms: handoff.valid_through(),
+            wall_observed: handoff.wall_observed(),
+            decision_cut: handoff.decision_cut(),
+            valid_through: handoff.valid_through(),
             restart_continuity_digest: handoff.restart_continuity_digest(),
         };
         evidence.validate_ordering(
@@ -482,10 +485,21 @@ impl RuntimeKernelRepairTimeEvidenceV1 {
             || self.clock_epoch.is_empty()
             || self.monotonic_sequence == 0
             || decision_committed_at_epoch_ms > action_committed_at_epoch_ms
-            || action_committed_at_epoch_ms > self.decision_cut_epoch_ms
-            || self.wall_observed_epoch_ms > self.decision_cut_epoch_ms
-            || self.decision_cut_epoch_ms > request_committed_at_epoch_ms
-            || request_committed_at_epoch_ms >= self.valid_through_epoch_ms
+            || self.wall_observed > self.decision_cut
+            // The commit clocks are epoch milliseconds and the head's instants are nanoseconds.
+            // Each order holds only if the whole millisecond satisfies it, so a millisecond that
+            // leaves the order open refuses: the action is wholly at or before the cut, the request
+            // wholly at or after it, and the request is refused if any of its millisecond may be at
+            // or past the exclusive bound.
+            || !self
+                .decision_cut
+                .is_not_passed_throughout_epoch_ms(action_committed_at_epoch_ms)
+            || !self
+                .decision_cut
+                .is_reached_throughout_epoch_ms(request_committed_at_epoch_ms)
+            || self
+                .valid_through
+                .may_be_reached_within_epoch_ms(request_committed_at_epoch_ms)
         {
             return Err(RuntimeKernelNativeRepairRequestErrorV1::TimeEvidenceUnavailable);
         }
@@ -685,6 +699,16 @@ mod tests {
             .unwrap()
     }
 
+    /// The epoch millisecond, in 2026, that the tests' millisecond offsets count from.
+    const BASE_EPOCH_MS: u64 = 1_790_000_000_000;
+
+    /// The Market Data instant half a millisecond into millisecond `offset_ms` past the base, in
+    /// epoch nanoseconds, as a real head carries it. Inside a millisecond rather than on one, so a
+    /// commit stamped with that millisecond leaves each order open.
+    fn inside_ms(offset_ms: u64) -> EpochNanosV1 {
+        EpochNanosV1::from_epoch_nanos((BASE_EPOCH_MS + offset_ms) * 1_000_000 + 500_000)
+    }
+
     fn time_evidence() -> RuntimeKernelRepairTimeEvidenceV1 {
         RuntimeKernelRepairTimeEvidenceV1 {
             clock_head_identity: BindingDigest::from_untrusted_bytes([1; 32]),
@@ -692,9 +716,9 @@ mod tests {
             clock_identity: "market-data-clock".to_owned(),
             clock_epoch: "epoch-1".to_owned(),
             monotonic_sequence: 7,
-            wall_observed_epoch_ms: 120,
-            decision_cut_epoch_ms: 130,
-            valid_through_epoch_ms: 200,
+            wall_observed: inside_ms(120),
+            decision_cut: inside_ms(130),
+            valid_through: inside_ms(200),
             restart_continuity_digest: BindingDigest::from_untrusted_bytes([3; 32]),
         }
     }
@@ -893,22 +917,36 @@ mod tests {
         );
     }
 
+    /// A real nanosecond head against millisecond commits. The cut sits half a millisecond into
+    /// millisecond 130 and the bound half a millisecond into 200, so each boundary is read from
+    /// both sides: the last millisecond an order certainly holds in is admitted, and the
+    /// millisecond that leaves it open is refused. Before the head's instants carried their unit,
+    /// every commit in milliseconds sat before a nanosecond cut, and this order always refused.
     #[rstest]
-    fn time_evidence_rejects_future_or_expired_requests() {
+    fn time_evidence_orders_millisecond_commits_around_a_nanosecond_head() {
         let evidence = time_evidence();
-        assert!(evidence.validate_ordering(100, 110, 150).is_ok());
+        let ms = |offset: u64| BASE_EPOCH_MS + offset;
 
-        for ordering in [
+        for (decision, action, request) in [(100, 110, 150), (100, 129, 131), (100, 110, 199)] {
+            assert_eq!(
+                evidence.validate_ordering(ms(decision), ms(action), ms(request)),
+                Ok(()),
+                "({decision}, {action}, {request})"
+            );
+        }
+
+        for (decision, action, request) in [
             (111, 110, 150),
+            (100, 130, 150),
             (100, 131, 150),
+            (100, 110, 130),
             (100, 110, 129),
             (100, 110, 200),
         ] {
             assert_eq!(
-                evidence
-                    .validate_ordering(ordering.0, ordering.1, ordering.2)
-                    .unwrap_err(),
-                RuntimeKernelNativeRepairRequestErrorV1::TimeEvidenceUnavailable
+                evidence.validate_ordering(ms(decision), ms(action), ms(request)),
+                Err(RuntimeKernelNativeRepairRequestErrorV1::TimeEvidenceUnavailable),
+                "({decision}, {action}, {request})"
             );
         }
     }

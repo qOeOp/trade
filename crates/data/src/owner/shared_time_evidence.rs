@@ -26,6 +26,107 @@ const HEAD_IDENTITY_DOMAIN: &[u8] = b"vibe.market-data.shared-time.head-identity
 const HEAD_DIGEST_DOMAIN: &[u8] = b"vibe.market-data.shared-time.head-digest.v1";
 const EPOCH_PROOF_IDENTITY_DOMAIN: &[u8] = b"vibe.market-data.shared-time.epoch-successor-proof.v1";
 
+/// Nanoseconds in one millisecond.
+const NANOS_PER_MILLI: u64 = 1_000_000;
+
+/// An instant on the Market Data Owner clock, in Unix-epoch nanoseconds.
+///
+/// The unit is carried by the type, not by a field name: four Owners once read these instants as
+/// epoch milliseconds and compared them with their own millisecond clocks, so an expiry check
+/// against a nanosecond bound never fired and an ordering check never passed. There is no
+/// accessor returning the number without naming its unit. Serialized, it is the bare number, so
+/// every wire form and digest over one is unchanged.
+///
+/// Comparing with a millisecond clock goes through one of the three predicates below, each named
+/// for the direction it rounds in. A millisecond stamp stands for any instant in
+/// `[ms·10⁶, ms·10⁶ + 999_999]`; each predicate answers for all of them or for any of them, so a
+/// check built on it refuses whenever the millisecond leaves the answer open.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(transparent)]
+pub struct EpochNanosV1(u64);
+
+impl EpochNanosV1 {
+    /// An instant given in Unix-epoch nanoseconds.
+    #[must_use]
+    pub const fn from_epoch_nanos(nanos: u64) -> Self {
+        Self(nanos)
+    }
+
+    /// This instant in Unix-epoch nanoseconds.
+    #[must_use]
+    pub const fn as_epoch_nanos(self) -> u64 {
+        self.0
+    }
+
+    /// The epoch millisecond this instant falls in.
+    #[must_use]
+    pub const fn to_epoch_millis_floor(self) -> u64 {
+        self.0 / NANOS_PER_MILLI
+    }
+
+    /// Whether some instant of epoch millisecond `epoch_ms` is at or after this instant: the test
+    /// for an exclusive bound such as `valid_through`, which a commit stamped `epoch_ms` must be
+    /// taken to have reached if any of its millisecond might have.
+    ///
+    /// With `self = k·10⁶ + r`, `epoch_ms·10⁶ + 999_999 >= self` holds exactly when
+    /// `epoch_ms >= k`. Multiplying `epoch_ms` by 10⁶ instead compares only the start of the
+    /// millisecond and admits a bound passed inside it.
+    #[must_use]
+    pub const fn may_be_reached_within_epoch_ms(self, epoch_ms: u64) -> bool {
+        epoch_ms >= self.to_epoch_millis_floor()
+    }
+
+    /// Whether every instant of epoch millisecond `epoch_ms` is at or after this instant: the test
+    /// for "committed no earlier than this cut", which a millisecond stamp satisfies only when the
+    /// whole millisecond does.
+    ///
+    /// `epoch_ms·10⁶ >= self` holds exactly when `epoch_ms >= ⌈self / 10⁶⌉`.
+    #[must_use]
+    pub const fn is_reached_throughout_epoch_ms(self, epoch_ms: u64) -> bool {
+        epoch_ms >= self.0.div_ceil(NANOS_PER_MILLI)
+    }
+
+    /// Whether every instant of epoch millisecond `epoch_ms` is at or before this instant: the test
+    /// for "committed no later than this cut".
+    ///
+    /// With `self = k·10⁶ + r`, `epoch_ms·10⁶ + 999_999 <= self` holds exactly when
+    /// `epoch_ms < k`, or `epoch_ms == k` and `r == 999_999`. It is computed that way rather than
+    /// by multiplying, so no value overflows.
+    #[must_use]
+    pub const fn is_not_passed_throughout_epoch_ms(self, epoch_ms: u64) -> bool {
+        let whole = self.0 / NANOS_PER_MILLI;
+        epoch_ms < whole || (epoch_ms == whole && self.0 % NANOS_PER_MILLI == NANOS_PER_MILLI - 1)
+    }
+}
+
+/// A span on the Market Data Owner clock, in nanoseconds: an uncertainty or skew bound.
+///
+/// Like [`EpochNanosV1`], it names its unit and serializes as the bare number.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(transparent)]
+pub struct NanosV1(u64);
+
+impl NanosV1 {
+    /// A span given in nanoseconds.
+    #[must_use]
+    pub const fn from_nanos(nanos: u64) -> Self {
+        Self(nanos)
+    }
+
+    /// This span in nanoseconds.
+    #[must_use]
+    pub const fn as_nanos(self) -> u64 {
+        self.0
+    }
+
+    /// This span in whole milliseconds, rounded up: a bound on how far a clock may be off is only
+    /// ever widened by conversion, never narrowed.
+    #[must_use]
+    pub const fn to_millis_ceil(self) -> u64 {
+        self.0.div_ceil(NANOS_PER_MILLI)
+    }
+}
+
 /// Untrusted content-addressed clock-head locator.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -103,18 +204,18 @@ impl ClockHeadHandoff {
     }
 
     /// Returns the wall observation cut.
-    pub const fn wall_observed(&self) -> u64 {
-        self.wall_observed
+    pub const fn wall_observed(&self) -> EpochNanosV1 {
+        EpochNanosV1::from_epoch_nanos(self.wall_observed)
     }
 
     /// Returns the decision cut.
-    pub const fn decision_cut(&self) -> u64 {
-        self.decision_cut
+    pub const fn decision_cut(&self) -> EpochNanosV1 {
+        EpochNanosV1::from_epoch_nanos(self.decision_cut)
     }
 
     /// Returns the exclusive validity boundary.
-    pub const fn valid_through(&self) -> u64 {
-        self.valid_through
+    pub const fn valid_through(&self) -> EpochNanosV1 {
+        EpochNanosV1::from_epoch_nanos(self.valid_through)
     }
 
     /// Returns the restart-continuity digest.
@@ -123,13 +224,13 @@ impl ClockHeadHandoff {
     }
 
     /// Returns the admitted uncertainty bound.
-    pub const fn uncertainty_bound(&self) -> u64 {
-        self.uncertainty_bound
+    pub const fn uncertainty_bound(&self) -> NanosV1 {
+        NanosV1::from_nanos(self.uncertainty_bound)
     }
 
     /// Returns the maximum admitted skew bound.
-    pub const fn skew_bound(&self) -> u64 {
-        self.skew_bound
+    pub const fn skew_bound(&self) -> NanosV1 {
+        NanosV1::from_nanos(self.skew_bound)
     }
 
     /// Returns the comparison rule.
@@ -207,8 +308,8 @@ impl EpochSuccessorProof {
     }
 
     /// Returns the proof commit cut.
-    pub const fn commit_cut(&self) -> u64 {
-        self.commit_cut
+    pub const fn commit_cut(&self) -> EpochNanosV1 {
+        EpochNanosV1::from_epoch_nanos(self.commit_cut)
     }
 
     /// Returns the comparison rule shared by both heads.
@@ -517,6 +618,54 @@ mod tests {
 
     fn d(byte: u8) -> BindingDigest {
         BindingDigest::from_untrusted_bytes([byte; 32])
+    }
+
+    /// Each millisecond predicate is its definition, checked instant by instant rather than
+    /// trusted to its algebra: for an instant on, inside, and at the last nanosecond of a
+    /// millisecond, and every millisecond around it, "some instant of the millisecond" and "every
+    /// instant of the millisecond" are computed over the millisecond's own first and last
+    /// nanoseconds and compared with what each predicate answers.
+    #[rstest]
+    #[case::on_a_millisecond(1_790_000_000_005_000_000)]
+    #[case::inside_a_millisecond(1_790_000_000_005_000_500)]
+    #[case::at_its_last_nanosecond(1_790_000_000_005_999_999)]
+    fn each_millisecond_predicate_answers_for_its_whole_millisecond(#[case] nanos: u64) {
+        let instant = EpochNanosV1::from_epoch_nanos(nanos);
+        let around = nanos / NANOS_PER_MILLI;
+
+        for epoch_ms in around - 2..=around + 2 {
+            let first = u128::from(epoch_ms) * u128::from(NANOS_PER_MILLI);
+            let last = first + u128::from(NANOS_PER_MILLI) - 1;
+            let at = u128::from(nanos);
+            assert_eq!(
+                instant.may_be_reached_within_epoch_ms(epoch_ms),
+                last >= at,
+                "some instant of {epoch_ms} is at or after {nanos}"
+            );
+            assert_eq!(
+                instant.is_reached_throughout_epoch_ms(epoch_ms),
+                first >= at,
+                "every instant of {epoch_ms} is at or after {nanos}"
+            );
+            assert_eq!(
+                instant.is_not_passed_throughout_epoch_ms(epoch_ms),
+                last <= at,
+                "every instant of {epoch_ms} is at or before {nanos}"
+            );
+        }
+        assert_eq!(instant.to_epoch_millis_floor(), around);
+    }
+
+    /// The unit types serialize as the bare number, so every wire form and digest over a head or
+    /// a decision cut is what it was before the unit moved into the type.
+    #[rstest]
+    fn a_unit_serializes_as_its_bare_number() {
+        assert_eq!(
+            serde_json::to_string(&EpochNanosV1::from_epoch_nanos(1_790_000_000_005_000_500))
+                .unwrap(),
+            "1790000000005000500"
+        );
+        assert_eq!(serde_json::to_string(&NanosV1::from_nanos(7)).unwrap(), "7");
     }
 
     fn clock(

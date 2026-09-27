@@ -292,16 +292,16 @@ fn frozen_submission(
                 &epoch,
             )),
             decision_cut: UntrustedSnapshotDecisionCut::from_untrusted(
-                cut.decision_cut,
+                cut.decision_cut.as_epoch_nanos(),
                 &id,
                 &epoch,
             ),
             monotonic_sequence: cut.monotonic_sequence,
             restart_continuity_digest: cut.restart_continuity_digest,
-            skew_bound: cut.skew_bound,
-            uncertainty_bound: cut.uncertainty_bound,
-            observed_at: cut.decision_cut,
-            valid_through: cut.valid_through,
+            skew_bound: cut.skew_bound.as_nanos(),
+            uncertainty_bound: cut.uncertainty_bound.as_nanos(),
+            observed_at: cut.decision_cut.as_epoch_nanos(),
+            valid_through: cut.valid_through.as_epoch_nanos(),
         },
     }
 }
@@ -319,6 +319,7 @@ fn databento_source_proposal() -> UntrustedSourceBindingProposal {
     };
     let mut proposal = UntrustedSourceBindingProposal {
         availability_rule: None,
+        bar_timeframes: Vec::new(),
         claimed_binding_id: digest(0),
         schema_version: 1,
         adapter: UntrustedAdapterBinding {

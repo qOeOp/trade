@@ -1747,8 +1747,9 @@ mod tests {
             decode_protected_replay_request_v2, form_protected_replay_request_v1,
         };
         use vibe_backtest_owner_contracts::{
-            ProtectedEvaluationComparisonRuleV1, ProtectedEvaluationStageV1,
-            ProtectedEvaluationTimeEvidenceV1, ProtectedReplayRequestDtoV2,
+            MarketDataEpochNanosV1, MarketDataNanosV1, ProtectedEvaluationComparisonRuleV1,
+            ProtectedEvaluationStageV1, ProtectedEvaluationTimeEvidenceV1,
+            ProtectedReplayRequestDtoV2,
         };
 
         let (intake_request, envelope) = fixture();
@@ -1792,12 +1793,12 @@ mod tests {
                 clock_identity: "protected-clock".into(),
                 clock_epoch: "protected-epoch".into(),
                 monotonic_sequence: 1,
-                wall_observed: 10,
-                decision_cut: 10,
-                valid_through: 20,
+                wall_observed: MarketDataEpochNanosV1::from_epoch_nanos(10),
+                decision_cut: MarketDataEpochNanosV1::from_epoch_nanos(10),
+                valid_through: MarketDataEpochNanosV1::from_epoch_nanos(20),
                 restart_continuity_digest: [9; 32],
-                uncertainty_bound: 1,
-                skew_bound: 1,
+                uncertainty_bound: MarketDataNanosV1::from_nanos(1),
+                skew_bound: MarketDataNanosV1::from_nanos(1),
                 comparison_rule: ProtectedEvaluationComparisonRuleV1::ExclusiveValidThrough,
                 direct_predecessor_head_identity: None,
                 direct_predecessor_head_digest: None,
