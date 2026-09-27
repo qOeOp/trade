@@ -1228,39 +1228,53 @@ retrieval 观察到的条款，并假定自上市起一直如此；cut 为每个
   条款 `T_i`；baseline 是 `S_0`。之后的快照是一种新的后继类型，位于 `!contractInfo` delta 所延伸的同一条线性链上，所以每个
   快照仍点名它所跟随的 fact。编码是追加式的：baseline 的字节以及由此而来的 identity 不变。每个快照都被记录，包括条款与
   head 相等的那个，因为不变的快照正是「在它之前什么都没变」的证据。
+- **一条链上的两种次序。** 快照之间按 retrieval 排序：快照的 retrieval 必须晚于该 fact 最近一次快照的 retrieval，或其
+  baseline 的。contract status 在两种后继之间只有一种次序，即 fact 已知其状态的时刻：其 baseline 的 retrieval、最近一条
+  delta 的事件时刻、最近一次快照的 retrieval 三者中最晚的那个。快照也陈述状态。快照晚于该时刻时，它的状态成为 fact 的状态，
+  该时刻随之移到它的 retrieval；否则 fact 保留自己已持有的更新的状态，快照只记录它的条款。所以快照永远不会因为更新的状态先到
+  而被拒绝，fact 的状态始终是 Owner 手上最新证据所示的状态。不晚于该时刻的 `!contractInfo` 事件按乱序拒绝，正如状态 delta
+  intake 已经拒绝早于 fact 所知的事件；丢掉的是该事件在一个归档间隔内的精确时刻，而其后的快照已经观察到了那个状态。
 - **序列让 Owner 能说什么**，比较范围是除 contract status 外的每个公开条款：
 
-  | 区间                                        | 那里的条款                   | Basis                               |
-  | ------------------------------------------- | ---------------------------- | ----------------------------------- |
-  | `t_0` 之前                                  | `T_0`，假定自上市起如此      | `RetrievedTermsAssumedSinceListing` |
-  | `[t_i, t_j]`，其中每个快照条款相等          | 已知就是这些条款             | `ObservedBetweenSnapshots`          |
-  | `(t_i, t_{i+1}]`，`T_i` 与 `T_{i+1}` 不相等 | 未知：变化发生在其中某处     | 无                                  |
-  | 最新快照 `t_n` 之后                         | `T_n`，向后假定              | `RetrievedTermsAssumedForward`      |
+  | 区间                                        | 那里的条款                             | Basis                               |
+  | ------------------------------------------- | -------------------------------------- | ----------------------------------- |
+  | `t_0` 之前                                  | `T_0`，假定自上市起如此                | `RetrievedTermsAssumedSinceListing` |
+  | `[t_i, t_j]`，其中每个快照条款相等          | 在界定它的每个快照处相等，视为其间未变 | `EqualAtAdjacentSnapshots`          |
+  | `(t_i, t_{i+1}]`，`T_i` 与 `T_{i+1}` 不相等 | 未知：变化发生在其中某处               | 无                                  |
+  | 最新快照 `t_n` 之后                         | `T_n`，向后假定                        | `RetrievedTermsAssumedForward`      |
 
-- **具名性质：归档精度边界。** 两个相邻快照条款相等，即认为其间条款没有变化。一次变化及其回退若落在同一个归档间隔内，就
+- **具名性质：归档精度边界。** 两个相邻快照条款相等，即视为其间条款没有变化。一次变化及其回退若落在同一个归档间隔内，就
   看不见；这个间隔就是归档器的节奏：节奏越长边界越粗，真实变化周围的未知区间也有一个节奏那么长。
 - **cut 按 Replay 窗口选择。** bound-replay 签发已经会恢复 composition binding，其记录携带窗口。对每个 member，在
-  selection 时刻观察到的 fact 中，落在某个有 basis 的区间内的窗口取开启该区间的 fact，并带上该 basis；cut 仍为每个
-  member 持有一个 fact，所以任何 consumer 都不变。与未知区间相交的窗口以 `TermsChangeWithinWindow` 拒绝且零写入，R&D 的
-  execution-input binding 回答 `INSTRUMENT_MASTER_TERMS_CHANGE_WITHIN_WINDOW`（HTTP 409）；重试改变不了答案。跨越假定区间与
-  条款相等的已知区间的窗口取较弱的 basis。V1/V2 代际检查比较窗口选中的那个 fact，所以没有被相应更正的 V1 fact 会像今天一样
-  按名被拒绝。
-- **增长，以及何时压缩。** 一个 baseline fact 实测 414 个规范字节；快照后继携带同样的条款外加链接，估计 450 字节。按默认的
-  每小时节奏，一个 instrument 每天增加 24 个 fact，每年 8,760 个，未计行开销约每年 4 MB。每次 cut 与每次后继准入都会解码该
-  member 的整条链，所以成本随链长增长。快照后继的证明在 Linux runner 上测量每个 fact 的解码成本；压缩连续条款相等快照的
-  触发条件，是签发一个 member 的 cut 超过一秒时的链长。
+  selection 时刻观察到的 fact 中，若窗口相交的区间都有 basis，就取开启窗口起点所在区间的那个 fact，basis 取窗口相交各区间中
+  最弱的那个（假定弱于在快照处相等）；这些区间持有同样的条款，因为它们之间若有变化就是一个未知区间。cut 仍为每个 member 持有
+  一个 fact，所以任何 consumer 都不变。与未知区间相交的窗口以 `TermsChangeWithinWindow` 拒绝且零写入，R&D 的
+  execution-input binding 回答 `INSTRUMENT_MASTER_TERMS_CHANGE_WITHIN_WINDOW`（HTTP 409）；重试改变不了答案。V1/V2 代际检查
+  比较窗口选中的那个 fact，所以没有被相应更正的 V1 fact 会像今天一样按名被拒绝。cut 与其他 cut 一样按请求键只写一次：按向后
+  假定条款签发的 cut，在之后的快照显示条款已变后仍保持原答案，之后的请求签发新的 cut。
+- **增长，以及何时压缩。** 一个 baseline fact 实测 414 个规范字节。快照后继携带 baseline 的字节、其前驱的 identity 与一个
+  107 字节的记录，共 553 字节；链中有状态 delta 后再多约 220 字节。按默认的每小时节奏，一个 instrument 每天增加 24 个 fact，
+  每年 8,760 个，未计行开销约每年 4.8 MB。每次 cut 与每次后继准入都会解码该 member 的整条链，所以成本随链长增长：一个
+  instrument 一年的每小时快照，逐个对照前驱解码，在开发机的 release 构建上约 20 毫秒，未优化构建约 120 毫秒。压缩连续条款
+  相等快照的触发条件，是签发一个 member 的 cut 超过一秒时的链长；某个 member 的链超过一年时在 Linux runner 上重新测量。
 - **归档器。** 专用服务 `market-data-exchange-info-archiver`，从 R&D Owner API 镜像运行，处在 Market Data Owner 的进程与
   凭据之下，经 Owner port 准入快照：不经 Product Edge，也不经在生产中未实现的 Source Intake。它从 R&D Owner API 的 Binance
   perpetual PIT client 所用的同一个具名 host（`BINANCE_PERPETUAL_PIT_BASE_URL`）取回 USD-M `exchangeInfo`，默认每小时一次；
-  对每个已有 baseline 的 instrument，把该 instrument 的条目逐字节切入最小信封，在 baseline 的 Source Binding 下准入。在
-  Owner clock head 之后取回的快照暂时不能准入；归档器按 retrieval 顺序保留它，直到 head 越过它。这不丢任何东西，因为任何
-  cut 也看不到 head 之后。停滞的归档器不产生错误，只会拉长向后假定区间，所以它的健康检查在最新已准入快照早于两个节奏时失败。
+  对每个已有 baseline 的 instrument，把该 instrument 的条目逐字节切入最小信封，在 baseline 的 Source Binding 下准入。
+- **快照 intake 自己推进 Owner 时钟。** 今天 head 只在 Source Binding 或 PIT 提交铸出更新的时钟时移动，而没有任何东西按归档
+  节奏这样做，所以在 head 之后取回的快照可能无限期等待。当 head 的 decision cut 早于快照的 retrieval 时，intake 像 Source
+  Binding 准入那样，以 Owner 自己的墙钟观察铸出下一个时钟准入，并在一个事务里与 fact 一起提交；快照的 Owner observation 就是
+  那个 cut。retrieval 晚于 Owner 自己墙钟观察的快照被拒绝。所以 head 每个归档间隔至多移动一次。R&D 在前一个 head 上冻结的
+  PIT 提交随之以 `ClockEvidenceNotCurrent` 被拒绝，并像 head 其他任何一次移动之后那样，通过读回其 correlation、在当前 cut 重新
+  冻结来恢复。归档器按 retrieval 顺序重试被拒绝或没有应答的提交；它的健康检查在最新已准入快照早于两个节奏时失败，这个状态
+  现在归档器自己就能消除。
 - **F 不变。** 只有一个 baseline、没有之后的快照时，retrieval 之前的每个窗口都落在 `t_0` 之前，member 就是 baseline，
   basis 与今天相同，字节不动；快照后继那一片逐字节钉住两 member 的 cut identity 与一个单 baseline 的 bound-replay cut。
-- **顺序。** 先做快照后继及其 intake，连同逐字节钉子。cut 上的窗口选择会改变 F 链路依赖的签发，所以只在 F 链路通过后开始。
-  归档器已定义但不启动，就像 compose 文件还不运行 store-custody 脚本一样；运行它会让生产周期性地从 Binance 取数，这是公开
-  读取而非交易，是否开启是用户的部署决定。contract status 不在比较的条款之内：它只由 `!contractInfo` delta 改变；status
-  不是 `TRADING` 的 Replay 窗口是否必须拒绝尚未决定，不在本设计范围内。
+- **顺序。** 先做快照后继及其 intake，连同逐字节钉子。在 cut 按窗口选择之前，对条款被快照改变过的 member，无论窗口如何都
+  按名拒绝，而不是在它们上面为任何窗口定价；窗口选择是唯一移除这条拒绝的切片。cut 上的窗口选择会改变 F 链路依赖的签发，
+  所以只在 F 链路通过后开始。归档器已定义但不启动，就像 compose 文件还不运行 store-custody 脚本一样；运行它会让生产周期性地
+  从 Binance 取数，这是公开读取而非交易，是否开启是用户的部署决定。status 不是 `TRADING` 的 Replay 窗口是否必须拒绝尚未
+  决定，不在本设计范围内。
 
 ### 原生不可变记录
 
