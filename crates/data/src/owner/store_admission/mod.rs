@@ -4058,6 +4058,62 @@ mod tests {
             .map_or_else(|| panic!("{read} stands on a floor"), |(floor, _)| *floor)
     }
 
+    /// The floor names longer than PostgreSQL's identifier limit, each one stated.
+    ///
+    /// PostgreSQL truncates an identifier to `NAMEDATALEN - 1`, 63 bytes, wherever SQL spells it,
+    /// and stores it truncated. A longer name still resolves, in the reads and through
+    /// `to_regprocedure` in the measurer, because both truncate the same way; but the catalog
+    /// lists the object under the shorter name, so anything comparing a floor's text to the
+    /// catalog must truncate first, and two names sharing their first 63 bytes are one object.
+    const FLOOR_NAMES_OVER_THE_IDENTIFIER_LIMIT: &[&str] =
+        &["market_data_private.resolve_strategy_input_sample_projection_schedule_dependencies_v3"];
+
+    /// A floor name over 63 bytes is refused unless it is listed above, so whoever adds one is
+    /// told the truncation rule rather than rediscovering it against a catalog; and no two floor
+    /// names may truncate to the same object.
+    #[rstest]
+    fn a_floor_name_over_the_identifier_limit_is_stated() {
+        let mut long = BTreeSet::new();
+        let mut stored = HashMap::new();
+
+        for floor in postgres::MEASUREMENT_FLOORS {
+            let names = floor
+                .functions
+                .iter()
+                .map(|signature| {
+                    signature
+                        .split_once('(')
+                        .map_or(*signature, |(name, _)| name)
+                })
+                .chain(floor.relations.iter().copied());
+
+            for name in names {
+                let (_, object) = name.split_once('.').expect("a qualified name");
+
+                if object.len() > 63 {
+                    long.insert(name);
+                }
+                let truncated = catalog_name(name.to_owned());
+                let first = *stored.entry(truncated.clone()).or_insert(name);
+                assert_eq!(
+                    first, name,
+                    "{first} and {name} are both stored as {truncated}: PostgreSQL truncates an \
+                     identifier to 63 bytes, so they are one object"
+                );
+            }
+        }
+        assert_eq!(
+            long,
+            FLOOR_NAMES_OVER_THE_IDENTIFIER_LIMIT
+                .iter()
+                .copied()
+                .collect(),
+            "a floor name over 63 bytes is stored truncated to 63 by PostgreSQL; it still resolves \
+             from SQL and through to_regprocedure, but the catalog lists the shorter name. State it \
+             in FLOOR_NAMES_OVER_THE_IDENTIFIER_LIMIT, or give the object a shorter name"
+        );
+    }
+
     /// Each admitted read calls only functions its floor lists and reads only relations it lists,
     /// and every read the measured surface offers stands on exactly one floor. This is the half of
     /// the floor proof that needs no database: a read that starts calling something new goes red
