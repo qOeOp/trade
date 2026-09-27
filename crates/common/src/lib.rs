@@ -119,6 +119,7 @@ pub mod msgbus;
 pub mod providers;
 pub mod runner;
 pub mod signal;
+#[cfg(any(test, feature = "stubs"))]
 pub mod testing;
 pub mod throttler;
 pub mod timer;

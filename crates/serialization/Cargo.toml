@@ -48,7 +48,7 @@ ignored = [
 ]
 [dependencies]
 vibe-core = { workspace = true }
-vibe-model = { workspace = true, features = ["stubs"] }
+vibe-model = { workspace = true }
 
 anyhow = { workspace = true }
 indexmap = { workspace = true }
@@ -66,6 +66,8 @@ pyo3 = { workspace = true, optional = true }
 pyo3-stub-gen = { workspace = true, optional = true }
 
 [dev-dependencies]
+vibe-model = { workspace = true, features = ["stubs"] }
+
 criterion = { workspace = true }
 pretty_assertions = { workspace = true }
 rstest = { workspace = true }

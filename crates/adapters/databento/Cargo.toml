@@ -79,6 +79,7 @@ pyo3-async-runtimes = { workspace = true, optional = true }
 pyo3-stub-gen = { workspace = true, optional = true }
 
 [dev-dependencies]
+vibe-common = { workspace = true, features = ["stubs"] }
 vibe-testkit = { workspace = true, default-features = false, features = [
   "testers",
 ] }
