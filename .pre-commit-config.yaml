@@ -532,7 +532,14 @@ repos:
         description: Every Owner custody proof is chain-selected or carries its reason
         entry: bash scripts/ci/check-owner-custody-proof-selection.bash .
         language: system
-        files: "(\\.(rs|bash|sh|ya?ml|toml)$|^Makefile$)"
+        files: "(\\.(rs|bash|sh|py|ya?ml|toml)$|^Makefile$)"
+        pass_filenames: false
+      - id: test-ci-called-files
+        name: test CI-called file resolution
+        description: Proves a selector counts only when CI invokes it, not when a file names it
+        entry: python3 scripts/ci/test_ci_called_files.py
+        language: system
+        files: "(\\.(bash|sh|py|ya?ml)$|^Makefile$)"
         pass_filenames: false
       - id: check-vibe-conventions
         name: check vibe conventions
