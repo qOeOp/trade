@@ -20,7 +20,9 @@ use crate::{
         prepare_bounded_feature_program_v1,
     },
     develop_composer_v2::CurrentResearchDevelopCustodyV2,
-    strategy_design_v2::StrategyDesignV2,
+    product_edge::FrozenResearchGoalIntent,
+    rd_owner_postgres_custody::VerifiedResearchCustodyV1,
+    strategy_design_v2::{InputScopeV2, StrategyDesignV2},
     strategy_plan_v2::{
         StrategyCompilationV2, VerifiedStrategyInputBindingsV2,
         prepare_canonical_strategy_design_v2,
@@ -50,6 +52,33 @@ pub(crate) enum ResearchBoundedFeatureProgramFreezeErrorV1 {
     Unavailable,
     #[error("a different R&D Owner joint freeze already occupies this Research identity")]
     Conflict,
+    /// The Research Intent names its instrument scope, and the Design names an instrument itself.
+    #[error("the Design names an instrument, but its Research request already names the scope")]
+    InstrumentNamedUnderResearchScope,
+}
+
+/// Whether this Research Intent names the instruments it studies.
+///
+/// A successor Intent carries no instrument scope of its own, so it answers `false`.
+pub(crate) fn binds_research_instrument_scope_v1(verified: &VerifiedResearchCustodyV1) -> bool {
+    matches!(
+        verified.intent(),
+        Some(FrozenResearchGoalIntent::V2(intent)) if intent.instrument_scope.is_some()
+    )
+}
+
+/// Whether any role of this Design names its own instrument rather than reading the members the
+/// Research scope names.
+///
+/// `docs/architecture/strategy-factory.md` states that a Design under a Research scope reads
+/// universe members and never chooses an instrument, and the strategy shape envelope's P0 makes an
+/// exact instrument a one-member universe. A role that still names one would choose an instrument
+/// beside the scope, which is the second declaration P0 removes.
+pub(crate) fn design_names_an_instrument_v1(design: &StrategyDesignV2) -> bool {
+    design
+        .inputs
+        .iter()
+        .any(|input| input.scope == InputScopeV2::ExactInstrument || !input.instrument.is_empty())
 }
 
 pub(crate) async fn commit_research_bounded_feature_program_in_transaction_v1(
@@ -61,7 +90,7 @@ pub(crate) async fn commit_research_bounded_feature_program_in_transaction_v1(
     proposal: BoundedFeatureProgramProposalV1,
 ) -> Result<FrozenResearchBoundedFeatureProgramV1, ResearchBoundedFeatureProgramFreezeErrorV1> {
     let successor = is_successor_research_intent_locator_v1(request_locator);
-    let custody = if successor {
+    let (custody, binds_instrument_scope) = if successor {
         current_research_custody(transaction, request_locator, read_cut_epoch_ms).await?
     } else {
         acquire_joint_freeze_lock(transaction, request_locator).await?;
@@ -83,6 +112,12 @@ pub(crate) async fn commit_research_bounded_feature_program_in_transaction_v1(
         } else {
             Err(ResearchBoundedFeatureProgramFreezeErrorV1::Conflict)
         };
+    }
+
+    // Only a first write is refused: a stored freeze above returns as it was committed, so an exact
+    // retry after response loss reads back what history holds.
+    if binds_instrument_scope && design_names_an_instrument_v1(design) {
+        return Err(ResearchBoundedFeatureProgramFreezeErrorV1::InstrumentNamedUnderResearchScope);
     }
 
     sqlx::query(
@@ -153,7 +188,7 @@ async fn current_research_custody(
     transaction: &mut Transaction<'_, Postgres>,
     request_locator: &str,
     read_cut_epoch_ms: u64,
-) -> Result<CurrentResearchDevelopCustodyV2, ResearchBoundedFeatureProgramFreezeErrorV1> {
+) -> Result<(CurrentResearchDevelopCustodyV2, bool), ResearchBoundedFeatureProgramFreezeErrorV1> {
     if is_successor_research_intent_locator_v1(request_locator) {
         return lock_successor_research_for_intent_in_transaction_v1(
             transaction,
@@ -161,6 +196,7 @@ async fn current_research_custody(
             read_cut_epoch_ms,
         )
         .await
+        .map(|custody| (custody, false))
         .map_err(|_| ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable);
     }
     let verified =
@@ -172,6 +208,7 @@ async fn current_research_custody(
         .map_err(|_| ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)?
         .ok_or(ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)?;
     CurrentResearchDevelopCustodyV2::from_verified(&verified, request_locator, read_cut_epoch_ms)
+        .map(|custody| (custody, binds_research_instrument_scope_v1(&verified)))
         .map_err(|_| ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)
 }
 
@@ -180,7 +217,8 @@ pub(crate) async fn read_research_bounded_feature_program_in_transaction_v1(
     request_locator: &str,
     read_cut_epoch_ms: u64,
 ) -> Result<FrozenResearchBoundedFeatureProgramV1, ResearchBoundedFeatureProgramFreezeErrorV1> {
-    let custody = current_research_custody(transaction, request_locator, read_cut_epoch_ms).await?;
+    let (custody, _) =
+        current_research_custody(transaction, request_locator, read_cut_epoch_ms).await?;
     let stored = load_stored_freeze(transaction, request_locator, false)
         .await?
         .ok_or(ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)?;
@@ -786,6 +824,36 @@ mod tests {
             frozen.joint_freeze_digest(),
             reordered_frozen.joint_freeze_digest()
         );
+    }
+
+    /// Either half names an instrument on its own: an exact scope, or an instrument field under a
+    /// universe scope. Only a role with neither reads the members the Research scope names.
+    #[rstest::rstest]
+    fn a_role_names_an_instrument_by_its_scope_or_by_its_field() {
+        let (design, _) = candidate();
+        assert!(
+            design
+                .inputs
+                .iter()
+                .all(|input| input.scope == InputScopeV2::ExactInstrument),
+            "the candidate is the exact-instrument Design this check refuses under a scope"
+        );
+        assert!(design_names_an_instrument_v1(&design));
+
+        let mut universe = design;
+        for input in &mut universe.inputs {
+            input.scope = InputScopeV2::UniverseMembers;
+            input.instrument.clear();
+        }
+        assert!(!design_names_an_instrument_v1(&universe));
+
+        let mut named_under_universe = universe.clone();
+        named_under_universe.inputs[0].instrument = "BTCUSDT-PERP.BINANCE".to_owned();
+        assert!(design_names_an_instrument_v1(&named_under_universe));
+
+        let mut exact_without_field = universe;
+        exact_without_field.inputs[0].scope = InputScopeV2::ExactInstrument;
+        assert!(design_names_an_instrument_v1(&exact_without_field));
     }
 
     #[rstest::rstest]

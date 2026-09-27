@@ -1240,6 +1240,13 @@ request binds 'the requested instrument or universe scope'."
   registers the Design's declarations against exactly that request instead of searching for one, so a request a
   caller submitted under a forged `requester_identity` is never picked up. A successor PIT request of the same Intent
   is named only by a role intent published after it; a published role intent never changes.
+- A V3 request's scope is the one place its instruments are declared, so a Design published, frozen or declared under
+  it may not name one itself: a role with the exact instrument scope or a non-empty `instrument` is refused as
+  `DESIGN_ROLE_NAMES_INSTRUMENT_UNDER_RESEARCH_SCOPE` before any row is written, and every role reads the members the
+  scope names, one or many. This is the Strategy shape envelope's P0 on the paths that create new custody: only a first
+  write is refused, so a Design already published or frozen under the request reads back as it was committed. The
+  ordered chain's V3 scope entry drives it, publishing and freezing the exact-instrument candidate under an accepted V3
+  request and finding neither row. A V2 request states no scope, so its Designs still name their instrument.
 
 Built so far: the scope codec, the schema 2 role intent codec, V3 acceptance and the issuance above.
 `ResearchInstrumentScopeV1` validates a scope and computes its canonical bytes, identity and fixed-member selection
