@@ -165,7 +165,9 @@ link，不是两种能力。Research 仍是 TrialFamily/Census 唯一 writer，Q
   其私有 seam 必须消费一个 sealed receipt，绑定准确 environment、deployment、Market Data Owner、
   `rd-owner-api` consumer、PostgreSQL backend、endpoint/TLS/server/database identity、schema/migration/function/
   role/ACL measurement、opaque credential-handle identity/audience/version、predecessor/generation/validity/recovery、
-  signature、head、anti-rollback witness、direct measurement、credential lease 与 closed rotation fence。restart
+  signature、head、anti-rollback witness、direct measurement、credential lease 与 closed rotation fence。单机部署上的
+  anti-rollback witness 是具名模式 `SingleTrustDomainNoRollbackWitness`，在它之下检测不到整台机器的回滚；用户 2026-09-27
+  的授权见架构规则。restart
   或 cache loss 必须重复 signature/head verification 与 direct measurement；歧义不构造 Owner repository，也不
   触发 business retry。receipt 与 raw store evidence 保持私有；普通 consumer 首个可见值是 Market Data 密封的
   `ResearchPitTerminal`。在独立的 production resolver、signer、witness、credential-resolver 与 direct-

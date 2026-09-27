@@ -172,7 +172,9 @@ strategy source code do not exist.
   Market Data Owner, `rd-owner-api` consumer, PostgreSQL backend, endpoint/TLS/server/database identities,
   schema/migration/function/role/ACL measurements, opaque credential-handle identity/audience/version,
   predecessor/generation/validity/recovery, signature, head, anti-rollback witness, direct measurement, credential
-  lease, and closed rotation fence. Restart or cache loss repeats signature/head verification and direct measurement;
+  lease, and closed rotation fence. On a single-machine deployment the anti-rollback witness is the named mode
+  `SingleTrustDomainNoRollbackWitness`, under which no rollback of the whole machine is detected; see the
+  architecture rules for the user's 2026-09-27 authorization. Restart or cache loss repeats signature/head verification and direct measurement;
   ambiguity constructs no Owner repository and triggers no business retry. The receipt and raw store evidence remain
   private; the first ordinary-consumer value is the Market Data-sealed `ResearchPitTerminal`. That default product
   entry remains `UNAVAILABLE` until its distinct production resolver, signer, witness, credential-resolver, and direct-

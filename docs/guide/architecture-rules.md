@@ -437,7 +437,12 @@ deployment, consumer Owner, backend, endpoint, TLS, server and database or bucke
 schema, migration, function, role, and ACL identity or S3 capability and version semantics; an opaque credential-handle
 identity, audience, and version; and predecessor, generation, validity, and recovery. A positive receipt requires the
 signature, current head, anti-rollback witness, direct measurement, credential lease, and closed rotation fence. It
-cannot be assembled from caller-authored positive evidence. Restart or cache loss re-verifies signatures and the head
+cannot be assembled from caller-authored positive evidence. **On a deployment whose only trust domain is one machine,
+the anti-rollback property does not hold:** a witness kept on that machine rolls back with the custody store it would
+watch, so the custodian runs the named mode `SingleTrustDomainNoRollbackWitness` instead. It observes nothing, bounds
+nothing and detects no rollback of the whole machine, and the receipt names it in place of a witness proof. The user
+authorized this downgrade for a single-machine deployment only (user, 2026-09-27, AskUserQuestion: "Only this machine, authorize the downgrade", described
+as "Accept no rollback protection on a single-machine deployment: the docs state that this property does not hold on a single machine, and the witness is either not implemented or only recorded as a formality"). A deployment with a second trust domain keeps a witness there and drops the mode by name. Restart or cache loss re-verifies signatures and the head
 and remeasures the target. Ambiguity yields no Owner repository and no business retry.
 
 The intended default consumer is the `product/rd-workbench` `rd-owner-api` bootstrap composition. Before Market Data
