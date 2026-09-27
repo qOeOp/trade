@@ -1067,8 +1067,8 @@ request-keyed 的 V2 cut 读的就是这张表；它和 V1 intake 一样，在 O
 这个 schema 及其六张表，store 在每次写入时断言没有别的角色在这些表上持有任何权限，所以这条 intake 不需要授权，也不得被
 授予权限。
 
-- **提交陈述什么：** raw symbol、以规范词写出的 class、取得时刻、原样的 `exchangeInfo` 响应文本，以及取得 payload
-  时所依据的已准入 Source Binding。它不陈述规范 instrument identity、venue、条款、生效时刻、任何 digest，也不陈述
+- **提交陈述什么：** raw symbol、以规范词写出的 class、取得时刻、条款所依据的原样 `exchangeInfo` 文本（一份完整响应，
+  或包住该 instrument 条目的一个外壳），以及取得 payload 时所依据的已准入 Source Binding。它不陈述规范 instrument identity、venue、条款、生效时刻、任何 digest，也不陈述
   Owner-observation 时刻。唯一准入的 class 词是 `CRYPTO_PERPETUAL`，也是 V2 仅有的 class。
 - **Owner 的场所常量表：** 所指名 binding 的 `adapter.dataset_mapping` 作为一个完整字符串精确比较，选中一张封闭表中的
   一行。表中只有一行 `usdm/exchangeInfo`，它给出 venue identity `BINANCE`、inverse `false`、contract multiplier `1`，以及
@@ -1101,7 +1101,8 @@ request-keyed 的 V2 cut 读的就是这张表；它和 V1 intake 一样，在 O
   是有意的：V2 的 native 投影要求 precision 等于规范 scale，下游 Replay 用的是 V2 的。适配器一侧的一条对照测试同时断言
   increment 相等与这一处差异。
 - **Owner 自己取的：** Source Binding 的 identity 与 digest，取自 Owner 以恰为该 locator 的已准入状态持有的 binding；raw
-  payload digest，由 Owner 以本模块的 domain 分离 digest 对该文本的原样 UTF-8 字节计算，不信任任何现成 digest；Owner-observation 时刻，即其当前
+  payload digest，由 Owner 以本模块的 domain 分离 digest 对该文本的原样 UTF-8 字节计算，不信任任何现成 digest。它证明的是提交了
+  哪些字节、条款由这些字节推出；它不声称这些字节就是供应方的完整原始响应，Owner 无法核实这一点；Owner-observation 时刻，即其当前
   clock head 的 decision cut，在准入事务内读取；链上位置，即 correction sequence 1、无 predecessor；以及条款依据
   `RetrievedTermsAssumedSinceListing`。V2 fact 不绑定任何 frontier：与 PIT batch 的 frontier 对账若需要，属于 cut 一侧，不
   属于这条 intake。

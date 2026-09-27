@@ -1177,7 +1177,8 @@ and the store asserts on every write that no other role holds a privilege on the
 not be given one.
 
 - **What the submission states:** the raw symbol, the class by its canonical word, the retrieval instant, the exact
-  `exchangeInfo` response text, and the admitted Source Binding the payload was retrieved under. It states no canonical
+  `exchangeInfo` text the terms are derived from (a complete response, or an envelope around the instrument's entry), and
+  the admitted Source Binding the payload was retrieved under. It states no canonical
   identity, no venue, no terms, no effective instant, no digest and no Owner-observation instant. The only class
   word admitted is `CRYPTO_PERPETUAL`, the only class V2 has.
 - **The Owner's venue table:** the named binding's `adapter.dataset_mapping`, compared as one exact string, selects a row
@@ -1216,7 +1217,8 @@ not be given one.
   increments and this one difference.
 - **What the Owner takes itself:** the Source Binding identity and digest, from the binding it holds admitted under exactly
   the named locator; the raw payload digest, the module's domain-separated digest of the text's exact UTF-8 bytes, so no
-  digest is taken on trust; the Owner-observation instant, which is the decision cut of its current clock head, read in the admitting
+  digest is taken on trust. It proves which bytes were submitted and that the terms were derived from them; it does not
+  claim those bytes are the provider's complete original response, which the Owner cannot verify; the Owner-observation instant, which is the decision cut of its current clock head, read in the admitting
   transaction; the chain position, correction sequence 1 with no predecessor; and the terms basis
   `RetrievedTermsAssumedSinceListing`. The V2 fact binds no frontier: any reconciliation with a PIT batch's frontiers
   belongs to the cut, not to this intake.
