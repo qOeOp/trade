@@ -74,6 +74,8 @@ pub enum InstrumentMasterAdmissionDispositionV2 {
 pub enum InstrumentTermsBasisWireV2 {
     /// Terms observed at retrieval and assumed back to the listing.
     RetrievedTermsAssumedSinceListing,
+    /// Terms a later snapshot observed to differ from the baseline's, at that snapshot or after it.
+    ObservedSinceTermsChange,
 }
 
 impl From<InstrumentTermsBasisV2> for InstrumentTermsBasisWireV2 {
@@ -82,6 +84,7 @@ impl From<InstrumentTermsBasisV2> for InstrumentTermsBasisWireV2 {
             InstrumentTermsBasisV2::RetrievedTermsAssumedSinceListing => {
                 Self::RetrievedTermsAssumedSinceListing
             }
+            InstrumentTermsBasisV2::ObservedSinceTermsChange => Self::ObservedSinceTermsChange,
         }
     }
 }

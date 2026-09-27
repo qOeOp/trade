@@ -184,13 +184,28 @@ pub struct ExchangeInfoBaselineV2 {
 /// retrieval_time_ns)`, back to the listing. This names that assumption in the fact itself, so a
 /// report can tell a Replay priced before the retrieval, on assumed terms, from one priced after.
 ///
-/// It has one value because one kind of fact is produced. A correction intake, when one exists,
-/// adds the value for the terms it observes; no value is reserved for a producer that does not exist.
+/// A later `exchangeInfo` snapshot whose terms equal its predecessor's keeps that basis: the terms
+/// are still the baseline's, now also observed later. One whose terms differ ends it for good, since
+/// what held before that snapshot is then not these terms.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub enum InstrumentTermsBasisV2 {
     /// Terms observed at retrieval and assumed back to the listing.
     RetrievedTermsAssumedSinceListing = 1,
+    /// Terms a later snapshot observed to differ from the baseline's, at that snapshot or after it.
+    /// Before that snapshot they did not hold, so a Replay cannot be priced on them without knowing
+    /// its window, which the cut does not yet read; the cut refuses such a member by name.
+    ObservedSinceTermsChange = 2,
+}
+
+impl InstrumentTermsBasisV2 {
+    fn decode(value: u8) -> Result<Self, InstrumentMasterV2Error> {
+        match value {
+            1 => Ok(Self::RetrievedTermsAssumedSinceListing),
+            2 => Ok(Self::ObservedSinceTermsChange),
+            _ => Err(InstrumentMasterV2Error::CodecMismatch),
+        }
+    }
 }
 
 /// One row of the Owner's closed venue table: what an admitted Source Binding's exact dataset
@@ -558,6 +573,77 @@ pub struct ContractInfoDeltaV2 {
     pub changes: InstrumentMasterPublicTermsDeltaV2,
 }
 
+/// A later `exchangeInfo` snapshot of an instrument that already has a baseline, as the fact records
+/// it.
+///
+/// It is admitted under the baseline's own Source Binding, so it does not repeat the binding. Its
+/// raw payload digest is the exact snapshot's; two snapshots of an unchanged instrument may carry
+/// equal bytes, so the digest names what was read, not a unique event.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExchangeInfoSnapshotV2 {
+    pub predecessor_source_event_digest: BindingDigest,
+    pub raw_payload_digest: BindingDigest,
+    pub correction_sequence: u64,
+    pub retrieval_time_ns: i128,
+    pub owner_observation_time_ns: i128,
+}
+
+/// A snapshot successor as derived from its payload: the binding it was read under, its record,
+/// and the terms it observed. Its contract status is the snapshot's when the snapshot is later than
+/// the instant the fact it follows knows the status at, and that fact's otherwise.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExchangeInfoSnapshotSuccessorV2 {
+    pub source_binding_identity: BindingDigest,
+    pub source_binding_digest: BindingDigest,
+    pub snapshot: ExchangeInfoSnapshotV2,
+    pub terms: InstrumentMasterPublicTermsV2,
+}
+
+/// Why an `exchangeInfo` payload yields no snapshot successor of a fact.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExchangeInfoSnapshotNormalizationErrorV2 {
+    /// The payload yields no terms for the fact's raw symbol, for the named reason the baseline
+    /// intake gives.
+    Payload(ExchangeInfoNormalizationErrorV2),
+    /// The payload's `onboardDate` is not the baseline's: another listing, not a later snapshot of
+    /// this one.
+    ListingDiffers,
+    /// The retrieval is not later than the last snapshot, or the baseline, the fact already holds.
+    SnapshotOutOfOrder,
+}
+
+/// What a V2 fact's own step is.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FactStepV2 {
+    Baseline,
+    StatusDelta,
+    Snapshot,
+}
+
+/// Everything a fact carries about how it came to be, beyond its baseline and terms.
+///
+/// A fact carries its latest status delta and its latest snapshot, wherever in the chain each was
+/// admitted. Snapshots are ordered among themselves by retrieval, so a snapshot is never refused
+/// because a status delta arrived first. The contract status has one order across both: the
+/// instant the fact knows it at, the latest of the baseline's retrieval, the latest delta's event
+/// and the latest snapshot's retrieval.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct FactLineageV2 {
+    step: FactStepV2,
+    latest_delta: Option<ContractInfoDeltaV2>,
+    latest_snapshot: Option<ExchangeInfoSnapshotV2>,
+    terms_basis: InstrumentTermsBasisV2,
+}
+
+impl FactLineageV2 {
+    const BASELINE: Self = Self {
+        step: FactStepV2::Baseline,
+        latest_delta: None,
+        latest_snapshot: None,
+        terms_basis: InstrumentTermsBasisV2::RetrievedTermsAssumedSinceListing,
+    };
+}
+
 /// Canonical, content-addressed public fact. Its constructors validate raw lineage and merge rules.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InstrumentMasterFactV2 {
@@ -568,7 +654,7 @@ pub struct InstrumentMasterFactV2 {
     predecessor_fact_digest: Option<BindingDigest>,
     correction_sequence: u64,
     baseline: ExchangeInfoSnapshotProvenanceV2,
-    latest_delta: Option<ContractInfoDeltaV2>,
+    lineage: FactLineageV2,
     terms: InstrumentMasterPublicTermsV2,
     canonical_bytes: Vec<u8>,
     identity: BindingDigest,
@@ -597,7 +683,7 @@ impl InstrumentMasterFactV2 {
             None,
             1,
             baseline.provenance,
-            None,
+            FactLineageV2::BASELINE,
             baseline.terms,
         )
     }
@@ -734,7 +820,157 @@ impl InstrumentMasterFactV2 {
             Some(self.identity),
             delta.correction_sequence,
             self.baseline.clone(),
-            Some(delta),
+            FactLineageV2 {
+                step: FactStepV2::StatusDelta,
+                latest_delta: Some(delta),
+                latest_snapshot: self.lineage.latest_snapshot.clone(),
+                terms_basis: self.lineage.terms_basis,
+            },
+            terms,
+        )
+    }
+
+    /// Derives the snapshot successor a later raw USD-M `exchangeInfo` payload makes of this fact.
+    ///
+    /// This is the only definition of how a later `exchangeInfo` becomes a V2 successor. The terms
+    /// are derived by [`ExchangeInfoBaselineV2::from_usdm_exchange_info`], the baseline's own
+    /// mapping, for this fact's raw symbol and `venue`. The payload must state the baseline's
+    /// listing, and its retrieval must be later than the terms this fact already knows: its latest
+    /// snapshot's retrieval, or the baseline's. The snapshot's contract status becomes the fact's
+    /// when the snapshot is later than the instant this fact knows the status at; otherwise this
+    /// fact's newer status is carried over and the snapshot records its terms only.
+    /// The result still has to pass [`Self::apply_exchange_info_snapshot`], which requires the
+    /// binding to be the baseline's.
+    ///
+    /// # Errors
+    ///
+    /// Returns the named reason the payload yields no snapshot successor of this fact.
+    pub fn usdm_exchange_info_snapshot(
+        &self,
+        payload: &[u8],
+        venue: &InstrumentMasterVenueV2,
+        retrieval: ExchangeInfoRetrievalV2,
+    ) -> Result<ExchangeInfoSnapshotSuccessorV2, ExchangeInfoSnapshotNormalizationErrorV2> {
+        use ExchangeInfoSnapshotNormalizationErrorV2 as Refused;
+
+        let derived = ExchangeInfoBaselineV2::from_usdm_exchange_info(
+            payload,
+            &self.raw_symbol,
+            venue,
+            retrieval,
+        )
+        .map_err(Refused::Payload)?;
+
+        if derived.canonical_identity != self.canonical_identity
+            || derived.venue_identity != self.venue_identity
+        {
+            return Err(Refused::Payload(
+                ExchangeInfoNormalizationErrorV2::DatasetMismatch,
+            ));
+        }
+
+        if derived.provenance.effective_from_ns != self.baseline.effective_from_ns {
+            return Err(Refused::ListingDiffers);
+        }
+
+        if retrieval.retrieval_time_ns <= self.terms_known_as_of_ns() {
+            return Err(Refused::SnapshotOutOfOrder);
+        }
+        let mut terms = derived.terms;
+
+        if retrieval.retrieval_time_ns <= self.known_as_of_ns() {
+            // The fact already knows a newer status: the snapshot records its terms only.
+            terms.contract_status = self.terms.contract_status.clone();
+        }
+        Ok(ExchangeInfoSnapshotSuccessorV2 {
+            source_binding_identity: retrieval.source_binding_identity,
+            source_binding_digest: retrieval.source_binding_digest,
+            snapshot: ExchangeInfoSnapshotV2 {
+                predecessor_source_event_digest: self.latest_source_event_digest(),
+                raw_payload_digest: derived.provenance.raw_payload_digest,
+                correction_sequence: self
+                    .correction_sequence
+                    .checked_add(1)
+                    .ok_or(Refused::SnapshotOutOfOrder)?,
+                retrieval_time_ns: retrieval.retrieval_time_ns,
+                owner_observation_time_ns: retrieval.owner_observation_time_ns,
+            },
+            terms,
+        })
+    }
+
+    /// Applies exactly one later `exchangeInfo` snapshot to this fact.
+    ///
+    /// The snapshot must be read under the baseline's binding, name this fact's latest source
+    /// event, take the next correction sequence, and be retrieved later than the terms this fact
+    /// knows; unless it is also later than the status this fact knows, it must carry this fact's
+    /// contract status. Its terms replace this fact's; the terms basis stays this fact's only when
+    /// this fact's terms are still the baseline's and the snapshot's equal them but for the status,
+    /// and is [`InstrumentTermsBasisV2::ObservedSinceTermsChange`] otherwise.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the snapshot is invalid or is not this fact's direct successor.
+    pub fn apply_exchange_info_snapshot(
+        &self,
+        successor: ExchangeInfoSnapshotSuccessorV2,
+    ) -> Result<Self, InstrumentMasterV2Error> {
+        let ExchangeInfoSnapshotSuccessorV2 {
+            source_binding_identity,
+            source_binding_digest,
+            snapshot,
+            terms,
+        } = successor;
+        validate_snapshot_record(&snapshot)?;
+        validate_terms(&terms)?;
+
+        if source_binding_identity != self.baseline.source_binding_identity
+            || source_binding_digest != self.baseline.source_binding_digest
+        {
+            return Err(InstrumentMasterV2Error::SourceBindingMismatch);
+        }
+
+        if snapshot.predecessor_source_event_digest != self.latest_source_event_digest() {
+            return Err(InstrumentMasterV2Error::SourceEventPredecessorMismatch);
+        }
+
+        if self.correction_sequence.checked_add(1) != Some(snapshot.correction_sequence) {
+            return Err(InstrumentMasterV2Error::CorrectionSequenceMismatch);
+        }
+
+        if snapshot.owner_observation_time_ns < self.latest_owner_observation_time_ns()
+            || snapshot.retrieval_time_ns <= self.terms_known_as_of_ns()
+        {
+            return Err(InstrumentMasterV2Error::TimeRegression);
+        }
+
+        if snapshot.retrieval_time_ns <= self.known_as_of_ns()
+            && terms.contract_status != self.terms.contract_status
+        {
+            return Err(InstrumentMasterV2Error::InvalidProvenance);
+        }
+        let terms_basis = if self.lineage.terms_basis
+            == InstrumentTermsBasisV2::RetrievedTermsAssumedSinceListing
+            && equal_but_status(&terms, &self.terms)
+        {
+            InstrumentTermsBasisV2::RetrievedTermsAssumedSinceListing
+        } else {
+            InstrumentTermsBasisV2::ObservedSinceTermsChange
+        };
+        Self::finish(
+            self.canonical_identity.clone(),
+            self.venue_identity.clone(),
+            self.raw_symbol.clone(),
+            self.instrument_class,
+            Some(self.identity),
+            snapshot.correction_sequence,
+            self.baseline.clone(),
+            FactLineageV2 {
+                step: FactStepV2::Snapshot,
+                latest_delta: self.lineage.latest_delta.clone(),
+                latest_snapshot: Some(snapshot),
+                terms_basis,
+            },
             terms,
         )
     }
@@ -765,11 +1001,7 @@ impl InstrumentMasterFactV2 {
         let predecessor_fact_digest = decoder.optional_digest()?;
         let correction_sequence = decoder.u64()?;
         let baseline = decode_snapshot(&mut decoder)?;
-        let latest_delta = match decoder.u8()? {
-            0 => None,
-            1 => Some(decode_delta(&mut decoder)?),
-            _ => return Err(InstrumentMasterV2Error::CodecMismatch),
-        };
+        let lineage = decode_lineage(&mut decoder)?;
         let terms = decode_terms(&mut decoder)?;
         decoder.finish()?;
 
@@ -779,19 +1011,39 @@ impl InstrumentMasterFactV2 {
         validate_snapshot(&baseline)?;
         validate_terms(&terms)?;
 
-        match (&predecessor_fact_digest, &latest_delta, correction_sequence) {
-            (None, None, 1) => {}
-            (Some(_), Some(delta), sequence) if sequence > 1 => {
-                validate_delta(delta)?;
-                if delta.canonical_identity != canonical_identity
-                    || delta.source_binding_identity != baseline.source_binding_identity
-                    || delta.source_binding_digest != baseline.source_binding_digest
-                    || delta.correction_sequence != sequence
-                {
-                    return Err(InstrumentMasterV2Error::CodecMismatch);
-                }
+        if let Some(delta) = &lineage.latest_delta {
+            validate_delta(delta)?;
+            if delta.canonical_identity != canonical_identity
+                || delta.source_binding_identity != baseline.source_binding_identity
+                || delta.source_binding_digest != baseline.source_binding_digest
+                || delta.correction_sequence > correction_sequence
+            {
+                return Err(InstrumentMasterV2Error::CodecMismatch);
             }
-            _ => return Err(InstrumentMasterV2Error::CodecMismatch),
+        }
+
+        if let Some(snapshot) = &lineage.latest_snapshot {
+            validate_snapshot_record(snapshot)?;
+            if snapshot.correction_sequence > correction_sequence {
+                return Err(InstrumentMasterV2Error::CodecMismatch);
+            }
+        }
+        let own_sequence = match lineage.step {
+            FactStepV2::Baseline => Some(1),
+            FactStepV2::StatusDelta => lineage
+                .latest_delta
+                .as_ref()
+                .map(|delta| delta.correction_sequence),
+            FactStepV2::Snapshot => lineage
+                .latest_snapshot
+                .as_ref()
+                .map(|snapshot| snapshot.correction_sequence),
+        };
+
+        if own_sequence != Some(correction_sequence)
+            || predecessor_fact_digest.is_none() != (lineage.step == FactStepV2::Baseline)
+        {
+            return Err(InstrumentMasterV2Error::CodecMismatch);
         }
 
         let fact = Self::finish(
@@ -802,7 +1054,7 @@ impl InstrumentMasterFactV2 {
             predecessor_fact_digest,
             correction_sequence,
             baseline,
-            latest_delta,
+            lineage,
             terms,
         )?;
 
@@ -811,9 +1063,7 @@ impl InstrumentMasterFactV2 {
         }
 
         match predecessor {
-            None if fact.predecessor_fact_digest.is_none() && fact.latest_delta.is_none() => {
-                Ok(fact)
-            }
+            None if fact.lineage == FactLineageV2::BASELINE => Ok(fact),
             Some(predecessor) if fact.is_direct_successor_of(predecessor) => Ok(fact),
             _ => Err(InstrumentMasterV2Error::SuccessorMismatch),
         }
@@ -831,7 +1081,7 @@ impl InstrumentMasterFactV2 {
         predecessor_fact_digest: Option<BindingDigest>,
         correction_sequence: u64,
         baseline: ExchangeInfoSnapshotProvenanceV2,
-        latest_delta: Option<ContractInfoDeltaV2>,
+        lineage: FactLineageV2,
         terms: InstrumentMasterPublicTermsV2,
     ) -> Result<Self, InstrumentMasterV2Error> {
         let mut encoder = Encoder::default();
@@ -844,13 +1094,7 @@ impl InstrumentMasterFactV2 {
         encoder.optional_digest(predecessor_fact_digest);
         encoder.u64(correction_sequence);
         encode_snapshot(&mut encoder, &baseline);
-        match &latest_delta {
-            None => encoder.u8(0),
-            Some(delta) => {
-                encoder.u8(1);
-                encode_delta(&mut encoder, delta)?;
-            }
-        }
+        encode_lineage(&mut encoder, &lineage)?;
         encode_terms(&mut encoder, &terms)?;
         let canonical_bytes = encoder.finish();
         if canonical_bytes.len() > MAX_CANONICAL_BYTES_V2 {
@@ -865,7 +1109,7 @@ impl InstrumentMasterFactV2 {
             predecessor_fact_digest,
             correction_sequence,
             baseline,
-            latest_delta,
+            lineage,
             terms,
             canonical_bytes,
             identity,
@@ -919,8 +1163,7 @@ impl InstrumentMasterFactV2 {
 
     #[must_use]
     pub const fn terms_basis(&self) -> InstrumentTermsBasisV2 {
-        // Encoding writes and decoding requires exactly this basis, so it is what the bytes state.
-        InstrumentTermsBasisV2::RetrievedTermsAssumedSinceListing
+        self.lineage.terms_basis
     }
 
     #[must_use]
@@ -928,46 +1171,85 @@ impl InstrumentMasterFactV2 {
         &self.baseline
     }
 
+    /// The latest status delta in this fact's chain, which is this fact's own step or earlier.
     #[must_use]
     pub const fn latest_delta(&self) -> Option<&ContractInfoDeltaV2> {
-        self.latest_delta.as_ref()
+        self.lineage.latest_delta.as_ref()
     }
 
+    /// The latest later snapshot in this fact's chain, which is this fact's own step or earlier.
+    #[must_use]
+    pub const fn latest_snapshot(&self) -> Option<&ExchangeInfoSnapshotV2> {
+        self.lineage.latest_snapshot.as_ref()
+    }
+
+    /// The raw digest of this fact's own step: the baseline's payload, its delta's event, or its
+    /// snapshot's payload. A direct successor names it.
     #[must_use]
     pub fn latest_source_event_digest(&self) -> BindingDigest {
-        self.latest_delta
-            .as_ref()
-            .map_or(self.baseline.raw_payload_digest, |delta| {
-                delta.raw_payload_digest
-            })
+        match (
+            self.lineage.step,
+            &self.lineage.latest_delta,
+            &self.lineage.latest_snapshot,
+        ) {
+            (FactStepV2::StatusDelta, Some(delta), _) => delta.raw_payload_digest,
+            (FactStepV2::Snapshot, _, Some(snapshot)) => snapshot.raw_payload_digest,
+            _ => self.baseline.raw_payload_digest,
+        }
     }
 
     fn latest_owner_observation_time_ns(&self) -> i128 {
-        self.latest_delta
-            .as_ref()
-            .map_or(self.baseline.owner_observation_time_ns, |delta| {
-                delta.owner_observation_time_ns
-            })
+        match (
+            self.lineage.step,
+            &self.lineage.latest_delta,
+            &self.lineage.latest_snapshot,
+        ) {
+            (FactStepV2::StatusDelta, Some(delta), _) => delta.owner_observation_time_ns,
+            (FactStepV2::Snapshot, _, Some(snapshot)) => snapshot.owner_observation_time_ns,
+            _ => self.baseline.owner_observation_time_ns,
+        }
     }
 
     pub(crate) fn owner_observation_time_ns(&self) -> i128 {
         self.latest_owner_observation_time_ns()
     }
 
-    /// The latest instant this fact knows the contract status at: its latest delta's event, or,
-    /// for a baseline, its retrieval, since `exchangeInfo` states the status as retrieved and not
-    /// as listed. A delta must be newer than this, so an event older than what the fact already
-    /// observed is never admitted over it.
+    /// The latest instant this fact knows the contract status at: whichever is latest of its
+    /// baseline's retrieval, since `exchangeInfo` states the status as retrieved and not as listed,
+    /// its latest delta's event and its latest snapshot's retrieval. A delta must be newer than this,
+    /// so an event older than what the fact already observed is never admitted over it, and a
+    /// snapshot sets the status only when it is newer than this.
     fn known_as_of_ns(&self) -> i128 {
-        self.latest_delta
+        let delta = self
+            .lineage
+            .latest_delta
             .as_ref()
-            .map_or(self.baseline.retrieval_time_ns, |delta| {
-                delta.provider_event_time_ns
+            .map(|delta| delta.provider_event_time_ns);
+        let snapshot = self
+            .lineage
+            .latest_snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.retrieval_time_ns);
+        [delta, snapshot]
+            .into_iter()
+            .flatten()
+            .fold(self.baseline.retrieval_time_ns, i128::max)
+    }
+
+    /// The latest instant this fact knows the terms at: its latest snapshot's retrieval, or the
+    /// baseline's. A later snapshot must be newer than this; status deltas do not move it.
+    fn terms_known_as_of_ns(&self) -> i128 {
+        self.lineage
+            .latest_snapshot
+            .as_ref()
+            .map_or(self.baseline.retrieval_time_ns, |snapshot| {
+                snapshot.retrieval_time_ns
             })
     }
 
     fn latest_event_time_ns(&self) -> i128 {
-        self.latest_delta
+        self.lineage
+            .latest_delta
             .as_ref()
             .map_or(self.baseline.effective_from_ns, |delta| {
                 delta.provider_event_time_ns
@@ -978,12 +1260,25 @@ impl InstrumentMasterFactV2 {
     /// exact field-wise delta merge.
     #[must_use]
     pub fn is_direct_successor_of(&self, predecessor: &Self) -> bool {
-        let Some(delta) = self.latest_delta.clone() else {
-            return false;
+        let expected = match (
+            &self.lineage.step,
+            &self.lineage.latest_delta,
+            &self.lineage.latest_snapshot,
+        ) {
+            (FactStepV2::StatusDelta, Some(delta), _) => {
+                predecessor.apply_contract_info_delta(delta.clone())
+            }
+            (FactStepV2::Snapshot, _, Some(snapshot)) => {
+                predecessor.apply_exchange_info_snapshot(ExchangeInfoSnapshotSuccessorV2 {
+                    source_binding_identity: self.baseline.source_binding_identity,
+                    source_binding_digest: self.baseline.source_binding_digest,
+                    snapshot: snapshot.clone(),
+                    terms: self.terms.clone(),
+                })
+            }
+            _ => return false,
         };
-        predecessor
-            .apply_contract_info_delta(delta)
-            .is_ok_and(|expected| expected == *self)
+        expected.is_ok_and(|expected| expected == *self)
     }
 
     /// Validates the complete Market Data-owned part of a native crypto-perpetual projection.
@@ -2048,6 +2343,20 @@ fn validate_delta(delta: &ContractInfoDeltaV2) -> Result<(), InstrumentMasterV2E
     }
 }
 
+fn validate_snapshot_record(
+    snapshot: &ExchangeInfoSnapshotV2,
+) -> Result<(), InstrumentMasterV2Error> {
+    if is_zero(snapshot.predecessor_source_event_digest)
+        || is_zero(snapshot.raw_payload_digest)
+        || snapshot.correction_sequence <= 1
+        || snapshot.retrieval_time_ns > snapshot.owner_observation_time_ns
+    {
+        Err(InstrumentMasterV2Error::InvalidProvenance)
+    } else {
+        Ok(())
+    }
+}
+
 fn validate_fact_text(value: &FactValue<String>) -> Result<(), InstrumentMasterV2Error> {
     if let FactValue::Value(value) = value {
         validate_identity_text(value)?;
@@ -2113,6 +2422,17 @@ fn validate_delta_terms(
         validate_fact_text(value)?;
     }
     Ok(())
+}
+
+/// Whether two sets of terms agree on every term but the contract status, which is not a term the
+/// terms basis speaks for.
+fn equal_but_status(
+    left: &InstrumentMasterPublicTermsV2,
+    right: &InstrumentMasterPublicTermsV2,
+) -> bool {
+    let mut left = left.clone();
+    left.contract_status = right.contract_status.clone();
+    left == *right
 }
 
 fn merge_terms(
@@ -2496,6 +2816,98 @@ fn decode_delta(decoder: &mut Decoder<'_>) -> Result<ContractInfoDeltaV2, Instru
         owner_observation_time_ns: decoder.i128()?,
         changes: decode_delta_terms(decoder)?,
     })
+}
+
+/// A fact's lineage, after its baseline provenance.
+///
+/// Tags `0` (a baseline) and `1` (a status delta, with no later snapshot anywhere in the chain) are
+/// the encodings every fact had before later snapshots existed, byte for byte, so no stored fact
+/// changes. Tag `2` is every fact whose chain holds a later snapshot: which step it is, its latest
+/// delta if any, its latest snapshot, and its terms basis, which such a chain can change.
+fn encode_lineage(
+    encoder: &mut Encoder,
+    lineage: &FactLineageV2,
+) -> Result<(), InstrumentMasterV2Error> {
+    let since_listing =
+        lineage.terms_basis == InstrumentTermsBasisV2::RetrievedTermsAssumedSinceListing;
+
+    match (
+        lineage.step,
+        &lineage.latest_delta,
+        &lineage.latest_snapshot,
+    ) {
+        (FactStepV2::Baseline, None, None) if since_listing => encoder.u8(0),
+        (FactStepV2::StatusDelta, Some(delta), None) if since_listing => {
+            encoder.u8(1);
+            encode_delta(encoder, delta)?;
+        }
+        (FactStepV2::StatusDelta | FactStepV2::Snapshot, delta, Some(snapshot)) => {
+            encoder.u8(2);
+            encoder.u8(match lineage.step {
+                FactStepV2::StatusDelta => 1,
+                _ => 2,
+            });
+
+            match delta {
+                None => encoder.u8(0),
+                Some(delta) => {
+                    encoder.u8(1);
+                    encode_delta(encoder, delta)?;
+                }
+            }
+            encoder.digest(snapshot.predecessor_source_event_digest);
+            encoder.digest(snapshot.raw_payload_digest);
+            encoder.u64(snapshot.correction_sequence);
+            encoder.i128(snapshot.retrieval_time_ns);
+            encoder.i128(snapshot.owner_observation_time_ns);
+            encoder.u8(lineage.terms_basis as u8);
+        }
+        _ => return Err(InstrumentMasterV2Error::CodecMismatch),
+    }
+    Ok(())
+}
+
+fn decode_lineage(decoder: &mut Decoder<'_>) -> Result<FactLineageV2, InstrumentMasterV2Error> {
+    match decoder.u8()? {
+        0 => Ok(FactLineageV2::BASELINE),
+        1 => Ok(FactLineageV2 {
+            step: FactStepV2::StatusDelta,
+            latest_delta: Some(decode_delta(decoder)?),
+            latest_snapshot: None,
+            terms_basis: InstrumentTermsBasisV2::RetrievedTermsAssumedSinceListing,
+        }),
+        2 => {
+            let step = match decoder.u8()? {
+                1 => FactStepV2::StatusDelta,
+                2 => FactStepV2::Snapshot,
+                _ => return Err(InstrumentMasterV2Error::CodecMismatch),
+            };
+            let latest_delta = match decoder.u8()? {
+                0 => None,
+                1 => Some(decode_delta(decoder)?),
+                _ => return Err(InstrumentMasterV2Error::CodecMismatch),
+            };
+            let latest_snapshot = Some(ExchangeInfoSnapshotV2 {
+                predecessor_source_event_digest: decoder.digest()?,
+                raw_payload_digest: decoder.digest()?,
+                correction_sequence: decoder.u64()?,
+                retrieval_time_ns: decoder.i128()?,
+                owner_observation_time_ns: decoder.i128()?,
+            });
+            let terms_basis = InstrumentTermsBasisV2::decode(decoder.u8()?)?;
+
+            if step == FactStepV2::StatusDelta && latest_delta.is_none() {
+                return Err(InstrumentMasterV2Error::CodecMismatch);
+            }
+            Ok(FactLineageV2 {
+                step,
+                latest_delta,
+                latest_snapshot,
+                terms_basis,
+            })
+        }
+        _ => Err(InstrumentMasterV2Error::CodecMismatch),
+    }
 }
 
 fn encode_decimal(encoder: &mut Encoder, value: InstrumentDecimalV2) {
@@ -4118,6 +4530,444 @@ mod exchange_info_snapshot_tests {
                 write!(text, "{byte:02x}").unwrap();
                 text
             })
+    }
+
+    const HOUR_NS: i128 = 3_600_000_000_000;
+    const MINUTE_NS: i128 = 60_000_000_000;
+
+    /// The recorded payload with `edit` applied to its `BTCUSDT` entry.
+    fn edited(edit: impl FnOnce(&mut serde_json::Value)) -> Vec<u8> {
+        let mut root: serde_json::Value = serde_json::from_slice(USDM).unwrap();
+        let entry = root["symbols"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|entry| entry["symbol"] == "BTCUSDT")
+            .unwrap();
+        edit(entry);
+        serde_json::to_vec(&root).unwrap()
+    }
+
+    /// The payload with `BTCUSDT`'s tick changed from `0.10` to `0.20`.
+    fn wider_tick() -> Vec<u8> {
+        edited(|entry| {
+            let filter = entry["filters"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|filter| filter["filterType"] == "PRICE_FILTER")
+                .unwrap();
+            filter["tickSize"] = serde_json::json!("0.20");
+        })
+    }
+
+    /// Retrieved `hours` after the baseline under the baseline's binding, observed a second later.
+    fn later(hours: i128) -> ExchangeInfoRetrievalV2 {
+        let (identity, digest) = binding();
+        ExchangeInfoRetrievalV2 {
+            source_binding_identity: identity,
+            source_binding_digest: digest,
+            retrieval_time_ns: RETRIEVED_NS + hours * HOUR_NS,
+            owner_observation_time_ns: RETRIEVED_NS + hours * HOUR_NS + 1_000_000_000,
+        }
+    }
+
+    fn snapshot(
+        fact: &InstrumentMasterFactV2,
+        payload: &[u8],
+        hours: i128,
+    ) -> InstrumentMasterFactV2 {
+        let successor = fact
+            .usdm_exchange_info_snapshot(payload, venue(), later(hours))
+            .unwrap();
+        fact.apply_exchange_info_snapshot(successor).unwrap()
+    }
+
+    /// A later snapshot with the baseline's terms becomes the next fact: it follows the baseline,
+    /// names its payload, keeps its terms and its basis, and decodes only against it.
+    #[rstest]
+    fn an_unchanged_snapshot_extends_the_fact_and_keeps_the_basis() {
+        let baseline = baseline_of("BTCUSDT");
+        let fact = snapshot(&baseline, USDM, 1);
+
+        assert_eq!(fact.predecessor_fact_digest(), Some(baseline.identity()));
+        assert_eq!(fact.correction_sequence(), 2);
+        assert_eq!(fact.terms(), baseline.terms());
+        assert_eq!(
+            fact.terms_basis(),
+            InstrumentTermsBasisV2::RetrievedTermsAssumedSinceListing
+        );
+        assert_eq!(
+            fact.latest_source_event_digest(),
+            exchange_info_payload_digest_v2(USDM),
+            "a snapshot of unchanged bytes still names what it read"
+        );
+        assert_eq!(
+            fact.latest_snapshot().unwrap().retrieval_time_ns,
+            RETRIEVED_NS + HOUR_NS
+        );
+        assert_eq!(fact.baseline_provenance(), baseline.baseline_provenance());
+        assert!(fact.is_direct_successor_of(&baseline));
+        assert_eq!(
+            InstrumentMasterFactV2::from_canonical_bytes(fact.canonical_bytes(), Some(&baseline)),
+            Ok(fact.clone())
+        );
+        assert_eq!(
+            InstrumentMasterFactV2::from_canonical_bytes(fact.canonical_bytes(), None),
+            Err(InstrumentMasterV2Error::SuccessorMismatch)
+        );
+        assert_eq!(
+            fact.canonical_bytes().len(),
+            baseline.canonical_bytes().len() + 32 + 107,
+            "the baseline's bytes, its identity as the predecessor, and the snapshot record: tag, \
+             step, no delta, two digests, sequence, two instants and the basis"
+        );
+    }
+
+    /// A snapshot whose terms differ changes them and ends the listing basis for good; a later
+    /// snapshot that states the baseline's terms again does not restore it.
+    #[rstest]
+    fn a_changed_snapshot_changes_the_terms_and_ends_the_listing_basis() {
+        let baseline = baseline_of("BTCUSDT");
+        let changed = snapshot(&baseline, &wider_tick(), 1);
+
+        assert_eq!(
+            changed.terms().price_increment_from_filter,
+            FactValue::Value(InstrumentDecimalV2 {
+                mantissa: 2,
+                scale: 1
+            })
+        );
+        assert_eq!(
+            changed.terms_basis(),
+            InstrumentTermsBasisV2::ObservedSinceTermsChange
+        );
+        let unchanged_after = snapshot(&changed, &wider_tick(), 2);
+        assert_eq!(unchanged_after.terms(), changed.terms());
+        assert_eq!(
+            unchanged_after.terms_basis(),
+            InstrumentTermsBasisV2::ObservedSinceTermsChange
+        );
+        let back = snapshot(&unchanged_after, USDM, 3);
+        assert_eq!(back.terms(), baseline.terms());
+        assert_eq!(
+            back.terms_basis(),
+            InstrumentTermsBasisV2::ObservedSinceTermsChange,
+            "the baseline's terms did not hold between the change and this snapshot"
+        );
+
+        for (fact, predecessor) in [
+            (&changed, &baseline),
+            (&unchanged_after, &changed),
+            (&back, &unchanged_after),
+        ] {
+            assert_eq!(
+                InstrumentMasterFactV2::from_canonical_bytes(
+                    fact.canonical_bytes(),
+                    Some(predecessor)
+                ),
+                Ok(fact.clone())
+            );
+        }
+    }
+
+    /// A status event in the provider's documented `!contractInfo` shape, at `minutes` after the
+    /// baseline's retrieval.
+    fn status_event(minutes: i128, status: &str) -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({
+            "e": "contractInfo",
+            "E": u64::try_from((RETRIEVED_NS + minutes * MINUTE_NS) / 1_000_000).unwrap(),
+            "s": "BTCUSDT", "ct": "PERPETUAL", "cs": status, "st": 1
+        }))
+        .unwrap()
+    }
+
+    fn received_at(minutes: i128) -> ContractInfoRetrievalV2 {
+        ContractInfoRetrievalV2 {
+            retrieval_time_ns: RETRIEVED_NS + minutes * MINUTE_NS,
+            owner_observation_time_ns: RETRIEVED_NS + minutes * MINUTE_NS + 1_000_000_000,
+        }
+    }
+
+    fn delta_at(
+        fact: &InstrumentMasterFactV2,
+        minutes: i128,
+        status: &str,
+        received: i128,
+    ) -> Result<InstrumentMasterFactV2, ContractInfoNormalizationErrorV2> {
+        let delta =
+            fact.usdm_contract_info_delta(&status_event(minutes, status), received_at(received))?;
+        Ok(fact.apply_contract_info_delta(delta).unwrap())
+    }
+
+    /// Retrieved `minutes` after the baseline and admitted when the Owner observed it at
+    /// `observed` minutes, which a snapshot admitted after a later delta shares with that delta.
+    fn snapshot_at(
+        fact: &InstrumentMasterFactV2,
+        payload: &[u8],
+        minutes: i128,
+        observed: i128,
+    ) -> InstrumentMasterFactV2 {
+        let (identity, digest) = binding();
+        let retrieval = ExchangeInfoRetrievalV2 {
+            source_binding_identity: identity,
+            source_binding_digest: digest,
+            retrieval_time_ns: RETRIEVED_NS + minutes * MINUTE_NS,
+            owner_observation_time_ns: RETRIEVED_NS + observed * MINUTE_NS + 1_000_000_000,
+        };
+        fact.apply_exchange_info_snapshot(
+            fact.usdm_exchange_info_snapshot(payload, venue(), retrieval)
+                .unwrap(),
+        )
+        .unwrap()
+    }
+
+    /// A snapshot later than the instant the fact knows the status at sets the status; the status
+    /// is not a term the basis speaks for, so the basis stays. One that is not later keeps the
+    /// fact's newer status and records its terms only, and may not state its own.
+    #[rstest]
+    fn a_snapshot_sets_the_status_only_when_it_is_the_newer_evidence() {
+        let baseline = baseline_of("BTCUSDT");
+        let settling = edited(|entry| entry["status"] = serde_json::json!("SETTLING"));
+        let newer = snapshot_at(&baseline, &settling, 60, 60);
+
+        assert_eq!(
+            newer.terms().contract_status,
+            FactValue::Value("SETTLING".to_owned())
+        );
+        assert_eq!(
+            newer.terms_basis(),
+            InstrumentTermsBasisV2::RetrievedTermsAssumedSinceListing
+        );
+
+        // A delta at 120 minutes is newer still; a snapshot retrieved at 90 is later than the last
+        // snapshot, so its terms are recorded, but older than the delta, so its status is not.
+        let traded = delta_at(&newer, 120, "TRADING", 150).unwrap();
+        let older = snapshot_at(&traded, &settling, 90, 150);
+        assert_eq!(
+            older.terms().contract_status,
+            FactValue::Value("TRADING".to_owned())
+        );
+        assert_eq!(older.latest_delta(), traded.latest_delta());
+        assert_eq!(
+            InstrumentMasterFactV2::from_canonical_bytes(older.canonical_bytes(), Some(&traded)),
+            Ok(older.clone())
+        );
+        let (identity, digest) = binding();
+        let mut stating_its_own = traded
+            .usdm_exchange_info_snapshot(
+                &settling,
+                venue(),
+                ExchangeInfoRetrievalV2 {
+                    source_binding_identity: identity,
+                    source_binding_digest: digest,
+                    retrieval_time_ns: RETRIEVED_NS + 90 * MINUTE_NS,
+                    owner_observation_time_ns: RETRIEVED_NS + 151 * MINUTE_NS,
+                },
+            )
+            .unwrap();
+        stating_its_own.terms.contract_status = FactValue::Value("SETTLING".to_owned());
+        assert_eq!(
+            traded.apply_exchange_info_snapshot(stating_its_own),
+            Err(InstrumentMasterV2Error::InvalidProvenance)
+        );
+    }
+
+    /// The status has one order across deltas and snapshots; snapshots have their own among
+    /// themselves. An event no later than a snapshot the fact already holds is refused, the status
+    /// instant boundary; a snapshot retrieved before a delta the fact holds is still admitted.
+    #[rstest]
+    fn a_snapshot_moves_the_status_order_but_a_delta_does_not_move_the_terms_order() {
+        let baseline = baseline_of("BTCUSDT");
+        let snapshotted = snapshot_at(&baseline, USDM, 120, 120);
+
+        for minutes in [60, 120] {
+            assert_eq!(
+                delta_at(&snapshotted, minutes, "SETTLING", 180),
+                Err(ContractInfoNormalizationErrorV2::EventOutOfOrder),
+                "{minutes}"
+            );
+        }
+        let settled = delta_at(&snapshotted, 150, "SETTLING", 180).unwrap();
+        assert_eq!(settled.latest_snapshot(), snapshotted.latest_snapshot());
+        assert_eq!(
+            InstrumentMasterFactV2::from_canonical_bytes(
+                settled.canonical_bytes(),
+                Some(&snapshotted)
+            ),
+            Ok(settled.clone())
+        );
+
+        let queued = snapshot_at(&settled, USDM, 135, 180);
+        assert_eq!(
+            queued.terms().contract_status,
+            FactValue::Value("SETTLING".to_owned()),
+            "the snapshot is older than the delta, so the delta's status stays"
+        );
+        assert_eq!(queued.latest_delta(), settled.latest_delta());
+        assert_eq!(
+            queued.latest_snapshot().unwrap().retrieval_time_ns,
+            RETRIEVED_NS + 135 * MINUTE_NS
+        );
+        assert_eq!(
+            InstrumentMasterFactV2::from_canonical_bytes(queued.canonical_bytes(), Some(&settled)),
+            Ok(queued.clone())
+        );
+        assert_eq!(
+            queued.canonical_bytes().len(),
+            snapshotted.canonical_bytes().len() + 222 + 1,
+            "the delta's record, and one more character in its status than `TRADING`"
+        );
+    }
+
+    #[rstest]
+    fn each_snapshot_that_is_not_a_later_one_of_this_listing_is_refused_by_name() {
+        use ExchangeInfoSnapshotNormalizationErrorV2 as Refused;
+
+        let baseline = baseline_of("BTCUSDT");
+        let normalize = |fact: &InstrumentMasterFactV2, payload: &[u8], retrieval| {
+            fact.usdm_exchange_info_snapshot(payload, venue(), retrieval)
+        };
+
+        assert_eq!(
+            normalize(&baseline, USDM, later(0)),
+            Err(Refused::SnapshotOutOfOrder),
+            "retrieved when the baseline was"
+        );
+        let snapshotted = snapshot(&baseline, USDM, 2);
+
+        for hours in [1, 2] {
+            assert_eq!(
+                normalize(&snapshotted, USDM, later(hours)),
+                Err(Refused::SnapshotOutOfOrder),
+                "{hours}"
+            );
+        }
+        assert_eq!(
+            normalize(
+                &baseline,
+                &edited(|entry| entry["onboardDate"] = serde_json::json!(1_569_398_400_001_u64)),
+                later(1)
+            ),
+            Err(Refused::ListingDiffers)
+        );
+        assert_eq!(
+            normalize(
+                &baseline,
+                &edited(|entry| entry["symbol"] = serde_json::json!("OTHER")),
+                later(1)
+            ),
+            Err(Refused::Payload(
+                ExchangeInfoNormalizationErrorV2::SymbolAbsent
+            ))
+        );
+        assert_eq!(
+            normalize(&baseline, b"[]", later(1)),
+            Err(Refused::Payload(
+                ExchangeInfoNormalizationErrorV2::NotExchangeInfo
+            ))
+        );
+    }
+
+    #[rstest]
+    fn a_snapshot_that_is_not_the_facts_direct_successor_does_not_apply() {
+        let baseline = baseline_of("BTCUSDT");
+        let successor = baseline
+            .usdm_exchange_info_snapshot(USDM, venue(), later(1))
+            .unwrap();
+
+        let mut other_binding = successor.clone();
+        other_binding.source_binding_digest = BindingDigest::from_untrusted_bytes([9; 32]);
+        assert_eq!(
+            baseline.apply_exchange_info_snapshot(other_binding),
+            Err(InstrumentMasterV2Error::SourceBindingMismatch)
+        );
+        let mut skipped = successor.clone();
+        skipped.snapshot.correction_sequence = 3;
+        assert_eq!(
+            baseline.apply_exchange_info_snapshot(skipped),
+            Err(InstrumentMasterV2Error::CorrectionSequenceMismatch)
+        );
+        let mut elsewhere = successor.clone();
+        elsewhere.snapshot.predecessor_source_event_digest =
+            BindingDigest::from_untrusted_bytes([9; 32]);
+        assert_eq!(
+            baseline.apply_exchange_info_snapshot(elsewhere),
+            Err(InstrumentMasterV2Error::SourceEventPredecessorMismatch)
+        );
+        let mut not_newer = successor.clone();
+        not_newer.snapshot.retrieval_time_ns = RETRIEVED_NS;
+        assert_eq!(
+            baseline.apply_exchange_info_snapshot(not_newer),
+            Err(InstrumentMasterV2Error::TimeRegression)
+        );
+        let mut observed_before = successor;
+        observed_before.snapshot.owner_observation_time_ns = OBSERVED_NS - 1;
+        observed_before.snapshot.retrieval_time_ns = OBSERVED_NS - 1;
+        assert_eq!(
+            baseline.apply_exchange_info_snapshot(observed_before),
+            Err(InstrumentMasterV2Error::TimeRegression)
+        );
+    }
+
+    /// The basis a fact states is the one its chain gives: bytes claiming another do not decode.
+    #[rstest]
+    fn a_snapshot_stating_a_basis_its_chain_does_not_give_does_not_decode() {
+        let baseline = baseline_of("BTCUSDT");
+        let fact = snapshot(&baseline, USDM, 1);
+        // The basis is the last byte of the lineage, which the terms follow.
+        let terms_len = {
+            let mut encoder = Encoder::default();
+            encode_terms(&mut encoder, fact.terms()).unwrap();
+            encoder.finish().len()
+        };
+        let basis_at = fact.canonical_bytes().len() - terms_len - 1;
+        assert_eq!(
+            fact.canonical_bytes()[basis_at],
+            InstrumentTermsBasisV2::RetrievedTermsAssumedSinceListing as u8
+        );
+        let mut claimed = fact.canonical_bytes().to_vec();
+        claimed[basis_at] = InstrumentTermsBasisV2::ObservedSinceTermsChange as u8;
+        assert_eq!(
+            InstrumentMasterFactV2::from_canonical_bytes(&claimed, Some(&baseline)),
+            Err(InstrumentMasterV2Error::SuccessorMismatch)
+        );
+        claimed[basis_at] = 3;
+        assert_eq!(
+            InstrumentMasterFactV2::from_canonical_bytes(&claimed, Some(&baseline)),
+            Err(InstrumentMasterV2Error::CodecMismatch)
+        );
+    }
+
+    /// A year of hourly snapshots of an unchanged instrument: every fact decodes against the one
+    /// before it, as a cut or an admission reads a member's chain, and each is the same size.
+    #[rstest]
+    fn a_year_of_hourly_snapshots_decodes_as_one_chain() {
+        const HOURS: i128 = 8_760;
+
+        let mut chain = vec![baseline_of("BTCUSDT")];
+        for hour in 1..=HOURS {
+            let next = snapshot(chain.last().unwrap(), USDM, hour);
+            chain.push(next);
+        }
+        let bytes: Vec<&[u8]> = chain
+            .iter()
+            .map(InstrumentMasterFactV2::canonical_bytes)
+            .collect();
+        let started = std::time::Instant::now();
+        let mut decoded = InstrumentMasterFactV2::from_canonical_bytes(bytes[0], None).unwrap();
+        for fact in &bytes[1..] {
+            decoded = InstrumentMasterFactV2::from_canonical_bytes(fact, Some(&decoded)).unwrap();
+        }
+        let elapsed = started.elapsed();
+
+        assert_eq!(decoded, *chain.last().unwrap());
+        assert!(bytes[1..].iter().all(|fact| fact.len() == bytes[1].len()));
+        eprintln!(
+            "{} facts of {} bytes decoded as one chain in {elapsed:?}",
+            bytes.len(),
+            bytes[1].len()
+        );
     }
 
     /// F's case: a baseline from the recorded payload, the status successor B1 admits after it,
