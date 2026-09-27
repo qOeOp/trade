@@ -15,6 +15,10 @@ feature-depth = 1
 # Security Advisories
 # =============================================================================
 [advisories]
+# Transitive crates too: the default scope reports an unsound advisory only for crates the workspace
+# depends on directly, so RUSTSEC-2026-0306 (faster-hex, via hypersync) passed here silently while
+# osv-scanner kept main red for four days (2026-09-23 to 09-27). With "all" nothing new appeared.
+unsound = "all"
 # Ignored advisories (use sparingly - document the reason)
 ignore = [
   # paste unmaintained, transitive via alloy
@@ -42,7 +46,13 @@ ignore = [
   # capnp unsound APIs in constant::Reader and StructSchema, transitive via hypersync-client.
   # Fix requires upstream update to capnp >= 0.24.0. Low risk: internal schema handling only.
   # TODO: Monitor https://github.com/enviodev/hypersync-client-rust for capnp update
+  # Kept with risk accepted 2026-09-27 (user delegated to Lane 3: hypersync stays for on-chain data).
   { id = "RUSTSEC-2025-0143", reason = "capnp unsound APIs, transitive via hypersync-client, awaiting upstream fix" },
+
+  # faster-hex hex_decode_unchecked AVX2 over-read, transitive via hypersync-client and
+  # hypersync-format, which never call it; osv-scanner.toml carries the evidence.
+  # Kept with risk accepted 2026-09-27 (user delegated to Lane 3: hypersync stays for on-chain data).
+  { id = "RUSTSEC-2026-0306", reason = "faster-hex unsound hex_decode_unchecked, transitive via hypersync (never called), awaiting upstream" },
 
   # quick-xml duplicate-attribute check DoS, transitive via object_store 0.13.2.
   # object_store has no release that depends on quick-xml >= 0.41.0.
