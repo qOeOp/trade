@@ -196,12 +196,14 @@ impl SingleThresholdChannelV1 {
 
 /// What the program proposes on one side of the threshold.
 ///
-/// The eleven terminal outputs a frame must carry are not all here. The seven this type leaves
-/// out - weight, rebalance and the five protection terminals - are the same on both sides of a
-/// single threshold, so asking for them twice could only produce a disagreement the author did not
-/// mean. The three that are here are the three that make one side a different proposal from the
-/// other, and a fourth follows from them: the reconciliation target, which the kernel requires to
-/// equal a position target, so each frame reads it from its own side's target position.
+/// The eleven terminal outputs a frame must carry are not all here. The six this type leaves out -
+/// weight, rebalance and the four protection values - are the same on both sides of a single
+/// threshold, so asking for them twice could only produce a disagreement the author did not mean.
+/// The three that are here are the three that make one side a different proposal from the other,
+/// and two more follow from them: the reconciliation target, which the kernel requires to equal a
+/// position target, so each frame reads it from its own side's target position; and the protection
+/// variant, which the kernel requires to clear on an exit and refuses to clear otherwise, so each
+/// frame reads it from its own side's position intent.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SingleThresholdOutcomeV1 {
@@ -267,11 +269,10 @@ pub enum SingleThresholdAuthoringErrorV1 {
     UnknownFieldSemantic(String),
     /// A side names a target variant the target-set Host cannot run past its first frame.
     ///
-    /// Temporary, until the slices `docs/architecture/strategy-factory.md` orders after F and
-    /// before T1 land: a rebalance target needs the target set's own sequence, which no authored
-    /// constant can follow, and a weight target is decoded with a reconciliation the target-set
-    /// reconciliation refuses, over a weight this author shares as 0. Authoring either would only
-    /// fail on the first frame, under a name that does not say why.
+    /// Temporary, until the weight slice `docs/architecture/strategy-factory.md` orders after F
+    /// and before T1 lands: a weight target is decoded with a reconciliation the target-set
+    /// reconciliation refuses, over a weight this author shares as 0. Authoring it would only fail
+    /// on the first frame, under a name that does not say why.
     #[error(
         "SINGLE_THRESHOLD_TARGET_VARIANT_NOT_RUNNABLE: {field} {variant} cannot run past one frame of the target-set Host"
     )]
@@ -283,8 +284,7 @@ pub enum SingleThresholdAuthoringErrorV1 {
 
 /// The target variants a side may not name until their slices land; see
 /// [`SingleThresholdAuthoringErrorV1::TargetVariantNotRunnable`].
-const NOT_RUNNABLE_TARGET_VARIANTS: [&str; 2] =
-    ["kernel.target.rebalance.v1", "kernel.target.weight.v1"];
+const NOT_RUNNABLE_TARGET_VARIANTS: [&str; 1] = ["kernel.target.weight.v1"];
 
 /// Authors one single-threshold program: the Design it needs and the meaning a proposer declares.
 ///
@@ -635,9 +635,10 @@ const TRUE_TARGET_POSITION: &str = "when-true-target-position";
 const FALSE_POSITION: &str = "otherwise-position";
 const FALSE_TARGET: &str = "otherwise-target";
 const FALSE_TARGET_POSITION: &str = "otherwise-target-position";
+const TRUE_PROTECTION: &str = "when-true-protection";
+const FALSE_PROTECTION: &str = "otherwise-protection";
 const TARGET_WEIGHT: &str = "target-weight";
 const REBALANCE: &str = "rebalance";
-const PROTECTION: &str = "protection";
 const STOP_LOSS: &str = "stop-loss";
 const TAKE_PROFIT: &str = "take-profit";
 const TRAILING_DISTANCE: &str = "trailing-distance";
@@ -714,6 +715,7 @@ fn meaning_for(request: &SingleThresholdAuthoringRequestV1) -> BoundedFeaturePro
                     TRUE_POSITION,
                     TRUE_TARGET,
                     TRUE_TARGET_POSITION,
+                    TRUE_PROTECTION,
                 ),
             }],
             // Not a fallback: it is the other side of the threshold, and
@@ -723,6 +725,7 @@ fn meaning_for(request: &SingleThresholdAuthoringRequestV1) -> BoundedFeaturePro
                 FALSE_POSITION,
                 FALSE_TARGET,
                 FALSE_TARGET_POSITION,
+                FALSE_PROTECTION,
             ),
         },
         warmup: BoundedFeatureWarmupContractV1 {
@@ -767,7 +770,7 @@ fn meaning_for(request: &SingleThresholdAuthoringRequestV1) -> BoundedFeaturePro
 fn constants(request: &SingleThresholdAuthoringRequestV1) -> Vec<BoundedFeatureConstantV1> {
     // The threshold is compared at the channel's own unit and scale, which the Design role states.
     let channel = request.channel.role_v2();
-    let outcome = |ids: (&str, &str, &str), o: &SingleThresholdOutcomeV1| {
+    let outcome = |ids: (&str, &str, &str, &str), o: &SingleThresholdOutcomeV1| {
         [
             (
                 ids.0.to_owned(),
@@ -787,6 +790,12 @@ fn constants(request: &SingleThresholdAuthoringRequestV1) -> Vec<BoundedFeatureC
                     value: o.target_position_units,
                 },
             ),
+            (
+                ids.3.to_owned(),
+                BoundedFeatureConstantValueV1::ProtectionVariantV1 {
+                    semantic_id: protection_variant(o).to_owned(),
+                },
+            ),
         ]
     };
 
@@ -801,11 +810,21 @@ fn constants(request: &SingleThresholdAuthoringRequestV1) -> Vec<BoundedFeatureC
         },
     )];
     values.extend(outcome(
-        (TRUE_POSITION, TRUE_TARGET, TRUE_TARGET_POSITION),
+        (
+            TRUE_POSITION,
+            TRUE_TARGET,
+            TRUE_TARGET_POSITION,
+            TRUE_PROTECTION,
+        ),
         &request.when_true,
     ));
     values.extend(outcome(
-        (FALSE_POSITION, FALSE_TARGET, FALSE_TARGET_POSITION),
+        (
+            FALSE_POSITION,
+            FALSE_TARGET,
+            FALSE_TARGET_POSITION,
+            FALSE_PROTECTION,
+        ),
         &request.otherwise,
     ));
     // Shared by both frames: a single threshold does not change them, so the author is not asked
@@ -815,15 +834,10 @@ fn constants(request: &SingleThresholdAuthoringRequestV1) -> Vec<BoundedFeatureC
             TARGET_WEIGHT.to_owned(),
             BoundedFeatureConstantValueV1::I32 { value: 0 },
         ),
+        // The Host assigns a rebalance target's sequence, and a program emits 0 for it.
         (
             REBALANCE.to_owned(),
-            BoundedFeatureConstantValueV1::U64 { value: 1 },
-        ),
-        (
-            PROTECTION.to_owned(),
-            BoundedFeatureConstantValueV1::ProtectionVariantV1 {
-                semantic_id: "kernel.protection.keep.v1".to_owned(),
-            },
+            BoundedFeatureConstantValueV1::U64 { value: 0 },
         ),
         (
             STOP_LOSS.to_owned(),
@@ -849,12 +863,23 @@ fn constants(request: &SingleThresholdAuthoringRequestV1) -> Vec<BoundedFeatureC
         .collect()
 }
 
+/// The protection variant a side proposes: an exit clears the protection it leaves, which the
+/// kernel requires of an exit and refuses of any other intent, and every other side keeps it.
+fn protection_variant(outcome: &SingleThresholdOutcomeV1) -> &'static str {
+    if outcome.position_intent_semantic_id == "kernel.position.exit.v1" {
+        "kernel.protection.clear.v1"
+    } else {
+        "kernel.protection.keep.v1"
+    }
+}
+
 /// One side of the threshold, as the eleven terminal outputs a frame must carry.
 fn frame(
     outcome: &SingleThresholdOutcomeV1,
     position: &str,
     target: &str,
     target_position: &str,
+    protection: &str,
 ) -> BoundedFeatureProposalFrameV1 {
     BoundedFeatureProposalFrameV1 {
         terminal_outputs: [
@@ -890,8 +915,8 @@ fn frame(
             ),
             (
                 "proposal.protection-variant.v1",
-                "kernel.protection.keep.v1",
-                PROTECTION,
+                protection_variant(outcome),
+                protection,
             ),
             (
                 "proposal.stop-loss.v1",
@@ -1215,120 +1240,277 @@ mod tests {
         }
     }
 
-    /// Every side an author writes is a proposal the target-set Host can lift into a member target.
+    /// One authored side: position intent, target variant, target position.
+    type Side = (&'static str, &'static str, i64);
+
+    const SIDE_ENTER: Side = ("kernel.position.enter.v1", "kernel.target.position.v1", 1);
+    const SIDE_EXIT: Side = ("kernel.position.exit.v1", "kernel.target.position.v1", 0);
+    const SIDE_KEEP: Side = ("kernel.position.hold.v1", "kernel.target.keep.v1", 0);
+    const SIDE_REBALANCE_ENTER: Side =
+        ("kernel.position.enter.v1", "kernel.target.rebalance.v1", 1);
+    const SIDE_REBALANCE_EXIT: Side = ("kernel.position.exit.v1", "kernel.target.rebalance.v1", 0);
+
+    /// Every side an author writes runs through a real lifecycle kernel from each position it can
+    /// be proposed at.
     ///
-    /// The frames' terminals are constants, so each side's target is read from them through the
-    /// Host's own two decoding rules and lifted exactly as the Host lifts a single-instrument
-    /// proposal. The round trip through freezing and recovery never reached this: when the
-    /// reconciliation target was one constant of 0 for both sides, a side proposing a position of
-    /// 1 authored, froze and recovered correctly, and the Host refused it before its first order.
+    /// Each frame's terminals are constants. A side is decoded from all eleven by the Host's own
+    /// decoder, lifted as the Host lifts a single-instrument proposal into the next target-set
+    /// sequence, and applied to a kernel, which checks the whole intent transition: the target and
+    /// its sequence, the reconciliation, the position transition, and the protection. An entering
+    /// side is applied flat, an exiting side once a fill has made the position, a holding side at
+    /// both, and an entering side again after the exit. A side's lift alone passed three terminals
+    /// that were each wrong: a reconciliation shared as 0, a rebalance sequence written as one
+    /// constant, and a protection shared as `keep`, which the kernel refuses on an exit.
     #[rstest]
-    #[case::enter_then_exit(("kernel.target.position.v1", 1), ("kernel.target.position.v1", 0))]
-    #[case::enter_then_keep(("kernel.target.position.v1", 2), ("kernel.target.keep.v1", 0))]
-    #[case::keep_then_exit(("kernel.target.keep.v1", 3), ("kernel.target.position.v1", 0))]
-    fn every_authored_side_lifts_into_a_member_target(
-        #[case] when_true: (&str, i64),
-        #[case] otherwise: (&str, i64),
+    #[case::enter_then_exit(SIDE_ENTER, SIDE_EXIT)]
+    #[case::enter_then_keep(SIDE_ENTER, SIDE_KEEP)]
+    #[case::keep_then_exit(SIDE_KEEP, SIDE_EXIT)]
+    #[case::exit_then_enter(SIDE_EXIT, SIDE_ENTER)]
+    #[case::rebalance_enter_then_exit(SIDE_REBALANCE_ENTER, SIDE_REBALANCE_EXIT)]
+    fn every_authored_side_runs_through_the_kernel(
+        #[case] when_true: Side,
+        #[case] otherwise: Side,
     ) {
-        use crate::program_host_v2::{
-            lift_single_instrument_proposal, proposal_reconciliation_v2, proposal_target_v2,
-        };
         use strategy_factory_program_sdk::lifecycle_v1::{
-            PositionIntentV1, ProposalV1, ProtectionProposalV1,
+            EnvelopePayloadV1, EventOrderKeyV1, FillDispositionV1, FillEventV1, KernelIdentitiesV1,
+            LifecycleEnvelopeV1, LifecycleKernelV1, LifecycleKind, PositionIntentV1,
+            ProtectionProposalV1, TargetProposalV1, UnsealedGuestProposalV1,
+            seal_guest_proposal_with_derived_digest_v1,
         };
 
+        use crate::{
+            plugin_wire_v2::TypedValueV2,
+            program_host_v2::{
+                ProposalTerminalV2, decode_proposal_terminals_v2, lift_single_instrument_proposal,
+            },
+            strategy_design_v2::ValueTypeV2,
+        };
+
+        struct Trajectory {
+            kernel: LifecycleKernelV1,
+            clock: u64,
+            /// The sequence of the last target set a proposal was lifted into.
+            sets: u64,
+        }
+
+        impl Trajectory {
+            fn envelope(&mut self, payload: EnvelopePayloadV1) -> LifecycleEnvelopeV1 {
+                self.clock += 1;
+                let kind = match payload {
+                    EnvelopePayloadV1::Start => LifecycleKind::Start,
+                    EnvelopePayloadV1::Fill(_) => LifecycleKind::Fill,
+                    _ => LifecycleKind::Bar,
+                };
+                let identity = [u8::try_from(self.clock).expect("a short trajectory"); 16];
+                let order_key =
+                    EventOrderKeyV1::new(self.clock, self.clock, kind, self.clock, identity)
+                        .expect("an order key");
+                LifecycleEnvelopeV1::new_bound(order_key, payload).expect("an envelope")
+            }
+
+            /// Seals, lifts and applies one proposal a side decoded into.
+            fn propose(
+                &mut self,
+                label: &str,
+                decode: impl FnOnce(u64) -> UnsealedGuestProposalV1,
+            ) {
+                self.sets += 1;
+                let proposal = seal_guest_proposal_with_derived_digest_v1(
+                    decode(self.sets),
+                    [0x40 + u8::try_from(self.sets).expect("a short trajectory"); 16],
+                    [8; 32],
+                    [9; 32],
+                )
+                .expect("a sealed proposal");
+                lift_single_instrument_proposal(
+                    &["BTCUSDT-PERP.BINANCE"],
+                    (self.sets > 1).then(|| self.sets - 1),
+                    proposal,
+                )
+                .unwrap_or_else(|e| panic!("{label}: the Host does not lift it: {e:?}"));
+                let envelope = self.envelope(EnvelopePayloadV1::Bar);
+                self.kernel
+                    .apply(envelope, Some(proposal))
+                    .unwrap_or_else(|e| panic!("{label}: the kernel refuses it: {e:?}"));
+            }
+
+            /// Fills the pending intent completely.
+            fn fill(&mut self) {
+                let pending = self
+                    .kernel
+                    .checkpoint()
+                    .pending_intent
+                    .expect("an intent to fill");
+                let envelope = self.envelope(EnvelopePayloadV1::Fill(FillEventV1 {
+                    intent_identity: pending.intent_identity,
+                    side: pending.side,
+                    disposition: FillDispositionV1::Filled,
+                    cumulative_filled_units: pending.expected_units,
+                }));
+                self.kernel
+                    .apply(envelope, None)
+                    .expect("the kernel reconciles the fill");
+            }
+
+            fn position(&self) -> i64 {
+                self.kernel.checkpoint().reconciled_position_units
+            }
+        }
+
         let mut authored = request();
-        (
-            authored.when_true.target_variant_semantic_id,
-            authored.when_true.target_position_units,
-        ) = (when_true.0.to_owned(), when_true.1);
-        (
-            authored.otherwise.target_variant_semantic_id,
-            authored.otherwise.target_position_units,
-        ) = (otherwise.0.to_owned(), otherwise.1);
+        for (side, outcome) in [
+            (when_true, &mut authored.when_true),
+            (otherwise, &mut authored.otherwise),
+        ] {
+            *outcome = SingleThresholdOutcomeV1 {
+                position_intent_semantic_id: side.0.to_owned(),
+                target_variant_semantic_id: side.1.to_owned(),
+                target_position_units: side.2,
+            };
+        }
         let (_, meaning) =
             author_single_threshold_program_v1(&authored).expect("the request is authorable");
         let table = &meaning.proposal_decision_table;
-
-        for frame in [&table.branches[0].frame, &table.default_frame] {
-            let value = |port: &str| {
-                let terminal = frame
-                    .terminal_outputs
-                    .iter()
-                    .find(|terminal| terminal.manifest_port_id == port)
-                    .expect("every frame carries all eleven terminals");
-                let BoundedFeatureValueRefV1::Constant { constant_id } = &terminal.source else {
-                    panic!("an authored terminal reads a constant");
-                };
-                &meaning
+        let frames = [
+            (when_true, &table.branches[0].frame),
+            (otherwise, &table.default_frame),
+        ];
+        let terminal_value = |frame: &BoundedFeatureProposalFrameV1, terminal| {
+            let port = match terminal {
+                ProposalTerminalV2::PositionIntent => "proposal.position-intent.v1",
+                ProposalTerminalV2::TargetVariant => "proposal.target-variant.v1",
+                ProposalTerminalV2::TargetPositionUnits => "proposal.target-position.v1",
+                ProposalTerminalV2::TargetWeightMicros => "proposal.target-weight.v1",
+                ProposalTerminalV2::RebalanceSequence => "proposal.rebalance-sequence.v1",
+                ProposalTerminalV2::ReconciliationTargetUnits => {
+                    "proposal.reconciliation-target.v1"
+                }
+                ProposalTerminalV2::ProtectionVariant => "proposal.protection-variant.v1",
+                ProposalTerminalV2::StopLossTicks => "proposal.stop-loss.v1",
+                ProposalTerminalV2::TakeProfitTicks => "proposal.take-profit.v1",
+                ProposalTerminalV2::TrailingDistanceTicks => "proposal.trailing-distance.v1",
+                ProposalTerminalV2::TrailingStopTicks => "proposal.trailing-stop.v1",
+            };
+            let terminal = frame
+                .terminal_outputs
+                .iter()
+                .find(|terminal| terminal.manifest_port_id == port)
+                .expect("every frame carries all eleven terminals");
+            let BoundedFeatureValueRefV1::Constant { constant_id } = &terminal.source else {
+                panic!("an authored terminal reads a constant");
+            };
+            let variant = |value_type, semantic_id: &String| {
+                TypedValueV2::new(value_type, semantic_id.as_bytes()).expect("a variant value")
+            };
+            Ok(
+                match &meaning
                     .constants
                     .iter()
                     .find(|constant| &constant.constant_id == constant_id)
                     .expect("a terminal's constant is declared")
                     .value
-            };
-            let i64_of = |port| match value(port) {
-                BoundedFeatureConstantValueV1::I64 { value } => *value,
-                other => panic!("{port} is not I64: {other:?}"),
-            };
-            let BoundedFeatureConstantValueV1::TargetVariantV1 { semantic_id } =
-                value("proposal.target-variant.v1")
-            else {
-                panic!("the target variant is a variant");
-            };
-            let BoundedFeatureConstantValueV1::I32 { value: weight } =
-                value("proposal.target-weight.v1")
-            else {
-                panic!("the target weight is I32");
-            };
-            let BoundedFeatureConstantValueV1::U64 { value: sequence } =
-                value("proposal.rebalance-sequence.v1")
-            else {
-                panic!("the rebalance sequence is U64");
-            };
-            let target = proposal_target_v2(
-                semantic_id,
-                i64_of("proposal.target-position.v1"),
-                *weight,
-                *sequence,
+                {
+                    BoundedFeatureConstantValueV1::I32 { value } => TypedValueV2::i32(*value),
+                    BoundedFeatureConstantValueV1::I64 { value } => TypedValueV2::i64(*value),
+                    BoundedFeatureConstantValueV1::U64 { value } => TypedValueV2::u64(*value),
+                    BoundedFeatureConstantValueV1::PositionIntentV1 { semantic_id } => {
+                        variant(ValueTypeV2::PositionIntentV1, semantic_id)
+                    }
+                    BoundedFeatureConstantValueV1::TargetVariantV1 { semantic_id } => {
+                        variant(ValueTypeV2::TargetVariantV1, semantic_id)
+                    }
+                    BoundedFeatureConstantValueV1::ProtectionVariantV1 { semantic_id } => {
+                        variant(ValueTypeV2::ProtectionVariantV1, semantic_id)
+                    }
+                    other => panic!("{port} reads a constant no terminal takes: {other:?}"),
+                },
             )
-            .expect("an authored target variant decodes");
-            let proposal = ProposalV1 {
-                intent_identity: [1; 16],
-                proposal_digest: [2; 32],
-                // The lift and the target checks it runs read no intent.
-                position: PositionIntentV1::Hold,
-                target,
-                reconciliation_target_units: proposal_reconciliation_v2(
-                    target,
-                    i64_of("proposal.reconciliation-target.v1"),
-                ),
-                protection: ProtectionProposalV1::Keep,
-                strategy_state_digest: [3; 32],
-                plugin_state_digest: [4; 32],
-            };
-            lift_single_instrument_proposal(&["BTCUSDT-PERP.BINANCE"], None, proposal)
-                .unwrap_or_else(|e| panic!("{semantic_id} does not lift: {e:?}"));
+        };
+        let side = |intent: &str| {
+            frames
+                .iter()
+                .find(|(side, _)| side.0 == intent)
+                .map(|(side, frame)| {
+                    let label = format!("{} {}", side.0, side.1);
+                    let decode = move |sequence| {
+                        decode_proposal_terminals_v2(
+                            |terminal| terminal_value(frame, terminal),
+                            || Some(sequence),
+                        )
+                        .unwrap_or_else(|e| panic!("{label}: the Host does not decode it: {e:?}"))
+                    };
+                    (format!("{} {}", side.0, side.1), decode)
+                })
+        };
+
+        let mut trajectory = Trajectory {
+            kernel: LifecycleKernelV1::new(KernelIdentitiesV1 {
+                design_digest: [1; 32],
+                plan_digest: [2; 32],
+                artifact_digest: [3; 32],
+                program_host_digest: [4; 32],
+                kernel_digest: [5; 32],
+                plugin_digest: [6; 32],
+                market_semantics_digest: [7; 32],
+            })
+            .expect("a kernel"),
+            clock: 0,
+            sets: 0,
+        };
+        let start = trajectory.envelope(EnvelopePayloadV1::Start);
+        trajectory
+            .kernel
+            .apply(start, None)
+            .expect("the kernel starts");
+        let hold = side("kernel.position.hold.v1");
+        let enter = side("kernel.position.enter.v1");
+        let exit = side("kernel.position.exit.v1");
+
+        if let Some((label, decode)) = &hold {
+            trajectory.propose(&format!("{label}, flat"), decode.clone());
+        }
+
+        if let Some((label, decode)) = &enter {
+            trajectory.propose(label, decode.clone());
+        } else {
+            // Not authored: an exit needs a position to leave, and no authored side makes one.
+            trajectory.propose("seed entry", |_| {
+                UnsealedGuestProposalV1::new(
+                    PositionIntentV1::Enter,
+                    TargetProposalV1::Position(1),
+                    Some(1),
+                    ProtectionProposalV1::Keep,
+                )
+                .expect("a seed entry")
+            });
+        }
+        trajectory.fill();
+        assert_ne!(trajectory.position(), 0);
+
+        if let Some((label, decode)) = &hold {
+            trajectory.propose(&format!("{label}, held"), decode.clone());
+        }
+
+        if let Some((label, decode)) = &exit {
+            trajectory.propose(label, decode.clone());
+            trajectory.fill();
+            assert_eq!(trajectory.position(), 0);
+
+            if let Some((label, decode)) = &enter {
+                trajectory.propose(&format!("{label}, again"), decode.clone());
+                trajectory.fill();
+                assert_ne!(trajectory.position(), 0);
+            }
         }
     }
 
     /// A side naming a target the target-set Host cannot run past one frame is refused by name, on
-    /// either side; position and keep sides, the control, still author.
+    /// either side; position, rebalance and keep sides, the control, still author.
     #[rstest]
-    #[case::rebalance_when_true(
-        "kernel.target.rebalance.v1",
-        true,
-        "when_true.target_variant_semantic_id"
-    )]
     #[case::weight_when_true(
         "kernel.target.weight.v1",
         true,
         "when_true.target_variant_semantic_id"
-    )]
-    #[case::rebalance_otherwise(
-        "kernel.target.rebalance.v1",
-        false,
-        "otherwise.target_variant_semantic_id"
     )]
     #[case::weight_otherwise(
         "kernel.target.weight.v1",
@@ -1362,7 +1544,11 @@ mod tests {
                 .starts_with("SINGLE_THRESHOLD_TARGET_VARIANT_NOT_RUNNABLE")
         );
 
-        for runnable in ["kernel.target.position.v1", "kernel.target.keep.v1"] {
+        for runnable in [
+            "kernel.target.position.v1",
+            "kernel.target.rebalance.v1",
+            "kernel.target.keep.v1",
+        ] {
             let mut control = request();
             let side = if when_true {
                 &mut control.when_true
@@ -1670,8 +1856,10 @@ mod tests {
                 "726d4aff67eb718382b790353c43011739ede0073048afd9c7bc8dbed2465d28".to_owned(),
                 "4725d44ade0ad56f07f3a47beffb25b373eaf52b7d1af347c48c39d05ee1a05f".to_owned(),
                 // Moved when each frame's reconciliation target began reading its own side's
-                // target position instead of one shared constant of 0. The Design is unchanged.
-                "afab4501cce13919acff396f5ce04c6f2722ead8f0f47f094b284788cba2a5ed".to_owned(),
+                // target position instead of one shared constant of 0, and again when the
+                // rebalance sequence became the Host's (0 in the program) and each frame's
+                // protection began following its own side's intent. The Design is unchanged.
+                "0f6419801706027afbc97e2595130e397307d837ad6dda3ad16f66a30d9f7919".to_owned(),
             ),
         );
     }

@@ -1,17 +1,19 @@
-//! Ordered-chain entry: a V3 Research request's initial PIT request, issued over HTTP.
+//! Ordered-chain entries: a V3 Research request's initial PIT request, issued over HTTP, and its
+//! recovery when Market Data's clock head moves between the freeze and the send.
 //!
 //! Every Market Data step runs through its production ports on the chain's database: the Universe
 //! Selection admission, the PIT intake and both reads R&D makes in its own transaction. The one
 //! stand-in is the Data Client, the provider behind the intake, which answers exactly the scope
 //! Market Data issues; the terminal is still Market Data's own derivation.
 //!
-//! What this entry cannot construct, and why:
+//! What the first entry cannot construct, and why:
 //!
-//! - A new attempt after Market Data's clock head moves. The chain's head is the Market Data
-//!   acceptance basis's fixture clock, which this entry ensures and asserts is current, and the production advancer (a Source Binding admission, which mints
-//!   the Owner's own clock) is refused against it as `TrustedClockMismatch` (owner-chains run
-//!   36225783033). The recovery branch is driven instead, with Market Data's refusal injected at
-//!   the port; at an unchanged cut it refreezes the same attempt.
+//! - A new attempt after Market Data's clock head moves, on the shared database. A head once moved
+//!   stays moved, and every later entry asserts the acceptance basis's head, so this entry drives the
+//!   recovery branch with Market Data's refusal injected at the port, where at an unchanged cut it
+//!   refreezes the same attempt. The chain's clock is no obstacle: since the market base was sealed
+//!   on the Owner's own clock, a Source Binding admission mints its ordinary successor. The real move
+//!   is driven by the second entry here, on a database the chain clones for it alone.
 //! - Market Data refusing a correlation as already committed while reading none back. Market Data
 //!   refuses only on the key its correlation read reads, so the Owner's `committed_but_absent`
 //!   branch answers a Market Data that contradicts itself, which this chain cannot produce.
@@ -41,9 +43,14 @@ use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 use vibe_data::owner::chain_fixture_v1::CHAIN_FIXTURE_INSTRUMENT_V1 as CHAIN_FIXTURE_INSTRUMENT;
 use vibe_data::owner::chain_market_base_v1::MarketDataAcceptanceBasisPointerV1;
 use vibe_data::owner::{
+    instrument_master_admission_v1::{
+        InstrumentDecimalSubmissionV1, InstrumentMasterFactSubmissionV1,
+        InstrumentVenueSourceMappingSubmissionV1, instrument_master_admission_from_environment_v1,
+    },
     pit_market_snapshot_intake_v1::{
-        PitMarketSnapshotBlockerV1, PitMarketSnapshotDispositionV1, PitMarketSnapshotIntakeErrorV1,
-        PitMarketSnapshotTerminalV1, pit_market_snapshot_intake_from_environment_v1,
+        MarketDataDecisionCutV1, PitMarketSnapshotBlockerV1, PitMarketSnapshotDispositionV1,
+        PitMarketSnapshotIntakeErrorV1, PitMarketSnapshotIntakeV1, PitMarketSnapshotTerminalV1,
+        pit_market_snapshot_intake_from_environment_v1,
     },
     pit_observation_source_v1::{
         PitObservationScopeV1, PitObservationSourceErrorV1, PitObservationSourceV1,
@@ -56,13 +63,25 @@ use vibe_data::owner::{
     research_instrument_scope_v1::{ResearchInstrumentScopeV1, ResearchInstrumentScopeWireV1},
     research_pit_references_v1::{ResearchPitReferencesErrorV1, ResearchPitReferencesV1},
     research_pit_terminal_v1::{ResearchPitIntakeTerminalV1, ResearchPitTerminalReadErrorV1},
-    source_binding::BindingDigest,
+    source_binding::{
+        BindingDigest, UntrustedAdapterBinding, UntrustedCompleteFrontier,
+        UntrustedCredentialAudienceClaim, UntrustedCredentialCapabilityClaim,
+        UntrustedLicensePolicy, UntrustedMarketDataAsOf, UntrustedMarketSemantics,
+        UntrustedOpaqueCredentialHandle, UntrustedSourceBindingProposal, UntrustedTrustPolicy,
+        seal_binding_claim_v1,
+    },
+    source_binding_admission_v1::{
+        ProviderReachabilityEvidenceV1, ProviderRightsEvidenceV1,
+        SourceBindingAdmissionDispositionV1, SourceBindingAdmissionRequestV1,
+        source_binding_admission_from_environment_v1,
+    },
     universe_selection::{
         UntrustedUniverseSelectionLocatorV1, UntrustedUniverseSelectionRequestV1,
     },
     universe_selection_admission_v1::{
-        UniverseSelectionAdmissionErrorV1, UniverseSelectionTerminalV1,
-        universe_selection_admission_from_environment_v1,
+        HistoricalMembershipAdmissionRequestV1, HistoricalMembershipSubmissionV1,
+        UniverseSelectionAdmissionErrorV1, UniverseSelectionAdmissionV1,
+        UniverseSelectionTerminalV1, universe_selection_admission_from_environment_v1,
     },
 };
 use vibe_product_edge::{AgentOperationManifestProposalV1, ProductEdgeAdmissionRequestV1};
@@ -387,36 +406,23 @@ fn available() -> ResearchInitialPitV1 {
     }
 }
 
-/// Ensures what it reads rather than relying on earlier entries: the chain's Market Data acceptance
-/// basis (frontier, Instrument Master fact, Source Binding and clock head, read through Market
-/// Data's own read surface) and the sealed Catalog V3 head its Research request forms a TrialFamily
-/// against. It asserts that Market Data's current clock head and eligible frontier are the basis's,
-/// so the frontier the scope check reads is the one this entry ensured, in the serial chain as on a
-/// fresh cluster.
-#[rstest]
-#[ignore = "requires the ordered Owner PostgreSQL chain"]
-fn a_v3_research_request_issues_its_initial_pit_request_over_http() {
-    // Accepting a request and issuing its PIT request each run the Owner's deepest custody paths;
-    // together they overflow the default test stack, as the other V3 entries do.
-    std::thread::Builder::new()
-        .stack_size(16 * 1024 * 1024)
-        .spawn(|| {
-            tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap()
-                .block_on(Box::pin(issues_its_initial_pit_request()));
-        })
-        .unwrap()
-        .join()
-        .unwrap();
+/// What both entries run on: the production Owner, Product Edge and Market Data ports over one
+/// admitted database, with the Market Data acceptance basis ensured and its clock head asserted.
+struct InitialPitFixtureV1 {
+    test_database: CanonicalOwnerPostgresTestDatabaseV1,
+    suffix: String,
+    product_edge: ProductEdgePostgresOwnerV1,
+    owner: Arc<PostgresResearchGoalOwnerV1>,
+    rd: PgPool,
+    market_data: PgPool,
+    intake: Arc<dyn PitMarketSnapshotIntakeV1>,
+    universe: Arc<dyn UniverseSelectionAdmissionV1>,
+    ports: MarketDataInitialPitPortsV1,
+    token_digest: [u8; 32],
+    app: axum::Router,
 }
 
-#[allow(
-    clippy::too_many_lines,
-    reason = "one ordered entry, read top to bottom"
-)]
-async fn issues_its_initial_pit_request() {
+async fn initial_pit_fixture() -> InitialPitFixtureV1 {
     let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
     #[cfg(feature = "sealed-source-intake-acceptance")]
     crate::tests::ensure_sealed_catalog_v3(&test_database).await;
@@ -493,6 +499,64 @@ async fn issues_its_initial_pit_request() {
     let ports = MarketDataInitialPitPortsV1::new(universe.clone(), intake.clone());
     let token_digest: [u8; 32] = Sha256::digest(TOKEN.as_bytes()).into();
     let app = research_initial_pit::router(owner.clone(), Some(ports.clone()), token_digest);
+    InitialPitFixtureV1 {
+        test_database,
+        suffix,
+        product_edge,
+        owner,
+        rd,
+        market_data,
+        intake,
+        universe,
+        ports,
+        token_digest,
+        app,
+    }
+}
+
+/// Ensures what it reads rather than relying on earlier entries: the chain's Market Data acceptance
+/// basis (frontier, Instrument Master fact, Source Binding and clock head, read through Market
+/// Data's own read surface) and the sealed Catalog V3 head its Research request forms a TrialFamily
+/// against. It asserts that Market Data's current clock head and eligible frontier are the basis's,
+/// so the frontier the scope check reads is the one this entry ensured, in the serial chain as on a
+/// fresh cluster.
+#[rstest]
+#[ignore = "requires the ordered Owner PostgreSQL chain"]
+fn a_v3_research_request_issues_its_initial_pit_request_over_http() {
+    // Accepting a request and issuing its PIT request each run the Owner's deepest custody paths;
+    // together they overflow the default test stack, as the other V3 entries do.
+    std::thread::Builder::new()
+        .stack_size(16 * 1024 * 1024)
+        .spawn(|| {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(Box::pin(issues_its_initial_pit_request()));
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "one ordered entry, read top to bottom"
+)]
+async fn issues_its_initial_pit_request() {
+    let InitialPitFixtureV1 {
+        test_database: _test_database,
+        suffix,
+        product_edge,
+        owner,
+        rd,
+        market_data,
+        intake,
+        universe,
+        ports,
+        token_digest,
+        app,
+    } = initial_pit_fixture().await;
     let scope = [CHAIN_FIXTURE_INSTRUMENT];
 
     // P1: accepted by Market Data's real check, and nothing is issued yet.
@@ -983,6 +1047,411 @@ async fn issues_its_initial_pit_request() {
     assert_eq!(
         batches(&market_data, uncovered_terminal.snapshot_identity()).await,
         1
+    );
+}
+
+/// The prefix of the database the chain clones for the clock-move entry alone. That entry moves
+/// Market Data's clock head for good, which every later entry on the shared database would meet as
+/// a head that is no longer the acceptance basis's.
+const CLOCK_MOVE_DATABASE_PREFIX: &str = "vibe_test_rd_initial_pit_clock_move_";
+
+/// The production ports, with Market Data's clock head moved by a production Source Binding
+/// admission after the Owner froze its first attempt and before that attempt reaches Market Data.
+struct ClockMovedBeforeFirstSendV1 {
+    inner: MarketDataInitialPitPortsV1,
+    intake: Arc<dyn PitMarketSnapshotIntakeV1>,
+    moved_to: tokio::sync::Mutex<Option<MarketDataDecisionCutV1>>,
+    sends: AtomicUsize,
+    answered: tokio::sync::Mutex<
+        Vec<Result<PitMarketSnapshotTerminalV1, PitMarketSnapshotIntakeErrorV1>>,
+    >,
+}
+
+#[async_trait]
+impl InitialPitMarketDataPortV1 for ClockMovedBeforeFirstSendV1 {
+    async fn resolve_references(
+        &self,
+        transaction: &mut Transaction<'_, Postgres>,
+        scope: &ResearchInstrumentScopeV1,
+    ) -> Result<ResearchPitReferencesV1, ResearchPitReferencesErrorV1> {
+        self.inner.resolve_references(transaction, scope).await
+    }
+
+    async fn read_terminal_by_correlation(
+        &self,
+        transaction: &mut Transaction<'_, Postgres>,
+        correlation: BindingDigest,
+    ) -> Result<Option<ResearchPitIntakeTerminalV1>, ResearchPitTerminalReadErrorV1> {
+        self.inner
+            .read_terminal_by_correlation(transaction, correlation)
+            .await
+    }
+
+    async fn evaluate_universe_selection(
+        &self,
+        request: UntrustedUniverseSelectionRequestV1,
+    ) -> Result<UniverseSelectionTerminalV1, UniverseSelectionAdmissionErrorV1> {
+        self.inner.evaluate_universe_selection(request).await
+    }
+
+    async fn submit(
+        &self,
+        submission: PitSnapshotSubmissionV1,
+        universe_selection: UntrustedUniverseSelectionLocatorV1,
+    ) -> Result<PitMarketSnapshotTerminalV1, PitMarketSnapshotIntakeErrorV1> {
+        if self.sends.fetch_add(1, Ordering::SeqCst) == 0 {
+            let before = self.intake.current_decision_cut().await.unwrap();
+            let admitted = source_binding_admission_from_environment_v1()
+                .await
+                .expect("the configured Market Data store opens")
+                .admit(SourceBindingAdmissionRequestV1 {
+                    proposal: wall_clock_source_proposal(0xC0, "rd-initial-pit-clock-move/none"),
+                    rights: ProviderRightsEvidenceV1::Granted,
+                    reachability: ProviderReachabilityEvidenceV1::Reachable,
+                })
+                .await
+                .expect("the production admission mints the Owner's next clock");
+            assert_eq!(
+                admitted.disposition(),
+                SourceBindingAdmissionDispositionV1::Admitted
+            );
+            let after = self.intake.current_decision_cut().await.unwrap();
+            assert!(
+                after.monotonic_sequence > before.monotonic_sequence
+                    && after.decision_cut.as_epoch_nanos() > before.decision_cut.as_epoch_nanos(),
+                "the admission moved the head"
+            );
+            *self.moved_to.lock().await = Some(after);
+        }
+        let answered = self.inner.submit(submission, universe_selection).await;
+        self.answered.lock().await.push(answered.clone());
+        answered
+    }
+}
+
+/// A Source Binding over `dataset_mapping` on a lineage of its own, told apart by `tag`. Every clock
+/// field is the Owner's to stamp; the four coordinates are a minute before the wall.
+fn wall_clock_source_proposal(tag: u8, dataset_mapping: &str) -> UntrustedSourceBindingProposal {
+    let digest = |byte: u8| {
+        let mut bytes = [byte; 32];
+        bytes[0] = tag;
+        BindingDigest::from_untrusted_bytes(bytes)
+    };
+    let now_ns = u64::try_from(
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos(),
+    )
+    .unwrap();
+    let effective_ns = now_ns - 60_000_000_000;
+    let frontier = |byte: u8| UntrustedCompleteFrontier {
+        stream_identity: format!("rd-initial-pit-clock-move/{dataset_mapping}"),
+        cut_identity: format!("rd-initial-pit-clock-move/{dataset_mapping}/cut-1"),
+        sequence: 1,
+        digest: digest(byte),
+    };
+    let mut proposal = UntrustedSourceBindingProposal {
+        availability_rule: None,
+        bar_timeframes: Vec::new(),
+        claimed_binding_id: BindingDigest::from_untrusted_bytes([0; 32]),
+        schema_version: 1,
+        adapter: UntrustedAdapterBinding {
+            implementation_digest: digest(0xC1),
+            configuration_digest: digest(0xC2),
+            authenticated_endpoint_identity: "https://clock-move.invalid".to_owned(),
+            dataset_mapping: dataset_mapping.to_owned(),
+            account_mapping: "rd-initial-pit-clock-move/public".to_owned(),
+        },
+        credential_handle: UntrustedOpaqueCredentialHandle::from_untrusted_identity(
+            digest(0xC3),
+            UntrustedCredentialAudienceClaim::MarketData,
+            [UntrustedCredentialCapabilityClaim::MarketDataRead],
+        ),
+        trust_policy: UntrustedTrustPolicy {
+            identity: "rd-initial-pit-clock-move/trust".to_owned(),
+            version: 1,
+        },
+        semantics: UntrustedMarketSemantics {
+            normalization: format!("rd-initial-pit-clock-move/{dataset_mapping}"),
+            adjustment: "raw".to_owned(),
+            price_meaning: "last".to_owned(),
+            calendar_rules: "crypto/continuous".to_owned(),
+            session_rules: "crypto/continuous".to_owned(),
+            timezone_rules: "etc-utc".to_owned(),
+            instrument_lifecycle_rules: "crypto/perpetual".to_owned(),
+            corporate_action_rules: "crypto/none".to_owned(),
+            membership_rules: "static".to_owned(),
+            universe_rules: "requester-owned".to_owned(),
+            correction_policy: "provider-revision".to_owned(),
+        },
+        license: UntrustedLicensePolicy {
+            use_scope: "internal-research".to_owned(),
+            redistribution_scope: "none".to_owned(),
+            retention_policy: "retain-while-entitled".to_owned(),
+            redaction_policy: "no-payload-export".to_owned(),
+        },
+        source_frontier: frontier(0xC4),
+        correction_frontier: frontier(0xC5),
+        time_evidence: UntrustedMarketDataAsOf {
+            claimed_evidence_identity: BindingDigest::from_untrusted_bytes([0; 32]),
+            clock_identity: String::new(),
+            clock_epoch: String::new(),
+            monotonic_sequence: 0,
+            restart_continuity_digest: BindingDigest::from_untrusted_bytes([0; 32]),
+            skew_bound: 0,
+            uncertainty_bound: 0,
+            event_effective: effective_ns,
+            provider_available: effective_ns,
+            retrieval: effective_ns,
+            correction_publication: effective_ns,
+            observed_at: 0,
+            effective_at: effective_ns,
+            valid_through: 0,
+        },
+    };
+    seal_binding_claim_v1(&mut proposal);
+    proposal
+}
+
+/// The member the clock-move entry scopes, admitted through the production intakes on the Owner's
+/// clock: its Source Binding, which mints the clock head from the wall, its Instrument Master fact
+/// and its membership in a new eligible frontier, each in force from the first nanosecond with no
+/// end. The chain fixture's instrument cannot serve here: its fact is in force only over the base's
+/// fixture instants, `[10, 200)`, so at a head minted from the wall it resolves to nothing.
+const WALL_CLOCK_MEMBER: &str = "BTCUSDT-PERP.BINANCE";
+
+async fn admit_wall_clock_member(
+    universe: &Arc<dyn UniverseSelectionAdmissionV1>,
+    intake: &Arc<dyn PitMarketSnapshotIntakeV1>,
+) {
+    let proposal = wall_clock_source_proposal(0xB0, "usdm/klines/4h");
+    let binding = source_binding_admission_from_environment_v1()
+        .await
+        .expect("the configured Market Data store opens")
+        .admit(SourceBindingAdmissionRequestV1 {
+            proposal: proposal.clone(),
+            rights: ProviderRightsEvidenceV1::Granted,
+            reachability: ProviderReachabilityEvidenceV1::Reachable,
+        })
+        .await
+        .expect("the member's binding is admitted");
+    assert_eq!(
+        binding.disposition(),
+        SourceBindingAdmissionDispositionV1::Admitted
+    );
+    let head = intake.current_decision_cut().await.unwrap();
+    let cut = head.decision_cut.as_epoch_nanos();
+    let observed = i128::from(cut) - 1;
+    let tagged = |byte: u8| {
+        let mut bytes = [byte; 32];
+        bytes[0] = 0xB0;
+        BindingDigest::from_untrusted_bytes(bytes)
+    };
+    let frontier = tagged(0x11);
+    instrument_master_admission_from_environment_v1()
+        .await
+        .expect("the configured Market Data store opens")
+        .admit_fact(InstrumentMasterFactSubmissionV1 {
+            canonical_identity: WALL_CLOCK_MEMBER.to_owned(),
+            predecessor_fact_digest: None,
+            mappings: vec![InstrumentVenueSourceMappingSubmissionV1 {
+                venue_identity: "BINANCE".into(),
+                source_identity: "BINANCE_USDM".into(),
+                source_instrument: b"BTCUSDT".to_vec(),
+            }],
+            instrument_class: "CRYPTO_PERPETUAL".into(),
+            base_currency: Some("BTC".into()),
+            quote_currency: Some("USDT".into()),
+            settlement_currency: Some("USDT".into()),
+            margin_currency: Some("USDT".into()),
+            price_increment: InstrumentDecimalSubmissionV1 {
+                mantissa: 1,
+                scale: 1,
+            },
+            quantity_increment: InstrumentDecimalSubmissionV1 {
+                mantissa: 1,
+                scale: 3,
+            },
+            contract_multiplier: InstrumentDecimalSubmissionV1 {
+                mantissa: 1,
+                scale: 0,
+            },
+            calendar_identity: "CRYPTO-CONTINUOUS-V1".into(),
+            session_identity: "CRYPTO-CONTINUOUS-V1".into(),
+            time_zone_identity: "Etc/UTC".into(),
+            lifecycle_frontier: tagged(0x31),
+            corporate_action_frontier: tagged(0x32),
+            historical_membership_frontier: frontier,
+            source_binding: binding.locator().clone(),
+            effective_from: 1,
+            effective_until: None,
+            provider_available: observed,
+            retrieval: observed,
+            correction_publication: observed,
+            owner_observation: observed,
+        })
+        .await
+        .expect("the member's Instrument Master fact is admitted");
+    universe
+        .admit_membership(HistoricalMembershipAdmissionRequestV1 {
+            eligible_instrument_frontier: frontier,
+            members: vec![HistoricalMembershipSubmissionV1 {
+                member_key: WALL_CLOCK_MEMBER.to_owned(),
+                instrument: WALL_CLOCK_MEMBER.to_owned(),
+                effective_from_ns: 1,
+                effective_until_ns: None,
+                provider_available_ns: observed,
+                retrieval_ns: observed,
+                correction_publication_ns: observed,
+                owner_observation_ns: observed,
+                decision_cut: cut,
+                source_binding_lineage_root: binding.lineage_root(),
+                correction_frontier_digest: proposal.correction_frontier.digest,
+            }],
+        })
+        .await
+        .expect("the member's frontier is admitted whole");
+}
+
+/// Market Data's clock head moves between the Owner freezing its first attempt and that attempt's
+/// send, through the production advancer, a Source Binding admission minting the Owner's next clock
+/// from its wall. Market Data itself refuses the stale attempt as `ClockEvidenceNotCurrent` and
+/// holds nothing under the correlation, so the Owner freezes a second attempt at the new cut, sends
+/// it once, and records the terminal against it; issuing again changes nothing.
+///
+/// It runs on a database the chain clones for it alone, because a head it moves stays moved.
+#[rstest]
+#[ignore = "requires the ordered Owner PostgreSQL chain and the database it clones for this entry"]
+fn the_initial_pit_request_refreezes_when_the_clock_head_moves_before_its_send() {
+    std::thread::Builder::new()
+        .stack_size(16 * 1024 * 1024)
+        .spawn(|| {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(Box::pin(refreezes_when_the_clock_head_moves()));
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+async fn refreezes_when_the_clock_head_moves() {
+    let database = env::var("VIBE_POSTGRES_TEST_DATABASE_NAME").expect("disposable database name");
+    assert!(
+        database.starts_with(CLOCK_MOVE_DATABASE_PREFIX),
+        "this entry moves Market Data's clock head for good; it runs only on the database the chain \
+         clones for it, never on the shared one ({database})"
+    );
+    let InitialPitFixtureV1 {
+        test_database: _test_database,
+        suffix,
+        product_edge,
+        owner,
+        rd,
+        market_data,
+        intake,
+        universe,
+        ports,
+        app,
+        ..
+    } = initial_pit_fixture().await;
+    admit_wall_clock_member(&universe, &intake).await;
+    let scope = [WALL_CLOCK_MEMBER];
+    let request = format!("rd-initial-pit-clock-move-{suffix}");
+    let accepted = accept(&product_edge, &owner, &request, Some(&scope)).await;
+    assert_eq!(
+        accepted.resolution(),
+        ProductEdgeResolution::Accepted,
+        "{accepted:?}"
+    );
+    let correlation = expected_correlation(&intent_of(&accepted));
+    let cut_before = intake.current_decision_cut().await.unwrap();
+
+    // The head moves after the freeze; Market Data refuses the stale attempt; the Owner freezes
+    // again at the new cut and sends that once.
+    let moved = ClockMovedBeforeFirstSendV1 {
+        inner: ports.clone(),
+        intake: intake.clone(),
+        moved_to: tokio::sync::Mutex::new(None),
+        sends: AtomicUsize::new(0),
+        answered: tokio::sync::Mutex::new(Vec::new()),
+    };
+    assert_eq!(
+        owner.issue_research_initial_pit_v1(&request, &moved).await,
+        Ok(available())
+    );
+    let moved_to = moved
+        .moved_to
+        .lock()
+        .await
+        .clone()
+        .expect("the clock moved before the first send");
+    assert_eq!(moved.sends.load(Ordering::SeqCst), 2);
+    let answered = moved.answered.lock().await.clone();
+    assert!(
+        matches!(
+            answered.as_slice(),
+            [
+                Err(PitMarketSnapshotIntakeErrorV1::ClockEvidenceNotCurrent),
+                Ok(_)
+            ]
+        ),
+        "Market Data itself refused the stale attempt and admitted the refrozen one: {answered:?}"
+    );
+
+    // Two attempts under one correlation: the first at the cut before the move, the second at the
+    // head the admission minted.
+    let frozen = attempts(&rd, &request).await;
+    assert_eq!(frozen.len(), 2);
+    let submission = |bytes: &[u8]| {
+        PitSnapshotSubmissionV1::from_json_value_v1(serde_json::from_slice(bytes).unwrap()).unwrap()
+    };
+    let (first, second) = (submission(&frozen[0].1), submission(&frozen[1].1));
+    assert_eq!(first.correlation_identity, second.correlation_identity);
+    assert_eq!(first.correlation_identity.as_bytes(), &correlation);
+    assert_eq!(
+        first.time_evidence.monotonic_sequence,
+        cut_before.monotonic_sequence
+    );
+    assert_eq!(
+        second.time_evidence.monotonic_sequence,
+        moved_to.monotonic_sequence
+    );
+    assert_eq!(intakes(&market_data, correlation).await, 1);
+    let recorded: i32 = sqlx::query_scalar(
+        "SELECT attempt_ordinal FROM rd_research_initial_pit_terminals_v1 WHERE request_identity = $1",
+    )
+    .bind(&request)
+    .fetch_one(&rd)
+    .await
+    .unwrap();
+    assert_eq!(
+        recorded, 2,
+        "the terminal is recorded against the refrozen attempt"
+    );
+
+    // The readback states the terminal, and issuing again sends nothing.
+    let before = (
+        attempts(&rd, &request).await,
+        intakes(&market_data, correlation).await,
+    );
+    let again = issue_over_http(&app, &request).await;
+    assert_eq!(again.status(), StatusCode::OK);
+    let body = super::tests::response_json(again).await;
+    assert_eq!(
+        body["initial_pit"],
+        serde_json::json!({"state": "TERMINAL", "disposition": "AVAILABLE", "primary_blocker": null}),
+        "{body}"
+    );
+    assert_eq!(
+        (
+            attempts(&rd, &request).await,
+            intakes(&market_data, correlation).await
+        ),
+        before
     );
 }
 

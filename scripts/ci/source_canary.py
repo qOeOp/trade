@@ -51,7 +51,11 @@ class Probe:
     name: str
     request: RequestFactory
     validate: Validator
+    # Waits between attempts after HTTP 429, and after any code in intermittent_codes.
     rate_limit_backoff: tuple[float, ...] = ()
+    # Codes this source answers now and then and not on the next request. Retrying them tells an
+    # intermittent answer from a persistent one: only a code that survives every attempt fails.
+    intermittent_codes: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -81,8 +85,8 @@ def _request(
     return urllib.request.Request(url, headers=safe_headers)  # noqa: S310
 
 
-def _public_request(url: str) -> RequestFactory:
-    return lambda _env: (_request(url), _PUBLIC_ENDPOINT)
+def _public_request(url: str, *, accept: str = "application/json") -> RequestFactory:
+    return lambda _env: (_request(url, headers={"Accept": accept}), _PUBLIC_ENDPOINT)
 
 
 def _optional_bearer_request(url: str, secret_name: str) -> RequestFactory:
@@ -284,10 +288,19 @@ MARKET_PROBES = (
 RESEARCH_PROBES = (
     Probe(
         "arXiv query",
+        # arXiv's API answers Atom, so that is what the probe asks for; the other probes ask for
+        # JSON because they read JSON.
         _public_request(
             "https://export.arxiv.org/api/query?search_query=all%3Aalgorithmic%20trading&start=0&max_results=1",
+            accept="application/atom+xml",
         ),
         _validate_arxiv,
+        # arXiv answers HTTP 406 now and then, whatever the Accept header: on 2026-09-28 one of
+        # ten requests from this code got 406 and the next nine got 200, as did eleven requests
+        # from curl and plain urllib with either Accept. The runner saw it on 2026-09-22. Why is
+        # undetermined; retrying separates that from a 406 that persists.
+        rate_limit_backoff=(1.0, 2.0),
+        intermittent_codes=(406,),
     ),
     Probe(
         "Semantic Scholar search",
@@ -369,13 +382,13 @@ def run_probe(
         except urllib.error.HTTPError as e:
             if e.code in _ADDRESS_REFUSAL_CODES and request_detail == _PUBLIC_ENDPOINT:
                 return Receipt(probe.name, Status.BLOCKED, f"HTTP {e.code}")
-            if e.code != 429:
+            if e.code != 429 and e.code not in probe.intermittent_codes:
                 return Receipt(probe.name, Status.FAILED, f"HTTP {e.code}")
             if attempt == len(probe.rate_limit_backoff):
                 return Receipt(
                     probe.name,
-                    Status.RATE_LIMITED,
-                    f"HTTP 429 after {attempt + 1} attempts",
+                    Status.RATE_LIMITED if e.code == 429 else Status.FAILED,
+                    f"HTTP {e.code} after {attempt + 1} attempts",
                 )
             sleeper(probe.rate_limit_backoff[attempt])
         except urllib.error.URLError as e:

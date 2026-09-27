@@ -1,5 +1,5 @@
 """
-Specs for the ten programs.
+Specs for the declared-meaning corpus.
 
 Each describes only its own graph and declaration; bfp derives the rest.
 
@@ -1363,6 +1363,250 @@ def d1():
     )
 
 
+FVG_LAG = 2
+
+
+def _fvg_signal(node, condition, when_true, when_false):
+    return op(
+        node,
+        SEL,
+        [bd("condition", condition), bd("when_true", when_true), bd("when_false", when_false)],
+        fx("SIGNAL", 0),
+        NONE,
+    )
+
+
+def _fvg_slot_nodes(i):
+    """
+    Whether slot `i` is open, whether this bar traded into it, and whether it survives.
+    """
+    return [
+        op(f"is_open{i}", CMP, [bd("a", ps(f"open{i}")), bd("b", co("zero"))], bl(), CP("GREATER")),
+        op(
+            f"touched{i}",
+            CMP,
+            [bd("a", iv(LO)), bd("b", ps(f"up{i}"))],
+            bl(),
+            CP("LESS_OR_EQUAL"),
+        ),
+        _fvg_signal(f"open_sig{i}", no(f"is_open{i}"), co("one"), co("zero")),
+        _fvg_signal(f"survive_sig{i}", no(f"touched{i}"), co("zero"), no(f"open_sig{i}")),
+        op(
+            f"survives{i}",
+            CMP,
+            [bd("a", no(f"survive_sig{i}")), bd("b", co("zero"))],
+            bl(),
+            CP("GREATER"),
+        ),
+    ]
+
+
+def _fvg_fire_nodes(slots):
+    """
+    Whether any open gap was traded into, walked from the last slot to the first.
+    """
+    nodes = []
+    hit = co("zero")
+    for i in range(slots, 0, -1):
+        nodes += [
+            _fvg_signal(f"hit_touched{i}", no(f"touched{i}"), co("one"), hit),
+            _fvg_signal(f"hit{i}", no(f"is_open{i}"), no(f"hit_touched{i}"), hit),
+        ]
+        hit = no(f"hit{i}")
+    nodes.append(op("fire", CMP, [bd("a", hit), bd("b", co("zero"))], bl(), CP("GREATER")))
+    return nodes
+
+
+def _fvg_rebuild_nodes(slots):
+    """
+    Rebuild every slot as the new gap, if one formed, then the surviving slots,
+    truncated.
+
+    Node `{field}_{n}_{j}` is the n-th existing candidate among candidates j to `slots`, where
+    candidate 0 is the new gap and candidate i is slot i as it survived this bar.
+
+    """
+    exists = [no("new_gap"), *(no(f"survives{i}") for i in range(1, slots + 1))]
+    slot_ids = range(1, slots + 1)
+    fields = {
+        "up": ("PRICE", 2, [iv(LO), *(ps(f"up{i}") for i in slot_ids)], "price-zero"),
+        "lo": ("PRICE", 2, [no("lag_high"), *(ps(f"lo{i}") for i in slot_ids)], "price-zero"),
+        "open": ("SIGNAL", 0, [co("one"), *(ps(f"open{i}") for i in slot_ids)], "zero"),
+    }
+    nodes = []
+    for field, (unit, scale, values, empty) in fields.items():
+        refs = {}
+        for j in range(slots, -1, -1):
+            for n in range(1, slots + 1):
+                if n > slots + 1 - j:
+                    refs[(n, j)] = co(empty)
+                    continue
+                taken = values[j] if n == 1 else refs.get((n - 1, j + 1), co(empty))
+                node = f"{field}_{n}_{j}"
+                nodes.append(
+                    op(
+                        node,
+                        SEL,
+                        [
+                            bd("condition", exists[j]),
+                            bd("when_true", taken, taken == no("lag_high")),
+                            bd("when_false", refs.get((n, j + 1), co(empty))),
+                        ],
+                        fx(unit, scale),
+                        NONE,
+                    ),
+                )
+                refs[(n, j)] = no(node)
+    return nodes
+
+
+def _fvg_cells(slots, lag_state):
+    def carried(field, slot, unit, scale, seed):
+        # Written by the first rebuilt candidate chain of its field for its slot.
+        return {
+            "state_id": f"{field}{slot}",
+            "writer_node_id": f"{field}_{slot}_0",
+            "state_kind": {
+                "kind": "STRATEGY",
+                "value_type": {"kind": "FIXED_I128", "unit": unit, "scale": scale},
+                "source_port_id": "value",
+            },
+            "initial": {"CONSTANT": {"constant_id": seed}},
+            "max_bytes": 16,
+        }
+
+    cells = [
+        {
+            "state_id": "st_lag_high",
+            "writer_node_id": "lag_high",
+            "state_kind": {"kind": "PRIMITIVE"},
+            "initial": "CANONICAL_EMPTY",
+            "max_bytes": lag_state,
+        },
+    ]
+    for i in range(1, slots + 1):
+        cells += [
+            carried("up", i, "PRICE", 2, "price-zero"),
+            carried("lo", i, "PRICE", 2, "price-zero"),
+            carried("open", i, "SIGNAL", 0, "zero"),
+        ]
+    return cells
+
+
+def _fvg_hold_by_default(constant):
+    if constant["constant_id"] == "position":
+        constant["value"]["semantic_id"] = "kernel.position.hold.v1"
+
+
+def _fvg_default_frame_holds(_design, proposal):
+    for terminal in proposal["proposal_decision_table"]["default_frame"]["terminal_outputs"]:
+        if terminal["manifest_port_id"] == "proposal.position-intent.v1":
+            terminal["lifecycle_semantic_id"] = "kernel.position.hold.v1"
+
+
+FVG_CONSTANTS = [
+    {
+        "constant_id": "one",
+        "value": {"kind": "FIXED_I128", "coefficient": "1", "unit": "SIGNAL", "scale": 0},
+    },
+    {
+        "constant_id": "zero",
+        "value": {"kind": "FIXED_I128", "coefficient": "0", "unit": "SIGNAL", "scale": 0},
+    },
+    {
+        "constant_id": "price-zero",
+        "value": {"kind": "FIXED_I128", "coefficient": "0", "unit": "PRICE", "scale": 2},
+    },
+    {
+        "constant_id": "position-enter",
+        "value": {"kind": "POSITION_INTENT_V1", "semantic_id": "kernel.position.enter.v1"},
+    },
+]
+
+
+def fvg(name, slots):
+    """
+    Build a bullish fair value gap held in `slots` fixed slots.
+
+    It emits an entry on the bar that trades back into a gap it still holds. A gap forms at bar t
+    when the low is strictly above the high two bars back; it spans from that high up to the low.
+    It stays open until a later bar's low reaches its upper edge, which is the signal, and is then
+    cleared. Each slot is three fixed-point strategy state cells - upper edge, lower edge, and
+    whether it is open - kept newest first. Every bar rebuilds the slots as the new gap, if one
+    formed, followed by the gaps that survived this bar, truncated to `slots`: a new gap replaces
+    the oldest only when every slot is open, which is the declared overflow rule.
+
+    `g2` and `g3` differ only in `slots`, so a third gap evicts the first under `g2` and not under
+    `g3`, and a bar that later trades into the first gap's interval signals only under `g3`.
+
+    The template's default frame enters; here it holds, so the branch's entry is the only one and
+    a run shows exactly which bars took it.
+
+    """
+    high = (HI, "1D", "MARKET_DATA.BAR.HIGH.PRICE.V1", "PRICE", "high")
+    low = (LO, "1D", "MARKET_DATA.BAR.LOW.PRICE.V1", "PRICE", "low")
+    d, p, hexes = bfp.base([high, low])
+    lag_state = 20 + 324 * (FVG_LAG + 1)
+    nodes = [
+        op(
+            "lag_high",
+            LAG,
+            [bd("value", iv(HI))],
+            [*fx("PRICE", 2, "WARMING_READY"), coord_port(hexes[HI])],
+            LG(FVG_LAG, FVG_LAG),
+            "st_lag_high",
+            HI,
+        ),
+        op(
+            "new_gap",
+            CMP,
+            [bd("a", iv(LO)), bd("b", no("lag_high"), True)],
+            bl(),
+            CP("GREATER"),
+        ),
+    ]
+    for i in range(1, slots + 1):
+        nodes += _fvg_slot_nodes(i)
+    nodes += _fvg_fire_nodes(slots)
+    nodes += _fvg_rebuild_nodes(slots)
+    cells = _fvg_cells(slots, lag_state)
+    state_total = lag_state + 3 * 16 * slots
+    return bfp.emit(
+        d,
+        p,
+        f"{OUT}/{name}",
+        nodes=nodes,
+        drop_constants={"initial-condition", "threshold"},
+        add_constants=FVG_CONSTANTS,
+        state_cells=cells,
+        state_total=state_total,
+        mutate_constants=_fvg_hold_by_default,
+        after=_fvg_default_frame_holds,
+        branches=[
+            {
+                "priority": 10,
+                "predicate": no("fire"),
+                "overrides": {
+                    "proposal.position-intent.v1": {
+                        "lifecycle_semantic_id": "kernel.position.enter.v1",
+                        "source": co("position-enter"),
+                    },
+                },
+            },
+        ],
+        bounds={
+            "max_nodes": len(nodes),
+            "max_edges": 256,
+            "max_depth": 32,
+            "max_ports": 256,
+            "max_state_cells": len(cells),
+            "max_fan_out": 32,
+            "max_constants": 16,
+            "max_state_bytes": state_total,
+        },
+    )
+
+
 if __name__ == "__main__":
     build_bases()
     build_all()
@@ -1372,5 +1616,7 @@ if __name__ == "__main__":
     w1()
     w2()
     d1()
+    fvg("g2", 2)
+    fvg("g3", 3)
     written = len({f.name.rsplit("-", 1)[0] for f in pathlib.Path(OUT).glob("*-meaning.json")})
     print(f"{written} programs from one generator")

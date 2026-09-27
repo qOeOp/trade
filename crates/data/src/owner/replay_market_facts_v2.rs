@@ -1049,6 +1049,7 @@ pub enum ReplayMarketFactsErrorV2 {
     InvalidRequest,
     InvalidFact,
     InvalidFactCut,
+    SessionOutsideReplayWindow,
     IncompleteReferenceCuts,
     DependencyMismatch,
     NonCanonicalOrder,

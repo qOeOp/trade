@@ -266,6 +266,144 @@ fn warming_proposal_validation_reads_all_raw_lifecycle_fields() {
     }
 }
 
+/// A program that names a rebalance target's sequence is refused by name; one that emits 0 is
+/// given the Host's, and no other target asks the Host for one.
+#[rstest]
+fn a_program_naming_a_rebalance_sequence_is_refused_by_name() {
+    use super::program_host_v2::{ProgramHostV2Error, assign_rebalance_sequence_v2};
+
+    let named = assign_rebalance_sequence_v2(
+        TargetProposalV1::RebalancePosition {
+            sequence: 1,
+            units: 1,
+        },
+        || Some(1),
+    )
+    .unwrap_err();
+    assert!(matches!(
+        named,
+        ProgramHostV2Error::RebalanceSequenceIsHostAssigned
+    ));
+    assert!(
+        named
+            .to_string()
+            .starts_with("REBALANCE_SEQUENCE_IS_HOST_ASSIGNED")
+    );
+
+    assert_eq!(
+        assign_rebalance_sequence_v2(
+            TargetProposalV1::RebalancePosition {
+                sequence: 0,
+                units: 1
+            },
+            || Some(7),
+        )
+        .unwrap(),
+        TargetProposalV1::RebalancePosition {
+            sequence: 7,
+            units: 1
+        }
+    );
+
+    for other in [TargetProposalV1::Keep, TargetProposalV1::Position(1)] {
+        assert_eq!(
+            assign_rebalance_sequence_v2(other, || panic!("{other:?} asked for a sequence"))
+                .unwrap(),
+            other
+        );
+    }
+}
+
+/// On the single-instrument path the Host gives each rebalance target one more than the kernel's
+/// last, which the kernel requires a rebalance to exceed.
+///
+/// The module proposes the same rebalance entry every frame, with the sequence 0 a program emits.
+/// Between the two frames the venue rejects the first entry, so the second is again an entry from
+/// flat and differs from the first only in the sequence the kernel now requires: 2, where a
+/// constant would have satisfied the kernel once.
+#[rstest]
+fn a_single_instrument_host_assigns_each_rebalance_the_next_sequence() {
+    use strategy_factory_program_sdk::lifecycle_v1::{
+        FillDispositionV1, FillEventV1, TargetStateV1,
+    };
+
+    let candidate = executable_design();
+    let manifest = &candidate.plugins[0];
+    let mut frame = output_frame(manifest);
+
+    for (port, value) in manifest.output_ports.iter().zip(&mut frame.values) {
+        match port.semantic_id.as_str() {
+            "proposal.position-intent.v1" => {
+                *value = TypedValueV2::new(
+                    ValueTypeV2::PositionIntentV1,
+                    lifecycle_v1::ENTER_SEMANTIC_ID.as_bytes(),
+                )
+                .unwrap();
+            }
+            "proposal.target-variant.v1" => {
+                *value = TypedValueV2::new(
+                    ValueTypeV2::TargetVariantV1,
+                    lifecycle_v1::TARGET_REBALANCE_SEMANTIC_ID.as_bytes(),
+                )
+                .unwrap();
+            }
+            "proposal.target-position.v1" | "proposal.reconciliation-target.v1" => {
+                *value = TypedValueV2::i64(1);
+            }
+            _ => {}
+        }
+    }
+    let body = frame.encode(manifest).unwrap()[96..].to_vec();
+    let (plan, artifact) = fixture_from_design_and_body(candidate, body, InvokeMode::Valid);
+    let mut host = ProgramHostV2::new(plan.clone(), artifact).unwrap();
+    host.apply_event(&admitted(&plan, envelope(1, LifecycleKind::Start), None))
+        .unwrap();
+
+    let first = host
+        .apply_event(&admitted(
+            &plan,
+            envelope(2, LifecycleKind::Bar),
+            Some((10_000, 9_000)),
+        ))
+        .unwrap();
+    assert_eq!(
+        first.target,
+        TargetStateV1::RebalancePosition {
+            sequence: 1,
+            units: 1
+        }
+    );
+
+    let pending = host.kernel_checkpoint().pending_intent.unwrap();
+    let rejection = LifecycleEnvelopeV1::new_bound(
+        EventOrderKeyV1::new(3, 3, LifecycleKind::Fill, 3, [3; 16]).unwrap(),
+        EnvelopePayloadV1::Fill(FillEventV1 {
+            intent_identity: pending.intent_identity,
+            side: pending.side,
+            disposition: FillDispositionV1::Rejected,
+            cumulative_filled_units: 0,
+        }),
+    )
+    .unwrap();
+    host.apply_event(&admitted(&plan, rejection, None)).unwrap();
+    assert_eq!(host.kernel_checkpoint().reconciled_position_units, 0);
+
+    let second = host
+        .apply_event(&admitted(
+            &plan,
+            envelope(4, LifecycleKind::Bar),
+            Some((10_000, 9_000)),
+        ))
+        .unwrap();
+    assert_eq!(
+        second.target,
+        TargetStateV1::RebalancePosition {
+            sequence: 2,
+            units: 1
+        }
+    );
+}
+
 #[rstest]
 fn abi3_bfp_availability_is_explicit_and_ready_hold_stays_ready() {
     let mut manifest = executable_design().plugins.remove(0);
@@ -1462,6 +1600,57 @@ fn the_universe_contract_takes_its_role_set_from_the_design() {
         refusal(derive(&design.inputs, &[join(OPEN)]).map(|_| ())),
         Some(CompilationRefusalV2::ExecutionRoleNotPricingRole)
     );
+}
+
+/// Market Data derives a Replay's execution window from the execution role it reads off the same
+/// Composer role-set projection, by `execution_role_semantic_id_v1`. Wherever Strategy Factory
+/// defines that role, the two must name the same one: this is what keeps the Market Data rule a
+/// copy of `derive_execution_role_v2` rather than a second definition. Both orders of the roles
+/// are asked, so a rule that took a role by position could not agree with both.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn market_data_names_the_execution_role_strategy_factory_derives() {
+    use vibe_data::owner::declared_bar_timeframe_v1::execution_role_semantic_id_v1;
+
+    use super::strategy_design_v2::{
+        INPUT_JOIN_LATEST_NOT_AFTER_TRIGGER_V1, InputJoinV2, InputRoleV2,
+    };
+    use super::strategy_plan_v2::derive_execution_role_for_test as derive;
+
+    const OPEN: &str = "research.input.open.v1";
+    const CLOSE: &str = "research.input.close.v1";
+    let market_data = |inputs: &[InputRoleV2], joins: &[InputJoinV2]| {
+        execution_role_semantic_id_v1(
+            inputs
+                .iter()
+                .map(|input| (input.semantic_id.as_str(), input.field_semantic_id.as_str())),
+            joins.iter().map(|join| join.trigger_input_id.as_str()),
+        )
+        .map(|role| role.map(str::to_owned))
+    };
+    let join = InputJoinV2 {
+        semantic_id: "research.join.members.v1".into(),
+        inputs: vec![CLOSE.into(), OPEN.into()],
+        alignment_semantic_id: INPUT_JOIN_LATEST_NOT_AFTER_TRIGGER_V1.into(),
+        trigger_input_id: CLOSE.into(),
+        max_staleness_ns: 1,
+    };
+    // Slice F's shape: a universe Design of daily open and close, with no join.
+    let design = universe_design();
+    let mut reversed = design.inputs.clone();
+    reversed.reverse();
+
+    for inputs in [&design.inputs, &reversed] {
+        for joins in [&[][..], std::slice::from_ref(&join)] {
+            let strategy_factory = derive(inputs, joins).expect("Strategy Factory defines it");
+            assert_eq!(strategy_factory, CLOSE);
+            assert_eq!(
+                market_data(inputs, joins),
+                Ok(Some(strategy_factory)),
+                "the same Design names the same execution role"
+            );
+        }
+    }
 }
 
 #[rstest]
