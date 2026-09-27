@@ -262,11 +262,11 @@ use super::{
         verify_decoded_projection_component_native_v3,
     },
     shared_time_evidence::{
-        ClockHeadFact, ClockHeadHandoff, ClockHeadSuccessorReadback, EpochSuccessorProof,
-        SharedTimeEvidenceError, SharedTimeEvidenceResolver, UntrustedClockHeadLocator,
-        build_epoch_successor_proof, build_head_fact, successor_readback,
-        validate_new_epoch_successor, validate_same_epoch_successor, verify_epoch_successor_proof,
-        verify_head_fact,
+        ClockHeadFact, ClockHeadHandoff, ClockHeadSuccessorReadback, EpochNanosV1,
+        EpochSuccessorProof, NanosV1, SharedTimeEvidenceError, SharedTimeEvidenceResolver,
+        UntrustedClockHeadLocator, build_epoch_successor_proof, build_head_fact,
+        successor_readback, validate_new_epoch_successor, validate_same_epoch_successor,
+        verify_epoch_successor_proof, verify_head_fact,
     },
     source_binding::{
         BindingDigest, MarketDataClockAdmission, MarketDataClockComparisonRule,
@@ -7366,12 +7366,12 @@ async fn insert_clock_handoff(
     .bind(fact.handoff.clock_identity())
     .bind(fact.handoff.clock_epoch())
     .bind(to_i64(fact.handoff.monotonic_sequence())?)
-    .bind(to_i64(fact.handoff.wall_observed())?)
-    .bind(to_i64(fact.handoff.decision_cut())?)
-    .bind(to_i64(fact.handoff.valid_through())?)
+    .bind(to_i64(fact.handoff.wall_observed().as_epoch_nanos())?)
+    .bind(to_i64(fact.handoff.decision_cut().as_epoch_nanos())?)
+    .bind(to_i64(fact.handoff.valid_through().as_epoch_nanos())?)
     .bind(fact.handoff.restart_continuity_digest().as_bytes().as_slice())
-    .bind(to_i64(fact.handoff.uncertainty_bound())?)
-    .bind(to_i64(fact.handoff.skew_bound())?)
+    .bind(to_i64(fact.handoff.uncertainty_bound().as_nanos())?)
+    .bind(to_i64(fact.handoff.skew_bound().as_nanos())?)
     .execute(&mut **transaction)
     .await
     .map_err(|_| SourceBindingError::StoreUnavailable)?;
@@ -7572,7 +7572,7 @@ async fn insert_epoch_proof(
     .bind(proof.successor_clock_identity())
     .bind(proof.successor_clock_epoch())
     .bind(proof.successor_continuity_digest().as_bytes().as_slice())
-    .bind(i64::try_from(proof.commit_cut()).map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?)
+    .bind(i64::try_from(proof.commit_cut().as_epoch_nanos()).map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?)
     .execute(&mut **transaction)
     .await
     .map_err(|e| map_shared_time_insert_error(&e))?;
@@ -11733,12 +11733,12 @@ fn public_decision_cut_v1(clock: &MarketDataClockAdmission) -> MarketDataDecisio
     MarketDataDecisionCutV1 {
         clock_identity: clock.clock_identity.clone(),
         clock_epoch: clock.clock_epoch.clone(),
-        decision_cut: clock.decision_cut,
+        decision_cut: EpochNanosV1::from_epoch_nanos(clock.decision_cut),
         monotonic_sequence: clock.monotonic_sequence,
         restart_continuity_digest: clock.restart_continuity_digest,
-        valid_through: clock.valid_through,
-        uncertainty_bound: clock.uncertainty_bound,
-        skew_bound: clock.skew_bound,
+        valid_through: EpochNanosV1::from_epoch_nanos(clock.valid_through),
+        uncertainty_bound: NanosV1::from_nanos(clock.uncertainty_bound),
+        skew_bound: NanosV1::from_nanos(clock.skew_bound),
     }
 }
 

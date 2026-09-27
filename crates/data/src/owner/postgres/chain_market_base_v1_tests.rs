@@ -110,7 +110,7 @@ async fn the_acceptance_basis_is_written_once_and_rejoined_without_moving_a_poin
     assert_ne!(written, empty, "a fresh store is written");
     assert_eq!(written.clock_head_cut, Some(100));
     assert_eq!(written.eligible_frontier, Some(d(170).as_bytes().to_vec()));
-    assert_eq!(basis.decision_cut().decision_cut, 100);
+    assert_eq!(basis.decision_cut().decision_cut.as_epoch_nanos(), 100);
     assert_eq!(basis.instrument(), CHAIN_FIXTURE_INSTRUMENT_V1);
 
     for pointer in [

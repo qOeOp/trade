@@ -257,7 +257,17 @@ never runs in CI.
   identity/configuration or semantics mismatch is `INCOMPATIBLE`. `ADMITTED` is exclusive and requires no failure.
 - **CURRENT:** one private canonical clock head is atomically persisted with Owner-local Source Binding and PIT facts.
   Exact replay and same-epoch advancement are supported; epoch change, a sealed cross-Owner handoff, and an Epoch
-  Successor Proof are not current.
+  Successor Proof are not current. Every instant a handoff, an Epoch Successor Proof or a `MarketDataDecisionCutV1`
+  carries is Unix-epoch nanoseconds, and the unit travels in the type, `EpochNanosV1`; uncertainty and skew bounds are
+  `NanosV1`. Neither has an accessor that returns the number without naming its unit, and both serialize as the bare
+  number, so no wire form or digest changed when the unit moved into the type. A comparison with a millisecond clock
+  goes through `may_be_reached_within_epoch_ms`, `is_reached_throughout_epoch_ms` or
+  `is_not_passed_throughout_epoch_ms`, each of which answers for the whole commit millisecond and so rounds toward
+  refusing. The Backtest and Qualification wire mirrors it with `MarketDataEpochNanosV1`, whose only millisecond
+  comparison is `is_expired_at_epoch_ms`. The type carries the unit because the names did not: Backtest, Qualification,
+  the R&D repair request and Source Intake read these instants as epoch milliseconds, so an expiry check against a
+  nanosecond bound never fired and an ordering check never passed, and the one clock their tests had, the sealed
+  protected-evaluation clock, was itself in milliseconds.
 - **TARGET:** an immutable, content-addressed, exactly resolvable sealed clock-head handoff binds head identity/digest,
   clock identity/epoch, monotonic sequence, wall observation, decision cut, exclusive valid-through,
   restart-continuity digest, uncertainty/skew bounds, and comparison rule. Same-epoch successors strictly advance the

@@ -7284,8 +7284,11 @@ mod postgres_tests {
                 effective_from < valid_through,
                 "the window is half-open and non-empty for {identity}"
             );
+            // The evidence is a Market Data instant in epoch nanoseconds; the Fact's window is in
+            // epoch milliseconds and closes on the millisecond that instant falls in.
             let evidence_valid_through: i64 = sqlx::query_scalar(
                 "SELECT (assessment_json->'assessment_time_evidence'->>'valid_through')::BIGINT
+                        / 1000000
                    FROM public.qualification_protected_robustness_assessments_v1
                   WHERE assessment_identity = $1",
             )

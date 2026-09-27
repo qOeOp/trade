@@ -207,6 +207,16 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   `ADMITTED` 是互斥状态，要求 failure set 为空。
 - **CURRENT：** 一个私有规范 clock head 与 Owner-local Source Binding 和 PIT fact 原子持久化。当前支持准确
   replay 与同 epoch 前进；epoch 变化、sealed 跨 Owner handoff 与 Epoch Successor Proof 均非当前能力。
+  handoff、Epoch Successor Proof 与 `MarketDataDecisionCutV1` 携带的每个时刻都是
+  Unix-epoch 纳秒，单位由类型 `EpochNanosV1` 承载；uncertainty 与 skew bound 是 `NanosV1`。
+  两者都没有不说出单位就返回数值的访问器，并且都序列化为裸数值，所以把单位移进类型时，
+  没有任何 wire 形式或 digest 改变。与毫秒时钟的比较只经由 `may_be_reached_within_epoch_ms`、
+  `is_reached_throughout_epoch_ms` 或 `is_not_passed_throughout_epoch_ms`，每个都对整个提交毫秒作答，
+  因此朝拒绝取整。Backtest 与 Qualification 的 wire 以 `MarketDataEpochNanosV1` 对应它，
+  其唯一的毫秒比较是 `is_expired_at_epoch_ms`。之所以由类型承载单位，是因为名字没有承载：
+  Backtest、Qualification、R&D repair request 与 Source Intake 曾把这些时刻当作 epoch 毫秒读，
+  于是对纳秒 bound 的过期检查从不触发、顺序检查从不通过，
+  而它们测试里唯一的时钟，sealed protected-evaluation 时钟，本身就是毫秒。
 - **TARGET：** immutable、content-addressed 且可按准确身份回读的 sealed clock-head handoff 绑定 head
   identity/digest、clock identity/epoch、monotonic sequence、wall observation、decision cut、排他的 valid-through、
   restart-continuity digest、uncertainty/skew bound 与 comparison rule。同 epoch successor 严格推进必需 cut。

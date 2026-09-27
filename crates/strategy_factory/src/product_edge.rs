@@ -2734,6 +2734,7 @@ fn trial_family_storage(error: &TrialFamilyError) -> ResearchGoalOwnerError {
 mod v2_sealing_tests {
     use super::*;
     use rstest::rstest;
+    use vibe_data::owner::shared_time_evidence::{EpochNanosV1, NanosV1};
 
     fn diagnosis_locator() -> ResearchExploratoryDiagnosisLocatorV1 {
         ResearchExploratoryDiagnosisLocatorV1 {
@@ -3656,12 +3657,12 @@ mod v2_sealing_tests {
         MarketDataDecisionCutV1 {
             clock_identity: "market-data-clock-test".to_string(),
             clock_epoch: "epoch-1".to_string(),
-            decision_cut: 1_000,
+            decision_cut: EpochNanosV1::from_epoch_nanos(1_000),
             monotonic_sequence: 7,
             restart_continuity_digest: BindingDigest::from_untrusted_bytes([3; 32]),
-            valid_through: 2_000,
-            uncertainty_bound: 1,
-            skew_bound: 1,
+            valid_through: EpochNanosV1::from_epoch_nanos(2_000),
+            uncertainty_bound: NanosV1::from_nanos(1),
+            skew_bound: NanosV1::from_nanos(1),
         }
     }
 

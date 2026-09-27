@@ -34,6 +34,7 @@ use super::{
         UntrustedPitSnapshotTimeEvidence, UntrustedProviderAvailableTime, UntrustedRetrievalTime,
         UntrustedSnapshotDecisionCut,
     },
+    shared_time_evidence::EpochNanosV1,
     source_binding::{BindingDigest, UntrustedSourceBindingLocator},
     universe_selection::UntrustedUniverseSelectionLocatorV1,
 };
@@ -180,7 +181,7 @@ pub struct AnsweredCoordinateV1 {
 pub struct FrozenObservationWindowTerminalV1 {
     coordinates: Vec<AnsweredCoordinateV1>,
     halted: Option<FrozenObservationWindowHaltV1>,
-    decision_cut: u64,
+    decision_cut: EpochNanosV1,
 }
 
 impl FrozenObservationWindowTerminalV1 {
@@ -198,7 +199,7 @@ impl FrozenObservationWindowTerminalV1 {
 
     /// The single cut every request in this sweep was frozen against.
     #[must_use]
-    pub const fn decision_cut(&self) -> u64 {
+    pub const fn decision_cut(&self) -> EpochNanosV1 {
         self.decision_cut
     }
 }
@@ -333,16 +334,16 @@ fn frozen_submission_at(
                 &epoch,
             )),
             decision_cut: UntrustedSnapshotDecisionCut::from_untrusted(
-                cut.decision_cut,
+                cut.decision_cut.as_epoch_nanos(),
                 &id,
                 &epoch,
             ),
             monotonic_sequence: cut.monotonic_sequence,
             restart_continuity_digest: cut.restart_continuity_digest,
-            skew_bound: cut.skew_bound,
-            uncertainty_bound: cut.uncertainty_bound,
-            observed_at: cut.decision_cut,
-            valid_through: cut.valid_through,
+            skew_bound: cut.skew_bound.as_nanos(),
+            uncertainty_bound: cut.uncertainty_bound.as_nanos(),
+            observed_at: cut.decision_cut.as_epoch_nanos(),
+            valid_through: cut.valid_through.as_epoch_nanos(),
         },
     }
 }
@@ -429,7 +430,7 @@ async fn sweep<I: PitMarketSnapshotIntakeV1>(
         // before the decision cut, and a sweep stamps all four coordinates with the frozen instant
         // - but it would refuse in a category naming neither the coordinate nor the reason. Saying
         // it here costs one comparison and keeps the answerable part of the window.
-        if event_effective_ns > cut.decision_cut {
+        if event_effective_ns > cut.decision_cut.as_epoch_nanos() {
             halted = Some(FrozenObservationWindowHaltV1 {
                 at_event_effective_ns: event_effective_ns,
                 unanswered: total - index,
@@ -469,6 +470,7 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
+    use crate::owner::shared_time_evidence::NanosV1;
 
     const HOUR_NS: u64 = 3_600_000_000_000;
 
@@ -586,12 +588,12 @@ mod tests {
             Ok(MarketDataDecisionCutV1 {
                 clock_identity: "TEST-CLOCK".into(),
                 clock_epoch: "TEST-EPOCH".into(),
-                decision_cut: 9_000_000_000_000_000,
+                decision_cut: EpochNanosV1::from_epoch_nanos(9_000_000_000_000_000),
                 monotonic_sequence: 7,
                 restart_continuity_digest: BindingDigest::from_untrusted_bytes([9; 32]),
-                valid_through: 9_100_000_000_000_000,
-                uncertainty_bound: 1,
-                skew_bound: 1,
+                valid_through: EpochNanosV1::from_epoch_nanos(9_100_000_000_000_000),
+                uncertainty_bound: NanosV1::from_nanos(1),
+                skew_bound: NanosV1::from_nanos(1),
             })
         }
 
@@ -706,12 +708,12 @@ mod tests {
         let cut = MarketDataDecisionCutV1 {
             clock_identity: "TEST-CLOCK".into(),
             clock_epoch: "TEST-EPOCH".into(),
-            decision_cut: 100,
+            decision_cut: EpochNanosV1::from_epoch_nanos(100),
             monotonic_sequence: 7,
             restart_continuity_digest: BindingDigest::from_untrusted_bytes([9; 32]),
-            valid_through: 200,
-            uncertainty_bound: 1,
-            skew_bound: 1,
+            valid_through: EpochNanosV1::from_epoch_nanos(200),
+            uncertainty_bound: NanosV1::from_nanos(1),
+            skew_bound: NanosV1::from_nanos(1),
         };
         let first = frozen_submission_at(&window, &cut, 3);
         let second = frozen_submission_at(&window, &cut, 4);
@@ -852,12 +854,12 @@ mod tests {
         let cut = intake.current_decision_cut().await.unwrap();
         // Two coordinates at or before the cut, then two past it.
         let coordinates = vec![
-            cut.decision_cut - 4 * HOUR_NS,
-            cut.decision_cut,
-            cut.decision_cut + 4 * HOUR_NS,
-            cut.decision_cut + 8 * HOUR_NS,
+            cut.decision_cut.as_epoch_nanos() - 4 * HOUR_NS,
+            cut.decision_cut.as_epoch_nanos(),
+            cut.decision_cut.as_epoch_nanos() + 4 * HOUR_NS,
+            cut.decision_cut.as_epoch_nanos() + 8 * HOUR_NS,
         ];
-        let window = window(0, cut.decision_cut + 12 * HOUR_NS);
+        let window = window(0, cut.decision_cut.as_epoch_nanos() + 12 * HOUR_NS);
 
         let terminal = sweep(&intake, &window, &cut, coordinates).await;
 
@@ -867,11 +869,17 @@ mod tests {
                 .iter()
                 .map(|answered| answered.event_effective_ns)
                 .collect::<Vec<_>>(),
-            vec![cut.decision_cut - 4 * HOUR_NS, cut.decision_cut],
+            vec![
+                cut.decision_cut.as_epoch_nanos() - 4 * HOUR_NS,
+                cut.decision_cut.as_epoch_nanos()
+            ],
             "a coordinate exactly at the cut is decided; the answerable part is kept"
         );
         let halt = terminal.halted().expect("it stopped, so it says where");
-        assert_eq!(halt.at_event_effective_ns, cut.decision_cut + 4 * HOUR_NS);
+        assert_eq!(
+            halt.at_event_effective_ns,
+            cut.decision_cut.as_epoch_nanos() + 4 * HOUR_NS
+        );
         assert_eq!(halt.unanswered, 2);
         assert_eq!(
             halt.reason,

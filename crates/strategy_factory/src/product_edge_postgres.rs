@@ -4591,7 +4591,9 @@ pub(crate) mod tests {
 
     use rstest::rstest;
     use vibe_data::owner::{
-        shared_time_evidence::UntrustedClockHeadLocator, source_binding::BindingDigest,
+        pit_market_snapshot_intake_v1::MarketDataDecisionCutV1,
+        shared_time_evidence::{EpochNanosV1, NanosV1, UntrustedClockHeadLocator},
+        source_binding::BindingDigest,
     };
 
     use super::*;
@@ -7248,17 +7250,16 @@ pub(crate) mod tests {
         }
     }
 
-    fn market_data_cut() -> vibe_data::owner::pit_market_snapshot_intake_v1::MarketDataDecisionCutV1
-    {
-        vibe_data::owner::pit_market_snapshot_intake_v1::MarketDataDecisionCutV1 {
+    fn market_data_cut() -> MarketDataDecisionCutV1 {
+        MarketDataDecisionCutV1 {
             clock_identity: "market-data-clock-test".to_string(),
             clock_epoch: "epoch-1".to_string(),
-            decision_cut: 1_000,
+            decision_cut: EpochNanosV1::from_epoch_nanos(1_000),
             monotonic_sequence: 7,
             restart_continuity_digest: BindingDigest::from_untrusted_bytes([3; 32]),
-            valid_through: 2_000,
-            uncertainty_bound: 1,
-            skew_bound: 1,
+            valid_through: EpochNanosV1::from_epoch_nanos(2_000),
+            uncertainty_bound: NanosV1::from_nanos(1),
+            skew_bound: NanosV1::from_nanos(1),
         }
     }
 
