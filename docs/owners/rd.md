@@ -393,12 +393,49 @@ stored View must be a legal descendant of it, the cut must lie inside its validi
 operation receipt's Research custody digest must equal the one rebuilt from it. The first three
 failures answer `UNAVAILABLE` at their own coordinates under `research_custody.run_view`; a differing
 digest answers at the existing `operation_receipt` coordinate. A row committed before the
-record existed carries neither fact: it keeps the read against the current View, and once that View
-is no longer current it answers at `research_custody.run_view_unrecorded`, which
-states why the row cannot be read instead of implying that the run is gone. The migration adds the two
+record existed carries neither fact: it keeps the read against the current View. Once that View has
+moved past `INTENT_FROZEN`, or the authority it continues under is no longer current (see below), it
+answers at `research_custody.run_view_unrecorded`, which
+states why the row cannot be read instead of implying that the run is gone. Such a row therefore reads
+back for as long as the operator authorization its Research request was admitted under lasts. Once that
+authorization expires or is revoked, it answers under the continuation's own coordinate,
+`research_custody.continuation.authority_not_current`, not the unrecorded one. A row that recorded its
+View does not depend on the authorization at all. The migration adds the two
 columns by reading the catalog shape first; they freeze when the migration is deployed, not when it
-merges. The run itself still requires a current View, so a Research request can be composed only
-within ten minutes of its acceptance; that bound belongs to the run, not to this readback.
+merges.
+
+**An admitted Research Intent continues under the authority it was admitted under, not inside its
+View's window.** A View's `valid_through` is a reader's freshness: past it the View reads `STALE`,
+and nothing refreshes it. It does not bound how long the frozen Intent may be worked on. Each of
+these continuations re-locks the Intent's own Product Edge admission at its own cut, the way a
+downstream first mutation does:
+
+- the Composer run;
+- `POST /v1/bounded-feature-programs/{declare,freeze}`;
+- publishing the Design role intent;
+- reading the Research authoring facts;
+- freezing a complex-strategy develop evaluation.
+
+Each continues only while the operator authorization that admission names is current there: in
+force, not revoked, and under a current policy binding and manifest window. Otherwise it answers
+`UNAVAILABLE` at `research_custody.continuation.authority_not_current`. Two other refusals are named:
+
+- a re-locked admission that is not the one the Intent was admitted under answers at
+  `research_custody.continuation.admission_changed`;
+- a quarantined legacy custody carries no current admission and answers at
+  `research_custody.continuation.no_admission`.
+
+The frozen View still identifies the Intent: a cut before its projection is refused, and the Intent
+must still be `INTENT_FROZEN`. Protected feedback is checked when the Intent is admitted and not
+again. Today the protected-feedback frontier carries no generation, and a protected evaluation does
+not advance it, so a continuation cannot observe a protected evaluation made after the freeze. The
+slice that gives the frontier a generation, and makes every continuation compare it with the one
+the Intent was frozen under, removes this property. Until their own slices land, two kinds of check
+still read the View's window:
+
+- the steps after a Replay commit: the Backtest run, the execution-input binding and Market Data
+  repair;
+- Product Edge's own downstream-admission window check.
 
 **CURRENT/PARTIAL - the first cycle now has something to stand on.** Sealing the corpus run leaves
 `run_bounded_feature_program` as the only production entry, and it requires a frozen joint program.

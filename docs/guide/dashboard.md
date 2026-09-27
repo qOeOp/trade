@@ -496,8 +496,8 @@ production. This resolution is `IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`. Neither
 ungated `POST /v2/develop-composer/runs` committed. It re-derives the run at the Research View and read cut
 the run recorded when it committed, so the same identity keeps reading back after that View expires or moves
 to `ARTIFACT_AVAILABLE` or `EXPLORATION_ACTIVE`. A run committed before that record existed reads back only
-while its View is current, and after that answers `UNAVAILABLE` at coordinate
-`research_custody.run_view_unrecorded`, so the page is not read as the run having vanished. It accepts no
+while its Research View has not moved past `INTENT_FROZEN` and the authority it was admitted under is
+current, and otherwise answers `UNAVAILABLE` at coordinate `research_custody.run_view_unrecorded`, so the page is not read as the run having vanished. It accepts no
 request body and returns the existing strict `DevelopComposerOperationResponseV2`; the Dashboard BFF path-binds the identity and filters it to the fields above.
 `SUCCESS` requires an operation receipt plus the complete four-field Artifact projection. Every other disposition
 must carry no receipt or Artifact projection. Unknown keys, identity drift, contradictory disposition fields,
