@@ -1630,6 +1630,23 @@ and timeframes. T1 depends on all three, because it derives the custody request 
 Design; its first positive case uses only CLOSE and one member, and D1 lands with it. P2 lands with I2. A1 and V4a proceed in parallel with T1; then T2, I1, I1.5, I2, and I3; then N1, A2, A3, V4b, and V5. Per-frame as-of membership (T4) would
 remove the invariant that every frame shares one member set, so it is asked of the user when it is proposed.
 
+Two target variants the single-threshold author accepts cannot run past one frame of the target-set Host today, and
+each is a slice after F and before T1. Both were measured on `main` 3a465a537, red as it stands and past the named
+check under a temporary change that was then reverted. Until its slice lands, the author refuses the variant by
+name as `SINGLE_THRESHOLD_TARGET_VARIANT_NOT_RUNNABLE`, on either side, so a program that could only fail on its
+first frame is not authored at all. The refusal is temporary: each slice below removes it for its own variant.
+
+- **Rebalance sequence.** A `kernel.target.rebalance.v1` target must carry the sequence of the target set it is
+  lifted into, which advances by one each frame, and the author writes one constant for it. Constant 1 lifts on the
+  first frame only, and constant 2 on the second only, so no constant runs two frames: the sequence has to be the
+  Host's at lift, not the author's. Strategy Factory's Host fixes it.
+- **Weight reconciliation.** The Host decodes a reconciliation target for every target but `Keep`, and the target-set
+  reconciliation requires none for a weight target, so a weight side fails as `InputCoverage` on its first frame.
+  With the decoding temporarily leaving weight without one, that check passes and the frame then fails as
+  `InvalidPositionTransition`: the author shares one target weight of 0 between both sides, and entering at weight 0
+  is no transition. Strategy Factory fixes both: the Host's decoding, and the author's weight, which follows each
+  side as its position already does.
+
 ## Value-stream handoffs
 
 The stage relations between R&D, Backtest, and Qualification cross the value stream as exactly these objects. Each
