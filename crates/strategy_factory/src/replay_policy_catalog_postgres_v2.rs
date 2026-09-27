@@ -447,7 +447,10 @@ fn sealed_acceptance_catalog_record_command_v3(
             command_kind,
             administrator_identity: "rd-catalog-sealed-acceptance-administrator-v3",
             verifier_identity: "rd-catalog-sealed-acceptance-verifier-v3",
-            expected_predecessor_record_id: predecessor_record_id,
+            // A successor record names its predecessor when it is created; the head advance names
+            // only the head it expects to move.
+            expected_predecessor_record_id: predecessor_record_id
+                .filter(|_| command_kind == CatalogAdminCommandKindV3::Create),
             expected_head_record_id: predecessor_record_id,
             catalog_record_id,
             catalog_version,
