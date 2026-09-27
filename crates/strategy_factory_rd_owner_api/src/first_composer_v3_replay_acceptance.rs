@@ -826,6 +826,60 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
         PERPETUAL_V1,
         "H0: Market Data derives the perpetual's canonical identity: {answer}"
     );
+    // PROBE ONLY (never merged): stand in for the Economic Terms intake with a hard-coded VIP0
+    // pair, issued through the Instrument Owner's own custody, to see what H8 meets after terms.
+    {
+        use vibe_data::owner::instrument_economic_terms_v1::{
+            InstrumentEconomicAccountApplicabilityV1, InstrumentEconomicDecimalV1,
+            InstrumentEconomicTermsFactV1, InstrumentEconomicTermsInputV1,
+            InstrumentMarginMeaningV1,
+        };
+        let terminal: vibe_data::owner::instrument_master_admission_v2::InstrumentMasterAdmissionTerminalV2 =
+            serde_json::from_value(json_of(&answer)).expect("PROBE: the V2 terminal decodes");
+        let decimal = |mantissa, scale| InstrumentEconomicDecimalV1 { mantissa, scale };
+        let fact = InstrumentEconomicTermsFactV1::seal(InstrumentEconomicTermsInputV1 {
+            schema_version: 1,
+            instrument_identity: PERPETUAL_V1.to_owned(),
+            instrument_public_fact_digest: *terminal.fact_identity().as_bytes(),
+            venue_identity: "BINANCE".to_owned(),
+            account_scope_identity: "PROBE-STUB-MARGIN".to_owned(),
+            account_applicability: InstrumentEconomicAccountApplicabilityV1::MarginAccount,
+            valid_from_ns: 1,
+            valid_until_ns_exclusive: 4_102_444_800_000_000_000,
+            source_identity: "probe-stub-binance-usdm-vip0".to_owned(),
+            source_digest: [0x5a; 32],
+            provenance_digest: [0x5b; 32],
+            revision: 1,
+            quote_currency: "USDT".to_owned(),
+            fee_currency: "USDT".to_owned(),
+            maker_fee: decimal(2, 4),
+            taker_fee: decimal(5, 4),
+            initial_margin: decimal(2, 2),
+            maintenance_margin: decimal(5, 3),
+            margin_meaning: InstrumentMarginMeaningV1::StandardNotionalRate,
+        })
+        .expect("PROBE: the stub terms seal");
+        let owner =
+            vibe_data::owner::instrument_economic_terms_postgres_owner_from_environment_v1()
+                .await
+                .expect("PROBE: the Instrument Owner opens");
+        let issued = owner
+            .issue(&fact)
+            .await
+            .expect("PROBE: the stub terms are issued");
+        assert!(issued.verify(), "PROBE: the issued terms verify");
+        let read = owner
+            .resolve(issued.locator())
+            .await
+            .expect("PROBE: the stub terms read back by their locator");
+        assert_eq!(read, issued, "PROBE: the readback is the issued terms");
+        eprintln!(
+            "PROBE positive control: terms for {} issued and read back, fact {:02x?}, public fact digest {:02x?}",
+            read.fact().input().instrument_identity,
+            &read.fact().identity()[..6],
+            &read.fact().input().instrument_public_fact_digest[..6],
+        );
+    }
     let observed = i128::from(effective_ns);
     let (status, answer) = post(
         &routes,
