@@ -1682,31 +1682,54 @@ and timeframes. T1 depends on all three, because it derives the custody request 
 Design; its first positive case uses only CLOSE and one member, and D1 lands with it. P2 lands with I2. A1 and V4a proceed in parallel with T1; then T2, I1, I1.5, I2, and I3; then N1, A2, A3, V4b, and V5. Per-frame as-of membership (T4) would
 remove the invariant that every frame shares one member set, so it is asked of the user when it is proposed.
 
-One target variant the single-threshold author accepts cannot run past one frame of the target-set Host today, and
-it is a slice after F and before T1. It was measured on `main` 3a465a537, red as it stands and past the named check
-under a temporary change that was then reverted. Until its slice lands, the author refuses it by name as
-`SINGLE_THRESHOLD_TARGET_VARIANT_NOT_RUNNABLE`, on either side, so a program that could only fail on its first frame
-is not authored at all; the slice removes the refusal.
+Every target variant the single-threshold author accepts runs past one frame of the target-set Host. Two could not,
+each a slice after F and before T1, and both were measured on `main` 3a465a537, red as it stands and past the named
+check under a temporary change that was then reverted; the author refused each by name until its slice landed.
 
-- **Weight reconciliation.** The Host decodes a reconciliation target for every target but `Keep`, and the target-set
-  reconciliation requires none for a weight target, so a weight side fails as `InputCoverage` on its first frame.
-  With the decoding temporarily leaving weight without one, that check passes and the frame then fails as
-  `InvalidPositionTransition`: the author shares one target weight of 0 between both sides, and entering at weight 0
-  is no transition. Strategy Factory fixes both: the Host's decoding, and the author's weight, which follows each
-  side as its position already does.
+- **Rebalance sequence.** The Host assigns the sequence as the rule above states, and the author writes `0`. With a
+  constant of 1 only the first frame lifts, and with the Host's assignment removed and `0` written not even the first
+  does. `an_authored_rebalance_program_lifts_three_consecutive_frames` runs the authored program as Wasm through three
+  frames of the target-set Sim, entering, exiting and entering again at sequences 1, 2 and 3, and
+  `a_single_instrument_host_assigns_each_rebalance_the_next_sequence` holds the single-instrument path.
+- **Weight reconciliation.** The target-set Host derives a weight member's grid position from equity and price when it
+  reconciles, and refuses a weight member that already carries a reconciliation target, but the Host decoded one for
+  every target but `Keep`, so a weight side failed as `InputCoverage` on its first frame. Past that check the frame
+  failed as `InvalidPositionTransition`, because the author shared one target weight of 0 between both sides. The Host
+  now decodes no reconciliation target for a weight target, and each side declares its own `target_weight_micros`,
+  which only a weight side may name (`SINGLE_THRESHOLD_WEIGHT_NOT_READ`) and only within 1,000,000 micros either way
+  (`SINGLE_THRESHOLD_WEIGHT_OUT_OF_RANGE`); a request that names no weight keeps its bytes.
+  `an_authored_weight_program_enters_exits_and_enters_again` runs the authored program through the same three frames.
 
-A rebalance target was the second such variant, and its slice has landed: the Host assigns the sequence as the rule
-above states, and the author writes `0`. With a constant of 1 only the first frame lifts, and with the Host's
-assignment removed and `0` written not even the first does. `an_authored_rebalance_program_lifts_three_consecutive_frames`
-runs the authored program as Wasm through three frames of the target-set Sim, entering, exiting and entering again at
-sequences 1, 2 and 3, and `a_single_instrument_host_assigns_each_rebalance_the_next_sequence` holds the
-single-instrument path.
-
-That run found a defect no variant refusal covered: the author shared one protection, `keep`, between both sides, and
+The rebalance run found a defect no variant refusal covered: the author shared one protection, `keep`, between both sides, and
 the kernel refuses `keep` on an exit, so no authored program could exit. Each side's protection now follows its
 intent - an exit clears, every other side keeps - and `every_authored_side_runs_through_the_kernel` applies every
 authored side to a real lifecycle kernel from each position it can be proposed at, so a terminal shared where it must
 follow the side fails there rather than on a later frame.
+
+## TARGET - Research runs until a strategy, bounded by spend
+
+The user decided on 2026-09-27 that Research does not stop on a trial count: every trial is recorded and accumulates
+across rounds, Qualification's discount grows with that count, the random control and holdout stay, and one
+user-set spend cap bounds what Research spends. [R&D](../owners/rd/#target---cumulative-trial-accounting-and-the-spend-cap)
+defines a trial, the lineage it accumulates across, the removal, and the spend cap;
+[Qualification](../owners/qualification/#target---cumulative-trial-deflation-at-candidate-intake) defines the
+deflation. None of it blocks F; it is implemented after F, in this order:
+
+| Slice                    | Owners                              | What                                                                                                               | After                |
+| ------------------------ | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------ | -------------------- |
+| TB1 Lineage trial count  | R&D                                 | production census append, `trial_count`, the lineage sum over bound predecessor frontiers                          | Decision composition |
+| TB2 Cumulative deflation | Qualification                       | the deflated ratio at Candidate Intake from the derived count, the cross‑family protected‑attempt count            | TB1                  |
+| TB3 Random control       | Qualification, R&D, Backtest        | the specified definition, synthesis, and replay, in that order                                                     | none                 |
+| TB4 Spend ledger and cap | R&D, R&D Owner client, Product Edge | usage capture, reserve and settle, `PAUSED_SPEND_CAP_REACHED`, the environment‑set cap, then the Dashboard control | none                 |
+| TB5 Remove the trial cap | R&D, Product Edge, Dashboard        | TrialFamily Policy V2 without a budget, the admission refusal and `TRIAL_BUDGET_EXHAUSTED` gone for V2 families    | TB1, TB2, TB4        |
+
+TB1 cannot start yet. It counts the census appends the same-cut Decision and Selection composition in
+[R&D](../owners/rd/#target--not_admitted---same-cut-decision-and-selection-composition) makes, and that composition is
+itself `TARGET / NOT_ADMITTED`: until it is admitted and built, successor iterations have no production path and no
+census append exists to count. TB5 is last because it removes the bound the others replace: before TB2 nothing would
+discount a long search, and before TB4 nothing would bound its cost. TB3 is already a condition of any Eligibility, so
+it gates Qualification whatever the order. What a stopped lineage does next, a new hypothesis from Source Intake, is
+outside these slices.
 
 ## Value-stream handoffs
 

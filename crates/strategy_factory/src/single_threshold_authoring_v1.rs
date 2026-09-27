@@ -196,14 +196,14 @@ impl SingleThresholdChannelV1 {
 
 /// What the program proposes on one side of the threshold.
 ///
-/// The eleven terminal outputs a frame must carry are not all here. The six this type leaves out -
-/// weight, rebalance and the four protection values - are the same on both sides of a single
-/// threshold, so asking for them twice could only produce a disagreement the author did not mean.
-/// The three that are here are the three that make one side a different proposal from the other,
-/// and two more follow from them: the reconciliation target, which the kernel requires to equal a
-/// position target, so each frame reads it from its own side's target position; and the protection
-/// variant, which the kernel requires to clear on an exit and refuses to clear otherwise, so each
-/// frame reads it from its own side's position intent.
+/// The eleven terminal outputs a frame must carry are not all here. The five this type leaves out -
+/// rebalance and the four protection values - are the same on both sides of a single threshold, so
+/// asking for them twice could only produce a disagreement the author did not mean. The four that
+/// are here make one side a different proposal from the other, and two more follow from them: the
+/// reconciliation target, which the kernel requires to equal a position target, so each frame reads
+/// it from its own side's target position; and the protection variant, which the kernel requires
+/// to clear on an exit and refuses to clear otherwise, so each frame reads it from its own side's
+/// position intent.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SingleThresholdOutcomeV1 {
@@ -213,7 +213,23 @@ pub struct SingleThresholdOutcomeV1 {
     pub target_variant_semantic_id: String,
     /// Target position in units.
     pub target_position_units: i64,
+    /// Target weight in micros of account equity, read only by a `kernel.target.weight.v1` side;
+    /// the target-set Host turns it into a grid position at reconciliation. A request that names
+    /// no weight omits it, and it reads as 0, so such a request keeps its bytes.
+    #[serde(default, skip_serializing_if = "is_zero_weight")]
+    pub target_weight_micros: i32,
 }
+
+#[allow(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde passes the field by reference"
+)]
+const fn is_zero_weight(weight_micros: &i32) -> bool {
+    *weight_micros == 0
+}
+
+/// The one target variant that reads a side's weight.
+const WEIGHT_TARGET: &str = "kernel.target.weight.v1";
 
 /// Everything an author decides about one single-threshold program.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -267,24 +283,18 @@ pub enum SingleThresholdAuthoringErrorV1 {
     /// as a fault of the program rather than of the request.
     #[error("channel.field_semantic_id {0} is not a field semantic this Owner resolves")]
     UnknownFieldSemantic(String),
-    /// A side names a target variant the target-set Host cannot run past its first frame.
+    /// A side names a weight its target variant does not read.
     ///
-    /// Temporary, until the weight slice `docs/architecture/strategy-factory.md` orders after F
-    /// and before T1 lands: a weight target is decoded with a reconciliation the target-set
-    /// reconciliation refuses, over a weight this author shares as 0. Authoring it would only fail
-    /// on the first frame, under a name that does not say why.
+    /// Only a weight target reads a weight, so on any other side it would be carried into the
+    /// program and ignored, and the request would state a strategy the program does not run.
     #[error(
-        "SINGLE_THRESHOLD_TARGET_VARIANT_NOT_RUNNABLE: {field} {variant} cannot run past one frame of the target-set Host"
+        "SINGLE_THRESHOLD_WEIGHT_NOT_READ: {field} is nonzero, and only a {WEIGHT_TARGET} side reads it"
     )]
-    TargetVariantNotRunnable {
-        field: &'static str,
-        variant: String,
-    },
+    WeightNotRead { field: &'static str },
+    /// A side names a weight outside the kernel's domain of -1,000,000 to 1,000,000 micros.
+    #[error("SINGLE_THRESHOLD_WEIGHT_OUT_OF_RANGE: {field} is outside -1000000..=1000000 micros")]
+    WeightOutOfRange { field: &'static str },
 }
-
-/// The target variants a side may not name until their slices land; see
-/// [`SingleThresholdAuthoringErrorV1::TargetVariantNotRunnable`].
-const NOT_RUNNABLE_TARGET_VARIANTS: [&str; 1] = ["kernel.target.weight.v1"];
 
 /// Authors one single-threshold program: the Design it needs and the meaning a proposer declares.
 ///
@@ -325,25 +335,33 @@ pub fn author_single_threshold_program_v1(
     }
     exact(&request.falsifier, "falsifier")?;
 
-    for (outcome, position_field, target_field) in [
+    for (outcome, position_field, target_field, weight_field) in [
         (
             &request.when_true,
             "when_true.position_intent_semantic_id",
             "when_true.target_variant_semantic_id",
+            "when_true.target_weight_micros",
         ),
         (
             &request.otherwise,
             "otherwise.position_intent_semantic_id",
             "otherwise.target_variant_semantic_id",
+            "otherwise.target_weight_micros",
         ),
     ] {
         exact(&outcome.position_intent_semantic_id, position_field)?;
         exact(&outcome.target_variant_semantic_id, target_field)?;
 
-        if NOT_RUNNABLE_TARGET_VARIANTS.contains(&outcome.target_variant_semantic_id.as_str()) {
-            return Err(SingleThresholdAuthoringErrorV1::TargetVariantNotRunnable {
-                field: target_field,
-                variant: outcome.target_variant_semantic_id.clone(),
+        if !(-1_000_000..=1_000_000).contains(&outcome.target_weight_micros) {
+            return Err(SingleThresholdAuthoringErrorV1::WeightOutOfRange {
+                field: weight_field,
+            });
+        }
+
+        if outcome.target_weight_micros != 0 && outcome.target_variant_semantic_id != WEIGHT_TARGET
+        {
+            return Err(SingleThresholdAuthoringErrorV1::WeightNotRead {
+                field: weight_field,
             });
         }
     }
@@ -637,7 +655,8 @@ const FALSE_TARGET: &str = "otherwise-target";
 const FALSE_TARGET_POSITION: &str = "otherwise-target-position";
 const TRUE_PROTECTION: &str = "when-true-protection";
 const FALSE_PROTECTION: &str = "otherwise-protection";
-const TARGET_WEIGHT: &str = "target-weight";
+const TRUE_TARGET_WEIGHT: &str = "when-true-target-weight";
+const FALSE_TARGET_WEIGHT: &str = "otherwise-target-weight";
 const REBALANCE: &str = "rebalance";
 const STOP_LOSS: &str = "stop-loss";
 const TAKE_PROFIT: &str = "take-profit";
@@ -715,6 +734,7 @@ fn meaning_for(request: &SingleThresholdAuthoringRequestV1) -> BoundedFeaturePro
                     TRUE_POSITION,
                     TRUE_TARGET,
                     TRUE_TARGET_POSITION,
+                    TRUE_TARGET_WEIGHT,
                     TRUE_PROTECTION,
                 ),
             }],
@@ -725,6 +745,7 @@ fn meaning_for(request: &SingleThresholdAuthoringRequestV1) -> BoundedFeaturePro
                 FALSE_POSITION,
                 FALSE_TARGET,
                 FALSE_TARGET_POSITION,
+                FALSE_TARGET_WEIGHT,
                 FALSE_PROTECTION,
             ),
         },
@@ -749,8 +770,10 @@ fn meaning_for(request: &SingleThresholdAuthoringRequestV1) -> BoundedFeaturePro
             max_edges: 64,
             max_depth: 2,
             max_ports: 16,
-            max_constants: 15,
-            // Not one. The seven terminals a single threshold does not change are declared once
+            // Exactly the threshold, each side's five (intent, target, position, weight and
+            // protection), and the five terminals a single threshold does not change.
+            max_constants: 16,
+            // Not one. The five terminals a single threshold does not change are declared once
             // and consumed by both frames, and each side's target position is read by two
             // terminals of its own frame, so every one of them has a fan-out of two.
             max_fan_out: 16,
@@ -770,7 +793,7 @@ fn meaning_for(request: &SingleThresholdAuthoringRequestV1) -> BoundedFeaturePro
 fn constants(request: &SingleThresholdAuthoringRequestV1) -> Vec<BoundedFeatureConstantV1> {
     // The threshold is compared at the channel's own unit and scale, which the Design role states.
     let channel = request.channel.role_v2();
-    let outcome = |ids: (&str, &str, &str, &str), o: &SingleThresholdOutcomeV1| {
+    let outcome = |ids: (&str, &str, &str, &str, &str), o: &SingleThresholdOutcomeV1| {
         [
             (
                 ids.0.to_owned(),
@@ -792,6 +815,12 @@ fn constants(request: &SingleThresholdAuthoringRequestV1) -> Vec<BoundedFeatureC
             ),
             (
                 ids.3.to_owned(),
+                BoundedFeatureConstantValueV1::I32 {
+                    value: o.target_weight_micros,
+                },
+            ),
+            (
+                ids.4.to_owned(),
                 BoundedFeatureConstantValueV1::ProtectionVariantV1 {
                     semantic_id: protection_variant(o).to_owned(),
                 },
@@ -814,6 +843,7 @@ fn constants(request: &SingleThresholdAuthoringRequestV1) -> Vec<BoundedFeatureC
             TRUE_POSITION,
             TRUE_TARGET,
             TRUE_TARGET_POSITION,
+            TRUE_TARGET_WEIGHT,
             TRUE_PROTECTION,
         ),
         &request.when_true,
@@ -823,6 +853,7 @@ fn constants(request: &SingleThresholdAuthoringRequestV1) -> Vec<BoundedFeatureC
             FALSE_POSITION,
             FALSE_TARGET,
             FALSE_TARGET_POSITION,
+            FALSE_TARGET_WEIGHT,
             FALSE_PROTECTION,
         ),
         &request.otherwise,
@@ -830,10 +861,6 @@ fn constants(request: &SingleThresholdAuthoringRequestV1) -> Vec<BoundedFeatureC
     // Shared by both frames: a single threshold does not change them, so the author is not asked
     // for them twice.
     values.extend([
-        (
-            TARGET_WEIGHT.to_owned(),
-            BoundedFeatureConstantValueV1::I32 { value: 0 },
-        ),
         // The Host assigns a rebalance target's sequence, and a program emits 0 for it.
         (
             REBALANCE.to_owned(),
@@ -879,6 +906,7 @@ fn frame(
     position: &str,
     target: &str,
     target_position: &str,
+    target_weight: &str,
     protection: &str,
 ) -> BoundedFeatureProposalFrameV1 {
     BoundedFeatureProposalFrameV1 {
@@ -898,11 +926,7 @@ fn frame(
                 outcome.target_variant_semantic_id.as_str(),
                 target_position,
             ),
-            (
-                "proposal.target-weight.v1",
-                "kernel.target.weight.v1",
-                TARGET_WEIGHT,
-            ),
+            ("proposal.target-weight.v1", WEIGHT_TARGET, target_weight),
             (
                 "proposal.rebalance-sequence.v1",
                 "kernel.target.rebalance.v1",
@@ -1069,7 +1093,7 @@ fn candidate_request(
             BoundedFeatureParametersV1::ComparisonPredicate { predicate } => Some(*predicate),
             _ => None,
         })?;
-    let outcome = |position: &str, target: &str, target_position: &str| {
+    let outcome = |position: &str, target: &str, target_position: &str, target_weight: &str| {
         let (
             BoundedFeatureConstantValueV1::PositionIntentV1 {
                 semantic_id: position_intent_semantic_id,
@@ -1080,10 +1104,14 @@ fn candidate_request(
             BoundedFeatureConstantValueV1::I64 {
                 value: target_position_units,
             },
+            BoundedFeatureConstantValueV1::I32 {
+                value: target_weight_micros,
+            },
         ) = (
             constant(position)?,
             constant(target)?,
             constant(target_position)?,
+            constant(target_weight)?,
         )
         else {
             return None;
@@ -1092,6 +1120,7 @@ fn candidate_request(
             position_intent_semantic_id: position_intent_semantic_id.clone(),
             target_variant_semantic_id: target_variant_semantic_id.clone(),
             target_position_units: *target_position_units,
+            target_weight_micros: *target_weight_micros,
         })
     };
 
@@ -1102,8 +1131,18 @@ fn candidate_request(
         channel,
         threshold_coefficient: *coefficient,
         comparison,
-        when_true: outcome(TRUE_POSITION, TRUE_TARGET, TRUE_TARGET_POSITION)?,
-        otherwise: outcome(FALSE_POSITION, FALSE_TARGET, FALSE_TARGET_POSITION)?,
+        when_true: outcome(
+            TRUE_POSITION,
+            TRUE_TARGET,
+            TRUE_TARGET_POSITION,
+            TRUE_TARGET_WEIGHT,
+        )?,
+        otherwise: outcome(
+            FALSE_POSITION,
+            FALSE_TARGET,
+            FALSE_TARGET_POSITION,
+            FALSE_TARGET_WEIGHT,
+        )?,
         falsifier: design.falsifier.clone(),
     })
 }
@@ -1230,25 +1269,43 @@ mod tests {
                 position_intent_semantic_id: "kernel.position.enter.v1".to_owned(),
                 target_variant_semantic_id: "kernel.target.position.v1".to_owned(),
                 target_position_units: 1,
+                target_weight_micros: 0,
             },
             otherwise: SingleThresholdOutcomeV1 {
                 position_intent_semantic_id: "kernel.position.exit.v1".to_owned(),
                 target_variant_semantic_id: "kernel.target.position.v1".to_owned(),
                 target_position_units: 0,
+                target_weight_micros: 0,
             },
             falsifier: "the channel never crosses the threshold in the admitted window".to_owned(),
         }
     }
 
-    /// One authored side: position intent, target variant, target position.
-    type Side = (&'static str, &'static str, i64);
+    /// One authored side: position intent, target variant, target position, target weight.
+    type Side = (&'static str, &'static str, i64, i32);
 
-    const SIDE_ENTER: Side = ("kernel.position.enter.v1", "kernel.target.position.v1", 1);
-    const SIDE_EXIT: Side = ("kernel.position.exit.v1", "kernel.target.position.v1", 0);
-    const SIDE_KEEP: Side = ("kernel.position.hold.v1", "kernel.target.keep.v1", 0);
-    const SIDE_REBALANCE_ENTER: Side =
-        ("kernel.position.enter.v1", "kernel.target.rebalance.v1", 1);
-    const SIDE_REBALANCE_EXIT: Side = ("kernel.position.exit.v1", "kernel.target.rebalance.v1", 0);
+    const SIDE_ENTER: Side = (
+        "kernel.position.enter.v1",
+        "kernel.target.position.v1",
+        1,
+        0,
+    );
+    const SIDE_EXIT: Side = ("kernel.position.exit.v1", "kernel.target.position.v1", 0, 0);
+    const SIDE_KEEP: Side = ("kernel.position.hold.v1", "kernel.target.keep.v1", 0, 0);
+    const SIDE_REBALANCE_ENTER: Side = (
+        "kernel.position.enter.v1",
+        "kernel.target.rebalance.v1",
+        1,
+        0,
+    );
+    const SIDE_REBALANCE_EXIT: Side = (
+        "kernel.position.exit.v1",
+        "kernel.target.rebalance.v1",
+        0,
+        0,
+    );
+    const SIDE_WEIGHT_ENTER: Side = ("kernel.position.enter.v1", WEIGHT_TARGET, 0, 250_000);
+    const SIDE_WEIGHT_EXIT: Side = ("kernel.position.exit.v1", WEIGHT_TARGET, 0, 0);
 
     /// Every side an author writes runs through a real lifecycle kernel from each position it can
     /// be proposed at.
@@ -1267,6 +1324,7 @@ mod tests {
     #[case::keep_then_exit(SIDE_KEEP, SIDE_EXIT)]
     #[case::exit_then_enter(SIDE_EXIT, SIDE_ENTER)]
     #[case::rebalance_enter_then_exit(SIDE_REBALANCE_ENTER, SIDE_REBALANCE_EXIT)]
+    #[case::weight_enter_then_exit(SIDE_WEIGHT_ENTER, SIDE_WEIGHT_EXIT)]
     fn every_authored_side_runs_through_the_kernel(
         #[case] when_true: Side,
         #[case] otherwise: Side,
@@ -1308,26 +1366,52 @@ mod tests {
                 LifecycleEnvelopeV1::new_bound(order_key, payload).expect("an envelope")
             }
 
-            /// Seals, lifts and applies one proposal a side decoded into.
+            /// Seals and lifts one proposal a side decoded into, and applies the member the
+            /// target-set Host would hand its kernel.
             fn propose(
                 &mut self,
                 label: &str,
                 decode: impl FnOnce(u64) -> UnsealedGuestProposalV1,
             ) {
                 self.sets += 1;
-                let proposal = seal_guest_proposal_with_derived_digest_v1(
-                    decode(self.sets),
-                    [0x40 + u8::try_from(self.sets).expect("a short trajectory"); 16],
-                    [8; 32],
-                    [9; 32],
-                )
-                .expect("a sealed proposal");
-                lift_single_instrument_proposal(
+                let intent_identity =
+                    [0x40 + u8::try_from(self.sets).expect("a short trajectory"); 16];
+                let seal = |proposal| {
+                    seal_guest_proposal_with_derived_digest_v1(
+                        proposal,
+                        intent_identity,
+                        [8; 32],
+                        [9; 32],
+                    )
+                    .expect("a sealed proposal")
+                };
+                let set = lift_single_instrument_proposal(
                     &["BTCUSDT-PERP.BINANCE"],
                     (self.sets > 1).then(|| self.sets - 1),
-                    proposal,
+                    seal(decode(self.sets)),
                 )
                 .unwrap_or_else(|e| panic!("{label}: the Host does not lift it: {e:?}"));
+                let mut member = set.members()[0];
+
+                // The target-set Host reconciles a weight member at the grid position it derives
+                // from equity and price. One unit in the weight's direction stands in for it here;
+                // `an_authored_weight_program_enters_exits_and_enters_again` runs the real one.
+                if let TargetProposalV1::WeightMicros(weight_micros) = member.target {
+                    assert_eq!(
+                        member.reconciliation_target_units, None,
+                        "{label}: a lifted weight carries no reconciliation of its own"
+                    );
+                    member.reconciliation_target_units = Some(i64::from(weight_micros.signum()));
+                }
+                let proposal = seal(
+                    UnsealedGuestProposalV1::new(
+                        member.position,
+                        member.target,
+                        member.reconciliation_target_units,
+                        member.protection,
+                    )
+                    .expect("a lifted member is a proposal"),
+                );
                 let envelope = self.envelope(EnvelopePayloadV1::Bar);
                 self.kernel
                     .apply(envelope, Some(proposal))
@@ -1366,6 +1450,7 @@ mod tests {
                 position_intent_semantic_id: side.0.to_owned(),
                 target_variant_semantic_id: side.1.to_owned(),
                 target_position_units: side.2,
+                target_weight_micros: side.3,
             };
         }
         let (_, meaning) =
@@ -1504,60 +1589,60 @@ mod tests {
         }
     }
 
-    /// A side naming a target the target-set Host cannot run past one frame is refused by name, on
-    /// either side; position, rebalance and keep sides, the control, still author.
+    /// A weight is read only by a weight side and only inside the kernel's domain; anything else
+    /// is refused by name, on either side, and a weight side at the edges of the domain authors.
     #[rstest]
-    #[case::weight_when_true(
-        "kernel.target.weight.v1",
-        true,
-        "when_true.target_variant_semantic_id"
-    )]
-    #[case::weight_otherwise(
-        "kernel.target.weight.v1",
-        false,
-        "otherwise.target_variant_semantic_id"
-    )]
-    fn a_target_variant_that_cannot_run_is_refused_by_name(
-        #[case] variant: &str,
+    #[case::weight_on_a_position_side(true, "kernel.target.position.v1", 1, Some(true))]
+    #[case::weight_on_a_keep_side(false, "kernel.target.keep.v1", -1, Some(true))]
+    #[case::weight_above_the_domain(true, WEIGHT_TARGET, 1_000_001, Some(false))]
+    #[case::weight_below_the_domain(false, WEIGHT_TARGET, -1_000_001, Some(false))]
+    #[case::the_full_long_weight(true, WEIGHT_TARGET, 1_000_000, None)]
+    #[case::the_full_short_weight(false, WEIGHT_TARGET, -1_000_000, None)]
+    fn a_weight_the_side_cannot_read_is_refused_by_name(
         #[case] when_true: bool,
-        #[case] field: &'static str,
+        #[case] variant: &str,
+        #[case] weight_micros: i32,
+        #[case] refused_as_not_read: Option<bool>,
     ) {
-        let mut refused = request();
-        let side = if when_true {
-            &mut refused.when_true
+        let mut authored = request();
+        let (side, field) = if when_true {
+            (&mut authored.when_true, "when_true.target_weight_micros")
         } else {
-            &mut refused.otherwise
+            (&mut authored.otherwise, "otherwise.target_weight_micros")
         };
         side.target_variant_semantic_id = variant.to_owned();
+        side.target_weight_micros = weight_micros;
 
-        let error = author_single_threshold_program_v1(&refused).expect_err("refused");
-        assert_eq!(
-            error,
-            SingleThresholdAuthoringErrorV1::TargetVariantNotRunnable {
-                field,
-                variant: variant.to_owned(),
+        let result = author_single_threshold_program_v1(&authored);
+
+        match refused_as_not_read {
+            None => {
+                result.unwrap_or_else(|e| panic!("{weight_micros} authors: {e}"));
             }
-        );
-        assert!(
-            error
-                .to_string()
-                .starts_with("SINGLE_THRESHOLD_TARGET_VARIANT_NOT_RUNNABLE")
-        );
-
-        for runnable in [
-            "kernel.target.position.v1",
-            "kernel.target.rebalance.v1",
-            "kernel.target.keep.v1",
-        ] {
-            let mut control = request();
-            let side = if when_true {
-                &mut control.when_true
-            } else {
-                &mut control.otherwise
-            };
-            side.target_variant_semantic_id = runnable.to_owned();
-            author_single_threshold_program_v1(&control)
-                .unwrap_or_else(|e| panic!("{runnable} still authors: {e}"));
+            Some(true) => {
+                let error = result.expect_err("refused");
+                assert_eq!(
+                    error,
+                    SingleThresholdAuthoringErrorV1::WeightNotRead { field }
+                );
+                assert!(
+                    error
+                        .to_string()
+                        .starts_with("SINGLE_THRESHOLD_WEIGHT_NOT_READ")
+                );
+            }
+            Some(false) => {
+                let error = result.expect_err("refused");
+                assert_eq!(
+                    error,
+                    SingleThresholdAuthoringErrorV1::WeightOutOfRange { field }
+                );
+                assert!(
+                    error
+                        .to_string()
+                        .starts_with("SINGLE_THRESHOLD_WEIGHT_OUT_OF_RANGE")
+                );
+            }
         }
     }
 
@@ -1664,6 +1749,10 @@ mod tests {
     #[case::instrument(|r: &mut SingleThresholdAuthoringRequestV1| *exact_channel(r).instrument = "ETHUSDT-PERP.BINANCE".to_owned())]
     #[case::timeframe(|r: &mut SingleThresholdAuthoringRequestV1| *exact_channel(r).timeframe = "1H".to_owned())]
     #[case::when_true(|r: &mut SingleThresholdAuthoringRequestV1| r.when_true.target_position_units = 3)]
+    #[case::weight(|r: &mut SingleThresholdAuthoringRequestV1| {
+        r.when_true.target_variant_semantic_id = WEIGHT_TARGET.to_owned();
+        r.when_true.target_weight_micros = 250_000;
+    })]
     #[case::otherwise(|r: &mut SingleThresholdAuthoringRequestV1| r.otherwise.position_intent_semantic_id = "kernel.position.hold.v1".to_owned())]
     #[case::falsifier(|r: &mut SingleThresholdAuthoringRequestV1| r.falsifier = "a different statement to be wrong about".to_owned())]
     fn a_frozen_authored_program_states_the_request_it_was_authored_from(
@@ -1686,12 +1775,12 @@ mod tests {
     fn a_program_the_family_would_not_author_has_no_statement() {
         let (design, mut meaning) =
             author_single_threshold_program_v1(&request()).expect("the request is authorable");
-        let weight = meaning
+        let sequence = meaning
             .constants
             .iter_mut()
-            .find(|constant| constant.constant_id == TARGET_WEIGHT)
-            .expect("the family declares a target weight");
-        weight.value = BoundedFeatureConstantValueV1::I32 { value: 7 };
+            .find(|constant| constant.constant_id == REBALANCE)
+            .expect("the family declares a rebalance sequence");
+        sequence.value = BoundedFeatureConstantValueV1::U64 { value: 7 };
         let program = frozen(&design, &meaning);
 
         assert_eq!(recover_single_threshold_request_v1(&design, &program), None);
@@ -1858,8 +1947,9 @@ mod tests {
                 // Moved when each frame's reconciliation target began reading its own side's
                 // target position instead of one shared constant of 0, and again when the
                 // rebalance sequence became the Host's (0 in the program) and each frame's
-                // protection began following its own side's intent. The Design is unchanged.
-                "0f6419801706027afbc97e2595130e397307d837ad6dda3ad16f66a30d9f7919".to_owned(),
+                // protection began following its own side's intent, and again when each frame's
+                // target weight became its own side's. The Design is unchanged.
+                "80cc033f13a244c62b4aaccc3522ee2ea204a77b0e57dd3e286b6271b69ff8f2".to_owned(),
             ),
         );
     }
@@ -2235,6 +2325,46 @@ mod tests {
             serde_json::from_value::<SingleThresholdAuthoringRequestV1>(tagged)
                 .expect("the tagged request parses"),
             source,
+        );
+    }
+
+    /// A side that names no weight serialises exactly as before the field existed, and a request
+    /// written without it parses with a weight of 0; a side that names one carries it.
+    #[rstest]
+    fn a_side_without_a_weight_keeps_its_request_bytes() {
+        let source = request();
+        let value = serde_json::to_value(&source).expect("the request serialises");
+
+        for side in ["when_true", "otherwise"] {
+            assert_eq!(
+                value[side]
+                    .as_object()
+                    .expect("a side is an object")
+                    .keys()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>(),
+                [
+                    "position_intent_semantic_id",
+                    "target_position_units",
+                    "target_variant_semantic_id",
+                ],
+            );
+        }
+        assert_eq!(
+            serde_json::from_value::<SingleThresholdAuthoringRequestV1>(value)
+                .expect("a request without a weight parses"),
+            source,
+        );
+
+        let mut weighted = request();
+        weighted.when_true.target_variant_semantic_id = WEIGHT_TARGET.to_owned();
+        weighted.when_true.target_weight_micros = 250_000;
+        let value = serde_json::to_value(&weighted).expect("the request serialises");
+        assert_eq!(value["when_true"]["target_weight_micros"], 250_000);
+        assert_eq!(
+            serde_json::from_value::<SingleThresholdAuthoringRequestV1>(value)
+                .expect("a weighted request parses"),
+            weighted,
         );
     }
 

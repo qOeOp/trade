@@ -1477,25 +1477,48 @@ Research scope 与 Design 推导出托管请求；T1 的首个正例只用 CLOSE
 I3；再然后 N1、A2、A3、V4b、V5。按帧 as-of 成员（T4）会移除「每帧共用一个成员集」这条不变式，所以在提出它时再
 问用户。
 
-单阈值编写器接受的一种目标变体，今天在 target-set Host 上跑不过一帧，它是一片，排在 F 之后、T1 之前。它在 `main`
-3a465a537 上实测过：现状为红，在一个随后还原的临时改动下越过了点名的那道检查。在这一片落地之前，编写器以
-`SINGLE_THRESHOLD_TARGET_VARIANT_NOT_RUNNABLE` 按名拒绝它，任一侧都拒，于是只会在第一帧失败的程序根本不会被编写出来；
-这一片落地时移除这个拒绝。
+单阈值编写器接受的每一种目标变体，都能在 target-set Host 上跑过一帧。曾有两种不能，各是一片，排在 F 之后、T1 之前，
+两者都在 `main` 3a465a537 上实测过：现状为红，在一个随后还原的临时改动下越过了点名的那道检查；在各自那一片落地之前，
+编写器按名拒绝它们。
 
-- **Weight 对账。** Host 除 `Keep` 以外对每种目标都解码出一个 reconciliation target，而 target-set 对账要求 weight
-  目标没有，所以 weight 一侧在第一帧就以 `InputCoverage` 失败。临时让解码对 weight 不给出它时，这道检查通过，该帧
-  接着以 `InvalidPositionTransition` 失败：编写器让两侧共用一个为 0 的 target weight，而以 0 权重入场不是迁移。
-  两处都由 Strategy Factory 修复：Host 的解码，以及编写器的 weight，让它像仓位那样跟随各侧。
+- **Rebalance 序号。** Host 按上面那条规则分配序号，编写器写 `0`。常量为 1 时只有第一帧能提升；拿掉 Host 的分配而写
+  `0` 时，连第一帧也不能。`an_authored_rebalance_program_lifts_three_consecutive_frames` 把编写出的程序构建成 Wasm，经
+  target-set Sim 跑三帧，进场、出场、再进场，序号依次为 1、2、3；
+  `a_single_instrument_host_assigns_each_rebalance_the_next_sequence` 守住单品种路径。
+- **Weight 对账。** target-set Host 在对账时从权益与价格推出 weight 成员的 grid 仓位，并拒绝一个已经带着 reconciliation
+  target 的 weight 成员，而 Host 除 `Keep` 以外对每种目标都解码出一个，所以 weight 一侧在第一帧就以 `InputCoverage`
+  失败。越过这道检查后，该帧以 `InvalidPositionTransition` 失败，因为编写器让两侧共用一个为 0 的 target weight。现在
+  Host 对 weight 目标不解码 reconciliation target，每一侧各自声明 `target_weight_micros`：只有 weight 一侧可以给出它
+  （`SINGLE_THRESHOLD_WEIGHT_NOT_READ`），且只能在正负 1,000,000 micros 之内（`SINGLE_THRESHOLD_WEIGHT_OUT_OF_RANGE`）；
+  不给出 weight 的请求字节不变。`an_authored_weight_program_enters_exits_and_enters_again` 让编写出的程序跑同样的三帧。
 
-rebalance 目标曾是第二种这样的变体，它那一片已经落地：Host 按上面那条规则分配序号，编写器写 `0`。常量为 1 时只有第
-一帧能提升；拿掉 Host 的分配而写 `0` 时，连第一帧也不能。`an_authored_rebalance_program_lifts_three_consecutive_frames`
-把编写出的程序构建成 Wasm，经 target-set Sim 跑三帧，进场、出场、再进场，序号依次为 1、2、3；
-`a_single_instrument_host_assigns_each_rebalance_the_next_sequence` 守住单品种路径。
-
-那次运行找到了一个任何变体拒绝都没覆盖的缺陷：编写器让两侧共用一个 protection，即 `keep`，而内核在出场时拒绝
+rebalance 那次运行找到了一个任何变体拒绝都没覆盖的缺陷：编写器让两侧共用一个 protection，即 `keep`，而内核在出场时拒绝
 `keep`，所以没有哪个编写出的程序能出场。现在每一侧的 protection 跟随它的意图：出场清除，其余各侧保持；
 `every_authored_side_runs_through_the_kernel` 把每一个编写出的侧，从它可能被提出的每个仓位，施加到一个真实的生命周期
 内核上，于是一个本该跟随各侧却被共用的终端，会在那里失败，而不是在之后某一帧。
+
+## TARGET - Research 运行到出策略为止，由花费约束
+
+用户于 2026-09-27 决定：Research 不因试验次数停下；每次试验都记账并跨轮累计，Qualification 的折扣随这个计数增长，随机对照
+与留出数据保留，一个用户设定的花费上限约束 Research 的花费。[R&D](../owners/rd/#target---cumulative-trial-accounting-and-the-spend-cap)
+定义一次试验、它累计所跨的血缘、移除与花费上限；
+[Qualification](../owners/qualification/#target---cumulative-trial-deflation-at-candidate-intake) 定义打折。这些都不阻塞 F，
+在 F 之后按以下顺序实现：
+
+| 切片               | Owner                               | 内容                                                                                    | 之后                 |
+| ------------------ | ----------------------------------- | --------------------------------------------------------------------------------------- | -------------------- |
+| TB1 血缘试验计数   | R&D                                 | 生产 census 追加、`trial_count`、在所绑定前驱前沿上的血缘求和                           | Decision composition |
+| TB2 累计打折       | Qualification                       | 在 Candidate Intake 处按推导出的计数打折、跨 family 的保护性尝试计数                    | TB1                  |
+| TB3 随机对照       | Qualification、R&D、Backtest        | 已规定的定义、合成与重放，按此顺序                                                      | 无                   |
+| TB4 花费账本与上限 | R&D、R&D Owner client、Product Edge | 用量采集、预留与结算、`PAUSED_SPEND_CAP_REACHED`、环境设定的上限，然后是 Dashboard 控件 | 无                   |
+| TB5 移除试验上限   | R&D、Product Edge、Dashboard        | 没有预算的 TrialFamily Policy V2，对 V2 family 去掉准入拒绝与 `TRIAL_BUDGET_EXHAUSTED`  | TB1、TB2、TB4        |
+
+TB1 现在还不能开工。它计数的是
+[R&D](../owners/rd/#target--not_admitted---same-cut-decision-and-selection-composition) 中同一截面的 Decision 与 Selection
+composition 所做的 census 追加，而这个 composition 本身是 `TARGET / NOT_ADMITTED`：在它被准入并建成之前，后继迭代没有生产
+路径，也不存在可计数的 census 追加。TB5 排在最后，因为它移除的正是其他几片所替代的约束：TB2 之前没有东西会给长时间的搜索打折，TB4 之前没有东西会约束它的成本。
+TB3 本来就是任何 Eligibility 的条件，所以不论顺序如何它都约束 Qualification。一条血缘停止后接着做什么，即来自 Source Intake
+的新假设，不在这几片之内。
 
 ## 价值流交接
 
