@@ -7,7 +7,10 @@ use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::{AssertSqlSafe, Connection, Row, postgres::PgConnectOptions};
+use sqlx::{
+    AssertSqlSafe, Connection, Row,
+    postgres::{PgConnectOptions, PgConnection},
+};
 use thiserror::Error;
 use url::Url;
 use vibe_postgres_connect::{PostgresTls, StatedConnectOptions, connect_with, with_tls};
@@ -1611,11 +1614,154 @@ pub(super) enum PostgresMeasurementError {
     FunctionIdentityUnavailable,
     #[error("PostgreSQL ACL identity is unavailable")]
     AclIdentityUnavailable,
+    #[error("PostgreSQL privilege census is unavailable")]
+    PrivilegeCensusUnavailable,
     #[error("PostgreSQL catalog target is absent or ambiguous")]
     CatalogTargetMismatch,
     #[error("Market Data Source Binding storage snapshot is unavailable")]
     SnapshotUnavailable,
 }
+
+/// The PostgreSQL major version whose privilege vocabulary [`PRIVILEGE_CENSUS_V1`] names.
+///
+/// Another major can add a privilege (PostgreSQL 17 adds `MAINTAIN` on relations) that the census
+/// would not ask about, so a server of any other major is refused rather than measured short.
+const PRIVILEGE_CENSUS_SERVER_MAJOR: &str = "16";
+
+/// The largest privilege census a measurement accepts.
+const MAX_PRIVILEGE_CENSUS_ROWS: usize = 262_144;
+
+/// Every privilege the session role can exercise, one row per subject, object kind, object and
+/// privilege.
+///
+/// The ACLs of the objects a specification lists cannot show a grant on anything else, so this
+/// measures the role's reach instead of the listed surface:
+/// - the subjects are the session role and every role in its membership closure, whatever the
+///   membership's inherit or set option;
+/// - `has_*_privilege` answers for each, so a grant to the subject, to a role it inherits, or to
+///   `PUBLIC`, and ownership, all count;
+/// - every database, and every schema outside `pg_catalog` and the toast and temporary ones, is
+///   asked for its privileges; objects are asked about only in a schema the subject can use, so a
+///   grant the subject cannot reach, or another Owner's migration in a shared database, does not
+///   move the census;
+/// - large objects, parameters and default privileges have no `has_*_privilege` on this major, so
+///   their explicit grants to a subject or to `PUBLIC` are read from their ACLs;
+/// - in `pg_catalog`, every relation, column, function and the schema itself whose ACL differs
+///   from the one initdb recorded in `pg_init_privs` is listed with its ACL.
+const PRIVILEGE_CENSUS_V1: &str = r#"
+WITH RECURSIVE subject(oid) AS (
+    SELECT role.oid FROM pg_catalog.pg_roles AS role WHERE role.rolname = current_user
+  UNION
+    SELECT membership.roleid FROM pg_catalog.pg_auth_members AS membership JOIN subject ON membership.member = subject.oid
+),
+subject_role AS (
+  SELECT subject.oid, role.rolname::text AS subject FROM subject JOIN pg_catalog.pg_roles AS role ON role.oid = subject.oid
+),
+grantee AS (
+  SELECT subject.oid FROM subject UNION ALL SELECT 0::oid
+),
+user_schema AS (
+  SELECT namespace.oid, namespace.nspname::text AS nspname FROM pg_catalog.pg_namespace AS namespace
+  WHERE namespace.nspname NOT IN ('pg_catalog', 'pg_toast')
+    AND namespace.nspname NOT LIKE 'pg\_temp\_%' AND namespace.nspname NOT LIKE 'pg\_toast\_temp\_%'
+),
+usable AS (
+  SELECT subject_role.oid AS subject_oid, subject_role.subject, user_schema.oid AS namespace_oid, user_schema.nspname
+  FROM subject_role CROSS JOIN user_schema
+  WHERE pg_catalog.has_schema_privilege(subject_role.oid, user_schema.oid, 'USAGE')
+),
+census(subject, kind, object, privilege) AS (
+  SELECT subject_role.subject, 'database', database.datname::text, privilege.name
+  FROM subject_role CROSS JOIN pg_catalog.pg_database AS database
+  CROSS JOIN (VALUES ('CONNECT'), ('CREATE'), ('TEMPORARY')) AS privilege(name)
+  WHERE pg_catalog.has_database_privilege(subject_role.oid, database.oid, privilege.name)
+UNION ALL
+  SELECT subject_role.subject, 'schema', user_schema.nspname, privilege.name
+  FROM subject_role CROSS JOIN user_schema CROSS JOIN (VALUES ('USAGE'), ('CREATE')) AS privilege(name)
+  WHERE pg_catalog.has_schema_privilege(subject_role.oid, user_schema.oid, privilege.name)
+UNION ALL
+  SELECT usable.subject, 'relation', usable.nspname || '.' || relation.relname, privilege.name
+  FROM usable JOIN pg_catalog.pg_class AS relation ON relation.relnamespace = usable.namespace_oid AND relation.relkind IN ('r', 'p', 'v', 'm', 'f')
+  CROSS JOIN (VALUES ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE'), ('REFERENCES'), ('TRIGGER')) AS privilege(name)
+  WHERE pg_catalog.has_table_privilege(usable.subject_oid, relation.oid, privilege.name)
+UNION ALL
+  SELECT usable.subject, 'column', usable.nspname || '.' || relation.relname || '.' || attribute.attname, privilege.name
+  FROM usable JOIN pg_catalog.pg_class AS relation ON relation.relnamespace = usable.namespace_oid AND relation.relkind IN ('r', 'p', 'v', 'm', 'f')
+  JOIN pg_catalog.pg_attribute AS attribute ON attribute.attrelid = relation.oid AND attribute.attnum > 0 AND NOT attribute.attisdropped AND attribute.attacl IS NOT NULL
+  CROSS JOIN (VALUES ('SELECT'), ('INSERT'), ('UPDATE'), ('REFERENCES')) AS privilege(name)
+  WHERE pg_catalog.has_column_privilege(usable.subject_oid, relation.oid, attribute.attnum, privilege.name)
+    AND NOT pg_catalog.has_table_privilege(usable.subject_oid, relation.oid, privilege.name)
+UNION ALL
+  SELECT usable.subject, 'sequence', usable.nspname || '.' || relation.relname, privilege.name
+  FROM usable JOIN pg_catalog.pg_class AS relation ON relation.relnamespace = usable.namespace_oid AND relation.relkind = 'S'
+  CROSS JOIN (VALUES ('USAGE'), ('SELECT'), ('UPDATE')) AS privilege(name)
+  WHERE pg_catalog.has_sequence_privilege(usable.subject_oid, relation.oid, privilege.name)
+UNION ALL
+  SELECT usable.subject, 'function', usable.nspname || '.' || function.proname || '(' || pg_catalog.pg_get_function_identity_arguments(function.oid) || ')', 'EXECUTE'
+  FROM usable JOIN pg_catalog.pg_proc AS function ON function.pronamespace = usable.namespace_oid
+  WHERE pg_catalog.has_function_privilege(usable.subject_oid, function.oid, 'EXECUTE')
+UNION ALL
+  SELECT usable.subject, 'type', usable.nspname || '.' || type.typname, 'USAGE'
+  FROM usable JOIN pg_catalog.pg_type AS type ON type.typnamespace = usable.namespace_oid
+  WHERE pg_catalog.has_type_privilege(usable.subject_oid, type.oid, 'USAGE')
+UNION ALL
+  SELECT subject_role.subject, 'language', language.lanname::text, 'USAGE'
+  FROM subject_role CROSS JOIN pg_catalog.pg_language AS language
+  WHERE pg_catalog.has_language_privilege(subject_role.oid, language.oid, 'USAGE')
+UNION ALL
+  SELECT subject_role.subject, 'foreign-data-wrapper', wrapper.fdwname::text, 'USAGE'
+  FROM subject_role CROSS JOIN pg_catalog.pg_foreign_data_wrapper AS wrapper
+  WHERE pg_catalog.has_foreign_data_wrapper_privilege(subject_role.oid, wrapper.oid, 'USAGE')
+UNION ALL
+  SELECT subject_role.subject, 'foreign-server', server.srvname::text, 'USAGE'
+  FROM subject_role CROSS JOIN pg_catalog.pg_foreign_server AS server
+  WHERE pg_catalog.has_server_privilege(subject_role.oid, server.oid, 'USAGE')
+UNION ALL
+  SELECT subject_role.subject, 'tablespace', tablespace.spcname::text, 'CREATE'
+  FROM subject_role CROSS JOIN pg_catalog.pg_tablespace AS tablespace
+  WHERE pg_catalog.has_tablespace_privilege(subject_role.oid, tablespace.oid, 'CREATE')
+UNION ALL
+  SELECT subject_role.subject, 'large-object', object.oid::text, 'OWNER'
+  FROM subject_role JOIN pg_catalog.pg_largeobject_metadata AS object ON object.lomowner = subject_role.oid
+UNION ALL
+  SELECT CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(acl.grantee)::text END, 'large-object', object.oid::text, acl.privilege_type
+  FROM pg_catalog.pg_largeobject_metadata AS object CROSS JOIN LATERAL pg_catalog.aclexplode(object.lomacl) AS acl
+  WHERE acl.grantee IN (SELECT grantee.oid FROM grantee)
+UNION ALL
+  SELECT CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(acl.grantee)::text END, 'parameter', parameter.parname::text, acl.privilege_type
+  FROM pg_catalog.pg_parameter_acl AS parameter CROSS JOIN LATERAL pg_catalog.aclexplode(parameter.paracl) AS acl
+  WHERE acl.grantee IN (SELECT grantee.oid FROM grantee)
+UNION ALL
+  SELECT CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(acl.grantee)::text END, 'default-privilege',
+    pg_catalog.pg_get_userbyid(defaults.defaclrole)::text || ':' || COALESCE(namespace.nspname::text, '*') || ':' || defaults.defaclobjtype::text, acl.privilege_type
+  FROM pg_catalog.pg_default_acl AS defaults LEFT JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = defaults.defaclnamespace
+  CROSS JOIN LATERAL pg_catalog.aclexplode(defaults.defaclacl) AS acl
+  WHERE acl.grantee IN (SELECT grantee.oid FROM grantee)
+UNION ALL
+  SELECT 'system', 'relation', namespace.nspname::text || '.' || relation.relname, COALESCE(relation.relacl::text, 'DEFAULT')
+  FROM pg_catalog.pg_class AS relation JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+  LEFT JOIN pg_catalog.pg_init_privs AS initial ON initial.objoid = relation.oid AND initial.classoid = 'pg_catalog.pg_class'::pg_catalog.regclass AND initial.objsubid = 0
+  WHERE namespace.nspname = 'pg_catalog' AND relation.relacl IS DISTINCT FROM initial.initprivs
+UNION ALL
+  SELECT 'system', 'column', namespace.nspname::text || '.' || relation.relname || '.' || attribute.attname, COALESCE(attribute.attacl::text, 'DEFAULT')
+  FROM pg_catalog.pg_attribute AS attribute JOIN pg_catalog.pg_class AS relation ON relation.oid = attribute.attrelid
+  JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+  LEFT JOIN pg_catalog.pg_init_privs AS initial ON initial.objoid = relation.oid AND initial.classoid = 'pg_catalog.pg_class'::pg_catalog.regclass AND initial.objsubid = attribute.attnum
+  WHERE namespace.nspname = 'pg_catalog' AND attribute.attnum > 0 AND attribute.attacl IS DISTINCT FROM initial.initprivs
+UNION ALL
+  SELECT 'system', 'function', namespace.nspname::text || '.' || function.proname || '(' || pg_catalog.pg_get_function_identity_arguments(function.oid) || ')', COALESCE(function.proacl::text, 'DEFAULT')
+  FROM pg_catalog.pg_proc AS function JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = function.pronamespace
+  LEFT JOIN pg_catalog.pg_init_privs AS initial ON initial.objoid = function.oid AND initial.classoid = 'pg_catalog.pg_proc'::pg_catalog.regclass AND initial.objsubid = 0
+  WHERE namespace.nspname = 'pg_catalog' AND function.proacl IS DISTINCT FROM initial.initprivs
+UNION ALL
+  SELECT 'system', 'schema', namespace.nspname::text, COALESCE(namespace.nspacl::text, 'DEFAULT')
+  FROM pg_catalog.pg_namespace AS namespace
+  LEFT JOIN pg_catalog.pg_init_privs AS initial ON initial.objoid = namespace.oid AND initial.classoid = 'pg_catalog.pg_namespace'::pg_catalog.regclass AND initial.objsubid = 0
+  WHERE namespace.nspname = 'pg_catalog' AND namespace.nspacl IS DISTINCT FROM initial.initprivs
+)
+SELECT census.subject, census.kind, census.object, census.privilege FROM census
+ORDER BY census.subject COLLATE "C", census.kind COLLATE "C", census.object COLLATE "C", census.privilege COLLATE "C"
+"#;
 
 /// Read-only direct PostgreSQL target measurer for a pinned disposable loopback authority.
 #[derive(Clone, Copy, Debug, Default)]
@@ -1726,6 +1872,10 @@ impl PostgresDirectMeasurer {
         if database_name != target.database || role_name != target.role {
             return Err(PostgresMeasurementError::InvalidTarget);
         }
+
+        if !privilege_census_names_the_privileges_of(&server_version) {
+            return Err(PostgresMeasurementError::CatalogTargetMismatch);
+        }
         let role_membership_rows = sqlx::query(
             "WITH RECURSIVE membership_path AS (SELECT membership.roleid, membership.member, membership.grantor, membership.admin_option, membership.inherit_option, membership.set_option, ARRAY[membership.member, membership.roleid] AS path, 1::bigint AS depth FROM pg_catalog.pg_auth_members AS membership JOIN pg_catalog.pg_roles AS session_role ON session_role.oid = membership.member WHERE session_role.rolname = current_user UNION ALL SELECT next.roleid, next.member, next.grantor, next.admin_option, next.inherit_option, next.set_option, prior.path || next.roleid, prior.depth + 1 FROM membership_path AS prior JOIN pg_catalog.pg_auth_members AS next ON next.member = prior.roleid WHERE prior.depth < 33 AND NOT next.roleid = ANY(prior.path)) SELECT granted_role.rolname::text AS role_name, pg_catalog.pg_get_userbyid(path.member)::text AS member_name, pg_catalog.pg_get_userbyid(path.grantor)::text AS grantor_name, path.admin_option, path.inherit_option, path.set_option, path.depth, granted_role.rolsuper AS role_super, granted_role.rolinherit AS role_inherit, granted_role.rolcreaterole AS role_create_role, granted_role.rolcreatedb AS role_create_database, granted_role.rolcanlogin AS role_can_login, granted_role.rolreplication AS role_replication, granted_role.rolbypassrls AS role_bypass_rls FROM membership_path AS path JOIN pg_catalog.pg_roles AS granted_role ON granted_role.oid = path.roleid ORDER BY path.depth, role_name, member_name, grantor_name LIMIT 257",
         )
@@ -1763,6 +1913,8 @@ impl PostgresDirectMeasurer {
                 "role_bypass_rls",
             ],
         )?;
+
+        let privilege_census_identity = measure_privilege_census(&mut transaction).await?;
 
         let tls = sqlx::query(
             "SELECT ssl, COALESCE(version, '')::text AS protocol, COALESCE(cipher, '')::text AS cipher FROM pg_catalog.pg_stat_ssl WHERE pid = pg_catalog.pg_backend_pid()",
@@ -1972,7 +2124,11 @@ impl PostgresDirectMeasurer {
             schema_identity,
             migration_identity,
             function_identity,
-            role_identity: digest_serializable(&(role_record, role_membership_identity)),
+            role_identity: digest_serializable(&(
+                role_record,
+                role_membership_identity,
+                privilege_census_identity,
+            )),
             acl_identity,
         })
     }
@@ -2116,6 +2272,33 @@ fn quoted_qualified_name(value: &str) -> Option<String> {
     Some(format!("\"{schema}\".\"{relation}\""))
 }
 
+/// Whether [`PRIVILEGE_CENSUS_V1`] names every privilege of the server whose
+/// `server_version_num` is `server_version`: only one of [`PRIVILEGE_CENSUS_SERVER_MAJOR`].
+fn privilege_census_names_the_privileges_of(server_version: &str) -> bool {
+    server_version.len() == 6
+        && server_version.bytes().all(|byte| byte.is_ascii_digit())
+        && server_version.starts_with(PRIVILEGE_CENSUS_SERVER_MAJOR)
+}
+
+/// Reads [`PRIVILEGE_CENSUS_V1`] for the session role and digests it.
+///
+/// # Errors
+///
+/// Returns an error when the census cannot be read or exceeds its bound.
+pub(super) async fn measure_privilege_census(
+    connection: &mut PgConnection,
+) -> Result<String, PostgresMeasurementError> {
+    let rows = sqlx::query(PRIVILEGE_CENSUS_V1)
+        .fetch_all(&mut *connection)
+        .await
+        .map_err(|_| PostgresMeasurementError::PrivilegeCensusUnavailable)?;
+
+    if rows.len() > MAX_PRIVILEGE_CENSUS_ROWS {
+        return Err(PostgresMeasurementError::CatalogTargetMismatch);
+    }
+    rows_digest(&rows, &["subject", "kind", "object", "privilege"])
+}
+
 fn rows_digest(
     rows: &[sqlx::postgres::PgRow],
     columns: &[&str],
@@ -2155,4 +2338,28 @@ fn digest_serializable(value: &(impl Serialize + ?Sized)) -> String {
         let _ = write!(output, "{byte:02x}");
     }
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    #[case::this_major("160010", true)]
+    #[case::its_first_release("160000", true)]
+    #[case::the_next_major("170002", false)]
+    #[case::an_old_major("150008", false)]
+    #[case::a_five_digit_version("90624", false)]
+    #[case::not_a_number("16.10", false)]
+    fn the_census_measures_only_the_major_whose_privileges_it_names(
+        #[case] server_version: &str,
+        #[case] measured: bool,
+    ) {
+        assert_eq!(
+            privilege_census_names_the_privileges_of(server_version),
+            measured
+        );
+    }
 }
