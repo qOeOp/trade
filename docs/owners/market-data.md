@@ -344,7 +344,13 @@ move-only readback. Changed meaning, missing/tampered locator, partial row, scal
 or response-loss retry mismatch appends nothing. **CURRENT / PARTIAL, production R0 write:** the Owner
 appends the R0 record for every PIT snapshot it commits as `AVAILABLE`, inside the same Owner transaction as the
 snapshot, derived only from the co-committed PIT and Source Binding custody and the current clock head; no route, no
-caller field and no test code takes part, and a replayed commit rejoins the same record. The isolated PostgreSQL
+caller field and no test code takes part, and a replayed commit rejoins the same record. Its claim runs from the
+snapshot's event instant for the longest fixed interval the Source Binding declares for any BAR row label of the
+snapshot, and for one nanosecond when none is declared - a binding that declares no bars, or rows of an exchange session
+day only. A longer claim is a broader statement about how long the reference facts hold, not a more cautious one: it is
+bounded by the longest bar the snapshot itself contains, and each Replay's window is derived separately from its own
+execution label, so no execution window widens because of it. The resolver re-derives the end from the stored batch and
+binding; the composition-basis read, which holds no batch, takes it from the record the resolver wrote. The isolated PostgreSQL
 chain proves it on both production intake paths: the record's coordinates are the snapshot's, a replay appends no
 second record, and a snapshot that is not `AVAILABLE` carries none. Nothing beyond this write is claimed. **NOT_ADMITTED:** R0 grants no provider authenticity, deployment, runtime, Dashboard or trading authority.
 
@@ -943,8 +949,15 @@ facts whose shape is not their binding's, and the class refusal at the Instrumen
 shape is built and issued. A locator-only `ReplayCompositionUniverseBindingIssuanceRequestV1`, on its own route
 `POST /v1/replay-compositions/universe-member-issuances` and hashed under its own meaning domain
 `market-data.replay-composition-universe-issuance-meaning.v1\0`, names the Composer attestation, the PIT request, the
-Source Binding, the replay window, the Universe Selection, the Reference Fact R0 record, Market Semantics and the
-correction policy, and nothing else. It runs in the first corpus's two transactions and challenges without the
+Source Binding, the Universe Selection, the Reference Fact R0 record, Market Semantics and the correction policy, and
+nothing else. Neither issuance body names a replay window, and one that does is refused at parse by
+`deny_unknown_fields`. The Owner derives the window: from the event instant the snapshot's R0 record starts at, for one
+execution bar - the bar the Source Binding declares for the one label the Design's BAR roles read - and never past the
+R0 claim. Several labels are refused as `EXECUTION_TIMEFRAME_NOT_SINGLE`, because several timeframes in one Replay are
+Strategy Factory slice T2's; a label the binding declares no bar for as `EXECUTION_TIMEFRAME_NOT_DECLARED`; and an
+execution bar with no fixed length, or longer than the R0 claim, as `EXECUTION_BAR_EXCEEDS_R0_WINDOW`; each is
+HTTP 422. A binding that declares no bars, or a Design with no BAR role, gets the event instant alone. The window rests on
+the order PIT with R0, Market Semantics, the role declarations, then the schedule. It runs in the first corpus's two transactions and challenges without the
 native-join read, and stores the schema 2 binding, its Replay facts and the issuance atomically. A retry returns the
 stored bytes; an issuance identity is one namespace across both shapes and is recovered through the same resolve
 route; and a Design with an exact-instrument declaration is refused by name as a composition shape mismatch, writing

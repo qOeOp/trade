@@ -223,12 +223,14 @@ impl ReplayCompositionContentLocatorV1 {
 /// readback and exact Market Data custody. None can be supplied by the caller.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
+#[allow(
+    clippy::struct_field_names,
+    reason = "a locator-only command names locators and nothing else; the Owner derives the rest"
+)]
 pub struct ReplayCompositionBindingIssuanceRequestV1 {
     composer_locator: StrategyDesignRoleSetLocatorV1,
     pit_locator: UntrustedPitSnapshotLocator,
     source_binding_locator: UntrustedSourceBindingLocator,
-    replay_start_event_ns: i128,
-    replay_end_event_ns_exclusive: i128,
     instrument_master_locator: ReplayCompositionRequestLocatorV1,
     universe_selection_locator: ReplayCompositionRequestLocatorV1,
     observation_census_locator: ReplayCompositionRequestLocatorV1,
@@ -250,8 +252,6 @@ impl ReplayCompositionBindingIssuanceRequestV1 {
         composer_locator: StrategyDesignRoleSetLocatorV1,
         pit_locator: UntrustedPitSnapshotLocator,
         source_binding_locator: UntrustedSourceBindingLocator,
-        replay_start_event_ns: i128,
-        replay_end_event_ns_exclusive: i128,
         instrument_master_locator: ReplayCompositionRequestLocatorV1,
         universe_selection_locator: ReplayCompositionRequestLocatorV1,
         observation_census_locator: ReplayCompositionRequestLocatorV1,
@@ -269,8 +269,6 @@ impl ReplayCompositionBindingIssuanceRequestV1 {
             composer_locator,
             pit_locator,
             source_binding_locator,
-            replay_start_event_ns,
-            replay_end_event_ns_exclusive,
             instrument_master_locator,
             universe_selection_locator,
             observation_census_locator,
@@ -299,16 +297,6 @@ impl ReplayCompositionBindingIssuanceRequestV1 {
     #[must_use]
     pub const fn source_binding_locator(&self) -> &UntrustedSourceBindingLocator {
         &self.source_binding_locator
-    }
-
-    #[must_use]
-    pub const fn replay_start_event_ns(&self) -> i128 {
-        self.replay_start_event_ns
-    }
-
-    #[must_use]
-    pub const fn replay_end_event_ns_exclusive(&self) -> i128 {
-        self.replay_end_event_ns_exclusive
     }
 
     #[must_use]
@@ -370,15 +358,6 @@ impl ReplayCompositionBindingIssuanceRequestV1 {
     pub const fn corporate_action_locator(&self) -> ReplayCompositionRequestLocatorV1 {
         self.corporate_action_locator
     }
-
-    #[must_use]
-    pub fn replay_request(&self) -> UntrustedReplayMarketFactsRequestV2 {
-        UntrustedReplayMarketFactsRequestV2::new(
-            self.pit_locator.clone(),
-            self.replay_start_event_ns,
-            self.replay_end_event_ns_exclusive,
-        )
-    }
 }
 
 /// Locator-only issuance command for a universe-member binding.
@@ -389,12 +368,14 @@ impl ReplayCompositionBindingIssuanceRequestV1 {
 /// exact Market Data custody, and none can be supplied by the caller.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
+#[allow(
+    clippy::struct_field_names,
+    reason = "a locator-only command names locators and nothing else; the Owner derives the rest"
+)]
 pub struct ReplayCompositionUniverseBindingIssuanceRequestV1 {
     composer_locator: StrategyDesignRoleSetLocatorV1,
     pit_locator: UntrustedPitSnapshotLocator,
     source_binding_locator: UntrustedSourceBindingLocator,
-    replay_start_event_ns: i128,
-    replay_end_event_ns_exclusive: i128,
     universe_selection_locator: ReplayCompositionRequestLocatorV1,
     reference_fact_r0_locator: ReplayCompositionRequestLocatorV1,
     market_semantics_locator: ReplayCompositionRequestLocatorV1,
@@ -408,8 +389,6 @@ impl ReplayCompositionUniverseBindingIssuanceRequestV1 {
         composer_locator: StrategyDesignRoleSetLocatorV1,
         pit_locator: UntrustedPitSnapshotLocator,
         source_binding_locator: UntrustedSourceBindingLocator,
-        replay_start_event_ns: i128,
-        replay_end_event_ns_exclusive: i128,
         universe_selection_locator: ReplayCompositionRequestLocatorV1,
         reference_fact_r0_locator: ReplayCompositionRequestLocatorV1,
         market_semantics_locator: ReplayCompositionRequestLocatorV1,
@@ -419,8 +398,6 @@ impl ReplayCompositionUniverseBindingIssuanceRequestV1 {
             composer_locator,
             pit_locator,
             source_binding_locator,
-            replay_start_event_ns,
-            replay_end_event_ns_exclusive,
             universe_selection_locator,
             reference_fact_r0_locator,
             market_semantics_locator,
@@ -461,15 +438,6 @@ impl ReplayCompositionUniverseBindingIssuanceRequestV1 {
     #[must_use]
     pub const fn correction_policy_locator(&self) -> ReplayCompositionContentLocatorV1 {
         self.correction_policy_locator
-    }
-
-    #[must_use]
-    pub fn replay_request(&self) -> UntrustedReplayMarketFactsRequestV2 {
-        UntrustedReplayMarketFactsRequestV2::new(
-            self.pit_locator.clone(),
-            self.replay_start_event_ns,
-            self.replay_end_event_ns_exclusive,
-        )
     }
 }
 
@@ -886,6 +854,14 @@ pub enum ReplayCompositionBindingErrorV1 {
     /// request's PIT snapshot, its Source Binding lineage, or the members its Universe Selection
     /// includes.
     UniverseFrameMismatch,
+    /// The Design's BAR roles read more than one timeframe label, so the Replay has no single
+    /// execution bar to derive its window from.
+    ExecutionTimeframeNotSingle,
+    /// The Source Binding declares bars, but none for the label the Design's BAR roles read.
+    ExecutionTimeframeNotDeclared,
+    /// The execution bar has no fixed duration, or one execution bar after the event instant ends
+    /// after the window the snapshot's R0 record claims its reference facts for.
+    ExecutionBarExceedsR0Window,
 }
 
 impl Display for ReplayCompositionBindingErrorV1 {
