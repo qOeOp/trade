@@ -48,9 +48,12 @@
 - 只追加 TrialFamily Census Frontier，记录冻结截面前每个探索 Intent Request Result 身份，包括失败 被拒 无效 未知试验以及已消费族预算。
 - 可以支持新 Research Intent 的探索发现，但不能改写已冻结前序事实。
 - 写一次的 Iteration Result Admission，把一个已加锁的 canonical Backtest Result 绑定到可以消费它的迭代。
-  Owner 在单个可串行化 R&D 事务内，从加锁的 Result 字节、确切 TrialFamily 普查截面与已封存试验预算推导全部被接纳事实；
-  调用方只提供定位符、result 与 request meaning 摘要、按规范排序的候选提案集合，以及授权该 mutation 的
-  Product Edge admission locator。Owner 在持有 Result 锁的同一笔可串行化事务内解析该 admission，核验它命名的
+  Owner 在单个 READ COMMITTED 的 R&D 事务内（这是 Product Edge admission 锁接受的隔离级别），从 Result 字节、
+  确切 TrialFamily 普查截面与已封存试验预算推导全部被接纳事实；调用方只提供定位符、result 与 request meaning 摘要、
+  按规范排序的候选提案集合，以及授权该 mutation 的 Product Edge admission locator。事务先取该 Result 的接纳锁，
+  因此同一 Result 的并发接纳会等待，随后读到对方已提交的结果；然后在读取普查成员与 attempt 截面之前先锁住该 family
+  的普查 head：普查追加从写第一行之前到提交一直持有这个 head，所以接纳绑定的普查是同一个截面，接纳提交之前不会有
+  追加落地。Owner 在同一笔事务内解析 Product Edge admission，核验它命名的
   正是这一条 request、operation、schema、target Owner、payload 与单一 effect，并要求它在事务开启时与提交截面上
   都授权该 mutation。重放按历史解析，因为已提交的事实是按 request 含义内容寻址的，而不是按谁授权的。
   提案集合为空 超限 乱序 重复
@@ -962,7 +965,8 @@ unavailable 或位于不同 cut 时，只撤回它自己的行与计数。两个
 
 - `ProductEdgeResearchGoalRequestV3` 等于 `ProductEdgeResearchGoalRequestV2` 加一个必填的 `instrument_scope`，即
   `ResearchInstrumentScopeV1`：一到两个互不相同的规范 Instrument Master 身份（例如 `BTCUSDT-PERP.BINANCE`），按字节
-  升序排列，与 universe 纵向切片准入的成员数一致；单品种路径只陈述一个。其规范字节依次为 schema `u16LE = 1`、成员数
+  升序排列，与 universe 纵向切片准入的成员数一致；单品种路径只陈述一个。策略形状包络把它放宽到 N 个成员，这是 TARGET，由用户于
+  2026-09-27 授权；在切片 I1 落地之前，一到两个仍是已准入的界。其规范字节依次为 schema `u16LE = 1`、成员数
   `u8`，以及按序排列、各带长度前缀（`u16LE`）的身份；其身份为对 `rd.research-instrument-scope.v1\0 || canonical bytes` 的
   SHA-256。它在传输中是 JSON 对象 `{"schema_version": 1, "identities": ["BTCUSDT-PERP.BINANCE"]}`；本 Owner 拒绝未知的
   schema、空的、重复的或未排序的列表，以及为空、带首尾空白、含控制字符或超过 1024 个 UTF-8 字节的身份，并自行计算规范

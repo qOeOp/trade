@@ -113,16 +113,16 @@ pub(crate) async fn admit_iteration_result_v1(
 ) -> Result<IterationResultAdmissionReadbackV1, IterationResultAdmissionErrorV1> {
     let request = &proposal.operation_request();
     request.validate()?;
+    // READ COMMITTED, the only isolation the Product Edge admission lock admits. The admission key
+    // is locked before any row is read, so a concurrent admission of the same Result waits and then
+    // reads what that one committed; the census is read head first, so no append lands in the cut
+    // this admission binds until it commits.
     let mut transaction = pool.begin().await.map_err(storage)?;
-    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-        .execute(&mut *transaction)
-        .await
-        .map_err(storage)?;
     lock_admission_key(&mut transaction, &request.locator.result_identity).await?;
 
     let existing = load_by_result_in_transaction(&mut transaction, &request.locator).await?;
 
-    // The admission is resolved inside the same serializable transaction that holds the Result
+    // The admission is resolved inside the same transaction that holds the Result's admission
     // lock, so a revocation between resolution and mutation cannot slip through. A replay resolves
     // it historically: the committed fact is content-addressed on the request meaning, and
     // re-proving a past authorization against the present cut would make replays expire.

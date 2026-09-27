@@ -109,5 +109,7 @@ research_initial_pit_postgres_tests::a_v3_research_request_issues_its_initial_pi
 artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only	NONE	-	-	-	ABLATE 2dd2b43e9 (destructive drain; last in its shard)
 postgres_tests::the_operation_routing_read_port_answers_every_routing_state_over_http	NONE	-	-	-	ABLATE 6d086bdb3 (alone on a fresh cluster: passed, 1 test, 0 skipped)
 dashboard_run_routing_acceptance::a_dashboard_run_starts_only_on_the_routing_the_writer_committed_and_reaches_the_owner	NONE	-	-	-	ABLATE 0b1ee3458 (alone on a fresh local cluster: passed, 1 test, 0 skipped)
+trial_family_postgres::postgres_binding_tests::a_census_read_that_meets_an_uncommitted_append_waits_and_reads_one_cut	NONE	-	-	-	ABLATE 8fb13b833 + this change (alone on a fresh local cluster: passed, 1 test, 0 skipped)
+trial_family_postgres::postgres_binding_tests::concurrent_appends_and_admission_census_reads_neither_deadlock_nor_tear	NONE	-	-	-	ABLATE 8fb13b833 + this change (alone on a fresh local cluster: passed, 1 test, 0 skipped; 10 of 10 repeats passed)
 forged_v3_admission_fails_without_replay_transition_or_outbox_write	NONE	-	-	-	PENDING predicted from code: a fresh request identity under a forged admission locator reads and writes nothing another entry sees
 native_replay_scheduling_acceptance::tests::the_composed_scheduling_resolver_holds_its_reads_only_while_composed	NONE	-	-	-	ABLATE 22deb583b + this change (alone on a fresh local cluster: passed, 1 test, 0 skipped)

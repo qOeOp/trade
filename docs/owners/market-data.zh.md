@@ -1608,7 +1608,10 @@ request window，Market Data 才返回 frame 与 schedule readback。missing、d
 或 corrupt candidate 不返回任何正向 readback。caller 不提供 schedule locator、account scope、latest selector、
 raw row、SQL、pool、credential 或 replacement store。
 
-**TARGET / NOT_ADMITTED，Native Replay 帧序列 V2：** 现有初始帧 resolver、
+**SUPERSEDED TARGET，Native Replay 帧序列 V2：** 下文的 PIT 窗口托管在多帧 Backtest 上取代这个 profile；序列签发
+与它的表没有调用方，由 Market Data 随 Strategy Factory 切片 T1 删除，表经迁移删除而不只是删代码，而帧 census 与
+报价 cut census 继续服务快照路径。本段文字
+保留，作为托管所继承的那些不变式的陈述。现有初始帧 resolver、
 `StrategyInputUniverseFrameReceipt` V1、BAR schedule readback 和 `NativeReplaySchedulingReadbackV1`
 保持逐字节不变。新增只能由 Owner 签发的 move-only `NativeReplayFrameSequenceReadbackV2`；该档接纳
 封存请求窗口内整条相邻且完整的双成员 frame 序列。第一帧是准确重解的 V1 初始帧，其后每一帧都来自另一份经
@@ -1652,6 +1655,50 @@ census。V1 scheduling receipt 先声明成员数，并在帧的 batch 之后绑
 它的字节不同于它从帧自己的 batch 取 Quote 时的字节 - 那些字节 Owner 托管数据从未产生过。V2 帧证据的每一帧都经
 同一个 seal 封存，覆盖一个或两个成员，其流动性 EVENT receipt 封存的是报价 cut 而不是帧的 snapshot、fact 与
 batch。目前还没有证明在 Owner 托管数据上驱动过一次完整的首帧读取（schedule、universe 与报价 cut 齐备）。
+
+**TARGET / NOT_ADMITTED，PIT 窗口托管：** 针对回补历史的多帧 Backtest 读一份只追加的 PIT 窗口托管，而不是每帧
+一份快照。用户于 2026-09-27 准入了这一点，原选项见 Strategy Factory 页策略形状包络一节的引文，其中包括它收窄的那
+一条性质：托管运行的帧不再各自带有自己的铸造 cut 与可信时钟证据，所以托管只准入回补历史，实时决策仍然每个时刻取
+一次快照。PIT 快照仍然是一个时刻。快照这一支保持它的字节、封印、census 与报价 cut 端口；受验 batch 的封印与报价
+cut 的读各自在旁边新增一条托管视图分支。
+
+- **托管：** 覆盖从预热起点开始的半开窗口，只提交一次，此后不可变。后来的更正是一份后继托管，它指名自己的前驱，
+  只携带它新增的版本；视图沿这条链读到 head。后继托管原样重述前驱的基底 - Market Semantics fact、
+  Instrument Master cut、成员集与可得规则 digest - 基底一变就是新的根托管，绝不是后继，所以一条链绝不混用两套基底。更正单位是截面 - 同一个源、周期与 event-effective 时刻的全部行 -
+  带更正序号、前驱与发布时刻，因为一帧的各行必须共用时间与更正坐标。两个版本指向同一前驱、序号重复，或发布时刻
+  不随序号递增，都是有歧义的分支。托管分两层：一层是截面版本记录，承载 `SampleFactV1` 已陈述的 lineage、分支
+  拒绝与 head 规则；另一层是不可变的行事实，作为某个版本的成员，走后继的 sample fact schema。该 schema 把来源
+  快照那组字段换成截面版本 identity 与行 digest，根 slot 对 series 与 event-effective 时刻做哈希、不含快照
+  digest，所以同一根 bar 跨多次抓取的更正连成一条链。`SampleFactV1` 的字节绝不被重新解释。因此行身份 - Owner
+  event identity、sample slot 与坐标 - 按托管行定键，绝不按派生视图定键，于是同一根高周期 bar 在读到它的每一帧
+  里都带相同的坐标字节。
+- **发布：** 截面的发布时刻只从发布更正的源观测得来。不发布更正的源（今天每个已准入的源都是）对每个截面只保留一个
+  版本，其发布时刻等于可得时刻，它的后继版本以 `CROSS_SECTION_CORRECTION_NOT_PUBLISHED_BY_SOURCE` 按名拒绝。
+  今天没有任何东西能构造这个拒绝，因为托管还不存在；更正的证伪条件由一个声明了更正流的合成源驱动。
+- **可得：** 某行何时可见，由 Source Binding 上声明的规则推导（例如 bar 收盘加源延迟），绝不取请求方盖上的
+  `provider_available`。规则的 digest 进入托管 identity。不看未来建立在这条规则上，而这条规则是声明，不是观测。
+  声明的延迟不严格小于执行 bar 间隔时，无法满足 `d_k < e_{k+1}`，以 `AVAILABILITY_LAG_NOT_BELOW_BAR_INTERVAL`
+  按名拒绝；今天无法构造。
+- **成员：** 成员集在整份托管内固定。某成员的 Instrument Master 有效期或 Universe 成员资格在窗口内开始或结束，
+  就以 `WINDOW_MEMBER_NOT_VALID_THROUGHOUT` 按名拒绝这份托管。
+- **帧：** 从执行周期的 Owner BAR schedule 枚举，绝不从托管行枚举。帧 `k` 有事件时刻 `e_k` 与可得时刻 `d_k`，
+  且 `d_k < e_{k+1}`；没有完整截面的帧以 `PIT_WINDOW_FRAME_NOT_COVERED` 拒绝整次运行。
+- **派生视图：** 对帧 `k`，Market Data 为每个源选出执行周期在 `e_k` 上的截面，以及其他每个周期中可得时刻不晚于
+  `d_k` 的最新截面；每一处都取在 `d_k` 之前发布、序号最高的版本，丢掉已撤回的，遇到分支就拒绝。某个声明的周期
+  还没有产出截面的帧（例如预热期内）以 `PIT_WINDOW_FRAME_NOT_COVERED` 拒绝整次运行。视图的 decision cut 是 `d_k`，顺序检查是 event ≤ available ≤ publication ≤ `d_k`，
+  一个派生前沿 digest 覆盖它的统一字段，它的 identity 是对所选各截面版本 identity、可得规则 digest、视图 schema
+  版本与 `e_k` 做的 SHA-256，所以一个更正只改变选中它的那些视图。它的时间证据写明托管铸造时所用的 Owner 时钟
+  identity 与 epoch，`d_k` 是那个时钟上的时刻。托管自己的铸造 cut 与 retrieval 时刻留在托管证据里。
+- **封印：** `VerifiedPitObservationBatch` 增加一个来源（已提交快照或托管视图），并去掉直接取快照 identity 与
+  fact digest 的访问器，让编译器列出每个按快照定键的读者。托管视图的构造者与快照的那个一样受封，并有自己的
+  `compile_fail` 与篡改测试。
+- **读者：** 今天每份快照一份的东西，都变成每条托管链一份，没有任何东西按首帧的快照定键。Market Semantics 的 fact
+  与 head、intake 时盖章的 Instrument Master cut、声明登记与 universe 成员组合 basis 都按每条托管链记录一次；sample
+  slot 按每条托管行携带的 series 与 event-effective 时刻定键，所以后继托管里的更正落在同一个 slot。Reference Fact R0 按每条托管链覆盖整个窗口存一次，某帧的 R0 在读时由它算出，不存按帧的
+  locator。PIT evaluation evidence 的读从托管推导，BAR schedule 检查改为一个窗口 schedule fact，其有效区间包含
+  `e_k`，且其 cut 不晚于 `d_k`。这些读碰到的每一张表和每个函数都在 admitted-port 的测量范围内。
+- **报价 cut：** 从托管在 `(d_k, e_{k+1})` 之内派生，每个间隙恰好一个、同一时刻、按成员顺序、不占帧序号，而且
+  绝不是后来的更正取代掉的那个版本。
 
 在 CURRENT/PARTIAL BAR schedule 路径中，只有具备 custody verification 的 readback 才能授权以准确 V1
 binding-receipt digest 为键的新增 immutable `TimeframeProjectionReceiptV1`。其既有 canonical bytes 与 domain
