@@ -1026,6 +1026,12 @@ semantic effect 或 external effect。
 - fill reconciliation 对应 `kernel.fill.reconcile.v1`，包括 partial fill、rejection、cancellation 和乱序
   readback。
 
+rebalance 目标的序号属于 Host，不属于程序。程序对 `kernel.target.rebalance.v1` 目标在
+`proposal.rebalance-sequence.v1` 上发出 `0`，由 Host 在解码提案时分配序号：在 target-set 路径上，是提案被提升进的
+那个 target set 的序号，提升要求每个成员都带上它；在单品种路径上，是成员内核当前 rebalance 序号加一，内核要求一次
+rebalance 超过它。两条规则都由构造成立，而程序原本只能去猜那个只在一帧上满足它们的数。程序对 rebalance 目标发出
+任何其他值，都以 `REBALANCE_SEQUENCE_IS_HOST_ASSIGNED` 按名拒绝；这个端口仍留在插件 ABI 里，其他目标都不读它。
+
 每个 primitive 都有跨 Backtest 与 Runtime 含义稳定的版本化 semantic ID。内核把 target 与 protection
 转换为 semantic intent record；在 Runtime 中，Risk 仍是最终准入权威，Execution 仍是 order/fill/effect
 权威，Portfolio 仍是 position/account truth。R&D、Backtest、compiler 与 plugin 都不能绕过这些 Owner。
@@ -1467,18 +1473,25 @@ Research scope 与 Design 推导出托管请求；T1 的首个正例只用 CLOSE
 I3；再然后 N1、A2、A3、V4b、V5。按帧 as-of 成员（T4）会移除「每帧共用一个成员集」这条不变式，所以在提出它时再
 问用户。
 
-单阈值编写器接受的两种目标变体，今天在 target-set Host 上跑不过一帧，各是一片，排在 F 之后、T1 之前。两者都在
-`main` 3a465a537 上实测过：现状为红，在一个随后还原的临时改动下越过了点名的那道检查。在各自那一片落地之前，编写器
-以 `SINGLE_THRESHOLD_TARGET_VARIANT_NOT_RUNNABLE` 按名拒绝该变体，任一侧都拒，于是只会在第一帧失败的程序根本不会被
-编写出来。这个拒绝是临时的：下面每一片落地时，各自移除它对自己那个变体的拒绝。
+单阈值编写器接受的一种目标变体，今天在 target-set Host 上跑不过一帧，它是一片，排在 F 之后、T1 之前。它在 `main`
+3a465a537 上实测过：现状为红，在一个随后还原的临时改动下越过了点名的那道检查。在这一片落地之前，编写器以
+`SINGLE_THRESHOLD_TARGET_VARIANT_NOT_RUNNABLE` 按名拒绝它，任一侧都拒，于是只会在第一帧失败的程序根本不会被编写出来；
+这一片落地时移除这个拒绝。
 
-- **Rebalance 序号。** `kernel.target.rebalance.v1` 目标必须带上它被提升进的 target set 的序号，而这个序号每帧加一，
-  编写器却只为它写一个常量。常量 1 只在第一帧能提升，常量 2 只在第二帧能，所以没有哪个常量跑得过两帧：序号必须是
-  Host 在提升时给出的，不是编写器的。由 Strategy Factory 的 Host 修复。
 - **Weight 对账。** Host 除 `Keep` 以外对每种目标都解码出一个 reconciliation target，而 target-set 对账要求 weight
   目标没有，所以 weight 一侧在第一帧就以 `InputCoverage` 失败。临时让解码对 weight 不给出它时，这道检查通过，该帧
   接着以 `InvalidPositionTransition` 失败：编写器让两侧共用一个为 0 的 target weight，而以 0 权重入场不是迁移。
   两处都由 Strategy Factory 修复：Host 的解码，以及编写器的 weight，让它像仓位那样跟随各侧。
+
+rebalance 目标曾是第二种这样的变体，它那一片已经落地：Host 按上面那条规则分配序号，编写器写 `0`。常量为 1 时只有第
+一帧能提升；拿掉 Host 的分配而写 `0` 时，连第一帧也不能。`an_authored_rebalance_program_lifts_three_consecutive_frames`
+把编写出的程序构建成 Wasm，经 target-set Sim 跑三帧，进场、出场、再进场，序号依次为 1、2、3；
+`a_single_instrument_host_assigns_each_rebalance_the_next_sequence` 守住单品种路径。
+
+那次运行找到了一个任何变体拒绝都没覆盖的缺陷：编写器让两侧共用一个 protection，即 `keep`，而内核在出场时拒绝
+`keep`，所以没有哪个编写出的程序能出场。现在每一侧的 protection 跟随它的意图：出场清除，其余各侧保持；
+`every_authored_side_runs_through_the_kernel` 把每一个编写出的侧，从它可能被提出的每个仓位，施加到一个真实的生命周期
+内核上，于是一个本该跟随各侧却被共用的终端，会在那里失败，而不是在之后某一帧。
 
 ## 价值流交接
 
