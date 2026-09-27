@@ -1851,12 +1851,16 @@ mod tests {
     ///
     /// Two stages, and only the second is regenerated. The projection's inputs are two committed
     /// canonical engine results, a real multi-day run and a one-fill run edited to two equity
-    /// currencies. They are fixed inputs, not this build's engine output: the same run's return
-    /// values differed in their last bits between macOS arm64, where they were produced (at
-    /// b8a10d6bc, with `VIBE_WRITE_BACKTEST_RUN_REPORT_ENGINE_INPUTS=1`), and Linux x86_64, so a wire
-    /// computed from a live run is a different file on each host. What this test holds is the
-    /// projection contract, which is a function of committed bytes, as a report is; whether the
-    /// engine reproduces a run's bytes across hosts is its own question. With
+    /// currencies. They are fixed inputs, not this build's engine output, because the engine's
+    /// bytes for one run depend on the `vibe-model/high-precision` feature: at `FIXED_PRECISION` 16
+    /// `Money::as_f64` rounds twice, and two of the multi-day run's daily equities move by one ULP,
+    /// so a wire computed from a live run is a different file under each feature set. They were
+    /// produced at `FIXED_PRECISION` 9, without `high-precision` (at b8a10d6bc, with
+    /// `VIBE_WRITE_BACKTEST_RUN_REPORT_ENGINE_INPUTS=1`), which is the precision the production
+    /// images resolve (`Dockerfile.owner` and `Dockerfile.sandbox`, measured by Lane 0 with
+    /// `cargo tree`); the workspace's CI tests build with `high-precision`. What this test holds is
+    /// the projection contract, which is a function of committed bytes, as a report is; whether the
+    /// engine's bytes agree across precision features is its own question. With
     /// `VIBE_WRITE_BACKTEST_RUN_REPORT_WIRE=1` the wire file is written from those inputs, and
     /// otherwise the committed wire must hold exactly the values they project to.
     #[rstest]
