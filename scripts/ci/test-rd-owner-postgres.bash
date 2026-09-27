@@ -5608,6 +5608,7 @@ BEGIN
     FOREACH qualification_table IN ARRAY ARRAY[
       'qualification_protected_feedback_projections_v1',
       'qualification_protected_feedback_heads_v1',
+      'qualification_protected_feedback_generations_v1',
       'qualification_candidate_intake_receipts_v1',
       'qualification_public_status_facts_v1',
       'qualification_public_status_heads_v1',
