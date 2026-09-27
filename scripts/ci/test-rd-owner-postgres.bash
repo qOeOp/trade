@@ -1190,9 +1190,11 @@ readonly chain_log_sqlx_performance_hint='^[^ ]+ +WARN sqlx::(query: slow statem
 classify_chain_log() {
   local log="$1"
   [[ -f "$log" && "$(head -n 1 -- "$log")" == "$chain_log_collecting_marker" ]] || return 3
-  tail -n +2 -- "$log" | awk -v hint="$chain_log_sqlx_performance_hint" '
+  # The pattern goes through ENVIRON, not -v: awk -v would read its backslashes as escapes, and a
+  # future `\.` in it would stop matching with nothing turning red.
+  tail -n +2 -- "$log" | CHAIN_LOG_HINT="$chain_log_sqlx_performance_hint" awk '
     !/^[^ ]+ +(WARN|ERROR) / { next }
-    $0 ~ hint { print "hint\t" $0; next }
+    $0 ~ ENVIRON["CHAIN_LOG_HINT"] { print "hint\t" $0; next }
     index($0, "coordinate=\"") { print "refusal\t" $0; next }
     { print "other\t" $0 }
   '
@@ -1324,7 +1326,7 @@ readonly chain_failed_entry_event_limit=40
 readonly chain_failed_entry_tail_lines=20
 readonly chain_failed_entry_line_width=400
 print_failed_entry_warnings() {
-  local log="$1" label="$2" events observed=true
+  local log="$1" label="$2" events observed=true events_file
   echo "::group::Owner warnings recorded by the failed ${label}"
   if ! events="$(classify_chain_log "$log")"; then
     observed=false
@@ -1335,21 +1337,23 @@ print_failed_entry_warnings() {
     fi
   fi
   if [[ -f "$log" ]]; then
-    CHAIN_ENTRY_EVENTS="$events" python3 - "$log" "$observed" "$chain_failed_entry_event_limit" \
+    # Through a file, not the environment: one environment string is capped at 128 KiB on Linux,
+    # and an entry that logged a thousand warnings would make exec fail and print nothing of them.
+    events_file="$(mktemp)"
+    printf '%s\n' "$events" > "$events_file"
+    python3 - "$log" "$observed" "$events_file" "$chain_failed_entry_event_limit" \
       "$chain_failed_entry_tail_lines" "$chain_failed_entry_line_width" << 'PY' || echo "the warnings of ${log} could not be read"
 import os
 import re
 import sys
 
-log, observed = sys.argv[1], sys.argv[2] == "true"
-limit, tail, width = (int(a) for a in sys.argv[3:6])
+log, observed, events_file = sys.argv[1], sys.argv[2] == "true", sys.argv[3]
+limit, tail, width = (int(a) for a in sys.argv[4:7])
 url_password = re.compile(r"(://[^:/@\s]+:)([^@\s]+)@")
 credential_name = re.compile(r"PASS|SECRET|TOKEN|KEY|CREDENTIAL|AUTH|DSN|PRIVATE|SALT", re.IGNORECASE)
 bare = re.compile(r"[A-Za-z0-9_.:-]{1,64}")
 secrets = {v for v in os.environ.get("CHAIN_REDACT_VALUES", "").splitlines() if v}
 for name, value in os.environ.items():
-    if name == "CHAIN_ENTRY_EVENTS":
-        continue
     passwords = [m.group(2) for m in url_password.finditer(value)]
     if passwords:
         secrets.update(passwords)
@@ -1366,7 +1370,7 @@ def clean(line):
     return line if len(line) <= width else line[:width] + " [cut]"
 
 
-tagged = [line.split("\t", 1) for line in os.environ["CHAIN_ENTRY_EVENTS"].splitlines() if "\t" in line]
+tagged = [line.split("\t", 1) for line in open(events_file, encoding="utf-8").read().splitlines() if "\t" in line]
 refusals = [line for kind, line in tagged if kind == "refusal"]
 others = [line for kind, line in tagged if kind == "other"]
 hints = [line for kind, line in tagged if kind == "hint"]
@@ -1381,6 +1385,7 @@ print(f"--- last {tail} lines of {log}")
 for line in open(log, encoding="utf-8", errors="replace").read().splitlines()[-tail:]:
     print(clean(line))
 PY
+    rm -f -- "$events_file"
   fi
   echo "::endgroup::"
 }
