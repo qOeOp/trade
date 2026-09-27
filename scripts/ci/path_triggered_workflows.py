@@ -15,6 +15,7 @@ Whatever it cannot decide counts as "would trigger", and quality then waits for 
 - a negated pattern (`!`), a character class, a brace, or `paths-ignore`;
 - more than 300 changed files (GitHub filters only the first 300);
 - an unreadable workflow file.
+A missing PyYAML is an error, not a doubt: it is a declared dependency.
 A wrong "would trigger" costs a timeout that a `workflow_dispatch` of the same head clears. A wrong
 "would not" lets a red check merge, so every doubt goes the first way.
 
@@ -31,11 +32,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+# A declared dependency, not an optional one: without it no filter can be read, and counting every
+# workflow as triggered would make the gate permanently strict. The plan job's python3 has it; the
+# pre-commit hook declares it (additional_dependencies, PyYAML as python/uv.lock pins it).
+import yaml
 
-try:
-    import yaml
-except ImportError:  # no reader means no decision: every workflow counts as triggered
-    yaml = None
 
 GIT = shutil.which("git") or "git"
 GITHUB_FILTER_LIMIT = 300
@@ -117,13 +118,6 @@ def main() -> int:
         check=True,
     ).stdout.split()
     for workflow in workflows:
-        if yaml is None:
-            print(
-                f"{workflow.name}: required - PyYAML is unavailable, so its paths cannot be read",
-                file=sys.stderr,
-            )
-            print(workflow.name)
-            continue
         try:
             filters = pull_request_filters(workflow)
             if filters is NOT_ON_PULL_REQUESTS:
