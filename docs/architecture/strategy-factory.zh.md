@@ -143,7 +143,7 @@ R&D 内的 Develop 能力返回内容寻址 Strategy Artifact 和 Build Receipt�
   Research request 指名，由 Market Data universe selection 在请求时求值，因此既不由 Design 也不由 R&D 选定（该请求
   范围由 R&D Owner 契约陈述）。角色为 `EXACT_INSTRUMENT` 的 Design 在 Owner
   universe 下仍被拒绝，由实现改动引入的具名拒绝 `ExactInstrumentRolesUnderOwnerUniverse` 给出。universe 纵向切片的输入契约（准确
-  一个固定 `OPEN` 与一个固定 `CLOSE` member role）不变；single-threshold 编写面新增 universe-member 形态，其 channel
+  一个固定 `OPEN` 与一个固定 `CLOSE` member role）后来由 Design 声明的角色集取代（见下文 P1）；single-threshold 编写面新增 universe-member 形态，其 channel
   是该成员的日线收盘价，并以承载 input 的方式携带固定的 open role，其程序从不读取它。编写请求在必填的 `scope`
   中写明自己的形态，因此缺少它的请求被拒绝，而不是被当作 exact-instrument 形态读取。该形态只在成员序号 0 上消费每个 role，其 bounded feature program
   仍产出单品种 proposal：在单成员 universe 下，host 把该 proposal 提升为单成员规范 target set，因此该纵向切片仍只提交
@@ -274,6 +274,10 @@ state、lifecycle terminal 或 manifest output。
 - rolling swing high 与 low；
 - `range_fraction(low, high, numerator, denominator)`：ratio 是冻结且约分后的 rational，denominator 为正，
   bounds 与 scale 显式，Fibonacci level 只能使用冻结的有理常量。
+
+之后的版本只追加。版本 2 追加 fused rational，版本 3 追加定点平方根，版本 4 追加 trailing window 内距最大值与距
+最小值的 bar 数（精确整数，相等极值中取最新的那个）以及 trailing window percent rank（最新样本的中位秩，最低为 0、
+最高为 1，窗口至少为二，只做一次最终舍入）。
 
 price-action rule 与 candlestick pattern 是这些 catalog primitive 的类型化组合，不是命名 strategy template、
 opaque label、复制的公式或新 Host opcode。
@@ -1235,13 +1239,25 @@ custody 会挡住之后的每一次提交，而成本随整个历史增长。
 
 ### 前置切片
 
-- **P0，形状元组只有一个来源：** Research 请求的 scope 带成员集与窗口，Design 带角色集（P1）；其余每个面都从这两份
-  托管推导，不再各自声明。精确品种就是一成员 universe，所以精确与 universe 两条输入路径合成一条。凡是随成员数不同的东西，例如
-  Market Data 的 PIT 请求 preimage 域，都由成员数推导，不在旁边另行声明。改成员数或加一个角色只需改一处声明时，
-  P0 才算完成。它本身不改动任何已准入的界。
-- **P1，角色集来自 Design：** 原生 Plan 契约不再固定为一天周期的 OPEN 与 CLOSE；Design 声明自己的角色、执行周期
-  以及用哪个角色为订单定价。Host 绑不上的角色按名拒绝。
-- **P2，报告陈述每个成员：** 报告族陈述 universe 运行的每个成员，把 Backtest 已经做到的一成员陈述推广开。
+- **P0，形状元组只有一个来源：** 陈述了 scope 的 Research 请求带成员集，Design 带角色集（P1），TrialFamily 封存的
+  回放策略带可接纳的回放区间；其余每个面都从它们推导，不再各自声明。运行的实际窗口由在该区间内组合的 Market Data
+  facts 推导，绝不在旁边另行给出。在陈述了 scope 的请求下，精确品种就是一成员 universe，所以 Design 不得指名品种：
+  发布、冻结或声明这样的 Design 以 `DESIGN_ROLE_NAMES_INSTRUMENT_UNDER_RESEARCH_SCOPE` 拒绝。凡是随成员数不同的
+  东西，例如 Market Data 的 PIT 请求 preimage 域，都由成员数推导，不在旁边另行声明。对陈述了 scope 的 Research
+  请求，改成员数只改 scope、加一个角色只改 Design 时，P0 才算完成。它本身不改动任何已准入的界。V2 请求不陈述
+  scope，仍是 legacy 的 exact 通道，它的 Design 照旧指名品种；退役它是 T1 之后的一个独立切片，前提是每个在 V2 下
+  创建 exact 托管的链路条目都有了陈述 scope 的替身。
+- **P1，角色集来自 Design：** 原生 Plan 契约不再固定为一天周期的 OPEN 与 CLOSE。Design 用它已有的字段声明自己的
+  角色、执行角色和定价角色，也就是各角色的 field semantic 和 join 的 trigger，不新增字段。universe 角色必须是
+  `I128` 的 Market Data BAR open、high、low、close 或 volume 角色，target-set Host 用自己的原生 bar 核对它；其他角色以
+  `TargetSetRoleNotHostBindable` 拒绝。为订单定价的角色是唯一读 BAR close 的那个角色，它同时也是执行角色：没有这样的
+  角色是 `ExecutionPricingRoleAbsent`，不止一个是 `ExecutionPricingRoleAmbiguous`，由别的角色触发的 join 是
+  `ExecutionRoleNotPricingRole`；今天没有东西构造出后者，因为 universe 角色上的 join 会先被拒绝。Host 从 Plan 读取它的
+  成员角色和定价角色。角色的周期标签仍然只是 provenance，所以这里不从它推出执行周期：Market Data 从自己的 binding
+  取执行角色的 typed 周期，周期不止一种、或者某种日它无法 typed 时按名拒绝。这项调度改动取代
+  `native_replay_scheduling_v1` 里的标签比较，归 Market Data。
+- **P2，报告陈述每个成员：** 报告族陈述 universe 运行的每个成员，把 Backtest 已经做到的一成员陈述推广开。它与 I2
+  一同落地，由第一个超过一个成员的运行驱动：I2 之前没有程序读第一个成员以外的成员，陈述每个成员就无物可陈述。
 
 ### 时间：PIT 窗口托管
 
@@ -1254,6 +1270,10 @@ PIT 快照仍然是一个时刻，Market Data 的快照路径、它的封印以�
 - 每帧有两个时刻：`e_k` 是定义该帧的执行周期那根 bar 的收盘，`d_k` 是按 Source Binding 上声明的可得规则该帧
   数据变为可见的时刻，且满足 `d_k < e_{k+1}`。帧从执行周期的 Owner BAR schedule 枚举，绝不从托管行枚举，所以缺
   一根 bar 会拒绝该帧，而不是跳过它。
+- 最后一帧 `N` 没有后一帧，所以 `e_{N+1}` 是同一 schedule 在 `e_N` 之后声明的下一次收盘，也就是晚一个执行间隔，
+  因为只接纳固定间隔的执行周期。窗口的终点不早于 `e_{N+1}`，于是最后一帧的 quote cut 和其他帧一样有
+  `(d_N, e_{N+1})` 可以落。单帧运行就是 `N = 1` 的情形：窗口终点若是 `e_1` 加一纳秒，帧与终点之间就没有任何严格
+  居中的时刻，推不出 quote cut。
 - 派生视图的 decision cut 是 `d_k`，绝不是托管的铸造 cut：否则每个读 decision cut 的地方看到的 cut 都比该帧
   实际的晚。视图的顺序检查是 event ≤ available ≤ publication ≤ `d_k`。
 - 多周期角色（切片 T2）在帧 `k` 解析为它自己周期的 Owner schedule 在 `d_k` 之前最后一次收盘的那根 bar，而且
@@ -1319,7 +1339,9 @@ Research scope 是成员集的唯一来源（P0）。一到两个成员的界变
 
 ### 值、输入与动作
 
-- **值：** catalog V4a 追加窗口 rank 与百分位、距极值的 bar 数、协方差与相关。V4b 追加自然对数与指数。用户于
+- **值：** catalog V4a 追加窗口 rank 与百分位、距极值的 bar 数、协方差与相关。catalog 版本 4 发布了前两者，它们的
+  首批使用者 `w1` 与 `w2` 已在手写语料中；之后的版本追加的行，在有手写程序使用之前构建就会拒绝它。协方差与相关需要
+  一个双序列窗口状态，仍是 TARGET。V4b 追加自然对数与指数。用户于
   2026-09-27 选择了下面这个选项，以此授权它们的数值规则：「引入 ln/exp，钉住算法加 golden 测试向量，只适用于新增
   的 catalog 行；这一类运算豁免『一个精确表达式、最后只舍入一次』。」V5 增加两条定槽状态规则：一个定桶数组，以及最近 N 个事件的
   记忆，每个槽存一组冻结的值。把 Bollinger 方差写成
@@ -1358,6 +1380,9 @@ Research scope 是成员集的唯一来源（P0）。一到两个成员的界变
 | 配对价差              | BTC 与 ETH 的 z 分数                         | I2、V4a            |
 | 截面轮动              | 八选二按动能                                 | I2、I3             |
 | 资金费率过滤          | 资金费率极值反向                             | N1                 |
+| 动能背离              | 价格对 RSI 或 MACD 柱在两个已确认拐点上比较  | P1、T1             |
+| 上升与下降楔形        | 过最近两个已确认高点拐点与低点拐点的两条线   | P1、T1             |
+| 三推与五推            | 在已确认拐点上计推动次数，结构须守住         | P1、T1             |
 | 罗尼画线规则 R1 至 R6 | 水平与宽区域、趋势线带、斐波、四分、周期角色 | 见下               |
 
 罗尼的画线规则取自他 17 个视频的 2,512 张截图测量，归纳成六条可计算的规则。它们需要这些切片：
@@ -1377,6 +1402,26 @@ Research scope 是成员集的唯一来源（P0）。一到两个成员的界变
 两半，使得一次不符只有一个成因：程序的输出必须与同一条规则的直接参考计算逐位相等，这检验的是编译出的程序；该参考
 必须在容差内符合量出的价格，这检验的是规则本身，以及测量时补上而非观测到的参数。它要在 T1 与 V5 之后才能构造。
 
+动能背离、楔形、三推与五推建立在同一个构件上，即已确认拐点，除 P1 与 T1 外不需要别的切片：
+
+- **已确认拐点：** 位于 bar `t - k` 的 order-k 高点拐点，恰在 `Lag(high, k)` 等于 `Maximum(high, 2k + 1)` 时于 bar
+  `t` 被确认；低点拐点同理，对 low 取 `Minimum`。目录里的 `SwingHigh` 是尾随窗口里最高的那根 bar，仍在上涨的
+  bar 也算，所以它不是拐点。拐点总是晚 k 根 bar 才知道，这个滞后就是定义本身，不是实现的限制。
+- **背离：** 看跌背离是新确认的高点拐点严格高于前一个，而新拐点处的指标 `Lag(indicator, k)` 严格低于前一个拐点
+  处的值；看涨背离在低点上镜像。信号在确认那根 bar 发出。前一个拐点的价格与指标是两个定点策略状态格，校验器
+  接受它们，但还没有任何已编写的程序用过，所以第一个背离程序必须经 Wasm 写入并读出它们，而且把它们冻结在初值时
+  它的信号必须变红。
+- **楔形：** 过最近两个已确认高点拐点与最近两个低点拐点各画一条线。两条斜率都为正且下线更陡时为上升楔形，镜像
+  情形为下降楔形；它声明一个收敛比例和一个以 ATR 计的突破容差。线在当前 bar 的值是 `p2 + (p2 - p1) * a / b`，
+  其中 `a` 是距后一个锚点的 bar 数，`b` 是两个锚点之间的 bar 数；减法、乘法与加法在各自声明的精度上都是精确的，
+  所以除法是唯一一次舍入。过三个及以上拐点的线需要 V5 的记忆，且每个节点各舍入一次，定义必须声明这一点。
+- **推动：** 每当新确认的高点拐点严格高于上一推、且两推之间的低点拐点严格高于再前一个时，计数加一，否则重新
+  开始；由三个策略状态格承载。在 4h 上读推动、在 1h 上进场属于 T2。
+
+每一项都有一个合成正控，把信号 bar 钉死：背离恰在拐点加 k 处、绝不提前；平行通道不产生楔形；结构被破坏时计数
+重新开始。另有一个真实数据正控：在公开的 BTC K 线上，程序的拐点与信号必须与该定义的一份独立参考实现逐一相等。
+这三种形态在这里没有人工标注的真值，所以检验的是程序对它的定义，不是程序对交易员。
+
 ### 包络对 F 的假设
 
 包络自己不增加任何生产路径：每个切片都经 F 的验收所建立的路径跑 Backtest。这条路径的第一代 Replay 与 legacy 路径一样，
@@ -1388,8 +1433,8 @@ Replay 不需要 attempt cut，也不需要 R&D Decision composition，上面每
 
 ### 顺序与以后要问的
 
-P0、P1、P2 与 T0 并行推进：T0 在 Market Data 内部，它的托管请求自己陈述成员集与周期。T1 依赖这四项，因为它从
-Research scope 与 Design 推导出托管请求；T1 的首个正例只用 CLOSE，D1 与它一同落地。A1 与 V4a 与 T1 并行；然后 T2、I1、I1.5、I2、
+P0、P1 与 T0 并行推进：T0 在 Market Data 内部，它的托管请求自己陈述成员集与周期。T1 依赖这三项，因为它从
+Research scope 与 Design 推导出托管请求；T1 的首个正例只用 CLOSE 和一个成员，D1 与它一同落地。P2 与 I2 一同落地。A1 与 V4a 与 T1 并行；然后 T2、I1、I1.5、I2、
 I3；再然后 N1、A2、A3、V4b、V5。按帧 as-of 成员（T4）会移除「每帧共用一个成员集」这条不变式，所以在提出它时再
 问用户。
 

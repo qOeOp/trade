@@ -564,6 +564,9 @@ fn state_execute(
                     Op::Maximum => FixedWindowFunction::Maximum,
                     Op::SwingHigh => FixedWindowFunction::SwingHigh,
                     Op::SwingLow => FixedWindowFunction::SwingLow,
+                    Op::BarsSinceMaximum => FixedWindowFunction::BarsSinceMaximum,
+                    Op::BarsSinceMinimum => FixedWindowFunction::BarsSinceMinimum,
+                    Op::PercentRank => FixedWindowFunction::PercentRank,
                     _ => return Err(GoldenVerificationFailure::UnknownPrimitive),
                 };
                 FixedWindowState::new(function, window, input_scale, output_scale, rounding)

@@ -156,6 +156,18 @@ never runs in CI.
   gives the procedure. `admit_rd_owner_market_data_postgres` still wires the `Unavailable*` ports, so `required` still
   fails closed at startup. The admission reads time from the custody store's clock alone: every history read carries
   the store's `clock_timestamp()` cut, and the commit judges the receipt's window on that clock.
+  The direct measurer's role identity covers what the leased role can do, not only the listed surface's ACLs,
+  which cannot show a grant on anything else. It carries a privilege census (`PRIVILEGE_CENSUS_V1`): every
+  privilege the session role or any role in its membership closure holds, from a direct grant, `PUBLIC` or
+  ownership. It asks about the current database only, and about every schema except `pg_catalog`, objects only in
+  a schema the role can use, and not about a relation's row type or an implicit array type, which grant nothing.
+  In `pg_catalog` it lists each privilege of the role, its closure or `PUBLIC` that differs from what initdb
+  recorded. So a grant the role gains or loses anywhere it can reach changes the identity admission compares; a
+  grant to another role, a privilege on another database, or an object in a schema the role cannot use does not.
+  A schema the role can use that others create in is within its reach: in the deployed database `PUBLIC` may use
+  `public` and `product_edge_owner` may create there, so a new function in `public`, which `PUBLIC` may execute by
+  default, changes the census and admission needs a new manifest. The census names PostgreSQL 16's privileges,
+  and a server of another major is refused rather than measured short.
 - **`B4` consumer not compiled into the deployed image.** `product/rd-workbench/Dockerfile.owner` builds
   `strategy-factory-rd-owner-api` with default features, which leaves `sealed-develop-composer-acceptance` off, and
   the dashboard read binary touches no Market Data surface. Cleared by moving the consumer out of an acceptance

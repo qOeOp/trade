@@ -1378,6 +1378,92 @@ fn the_universe_contract_follows_the_owner_member_count() {
     }
 }
 
+/// The universe contract takes its role set from the Design and derives the one role that prices
+/// orders, refusing by name every Design where that role is missing or not unique.
+///
+/// Each refusal is driven today by compiling a universe Design, which runs this contract, except
+/// `ExecutionRoleNotPricingRole`, which no input constructs today: canonicalization refuses a join
+/// over universe roles earlier, in `validate_joins`, so only the derivation itself reaches it
+/// until joins admit universe roles.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn the_universe_contract_takes_its_role_set_from_the_design() {
+    use super::strategy_design_v2::{INPUT_JOIN_LATEST_NOT_AFTER_TRIGGER_V1, InputJoinV2};
+    use super::strategy_plan_v2::{
+        CompilationRefusalV2, UNIVERSE_CLOSE_FIELD_SEMANTIC_ID_V2,
+        derive_execution_role_for_test as derive,
+        validate_universe_target_set_contract_for_test as contract,
+    };
+
+    const OPEN: &str = "research.input.open.v1";
+    const CLOSE: &str = "research.input.close.v1";
+    let refusal = |result: Result<(), StrategyCompilationV2>| match result {
+        Err(
+            StrategyCompilationV2::Unsupported(issue)
+            | StrategyCompilationV2::NeedsResearchRefinement(issue),
+        ) => issue.refusal,
+        _ => None,
+    };
+    let with_field = |role: &str, field: &str| {
+        let mut design = universe_design();
+        for input in &mut design.inputs {
+            if input.semantic_id == role {
+                input.field_semantic_id = field.into();
+            }
+        }
+        design
+    };
+    assert_eq!(contract(universe_design(), Some(2)), Ok(()));
+
+    // Roles the fixed OPEN-and-CLOSE template refused are admitted: another BAR field, another
+    // scale, another timeframe label. The label is provenance only; Market Data resolves the
+    // execution role's typed timeframe from its own binding.
+    let mut widened = with_field(OPEN, "MARKET_DATA.BAR.HIGH.PRICE.V1");
+    for input in &mut widened.inputs {
+        input.scale = 4;
+        input.timeframe = "1H".into();
+    }
+    assert_eq!(contract(widened, Some(2)), Ok(()));
+
+    assert_eq!(
+        refusal(contract(
+            with_field(CLOSE, "MARKET_DATA.BAR.HIGH.PRICE.V1"),
+            Some(2)
+        )),
+        Some(CompilationRefusalV2::ExecutionPricingRoleAbsent)
+    );
+    assert_eq!(
+        refusal(contract(
+            with_field(OPEN, UNIVERSE_CLOSE_FIELD_SEMANTIC_ID_V2),
+            Some(2)
+        )),
+        Some(CompilationRefusalV2::ExecutionPricingRoleAmbiguous)
+    );
+    assert_eq!(
+        refusal(contract(
+            with_field(OPEN, "MARKET_DATA.QUOTE.BID.PRICE.V1"),
+            Some(2)
+        )),
+        Some(CompilationRefusalV2::TargetSetRoleNotHostBindable)
+    );
+
+    // A join over universe roles never reaches the contract: canonicalization refuses it in
+    // `validate_joins`. The derivation still refuses a join its pricing role does not trigger.
+    let design = universe_design();
+    let join = |trigger: &str| InputJoinV2 {
+        semantic_id: "research.join.members.v1".into(),
+        inputs: vec![CLOSE.into(), OPEN.into()],
+        alignment_semantic_id: INPUT_JOIN_LATEST_NOT_AFTER_TRIGGER_V1.into(),
+        trigger_input_id: trigger.into(),
+        max_staleness_ns: 1,
+    };
+    assert_eq!(derive(&design.inputs, &[join(CLOSE)]), Ok(CLOSE.to_owned()));
+    assert_eq!(
+        refusal(derive(&design.inputs, &[join(OPEN)]).map(|_| ())),
+        Some(CompilationRefusalV2::ExecutionRoleNotPricingRole)
+    );
+}
+
 #[rstest]
 fn a_lifted_single_instrument_proposal_is_the_one_member_set_a_plugin_would_propose() {
     use super::program_host_v2::lift_single_instrument_proposal;

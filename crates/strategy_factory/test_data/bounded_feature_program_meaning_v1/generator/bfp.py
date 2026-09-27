@@ -54,6 +54,10 @@ ATR = "bfp.atr.true-range.wilder-first-sample.nearest-ties-to-even.v1"
 GAP = "bfp.candle.gap-signed.previous-close.ohlc-validated.v1"
 FUSED = "bfp.fused-rational.two-input.i256-single-round.nearest-ties-to-even.v1"
 SQRT = "bfp.fixed-i128.sqrt.max-scale-38.i256-single-round.nearest-ties-to-even.v1"
+BSMAX = "bfp.rolling.bars-since-max.full-window.latest-tie.v1"
+BSMIN = "bfp.rolling.bars-since-min.full-window.latest-tie.v1"
+PRANK = "bfp.rolling.percent-rank.full-window.midrank.nearest-ties-to-even.v1"
+PRANK_TZ = "bfp.rolling.percent-rank.full-window.midrank.toward-zero.v1"
 
 
 # ---- value references and nodes ----------------------------------------------
