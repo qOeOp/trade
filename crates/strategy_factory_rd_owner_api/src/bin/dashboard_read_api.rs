@@ -87,7 +87,7 @@ mod tests {
         },
     };
     use vibe_strategy_factory::{
-        ExploratoryReplayResultLocatorV2,
+        ExploratoryReplayResultDirectoryEntryV1, ExploratoryReplayResultLocatorV2,
         backtest_run_report_read_v1::{BacktestRunReportProjectionV1, BacktestRunReportRefusalV1},
     };
     use vibe_strategy_factory_rd_owner_api::dashboard_read_api::{
@@ -101,8 +101,9 @@ mod tests {
         UnavailableHistoricalCustodyV1, read_artifact, read_artifact_directory,
         read_artifact_source, read_backtest_run_report, read_develop_composer,
         read_exploratory_replay, read_exploratory_replay_historical_rejection,
-        read_exploratory_replay_result, read_formation_catalog, read_historical_custodies,
-        read_iteration_timeline, read_research_directory, read_research_v2, read_source_intake,
+        read_exploratory_replay_result, read_exploratory_replay_result_directory,
+        read_formation_catalog, read_historical_custodies, read_iteration_timeline,
+        read_research_directory, read_research_v2, read_source_intake,
     };
 
     #[derive(Default)]
@@ -211,6 +212,8 @@ mod tests {
         readback_calls: AtomicUsize,
         result_calls: AtomicUsize,
         historical_rejection_calls: AtomicUsize,
+        directory_calls: AtomicUsize,
+        directory_refusal: Option<BacktestReadbackRefusalV1>,
     }
 
     struct RecordingRunReport {
@@ -319,6 +322,20 @@ mod tests {
                 }))
                 .expect("recording result bytes"),
             ))
+        }
+
+        async fn read_exploratory_replay_result_directory(
+            &self,
+            _request_identity: &str,
+            _request_meaning_digest: &str,
+        ) -> Result<Vec<ExploratoryReplayResultDirectoryEntryV1>, BacktestResultCustodyErrorV2>
+        {
+            self.directory_calls.fetch_add(1, Ordering::SeqCst);
+
+            match self.directory_refusal {
+                Some(refusal) => Err(BacktestResultCustodyErrorV2::Refused(refusal)),
+                None => Ok(Vec::new()),
+            }
         }
     }
 
@@ -997,6 +1014,84 @@ mod tests {
         .await;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(replay.result_calls.load(Ordering::SeqCst), 1);
+    }
+
+    /// The directory route binds the same selector the request readback does, relays an empty
+    /// directory as an empty list, and a refusal under the Owner's own reason: `409` for a Result
+    /// held under another meaning digest, `503` for anything else.
+    #[tokio::test]
+    async fn replay_result_directory_binds_its_selector_and_relays_the_owner_answer() {
+        let digest = format!("sha256:{}", "a".repeat(64));
+        let read = |replay: Arc<RecordingReplay>, request_identity: &str, meaning_digest: &str| {
+            let mut api = state(
+                Arc::new(RecordingArtifact::default()),
+                Arc::new(RecordingResearch::default()),
+                Arc::new(RecordingSourceIntake::default()),
+            );
+            api.exploratory_replay_result_readback = replay;
+            read_exploratory_replay_result_directory(
+                State(api),
+                Query(ExploratoryReplayReadbackQueryV2 {
+                    request_identity: request_identity.to_owned(),
+                    meaning_digest: meaning_digest.to_owned(),
+                }),
+                headers(),
+            )
+        };
+        let body = |response: axum::response::Response| async move {
+            let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+                .await
+                .expect("directory body");
+            serde_json::from_slice::<serde_json::Value>(&bytes).expect("directory JSON")
+        };
+
+        let replay = Arc::new(RecordingReplay::default());
+
+        for (request_identity, meaning_digest) in [
+            (" request-1", digest.as_str()),
+            ("request-1", "sha256:not-a-digest"),
+        ] {
+            let refused = read(replay.clone(), request_identity, meaning_digest).await;
+            assert_eq!(refused.status(), StatusCode::BAD_REQUEST);
+        }
+        assert_eq!(replay.directory_calls.load(Ordering::SeqCst), 0);
+
+        let listed = read(replay.clone(), "request-1", &digest).await;
+        assert_eq!(listed.status(), StatusCode::OK);
+        assert_eq!(
+            body(listed).await,
+            serde_json::json!({
+                "schema_version": 1, "request_identity": "request-1", "meaning_digest": digest,
+                "results": [],
+            })
+        );
+        assert_eq!(replay.directory_calls.load(Ordering::SeqCst), 1);
+
+        for (refusal, status) in [
+            (
+                BacktestReadbackRefusalV1::ExploratoryRequestMeaningMismatch,
+                StatusCode::CONFLICT,
+            ),
+            (
+                BacktestReadbackRefusalV1::ExploratoryReceiptAbsent,
+                StatusCode::SERVICE_UNAVAILABLE,
+            ),
+            (
+                BacktestReadbackRefusalV1::ExploratoryRequestResultsExceedBound,
+                StatusCode::SERVICE_UNAVAILABLE,
+            ),
+        ] {
+            let replay = Arc::new(RecordingReplay {
+                directory_refusal: Some(refusal),
+                ..RecordingReplay::default()
+            });
+            let refused = read(replay, "request-1", &digest).await;
+            assert_eq!(refused.status(), status, "{}", refusal.code());
+            assert_eq!(
+                body(refused).await,
+                serde_json::json!({"state": "UNAVAILABLE", "reason": refusal.code()})
+            );
+        }
     }
 
     async fn run_report(

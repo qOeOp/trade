@@ -223,8 +223,11 @@ pub use native_replay_rd_sources_v2::{
     NativeReplayRdSourcesV2,
 };
 pub use rd_owner_postgres_custody::{
-    BacktestResultCustodyErrorV2, ExploratoryReplayResultLocatorV2,
-    LockedExploratoryReplayResultV2, resolve_exploratory_replay_result_for_rd_in_transaction,
+    BacktestReadbackRefusalV1, BacktestResultCustodyErrorV2,
+    ExploratoryReplayResultDirectoryEntryV1, ExploratoryReplayResultLocatorV2,
+    LockedExploratoryReplayResultV2,
+    read_exploratory_replay_result_directory_for_rd_in_transaction,
+    resolve_exploratory_replay_result_for_rd_in_transaction,
     resolve_native_replay_rd_sources_v2_in_transaction,
 };
 pub mod receipt;

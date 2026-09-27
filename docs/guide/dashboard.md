@@ -244,8 +244,14 @@ set held is stated by the run's report, on its own member, and is not derived he
 browser receives none of the canonical request bytes, raw receipt, component digests, Product Edge
 admission, protected evidence, source, result bytes or storage fields.
 
-After a request is available, a second compact lookup rail accepts `Result identity` and `Attempt identity`; the
-already-open request identity and meaning digest complete the immutable selector. `Open result` renders one shared
+After a request is available, the workbench reads the Results the Backtest Owner holds for it through the Owner's
+Result directory,
+`GET /v2/exploratory-replay-results?request_identity={request_identity}&meaning_digest={meaning_digest}` on the same
+read API, and lists them in one shared `DataWorkspaceTable`: each row names the committed time, status, Result and
+attempt identity, in the Owner's order, and a request with none shows `No runs recorded`. A refusal withdraws the
+list under the Owner's own reason. Nothing is typed: `Open result` on a row opens that Result with exactly the
+identities the Owner listed, completed by the already-open request identity and meaning digest, and a link that
+names a Result marks its row selected without opening it. The opened Result renders one shared
 `FactGroup` with only result status, concise diagnostic category, reconciled component count, semantic-trace
 availability and the result identity. Status uses the shared semantic badge colors. No raw 28-row reconciliation,
 decisive-evidence locator or internal short sentence is rendered in the primary page. Below that `FactGroup`, the

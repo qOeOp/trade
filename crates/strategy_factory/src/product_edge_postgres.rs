@@ -153,6 +153,41 @@ impl PostgresExploratoryReplayReadbackOwnerV2 {
         result
     }
 
+    /// Lists every Backtest-owned Result of one Replay request.
+    ///
+    /// The read takes no row lock, so its transaction is `READ ONLY` from its first statement, which
+    /// turns any row lock a future change to the read might take into an error rather than a wait.
+    /// The transaction is always rolled back.
+    pub async fn read_exploratory_replay_result_directory_v1(
+        &self,
+        request_identity: &str,
+        request_meaning_digest: &str,
+    ) -> Result<
+        Vec<crate::ExploratoryReplayResultDirectoryEntryV1>,
+        crate::BacktestResultCustodyErrorV2,
+    > {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| crate::BacktestResultCustodyErrorV2::Unavailable)?;
+        sqlx::query("SET TRANSACTION READ ONLY")
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| crate::BacktestResultCustodyErrorV2::Unavailable)?;
+        let directory = crate::read_exploratory_replay_result_directory_for_rd_in_transaction(
+            &mut transaction,
+            request_identity,
+            request_meaning_digest,
+        )
+        .await;
+        transaction
+            .rollback()
+            .await
+            .map_err(|_| crate::BacktestResultCustodyErrorV2::Unavailable)?;
+        directory
+    }
+
     /// Reads one committed run's report through the Backtest Owner's run-report read.
     ///
     /// The Owner opens its own transaction: `SET TRANSACTION` must be a transaction's first

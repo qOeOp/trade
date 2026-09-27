@@ -96,9 +96,16 @@ function reportQuery({ resultIdentity, requestIdentity, attemptIdentity }) {
   return `v1/backtest-run-reports/${encodeURIComponent(resultIdentity)}?${query}`;
 }
 
-// Opens the request, then the result, exactly as an operator would, and waits for the report the
-// opened result mounts to leave its loading state.
-async function openResult(browser, origin, opened) {
+function directoryQuery({ requestIdentity, meaningDigest }) {
+  const query = new URLSearchParams({ request_identity: requestIdentity, meaning_digest: meaningDigest });
+  return `v2/exploratory-replay-results?${query}`;
+}
+
+// Opens the request, then picks the result from the directory the page lists, exactly as an
+// operator would, and waits for the report the opened result mounts to leave its loading state.
+// The page must list exactly the Results the Owner's directory holds, in its order: nothing about
+// the result is typed.
+async function openResult(browser, origin, opened, ownerDirectory) {
   await navigate(browser, `${origin}/backtest/`);
   await waitForBrowserExpression(browser, hydratedExpression('input[placeholder="request identity"]'),
     { label: "replay rail" });
@@ -107,13 +114,21 @@ async function openResult(browser, origin, opened) {
   assert.equal(await readBrowserValue(browser,
     setInputExpression('input[placeholder="blake3:…"]', opened.meaningDigest)), true);
   assert.equal(await readBrowserValue(browser, clickButtonExpression("Open readback")), true);
-  await waitForBrowserExpression(browser, hydratedExpression('input[placeholder="result identity"]'),
-    { label: "result rail" });
-  assert.equal(await readBrowserValue(browser,
-    setInputExpression('input[placeholder="result identity"]', opened.resultIdentity)), true);
-  assert.equal(await readBrowserValue(browser,
-    setInputExpression('input[placeholder="attempt identity"]', opened.attemptIdentity)), true);
-  assert.equal(await readBrowserValue(browser, clickButtonExpression("Open result")), true);
+  const listed = `Array.from(document.querySelectorAll('button[data-result-identity]'))
+    .map((button) => [button.dataset.resultIdentity, button.dataset.attemptIdentity])`;
+  await waitForBrowserExpression(browser, `${listed}.length === ${ownerDirectory.length}`,
+    { label: "result directory", timeoutMs: 60_000 });
+  assert.deepEqual(await readBrowserValue(browser, listed),
+    ownerDirectory.map((entry) => [entry.result_identity, entry.attempt_identity]),
+    "the page lists the Owner's directory, in its order");
+  assert.equal(await readBrowserValue(browser, `(() => {
+    const button = Array.from(document.querySelectorAll('button[data-result-identity]')).find((candidate) =>
+      candidate.dataset.resultIdentity === ${JSON.stringify(opened.resultIdentity)}
+      && candidate.dataset.attemptIdentity === ${JSON.stringify(opened.attemptIdentity)});
+    if (!button || button.disabled) return false;
+    button.click();
+    return true;
+  })()`), true);
   await waitForBrowserExpression(browser,
     `['unavailable', 'empty', 'available'].includes(document.querySelector('${REPORT}')?.dataset.state)`,
     { label: "run report settled beneath the opened result", timeoutMs: 60_000 });
@@ -179,6 +194,18 @@ test(browserAcceptance
     body: { state: "UNAVAILABLE", reason: runOwnerCode },
   }, "the read API relays the Owner's refusal of the committed run under the Owner's own code");
 
+  // Each case's request as the read API lists it: the Results the browser must show, and the one
+  // each case opens among them, read from the Owner before any browser runs.
+  const directories = new Map();
+  for (const opened of [refused, run]) {
+    const answer = await readApi(directoryQuery(opened), readApiUrl, readApiToken);
+    assert.equal(answer.status, 200, "the read API lists the request's Results");
+    assert.equal(answer.body.request_identity, opened.requestIdentity);
+    assert.ok(answer.body.results.some((entry) => entry.result_identity === opened.resultIdentity
+      && entry.attempt_identity === opened.attemptIdentity), "the directory lists the Result this case opens");
+    directories.set(opened, answer.body.results);
+  }
+
   let preview;
   let origin;
   let browser;
@@ -207,7 +234,7 @@ test(browserAcceptance
     });
 
     await t.test("an Owner refusal renders the unavailable state under the Owner's reason", async () => {
-      await openResult(browser, origin, refused);
+      await openResult(browser, origin, refused, directories.get(refused));
       assert.deepEqual(await readBrowserValue(browser, renderedReport()), {
         state: "unavailable",
         reason: refusedAnswer.body.reason,
@@ -222,7 +249,7 @@ test(browserAcceptance
     // authored single-threshold program, and an in-family run is still refused until its frozen
     // program is anchored to the artifact it executed.
     await t.test("the committed run's report renders the Owner's refusal under the Owner's reason", async () => {
-      await openResult(browser, origin, run);
+      await openResult(browser, origin, run, directories.get(run));
       assert.deepEqual(await readBrowserValue(browser, renderedReport()), {
         state: "unavailable",
         reason: runAnswer.body.reason,
