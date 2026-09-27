@@ -231,7 +231,9 @@ Research Intent，可以在之后的 Owner cut 上判断此后是否有受保护
   fact 对应的 generation 无法通过校验。
 - **当前性：** projection 只有在新鲜且其 source sequence 等于该历史的 generation 时才是当前的。
   `resolve_or_create_for_basis` 对 generation 已被超过的新鲜 projection 续出新的，`admit_in_transaction` 把它当作过期拒
-  绝。`admit_historical_projection_in_transaction` 仍按 projection 自己的 cut 读取。
+  绝。Candidate intake 以同样方式读取候选的 feedback frontier：只有当它是该历史的 head、在 intake 的 cut 上新鲜、并且等于
+  该历史的 generation 时才是当前的，所以其 frontier 已被某个 phase fact 越过的候选是 `NOT_ADMITTED`。
+  `admit_historical_projection_in_transaction` 仍按 projection 自己的 cut 读取。
 - **不续期的读取：** `read_protected_feedback_generation_in_transaction` 对调用方冻结的那个 projection，只回答其历史当前
   的 generation 与 source cut。它在调用方的 read committed 事务里对该历史的 head 行取 `FOR SHARE`，所以答案在该事务结束
   前一直成立；它既不检查 projection 的有效窗口，也不写任何东西，所以已过窗口的调用方读它既不会把窗口带回来，也不会引起
@@ -274,7 +276,9 @@ Executable provenance 是独立的效果边界。Qualification 记录实际使�
 通过。同一个函数还钉死了该文件指定行的 SHA-256，因此任何替代文件都无法满足它。而文件本身已从那台机器上消失：
 没有配置 Time Machine 目标，没有本地快照保留它，主目录与任何已挂载卷下都没有携带该 session 标识的文件，
 该产物也从未提交进仓库。于是它的证明
-`isolated_postgres_recovery_is_atomic_fail_closed_and_replay_safe` 在任何地方都无法通过。上文契约继续作为
+`isolated_postgres_recovery_is_atomic_fail_closed_and_replay_safe` 在任何地方都无法通过；用同一个文件重算封存向量的
+`frozen_evidence_recomputes_exact_canonical_vector` 也一样。两者都以 unrunnable 标记为 ignore。该模块的其它测试不读
+这个文件：`make cargo-test` 以 `vibe-qualification/owner-recovery` 构建，所以 workspace 测试 job 会运行它们。上文契约继续作为
 一次已封闭的单一事故重建的记录；它不会因为无法再被执行而扩大成通用 restore 路径，本节也不授权用夹具替代
 被封存的证据。
 

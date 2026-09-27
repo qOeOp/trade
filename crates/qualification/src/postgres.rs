@@ -829,10 +829,13 @@ async fn resolve_candidate_feedback_frontier_preserving_sqlstate_v1(
         &scope_key,
     )
     .await?;
+    // Current as the admission reads it: the history's head, fresh at this cut, and stating the
+    // history's generation. A head a phase fact has passed is not current however fresh it is.
     let is_current = history.current_frontier.as_ref().is_some_and(|frontier| {
         frontier.projection_identity == source_frontier_identity
             && frontier.projection_digest == source_frontier_digest
             && verify_projection_freshness(frontier, owner_cut_epoch_ms).is_ok()
+            && verify_projection_generation(frontier, history.generation).is_ok()
     });
     Ok(CandidateFeedbackFrontierV1 {
         digest: source_frontier_digest,
@@ -7332,6 +7335,25 @@ mod postgres_tests {
         generation
     }
 
+    /// Whether candidate intake reads `projection_identity` as a current feedback frontier at an
+    /// Owner cut the caller names. Read only: the transaction is rolled back.
+    async fn candidate_frontier_is_current_at(
+        pool: &PgPool,
+        projection_identity: &str,
+        owner_cut_epoch_ms: u64,
+    ) -> bool {
+        let mut read = pool.begin().await.expect("frontier read transaction");
+        let (_, is_current) = resolve_candidate_feedback_frontier_v1(
+            &mut read,
+            projection_identity,
+            owner_cut_epoch_ms,
+        )
+        .await
+        .expect("candidate feedback frontier");
+        read.rollback().await.expect("frontier read rollback");
+        is_current
+    }
+
     /// Every logged generation step of one history, as `(generation, phase fact)` in order.
     async fn logged_generation_steps(pool: &PgPool, scope_key: &str) -> Vec<(i64, String)> {
         sqlx::query_as(
@@ -9681,6 +9703,17 @@ mod postgres_tests {
         // reads the resolution, and a renewed history passes its accept control, as the replays
         // below show.
         assert!(owner.resolve_for_basis(&locator).await.is_err());
+        // Candidate intake reads the same currentness. At the genesis projection's own cut it is
+        // fresh and still the head, so only the generation it no longer states makes it not
+        // current; the renewal below is read the same way as the control.
+        assert!(
+            !candidate_frontier_is_current_at(
+                &owner.pool,
+                genesis.projection_identity(),
+                genesis.projection_at_epoch_ms(),
+            )
+            .await
+        );
         let projection = owner
             .resolve_or_create_for_basis(&locator)
             .await
@@ -9702,6 +9735,14 @@ mod postgres_tests {
         );
         assert_eq!(projection.source_sequence(), generation.generation());
         assert_eq!(projection.source_cut(), generation.source_cut());
+        assert!(
+            candidate_frontier_is_current_at(
+                &owner.pool,
+                projection.projection_identity(),
+                projection.projection_at_epoch_ms(),
+            )
+            .await
+        );
         assert_eq!(
             protected_feedback_generation(&rd, projection.projection_identity())
                 .await

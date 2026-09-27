@@ -3640,9 +3640,13 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[ignore = "requires explicit local PostgreSQL, Dashboard dependencies, and Chrome acceptance admission"]
     async fn strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody() {
-        if env::var("DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE").as_deref() != Ok("1") {
-            return;
-        }
+        // Fail closed like the two inputs below: an early return here reported PASS from any run
+        // that lacked the input, having driven nothing (scripts/ci/chain-entry-early-return.py).
+        assert_eq!(
+            env::var("DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE").as_deref(),
+            Ok("1"),
+            "DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE must be exactly 1 for this browser acceptance",
+        );
 
         install_acceptance_tracing();
 

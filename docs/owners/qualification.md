@@ -274,7 +274,10 @@ whether any protected evaluation has since become observable to it.
   phase fact accounts for fails verification.
 - **Currentness:** a projection is current only while it is fresh and its source sequence is the history's generation.
   `resolve_or_create_for_basis` renews a fresh projection whose generation has been passed, and `admit_in_transaction`
-  refuses it as stale. `admit_historical_projection_in_transaction` still reads a projection at its own cut.
+  refuses it as stale. Candidate intake reads a candidate's feedback frontier the same way: it is current only while it
+  is the history's head, fresh at the intake cut and stating the history's generation, so a candidate whose frontier a
+  phase fact has passed is `NOT_ADMITTED`. `admit_historical_projection_in_transaction` still reads a projection at its
+  own cut.
 - **Read without renewal:** `read_protected_feedback_generation_in_transaction` answers, for the projection a caller
   froze, its history's current generation and source cut, and nothing else. It takes the history's head row `FOR SHARE`
   in the caller's read-committed transaction, so the answer holds until that transaction ends, and it neither checks the
@@ -330,7 +333,10 @@ ever run on that one machine and never on Linux CI. The same function also pins 
 that file, so no substitute file can satisfy it. The file itself is gone from that machine: no Time Machine
 destination is configured, no local snapshot holds it, nothing under the home directory or any mounted volume
 carries that session identifier, and the artifact was never committed. Its proof,
-`isolated_postgres_recovery_is_atomic_fail_closed_and_replay_safe`, therefore cannot pass anywhere. The contract
+`isolated_postgres_recovery_is_atomic_fail_closed_and_replay_safe`, therefore cannot pass anywhere, and neither can
+`frozen_evidence_recomputes_exact_canonical_vector`, which recomputes the sealed vector from the same file. Both
+are ignored as unrunnable. The module's other tests do not read the file: `make cargo-test` builds with
+`vibe-qualification/owner-recovery`, so the workspace test job runs them. The contract
 above stays as the record of a closed one-incident reconstruction; it does not widen into a general restore path
 because it can no longer be exercised, and nothing here authorizes substituting a fixture for the sealed
 evidence.
