@@ -1832,13 +1832,33 @@ seals every frame through that same seal, over one or two members, and its liqui
 seals the quote cut's snapshot, fact and batch in place of the frame's. No proof yet drives a
 complete initial read - schedules, universe and quote cut together - on Owner custody.
 
-**TARGET / NOT_ADMITTED, PIT window custody:** a multi-frame Backtest over backfilled history reads one
+**TARGET / IMPLEMENTATION_ADMITTED for slice T0, PIT window custody:** a multi-frame Backtest over backfilled
+history reads one
 append-only PIT window custody instead of a snapshot per frame. The user admitted this on 2026-09-27, as the Strategy
 Factory page's Strategy shape envelope quotes, including the one property it narrows: frames of a custody run no
 longer each carry their own minting cut and trusted-clock evidence, so custody is admitted only for backfilled
 history, and real-time decisions keep taking one snapshot per instant. A PIT snapshot remains one instant. The
 snapshot path keeps its bytes, seals, censuses, and quote cut port; the verified batch seal and the quote cut read
 each gain a custody view branch beside it.
+
+Slice T0 is admitted for implementation, and only T0. The user authorized the design on 2026-09-27 in these words
+(translated), as the Strategy shape envelope quotes them: "Switch to window custody. Backfilled history is placed in
+custody once for the whole range; when each bar becomes visible is derived from the rule declared on the Source
+Binding; real-time trading still takes a snapshot per instant. The user authorizes narrowing the scope of the property
+that each frame carries its own minting evidence: in backtests, frames no longer each carry minting evidence, and only
+backfilled history is admitted." T0 is the Market Data side alone: the two-layer custody (cross-section version
+records and row facts under the successor sample fact schema), the cross-section correction model with its branch
+refusal, the availability rule declared on the Source Binding, frame enumeration from the execution timeframe's Owner
+BAR schedule, the derived view with its time evidence and identity, the `CustodyView` branch of the verified batch
+seal, and the quote cut derived from custody. A custody request states its member set and timeframes itself. Deriving
+that request from a Research scope and a Design is slice T1's, as are the N-frame Backtest composition and every
+reader outside Market Data; T2 (multi-timeframe roles) and T3 (warm-up by role) stay not admitted here until their
+slices are. T0 adds no route, production caller, or Backtest input, so until T1 is admitted nothing outside Market
+Data's own proofs mints or reads a custody. Its proofs are the envelope's falsifiers that fall inside Market Data: N=1
+and two single-timeframe frames equal the snapshot path on the projection of values, coordinates, event times, bar
+types, and member order; two custodies differing only in whether one correction publishes before `d_k` yield different
+frame `k` values, and removing the publication condition turns that red, driven by a synthetic source that declares a
+correction stream; and an availability rule set to the minting instant hides every frame.
 
 - **Custody:** covers the half-open window from its warm-up start and is committed once, then never mutated. A later
   correction is a successor custody that names its predecessor and carries only the versions it adds; a view reads
