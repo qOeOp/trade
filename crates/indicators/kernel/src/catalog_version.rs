@@ -10,14 +10,19 @@ use crate::{
     catalog_rows::ROWS,
     catalog_rows_v2::ROWS_V2,
     catalog_rows_v3::ROWS_V3,
+    catalog_rows_v4::ROWS_V4,
     golden_corpus::GOLDENS,
     golden_corpus_v2::GOLDENS_V2,
     golden_corpus_v3::GOLDENS_V3,
+    golden_corpus_v4::GOLDENS_V4,
     required_golden_ids_v2::{
         CATALOG_SEMANTIC_IDS_V2, EXECUTABLE_PRIMITIVE_IDS_V2, REQUIRED_GOLDEN_IDS_V2,
     },
     required_golden_ids_v3::{
         CATALOG_SEMANTIC_IDS_V3, EXECUTABLE_PRIMITIVE_IDS_V3, REQUIRED_GOLDEN_IDS_V3,
+    },
+    required_golden_ids_v4::{
+        CATALOG_SEMANTIC_IDS_V4, EXECUTABLE_PRIMITIVE_IDS_V4, REQUIRED_GOLDEN_IDS_V4,
     },
 };
 
@@ -86,7 +91,18 @@ const VERSION_3: CatalogVersionV1 = CatalogVersionV1 {
 ///
 /// `newest()` reads the last entry, so adding one here is also the change that makes a freshly
 /// minted program resolve the new version.
-pub(crate) const PUBLISHED_V1: [&CatalogVersionV1; 3] = [&VERSION_1, &VERSION_2, &VERSION_3];
+const VERSION_4: CatalogVersionV1 = CatalogVersionV1 {
+    semantic_version: 4,
+    rows: &ROWS_V4,
+    semantic_ids: &CATALOG_SEMANTIC_IDS_V4,
+    executable_ids: &EXECUTABLE_PRIMITIVE_IDS_V4,
+    goldens: &GOLDENS_V4,
+    required_golden_ids: &REQUIRED_GOLDEN_IDS_V4,
+    kind_counts: [6, 44, 15],
+};
+
+pub(crate) const PUBLISHED_V1: [&CatalogVersionV1; 4] =
+    [&VERSION_1, &VERSION_2, &VERSION_3, &VERSION_4];
 
 /// Resolves one published version's content, or `None` when this kernel does not publish it.
 pub(crate) fn published(semantic_version: u16) -> Option<&'static CatalogVersionV1> {

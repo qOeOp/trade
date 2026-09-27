@@ -71,6 +71,9 @@ pub enum PrimitiveOperationV1 {
     SwingLow,
     FusedRational,
     Sqrt,
+    BarsSinceMaximum,
+    BarsSinceMinimum,
+    PercentRank,
 }
 
 impl PrimitiveOperationV1 {
@@ -90,6 +93,9 @@ impl PrimitiveOperationV1 {
                 | Self::Maximum
                 | Self::SwingHigh
                 | Self::SwingLow
+                | Self::BarsSinceMaximum
+                | Self::BarsSinceMinimum
+                | Self::PercentRank
         )
     }
 
@@ -147,6 +153,11 @@ pub struct CatalogRowV1 {
 const NO_STATE: &str = "empty bytes; no primitive state";
 const SMOOTHING_STATE: &str = "352 bytes LE: schema:u16=1,reserved:u16=0,period:u32>0,kind:u8(EMA=1,Wilder=2),round:u8,scale:u8,initialized:u8; coordinate:308,input:i128,output:i128; uninitialized payload zero; restore preserves config";
 const WINDOW_STATE: &str = "20+324*window bytes LE: schema:u16=1,reserved:u16=0,kind:u8(sum=1,mean=2,min=3,max=4,swing-high=5,swing-low=6,lag=7),round:u8,input-scale:u8,output-scale:u8,window:u32>0,count:u32,next:u32; physical ring entries coordinate:308,coefficient:i128; unused entries zero; lag window=offset+1; restore validates config/history and recomputes output";
+/// The window state as version 4 describes it: the same bytes, with the three kinds version 4 adds.
+///
+/// A new constant rather than an edit to [`WINDOW_STATE`], because every earlier window row hashes
+/// that string into its version's pinned semantic digest.
+const WINDOW_STATE_V4: &str = "20+324*window bytes LE: schema:u16=1,reserved:u16=0,kind:u8(sum=1,mean=2,min=3,max=4,swing-high=5,swing-low=6,lag=7,bars-since-max=8,bars-since-min=9,percent-rank=10),round:u8,input-scale:u8,output-scale:u8,window:u32>0,count:u32,next:u32; physical ring entries coordinate:308,coefficient:i128; unused entries zero; lag window=offset+1; restore validates config/history and recomputes output";
 const BAR_STATE: &str = "400 bytes LE: schema:u16=1,reserved:u16=0,kind:u8(TR=1,ATR=2,gap=3),round:u8,scale:u8,status:u8(empty=0,warming=1,ready=2),period:u32(positive only ATR; otherwise zero); coordinate:308,open:i128,high:i128,low:i128,close:i128,output:i128; empty payload zero; warming only gap; restore preserves config/OHLC";
 const RSI_STATE: &str = "384+20+324*(period+1) bytes LE: schema:u16=1,reserved:u16=0,round:u8,input-scale:u8,output-scale:u8,status:u8(empty=0,warming=1,ready=2),period:u32>0; coordinate:308,close:i128,average-gain:i128,average-loss:i128,output:i128; nested canonical lag window of period+1; ready history cleared; warm averages/output zero; restore preserves config/phase and recomputes ready ratio";
 const STATE_POLICY: &str = "integers little-endian: counts/period/window/lag/ring-index:u32; Owner times/sequences/lineage-version:u64; coefficient:i128; scale/round:u8; coordinate exactly308 bytes schema1/reserved0 from admitted Owner input; never Rust layout,usize,pointers,JSON numbers; failure preserves entire pre-event state; Host owns authentication and whole-event commit";
@@ -322,6 +333,15 @@ impl CatalogRowV1 {
             Op::SwingLow => {
                 "positive full trailing window minimum low plus its exact Owner coordinate; equal extrema choose latest coordinate in Owner order; no future-looking pivot"
             }
+            Op::BarsSinceMaximum => {
+                "positive full trailing window; count of samples after the window maximum, 0 when the latest sample is it; equal extrema choose the latest in Owner order; exact integer at the declared output scale, no rounding; dimensionless"
+            }
+            Op::BarsSinceMinimum => {
+                "positive full trailing window; count of samples after the window minimum, 0 when the latest sample is it; equal extrema choose the latest in Owner order; exact integer at the declared output scale, no rounding; dimensionless"
+            }
+            Op::PercentRank => {
+                "full trailing window of at least 2; midrank of the latest sample, (2*below+equal-1)/(2*(window-1)) where below counts samples less than it and equal counts samples equal to it including itself, as one I256 expression with one final round into the declared output scale; 0 lowest, 1 highest, 0.5 when all equal; dimensionless"
+            }
         };
 
         match op {
@@ -391,6 +411,14 @@ impl CatalogRowV1 {
                 value.parameters = P::PeriodAndOutputScale;
                 value.state = T::Rsi;
                 value.state_encoding = RSI_STATE;
+            }
+            Op::BarsSinceMaximum | Op::BarsSinceMinimum | Op::PercentRank => {
+                value.availability = A::FullWindow;
+                value.parameters = P::WindowAndOutputScale;
+                value.state = T::Window;
+                value.state_encoding = WINDOW_STATE_V4;
+                value.unit = U::DimensionlessOutput;
+                value.scale = S::DeclaredOutput;
             }
             Op::Lag
             | Op::Sum

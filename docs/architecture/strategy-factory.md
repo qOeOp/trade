@@ -304,6 +304,11 @@ implement a formula. The first catalog must include:
 - `range_fraction(low, high, numerator, denominator)`, where the ratio is a frozen reduced rational, denominator
   is positive, bounds and scale are explicit, and Fibonacci levels are only frozen rational constants.
 
+Later versions only append. Version 2 adds the fused rational, version 3 the fixed-point square root, and
+version 4 the trailing-window bar counts since the maximum and since the minimum, exact integers where the
+latest of equal extrema counts, and the trailing-window percent rank, the latest sample's midrank from 0 at the
+lowest to 1 at the highest over a window of at least two, with one final rounding.
+
 Price-action rules and candlestick patterns are typed compositions of these catalog primitives, not named strategy
 templates, opaque labels, copied formulas, or new Host opcodes.
 
@@ -1493,6 +1498,9 @@ including on inputs with ties.
 ### Values, inputs, and actions
 
 - **Values:** catalog V4a appends window rank and percentile, bars since an extremum, and covariance and correlation.
+  Catalog version 4 publishes the first two, and its first users, `w1` and `w2`, are in the authored corpus; a row a
+  later version adds is refused by the build until an authored program uses it. Covariance and correlation need a
+  two-series window state and remain TARGET.
   V4b appends natural logarithm and exponential. The user authorized their numeric rule on 2026-09-27 by choosing, in
   these words (translated): "Introduce ln/exp with a pinned algorithm plus golden test vectors, applying only to new
   catalog rows; this class of operation is exempt from 'one exact expression, one final rounding'." V5 adds two
