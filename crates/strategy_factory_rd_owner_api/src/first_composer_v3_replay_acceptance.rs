@@ -954,11 +954,13 @@ pub(crate) async fn ensure_first_composer_v3_replay_acceptance_v1(
                 position_intent_semantic_id: "kernel.position.enter.v1".to_owned(),
                 target_variant_semantic_id: "kernel.target.position.v1".to_owned(),
                 target_position_units: 1,
+                target_weight_micros: 0,
             },
             otherwise: SingleThresholdOutcomeV1 {
                 position_intent_semantic_id: "kernel.position.exit.v1".to_owned(),
                 target_variant_semantic_id: "kernel.target.position.v1".to_owned(),
                 target_position_units: 0,
+                target_weight_micros: 0,
             },
             falsifier: facts.falsifier.clone(),
         })
