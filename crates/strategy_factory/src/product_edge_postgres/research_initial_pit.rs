@@ -559,7 +559,7 @@ impl PostgresResearchGoalOwnerV1 {
                 )
                 .await?,
             ),
-            None if clock_moved => Settled::RefreezeAtCurrentCut,
+            None if clock_moved => Settled::Done(ResearchInitialPitV1::SubmittedOrUnknown),
             // Refused as already committed, yet nothing reads back: the answer is not trusted.
             None => {
                 storage_diagnostic::refused_by_store(
