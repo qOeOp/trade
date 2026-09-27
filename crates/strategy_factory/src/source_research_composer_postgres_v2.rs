@@ -2914,7 +2914,7 @@ impl DevelopComposerFinalEvidencePortV2 for LockedOwnerEvidenceV2 {
 
 /// Derives only the immutable census keys. Positive custody still comes exclusively from
 /// the matching `CurrentResearchDevelopCustodyV2` constructor after the census is uniquely matched.
-fn durable_research_identities(
+pub(crate) fn durable_research_identities(
     custody: &VerifiedResearchCustodyV1,
 ) -> Option<(BindingDigest, BindingDigest)> {
     let request_identity = domain_digest(
