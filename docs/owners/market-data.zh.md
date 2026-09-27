@@ -169,25 +169,25 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
 
 ### 逐片台账
 
-| 切片                                              | 状态                                                         | 实现位置                                                                                                                                                                                                        | 阻断物     |
-| ------------------------------------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| PIT Market Snapshot 权威与 custody                | `CURRENT / PARTIAL`                                          | `crates/data/src/owner/pit_snapshot.rs`、`pit_snapshot/authority.rs`、`owner/postgres.rs` 的 `pit_*` 关系                                                                                                       | `B1`       |
-| Source Binding 与 Owner 本地 clock head           | `CURRENT / PARTIAL`                                          | `crates/data/src/owner/source_binding.rs`、`owner/postgres.rs`                                                                                                                                                  | `B1`       |
-| 面向 R&D 的 `ResearchPitTerminal` 输出交接        | `CURRENT / PARTIAL`                                          | `crates/data/src/owner/research_pit_terminal.rs`                                                                                                                                                                | `B3`       |
-| Deployment Store Admission 私有接缝               | `CURRENT / PARTIAL`                                          | `crates/data/src/owner/store_admission`                                                                                                                                                                         | `B3`       |
-| R0 观测证据与 reference‑fact 目录                 | `CURRENT / PARTIAL`，含 R0 写                                | `owner/reference_fact_coordinates`、`owner/reference_fact_catalog.rs`                                                                                                                                           | `B5`、`B7` |
-| Calendar、Time Zone 与 Session 原生权威           | `CURRENT / PARTIAL`                                          | `owner/calendar`、`owner/time_zone`、`owner/session`                                                                                                                                                            | `B5`       |
-| Market Semantics Owner 契约                       | `CURRENT / PARTIAL`，含 fact intake                          | `owner/market_semantics`                                                                                                                                                                                        | `B5`、`B7` |
-| Correction Policy 私有 Replay projection          | `CURRENT / PARTIAL`                                          | `owner/correction_policy_projection`                                                                                                                                                                            | `B5`       |
-| Corporate Action 的 Instrument Master 子权威      | `CURRENT / PARTIAL`                                          | `owner/corporate_action`                                                                                                                                                                                        | `B5`       |
-| Universe Selection Record                         | `CURRENT / PARTIAL`                                          | `owner/universe_selection.rs`，持久 custody 与事务内规则求值在 `owner/postgres/universe_selection.rs`（`universe_selection_records_v1`、receipts、outbox、historical‑membership frontier/facts/heads/manifest） | `B1`       |
-| Replay Market Facts V2 基础                       | `CURRENT / PARTIAL`                                          | `owner/replay_market_facts_v2`                                                                                                                                                                                  | `B4`       |
-| Instrument Master V1 与 V2 及经济条款             | `CURRENT / PARTIAL`，含 V1 fact intake 与 V2 baseline intake | `owner/instrument_master.rs`、`owner/instrument_master_v2*.rs`、`owner/instrument_economic_terms*_v1.rs`                                                                                                        | `B4`、`B7` |
-| Strategy input‑role binding 与 Design 的 PIT 坐标 | `CURRENT / PARTIAL`                                          | `owner/postgres/strategy_input_binding_registry.rs`                                                                                                                                                             | `B2`、`B4` |
-| EVENT 与 BAR Owner custody                        | `CURRENT / PARTIAL`                                          | `owner/sample_fact.rs`、`owner/sample_projection*.rs`、`owner/bar_schedule.rs`                                                                                                                                  | `B4`       |
-| Shared Time clock‑head 交接                       | `TARGET`                                                     | `owner/shared_time_evidence.rs`                                                                                                                                                                                 | `B3`       |
-| 供应商 Data Clients                               | `CURRENT / PARTIAL`                                          | `crates/adapters/databento/src/pit_observation_source_v1.rs` 与 `crates/adapters/binance/src/pit_observation_source_v1.rs`，均已实盘验证                                                                        | `B6`       |
-| 面向 Runtime 的实时行情事实通道                   | `CURRENT / PARTIAL`，一条通道                                | `owner/live_market_fact_v1.rs`、`owner/live_market_stream_v1.rs`、`owner/postgres/live_market_stream_v1.rs`、`crates/adapters/bybit/src/live_market_fact_source_v1.rs`                                          | `B8`       |
+| 切片                                              | 状态                                                                               | 实现位置                                                                                                                                                                                                        | 阻断物     |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| PIT Market Snapshot 权威与 custody                | `CURRENT / PARTIAL`                                                                | `crates/data/src/owner/pit_snapshot.rs`、`pit_snapshot/authority.rs`、`owner/postgres.rs` 的 `pit_*` 关系                                                                                                       | `B1`       |
+| Source Binding 与 Owner 本地 clock head           | `CURRENT / PARTIAL`                                                                | `crates/data/src/owner/source_binding.rs`、`owner/postgres.rs`                                                                                                                                                  | `B1`       |
+| 面向 R&D 的 `ResearchPitTerminal` 输出交接        | `CURRENT / PARTIAL`                                                                | `crates/data/src/owner/research_pit_terminal.rs`                                                                                                                                                                | `B3`       |
+| Deployment Store Admission 私有接缝               | `CURRENT / PARTIAL`                                                                | `crates/data/src/owner/store_admission`                                                                                                                                                                         | `B3`       |
+| R0 观测证据与 reference‑fact 目录                 | `CURRENT / PARTIAL`，含 R0 写                                                      | `owner/reference_fact_coordinates`、`owner/reference_fact_catalog.rs`                                                                                                                                           | `B5`、`B7` |
+| Calendar、Time Zone 与 Session 原生权威           | `CURRENT / PARTIAL`                                                                | `owner/calendar`、`owner/time_zone`、`owner/session`                                                                                                                                                            | `B5`       |
+| Market Semantics Owner 契约                       | `CURRENT / PARTIAL`，含 fact intake                                                | `owner/market_semantics`                                                                                                                                                                                        | `B5`、`B7` |
+| Correction Policy 私有 Replay projection          | `CURRENT / PARTIAL`                                                                | `owner/correction_policy_projection`                                                                                                                                                                            | `B5`       |
+| Corporate Action 的 Instrument Master 子权威      | `CURRENT / PARTIAL`                                                                | `owner/corporate_action`                                                                                                                                                                                        | `B5`       |
+| Universe Selection Record                         | `CURRENT / PARTIAL`                                                                | `owner/universe_selection.rs`，持久 custody 与事务内规则求值在 `owner/postgres/universe_selection.rs`（`universe_selection_records_v1`、receipts、outbox、historical‑membership frontier/facts/heads/manifest） | `B1`       |
+| Replay Market Facts V2 基础                       | `CURRENT / PARTIAL`                                                                | `owner/replay_market_facts_v2`                                                                                                                                                                                  | `B4`       |
+| Instrument Master V1 与 V2 及经济条款             | `CURRENT / PARTIAL`，含 V1 fact intake 与 V2 的 baseline、状态 delta 与快照 intake | `owner/instrument_master.rs`、`owner/instrument_master_v2*.rs`、`owner/instrument_economic_terms*_v1.rs`                                                                                                        | `B4`、`B7` |
+| Strategy input‑role binding 与 Design 的 PIT 坐标 | `CURRENT / PARTIAL`                                                                | `owner/postgres/strategy_input_binding_registry.rs`                                                                                                                                                             | `B2`、`B4` |
+| EVENT 与 BAR Owner custody                        | `CURRENT / PARTIAL`                                                                | `owner/sample_fact.rs`、`owner/sample_projection*.rs`、`owner/bar_schedule.rs`                                                                                                                                  | `B4`       |
+| Shared Time clock‑head 交接                       | `TARGET`                                                                           | `owner/shared_time_evidence.rs`                                                                                                                                                                                 | `B3`       |
+| 供应商 Data Clients                               | `CURRENT / PARTIAL`                                                                | `crates/adapters/databento/src/pit_observation_source_v1.rs` 与 `crates/adapters/binance/src/pit_observation_source_v1.rs`，均已实盘验证                                                                        | `B6`       |
+| 面向 Runtime 的实时行情事实通道                   | `CURRENT / PARTIAL`，一条通道                                                      | `owner/live_market_fact_v1.rs`、`owner/live_market_stream_v1.rs`、`owner/postgres/live_market_stream_v1.rs`、`crates/adapters/bybit/src/live_market_fact_source_v1.rs`                                          | `B8`       |
 
 ## 拥有的权威事实
 
@@ -1203,8 +1203,9 @@ V2 fact 的 instrument 提交一条原样公开的 `!contractInfo` 事件。Owne
   clock head 的 decision cut，在准入事务里读取。Source Binding 必须恰以所指名的 locator 被准入，且必须是该 instrument 的
   baseline 所指名的那个 binding。
 - **次序：** 事件时刻必须晚于所指名 fact 已知其状态的时刻，且不晚于取得时刻；取得时刻必须不晚于 head 的 decision cut。
-  baseline 知道的是取得时刻的状态，因为 `exchangeInfo` 陈述的是取得时的状态而非上市时的；delta 知道的是其事件时刻的状态。
-  迟到的较早事件，包括上市之后、baseline 取得之前的事件，被拒绝，而不是盖过更新的状态。
+  baseline 知道的是取得时刻的状态，因为 `exchangeInfo` 陈述的是取得时的状态而非上市时的；delta 知道的是其事件时刻的状态
+  ；由下文快照 intake 准入的之后的 `exchangeInfo` 快照，在它是最新状态证据时，知道的是其取得时刻的状态。迟到的较早事件，
+  包括上市之后、baseline 取得之前的事件，被拒绝，而不是盖过更新的状态。
 - **链：** 所指名的 fact 必须是该 instrument 当前的 head，所以每条 delta 都说明自己接续什么，两份提交不可能都延伸同一个
   fact。cut 为每个成员解析其 selection 的 Owner observation 时刻上可观测的最新 fact，所以在同一个 decision cut 上，delta
   准入之前签发的 cut 解析出所指名的 fact，之后签发的解析出这条 delta。与 baseline 一样，cut 按请求键写一次，所以同一个请求
@@ -1229,8 +1230,8 @@ V2 fact 的 instrument 提交一条原样公开的 `!contractInfo` 事件。Owne
   - `INSTRUMENT_MASTER_V2_STATUS_UNCHANGED`（HTTP 422）：`cs` 就是 fact 当前的状态。该事件只改了 fact 不持有的东西，例如
     分档，所以没有可记录的。喂入整条流的采集器每次分档更新都会遇到它，应把它当作预期内、任何重试都改变不了的跳过，而不是
     失败。
-  - `INSTRUMENT_MASTER_V2_EVENT_OUT_OF_ORDER`（HTTP 409）：事件时刻不晚于所指名 fact 已知其状态的时刻：其 baseline 的取得
-    时刻，或其最近一条 delta 的事件时刻。
+  - `INSTRUMENT_MASTER_V2_EVENT_OUT_OF_ORDER`（HTTP 409）：事件时刻不晚于所指名 fact 已知其状态的时刻：其 baseline 的取
+    得时刻、最近一条 delta 的事件时刻、最近一次快照的取得时刻三者中最晚的。
   - `INSTRUMENT_MASTER_V2_PREDECESSOR_UNKNOWN`（HTTP 409）：没有 V2 fact 带所指名的 identity。
   - `INSTRUMENT_MASTER_V2_PREDECESSOR_NOT_CURRENT`（HTTP 409）：所指名的 fact 已有另一种含义的后继，例如另一条事件先被
     准入。
@@ -1253,11 +1254,69 @@ V2 fact 的 instrument 提交一条原样公开的 `!contractInfo` 事件。Owne
   baseline 取得时刻的事件。另一个证明扣住 clock head 行，直到两份相同的 baseline 提交、之后两份相同的 delta 都在等锁，
   每一对都以一个 fact 作答。
 
-**NOT_ADMITTED：** 改变 V2 fact 可执行条款的更正没有 intake：状态 delta 按设计只改合约状态。更正 baseline 自上市起假定的
-条款，需要在一段区间上成立的 V2 条款，以及条款何时改变的证据，而只有归档的 `exchangeInfo` 快照能提供这种证据；那个设计
-没有准入。状态不是 `TRADING` 的窗口上的 Replay 是否必须拒绝，尚未决定；今天没有任何东西拒绝它。不从 V1 fact 派生 V2，
-除加密永续外不准入任何 class，Owner 场所常量表之外的 venue 也不准入，这里也不声称 provider ingestion、authenticity、部署
-或交易。两条 intake 都不把 V2 fact 与任何 V1 fact 比较；同时读两者的 cut 做这件事，见下一段。
+**CURRENT / PARTIAL，生产 Instrument Master V2 `exchangeInfo` 快照 intake：** 一个 Owner-sealed admission port 与一条路
+由 `POST /v1/market-data/instrument-master-v2-snapshots`，归档器或 Operations 经它为一个已有 V2 fact 的 instrument 提交
+之后取回的原始 `exchangeInfo` payload。Owner 经 `apply_exchange_info_snapshot` 把它作为该 fact 的直接后继（快照后继）追
+加。它是 `market_data_instrument_master_v2.facts` 的第三个生产写者，以 `market_data_owner` 运行，不需要授权。这是下文
+TARGET 的第一片：cut 上的窗口选择与归档器都没有构建。
+
+- **提交陈述什么：** 快照所跟随的 fact 的 identity、取得时刻、payload 的原样文本，以及取回它时所依据的已准入 Source
+  Binding，它必须是该 instrument 的 baseline 所指名的那个。Owner 推得出的东西它一概不陈述。
+- **Owner 推出什么：** 每个条款都经 baseline 自己的映射 `ExchangeInfoBaselineV2::from_usdm_exchange_info`，按该 fact 的
+  raw symbol 与该 binding 数据集的场所行推出。payload 的 `onboardDate` 必须是 baseline 的：另一次上市不是这次上市的之后
+  快照。fact 保存的记录是 payload digest、取得时刻与 Owner observation；binding 就是 baseline 的，不重复保存。
+- **两种次序。** 快照之间有自己的次序：取得时刻必须晚于该 fact 最近一次快照的，或其 baseline 的。合约状态在 delta 与快照
+  之间只有一种次序，即 fact 已知其状态的时刻，取其 baseline 的取得时刻、最近一条 delta 的事件时刻、最近一次快照的取得时
+  刻三者中最晚的。只有当快照晚于该时刻时，payload 的状态才成为 fact 的状态；否则 fact 保留自己更新的状态，快照只记录它的
+  条款，所以快照永远不会因为更新的状态先到而被拒绝。快照之后的状态 delta 必须晚于同一个时刻，即下文 TARGET 所命名的状态
+  时刻边界。
+- **条款依据。** 除状态外条款与所跟随 fact 相等的快照保持依据 `RETRIEVED_TERMS_ASSUMED_SINCE_LISTING`：条款仍是 baseline
+  的，只是之后又被观察到了一次。条款不同的快照让该 fact 以及其后的每个 fact 的依据变为 `OBSERVED_SINCE_TERMS_CHANGE`，因
+  为那张快照之前成立的不是这些条款。terminal 会说明快照是否改变了条款。
+- **在按窗口选择之前，cut 拒绝条款变过的成员。** cut 还不读 Replay 窗口，所以分辨不出窗口在一次变化之前还是之后。它以
+  `TermsChanged` 拒绝依据为 `OBSERVED_SINCE_TERMS_CHANGE` 的成员且零写入，R&D 的 execution-input binding 回答
+  `INSTRUMENT_MASTER_TERMS_CHANGED`（HTTP 409）；重试改变不了答案。窗口选择是唯一移除这条拒绝的切片。所有快照都重复
+  baseline 条款的成员仍像以前一样，解析到其最新 fact。
+- **时钟。** 当 head 的 decision cut 不早于取得时刻时，快照的 Owner observation 就是该 cut。否则 intake 像 Source
+  Binding 准入那样，以自己的墙钟观察铸出下一个 Owner 时钟，并经 Source Binding 准入所用的同一条路径在同一个事务里准入它
+  ，所以只有 fact 被追加时 head 才会移动；快照的 Owner observation 就是铸出的 cut。晚于该墙钟观察的取得时刻被拒绝。clock
+  head 不需要 owner fact 来锚定：时钟托管检查只读时钟表。R&D 在前一个 head 上冻结的 PIT 提交随之以
+  `ClockEvidenceNotCurrent` 被拒绝，与任何一次 Source Binding 准入之后一样。
+- **一次一个写者，以及重放。** 事务的第一条语句就取 V2 store 的表锁，与另两条 intake 一样。若提交推出的 fact 等于所指名
+  fact 已存的直接后继（按该后继自己的 Owner observation 读取），就 rejoin 它并返回同一个 terminal；rejoin 永远不铸时钟。
+- **F 不变。** 没有快照的 fact 保持原有编码，逐字节不变：快照后继是第三个 lineage 标签，baseline 与状态 delta 的标签没有
+  动。一个单元测试钉住由录制 payload 得出的 baseline（414 字节）、它的状态后继（669 字节）与一个 baseline 上的单成员 cut
+  ，这些值取自快照后继出现之前的代码树，与已有的双成员 cut 钉子并列。
+- **拒绝，均按名给出，且不写入任何东西；每条都说明今天什么提交会走到它：**
+  - `UNAUTHORIZED_PRODUCT_EDGE`（HTTP 403）与 `MALFORMED_TYPED_REQUEST`（HTTP 400），与其他 V2 路由相同。
+  - `INSTRUMENT_MASTER_V2_INVALID_SUBMISSION`（HTTP 422）：文本不是 `exchangeInfo` 对象。
+  - `INSTRUMENT_MASTER_V2_SYMBOL_ABSENT`、`_SYMBOL_AMBIGUOUS`、`_CONTRACT_TYPE_UNSUPPORTED`、`_DATASET_MISMATCH`、
+    `_ONBOARD_DATE_UNAVAILABLE` 与 `_FILTER_UNAVAILABLE`（HTTP 422）：baseline intake 自己的映射拒绝了该 payload，理由与
+    触发它的 payload 均如 baseline intake 所述。
+  - `INSTRUMENT_MASTER_V2_LISTING_DIFFERS`（HTTP 422）：条目的 `onboardDate` 不是 baseline 的。
+  - `INSTRUMENT_MASTER_V2_SNAPSHOT_OUT_OF_ORDER`（HTTP 409）：取得时刻不晚于该 fact 最近一次快照的，或其 baseline 的。
+  - `INSTRUMENT_MASTER_V2_PREDECESSOR_UNKNOWN` 与 `_PREDECESSOR_NOT_CURRENT`（HTTP 409）、`_SOURCE_BINDING_UNAVAILABLE`
+    与 `_SOURCE_BINDING_MISMATCH`（HTTP 409），与状态 delta 相同。
+  - `INSTRUMENT_MASTER_V2_RETRIEVAL_AFTER_OWNER_CLOCK`（HTTP 409）：取得时刻晚于 Owner 自己的墙钟观察。
+  - `INSTRUMENT_MASTER_V2_CLOCK_MISMATCH`（HTTP 409）：head 不是 Owner 时钟能够接续的。生产上没有这样的 head：每个 cut
+    都以 Owner 的 identity 与 epoch 铸出，链路的 market base 自封在 Owner 时钟上起也是如此。证明用一个在测试时钟上的
+    head 驱动它。
+  - `MARKET_DATA_CLOCK_UNAVAILABLE`（HTTP 503）：Owner 没有 head，或其墙钟还没越过 head。任何提交都构造不出它：baseline
+    只在一个 head 之下存在，而 head 就是 Owner 自己更早的墙钟观察。
+  - `INSTRUMENT_MASTER_V2_ADMISSION_CONFLICT`（HTTP 409）：store 对所指名 fact 的说法自相矛盾。任何提交都构造不出它。
+  - `MARKET_DATA_OWNER_UNAVAILABLE`（HTTP 503）：store 不可达、拒绝提交，或某条已存的链解码不出来。
+- **证明：** Market Data PostgreSQL runner 在以生产封装器封在 Owner 自己时钟上的 binding 之上证明这条 intake。在 head 之
+  后取回的快照恰好铸出一个时钟并取其 cut，在 head 之前取回的取 head 的 cut。九条走得到的拒绝各自既不写 fact 也不写时钟。
+  晚于已知状态的快照设定状态。放宽 tick 的快照以改变后的依据被记录，此后 cut 拒绝该成员且不写入任何东西，而之前签发的
+  cut 保持原答案。重放 rejoin 且不铸时钟，之后的快照再次铸时钟。另一个证明把越过一个测试时钟上的 head 的快照以
+  `CLOCK_MISMATCH` 拒绝，不写入任何东西。单元测试覆盖编码、两种次序、依据、归一化与后继的每条拒绝，以及把一年的每小时快
+  照作为一条链解码。
+
+**NOT_ADMITTED：** V2 fact 可执行条款的变化由快照 intake 记录下来，但没有任何 Replay 按它定价：状态 delta 按设计只改合约
+状态，而 cut 在按 Replay 窗口选择之前拒绝条款被快照改变过的成员，窗口选择见下文 TARGET，没有构建。状态不是 `TRADING` 的
+窗口上的 Replay 是否必须拒绝，尚未决定；今天没有任何东西拒绝它。不从 V1 fact 派生 V2，除加密永续外不准入任何 class，
+Owner 场所常量表之外的 venue 也不准入，这里也不声称 provider ingestion、authenticity、部署或交易。没有任何 intake 把 V2
+fact 与任何 V1 fact 比较；同时读两者的 cut 做这件事，见下一段。
 
 **CURRENT，V1/V2 代际一致性：** 两代并存期间，同一个 instrument 在两代里各有一份描述。PIT request 指明其快照所依据
 的 V1 Instrument Master readback（`instrument_master_digest`），Market Semantics admission、first-corpus Replay
@@ -1288,9 +1347,10 @@ snapshot 引用已存储 V1 readback 的 binding 驱动两种结果。chain mark
 snapshot 上签发 cut，这些快照的 V1 fact 由生产 V1 intake 准入、与 V2 fact 一致；另有一个 member 的 V1 fact tick
 不同，按该条款被拒绝。每条规则的拒绝也在比较函数本身上各断言一次。
 
-**TARGET，由归档 `exchangeInfo` 快照得出按生效时间的 V2 条款：** 未准入，这里的任何东西都没有构建。V2 fact 记录的是一次
-retrieval 观察到的条款，并假定自上市起一直如此；cut 为每个 member 取 selection 时刻观察到的最新 fact。所以 tick 或 lot
-的变化永远无法表示，retrieval 之前的 Replay 按 retrieval 当天的条款定价。本设计用证据替换这一个假定，此外不准入任何东西。
+**TARGET，由归档 `exchangeInfo` 快照得出按生效时间的 V2 条款：** 快照后继及其 intake 已构建，见上文 CURRENT / PARTIAL 段
+；cut 上的窗口选择与归档器未准入、未构建。V2 fact 记录的是一次retrieval 观察到的条款，并假定自上市起一直如此；cut 为每个
+member 取 selection 时刻观察到的最新 fact。所以 tick 或 lot的变化永远无法表示，retrieval 之前的 Replay 按 retrieval 当天
+的条款定价。本设计用证据替换这一个假定，此外不准入任何东西。
 
 - **证据只能是归档快照。** Owner 为一个 instrument 持有的每个条款，都由 `ExchangeInfoBaselineV2::from_usdm_exchange_info`
   从某个明确时刻取回的 `exchangeInfo` payload 推导。任何提交都不陈述历史条款。允许陈述，就等于把调用方陈述的条款放回
@@ -1348,12 +1408,13 @@ retrieval 观察到的条款，并假定自上市起一直如此；cut 为每个
   档器不开启。归档器按 retrieval 顺序重试被拒绝或没有应答的提交；它的健康检查在最新已准入快照早于两个节奏时失败，这个状
   态现在归档器自己就能消除。
 - **F 不变。** 只有一个 baseline、没有之后的快照时，retrieval 之前的每个窗口都落在 `t_0` 之前，member 就是 baseline，
-  basis 与今天相同，字节不动；快照后继那一片逐字节钉住两 member 的 cut identity 与一个单 baseline 的 bound-replay cut。
-- **顺序。** 先做快照后继及其 intake，连同逐字节钉子。在 cut 按窗口选择之前，对条款被快照改变过的 member，无论窗口如何都
-  按名拒绝，而不是在它们上面为任何窗口定价；窗口选择是唯一移除这条拒绝的切片。cut 上的窗口选择会改变 F 链路依赖的签发，
-  所以只在 F 链路通过后开始。归档器已定义但不启动，就像 compose 文件还不运行 store-custody 脚本一样；运行它会让生产周期性地
-  从 Binance 取数，这是公开读取而非交易，是否开启是用户的部署决定。status 不是 `TRADING` 的 Replay 窗口是否必须拒绝尚未
-  决定，不在本设计范围内。
+  basis 与今天相同，字节不动；快照 intake 那一片逐字节钉住一个 baseline、它的状态后继与一个单成员 cut，与已有的双成员
+  cut 钉子并列。
+- **顺序。** 快照后继及其 intake 已先做完，连同逐字节钉子。在 cut 按窗口选择之前，对条款被快照改变过的 member，无论窗口
+  如何都按名拒绝，而不是在它们上面为任何窗口定价；窗口选择是唯一移除这条拒绝的切片。cut 上的窗口选择会改变 F 链路依赖的
+  签发，所以只在 F 链路通过后开始。归档器已定义但不启动，就像 compose 文件还不运行 store-custody 脚本一样；运行它会让生
+  产周期性地从 Binance 取数，这是公开读取而非交易，是否开启是用户的部署决定。status 不是 `TRADING` 的 Replay 窗口是否必
+  须拒绝尚未决定，不在本设计范围内。
 
 ### 原生不可变记录
 
