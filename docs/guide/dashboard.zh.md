@@ -168,7 +168,8 @@ Backtest Owner 投影存在。该路由原样转达投影的回答、不添加�
 `ExploratoryReplayReadbackWorkbench` 是 `/backtest` 的精确 `P` surface。它是一个
 `ACTIVE_OBSERVATION / IMPLEMENTATION_ADMITTED` 的 Replay V2 已提交请求 point-read；当三个 result locator
 field 齐全时，还可读取一个由 Backtest Owner 持有的 canonical result。它不是 replay composer、dispatcher、
-compare surface 或经济图表。route 只使用一个全宽 `PanelFrame`，
+compare surface 或经济图表。composer-backed 请求是同一种 Replay V2 request；Owner 只在识别 composer-backed
+custody 的构建里读回它，今天那是有序链路的构建，部署镜像对它答 `UNAVAILABLE`。route 只使用一个全宽 `PanelFrame`，
 没有 summary strip、历史列表/表格、左右 detail pane 或预留图表高度。header 包含 `EXPLORATORY REPLAY`
 eyebrow、`Replay request` title、一行简短 purpose 与 `Refresh`；在打开合法 selector 前 Refresh disabled。
 inset body 从一条水平 lookup rail 开始：`Request identity`、`Meaning digest`、`Open readback`。窄屏只让
@@ -177,7 +178,8 @@ lookup rail 换行，label 和 value 始终左对齐。icon 只能来自 Lucide�
 available readback 按顺序渲染三个轻微色差分组。`Request` 展示精确 request identity、availability、
 namespace 与 deterministic seed；`Custody` 展示 meaning digest、receipt identity、seal digest、committed
 time 与 Owner observation cut；`Replay basis` 展示精确 event window，以及 TrialFamily、Artifact、
-strategy-design、PIT-snapshot、runtime-kernel 与 simulator identity。长 identity 仍可选择并以 accessible
+strategy-design、universe-selection、PIT-snapshot、runtime-kernel 与 simulator identity。universe-selection identity
+指名该请求所绑定的成员集合；该集合含哪一个品种由这次运行的报告在其唯一成员上陈述，这里不推导。长 identity 仍可选择并以 accessible
 text 暴露完整值，只在视觉上截断。browser 不接收 canonical request bytes、raw receipt、component digest、
 Product Edge admission、protected evidence、source、result bytes 或 storage field。
 
