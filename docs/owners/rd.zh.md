@@ -550,6 +550,10 @@ host 仍 fail closed，绝不替换为 generic toolchain。
 而一个产出它们的生成器被实测为在重做已经存在的事。所以这个切片加的代码少于它删掉的代码。
 它不引入任何新原语、任何执行路径，而它产出的东西由检查手写声明的同一份契约来检查。单阈值编写器
 是它的第一个产物，并且逐字节保持原样；下面的编写语言按同样的条件准入，并把那个族作为它的一个特例。
+此后它的字节有意改过一次：一侧的 reconciliation target 读该侧的 target position，因为 kernel 要求
+position target 与它的 reconciliation target 相等，而两侧曾共用的那个值为 0 的常量，让每个两侧仓位不同的
+程序都无法运行 - target-set Host 在第一笔订单之前就拒绝了它的入场一侧。按旧字节冻结的程序从来不可能运行，
+现在它在这个族之外。
 
 **IMPLEMENTATION_ADMITTED - 编写语言 V1：** 提案者写的一份文档，由一个纯函数编译成 `design` 与
 `meaning` 这一对，再无其他。这个截面上没有任何实现，它的实现排在第一次 COMPOSER_V3 Replay

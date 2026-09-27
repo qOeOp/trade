@@ -3443,6 +3443,35 @@ pub(crate) fn validate_bfp_warming_fields(
     Ok(())
 }
 
+/// The target a proposal names: its target variant, over the values that variant reads.
+pub(crate) fn proposal_target_v2(
+    target_variant: &str,
+    target_position: i64,
+    target_weight: i32,
+    sequence: u64,
+) -> Result<TargetProposalV1, ProgramHostV2Error> {
+    match target_variant {
+        "kernel.target.keep.v1" => Ok(TargetProposalV1::Keep),
+        lifecycle_v1::TARGET_POSITION_SEMANTIC_ID => {
+            Ok(TargetProposalV1::Position(target_position))
+        }
+        lifecycle_v1::TARGET_WEIGHT_SEMANTIC_ID => {
+            Ok(TargetProposalV1::WeightMicros(target_weight))
+        }
+        lifecycle_v1::TARGET_REBALANCE_SEMANTIC_ID => Ok(TargetProposalV1::RebalancePosition {
+            sequence,
+            units: target_position,
+        }),
+        _ => Err(ProgramHostV2Error::Graph("proposal.target_variant".into())),
+    }
+}
+
+/// The reconciliation target a proposal carries: none for a kept target, and the declared units
+/// for every other.
+pub(crate) fn proposal_reconciliation_v2(target: TargetProposalV1, units: i64) -> Option<i64> {
+    (target != TargetProposalV1::Keep).then_some(units)
+}
+
 fn proposal_from_wiring(
     host: &ProgramHostV2,
     wiring: &crate::strategy_design_v2::ProposalWiringV2,
@@ -3478,18 +3507,11 @@ fn proposal_from_wiring(
     let target_position = exact_i64(&resolve(&wiring.target_position_units)?)?;
     let target_weight = exact_i32(&resolve(&wiring.target_weight_micros)?)?;
     let sequence = exact_u64(&resolve(&wiring.rebalance_sequence)?)?;
-    let target = match target_variant {
-        "kernel.target.keep.v1" => TargetProposalV1::Keep,
-        lifecycle_v1::TARGET_POSITION_SEMANTIC_ID => TargetProposalV1::Position(target_position),
-        lifecycle_v1::TARGET_WEIGHT_SEMANTIC_ID => TargetProposalV1::WeightMicros(target_weight),
-        lifecycle_v1::TARGET_REBALANCE_SEMANTIC_ID => TargetProposalV1::RebalancePosition {
-            sequence,
-            units: target_position,
-        },
-        _ => return Err(ProgramHostV2Error::Graph("proposal.target_variant".into())),
-    };
-    let reconciliation_target = exact_i64(&resolve(&wiring.reconciliation_target_units)?)?;
-    let reconciliation = (target != TargetProposalV1::Keep).then_some(reconciliation_target);
+    let target = proposal_target_v2(target_variant, target_position, target_weight, sequence)?;
+    let reconciliation = proposal_reconciliation_v2(
+        target,
+        exact_i64(&resolve(&wiring.reconciliation_target_units)?)?,
+    );
     let protection_variant_value = resolve(&wiring.protection_variant)?;
     let protection_variant = semantic(&protection_variant_value)?;
     let protection = match protection_variant {
