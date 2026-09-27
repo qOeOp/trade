@@ -16,8 +16,9 @@ use super::{
     SourceBindingBlocker, SourceBindingError, UntrustedCompleteFrontier,
     UntrustedCredentialAudienceClaim, UntrustedCredentialCapabilityClaim,
     UntrustedCredentialMaterialClaim, UntrustedMarketDataAsOf, UntrustedMarketSemantics,
-    UntrustedOpaqueCredentialHandle, UntrustedSourceBindingLocator,
-    UntrustedSourceBindingLocatorFields, UntrustedSourceBindingProposal,
+    UntrustedOpaqueCredentialHandle, UntrustedSourceAvailabilityRuleV1,
+    UntrustedSourceBindingLocator, UntrustedSourceBindingLocatorFields,
+    UntrustedSourceBindingProposal, UntrustedSourceVisibilityV1,
 };
 
 const IDENTITY_DOMAIN: &[u8] = b"vibe.market-data.source-binding.identity.v1";
@@ -27,6 +28,7 @@ const OUTBOX_DOMAIN: &[u8] = b"vibe.market-data.source-binding.outbox.v1";
 const CLOCK_CONTINUITY_DOMAIN: &[u8] = b"vibe.market-data.owner-clock.continuity.v1";
 const SEMANTICS_COMPATIBILITY_DOMAIN: &[u8] =
     b"vibe.market-data.source-binding.semantics-compatibility.v1";
+const AVAILABILITY_RULE_DOMAIN: &[u8] = b"vibe.market-data.source-binding.availability-rule.v1";
 const OWNER_ID: &str = "MARKET_DATA";
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -152,6 +154,11 @@ impl SourceBindingFact {
 
     pub(crate) const fn time_evidence(&self) -> &UntrustedMarketDataAsOf {
         &self.proposal.time_evidence
+    }
+
+    /// The availability rule a schema-2 binding declares; a schema-1 binding declares none.
+    pub(crate) const fn availability_rule(&self) -> Option<&UntrustedSourceAvailabilityRuleV1> {
+        self.proposal.availability_rule.as_ref()
     }
 }
 
@@ -674,10 +681,16 @@ pub(crate) fn validate_proposal(
     proposal: &UntrustedSourceBindingProposal,
     clock: &MarketDataClockAdmission,
 ) -> Result<(), SourceBindingError> {
-    if proposal.schema_version != 1 {
-        return Err(SourceBindingError::InvalidVersionOrSequence(
-            "schema_version",
-        ));
+    // Schema 1 predates availability rules; schema 2 is the one that declares one. A rule under
+    // schema 1, or its absence under schema 2, would leave the identity stating what the proposal
+    // does not.
+    match (proposal.schema_version, &proposal.availability_rule) {
+        (1, None) | (2, Some(_)) => {}
+        _ => {
+            return Err(SourceBindingError::InvalidVersionOrSequence(
+                "schema_version",
+            ));
+        }
     }
     validate_credential_handle(&proposal.credential_handle)?;
 
@@ -1000,6 +1013,7 @@ fn canonical_semantic_bytes(proposal: &UntrustedSourceBindingProposal) -> Vec<u8
     let mut encoder = Encoder::new(IDENTITY_DOMAIN);
     encoder.u16(proposal.schema_version);
     encode_semantic_tuple(&mut encoder, proposal);
+    encode_availability_rule(&mut encoder, proposal);
     encoder.finish()
 }
 
@@ -1017,6 +1031,7 @@ fn canonical_fact_bytes(
     encoder.optional_digest(lineage.predecessor_fact_digest);
     encoder.u16(proposal.schema_version);
     encode_semantic_tuple(&mut encoder, proposal);
+    encode_availability_rule(&mut encoder, proposal);
     encoder.u64(decision.blockers.len() as u64);
 
     for blocker in &decision.blockers {
@@ -1058,6 +1073,38 @@ fn encode_semantic_tuple(encoder: &mut Encoder, proposal: &UntrustedSourceBindin
     encoder.frontier(&proposal.correction_frontier);
     encoder.digest(proposal.time_evidence.claimed_evidence_identity);
     encode_time_without_claim(encoder, &proposal.time_evidence);
+}
+
+/// Appends a schema-2 proposal's availability rule. A schema-1 proposal appends nothing, so every
+/// binding identity and fact digest minted before rules existed is unchanged.
+fn encode_availability_rule(encoder: &mut Encoder, proposal: &UntrustedSourceBindingProposal) {
+    if let Some(rule) = &proposal.availability_rule {
+        encode_rule_body(encoder, rule);
+    }
+}
+
+fn encode_rule_body(encoder: &mut Encoder, rule: &UntrustedSourceAvailabilityRuleV1) {
+    match rule.visibility {
+        UntrustedSourceVisibilityV1::AfterBarClose { lag_ns } => {
+            encoder.u8(1);
+            encoder.u64(lag_ns);
+        }
+        UntrustedSourceVisibilityV1::AtRetrieval => encoder.u8(2),
+    }
+    encoder.u8(u8::from(rule.publishes_corrections));
+}
+
+/// The digest of an availability rule alone.
+///
+/// A window custody's identity takes this digest, not the binding identity: the binding identity
+/// hashes each cut's frontiers and time evidence, so it changes with every binding successor,
+/// while a successor that keeps its rule keeps this digest.
+pub(crate) fn availability_rule_digest_v1(
+    rule: &UntrustedSourceAvailabilityRuleV1,
+) -> BindingDigest {
+    let mut encoder = Encoder::new(AVAILABILITY_RULE_DOMAIN);
+    encode_rule_body(&mut encoder, rule);
+    digest(&encoder.finish())
 }
 
 fn encode_credential_handle(encoder: &mut Encoder, credential: &UntrustedOpaqueCredentialHandle) {
