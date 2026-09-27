@@ -476,26 +476,28 @@ readback 的 request identity、Owner receipt `semantic_digest` 和 `committed_a
 `hypothesis`、`falsification_question` 与 `expected_observation`。任何 mismatch、question unavailable 或 receipt
 字段缺失都会撤回整段问题摘要，不显示可能过期的语义。`Refresh` 同时重读两个 projection；两次读取都不授权写入。
 
-readback 的 phase 是 `EXPLORATION_ACTIVE` 的请求，在任何部署镜像上都渲染为 unavailable，这是一道界而不是缺陷。
-读取方要求一份 schema 3 视图，其 `composer_artifact` 恰好携带十项 Composer 事实：从 artifact locator 与
-identity digest，经 family binding receipt，直到 census frontier digest。只有 composer-backed 的 replay commit
-才产出它们，而那条 route 位于 `sealed-source-intake-composer-acceptance` 之后；没有任何部署镜像启用该特性，
-有序链路只在验收构建里编译它。未设门的 v2 replay commit 写出的视图没有 Composer artifact 可供描述，
-因此无论它声明哪个 schema version，都满足不了那个读取方。
+readback 的 phase 是 `EXPLORATION_ACTIVE` 的请求以两种形状之一到达，读取方把每种都读作它自己。legacy exploration 由
+未设门的 legacy Replay V2 commit 在任何部署镜像里写出，是一份 schema 2 视图。它携带它所运行的 build artifact（与
+`ARTIFACT_AVAILABLE` 视图携带的相同的 `attempt_identity`、`artifact_identity`、`build_receipt_identity` 与
+`artifact_review_identity`）以及它所运行的 Replay，不携带任何 Composer artifact。它的身份是 `rd-research-view-v3` 推导，
+它的 cut 在 `rd-exploration-cut-v1-` 下指名 Replay 的 seal。composer-backed exploration 是一份 schema 3 视图，其
+`composer_artifact` 恰好携带十项 Composer 事实：从 artifact locator 与 identity digest，经 family binding receipt，
+直到 census frontier digest。只有 composer-backed 的 replay commit 才产出它们，而那条 route 位于
+`sealed-source-intake-composer-acceptance` 之后，没有任何部署镜像启用该特性，所以今天只有有序链路的构建会显示这种。
 
-这道界在部署镜像里出现一条产出 Composer artifact 的路径时解除，而那正是 Composer readback 今天报为
-unavailable 的同一处缺口。届时 v2 commit 退役或被 composer-backed 路径取代，读取方一行都不用改：
-它的 exact-key 检查已经是终态形状。把它放宽到接受 legacy 视图，等于把缺席的 Composer 编码成在场的 Composer，
-并画出一个读起来像 exploration 正在运行的页面。
+两种形状互不当作对方。携带 Composer artifact 的 schema 2 视图，或不携带的 schema 3 视图，都被拒绝而不是显示。
+因此缺席的 Composer 从不被编码成在场的 Composer，页面也从不暗示一次并未发生的 Composer 运行。每种形状的身份都经
+双方都核验的向量与产出侧钉住：legacy 的是 `product/rd-owner-client/fixtures/research_view_identity_vectors_v3.json`，
+composer-backed 的是 `research_view_identity_vectors_v4.json`。
 
-读取方确实接纳这样的视图时（今天只在有序链路的构建里，它为验收编译了那次 commit），页面按原样陈述它。
-`Availability` 显示 `Exploration active`，`Next step` 显示 `View exploratory run`，research journey 显示
-`Exploration is active` 而不是 `Strategy is ready for build`；它们都不退回 `Intent frozen` 或 `Awaiting R&D` 的措辞，
-那两个说的是仍在等待第一次运行的请求。视图指名了这次 exploration 所用的 Composer 运行与 Replay 请求，
-页面在它们各自已准入的路由上链接到二者：`Composer run` 以视图的 `composer_request_identity` 打开
-`/rd/composer?requestIdentity=`，`Exploratory replay` 以其 `replay_request_identity` 与
-`replay_request_meaning_digest` 打开 `/backtest?replayRequestIdentity=&meaningDigest=`。这些身份只取自已验证的视图，
-页面不推导其中任何一个。phase 或 next legal action 超出各自映射的四种之外时，readback 变为 unavailable，而不是显示成另一种。
+页面按原样陈述 exploration。`Availability` 显示 `Exploration active`，`Next step` 显示 `View exploratory run`，
+research journey 显示 `Exploration is active` 而不是 `Strategy is ready for build`；它们都不退回 `Intent frozen` 或
+`Awaiting R&D` 的措辞，那两个说的是仍在等待第一次运行的请求。视图指名了这次 exploration 所运行的 Replay 请求，
+composer-backed 视图还指名其 Composer 运行；页面在各自已准入的路由上链接到它们。`Exploratory replay` 以视图的
+`replay_request_identity` 与 `replay_request_meaning_digest` 打开 `/backtest?replayRequestIdentity=&meaningDigest=`。
+只有 composer-backed exploration，`Composer run` 才以其 `composer_request_identity` 打开 `/rd/composer?requestIdentity=`；
+legacy exploration 不显示 Composer 链接。这些身份只取自已验证的视图，页面不推导其中任何一个。phase 或 next legal
+action 超出各自映射的四种之外时，readback 变为 unavailable，而不是显示成另一种。
 
 Historical-custody Owner projection available 时，route 在 directory 前放置一张共享 compact Bento status card，
 把用户的 R&D workspace 组织成三个细肩分组：`research`、`build`、`families`。当 Research outcome inventory

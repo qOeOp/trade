@@ -71,7 +71,18 @@ pub(crate) struct ResolvedNativeReplayRdCutV2 {
     pub(crate) replay: crate::exploratory_replay::SealedExploratoryReplayReadbackV2,
     pub(crate) sources: crate::native_replay_rd_sources_v2::NativeReplayRdSourcesV2,
     pub(crate) research: VerifiedResearchCustodyV1,
+    /// The Research View transition this Replay committed, when its Research custody is a native
+    /// Composer one: the View its Composer operation ran under, and the one the Replay wrote.
+    pub(crate) composer_transition: Option<Box<NativeComposerViewTransitionV3>>,
 }
+
+/// The verified View transition of a COMPOSER_V3 Replay. It exists only in the build that carries
+/// the COMPOSER_V3 routes; elsewhere no Replay can have written one.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+pub(crate) type NativeComposerViewTransitionV3 =
+    crate::exploratory_replay::postgres::composer_readback_v3::VerifiedResearchViewTransitionV3;
+#[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
+pub(crate) type NativeComposerViewTransitionV3 = std::convert::Infallible;
 
 pub(crate) async fn resolve_native_replay_rd_cut_v2_in_transaction(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -147,9 +158,13 @@ pub(crate) async fn resolve_native_replay_rd_cut_v2_in_transaction(
     )
     .await
     .map_err(|e| native_source_unavailable(e.to_string()))?;
-    let research =
-        native_research_custody_from_boundary(transaction, &source_storage, &replay_admission)
-            .await?;
+    let (research, composer_transition) = Box::pin(native_research_custody_from_boundary(
+        transaction,
+        &source_storage,
+        &replay_admission,
+        &locator.request_identity,
+    ))
+    .await?;
 
     if !research.authority_available_at(replay.owner_cut_epoch_ms()) {
         return Err(
@@ -222,6 +237,7 @@ pub(crate) async fn resolve_native_replay_rd_cut_v2_in_transaction(
         replay,
         sources,
         research,
+        composer_transition,
     })
 }
 
@@ -358,8 +374,12 @@ async fn native_research_custody_from_boundary(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     envelope: &NativeSourceStorageEnvelopeV2,
     replay_admission: &ProductEdgeAdmissionReadbackV1,
+    replay_request_identity: &str,
 ) -> Result<
-    VerifiedResearchCustodyV1,
+    (
+        VerifiedResearchCustodyV1,
+        Option<Box<NativeComposerViewTransitionV3>>,
+    ),
     crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2,
 > {
     let request_record = envelope
@@ -472,8 +492,20 @@ async fn native_research_custody_from_boundary(
             .ok_or_else(|| native_source_unavailable("Research view missing"))?,
     )
     .map_err(|e| native_source_unavailable(format!("Research view decode: {e}")))?;
-    let view_identity_is_valid =
-        if view.phase == crate::product_edge::ResearchViewPhase::ExplorationActive {
+    let composer_transition = if view.composer_artifact.is_some() {
+        Some(
+            Box::pin(native_composer_view_transition(
+                transaction,
+                &view,
+                replay_request_identity,
+            ))
+            .await?,
+        )
+    } else {
+        None
+    };
+    let view_identity_is_valid = composer_transition.is_some()
+        || if view.phase == crate::product_edge::ResearchViewPhase::ExplorationActive {
             view.schema_version == 2
                 && view.composer_artifact.is_none()
                 && view.exploration.as_ref().is_some_and(|exploration| {
@@ -504,26 +536,103 @@ async fn native_research_custody_from_boundary(
         return Err(native_source_unavailable("Research view custody mismatch"));
     }
 
-    Ok(VerifiedResearchCustodyV1 {
-        request_json: Some(request_record.mirror.clone()),
-        receipt,
-        intent: Some(intent),
-        view: Some(view),
-        family: Some(family.clone()),
-        expected_family: Some(family),
-        independence_basis: None,
-        protected_feedback: None,
-        admitted_version: Some(
-            AdmittedResearchRequestVersionV1::read(&research_admission, &stored_request.request)
+    Ok((
+        VerifiedResearchCustodyV1 {
+            request_json: Some(request_record.mirror.clone()),
+            receipt,
+            intent: Some(intent),
+            view: Some(view),
+            family: Some(family.clone()),
+            expected_family: Some(family),
+            independence_basis: None,
+            protected_feedback: None,
+            admitted_version: Some(
+                AdmittedResearchRequestVersionV1::read(
+                    &research_admission,
+                    &stored_request.request,
+                )
                 .map_err(|e| native_source_unavailable(e.to_string()))?,
-        ),
-        authority: VerifiedResearchAuthorityV1::Current(Box::new(research_admission)),
-        effective_principal: replay_admission.effective_principal().to_string(),
-        authorized_scope: replay_admission.authorized_scope().to_vec(),
-        request_schema_version: 2,
-        initial_pit: None,
-        terminal_attempt_admission: None,
-    })
+            ),
+            authority: VerifiedResearchAuthorityV1::Current(Box::new(research_admission)),
+            effective_principal: replay_admission.effective_principal().to_string(),
+            authorized_scope: replay_admission.authorized_scope().to_vec(),
+            request_schema_version: 2,
+            initial_pit: None,
+            terminal_attempt_admission: None,
+        },
+        composer_transition,
+    ))
+}
+
+/// Verifies a native Composer Research View against the View transition this Replay committed.
+///
+/// A COMPOSER_V3 Replay moves the Research View from IntentFrozen to a schema 3 ExplorationActive
+/// View naming it, and records that move as an append-only transition. The View is valid here only
+/// as that transition's new View: the transition read verifies it against its old View and this
+/// Replay's receipt. A current View some later Replay has moved on is refused by name rather than
+/// read as this one's, so once a later Replay commits on the same Research, this Replay can no
+/// longer be prepared.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+async fn native_composer_view_transition(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    view: &ResearchViewV1,
+    replay_request_identity: &str,
+) -> Result<
+    Box<NativeComposerViewTransitionV3>,
+    crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2,
+> {
+    let transition =
+        crate::exploratory_replay::postgres::composer_readback_v3::read_verified_research_view_transition_v3_in_transaction(
+            transaction,
+            replay_request_identity,
+        )
+        .await
+        .map_err(|e| native_source_unavailable(e.to_string()))?
+        .ok_or_else(|| {
+            native_source_unavailable("native Composer Research View has no transition for this Replay")
+        })?;
+
+    native_composer_view_matches_transition(
+        view,
+        replay_request_identity,
+        transition.new_view(),
+        transition.replay_request_identity(),
+    )
+    .map_err(native_source_unavailable)?;
+    Ok(Box::new(transition))
+}
+
+/// Whether the current native Composer View is the one this Replay's transition wrote.
+#[cfg(any(test, feature = "sealed-source-intake-composer-acceptance"))]
+fn native_composer_view_matches_transition(
+    view: &ResearchViewV1,
+    replay_request_identity: &str,
+    transition_new_view: &ResearchViewV1,
+    transition_replay_request_identity: &str,
+) -> Result<(), &'static str> {
+    if transition_replay_request_identity != replay_request_identity {
+        return Err("native Composer Research View transition names another Replay");
+    }
+
+    if transition_new_view != view {
+        return Err("native Composer Research View has moved past this Replay");
+    }
+    Ok(())
+}
+
+/// No build without the COMPOSER_V3 routes can have committed a native Composer View.
+#[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
+async fn native_composer_view_transition(
+    _transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    _view: &ResearchViewV1,
+    _replay_request_identity: &str,
+) -> Result<
+    Box<NativeComposerViewTransitionV3>,
+    crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2,
+> {
+    Err(native_source_unavailable(
+        "native Composer Research View needs the build carrying the COMPOSER_V3 routes",
+    ))
 }
 
 fn decode_native_record_value<T: serde::de::DeserializeOwned>(
@@ -3559,11 +3668,46 @@ pub(crate) use attempt::{
 mod tests {
     use super::{
         LegacyProductEdgeChannelV1, VerifiedResearchAuthorityV1, VerifiedResearchCustodyV1,
-        supported_research_representation_count,
+        native_composer_view_matches_transition, supported_research_representation_count,
     };
     use crate::product_edge::{
-        ProductEdgeResolution, ResearchRequestDisposition, ResearchRequestReceiptV1,
+        ProductEdgeResolution, ResearchRequestDisposition, ResearchRequestReceiptV1, ResearchViewV1,
     };
+
+    /// A native Composer View is this Replay's only while it is the View this Replay's transition
+    /// wrote. The View is the schema 3 one the shared identity vectors pin.
+    #[rstest::rstest]
+    fn a_native_composer_view_is_this_replays_only_as_its_transitions_new_view() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../product/rd-owner-client/fixtures/research_view_identity_vectors_v4.json");
+        let vectors: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(&path).expect("the shared identity vectors"),
+        )
+        .expect("the shared identity vectors parse");
+        let view: ResearchViewV1 =
+            serde_json::from_value(vectors["view"].clone()).expect("the pinned View deserializes");
+        let replay = view
+            .exploration
+            .as_ref()
+            .expect("the pinned View names its Replay")
+            .replay_request_identity
+            .clone();
+
+        assert_eq!(
+            native_composer_view_matches_transition(&view, &replay, &view, &replay),
+            Ok(())
+        );
+        assert_eq!(
+            native_composer_view_matches_transition(&view, &replay, &view, "another-replay"),
+            Err("native Composer Research View transition names another Replay")
+        );
+        let mut moved = view.clone();
+        moved.projection_at_epoch_ms += 1;
+        assert_eq!(
+            native_composer_view_matches_transition(&moved, &replay, &view, &replay),
+            Err("native Composer Research View has moved past this Replay")
+        );
+    }
 
     #[rstest::rstest]
     fn legacy_research_channels_stay_readable_without_widening_current_admission() {

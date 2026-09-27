@@ -4,12 +4,15 @@ use core::num::NonZeroU32;
 
 use crate::{
     DecimalScale, FixedFeatureFailure, FixedI128, FixedStateFailure, NumericFailure, RoundingMode,
-    SampleClockInputV1, fixed_window_mean, fixed_window_sum,
+    SampleClockInputV1, fixed_count_ratio, fixed_window_mean, fixed_window_sum,
 };
 
 const HEADER_LEN: usize = 20;
 const ENTRY_LEN: usize = 324;
 const LAG: u8 = 7;
+const BARS_SINCE_MAXIMUM: u8 = 8;
+const BARS_SINCE_MINIMUM: u8 = 9;
+const PERCENT_RANK: u8 = 10;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FixedWindowFunction {
@@ -19,6 +22,12 @@ pub enum FixedWindowFunction {
     Maximum,
     SwingHigh,
     SwingLow,
+    /// Samples after the window maximum; the latest of equal maxima counts.
+    BarsSinceMaximum,
+    /// Samples after the window minimum; the latest of equal minima counts.
+    BarsSinceMinimum,
+    /// The latest sample's midrank within the window, from 0 at the lowest to 1 at the highest.
+    PercentRank,
 }
 
 impl FixedWindowFunction {
@@ -30,6 +39,9 @@ impl FixedWindowFunction {
             Self::Maximum => 4,
             Self::SwingHigh => 5,
             Self::SwingLow => 6,
+            Self::BarsSinceMaximum => BARS_SINCE_MAXIMUM,
+            Self::BarsSinceMinimum => BARS_SINCE_MINIMUM,
+            Self::PercentRank => PERCENT_RANK,
         }
     }
 }
@@ -97,11 +109,19 @@ impl<const CAPACITY: usize> FixedWindowState<CAPACITY> {
         output_scale: DecimalScale,
         rounding: Option<RoundingMode>,
     ) -> Result<Self, FixedStateFailure> {
-        if !matches!(
-            function,
-            FixedWindowFunction::Sum | FixedWindowFunction::Mean
-        ) && (input_scale != output_scale || rounding.is_some())
-        {
+        // A sum, mean or percent rank declares its output scale and rounding. A bar count declares
+        // its output scale but is an exact integer, so it takes no rounding. Every other function
+        // returns one of its samples, at the samples' scale, unrounded.
+        let admitted = match function {
+            FixedWindowFunction::Sum | FixedWindowFunction::Mean => true,
+            FixedWindowFunction::PercentRank => window.get() >= 2,
+            FixedWindowFunction::BarsSinceMaximum | FixedWindowFunction::BarsSinceMinimum => {
+                rounding.is_none()
+            }
+            _ => input_scale == output_scale && rounding.is_none(),
+        };
+
+        if !admitted {
             return Err(FixedStateFailure::NonCanonicalState);
         }
 
@@ -276,19 +296,49 @@ impl<const CAPACITY: usize> FixedWindowState<CAPACITY> {
             });
         }
 
+        if self.kind == PERCENT_RANK {
+            let latest_index = if self.next == 0 {
+                self.window.get() - 1
+            } else {
+                self.next - 1
+            };
+            let latest = self.samples[latest_index as usize].coefficient;
+            let (mut below, mut equal) = (0_u32, 0_u32);
+
+            for sample in self.samples.iter().take(self.window.get() as usize) {
+                if sample.coefficient < latest {
+                    below += 1;
+                } else if sample.coefficient == latest {
+                    equal += 1;
+                }
+            }
+
+            let value = fixed_count_ratio(
+                2 * below + equal - 1,
+                2 * (self.window.get() - 1),
+                self.output_scale,
+                self.rounding,
+            )?;
+            return Ok(FixedWindowOutput {
+                value: Some(value),
+                coordinate: None,
+            });
+        }
+
         let mut winner = self.samples[self.next as usize];
+        let mut winner_step = 0_u32;
 
         if self.kind != LAG {
             let mut index = self.next;
 
-            for _ in 1..self.window.get() {
+            for step in 1..self.window.get() {
                 index = if index + 1 == self.window.get() {
                     0
                 } else {
                     index + 1
                 };
                 let sample = self.samples[index as usize];
-                let replace = if self.kind == 3 || self.kind == 6 {
+                let replace = if matches!(self.kind, 3 | 6 | BARS_SINCE_MINIMUM) {
                     sample.coefficient <= winner.coefficient
                 } else {
                     sample.coefficient >= winner.coefficient
@@ -296,13 +346,27 @@ impl<const CAPACITY: usize> FixedWindowState<CAPACITY> {
 
                 if replace {
                     winner = sample;
+                    winner_step = step;
                 }
             }
         }
 
+        if matches!(self.kind, BARS_SINCE_MAXIMUM | BARS_SINCE_MINIMUM) {
+            let value = fixed_count_ratio(
+                self.window.get() - 1 - winner_step,
+                1,
+                self.output_scale,
+                None,
+            )?;
+            return Ok(FixedWindowOutput {
+                value: Some(value),
+                coordinate: None,
+            });
+        }
+
         Ok(FixedWindowOutput {
             value: Some(FixedI128::from_parts(winner.coefficient, self.input_scale)),
-            coordinate: if self.kind >= 5 {
+            coordinate: if matches!(self.kind, 5 | 6 | LAG) {
                 Some(winner.coordinate)
             } else {
                 None
@@ -469,6 +533,126 @@ mod tests {
         bytes
     }
 
+    /// Feeds `samples` into a fresh window and returns every output value, `None` while warming.
+    fn run(
+        function: FixedWindowFunction,
+        window: u32,
+        output_scale: u8,
+        rounding: Option<RoundingMode>,
+        samples: &[i128],
+    ) -> Vec<Option<i128>> {
+        let mut state = FixedWindowState::<8>::new(
+            function,
+            NonZeroU32::new(window).unwrap(),
+            scale(),
+            DecimalScale::new(output_scale).unwrap(),
+            rounding,
+        )
+        .unwrap();
+        let mut outputs = Vec::new();
+
+        for (sequence, sample) in samples.iter().enumerate() {
+            let at = coordinate(sequence as u64 + 1);
+            let update = state.advance(fixed(*sample), view(&at)).unwrap();
+            outputs.push(update.output.value().map(|value| value.coefficient()));
+        }
+        outputs
+    }
+
+    /// Counts are exact integers at the declared scale, and the latest of equal extrema counts,
+    /// as it does for the maximum and the swing high.
+    #[rstest]
+    fn bars_since_an_extremum_counts_from_its_latest_occurrence() {
+        let samples = [5, 9, 3, 9, 1];
+        assert_eq!(
+            run(FixedWindowFunction::BarsSinceMaximum, 4, 0, None, &samples),
+            [None, None, None, Some(0), Some(1)]
+        );
+        assert_eq!(
+            run(FixedWindowFunction::BarsSinceMinimum, 4, 0, None, &samples),
+            [None, None, None, Some(1), Some(0)]
+        );
+        assert_eq!(
+            run(
+                FixedWindowFunction::BarsSinceMaximum,
+                3,
+                2,
+                None,
+                &[1, 2, 3, 2]
+            ),
+            [None, None, Some(0), Some(100)]
+        );
+    }
+
+    /// The latest sample's midrank: 0 at the lowest, 1 at the highest, 0.5 when all are equal, and
+    /// ties counted half, with one final rounding.
+    #[rstest]
+    fn percent_rank_is_the_latest_samples_midrank() {
+        let toward_zero = Some(RoundingMode::TowardZero);
+        assert_eq!(
+            run(
+                FixedWindowFunction::PercentRank,
+                3,
+                2,
+                toward_zero,
+                &[1, 2, 3, 0, 2, 2]
+            ),
+            [None, None, Some(100), Some(0), Some(50), Some(75)]
+        );
+        assert_eq!(
+            run(FixedWindowFunction::PercentRank, 2, 1, toward_zero, &[4, 4]),
+            [None, Some(5)]
+        );
+        // (2*1+1-1)/(2*3) = 1/3: truncation and ties-to-even round it differently at scale 0..2.
+        assert_eq!(
+            run(
+                FixedWindowFunction::PercentRank,
+                4,
+                2,
+                toward_zero,
+                &[5, 1, 9, 3]
+            ),
+            [None, None, None, Some(33)]
+        );
+        assert_eq!(
+            run(
+                FixedWindowFunction::PercentRank,
+                4,
+                0,
+                Some(RoundingMode::NearestTiesToEven),
+                &[5, 1, 9, 3]
+            ),
+            [None, None, None, Some(0)]
+        );
+    }
+
+    /// A rank needs a second sample to compare against, and a count has nothing to round.
+    #[rstest]
+    fn a_rank_over_one_sample_and_a_rounded_count_are_refused() {
+        let one = NonZeroU32::new(1).unwrap();
+        let four = NonZeroU32::new(4).unwrap();
+        assert_eq!(
+            FixedWindowState::<8>::new(
+                FixedWindowFunction::PercentRank,
+                one,
+                scale(),
+                scale(),
+                Some(RoundingMode::TowardZero),
+            ),
+            Err(FixedStateFailure::NonCanonicalState)
+        );
+        assert_eq!(
+            FixedWindowState::<8>::new(
+                FixedWindowFunction::BarsSinceMaximum,
+                four,
+                scale(),
+                scale(),
+                Some(RoundingMode::TowardZero),
+            ),
+            Err(FixedStateFailure::NonCanonicalState)
+        );
+    }
+
     fn window(function: FixedWindowFunction) -> FixedWindowState<4> {
         let rounding = if function == FixedWindowFunction::Mean {
             Some(RoundingMode::NearestTiesToEven)
@@ -528,6 +712,11 @@ mod tests {
                     }
                     FixedWindowFunction::Maximum | FixedWindowFunction::SwingHigh => {
                         *slice.iter().max().unwrap()
+                    }
+                    FixedWindowFunction::BarsSinceMaximum
+                    | FixedWindowFunction::BarsSinceMinimum
+                    | FixedWindowFunction::PercentRank => {
+                        unreachable!("this oracle covers the sample-returning functions only")
                     }
                 };
                 assert_eq!(update.output.value(), Some(fixed(expected)));

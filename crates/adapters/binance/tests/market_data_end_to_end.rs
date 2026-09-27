@@ -851,6 +851,7 @@ fn binance_source_proposal(product: &Product, effective_ns: u64) -> UntrustedSou
         digest: scoped(product, digest_byte),
     };
     let mut proposal = UntrustedSourceBindingProposal {
+        availability_rule: None,
         claimed_binding_id: digest(0),
         schema_version: 1,
         adapter: UntrustedAdapterBinding {

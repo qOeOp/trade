@@ -7,7 +7,10 @@ use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::{AssertSqlSafe, Connection, Row, postgres::PgConnectOptions};
+use sqlx::{
+    AssertSqlSafe, Connection, Row,
+    postgres::{PgConnectOptions, PgConnection},
+};
 use thiserror::Error;
 use url::Url;
 use vibe_postgres_connect::{PostgresTls, StatedConnectOptions, connect_with, with_tls};
@@ -47,6 +50,232 @@ impl PostgresTlsIdentity {
         self.enabled
     }
 }
+
+/// The catalog surface one admitted read touches: every function it calls, by exact signature, and
+/// every relation those functions or the read itself touch. A port refuses an admission whose
+/// measurement does not cover its floor, because an unmeasured object can change under it unseen.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct MeasurementFloor {
+    pub(super) name: &'static str,
+    pub(super) functions: &'static [&'static str],
+    pub(super) relations: &'static [&'static str],
+}
+
+/// The fixed V2 sample-projection snapshot read.
+pub(super) const SAMPLE_PROJECTION_FLOOR_V2: MeasurementFloor = MeasurementFloor {
+    name: "sample_projection_v2",
+    functions: &[
+        "market_data_private.resolve_strategy_input_sample_projection_v2(bytea)",
+        "market_data_private.resolve_timeframe_projection_receipt_v1(bytea)",
+        "market_data_private.resolve_sample_receipt_v1(bytea)",
+    ],
+    relations: &[
+        "market_data_private.strategy_input_sample_projection_receipts_v2",
+        "market_data_private.timeframe_projection_receipts_v1",
+        "market_data_private.sample_facts_v1",
+        "market_data_private.sample_receipts_v1",
+        "market_data_private.sample_outbox_v1",
+    ],
+};
+
+/// The complete fixed V3 BAR projection read.
+pub(super) const SAMPLE_PROJECTION_FLOOR_V3: MeasurementFloor = MeasurementFloor {
+    name: "sample_projection_v3",
+    functions: &[
+        "market_data_private.resolve_strategy_input_sample_projection_v3(bytea)",
+        "market_data_private.resolve_strategy_input_sample_projection_schedule_dependencies_v3(bytea)",
+        "market_data_private.resolve_timeframe_projection_receipt_v1(bytea)",
+        "market_data_private.resolve_sample_receipt_v1(bytea)",
+        "market_data_private.resolve_bar_schedule_v1(bytea)",
+        "market_data_private.resolve_bar_schedule_history_v1(text)",
+    ],
+    relations: &[
+        "market_data_private.strategy_input_sample_projection_receipts_v3",
+        "market_data_private.strategy_input_sample_projection_schedule_dependencies_v3",
+        "market_data_private.timeframe_projection_receipts_v1",
+        "market_data_private.sample_facts_v1",
+        "market_data_private.sample_receipts_v1",
+        "market_data_private.sample_outbox_v1",
+        "market_data_private.bar_schedule_state_v1",
+        "market_data_private.bar_schedule_facts_v1",
+        "market_data_private.bar_schedule_heads_v1",
+        "market_data_private.bar_schedule_cuts_v1",
+        "market_data_private.bar_schedule_receipts_v1",
+        "market_data_private.bar_schedule_outbox_v1",
+    ],
+};
+
+/// The fixed BAR schedule read.
+pub(super) const BAR_SCHEDULE_FLOOR_V1: MeasurementFloor = MeasurementFloor {
+    name: "bar_schedule_v1",
+    functions: &[
+        "market_data_private.resolve_bar_schedule_v1(bytea)",
+        "market_data_private.resolve_bar_schedule_candidates_v1(text)",
+        "market_data_private.resolve_bar_schedule_history_v1(text)",
+    ],
+    relations: &[
+        "market_data_private.bar_schedule_state_v1",
+        "market_data_private.bar_schedule_facts_v1",
+        "market_data_private.bar_schedule_heads_v1",
+        "market_data_private.bar_schedule_cuts_v1",
+        "market_data_private.bar_schedule_receipts_v1",
+        "market_data_private.bar_schedule_outbox_v1",
+    ],
+};
+
+/// A frame's quote cut read: the census of quote cuts it is chosen from and the frame census its
+/// bound is read from.
+pub(super) const NATIVE_REPLAY_QUOTE_CUT_FLOOR_V2: MeasurementFloor = MeasurementFloor {
+    name: "native_replay_quote_cut_v2",
+    functions: &[
+        "market_data_private.resolve_native_replay_quote_cut_census_v2(bytea,bigint,bigint)",
+        "market_data_private.resolve_native_replay_next_frame_v2(bytea,bigint,bigint)",
+    ],
+    relations: &[
+        "market_data_private.native_replay_quote_cut_census_v2",
+        "market_data_private.native_replay_frame_census_v2",
+    ],
+};
+
+/// The fixed Shared Time read.
+pub(super) const SHARED_TIME_FLOOR_V1: MeasurementFloor = MeasurementFloor {
+    name: "shared_time_v1",
+    functions: &[
+        "market_data_private.resolve_owner_history_census_custody_v1()",
+        "market_data_private.resolve_clock_custody_state_v1()",
+        "market_data_private.resolve_clock_membership_custody_v1()",
+        "market_data_private.resolve_clock_handoff_v1(bytea)",
+        "market_data_private.resolve_epoch_successor_proof_v1(bytea)",
+    ],
+    relations: &[
+        "market_data_private.owner_migrations_v1",
+        "market_data_private.owner_history_census_state_v1",
+        "market_data_private.source_binding_lineage_census_v1",
+        "market_data_private.pit_snapshot_lineage_census_v1",
+        "market_data_private.source_binding_facts_v1",
+        "market_data_private.source_binding_heads_v1",
+        "market_data_private.pit_snapshot_facts_v1",
+        "market_data_private.pit_snapshot_heads_v1",
+        "market_data_private.clock_head_v1",
+        "market_data_private.clock_handoffs_v1",
+        "market_data_private.clock_handoff_state_v1",
+        "market_data_private.clock_handoff_membership_v1",
+        "market_data_private.clock_handoff_head_v1",
+        "market_data_private.epoch_successor_proofs_v1",
+    ],
+};
+
+/// The Source Binding snapshot read: its guard, its lineage members and the clock history it is
+/// cut against.
+pub(super) const SOURCE_BINDING_FLOOR_V1: MeasurementFloor = MeasurementFloor {
+    name: "source_binding_v1",
+    functions: &[
+        "market_data_private.resolve_clock_custody_state_v1()",
+        "market_data_private.resolve_owner_history_census_custody_v1()",
+        "market_data_private.resolve_source_binding_v1(bytea)",
+        "market_data_private.resolve_source_lineage_custody_v1(bytea)",
+        "market_data_private.resolve_source_lineage_members_v1(bytea)",
+    ],
+    relations: &[
+        "market_data_private.clock_handoff_head_v1",
+        "market_data_private.clock_handoff_membership_v1",
+        "market_data_private.clock_handoff_state_v1",
+        "market_data_private.clock_handoffs_v1",
+        "market_data_private.clock_head_v1",
+        "market_data_private.epoch_successor_proofs_v1",
+        "market_data_private.owner_history_census_state_v1",
+        "market_data_private.owner_migrations_v1",
+        "market_data_private.pit_snapshot_facts_v1",
+        "market_data_private.pit_snapshot_heads_v1",
+        "market_data_private.pit_snapshot_lineage_census_v1",
+        "market_data_private.source_binding_facts_v1",
+        "market_data_private.source_binding_heads_v1",
+        "market_data_private.source_binding_lineage_census_v1",
+        "market_data_private.source_binding_outbox_v1",
+    ],
+};
+
+/// The PIT terminal read, which a default build's Research PIT terminal resolver makes.
+pub(super) const PIT_TERMINAL_FLOOR_V1: MeasurementFloor = MeasurementFloor {
+    name: "pit_terminal_v1",
+    functions: &[
+        "market_data_private.resolve_clock_custody_state_v1()",
+        "market_data_private.resolve_owner_history_census_custody_v1()",
+        "market_data_private.resolve_pit_lineage_custody_v1(bytea)",
+        "market_data_private.resolve_pit_lineage_members_v1(bytea)",
+        "market_data_private.resolve_pit_snapshot_v1(bytea)",
+        "market_data_private.resolve_source_binding_v1(bytea)",
+        "market_data_private.resolve_source_lineage_custody_v1(bytea)",
+        "market_data_private.resolve_source_lineage_members_v1(bytea)",
+    ],
+    relations: &[
+        "market_data_private.clock_handoff_head_v1",
+        "market_data_private.clock_handoff_membership_v1",
+        "market_data_private.clock_handoff_state_v1",
+        "market_data_private.clock_handoffs_v1",
+        "market_data_private.clock_head_v1",
+        "market_data_private.epoch_successor_proofs_v1",
+        "market_data_private.owner_history_census_state_v1",
+        "market_data_private.owner_migrations_v1",
+        "market_data_private.pit_snapshot_facts_v1",
+        "market_data_private.pit_snapshot_heads_v1",
+        "market_data_private.pit_snapshot_lineage_census_v1",
+        "market_data_private.pit_snapshot_outbox_v1",
+        "market_data_private.source_binding_facts_v1",
+        "market_data_private.source_binding_heads_v1",
+        "market_data_private.source_binding_lineage_census_v1",
+        "market_data_private.source_binding_outbox_v1",
+    ],
+};
+
+/// The PIT evaluation read, which the native Replay scheduling port makes as well.
+pub(super) const PIT_EVALUATION_FLOOR_V1: MeasurementFloor = MeasurementFloor {
+    name: "pit_evaluation_v1",
+    functions: &[
+        "market_data_private.resolve_clock_custody_state_v1()",
+        "market_data_private.resolve_owner_history_census_custody_v1()",
+        "market_data_private.resolve_pit_lineage_custody_v1(bytea)",
+        "market_data_private.resolve_pit_lineage_members_v1(bytea)",
+        "market_data_private.resolve_pit_observation_batch_v1(bytea)",
+        "market_data_private.resolve_pit_observation_rows_v1(bytea)",
+        "market_data_private.resolve_pit_snapshot_v1(bytea)",
+        "market_data_private.resolve_source_binding_v1(bytea)",
+        "market_data_private.resolve_source_lineage_custody_v1(bytea)",
+        "market_data_private.resolve_source_lineage_members_v1(bytea)",
+    ],
+    relations: &[
+        "market_data_private.clock_handoff_head_v1",
+        "market_data_private.clock_handoff_membership_v1",
+        "market_data_private.clock_handoff_state_v1",
+        "market_data_private.clock_handoffs_v1",
+        "market_data_private.clock_head_v1",
+        "market_data_private.epoch_successor_proofs_v1",
+        "market_data_private.owner_history_census_state_v1",
+        "market_data_private.owner_migrations_v1",
+        "market_data_private.pit_observation_batches_v1",
+        "market_data_private.pit_observation_rows_v1",
+        "market_data_private.pit_snapshot_facts_v1",
+        "market_data_private.pit_snapshot_heads_v1",
+        "market_data_private.pit_snapshot_lineage_census_v1",
+        "market_data_private.pit_snapshot_outbox_v1",
+        "market_data_private.source_binding_facts_v1",
+        "market_data_private.source_binding_heads_v1",
+        "market_data_private.source_binding_lineage_census_v1",
+        "market_data_private.source_binding_outbox_v1",
+    ],
+};
+
+/// Every floor a port checks, for the proofs that each one is exactly what its read touches.
+pub(super) const MEASUREMENT_FLOORS: &[MeasurementFloor] = &[
+    SAMPLE_PROJECTION_FLOOR_V2,
+    SAMPLE_PROJECTION_FLOOR_V3,
+    BAR_SCHEDULE_FLOOR_V1,
+    NATIVE_REPLAY_QUOTE_CUT_FLOOR_V2,
+    SHARED_TIME_FLOOR_V1,
+    SOURCE_BINDING_FLOOR_V1,
+    PIT_TERMINAL_FLOOR_V1,
+    PIT_EVALUATION_FLOOR_V1,
+];
 
 /// Exact catalog surfaces directly measured through the credential lease.
 ///
@@ -131,180 +360,14 @@ impl PostgresMeasurementSpec {
         Ok(spec)
     }
 
-    /// Returns whether this exact admitted measurement covers every catalog surface used by the
-    /// fixed V2 sample-projection snapshot consumer.
-    pub(super) fn covers_sample_projection_floor_v2(&self) -> bool {
-        const FUNCTIONS: [&str; 3] = [
-            "market_data_private.resolve_strategy_input_sample_projection_v2(bytea)",
-            "market_data_private.resolve_timeframe_projection_receipt_v1(bytea)",
-            "market_data_private.resolve_sample_receipt_v1(bytea)",
-        ];
-        const RELATIONS: [&str; 5] = [
-            "market_data_private.strategy_input_sample_projection_receipts_v2",
-            "market_data_private.timeframe_projection_receipts_v1",
-            "market_data_private.sample_facts_v1",
-            "market_data_private.sample_receipts_v1",
-            "market_data_private.sample_outbox_v1",
-        ];
-
-        FUNCTIONS.iter().all(|required| {
+    /// Returns whether this exact admitted measurement covers `floor`.
+    pub(super) fn covers(&self, floor: &MeasurementFloor) -> bool {
+        floor.functions.iter().all(|required| {
             self.function_signatures
                 .iter()
                 .any(|value| value == required)
-        }) && RELATIONS
-            .iter()
-            .all(|required| self.acl_relations.iter().any(|value| value == required))
-    }
-
-    /// Returns whether this admitted measurement covers the complete fixed V3 BAR projection read.
-    pub(super) fn covers_sample_projection_floor_v3(&self) -> bool {
-        const FUNCTIONS: [&str; 6] = [
-            "market_data_private.resolve_strategy_input_sample_projection_v3(bytea)",
-            "market_data_private.resolve_strategy_input_sample_projection_schedule_dependencies_v3(bytea)",
-            "market_data_private.resolve_timeframe_projection_receipt_v1(bytea)",
-            "market_data_private.resolve_sample_receipt_v1(bytea)",
-            "market_data_private.resolve_bar_schedule_v1(bytea)",
-            "market_data_private.resolve_bar_schedule_history_v1(text)",
-        ];
-        const RELATIONS: [&str; 12] = [
-            "market_data_private.strategy_input_sample_projection_receipts_v3",
-            "market_data_private.strategy_input_sample_projection_schedule_dependencies_v3",
-            "market_data_private.timeframe_projection_receipts_v1",
-            "market_data_private.sample_facts_v1",
-            "market_data_private.sample_receipts_v1",
-            "market_data_private.sample_outbox_v1",
-            "market_data_private.bar_schedule_state_v1",
-            "market_data_private.bar_schedule_facts_v1",
-            "market_data_private.bar_schedule_heads_v1",
-            "market_data_private.bar_schedule_cuts_v1",
-            "market_data_private.bar_schedule_receipts_v1",
-            "market_data_private.bar_schedule_outbox_v1",
-        ];
-
-        FUNCTIONS.iter().all(|required| {
-            self.function_signatures
-                .iter()
-                .any(|value| value == required)
-        }) && RELATIONS
-            .iter()
-            .all(|required| self.acl_relations.iter().any(|value| value == required))
-    }
-
-    /// Returns whether this admitted measurement covers the additive V4 BAR join snapshot.
-    pub(super) fn covers_sample_projection_floor_v4(&self) -> bool {
-        const FUNCTIONS: [&str; 8] = [
-            "market_data_private.resolve_strategy_input_sample_projection_v4(bytea)",
-            "market_data_private.resolve_strategy_input_sample_projection_dependencies_v4(bytea)",
-            "market_data_private.resolve_strategy_input_sample_projection_v3(bytea)",
-            "market_data_private.resolve_strategy_input_sample_projection_schedule_dependencies_v3(bytea)",
-            "market_data_private.resolve_timeframe_projection_receipt_v1(bytea)",
-            "market_data_private.resolve_sample_receipt_v1(bytea)",
-            "market_data_private.resolve_bar_schedule_v1(bytea)",
-            "market_data_private.resolve_bar_schedule_history_v1(text)",
-        ];
-        const RELATIONS: [&str; 16] = [
-            "market_data_private.strategy_input_sample_projection_receipts_v4",
-            "market_data_private.strategy_input_sample_projection_dependencies_v4",
-            "market_data_private.strategy_input_sample_projection_readbacks_v4",
-            "market_data_private.strategy_input_sample_projection_outbox_v4",
-            "market_data_private.strategy_input_sample_projection_receipts_v3",
-            "market_data_private.strategy_input_sample_projection_schedule_dependencies_v3",
-            "market_data_private.timeframe_projection_receipts_v1",
-            "market_data_private.sample_facts_v1",
-            "market_data_private.sample_receipts_v1",
-            "market_data_private.sample_outbox_v1",
-            "market_data_private.bar_schedule_state_v1",
-            "market_data_private.bar_schedule_facts_v1",
-            "market_data_private.bar_schedule_heads_v1",
-            "market_data_private.bar_schedule_cuts_v1",
-            "market_data_private.bar_schedule_receipts_v1",
-            "market_data_private.bar_schedule_outbox_v1",
-        ];
-        FUNCTIONS.iter().all(|required| {
-            self.function_signatures
-                .iter()
-                .any(|value| value == required)
-        }) && RELATIONS
-            .iter()
-            .all(|required| self.acl_relations.iter().any(|value| value == required))
-    }
-
-    /// Returns whether this exact admitted measurement covers the fixed BAR schedule read.
-    pub(super) fn covers_bar_schedule_floor_v1(&self) -> bool {
-        const FUNCTIONS: [&str; 3] = [
-            "market_data_private.resolve_bar_schedule_v1(bytea)",
-            "market_data_private.resolve_bar_schedule_candidates_v1(text)",
-            "market_data_private.resolve_bar_schedule_history_v1(text)",
-        ];
-        const RELATIONS: [&str; 6] = [
-            "market_data_private.bar_schedule_state_v1",
-            "market_data_private.bar_schedule_facts_v1",
-            "market_data_private.bar_schedule_heads_v1",
-            "market_data_private.bar_schedule_cuts_v1",
-            "market_data_private.bar_schedule_receipts_v1",
-            "market_data_private.bar_schedule_outbox_v1",
-        ];
-
-        FUNCTIONS.iter().all(|required| {
-            self.function_signatures
-                .iter()
-                .any(|value| value == required)
-        }) && RELATIONS
-            .iter()
-            .all(|required| self.acl_relations.iter().any(|value| value == required))
-    }
-
-    /// Returns whether this exact admitted measurement covers the fixed Shared Time read.
-    /// Returns whether this exact admitted measurement covers a frame's quote cut read: the
-    /// census of quote cuts it is chosen from and the frame census its bound is read from.
-    pub(super) fn covers_native_replay_quote_cut_floor_v2(&self) -> bool {
-        const FUNCTIONS: [&str; 2] = [
-            "market_data_private.resolve_native_replay_quote_cut_census_v2(bytea,bigint,bigint)",
-            "market_data_private.resolve_native_replay_next_frame_v2(bytea,bigint,bigint)",
-        ];
-        const RELATIONS: [&str; 2] = [
-            "market_data_private.native_replay_quote_cut_census_v2",
-            "market_data_private.native_replay_frame_census_v2",
-        ];
-
-        FUNCTIONS.iter().all(|required| {
-            self.function_signatures
-                .iter()
-                .any(|value| value == required)
-        }) && RELATIONS
-            .iter()
-            .all(|required| self.acl_relations.iter().any(|value| value == required))
-    }
-
-    pub(super) fn covers_shared_time_floor_v1(&self) -> bool {
-        const FUNCTIONS: [&str; 5] = [
-            "market_data_private.resolve_owner_history_census_custody_v1()",
-            "market_data_private.resolve_clock_custody_state_v1()",
-            "market_data_private.resolve_clock_membership_custody_v1()",
-            "market_data_private.resolve_clock_handoff_v1(bytea)",
-            "market_data_private.resolve_epoch_successor_proof_v1(bytea)",
-        ];
-        const RELATIONS: [&str; 14] = [
-            "market_data_private.owner_migrations_v1",
-            "market_data_private.owner_history_census_state_v1",
-            "market_data_private.source_binding_lineage_census_v1",
-            "market_data_private.pit_snapshot_lineage_census_v1",
-            "market_data_private.source_binding_facts_v1",
-            "market_data_private.source_binding_heads_v1",
-            "market_data_private.pit_snapshot_facts_v1",
-            "market_data_private.pit_snapshot_heads_v1",
-            "market_data_private.clock_head_v1",
-            "market_data_private.clock_handoffs_v1",
-            "market_data_private.clock_handoff_state_v1",
-            "market_data_private.clock_handoff_membership_v1",
-            "market_data_private.clock_handoff_head_v1",
-            "market_data_private.epoch_successor_proofs_v1",
-        ];
-        FUNCTIONS.iter().all(|required| {
-            self.function_signatures
-                .iter()
-                .any(|value| value == required)
-        }) && RELATIONS
+        }) && floor
+            .relations
             .iter()
             .all(|required| self.acl_relations.iter().any(|value| value == required))
     }
@@ -1611,11 +1674,197 @@ pub(super) enum PostgresMeasurementError {
     FunctionIdentityUnavailable,
     #[error("PostgreSQL ACL identity is unavailable")]
     AclIdentityUnavailable,
+    #[error("PostgreSQL privilege census is unavailable")]
+    PrivilegeCensusUnavailable,
+    #[error("PostgreSQL server major is not the one the privilege census names")]
+    PrivilegeCensusServerMajorUnsupported,
     #[error("PostgreSQL catalog target is absent or ambiguous")]
     CatalogTargetMismatch,
     #[error("Market Data Source Binding storage snapshot is unavailable")]
     SnapshotUnavailable,
 }
+
+/// The PostgreSQL major version whose privilege vocabulary [`PRIVILEGE_CENSUS_V1`] names.
+///
+/// Another major can add a privilege (PostgreSQL 17 adds `MAINTAIN` on relations) that the census
+/// would not ask about, so a server of any other major is refused rather than measured short.
+const PRIVILEGE_CENSUS_SERVER_MAJOR: &str = "16";
+
+/// The largest privilege census a measurement accepts.
+const MAX_PRIVILEGE_CENSUS_ROWS: usize = 262_144;
+
+/// Every privilege the session role can exercise, one row per subject, object kind, object and
+/// privilege.
+///
+/// The ACLs of the objects a specification lists cannot show a grant on anything else, so this
+/// measures the role's reach instead of the listed surface:
+/// - the subjects are the session role and every role in its membership closure, whatever the
+///   membership's inherit or set option;
+/// - `has_*_privilege` answers for each, so a grant to the subject, to a role it inherits, or to
+///   `PUBLIC`, and ownership, all count;
+/// - of the databases, only the current one is asked about: a database created or granted
+///   elsewhere on the server is not this store;
+/// - every schema outside `pg_catalog` and the toast and temporary ones is asked for its
+///   privileges, and objects only in a schema the subject can use, so a grant it cannot reach
+///   does not move the census;
+/// - a relation's row type and an implicit array type are not asked about: using one grants
+///   nothing the relation or its element does not, and every new table would otherwise move it;
+/// - large objects, parameters and default privileges have no `has_*_privilege` on this major, so
+///   their explicit grants to a subject or to `PUBLIC` are read from their ACLs;
+/// - in `pg_catalog`, each privilege of a subject or `PUBLIC` that differs from what initdb
+///   recorded in `pg_init_privs` is listed, `+` where it was added and `-` where it was removed,
+///   so a grant to another role does not move it.
+///
+/// A schema the role can use that others create objects in is within its reach. In the deployed
+/// database `PUBLIC` may use `public` and `product_edge_owner` may create there, so a new function
+/// in `public`, which `PUBLIC` may execute by default, moves the census, and admission needs a new
+/// manifest: the role can execute it.
+const PRIVILEGE_CENSUS_V1: &str = r#"
+WITH RECURSIVE subject(oid) AS (
+    SELECT role.oid FROM pg_catalog.pg_roles AS role WHERE role.rolname = current_user
+  UNION
+    SELECT membership.roleid FROM pg_catalog.pg_auth_members AS membership JOIN subject ON membership.member = subject.oid
+),
+subject_role AS (
+  SELECT subject.oid, role.rolname::text AS subject FROM subject JOIN pg_catalog.pg_roles AS role ON role.oid = subject.oid
+),
+grantee AS (
+  SELECT subject.oid FROM subject UNION ALL SELECT 0::oid
+),
+user_schema AS (
+  SELECT namespace.oid, namespace.nspname::text AS nspname FROM pg_catalog.pg_namespace AS namespace
+  WHERE namespace.nspname NOT IN ('pg_catalog', 'pg_toast')
+    AND namespace.nspname NOT LIKE 'pg\_temp\_%' AND namespace.nspname NOT LIKE 'pg\_toast\_temp\_%'
+),
+usable AS (
+  SELECT subject_role.oid AS subject_oid, subject_role.subject, user_schema.oid AS namespace_oid, user_schema.nspname
+  FROM subject_role CROSS JOIN user_schema
+  WHERE pg_catalog.has_schema_privilege(subject_role.oid, user_schema.oid, 'USAGE')
+),
+catalog_acl(kind, object, current_acl, initial_acl) AS (
+  SELECT 'relation', 'pg_catalog.' || relation.relname,
+    COALESCE(relation.relacl, pg_catalog.acldefault('r', relation.relowner)),
+    COALESCE(initial.initprivs, pg_catalog.acldefault('r', relation.relowner))
+  FROM pg_catalog.pg_class AS relation
+  LEFT JOIN pg_catalog.pg_init_privs AS initial ON initial.objoid = relation.oid AND initial.classoid = 'pg_catalog.pg_class'::pg_catalog.regclass AND initial.objsubid = 0
+  WHERE relation.relnamespace = 'pg_catalog'::pg_catalog.regnamespace
+UNION ALL
+  SELECT 'column', 'pg_catalog.' || relation.relname || '.' || attribute.attname,
+    attribute.attacl, initial.initprivs
+  FROM pg_catalog.pg_attribute AS attribute JOIN pg_catalog.pg_class AS relation ON relation.oid = attribute.attrelid
+  LEFT JOIN pg_catalog.pg_init_privs AS initial ON initial.objoid = relation.oid AND initial.classoid = 'pg_catalog.pg_class'::pg_catalog.regclass AND initial.objsubid = attribute.attnum
+  WHERE relation.relnamespace = 'pg_catalog'::pg_catalog.regnamespace AND attribute.attnum > 0 AND (attribute.attacl IS NOT NULL OR initial.initprivs IS NOT NULL)
+UNION ALL
+  SELECT 'function', 'pg_catalog.' || function.proname || '(' || pg_catalog.pg_get_function_identity_arguments(function.oid) || ')',
+    COALESCE(function.proacl, pg_catalog.acldefault('f', function.proowner)),
+    COALESCE(initial.initprivs, pg_catalog.acldefault('f', function.proowner))
+  FROM pg_catalog.pg_proc AS function
+  LEFT JOIN pg_catalog.pg_init_privs AS initial ON initial.objoid = function.oid AND initial.classoid = 'pg_catalog.pg_proc'::pg_catalog.regclass AND initial.objsubid = 0
+  WHERE function.pronamespace = 'pg_catalog'::pg_catalog.regnamespace AND (function.proacl IS NOT NULL OR initial.initprivs IS NOT NULL)
+UNION ALL
+  SELECT 'schema', 'pg_catalog', COALESCE(namespace.nspacl, pg_catalog.acldefault('n', namespace.nspowner)),
+    COALESCE(initial.initprivs, pg_catalog.acldefault('n', namespace.nspowner))
+  FROM pg_catalog.pg_namespace AS namespace
+  LEFT JOIN pg_catalog.pg_init_privs AS initial ON initial.objoid = namespace.oid AND initial.classoid = 'pg_catalog.pg_namespace'::pg_catalog.regclass AND initial.objsubid = 0
+  WHERE namespace.nspname = 'pg_catalog'
+),
+catalog_grant(kind, object, side, grantee, privilege) AS (
+  SELECT catalog.kind, catalog.object, 'now', acl.grantee, acl.privilege_type || CASE WHEN acl.is_grantable THEN ' WITH GRANT OPTION' ELSE '' END
+  FROM catalog_acl AS catalog CROSS JOIN LATERAL pg_catalog.aclexplode(catalog.current_acl) AS acl
+  WHERE acl.grantee IN (SELECT grantee.oid FROM grantee)
+UNION ALL
+  SELECT catalog.kind, catalog.object, 'initdb', acl.grantee, acl.privilege_type || CASE WHEN acl.is_grantable THEN ' WITH GRANT OPTION' ELSE '' END
+  FROM catalog_acl AS catalog CROSS JOIN LATERAL pg_catalog.aclexplode(catalog.initial_acl) AS acl
+  WHERE acl.grantee IN (SELECT grantee.oid FROM grantee)
+),
+catalog_change(kind, object, grantee, privilege) AS (
+  SELECT kind, object, grantee, '+' || privilege FROM (
+    SELECT kind, object, grantee, privilege FROM catalog_grant WHERE side = 'now'
+    EXCEPT SELECT kind, object, grantee, privilege FROM catalog_grant WHERE side = 'initdb') AS added
+UNION ALL
+  SELECT kind, object, grantee, '-' || privilege FROM (
+    SELECT kind, object, grantee, privilege FROM catalog_grant WHERE side = 'initdb'
+    EXCEPT SELECT kind, object, grantee, privilege FROM catalog_grant WHERE side = 'now') AS removed
+),
+census(subject, kind, object, privilege) AS (
+  SELECT subject_role.subject, 'database', database.datname::text, privilege.name
+  FROM subject_role CROSS JOIN pg_catalog.pg_database AS database
+  CROSS JOIN (VALUES ('CONNECT'), ('CREATE'), ('TEMPORARY')) AS privilege(name)
+  WHERE database.datname = pg_catalog.current_database()
+    AND pg_catalog.has_database_privilege(subject_role.oid, database.oid, privilege.name)
+UNION ALL
+  SELECT subject_role.subject, 'schema', user_schema.nspname, privilege.name
+  FROM subject_role CROSS JOIN user_schema CROSS JOIN (VALUES ('USAGE'), ('CREATE')) AS privilege(name)
+  WHERE pg_catalog.has_schema_privilege(subject_role.oid, user_schema.oid, privilege.name)
+UNION ALL
+  SELECT usable.subject, 'relation', usable.nspname || '.' || relation.relname, privilege.name
+  FROM usable JOIN pg_catalog.pg_class AS relation ON relation.relnamespace = usable.namespace_oid AND relation.relkind IN ('r', 'p', 'v', 'm', 'f')
+  CROSS JOIN (VALUES ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE'), ('REFERENCES'), ('TRIGGER')) AS privilege(name)
+  WHERE pg_catalog.has_table_privilege(usable.subject_oid, relation.oid, privilege.name)
+UNION ALL
+  SELECT usable.subject, 'column', usable.nspname || '.' || relation.relname || '.' || attribute.attname, privilege.name
+  FROM usable JOIN pg_catalog.pg_class AS relation ON relation.relnamespace = usable.namespace_oid AND relation.relkind IN ('r', 'p', 'v', 'm', 'f')
+  JOIN pg_catalog.pg_attribute AS attribute ON attribute.attrelid = relation.oid AND attribute.attnum > 0 AND NOT attribute.attisdropped AND attribute.attacl IS NOT NULL
+  CROSS JOIN (VALUES ('SELECT'), ('INSERT'), ('UPDATE'), ('REFERENCES')) AS privilege(name)
+  WHERE pg_catalog.has_column_privilege(usable.subject_oid, relation.oid, attribute.attnum, privilege.name)
+    AND NOT pg_catalog.has_table_privilege(usable.subject_oid, relation.oid, privilege.name)
+UNION ALL
+  SELECT usable.subject, 'sequence', usable.nspname || '.' || relation.relname, privilege.name
+  FROM usable JOIN pg_catalog.pg_class AS relation ON relation.relnamespace = usable.namespace_oid AND relation.relkind = 'S'
+  CROSS JOIN (VALUES ('USAGE'), ('SELECT'), ('UPDATE')) AS privilege(name)
+  WHERE pg_catalog.has_sequence_privilege(usable.subject_oid, relation.oid, privilege.name)
+UNION ALL
+  SELECT usable.subject, 'function', usable.nspname || '.' || function.proname || '(' || pg_catalog.pg_get_function_identity_arguments(function.oid) || ')', 'EXECUTE'
+  FROM usable JOIN pg_catalog.pg_proc AS function ON function.pronamespace = usable.namespace_oid
+  WHERE pg_catalog.has_function_privilege(usable.subject_oid, function.oid, 'EXECUTE')
+UNION ALL
+  SELECT usable.subject, 'type', usable.nspname || '.' || type.typname, 'USAGE'
+  FROM usable JOIN pg_catalog.pg_type AS type ON type.typnamespace = usable.namespace_oid
+  LEFT JOIN pg_catalog.pg_class AS row_relation ON row_relation.oid = type.typrelid
+  WHERE (type.typrelid = 0 OR row_relation.relkind = 'c')
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_type AS element WHERE element.typarray = type.oid)
+    AND pg_catalog.has_type_privilege(usable.subject_oid, type.oid, 'USAGE')
+UNION ALL
+  SELECT subject_role.subject, 'language', language.lanname::text, 'USAGE'
+  FROM subject_role CROSS JOIN pg_catalog.pg_language AS language
+  WHERE pg_catalog.has_language_privilege(subject_role.oid, language.oid, 'USAGE')
+UNION ALL
+  SELECT subject_role.subject, 'foreign-data-wrapper', wrapper.fdwname::text, 'USAGE'
+  FROM subject_role CROSS JOIN pg_catalog.pg_foreign_data_wrapper AS wrapper
+  WHERE pg_catalog.has_foreign_data_wrapper_privilege(subject_role.oid, wrapper.oid, 'USAGE')
+UNION ALL
+  SELECT subject_role.subject, 'foreign-server', server.srvname::text, 'USAGE'
+  FROM subject_role CROSS JOIN pg_catalog.pg_foreign_server AS server
+  WHERE pg_catalog.has_server_privilege(subject_role.oid, server.oid, 'USAGE')
+UNION ALL
+  SELECT subject_role.subject, 'tablespace', tablespace.spcname::text, 'CREATE'
+  FROM subject_role CROSS JOIN pg_catalog.pg_tablespace AS tablespace
+  WHERE pg_catalog.has_tablespace_privilege(subject_role.oid, tablespace.oid, 'CREATE')
+UNION ALL
+  SELECT subject_role.subject, 'large-object', object.oid::text, 'OWNER'
+  FROM subject_role JOIN pg_catalog.pg_largeobject_metadata AS object ON object.lomowner = subject_role.oid
+UNION ALL
+  SELECT CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(acl.grantee)::text END, 'large-object', object.oid::text, acl.privilege_type
+  FROM pg_catalog.pg_largeobject_metadata AS object CROSS JOIN LATERAL pg_catalog.aclexplode(object.lomacl) AS acl
+  WHERE acl.grantee IN (SELECT grantee.oid FROM grantee)
+UNION ALL
+  SELECT CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(acl.grantee)::text END, 'parameter', parameter.parname::text, acl.privilege_type
+  FROM pg_catalog.pg_parameter_acl AS parameter CROSS JOIN LATERAL pg_catalog.aclexplode(parameter.paracl) AS acl
+  WHERE acl.grantee IN (SELECT grantee.oid FROM grantee)
+UNION ALL
+  SELECT CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(acl.grantee)::text END, 'default-privilege',
+    pg_catalog.pg_get_userbyid(defaults.defaclrole)::text || ':' || COALESCE(namespace.nspname::text, '*') || ':' || defaults.defaclobjtype::text, acl.privilege_type
+  FROM pg_catalog.pg_default_acl AS defaults LEFT JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = defaults.defaclnamespace
+  CROSS JOIN LATERAL pg_catalog.aclexplode(defaults.defaclacl) AS acl
+  WHERE acl.grantee IN (SELECT grantee.oid FROM grantee)
+UNION ALL
+  SELECT CASE WHEN change.grantee = 0 THEN 'PUBLIC' ELSE pg_catalog.pg_get_userbyid(change.grantee)::text END,
+    'pg_catalog ' || change.kind, change.object, change.privilege
+  FROM catalog_change AS change
+)
+SELECT census.subject, census.kind, census.object, census.privilege FROM census
+ORDER BY census.subject COLLATE "C", census.kind COLLATE "C", census.object COLLATE "C", census.privilege COLLATE "C"
+"#;
 
 /// Read-only direct PostgreSQL target measurer for a pinned disposable loopback authority.
 #[derive(Clone, Copy, Debug, Default)]
@@ -1726,6 +1975,10 @@ impl PostgresDirectMeasurer {
         if database_name != target.database || role_name != target.role {
             return Err(PostgresMeasurementError::InvalidTarget);
         }
+
+        if !privilege_census_names_the_privileges_of(&server_version) {
+            return Err(PostgresMeasurementError::PrivilegeCensusServerMajorUnsupported);
+        }
         let role_membership_rows = sqlx::query(
             "WITH RECURSIVE membership_path AS (SELECT membership.roleid, membership.member, membership.grantor, membership.admin_option, membership.inherit_option, membership.set_option, ARRAY[membership.member, membership.roleid] AS path, 1::bigint AS depth FROM pg_catalog.pg_auth_members AS membership JOIN pg_catalog.pg_roles AS session_role ON session_role.oid = membership.member WHERE session_role.rolname = current_user UNION ALL SELECT next.roleid, next.member, next.grantor, next.admin_option, next.inherit_option, next.set_option, prior.path || next.roleid, prior.depth + 1 FROM membership_path AS prior JOIN pg_catalog.pg_auth_members AS next ON next.member = prior.roleid WHERE prior.depth < 33 AND NOT next.roleid = ANY(prior.path)) SELECT granted_role.rolname::text AS role_name, pg_catalog.pg_get_userbyid(path.member)::text AS member_name, pg_catalog.pg_get_userbyid(path.grantor)::text AS grantor_name, path.admin_option, path.inherit_option, path.set_option, path.depth, granted_role.rolsuper AS role_super, granted_role.rolinherit AS role_inherit, granted_role.rolcreaterole AS role_create_role, granted_role.rolcreatedb AS role_create_database, granted_role.rolcanlogin AS role_can_login, granted_role.rolreplication AS role_replication, granted_role.rolbypassrls AS role_bypass_rls FROM membership_path AS path JOIN pg_catalog.pg_roles AS granted_role ON granted_role.oid = path.roleid ORDER BY path.depth, role_name, member_name, grantor_name LIMIT 257",
         )
@@ -1763,6 +2016,8 @@ impl PostgresDirectMeasurer {
                 "role_bypass_rls",
             ],
         )?;
+
+        let privilege_census_identity = measure_privilege_census(&mut transaction).await?;
 
         let tls = sqlx::query(
             "SELECT ssl, COALESCE(version, '')::text AS protocol, COALESCE(cipher, '')::text AS cipher FROM pg_catalog.pg_stat_ssl WHERE pid = pg_catalog.pg_backend_pid()",
@@ -1972,7 +2227,11 @@ impl PostgresDirectMeasurer {
             schema_identity,
             migration_identity,
             function_identity,
-            role_identity: digest_serializable(&(role_record, role_membership_identity)),
+            role_identity: digest_serializable(&(
+                role_record,
+                role_membership_identity,
+                privilege_census_identity,
+            )),
             acl_identity,
         })
     }
@@ -2116,6 +2375,33 @@ fn quoted_qualified_name(value: &str) -> Option<String> {
     Some(format!("\"{schema}\".\"{relation}\""))
 }
 
+/// Whether [`PRIVILEGE_CENSUS_V1`] names every privilege of the server whose
+/// `server_version_num` is `server_version`: only one of [`PRIVILEGE_CENSUS_SERVER_MAJOR`].
+fn privilege_census_names_the_privileges_of(server_version: &str) -> bool {
+    server_version.len() == 6
+        && server_version.bytes().all(|byte| byte.is_ascii_digit())
+        && server_version.starts_with(PRIVILEGE_CENSUS_SERVER_MAJOR)
+}
+
+/// Reads [`PRIVILEGE_CENSUS_V1`] for the session role and digests it.
+///
+/// # Errors
+///
+/// Returns an error when the census cannot be read or exceeds its bound.
+pub(super) async fn measure_privilege_census(
+    connection: &mut PgConnection,
+) -> Result<String, PostgresMeasurementError> {
+    let rows = sqlx::query(PRIVILEGE_CENSUS_V1)
+        .fetch_all(&mut *connection)
+        .await
+        .map_err(|_| PostgresMeasurementError::PrivilegeCensusUnavailable)?;
+
+    if rows.len() > MAX_PRIVILEGE_CENSUS_ROWS {
+        return Err(PostgresMeasurementError::CatalogTargetMismatch);
+    }
+    rows_digest(&rows, &["subject", "kind", "object", "privilege"])
+}
+
 fn rows_digest(
     rows: &[sqlx::postgres::PgRow],
     columns: &[&str],
@@ -2155,4 +2441,28 @@ fn digest_serializable(value: &(impl Serialize + ?Sized)) -> String {
         let _ = write!(output, "{byte:02x}");
     }
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    #[case::this_major("160010", true)]
+    #[case::its_first_release("160000", true)]
+    #[case::the_next_major("170002", false)]
+    #[case::an_old_major("150008", false)]
+    #[case::a_five_digit_version("90624", false)]
+    #[case::not_a_number("16.10", false)]
+    fn the_census_measures_only_the_major_whose_privileges_it_names(
+        #[case] server_version: &str,
+        #[case] measured: bool,
+    ) {
+        assert_eq!(
+            privilege_census_names_the_privileges_of(server_version),
+            measured
+        );
+    }
 }

@@ -925,6 +925,13 @@ pre_commit_job="$(workflow_job_block "$build_workflow" pre-commit)"
 [[ "$pre_commit_job" == *'bash scripts/ci/run-pre-commit.bash "$route"'* ]]
 grep -Fq 'run: bash scripts/ci/run-pre-commit.bash no-compile' "$pre_commit_pr"
 grep -Eq '^  pull_request:' "$pre_commit_pr"
+# main gets its no-compile verdict on a schedule, not on every push (2.8 runner-hours a day spent
+# re-checking merged trees); a push trigger coming back would be caught here.
+if grep -Eq '^  push:' "$pre_commit_pr" || ! grep -Eq '^  schedule:' "$pre_commit_pr" ||
+  ! grep -Eq '^  workflow_dispatch:' "$pre_commit_pr"; then
+  echo "pre-commit-pr.yml must check main on a schedule plus workflow_dispatch, never on push." >&2
+  exit 1
+fi
 quality_job="$(workflow_job_block "$build_workflow" quality)"
 required_job="$(grep -oE '"pre-commit \(no-compile hooks\)"' <<< "$quality_job" || true)"
 if [[ -z "$required_job" ]] || [[ "$quality_job" != *'bash scripts/ci/require-workflow-job.bash pre-commit-pr.yml'* ]] ||

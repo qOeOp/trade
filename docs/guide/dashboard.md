@@ -589,31 +589,33 @@ item matches the readback's request identity, Owner-receipt `semantic_digest`, a
 mismatch, unavailable question, or missing receipt field withdraws the whole question brief rather than showing
 stale meaning. `Refresh` re-reads both projections; neither read authorizes a write.
 
-A request whose readback carries `EXPLORATION_ACTIVE` renders as unavailable on this route in any
-deployed image, and that is a boundary rather than a defect. The reader requires a schema 3 view whose
-`composer_artifact` carries exactly ten Composer facts, from the artifact locator and identity digest
-through the family binding receipt to the census frontier digest. Only the composer-backed replay
-commit produces them, and its route sits behind `sealed-source-intake-composer-acceptance`, which no
-deployed image enables; the ordered chain compiles it for acceptance only. The ungated v2 replay commit writes a view
-that has no Composer artifact to describe, so it cannot satisfy that reader whatever schema version it
-declares.
+A request whose readback carries `EXPLORATION_ACTIVE` arrives in one of two shapes, and the reader reads each as
+itself. A legacy exploration, which the ungated legacy Replay V2 commit writes in any deployed image, is a schema 2
+view. It carries the build artifact it ran on - the same `attempt_identity`, `artifact_identity`,
+`build_receipt_identity` and `artifact_review_identity` an `ARTIFACT_AVAILABLE` view carries - and the Replay it
+ran, and no Composer artifact. Its identity is the `rd-research-view-v3` derivation, and its cut names the Replay
+seal under `rd-exploration-cut-v1-`. A composer-backed exploration is a schema 3 view whose `composer_artifact`
+carries exactly ten Composer facts, from the artifact locator and identity digest through the family binding
+receipt to the census frontier digest. Only the composer-backed replay commit produces them, and its route sits
+behind `sealed-source-intake-composer-acceptance`, which no deployed image enables, so today only the ordered
+chain's build shows one.
 
-This boundary lifts when a deployed image carries a path that produces Composer artifacts, which is
-the same gap the Composer readback reports as unavailable today. At that point the v2 commit retires
-or is replaced by the composer-backed path, and the reader needs no change: its exact-key check is
-already the terminal shape. Relaxing it to accept the legacy view would encode an absent Composer as
-a present one, and draw a page that reads as though exploration were running.
+Neither shape is read as the other. A schema 2 view that carries a Composer artifact, or a schema 3 view that
+carries none, is refused rather than shown. So an absent Composer is never encoded as a present one, and the page
+never implies a Composer run that did not happen. Each shape's identity is pinned against the producing side
+through vectors both sides verify: `product/rd-owner-client/fixtures/research_view_identity_vectors_v3.json` for
+the legacy one and `research_view_identity_vectors_v4.json` for the composer-backed one.
 
-Where the reader does admit such a view - today only in the ordered chain's build, which compiles that commit for
-acceptance - the page states it as it is. `Availability` reads `Exploration active` and `Next step` reads
+The page states an exploration as it is. `Availability` reads `Exploration active` and `Next step` reads
 `View exploratory run`, and the research journey reads `Exploration is active` rather than
 `Strategy is ready for build`; none of them falls back to the `Intent frozen` or `Awaiting R&D` wording, which
-describe a request still waiting for its first run. The view names the Composer run and the Replay request the exploration ran, and the page
-links to both on their own admitted routes: `Composer run` opens `/rd/composer?requestIdentity=` with the view's
-`composer_request_identity`, and `Exploratory replay` opens `/backtest?replayRequestIdentity=&meaningDigest=` with
-its `replay_request_identity` and `replay_request_meaning_digest`. Those identities come only from the verified
-view; the page derives none of them. A phase or next legal action outside the four each maps makes the readback
-unavailable rather than shown as another.
+describe a request still waiting for its first run. The view names the Replay request the exploration ran, and a
+composer-backed view also names its Composer run; the page links to each on its own admitted route.
+`Exploratory replay` opens `/backtest?replayRequestIdentity=&meaningDigest=` with the view's
+`replay_request_identity` and `replay_request_meaning_digest`. Only for a composer-backed exploration,
+`Composer run` opens `/rd/composer?requestIdentity=` with its `composer_request_identity`; a legacy exploration
+shows no Composer link. Those identities come only from the verified view; the page derives none of them. A phase
+or next legal action outside the four each maps makes the readback unavailable rather than shown as another.
 
 When the historical-custody Owner projection is available, the route places one shared compact Bento status card
 before the directory. It organizes the user's R&D workspace into three thin-shoulder groups: `research`, `build`,

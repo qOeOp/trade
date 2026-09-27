@@ -82,7 +82,8 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   它 `NATIVE_REPLAY_SCHEDULING_ACCEPTANCE_GRANTS_V1`；它的 evidence 在已准入读取携带 receipt 的位置携带标记
   `SEALED_ACCEPTANCE_NO_STORE_ADMISSION_V1`，只有携带该读口的构建才接受这个标记。Admission 本身，包括它租用的主体与那道门上的
   授权，仍然是 `B3`。今天没有任何生产角色持有那道门：部署时的 ACL 切换把 `market_data_private` 的 `USAGE` 从 owner 以外的
-  所有角色收回，而 Store Admission 所测量的调度下限也不覆盖该路径所做的 PIT evaluation 读取。
+  所有角色收回，而已准入读口的测量下限所列的对象也还没有授予任何角色。每个读口只在测量覆盖它所服务读取的下限时才打开，
+  原生 Replay 调度读口的 PIT evaluation 读取也在其中；每次读取在它所依据的每次准入上都再核一遍自己的下限。
   读取一份 BAR schedule 有**两套托管策略**，每种构建一套，而本文档此前一套都没描述过。测试构建自行开启
   `REPEATABLE READ READ ONLY` 事务并自验该 schedule 的历史；生产构建的快照由已准入读口的 evidence 承担，并在返回前
   重新校验。两者跑的是同一个 `verify_bar_schedule_storage_evidence`。差别是一致性保证从哪里来，不是强弱：测试那条
@@ -119,6 +120,15 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   `deployment-store-publication-publish` 封存并发布历史；步骤见 `product/rd-workbench/README.md`。
   `admit_rd_owner_market_data_postgres` 仍接 `Unavailable*` 端口，所以 `required` 在启动时仍然失败关闭。准入只从 custody
   store 的时钟读时间：每次读历史都带回该库的 `clock_timestamp()` cut，commit 也在同一个时钟上判定回执的窗口。
+  直接测量器的 role identity 覆盖的是租到的角色能做什么，而不只是所列对象的 ACL；所列对象的 ACL 看不到别处的授权。
+  它带一份权限普查（`PRIVILEGE_CENSUS_V1`）：会话角色及其成员关系闭包中每个角色持有的每项权限，无论来自直接授权、
+  `PUBLIC` 还是所有权。数据库只问当前这一个；schema 问除 `pg_catalog` 之外的每一个；对象只在该角色能使用的 schema
+  里问；关系的行类型和隐式数组类型不问，它们不授予任何东西。`pg_catalog` 里，凡该角色、其闭包或 `PUBLIC` 的某项
+  权限与 initdb 的记录不同，都列出来。所以角色在它够得着的任何地方多得或失去一项授权，admission 比较的 identity
+  就会变；授给别的角色的权限、别的数据库上的权限、它用不了的 schema 里的对象，都不会让它变。角色能用、而别人会在
+  其中建对象的 schema 在它够得着的范围内：部署的数据库里 `PUBLIC` 能用 `public`，`product_edge_owner` 能在那里建
+  对象，所以 `public` 里新建一个函数（默认 `PUBLIC` 可执行）会改变普查，admission 需要一份新 manifest。普查按
+  PostgreSQL 16 的权限集列举，其他主版本的服务器会被拒绝，而不是少测。
 - **`B4` 消费者未编入已部署镜像。** `product/rd-workbench/Dockerfile.owner` 以默认 feature 构建
   `strategy-factory-rd-owner-api`，使 `sealed-develop-composer-acceptance` 处于关闭，而 dashboard 读取二进制不触及任何
   Market Data 表面。解除条件：把该消费者移出 acceptance feature。
