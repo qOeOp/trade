@@ -27,6 +27,9 @@ const epoch = (value: unknown): value is number => Number.isSafeInteger(value) &
 const integer = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0
 const sha256Digest = (value: unknown): value is string => typeof value === "string"
   && /^sha256:[0-9a-f]{64}$/.test(value)
+// A Replay request V2 meaning digest, which the request contract computes with BLAKE3.
+const blake3Digest = (value: unknown): value is string => typeof value === "string"
+  && /^blake3:[0-9a-f]{64}$/.test(value)
 const version = (value: unknown, expected = 1): value is Json => object(value) && value.schema_version === expected
 const texts = (value: unknown): value is string[] => Array.isArray(value) && value.every(text)
 
@@ -165,7 +168,7 @@ export function validExplorationView(composerArtifact: unknown, exploration: unk
     && composerArtifact.census_frontier_identity === exploration.census_frontier_identity
     && composerArtifact.census_frontier_digest === exploration.census_frontier_digest
     && text(exploration.replay_request_identity)
-    && sha256Digest(exploration.replay_request_meaning_digest)
+    && blake3Digest(exploration.replay_request_meaning_digest)
     && sha256Digest(exploration.replay_request_seal_digest)
     && namedSha256(exploration.replay_receipt_identity, "rd-exploratory-replay-receipt-v2-")
 }

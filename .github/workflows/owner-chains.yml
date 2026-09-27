@@ -128,6 +128,8 @@ jobs:
     timeout-minutes: 5
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
+      rd-partial: ${{ steps.matrix.outputs.rd-partial }}
+      rd-selection: ${{ steps.matrix.outputs.rd-selection }}
     steps:
       # https://github.com/step-security/harden-runner
       - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
@@ -146,9 +148,15 @@ jobs:
         with:
           persist-credentials: false
 
+      # A branch named `test-chain/<lane>--only-<selector>` runs only the shards, component or leg
+      # the selector names (scripts/ci/owner-chain-matrix.py); a selector it cannot read runs all.
       - name: Read the chain matrix
         id: matrix
-        run: python3 scripts/ci/owner-chain-matrix.py scripts/ci/rd-owner-chain-shards.tsv >> "$GITHUB_OUTPUT"
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: >-
+          python3 scripts/ci/owner-chain-matrix.py --selector-ref "$REF_NAME"
+          scripts/ci/rd-owner-chain-shards.tsv >> "$GITHUB_OUTPUT"
 
   owner-chain:
     name: ${{ matrix.chain.name }}
@@ -283,6 +291,8 @@ jobs:
             && format('{0}/rd-owner-archive/rd-owner-tests.tar.zst', runner.temp) || '' }}
           # Empty for the whole chain and for Market Data; a shard name runs that shard's entries only.
           RD_OWNER_CHAIN_SHARD: ${{ matrix.chain.shard }}
+          # Empty except in a partial run narrowed to one component of the shard.
+          RD_OWNER_CHAIN_COMPONENT: ${{ matrix.chain.component }}
         run: make ${{ matrix.chain.make }}
 
       # `if: always()`: the run that ends at an entry is the one whose record answers the most.
@@ -427,12 +437,20 @@ jobs:
   # position and test name any entry that is missing, failed, or recorded where another belongs.
   # It checks out the same tree as the shards: the report takes the chain's length and test names
   # from that tree's chain array.
+  # A partial run reports only what it selected, under a name that says so, and never prints the
+  # whole chain's verdict line; a run that selected no R&D shard (Market Data only) has no report.
   owner-chain-report:
-    if: always() && needs.owner-chain.result != 'skipped'
-    name: rd owner chain report
+    if: >-
+      always() && needs.owner-chain.result != 'skipped' &&
+      (needs.owner-chain-plan.outputs.rd-partial == '' || needs.owner-chain-plan.outputs.rd-selection != '')
+    name: >-
+      ${{ needs.owner-chain-plan.outputs.rd-partial != ''
+      && format('rd owner chain report (PARTIAL: {0})', needs.owner-chain-plan.outputs.rd-partial)
+      || 'rd owner chain report' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     needs:
+      - owner-chain-plan
       - owner-chain
     steps:
       # https://github.com/step-security/harden-runner
@@ -462,12 +480,26 @@ jobs:
           merge-multiple: true
 
       - name: Merge the shards' records
-        run: >-
-          bash scripts/ci/merge-chain-shard-records.bash
-          "${RUNNER_TEMP}/chain-records" "${RUNNER_TEMP}/chain-records-merged"
-          scripts/ci/rd-owner-chain-shards.tsv
+        env:
+          SELECTION: ${{ needs.owner-chain-plan.outputs.rd-selection }}
+        run: |
+          set -euo pipefail
+          selected=()
+          for spec in $SELECTION; do selected+=("${spec%%=*}"); done
+          bash scripts/ci/merge-chain-shard-records.bash \
+            "${RUNNER_TEMP}/chain-records" "${RUNNER_TEMP}/chain-records-merged" \
+            scripts/ci/rd-owner-chain-shards.tsv "${selected[@]}"
 
-      - name: Report the whole chain
-        run: >-
-          bash scripts/ci/test-rd-owner-postgres.bash
-          --report-records "${RUNNER_TEMP}/chain-records-merged"
+      - name: Report the chain
+        env:
+          PARTIAL: ${{ needs.owner-chain-plan.outputs.rd-partial }}
+          SELECTION: ${{ needs.owner-chain-plan.outputs.rd-selection }}
+        run: |-
+          set -euo pipefail
+          if [[ -z "$PARTIAL" ]]; then
+            bash scripts/ci/test-rd-owner-postgres.bash --report-records "${RUNNER_TEMP}/chain-records-merged"
+          else
+            # shellcheck disable=SC2086 # the selection is one spec per word
+            bash scripts/ci/test-rd-owner-postgres.bash --report-partial-records \
+              "${RUNNER_TEMP}/chain-records-merged" "$PARTIAL" $SELECTION
+          fi

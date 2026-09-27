@@ -45,6 +45,7 @@ vibe-infrastructure = { workspace = true, features = ["postgres"] }
 vibe-live = { workspace = true, features = ["defi"] }
 vibe-model = { workspace = true, features = ["defi"] }
 vibe-network = { workspace = true }
+vibe-postgres-connect = { workspace = true }
 vibe-system = { workspace = true, optional = true }
 
 ahash = { workspace = true }

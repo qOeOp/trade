@@ -375,6 +375,7 @@ mod tests {
     use std::env;
 
     use sqlx::postgres::PgPoolOptions;
+    use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
     use super::*;
 
@@ -515,7 +516,7 @@ mod tests {
         // show that a role may not issue them.
         let reader = PgPoolOptions::new()
             .max_connections(1)
-            .connect(&reader_url)
+            .connect_url(&reader_url, PostgresTls::Disabled)
             .await
             .unwrap();
         assert!(

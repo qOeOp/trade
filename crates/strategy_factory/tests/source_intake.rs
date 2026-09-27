@@ -9,6 +9,8 @@ pub mod storage_diagnostic;
 pub mod source_intake;
 
 use std::net::{IpAddr, Ipv4Addr};
+#[cfg(feature = "sealed-source-intake-research-acceptance")]
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
 #[cfg(feature = "sealed-source-intake-research-acceptance")]
 use std::sync::Arc;
@@ -1741,7 +1743,8 @@ async fn postgres_sealed_success_atomically_reads_back_distinct_time_heads_and_r
         ("Backtest", "BACKTEST_TEST_DATABASE_URL"),
     ] {
         let url = std::env::var(environment).expect("canonical role URL");
-        let pool = sqlx::PgPool::connect(&url)
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_url(&url, PostgresTls::Disabled)
             .await
             .unwrap_or_else(|e| panic!("{role} disposable role is unreachable: {e}"));
         pool.close().await;

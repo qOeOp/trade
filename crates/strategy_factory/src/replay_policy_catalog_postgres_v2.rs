@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 #[cfg(all(test, feature = "sealed-develop-composer-acceptance"))]
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
+#[cfg(all(test, feature = "sealed-develop-composer-acceptance"))]
 use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
 #[cfg(feature = "sealed-develop-composer-acceptance")]
@@ -346,11 +348,13 @@ pub(crate) async fn ensure_authenticated_sealed_acceptance_fixture_v3(
 pub(crate) async fn ensure_sealed_acceptance_catalog_v3_for_test(
     database: &CanonicalOwnerPostgresTestDatabaseV1,
 ) {
-    let pool = PgPool::connect(
-        database.database_url(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter),
-    )
-    .await
-    .expect("the Catalog administrator connects");
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_url(
+            database.database_url(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter),
+            PostgresTls::Disabled,
+        )
+        .await
+        .expect("the Catalog administrator connects");
     ensure_authenticated_sealed_acceptance_fixture_v3(&pool)
         .await
         .expect("the sealed Catalog V3 head is created or resolved exactly");
@@ -666,9 +670,18 @@ pub(crate) fn sealed_acceptance_policy()
         runner_operational_profile: versioned("runner-profile-v2")?,
         diagnostic_policy: versioned("diagnostic-policy-v2")?,
         deterministic_seed: 1,
+        // The window bounds every Replay of a family formed under this fixture, and a
+        // Composer-backed Replay spans its facts' window, which starts at the instant Market Data
+        // cut the family's snapshot: its clock head's decision cut. That cut is whatever the clock
+        // head holds when the snapshot is taken - a fixture's instant (the ordered chain's is 100)
+        // or, once a Source Binding is admitted in production, wall-clock nanoseconds - and the
+        // head persists it as `BIGINT CHECK (decision_cut > 0)`. So this window is that column's
+        // whole domain, [1, i64::MAX], with room for the one instant a snapshot's facts cover past
+        // the last cut. A narrower window would hold only while every snapshot's cut happens to
+        // fall inside it, which is a property of the chain's order, not of the fixture.
         window: ReplayWindowV2 {
             start_event_ns: 1,
-            end_event_ns_exclusive: 2,
+            end_event_ns_exclusive: 1 << 63,
         },
         calendar: versioned("calendar-v2")?,
         session: versioned("session-v2")?,
@@ -2669,6 +2682,7 @@ mod postgres_tests {
     use vibe_backtest_owner_contracts::{
         CanonicalDigestV2, ContentIdentityV2, OpaqueIdentityV2, ReplayWindowV2, VersionedIdentityV2,
     };
+    use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
     const WRITE_COUNTS_SQL: &str = "SELECT
@@ -3744,7 +3758,7 @@ mod postgres_tests {
             .expect("explicit Catalog admin test database URL is required");
         let pool = PgPoolOptions::new()
             .max_connections(8)
-            .connect(&database_url)
+            .connect_url(&database_url, PostgresTls::Disabled)
             .await
             .unwrap();
         let expected_database = std::env::var("VIBE_POSTGRES_TEST_DATABASE_NAME").unwrap();

@@ -48,9 +48,12 @@
 - 只追加 TrialFamily Census Frontier，记录冻结截面前每个探索 Intent Request Result 身份，包括失败 被拒 无效 未知试验以及已消费族预算。
 - 可以支持新 Research Intent 的探索发现，但不能改写已冻结前序事实。
 - 写一次的 Iteration Result Admission，把一个已加锁的 canonical Backtest Result 绑定到可以消费它的迭代。
-  Owner 在单个可串行化 R&D 事务内，从加锁的 Result 字节、确切 TrialFamily 普查截面与已封存试验预算推导全部被接纳事实；
-  调用方只提供定位符、result 与 request meaning 摘要、按规范排序的候选提案集合，以及授权该 mutation 的
-  Product Edge admission locator。Owner 在持有 Result 锁的同一笔可串行化事务内解析该 admission，核验它命名的
+  Owner 在单个 READ COMMITTED 的 R&D 事务内（这是 Product Edge admission 锁接受的隔离级别），从 Result 字节、
+  确切 TrialFamily 普查截面与已封存试验预算推导全部被接纳事实；调用方只提供定位符、result 与 request meaning 摘要、
+  按规范排序的候选提案集合，以及授权该 mutation 的 Product Edge admission locator。事务先取该 Result 的接纳锁，
+  因此同一 Result 的并发接纳会等待，随后读到对方已提交的结果；然后在读取普查成员与 attempt 截面之前先锁住该 family
+  的普查 head：普查追加从写第一行之前到提交一直持有这个 head，所以接纳绑定的普查是同一个截面，接纳提交之前不会有
+  追加落地。Owner 在同一笔事务内解析 Product Edge admission，核验它命名的
   正是这一条 request、operation、schema、target Owner、payload 与单一 effect，并要求它在事务开启时与提交截面上
   都授权该 mutation。重放按历史解析，因为已提交的事实是按 request 含义内容寻址的，而不是按谁授权的。
   提案集合为空 超限 乱序 重复
@@ -153,7 +156,10 @@
   时被准入；successor 绑定家族的 V2 census。一个 attempt 是在 Result 之后记录的一次 Replay，所以家族的第一次
   Replay 永远不可能对着 V2 census 组合。只有下文的 Decision composition 会追加 attempt，在它被准入之前，
   successor 按名被拒，`SUCCESSOR_CENSUS_AWAITS_DECISION_COMPOSITION`。commit 与历史 readback 用同一条规则做这个
-  选择；第一代 Replay 的 readback 从家族的 root 重新读出成形 frontier，所以之后追加的 attempt 不会改变它。
+  选择；第一代 Replay 的 readback 从家族的 root 重新读出成形 frontier，所以之后追加的 attempt 不会改变它。它的 replay window 是它所组合的 facts 的窗口，由家族的 policy
+  窗口限定（`docs/architecture/strategy-factory.md`，TrialFamily-owned Replay execution policy V2）；前驱是
+  composer-backed Replay 的 Market Data 修复 re-entry 按名被拒，`MARKET_DATA_REPAIR_OF_COMPOSER_V3_REPLAY_AWAITS_DESIGN`，
+  因为 re-entry 按 policy 窗口组成它的后继。
 - **CURRENT - 有一条只读操作只能经由写 API 触达：** Dashboard 的操作登记表声明了十一条 Owner 路由，
   其中十条是 `GET`。第十一条 `research_goal.legacy_quarantine_read.v1` 声明 `effect_set: []`，
   解析到 `POST /v1/research-goals/{request_identity}/resolve`，它注册在
@@ -561,6 +567,15 @@ host 仍 fail closed，绝不替换为 generic toolchain。
   展开式 `variance`、`stddev`、`zscore`、`crosses_above`、`crosses_below`；`compare`、`all_of`、`any_of`、`not`、`if`
   与 `banded`；以及状态 `latch`、`count_while` 与 `capture`。`if` 不是惰性的：两个分支都会被求值，
   和每个节点一样。
+- *成员（TARGET，随 Strategy shape envelope 的 I2）。* 一份文档只写一次，覆盖 Research 范围给出的成员集。
+  对一个角色写的表达式按成员广播：编译器把它展开成每个成员一个节点，各自在该成员的 `member_ordinal` 上读输入。
+  `across_members` 用 `rank`、`mean`、`min`、`max` 或 `nth` 把一个广播表达式在全体成员上归约，它们降为 I2
+  追加到目录的跨成员原语：`rank` 取平均秩，所以并列的成员共享一个秩，`nth` 返回第 n 个顺序统计量的值。
+  展开后的图与其他图一样按 `graph_bounds` 度量，成员数上界要等 I1.5 量出 N 倍展开对 `max_edges` 的压力之后
+  才确定。编译出的程序只对它自己的成员数有效，所以成员集变了就是新的 Research、重新编译。I2 落地之前，范围
+  超过一个成员的文档，或用了 `across_members` 的文档，都在它的路径上以 `MEMBER_DIMENSION_NOT_YET_ADMITTED`
+  拒绝：I2 之前程序只在 `member_ordinal` 0 上读 universe 角色，也没有终端产出目标集字节，所以今天只有一个成员
+  的文档能编译。编写层编译器出现之前没有任何东西构造这个拒绝；从那以后由它的单元测试驱动。
 - *状态与规则。* 表达式里读到的状态名是它上一拍的值，所以反馈只经过状态，定义之间的环被拒绝。
   程序处于预热时，每个状态保持上一拍的值，因为宿主只把预热帧钉为中性，一个动了的状态会记下一次
   从未被提议过的入场。规则的名字是布尔值「这条规则本拍被选中」：它的条件、它的 `require`，以及

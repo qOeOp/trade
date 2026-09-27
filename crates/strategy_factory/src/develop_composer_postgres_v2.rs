@@ -26,6 +26,7 @@ use vibe_data::owner::{
         StrategyDesignRoleSetLocatorV1, StrategyDesignRoleSetReceiptV1,
     },
 };
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::develop_composer_operation_v2::prepare_develop_composer_a0_v2;
@@ -2949,7 +2950,7 @@ impl PostgresDevelopComposerReadStoreV2 {
     pub(crate) async fn connect(rd_owner_database_url: &str) -> Result<Self, sqlx::Error> {
         let read_pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(8)
-            .connect(rd_owner_database_url)
+            .connect_url(rd_owner_database_url, PostgresTls::Disabled)
             .await?;
         verify_pool_role(&read_pool, "rd_owner").await?;
         verify_composer_read_pool(&read_pool).await?;
@@ -3017,7 +3018,7 @@ impl PostgresDevelopComposerStoreV2 {
     pub async fn materialize_schema(database_url: &str) -> Result<(), sqlx::Error> {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await?;
 
         if crate::schema_materialization::pre_cutover_materialization_is_admitted(&pool)
@@ -3105,13 +3106,13 @@ impl PostgresDevelopComposerStoreV2 {
     ) -> Result<Self, sqlx::Error> {
         let read_pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(8)
-            .connect(rd_owner_database_url)
+            .connect_url(rd_owner_database_url, PostgresTls::Disabled)
             .await?;
         verify_pool_role(&read_pool, "rd_owner").await?;
 
         let mutation_pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(8)
-            .connect(rd_fact_writer_database_url)
+            .connect_url(rd_fact_writer_database_url, PostgresTls::Disabled)
             .await?;
         verify_pool_role(&mutation_pool, "rd_fact_writer").await?;
         let database_fingerprint = verify_same_live_primary(&read_pool, &mutation_pool).await?;
@@ -3152,7 +3153,7 @@ impl PostgresDevelopComposerStoreV2 {
     ) -> Result<(), sqlx::Error> {
         self.mutation_pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await?;
         let transaction = self.begin_mutation_transaction().await?;
         transaction.rollback().await

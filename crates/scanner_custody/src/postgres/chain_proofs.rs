@@ -5,6 +5,7 @@
 //! that read back on the writer's own connection would pass whether or not the grant exists.
 
 use sqlx::PgPool;
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 use vibe_scanner::{
     AttemptId, DueSlotBoundary, LocalDateTime, OpaqueId, ScannerReceipt, Version,
     VersionedIdentity, encode_attempt_id_v1, parse_untrusted_terminal_receipt_v1,
@@ -77,7 +78,8 @@ async fn terminal_receipt_custody_commits_joins_refuses_and_reads_back_to_produc
         "the custody key is a pure function of the attempt, and this vector pins it"
     );
     let corrupt_key = encode_attempt_id_v1(&unrelated_attempt()).expect("the attempt encodes");
-    let audit = PgPool::connect(writer_url)
+    let audit = sqlx::postgres::PgPoolOptions::new()
+        .connect_url(writer_url, PostgresTls::Disabled)
         .await
         .expect("an audit connection");
     let owned_keys = vec![key.clone(), corrupt_key.clone()];

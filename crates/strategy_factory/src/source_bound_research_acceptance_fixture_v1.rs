@@ -48,6 +48,8 @@
 use std::{future::Future, pin::Pin, sync::Arc};
 
 use thiserror::Error;
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 use vibe_product_edge::ProductEdgeError;
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use vibe_product_edge::{
@@ -601,7 +603,7 @@ fn refuse_expired(valid_through_epoch_ms: u64, owner_clock_epoch_ms: u64) -> Res
 async fn connect(owner: &'static str, url: &str) -> Result<sqlx::PgPool, Error> {
     sqlx::postgres::PgPoolOptions::new()
         .max_connections(2)
-        .connect(url)
+        .connect_url(url, PostgresTls::Disabled)
         .await
         .map_err(|source| Error::Connect { owner, source })
 }

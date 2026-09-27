@@ -787,7 +787,140 @@ fn real_sim_event_run_which_only_entered_claims_no_round_trip() {
     );
 }
 
+/// A protective stop that fills between two frames aborts today's run: the Host records the fill
+/// only as a native observation and never feeds it to the kernel, so at the next frame the
+/// kernel's checkpoint still holds the entered position while the venue holds none, and the batch
+/// snapshot refuses the mismatch.
+///
+/// This pins the defect the strategy shape envelope names D1, as it behaves today. When D1 lands -
+/// a `kernel.fill.reconcile.v1` case for a protective fill, with T1 - this test flips to asserting
+/// that the run continues and the exit frame sees the stopped-out member flat.
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn a_triggered_stop_aborts_the_run_today_until_d1() {
+    let aapl_stop_ticks = 18_600;
+    let stopped = InstrumentTargetSetV2::new(
+        1,
+        &target_set()
+            .members()
+            .iter()
+            .map(|member| {
+                let mut member = *member;
+                if member.instrument.as_bytes() == b"AAPL.XNAS" {
+                    member.protection = ProtectionProposalV1::Replace(ProtectionStateV1 {
+                        stop_loss_ticks: Some(aapl_stop_ticks),
+                        take_profit_ticks: None,
+                        trailing_distance_ticks: None,
+                        trailing_stop_ticks: None,
+                    });
+                }
+                member
+            })
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
+
+    // After both entry legs fill, AAPL's book falls through its 186.00 stop and a resting bid
+    // takes the protective sell.
+    let fall_through_the_stop = |instruments: &[InstrumentAny; 2], entry_time: u64| {
+        vec![
+            Data::Delta(OrderBookDelta::clear(
+                instruments[0].id(),
+                3_001,
+                (entry_time + 50).into(),
+                (entry_time + 50).into(),
+            )),
+            book_level(
+                &instruments[0],
+                OrderSide::Buy,
+                185.50,
+                "100",
+                3_002,
+                entry_time + 50,
+            ),
+            book_level(
+                &instruments[0],
+                OrderSide::Sell,
+                185.60,
+                "100",
+                3_003,
+                entry_time + 50,
+            ),
+        ]
+    };
+
+    // Both controls run clean, so the abort below is the filled stop and nothing else: the same
+    // close stop with no fall, and the same fall under the fixture's far 180.00 stop, which it
+    // never reaches.
+    let (unfallen, _) = run_two_frame_corpus(stopped, |_, _| Vec::new())
+        .expect("the close stop without a fall runs");
+    assert!(
+        unfallen.callback_failure.is_none(),
+        "{:?}",
+        unfallen.callback_failure
+    );
+    let (far_stop, _) = run_two_frame_corpus(target_set(), fall_through_the_stop)
+        .expect("the fall above the far stop runs");
+    assert!(
+        far_stop.callback_failure.is_none(),
+        "{:?}",
+        far_stop.callback_failure
+    );
+    assert!(
+        !far_stop
+            .native_order_observations
+            .iter()
+            .any(|event| { event.protection_order && event.event == "FILLED" })
+    );
+
+    let (trace, _) = run_two_frame_corpus(stopped, fall_through_the_stop)
+        .expect("the run itself completes and reports its callback failure");
+
+    let stop_filled = trace.native_order_observations.iter().any(|event| {
+        event.protection_order && event.instrument == "AAPL.XNAS" && event.event == "FILLED"
+    });
+    assert!(
+        stop_filled,
+        "the protective stop must fill before the exit frame"
+    );
+    let failure = trace
+        .callback_failure
+        .as_deref()
+        .expect("today a filled protective stop aborts the run at the next frame");
+    assert!(
+        failure.contains("member reconciliation mismatch"),
+        "the abort must be the reconciliation refusal D1 removes: {failure}"
+    );
+}
+
 fn run_round_trip_corpus() -> anyhow::Result<RoundTripEvidence> {
+    let (trace, canonical_result) = run_two_frame_corpus(target_set(), |_, _| Vec::new())?;
+    anyhow::ensure!(
+        trace.callback_failure.is_none(),
+        "round-trip callback failed: {:?}",
+        trace.callback_failure
+    );
+    let closure = program_host_sim_event_round_trip_for_test(
+        &trace,
+        &instruments().map(|instrument| instrument.id().to_string()),
+        &canonical_result,
+    )?;
+    Ok(RoundTripEvidence {
+        trace,
+        canonical_result,
+        closure,
+    })
+}
+
+/// Runs the entry frame and then the exit frame over the real Sim EVENT route.
+///
+/// `between_frames` adds market data after both entry legs have filled and before the exit frame's
+/// bars, given the instruments and the entry time. The run's trace comes back even when a callback
+/// failed, so a caller can state what today's run does rather than only that it succeeded.
+fn run_two_frame_corpus(
+    entry: InstrumentTargetSetV2,
+    between_frames: impl FnOnce(&[InstrumentAny; 2], u64) -> Vec<Data>,
+) -> anyhow::Result<(TargetSetBacktestTraceV2, Vec<u8>)> {
     let instruments = instruments();
     let instrument_ids = [instruments[0].id(), instruments[1].id()];
     let bar_types = instrument_ids.map(|instrument_id| {
@@ -797,7 +930,7 @@ fn run_round_trip_corpus() -> anyhow::Result<RoundTripEvidence> {
             AggregationSource::External,
         )
     });
-    let (plan, artifact, frame) = fixture_with_target_sets(target_set(), Some(exit_target_set()))?;
+    let (plan, artifact, frame) = fixture_with_target_sets(entry, Some(exit_target_set()))?;
     let admitted = admit_owner_universe_program_event_v2(
         &plan,
         &OwnerUniverseFrameV1::uncoordinated(frame.clone()),
@@ -900,6 +1033,7 @@ fn run_round_trip_corpus() -> anyhow::Result<RoundTripEvidence> {
             entry_time + 2,
         ),
     ]);
+    data.extend(between_frames(&instruments, entry_time));
 
     // Exit leg: resting bids absorb the whole reduce-only EXIT order of each member.
     data.extend([
@@ -968,22 +1102,8 @@ fn run_round_trip_corpus() -> anyhow::Result<RoundTripEvidence> {
         false,
     )?;
     let trace = trace.borrow().clone();
-    anyhow::ensure!(
-        trace.callback_failure.is_none(),
-        "round-trip callback failed: {:?}",
-        trace.callback_failure
-    );
     let canonical_result = engine.get_canonical_result()?.to_bytes()?;
-    let closure = program_host_sim_event_round_trip_for_test(
-        &trace,
-        &instrument_ids.map(|instrument_id| instrument_id.to_string()),
-        &canonical_result,
-    )?;
-    Ok(RoundTripEvidence {
-        trace,
-        canonical_result,
-        closure,
-    })
+    Ok((trace, canonical_result))
 }
 
 fn run_corpus(restore: bool) -> anyhow::Result<RunEvidence> {

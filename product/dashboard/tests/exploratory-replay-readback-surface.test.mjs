@@ -41,6 +41,8 @@ test("Backtest route renders one compact exact Replay request and result workben
   assert.match(component, /Meaning digest/u);
   assert.match(component, /Open readback/u);
   assert.match(component, /\["Request", "Custody", "Replay basis"\]/u);
+  // The Replay basis names the universe the request was bound to beside its strategy design.
+  assert.match(component, /label="Universe selection"[^>]*>\{projection\.replayBasis\.universeSelectionIdentity\}/u);
   // A Result is opened from the Owner's directory, never from typed identities.
   assert.match(component, /<ResultDirectory/u);
   assert.match(component, /<DataWorkspaceTable<ExploratoryReplayResultDirectoryEntryV1>/u);

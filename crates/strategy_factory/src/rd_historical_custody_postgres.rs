@@ -2,6 +2,7 @@ use std::fmt::Display;
 
 use async_trait::async_trait;
 use sqlx::{PgPool, Row};
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
 use crate::{
     rd_historical_custody::{
@@ -33,7 +34,7 @@ impl PostgresHistoricalCustodyOwnerV1 {
                     Ok(())
                 })
             })
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(storage)?;
         let read_only: bool =

@@ -10,14 +10,19 @@
 )]
 
 use std::{collections::BTreeSet, fmt::Debug};
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 
 mod authenticated_design_registration_v1;
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 pub mod bar_joined_cut_acceptance_v1;
 // Test and sealed acceptance fixtures only; no production build reaches it.
+#[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
+mod acceptance_fixture_v1;
 mod calendar;
 #[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
 pub mod chain_market_base_v1;
+#[cfg(test)]
+mod chain_market_base_v1_tests;
 mod corporate_action;
 #[cfg(test)]
 mod instrument_master_admission_v1_tests;
@@ -495,7 +500,7 @@ impl MarketDataOwnerPostgres {
     pub(crate) async fn connect(database_url: &str) -> Result<Self, SourceBindingError> {
         let pool = PgPoolOptions::new()
             .max_connections(8)
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(|e| {
                 super::storage_diagnostic::refused_by_store("market_data_owner.connect.pool", &e);
@@ -543,7 +548,7 @@ impl MarketDataOwnerPostgres {
     pub(crate) async fn connect_existing(database_url: &str) -> Result<Self, SourceBindingError> {
         let pool = PgPoolOptions::new()
             .max_connections(8)
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(|e| {
                 super::storage_diagnostic::refused_by_store(
@@ -3529,7 +3534,7 @@ impl MarketDataReadPostgres {
     pub(crate) async fn connect(database_url: &str) -> Result<Self, SourceBindingError> {
         let pool = PgPoolOptions::new()
             .max_connections(4)
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(|_| SourceBindingError::StoreUnavailable)?;
         Ok(Self { pool })

@@ -75,6 +75,7 @@ function AvailableReadback({ projection }: { projection: ExploratoryReplayBrowse
           <FactItem label="Trial family" mono title={projection.replayBasis.trialFamilyIdentity}>{projection.replayBasis.trialFamilyIdentity}</FactItem>
           <FactItem label="Artifact" mono title={projection.replayBasis.artifactIdentity}>{projection.replayBasis.artifactIdentity}</FactItem>
           <FactItem label="Strategy design" mono title={projection.replayBasis.strategyDesignIdentity}>{projection.replayBasis.strategyDesignIdentity}</FactItem>
+          <FactItem label="Universe selection" mono title={projection.replayBasis.universeSelectionIdentity}>{projection.replayBasis.universeSelectionIdentity}</FactItem>
           <FactItem label="PIT snapshot" mono title={projection.replayBasis.pitSnapshotIdentity}>{projection.replayBasis.pitSnapshotIdentity}</FactItem>
           <FactItem label="Runtime kernel" mono title={projection.replayBasis.runtimeKernelIdentity}>{projection.replayBasis.runtimeKernelIdentity}</FactItem>
           <FactItem label="Simulator" mono title={projection.replayBasis.simulatorIdentity}>{projection.replayBasis.simulatorIdentity}</FactItem>

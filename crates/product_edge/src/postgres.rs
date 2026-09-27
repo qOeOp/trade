@@ -10,6 +10,7 @@ use vibe_operator_authorization::{
     parse_untrusted_authorization_envelope_v1,
     parse_untrusted_portfolio_resource_grant_envelope_v1, resolve_authorization_in_transaction,
 };
+use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 use vibe_product_edge_claim_custody::{
     StoredInvocationAdmissionReceiptV1, StoredInvocationClaimV1, StoredInvocationStateKindV1,
     StoredInvocationStateV1,
@@ -1589,7 +1590,10 @@ pub struct ProductEdgePostgresAdmissionReadPortV1 {
 
 impl ProductEdgePostgresAdmissionReadPortV1 {
     pub async fn connect(database_url: &str) -> Result<Self, ProductEdgeError> {
-        let pool = PgPool::connect(database_url).await.map_err(storage)?;
+        let pool = PgPoolOptions::new()
+            .connect_url(database_url, PostgresTls::Disabled)
+            .await
+            .map_err(storage)?;
         // A role the topology does not admit fails here with a privilege error;
         // the read port reports that as the same fail-closed refusal it always
         // did, only now named, and keeps the stream verifier's own reason.
@@ -1639,7 +1643,10 @@ pub struct ProductEdgePostgresAdmissionPointReadPortV1 {
 
 impl ProductEdgePostgresAdmissionPointReadPortV1 {
     pub async fn connect(database_url: &str) -> Result<Self, ProductEdgeError> {
-        let pool = PgPool::connect(database_url).await.map_err(storage)?;
+        let pool = PgPoolOptions::new()
+            .connect_url(database_url, PostgresTls::Disabled)
+            .await
+            .map_err(storage)?;
         Ok(Self { pool })
     }
 
@@ -1715,7 +1722,10 @@ impl ProductEdgePostgresOwnerV1 {
             return Err(ProductEdgeError::InvalidProposal("deployment locator"));
         }
         authorization_trust.validate()?;
-        let pool = PgPool::connect(database_url).await.map_err(storage)?;
+        let pool = PgPoolOptions::new()
+            .connect_url(database_url, PostgresTls::Disabled)
+            .await
+            .map_err(storage)?;
         let owner = Self {
             pool,
             deployment_identity,
@@ -1733,7 +1743,10 @@ impl ProductEdgePostgresOwnerV1 {
     /// connects, and a privilege here has no distinguishable author or moment.
     /// Bootstrapping a deployment binding is not provisioning either.
     pub async fn materialize_schema(database_url: &str) -> Result<(), ProductEdgeError> {
-        let pool = PgPool::connect(database_url).await.map_err(storage)?;
+        let pool = PgPoolOptions::new()
+            .connect_url(database_url, PostgresTls::Disabled)
+            .await
+            .map_err(storage)?;
         let owner = Self {
             pool,
             deployment_identity: String::from("materialize-schema"),
@@ -1761,7 +1774,7 @@ impl ProductEdgePostgresOwnerV1 {
         authorization_trust.validate()?;
         let pool = PgPoolOptions::new()
             .max_connections(8)
-            .connect(database_url)
+            .connect_url(database_url, PostgresTls::Disabled)
             .await
             .map_err(storage)?;
         let admitted: bool = sqlx::query_scalar(
@@ -1842,7 +1855,10 @@ impl ProductEdgePostgresOwnerV1 {
             return Err(ProductEdgeError::InvalidProposal("deployment locator"));
         }
         authorization_trust.validate()?;
-        let pool = PgPool::connect(database_url).await.map_err(storage)?;
+        let pool = PgPoolOptions::new()
+            .connect_url(database_url, PostgresTls::Disabled)
+            .await
+            .map_err(storage)?;
         let owner = Self {
             pool,
             deployment_identity,
@@ -7103,6 +7119,7 @@ mod tests {
         PortfolioResourceGrantSuccessorProposalV1, PortfolioResourceModeV1, PortfolioResourceV1,
         ProductEdgeManifestBindingV1, STRATEGY_GOVERNANCE_AUDIENCE_V1,
     };
+    use vibe_postgres_connect::with_tls;
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
     use vibe_testkit::source_guard::{crate_production_sources, process_clock_reads};
 
@@ -7981,7 +7998,7 @@ mod tests {
                     Ok(())
                 })
             })
-            .connect_with(options)
+            .connect_stated(with_tls(options, PostgresTls::Disabled))
             .await
             .unwrap();
         let identity: (String, String) =
@@ -9508,7 +9525,10 @@ mod tests {
         let admission_reader = ProductEdgePostgresAdmissionReadPortV1::connect(read_database_url)
             .await
             .unwrap();
-        let read_role_pool = PgPool::connect(read_database_url).await.unwrap();
+        let read_role_pool = PgPoolOptions::new()
+            .connect_url(read_database_url, PostgresTls::Disabled)
+            .await
+            .unwrap();
         assert!(
             sqlx::query(
                 "INSERT INTO product_edge_admission_event_stream_v1 (stream_identity, last_owner_sequence) VALUES ('forged', 0)",
