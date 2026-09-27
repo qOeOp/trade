@@ -1121,6 +1121,42 @@ check_chain_node_declarations() {
   python3 "$(dirname "${BASH_SOURCE[0]}")/chain-node-entries.py" --check "${BASH_SOURCE[0]}"
 }
 
+# A chain entry that returns early on an unset input reports PASS from any run without it, having
+# driven nothing; chain-entry-early-return.py refuses that shape by name, from the source (near 50 ms
+# a real entry and an early return cannot be told apart by duration). The browser entries therefore
+# fail closed without their inputs. The local preflight, which carries on without them, leaves those
+# entries out and reports each SKIP by name, so neither its line nor the verdict reads as a pass.
+# Usage: chain_entry_skipped_locally <local preflight> <absent inputs> <test name> <browser entry>...
+chain_entry_skipped_locally() {
+  local preflight="$1" absent="$2" name="$3" entry
+  shift 3
+  [[ "$preflight" == "1" && -n "$absent" ]] || return 1
+  for entry in "$@"; do
+    [[ "$entry" != "$name" ]] || return 0
+  done
+  return 1
+}
+
+check_chain_entries_fail_closed() {
+  python3 "$(dirname "${BASH_SOURCE[0]}")/chain-entry-early-return.py" --self-test
+  python3 "$(dirname "${BASH_SOURCE[0]}")/chain-entry-early-return.py" --check "${BASH_SOURCE[0]}"
+  local browser='tests::a_browser_entry' failed=false
+  chain_entry_skipped_locally 1 'INPUT' "$browser" "$browser" || failed=true
+  ! chain_entry_skipped_locally 1 'INPUT' 'tests::another_entry' "$browser" || failed=true
+  ! chain_entry_skipped_locally '' 'INPUT' "$browser" "$browser" || failed=true
+  ! chain_entry_skipped_locally 1 '' "$browser" "$browser" || failed=true
+  if [[ "$failed" == true ]]; then
+    echo "ERROR: chain_entry_skipped_locally must skip exactly a browser entry, under the local" >&2
+    echo "       preflight, with an input absent." >&2
+    return 1
+  fi
+  # shellcheck disable=SC2016 # the loop's literal text, not an expansion
+  if [[ "$(grep -c '^  if \[\[ "\$chain_entry_skipped" == true \]\]; then$' "${BASH_SOURCE[0]}")" -ne 1 ]]; then
+    echo "ERROR: the chain loop must open its run branches with the local skip, exactly once." >&2
+    return 1
+  fi
+}
+
 check_composer_acceptance_stays_in_the_chain() {
   local repository_root
   repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -1935,6 +1971,7 @@ if [[ "$chain_reports_only" != true ]]; then
   check_trial_family_candidate_experiment_cutover
   check_composer_acceptance_stays_in_the_chain
   check_chain_node_declarations
+  check_chain_entries_fail_closed
   check_chain_clone_lists
 fi
 check_collected_warning_report
@@ -2630,24 +2667,20 @@ fi
 source "$(dirname "${BASH_SOURCE[0]}")/chain-entry-watchdog.bash"
 readonly chain_entry_wall_clock_seconds="${CHAIN_ENTRY_WALL_CLOCK_SECONDS:-900}"
 
-# Entry 28 drives the Dashboard in a real browser only when three sealed inputs are present, and so
-# does entry 100, the single-run report's acceptance, which reads the same three. Without
-# them each returns in a few milliseconds and reports PASS, so a chain that never touched a browser
-# goes green and says nothing about it. Measured twice on two trees: 0.011s locally against 136.78s
-# on CI, and locally it is the fastest of all ninety-nine entries - three times faster than the one
-# below it, which does a single string assertion. That reading alone rules out starting Next.js and
-# Chrome; no comparison with CI is needed to see it.
+# Entry 28 drives the Dashboard in a real browser with three sealed inputs, and so does entry 100,
+# the single-run report's acceptance, which reads the same three. Each used to return in a few
+# milliseconds and report PASS without the first of them (0.011s locally against 136.78s on CI), so
+# a chain that never touched a browser went green. Both now fail closed on all three, and
+# chain-entry-early-return.py keeps any chain entry from returning early on an unset input again.
 #
-# Only the first of the three is silent. The test reads the other two with `.expect(...)`, so their
-# absence already panics and names itself. Checking all three here buys exactly two things: the
-# failure arrives before the entry runs rather than a hundred and thirty seconds into it, and a run
-# missing several is told about all of them at once. It is not new coverage for those two.
+# Checking all three here still buys two things: the failure arrives before the entry runs rather
+# than into it, and a run missing several is told about all of them at once.
 #
 # One check, two readers. What differs is only what happens after it, never what it looks for: a
-# preflight must carry on and record that this entry covered nothing, because `--fail-fast` would
-# otherwise turn a local run of ninety-eight real entries into twenty-seven. The gate must refuse,
-# because there the inputs are installed by .github/actions/dashboard-browser-acceptance and their
-# absence means that step did not do its job.
+# preflight must carry on, because `--fail-fast` would otherwise turn a local run of the other
+# entries into a fraction of them, so it leaves the two entries out and reports each SKIP by name.
+# The gate must refuse, because there the inputs are installed by
+# .github/actions/dashboard-browser-acceptance and their absence means that step did not do its job.
 sealed_browser_inputs_absent() {
   local -a absent=()
   [[ "${DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE:-}" == "1" ]] ||
@@ -2715,7 +2748,7 @@ check_sealed_browser_inputs() {
   if [[ "${RD_OWNER_CHAIN_LOCAL_PREFLIGHT:-}" == "1" ]]; then
     echo "=== The Dashboard browser acceptance will NOT run this round. Absent: ===" >&2
     while read -r name; do echo "===   $name" >&2; done <<< "$absent"
-    echo "=== Entries 28 and 100 return in milliseconds and report PASS, covering nothing. ===" >&2
+    echo "=== Entries 28 and 100 are left out and reported SKIP, not run. ===" >&2
     echo "=== A green chain this round covers every entry except those two. ===" >&2
     return 0
   fi
@@ -4899,6 +4932,8 @@ fi
 # after its consumers because its final inheritance fault poisons that private store. Keep the
 # destructive legacy PREPARED drain probe final because it removes receipt storage required by every
 # positive Artifact Owner consumer.
+# The positions the local preflight left out and reported SKIP (chain_entry_skipped_locally).
+chain_locally_skipped_entries=()
 for chain_step in "${chain_run_order[@]}"; do
   IFS='|' read -r chain_position chain_step_kind chain_step_component <<< "$chain_step"
   chain_run_index=$((chain_run_index + 1))
@@ -4913,6 +4948,13 @@ for chain_step in "${chain_run_order[@]}"; do
     echo "=== replayed precondition ${chain_position}/${chain_entry_count} for component ${chain_step_component}: ${chain_entry_label}"
   else
     echo "=== ordered chain entry ${chain_position}/${chain_entry_count}: ${chain_entry_label}"
+  fi
+  chain_entry_skipped=false
+  if chain_entry_skipped_locally "${RD_OWNER_CHAIN_LOCAL_PREFLIGHT:-}" "$(sealed_browser_inputs_absent)" \
+    "$test_name" "${chain_browser_entries[@]}"; then
+    chain_entry_skipped=true
+    [[ "$chain_step_kind" == replay ]] || chain_locally_skipped_entries+=("$chain_position")
+    echo "=== SKIP ${chain_position}/${chain_entry_count}: not run, the Dashboard browser inputs are absent"
   fi
   # The previous entry's record must not be copied as this one's if this one never writes its own.
   rm -f -- "$chain_record_source"
@@ -4938,7 +4980,9 @@ for chain_step in "${chain_run_order[@]}"; do
   if [[ -n "$backtest_result_fault" ]]; then
     inject_backtest_result_fault "$backtest_result_fault"
   fi
-  if [[ "$test_name" == 'replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
+  if [[ "$chain_entry_skipped" == true ]]; then
+    : # left out and reported SKIP above
+  elif [[ "$test_name" == 'replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
     [[ "$test_name" == 'replay_policy_catalog_postgres_v2::postgres_tests::catalog_v3_bootstrap_publishes_the_head_the_owner_reads_and_formation_binds' ]] ||
     [[ "$test_name" == 'postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
     env \
@@ -5134,6 +5178,7 @@ for chain_step in "${chain_run_order[@]}"; do
     if [[ -n "$chain_shard" ]]; then
       chain_expected_records="$chain_shard_entry_count"
     fi
+    chain_expected_records=$((chain_expected_records - ${#chain_locally_skipped_entries[@]}))
     if [[ "$chain_record_count" -ne "$chain_expected_records" ]]; then
       echo "ERROR: the chain passed ${chain_expected_records} entries but left ${chain_record_count}" >&2
       echo "record(s) in ${chain_record_dir}. Every entry must leave one, or the published record" >&2
@@ -5141,7 +5186,10 @@ for chain_step in "${chain_run_order[@]}"; do
       exit 1
     fi
     chain_completed=true
-    if [[ -n "$chain_shard" ]]; then
+    if [[ "${#chain_locally_skipped_entries[@]}" -gt 0 ]]; then
+      echo "=== SKIP (local preflight): entries ${chain_locally_skipped_entries[*]} not run, the Dashboard browser inputs are absent; the other ${chain_expected_records} passed, ${chain_record_count} recorded; not an ordered-chain verdict"
+      [[ -n "$chain_shard" ]] || report_collected_warnings "$chain_record_dir" "$chain_entry_count"
+    elif [[ -n "$chain_shard" ]]; then
       # The chain's two summary lines come from the merged records of every shard
       # (--report-records), so one shard reports only itself.
       echo "=== chain shard ${chain_shard}: all ${chain_shard_entry_count} entries passed, ${chain_record_count} recorded"
