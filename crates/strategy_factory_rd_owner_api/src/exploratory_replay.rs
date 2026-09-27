@@ -21,7 +21,7 @@ use vibe_backtest_owner::{
 use vibe_backtest_owner_contracts::{
     CanonicalDigestV2, OpaqueIdentityV2, ReplayNamespaceV2, ReplayRequestDtoV2, ReplayRequestV2,
 };
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 use vibe_data::owner::source_binding::BindingDigest;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 use vibe_data::owner::{
@@ -33,9 +33,9 @@ use vibe_data::owner::{
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 use vibe_postgres_connect::{PgPoolOptionsExt, PostgresTls};
 use vibe_product_edge::{ProductEdgeAdmissionRequestV1, ProductEdgeError};
-#[cfg(any(test, feature = "sealed-develop-composer-acceptance"))]
+#[cfg(any(test, feature = "composer-replay-issuance"))]
 use vibe_strategy_factory::NativeReplayExecutionInputBindingErrorV1;
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 use vibe_strategy_factory::exploratory_replay::{
     ComposerBackedExploratoryReplayProposalV3, EXPLORATORY_REPLAY_MUTATION_EFFECT_V3,
     EXPLORATORY_REPLAY_OPERATION_V3, EXPLORATORY_REPLAY_SCHEMA_V3,
@@ -463,7 +463,7 @@ async fn resolve_execution_input_binding(
     }
 }
 
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "composer-replay-issuance")]
 pub(super) async fn issue_execution_input_binding(
     State(state): State<super::ApiState>,
     headers: HeaderMap,
@@ -942,7 +942,7 @@ pub(super) struct ExploratoryReplayOperationV2 {
 
 /// Only immutable locators are accepted from Product Edge. The positive Composer, TrialFamily,
 /// and Market Data facts are re-read by R&D during the Owner transaction.
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct ComposerBackedReplayOperationV3 {
@@ -956,7 +956,7 @@ struct ComposerBackedReplayOperationV3 {
     market_data_scope_digest: BindingDigest,
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 impl ComposerBackedReplayOperationV3 {
     fn into_proposal(
         self,
@@ -1108,7 +1108,7 @@ pub(super) async fn submit(
     }
 }
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[cfg(feature = "composer-v3-replay")]
 pub(super) async fn submit_composer_backed_v3(
     State(state): State<ApiState>,
     headers: HeaderMap,
@@ -1366,7 +1366,7 @@ fn product_edge_error(error: &ProductEdgeError, request_identity: &str) -> Respo
 /// for good, so it answers `409` rather than a `503` that invites the same retry forever.
 /// `Unavailable` recorded its stage in the R&D Owner before it got here; `Storage` has no such
 /// record, so its detail is logged at the match.
-#[cfg(any(test, feature = "sealed-develop-composer-acceptance"))]
+#[cfg(any(test, feature = "composer-replay-issuance"))]
 fn execution_input_binding_error(
     error: &NativeReplayExecutionInputBindingErrorV1,
     request_identity: &str,
