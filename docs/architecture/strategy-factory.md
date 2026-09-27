@@ -1410,6 +1410,11 @@ commits, one year of one-minute bars about 520,000, and every frame must share o
   instant its data becomes available under the availability rule declared on the Source Binding, with
   `d_k < e_{k+1}`. Frames are enumerated from the execution timeframe's Owner BAR schedule, never from custody rows,
   so a missing bar refuses its frame instead of skipping it.
+- The last frame `N` has no later frame, so `e_{N+1}` is the next close that same schedule declares after `e_N`,
+  one execution interval later, since only a fixed-interval execution timeframe is admitted. The window ends no
+  earlier than `e_{N+1}`, so the last frame's quote cut has `(d_N, e_{N+1})` to fall in, as every other frame's does.
+  A one-frame run is the case `N = 1`: a window ending at `e_1` plus one nanosecond leaves no instant strictly
+  between the frame and its end, and no quote cut can be derived.
 - The derived view's decision cut is `d_k`, never the custody's minting cut: every reader of a decision cut would
   otherwise see a later cut than the frame had. The view's order check is event ≤ available ≤ publication ≤ `d_k`.
 - A multi-timeframe role (slice T2) resolves, at frame `k`, the bar its own timeframe's Owner schedule last closed
