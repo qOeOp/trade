@@ -238,8 +238,10 @@ Research Intent，可以在之后的 Owner cut 上判断此后是否有受保护
   Qualification 写入。其 SQL 函数只向 `rd_owner` 授予 `EXECUTE`。调用方比较自己冻结的 source cut 与读到的：不相等即表示
   冻结之后该历史有 phase fact 变得可观察。
 - **候选自己的 phase fact 也计数：** 一个 Research 请求自己的候选一旦进入 Qualification，它的第一个 phase fact（
-  `ADMITTED` 或 `NOT_ADMITTED`）及其后的每一个，都会推进该请求冻结的 generation，所以从那时起该请求的延续被拒绝，继续迭
-  代需要一个后继 Intent。这是有意的：Qualification 一旦观察过这个候选，在它上面的迭代就要经过一次新的冻结。
+  `ADMITTED` 或 `NOT_ADMITTED`）及其后的每一个，都会推进该请求冻结的 generation。这是有意的：Qualification 一旦观察过这个
+  候选，在它上面的迭代就要经过一次新的冻结。有两项后果依赖本 Owner 之外的工作，要等那些工作落地才成立。R&D 通过它的延续检查
+  拒绝冻结的 source cut 已被 generation 越过的延续，该检查排在 slice 1 之后。继续迭代要经过一个在家族 basis 下冻结当前投影
+  的后继 Intent，即 slice 1，qOeOp/trade#1197。slice 1 之前，后继 Intent 复制前驱的投影，因而也复制它冻结的 source cut。
 - **从部署开始计数：** generation 存在之前提交的 phase fact 不计入，也不为它们重建任何一步。首次部署时每个历史的
   generation 都是零，即使此前已经发生过受保护评估，所以 generation 比较的是部署之后的两个时刻，对部署之前的历史不作任何
   陈述。部署前冻结的 Intent 冻结的是 genesis cut，部署后其历史的第一个 phase fact 就会让它的延续被拒绝：比较结果偏向停止。

@@ -283,9 +283,12 @@ whether any protected evaluation has since become observable to it.
   source cut it froze with the one it reads: unequal means a phase fact of that history became observable after the
   freeze.
 - **A candidate's own phase facts count:** once a Research request's own candidate enters Qualification, its first phase
-  fact, `ADMITTED` or `NOT_ADMITTED`, and every later one advance the generation the request froze, so a continuation of
-  that request is refused from then on and further iteration needs a successor Intent. That is intended: once
-  Qualification has observed the candidate, iterating on it goes through a new freeze.
+  fact, `ADMITTED` or `NOT_ADMITTED`, and every later one advance the generation the request froze. That is intended:
+  once Qualification has observed the candidate, iterating on it goes through a new freeze. Two consequences rest on
+  work outside this Owner and hold only once it lands. R&D refuses a continuation whose frozen source cut the
+  generation has passed through its continuation check, which comes after slice 1. Further iteration goes through a
+  successor Intent that freezes the current projection under its family's basis, which is slice 1, qOeOp/trade#1197.
+  Until slice 1, a successor copies its predecessor's projection and therefore its frozen source cut.
 - **Counted from its deployment:** phase facts committed before the generation existed are not counted, and no step is
   reconstructed for them. At its first deployment every history's generation is zero even where protected evaluations
   already happened, so a generation compares two moments after that deployment and says nothing about the history before
