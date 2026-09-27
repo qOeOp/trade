@@ -2008,6 +2008,84 @@ mod tests {
         symbol
     }
 
+    /// This adapter and the Market Data Owner each map `exchangeInfo` to instrument terms: this
+    /// one to build the order-placement instrument, the Owner's
+    /// (`ExchangeInfoBaselineV2::from_usdm_exchange_info`) to derive the Instrument Master V2 fact
+    /// Replay prices on. Read from the same recorded BTCUSDT entry, they agree on the tick, the
+    /// step, the lot and the multiplier. They differ in one named place: the adapter takes a
+    /// precision from the raw string, so the tick `"0.10"` has precision 2, while the Owner's is the
+    /// canonical scale, 1. The Owner's is intended, because its native projection requires the
+    /// precision to equal the canonical scale. Either side moving turns this red.
+    #[rstest]
+    fn test_parse_usdm_perpetual_agrees_with_the_market_data_owner_terms() {
+        use vibe_data::owner::{
+            instrument_master_v2::{
+                ExchangeInfoBaselineV2, ExchangeInfoRetrievalV2, FactValue, InstrumentDecimalV2,
+                instrument_master_venue_v2,
+            },
+            source_binding::BindingDigest,
+        };
+
+        const PAYLOAD: &str =
+            include_str!("../../test_data/futures/http_json/exchange_info_usdm.json");
+        let info: crate::futures::http::models::BinanceFuturesUsdExchangeInfo =
+            serde_json::from_str(PAYLOAD).unwrap();
+        let symbol = info
+            .symbols
+            .into_iter()
+            .find(|symbol| symbol.symbol == "BTCUSDT")
+            .unwrap();
+        let ts = UnixNanos::from(1_790_000_000_000_000_000u64);
+        let InstrumentAny::CryptoPerpetual(adapter) =
+            parse_usdm_instrument(&symbol, ts, ts).unwrap()
+        else {
+            panic!("the recorded BTCUSDT entry is a crypto perpetual");
+        };
+        let owner = ExchangeInfoBaselineV2::from_usdm_exchange_info(
+            PAYLOAD.as_bytes(),
+            "BTCUSDT",
+            instrument_master_venue_v2("usdm/exchangeInfo").unwrap(),
+            ExchangeInfoRetrievalV2 {
+                source_binding_identity: BindingDigest::from_untrusted_bytes([1; 32]),
+                source_binding_digest: BindingDigest::from_untrusted_bytes([2; 32]),
+                retrieval_time_ns: 1_790_000_000_000_000_000,
+                owner_observation_time_ns: 1_790_000_000_000_000_000,
+            },
+        )
+        .unwrap()
+        .terms;
+        let value = |term: &FactValue<InstrumentDecimalV2>| match term {
+            FactValue::Value(InstrumentDecimalV2 { mantissa, scale }) => {
+                Decimal::from_i128_with_scale(*mantissa, u32::from(*scale))
+            }
+            other => panic!("the Owner states {other:?} where the adapter states a value"),
+        };
+
+        assert_eq!(
+            adapter.price_increment.as_decimal(),
+            value(&owner.price_increment_from_filter)
+        );
+        assert_eq!(
+            adapter.size_increment.as_decimal(),
+            value(&owner.quantity_increment_from_filter)
+        );
+        assert_eq!(adapter.lot_size.as_decimal(), value(&owner.lot_size));
+        assert_eq!(
+            adapter.multiplier.as_decimal(),
+            value(&owner.contract_multiplier)
+        );
+        assert_eq!(owner.is_inverse, FactValue::Value(adapter.is_inverse));
+        assert_eq!(
+            owner.quantity_precision_from_filter,
+            FactValue::Value(adapter.size_precision)
+        );
+        assert_eq!(
+            (adapter.price_precision, owner.price_precision_from_filter),
+            (2, FactValue::Value(1)),
+            "the one named difference: the raw string's scale against the canonical one"
+        );
+    }
+
     /// Binance's filter definitions state that `PRICE_FILTER` bounds are "disabled on `maxPrice` ==
     /// 0" and "disabled on `minPrice` == 0", so a zero bound is no bound, as the spot parser already
     /// reads it. Reading it as a bound of zero made the instrument's construction refuse a

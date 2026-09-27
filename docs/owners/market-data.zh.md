@@ -800,8 +800,9 @@ composition 时没有可绑定的 Instrument Master 权威：它的 Instrument M
 已封存 request 时，Market Data 签发的按 request 定键的 V2 cut。因此 universe role 的 Instrument Master 校验迁移到该
 cut 的签发 `issue_cut_for_bound_replay_v1`：它从恢复出的 selection 自身的 included membership 取 member，所以 member
 集合按构造就是 selection 的；它在 selection 的 owner observation 时刻解析每个 member 的 Instrument Master V2 fact
-chain，该时刻没有 fact 的 member（`MissingFact`）或无法校验的 chain（`ChainMismatch`）会让签发按名拒绝且零写入。随后
-Strategy Factory 的 initial Owner inputs（`resolve_native_replay_initial_owner_inputs_v1`）拒绝 member 与 Plan 的
+chain，该时刻没有 fact 的 member（`MissingFact`）或无法校验的 chain（`ChainMismatch`）会让签发按名拒绝且零写入；member
+的 V2 fact 与 binding 的 PIT snapshot 所引用的 V1 readback 不一致时同样如此（`GenerationMismatch`，见下文 V1/V2 代际一致
+性规则）。随后 Strategy Factory 的 initial Owner inputs（`resolve_native_replay_initial_owner_inputs_v1`）拒绝 member 与 Plan 的
 selection 不一致的 cut。在两个检查点之间，任何 binding、fact 或读者都不得把 Instrument Master 字段声称或传递为已校验。
 「selection 的某个 member 没有可校验的 Instrument Master fact 时签发按名拒绝且零写入」由 composition binding 以
 universe-member binding 驱动该签发的 Postgres 证明断言。
@@ -1184,8 +1185,37 @@ request-keyed 的 V2 cut 读的就是这张表；它和 V1 intake 一样，在 O
 
 **NOT_ADMITTED：** 对已准入 V2 fact 的更正（`!contractInfo` delta）没有生产 intake，所以生产上一个 V2 fact 只有一个版本，
 instrument 变了无法记录。不从 V1 fact 派生 V2，除加密永续外不准入任何 class，Owner 场所常量表之外的 venue 也不准入，这里
-也不声称 provider ingestion、authenticity、部署或交易。V2 cut 与 composition binding 所引用的 V1 fact 是否一致，不由这条
-intake 检查。
+也不声称 provider ingestion、authenticity、部署或交易。这条 intake 不把 V2 fact 与任何 V1 fact 比较；同时读两者的 cut
+做这件事，见下一段。
+
+**CURRENT，V1/V2 代际一致性：** 两代并存期间，同一个 instrument 在两代里各有一份描述。PIT request 指明其快照所依据
+的 V1 Instrument Master readback（`instrument_master_digest`），Market Semantics admission、first-corpus Replay
+composition 与 R&D 的 research scope 读的是这份 V1 readback；Native Replay binding 读的是按 request 定键的 V2 cut。
+两者必须描述同一批 instrument，bound-replay 签发在写入任何东西之前证明这一点。它在自己的事务里沿 binding 的 PIT
+snapshot locator 找到该快照 request 引用的 V1 readback，两者都不加行锁地读取，再把这份 readback 与它刚为 cut 解析出
+的 V2 fact 逐 member 比较：
+
+- member 集合相等：V1 readback 的 fact 与 cut 的 member 指向同一组 canonical identity；
+- 每个 V1 fact 的 class 是 `CryptoPerpetual`，即 V2 仅有的 class；
+- 每个 V1 fact 恰有一个 venue identity 等于 V2 fact venue identity 的 mapping，且该 mapping 的 source instrument 与
+  V2 raw symbol 逐字节相同；
+- V2 的 price increment、quantity increment 与 contract multiplier 都是值，且与 V1 对应条款的 mantissa 和 scale 都
+  相等。两代都以规范形式存储 decimal（小数部分无尾零），所以相等的值 mantissa 与 scale 也相等，不做任何归一化。
+
+任何不同都会让签发以 `GenerationMismatch` 拒绝且零写入，R&D 的 execution-input binding 回答
+`INSTRUMENT_MASTER_GENERATION_MISMATCH`（HTTP 409）：cut 的 fact 固定在 selection 的 observation 时刻，重试改变不了
+答案。在内部，拒绝会点名失败的规则：member 集合、class、缺失或有歧义的 venue mapping、raw symbol，或某个具名条款不
+是值或不相等；R&D 把它记录在签发的 storage-diagnostic 坐标下。V2 条款为 `UNAVAILABLE`、`UNBOUNDED` 或
+`NOT_APPLICABLE` 时拒绝而不是跳过，因为一个无法为 V1 fact 所陈述的 tick、step 或 multiplier 作保的 V2 fact 不得与之
+并用；今天没有 V2 fact 走到这里，因为 intake 的映射总会给这三个条款一个值。其他条款都不比较：币种、lot、限额与状态在 V2 的形式里没有 V1 对应项，V1 的 calendar、session 与 frontier 字段
+在 V2 里也没有。检查放在 cut 而不在任一 intake，因为 cut 是两代被一起读取的地方：在 V2 fact 之后才更正或准入的 V1
+fact 仍会被比较。
+
+它在每一次 bound-replay 签发上运行，而那是通往 V2 cut 的唯一生产路径。Market Data PostgreSQL runner 通过 PIT
+snapshot 引用已存储 V1 readback 的 binding 驱动两种结果。chain market base 上的 universe-member composition binding，
+其唯一的 V1 instrument 是股票，按 class 被拒绝且不写入任何东西。bound-replay 签发的证明在生产 PIT intake 取得的 PIT
+snapshot 上签发 cut，这些快照的 V1 fact 由生产 V1 intake 准入、与 V2 fact 一致；另有一个 member 的 V1 fact tick
+不同，按该条款被拒绝。每条规则的拒绝也在比较函数本身上各断言一次。
 
 ### 原生不可变记录
 

@@ -258,7 +258,10 @@ pub(in crate::owner) mod postgres_tests {
     use super::issue_universe_members_in_transaction_v1;
     use crate::owner::{
         correction_policy_projection::{CorrectionPolicyAuthenticatedInputsV1, project_first_v1},
-        instrument_master_v2::{InstrumentMasterCustodyErrorV2, tests::fact_for_observed_at},
+        instrument_master_v2::{
+            InstrumentMasterCustodyErrorV2, InstrumentMasterGenerationMismatchV2,
+            tests::fact_for_observed_at,
+        },
         instrument_master_v2_postgres::InstrumentMasterV2PostgresOwner,
         postgres::{
             MarketDataOwnerPostgres,
@@ -547,8 +550,11 @@ pub(in crate::owner) mod postgres_tests {
     /// to exactly the frame the binding and its facts carry. A retry returns the stored bytes, the
     /// same identity with another composition is refused by name, and an exact-instrument role set
     /// is refused by name, each writing nothing. The binding then keys the request's Instrument
-    /// Master V2 cut: refused by name with nothing written while the member has no fact, and one
-    /// member once it has.
+    /// Master V2 cut: refused by name with nothing written while the member has no fact, and
+    /// refused by class with nothing written once it has one, because the base's one V1 instrument,
+    /// which the binding's PIT snapshot cites, is an equity and V2 describes only crypto
+    /// perpetuals. That is the generation check on a binding the Owner issued; the bound-replay
+    /// issuance proof issues cuts where the two generations agree.
     #[tokio::test]
     #[ignore = "requires a disposable Market Data PostgreSQL database"]
     #[allow(clippy::too_many_lines)]
@@ -703,26 +709,20 @@ pub(in crate::owner) mod postgres_tests {
             ))
             .await
             .unwrap();
-        let member_cut = instrument_master
-            .issue_cut_for_bound_replay_v1("universe-member-replay", binding_locator)
-            .await
-            .expect("a one-member cut keyed by the universe-member binding");
+        let with_fact = cut_state(pool).await;
         assert_eq!(
-            member_cut
-                .cut()
-                .members()
-                .iter()
-                .map(|member| member.fact().canonical_identity())
-                .collect::<Vec<_>>(),
-            [crate::owner::chain_fixture_v1::CHAIN_FIXTURE_INSTRUMENT_V1]
+            instrument_master
+                .issue_cut_for_bound_replay_v1("universe-member-replay", binding_locator)
+                .await,
+            Err(InstrumentMasterCustodyErrorV2::GenerationMismatch(
+                InstrumentMasterGenerationMismatchV2::ClassDiffers
+            )),
+            "the V2 fact describes a crypto perpetual; the V1 fact the PIT snapshot cites, an equity"
         );
         assert_eq!(
-            member_cut.cut().universe_selection_identity(),
-            base.universe.record().identity()
-        );
-        assert_eq!(
-            member_cut.cut().decision_cut(),
-            base.universe.record().decision_cut()
+            cut_state(pool).await,
+            with_fact,
+            "the refusal writes nothing"
         );
     }
 }
