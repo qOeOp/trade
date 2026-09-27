@@ -35,6 +35,7 @@ readonly market_data_owner_postgres_tests=(
   owner::postgres::universe_sample_projection_v1_tests::postgres_a_universe_frame_issues_one_sample_projection_over_the_host_frame
   owner::postgres::universe_member_composition_basis_v1_tests::postgres_a_new_snapshot_reads_the_basis_its_universe_composition_issues_from
   owner::postgres::instrument_master_admission_v1_tests::postgres_an_instrument_fact_takes_its_scope_and_frontiers_from_the_named_binding
+  owner::postgres::source_availability_rule_v1_tests::postgres_a_schema_two_binding_stores_its_availability_rule
   owner::store_admission::tests::a_production_build_refuses_evidence_that_names_no_admission
 )
 

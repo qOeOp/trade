@@ -318,6 +318,7 @@ fn databento_source_proposal() -> UntrustedSourceBindingProposal {
         digest: digest(digest_byte),
     };
     let mut proposal = UntrustedSourceBindingProposal {
+        availability_rule: None,
         claimed_binding_id: digest(0),
         schema_version: 1,
         adapter: UntrustedAdapterBinding {

@@ -89,6 +89,7 @@ pub(super) fn fixture_market_semantics_identity_v1() -> BindingDigest {
 pub(super) fn source_proposal(sequence: u64, cut: u64) -> UntrustedSourceBindingProposal {
     let successor = sequence > 10;
     let mut proposal = UntrustedSourceBindingProposal {
+        availability_rule: None,
         claimed_binding_id: d(0),
         schema_version: 1,
         adapter: UntrustedAdapterBinding {
