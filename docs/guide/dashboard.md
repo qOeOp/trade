@@ -190,7 +190,8 @@ inferred from an empty array. `empty` means the series has no points and both ne
 drawdown are null; fills may still be listed, because a run can fill without recording a return - a position
 opened and not closed within one balance day records none - and a fill is a fact regardless. `empty` also shows
 the Owner's `empty_reason`, one of the closed set `docs/owners/backtest.md` defines, as the Owner states it; the
-browser derives no reason of its own, and an `empty` projection without one is `unavailable`. `available` means the series has points and both
+browser derives no reason of its own. Like net return and maximum drawdown the other way round, `empty_reason`
+is always present as a key: null only in `available`, so an `empty` projection without a reason is `unavailable`. `available` means the series has points and both
 quantities are stated. Net return and maximum drawdown are always present as keys and null only in
 `empty`, so a missing key is always a fault. A run whose strategy is outside the admitted
 single-threshold family is `unavailable` for a named reason, that no Owner statement of strategy

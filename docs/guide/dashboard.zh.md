@@ -142,7 +142,8 @@ Trading 树并未 vendor 进本仓库，也未被检索，因此本节不对该�
 从空数组推断。`empty` 表示序列没有 point，且净收益与最大回撤都为 null；成交仍可列出，因为一次运行可以有成交而不记录
 收益 - 开了仓而在一个余额日内没有平仓的持仓不记录收益 - 而成交无论如何都是事实。`empty` 还显示 Owner 的
 `empty_reason`，取值是 `docs/owners/backtest.md` 定义的封闭集之一，原样按 Owner 的陈述显示；浏览器不自行
-推导任何原因，不带原因的 `empty` 投影是 `unavailable`。`available` 表示序列有 point 且两个量都已陈述。净收益
+推导任何原因。与净收益、最大回撤恰好相反，`empty_reason` 作为键恒在：只在 `available` 时为 null，
+因此不带原因的 `empty` 投影是 `unavailable`。`available` 表示序列有 point 且两个量都已陈述。净收益
 与最大回撤作为键恒在，只在 `empty` 时为 null，因此缺一个键永远是故障。策略不在已准入单阈值族内的运行是
 `unavailable`，理由具名为「该程序族不存在 Owner 对策略的陈述」，而不是一个通用码。
 

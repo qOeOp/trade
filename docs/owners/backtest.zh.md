@@ -250,7 +250,7 @@ production write、provider effect、Paper、Live 或交易权威。
       没得到日权益序列 - 权益币种不止一种，或者 unpriced 的快照被引擎跳过后剩下的不足两天。今天没有运行走到它，因为每个
       准入账户都只持一种币种；由一个对两天、两种币种快照做投影的测试驱动。
 
-    `AVAILABLE` 的报告不带原因。策略与数据窗口不在回测结果里，所以取自上游：
+    这个键恒在：`AVAILABLE` 的报告里为 `null`，`EMPTY` 的报告里是集合中的一个。策略与数据窗口不在回测结果里，所以取自上游：
     该次运行所回应的 replay 请求，以及冻结在该请求所指 Design 之下的 Design 与程序。三次读取都在报告自己开的
     一个 `SERIALIZABLE, READ ONLY, DEFERRABLE` 事务里：三者共用一个安全快照，同时保留请求存储函数的隔离规则（它只在
     `read committed` 或 `serializable` 下作答，因为在 `repeatable read` 下它的快照早于它的请求栅栏），且 PostgreSQL

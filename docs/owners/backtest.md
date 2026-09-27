@@ -300,7 +300,7 @@ history; it says nothing about whether the path has ever run in some other envir
       today, because every admitted account holds one currency; a projection test over two days of snapshots
       in two currencies does.
 
-    An `AVAILABLE` report carries no reason. The strategy and the data window are not in a backtest result,
+    The key is always present: `null` in an `AVAILABLE` report, one of the set in an `EMPTY` one. The strategy and the data window are not in a backtest result,
     so they come from upstream: the replay request the run answered, and the Design and program
     frozen under the Design it names. All three reads run in one transaction the report opens as
     `SERIALIZABLE, READ ONLY, DEFERRABLE`: a safe snapshot the three share, with the request storage
