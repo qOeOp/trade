@@ -952,6 +952,43 @@ if [[ -z "$required_job" ]] || [[ "$quality_job" != *'bash scripts/ci/require-wo
 fi
 echo "ok: pull requests keep their pre-commit coverage across the two jobs"
 
+# The connection guard outside the sealed union has no step of its own: the hook
+# test-disallowed-connect-guard is the gate. Its step ran wherever `run-full-pre-commit` was true, on
+# every event, and there "Run pre-commit" (which has no condition) takes the pull-request-full scope
+# on a pull request and the full scope otherwise. Both must select the hook over all files, and its
+# `files` must match a path that always exists, or --all-files would select it and run nothing.
+guard_hook=test-disallowed-connect-guard
+for scope in pull-request-full full; do
+  scope_args="$(bash "$repo_root/scripts/ci/run-pre-commit.bash" "$scope" --print)"
+  if ! grep -qx -- --all-files <<< "$scope_args" ||
+    grep -qx -- "$guard_hook" <<< "$(grep -A1 -x -- --skip <<< "$scope_args")" ||
+    { [[ "$scope" == pull-request-full ]] && ! grep -qx -- "$guard_hook" <<< "$scope_args"; }; then
+    echo "run-pre-commit.bash $scope must run $guard_hook over all files; it is the connection gate." >&2
+    exit 1
+  fi
+done
+if [[ "$(workflow_job_block "$build_workflow" pre-commit)" == *'check-disallowed-connect-outside-union.bash'* ]]; then
+  echo "build.yml's pre-commit job runs the connection gate again as a step; the hook already is the gate." >&2
+  exit 1
+fi
+python3 - "$repo_root" "$guard_hook" << 'GUARD'
+import re
+import sys
+from pathlib import Path
+
+root, hook = Path(sys.argv[1]), sys.argv[2]
+block = re.search(
+    rf"^\s*- id: {re.escape(hook)}\n(.*?)(?=^\s*- id: |\Z)",
+    (root / ".pre-commit-config.yaml").read_text(),
+    re.MULTILINE | re.DOTALL,
+).group(1)
+files = re.search(r"^\s*files: >-\n((?:\s{10}.*\n)+)", block, re.MULTILINE).group(1)
+script = "scripts/ci/check-disallowed-connect-outside-union.bash"
+if not (root / script).is_file() or not re.search(files.strip(), script, re.VERBOSE):
+    sys.exit(f"{hook}'s files must match {script}, which always exists")
+GUARD
+echo "ok: every full route runs the connection gate hook over all files, and build.yml has no second pass"
+
 # A workflow that runs on a pull request only for some paths gates the merge through quality: plan
 # names the ones the diff triggers and quality requires each whole run. The list plan passes must be
 # every such workflow, so a new path-filtered one cannot stay ungated by default - add it there, or

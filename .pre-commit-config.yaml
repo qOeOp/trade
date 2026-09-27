@@ -573,13 +573,14 @@ repos:
         types: [file]
         pass_filenames: false
       - id: test-disallowed-connect-guard
-        name: self-test the connection guard outside the sealed union
-        description: A direct connection planted under owner-recovery must be refused by name
-        # Compiles the workspace under every out-of-union acceptance and recovery feature (about 34 s
-        # warm), so it is a COMPILED hook (scripts/ci/run-pre-commit.bash). `--self-test-bisect`
-        # takes about 9 minutes and stays a manual run. GIT_* is inherited on purpose: the plant is
-        # restored from the index this commit uses.
-        entry: bash scripts/ci/check-disallowed-connect-outside-union.bash --self-test
+        name: refuse direct PostgreSQL connections outside the sealed union
+        description: One lint pass must refuse a planted connection at its line and find no other
+        # The gate itself, not only its self-test: build.yml has no separate step for it. It compiles
+        # the workspace under every out-of-union acceptance and recovery feature, so it is a COMPILED
+        # hook (scripts/ci/run-pre-commit.bash), which every full route runs over all files; test-plan.sh
+        # checks that. `--self-test-bisect` takes about 9 minutes and stays a manual run. GIT_* is
+        # inherited on purpose: the plant is restored from the index this commit uses.
+        entry: bash scripts/ci/check-disallowed-connect-outside-union.bash
         language: system
         files: >-
           (?x)^(
