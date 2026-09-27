@@ -136,10 +136,12 @@ never runs in CI.
   measures inside the custodian with the leased credential. It also has the admission receipt cross-bind the trust
   bundle, while `SealedDeploymentStoreAdmissionReceipt` carries the witness identity but no signer key fingerprint
   or bundle identity.
-  Two production adapters now exist, and neither is composed: the pinned Ed25519 signature verifier
-  (`store_admission/signature.rs`) and the PostgreSQL custody store (`store_admission/custody_postgres.rs`, its schema
+  Three production adapters now exist, and none is composed: the pinned Ed25519 signature verifier
+  (`store_admission/signature.rs`), the PostgreSQL custody store (`store_admission/custody_postgres.rs`, its schema
   and its two principals in `product/rd-workbench/postgres-init/20-deployment-store-custody.sh`, which the compose file
-  does not run yet). `admit_rd_owner_market_data_postgres` still wires the `Unavailable*` ports, so `required` still
+  does not run yet), and the secret-file credential resolver (`store_admission/credential_files.rs`). A secret file
+  has no version or expiry of its own: its version is the SHA-256 of its exact bytes, which the signed manifest names,
+  and its lease lapses a fixed time after the admission's store-clock cut. `admit_rd_owner_market_data_postgres` still wires the `Unavailable*` ports, so `required` still
   fails closed at startup. The admission reads time from the custody store's clock alone: every history read carries
   the store's `clock_timestamp()` cut, and the commit judges the receipt's window on that clock.
 - **`B4` consumer not compiled into the deployed image.** `product/rd-workbench/Dockerfile.owner` builds
@@ -1129,19 +1131,22 @@ data gap where the truth is a closed door. Any proposal to admit a second consum
 contract change and must state which caller binding it rewrites.
 
 **CURRENT / PARTIAL, production Instrument Master V1 intake:** one Owner-sealed admission port and one route,
-`POST /v1/market-data/instrument-master-facts`, through which Operations submits `InstrumentMasterFactProposalV1`
-for the exact `BACKTEST_OWNER_V1` role; the Owner resolves and appends it through the unchanged write-once
-fact/cut/receipt/outbox path, and a replayed proposal rejoins. In the same slice the PIT intake stamps
-`instrument_master_digest` from the Owner's own durable readback for the request's instrument scope at its decision
-cut, so the request-supplied value becomes a claim the Owner overrides or refuses, never a fact it copies. The
-isolated PostgreSQL chain proves both halves: a replayed submission rejoins its fact, a member with no admitted
-fact mints no snapshot at all, and the persisted request carries the Owner's readback digest rather than the
-caller's. Nothing beyond this intake and that stamp is claimed. **NOT_ADMITTED:** this status does not claim provider ingestion or authenticity,
-deployment, Dashboard work, dynamic Backtest product acceptance, inverse or quanto target-consumption semantics, or
-trading. BAR custody itself is instrument-class neutral when its exact
-Instrument Master evidence supports the canonical fixed/session bar. A caller-carried digest, canonical-looking
-string, static fixture, transport success,
-Owner-only test, or documentation check cannot claim product closure.
+`POST /v1/market-data/instrument-master-facts`, through which Operations submits `InstrumentMasterFactProposalV1` for
+the exact `BACKTEST_OWNER_V1` role; the Owner resolves and appends it through the unchanged write-once
+fact/cut/receipt/outbox path, and a replayed proposal rejoins. The submission names the admitted Source Binding the
+fact is observed under, and states no Market Semantics Compatibility identity, source frontier or correction
+frontier: the Owner takes all three from that binding, deriving the scope as the Market Semantics admission derives
+it, so no submission can state a scope no binding claims. A binding the Owner does not hold admitted under exactly
+that locator is refused by name as `INSTRUMENT_MASTER_SOURCE_BINDING_UNAVAILABLE` (HTTP 409), and nothing is written.
+In the same slice the PIT intake stamps `instrument_master_digest` from the Owner's own durable readback for the
+request's instrument scope at its decision cut, so the request-supplied value becomes a claim the Owner overrides or
+refuses, never a fact it copies. The isolated PostgreSQL chain proves both halves: a replayed submission rejoins its
+fact, a member with no admitted fact mints no snapshot at all, and the persisted request carries the Owner's readback
+digest rather than the caller's. Nothing beyond this intake and that stamp is claimed. **NOT_ADMITTED:** this status
+does not claim provider ingestion or authenticity, deployment, Dashboard work, dynamic Backtest product acceptance,
+inverse or quanto target-consumption semantics, or trading. BAR custody itself is instrument-class neutral when its
+exact Instrument Master evidence supports the canonical fixed/session bar. A caller-carried digest, canonical-looking
+string, static fixture, transport success, Owner-only test, or documentation check cannot claim product closure.
 
 ### Native immutable records
 
@@ -1632,8 +1637,9 @@ those remain unavailable pending real Time/Scheduler and Execution Owner contrac
 ### CURRENT/PARTIAL EVENT and BAR Owner custody; TARGET BAR product authority
 
 Market Data implements the versioned `TimeframeSpecV1`, `TimeframeProjectionReceiptV1`, `SampleFactV1`, and
-`SampleReceiptV1`, their native exact-receipt resolvers, and durable PostgreSQL custody for `POINT_EVENT`. The code
-also implements durable PostgreSQL custody for BAR schedule fact/cut/receipt/outbox/head state, admitted exact
+`SampleReceiptV1`, their native exact-receipt resolvers, and durable PostgreSQL custody for `POINT_EVENT` samples and
+for the BAR samples the universe sample projection commits for a Replay request's initial frame. The code also
+implements durable PostgreSQL custody for BAR schedule fact/cut/receipt/outbox/head state, admitted exact
 schedule readback, and V3 BAR FRAME projection receipts. These paths are `CURRENT / PARTIAL` Owner authority after
 their isolated dynamic PostgreSQL acceptance. The sealed exact-digest V3 resolver core is likewise
 `CURRENT / PARTIAL`, but the fixed `STRATEGY_FACTORY_RD_OWNER_API_V1` production startup still fails closed because
@@ -2077,8 +2083,9 @@ replays, or retroactively advances predecessor state. An ordinary equal-valued n
 and advances exactly once. For a future admitted BAR path, reusing one 1-hour or exchange-session `1d` sample under
 later 1-minute triggers must return the same receipt and coordinate bytes and cause no second sample-clock advance.
 
-The current POINT_EVENT PostgreSQL path has Owner-owned timeframe-projection-receipt, sample-fact, series-head,
-per-slot correction-head, sample-receipt, and outbox tables plus exact native resolvers. One Market Data transaction
+The current PostgreSQL sample path, for POINT_EVENT samples and for the BAR samples the universe sample projection
+commits, has Owner-owned timeframe-projection-receipt, sample-fact, series-head, per-slot correction-head,
+sample-receipt, and outbox tables plus exact native resolvers. One Market Data transaction
 inserts the fact, receipt, and outbox row
 and compare-and-swap advances both the series and correction heads from the predecessors bound by the fact; an
 ordinary new slot advances its correction head from canonical absence to that first fact. A

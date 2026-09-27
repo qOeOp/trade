@@ -495,6 +495,10 @@ async fn native_research_custody_from_boundary(
         expected_family: Some(family),
         independence_basis: None,
         protected_feedback: None,
+        admitted_version: Some(
+            AdmittedResearchRequestVersionV1::read(&research_admission, &stored_request.request)
+                .map_err(|e| native_source_unavailable(e.to_string()))?,
+        ),
         authority: VerifiedResearchAuthorityV1::Current(Box::new(research_admission)),
         effective_principal: replay_admission.effective_principal().to_string(),
         authorized_scope: replay_admission.authorized_scope().to_vec(),
@@ -588,20 +592,21 @@ fn native_replay_outbox_source_record(
 
 use crate::{
     product_edge::{
-        FrozenResearchGoalIntent, FrozenResearchGoalIntentV1, FrozenResearchGoalIntentV2,
-        INSTRUMENT_SCOPE_NOT_RESOLVABLE, IndependenceBasisReadbackV1, IndependenceBasisReceiptV1,
-        InstrumentScopeCheckRecordV1, InstrumentScopeOutcomeV1, ProductEdgeResearchGoalRequestV1,
-        ProductEdgeResearchGoalRequestV2, ProductEdgeResolution, RESEARCH_OWNER_V1,
-        RESEARCH_SCOPE_V1, RESEARCH_VIEW_SCOPE_V1, ResearchGoalCommitV1, ResearchGoalCommitV2,
-        ResearchGoalOwnerError, ResearchGoalOwnerResultV1, ResearchGoalOwnerResultV2,
-        ResearchNextLegalAction, ResearchRequestDisposition, ResearchRequestReceiptV1,
-        ResearchViewV1, SourcedResearchGoalV2, StoredAdmittedResearchRequestV2,
-        StoredIndependenceBasisV1, StoredProtectedFeedbackProjectionV1,
-        StoredRejectedResearchRequestV2, TrialFamilyProposalV1,
-        canonical_research_view_identity_v2, canonical_research_view_identity_v3,
-        canonical_v2_intent_identity, composer_exploration_research_view_is_valid_v3,
-        decide_commit, decide_commit_v2, decide_rejected_commit_v2, semantic_digest,
-        semantic_digest_v2, terminal_research_view_identity, validate_goal_request_v2,
+        AdmittedResearchRequestVersionV1, FrozenResearchGoalIntent, FrozenResearchGoalIntentV1,
+        FrozenResearchGoalIntentV2, INSTRUMENT_SCOPE_NOT_RESOLVABLE, IndependenceBasisReadbackV1,
+        IndependenceBasisReceiptV1, InstrumentScopeCheckRecordV1, InstrumentScopeOutcomeV1,
+        ProductEdgeResearchGoalRequestV1, ProductEdgeResearchGoalRequestV2, ProductEdgeResolution,
+        RESEARCH_OWNER_V1, RESEARCH_SCOPE_V1, RESEARCH_VIEW_SCOPE_V1, ResearchGoalCommitV1,
+        ResearchGoalCommitV2, ResearchGoalOwnerError, ResearchGoalOwnerResultV1,
+        ResearchGoalOwnerResultV2, ResearchNextLegalAction, ResearchRequestDisposition,
+        ResearchRequestReceiptV1, ResearchViewV1, SourcedResearchGoalV2,
+        StoredAdmittedResearchRequestV2, StoredIndependenceBasisV1,
+        StoredProtectedFeedbackProjectionV1, StoredRejectedResearchRequestV2,
+        TrialFamilyProposalV1, canonical_research_view_identity_v2,
+        canonical_research_view_identity_v3, canonical_v2_intent_identity,
+        composer_exploration_research_view_is_valid_v3, decide_commit, decide_commit_v2,
+        decide_rejected_commit_v2, semantic_digest, semantic_digest_v2,
+        terminal_research_view_identity, validate_goal_request_v2,
         validate_goal_request_v2_meaning, validate_legacy_goal_meaning,
         verify_research_admission_v1, verify_research_admission_v2,
         verify_source_bound_research_admission_v2,
@@ -653,6 +658,9 @@ pub(crate) struct VerifiedResearchCustodyV1 {
     request_schema_version: u32,
     /// The initial PIT request state of an accepted V3 request, read in the same transaction.
     initial_pit: Option<crate::research_initial_pit_v1::ResearchInitialPitV1>,
+    /// A current V2-format request's version and scope, read from its verified admission; `None`
+    /// for a V1 request and a legacy quarantined one, whose results state no version.
+    admitted_version: Option<AdmittedResearchRequestVersionV1>,
     terminal_attempt_admission: Option<Box<ProductEdgeAdmissionReadbackV1>>,
 }
 
@@ -1978,6 +1986,8 @@ impl VerifiedResearchCustodyV1 {
             trial_family: None,
             next_legal_action: ResearchNextLegalAction::ResolveSameRequestIdentity,
             initial_pit: None,
+            request_schema_version: None,
+            instrument_scope: None,
         })
     }
 
@@ -1986,6 +1996,14 @@ impl VerifiedResearchCustodyV1 {
         read_cut_epoch_ms: u64,
     ) -> Result<ResearchGoalOwnerResultV2, ResearchGoalOwnerError> {
         let request_identity = self.receipt.request_identity.clone();
+        let admitted_version = self.admitted_version.ok_or_else(|| {
+            ResearchGoalOwnerError::Storage(
+                "V2 research custody states no admitted request version".to_string(),
+            )
+        })?;
+        let request_schema_version = Some(admitted_version.schema_version());
+        let instrument_scope = admitted_version.into_instrument_scope();
+
         match self.receipt.disposition {
             ResearchRequestDisposition::RejectedNoWrite => Ok(ResearchGoalOwnerResultV2 {
                 schema_version: 2,
@@ -1999,6 +2017,8 @@ impl VerifiedResearchCustodyV1 {
                 protected_feedback: self.protected_feedback,
                 next_legal_action: ResearchNextLegalAction::CorrectInputAndCreateSuccessorRequest,
                 initial_pit: None,
+                request_schema_version,
+                instrument_scope,
             }),
             ResearchRequestDisposition::Accepted => {
                 let Some(FrozenResearchGoalIntent::V2(_)) = self.intent else {
@@ -2033,6 +2053,8 @@ impl VerifiedResearchCustodyV1 {
                     protected_feedback: self.protected_feedback,
                     next_legal_action,
                     initial_pit: self.initial_pit,
+                    request_schema_version,
+                    instrument_scope,
                 })
             }
         }
@@ -2369,6 +2391,7 @@ async fn admit_preloaded_research_row_in_transaction(
             authorized_scope: commit.authorized_scope,
             request_schema_version,
             initial_pit: None,
+            admitted_version: None,
             terminal_attempt_admission: None,
         });
     }
@@ -2453,6 +2476,7 @@ async fn admit_preloaded_research_row_in_transaction(
             authorized_scope: commit.authorized_scope,
             request_schema_version: 2,
             initial_pit: None,
+            admitted_version: None,
             terminal_attempt_admission: None,
         });
     }
@@ -2486,6 +2510,7 @@ async fn admit_preloaded_research_row_in_transaction(
         independence_basis,
         protected_feedback,
         request_schema_version,
+        admitted_version,
     ) = if let Some(request) = v1 {
         if source_ancestry_locator_json.is_some() || source_ancestry_evidence_digest.is_some() {
             return Err(ResearchGoalOwnerError::Storage(
@@ -2514,6 +2539,7 @@ async fn admit_preloaded_research_row_in_transaction(
             None,
             None,
             1,
+            None,
         )
     } else if let Some(stored) = accepted_v2 {
         if stored.schema_version != 1 {
@@ -2533,6 +2559,8 @@ async fn admit_preloaded_research_row_in_transaction(
         } else {
             verify_research_admission_v2(&product_edge_admission, &request)?;
         }
+        let admitted_version =
+            AdmittedResearchRequestVersionV1::read(&product_edge_admission, &request)?;
         let effective_principal = product_edge_admission.effective_principal().to_string();
         let authorized_scope = product_edge_admission.authorized_scope().to_vec();
         let digest = semantic_digest_v2(&request)?;
@@ -2604,6 +2632,7 @@ async fn admit_preloaded_research_row_in_transaction(
             Some(basis),
             Some(protected_feedback),
             2,
+            Some(admitted_version),
         )
     } else {
         let stored = rejected_v2.expect("unique rejected V2 representation");
@@ -2626,6 +2655,8 @@ async fn admit_preloaded_research_row_in_transaction(
         } else {
             verify_research_admission_v2(&product_edge_admission, &request)?;
         }
+        let admitted_version =
+            AdmittedResearchRequestVersionV1::read(&product_edge_admission, &request)?;
         let effective_principal = product_edge_admission.effective_principal().to_string();
         let authorized_scope = product_edge_admission.authorized_scope().to_vec();
         let digest = semantic_digest_v2(&request)?;
@@ -2673,6 +2704,7 @@ async fn admit_preloaded_research_row_in_transaction(
             None,
             None,
             2,
+            Some(admitted_version),
         )
     };
 
@@ -2708,6 +2740,7 @@ async fn admit_preloaded_research_row_in_transaction(
                 authorized_scope,
                 request_schema_version,
                 initial_pit: None,
+                admitted_version,
                 terminal_attempt_admission: match preadmitted_authority {
                     PreadmittedResearchAuthorityV1::Current {
                         terminal_attempt, ..
@@ -2758,6 +2791,7 @@ async fn admit_preloaded_research_row_in_transaction(
                 authorized_scope,
                 request_schema_version,
                 initial_pit: None,
+                admitted_version,
                 terminal_attempt_admission: match preadmitted_authority {
                     PreadmittedResearchAuthorityV1::Current {
                         terminal_attempt, ..
@@ -3550,6 +3584,7 @@ mod tests {
             authorized_scope: vec!["research".into()],
             request_schema_version: 2,
             initial_pit: None,
+            admitted_version: None,
             terminal_attempt_admission: None,
         };
 
@@ -3595,6 +3630,7 @@ mod tests {
             authorized_scope: Vec::new(),
             request_schema_version: 2,
             initial_pit: None,
+            admitted_version: None,
             terminal_attempt_admission: None,
         };
 

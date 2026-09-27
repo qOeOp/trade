@@ -32,6 +32,12 @@ export type ResearchReadbackOutcomeV1 = Readonly<{
   // The Owner's initial PIT request for an accepted Intent, as stated; `null` means none, which is
   // every rejected or historical record and implies no request version.
   initialPit: ResearchInitialPitV1 | null;
+  // The request version the Owner states from the admission the request was made under; `null` for
+  // a historical record, whose admission the Owner no longer holds current. Never inferred.
+  requestVersion: 2 | 3 | null;
+  // A V3 request's instruments, exactly as it was admitted, even where that is why it was
+  // rejected; `null` for a V2 request and wherever the version is `null`.
+  instrumentIdentities: readonly string[] | null;
 }>;
 
 export type ResearchReadbackViewV1 = Readonly<{
@@ -174,6 +180,8 @@ function projectResponse(
         rejectionCode: accepted ? null : receipt.rejection_code,
         committedAt,
         initialPit: accepted ? projection.initial_pit : null,
+        requestVersion: quarantined ? null : projection.request_schema_version,
+        instrumentIdentities: quarantined ? null : projection.instrument_scope?.identities ?? null,
       },
       view,
       technical: {
@@ -215,9 +223,18 @@ export function parseResearchReadbackBrowserProjectionV1(
   }
   if (!object(value.outcome) || !exactKeys(value.outcome, [
     "resolution", "historicalDisposition", "intentIdentity", "rejectionCode", "committedAt", "initialPit",
+    "requestVersion", "instrumentIdentities",
   ]) || !["accepted", "rejected", "quarantined"].includes(String(value.outcome.resolution))
     || !validResearchInitialPitV1(value.outcome.initialPit)
     || (value.outcome.resolution !== "accepted" && value.outcome.initialPit !== null)
+    || !(value.outcome.resolution === "quarantined"
+      ? value.outcome.requestVersion === null
+      : value.outcome.requestVersion === 2 || value.outcome.requestVersion === 3)
+    || !(value.outcome.instrumentIdentities === null
+      || (Array.isArray(value.outcome.instrumentIdentities)
+        && value.outcome.instrumentIdentities.every((entry) => typeof entry === "string")))
+    || (value.outcome.requestVersion === 3) !== (value.outcome.instrumentIdentities !== null)
+    || (value.outcome.initialPit !== null && value.outcome.requestVersion !== 3)
     || !(value.outcome.historicalDisposition === null
       || ["accepted", "rejected"].includes(String(value.outcome.historicalDisposition)))
     || !(value.outcome.intentIdentity === null || identity(value.outcome.intentIdentity))

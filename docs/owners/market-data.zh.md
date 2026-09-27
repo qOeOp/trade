@@ -109,9 +109,11 @@ ACL 拒绝。它不证明供应商真实性，不证明生产装配，也不证�
   下文 `ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1` 有两处表述与代码尚不一致；都不挡生产路线。该档要求由单独执行的主体测量
   目标，而 `DirectMeasurer` 是在 custodian 内用租到的凭据测量。该档还要求准入回执交叉绑定 trust bundle，而
   `SealedDeploymentStoreAdmissionReceipt` 带 witness identity，却没有 signer key fingerprint 或 bundle identity。
-  已有两个生产适配器，但都还没有接入组合根：pin 住一把公钥的 Ed25519 签名验证器（`store_admission/signature.rs`），以及
+  已有三个生产适配器，但都还没有接入组合根：pin 住一把公钥的 Ed25519 签名验证器（`store_admission/signature.rs`）、
   PostgreSQL custody store（`store_admission/custody_postgres.rs`；其 schema 与两个主体在
-  `product/rd-workbench/postgres-init/20-deployment-store-custody.sh`，compose 文件还没有运行它）。
+  `product/rd-workbench/postgres-init/20-deployment-store-custody.sh`，compose 文件还没有运行它），以及 secret 文件凭据
+  resolver（`store_admission/credential_files.rs`）。secret 文件自身没有版本也没有过期时间：其版本是文件原样字节的
+  SHA-256，由签名 manifest 指名；其租约在准入的 store 时钟 cut 之后一段固定时长到期。
   `admit_rd_owner_market_data_postgres` 仍接 `Unavailable*` 端口，所以 `required` 在启动时仍然失败关闭。准入只从 custody
   store 的时钟读时间：每次读历史都带回该库的 `clock_timestamp()` cut，commit 也在同一个时钟上判定回执的窗口。
 - **`B4` 消费者未编入已部署镜像。** `product/rd-workbench/Dockerfile.owner` 以默认 feature 构建
@@ -1032,7 +1034,10 @@ request 提供的 `instrument_master_digest` 并与 Owner-verified batch 比对�
 **CURRENT / PARTIAL，生产 Instrument Master V1 intake：** 一个 Owner-sealed admission port 与一条路由
 `POST /v1/market-data/instrument-master-facts`，Operations 经它为准确的 `BACKTEST_OWNER_V1` role 提交
 `InstrumentMasterFactProposalV1`；Owner 经不变的 write-once fact/cut/receipt/outbox 路径解析并 append，重放的
-proposal rejoin。同一切片内，PIT intake 以 Owner 自己在该请求 instrument scope 与 decision cut 上的 durable
+proposal rejoin。提交指名该 fact 所观测时依据的已准入 Source Binding，不再陈述 Market Semantics
+Compatibility identity、source frontier 与 correction frontier：Owner 从该 binding 取出这三者，scope 的推导与 Market Semantics
+admission 相同，因此任何提交都无法陈述一个没有 binding 声称的 scope。Owner 未以恰为该 locator 的已准入状态持有的 binding，
+按名以 `INSTRUMENT_MASTER_SOURCE_BINDING_UNAVAILABLE`（HTTP 409）拒绝，不写入任何东西。同一切片内，PIT intake 以 Owner 自己在该请求 instrument scope 与 decision cut 上的 durable
 readback 盖章 `instrument_master_digest`，于是 request 提供的值只是 Owner 覆盖或拒绝的 claim，绝不是它照抄的
 fact。一次性 PostgreSQL 链路把两半都证明了：重放的提交 rejoin 同一条 fact、没有已准入 fact 的成员一个快照也铸不
 出、持久化的请求带的是 Owner 的 readback digest 而不是调用方的。除这条 intake 与那次盖章外不声称任何事。**NOT_ADMITTED：** 本状态不声称 provider ingestion/authenticity、deployment、
@@ -1490,7 +1495,8 @@ trigger；在真实 Time/Scheduler 与 Execution Owner contract 分别存在前�
 ### CURRENT/PARTIAL EVENT 与 BAR Owner custody；TARGET BAR 产品权威
 
 Market Data 已实现版本化 `TimeframeSpecV1`、`TimeframeProjectionReceiptV1`、`SampleFactV1`、
-`SampleReceiptV1`、其原生 exact-receipt resolver，以及 `POINT_EVENT` 的 durable PostgreSQL custody。代码还
+`SampleReceiptV1`、其原生 exact-receipt resolver，以及 `POINT_EVENT` sample 与 universe sample projection 为 Replay
+请求的首帧提交的 BAR sample 的 durable PostgreSQL custody。代码
 还实现了 BAR schedule fact/cut/receipt/outbox/head state、已准入准确 schedule readback 与 V3 BAR FRAME
 projection receipt 的 durable PostgreSQL custody。这些路径在 isolated dynamic PostgreSQL acceptance 通过后
 属于 `CURRENT / PARTIAL` Owner 权威。sealed exact-digest V3 resolver core 同样属于 `CURRENT / PARTIAL`，
@@ -1885,9 +1891,9 @@ state。普通的等值新 slot 同样是新 sample，并准确推进一次。�
 exchange-session `1d` sample 被后续 1-minute trigger 携带时，必须返回相同 receipt/coordinate bytes，且不得
 第二次推进 sample clock。
 
-当前 POINT_EVENT PostgreSQL 路径包含 Owner-owned timeframe-projection-receipt、sample-fact、series-head、
-per-slot correction-head、sample-receipt、outbox table 与 exact native resolver。一个 Market Data transaction
-插入 fact、receipt、outbox row，并从 fact
+当前的 PostgreSQL sample 路径（POINT_EVENT sample，以及 universe sample projection 提交的 BAR sample）包含
+Owner-owned timeframe-projection-receipt、sample-fact、series-head、per-slot correction-head、sample-receipt、
+outbox table 与 exact native resolver。一个 Market Data transaction 插入 fact、receipt、outbox row，并从 fact
 绑定的 predecessor 对 series/correction head 执行 compare-and-swap 前进；普通新 slot 从规范 absence 把其
 correction head 推进到首个 fact。逐字节相同的 replay 执行零次
 write，并返回准确历史 receipt bytes。identity/content mismatch、time/version regression、predecessor 或

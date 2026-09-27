@@ -19,6 +19,8 @@ mod calendar;
 #[cfg(any(test, feature = "sealed-strategy-input-acceptance"))]
 pub mod chain_market_base_v1;
 mod corporate_action;
+#[cfg(test)]
+mod instrument_master_admission_v1_tests;
 mod live_market_stream_v1;
 #[cfg(test)]
 mod market_data_rd_api_authorization_postgres_tests;
@@ -179,8 +181,8 @@ use super::{
     },
     instrument_master_admission_v1::{
         InstrumentMasterAdmissionErrorV1, InstrumentMasterAdmissionTerminalV1,
-        InstrumentMasterAdmissionV1, InstrumentMasterFactSubmissionV1,
-        sealed::Sealed as InstrumentMasterAdmissionSealed,
+        InstrumentMasterAdmissionV1, InstrumentMasterBindingCoordinatesV1,
+        InstrumentMasterFactSubmissionV1, sealed::Sealed as InstrumentMasterAdmissionSealed,
     },
     live_market_fact_v1::{LiveMarketFactSourceV1, LiveMarketFactV1, LiveMarketSubscriptionV1},
     live_market_stream_v1::{
@@ -10653,6 +10655,14 @@ fn pit_instrument_master_request_v1(
     }))
 }
 
+type InstrumentMasterAppendFutureV1<'a> = std::pin::Pin<
+    Box<
+        dyn std::future::Future<Output = Result<InstrumentMasterFactV1, InstrumentMasterError>>
+            + Send
+            + 'a,
+    >,
+>;
+
 impl MarketDataOwnerPostgres {
     /// The locator of the Owner's current clock head, for custody that must bind it exactly.
     pub(crate) async fn current_clock_head_locator_v1(
@@ -10676,6 +10686,10 @@ impl MarketDataOwnerPostgres {
 
     /// Admits one Instrument Master V1 fact under the Owner's current clock head.
     ///
+    /// The fact's Market Semantics Compatibility identity is the one derived from the named Source
+    /// Binding's semantics, and its source and correction frontiers are that binding's, so no
+    /// submission can state a scope no admitted binding claims.
+    ///
     /// # Errors
     ///
     /// A bounded category when nothing was admitted; a replayed submission rejoins its fact.
@@ -10683,19 +10697,75 @@ impl MarketDataOwnerPostgres {
         &self,
         submission: InstrumentMasterFactSubmissionV1,
     ) -> Result<InstrumentMasterAdmissionTerminalV1, InstrumentMasterAdmissionErrorV1> {
-        let proposal = submission.into_proposal()?;
+        let binding = self
+            .instrument_master_binding_coordinates_v1(&submission.source_binding)
+            .await?;
+        let proposal = submission.into_proposal(binding)?;
         let locator = self
             .current_clock_head_locator_v1()
             .await
             .map_err(|_| InstrumentMasterAdmissionErrorV1::ClockUnavailable)?;
         let fact = self
-            .append_instrument_master_fact(proposal, &locator)
+            .append_instrument_master_fact_boxed_v1(proposal, &locator)
             .await?;
         Ok(InstrumentMasterAdmissionTerminalV1::seal(
             fact.canonical_identity().to_owned(),
             fact.digest(),
             locator.head_identity(),
         ))
+    }
+
+    /// `append_instrument_master_fact`, built here rather than in the caller's poll frame.
+    ///
+    /// The append's state is larger than clippy's `large_futures` bound. Awaiting
+    /// `Box::pin(append(..))` inline would still build that state in the admission's own frame
+    /// before moving it to the heap. This synchronous frame returns before the admission polls, so
+    /// the admission holds only the box.
+    fn append_instrument_master_fact_boxed_v1<'a>(
+        &'a self,
+        proposal: InstrumentMasterFactProposalV1,
+        clock_locator: &'a UntrustedClockHeadLocator,
+    ) -> InstrumentMasterAppendFutureV1<'a> {
+        Box::pin(self.append_instrument_master_fact(proposal, clock_locator))
+    }
+
+    /// The coordinates an Instrument Master fact takes from the admitted Source Binding a
+    /// submission names.
+    ///
+    /// Read in its own transaction and without a lock: a binding fact is immutable, so the values
+    /// read are the binding's whatever later happens to its lineage, and the fact is appended
+    /// through the unchanged write-once path.
+    async fn instrument_master_binding_coordinates_v1(
+        &self,
+        locator: &UntrustedSourceBindingLocator,
+    ) -> Result<InstrumentMasterBindingCoordinatesV1, InstrumentMasterAdmissionErrorV1> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| InstrumentMasterAdmissionErrorV1::StoreUnavailable)?;
+        let stored = load_source(&mut transaction, locator.binding_id, false)
+            .await
+            .map_err(|_| InstrumentMasterAdmissionErrorV1::StoreUnavailable)?;
+        transaction
+            .rollback()
+            .await
+            .map_err(|_| InstrumentMasterAdmissionErrorV1::StoreUnavailable)?;
+        let stored = stored.ok_or(InstrumentMasterAdmissionErrorV1::SourceBindingUnavailable)?;
+
+        if stored.commit().receipt().locator() != locator
+            || !SourceBindingOwnerReadback::from_verified(&stored).is_admitted()
+        {
+            return Err(InstrumentMasterAdmissionErrorV1::SourceBindingUnavailable);
+        }
+        let fact = stored.commit().fact();
+        Ok(InstrumentMasterBindingCoordinatesV1 {
+            market_semantics_identity: derive_market_semantics_compatibility_identity_v1(
+                &fact.proposal().semantics,
+            ),
+            source_frontier: fact.source_frontier().digest,
+            correction_frontier: fact.correction_frontier().digest,
+        })
     }
 
     /// The digest of the Owner's own Instrument Master resolution for one PIT request.

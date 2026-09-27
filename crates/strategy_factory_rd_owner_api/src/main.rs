@@ -217,6 +217,8 @@ mod log_capture;
 mod market_data_pit;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 mod market_data_repair;
+#[cfg(all(test, feature = "sealed-develop-composer-acceptance"))]
+mod native_replay_scheduling_acceptance;
 mod research_initial_pit;
 #[cfg(test)]
 mod research_initial_pit_postgres_tests;
@@ -4942,6 +4944,21 @@ mod tests {
     /// commit time a replay has to rejoin rather than replace.
     type StoredJointFreeze = (String, Vec<u8>, Vec<u8>, Vec<u8>, i64);
 
+    /// Ensures the sealed Catalog V3 head a chain entry's Research request forms its TrialFamily
+    /// against, so the entry needs no earlier entry to have published it. Alone on a fresh cluster
+    /// this creates the head; after another entry has ensured it, it resolves the same head exactly.
+    #[cfg(feature = "sealed-source-intake-acceptance")]
+    async fn ensure_sealed_catalog_v3(test_database: &CanonicalOwnerPostgresTestDatabaseV1) {
+        let pool = sqlx::PgPool::connect(
+            test_database.database_url(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter),
+        )
+        .await
+        .expect("the Catalog administrator connects");
+        ensure_replay_policy_catalog_fixture_v3(&pool)
+            .await
+            .expect("the sealed Catalog V3 head is created or resolved exactly");
+    }
+
     /// A frozen program replays over HTTP to the same freeze the in-process entry committed.
     ///
     /// `product_edge_postgres::tests::declared_bounded_feature_program_assembles_from_owner_custody_and_freezes`
@@ -4974,6 +4991,8 @@ mod tests {
         };
 
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        #[cfg(feature = "sealed-source-intake-acceptance")]
+        ensure_sealed_catalog_v3(&test_database).await;
 
         let bindings = composed_market_data_binding_admission(&test_database).await;
 
@@ -5729,6 +5748,8 @@ mod tests {
         use vibe_strategy_factory::strategy_design_v2::StrategyDesignV2;
 
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        #[cfg(feature = "sealed-source-intake-acceptance")]
+        ensure_sealed_catalog_v3(&test_database).await;
         let rd_pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(2)
             .connect(test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner))

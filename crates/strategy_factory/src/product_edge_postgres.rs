@@ -5502,6 +5502,12 @@ pub(crate) mod tests {
 
     async fn run_bounded_feature_program_joint_freeze() {
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        // The Catalog V3 head this entry's Research request forms its TrialFamily against.
+        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        crate::replay_policy_catalog_postgres_v2::ensure_sealed_acceptance_catalog_v3_for_test(
+            &test_database,
+        )
+        .await;
         let _mutation = test_database.mutation();
         let operator_authorization_database_url = test_database
             .database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter)
@@ -5929,47 +5935,38 @@ pub(crate) mod tests {
         declared_bounded_feature_program_fixture(ComposerRunCoverageV1::BindingsOnly);
     }
 
-    /// A second Research request under one principal is refused before the lineage advances.
+    /// A second Research request under one principal and scope is accepted, and its
+    /// protected-feedback projection takes the `FRONTIER` arm.
     ///
     /// Protected-feedback resolution has three paths: a basis whose projection is still fresh
     /// replays, a basis under a scope with no frontier takes the genesis arm, and a basis under a
-    /// scope that already has one takes the `FRONTIER` arm. The gate had only ever taken the
-    /// genesis arm, and the reason recorded for that was a property of the corpus: every entry
-    /// bootstraps its own deployment under `admin-{suffix}`, so no scope had ever seen a second
-    /// request. This entry supplies exactly that missing configuration - one deployment, one
-    /// principal, one authorized scope, two requests, each with its own admission - and the
-    /// `FRONTIER` arm is still not reached. The corpus property was not the only thing in the way.
+    /// scope that already has one takes the `FRONTIER` arm. Every other entry bootstraps its own
+    /// deployment under `admin-{suffix}`, so no other scope ever sees a second request. This entry
+    /// supplies exactly that configuration - one deployment, one principal, one authorized scope,
+    /// two requests, each with its own admission - and pins what each takes: the first request the
+    /// genesis arm, the second a basis of its own and the `FRONTIER` arm.
     ///
-    /// What the second request meets is `load_or_create_basis_in_transaction` taking its
-    /// `head_lineage == lineage_digest` branch. That branch is written for a replay of the request
-    /// that created the head, so it looks up basis-stage custody under the request identity it was
-    /// given, finds none for a request it has not seen, and returns
-    /// `Owner storage unavailable: R&D basis-stage custody missing`. The `FRONTIER` arm sits past
-    /// that branch and is reached only when the lineage has advanced, which needs the first
-    /// request to have completed; the first request does not complete either, because
+    /// The first request completes only against a current Catalog V3 head, which this entry ensures
+    /// itself (`ensure_sealed_acceptance_catalog_v3_for_test`). Without one,
     /// `resolve_current_v3_for_trial_family_formation` refuses with
-    /// `current Catalog V3 head is missing, partial, or duplicate` and nothing in the gate
-    /// publishes that head.
+    /// `current Catalog V3 head is missing, partial, or duplicate`, the lineage never advances, and
+    /// the second request meets `load_or_create_basis_in_transaction`'s replay branch
+    /// (`R&D basis-stage custody missing`) instead of the `FRONTIER` arm. That is what this entry
+    /// observed before any head was published.
     ///
-    /// Neither refusal surfaces as an error. Both are swallowed into
-    /// an unresolved result wrapped in `Ok`, one of the twenty-eight `unresolved_result_v2` returns this
-    /// file carries, so it returns
-    /// `SubmittedOrUnknown` and a caller that asserts on `Result::is_ok` sees a submission it has
-    /// every reason to read as accepted. This entry therefore asserts on the resolution and on the
-    /// store, never on `Ok`.
-    ///
-    /// What this pins is the refusal, not the arm.
-    ///
-    /// **This entry is built to fail when the situation improves.** Publishing a Catalog V3 head,
-    /// or any other change that lets the lineage advance, turns the assertions below red. That red
-    /// is the signal, not a regression: read it as "the `FRONTIER` arm is now reachable" and
-    /// rewrite this entry to assert the arm it currently proves unreachable. A test that fails
-    /// when things get better is worth more than a comment saying they have not, because a comment
-    /// cannot notice.
+    /// Neither refusal surfaces as an error: both are swallowed into an unresolved result wrapped in
+    /// `Ok`, so a caller that asserts on `Result::is_ok` reads a submission as accepted. This entry
+    /// therefore asserts on the resolution and on the store, never on `Ok`.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[ignore = "requires the ordered canonical Owner PostgreSQL gate"]
     async fn second_request_under_one_principal_resolves_through_the_frontier_arm() {
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        // The Catalog V3 head this entry's Research request forms its TrialFamily against.
+        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        crate::replay_policy_catalog_postgres_v2::ensure_sealed_acceptance_catalog_v3_for_test(
+            &test_database,
+        )
+        .await;
         let operator_authorization_database_url = test_database
             .database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter)
             .to_string();
@@ -6044,13 +6041,14 @@ pub(crate) mod tests {
             .await
             .expect("the second Research request reaches the Owner");
 
-        // Measured on the ordered gate (owner-chains 35632339563, 187 PASS / 0 FAIL / 93 entries),
-        // not on a local subset: a four-entry subset had skipped entry 69, which publishes the
-        // Catalog V3 head, and reported refusals that were a skip artefact.
+        // This entry ensures the Catalog V3 head itself (above), so the first request no longer
+        // depends on which entries ran before it. Before it did, a four-entry local subset that
+        // skipped the entry publishing the head reported refusals that were a skip artefact
+        // (owner-chains 35632339563).
         assert_eq!(
             first.resolution(),
             ProductEdgeResolution::Accepted,
-            "the gate publishes a Catalog V3 head before this entry, so the first request completes",
+            "the Catalog V3 head this entry ensures is current, so the first request completes",
         );
         assert_eq!(
             second.resolution(),
@@ -6115,8 +6113,8 @@ pub(crate) mod tests {
             "the second request writes a basis of its own once the lineage has advanced",
         );
 
-        // Scoped to this entry's own principal: the gate shares one database it never resets, so a
-        // global count would read every other entry's rows.
+        // Scoped to this entry's own principal: the entries of one chain component share a database,
+        // so a global count would read the other entries' rows.
         let projections_under_this_principal: i64 = sqlx::query_scalar(
             "SELECT pg_catalog.count(*)
                FROM public.qualification_protected_feedback_projections_v1
@@ -6226,6 +6224,12 @@ pub(crate) mod tests {
         };
 
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        // The Catalog V3 head this entry's Research request forms its TrialFamily against.
+        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        crate::replay_policy_catalog_postgres_v2::ensure_sealed_acceptance_catalog_v3_for_test(
+            &test_database,
+        )
+        .await;
         let _mutation = test_database.mutation();
         let operator_authorization_database_url = test_database
             .database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter)
@@ -7115,9 +7119,14 @@ pub(crate) mod tests {
         use crate::product_edge::InstrumentAdmissibilityV1::Admissible;
         use vibe_data::owner::research_instrument_scope_v1::ResearchInstrumentScopeV1;
 
-        // The ordered chain's canonical Owner topology, which also holds the Replay Policy Catalog
-        // V3 head an accepted request forms its TrialFamily against.
+        // The ordered chain's canonical Owner topology.
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        // The Catalog V3 head this entry's Research request forms its TrialFamily against.
+        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        crate::replay_policy_catalog_postgres_v2::ensure_sealed_acceptance_catalog_v3_for_test(
+            &test_database,
+        )
+        .await;
         let suffix = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()

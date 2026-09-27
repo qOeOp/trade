@@ -39,6 +39,18 @@ function InitialPit({ value }: { value: NonNullable<ResearchReadbackProjectionV1
   );
 }
 
+// The version is the Owner's, read from the admission; `null` reads as unknown and is never filled
+// in from another field, so a historical record keeps its own label beside it.
+function RequestVersion({ value }: { value: NonNullable<ResearchReadbackProjectionV1["outcome"]>["requestVersion"] }) {
+  if (value === null) return <>Version unknown</>;
+  return <StatusBadge tone="neutral">{value === 3 ? "V3" : "V2"}</StatusBadge>;
+}
+
+function instrumentsLabel(outcome: NonNullable<ResearchReadbackProjectionV1["outcome"]>): string {
+  if (outcome.instrumentIdentities) return outcome.instrumentIdentities.join(", ");
+  return outcome.requestVersion === 2 ? "None" : "Not available";
+}
+
 function nextStepLabel(value: NonNullable<ResearchReadbackProjectionV1["view"]>["nextStep"]): string {
   if (value === "review_artifact") return "Artifact ready";
   if (value === "refresh_same_request") return "Refresh required";
@@ -60,7 +72,7 @@ function AvailableReadback({
         {question ? <ResearchQuestionBrief item={question} /> : null}
         <JourneyProgress eyebrow="Research journey" summary={journey.summary} stages={journey.stages} />
         <EmptyState icon={<EvidenceIcons.pending aria-hidden="true" size={20} />} title="No research result yet" density="compact">
-          {null}
+          Request version unknown
         </EmptyState>
       </>
     );
@@ -93,6 +105,10 @@ function AvailableReadback({
           </FactItem> : null}
         </FactGroup>
         <FactGroup title="Strategy">
+          <FactItem label="Request">
+            <RequestVersion value={outcome.requestVersion} />
+          </FactItem>
+          <FactItem label="Instrument" mono>{instrumentsLabel(outcome)}</FactItem>
           <FactItem label="Intent" mono title={outcome.intentIdentity ?? undefined}>
             {outcome.intentIdentity ? compactEntityIdentity(outcome.intentIdentity) : "Not available"}
           </FactItem>
