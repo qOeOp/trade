@@ -31,7 +31,7 @@ iteration_decision_postgres::postgres_acceptance_tests::repair_decision_action_a
 replay_execution_profile_binding_v1::tests::verified_owner_readback_mints_provenance_and_wrong_coordinates_fail	NONE	-	-	-	ABLATE 2dd2b43e9
 postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation	NONE	-	-	-	ABLATE 2dd2b43e9
 atomic_exact_replay_restart_tamper_and_acl_fail_closed	NONE	-	-	-	ABLATE 2dd2b43e9
-program_host_bar_joined_cut_postgres_acceptance_tests::owner_postgres_v4_moves_through_program_host_and_real_backtest	NONE	-	-	-	ABLATE 2dd2b43e9
+program_host_bar_joined_cut_postgres_acceptance_tests::owner_postgres_v4_moves_through_program_host_and_real_backtest	owner::replay_market_facts_v2::postgres_tests::postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_market_transaction_overlap	-	-	-	ABLATE 2dd2b43e9
 iteration_decision_postgres::postgres_acceptance_tests::iteration_analysis_postgres_acceptance_tests::analysis_request_completion_resolve_restart_and_tamper_are_atomic	NONE	-	-	-	VERIFY 23b07d6e6 (template step 3): passes alone
 iteration_decision_postgres::postgres_acceptance_tests::positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic	NONE	-	-	-	VERIFY 23b07d6e6 (template step 3): passes alone
 postgres::postgres_tests::protected_replay_request_is_atomic_retry_exact_and_backtest_sealed	iteration_decision_postgres::postgres_acceptance_tests::positive_assessment_ready_decision_commit_retry_resolve_and_tamper_are_atomic	-	-	-	VERIFY b13803466 (template step 3): closure passes, each need removed fails
