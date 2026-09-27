@@ -291,6 +291,17 @@ repos:
         language: system
         files: ^scripts/(lib/(git-isolation\.bash|git_isolation\.py|test-git-isolation\.bash)|check-git-isolation\.py)$
         pass_filenames: false
+      - id: test-path-triggered-workflows
+        name: test path-triggered workflows
+        description: Path filters are read GitHub's way, and every doubt counts as triggered
+        entry: python3 -B scripts/ci/path_triggered_workflows_test.py
+        language: system
+        files: >-
+          (?x)^(
+            scripts/ci/path_triggered_workflows(_test)?\.py|
+            \.github/workflows/(docs-pages|product-packages|bilibili-note-mcp)\.yml
+          )$
+        pass_filenames: false
       - id: test-owner-chain-lock
         name: test Owner chain machine lock
         description: A second local Owner chain is refused and named; a dead holder releases the lock
